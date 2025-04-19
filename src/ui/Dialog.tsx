@@ -8,7 +8,7 @@ import {
   useInteractions,
   useMergeRefs,
   useRole,
-} from '@floating-ui/react';
+} from "@floating-ui/react";
 import {
   cloneElement,
   createContext,
@@ -24,8 +24,8 @@ import {
   type HTMLProps,
   type ReactNode,
   type SetStateAction,
-} from 'react';
-import { Button } from './Button';
+} from "react";
+import { Button } from "./Button";
 
 interface DialogOptions {
   initialOpen?: boolean;
@@ -55,7 +55,7 @@ export function useDialog({
   const click = useClick(context, {
     enabled: controlledOpen == null,
   });
-  const dismiss = useDismiss(context, { outsidePressEvent: 'mousedown' });
+  const dismiss = useDismiss(context, { outsidePressEvent: "mousedown" });
   const role = useRole(context);
 
   const interactions = useInteractions([click, dismiss, role]);
@@ -88,7 +88,7 @@ export const useDialogContext = () => {
   const context = useContext(DialogContext);
 
   if (context == null) {
-    throw new Error('Dialog components must be wrapped in <Dialog />');
+    throw new Error("Dialog components must be wrapped in <Dialog />");
   }
 
   return context;
@@ -116,7 +116,8 @@ export const DialogTrigger = forwardRef<
   HTMLProps<HTMLElement> & DialogTriggerProps
 >(function DialogTrigger({ children, asChild = false, ...props }, propRef) {
   const context = useDialogContext();
-  const childrenRef = (children as any).ref;
+  //@ts-expect-error nice one
+  const childrenRef = (children as unknown).ref;
   const ref = useMergeRefs([context.refs.setReference, propRef, childrenRef]);
 
   // `asChild` allows the user to pass any element as the anchor
@@ -126,8 +127,9 @@ export const DialogTrigger = forwardRef<
       context.getReferenceProps({
         ref,
         ...props,
+        //@ts-expect-error nice one
         ...children.props,
-        'data-state': context.open ? 'open' : 'closed',
+        "data-state": context.open ? "open" : "closed",
       })
     );
   }
@@ -136,7 +138,7 @@ export const DialogTrigger = forwardRef<
     <Button
       ref={ref}
       // The user can style the trigger based on the state
-      data-state={context.open ? 'open' : 'closed'}
+      data-state={context.open ? "open" : "closed"}
       {...context.getReferenceProps(props)}
     >
       {children}

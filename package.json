@@ -10,10 +10,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@floating-ui/react": "^0.27.7",
     "@fontsource/space-mono": "^5.2.5",
+    "@headlessui/react": "^2.2.2",
+    "@tabler/icons-react": "^3.31.0",
     "@tailwindcss/typography": "^0.5.16",
     "@tailwindcss/vite": "^4.1.4",
     "break_infinity.js": "^2.2.0",
+    "class-variance-authority": "^0.7.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.2.0",

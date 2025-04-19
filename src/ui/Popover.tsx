@@ -14,8 +14,8 @@ import {
   useMergeRefs,
   useRole,
   type Placement,
-} from '@floating-ui/react';
-import * as React from 'react';
+} from "@floating-ui/react";
+import * as React from "react";
 
 interface PopoverOptions {
   initialOpen?: boolean;
@@ -27,7 +27,7 @@ interface PopoverOptions {
 
 export function usePopover({
   initialOpen = false,
-  placement = 'left',
+  placement = "left",
   modal,
   open: controlledOpen,
   onOpenChange: setControlledOpen,
@@ -49,8 +49,8 @@ export function usePopover({
     middleware: [
       offset(5),
       flip({
-        crossAxis: placement.includes('-'),
-        fallbackAxisSideDirection: 'end',
+        crossAxis: placement.includes("-"),
+        fallbackAxisSideDirection: "end",
         padding: 5,
       }),
       shift({ padding: 5 }),
@@ -78,7 +78,7 @@ export function usePopover({
       setLabelId,
       setDescriptionId,
     }),
-    [open, setOpen, interactions, data, modal, labelId, descriptionId],
+    [open, setOpen, interactions, data, modal, labelId, descriptionId]
   );
 }
 
@@ -97,7 +97,7 @@ export const usePopoverContext = () => {
   const context = React.useContext(PopoverContext);
 
   if (context == null) {
-    throw new Error('Popover components must be wrapped in <Popover />');
+    throw new Error("Popover components must be wrapped in <Popover />");
   }
 
   return context;
@@ -130,7 +130,8 @@ export const PopoverTrigger = React.forwardRef<
   React.HTMLProps<HTMLElement> & PopoverTriggerProps
 >(function PopoverTrigger({ children, asChild = false, ...props }, propRef) {
   const context = usePopoverContext();
-  const childrenRef = (children as any).ref;
+  // @ts-expect-error nice
+  const childrenRef = (children as unknown).ref;
   const ref = useMergeRefs([context.refs.setReference, propRef, childrenRef]);
 
   // `asChild` allows the user to pass any element as the anchor
@@ -140,9 +141,10 @@ export const PopoverTrigger = React.forwardRef<
       context.getReferenceProps({
         ref,
         ...props,
+        // @ts-expect-error nice
         ...children.props,
-        'data-state': context.open ? 'open' : 'closed',
-      }),
+        "data-state": context.open ? "open" : "closed",
+      })
     );
   }
 
@@ -151,7 +153,7 @@ export const PopoverTrigger = React.forwardRef<
       ref={ref}
       type="button"
       // The user can style the trigger based on the state
-      data-state={context.open ? 'open' : 'closed'}
+      data-state={context.open ? "open" : "closed"}
       {...context.getReferenceProps(props)}
     >
       {children}

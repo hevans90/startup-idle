@@ -3,8 +3,8 @@ import {
   FloatingOverlay,
   offset,
   useFloating,
-} from '@floating-ui/react';
-import React, { useEffect, useRef } from 'react';
+} from "@floating-ui/react";
+import React, { useEffect, useRef } from "react";
 
 interface FullScreenDrawerProps {
   isOpen: boolean;
@@ -17,9 +17,9 @@ export const ModalDrawer: React.FC<FullScreenDrawerProps> = ({
   onClose,
   children,
 }) => {
-  const { refs, floatingStyles, context } = useFloating({
+  const { refs } = useFloating({
     open: isOpen,
-    placement: 'bottom', // Drawer slides up from the bottom
+    placement: "bottom", // Drawer slides up from the bottom
     middleware: [offset(0)], // No additional offset
     whileElementsMounted: autoUpdate,
   });
@@ -39,15 +39,15 @@ export const ModalDrawer: React.FC<FullScreenDrawerProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isOpen && onClose) {
+      if (event.key === "Escape" && isOpen && onClose) {
         onClose();
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen, onClose]);
 
