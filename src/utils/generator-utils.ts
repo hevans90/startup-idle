@@ -1,6 +1,10 @@
 // Returns how many generators you can afford
 import Decimal from "break_infinity.js";
-import { useGeneratorStore } from "../state/generators.store";
+import {
+  GENERATOR_TYPES,
+  OwnedGenerator,
+  useGeneratorStore,
+} from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 
 export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
@@ -17,7 +21,6 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
     .times(exponent.pow(amount).minus(1))
     .div(exponent.minus(1));
 
-  console.log({ baseCost, totalCost });
   return totalCost;
 };
 
@@ -48,4 +51,25 @@ export const getMaxAffordableAmount = (id: string): number => {
   const max = Decimal.log(affordableExponent, generator.costExponent);
 
   return Math.floor(max);
+};
+
+export const getUnlockedGeneratorIds = (
+  generators: OwnedGenerator[]
+): string[] => {
+  const ownedMap = Object.fromEntries(generators.map((g) => [g.id, g.amount]));
+  const unlocked: string[] = [];
+
+  for (const gen of GENERATOR_TYPES) {
+    const conditions = gen.unlockConditions ?? [];
+    const satisfied = conditions.every((cond) => {
+      const owned = ownedMap[cond.requiredId] ?? 0;
+      return owned >= cond.requiredAmount;
+    });
+
+    if (conditions.length === 0 || satisfied) {
+      unlocked.push(gen.id);
+    }
+  }
+
+  return unlocked;
 };

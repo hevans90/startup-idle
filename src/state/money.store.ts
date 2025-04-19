@@ -6,6 +6,7 @@ type MoneyState = {
   increaseMoney: (increment: number) => void;
   spendMoney: (decrement: number) => void;
   loadMoney: () => void;
+  reset: () => void;
 };
 
 export const useMoneyStore = create<MoneyState>((set) => ({
@@ -29,6 +30,10 @@ export const useMoneyStore = create<MoneyState>((set) => ({
     if (savedMoney) {
       set({ money: new Decimal(savedMoney) });
     }
+  },
+  reset: () => {
+    localStorage.removeItem("money");
+    set({ money: new Decimal(0) });
   },
 }));
 

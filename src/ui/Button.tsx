@@ -20,7 +20,7 @@ export const Button = forwardRef(function Button(
     <button
       {...rest}
       className={twMerge(
-        "justify-center leading-3 p-2 border-primary-800 rounded-md border-[1px] hover:border-primary-500 hover:text-primary-500 outline-none disabled:bg-gray-200 disabled:text-primary-300 disabled:border-primary-900",
+        "justify-center leading-3 p-2 border-primary-800 border-[1px] hover:border-primary-500 hover:text-primary-500 outline-none disabled:bg-gray-200 disabled:text-primary-300 disabled:border-primary-900",
         className
       )}
       ref={ref}

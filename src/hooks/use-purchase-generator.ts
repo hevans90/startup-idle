@@ -12,7 +12,8 @@ export function useGeneratorPurchase(id: string, amount: number) {
   const money = useMoneyStore((state) => state.money);
   const purchase = useGeneratorStore((state) => state.purchaseGenerator);
 
-  const cost = useMemo(() => getGeneratorCost(id, amount), [id, amount]);
+  const cost = getGeneratorCost(id, amount);
+  const displayCost = useMemo(() => cost.toFixed(1), [cost]);
   const affordable = money.gte(cost);
 
   const maxAmount = useMemo(
@@ -33,6 +34,7 @@ export function useGeneratorPurchase(id: string, amount: number) {
 
   return {
     cost,
+    displayCost,
     affordable,
     onPurchase,
     maxAmount,
