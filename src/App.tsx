@@ -1,8 +1,10 @@
 import { useCallback, useEffect } from "react";
 import { GeneratorBuyButton } from "./molecules/generator-buy-button";
 import { ResetButton } from "./molecules/reset-button";
+import { Upgrades } from "./molecules/upgrades";
 import { useGeneratorStore } from "./state/generators.store";
 import { useMoneyStore } from "./state/money.store";
+import { useUpgradeStore } from "./state/upgrades.store";
 
 function App() {
   const { money, increaseMoney } = useMoneyStore();
@@ -11,12 +13,14 @@ function App() {
 
   const { reset: resetMoney } = useMoneyStore();
   const { reset: resetGenerators, tickGenerators } = useGeneratorStore();
+  const { reset: resetUpgrades } = useUpgradeStore();
 
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
 
   const totalReset = useCallback(() => {
     resetGenerators();
     resetMoney();
+    resetUpgrades();
   }, []);
 
   useEffect(() => {
@@ -51,6 +55,7 @@ function App() {
           </div>
         ))}
       </div>
+      <Upgrades />
     </div>
   );
 }

@@ -5,14 +5,15 @@ import {
   getUnlockedGeneratorIds,
 } from "../utils/generator-utils";
 import { useMoneyStore } from "./money.store";
+import { syncAvailableUpgrades } from "./upgrades.store";
 
 export type UnlockCondition = {
-  requiredId: string;
+  requiredId: GeneratorId;
   requiredAmount: number;
 };
 
 export type Generator = {
-  id: string;
+  id: GeneratorId;
   name: string;
   cost: number;
   costExponent: number;
@@ -25,6 +26,7 @@ export type OwnedGenerator = Generator & {
   amount: number; // amount owned
   lastTick: number; // timestamp of last tick
   multiplier: number; // persistent multiplier from upgrades
+  costMultiplier: number; // persistent multiplier from upgrades
 };
 
 type GeneratorState = {
@@ -70,6 +72,8 @@ export const GENERATOR_TYPES: Generator[] = [
   },
 ];
 
+export type GeneratorId = "intern" | "vibe_coder" | "10x_dev";
+
 const LOCAL_STORAGE_KEY = "generators";
 
 const loadGenerators = (): OwnedGenerator[] => {
@@ -94,8 +98,9 @@ const loadGenerators = (): OwnedGenerator[] => {
       ...gen,
       amount: saved?.amount ?? 0,
       multiplier: saved?.multiplier ?? 1,
+      costMultiplier: saved?.costMultiplier ?? 1,
       lastTick: saved?.lastTick ?? Date.now(),
-    };
+    } satisfies OwnedGenerator;
   });
 
   return result;
@@ -118,8 +123,9 @@ const syncUnlockedGenerators = (): void => {
         ...base,
         amount: 0,
         multiplier: 1,
+        costMultiplier: 1,
         lastTick: Date.now(),
-      };
+      } satisfies OwnedGenerator;
     });
 
     useGeneratorStore.setState({
@@ -187,6 +193,7 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
       saveGenerators(updatedGenerators);
       set({ generators: updatedGenerators });
       syncUnlockedGenerators();
+      syncAvailableUpgrades();
     },
     purchaseGenerator: (id: string, amount = 1) => {
       const cost = getGeneratorCost(id, amount);

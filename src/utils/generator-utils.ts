@@ -2,6 +2,7 @@
 import Decimal from "break_infinity.js";
 import {
   GENERATOR_TYPES,
+  GeneratorId,
   OwnedGenerator,
   useGeneratorStore,
 } from "../state/generators.store";
@@ -14,9 +15,11 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
 
   const baseCost = new Decimal(generator.cost);
   const exponent = new Decimal(generator.costExponent);
+  const costMultiplier = new Decimal(generator.costMultiplier);
   const currentAmount = new Decimal(generator.amount);
 
   const totalCost = baseCost
+    .times(costMultiplier)
     .times(exponent.pow(currentAmount))
     .times(exponent.pow(amount).minus(1))
     .div(exponent.minus(1));
@@ -32,6 +35,7 @@ export const getMaxAffordableAmount = (id: string): number => {
 
   const baseCost = new Decimal(generator.cost);
   const exponent = new Decimal(generator.costExponent);
+  const costMultiplier = new Decimal(generator.costMultiplier);
   const currentAmount = new Decimal(generator.amount);
 
   if (exponent.eq(1)) {
@@ -43,7 +47,7 @@ export const getMaxAffordableAmount = (id: string): number => {
   // Rearranged:
   const affordableExponent = money
     .times(exponent.minus(1))
-    .div(baseCost.times(exponent.pow(currentAmount)))
+    .div(baseCost.times(costMultiplier).times(exponent.pow(currentAmount)))
     .plus(1);
 
   if (affordableExponent.lte(1)) return 0;
@@ -55,9 +59,9 @@ export const getMaxAffordableAmount = (id: string): number => {
 
 export const getUnlockedGeneratorIds = (
   generators: OwnedGenerator[]
-): string[] => {
+): GeneratorId[] => {
   const ownedMap = Object.fromEntries(generators.map((g) => [g.id, g.amount]));
-  const unlocked: string[] = [];
+  const unlocked: GeneratorId[] = [];
 
   for (const gen of GENERATOR_TYPES) {
     const conditions = gen.unlockConditions ?? [];
