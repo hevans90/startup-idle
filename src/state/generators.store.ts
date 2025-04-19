@@ -29,6 +29,8 @@ export type OwnedGenerator = Generator & {
 
 type GeneratorState = {
   generators: OwnedGenerator[];
+  globalLastTick: number;
+
   addGenerator: (gen: OwnedGenerator) => void;
   increaseGenerator: (id: string, count?: number) => void;
   tickGenerators: () => void;
@@ -55,7 +57,16 @@ export const GENERATOR_TYPES: Generator[] = [
     interval: 1000,
     cost: 100,
     costExponent: 1.2,
-    unlockConditions: [{ requiredId: "intern", requiredAmount: 20 }],
+    unlockConditions: [{ requiredId: "intern", requiredAmount: 10 }],
+  },
+  {
+    id: "10x_dev",
+    name: "10x dev",
+    baseProduction: 100,
+    interval: 1000,
+    cost: 1000,
+    costExponent: 10,
+    unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 10 }],
   },
 ];
 
@@ -134,6 +145,7 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
 
   return {
     generators: initialGenerators,
+    globalLastTick: Date.now(), // Initialize globalLastTick in the store state
     addGenerator: (gen) =>
       persist((state) => {
         const exists = state.generators.find((g) => g.id === gen.id);
@@ -142,29 +154,32 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
       }),
     increaseGenerator: (id, count = 1) =>
       persist((state) => ({
-        generators: state.generators.map((gen) => {
-          if (gen.id === id) {
-            const wasZero = gen.amount === 0;
-            return {
-              ...gen,
-              amount: gen.amount + count,
-              lastTick: wasZero ? Date.now() : gen.lastTick,
-            };
-          }
-          return gen;
-        }),
+        generators: state.generators.map((gen) =>
+          gen.id === id ? { ...gen, amount: gen.amount + count } : gen
+        ),
       })),
     tickGenerators: () => {
       const now = Date.now();
+      const globalTickInterval = now - get().globalLastTick;
+
+      if (globalTickInterval < 1000) return; // Prevent ticking too fast
+
+      // Update the global lastTick to the current time
+      set({ globalLastTick: now });
+
       const updatedGenerators = get().generators.map((gen) => {
-        if (now - gen.lastTick >= gen.interval && gen.amount > 0) {
-          const ticks = Math.floor((now - gen.lastTick) / gen.interval);
+        if (gen.amount === 0) return gen; // Skip if no amount
+
+        const ticks = Math.floor(globalTickInterval / gen.interval);
+        if (ticks > 0) {
           const income = new Decimal(gen.baseProduction)
             .times(gen.amount)
             .times(gen.multiplier)
             .times(ticks);
           useMoneyStore.getState().increaseMoney(income.toNumber());
-          return { ...gen, lastTick: gen.lastTick + ticks * gen.interval };
+
+          // After generating income, reset the lastTick for this generator
+          return { ...gen, lastTick: now };
         }
         return gen;
       });
@@ -187,15 +202,15 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
         if (gen.amount === 0) return sum;
 
         const perSecond =
-          (gen.baseProduction * gen.amount * gen.multiplier * 1000) /
-          gen.interval;
+          (gen.baseProduction * gen.amount * gen.multiplier) /
+          (gen.interval / 1000); // Fixed money per second calculation
 
         return sum + perSecond;
       }, 0);
     },
     reset: () => {
       localStorage.removeItem(LOCAL_STORAGE_KEY);
-      set({ generators: [] });
+      set({ generators: [], globalLastTick: Date.now() });
     },
   };
 });
