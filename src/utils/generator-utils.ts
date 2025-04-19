@@ -17,6 +17,7 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
     .times(exponent.pow(amount).minus(1))
     .div(exponent.minus(1));
 
+  console.log({ baseCost, totalCost });
   return totalCost;
 };
 

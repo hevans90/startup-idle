@@ -38,9 +38,18 @@ export const GENERATOR_TYPES: Generator[] = [
 ];
 
 export const useGeneratorStore = create<GeneratorState>((set, get) => ({
-  generators: [],
+  generators: GENERATOR_TYPES.map((gen) => ({
+    ...gen,
+    amount: 0,
+    multiplier: 1,
+    lastTick: Date.now(),
+  })),
   addGenerator: (gen) =>
-    set((state) => ({ generators: [...state.generators, gen] })),
+    set((state) => {
+      const exists = state.generators.find((g) => g.id === gen.id);
+      if (exists) return state;
+      return { generators: [...state.generators, gen] };
+    }),
   increaseGenerator: (id, count = 1) =>
     set((state) => ({
       generators: state.generators.map((gen) =>

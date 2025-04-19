@@ -5,4 +5,14 @@
 
 @theme {
   --font-space-mono: "Space Mono", monospace;
+  --color-primary-50: #f4f5f6;
+  --color-primary-100: #e1e3e6;
+  --color-primary-200: #c7cbd1;
+  --color-primary-300: #a6abb3;
+  --color-primary-400: #717883;
+  --color-primary-500: #4c5661;
+  --color-primary-600: #3d454f;
+  --color-primary-700: #313840;
+  --color-primary-800: #272e35;
+  --color-primary-900: #1b1f23;
 }
