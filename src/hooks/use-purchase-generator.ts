@@ -5,39 +5,50 @@ import { useMoneyStore } from "../state/money.store";
 import { useGeneratorStore } from "../state/generators.store";
 import {
   getGeneratorCost,
-  getMaxAffordableAmount,
+  getMaxAffordableAmountAndCost,
 } from "../utils/generator-utils";
 
-export function useGeneratorPurchase(id: string, amount: number) {
+export function useGeneratorPurchase(id: string) {
   const money = useMoneyStore((state) => state.money);
   const purchase = useGeneratorStore((state) => state.purchaseGenerator);
+  const purchaseMode = useGeneratorStore((state) => state.purchaseMode);
 
-  const cost = getGeneratorCost(id, amount);
-  const displayCost = useMemo(() => cost.toFixed(1), [cost]);
-  const affordable = money.gte(cost);
-
-  const maxAmount = useMemo(
-    () => getMaxAffordableAmount(id),
+  const max = useMemo(
+    () => getMaxAffordableAmountAndCost(id),
     [id, money.toString()]
   );
-  const purchaseMax = () => {
-    if (maxAmount > 0) {
-      purchase(id, maxAmount);
+
+  const resolvedAmount = useMemo(() => {
+    if (purchaseMode === "max") return max.amount > 0 ? max.amount : 1;
+    return 1;
+  }, [purchaseMode, max.amount]);
+
+  const resolvedCost = useMemo(() => {
+    if (purchaseMode === "max") {
+      return max.amount > 0 ? max.cost : getGeneratorCost(id, 1);
     }
-  };
+    return getGeneratorCost(id, resolvedAmount);
+  }, [purchaseMode, resolvedAmount, id, max]);
+
+  const affordable = useMemo(
+    () => money.gte(resolvedCost),
+    [money, resolvedCost]
+  );
+  const displayCost = useMemo(() => resolvedCost.toFixed(1), [resolvedCost]);
 
   const onPurchase = () => {
-    if (affordable) {
-      purchase(id, amount);
+    if (affordable && resolvedAmount > 0) {
+      purchase(id, resolvedAmount);
     }
   };
 
   return {
-    cost,
+    cost: resolvedCost,
     displayCost,
     affordable,
     onPurchase,
-    maxAmount,
-    purchaseMax,
+    max,
+    resolvedAmount,
+    purchaseMode,
   };
 }

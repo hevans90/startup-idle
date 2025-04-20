@@ -1,9 +1,5 @@
 import { create } from "zustand";
-import {
-  GENERATOR_TYPES,
-  GeneratorId,
-  useGeneratorStore,
-} from "./generators.store";
+import { GeneratorId, useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
 
 export type UnlockCondition = {
@@ -12,36 +8,6 @@ export type UnlockCondition = {
 };
 
 const LOCAL_STORAGE_KEY = "unlockedUpgrades";
-
-export const getUpgradeSummary = (upgrade: Upgrade): string => {
-  const parts: string[] = [];
-
-  // parts.push(`$${upgrade.cost.toLocaleString()}`);
-  const genName = GENERATOR_TYPES.find(
-    (gen) => gen.id === upgrade.effects.genId
-  )?.name;
-  parts.push(`${genName}`);
-
-  for (const effect of upgrade.effects.changes) {
-    switch (effect.type) {
-      case "multiplier":
-        parts.push(`multiplier: x${effect.value}`);
-        break;
-      case "costMultiplier": {
-        const discount = Math.round((1 - effect.value) * 100);
-        parts.push(`cost: -${discount}%`);
-        break;
-      }
-      case "costExponent":
-        parts.push(
-          `exponent: ${effect.delta > 0 ? "+" : ""}${effect.delta.toFixed(2)}`
-        );
-        break;
-    }
-  }
-
-  return parts.join(" | ");
-};
 
 export type GeneratorEffect =
   | { type: "multiplier"; value: number }
@@ -121,6 +87,20 @@ const INTERN_UPGRADES: Upgrade[] = [
       ],
     },
     cost: 80000,
+  },
+  {
+    id: "intern_upgrade_4",
+    name: "Unions",
+    description: "The interns are unionising. This is a blessing in disguise.",
+    unlockConditions: [{ requiredId: "intern", requiredAmount: 150 }],
+    effects: {
+      genId: "intern",
+      changes: [
+        { type: "costExponent", delta: 0.1 },
+        { type: "multiplier", value: 10 },
+      ],
+    },
+    cost: 10000000,
   },
 ];
 

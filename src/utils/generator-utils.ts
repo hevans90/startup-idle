@@ -27,11 +27,17 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
   return totalCost;
 };
 
-export const getMaxAffordableAmount = (id: string): number => {
+export const getMaxAffordableAmountAndCost = (
+  id: string
+): { amount: number; cost: Decimal } => {
   const { generators } = useGeneratorStore.getState();
   const money = useMoneyStore.getState().money;
   const generator = generators.find((g) => g.id === id);
-  if (!generator) return 0;
+  if (!generator)
+    return {
+      amount: 0,
+      cost: new Decimal(0),
+    };
 
   const baseCost = new Decimal(generator.cost);
   const exponent = new Decimal(generator.costExponent);
@@ -39,22 +45,41 @@ export const getMaxAffordableAmount = (id: string): number => {
   const currentAmount = new Decimal(generator.amount);
 
   if (exponent.eq(1)) {
-    // Linear case (rare but possible)
-    return money.div(baseCost).floor().toNumber();
+    // Linear cost: total = baseCost * n
+    const amount = money.div(baseCost).floor().toNumber();
+    const cost = baseCost.times(amount);
+    return { amount, cost };
   }
 
-  // Solving for n: totalCost = baseCost * (e^currentAmount) * (e^n - 1) / (e - 1)
-  // Rearranged:
+  // General case
   const affordableExponent = money
     .times(exponent.minus(1))
     .div(baseCost.times(costMultiplier).times(exponent.pow(currentAmount)))
     .plus(1);
 
-  if (affordableExponent.lte(1)) return 0;
+  if (affordableExponent.lte(1)) {
+    return {
+      amount: 0,
+      cost: new Decimal(0),
+    };
+  }
 
-  const max = Decimal.log(affordableExponent, generator.costExponent);
+  const amount = Math.floor(
+    Decimal.log(affordableExponent, generator.costExponent)
+  );
 
-  return Math.floor(max);
+  // Total cost formula for geometric progression:
+  // total = baseCost * multiplier * (e^current * (e^n - 1)) / (e - 1)
+  const totalCost = baseCost
+    .times(costMultiplier)
+    .times(
+      exponent
+        .pow(currentAmount)
+        .times(exponent.pow(amount).minus(1))
+        .div(exponent.minus(1))
+    );
+
+  return { amount, cost: totalCost };
 };
 
 export const getUnlockedGeneratorIds = (

@@ -32,6 +32,8 @@ export type OwnedGenerator = Generator & {
 type GeneratorState = {
   generators: OwnedGenerator[];
   globalLastTick: number;
+  purchaseMode: "single" | "max";
+  setPurchaseMode: (mode: "single" | "max") => void;
 
   addGenerator: (gen: OwnedGenerator) => void;
   increaseGenerator: (id: string, count?: number) => void;
@@ -150,6 +152,7 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
   };
 
   return {
+    purchaseMode: "single",
     generators: initialGenerators,
     globalLastTick: Date.now(), // Initialize globalLastTick in the store state
     addGenerator: (gen) =>
@@ -217,6 +220,10 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
         return sum + perSecond;
       }, 0);
     },
+    setPurchaseMode: (purchaseMode) =>
+      set({
+        purchaseMode,
+      }),
     reset: () => {
       localStorage.removeItem(LOCAL_STORAGE_KEY);
       set({ generators: [], globalLastTick: Date.now() });
