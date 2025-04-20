@@ -202,6 +202,8 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
       if (moneyState.money.gte(cost)) {
         moneyState.spendMoney(cost.toNumber());
         get().increaseGenerator(id, amount);
+        syncUnlockedGenerators();
+        syncAvailableUpgrades();
       }
     },
     getMoneyPerSecond: () => {

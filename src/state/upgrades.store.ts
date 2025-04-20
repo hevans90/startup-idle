@@ -1,5 +1,9 @@
 import { create } from "zustand";
-import { GeneratorId, useGeneratorStore } from "./generators.store";
+import {
+  GENERATOR_TYPES,
+  GeneratorId,
+  useGeneratorStore,
+} from "./generators.store";
 import { useMoneyStore } from "./money.store";
 
 export type UnlockCondition = {
@@ -9,87 +13,112 @@ export type UnlockCondition = {
 
 const LOCAL_STORAGE_KEY = "unlockedUpgrades";
 
+export const getUpgradeSummary = (upgrade: Upgrade): string => {
+  const parts: string[] = [];
+
+  // parts.push(`$${upgrade.cost.toLocaleString()}`);
+  const genName = GENERATOR_TYPES.find(
+    (gen) => gen.id === upgrade.effects.genId
+  )?.name;
+  parts.push(`${genName}`);
+
+  for (const effect of upgrade.effects.changes) {
+    switch (effect.type) {
+      case "multiplier":
+        parts.push(`multiplier: x${effect.value}`);
+        break;
+      case "costMultiplier": {
+        const discount = Math.round((1 - effect.value) * 100);
+        parts.push(`cost: -${discount}%`);
+        break;
+      }
+      case "costExponent":
+        parts.push(
+          `exponent: ${effect.delta > 0 ? "+" : ""}${effect.delta.toFixed(2)}`
+        );
+        break;
+    }
+  }
+
+  return parts.join(" | ");
+};
+
+export type GeneratorEffect =
+  | { type: "multiplier"; value: number }
+  | { type: "costMultiplier"; value: number }
+  | { type: "costExponent"; delta: number };
+
 export type Upgrade = {
   id: string;
   name: string;
   description: string;
   unlockConditions: UnlockCondition[];
-  effect: (genId: GeneratorId) => void;
+  effects: { genId: GeneratorId; changes: GeneratorEffect[] };
   cost: number;
 };
 
 const INTERN_UPGRADES: Upgrade[] = [
   {
     id: "intern_upgrade_1",
-    name: "Intern Productivity Boost (+50%)",
+    name: "Micromanagement",
     description:
       "Micromanage your interns harder. Weekly 1-1s will improve morale and productivity (you think).",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 15 }],
-    effect: (genId) => {
-      if (genId === "intern") {
-        const state = useGeneratorStore.getState();
-        const updated = state.generators.map((gen) =>
-          gen.id === "intern"
-            ? { ...gen, multiplier: gen.multiplier * 1.5 }
-            : gen
-        );
-        useGeneratorStore.setState({ generators: updated });
-      }
+    effects: {
+      genId: "intern",
+      changes: [{ type: "multiplier", value: 1.5 }],
     },
-    cost: 1000,
-  },
-  {
-    id: "intern_cost_1",
-    name: "Intern Discount (-70%)",
-    description: "Force prospects to do a week of work for free, profit.",
-    unlockConditions: [{ requiredId: "intern", requiredAmount: 35 }],
-    effect: (genId) => {
-      if (genId === "intern") {
-        const state = useGeneratorStore.getState();
-        const updated = state.generators.map((gen) =>
-          gen.id === "intern"
-            ? { ...gen, costMultiplier: gen.costMultiplier * 0.3 }
-            : gen
-        );
-        useGeneratorStore.setState({ generators: updated });
-      }
-    },
-    cost: 2000,
+    cost: 400,
   },
   {
     id: "intern_upgrade_2",
-    name: "Intern Productivity Boost (+70%)",
+    name: "Mandatory Weekend Work",
+    description:
+      "Threaten your interns with violence if they don't work weekends.",
+    unlockConditions: [{ requiredId: "intern", requiredAmount: 25 }],
+    effects: {
+      genId: "intern",
+      changes: [{ type: "multiplier", value: 2 }],
+    },
+    cost: 3000,
+  },
+  {
+    id: "intern_cost_1",
+    name: "Free Prospecting",
+    description: "Force applicants to do a week of work for free, profit.",
+    unlockConditions: [{ requiredId: "intern", requiredAmount: 35 }],
+    effects: {
+      genId: "intern",
+      changes: [
+        { type: "costMultiplier", value: 0.1 },
+        { type: "multiplier", value: 1.5 },
+      ],
+    },
+    cost: 5000,
+  },
+  {
+    id: "intern_upgrade_3",
+    name: "Promotion Griefing",
     description:
       "Promise your interns promotions, but in reality just burn them out faster.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 50 }],
-    effect: (genId) => {
-      if (genId === "intern") {
-        const state = useGeneratorStore.getState();
-        const updated = state.generators.map((gen) =>
-          gen.id === "intern"
-            ? { ...gen, multiplier: gen.multiplier * 1.7 }
-            : gen
-        );
-        useGeneratorStore.setState({ generators: updated });
-      }
+    effects: {
+      genId: "intern",
+      changes: [{ type: "multiplier", value: 2 }],
     },
     cost: 10000,
   },
   {
     id: "intern_cost_exponent_1",
-    name: "Intern Base Cost Exponent (-0.02)",
+    name: "Homeless Interns",
     description: "Start hiring homeless streetrats. They're cheaper.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 75 }],
-    effect: (genId) => {
-      if (genId === "intern") {
-        const state = useGeneratorStore.getState();
-        const updated = state.generators.map((gen) =>
-          gen.id === "intern"
-            ? { ...gen, costExponent: gen.costExponent - 0.02 }
-            : gen
-        );
-        useGeneratorStore.setState({ generators: updated });
-      }
+    effects: {
+      genId: "intern",
+      changes: [
+        { type: "costExponent", delta: -0.02 },
+        { type: "multiplier", value: 1.3 },
+      ],
     },
     cost: 100000,
   },
@@ -98,41 +127,63 @@ const INTERN_UPGRADES: Upgrade[] = [
 const VIBE_CODER_UPGRADES: Upgrade[] = [
   {
     id: "vibe_coder_upgrade_1",
-    name: "Vibe Coder Productivity (+40%)",
+    name: "Focus Vibing",
     description:
       "Someone tweeted about a new breathing focus LLM. The AI slop factory becomes more efficient.",
-    unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 20 }],
-    effect: (genId) => {
-      if (genId === "vibe_coder") {
-        const state = useGeneratorStore.getState();
-        const updated = state.generators.map((gen) =>
-          gen.id === "vibe_coder"
-            ? { ...gen, multiplier: gen.multiplier * 1.4 }
-            : gen
-        );
-        useGeneratorStore.setState({ generators: updated });
-      }
+    unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 10 }],
+    effects: {
+      genId: "vibe_coder",
+      changes: [{ type: "multiplier", value: 1.8 }],
     },
-    cost: 50000,
+    cost: 7500,
+  },
+  {
+    id: "vibe_coder_upgrade_2",
+    name: "JUULing",
+    description:
+      "You let the zoomers use their vapes in the office, they are happy.",
+    unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 20 }],
+    effects: {
+      genId: "vibe_coder",
+      changes: [{ type: "multiplier", value: 3 }],
+    },
+    cost: 30000,
   },
   {
     id: "vibe_coder_cost_1",
-    name: "Vibe Coder Discount (-85%)",
+    name: "Slop Bargaining",
     description:
       "Sloppers get cheaper the more of them you hire. This might not end well though.",
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 30 }],
-    effect: (genId) => {
-      if (genId === "vibe_coder") {
-        const state = useGeneratorStore.getState();
-        const updated = state.generators.map((gen) =>
-          gen.id === "vibe_coder"
-            ? { ...gen, costMultiplier: gen.costMultiplier * 0.15 }
-            : gen
-        );
-        useGeneratorStore.setState({ generators: updated });
-      }
+    effects: {
+      genId: "vibe_coder",
+      changes: [{ type: "costMultiplier", value: 0.15 }],
     },
-    cost: 20000,
+    cost: 100000,
+  },
+  {
+    id: "vibe_coder_cost_exponent_1",
+    name: "Intern Promotion",
+    description:
+      "You promise the interns LLM code editors. They are willing to take a paycut.",
+    unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 40 }],
+    effects: {
+      genId: "vibe_coder",
+      changes: [{ type: "costExponent", delta: -0.05 }],
+    },
+    cost: 200000,
+  },
+  {
+    id: "vibe_coder_upgrade_2",
+    name: "Pure Vibing",
+    description:
+      "You open a new office purely for the vibers. Vape dispensers, unlimited GPT tokens, they are going crazy.",
+    unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 60 }],
+    effects: {
+      genId: "vibe_coder",
+      changes: [{ type: "multiplier", value: 3 }],
+    },
+    cost: 1000000,
   },
 ];
 
@@ -143,16 +194,9 @@ const TEN_X_ENGINEER_UPGRADES: Upgrade[] = [
     description:
       "Instead of arguing with the ai sloppers all day, your 10x devs actually start 10xing.",
     unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 3 }],
-    effect: (genId) => {
-      if (genId === "10x_dev") {
-        const state = useGeneratorStore.getState();
-        const updated = state.generators.map((gen) =>
-          gen.id === "10x_dev"
-            ? { ...gen, multiplier: gen.multiplier * 10 }
-            : gen
-        );
-        useGeneratorStore.setState({ generators: updated });
-      }
+    effects: {
+      genId: "10x_dev",
+      changes: [{ type: "multiplier", value: 10 }],
     },
     cost: 200000,
   },
@@ -161,16 +205,9 @@ const TEN_X_ENGINEER_UPGRADES: Upgrade[] = [
     name: "10x10x engineering",
     description: "Your 10x engineers begin to see the matrix...",
     unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 4 }],
-    effect: (genId) => {
-      if (genId === "10x_dev") {
-        const state = useGeneratorStore.getState();
-        const updated = state.generators.map((gen) =>
-          gen.id === "10x_dev"
-            ? { ...gen, multiplier: gen.multiplier * 10 }
-            : gen
-        );
-        useGeneratorStore.setState({ generators: updated });
-      }
+    effects: {
+      genId: "10x_dev",
+      changes: [{ type: "multiplier", value: 10 }],
     },
     cost: 10000000,
   },
@@ -181,6 +218,31 @@ export const UPGRADES: Upgrade[] = [
   ...VIBE_CODER_UPGRADES,
   ...TEN_X_ENGINEER_UPGRADES,
 ];
+
+export const applyUpgradeEffect = (upgrade: Upgrade) => {
+  const state = useGeneratorStore.getState();
+  const updated = state.generators.map((gen) => {
+    if (gen.id !== upgrade.effects.genId) return gen;
+
+    const updatedGen = { ...gen };
+    for (const change of upgrade.effects.changes) {
+      switch (change.type) {
+        case "multiplier":
+          updatedGen.multiplier *= change.value;
+          break;
+        case "costMultiplier":
+          updatedGen.costMultiplier *= change.value;
+          break;
+        case "costExponent":
+          updatedGen.costExponent += change.delta;
+          break;
+      }
+    }
+    return updatedGen;
+  });
+
+  useGeneratorStore.setState({ generators: updated });
+};
 
 export const syncAvailableUpgrades = () => {
   const ownedMap = Object.fromEntries(
@@ -228,13 +290,8 @@ export const useUpgradeStore = create<{
 
       if (moneyState.money.toNumber() >= upgrade.cost) {
         moneyState.spendMoney(upgrade.cost);
+        applyUpgradeEffect(upgrade);
 
-        // Apply effect
-        for (const cond of upgrade.unlockConditions) {
-          upgrade.effect(cond.requiredId);
-        }
-
-        // Update state
         const newUnlocked = [
           ...useUpgradeStore.getState().unlockedUpgrades,
           upgrade,

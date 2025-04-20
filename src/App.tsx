@@ -5,6 +5,7 @@ import { Upgrades } from "./molecules/upgrades";
 import { useGeneratorStore } from "./state/generators.store";
 import { useMoneyStore } from "./state/money.store";
 import { useUpgradeStore } from "./state/upgrades.store";
+import { formatCurrency } from "./utils/money-utils";
 
 function App() {
   const { money, increaseMoney } = useMoneyStore();
@@ -36,9 +37,9 @@ function App() {
       <section className="flex flex-col items-center">
         <button
           className="text-3xl cursor-pointer hover:bg-primary-200 mb-2"
-          onClick={() => increaseMoney(1)}
+          onClick={() => increaseMoney(mps / 10)}
         >
-          ${money.toFixed(2)}
+          {formatCurrency(money)}
         </button>
         <div className="text-sm">({mps}/sec)</div>
       </section>

@@ -1,4 +1,5 @@
 import { useGeneratorStore } from "../state/generators.store";
+import { formatCurrency } from "../utils/money-utils";
 import { GeneratorBuyButton } from "./generator-buy-button";
 
 export const Generators = () => {
@@ -14,14 +15,14 @@ export const Generators = () => {
           {gen.name} - {gen.amount}
           <div className="flex items-center">
             <span className="text-xs text-primary-400">
-              total: $
-              {(gen.baseProduction * gen.multiplier * gen.amount).toFixed(2)}
+              total:
+              {formatCurrency(gen.baseProduction * gen.multiplier * gen.amount)}
               /sec
             </span>
           </div>
           <GeneratorBuyButton id={gen.id} />
           <span className="text-xs text-primary-400">
-            ${gen.baseProduction * gen.multiplier}/sec
+            {formatCurrency(gen.baseProduction * gen.multiplier)}/sec
           </span>
         </div>
       ))}
