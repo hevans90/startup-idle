@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from "react";
-import { GeneratorBuyButton } from "./molecules/generator-buy-button";
+import { Generators } from "./molecules/generators";
 import { ResetButton } from "./molecules/reset-button";
 import { Upgrades } from "./molecules/upgrades";
 import { useGeneratorStore } from "./state/generators.store";
@@ -8,8 +8,6 @@ import { useUpgradeStore } from "./state/upgrades.store";
 
 function App() {
   const { money, increaseMoney } = useMoneyStore();
-
-  const { generators } = useGeneratorStore();
 
   const { reset: resetMoney } = useMoneyStore();
   const { reset: resetGenerators, tickGenerators } = useGeneratorStore();
@@ -37,24 +35,14 @@ function App() {
       </section>
       <section className="flex flex-col items-center">
         <button
-          className="text-3xl cursor-pointer hover:bg-primary-200"
+          className="text-3xl cursor-pointer hover:bg-primary-200 mb-2"
           onClick={() => increaseMoney(1)}
         >
           ${money.toFixed(2)}
         </button>
         <div className="text-sm">({mps}/sec)</div>
       </section>
-      <div className="flex flex-wrap gap-2">
-        {generators.map((gen) => (
-          <div
-            key={gen.id}
-            className="flex flex-col gap-2 items-center border-[1px] border-primary-500 p-4"
-          >
-            {gen.name} - {gen.amount}
-            <GeneratorBuyButton id={gen.id} />
-          </div>
-        ))}
-      </div>
+      <Generators />
       <Upgrades />
     </div>
   );

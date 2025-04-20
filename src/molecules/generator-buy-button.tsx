@@ -10,7 +10,7 @@ export const GeneratorBuyButton = ({ id }: { id: string }) => {
       onClick={onPurchase}
       disabled={!affordable}
       className={twMerge(
-        "",
+        "min-w-32",
         affordable
           ? "text-primary-600 cursor-pointer"
           : "text-primary-200 cursor-not-allowed"

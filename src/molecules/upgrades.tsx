@@ -25,7 +25,7 @@ export const Upgrades = () => {
           </Button>
         ))}
       </section>
-      <section className="flex flex-wrap gap-2">
+      <section className="flex flex-wrap justify-center gap-2">
         {unlockedUpgrades.map((upg) => (
           <div
             key={upg.id}
