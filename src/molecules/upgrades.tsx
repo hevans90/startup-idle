@@ -101,7 +101,7 @@ export const Upgrades = () => {
 
   return (
     <>
-      <div className="flex flex-col gap-3 items-center text-center">
+      <div className="flex flex-wrap gap-3 justify-center text-center">
         {availableUpgrades.map((upg) => (
           <Button
             disabled={money.lt(upg.cost)}

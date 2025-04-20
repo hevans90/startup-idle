@@ -31,7 +31,7 @@ function App() {
           </Toast>
         )}
       </Toaster>
-      <div className="w-full h-full flex flex-col items-center pt-16 gap-2 bg-primary-50 dark:bg-primary-800 text-primary-900 dark:text-primary-200">
+      <div className="w-full h-full flex flex-col items-center pt-16 gap-2">
         <section className="flex flex-col items-center">
           <h1 className="text-4xl font-bold">Startup Idle</h1>
         </section>
