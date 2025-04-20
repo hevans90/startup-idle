@@ -37,11 +37,11 @@ function App() {
       <section className="flex flex-col items-center">
         <button
           className="text-3xl cursor-pointer hover:bg-primary-200 mb-2"
-          onClick={() => increaseMoney(mps / 10)}
+          onClick={() => increaseMoney(Math.max(mps / 10, 1))}
         >
           {formatCurrency(money)}
         </button>
-        <div className="text-sm">({mps}/sec)</div>
+        <div className="text-sm">({formatCurrency(mps)}/sec)</div>
       </section>
       <Generators />
       <Upgrades />

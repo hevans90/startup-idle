@@ -174,7 +174,7 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
     cost: 200000,
   },
   {
-    id: "vibe_coder_upgrade_2",
+    id: "vibe_coder_upgrade_3",
     name: "Pure Vibing",
     description:
       "You open a new office purely for the vibers. Vape dispensers, unlimited GPT tokens, they are going crazy.",
@@ -192,7 +192,7 @@ const TEN_X_ENGINEER_UPGRADES: Upgrade[] = [
     id: "10x_dev_10x_1",
     name: "10x engineering",
     description:
-      "Instead of arguing with the ai sloppers all day, your 10x devs actually start 10xing.",
+      "Instead of arguing with the AI sloppers all day, your 10x devs actually start 10xing.",
     unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 3 }],
     effects: {
       genId: "10x_dev",
@@ -209,7 +209,7 @@ const TEN_X_ENGINEER_UPGRADES: Upgrade[] = [
       genId: "10x_dev",
       changes: [{ type: "multiplier", value: 10 }],
     },
-    cost: 10000000,
+    cost: 3000000,
   },
 ];
 

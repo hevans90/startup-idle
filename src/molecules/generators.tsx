@@ -15,14 +15,13 @@ export const Generators = () => {
           {gen.name} - {gen.amount}
           <div className="flex items-center">
             <span className="text-xs text-primary-400">
-              total:
               {formatCurrency(gen.baseProduction * gen.multiplier * gen.amount)}
-              /sec
+              /s
             </span>
           </div>
           <GeneratorBuyButton id={gen.id} />
           <span className="text-xs text-primary-400">
-            {formatCurrency(gen.baseProduction * gen.multiplier)}/sec
+            {formatCurrency(gen.baseProduction * gen.multiplier)}/s
           </span>
         </div>
       ))}
