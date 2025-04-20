@@ -169,7 +169,11 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 40 }],
     effects: {
       genId: "vibe_coder",
-      changes: [{ type: "costExponent", delta: -0.05 }],
+      changes: [
+        { type: "costExponent", delta: -0.05 },
+        { type: "costMultiplier", value: 0.6 },
+        { type: "multiplier", value: 2 },
+      ],
     },
     cost: 200000,
   },
