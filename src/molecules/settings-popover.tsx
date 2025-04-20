@@ -7,6 +7,7 @@ import {
   PopoverTrigger,
 } from "../ui/Popover";
 import { ResetButton } from "./reset-button";
+import { ThemeToggle } from "./theme-toggle";
 
 export const SettingsPopover = ({
   className,
@@ -18,17 +19,20 @@ export const SettingsPopover = ({
       <PopoverTrigger asChild>
         <button
           className={twMerge(
-            "p-2 border-primary-500 border-[1px] hover:bg-gray-200",
+            "p-2 border-[1px] border-primary-500 hover:bg-primary-100 dark:hover:bg-primary-600 cursor-pointer",
             className
           )}
         >
-          <IconSettings className="w-8 h-8" />
+          <IconSettings className="w-6 h-6 text-primary-900 dark:text-primary-100" />
         </button>
       </PopoverTrigger>
 
-      <PopoverContent className="bg-white border-primary-500 border-[1px] p-4 w-48 outline-none focus:ring-0">
+      <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4 w-48 outline-none focus:ring-0">
         <PopoverHeading className="font-medium mb-2">Settings</PopoverHeading>
-        <ResetButton />
+        <div className="flex flex-col gap-2">
+          <ResetButton />
+          <ThemeToggle />
+        </div>
       </PopoverContent>
     </Popover>
   );

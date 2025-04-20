@@ -3,6 +3,8 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+@custom-variant dark (&:is(.dark *));
+
 @theme {
   --font-space-mono: "Space Mono", monospace;
   --color-primary-50: #f4f5f6;

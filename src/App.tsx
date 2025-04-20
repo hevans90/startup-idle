@@ -21,13 +21,13 @@ function App() {
 
   return (
     <>
-      <div className="w-full flex flex-col items-center pt-16 gap-8">
-        <section className="prose flex flex-col items-center">
-          <h1>Startup Idle</h1>
+      <div className="w-full h-full flex flex-col items-center pt-16 gap-8 bg-primary-50 dark:bg-primary-800 text-primary-900 dark:text-primary-300">
+        <section className="flex flex-col items-center">
+          <h1 className="text-4xl font-bold">Startup Idle</h1>
         </section>
         <section className="flex flex-col items-center">
           <button
-            className="text-3xl cursor-pointer hover:bg-primary-200 mb-2"
+            className="p-2 text-3xl cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600 mb-2"
             onClick={() => increaseMoney(Math.max(mps / 10, 1))}
           >
             {formatCurrency(money)}
