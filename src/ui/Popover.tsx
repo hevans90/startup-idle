@@ -4,6 +4,7 @@ import {
   FloatingFocusManager,
   FloatingPortal,
   offset,
+  safePolygon,
   shift,
   useClick,
   useDismiss,
@@ -23,14 +24,16 @@ interface PopoverOptions {
   modal?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  openOnHover?: boolean; // 👈 NEW OPTION
 }
 
-export function usePopover({
+function usePopover({
   initialOpen = false,
   placement = "left",
   modal,
   open: controlledOpen,
   onOpenChange: setControlledOpen,
+  openOnHover = false, // stay open while hovering
 }: PopoverOptions = {}) {
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(initialOpen);
   const [labelId, setLabelId] = React.useState<string | undefined>();
@@ -59,8 +62,13 @@ export function usePopover({
 
   const context = data.context;
 
-  const click = useClick(context);
-  const hover = useHover(context);
+  // 🧠 Conditionally apply click or hover interaction
+  const click = useClick(context, { enabled: !openOnHover });
+  const hover = useHover(context, {
+    enabled: openOnHover,
+    handleClose: safePolygon(), // 👈 prevents flicker between trigger/content
+  });
+
   const dismiss = useDismiss(context);
   const role = useRole(context);
 
