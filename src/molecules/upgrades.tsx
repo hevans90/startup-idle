@@ -106,13 +106,15 @@ export const Upgrades = () => {
           <Button
             disabled={money.lt(upg.cost)}
             key={upg.id}
-            className="flex flex-col gap-2"
+            className="flex flex-col gap-2 max-w-sm"
             onClick={() => unlockUpgrade(upg.id)}
           >
             <div className="text-md mb-1">
               {upg.name}: {formatCurrency(upg.cost)}
             </div>
-            <div className="text-xs">{upg.description}</div>
+            <div className="text-xs text-primary-500 dark:text-primary-300">
+              {upg.description}
+            </div>
             <UpgradeSummary upg={upg} />
           </Button>
         ))}
@@ -121,7 +123,7 @@ export const Upgrades = () => {
         {unlockedUpgrades.map((upg) => (
           <div
             key={upg.id}
-            className="text-sm opacity-50 border-[1px] border-solid border-primary-500 p-2 flex flex-col gap-2 items-center"
+            className="text-sm opacity-50 border-[1px] border-solid border-primary-500 p-2 flex flex-col gap-2 items-center px-4"
             title={upg.description}
           >
             {upg.name}
