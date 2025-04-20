@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import toast from "react-hot-toast";
 import { useGeneratorStore } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { useUpgradeStore } from "../state/upgrades.store";
@@ -14,6 +15,7 @@ export const ResetButton = () => {
       resetGenerators();
       resetMoney();
       resetUpgrades();
+      toast.success("Game fully reset. All progress wiped.");
     }
   }, []);
 

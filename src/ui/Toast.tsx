@@ -1,5 +1,5 @@
-import { IconX } from '@tabler/icons-react';
-import type { ReactNode } from 'react';
+import { IconX } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 
 export function Toast({
   children,
@@ -12,18 +12,16 @@ export function Toast({
 }) {
   return (
     <div
-      className="flex items-center justify-between space-x-2 rounded border border-primary-800 bg-gray-800 p-2 shadow-md"
+      className="flex items-center justify-between space-x-2 bg-primary-50 dark:bg-primary-900 border border-primary-800 dark:border-primary-200 dark:text-primary-50 p-2"
       data-test="toast-notification"
     >
       {icon}
-      <div className="text-md leading-4 text-primary-500 [grid-area:_title]">
-        {children}
-      </div>
+      <div className="text-md leading-4 [grid-area:_title]">{children}</div>
       <button
         aria-label="Close"
         data-test="close-button"
         onClick={onClose}
-        className="text-grey-700"
+        className="cursor-pointer"
       >
         <span aria-hidden>
           <IconX />

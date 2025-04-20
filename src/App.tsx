@@ -1,9 +1,11 @@
 import { useEffect } from "react";
+import toast, { resolveValue, Toaster } from "react-hot-toast";
 import { Generators } from "./molecules/generators";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Upgrades } from "./molecules/upgrades";
 import { useGeneratorStore } from "./state/generators.store";
 import { useMoneyStore } from "./state/money.store";
+import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
 
 function App() {
@@ -21,13 +23,20 @@ function App() {
 
   return (
     <>
+      <Toaster position="bottom-center" toastOptions={{ duration: 3000 }}>
+        {(t) => (
+          <Toast onClose={() => toast.dismiss(t.id)} icon={t.icon}>
+            {resolveValue(t.message, t)}
+          </Toast>
+        )}
+      </Toaster>
       <div className="w-full h-full flex flex-col items-center pt-16 gap-8 bg-primary-50 dark:bg-primary-800 text-primary-900 dark:text-primary-300">
         <section className="flex flex-col items-center">
           <h1 className="text-4xl font-bold">Startup Idle</h1>
         </section>
         <section className="flex flex-col items-center">
           <button
-            className="p-2 text-3xl cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600 mb-2"
+            className="min-w-36 p-2 text-3xl cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600 mb-2"
             onClick={() => increaseMoney(Math.max(mps / 10, 1))}
           >
             {formatCurrency(money)}

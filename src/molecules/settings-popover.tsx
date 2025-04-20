@@ -23,7 +23,7 @@ export const SettingsPopover = ({
             className
           )}
         >
-          <IconSettings className="w-6 h-6 text-primary-900 dark:text-primary-100" />
+          <IconSettings className="w-6 h-6 text-primary-900 dark:text-primary-200" />
         </button>
       </PopoverTrigger>
 

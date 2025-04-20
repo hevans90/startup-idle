@@ -80,7 +80,7 @@ const INTERN_UPGRADES: Upgrade[] = [
       genId: "intern",
       changes: [{ type: "multiplier", value: 2 }],
     },
-    cost: 3000,
+    cost: 2200,
   },
   {
     id: "intern_cost_1",
@@ -120,7 +120,7 @@ const INTERN_UPGRADES: Upgrade[] = [
         { type: "multiplier", value: 1.3 },
       ],
     },
-    cost: 100000,
+    cost: 80000,
   },
 ];
 
