@@ -139,7 +139,7 @@ const syncUnlockedGenerators = (): void => {
 };
 
 export const useGeneratorStore = create<GeneratorState>((set, get) => {
-  const initialGenerators = loadGenerators();
+  const initialGenerators = loadGenerators(); // Load initial state from localStorage
 
   const persist = (
     updater: (state: GeneratorState) => Partial<GeneratorState>
@@ -154,31 +154,31 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
   return {
     purchaseMode: "single",
     generators: initialGenerators,
-    globalLastTick: Date.now(), // Initialize globalLastTick in the store state
+    globalLastTick: Date.now(),
+
     addGenerator: (gen) =>
       persist((state) => {
         const exists = state.generators.find((g) => g.id === gen.id);
         if (exists) return state;
         return { generators: [...state.generators, gen] };
       }),
+
     increaseGenerator: (id, count = 1) =>
       persist((state) => ({
         generators: state.generators.map((gen) =>
           gen.id === id ? { ...gen, amount: gen.amount + count } : gen
         ),
       })),
+
     tickGenerators: () => {
       const now = Date.now();
       const globalTickInterval = now - get().globalLastTick;
+      if (globalTickInterval < 1000) return;
 
-      if (globalTickInterval < 1000) return; // Prevent ticking too fast
-
-      // Update the global lastTick to the current time
       set({ globalLastTick: now });
 
       const updatedGenerators = get().generators.map((gen) => {
-        if (gen.amount === 0) return gen; // Skip if no amount
-
+        if (gen.amount === 0) return gen;
         const ticks = Math.floor(globalTickInterval / gen.interval);
         if (ticks > 0) {
           const income = new Decimal(gen.baseProduction)
@@ -186,8 +186,6 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
             .times(gen.multiplier)
             .times(ticks);
           useMoneyStore.getState().increaseMoney(income.toNumber());
-
-          // After generating income, reset the lastTick for this generator
           return { ...gen, lastTick: now };
         }
         return gen;
@@ -198,6 +196,7 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
       syncUnlockedGenerators();
       syncAvailableUpgrades();
     },
+
     purchaseGenerator: (id: string, amount = 1) => {
       const cost = getGeneratorCost(id, amount);
       const moneyState = useMoneyStore.getState();
@@ -209,6 +208,7 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
         syncAvailableUpgrades();
       }
     },
+
     getMoneyPerSecond: () => {
       return get().generators.reduce((sum, gen) => {
         if (gen.amount === 0) return sum;
@@ -220,10 +220,9 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
         return sum + perSecond;
       }, 0);
     },
-    setPurchaseMode: (purchaseMode) =>
-      set({
-        purchaseMode,
-      }),
+
+    setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
+
     reset: () => {
       localStorage.removeItem(LOCAL_STORAGE_KEY);
       set({ generators: [], globalLastTick: Date.now() });

@@ -19,7 +19,7 @@ export type Upgrade = {
   name: string;
   description: string;
   unlockConditions: UnlockCondition[];
-  effects: { genId: GeneratorId; changes: GeneratorEffect[] };
+  effects: { genId: GeneratorId; changes: GeneratorEffect[] }[];
   cost: number;
 };
 
@@ -30,10 +30,12 @@ const INTERN_UPGRADES: Upgrade[] = [
     description:
       "Micromanage your interns harder. Weekly 1-1s will improve morale and productivity (you think).",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 15 }],
-    effects: {
-      genId: "intern",
-      changes: [{ type: "multiplier", value: 1.5 }],
-    },
+    effects: [
+      {
+        genId: "intern",
+        changes: [{ type: "multiplier", value: 1.5 }],
+      },
+    ],
     cost: 400,
   },
   {
@@ -42,10 +44,12 @@ const INTERN_UPGRADES: Upgrade[] = [
     description:
       "Threaten your interns with violence if they don't work weekends.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 25 }],
-    effects: {
-      genId: "intern",
-      changes: [{ type: "multiplier", value: 2 }],
-    },
+    effects: [
+      {
+        genId: "intern",
+        changes: [{ type: "multiplier", value: 2 }],
+      },
+    ],
     cost: 2200,
   },
   {
@@ -53,13 +57,15 @@ const INTERN_UPGRADES: Upgrade[] = [
     name: "Free Prospecting",
     description: "Force applicants to do a week of work for free, profit.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 35 }],
-    effects: {
-      genId: "intern",
-      changes: [
-        { type: "costMultiplier", value: 0.1 },
-        { type: "multiplier", value: 1.5 },
-      ],
-    },
+    effects: [
+      {
+        genId: "intern",
+        changes: [
+          { type: "costMultiplier", value: 0.1 },
+          { type: "multiplier", value: 1.5 },
+        ],
+      },
+    ],
     cost: 5000,
   },
   {
@@ -68,10 +74,12 @@ const INTERN_UPGRADES: Upgrade[] = [
     description:
       "Promise your interns promotions, but in reality just burn them out faster.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 50 }],
-    effects: {
-      genId: "intern",
-      changes: [{ type: "multiplier", value: 2 }],
-    },
+    effects: [
+      {
+        genId: "intern",
+        changes: [{ type: "multiplier", value: 2 }],
+      },
+    ],
     cost: 10000,
   },
   {
@@ -79,28 +87,82 @@ const INTERN_UPGRADES: Upgrade[] = [
     name: "Homeless Interns",
     description: "Start hiring homeless streetrats. They're cheaper.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 75 }],
-    effects: {
-      genId: "intern",
-      changes: [
-        { type: "costExponent", delta: -0.02 },
-        { type: "multiplier", value: 1.3 },
-      ],
-    },
+    effects: [
+      {
+        genId: "intern",
+        changes: [
+          { type: "costExponent", delta: -0.02 },
+          { type: "multiplier", value: 1.3 },
+        ],
+      },
+    ],
     cost: 80000,
+  },
+  {
+    id: "intern_hybrid_upgrade_1",
+    name: "Upward Management",
+    description: "The interns think they know everything now, maybe they do?!",
+    unlockConditions: [
+      { requiredId: "intern", requiredAmount: 100 },
+      { requiredId: "vibe_coder", requiredAmount: 35 },
+    ],
+    effects: [
+      {
+        genId: "intern",
+        changes: [{ type: "costExponent", delta: -0.04 }],
+      },
+      {
+        genId: "vibe_coder",
+        changes: [
+          { type: "costExponent", delta: -0.02 },
+          { type: "multiplier", value: 2 },
+        ],
+      },
+    ],
+    cost: 2e5,
   },
   {
     id: "intern_upgrade_4",
     name: "Unions",
     description: "The interns are unionising. This is a blessing in disguise.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 150 }],
-    effects: {
-      genId: "intern",
-      changes: [
-        { type: "costExponent", delta: 0.1 },
-        { type: "multiplier", value: 10 },
-      ],
-    },
-    cost: 10000000,
+    effects: [
+      {
+        genId: "intern",
+        changes: [
+          { type: "costExponent", delta: 0.1 },
+          { type: "multiplier", value: 10 },
+        ],
+      },
+    ],
+    cost: 5e6,
+  },
+  {
+    id: "intern_hybrid_upgrade_1",
+    name: "Vape Mentorships",
+    description:
+      "The vape gods have teamed up with the interns to teach them some tricks.",
+    unlockConditions: [
+      { requiredId: "intern", requiredAmount: 150 },
+      { requiredId: "vibe_coder", requiredAmount: 75 },
+    ],
+    effects: [
+      {
+        genId: "intern",
+        changes: [
+          { type: "costExponent", delta: -0.05 },
+          { type: "multiplier", value: 5 },
+        ],
+      },
+      {
+        genId: "vibe_coder",
+        changes: [
+          { type: "costExponent", delta: -0.05 },
+          { type: "multiplier", value: 5 },
+        ],
+      },
+    ],
+    cost: 1e7,
   },
 ];
 
@@ -111,10 +173,12 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
     description:
       "Someone tweeted about a new breathing focus LLM. The AI slop factory becomes more efficient.",
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 10 }],
-    effects: {
-      genId: "vibe_coder",
-      changes: [{ type: "multiplier", value: 1.8 }],
-    },
+    effects: [
+      {
+        genId: "vibe_coder",
+        changes: [{ type: "multiplier", value: 1.8 }],
+      },
+    ],
     cost: 7500,
   },
   {
@@ -123,10 +187,12 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
     description:
       "You let the zoomers use their vapes in the office, they are happy.",
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 20 }],
-    effects: {
-      genId: "vibe_coder",
-      changes: [{ type: "multiplier", value: 3 }],
-    },
+    effects: [
+      {
+        genId: "vibe_coder",
+        changes: [{ type: "multiplier", value: 3 }],
+      },
+    ],
     cost: 30000,
   },
   {
@@ -135,10 +201,12 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
     description:
       "Sloppers get cheaper the more of them you hire. This might not end well though.",
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 30 }],
-    effects: {
-      genId: "vibe_coder",
-      changes: [{ type: "costMultiplier", value: 0.15 }],
-    },
+    effects: [
+      {
+        genId: "vibe_coder",
+        changes: [{ type: "costMultiplier", value: 0.15 }],
+      },
+    ],
     cost: 100000,
   },
   {
@@ -147,15 +215,17 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
     description:
       "You promise the interns LLM code editors. They are willing to take a paycut.",
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 40 }],
-    effects: {
-      genId: "vibe_coder",
-      changes: [
-        { type: "costExponent", delta: -0.05 },
-        { type: "costMultiplier", value: 0.6 },
-        { type: "multiplier", value: 2 },
-      ],
-    },
-    cost: 200000,
+    effects: [
+      {
+        genId: "vibe_coder",
+        changes: [
+          { type: "costExponent", delta: -0.05 },
+          { type: "costMultiplier", value: 0.6 },
+          { type: "multiplier", value: 2 },
+        ],
+      },
+    ],
+    cost: 2e5,
   },
   {
     id: "vibe_coder_upgrade_3",
@@ -163,37 +233,81 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
     description:
       "You open a new office purely for the vibers. Vape dispensers, unlimited GPT tokens, they are going crazy.",
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 60 }],
-    effects: {
-      genId: "vibe_coder",
-      changes: [{ type: "multiplier", value: 3 }],
-    },
-    cost: 1000000,
+    effects: [
+      {
+        genId: "vibe_coder",
+        changes: [{ type: "multiplier", value: 3 }],
+      },
+    ],
+    cost: 1e6,
+  },
+  {
+    id: "vibe_coder_upgrade_4",
+    name: "Existential Imposter Syndrome",
+    description:
+      "The vibers have started to realise that AI can't actually write code. What now?",
+    unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 70 }],
+    effects: [
+      {
+        genId: "vibe_coder",
+        changes: [
+          { type: "costExponent", delta: 0.05 },
+          { type: "multiplier", value: 8 },
+        ],
+      },
+    ],
+    cost: 1e6,
   },
 ];
 
 const TEN_X_ENGINEER_UPGRADES: Upgrade[] = [
   {
     id: "10x_dev_10x_1",
-    name: "10x engineering",
+    name: "10x Engineering",
     description:
       "Instead of arguing with the AI sloppers all day, your 10x devs actually start 10xing.",
     unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 3 }],
-    effects: {
-      genId: "10x_dev",
-      changes: [{ type: "multiplier", value: 10 }],
-    },
-    cost: 200000,
+    effects: [
+      {
+        genId: "10x_dev",
+        changes: [{ type: "multiplier", value: 10 }],
+      },
+    ],
+    cost: 2e5,
   },
   {
     id: "10x_dev_10x_2",
-    name: "10x10x engineering",
+    name: "10x10x Engineering",
     description: "Your 10x engineers begin to see the matrix...",
     unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 4 }],
-    effects: {
-      genId: "10x_dev",
-      changes: [{ type: "multiplier", value: 10 }],
-    },
-    cost: 3000000,
+    effects: [
+      {
+        genId: "10x_dev",
+        changes: [{ type: "multiplier", value: 10 }],
+      },
+    ],
+    cost: 3e6,
+  },
+  {
+    id: "10x_dev_10x_3",
+    name: "Ascendent Engineering",
+    description: "DECONSTRUCTING VISUAL PARAMETERS",
+    unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 4 }],
+    effects: [
+      {
+        genId: "intern",
+        changes: [{ type: "multiplier", value: 10 }],
+      },
+      {
+        genId: "vibe_coder",
+        changes: [{ type: "multiplier", value: 10 }],
+      },
+      {
+        genId: "10x_dev",
+        changes: [{ type: "multiplier", value: 10 }],
+      },
+    ],
+    cost: 2e7,
   },
 ];
 
@@ -205,23 +319,34 @@ export const UPGRADES: Upgrade[] = [
 
 export const applyUpgradeEffect = (upgrade: Upgrade) => {
   const state = useGeneratorStore.getState();
-  const updated = state.generators.map((gen) => {
-    if (gen.id !== upgrade.effects.genId) return gen;
 
+  const updated = state.generators.map((gen) => {
+    // Find all effects that apply to this generator
+    const applicableEffects = upgrade.effects.filter(
+      (effect) => effect.genId === gen.id
+    );
+    if (applicableEffects.length === 0) return gen;
+
+    // Clone generator before applying changes
     const updatedGen = { ...gen };
-    for (const change of upgrade.effects.changes) {
-      switch (change.type) {
-        case "multiplier":
-          updatedGen.multiplier *= change.value;
-          break;
-        case "costMultiplier":
-          updatedGen.costMultiplier *= change.value;
-          break;
-        case "costExponent":
-          updatedGen.costExponent += change.delta;
-          break;
+
+    // Apply each set of changes
+    for (const effect of applicableEffects) {
+      for (const change of effect.changes) {
+        switch (change.type) {
+          case "multiplier":
+            updatedGen.multiplier *= change.value;
+            break;
+          case "costMultiplier":
+            updatedGen.costMultiplier *= change.value;
+            break;
+          case "costExponent":
+            updatedGen.costExponent += change.delta;
+            break;
+        }
       }
     }
+
     return updatedGen;
   });
 
@@ -243,7 +368,7 @@ export const syncAvailableUpgrades = () => {
       return owned >= cond.requiredAmount;
     });
     return satisfied && !unlockedIds.includes(upg.id);
-  });
+  }).sort((a, b) => a.cost - b.cost);
 
   useUpgradeStore.setState({ availableUpgrades: available });
 };

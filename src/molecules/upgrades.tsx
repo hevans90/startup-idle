@@ -1,37 +1,30 @@
 import { GENERATOR_TYPES } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
-import { Upgrade, useUpgradeStore } from "../state/upgrades.store";
+import {
+  GeneratorEffect,
+  Upgrade,
+  useUpgradeStore,
+} from "../state/upgrades.store";
 import { Button } from "../ui/Button";
 import { formatCurrency } from "../utils/money-utils";
 
 const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
-  const genName = GENERATOR_TYPES.find(
-    (gen) => gen.id === upg.effects.genId
-  )?.name;
-
-  const renderEffect = (
-    effect: (typeof upg.effects.changes)[number],
-    index: number,
-    total: number
-  ) => {
-    let content;
-
+  const renderEffect = (effect: GeneratorEffect) => {
     switch (effect.type) {
       case "multiplier":
-        content = (
+        return (
           <>
-            multiplier:{" "}
+            mult:{" "}
             <span className="text-green-700 dark:text-green-400">
               x{effect.value}
             </span>
           </>
         );
-        break;
 
       case "costMultiplier": {
         const discount = Math.round((1 - effect.value) * 100);
         const isGood = discount > 0;
-        content = (
+        return (
           <>
             cost:{" "}
             <span
@@ -46,13 +39,12 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
             </span>
           </>
         );
-        break;
       }
 
       case "costExponent": {
         const isGood = effect.delta < 0;
         const sign = effect.delta > 0 ? "+" : "";
-        content = (
+        return (
           <>
             exponent:{" "}
             <span
@@ -67,28 +59,37 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
             </span>
           </>
         );
-        break;
       }
 
       default:
         return null;
     }
-
-    return (
-      <span key={index} className="flex items-center gap-2">
-        {content}
-        {index < total - 1 && <span className="text-muted-foreground">|</span>}
-      </span>
-    );
   };
 
   return (
-    <div className="flex w-full justify-center gap-2 text-xs flex-wrap">
-      <span className="font-extrabold">{genName}</span>
-      <span className="text-muted-foreground">|</span>
-      {upg.effects.changes.map((effect, index) =>
-        renderEffect(effect, index, upg.effects.changes.length)
-      )}
+    <div className="flex items-center justify-center">
+      <table className="text-xs w-auto table-auto border-separate border-spacing-x-4">
+        <tbody>
+          {upg.effects.map((effectBlock, i) => {
+            const genName =
+              GENERATOR_TYPES.find((gen) => gen.id === effectBlock.genId)
+                ?.name || effectBlock.genId;
+
+            return (
+              <tr key={i} className="border-b last:border-none">
+                <td className="font-bold whitespace-nowrap text-primary-900 dark:text-primary-50">
+                  {genName}
+                </td>
+                {effectBlock.changes.map((effect, index) => (
+                  <td key={index} className="text-left">
+                    {renderEffect(effect)}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 };
@@ -106,13 +107,14 @@ export const Upgrades = () => {
           <Button
             disabled={money.lt(upg.cost)}
             key={upg.id}
-            className="flex flex-col gap-2 max-w-sm"
+            className="flex flex-col gap-2 max-w-[28rem] p-4"
             onClick={() => unlockUpgrade(upg.id)}
           >
             <div className="text-md mb-1">
-              {upg.name}: {formatCurrency(upg.cost)}
+              <span className="underline-offset-2 underline">{upg.name}</span>:{" "}
+              {formatCurrency(upg.cost)}
             </div>
-            <div className="text-xs text-primary-500 dark:text-primary-300">
+            <div className="text-xs text-primary-500 dark:text-primary-300 grow">
               {upg.description}
             </div>
             <UpgradeSummary upg={upg} />
@@ -123,7 +125,7 @@ export const Upgrades = () => {
         {unlockedUpgrades.map((upg) => (
           <div
             key={upg.id}
-            className="text-sm opacity-50 border-[1px] border-solid border-primary-500 p-2 flex flex-col gap-2 items-center px-4"
+            className="text-sm opacity-50 border-[1px] border-solid border-primary-500 p-2 flex flex-col gap-2 items-center px-4 "
             title={upg.description}
           >
             {upg.name}
