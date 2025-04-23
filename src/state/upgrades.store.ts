@@ -292,7 +292,7 @@ const TEN_X_ENGINEER_UPGRADES: Upgrade[] = [
     id: "10x_dev_10x_3",
     name: "Ascendent Engineering",
     description: "DECONSTRUCTING VISUAL PARAMETERS",
-    unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 4 }],
+    unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 5 }],
     effects: [
       {
         genId: "intern",
