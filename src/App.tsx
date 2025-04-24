@@ -74,7 +74,9 @@ function App() {
 
           {/* SIDEBAR */}
           <div className="bg-primary-200 dark:bg-primary-900 w-sm">
-            <PurchaseModeToggle className="w-full" />
+            <div className="w-full p-2">
+              <PurchaseModeToggle className="w-full" />
+            </div>
             <Generators isMobile={false} />
             {/* <Upgrades /> */}
           </div>
