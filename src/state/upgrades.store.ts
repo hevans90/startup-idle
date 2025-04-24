@@ -16,6 +16,7 @@ export type GeneratorEffect =
 
 export type Upgrade = {
   id: string;
+  abbreviation?: string;
   name: string;
   description: string;
   unlockConditions: UnlockCondition[];
@@ -26,6 +27,7 @@ export type Upgrade = {
 const INTERN_UPGRADES: Upgrade[] = [
   {
     id: "intern_upgrade_1",
+    abbreviation: "IN1",
     name: "Micromanagement",
     description:
       "Micromanage your interns harder. Weekly 1-1s will improve morale and productivity (you think).",
@@ -40,6 +42,7 @@ const INTERN_UPGRADES: Upgrade[] = [
   },
   {
     id: "intern_upgrade_2",
+    abbreviation: "IN2",
     name: "Mandatory Weekend Work",
     description:
       "Threaten your interns with violence if they don't work weekends.",
@@ -54,6 +57,7 @@ const INTERN_UPGRADES: Upgrade[] = [
   },
   {
     id: "intern_cost_1",
+    abbreviation: "IN3",
     name: "Free Prospecting",
     description: "Force applicants to do a week of work for free, profit.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 35 }],
@@ -70,6 +74,7 @@ const INTERN_UPGRADES: Upgrade[] = [
   },
   {
     id: "intern_upgrade_3",
+    abbreviation: "IN4",
     name: "Promotion Griefing",
     description:
       "Promise your interns promotions, but in reality just burn them out faster.",
@@ -84,6 +89,7 @@ const INTERN_UPGRADES: Upgrade[] = [
   },
   {
     id: "intern_cost_exponent_1",
+    abbreviation: "IN5",
     name: "Homeless Interns",
     description: "Start hiring homeless streetrats. They're cheaper.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 75 }],
@@ -100,6 +106,7 @@ const INTERN_UPGRADES: Upgrade[] = [
   },
   {
     id: "intern_hybrid_upgrade_1",
+    abbreviation: "IN6",
     name: "Upward Management",
     description: "The interns think they know everything now, maybe they do?!",
     unlockConditions: [
@@ -123,6 +130,7 @@ const INTERN_UPGRADES: Upgrade[] = [
   },
   {
     id: "intern_upgrade_4",
+    abbreviation: "IN7",
     name: "Unions",
     description: "The interns are unionising. This is a blessing in disguise.",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 150 }],
@@ -139,6 +147,7 @@ const INTERN_UPGRADES: Upgrade[] = [
   },
   {
     id: "intern_hybrid_upgrade_1",
+    abbreviation: "IN8",
     name: "Vape Mentorships",
     description:
       "The vape gods have teamed up with the interns to teach them some tricks.",
@@ -169,6 +178,7 @@ const INTERN_UPGRADES: Upgrade[] = [
 const VIBE_CODER_UPGRADES: Upgrade[] = [
   {
     id: "vibe_coder_upgrade_1",
+    abbreviation: "V1",
     name: "Focus Vibing",
     description:
       "Someone tweeted about a new breathing focus LLM. The AI slop factory becomes more efficient.",
@@ -183,6 +193,7 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_2",
+    abbreviation: "V2",
     name: "JUULing",
     description:
       "You let the zoomers use their vapes in the office, they are happy.",
@@ -197,6 +208,7 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_cost_1",
+    abbreviation: "V3",
     name: "Slop Bargaining",
     description:
       "Sloppers get cheaper the more of them you hire. This might not end well though.",
@@ -211,6 +223,7 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_cost_exponent_1",
+    abbreviation: "V4",
     name: "Intern Promotion",
     description:
       "You promise the interns LLM code editors. They are willing to take a paycut.",
@@ -229,6 +242,7 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_3",
+    abbreviation: "V5",
     name: "Pure Vibing",
     description:
       "You open a new office purely for the vibers. Vape dispensers, unlimited GPT tokens, they are going crazy.",
@@ -243,6 +257,7 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_4",
+    abbreviation: "V6",
     name: "Existential Imposter Syndrome",
     description:
       "The vibers have started to realise that AI can't actually write code. What now?",
@@ -263,6 +278,7 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
 const TEN_X_ENGINEER_UPGRADES: Upgrade[] = [
   {
     id: "10x_dev_10x_1",
+    abbreviation: "10x1",
     name: "10x Engineering",
     description:
       "Instead of arguing with the AI sloppers all day, your 10x devs actually start 10xing.",
@@ -277,6 +293,7 @@ const TEN_X_ENGINEER_UPGRADES: Upgrade[] = [
   },
   {
     id: "10x_dev_10x_2",
+    abbreviation: "10x2",
     name: "10x10x Engineering",
     description: "Your 10x engineers begin to see the matrix...",
     unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 4 }],
@@ -290,6 +307,7 @@ const TEN_X_ENGINEER_UPGRADES: Upgrade[] = [
   },
   {
     id: "10x_dev_10x_3",
+    abbreviation: "10x3",
     name: "Ascendent Engineering",
     description: "DECONSTRUCTING VISUAL PARAMETERS",
     unlockConditions: [{ requiredId: "10x_dev", requiredAmount: 5 }],

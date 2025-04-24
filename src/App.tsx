@@ -51,7 +51,7 @@ function App() {
           <PurchaseModeToggle />
           <Generators isMobile={true} />
           <section className="mt-8">
-            <Upgrades />
+            <Upgrades isMobile={true} />
           </section>
         </div>
       ) : (
@@ -77,8 +77,10 @@ function App() {
             <div className="w-full p-2">
               <PurchaseModeToggle className="w-full" />
             </div>
-            <Generators isMobile={false} />
-            {/* <Upgrades /> */}
+            <div className="flex flex-col gap-8">
+              <Generators isMobile={false} />
+              <Upgrades isMobile={false} />
+            </div>
           </div>
         </div>
       )}
