@@ -24,7 +24,8 @@ interface PopoverOptions {
   modal?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  openOnHover?: boolean; // 👈 NEW OPTION
+  openOnHover?: boolean;
+  persistOnHoverContent?: boolean; // 👈 NEW OPTION
 }
 
 function usePopover({
@@ -33,7 +34,8 @@ function usePopover({
   modal,
   open: controlledOpen,
   onOpenChange: setControlledOpen,
-  openOnHover = false, // stay open while hovering
+  openOnHover = false,
+  persistOnHoverContent = false, // stay open while hovering content
 }: PopoverOptions = {}) {
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(initialOpen);
   const [labelId, setLabelId] = React.useState<string | undefined>();
@@ -66,7 +68,7 @@ function usePopover({
   const click = useClick(context, { enabled: !openOnHover });
   const hover = useHover(context, {
     enabled: openOnHover,
-    handleClose: safePolygon(), // 👈 prevents flicker between trigger/content
+    handleClose: persistOnHoverContent ? safePolygon() : null, // 👈 prevents flicker between trigger/content
   });
 
   const dismiss = useDismiss(context);

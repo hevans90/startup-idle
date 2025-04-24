@@ -15,7 +15,7 @@ export const SettingsPopover = ({
   className?: ClassNameValue;
 }) => {
   return (
-    <Popover placement="bottom-start" openOnHover={true}>
+    <Popover openOnHover={true} persistOnHoverContent={true}>
       <PopoverTrigger asChild>
         <button
           className={twMerge(
