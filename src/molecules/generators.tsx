@@ -44,7 +44,9 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
 
           <PopoverContent className="outline-none focus:ring-0 bg-primary-200 dark:bg-primary-900 p-2 flex flex-col gap-1 min-w-44">
             <div className="flex items-center gap-3 justify-between">
-              <span className="text-xs grow">total:</span>
+              <span className="text-xs grow text-primary-500 dark:text-primary-300">
+                total:
+              </span>
               <span className="text-xs">
                 {formatCurrency(
                   gen.baseProduction * gen.multiplier * gen.amount
@@ -53,27 +55,37 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
               </span>
             </div>
             <div className="flex items-center gap-3 justify-between border-b-[1px] border-primary-400 border-solid pb-2">
-              <span className="text-xs grow">per:</span>
+              <span className="text-xs grow text-primary-500 dark:text-primary-300">
+                per:
+              </span>
               <span className="text-xs">
                 {formatCurrency(gen.baseProduction * gen.multiplier)}/s
               </span>
             </div>
             <div className="flex items-center gap-3 justify-between">
-              <span className="text-xs grow">base production:</span>
+              <span className="text-xs grow text-primary-500 dark:text-primary-300">
+                base production:
+              </span>
               <span className="text-xs">
                 {formatCurrency(gen.baseProduction)}
               </span>
             </div>
             <div className="flex items-center gap-3 justify-between">
-              <span className="text-xs grow">multiplier:</span>
+              <span className="text-xs grow text-primary-500 dark:text-primary-300">
+                multiplier:
+              </span>
               <span className="text-xs">x{gen.multiplier.toFixed(2)}</span>
             </div>
             <div className="flex items-center gap-3 justify-between">
-              <span className="text-xs grow">cost multiplier:</span>
+              <span className="text-xs grow text-primary-500 dark:text-primary-300">
+                cost multiplier:
+              </span>
               <span className="text-xs">{gen.costMultiplier.toFixed(2)}</span>
             </div>
             <div className="flex items-center gap-3 justify-between">
-              <span className="text-xs grow">cost exponent:</span>
+              <span className="text-xs grow text-primary-500 dark:text-primary-300">
+                cost exponent:
+              </span>
               <span className="text-xs">{gen.costExponent.toFixed(2)}</span>
             </div>
           </PopoverContent>
