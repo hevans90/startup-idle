@@ -35,7 +35,7 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
           <PopoverTrigger asChild>
             <div
               key={gen.id}
-              className="flex responsive-text-sm justify-between items-center hover:cursor-help hover:bg-primary-300 dark:hover:bg-primary-700 py-1 px-2"
+              className="flex responsive-text-sm justify-between items-center hover:cursor-help hover:bg-primary-300 dark:hover:bg-primary-800 py-1 px-2"
             >
               {gen.id === "vibe_coder" ? (
                 <RainbowText className="grow" text={gen.name} />
