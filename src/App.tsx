@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import toast, { resolveValue, Toaster } from "react-hot-toast";
 import { Generators } from "./molecules/generators";
+import { InnovationCounter } from "./molecules/innovation-counter";
 import { PurchaseModeToggle } from "./molecules/purchase-mode-toggle";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Upgrades } from "./molecules/upgrades";
@@ -9,7 +10,6 @@ import { useInnovationStore } from "./state/innovation.store";
 import { useMoneyStore } from "./state/money.store";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
-import { formatRate } from "./utils/rate-utils";
 
 function App() {
   const { money, increaseMoney } = useMoneyStore();
@@ -18,7 +18,6 @@ function App() {
   const { tickGenerators } = useGeneratorStore();
 
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
-  const ips = useGeneratorStore((state) => state.getInnovationPerSecond());
 
   const isMobile = window.innerWidth <= 768;
 
@@ -67,28 +66,16 @@ function App() {
                 Startup Idle
               </h1>
             </section>
-            <section className="flex flex-col items-center mb-6">
+            <section className="flex flex-col items-center">
               <button
-                className="min-w-36 p-2 responsive-subheader cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600 mb-2"
+                className="min-w-36 p-2 responsive-subheader cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600"
                 onClick={() => increaseMoney(Math.max(mps / 10, 1))}
               >
                 {formatCurrency(money)}
               </button>
               <div className="responsive-text">({formatCurrency(mps)}/sec)</div>
             </section>
-            {innovation.gte(1) && (
-              <>
-                <section className="flex flex-col items-center">
-                  <div className="responsive-text">
-                    <span className="opacity-50">Innovation: </span>
-                    <span className="">{innovation.toFixed(2)} </span>
-                  </div>
-                </section>
-                <span className="opacity-50">
-                  ({formatRate(ips).formatted})
-                </span>
-              </>
-            )}
+            {innovation.gte(1) && <InnovationCounter />}
           </div>
 
           {/* SIDEBAR */}
