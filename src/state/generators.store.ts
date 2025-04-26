@@ -4,6 +4,7 @@ import {
   getGeneratorCost,
   getUnlockedGeneratorIds,
 } from "../utils/generator-utils";
+import { useInnovationStore } from "./innovation.store";
 import { useMoneyStore } from "./money.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
 
@@ -20,6 +21,7 @@ export type Generator = {
   baseProduction: number;
   interval: number;
   unlockConditions?: UnlockCondition[];
+  innovationProduction: number;
 };
 
 export type OwnedGenerator = Generator & {
@@ -27,6 +29,7 @@ export type OwnedGenerator = Generator & {
   lastTick: number; // timestamp of last tick
   multiplier: number; // persistent multiplier from upgrades
   costMultiplier: number; // persistent multiplier from upgrades
+  innovationMultiplier: number; // persistent multiplier from upgrades
 };
 
 type GeneratorState = {
@@ -41,6 +44,7 @@ type GeneratorState = {
   purchaseGenerator: (id: string, amount: number) => void;
 
   getMoneyPerSecond: () => number;
+  getInnovationPerSecond: () => number;
 
   reset: () => void;
 };
@@ -53,6 +57,7 @@ export const GENERATOR_TYPES: Generator[] = [
     interval: 1000,
     cost: 5,
     costExponent: 1.1,
+    innovationProduction: 1e-7,
   },
   {
     id: "vibe_coder",
@@ -62,6 +67,7 @@ export const GENERATOR_TYPES: Generator[] = [
     cost: 100,
     costExponent: 1.2,
     unlockConditions: [{ requiredId: "intern", requiredAmount: 10 }],
+    innovationProduction: 1e-6,
   },
   {
     id: "10x_dev",
@@ -71,6 +77,7 @@ export const GENERATOR_TYPES: Generator[] = [
     cost: 1000,
     costExponent: 10,
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 10 }],
+    innovationProduction: 1e-3,
   },
 ];
 
@@ -102,6 +109,7 @@ const loadGenerators = (): OwnedGenerator[] => {
       multiplier: saved?.multiplier ?? 1,
       costMultiplier: saved?.costMultiplier ?? 1,
       lastTick: saved?.lastTick ?? Date.now(),
+      innovationMultiplier: saved?.innovationMultiplier ?? 1,
     } satisfies OwnedGenerator;
   });
 
@@ -126,6 +134,7 @@ const syncUnlockedGenerators = (): void => {
         amount: 0,
         multiplier: 1,
         costMultiplier: 1,
+        innovationMultiplier: 1,
         lastTick: Date.now(),
       } satisfies OwnedGenerator;
     });
@@ -185,7 +194,14 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
             .times(gen.amount)
             .times(gen.multiplier)
             .times(ticks);
+          const innovationIncome = new Decimal(gen.innovationProduction)
+            .times(gen.amount)
+            .times(gen.innovationMultiplier)
+            .times(ticks);
           useMoneyStore.getState().increaseMoney(income.toNumber());
+          useInnovationStore
+            .getState()
+            .increaseInnovation(innovationIncome.toNumber());
           return { ...gen, lastTick: now };
         }
         return gen;
@@ -215,6 +231,17 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
 
         const perSecond =
           (gen.baseProduction * gen.amount * gen.multiplier) /
+          (gen.interval / 1000); // Fixed money per second calculation
+
+        return sum + perSecond;
+      }, 0);
+    },
+    getInnovationPerSecond: () => {
+      return get().generators.reduce((sum, gen) => {
+        if (gen.amount === 0) return sum;
+
+        const perSecond =
+          (gen.innovationProduction * gen.amount * gen.innovationMultiplier) /
           (gen.interval / 1000); // Fixed money per second calculation
 
         return sum + perSecond;

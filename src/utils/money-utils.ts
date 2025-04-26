@@ -5,7 +5,7 @@ export const formatCurrency = (amount: Decimal | number): string => {
 
   if (dec.gte(1e7)) {
     // Use scientific notation above 10 million
-    return `$${dec.toExponential(3)}`;
+    return `$${dec.toExponential(2)}`;
   }
 
   // Format normally below 1 billion

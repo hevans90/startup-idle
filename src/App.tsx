@@ -5,16 +5,20 @@ import { PurchaseModeToggle } from "./molecules/purchase-mode-toggle";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Upgrades } from "./molecules/upgrades";
 import { useGeneratorStore } from "./state/generators.store";
+import { useInnovationStore } from "./state/innovation.store";
 import { useMoneyStore } from "./state/money.store";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
+import { formatRate } from "./utils/rate-utils";
 
 function App() {
   const { money, increaseMoney } = useMoneyStore();
+  const { innovation } = useInnovationStore();
 
   const { tickGenerators } = useGeneratorStore();
 
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
+  const ips = useGeneratorStore((state) => state.getInnovationPerSecond());
 
   const isMobile = window.innerWidth <= 768;
 
@@ -72,6 +76,19 @@ function App() {
               </button>
               <div className="responsive-text">({formatCurrency(mps)}/sec)</div>
             </section>
+            {innovation.gte(1) && (
+              <>
+                <section className="flex flex-col items-center">
+                  <div className="responsive-text">
+                    <span className="opacity-50">Innovation: </span>
+                    <span className="">{innovation.toFixed(2)} </span>
+                  </div>
+                </section>
+                <span className="opacity-50">
+                  ({formatRate(ips).formatted})
+                </span>
+              </>
+            )}
           </div>
 
           {/* SIDEBAR */}
