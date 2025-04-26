@@ -69,7 +69,7 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
 
   return (
     <div className="flex items-center justify-center">
-      <table className="text-xs w-auto table-auto border-separate border-spacing-x-4">
+      <table className="responsive-text-xs w-auto table-auto border-separate border-spacing-x-4">
         <tbody>
           {upg.effects.map((effectBlock, i) => {
             const genName =
@@ -108,14 +108,14 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
           <Button
             disabled={money.lt(upg.cost)}
             key={upg.id}
-            className="flex flex-col gap-2 max-w-[28rem] p-4"
+            className="flex flex-col gap-2 w-full p-4"
             onClick={() => unlockUpgrade(upg.id)}
           >
-            <div className="text-md mb-1">
+            <div className="responsive-text mb-1">
               <span className="underline-offset-2 underline">{upg.name}</span>:{" "}
               {formatCurrency(upg.cost)}
             </div>
-            <div className="text-xs text-primary-500 dark:text-primary-300 grow">
+            <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow">
               {upg.description}
             </div>
             <UpgradeSummary upg={upg} />
@@ -126,7 +126,7 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
         {unlockedUpgrades.map((upg) => (
           <div
             key={upg.id}
-            className="text-sm opacity-50 border-[1px] border-solid border-primary-500 p-2 flex flex-col gap-2 items-center px-4 "
+            className="responsive-text-sm opacity-50 border-[1px] border-solid border-primary-500 p-2 flex flex-col gap-2 items-center px-4 "
           >
             {upg.name}
             <UpgradeSummary upg={upg} />
@@ -136,22 +136,22 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
     </>
   ) : (
     <>
-      <div className="flex flex-col gap-3 justify-center text-center px-2">
+      <div className="flex flex-col gap-3 justify-center items-center px-2">
         {availableUpgrades.map((upg) => (
-          <Popover openOnHover={true} placement="bottom">
+          <Popover key={upg.id} openOnHover={true} placement="bottom">
             <PopoverTrigger asChild>
               <Button
                 disabled={money.lt(upg.cost)}
                 key={upg.id}
-                className="flex flex-col gap-2 max-w-[28rem] p-4 text-sm"
+                className="flex flex-col gap-2 w-full p-4 responsive-text-sm"
                 onClick={() => unlockUpgrade(upg.id)}
               >
                 {upg.name}: {formatCurrency(upg.cost)}
               </Button>
             </PopoverTrigger>
 
-            <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 w-[26rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col gap-2">
-              <div className="text-xs text-primary-500 dark:text-primary-300 grow text-center">
+            <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 max-w-[30rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col gap-2">
+              <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow text-center">
                 {upg.description}
               </div>
               <UpgradeSummary upg={upg} />
@@ -161,19 +161,21 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
       </div>
       <div className="flex flex-wrap gap-3 text-center px-2">
         {unlockedUpgrades.map((upg) => (
-          <Popover openOnHover={true} placement="bottom">
+          <Popover key={upg.id} openOnHover={true} placement="bottom">
             <PopoverTrigger asChild>
               <div
                 key={upg.id}
-                className="bg-primary-300 dark:bg-primary-700 cursor-help p-2"
+                className="bg-primary-300 dark:bg-primary-700 cursor-help p-2 responsive-text-xs"
               >
                 {upg?.abbreviation ?? "UPG"}
               </div>
             </PopoverTrigger>
 
             <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 w-[26rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col items-center gap-2">
-              {upg.name}: {formatCurrency(upg.cost)}
-              <div className="text-xs text-primary-500 dark:text-primary-300 grow text-center">
+              <span className="responsive-text-xs">
+                {upg.name}: {formatCurrency(upg.cost)}
+              </span>
+              <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow text-center">
                 {upg.description}
               </div>
               <UpgradeSummary upg={upg} />

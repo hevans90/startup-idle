@@ -59,21 +59,23 @@ function App() {
           {/* LEFT PANEL */}
           <div className="grow flex flex-col items-center gap-2">
             <section className="flex flex-col items-center">
-              <h1 className="text-4xl font-bold mt-16">Startup Idle</h1>
+              <h1 className="responsive-header font-bold mt-16">
+                Startup Idle
+              </h1>
             </section>
             <section className="flex flex-col items-center mb-6">
               <button
-                className="min-w-36 p-2 text-3xl cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600 mb-2"
+                className="min-w-36 p-2 responsive-subheader cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600 mb-2"
                 onClick={() => increaseMoney(Math.max(mps / 10, 1))}
               >
                 {formatCurrency(money)}
               </button>
-              <div className="text-sm">({formatCurrency(mps)}/sec)</div>
+              <div className="responsive-text">({formatCurrency(mps)}/sec)</div>
             </section>
           </div>
 
           {/* SIDEBAR */}
-          <div className="bg-primary-200 dark:bg-primary-900 w-sm">
+          <div className="bg-primary-200 dark:bg-primary-900 w-md xl:w-lg">
             <div className="w-full p-2">
               <PurchaseModeToggle className="w-full" />
             </div>

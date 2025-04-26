@@ -5,6 +5,17 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@custom-variant 3xl {
+  @media (width >= 120rem) {
+    @slot;
+  }
+}
+@custom-variant 4xl {
+  @media (width >= 156rem) {
+    @slot;
+  }
+}
+
 @theme {
   --font-space-mono: "Space Mono", monospace;
   --color-primary-50: #f4f5f6;
@@ -17,4 +28,22 @@
   --color-primary-700: #313840;
   --color-primary-800: #272e35;
   --color-primary-900: #1b1f23;
+}
+
+@layer utilities {
+  .responsive-header {
+    @apply text-2xl lg:text-3xl xl:text-4xl 2xl:text-5xl 3xl:text-6xl 4xl:text-7xl;
+  }
+  .responsive-subheader {
+    @apply text-lg lg:text-xl xl:text-2xl 2xl:text-3xl 3xl:text-4xl 4xl:text-5xl;
+  }
+  .responsive-text {
+    @apply text-base xl:text-lg 2xl:text-xl 3xl:text-2xl;
+  }
+  .responsive-text-sm {
+    @apply text-sm xl:text-base 2xl:text-lg 3xl:text-xl;
+  }
+  .responsive-text-xs {
+    @apply text-xs xl:text-sm 2xl:text-base 3xl:text-lg;
+  }
 }

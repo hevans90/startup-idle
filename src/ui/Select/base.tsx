@@ -12,9 +12,9 @@ import {
   useListNavigation,
   useRole,
   useTypeahead,
-} from '@floating-ui/react';
-import * as React from 'react';
-import { twMerge } from 'tailwind-merge';
+} from "@floating-ui/react";
+import * as React from "react";
+import { twMerge } from "tailwind-merge";
 
 export type SelectOption = {
   value: string;
@@ -25,7 +25,7 @@ export type SelectOption = {
 
 export function BaseSelect({
   options,
-  placeholder = '---',
+  placeholder = "---",
   showSelected = true,
   compactDisplay = false,
   multi = false,
@@ -49,7 +49,7 @@ export function BaseSelect({
   const [isHovering, setIsHovering] = React.useState(false);
 
   const { refs, floatingStyles, context } = useFloating({
-    placement: 'bottom-start',
+    placement: "bottom-start",
     open: isOpen,
     onOpenChange: setIsOpen,
     whileElementsMounted: autoUpdate,
@@ -69,7 +69,7 @@ export function BaseSelect({
   });
 
   const hoverFloating = useFloating({
-    placement: 'top',
+    placement: "top",
     whileElementsMounted: autoUpdate,
     middleware: [offset(5), flip({ padding: 10 })],
   });
@@ -78,9 +78,9 @@ export function BaseSelect({
   const listContentRef = React.useRef(options.map(({ value }) => value));
   const isTypingRef = React.useRef(false);
 
-  const click = useClick(context, { event: 'mousedown' });
+  const click = useClick(context, { event: "mousedown" });
   const dismiss = useDismiss(context);
-  const role = useRole(context, { role: 'listbox' });
+  const role = useRole(context, { role: "listbox" });
   const listNav = useListNavigation(context, {
     listRef,
     activeIndex,
@@ -103,7 +103,7 @@ export function BaseSelect({
   });
 
   const { getReferenceProps, getFloatingProps, getItemProps } = useInteractions(
-    disabled ? [] : [dismiss, role, listNav, typeahead, click],
+    disabled ? [] : [dismiss, role, listNav, typeahead, click]
   );
 
   const handleSelect = (index: number) => {
@@ -138,11 +138,11 @@ export function BaseSelect({
         aria-autocomplete="none"
         aria-disabled={disabled}
         className={twMerge(
-          'flex cursor-pointer items-center justify-between rounded-md border-[1px] border-primary-800 p-2 outline-none',
+          "flex cursor-pointer items-center justify-between rounded-md border-[1px] border-primary-800 p-2 outline-none",
           disabled
-            ? 'cursor-not-allowed opacity-50'
-            : ' hover:border-primary-500 hover:text-primary-500',
-          className,
+            ? "cursor-not-allowed opacity-50"
+            : " hover:border-primary-500 hover:text-primary-500",
+          className
         )}
         onMouseEnter={() => !disabled && setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
@@ -158,7 +158,7 @@ export function BaseSelect({
               {selectedItems.map((item) => (
                 <div
                   key={item.value}
-                  className="flex items-center gap-1 rounded bg-gray-700 px-2 py-1 text-sm"
+                  className="flex items-center gap-1 rounded bg-gray-700 px-2 py-1 responsive-text-sm"
                 >
                   {item.imgSrc && <img className="h-4 w-4" src={item.imgSrc} />}
                   {item.display ?? item.value}
@@ -187,7 +187,7 @@ export function BaseSelect({
               {selectedItems.map((item) => (
                 <div
                   key={item.value}
-                  className="flex items-center gap-1 p-1 text-sm"
+                  className="flex items-center gap-1 p-1 responsive-text-sm"
                 >
                   {item.imgSrc && <img className="h-4 w-4" src={item.imgSrc} />}
                   {item.display ?? item.value}
@@ -211,13 +211,13 @@ export function BaseSelect({
               {options.map((option, index) => (
                 <div
                   className={twMerge(
-                    'relative flex cursor-pointer items-center gap-2 border-b-[1px] border-primary-800 bg-gray-900',
-                    !option.imgSrc && 'p-2',
+                    "relative flex cursor-pointer items-center gap-2 border-b-[1px] border-primary-800 bg-gray-900",
+                    !option.imgSrc && "p-2",
                     selectedIndices.includes(index) &&
-                      'bg-gray-700 bg-opacity-70 text-primary-300 opacity-100',
+                      "bg-gray-700 bg-opacity-70 text-primary-300 opacity-100",
                     !selectedIndices.includes(index) &&
                       index === activeIndex &&
-                      'bg-opacity-60 text-primary-500',
+                      "bg-opacity-60 text-primary-500"
                   )}
                   key={option.value}
                   ref={(node) => {
@@ -231,12 +231,12 @@ export function BaseSelect({
                       handleSelect(index);
                     },
                     onKeyDown(event) {
-                      if (event.key === 'Enter') {
+                      if (event.key === "Enter") {
                         event.preventDefault();
                         handleSelect(index);
                       }
 
-                      if (event.key === ' ' && !isTypingRef.current) {
+                      if (event.key === " " && !isTypingRef.current) {
                         event.preventDefault();
                         handleSelect(index);
                       }
@@ -249,19 +249,19 @@ export function BaseSelect({
                         <>
                           <div
                             className={twMerge(
-                              'absolute inset-0 opacity-40',
-                              option.imgBg.secondary && 'clip-path-diagonal-tl',
-                              selectedIndices.includes(index) && 'opacity-100',
-                              option.imgBg.primary,
+                              "absolute inset-0 opacity-40",
+                              option.imgBg.secondary && "clip-path-diagonal-tl",
+                              selectedIndices.includes(index) && "opacity-100",
+                              option.imgBg.primary
                             )}
                           ></div>
                           {option.imgBg.secondary && (
                             <div
                               className={twMerge(
-                                'clip-path-diagonal-br absolute inset-0 opacity-40',
+                                "clip-path-diagonal-br absolute inset-0 opacity-40",
                                 selectedIndices.includes(index) &&
-                                  'opacity-100',
-                                option.imgBg.secondary,
+                                  "opacity-100",
+                                option.imgBg.secondary
                               )}
                             ></div>
                           )}
