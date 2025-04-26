@@ -1,13 +1,13 @@
 import React from "react";
 
 const colors = [
-  "text-red-600",
-  "text-orange-600",
-  "text-yellow-600",
-  "text-green-600",
-  "text-blue-600",
-  "text-indigo-600",
-  "text-purple-600",
+  "text-red-600 dark:text-red-500",
+  "text-orange-600 dark:text-orange-500",
+  "text-yellow-600 dark:text-yellow-500",
+  "text-green-600 dark:text-green-500",
+  "text-blue-600 dark:text-blue-500",
+  "text-indigo-600 dark:text-indigo-500",
+  "text-purple-600 dark:text-purple-500",
 ];
 
 interface RainbowTextProps {

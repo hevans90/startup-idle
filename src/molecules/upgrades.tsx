@@ -8,6 +8,7 @@ import {
 import { Button } from "../ui/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
+import { RainbowText } from "../utils/vibe-utils";
 
 const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
   const renderEffect = (effect: GeneratorEffect) => {
@@ -143,10 +144,19 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
               <Button
                 disabled={money.lt(upg.cost)}
                 key={upg.id}
-                className="flex flex-col gap-2 w-full p-4 responsive-text-sm"
+                className="flex w-full p-4 responsive-text-sm"
                 onClick={() => unlockUpgrade(upg.id)}
               >
-                {upg.name}: {formatCurrency(upg.cost)}
+                {upg.id.includes("vibe_coder") ? (
+                  <>
+                    <RainbowText text={upg.name} />
+                    <span>: {formatCurrency(upg.cost)}</span>
+                  </>
+                ) : (
+                  <>
+                    {upg.name}: {formatCurrency(upg.cost)}
+                  </>
+                )}
               </Button>
             </PopoverTrigger>
 
@@ -167,13 +177,26 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
                 key={upg.id}
                 className="bg-primary-300 dark:bg-primary-700 cursor-help p-2 responsive-text-xs"
               >
-                {upg?.abbreviation ?? "UPG"}
+                {upg.id.includes("vibe_coder") ? (
+                  <RainbowText text={upg?.abbreviation ?? "UPG"} />
+                ) : (
+                  <>{upg?.abbreviation ?? "UPG"}</>
+                )}
               </div>
             </PopoverTrigger>
 
             <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 w-[26rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col items-center gap-2">
-              <span className="responsive-text-xs">
-                {upg.name}: {formatCurrency(upg.cost)}
+              <span className="flex responsive-text-xs">
+                {upg.id.includes("vibe_coder") ? (
+                  <>
+                    <RainbowText text={upg.name} />
+                    <span>: {formatCurrency(upg.cost)}</span>
+                  </>
+                ) : (
+                  <>
+                    {upg.name}: {formatCurrency(upg.cost)}
+                  </>
+                )}
               </span>
               <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow text-center">
                 {upg.description}
