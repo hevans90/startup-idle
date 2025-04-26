@@ -22,7 +22,7 @@ export const ResetButton = () => {
   return (
     <Button
       onClick={totalReset}
-      className="bg-red-500 hover:bg-red-600 text-white px-4 py-2"
+      className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 responsive-text"
     >
       Reset Game
     </Button>

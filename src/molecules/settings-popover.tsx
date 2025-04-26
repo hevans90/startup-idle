@@ -23,12 +23,14 @@ export const SettingsPopover = ({
             className
           )}
         >
-          <IconSettings className="w-6 h-6 text-primary-900 dark:text-primary-200" />
+          <IconSettings className="w-6 h-6 xl:w-8 xl:h-8 2xl:w-10 2xl:h-10 3xl:w-14 3xl:h-14 text-primary-900 dark:text-primary-200" />
         </button>
       </PopoverTrigger>
 
-      <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4 w-48 outline-none focus:ring-0">
-        <PopoverHeading className="font-medium mb-2">Settings</PopoverHeading>
+      <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4 w-48 xl:w-52 2xl:w-56 3xl:w-64 outline-none focus:ring-0">
+        <PopoverHeading className="font-medium mb-2 responsive-text">
+          Settings
+        </PopoverHeading>
         <div className="flex flex-col gap-2">
           <ResetButton />
           <ThemeToggle />

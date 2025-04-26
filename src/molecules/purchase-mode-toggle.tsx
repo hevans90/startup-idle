@@ -22,7 +22,7 @@ export const PurchaseModeToggle = ({
     <Button
       onClick={handleToggle}
       className={twMerge(
-        "px-4 py-2 bg-gray-200 dark:bg-primary-700 text-black dark:text-white",
+        "px-4 py-2 bg-gray-200 dark:bg-primary-700 text-black dark:text-white responsive-text",
         className
       )}
     >
