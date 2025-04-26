@@ -1,6 +1,7 @@
 import { useGeneratorStore } from "../state/generators.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
+import { RainbowText } from "../utils/vibe-utils";
 import { GeneratorBuyButton } from "./generator-buy-button";
 
 export const Generators = ({ isMobile }: { isMobile: boolean }) => {
@@ -36,7 +37,12 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
               key={gen.id}
               className="flex responsive-text-sm justify-between items-center hover:cursor-help hover:bg-primary-300 dark:hover:bg-primary-700 py-1 px-2"
             >
-              <span className="grow">{gen.name}</span>
+              {gen.id === "vibe_coder" ? (
+                <RainbowText className="grow" text={gen.name} />
+              ) : (
+                <span className="grow">{gen.name}</span>
+              )}
+
               <span className="w-1/4 text-center">{gen.amount}</span>
               <GeneratorBuyButton
                 id={gen.id}
