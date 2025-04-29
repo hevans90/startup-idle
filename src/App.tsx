@@ -1,14 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import toast, { resolveValue, Toaster } from "react-hot-toast";
+import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
 import { Generators } from "./molecules/generators";
 import { InnovationCounter } from "./molecules/innovation-counter";
 import { PurchaseModeToggle } from "./molecules/purchase-mode-toggle";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Toolbar } from "./molecules/toolbar";
 import { Upgrades } from "./molecules/upgrades";
+import { Office } from "./office/office";
 import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
 import { useMoneyStore } from "./state/money.store";
+import { useThemeStore } from "./state/theme.store";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
 
@@ -16,11 +19,24 @@ function App() {
   const { money, increaseMoney } = useMoneyStore();
   const { innovation } = useInnovationStore();
 
+  const officeWrapperRef = useRef<HTMLDivElement>(null);
+  const wrapperSize = useResizeToWrapper(officeWrapperRef);
+
   const { tickGenerators } = useGeneratorStore();
 
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
 
   const isMobile = window.innerWidth <= 768;
+
+  const { theme } = useThemeStore();
+
+  useEffect(() => {
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [theme]);
 
   useEffect(() => {
     setInterval(() => {
@@ -63,18 +79,30 @@ function App() {
       ) : (
         <div className="flex w-full h-full">
           {/* LEFT PANEL */}
-          <div className="grow flex flex-col items-center gap-2">
+          <div className="w-2/3 flex flex-col items-center">
             <Toolbar />
-            <h1 className="responsive-header font-bold mt-16">Startup Idle</h1>
-            <section className="flex flex-col items-center">
-              <button
-                className="min-w-36 p-2 responsive-subheader cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600"
-                onClick={() => increaseMoney(Math.max(mps / 10, 1))}
-              >
-                {formatCurrency(money)}
-              </button>
-              <div className="responsive-text">({formatCurrency(mps)}/sec)</div>
-            </section>
+
+            <div ref={officeWrapperRef} className="w-full h-full relative">
+              <div className="absolute w-full">
+                <section className="flex flex-col items-center">
+                  <h1 className="responsive-header font-bold mt-6">
+                    Startup Idle
+                  </h1>
+                  <button
+                    className="min-w-36 p-2 responsive-subheader cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600"
+                    onClick={() => increaseMoney(Math.max(mps / 10, 1))}
+                  >
+                    {formatCurrency(money)}
+                  </button>
+                  <div className="responsive-text">
+                    ({formatCurrency(mps)}/sec)
+                  </div>
+                </section>
+                {/* {JSON.stringify(wrapperSize)} */}
+              </div>
+
+              {wrapperSize && <Office wrapperRef={officeWrapperRef} />}
+            </div>
           </div>
 
           {/* SIDEBAR */}
