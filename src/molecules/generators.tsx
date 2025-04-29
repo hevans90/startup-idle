@@ -51,9 +51,9 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
             </div>
           </PopoverTrigger>
 
-          <PopoverContent className="outline-none focus:ring-0 bg-primary-200 dark:bg-primary-900 p-2 flex flex-col gap-1 min-w-44">
+          <PopoverContent className="outline-none focus:ring-0 bg-primary-300 dark:bg-primary-800 p-2 flex flex-col gap-1 min-w-44">
             <div className="flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-500 dark:text-primary-300">
+              <span className="responsive-text-xs grow text-primary-700 dark:text-primary-300">
                 total:
               </span>
               <span className="responsive-text-xs">
@@ -64,7 +64,7 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
               </span>
             </div>
             <div className="flex items-center gap-3 justify-between border-b-[1px] border-primary-400 border-solid pb-2">
-              <span className="responsive-text-xs grow text-primary-500 dark:text-primary-300">
+              <span className="responsive-text-xs grow text-primary-600 dark:text-primary-300">
                 per:
               </span>
               <span className="responsive-text-xs">
@@ -72,7 +72,7 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
               </span>
             </div>
             <div className="flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-500 dark:text-primary-300">
+              <span className="responsive-text-xs grow text-primary-600 dark:text-primary-300">
                 base production:
               </span>
               <span className="responsive-text-xs">
