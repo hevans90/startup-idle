@@ -1,7 +1,19 @@
 import { Application, extend, useApplication } from "@pixi/react";
-import { Container, Graphics, Sprite } from "pixi.js";
-import { RefObject, useEffect } from "react";
+import {
+  Assets,
+  Container,
+  Graphics,
+  Sprite,
+  Spritesheet,
+  Texture,
+  TextureSource,
+} from "pixi.js";
+import { RefObject, useEffect, useMemo, useState } from "react";
+import tailwindColors from "tailwindcss/colors";
 import { useThemeStore } from "../state/theme.store";
+import { convertColorToHex } from "../utils/okl-to-rgb";
+import { generateGrid, screenToIsometric } from "./math-utils";
+import { atlasData } from "./sprites";
 
 extend({
   Container,
@@ -11,12 +23,19 @@ extend({
 
 type OfficeProps = {
   wrapperRef: RefObject<HTMLDivElement | null>;
+  wrapperSize: { width: number; height: number };
 };
 
-export const Office = ({ wrapperRef }: OfficeProps) => {
+export const Office = ({ wrapperRef, wrapperSize }: OfficeProps) => {
   return (
-    <Application resizeTo={wrapperRef}>
-      <World />
+    <Application
+      resizeTo={wrapperRef}
+      antialias={true}
+      autoDensity={true}
+      preference="webgpu"
+      resolution={4}
+    >
+      <World wrapperSize={wrapperSize} />
     </Application>
   );
 };
@@ -24,14 +43,30 @@ export const Office = ({ wrapperRef }: OfficeProps) => {
 const lightBg = window
   .getComputedStyle(document.body)
   ?.getPropertyValue("--color-primary-100");
+
 const darkBg = window
   .getComputedStyle(document.body)
   ?.getPropertyValue("--color-primary-700");
 
-const World = () => {
+const tileHover = convertColorToHex(tailwindColors.green["400"]);
+
+const World = ({
+  wrapperSize,
+}: {
+  wrapperSize: { width: number; height: number };
+}) => {
+  const [textures, setTextures] =
+    useState<Record<string, Texture<TextureSource>>>();
   const { app } = useApplication();
 
   const theme = useThemeStore((state) => state.theme);
+
+  const grid = useMemo(() => generateGrid(16, 16, (x, y) => ({ x, y })), []);
+
+  const [hoveredTile, setHoveredTile] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   useEffect(() => {
     if (app && app?.renderer && theme) {
@@ -44,5 +79,45 @@ const World = () => {
     }
   }, [app, app.renderer, theme]);
 
-  return <pixiContainer></pixiContainer>;
+  useEffect(() => {
+    const loadSpriteSheet = async () => {
+      const sheet: Texture = await Assets.load(atlasData.meta.image);
+
+      sheet.source.scaleMode = "nearest";
+      const spritesheet = new Spritesheet(sheet, atlasData);
+      return spritesheet.parse();
+    };
+
+    loadSpriteSheet().then(setTextures);
+  }, []);
+
+  return (
+    <pixiContainer>
+      {textures && wrapperSize
+        ? grid.map(({ x, y }) => {
+            const scale = 2;
+            // convert the screen coordinate to isometric coordinate
+            const [isometric_x, isometric_y] = screenToIsometric(x, y, scale);
+
+            const key = `${x}_${y}`;
+            const isHovered = hoveredTile?.x === x && hoveredTile.y === y;
+
+            return (
+              <pixiSprite
+                interactive={true}
+                key={key}
+                onPointerOver={() => setHoveredTile({ x, y })}
+                onPointerOut={() => setHoveredTile(null)}
+                texture={textures["dark_floor"]}
+                x={isometric_x + (wrapperSize.width - 32) / 2} // center horizontally
+                y={isometric_y + wrapperSize.height / 4} // align the y axis to one fourth of the screen
+                scale={scale} // scale into 4x
+                anchor={{ x: 0, y: 0 }}
+                tint={isHovered ? tileHover : 0xffffff} // highlight tint on hover
+              />
+            );
+          })
+        : null}
+    </pixiContainer>
+  );
 };

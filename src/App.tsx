@@ -98,15 +98,19 @@ function App() {
                     ({formatCurrency(mps)}/sec)
                   </div>
                 </section>
-                {/* {JSON.stringify(wrapperSize)} */}
               </div>
 
-              {wrapperSize && <Office wrapperRef={officeWrapperRef} />}
+              {wrapperSize && (
+                <Office
+                  wrapperRef={officeWrapperRef}
+                  wrapperSize={wrapperSize}
+                />
+              )}
             </div>
           </div>
 
           {/* SIDEBAR */}
-          <div className="bg-primary-200 dark:bg-primary-900 w-md xl:w-lg">
+          <div className="bg-primary-200 dark:bg-primary-900 grow">
             <div className="w-full p-2">
               <PurchaseModeToggle className="w-full" />
             </div>
