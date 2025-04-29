@@ -23,7 +23,7 @@ export const SettingsPopover = ({
       <PopoverTrigger asChild>
         <button
           className={twMerge(
-            "p-2 border-[1px] border-primary-500 hover:bg-primary-100 dark:hover:bg-primary-600 cursor-pointer",
+            "p-2 border-[1px] border-primary-500 hover:bg-primary-100 dark:hover:bg-primary-600 cursor-pointer flex justify-center items-center",
             className
           )}
         >

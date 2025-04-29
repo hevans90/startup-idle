@@ -4,6 +4,7 @@ import { Generators } from "./molecules/generators";
 import { InnovationCounter } from "./molecules/innovation-counter";
 import { PurchaseModeToggle } from "./molecules/purchase-mode-toggle";
 import { SettingsPopover } from "./molecules/settings-popover";
+import { Toolbar } from "./molecules/toolbar";
 import { Upgrades } from "./molecules/upgrades";
 import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
@@ -51,21 +52,20 @@ function App() {
             </button>
             <div className="text-sm">({formatCurrency(mps)}/sec)</div>
           </section>
+          {innovation.gte(1) && <InnovationCounter />}
           <PurchaseModeToggle />
           <Generators isMobile={true} />
           <section className="mt-8">
             <Upgrades isMobile={true} />
           </section>
+          <SettingsPopover className="absolute top-4 left-4" />
         </div>
       ) : (
         <div className="flex w-full h-full">
           {/* LEFT PANEL */}
           <div className="grow flex flex-col items-center gap-2">
-            <section className="flex flex-col items-center">
-              <h1 className="responsive-header font-bold mt-16">
-                Startup Idle
-              </h1>
-            </section>
+            <Toolbar />
+            <h1 className="responsive-header font-bold mt-16">Startup Idle</h1>
             <section className="flex flex-col items-center">
               <button
                 className="min-w-36 p-2 responsive-subheader cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600"
@@ -75,7 +75,6 @@ function App() {
               </button>
               <div className="responsive-text">({formatCurrency(mps)}/sec)</div>
             </section>
-            {innovation.gte(1) && <InnovationCounter />}
           </div>
 
           {/* SIDEBAR */}
@@ -90,8 +89,6 @@ function App() {
           </div>
         </div>
       )}
-
-      <SettingsPopover className="absolute top-4 left-4" />
     </>
   );
 }
