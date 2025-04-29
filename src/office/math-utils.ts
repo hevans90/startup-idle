@@ -1,4 +1,4 @@
-import { matrix, multiply } from "mathjs";
+import { inv, Matrix, matrix, multiply } from "mathjs";
 
 type Block = {
   x: number;
@@ -21,6 +21,31 @@ export function screenToIsometric(x: number, y: number, scale: number) {
     isometricWeights
   ).toArray();
   return isometricCoordinate as number[];
+}
+
+export function getHoveredTile(
+  screenX: number,
+  screenY: number,
+  scale: number
+): { x: number; y: number } {
+  // Inverse of the isometric transformation matrix
+  const isometricWeights = matrix([
+    [0.5, 0.25],
+    [-0.5, 0.25],
+  ]);
+  const inverseMatrix = inv(isometricWeights) as Matrix;
+
+  // Undo scale and tile size
+  const worldX = screenX / (18 * scale);
+  const worldY = screenY / (18 * scale);
+
+  const result = multiply(matrix([[worldX, worldY]]), inverseMatrix) as Matrix;
+  const resultArray = result.toArray() as number[][];
+
+  const tileX = Math.floor(resultArray[0][0]);
+  const tileY = Math.floor(resultArray[0][1]);
+
+  return { x: tileX, y: tileY };
 }
 
 export function generateGrid<T extends Block = Block>(

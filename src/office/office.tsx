@@ -1,4 +1,4 @@
-import { Application, extend, useApplication } from "@pixi/react";
+import { Application, extend, useApplication, useTick } from "@pixi/react";
 import {
   Assets,
   Container,
@@ -12,7 +12,7 @@ import { RefObject, useEffect, useMemo, useState } from "react";
 import tailwindColors from "tailwindcss/colors";
 import { useThemeStore } from "../state/theme.store";
 import { convertColorToHex } from "../utils/okl-to-rgb";
-import { generateGrid, screenToIsometric } from "./math-utils";
+import { generateGrid, getHoveredTile, screenToIsometric } from "./math-utils";
 import { atlasData } from "./sprites";
 
 extend({
@@ -61,7 +61,13 @@ const World = ({
 
   const theme = useThemeStore((state) => state.theme);
 
-  const grid = useMemo(() => generateGrid(16, 16, (x, y) => ({ x, y })), []);
+  const rows = 16;
+  const cols = 16;
+
+  const grid = useMemo(
+    () => generateGrid(rows, cols, (x, y) => ({ x, y })),
+    []
+  );
 
   const [hoveredTile, setHoveredTile] = useState<{
     x: number;
@@ -91,28 +97,44 @@ const World = ({
     loadSpriteSheet().then(setTextures);
   }, []);
 
+  const scale = 2;
+  const TILE_HEIGHT = 18;
+
+  const checkHoveredTile = () => {
+    const pos = app.renderer.events.pointer.global;
+    const { x, y } = getHoveredTile(
+      pos.x - wrapperSize.width / 2,
+      pos.y - wrapperSize.height / 4 + TILE_HEIGHT / 2, // subtract half-tile to match anchor center
+
+      scale
+    );
+    console.log({ x, y });
+    setHoveredTile({ x, y });
+  };
+
+  useTick(() => {
+    checkHoveredTile();
+  });
+
   return (
     <pixiContainer>
       {textures && wrapperSize
         ? grid.map(({ x, y }) => {
-            const scale = 2;
             // convert the screen coordinate to isometric coordinate
             const [isometric_x, isometric_y] = screenToIsometric(x, y, scale);
 
             const key = `${x}_${y}`;
-            const isHovered = hoveredTile?.x === x && hoveredTile.y === y;
+            const isHovered =
+              hoveredTile && hoveredTile.x === x && hoveredTile.y === y;
 
             return (
               <pixiSprite
-                interactive={true}
                 key={key}
-                onPointerOver={() => setHoveredTile({ x, y })}
-                onPointerOut={() => setHoveredTile(null)}
                 texture={textures["dark_floor"]}
-                x={isometric_x + (wrapperSize.width - 32) / 2} // center horizontally
+                x={isometric_x + wrapperSize.width / 2} // center horizontally
                 y={isometric_y + wrapperSize.height / 4} // align the y axis to one fourth of the screen
                 scale={scale} // scale into 4x
-                anchor={{ x: 0, y: 0 }}
+                anchor={{ x: 0.5, y: 0.5 }}
                 tint={isHovered ? tileHover : 0xffffff} // highlight tint on hover
               />
             );
