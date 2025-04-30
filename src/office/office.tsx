@@ -13,7 +13,7 @@ import tailwindColors from "tailwindcss/colors";
 import { useThemeStore } from "../state/theme.store";
 import { convertColorToHex } from "../utils/okl-to-rgb";
 import { generateGrid, getHoveredTile, screenToIsometric } from "./math-utils";
-import { atlasData } from "./sprites";
+import { atlasData, TerrainKey } from "./sprites";
 
 extend({
   Container,
@@ -48,7 +48,7 @@ const darkBg = window
   .getComputedStyle(document.body)
   ?.getPropertyValue("--color-primary-700");
 
-const tileHover = convertColorToHex(tailwindColors.green["400"]);
+const tileHover = convertColorToHex(tailwindColors.green["200"]);
 
 const World = ({
   wrapperSize,
@@ -56,19 +56,38 @@ const World = ({
   wrapperSize: { width: number; height: number };
 }) => {
   const [textures, setTextures] =
-    useState<Record<string, Texture<TextureSource>>>();
+    useState<Record<TerrainKey, Texture<TextureSource>>>();
   const { app } = useApplication();
 
   const theme = useThemeStore((state) => state.theme);
 
   const rows = 16;
-  const cols = 16;
+  const cols = 24;
 
   const grid = useMemo(
-    () => generateGrid(rows, cols, (x, y) => ({ x, y })),
-    []
-  );
+    () =>
+      generateGrid(rows, cols, (x, y) => {
+        let terrain: TerrainKey;
 
+        if (x === Math.floor(cols / 2)) {
+          terrain = "paving"; // path
+        } else if (
+          x === Math.floor(cols / 2) + 1 ||
+          x === Math.floor(cols / 2) + 3
+        ) {
+          terrain = "asphalt";
+        } else if (x === Math.floor(cols / 2) + 2) {
+          terrain = "road";
+        } else if (x < cols / 2 && y < rows / 2) {
+          terrain = "dark_green_grass"; // garden
+        } else {
+          terrain = "dirt"; // fallback
+        }
+
+        return { x, y, terrain };
+      }),
+    [rows, cols]
+  );
   const [hoveredTile, setHoveredTile] = useState<{
     x: number;
     y: number;
@@ -97,7 +116,7 @@ const World = ({
     loadSpriteSheet().then(setTextures);
   }, []);
 
-  const scale = 2;
+  const scale = 3;
   const TILE_HEIGHT = 18;
 
   const checkHoveredTile = () => {
@@ -105,7 +124,6 @@ const World = ({
     const { x, y } = getHoveredTile(
       pos.x - wrapperSize.width / 2,
       pos.y - wrapperSize.height / 4 + TILE_HEIGHT / 2, // subtract half-tile to match anchor center
-
       scale
     );
     console.log({ x, y });
@@ -119,7 +137,7 @@ const World = ({
   return (
     <pixiContainer>
       {textures && wrapperSize
-        ? grid.map(({ x, y }) => {
+        ? grid.map(({ x, y, terrain }) => {
             // convert the screen coordinate to isometric coordinate
             const [isometric_x, isometric_y] = screenToIsometric(x, y, scale);
 
@@ -130,7 +148,7 @@ const World = ({
             return (
               <pixiSprite
                 key={key}
-                texture={textures["dark_floor"]}
+                texture={textures[terrain]}
                 x={isometric_x + wrapperSize.width / 2} // center horizontally
                 y={isometric_y + wrapperSize.height / 4} // align the y axis to one fourth of the screen
                 scale={scale} // scale into 4x

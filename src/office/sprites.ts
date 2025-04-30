@@ -19,7 +19,9 @@ export const atlasData = {
     dirt: generateFrameData(8, 0),
     dark_green_grass_dirt: generateFrameData(0, 1),
     dark_green_grass_dirt_with_seedling: generateFrameData(1, 1),
-    dark_floor: generateFrameData(0, 6),
+    asphalt: generateFrameData(0, 6),
+    road: generateFrameData(0, 7),
+    paving: generateFrameData(4, 6),
   },
   meta: {
     // renamed one of the sprite sheets into `structural_blocks.png`
@@ -31,3 +33,5 @@ export const atlasData = {
     scale: 1,
   },
 };
+
+export type TerrainKey = keyof typeof atlasData.frames;
