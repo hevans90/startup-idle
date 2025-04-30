@@ -121,7 +121,7 @@ const World = ({
     const pos = app.renderer.events.pointer.global;
     const { x, y } = getHoveredTile(
       pos.x - wrapperSize.width / 2,
-      pos.y - wrapperSize.height / 4 + TILE_HEIGHT / 2, // subtract half-tile to match anchor center
+      pos.y - wrapperSize.height / 4 + TILE_HEIGHT, // subtract half-tile to match anchor center
       scale
     );
     console.log({ x, y });
