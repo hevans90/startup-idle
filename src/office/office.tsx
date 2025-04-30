@@ -9,9 +9,7 @@ import {
   TextureSource,
 } from "pixi.js";
 import { RefObject, useEffect, useMemo, useState } from "react";
-import tailwindColors from "tailwindcss/colors";
 import { useThemeStore } from "../state/theme.store";
-import { convertColorToHex } from "../utils/okl-to-rgb";
 import { generateGrid, getHoveredTile, screenToIsometric } from "./math-utils";
 import { atlasData, TerrainKey } from "./sprites";
 
@@ -48,7 +46,7 @@ const darkBg = window
   .getComputedStyle(document.body)
   ?.getPropertyValue("--color-primary-700");
 
-const tileHover = convertColorToHex(tailwindColors.green["200"]);
+// const tileHover = convertColorToHex(tailwindColors.gray["200"]);
 
 const World = ({
   wrapperSize,
@@ -153,7 +151,7 @@ const World = ({
                 y={isometric_y + wrapperSize.height / 4} // align the y axis to one fourth of the screen
                 scale={scale} // scale into 4x
                 anchor={{ x: 0.5, y: 0.5 }}
-                tint={isHovered ? tileHover : 0xffffff} // highlight tint on hover
+                tint={isHovered ? 0.7 * 0xffffff : 0xffffff} // highlight tint on hover
               />
             );
           })
