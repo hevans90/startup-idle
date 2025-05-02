@@ -9,9 +9,12 @@ import {
   TextureSource,
 } from "pixi.js";
 import { RefObject, useEffect, useMemo, useState } from "react";
+import { useOfficeStore } from "../state/office.store";
 import { useThemeStore } from "../state/theme.store";
 import { generateGrid, getHoveredTile, screenToIsometric } from "./math-utils";
 import { atlasData, TerrainKey } from "./sprites";
+import { useDisableDOMZoom } from "./utils/use-disable-dom-zoom";
+import { AppViewport } from "./viewport";
 
 extend({
   Container,
@@ -25,6 +28,8 @@ type OfficeProps = {
 };
 
 export const Office = ({ wrapperRef, wrapperSize }: OfficeProps) => {
+  useDisableDOMZoom({ wrapperRef });
+
   return (
     <Application
       resizeTo={wrapperRef}
@@ -33,7 +38,9 @@ export const Office = ({ wrapperRef, wrapperSize }: OfficeProps) => {
       preference="webgpu"
       resolution={4}
     >
-      <World wrapperSize={wrapperSize} />
+      <AppViewport screenSize={wrapperSize}>
+        <World wrapperSize={wrapperSize} />
+      </AppViewport>
     </Application>
   );
 };
@@ -57,17 +64,19 @@ const World = ({
     useState<Record<TerrainKey, Texture<TextureSource>>>();
   const { app } = useApplication();
 
+  const viewport = useOfficeStore((state) => state.viewport);
+
   const theme = useThemeStore((state) => state.theme);
 
-  const rows = 16;
-  const cols = 24;
+  const rows = 32;
+  const cols = 32;
 
   const grid = useMemo(
     () =>
       generateGrid(rows, cols, (x, y) => {
         let terrain: TerrainKey;
 
-        if (x === Math.floor(cols / 2)) {
+        if (x === Math.floor(cols / 2) || x === Math.floor(cols / 2) + 4) {
           terrain = "paving"; // path
         } else if (
           x === Math.floor(cols / 2) + 1 ||
@@ -118,7 +127,9 @@ const World = ({
   const TILE_HEIGHT = 18;
 
   const checkHoveredTile = () => {
-    const pos = app.renderer.events.pointer.global;
+    if (!viewport) return;
+
+    const pos = viewport.toWorld(app.renderer.events.pointer.global);
     const { x, y } = getHoveredTile(
       pos.x - wrapperSize.width / 2,
       pos.y - wrapperSize.height / 4 + TILE_HEIGHT, // subtract half-tile to match anchor center

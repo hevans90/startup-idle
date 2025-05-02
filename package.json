@@ -21,6 +21,7 @@
     "class-variance-authority": "^0.7.1",
     "culori": "^4.0.1",
     "mathjs": "^14.4.0",
+    "pixi-viewport": "^6.0.3",
     "pixi.js": "^8.9.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -43,5 +44,8 @@
     "typescript-eslint": "^8.26.1",
     "vite": "^6.3.1",
     "vite-plugin-svgr": "^4.3.0"
+  },
+  "patchedDependencies": {
+    "@pixi/react@8.0.1": "patches/@pixi%2Freact@8.0.1.patch"
   }
 }

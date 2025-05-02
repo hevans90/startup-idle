@@ -1,0 +1,13 @@
+diff --git a/types/index.d.ts b/types/index.d.ts
+index ae44bf759f97c99430772941dcfd441962ece7dc..2b775f032d3c8c0b95f53e38c487ef081d3f5839 100644
+--- a/types/index.d.ts
++++ b/types/index.d.ts
+@@ -6,6 +6,8 @@ export { useApplication } from './hooks/useApplication';
+ export { useExtend } from './hooks/useExtend';
+ export { useTick } from './hooks/useTick';
+ export { type ApplicationRef } from './typedefs/ApplicationRef';
++export * from './typedefs/DrawCallback';
+ export { type PixiElements } from './typedefs/PixiElements';
++export * from './typedefs/PixiReactNode';
+ export { type PixiReactElementProps } from './typedefs/PixiReactNode';
+ export { type UnprefixedPixiElements } from './typedefs/UnprefixedPixiElements';
