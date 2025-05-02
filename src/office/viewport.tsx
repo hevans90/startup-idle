@@ -107,16 +107,17 @@ export const AppViewport = memo(
     }
 
     return (
+      // @ts-expect-error nice
       <viewport
         label="viewport"
         screenWidth={screenSize.width}
         screenHeight={screenSize.height}
-        // @ts-expect-error nice
         events={events}
         ticker={ticker}
         ref={viewportRef}
       >
         {children}
+        {/* @ts-expect-error nice */}
       </viewport>
     );
   }
