@@ -3,9 +3,10 @@ import { memo, useCallback, useEffect, useRef } from "react";
 import { extend, useApplication } from "@pixi/react";
 
 import { Viewport } from "pixi-viewport";
-import { Text } from "pixi.js";
+import { Rectangle, Text } from "pixi.js";
 
 import { useOfficeStore } from "../state/office.store";
+import { clampViewport } from "./utils/clamp-viewport";
 import { updateScaledObjects } from "./utils/update-scaled-objects";
 
 extend({ Viewport, Text });
@@ -47,7 +48,7 @@ export const AppViewport = memo(
             wheelZoom: false,
           })
           .clampZoom({
-            minScale: 0.01,
+            minScale: 0.1,
             maxScale: 15,
           });
 
@@ -60,8 +61,11 @@ export const AppViewport = memo(
         };
 
         const onZoomEnd = () => {
-          // viewportRef.current &&
-          //   clampViewport(viewportRef.current, assetBounds);
+          if (viewportRef.current)
+            clampViewport(
+              viewportRef.current,
+              new Rectangle(0, 0, screenSize.width, screenSize.height)
+            );
         };
 
         const onSnapZoomEnd = () => {
@@ -73,23 +77,21 @@ export const AppViewport = memo(
         viewportRef.current.on("zoomed", onZoomed);
         viewportRef.current.on("zoomed-end", onZoomEnd);
         viewportRef.current.on("snap-zoom-end", onSnapZoomEnd);
-        // viewportRef.current.on("drag-start", onDragStart);
-        // viewportRef.current.on("drag-end", onDragEnd);
 
         setViewport(viewportRef.current);
         console.info("VIEWPORT: bootstrapped");
+
+        viewportRef.current.fitWidth(screenSize.width * 2, true);
 
         return () => {
           if (viewportRef.current) {
             viewportRef.current.off("zoomed", onZoomed);
             viewportRef.current.off("zoomed-end", onZoomEnd);
             viewportRef.current.off("snap-zoom-end", onSnapZoomEnd);
-            // viewportRef.current.off("drag-start", onDragStart);
-            // viewportRef.current.off("drag-end", onDragEnd);
           }
         };
       } else {
-        console.error("VIEWPORT: not initializing, no ref... retrying");
+        console.error("VIEWPORT: failed, retrying...");
         const timeoutId = setTimeout(initViewport, 100); // Retry after 100ms
         return () => clearTimeout(timeoutId);
       }
@@ -102,7 +104,9 @@ export const AppViewport = memo(
     }, [initViewport]);
 
     if (!ticker || !events) {
-      console.error("VIEWPORT: events or ticker undefined, bailing render");
+      console.error(
+        "VIEWPORT: events or ticker undefined, skipping render cycle"
+      );
       return null;
     }
 
