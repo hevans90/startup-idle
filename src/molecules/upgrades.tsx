@@ -160,7 +160,7 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
               </Button>
             </PopoverTrigger>
 
-            <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 max-w-[34rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col gap-2">
+            <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 max-w-[39rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col gap-2">
               <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow text-center">
                 {upg.description}
               </div>

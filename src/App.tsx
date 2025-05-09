@@ -5,6 +5,7 @@ import { Generators } from "./molecules/generators";
 import { InnovationCounter } from "./molecules/innovation-counter";
 import { PurchaseModeToggle } from "./molecules/purchase-mode-toggle";
 import { SettingsPopover } from "./molecules/settings-popover";
+import { Sidebar } from "./molecules/sidebar";
 import { Toolbar } from "./molecules/toolbar";
 import { Upgrades } from "./molecules/upgrades";
 import { Office } from "./office/office";
@@ -110,15 +111,7 @@ function App() {
           </div>
 
           {/* SIDEBAR */}
-          <div className="bg-primary-200 dark:bg-primary-900 grow">
-            <div className="w-full p-2">
-              <PurchaseModeToggle className="w-full" />
-            </div>
-            <div className="flex flex-col gap-8">
-              <Generators isMobile={false} />
-              <Upgrades isMobile={false} />
-            </div>
-          </div>
+          <Sidebar className="grow" />
         </div>
       )}
     </>
