@@ -68,20 +68,15 @@ export const ToolbarInnovationCounter = ({
 
       <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4  outline-none focus:ring-0">
         <div className="flex flex-col gap-2 items-center justify-center">
-          {innovation.lte(1) && (
-            <>Reach 1.0 innovation to unlock new mechanics</>
-          )}
-          {innovation.gte(1) && (
-            <>
-              <span>Innovation - better employees grow innovation faster:</span>
-              <span className="opacity-50">({formatRate(ips).formatted})</span>
-              <span>
-                The more innovation, the higher global multiplier for ALL
-                resources:
-              </span>
-              <span className="opacity-50">x{globalMultiplier}</span>
-            </>
-          )}
+          <>
+            <span>Innovation - better employees grow innovation faster:</span>
+            <span className="opacity-50">({formatRate(ips).formatted})</span>
+            <span>
+              The more innovation, the higher global multiplier for ALL
+              resources:
+            </span>
+            <span className="opacity-50">x{globalMultiplier}</span>
+          </>
         </div>
       </PopoverContent>
     </Popover>

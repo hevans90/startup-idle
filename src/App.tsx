@@ -24,6 +24,7 @@ function App() {
   const wrapperSize = useResizeToWrapper(officeWrapperRef);
 
   const { tickGenerators } = useGeneratorStore();
+  const { tickManagers } = useInnovationStore();
 
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
 
@@ -42,7 +43,8 @@ function App() {
   useEffect(() => {
     setInterval(() => {
       tickGenerators();
-    }, 200); // check every 200ms for ticks
+      tickManagers();
+    }, 50); // check every 50ms for ticks
   }, []);
 
   return (
@@ -111,7 +113,7 @@ function App() {
           </div>
 
           {/* SIDEBAR */}
-          <Sidebar className="grow" />
+          <Sidebar className="grow max-w-1/3" />
         </div>
       )}
     </>
