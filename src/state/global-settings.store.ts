@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-type SidebarTab = "generators" | "innovation";
+export type SidebarTab = "employees" | "innovation";
 
 type GlobalSettingsStore = {
   sidebarTab: SidebarTab;
@@ -11,7 +11,7 @@ type GlobalSettingsStore = {
 export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
   persist(
     (set) => ({
-      sidebarTab: "generators",
+      sidebarTab: "employees",
       setSidebarTab: (tab: SidebarTab) => {
         set({ sidebarTab: tab });
       },

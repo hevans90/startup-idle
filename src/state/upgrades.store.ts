@@ -146,7 +146,7 @@ const INTERN_UPGRADES: Upgrade[] = [
     cost: 5e6,
   },
   {
-    id: "intern_hybrid_upgrade_1",
+    id: "intern_hybrid_upgrade_2",
     abbreviation: "IN8",
     name: "Vape Mentorships",
     description:

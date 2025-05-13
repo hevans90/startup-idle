@@ -1,5 +1,7 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
+import { useGlobalSettingsStore } from "../state/global-settings.store";
 import { useInnovationStore } from "../state/innovation.store";
+import { ProgressBar } from "../ui/ProgressBar";
 import Tabs from "../ui/Tabs";
 import { Generators } from "./generators";
 import { PurchaseModeToggle } from "./purchase-mode-toggle";
@@ -9,16 +11,21 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const { innovation } = useInnovationStore();
 
   const innovationEnabled = innovation.gte(1);
+
+  const { sidebarTab, setSidebarTab } = useGlobalSettingsStore();
+
   return (
     <div className={twMerge("bg-primary-200 dark:bg-primary-900", className)}>
       <Tabs
+        selectedTab={sidebarTab}
+        onTabChange={setSidebarTab}
         tabs={[
-          { id: "production", label: "Production" },
+          { id: "employees", label: "Employees" },
           { id: "innovation", label: "Innovation", hidden: !innovationEnabled },
         ]}
       >
         {{
-          production: (
+          employees: (
             <div>
               <div className="w-full p-2">
                 <PurchaseModeToggle className="w-full" />
@@ -31,7 +38,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
           ),
           innovation: (
             <div className="p-2 w-full h-full flex items-center justify-center">
-              Coming soon!
+              <ProgressBar value={30} />
             </div>
           ),
         }}
