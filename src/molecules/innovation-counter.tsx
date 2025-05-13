@@ -1,5 +1,6 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useGeneratorStore } from "../state/generators.store";
+import { useGlobalSettingsStore } from "../state/global-settings.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatRate } from "../utils/rate-utils";
@@ -42,28 +43,45 @@ export const ToolbarInnovationCounter = ({
 }: {
   className?: ClassNameValue;
 }) => {
-  const { innovation } = useInnovationStore();
+  const { innovation, getMultiplier } = useInnovationStore();
+
+  const globalMultiplier = getMultiplier().toFixed(2);
 
   const ips = useGeneratorStore((state) => state.getInnovationPerSecond());
+
+  const { setSidebarTab } = useGlobalSettingsStore();
 
   return (
     <Popover openOnHover={true} persistOnHoverContent={true} placement="bottom">
       <PopoverTrigger asChild>
-        <div
+        <button
           className={twMerge(
-            "responsive-text cursor-help h-full flex items-center gap-1",
+            "responsive-text cursor-pointer h-full flex items-center gap-1",
             className
           )}
+          onClick={() => setSidebarTab("innovation")}
         >
           <span className="opacity-50">I:</span>
           <span className="">{innovation.toFixed(2)} </span>
-        </div>
+        </button>
       </PopoverTrigger>
 
       <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4  outline-none focus:ring-0">
         <div className="flex flex-col gap-2 items-center justify-center">
-          Innovation mechanics coming soon!
-          <span className="opacity-50">({formatRate(ips).formatted})</span>
+          {innovation.lte(1) && (
+            <>Reach 1.0 innovation to unlock new mechanics</>
+          )}
+          {innovation.gte(1) && (
+            <>
+              <span>Innovation - better employees grow innovation faster:</span>
+              <span className="opacity-50">({formatRate(ips).formatted})</span>
+              <span>
+                The more innovation, the higher global multiplier for ALL
+                resources:
+              </span>
+              <span className="opacity-50">x{globalMultiplier}</span>
+            </>
+          )}
         </div>
       </PopoverContent>
     </Popover>

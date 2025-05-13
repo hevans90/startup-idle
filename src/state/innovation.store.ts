@@ -3,34 +3,79 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
 
-type InnovationState = {
-  innovation: Decimal;
-  increaseInnovation: (increment: number) => void;
-  spendInnovation: (decrement: number) => void;
+const LOCAL_STORAGE_KEY = "innovation";
 
-  reset: () => void;
+const unlockInitialState = {
+  managers: { unlocked: false, cost: new Decimal(1) },
+  // valuationGamba: false,
 };
 
-const LOCAL_STORAGE_KEY = "innovation";
+type UnlockKeys = keyof typeof unlockInitialState;
+
+type InnovationState = {
+  innovation: Decimal;
+  getMultiplier: () => Decimal;
+
+  // Innovation controls
+  increaseInnovation: (increment: number) => void;
+  spendInnovation: (decrement: number) => void;
+  reset: () => void;
+
+  // Unlockables
+  unlocks: Record<UnlockKeys, { unlocked: boolean; cost: Decimal }>;
+  canUnlock: (key: UnlockKeys) => boolean;
+  unlock: (key: UnlockKeys) => void;
+};
 
 export const useInnovationStore = create<InnovationState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       innovation: new Decimal(0),
+      unlocks: { ...unlockInitialState },
+
+      getMultiplier: () => {
+        const { innovation } = get();
+        return new Decimal(Decimal.log10(innovation.add(1)) + 1);
+      },
+
       increaseInnovation: (increment: number) => {
-        set((state) => {
-          const newMoney = state.innovation.add(increment);
-          return { innovation: newMoney };
-        });
+        set((state) => ({
+          innovation: state.innovation.add(increment),
+        }));
       },
+
       spendInnovation: (decrement: number) => {
-        set((state) => {
-          const newInnovation = state.innovation.subtract(decrement);
-          return { innovation: newInnovation };
+        set((state) => ({
+          innovation: state.innovation.sub(decrement),
+        }));
+      },
+
+      reset: () => {
+        set({
+          innovation: new Decimal(0),
+          unlocks: { ...unlockInitialState },
         });
       },
-      reset: () => {
-        set({ innovation: new Decimal(0) });
+
+      canUnlock: (key) => {
+        const { innovation, unlocks } = get();
+        return (
+          !unlocks[key].unlocked &&
+          innovation.greaterThanOrEqualTo(unlocks[key].cost)
+        );
+      },
+
+      unlock: (key) => {
+        const { canUnlock, spendInnovation, unlocks } = get();
+        if (canUnlock(key)) {
+          spendInnovation(unlocks[key].cost.toNumber());
+          set((state) => ({
+            unlocks: {
+              ...state.unlocks,
+              [key]: { unlocked: true, cost: unlocks[key].cost },
+            },
+          }));
+        }
       },
     }),
     {

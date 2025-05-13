@@ -184,6 +184,10 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
       const globalTickInterval = now - get().globalLastTick;
       if (globalTickInterval < 1000) return;
 
+      const innovationMultiplier = useInnovationStore
+        .getState()
+        .getMultiplier();
+
       set({ globalLastTick: now });
 
       const updatedGenerators = get().generators.map((gen) => {
@@ -191,6 +195,7 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
         const ticks = Math.floor(globalTickInterval / gen.interval);
         if (ticks > 0) {
           const income = new Decimal(gen.baseProduction)
+            .times(innovationMultiplier)
             .times(gen.amount)
             .times(gen.multiplier)
             .times(ticks);
@@ -229,8 +234,15 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
       return get().generators.reduce((sum, gen) => {
         if (gen.amount === 0) return sum;
 
+        const innovationMultiplier = useInnovationStore
+          .getState()
+          .getMultiplier();
+
         const perSecond =
-          (gen.baseProduction * gen.amount * gen.multiplier) /
+          (innovationMultiplier.toNumber() *
+            gen.baseProduction *
+            gen.amount *
+            gen.multiplier) /
           (gen.interval / 1000); // Fixed money per second calculation
 
         return sum + perSecond;

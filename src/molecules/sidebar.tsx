@@ -1,9 +1,9 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 import { useInnovationStore } from "../state/innovation.store";
-import { ProgressBar } from "../ui/ProgressBar";
 import Tabs from "../ui/Tabs";
 import { Generators } from "./generators";
+import { InnovationManagers } from "./innovation-managers";
 import { PurchaseModeToggle } from "./purchase-mode-toggle";
 import { Upgrades } from "./upgrades";
 
@@ -38,7 +38,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
           ),
           innovation: (
             <div className="p-2 w-full h-full flex items-center justify-center">
-              <ProgressBar value={30} />
+              <InnovationManagers />
             </div>
           ),
         }}
