@@ -3,6 +3,9 @@ import Decimal from "break_infinity.js";
 
 // Key-aware replacer for Decimal
 export function decimalReplacer(key: string, value: unknown): unknown {
+  if (!key) {
+    //
+  }
   if (value instanceof Decimal) {
     return { type: "decimal", value: value.toString() };
   }
@@ -16,6 +19,9 @@ function isValidNumber(value: string) {
 
 // Key-aware reviver for Decimal
 export function decimalReviver(key: string, value: any): unknown {
+  if (!key) {
+    //
+  }
   if (value && isValidNumber(value)) {
     return new Decimal(value);
   }

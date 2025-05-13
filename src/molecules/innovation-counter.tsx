@@ -45,7 +45,7 @@ export const ToolbarInnovationCounter = ({
 }) => {
   const { innovation, getMultiplier } = useInnovationStore();
 
-  const globalMultiplier = getMultiplier().toFixed(2);
+  const globalMultiplier = getMultiplier().toFixed(4);
 
   const ips = useGeneratorStore((state) => state.getInnovationPerSecond());
 

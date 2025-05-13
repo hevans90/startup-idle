@@ -15,7 +15,7 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
     >
       <SettingsPopover className="border-none w-14 h-full" />
 
-      {innovation.gte(0.1) && <ToolbarInnovationCounter />}
+      {innovation.gte(0.01) && <ToolbarInnovationCounter />}
     </div>
   );
 };
