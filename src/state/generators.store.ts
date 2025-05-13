@@ -107,6 +107,7 @@ const loadGenerators = (): OwnedGenerator[] => {
       ...gen,
       amount: saved?.amount ?? 0,
       multiplier: saved?.multiplier ?? 1,
+      costExponent: saved?.costExponent ?? gen.costExponent,
       costMultiplier: saved?.costMultiplier ?? 1,
       lastTick: saved?.lastTick ?? Date.now(),
       innovationMultiplier: saved?.innovationMultiplier ?? 1,

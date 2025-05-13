@@ -1,6 +1,5 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
-import { useInnovationStore } from "../state/innovation.store";
 import Tabs from "../ui/Tabs";
 import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation-managers";
@@ -8,10 +7,6 @@ import { PurchaseModeToggle } from "./purchase-mode-toggle";
 import { Upgrades } from "./upgrades";
 
 export const Sidebar = ({ className }: { className: ClassNameValue }) => {
-  const { innovation } = useInnovationStore();
-
-  const innovationEnabled = innovation.gte(0.1);
-
   const { sidebarTab, setSidebarTab } = useGlobalSettingsStore();
 
   return (
@@ -21,7 +16,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
         onTabChange={setSidebarTab}
         tabs={[
           { id: "employees", label: "Employees" },
-          { id: "innovation", label: "Innovation", hidden: !innovationEnabled },
+          { id: "innovation", label: "Innovation" },
         ]}
       >
         {{

@@ -135,7 +135,6 @@ const World = ({
       pos.y - wrapperSize.height / 4 + TILE_HEIGHT, // subtract half-tile to match anchor center
       scale
     );
-    console.log({ x, y });
     setHoveredTile({ x, y });
   };
 
