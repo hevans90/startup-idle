@@ -253,7 +253,7 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
         changes: [{ type: "multiplier", value: 3 }],
       },
     ],
-    cost: 1e6,
+    cost: 5e5,
   },
   {
     id: "vibe_coder_upgrade_4",
