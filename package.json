@@ -20,6 +20,7 @@
     "break_infinity.js": "^2.2.0",
     "class-variance-authority": "^0.7.1",
     "culori": "^4.0.1",
+    "date-fns": "^4.1.0",
     "mathjs": "^14.4.0",
     "pixi-viewport": "^6.0.3",
     "pixi.js": "^8.9.1",

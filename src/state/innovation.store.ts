@@ -1,4 +1,5 @@
 import Decimal from "break_infinity.js";
+import { formatDistanceToNow } from "date-fns";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
@@ -7,8 +8,10 @@ const LOCAL_STORAGE_KEY = "innovation";
 
 const unlockInitialState = {
   managers: { unlocked: false, cost: new Decimal(1) },
+  employeeManagement: { unlocked: false, cost: new Decimal(5) },
 };
 
+const PROGRESS_THRESHOLD = new Decimal(100);
 const MANGER_TICK_INTERVAL = 200;
 
 type UnlockKeys = keyof typeof unlockInitialState;
@@ -22,6 +25,34 @@ const managerCostGrowth = new Decimal(1.5);
 export function getManagerCost(assignments: Decimal): Decimal {
   return baseManagerCost.mul(managerCostGrowth.pow(assignments));
 }
+
+const estimateTimeToNextTierFormatted = (manager: {
+  assignment: Decimal;
+  progress: Decimal;
+  tier: Decimal;
+  tierScalingExponent: Decimal;
+  growthRate: Decimal;
+}): string => {
+  if (manager.assignment.equals(0)) return "∞ (no assignment)";
+
+  const tierModifier = Decimal.pow(manager.tierScalingExponent, manager.tier);
+  const gainPerTick = manager.assignment
+    .mul(manager.growthRate)
+    .div(tierModifier);
+
+  if (gainPerTick.equals(0)) return "∞ (no gain)";
+
+  const remaining = PROGRESS_THRESHOLD.sub(manager.progress);
+  const ticksNeeded = remaining.div(gainPerTick);
+  const estimatedTimeMs = ticksNeeded.mul(MANGER_TICK_INTERVAL).toNumber();
+
+  const estimatedDate = new Date(Date.now() + estimatedTimeMs);
+
+  return formatDistanceToNow(estimatedDate, {
+    addSuffix: true,
+    includeSeconds: true,
+  });
+};
 
 type InnovationState = {
   innovation: Decimal;
@@ -38,12 +69,56 @@ type InnovationState = {
 
   managers: Record<
     ManagerKeys,
-    { assignment: Decimal; progress: Decimal; tier: Decimal }
+    {
+      assignment: Decimal;
+      progress: Decimal;
+      tier: Decimal;
+      tierScalingExponent: Decimal;
+      growthRate: Decimal;
+      estimateToNextTier: string;
+    }
   >;
 
   assignManager: (key: ManagerKeys) => void;
   unassignManager: (key: ManagerKeys) => void;
   tickManagers: () => void;
+};
+
+const initialManagerState: Record<
+  ManagerKeys,
+  {
+    assignment: Decimal;
+    progress: Decimal;
+    tier: Decimal;
+    tierScalingExponent: Decimal;
+    growthRate: Decimal;
+    estimateToNextTier: string;
+  }
+> = {
+  agile: {
+    assignment: new Decimal(0),
+    progress: new Decimal(0),
+    tier: new Decimal(0),
+    tierScalingExponent: new Decimal(1.1),
+    growthRate: new Decimal(0.8),
+    estimateToNextTier: "-",
+  },
+  corpo: {
+    assignment: new Decimal(0),
+    progress: new Decimal(0),
+    tier: new Decimal(0),
+    tierScalingExponent: new Decimal(1.3),
+    growthRate: new Decimal(0.5),
+    estimateToNextTier: "-",
+  },
+  sales: {
+    assignment: new Decimal(0),
+    progress: new Decimal(0),
+    tier: new Decimal(0),
+    tierScalingExponent: new Decimal(1.5),
+    growthRate: new Decimal(0.1),
+    estimateToNextTier: "-",
+  },
 };
 
 export const useInnovationStore = create<InnovationState>()(
@@ -54,21 +129,7 @@ export const useInnovationStore = create<InnovationState>()(
       globalLastTick: Date.now(),
 
       managers: {
-        agile: {
-          assignment: new Decimal(0),
-          progress: new Decimal(0),
-          tier: new Decimal(0),
-        },
-        corpo: {
-          assignment: new Decimal(0),
-          progress: new Decimal(0),
-          tier: new Decimal(0),
-        },
-        sales: {
-          assignment: new Decimal(0),
-          progress: new Decimal(0),
-          tier: new Decimal(0),
-        },
+        ...initialManagerState,
       },
 
       getMultiplier: () => {
@@ -90,24 +151,10 @@ export const useInnovationStore = create<InnovationState>()(
 
       reset: () => {
         set({
-          innovation: new Decimal(0),
+          innovation: new Decimal(10),
           unlocks: { ...unlockInitialState },
           managers: {
-            agile: {
-              assignment: new Decimal(0),
-              progress: new Decimal(0),
-              tier: new Decimal(0),
-            },
-            corpo: {
-              assignment: new Decimal(0),
-              progress: new Decimal(0),
-              tier: new Decimal(0),
-            },
-            sales: {
-              assignment: new Decimal(0),
-              progress: new Decimal(0),
-              tier: new Decimal(0),
-            },
+            ...initialManagerState,
           },
         });
       },
@@ -182,18 +229,23 @@ export const useInnovationStore = create<InnovationState>()(
         if (ticks > 0) {
           set((state) => {
             const newManagers = { ...state.managers };
-            const PROGRESS_THRESHOLD = new Decimal(100);
-            const RATE = new Decimal(0.3); // Optional scaling
 
             for (const key of ManagerKeyValues) {
               const manager = newManagers[key];
-              const tierModifier = Decimal.pow(1.5, manager.tier);
+              const tierModifier = Decimal.pow(
+                manager.tierScalingExponent,
+                manager.tier
+              );
+              const managerGrowthRate = manager.growthRate;
               const gain = manager.assignment
-                .mul(RATE)
+                .mul(managerGrowthRate)
                 .mul(ticks)
                 .div(tierModifier);
 
               const newProgress = manager.progress.add(gain);
+
+              manager.estimateToNextTier =
+                estimateTimeToNextTierFormatted(manager);
 
               if (newProgress.greaterThanOrEqualTo(PROGRESS_THRESHOLD)) {
                 // Level up and subtract threshold from progress

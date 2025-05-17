@@ -32,13 +32,9 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
             </div>
           ),
           innovation: (
-            <>
-              <div className="p-2 pt-4 w-full h-full flex items-center justify-center">
-                <InnovationManagers />
-              </div>
-
-              <div className="p-2">Effects of managers coming soon.</div>
-            </>
+            <div className="p-2 pt-4 w-full h-full flex items-center justify-center">
+              <InnovationManagers />
+            </div>
           ),
         }}
       </Tabs>
