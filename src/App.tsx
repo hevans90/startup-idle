@@ -44,7 +44,7 @@ function App() {
     setInterval(() => {
       tickGenerators();
       tickManagers();
-    }, 50); // check every 50ms for ticks
+    }, 16); // check every 16ms for ticks (60fps)
   }, []);
 
   return (
