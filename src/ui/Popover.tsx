@@ -9,6 +9,9 @@ import {
   useClick,
   useDismiss,
   useFloating,
+  useFloatingNodeId,
+  useFloatingParentNodeId,
+  useFloatingTree,
   useHover,
   useId,
   useInteractions,
@@ -21,17 +24,16 @@ import * as React from "react";
 interface PopoverOptions {
   initialOpen?: boolean;
   placement?: Placement;
-  modal?: boolean;
+
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   openOnHover?: boolean;
-  persistOnHoverContent?: boolean; // 👈 NEW OPTION
+  persistOnHoverContent?: boolean;
 }
 
 function usePopover({
   initialOpen = false,
   placement = "left",
-  modal,
   open: controlledOpen,
   onOpenChange: setControlledOpen,
   openOnHover = false,
@@ -46,7 +48,19 @@ function usePopover({
   const open = controlledOpen ?? uncontrolledOpen;
   const setOpen = setControlledOpen ?? setUncontrolledOpen;
 
+  const floatingParentIdFromTree = useFloatingParentNodeId();
+
+  const inheritedParentId = React.useContext(FloatingNodeContext);
+  const parentId = inheritedParentId ?? floatingParentIdFromTree;
+
+  const nodeId = useFloatingNodeId(parentId ?? undefined);
+
+  const tree = useFloatingTree();
+
+  console.log({ tree });
+
   const data = useFloating({
+    nodeId,
     placement,
     open,
     onOpenChange: setOpen,
@@ -64,31 +78,43 @@ function usePopover({
 
   const context = data.context;
 
-  // 🧠 Conditionally apply click or hover interaction
+  // conditionally apply click or hover interaction
   const click = useClick(context, { enabled: !openOnHover });
   const hover = useHover(context, {
     enabled: openOnHover,
-    handleClose: persistOnHoverContent ? safePolygon() : null, // 👈 prevents flicker between trigger/content
+    handleClose: persistOnHoverContent
+      ? safePolygon({ blockPointerEvents: true })
+      : null,
   });
 
-  const dismiss = useDismiss(context);
+  const dismiss = useDismiss(context, { bubbles: true });
   const role = useRole(context);
 
   const interactions = useInteractions([click, hover, dismiss, role]);
 
   return React.useMemo(
     () => ({
+      nodeId,
+      parentId,
       open,
       setOpen,
       ...interactions,
       ...data,
-      modal,
       labelId,
       descriptionId,
       setLabelId,
       setDescriptionId,
     }),
-    [open, setOpen, interactions, data, modal, labelId, descriptionId]
+    [
+      open,
+      setOpen,
+      interactions,
+      data,
+      labelId,
+      descriptionId,
+      nodeId,
+      parentId,
+    ]
   );
 }
 
@@ -103,7 +129,7 @@ type ContextType =
 
 const PopoverContext = React.createContext<ContextType>(null);
 
-export const usePopoverContext = () => {
+const usePopoverContext = () => {
   const context = React.useContext(PopoverContext);
 
   if (context == null) {
@@ -115,14 +141,13 @@ export const usePopoverContext = () => {
 
 export function Popover({
   children,
-  modal = false,
   ...restOptions
 }: {
   children: React.ReactNode;
 } & PopoverOptions) {
   // This can accept any props as options, e.g. `placement`,
   // or other positioning options.
-  const popover = usePopover({ modal, ...restOptions });
+  const popover = usePopover({ ...restOptions });
   return (
     <PopoverContext.Provider value={popover}>
       {children}
@@ -144,30 +169,28 @@ export const PopoverTrigger = React.forwardRef<
   const childrenRef = (children as unknown).ref;
   const ref = useMergeRefs([context.refs.setReference, propRef, childrenRef]);
 
-  // `asChild` allows the user to pass any element as the anchor
-  if (asChild && React.isValidElement(children)) {
-    return React.cloneElement(
-      children,
-      context.getReferenceProps({
-        ref,
-        ...props,
-        // @ts-expect-error nice
-        ...children.props,
-        "data-state": context.open ? "open" : "closed",
-      })
+  const triggerProps = context.getReferenceProps({
+    ref,
+    ...props,
+    // @ts-expect-error nice
+    ...(children as unknown)?.props,
+    "data-state": context.open ? "open" : "closed",
+  });
+
+  const trigger =
+    asChild && React.isValidElement(children) ? (
+      React.cloneElement(children, triggerProps)
+    ) : (
+      <button type="button" {...triggerProps}>
+        {children}
+      </button>
     );
-  }
 
   return (
-    <button
-      ref={ref}
-      type="button"
-      // The user can style the trigger based on the state
-      data-state={context.open ? "open" : "closed"}
-      {...context.getReferenceProps(props)}
-    >
-      {children}
-    </button>
+    // @ts-expect-error nice
+    <FloatingNodeContext.Provider value={context.nodeId}>
+      {trigger}
+    </FloatingNodeContext.Provider>
   );
 });
 
@@ -182,10 +205,15 @@ export const PopoverContent = React.forwardRef<
 
   return (
     <FloatingPortal>
-      <FloatingFocusManager context={floatingContext} modal={context.modal}>
+      <FloatingFocusManager context={floatingContext} modal={false}>
         <div
           ref={ref}
-          style={{ ...context.floatingStyles, ...style, zIndex: 100 }}
+          style={{
+            ...context.floatingStyles,
+            ...style,
+            zIndex: 100,
+            pointerEvents: "auto",
+          }}
           aria-labelledby={context.labelId}
           aria-describedby={context.descriptionId}
           {...context.getFloatingProps(props)}
@@ -234,3 +262,5 @@ export const PopoverDescription = React.forwardRef<
 
   return <p {...props} ref={ref} id={id} />;
 });
+
+const FloatingNodeContext = React.createContext<string | null>(null);
