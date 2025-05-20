@@ -20,12 +20,12 @@ export const ProgressBar = ({
 
   return (
     <div className={twMerge("w-full select-none", className)}>
-      <div className="relative w-full h-4 bg-primary-300 dark:bg-primary-800  overflow-hidden">
+      <div className="relative w-full h-4 bg-primary-400 dark:bg-primary-600  overflow-hidden">
         <div
-          className="h-full bg-primary-400 dark:bg-primary-500"
+          className="h-full bg-primary-600 dark:bg-primary-400"
           style={{ width: `${percent}%` }}
         />
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-primary-900 dark:text-primary-100 text-xs">
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-primary-50 text-xs">
           {percent.toFixed(2)}%
         </div>
       </div>

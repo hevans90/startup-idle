@@ -17,7 +17,21 @@ const MANGER_TICK_INTERVAL = 200;
 type UnlockKeys = keyof typeof unlockInitialState;
 
 export const ManagerKeyValues = ["agile", "corpo", "sales"] as const;
-type ManagerKeys = (typeof ManagerKeyValues)[number];
+export type ManagerKeys = (typeof ManagerKeyValues)[number];
+
+type ManagerBonusType = "innovation" | "employee" | "valuation";
+
+export type ManagerState = {
+  assignment: Decimal;
+  progress: Decimal;
+  tier: Decimal;
+  tierScalingExponent: Decimal;
+  growthRate: Decimal;
+  estimateToNextTier: string;
+  bonusType: ManagerBonusType;
+  bonusMultiplierGrowthPerTier: Decimal;
+  bonusMultiplier: Decimal;
+};
 
 const baseManagerCost = new Decimal(1);
 const managerCostGrowth = new Decimal(1.5);
@@ -33,7 +47,7 @@ const estimateTimeToNextTierFormatted = (manager: {
   tierScalingExponent: Decimal;
   growthRate: Decimal;
 }): string => {
-  if (manager.assignment.equals(0)) return "∞ (no assignment)";
+  if (manager.assignment.equals(0)) return "∞";
 
   const tierModifier = Decimal.pow(manager.tierScalingExponent, manager.tier);
   const gainPerTick = manager.assignment
@@ -67,34 +81,14 @@ type InnovationState = {
   canUnlock: (key: UnlockKeys) => boolean;
   unlock: (key: UnlockKeys) => void;
 
-  managers: Record<
-    ManagerKeys,
-    {
-      assignment: Decimal;
-      progress: Decimal;
-      tier: Decimal;
-      tierScalingExponent: Decimal;
-      growthRate: Decimal;
-      estimateToNextTier: string;
-    }
-  >;
+  managers: Record<ManagerKeys, ManagerState>;
 
   assignManager: (key: ManagerKeys) => void;
   unassignManager: (key: ManagerKeys) => void;
   tickManagers: () => void;
 };
 
-const initialManagerState: Record<
-  ManagerKeys,
-  {
-    assignment: Decimal;
-    progress: Decimal;
-    tier: Decimal;
-    tierScalingExponent: Decimal;
-    growthRate: Decimal;
-    estimateToNextTier: string;
-  }
-> = {
+const initialManagerState: Record<ManagerKeys, ManagerState> = {
   agile: {
     assignment: new Decimal(0),
     progress: new Decimal(0),
@@ -102,6 +96,9 @@ const initialManagerState: Record<
     tierScalingExponent: new Decimal(1.1),
     growthRate: new Decimal(0.8),
     estimateToNextTier: "-",
+    bonusType: "innovation",
+    bonusMultiplierGrowthPerTier: new Decimal(1.01),
+    bonusMultiplier: new Decimal(1),
   },
   corpo: {
     assignment: new Decimal(0),
@@ -110,6 +107,9 @@ const initialManagerState: Record<
     tierScalingExponent: new Decimal(1.3),
     growthRate: new Decimal(0.5),
     estimateToNextTier: "-",
+    bonusType: "employee",
+    bonusMultiplierGrowthPerTier: new Decimal(1.01),
+    bonusMultiplier: new Decimal(1),
   },
   sales: {
     assignment: new Decimal(0),
@@ -118,6 +118,9 @@ const initialManagerState: Record<
     tierScalingExponent: new Decimal(1.5),
     growthRate: new Decimal(0.1),
     estimateToNextTier: "-",
+    bonusType: "valuation",
+    bonusMultiplierGrowthPerTier: new Decimal(1.01),
+    bonusMultiplier: new Decimal(1),
   },
 };
 
@@ -217,10 +220,23 @@ export const useInnovationStore = create<InnovationState>()(
           }));
         }
       },
+      getManagerBonus: (
+        key: ManagerKeys
+      ): {
+        bonusType: ManagerBonusType;
+        bonusMultiplier: Decimal;
+      } => {
+        const { managers } = get();
+        const manager = managers[key];
+        return {
+          bonusType: manager.bonusType,
+          bonusMultiplier: manager.bonusMultiplier,
+        };
+      },
       tickManagers: () => {
         const now = Date.now();
         const globalTickInterval = now - get().globalLastTick;
-        if (globalTickInterval < 200) return;
+        if (globalTickInterval < MANGER_TICK_INTERVAL) return;
 
         set({ globalLastTick: now });
 
@@ -236,24 +252,27 @@ export const useInnovationStore = create<InnovationState>()(
                 manager.tierScalingExponent,
                 manager.tier
               );
-              const managerGrowthRate = manager.growthRate;
               const gain = manager.assignment
-                .mul(managerGrowthRate)
+                .mul(manager.growthRate)
                 .mul(ticks)
                 .div(tierModifier);
 
               const newProgress = manager.progress.add(gain);
-
               manager.estimateToNextTier =
                 estimateTimeToNextTierFormatted(manager);
 
               if (newProgress.greaterThanOrEqualTo(PROGRESS_THRESHOLD)) {
-                // Level up and subtract threshold from progress
                 manager.tier = manager.tier.plus(1);
                 manager.progress = newProgress.sub(PROGRESS_THRESHOLD);
               } else {
                 manager.progress = newProgress;
               }
+
+              // Recalculate bonus multiplier
+              manager.bonusMultiplier = Decimal.pow(
+                manager.bonusMultiplierGrowthPerTier,
+                manager.tier
+              );
             }
 
             return { managers: newManagers };

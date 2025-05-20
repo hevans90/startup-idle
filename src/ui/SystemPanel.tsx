@@ -16,12 +16,12 @@ export const SystemPanel = ({
   return (
     <div
       className={twMerge(
-        "w-full flex flex-col gap-2 border-1 border-primary-500",
+        "w-full flex flex-col gap-2 border-1 border-primary-300 dark:border-primary-600",
         className
       )}
     >
-      <div className={"p-2 pt-8 pb-6 relative flex flex-col gap-4"}>
-        <span className="absolute -top-2.5 bg-primary-200 dark:bg-primary-900 leading-none font-bold">
+      <div className={"pt-4 relative flex flex-col"}>
+        <span className="absolute -top-2.5 left-1 bg-primary-200 dark:bg-primary-900 leading-none font-bold">
           {title}
         </span>
 

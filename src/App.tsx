@@ -1,3 +1,4 @@
+import { FloatingTree } from "@floating-ui/react";
 import { useEffect, useRef } from "react";
 import toast, { resolveValue, Toaster } from "react-hot-toast";
 import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
@@ -48,7 +49,7 @@ function App() {
   }, []);
 
   return (
-    <>
+    <FloatingTree>
       <Toaster position="bottom-center" toastOptions={{ duration: 3000 }}>
         {(t) => (
           <Toast onClose={() => toast.dismiss(t.id)} icon={t.icon}>
@@ -116,7 +117,7 @@ function App() {
           <Sidebar className="grow max-w-1/3" />
         </div>
       )}
-    </>
+    </FloatingTree>
   );
 }
 

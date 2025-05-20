@@ -2,7 +2,7 @@ import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 import Tabs from "../ui/Tabs";
 import { Generators } from "./generators";
-import { InnovationManagers } from "./innovation-managers";
+import { InnovationManagers } from "./innovation/innovation-managers";
 import { PurchaseModeToggle } from "./purchase-mode-toggle";
 import { Upgrades } from "./upgrades";
 

@@ -24,7 +24,7 @@ import * as React from "react";
 interface PopoverOptions {
   initialOpen?: boolean;
   placement?: Placement;
-
+  floatOffset?: number;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   openOnHover?: boolean;
@@ -34,6 +34,7 @@ interface PopoverOptions {
 function usePopover({
   initialOpen = false,
   placement = "left",
+  floatOffset = 5,
   open: controlledOpen,
   onOpenChange: setControlledOpen,
   openOnHover = false,
@@ -66,7 +67,7 @@ function usePopover({
     onOpenChange: setOpen,
     whileElementsMounted: autoUpdate,
     middleware: [
-      offset(5),
+      offset(floatOffset),
       flip({
         crossAxis: placement.includes("-"),
         fallbackAxisSideDirection: "end",
