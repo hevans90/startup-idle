@@ -1,11 +1,15 @@
 import Decimal from "break_infinity.js";
 
-export const formatCurrency = (amount: Decimal | number): string => {
+export const formatCurrency = (
+  amount: Decimal | number,
+  exponentBreakpoint = 1e7,
+  decimals = 2
+): string => {
   const dec = typeof amount === "number" ? new Decimal(amount) : amount;
 
-  if (dec.gte(1e7)) {
+  if (dec.gte(exponentBreakpoint)) {
     // Use scientific notation above 10 million
-    return `$${dec.toExponential(2)}`;
+    return `$${dec.toExponential(decimals)}`;
   }
 
   // Format normally below 1 billion

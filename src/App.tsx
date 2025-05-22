@@ -20,8 +20,10 @@ import { formatCurrency } from "./utils/money-utils";
 const useDynamicTitle = (interval = 1000) => {
   useEffect(() => {
     const id = setInterval(() => {
-      document.title = `Startup Idle -  ${formatCurrency(
-        useMoneyStore.getState().money
+      document.title = `Startup Idle ${formatCurrency(
+        useMoneyStore.getState().money,
+        1e3,
+        0
       )}`;
     }, interval);
 

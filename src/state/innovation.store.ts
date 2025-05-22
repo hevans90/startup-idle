@@ -166,7 +166,7 @@ export const useInnovationStore = create<InnovationState>()(
         const { innovation, unlocks } = get();
         return (
           !unlocks[key]?.unlocked &&
-          innovation.greaterThanOrEqualTo(unlocks[key].cost)
+          innovation.greaterThanOrEqualTo(unlocks[key]?.cost)
         );
       },
 
