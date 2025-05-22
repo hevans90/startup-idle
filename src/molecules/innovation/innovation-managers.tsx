@@ -27,7 +27,7 @@ export const InnovationManagers = () => {
 
   return (
     <div className="w-full flex flex-col gap-6 select-none mt-2">
-      {!managersState.unlocked && (
+      {!managersState?.unlocked && (
         <Button
           onClick={() => unlock("managers")}
           disabled={!canUnlockManagers}
@@ -55,7 +55,7 @@ export const InnovationManagers = () => {
         </SystemPanel>
       )}
 
-      {!employeeManagementState.unlocked && (
+      {!employeeManagementState?.unlocked && (
         <Button
           onClick={() => unlock("employeeManagement")}
           disabled={!canUnlockEmployeeManagement}
