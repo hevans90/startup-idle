@@ -32,7 +32,7 @@ export const InnovationManagers = () => {
           onClick={() => unlock("managers")}
           disabled={!canUnlockManagers}
         >
-          Unlock Managers: {managersState.cost.toFixed(2)}
+          Unlock Managers: {managersState?.cost.toFixed(2)}
         </Button>
       )}
 
@@ -60,7 +60,7 @@ export const InnovationManagers = () => {
           onClick={() => unlock("employeeManagement")}
           disabled={!canUnlockEmployeeManagement}
         >
-          Unlock Employee Management: {employeeManagementState.cost.toFixed(2)}
+          Unlock Employee Management: {employeeManagementState?.cost.toFixed(2)}
         </Button>
       )}
 
