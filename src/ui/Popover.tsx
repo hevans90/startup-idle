@@ -11,7 +11,6 @@ import {
   useFloating,
   useFloatingNodeId,
   useFloatingParentNodeId,
-  useFloatingTree,
   useHover,
   useId,
   useInteractions,
@@ -55,10 +54,6 @@ function usePopover({
   const parentId = inheritedParentId ?? floatingParentIdFromTree;
 
   const nodeId = useFloatingNodeId(parentId ?? undefined);
-
-  const tree = useFloatingTree();
-
-  console.log({ tree });
 
   const data = useFloating({
     nodeId,
