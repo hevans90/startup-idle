@@ -3,6 +3,7 @@ import Decimal from "break_infinity.js";
 import { memo } from "react";
 import { ManagerState } from "../../state/innovation.store";
 import { Button } from "../../ui/Button";
+import { InfoRow } from "../../ui/InfoRow";
 import { Popover, PopoverContent, PopoverTrigger } from "../../ui/Popover";
 import { ProgressBar } from "../../ui/ProgressBar";
 import { Spacer } from "../../ui/Spacer";
@@ -62,7 +63,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0">
-                  <div className="flex flex-col gap-2 items-center justify-center">
+                  <div className="flex flex-col gap-2 items-center justify-center text-sm">
                     Refund Innovation ({refundCost.toFixed(2)})
                   </div>
                 </PopoverContent>
@@ -89,7 +90,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0">
-                  <div className="flex flex-col gap-2 items-center justify-center">
+                  <div className="flex flex-col gap-2 items-center justify-center text-sm">
                     Cost: ({assignmentCost.toFixed(2)})
                   </div>
                 </PopoverContent>
@@ -98,31 +99,18 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
           </div>
         </PopoverTrigger>
 
-        <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0 min-w-80">
+        <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0 min-w-72">
           <div className="flex flex-col gap-2 items-center justify-center text-sm">
-            <div className="w-full flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-700 dark:text-primary-300">
-                {bonusType}:
-              </span>
-              <span className="responsive-text-xs">
-                x{bonusMultiplier?.toFixed(2)}
-              </span>
-            </div>
-            <div className="w-full flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-700 dark:text-primary-300">
-                growth/tier:
-              </span>
-              <span className="responsive-text-xs">
-                x{bonusMultiplierGrowthPerTier?.toFixed(2)}
-              </span>
-            </div>
+            <InfoRow
+              label={`${bonusType}:`}
+              value={`x${bonusMultiplier?.toFixed(2)}`}
+            />
+            <InfoRow
+              label="growth/tier:"
+              value={`x${bonusMultiplierGrowthPerTier?.toFixed(2)}`}
+            />
             <Spacer />
-            <div className="w-full flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-700 dark:text-primary-300">
-                next tier:
-              </span>
-              <span className="responsive-text-xs">{estimateToNextTier}</span>
-            </div>
+            <InfoRow label="next tier:" value={estimateToNextTier} />
           </div>
         </PopoverContent>
       </Popover>

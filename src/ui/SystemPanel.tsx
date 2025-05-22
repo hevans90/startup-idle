@@ -28,13 +28,13 @@ export const SystemPanel = ({
         {help && (
           <Popover openOnHover={true} placement="bottom-end">
             <PopoverTrigger asChild>
-              <span className="cursor-help absolute -top-3.5 right-2 px-2 py-1 bg-primary-200 dark:bg-primary-900 leading-none font-bold border-primary-500 border-1">
+              <span className="cursor-help absolute -top-3.5 right-2 px-1.5 py-1 bg-primary-200 dark:bg-primary-900 leading-none font-bold border-primary-500 border-1 text-xs">
                 ?
               </span>
             </PopoverTrigger>
 
-            <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2  outline-none focus:ring-0">
-              <div className="flex flex-col gap-2 items-center justify-center">
+            <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 py-1.5 max-w-72 outline-none focus:ring-0">
+              <div className="flex flex-col gap-2 items-center justify-center text-sm">
                 {help}
               </div>
             </PopoverContent>
