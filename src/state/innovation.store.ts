@@ -154,7 +154,7 @@ export const useInnovationStore = create<InnovationState>()(
 
       reset: () => {
         set({
-          innovation: new Decimal(10),
+          innovation: new Decimal(0),
           unlocks: { ...unlockInitialState },
           managers: {
             ...initialManagerState,
@@ -165,7 +165,7 @@ export const useInnovationStore = create<InnovationState>()(
       canUnlock: (key) => {
         const { innovation, unlocks } = get();
         return (
-          !unlocks[key].unlocked &&
+          !unlocks[key]?.unlocked &&
           innovation.greaterThanOrEqualTo(unlocks[key].cost)
         );
       },

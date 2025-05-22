@@ -103,7 +103,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
           <div className="flex flex-col gap-2 items-center justify-center text-sm">
             <InfoRow
               label={`${bonusType}:`}
-              value={`x${bonusMultiplier?.toFixed(2)}`}
+              value={`x${bonusMultiplier?.toFixed(3)}`}
             />
             <InfoRow
               label="growth/tier:"

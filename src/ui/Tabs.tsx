@@ -37,7 +37,7 @@ export default function Tabs<T extends string>({
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full select-none">
       {/* Tab Headers */}
       <div className="flex border-primary-300 dark:border-primary-600 h-[53px]">
         {visibleTabs.map((tab) => (

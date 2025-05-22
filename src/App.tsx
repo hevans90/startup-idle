@@ -17,6 +17,18 @@ import { useThemeStore } from "./state/theme.store";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
 
+const useDynamicTitle = (interval = 1000) => {
+  useEffect(() => {
+    const id = setInterval(() => {
+      document.title = `Startup Idle -  ${formatCurrency(
+        useMoneyStore.getState().money
+      )}`;
+    }, interval);
+
+    return () => clearInterval(id);
+  }, [interval]);
+};
+
 function App() {
   const { money, increaseMoney } = useMoneyStore();
   const { innovation } = useInnovationStore();
@@ -32,6 +44,8 @@ function App() {
   const isMobile = window.innerWidth <= 768;
 
   const { theme } = useThemeStore();
+
+  useDynamicTitle();
 
   useEffect(() => {
     if (theme === "dark") {
