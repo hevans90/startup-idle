@@ -36,7 +36,7 @@ export const InnovationManagers = () => {
         </Button>
       )}
 
-      {managersState.unlocked && (
+      {managersState?.unlocked && (
         <SystemPanel
           title="Managers"
           help="Assign innovation to tier up managers"
@@ -64,7 +64,7 @@ export const InnovationManagers = () => {
         </Button>
       )}
 
-      {employeeManagementState.unlocked && (
+      {employeeManagementState?.unlocked && (
         <SystemPanel
           title="Employee Management"
           help="Management tiers can be spent to improve employees in a variety of
