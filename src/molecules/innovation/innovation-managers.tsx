@@ -1,9 +1,9 @@
 import {
-  getManagerCost,
   ManagerKeyValues,
   useInnovationStore,
 } from "../../state/innovation.store";
 import { Button } from "../../ui/Button";
+import { CycleButton } from "../../ui/CyclingButton";
 import { SystemPanel } from "../../ui/SystemPanel";
 import ManagerRow from "./manager-row";
 
@@ -16,6 +16,8 @@ export const InnovationManagers = () => {
     managers,
     assignManager,
     unassignManager,
+    assignment,
+    setAssignment,
   } = useInnovationStore();
 
   const managersState = unlocks.managers;
@@ -40,6 +42,13 @@ export const InnovationManagers = () => {
         <SystemPanel
           title="Managers"
           help="Assign innovation to tier up managers"
+          controls={
+            <CycleButton
+              currentValue={assignment}
+              values={[1, 10, 100, "max"]}
+              onChanged={setAssignment}
+            />
+          }
         >
           {ManagerKeyValues.map((managerName) => (
             <ManagerRow
@@ -49,7 +58,6 @@ export const InnovationManagers = () => {
               innovation={innovation}
               onAssign={() => assignManager(managerName)}
               onUnassign={() => unassignManager(managerName)}
-              getManagerCost={getManagerCost}
             />
           ))}
         </SystemPanel>

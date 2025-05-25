@@ -15,6 +15,7 @@ import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
 import { useMoneyStore } from "./state/money.store";
 import { useThemeStore } from "./state/theme.store";
+import { useVersionStore } from "./state/version.store";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
 
@@ -23,8 +24,10 @@ const useDynamicTitle = (interval = 1000) => {
     const id = setInterval(() => {
       document.title = `Startup Idle ${formatCurrency(
         useMoneyStore.getState().money,
-        1e3,
-        0
+        {
+          exponentBreakpoint: 1e3,
+          decimals: 0,
+        }
       )}`;
     }, interval);
 
@@ -33,6 +36,7 @@ const useDynamicTitle = (interval = 1000) => {
 };
 
 function App() {
+  const version = useVersionStore((state) => state.version);
   useCompareVersion();
   const { money, increaseMoney } = useMoneyStore();
   const { innovation } = useInnovationStore();
@@ -128,6 +132,10 @@ function App() {
                   wrapperSize={wrapperSize}
                 />
               )}
+
+              <div className="absolute bottom-2 left-2 responsive-text-sm text-primary-300">
+                v{version}
+              </div>
             </div>
           </div>
 

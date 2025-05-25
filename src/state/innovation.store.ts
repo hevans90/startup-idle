@@ -36,8 +36,76 @@ export type ManagerState = {
 const baseManagerCost = new Decimal(1);
 const managerCostGrowth = new Decimal(1.5);
 
-export function getManagerCost(assignments: Decimal): Decimal {
-  return baseManagerCost.mul(managerCostGrowth.pow(assignments));
+export function getManagerCost(key: ManagerKeys): {
+  count: number;
+  totalCost: Decimal;
+} {
+  const { innovation, managers, assignment } = useInnovationStore.getState();
+  const currentAssignments = managers[key].assignment;
+
+  const base = baseManagerCost;
+  const growth = managerCostGrowth;
+
+  if (assignment === "max") {
+    const a = base.mul(growth.pow(currentAssignments)); // first term
+    const r = growth;
+
+    const numerator = innovation.mul(r.sub(1));
+    const insideLog = numerator.div(a).add(1);
+
+    const maxCount = new Decimal(Decimal.log(insideLog, r.toNumber())).floor();
+
+    const totalCost = base
+      .mul(growth.pow(currentAssignments))
+      .mul(growth.pow(maxCount).sub(1))
+      .div(growth.sub(1));
+
+    return {
+      count: maxCount.toNumber(),
+      totalCost,
+    };
+  } else {
+    const totalCost = base
+      .mul(growth.pow(currentAssignments))
+      .mul(growth.pow(assignment).sub(1))
+      .div(growth.sub(1));
+
+    return {
+      count: assignment,
+      totalCost,
+    };
+  }
+}
+
+export function getManagerRefund(key: ManagerKeys): {
+  count: number;
+  totalRefund: Decimal;
+} {
+  const { managers, assignment } = useInnovationStore.getState();
+  const currentAssignments = managers[key].assignment;
+
+  const base = baseManagerCost;
+  const growth = managerCostGrowth;
+
+  if (currentAssignments.lte(0)) {
+    return { count: 0, totalRefund: new Decimal(0) };
+  }
+
+  const maxUnassign =
+    assignment === "max"
+      ? currentAssignments.toNumber()
+      : Math.min(assignment, currentAssignments.toNumber());
+
+  const refundStart = currentAssignments.sub(maxUnassign - 1);
+  const totalRefund = base
+    .mul(growth.pow(refundStart))
+    .mul(growth.pow(maxUnassign).sub(1))
+    .div(growth.sub(1));
+
+  return {
+    count: maxUnassign,
+    totalRefund,
+  };
 }
 
 const estimateTimeToNextTierFormatted = (manager: {
@@ -83,6 +151,8 @@ type InnovationState = {
 
   managers: Record<ManagerKeys, ManagerState>;
 
+  assignment: number | "max";
+  setAssignment: (value: number | "max") => void;
   assignManager: (key: ManagerKeys) => void;
   unassignManager: (key: ManagerKeys) => void;
   tickManagers: () => void;
@@ -128,12 +198,15 @@ export const useInnovationStore = create<InnovationState>()(
   persist(
     (set, get) => ({
       innovation: new Decimal(0),
+      assignment: 1,
       unlocks: { ...unlockInitialState },
       globalLastTick: Date.now(),
 
       managers: {
         ...initialManagerState,
       },
+
+      setAssignment: (assignment: number | "max") => set({ assignment }),
 
       getMultiplier: () => {
         const { innovation } = get();
@@ -186,40 +259,94 @@ export const useInnovationStore = create<InnovationState>()(
       assignManager: (key) => {
         const { innovation, managers, spendInnovation } = get();
         const currentAssignments = managers[key].assignment;
-        const cost = getManagerCost(currentAssignments);
+        const start = currentAssignments;
+        const base = baseManagerCost;
+        const growth = managerCostGrowth;
 
-        if (innovation.greaterThanOrEqualTo(cost)) {
-          spendInnovation(cost.toNumber());
-          set((state) => ({
-            managers: {
-              ...state.managers,
-              [key]: {
-                ...state.managers[key],
-                assignment: currentAssignments.add(1),
+        let count = 0;
+
+        const assignment = get().assignment;
+
+        if (assignment === "max") {
+          const a = base.mul(growth.pow(start)); // first term
+          const r = growth;
+          const maxAffordable = innovation;
+
+          // Sum formula: S = a * (r^n - 1) / (r - 1)
+          // Solve for n:
+          // r^n = ((S * (r - 1)) / a) + 1
+          // n = log_r(((S * (r - 1)) / a) + 1)
+          const numerator = maxAffordable.mul(r.sub(1));
+          const denom = a;
+          const insideLog = numerator.div(denom).add(1);
+          count = new Decimal(Decimal.log(insideLog, r.toNumber()))
+            .floor()
+            .toNumber();
+        } else {
+          count = assignment;
+        }
+
+        if (count > 0) {
+          // Total cost of assigning `count` managers
+          const totalCost = base
+            .mul(growth.pow(start))
+            .mul(growth.pow(count).sub(1))
+            .div(growth.sub(1));
+
+          if (innovation.greaterThanOrEqualTo(totalCost)) {
+            spendInnovation(totalCost.toNumber());
+            set((state) => ({
+              managers: {
+                ...state.managers,
+                [key]: {
+                  ...state.managers[key],
+                  assignment: state.managers[key].assignment.add(count),
+                },
               },
-            },
-          }));
+            }));
+          }
         }
       },
 
       unassignManager: (key) => {
         const { managers, increaseInnovation } = get();
         const currentAssignments = managers[key].assignment;
+        const start = currentAssignments.sub(1);
+        const base = baseManagerCost;
+        const growth = managerCostGrowth;
 
-        if (currentAssignments.greaterThan(0)) {
-          const refund = getManagerCost(currentAssignments.sub(1));
-          increaseInnovation(refund.toNumber());
+        let count = 0;
+
+        const assignment = get().assignment;
+
+        if (assignment === "max") {
+          count = currentAssignments.toNumber();
+        } else {
+          count = Math.min(currentAssignments.toNumber(), assignment);
+        }
+
+        if (count > 0) {
+          // Sum of last `count` costs:
+          // base * growth^(start - count + 1) * (growth^count - 1) / (growth - 1)
+          const refundStart = start.sub(count - 1);
+          const totalRefund = base
+            .mul(growth.pow(refundStart))
+            .mul(growth.pow(count).sub(1))
+            .div(growth.sub(1));
+
+          increaseInnovation(totalRefund.toNumber());
           set((state) => ({
             managers: {
               ...state.managers,
               [key]: {
                 ...state.managers[key],
-                assignment: currentAssignments.sub(1),
+                assignment: state.managers[key].assignment.sub(count),
               },
             },
           }));
         }
       },
+
       getManagerBonus: (
         key: ManagerKeys
       ): {
@@ -285,6 +412,14 @@ export const useInnovationStore = create<InnovationState>()(
       storage: createJSONStorage(() => localStorage, {
         replacer: decimalReplacer,
         reviver: decimalReviver,
+      }),
+      partialize: (state) => ({
+        innovation: state.innovation,
+        assignment: state.assignment,
+        unlocks: state.unlocks,
+        managers: state.managers,
+        globalLastTick: state.globalLastTick,
+        // don't include functions like increaseInnovation, spendInnovation, etc.
       }),
     }
   )

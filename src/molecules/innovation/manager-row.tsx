@@ -1,31 +1,29 @@
 import Decimal from "break_infinity.js";
 
 import { memo } from "react";
-import { ManagerState } from "../../state/innovation.store";
+import {
+  getManagerCost,
+  getManagerRefund,
+  ManagerKeys,
+  ManagerState,
+} from "../../state/innovation.store";
 import { Button } from "../../ui/Button";
 import { InfoRow } from "../../ui/InfoRow";
 import { Popover, PopoverContent, PopoverTrigger } from "../../ui/Popover";
 import { ProgressBar } from "../../ui/ProgressBar";
 import { Spacer } from "../../ui/Spacer";
+import { formatCurrency } from "../../utils/money-utils";
 
 interface ManagerRowProps {
-  managerName: string;
+  managerName: ManagerKeys;
   managerData: ManagerState;
   innovation: Decimal;
   onAssign: () => void;
   onUnassign: () => void;
-  getManagerCost: (value: Decimal) => Decimal;
 }
 
 const ManagerRow: React.FC<ManagerRowProps> = memo(
-  ({
-    managerName,
-    managerData,
-    innovation,
-    onAssign,
-    onUnassign,
-    getManagerCost,
-  }) => {
+  ({ managerName, managerData, innovation, onAssign, onUnassign }) => {
     const {
       assignment,
       progress,
@@ -36,8 +34,8 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
       bonusMultiplierGrowthPerTier,
     } = managerData;
 
-    const assignmentCost = getManagerCost(assignment);
-    const refundCost = getManagerCost(assignment.minus(1));
+    const { totalCost, count: numberToAssign } = getManagerCost(managerName);
+    const { totalRefund } = getManagerRefund(managerName);
 
     return (
       <Popover
@@ -64,7 +62,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
                 </PopoverTrigger>
                 <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0">
                   <div className="flex flex-col gap-2 items-center justify-center text-sm">
-                    Refund Innovation ({refundCost.toFixed(2)})
+                    Refund Innovation ({totalRefund.toFixed(2)})
                   </div>
                 </PopoverContent>
               </Popover>
@@ -83,7 +81,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
                 <PopoverTrigger asChild>
                   <Button
                     onClick={onAssign}
-                    disabled={assignmentCost.gte(innovation)}
+                    disabled={totalCost.gte(innovation)}
                     className="w-12 h-10 leading-none"
                   >
                     +
@@ -91,7 +89,8 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
                 </PopoverTrigger>
                 <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0">
                   <div className="flex flex-col gap-2 items-center justify-center text-sm">
-                    Cost: ({assignmentCost.toFixed(2)})
+                    Cost{numberToAssign > 1 && ` (${numberToAssign})`}:{" "}
+                    {formatCurrency(totalCost, { showDollarSign: false })}
                   </div>
                 </PopoverContent>
               </Popover>

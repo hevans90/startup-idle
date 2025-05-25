@@ -5,11 +5,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
 export const SystemPanel = ({
   className,
   children,
+  controls,
   title,
   help,
 }: {
   className?: ClassNameValue;
   children?: ReactNode;
+  controls?: ReactNode;
   title: string;
   help?: ReactNode;
 }) => {
@@ -25,10 +27,16 @@ export const SystemPanel = ({
           {title}
         </span>
 
+        {controls && (
+          <div className="absolute -top-3.5 right-9 h-6 overflow-hidden flex items-center bg-primary-200 dark:bg-primary-900">
+            {controls}
+          </div>
+        )}
+
         {help && (
           <Popover openOnHover={true} placement="bottom-end">
             <PopoverTrigger asChild>
-              <span className="cursor-help absolute -top-3.5 right-2 px-1.5 py-1 bg-primary-200 dark:bg-primary-900 leading-none font-bold border-primary-500 border-1 text-xs">
+              <span className="h-6 inline-flex items-center cursor-help absolute -top-3.5 right-2 px-1.5 py-1 bg-primary-200 dark:bg-primary-900 leading-none font-bold border-primary-500 border-1 text-xs">
                 ?
               </span>
             </PopoverTrigger>
