@@ -3,6 +3,7 @@ import { useGlobalSettingsStore } from "../state/global-settings.store";
 import Tabs from "../ui/Tabs";
 import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation/innovation-managers";
+import { InnovationSummary } from "./innovation/innovation-summary";
 import { PurchaseModeToggle } from "./purchase-mode-toggle";
 import { Upgrades } from "./upgrades";
 
@@ -32,7 +33,8 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
             </div>
           ),
           innovation: (
-            <div className="p-2 pt-4 w-full h-full flex items-center justify-center">
+            <div className="p-2 pt-4 w-full h-full flex flex-col gap-4 items-center justify-center">
+              <InnovationSummary compact={true} className="my-4" />
               <InnovationManagers />
             </div>
           ),

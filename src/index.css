@@ -38,7 +38,7 @@
     @apply text-lg lg:text-xl 2xl:text-2xl;
   }
   .responsive-text {
-    @apply text-base 3xl:text-xl;
+    @apply text-base 4xl:text-xl;
   }
   .responsive-text-sm {
     @apply text-sm 3xl:text-lg;

@@ -4,6 +4,7 @@ import { useGlobalSettingsStore } from "../state/global-settings.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatRate } from "../utils/rate-utils";
+import { InnovationSummary } from "./innovation/innovation-summary";
 
 export const InnovationCounter = ({
   className,
@@ -43,11 +44,7 @@ export const ToolbarInnovationCounter = ({
 }: {
   className?: ClassNameValue;
 }) => {
-  const { innovation, getMultiplier } = useInnovationStore();
-
-  const globalMultiplier = getMultiplier().toFixed(4);
-
-  const ips = useGeneratorStore((state) => state.getInnovationPerSecond());
+  const { innovation } = useInnovationStore();
 
   const { setSidebarTab } = useGlobalSettingsStore();
 
@@ -66,18 +63,8 @@ export const ToolbarInnovationCounter = ({
         </button>
       </PopoverTrigger>
 
-      <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4  outline-none focus:ring-0">
-        <div className="flex flex-col gap-2 items-center justify-center">
-          <>
-            <span>Innovation - better employees grow innovation faster:</span>
-            <span className="opacity-50">({formatRate(ips).formatted})</span>
-            <span>
-              The more innovation, the higher global multiplier for ALL
-              resources:
-            </span>
-            <span className="opacity-50">x{globalMultiplier}</span>
-          </>
-        </div>
+      <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4 outline-none focus:ring-0">
+        <InnovationSummary />
       </PopoverContent>
     </Popover>
   );
