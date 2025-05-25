@@ -1,6 +1,7 @@
 import { FloatingTree } from "@floating-ui/react";
 import { useEffect, useRef } from "react";
 import toast, { resolveValue, Toaster } from "react-hot-toast";
+import { useCompareVersion } from "./hooks/use-compare-version";
 import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
 import { Generators } from "./molecules/generators";
 import { InnovationCounter } from "./molecules/innovation-counter";
@@ -32,6 +33,7 @@ const useDynamicTitle = (interval = 1000) => {
 };
 
 function App() {
+  useCompareVersion();
   const { money, increaseMoney } = useMoneyStore();
   const { innovation } = useInnovationStore();
 
