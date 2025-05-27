@@ -47,13 +47,22 @@ export function getManagerCost(key: ManagerKeys): {
   const growth = managerCostGrowth;
 
   if (assignment === "max") {
-    const a = base.mul(growth.pow(currentAssignments)); // first term
+    const a = base.mul(growth.pow(currentAssignments)); // cost of next manager
     const r = growth;
 
     const numerator = innovation.mul(r.sub(1));
     const insideLog = numerator.div(a).add(1);
 
     const maxCount = new Decimal(Decimal.log(insideLog, r.toNumber())).floor();
+
+    if (maxCount.lessThanOrEqualTo(0)) {
+      // Return cost for 1 manager even if unaffordable
+      const totalCost = a;
+      return {
+        count: 1,
+        totalCost,
+      };
+    }
 
     const totalCost = base
       .mul(growth.pow(currentAssignments))
@@ -96,7 +105,8 @@ export function getManagerRefund(key: ManagerKeys): {
       ? currentAssignments.toNumber()
       : Math.min(assignment, currentAssignments.toNumber());
 
-  const refundStart = currentAssignments.sub(maxUnassign - 1);
+  const refundStart = currentAssignments.sub(maxUnassign);
+
   const totalRefund = base
     .mul(growth.pow(refundStart))
     .mul(growth.pow(maxUnassign).sub(1))
