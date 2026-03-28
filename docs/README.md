@@ -7,7 +7,7 @@ This folder describes how the app is structured, how game state moves through th
 | [architecture.md](./architecture.md) | Layers, runtime flow, store dependency graph, UI composition |
 | [domain-model.md](./domain-model.md) | Generators, money, innovation, upgrades — formulas and extension points |
 | [persistence.md](./persistence.md) | `localStorage` keys, Zustand persist, version resets |
-| [rendering.md](./rendering.md) | React layout (desktop vs mobile), Pixi office stack |
+| [rendering.md](./rendering.md) | React layout (desktop vs mobile), Pixi office, isometric tilemap + stacking |
 | [stores-reference.md](./stores-reference.md) | One-page summary of each Zustand store’s responsibilities |
 | [agent-guide.md](./agent-guide.md) | Conventions, checklists, and recipes for common feature work |
 

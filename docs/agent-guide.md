@@ -31,6 +31,7 @@ This guide is written for **automated agents and humans** who need to ship chang
 | Generator / upgrade lists | `src/molecules/generators.tsx`, `src/molecules/upgrades.tsx` |
 | Reset | `src/molecules/reset-button.tsx` |
 | Office canvas | `src/office/office.tsx`, `src/office/viewport.tsx`, `src/office/math-utils.ts`, `src/office/sprites.ts` |
+| Office map data (iso tiles / stacks) | `src/office/map/*` (`buildOfficeMap`, `TileInstance`) |
 | Version / wipe | `src/state/version.store.ts`, `src/hooks/use-compare-version.ts` |
 | Shared UI | `src/ui/*` |
 

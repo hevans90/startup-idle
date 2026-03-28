@@ -1,63 +1,91 @@
 import { inv, Matrix, matrix, multiply } from "mathjs";
 
-type Block = {
-  x: number;
-  y: number;
-};
+import type { TileInstance } from "./map/types";
 
-export function screenToIsometric(x: number, y: number, scale: number) {
-  // the weights as explanined in the youtube video
-  const isometricWeights = matrix([
-    [0.5, 0.25],
-    [-0.5, 0.25],
-  ]);
+/** Source tile size in pixels (matches atlas frame). */
+export const ISO_TILE_STRIDE = 18;
 
-  // coordinatex times the size of the block 18 * 4 = 72
-  // as it's scaled 4x
-  const coordinate = matrix([[x * 18 * scale, y * 18 * scale]]);
+/**
+ * Must exceed max (mapX + mapY) on the map so elevation dominates draw order.
+ * For a 32×32 map, max sum is 62; 1000 leaves room for deep stacks.
+ */
+export const Z_LAYER_WEIGHT = 1000;
 
-  const [isometricCoordinate] = multiply(
-    coordinate,
-    isometricWeights
-  ).toArray();
-  return isometricCoordinate as number[];
+const ISO_WEIGHTS = matrix([
+  [0.5, 0.25],
+  [-0.5, 0.25],
+]);
+
+const INVERSE_ISO = inv(ISO_WEIGHTS) as Matrix;
+
+/** Pixi draw order key: larger = closer to camera / drawn on top. */
+export function depthKey(mapX: number, mapY: number, z: number): number {
+  return mapX + mapY + z * Z_LAYER_WEIGHT;
 }
 
-export function getHoveredTile(
-  screenX: number,
-  screenY: number,
+/**
+ * World position (viewport space) for a map cell before wrapper anchoring.
+ * z lifts the sprite along the pseudo-vertical (screen-up) in isometric space.
+ */
+export function mapToWorld(
+  mapX: number,
+  mapY: number,
+  z: number,
   scale: number
 ): { x: number; y: number } {
-  // Inverse of the isometric transformation matrix
-  const isometricWeights = matrix([
-    [0.5, 0.25],
-    [-0.5, 0.25],
+  const coordinate = matrix([
+    [mapX * ISO_TILE_STRIDE * scale, mapY * ISO_TILE_STRIDE * scale],
   ]);
-  const inverseMatrix = inv(isometricWeights) as Matrix;
-
-  // Undo scale and tile size
-  const worldX = screenX / (18 * scale);
-  const worldY = screenY / (18 * scale);
-
-  const result = multiply(matrix([[worldX, worldY]]), inverseMatrix) as Matrix;
-  const resultArray = result.toArray() as number[][];
-
-  const tileX = Math.floor(resultArray[0][0]);
-  const tileY = Math.floor(resultArray[0][1]);
-
-  return { x: tileX, y: tileY };
+  const [row] = multiply(coordinate, ISO_WEIGHTS).toArray() as number[][];
+  const wx = row[0];
+  const wy = row[1];
+  const liftPerLayer = ISO_TILE_STRIDE * scale * 0.5;
+  return { x: wx, y: wy - z * liftPerLayer };
 }
 
-export function generateGrid<T extends Block = Block>(
-  rows: number,
-  cols: number,
-  blockProvider: (x: number, y: number) => T
-) {
-  const grid: T[] = [];
-  for (let i = 0; i < rows; i++) {
-    for (let j = 0; j < cols; j++) {
-      grid.push(blockProvider(i, j));
-    }
-  }
-  return grid;
+/**
+ * Converts pointer position in viewport world space to tile-plane local space
+ * (same frame as mapToWorld output before adding wrapper offsets).
+ */
+export function viewportWorldToTilePlane(
+  viewportWorldX: number,
+  viewportWorldY: number,
+  wrapperSize: { width: number; height: number }
+): { x: number; y: number } {
+  return {
+    x: viewportWorldX - wrapperSize.width / 2,
+    y: viewportWorldY - wrapperSize.height / 4 + ISO_TILE_STRIDE,
+  };
+}
+
+/** Inverse of the ground (z=0) isometric map; returns integer cell indices. */
+export function worldPlaneToMapCell(
+  localX: number,
+  localY: number,
+  scale: number
+): { mapX: number; mapY: number } {
+  const worldX = localX / (ISO_TILE_STRIDE * scale);
+  const worldY = localY / (ISO_TILE_STRIDE * scale);
+  const result = multiply(matrix([[worldX, worldY]]), INVERSE_ISO) as Matrix;
+  const resultArray = result.toArray() as number[][];
+  return {
+    mapX: Math.floor(resultArray[0][0]),
+    mapY: Math.floor(resultArray[0][1]),
+  };
+}
+
+/**
+ * Top visible tile at the column under the pointer (stack-aware hover).
+ */
+export function pickTopTileAtPlane(
+  tiles: TileInstance[],
+  localX: number,
+  localY: number,
+  scale: number
+): { mapX: number; mapY: number; z: number } | null {
+  const { mapX, mapY } = worldPlaneToMapCell(localX, localY, scale);
+  const stack = tiles.filter((t) => t.mapX === mapX && t.mapY === mapY);
+  if (stack.length === 0) return null;
+  const z = Math.max(...stack.map((t) => t.z));
+  return { mapX, mapY, z };
 }
