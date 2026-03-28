@@ -1,24 +1,22 @@
 import { Application, extend, useApplication, useTick } from "@pixi/react";
 import {
-  Assets,
   Container,
   Graphics,
   Sprite,
-  Spritesheet,
   Texture,
   TextureSource,
 } from "pixi.js";
 import { RefObject, useEffect, useMemo, useState } from "react";
 import { useOfficeStore } from "../state/office.store";
 import { useThemeStore } from "../state/theme.store";
-import { buildOfficeMap } from "./map";
+import { loadIsometricAtlasTextures } from "./atlas/load-isometric-atlases";
+import { getDefaultMap } from "./map";
 import {
   depthKey,
   mapToWorld,
   pickTopTileAtPlane,
   viewportWorldToTilePlane,
 } from "./math-utils";
-import { atlasData, TerrainKey } from "./sprites";
 import { useDisableDOMZoom } from "./utils/use-disable-dom-zoom";
 import { AppViewport } from "./viewport";
 
@@ -65,20 +63,14 @@ const World = ({
   wrapperSize: { width: number; height: number };
 }) => {
   const [textures, setTextures] =
-    useState<Record<TerrainKey, Texture<TextureSource>>>();
+    useState<Record<string, Texture<TextureSource>>>();
   const { app } = useApplication();
 
   const viewport = useOfficeStore((state) => state.viewport);
 
   const theme = useThemeStore((state) => state.theme);
 
-  const rows = 32;
-  const cols = 32;
-
-  const tiles = useMemo(
-    () => buildOfficeMap(rows, cols),
-    [rows, cols]
-  );
+  const tiles = useMemo(() => getDefaultMap().tiles, []);
 
   const [hoveredTile, setHoveredTile] = useState<{
     mapX: number;
@@ -98,18 +90,11 @@ const World = ({
   }, [app, app.renderer, theme]);
 
   useEffect(() => {
-    const loadSpriteSheet = async () => {
-      const sheet: Texture = await Assets.load(atlasData.meta.image);
-
-      sheet.source.scaleMode = "nearest";
-      const spritesheet = new Spritesheet(sheet, atlasData);
-      return spritesheet.parse();
-    };
-
-    loadSpriteSheet().then(setTextures);
+    loadIsometricAtlasTextures().then(setTextures);
   }, []);
 
-  const scale = 3;
+  /** Uniform scale for all isometric sprites (tune with `ISO_CELL_STRIDE` in math-utils). */
+  const scale = 1;
 
   const checkHoveredTile = () => {
     if (!viewport) return;
@@ -130,35 +115,37 @@ const World = ({
   return (
     <pixiContainer sortableChildren={true}>
       {textures && wrapperSize
-        ? tiles.map(({ mapX, mapY, z, terrain }) => {
-            const { x: worldX, y: worldY } = mapToWorld(
-              mapX,
-              mapY,
-              z,
-              scale
-            );
+        ? tiles
+            .filter(({ spriteId }) => textures[spriteId])
+            .map(({ mapX, mapY, z, spriteId }) => {
+              const { x: worldX, y: worldY } = mapToWorld(
+                mapX,
+                mapY,
+                z,
+                scale
+              );
 
-            const key = `${mapX}_${mapY}_${z}`;
-            const zIndex = depthKey(mapX, mapY, z);
-            const isHovered =
-              hoveredTile != null &&
-              hoveredTile.mapX === mapX &&
-              hoveredTile.mapY === mapY &&
-              hoveredTile.z === z;
+              const key = `${mapX}_${mapY}_${z}`;
+              const zIndex = depthKey(mapX, mapY, z);
+              const isHovered =
+                hoveredTile != null &&
+                hoveredTile.mapX === mapX &&
+                hoveredTile.mapY === mapY &&
+                hoveredTile.z === z;
 
-            return (
-              <pixiSprite
-                key={key}
-                texture={textures[terrain]}
-                x={worldX + wrapperSize.width / 2}
-                y={worldY + wrapperSize.height / 4}
-                scale={scale}
-                anchor={{ x: 0.5, y: 0.5 }}
-                zIndex={zIndex}
-                tint={isHovered ? 0.7 * 0xffffff : 0xffffff}
-              />
-            );
-          })
+              return (
+                <pixiSprite
+                  key={key}
+                  texture={textures[spriteId]}
+                  x={worldX + wrapperSize.width / 2}
+                  y={worldY + wrapperSize.height / 4}
+                  scale={scale}
+                  anchor={{ x: 0.5, y: 1 }}
+                  zIndex={zIndex}
+                  tint={isHovered ? 0.7 * 0xffffff : 0xffffff}
+                />
+              );
+            })
         : null}
     </pixiContainer>
   );

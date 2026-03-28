@@ -2,8 +2,25 @@ import { inv, Matrix, matrix, multiply } from "mathjs";
 
 import type { TileInstance } from "./map/types";
 
-/** Source tile size in pixels (matches atlas frame). */
-export const ISO_TILE_STRIDE = 18;
+/**
+ * Native tile texture size (flattened isometric diamonds in the Kenney sheets).
+ * Grid spacing is derived from these; keep in sync with atlas frame rects.
+ */
+export const ISO_TILE_WIDTH = 132;
+export const ISO_TILE_HEIGHT = 99;
+
+/**
+ * Map-axis unit before {@link ISO_WEIGHTS}: one full tile width so each +1 `mapX`
+ * / `mapY` shifts anchors by half a tile horizontally (66px at scale 1), matching
+ * 132px-wide diamonds with bottom-center anchor.
+ */
+export const ISO_CELL_STRIDE = ISO_TILE_WIDTH;
+
+/**
+ * How far each elevation step `z` moves sprites screen-up (pseudo-vertical).
+ * Tuned to {@link ISO_TILE_HEIGHT} for stacked layers.
+ */
+export const ISO_Z_LIFT_PER_LAYER = ISO_TILE_HEIGHT * 0.5;
 
 /**
  * Must exceed max (mapX + mapY) on the map so elevation dominates draw order.
@@ -34,12 +51,12 @@ export function mapToWorld(
   scale: number
 ): { x: number; y: number } {
   const coordinate = matrix([
-    [mapX * ISO_TILE_STRIDE * scale, mapY * ISO_TILE_STRIDE * scale],
+    [mapX * ISO_CELL_STRIDE * scale, mapY * ISO_CELL_STRIDE * scale],
   ]);
   const [row] = multiply(coordinate, ISO_WEIGHTS).toArray() as number[][];
   const wx = row[0];
   const wy = row[1];
-  const liftPerLayer = ISO_TILE_STRIDE * scale * 0.5;
+  const liftPerLayer = ISO_Z_LIFT_PER_LAYER * scale;
   return { x: wx, y: wy - z * liftPerLayer };
 }
 
@@ -54,7 +71,10 @@ export function viewportWorldToTilePlane(
 ): { x: number; y: number } {
   return {
     x: viewportWorldX - wrapperSize.width / 2,
-    y: viewportWorldY - wrapperSize.height / 4 + ISO_TILE_STRIDE,
+    y:
+      viewportWorldY -
+      wrapperSize.height / 4 +
+      ISO_TILE_WIDTH / 2,
   };
 }
 
@@ -64,8 +84,8 @@ export function worldPlaneToMapCell(
   localY: number,
   scale: number
 ): { mapX: number; mapY: number } {
-  const worldX = localX / (ISO_TILE_STRIDE * scale);
-  const worldY = localY / (ISO_TILE_STRIDE * scale);
+  const worldX = localX / (ISO_CELL_STRIDE * scale);
+  const worldY = localY / (ISO_CELL_STRIDE * scale);
   const result = multiply(matrix([[worldX, worldY]]), INVERSE_ISO) as Matrix;
   const resultArray = result.toArray() as number[][];
   return {

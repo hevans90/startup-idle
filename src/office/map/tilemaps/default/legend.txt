@@ -1,0 +1,14 @@
+# First column = ASCII symbol for layer files. Rest = SubTexture name (must exist in public/isometric_assets).
+# Space in a layer file = no tile at that (x,y,z).
+g landscapeTiles_067.png
+d landscapeTiles_073.png
+P landscapeTiles_087.png
+A landscapeTiles_023.png
+R buildingTiles_061.png
+w buildingTiles_114.png
+a buildingTiles_120.png
+b buildingTiles_121.png
+c landscapeTiles_010.png
+B buildingTiles_003.png
+N buildingTiles_025.png
+E buildingTiles_026.png
