@@ -19,6 +19,15 @@ type UnlockKeys = keyof typeof unlockInitialState;
 export const ManagerKeyValues = ["agile", "corpo", "sales"] as const;
 export type ManagerKeys = (typeof ManagerKeyValues)[number];
 
+/** Sum of integer tiers across all manager tracks (budget for employee management). */
+export function getManagementTierTotal(): number {
+  const { managers } = useInnovationStore.getState();
+  return ManagerKeyValues.reduce(
+    (sum, key) => sum + managers[key].tier.floor().toNumber(),
+    0
+  );
+}
+
 type ManagerBonusType = "innovation" | "employee" | "valuation";
 
 export type ManagerState = {
@@ -177,7 +186,7 @@ const initialManagerState: Record<ManagerKeys, ManagerState> = {
     growthRate: new Decimal(0.8),
     estimateToNextTier: "-",
     bonusType: "innovation",
-    bonusMultiplierGrowthPerTier: new Decimal(1.01),
+    bonusMultiplierGrowthPerTier: new Decimal(1.034),
     bonusMultiplier: new Decimal(1),
   },
   corpo: {
@@ -188,7 +197,7 @@ const initialManagerState: Record<ManagerKeys, ManagerState> = {
     growthRate: new Decimal(0.5),
     estimateToNextTier: "-",
     bonusType: "employee",
-    bonusMultiplierGrowthPerTier: new Decimal(1.01),
+    bonusMultiplierGrowthPerTier: new Decimal(1.032),
     bonusMultiplier: new Decimal(1),
   },
   sales: {
@@ -199,7 +208,7 @@ const initialManagerState: Record<ManagerKeys, ManagerState> = {
     growthRate: new Decimal(0.1),
     estimateToNextTier: "-",
     bonusType: "valuation",
-    bonusMultiplierGrowthPerTier: new Decimal(1.01),
+    bonusMultiplierGrowthPerTier: new Decimal(1.03),
     bonusMultiplier: new Decimal(1),
   },
 };
@@ -357,19 +366,6 @@ export const useInnovationStore = create<InnovationState>()(
         }
       },
 
-      getManagerBonus: (
-        key: ManagerKeys
-      ): {
-        bonusType: ManagerBonusType;
-        bonusMultiplier: Decimal;
-      } => {
-        const { managers } = get();
-        const manager = managers[key];
-        return {
-          bonusType: manager.bonusType,
-          bonusMultiplier: manager.bonusMultiplier,
-        };
-      },
       tickManagers: () => {
         const now = Date.now();
         const globalTickInterval = now - get().globalLastTick;

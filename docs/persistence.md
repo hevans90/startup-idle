@@ -6,7 +6,9 @@
 |-----|------------|----------|
 | `money` | `money.store.ts` | Stringified `Decimal` |
 | `generators` | `generators.store.ts` | JSON array of owned generators |
+| `employeeManagement` | `generators.store.ts` | JSON `{ spentManagementPoints, perks, autoBuyAcc }` |
 | `innovation` | Zustand persist (`innovation.store.ts`) | Innovation + managers + unlocks + partial state (see store `partialize`) |
+| `valuation` | Zustand persist (`valuation.store.ts`) | Valuation balance + mandate levels |
 | `unlockedUpgrades` | `upgrades.store.ts` | JSON array of upgrade **ids** |
 | `global-settings` | Zustand persist (`global-settings.store.ts`) | `{ sidebarTab }` |
 | `theme` | Zustand persist (`theme.store.ts`) | `"light"` \| `"dark"` |
@@ -16,7 +18,7 @@
 
 ## Decimal serialization
 
-`innovation.store.ts` uses `createJSONStorage` with `decimalReplacer` / `decimalReviver` from `_break_infinity.decimals.ts` so nested `Decimal` values round-trip correctly.
+`innovation.store.ts` and `valuation.store.ts` use `createJSONStorage` with `decimalReplacer` / `decimalReviver` from `_break_infinity.decimals.ts` so nested `Decimal` values round-trip correctly.
 
 Money does **not** use that middleware; it stores `money.toString()` and reloads with `new Decimal(saved)`.
 
@@ -33,7 +35,7 @@ So **patch-only** version bumps may preserve saves (same major.minor); **minor o
 
 ## Reset game
 
-`ResetButton` calls `reset` on: `useGeneratorStore`, `useMoneyStore`, `useUpgradeStore`, `useInnovationStore`. It does **not** reset theme, global settings, or version.
+`ResetButton` calls `reset` on: `useGeneratorStore`, `useMoneyStore`, `useUpgradeStore`, `useInnovationStore`, `useValuationStore`. It does **not** reset theme, global settings, or version.
 
 ## Related docs
 

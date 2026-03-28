@@ -101,7 +101,13 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
         <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0 min-w-72">
           <div className="flex flex-col gap-2 items-center justify-center text-sm">
             <InfoRow
-              label={`${bonusType}:`}
+              label={
+                bonusType === "innovation"
+                  ? "Innovation (employee IPS)"
+                  : bonusType === "employee"
+                    ? "Employee output ($)"
+                    : "Valuation rate"
+              }
               value={`x${bonusMultiplier?.toFixed(3)}`}
             />
             <InfoRow

@@ -5,7 +5,9 @@ import {
 import { Button } from "../../ui/Button";
 import { CycleButton } from "../../ui/CyclingButton";
 import { SystemPanel } from "../../ui/SystemPanel";
+import { EmployeeManagementPanel } from "./employee-management-panel";
 import ManagerRow from "./manager-row";
+import { ValuationMandatesPanel } from "./valuation-mandates-panel";
 
 export const InnovationManagers = () => {
   const {
@@ -75,12 +77,18 @@ export const InnovationManagers = () => {
       {employeeManagementState?.unlocked && (
         <SystemPanel
           title="Employee Management"
-          help="Management tiers can be spent to improve employees in a variety of
-            ways"
+          help="Spend points equal to your total manager tier levels on each role"
         >
-          <div className="p-4">
-            <p className="text-xs">coming soon</p>
-          </div>
+          <EmployeeManagementPanel />
+        </SystemPanel>
+      )}
+
+      {managersState?.unlocked && (
+        <SystemPanel
+          title="Board & valuation"
+          help="Valuation accrues from revenue (boosted by Sales). Buy mandates for global bonuses."
+        >
+          <ValuationMandatesPanel />
         </SystemPanel>
       )}
     </div>

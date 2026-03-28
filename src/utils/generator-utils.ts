@@ -24,14 +24,21 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
     .times(exponent.pow(amount).minus(1))
     .div(exponent.minus(1));
 
-  return totalCost;
+  const employeeCostMult = useGeneratorStore
+    .getState()
+    .getEmployeeCostMult(id as GeneratorId);
+
+  return totalCost.times(employeeCostMult);
 };
 
 export const getMaxAffordableAmountAndCost = (
   id: string
 ): { amount: number; cost: Decimal } => {
   const { generators } = useGeneratorStore.getState();
-  const money = useMoneyStore.getState().money;
+  const employeeCostMult = useGeneratorStore
+    .getState()
+    .getEmployeeCostMult(id as GeneratorId);
+  const money = useMoneyStore.getState().money.div(employeeCostMult);
   const generator = generators.find((g) => g.id === id);
   if (!generator)
     return {
@@ -47,7 +54,7 @@ export const getMaxAffordableAmountAndCost = (
   if (exponent.eq(1)) {
     // Linear cost: total = baseCost * n
     const amount = money.div(baseCost).floor().toNumber();
-    const cost = baseCost.times(amount);
+    const cost = baseCost.times(amount).times(employeeCostMult);
     return { amount, cost };
   }
 
@@ -77,7 +84,8 @@ export const getMaxAffordableAmountAndCost = (
         .pow(currentAmount)
         .times(exponent.pow(amount).minus(1))
         .div(exponent.minus(1))
-    );
+    )
+    .times(employeeCostMult);
 
   return { amount, cost: totalCost };
 };

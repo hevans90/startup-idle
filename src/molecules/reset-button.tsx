@@ -4,6 +4,7 @@ import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { useUpgradeStore } from "../state/upgrades.store";
+import { useValuationStore } from "../state/valuation.store";
 import { Button } from "../ui/Button";
 
 export const ResetButton = () => {
@@ -11,6 +12,7 @@ export const ResetButton = () => {
   const { reset: resetGenerators } = useGeneratorStore();
   const { reset: resetUpgrades } = useUpgradeStore();
   const { reset: resetInnovation } = useInnovationStore();
+  const { reset: resetValuation } = useValuationStore();
 
   const totalReset = useCallback(() => {
     if (confirm("This will reset all progress, are you sure?")) {
@@ -18,9 +20,10 @@ export const ResetButton = () => {
       resetMoney();
       resetUpgrades();
       resetInnovation();
+      resetValuation();
       toast.success("Game fully reset. All progress wiped.");
     }
-  }, []);
+  }, [resetGenerators, resetInnovation, resetMoney, resetUpgrades, resetValuation]);
 
   return (
     <Button
