@@ -2,25 +2,30 @@
 
 ## localStorage keys
 
-| Key | Written by | Contents |
-|-----|------------|----------|
-| `money` | `money.store.ts` | Stringified `Decimal` |
-| `generators` | `generators.store.ts` | JSON array of owned generators |
-| `employeeManagement` | `generators.store.ts` | JSON `{ spentManagementPoints, perks, autoBuyAcc }` |
-| `innovation` | Zustand persist (`innovation.store.ts`) | Innovation + managers + unlocks + partial state (see store `partialize`) |
-| `valuation` | Zustand persist (`valuation.store.ts`) | Valuation balance + mandate levels |
-| `unlockedUpgrades` | `upgrades.store.ts` | JSON array of upgrade **ids** |
-| `global-settings` | Zustand persist (`global-settings.store.ts`) | `{ sidebarTab }` |
-| `theme` | Zustand persist (`theme.store.ts`) | `"light"` \| `"dark"` |
-| `game_version` | Zustand persist (`version.store.ts`) | Last seen app version string |
+All gameplay saves go through **Zustand `persist`** (`createJSONStorage` + `partialize`). Keys below are the persist `name` for each store (zustand wraps values as `{ state, version }` unless noted).
+
+| Key | Store | Contents (persisted slice) |
+|-----|--------|----------------------------|
+| `money` | `money.store.ts` | `{ money }` as serialized `Decimal` |
+| `generators` | `generators.store.ts` | `{ generators, employeeManagement }` |
+| `innovation` | `innovation.store.ts` | Innovation + managers + unlocks (see store `partialize`) |
+| `valuation` | `valuation.store.ts` | Valuation balance + mandate levels |
+| `unlockedUpgrades` | `upgrades.store.ts` | `{ unlockedUpgradeIds }` |
+| `global-settings` | `global-settings.store.ts` | `{ sidebarTab }` |
+| `theme` | `theme.store.ts` | `{ theme }` |
+| `game_version` | `version.store.ts` | Last seen app version string |
 
 `availableUpgrades` is **derived** and not stored; it is recomputed via `syncAvailableUpgrades`.
 
+### Legacy migration (no separate keys in new saves)
+
+- **Money:** Older saves used a plain decimal string under `money`. A custom `StateStorage` adapter rewrites that into the zustand persist shape on first read.
+- **Generators:** Older saves used a raw JSON **array** under `generators` and optionally `employeeManagement` as a second key. `generatorStateStorage` merges both into one persist blob on read. The orphan `employeeManagement` key is removed on full **Reset**.
+- **Upgrades:** Older saves used a raw JSON **array of ids** under `unlockedUpgrades`. `upgradesLegacyStorage` wraps that into the persist shape on read.
+
 ## Decimal serialization
 
-`innovation.store.ts` and `valuation.store.ts` use `createJSONStorage` with `decimalReplacer` / `decimalReviver` from `_break_infinity.decimals.ts` so nested `Decimal` values round-trip correctly.
-
-Money does **not** use that middleware; it stores `money.toString()` and reloads with `new Decimal(saved)`.
+`innovation.store.ts`, `valuation.store.ts`, and `money.store.ts` use `createJSONStorage` with `decimalReplacer` / `decimalReviver` from `_break_infinity.decimals.ts` where `Decimal` fields are persisted.
 
 ## Version migration
 
@@ -30,6 +35,8 @@ Money does **not** use that middleware; it stores `money.toString()` and reloads
 2. Sets stored version to `CURRENT_VERSION`.
 
 So **patch-only** version bumps may preserve saves (same major.minor); **minor or major** bumps wipe progress except the version key.
+
+`clearAllStorageExceptVersion` in `version.store.ts` intentionally uses `localStorage.clear()`; that is not a per-store write path.
 
 **Implication for agents:** bumping `CURRENT_VERSION` minor/major is a breaking save reset for players. Document in changelog or bump only patch if you need compatibility.
 

@@ -10,7 +10,7 @@ This document is the **source of truth for game logic** as implemented in code. 
 | Innovation | `innovation.store.ts` | Secondary resource; unlocks innovation UI features; spent on managers |
 | Valuation | `valuation.store.ts` | Passive accrual from revenue (scaled by Sales manager); spent on board mandates |
 
-Money uses `break_infinity.js` `Decimal` with manual `localStorage` sync on change. Innovation and valuation use Zustand `persist` with custom JSON replacer/reviver for `Decimal` (`_break_infinity.decimals.ts`).
+Money, innovation, and valuation persist `Decimal` via Zustand `persist` and `createJSONStorage` with `decimalReplacer` / `decimalReviver` (`_break_infinity.decimals.ts`).
 
 ## Generators
 
@@ -88,7 +88,7 @@ Per generator id, perks track levels for:
 - **Cost:** each level multiplies purchase cost by `0.985` (stacked).
 - **Auto-buy:** each level adds `0.035` “generators per second” of fractional auto-purchase when cash allows (capped at 5 levels).
 
-Purchase costs scale with branch and current level (`employeePerkPurchaseCost` in `generators.store.ts`). State persists under localStorage key `employeeManagement`.
+Purchase costs scale with branch and current level (`employeePerkPurchaseCost` in `generators.store.ts`). State persists with generators under the zustand persist key `generators` (legacy installs may still have a one-time `employeeManagement` key until reset).
 
 ## Upgrades
 
@@ -102,7 +102,7 @@ Each upgrade has:
 
 `syncAvailableUpgrades` builds `availableUpgrades`: conditions met, not already in `unlockedUpgrades`, sorted by `cost`.
 
-`unlockUpgrade(id)` spends money, runs `applyUpgradeEffect` (mutates matching generators’ multipliers / cost fields), persists upgrade IDs in `localStorage`, refreshes available list.
+`unlockUpgrade(id)` spends money, runs `applyUpgradeEffect` (mutates matching generators’ multipliers / cost fields), appends the id to persisted `unlockedUpgradeIds`, refreshes available list.
 
 ```mermaid
 flowchart LR

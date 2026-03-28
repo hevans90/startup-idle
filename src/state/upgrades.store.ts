@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { GeneratorId, useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
 
@@ -7,7 +8,28 @@ export type UnlockCondition = {
   requiredAmount: number;
 };
 
-const LOCAL_STORAGE_KEY = "unlockedUpgrades";
+const UPGRADE_PERSIST_KEY = "unlockedUpgrades";
+
+const upgradesLegacyStorage: StateStorage = {
+  getItem: (name) => {
+    const raw = localStorage.getItem(name);
+    if (!raw) return null;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return JSON.stringify({
+          state: { unlockedUpgradeIds: parsed as string[] },
+          version: 0,
+        });
+      }
+    } catch {
+      return null;
+    }
+    return raw;
+  },
+  setItem: (name, value) => localStorage.setItem(name, value),
+  removeItem: (name) => localStorage.removeItem(name),
+};
 
 export type GeneratorEffect =
   | { type: "multiplier"; value: number }
@@ -335,6 +357,9 @@ export const UPGRADES: Upgrade[] = [
   ...TEN_X_ENGINEER_UPGRADES,
 ];
 
+const unlockedUpgradesFromIds = (ids: string[]): Upgrade[] =>
+  UPGRADES.filter((u) => ids.includes(u.id));
+
 export const applyUpgradeEffect = (upgrade: Upgrade) => {
   const state = useGeneratorStore.getState();
 
@@ -376,9 +401,7 @@ export const syncAvailableUpgrades = () => {
     useGeneratorStore.getState().generators.map((g) => [g.id, g.amount])
   );
 
-  const unlockedIds = useUpgradeStore
-    .getState()
-    .unlockedUpgrades.map((u) => u.id);
+  const unlockedIds = useUpgradeStore.getState().unlockedUpgradeIds;
 
   const available = UPGRADES.filter((upg) => {
     const satisfied = upg.unlockConditions.every((cond) => {
@@ -391,50 +414,64 @@ export const syncAvailableUpgrades = () => {
   useUpgradeStore.setState({ availableUpgrades: available });
 };
 
-export const useUpgradeStore = create<{
-  availableUpgrades: Upgrade[];
+type UpgradeStoreState = {
+  unlockedUpgradeIds: string[];
   unlockedUpgrades: Upgrade[];
+  availableUpgrades: Upgrade[];
   unlockUpgrade: (id: string) => void;
   reset: () => void;
-}>(() => {
-  const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-  const unlockedIds: string[] = saved ? JSON.parse(saved) : [];
+};
 
-  const unlockedUpgrades = UPGRADES.filter((u) => unlockedIds.includes(u.id));
+export const useUpgradeStore = create<UpgradeStoreState>()(
+  persist(
+    (set, get) => ({
+      unlockedUpgradeIds: [],
+      unlockedUpgrades: [],
+      availableUpgrades: [],
+      unlockUpgrade: (id: string) => {
+        const moneyState = useMoneyStore.getState();
+        const upgrade = UPGRADES.find((u) => u.id === id);
+        if (!upgrade) return;
 
-  return {
-    unlockedUpgrades,
-    availableUpgrades: [],
-    unlockUpgrade: (id: string) => {
-      const moneyState = useMoneyStore.getState();
-      const upgrade = UPGRADES.find((u) => u.id === id);
-      if (!upgrade) return;
+        if (get().unlockedUpgradeIds.includes(id)) return;
 
-      const alreadyUnlocked = useUpgradeStore
-        .getState()
-        .unlockedUpgrades.find((u) => u.id === id);
-      if (alreadyUnlocked) return;
+        if (moneyState.money.toNumber() >= upgrade.cost) {
+          moneyState.spendMoney(upgrade.cost);
+          applyUpgradeEffect(upgrade);
 
-      if (moneyState.money.toNumber() >= upgrade.cost) {
-        moneyState.spendMoney(upgrade.cost);
-        applyUpgradeEffect(upgrade);
-
-        const newUnlocked = [
-          ...useUpgradeStore.getState().unlockedUpgrades,
-          upgrade,
-        ];
-        localStorage.setItem(
-          LOCAL_STORAGE_KEY,
-          JSON.stringify(newUnlocked.map((u) => u.id))
-        );
-
-        useUpgradeStore.setState({ unlockedUpgrades: newUnlocked });
-        syncAvailableUpgrades();
-      }
-    },
-    reset: () => {
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
-      useUpgradeStore.setState({ unlockedUpgrades: [], availableUpgrades: [] });
-    },
-  };
-});
+          const newIds = [...get().unlockedUpgradeIds, id];
+          set({
+            unlockedUpgradeIds: newIds,
+            unlockedUpgrades: unlockedUpgradesFromIds(newIds),
+          });
+          syncAvailableUpgrades();
+        }
+      },
+      reset: () => {
+        set({
+          unlockedUpgradeIds: [],
+          unlockedUpgrades: [],
+          availableUpgrades: [],
+        });
+        useUpgradeStore.persist.clearStorage();
+      },
+    }),
+    {
+      name: UPGRADE_PERSIST_KEY,
+      storage: createJSONStorage(() => upgradesLegacyStorage),
+      partialize: (state) => ({
+        unlockedUpgradeIds: state.unlockedUpgradeIds,
+      }),
+      merge: (persisted, current) => {
+        const p = persisted as Partial<Pick<UpgradeStoreState, "unlockedUpgradeIds">> | null;
+        const ids = p?.unlockedUpgradeIds ?? [];
+        return {
+          ...current,
+          ...p,
+          unlockedUpgradeIds: ids,
+          unlockedUpgrades: unlockedUpgradesFromIds(ids),
+        };
+      },
+    }
+  )
+);

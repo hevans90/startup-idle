@@ -13,10 +13,7 @@ interface ThemeStore {
 export const useThemeStore = create<ThemeStore>()(
   persist(
     (set, get) => ({
-      theme:
-        typeof window !== "undefined"
-          ? (localStorage.getItem("theme") as Theme) || "light"
-          : "light",
+      theme: "light",
       toggleTheme: () => {
         const newTheme = get().theme === "light" ? "dark" : "light";
         set({ theme: newTheme });

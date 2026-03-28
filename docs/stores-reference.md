@@ -7,9 +7,8 @@ Abbreviated surface area for navigation. See source files for full types.
 | Field / action | Role |
 |----------------|------|
 | `money` | `Decimal` balance |
-| `increaseMoney` / `spendMoney` | Mutates and writes `localStorage` key `money` |
-| `loadMoney` | Called at module load |
-| `reset` | Clears `money` key, zero balance |
+| `increaseMoney` / `spendMoney` | Mutates balance; zustand `persist` syncs key `money` |
+| `reset` | Zero balance + `persist.clearStorage()` |
 
 ## `useGeneratorStore` (`generators.store.ts`)
 
@@ -18,11 +17,11 @@ Abbreviated surface area for navigation. See source files for full types.
 | `generators` | `OwnedGenerator[]` (only unlocked types) |
 | `globalLastTick` | Last wall-clock tick boundary (ms) |
 | `purchaseMode` | `"single"` \| `"max"` |
-| `tickGenerators` | ~1s gated; pays money + innovation; persist; sync unlocks + upgrades |
+| `tickGenerators` | ~1s gated; pays money + innovation; zustand persist; sync unlocks + upgrades |
 | `purchaseGenerator` | Cost check, spend, `increaseGenerator`, sync |
 | `getMoneyPerSecond` / `getInnovationPerSecond` | Aggregates for HUD |
 | `setPurchaseMode` | UI toggle |
-| `reset` | Clears `generators` key and in-memory list |
+| `reset` | Default generators + employee management; `persist.clearStorage()`; removes legacy `employeeManagement` key if present |
 
 ## `useInnovationStore` (`innovation.store.ts`)
 
@@ -46,9 +45,10 @@ Abbreviated surface area for navigation. See source files for full types.
 | Field / action | Role |
 |----------------|------|
 | `availableUpgrades` | Derived list (sync function) |
-| `unlockedUpgrades` | Purchased upgrades (full objects) |
-| `unlockUpgrade` | Pay money, `applyUpgradeEffect`, persist ids |
-| `reset` | Clears unlocked list and key `unlockedUpgrades` |
+| `unlockedUpgradeIds` | Persisted id list |
+| `unlockedUpgrades` | Catalog rows for those ids (derived on hydrate / unlock) |
+| `unlockUpgrade` | Pay money, `applyUpgradeEffect`; zustand `persist` saves `unlockedUpgradeIds` |
+| `reset` | Clears unlocks + `persist.clearStorage()` |
 
 Module-level exports: `UPGRADES`, `syncAvailableUpgrades`, `applyUpgradeEffect`.
 

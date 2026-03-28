@@ -1,5 +1,6 @@
 import Decimal from "break_infinity.js";
 import { create } from "zustand";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import {
   getManagerEconomyMultipliers,
   getValuationEconomyMultipliers,
@@ -129,7 +130,8 @@ export const GENERATOR_TYPES: Generator[] = [
   },
 ];
 
-const LOCAL_STORAGE_KEY = "generators";
+const GENERATOR_PERSIST_KEY = "generators";
+/** Legacy split save; read once for migration into the persist blob. */
 const EMPLOYEE_MGMT_STORAGE_KEY = "employeeManagement";
 const MAX_CATCH_UP_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -148,15 +150,14 @@ const mergeEmployeePerks = (
   "10x_dev": { ...defaultEmployeePerks(), ...partial?.["10x_dev"] },
 });
 
-const loadEmployeeManagement = (): EmployeeManagementData => {
-  const raw = localStorage.getItem(EMPLOYEE_MGMT_STORAGE_KEY);
-  if (!raw) {
-    return {
-      spentManagementPoints: 0,
-      perks: mergeEmployeePerks(),
-      autoBuyAcc: {},
-    };
-  }
+const defaultEmployeeManagement = (): EmployeeManagementData => ({
+  spentManagementPoints: 0,
+  perks: mergeEmployeePerks(),
+  autoBuyAcc: {},
+});
+
+const parseEmployeeManagementJson = (raw: string | null): EmployeeManagementData => {
+  if (!raw) return defaultEmployeeManagement();
   try {
     const parsed = JSON.parse(raw) as {
       spentManagementPoints?: number;
@@ -174,52 +175,88 @@ const loadEmployeeManagement = (): EmployeeManagementData => {
       autoBuyAcc: parsed.autoBuyAcc ?? {},
     };
   } catch {
-    return {
-      spentManagementPoints: 0,
-      perks: mergeEmployeePerks(),
-      autoBuyAcc: {},
-    };
+    return defaultEmployeeManagement();
   }
 };
 
-const saveEmployeeManagement = (data: EmployeeManagementData) => {
-  localStorage.setItem(EMPLOYEE_MGMT_STORAGE_KEY, JSON.stringify(data));
+const normalizeEmployeeManagement = (
+  value: unknown
+): EmployeeManagementData => {
+  if (!value || typeof value !== "object") return defaultEmployeeManagement();
+  return parseEmployeeManagementJson(JSON.stringify(value));
 };
 
-const loadGenerators = (): OwnedGenerator[] => {
-  const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-  let savedData: OwnedGenerator[] = [];
-
-  try {
-    savedData = saved ? JSON.parse(saved) : [];
-  } catch {
-    savedData = [];
-  }
-
+const reconcileGeneratorsFromSavedArray = (
+  savedData: OwnedGenerator[]
+): OwnedGenerator[] => {
   const ownedMap = Object.fromEntries(savedData.map((g) => [g.id, g]));
-
   const unlockedIds = getUnlockedGeneratorIds(savedData);
 
-  const result = GENERATOR_TYPES.filter((gen) =>
-    unlockedIds.includes(gen.id)
-  ).map((gen) => {
-    const saved = ownedMap[gen.id];
-    return {
-      ...gen,
-      amount: saved?.amount ?? 0,
-      multiplier: saved?.multiplier ?? 1,
-      costExponent: saved?.costExponent ?? gen.costExponent,
-      costMultiplier: saved?.costMultiplier ?? 1,
-      lastTick: saved?.lastTick ?? Date.now(),
-      innovationMultiplier: saved?.innovationMultiplier ?? 1,
-    } satisfies OwnedGenerator;
-  });
-
-  return result;
+  return GENERATOR_TYPES.filter((gen) => unlockedIds.includes(gen.id)).map(
+    (gen) => {
+      const saved = ownedMap[gen.id];
+      return {
+        ...gen,
+        amount: saved?.amount ?? 0,
+        multiplier: saved?.multiplier ?? 1,
+        costExponent: saved?.costExponent ?? gen.costExponent,
+        costMultiplier: saved?.costMultiplier ?? 1,
+        lastTick: saved?.lastTick ?? Date.now(),
+        innovationMultiplier: saved?.innovationMultiplier ?? 1,
+      } satisfies OwnedGenerator;
+    }
+  );
 };
 
-const saveGenerators = (generators: OwnedGenerator[]) =>
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(generators));
+const readLegacyEmployeeManagementFromStorage = (): EmployeeManagementData => {
+  return parseEmployeeManagementJson(
+    localStorage.getItem(EMPLOYEE_MGMT_STORAGE_KEY)
+  );
+};
+
+const generatorStateStorage: StateStorage = {
+  getItem: (name) => {
+    const raw = localStorage.getItem(name);
+    if (!raw) {
+      const emOnly = localStorage.getItem(EMPLOYEE_MGMT_STORAGE_KEY);
+      if (!emOnly) return null;
+      return JSON.stringify({
+        state: {
+          generators: reconcileGeneratorsFromSavedArray([]),
+          employeeManagement: parseEmployeeManagementJson(emOnly),
+        },
+        version: 0,
+      });
+    }
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        "state" in (parsed as object)
+      ) {
+        return raw;
+      }
+      if (Array.isArray(parsed)) {
+        const em = readLegacyEmployeeManagementFromStorage();
+        return JSON.stringify({
+          state: {
+            generators: reconcileGeneratorsFromSavedArray(
+              parsed as OwnedGenerator[]
+            ),
+            employeeManagement: em,
+          },
+          version: 0,
+        });
+      }
+    } catch {
+      return null;
+    }
+    return raw;
+  },
+  setItem: (name, value) => localStorage.setItem(name, value),
+  removeItem: (name) => localStorage.removeItem(name),
+};
 
 const syncUnlockedGenerators = (): void => {
   const state = useGeneratorStore.getState();
@@ -244,8 +281,6 @@ const syncUnlockedGenerators = (): void => {
     useGeneratorStore.setState({
       generators: [...state.generators, ...newGenerators],
     });
-
-    saveGenerators([...state.generators, ...newGenerators]);
   }
 };
 
@@ -268,23 +303,9 @@ function employeePerkPurchaseCost(
   return 0;
 }
 
-export const useGeneratorStore = create<GeneratorState>((set, get) => {
-  const initialGenerators = loadGenerators(); // Load initial state from localStorage
-  const initialEmployeeManagement = loadEmployeeManagement();
-
-  const persist = (
-    updater: (state: GeneratorState) => Partial<GeneratorState>
-  ) => {
-    const nextState = updater(get());
-    if (nextState.generators) {
-      saveGenerators(nextState.generators);
-    }
-    if (nextState.employeeManagement) {
-      saveEmployeeManagement(nextState.employeeManagement);
-    }
-    set(nextState);
-  };
-
+export const useGeneratorStore = create<GeneratorState>()(
+  persist(
+    (set, get) => {
   const runAutoBuy = (
     em: EmployeeManagementData,
     seconds: number
@@ -315,9 +336,9 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
 
   return {
     purchaseMode: "single",
-    generators: initialGenerators,
+    generators: reconcileGeneratorsFromSavedArray([]),
     globalLastTick: Date.now(),
-    employeeManagement: initialEmployeeManagement,
+    employeeManagement: defaultEmployeeManagement(),
 
     getEmployeePerks: (id) => get().employeeManagement.perks[id],
 
@@ -374,7 +395,7 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
       if (!get().canPurchaseEmployeePerk(id, branch)) return;
 
       const cost = get().getEmployeePerkNextCost(id, branch);
-      persist((state) => {
+      set((state) => {
         const perks = { ...state.employeeManagement.perks };
         const cur = { ...perks[id] };
         if (branch === "money") cur.moneyLevel += 1;
@@ -393,14 +414,14 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
     },
 
     addGenerator: (gen) =>
-      persist((state) => {
+      set((state) => {
         const exists = state.generators.find((g) => g.id === gen.id);
-        if (exists) return state;
+        if (exists) return {};
         return { generators: [...state.generators, gen] };
       }),
 
     increaseGenerator: (id, count = 1) =>
-      persist((state) => ({
+      set((state) => ({
         generators: state.generators.map((gen) =>
           gen.id === id ? { ...gen, amount: gen.amount + count } : gen
         ),
@@ -451,14 +472,12 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
         return gen;
       });
 
-      saveGenerators(updatedGenerators);
       set({ generators: updatedGenerators });
       syncUnlockedGenerators();
       syncAvailableUpgrades();
 
       let em = get().employeeManagement;
       em = runAutoBuy(em, seconds);
-      saveEmployeeManagement(em);
       set({ employeeManagement: em });
       syncUnlockedGenerators();
       syncAvailableUpgrades();
@@ -531,17 +550,39 @@ export const useGeneratorStore = create<GeneratorState>((set, get) => {
     setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
 
     reset: () => {
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
       localStorage.removeItem(EMPLOYEE_MGMT_STORAGE_KEY);
+      useGeneratorStore.persist.clearStorage();
       set({
-        generators: [],
+        generators: reconcileGeneratorsFromSavedArray([]),
         globalLastTick: Date.now(),
-        employeeManagement: {
-          spentManagementPoints: 0,
-          perks: mergeEmployeePerks(),
-          autoBuyAcc: {},
-        },
+        employeeManagement: defaultEmployeeManagement(),
       });
     },
   };
-});
+    },
+    {
+      name: GENERATOR_PERSIST_KEY,
+      storage: createJSONStorage(() => generatorStateStorage),
+      partialize: (state) => ({
+        generators: state.generators,
+        employeeManagement: state.employeeManagement,
+      }),
+      merge: (persisted, current) => {
+        const p = persisted as Partial<{
+          generators: OwnedGenerator[];
+          employeeManagement: EmployeeManagementData;
+        }> | null;
+        if (!p) return current;
+        return {
+          ...current,
+          generators: p.generators
+            ? reconcileGeneratorsFromSavedArray(p.generators)
+            : current.generators,
+          employeeManagement: p.employeeManagement
+            ? normalizeEmployeeManagement(p.employeeManagement)
+            : current.employeeManagement,
+        };
+      },
+    }
+  )
+);
