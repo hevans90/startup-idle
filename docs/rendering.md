@@ -45,7 +45,7 @@ flowchart TB
 ```
 
 - **`Application`:** `resizeTo={wrapperRef}`, `preference="webgpu"`, high `resolution` for crisp pixels.
-- **`AppViewport`:** `pixi-viewport` with drag, pinch, wheel zoom; registers instance in `office.store` for world/pointer math; clamps zoom on `zoomed-end`.
+- **`AppViewport`:** `pixi-viewport` with drag, pinch, wheel zoom; registers instance in `office.store` for world/pointer math; `clampZoom` for scale limits; each `frame-end`, [`constrainViewportToOfficeBounds`](../src/office/utils/clamp-viewport.ts) keeps the view inside fixed world min/max (no `viewport.clamp()` plugin).
 - **`World`:** loads **Starling** atlases from [`public/isometric_assets/`](../public/isometric_assets/) via [`loadIsometricAtlasTextures`](../src/office/atlas/load-isometric-atlases.ts) (`fast-xml-parser` + Pixi `Spritesheet`), renders an **isometric tile list** with depth sorting, tints the **top** tile under the pointer when a column is stacked.
 
 Background color follows theme by reading CSS variables from `document.body` at module load (`lightBg` / `darkBg`) and applying to `app.renderer.background` when theme changes.

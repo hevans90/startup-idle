@@ -6,7 +6,8 @@ import { Viewport } from "pixi-viewport";
 import { Rectangle, Text } from "pixi.js";
 
 import { useOfficeStore } from "../state/office.store";
-import { clampViewport } from "./utils/clamp-viewport";
+import { ISO_CELL_STRIDE } from "./math-utils";
+import { constrainViewportToOfficeBounds } from "./utils/clamp-viewport";
 import { updateScaledObjects } from "./utils/update-scaled-objects";
 
 extend({ Viewport, Text });
@@ -52,20 +53,17 @@ export const AppViewport = memo(
             maxScale: 15,
           });
 
-        // Add event listeners
+        const screenRect = new Rectangle(0, 0, screenSize.width, screenSize.height);
+
         const onZoomed = () => {
           if (viewportRef.current) {
-            viewportRef.current.plugins.remove("clamp");
             updateScaledContainers(viewportRef.current);
           }
         };
 
-        const onZoomEnd = () => {
-          if (viewportRef.current)
-            clampViewport(
-              viewportRef.current,
-              new Rectangle(0, 0, screenSize.width, screenSize.height)
-            );
+        const onFrameEnd = () => {
+          const v = viewportRef.current;
+          if (v) constrainViewportToOfficeBounds(v, screenRect);
         };
 
         const onSnapZoomEnd = () => {
@@ -75,24 +73,32 @@ export const AppViewport = memo(
         };
 
         viewportRef.current.on("zoomed", onZoomed);
-        viewportRef.current.on("zoomed-end", onZoomEnd);
+        viewportRef.current.on("frame-end", onFrameEnd);
         viewportRef.current.on("snap-zoom-end", onSnapZoomEnd);
 
         setViewport(viewportRef.current);
         console.info("VIEWPORT: bootstrapped");
 
-        viewportRef.current.fitWidth(screenSize.width * 2, true);
+        const viewportFitStrideWhenTuned = 66;
+        viewportRef.current.fitWidth(
+          screenSize.width *
+            2 *
+            (ISO_CELL_STRIDE / viewportFitStrideWhenTuned),
+          true
+        );
+
+        constrainViewportToOfficeBounds(viewportRef.current, screenRect);
 
         return () => {
           if (viewportRef.current) {
             viewportRef.current.off("zoomed", onZoomed);
-            viewportRef.current.off("zoomed-end", onZoomEnd);
+            viewportRef.current.off("frame-end", onFrameEnd);
             viewportRef.current.off("snap-zoom-end", onSnapZoomEnd);
           }
         };
       } else {
         console.error("VIEWPORT: failed, retrying...");
-        const timeoutId = setTimeout(initViewport, 100); // Retry after 100ms
+        const timeoutId = setTimeout(initViewport, 100);
         return () => clearTimeout(timeoutId);
       }
     }, []);
