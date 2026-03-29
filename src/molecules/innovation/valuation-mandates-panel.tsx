@@ -24,7 +24,7 @@ export const ValuationMandatesPanel = () => {
         </p>
       </div>
 
-      <div className="flex flex-col gap-2 px-2 pb-2">
+      <div className="flex flex-col gap-2 px-1 pb-1">
         {MANDATES.map((m) => {
           const level = mandateLevels[m.id];
           const cost = getMandateCost(m.id);

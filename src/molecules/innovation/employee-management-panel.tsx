@@ -1,8 +1,8 @@
 import {
   GENERATOR_TYPES,
+  useGeneratorStore,
   type EmployeePerkBranch,
   type GeneratorId,
-  useGeneratorStore,
 } from "../../state/generators.store";
 import {
   ManagerKeyValues,
@@ -54,11 +54,11 @@ export const EmployeeManagementPanel = () => {
         </p>
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 px-1 pb-1">
         {GENERATOR_TYPES.map((gen) => (
           <div
             key={gen.id}
-            className="border border-primary-400 dark:border-primary-600 rounded p-2 flex flex-col gap-2"
+            className="border border-primary-400 dark:border-primary-600 p-2 flex flex-col gap-2"
           >
             <div className="flex justify-between items-baseline gap-2">
               <span className="font-medium capitalize">{gen.name}</span>

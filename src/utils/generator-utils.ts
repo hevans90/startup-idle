@@ -1,5 +1,6 @@
 // Returns how many generators you can afford
 import Decimal from "break_infinity.js";
+import { dev10xSatisfactionExponentDelta } from "../game/satisfaction";
 import {
   GENERATOR_TYPES,
   GeneratorId,
@@ -7,7 +8,20 @@ import {
   OwnedGenerator,
   useGeneratorStore,
 } from "../state/generators.store";
+import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
+
+function effectiveCostExponent(generator: OwnedGenerator, id: string): number {
+  let raw = generator.costExponent;
+  if (
+    id === "10x_dev" &&
+    useInnovationStore.getState().unlocks.employeeManagement?.unlocked
+  ) {
+    const score = useGeneratorStore.getState().satisfactionScores["10x_dev"];
+    raw += dev10xSatisfactionExponentDelta(score);
+  }
+  return Math.max(MIN_GENERATOR_COST_EXPONENT, raw);
+}
 
 export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
   const { generators } = useGeneratorStore.getState();
@@ -15,9 +29,7 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
   if (!generator) return new Decimal(0);
 
   const baseCost = new Decimal(generator.cost);
-  const exponent = new Decimal(
-    Math.max(MIN_GENERATOR_COST_EXPONENT, generator.costExponent)
-  );
+  const exponent = new Decimal(effectiveCostExponent(generator, id));
   const costMultiplier = new Decimal(generator.costMultiplier);
   const currentAmount = new Decimal(generator.amount);
 
@@ -50,9 +62,7 @@ export const getMaxAffordableAmountAndCost = (
     };
 
   const baseCost = new Decimal(generator.cost);
-  const exponent = new Decimal(
-    Math.max(MIN_GENERATOR_COST_EXPONENT, generator.costExponent)
-  );
+  const exponent = new Decimal(effectiveCostExponent(generator, generator.id));
   const costMultiplier = new Decimal(generator.costMultiplier);
   const currentAmount = new Decimal(generator.amount);
 

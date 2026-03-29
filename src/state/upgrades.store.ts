@@ -218,7 +218,7 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 2.5e8,
+    cost: 2.5e9,
   },
   {
     id: "intern_cost_2",
@@ -236,7 +236,7 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 8e8,
+    cost: 8e10,
   },
   {
     id: "intern_upgrade_6",
@@ -251,7 +251,7 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
         changes: [{ type: "multiplier", value: 6 }],
       },
     ],
-    cost: 3e9,
+    cost: 3e11,
   },
   {
     id: "intern_cost_exponent_2",
@@ -269,7 +269,7 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 1.2e10,
+    cost: 1.2e15,
   },
   {
     id: "intern_upgrade_7",
@@ -287,7 +287,7 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 5e10,
+    cost: 5e18,
   },
   {
     id: "intern_upgrade_8",
@@ -305,7 +305,7 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 2e11,
+    cost: 2e20,
   },
   {
     id: "intern_upgrade_9",
@@ -323,7 +323,7 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 8e11,
+    cost: 8e25,
   },
   {
     id: "intern_upgrade_10",
@@ -342,7 +342,7 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 4e12,
+    cost: 4e28,
   },
 ];
 
@@ -463,7 +463,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 4e7,
+    cost: 4e9,
   },
   {
     id: "vibe_coder_cost_2",
@@ -481,7 +481,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 1.2e8,
+    cost: 1.2e11,
   },
   {
     id: "vibe_coder_upgrade_6",
@@ -496,7 +496,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         changes: [{ type: "multiplier", value: 5 }],
       },
     ],
-    cost: 4e8,
+    cost: 4e13,
   },
   {
     id: "vibe_coder_cost_exponent_2",
@@ -514,7 +514,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 1.5e9,
+    cost: 1.5e15,
   },
   {
     id: "vibe_coder_upgrade_7",
@@ -532,7 +532,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 6e9,
+    cost: 6e17,
   },
   {
     id: "vibe_coder_upgrade_8",
@@ -550,7 +550,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 2.5e10,
+    cost: 2.5e20,
   },
   {
     id: "vibe_coder_upgrade_9",
@@ -568,7 +568,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 1e11,
+    cost: 1e21,
   },
   {
     id: "vibe_coder_upgrade_10",
@@ -586,7 +586,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 5e11,
+    cost: 5e23,
   },
   {
     id: "vibe_coder_upgrade_11",
@@ -604,7 +604,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 2e12,
+    cost: 2e25,
   },
   {
     id: "vibe_coder_upgrade_12",
@@ -623,7 +623,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 1e13,
+    cost: 1e30,
   },
 ];
 
@@ -698,7 +698,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 8e7,
+    cost: 8e10,
   },
   {
     id: "10x_dev_cost_1",
@@ -716,7 +716,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 3e8,
+    cost: 3e12,
   },
   {
     id: "10x_dev_10x_5",
@@ -731,7 +731,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         changes: [{ type: "multiplier", value: 12 }],
       },
     ],
-    cost: 1.2e9,
+    cost: 1.2e15,
   },
   {
     id: "10x_dev_cost_exponent_1",
@@ -749,7 +749,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 5e9,
+    cost: 5e20,
   },
   {
     id: "10x_dev_10x_6",
@@ -767,7 +767,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 2e10,
+    cost: 2e25,
   },
   {
     id: "10x_dev_10x_7",
@@ -785,7 +785,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 9e10,
+    cost: 9e30,
   },
   {
     id: "10x_dev_10x_8",
@@ -803,7 +803,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 4e11,
+    cost: 4e32,
   },
   {
     id: "10x_dev_10x_9",
@@ -821,7 +821,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 2e12,
+    cost: 2e34,
   },
   {
     id: "10x_dev_10x_10",
@@ -839,7 +839,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 9e12,
+    cost: 9e35,
   },
   {
     id: "10x_dev_10x_11",
@@ -858,7 +858,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 5e13,
+    cost: 5e38,
   },
   {
     id: "10x_dev_10x_12",
@@ -876,7 +876,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 2.5e14,
+    cost: 2.5e40,
   },
   {
     id: "10x_dev_10x_13",
@@ -895,7 +895,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 1.5e15,
+    cost: 1.5e42,
   },
 ];
 
@@ -925,7 +925,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
         changes: [{ type: "multiplier", value: 5 }],
       },
     ],
-    cost: 5e9,
+    cost: 5e14,
   },
   {
     id: "cross_late_all_hands",
@@ -961,7 +961,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 3e10,
+    cost: 3e16,
   },
   {
     id: "cross_late_platform",
@@ -997,7 +997,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 2e11,
+    cost: 2e20,
   },
   {
     id: "cross_late_acqui",
@@ -1024,7 +1024,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
         changes: [{ type: "multiplier", value: 12 }],
       },
     ],
-    cost: 1.2e12,
+    cost: 1.2e25,
   },
   {
     id: "cross_late_reality",
@@ -1060,7 +1060,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 8e12,
+    cost: 8e30,
   },
   {
     id: "cross_late_board",
@@ -1096,7 +1096,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 5e13,
+    cost: 5e35,
   },
   {
     id: "cross_late_endgame",
@@ -1135,7 +1135,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
         ],
       },
     ],
-    cost: 5e14,
+    cost: 9e40,
   },
 ];
 

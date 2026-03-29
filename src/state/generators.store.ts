@@ -1,10 +1,20 @@
 import Decimal from "break_infinity.js";
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
+import { setEmployeeSatisfactionReaders } from "../game/employee-satisfaction-read";
 import {
   getManagerEconomyMultipliers,
   getValuationEconomyMultipliers,
 } from "../game/economy-multipliers";
+import {
+  defaultSatisfactionScores,
+  internSatisfactionIpsMultiplier,
+  internSatisfactionValuationMultiplier,
+  SATISFACTION_MAX,
+  SATISFACTION_MIN,
+  stepSatisfactionScores,
+  type SatisfactionScores,
+} from "../game/satisfaction";
 import {
   getGeneratorCost,
   getUnlockedGeneratorIds,
@@ -15,6 +25,7 @@ import {
 } from "./innovation.store";
 import { useMoneyStore } from "./money.store";
 import { useValuationStore } from "./valuation.store";
+import { useAiSingularityStore } from "./ai-singularity.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
 
 export type UnlockCondition = {
@@ -59,10 +70,11 @@ const MAX_MONEY_INNO_LEVEL = 25;
 const MAX_COST_LEVEL = 15;
 const MAX_AUTO_LEVEL = 5;
 
-const MONEY_MULT_PER_LEVEL = 0.04;
-const INNO_MULT_PER_LEVEL = 0.04;
-const COST_DISCOUNT_BASE = 0.985;
-const AUTO_BUY_PER_LEVEL = 0.035;
+const MONEY_MULT_PER_LEVEL = 0.2;
+const INNO_MULT_PER_LEVEL = 0.2;
+/** Per −Cost level; stronger than legacy 0.985 so tier spend meaningfully cuts hire price. */
+const COST_DISCOUNT_BASE = 0.968;
+const AUTO_BUY_PER_LEVEL = 0.175;
 
 type EmployeeManagementData = {
   spentManagementPoints: number;
@@ -77,6 +89,7 @@ type GeneratorState = {
   setPurchaseMode: (mode: "single" | "max") => void;
 
   employeeManagement: EmployeeManagementData;
+  satisfactionScores: SatisfactionScores;
 
   addGenerator: (gen: OwnedGenerator) => void;
   increaseGenerator: (id: string, count?: number) => void;
@@ -137,6 +150,11 @@ const GENERATOR_PERSIST_KEY = "generators";
 /** Legacy split save; read once for migration into the persist blob. */
 const EMPLOYEE_MGMT_STORAGE_KEY = "employeeManagement";
 const MAX_CATCH_UP_MS = 7 * 24 * 60 * 60 * 1000;
+
+function clampPersistedScore(n: unknown): number {
+  if (typeof n !== "number" || Number.isNaN(n)) return 0;
+  return Math.min(SATISFACTION_MAX, Math.max(SATISFACTION_MIN, n));
+}
 
 const defaultEmployeePerks = (): EmployeePerks => ({
   moneyLevel: 0,
@@ -345,6 +363,7 @@ export const useGeneratorStore = create<GeneratorState>()(
     generators: reconcileGeneratorsFromSavedArray([]),
     globalLastTick: Date.now(),
     employeeManagement: defaultEmployeeManagement(),
+    satisfactionScores: defaultSatisfactionScores(),
 
     getEmployeePerks: (id) => get().employeeManagement.perks[id],
 
@@ -449,6 +468,38 @@ export const useGeneratorStore = create<GeneratorState>()(
 
       const seconds = globalTickInterval / 1000;
 
+      const emUnlocked =
+        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
+      let satisfactionScores = get().satisfactionScores;
+      if (emUnlocked) {
+        const perks = get().employeeManagement.perks;
+        const amounts: Record<GeneratorId, number> = {
+          intern: 0,
+          vibe_coder: 0,
+          "10x_dev": 0,
+        };
+        for (const g of get().generators) {
+          amounts[g.id] = g.amount;
+        }
+        satisfactionScores = stepSatisfactionScores(
+          satisfactionScores,
+          perks,
+          amounts,
+          seconds
+        );
+        set({ satisfactionScores });
+        useAiSingularityStore
+          .getState()
+          .tick(seconds, satisfactionScores.vibe_coder, emUnlocked);
+      }
+
+      const internIpsMult = emUnlocked
+        ? internSatisfactionIpsMultiplier(satisfactionScores.intern)
+        : 1;
+      const internValMult = emUnlocked
+        ? internSatisfactionValuationMultiplier(satisfactionScores.intern)
+        : 1;
+
       const updatedGenerators = get().generators.map((gen) => {
         if (gen.amount === 0) return gen;
         const ticks = Math.floor(globalTickInterval / gen.interval);
@@ -463,11 +514,13 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(out.money)
             .times(ticks);
           const innovationIncome = new Decimal(gen.innovationProduction)
+            .times(innovationMultGlobal)
             .times(gen.amount)
             .times(gen.innovationMultiplier)
             .times(managerMults.innovationIncome)
             .times(valuationMults.innovation)
             .times(out.innovation)
+            .times(internIpsMult)
             .times(ticks);
           useMoneyStore.getState().increaseMoney(income.toNumber());
           useInnovationStore
@@ -490,7 +543,11 @@ export const useGeneratorStore = create<GeneratorState>()(
 
       const mps = get().getMoneyPerSecond();
       const valuationGain =
-        Math.pow(Math.max(1, mps), 0.38) * 4e-5 * seconds * managerMults.salesValuation;
+        Math.pow(Math.max(1, mps), 0.38) *
+        4e-5 *
+        seconds *
+        managerMults.salesValuation *
+        internValMult;
       if (valuationGain > 0) {
         useValuationStore.getState().increaseValuation(valuationGain);
       }
@@ -533,20 +590,31 @@ export const useGeneratorStore = create<GeneratorState>()(
       }, 0);
     },
     getInnovationPerSecond: () => {
+      const innovationMultGlobal = useInnovationStore
+        .getState()
+        .getMultiplier()
+        .toNumber();
       const managerMults = getManagerEconomyMultipliers();
       const valuationMults = getValuationEconomyMultipliers();
+      const emUnlocked =
+        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
+      const internIpsMult = emUnlocked
+        ? internSatisfactionIpsMultiplier(get().satisfactionScores.intern)
+        : 1;
 
       return get().generators.reduce((sum, gen) => {
         if (gen.amount === 0) return sum;
 
         const out = get().getEmployeeOutputMults(gen.id);
         const perSecond =
-          (managerMults.innovationIncome *
+          (innovationMultGlobal *
+            managerMults.innovationIncome *
             valuationMults.innovation *
             gen.innovationProduction *
             gen.amount *
             gen.innovationMultiplier *
-            out.innovation) /
+            out.innovation *
+            internIpsMult) /
           (gen.interval / 1000);
 
         return sum + perSecond;
@@ -562,6 +630,7 @@ export const useGeneratorStore = create<GeneratorState>()(
         generators: reconcileGeneratorsFromSavedArray([]),
         globalLastTick: Date.now(),
         employeeManagement: defaultEmployeeManagement(),
+        satisfactionScores: defaultSatisfactionScores(),
       });
     },
   };
@@ -572,13 +641,22 @@ export const useGeneratorStore = create<GeneratorState>()(
       partialize: (state) => ({
         generators: state.generators,
         employeeManagement: state.employeeManagement,
+        satisfactionScores: state.satisfactionScores,
       }),
       merge: (persisted, current) => {
         const p = persisted as Partial<{
           generators: OwnedGenerator[];
           employeeManagement: EmployeeManagementData;
+          satisfactionScores: SatisfactionScores;
         }> | null;
         if (!p) return current;
+        const mergedScores = p.satisfactionScores
+          ? {
+              intern: clampPersistedScore(p.satisfactionScores.intern),
+              vibe_coder: clampPersistedScore(p.satisfactionScores.vibe_coder),
+              "10x_dev": clampPersistedScore(p.satisfactionScores["10x_dev"]),
+            }
+          : current.satisfactionScores;
         return {
           ...current,
           generators: p.generators
@@ -587,8 +665,15 @@ export const useGeneratorStore = create<GeneratorState>()(
           employeeManagement: p.employeeManagement
             ? normalizeEmployeeManagement(p.employeeManagement)
             : current.employeeManagement,
+          satisfactionScores: mergedScores,
         };
       },
     }
   )
 );
+
+setEmployeeSatisfactionReaders({
+  internScore: () => useGeneratorStore.getState().satisfactionScores.intern,
+  employeeManagementUnlocked: () =>
+    useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false,
+});

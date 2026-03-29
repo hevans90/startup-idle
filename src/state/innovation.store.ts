@@ -2,6 +2,7 @@ import Decimal from "break_infinity.js";
 import { formatDistanceToNow } from "date-fns";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { getInternManagerAccrualMultiplierForTick } from "../game/employee-satisfaction-read";
 import { decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
 
 const LOCAL_STORAGE_KEY = "innovation";
@@ -385,10 +386,12 @@ export const useInnovationStore = create<InnovationState>()(
                 manager.tierScalingExponent,
                 manager.tier
               );
-              const gain = manager.assignment
+              const baseGain = manager.assignment
                 .mul(manager.growthRate)
                 .mul(ticks)
                 .div(tierModifier);
+              const internMult = new Decimal(getInternManagerAccrualMultiplierForTick());
+              const gain = baseGain.mul(internMult);
 
               const newProgress = manager.progress.add(gain);
               manager.estimateToNextTier =

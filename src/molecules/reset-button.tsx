@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import toast from "react-hot-toast";
+import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
@@ -13,6 +14,7 @@ export const ResetButton = () => {
   const { reset: resetUpgrades } = useUpgradeStore();
   const { reset: resetInnovation } = useInnovationStore();
   const { reset: resetValuation } = useValuationStore();
+  const { reset: resetSingularity } = useAiSingularityStore();
 
   const totalReset = useCallback(() => {
     if (confirm("This will reset all progress, are you sure?")) {
@@ -21,9 +23,17 @@ export const ResetButton = () => {
       resetUpgrades();
       resetInnovation();
       resetValuation();
+      resetSingularity();
       toast.success("Game fully reset. All progress wiped.");
     }
-  }, [resetGenerators, resetInnovation, resetMoney, resetUpgrades, resetValuation]);
+  }, [
+    resetGenerators,
+    resetInnovation,
+    resetMoney,
+    resetSingularity,
+    resetUpgrades,
+    resetValuation,
+  ]);
 
   return (
     <Button
