@@ -64,6 +64,63 @@ function formatMult(n: number): string {
   return `×${n.toFixed(3)}`;
 }
 
+function SatisfactionHowToRaiseHelpContent() {
+  return (
+    <div className="max-w-sm space-y-2 text-left text-xs leading-snug text-primary-800 dark:text-primary-100">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
+        How to raise satisfaction
+      </p>
+      <ul className="list-disc space-y-1 pl-3.5 text-[11px] text-primary-800 dark:text-primary-200">
+        <li>
+          Scores <span className="font-medium">drift toward a target</span>{" "}
+          every tick — changing perks or headcount shifts that target; the bar
+          catches up over time.
+        </li>
+        <li>
+          In <span className="font-medium">Employee Management</span>, buy{" "}
+          <span className="font-medium">+Innovation</span> on that row — it
+          pulls the target up.
+        </li>
+        <li>
+          Go lighter on <span className="font-medium">+Money</span>,{" "}
+          <span className="font-medium">−Cost</span>, and{" "}
+          <span className="font-medium">AutoBuy</span> (each level drags the
+          target down). Use <span className="font-medium">Refund</span> on that
+          role in Employee Management to return points and reset its perks.
+        </li>
+        <li>
+          <span className="font-medium">Fewer employees</span> of that type
+          raises the target (big stacks strain morale). 10x devs are extra
+          sensitive to count.
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+function SatisfactionHowToRaiseHelpPopover() {
+  return (
+    <Popover
+      openOnHover={true}
+      persistOnHoverContent={true}
+      placement="bottom-end"
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="h-6 shrink-0 inline-flex items-center cursor-help px-1.5 py-0 bg-primary-200 dark:bg-primary-900 leading-none font-bold border border-primary-500 text-[11px] text-primary-900 dark:text-primary-100 outline-none hover:bg-primary-300 dark:hover:bg-primary-800"
+          aria-label="How to raise satisfaction"
+        >
+          ?
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="z-[60] max-w-sm border border-primary-500 bg-primary-100 p-2 py-1.5 text-primary-900 shadow-lg outline-none focus:ring-0 dark:border-primary-500 dark:bg-primary-800 dark:text-primary-100">
+        <SatisfactionHowToRaiseHelpContent />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function SatisfactionCurrentEffects({
   scores,
   singularityPct,
@@ -136,56 +193,7 @@ function SatisfactionCurrentEffects({
 function SatisfactionEffectsHelp() {
   return (
     <div className="max-w-xs space-y-3 text-left text-xs leading-snug text-primary-800 dark:text-primary-100">
-      <p className="text-primary-600 dark:text-primary-300">
-        Each bar is <span className="font-medium">−100 (miserable)</span> to{" "}
-        <span className="font-medium">+100 (happy)</span>. Center is neutral.
-      </p>
-      <p className="text-primary-600 dark:text-primary-300">
-        <span className="font-medium">Cash per role:</span> that row’s score
-        scales <span className="font-medium">only that employee type’s</span>{" "}
-        money output, linearly from{" "}
-        <span className="font-medium">
-          ×{SATISFACTION_REVENUE_MULT_AT_MIN} at −100
-        </span>{" "}
-        to{" "}
-        <span className="font-medium">
-          ×{SATISFACTION_REVENUE_MULT_AT_MAX} at +100
-        </span>{" "}
-        (score 0 is ×
-        {(SATISFACTION_REVENUE_MULT_AT_MIN + SATISFACTION_REVENUE_MULT_AT_MAX) /
-          2}
-        ).
-      </p>
-      <div className="border border-primary-300 bg-primary-200/40 p-2 dark:border-primary-600 dark:bg-primary-900/50">
-        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
-          How to raise satisfaction
-        </p>
-        <ul className="list-disc space-y-1 pl-3.5 text-[11px] text-primary-800 dark:text-primary-200">
-          <li>
-            Scores <span className="font-medium">drift toward a target</span>{" "}
-            every tick — changing perks or headcount shifts that target; the bar
-            catches up over time.
-          </li>
-          <li>
-            In <span className="font-medium">Employee Management</span>, buy{" "}
-            <span className="font-medium">+Innovation</span> on that row — it
-            pulls the target up.
-          </li>
-          <li>
-            Go lighter on <span className="font-medium">+Money</span>,{" "}
-            <span className="font-medium">−Cost</span>, and{" "}
-            <span className="font-medium">AutoBuy</span> (each level drags the
-            target down). Use <span className="font-medium">Refund</span> on
-            that role in Employee Management to return points and reset its
-            perks.
-          </li>
-          <li>
-            <span className="font-medium">Fewer employees</span> of that type
-            raises the target (big stacks strain morale). 10x devs are extra
-            sensitive to count.
-          </li>
-        </ul>
-      </div>
+
       <div>
         <p className="mb-1 font-semibold text-primary-900 dark:text-primary-50">
           Intern
@@ -276,13 +284,16 @@ export const EmployeeSatisfactionOverlay = ({
       <PopoverTrigger asChild>
         <div
           className={twMerge(
-            "cursor-help border border-primary-400/60 bg-primary-100/90 p-2 outline-none dark:border-primary-600/60 dark:bg-primary-900/90",
+            "relative cursor-help border border-primary-400/60 bg-primary-100/90 p-2 outline-none dark:border-primary-600/60 dark:bg-primary-900/90",
             className,
           )}
         >
-          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-primary-500 dark:text-primary-400">
-            Satisfaction
-          </p>
+          <div className="mb-1.5 flex items-center justify-between gap-1">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-primary-500 dark:text-primary-400">
+              Satisfaction
+            </p>
+            <SatisfactionHowToRaiseHelpPopover />
+          </div>
           <div className="flex flex-col gap-2">
             {(Object.keys(ROW_LABELS) as RowId[]).map((id) => (
               <SatisfactionBar
