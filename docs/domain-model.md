@@ -92,7 +92,7 @@ Purchase costs scale with branch and current level (`employeePerkPurchaseCost` i
 
 ## Upgrades
 
-**Catalog:** `UPGRADES` in `upgrades.store.ts` (grouped as `INTERN_UPGRADES`, `VIBE_CODER_UPGRADES`, `TEN_X_ENGINEER_UPGRADES`).
+**Catalog:** `UPGRADES` in `upgrades.store.ts` (grouped as `INTERN_UPGRADES`, `INTERN_LATE_UPGRADES`, `VIBE_CODER_UPGRADES`, `VIBE_LATE_UPGRADES`, `TEN_X_ENGINEER_UPGRADES`, `TEN_X_LATE_UPGRADES`, `CROSS_LATE_UPGRADES`).
 
 Each upgrade has:
 

@@ -23,5 +23,6 @@
     "noUncheckedSideEffectImports": true,
     "types": ["vite-plugin-svgr/client"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/test/preload.ts"]
 }

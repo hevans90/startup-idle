@@ -44,6 +44,10 @@ So **patch-only** version bumps may preserve saves (same major.minor); **minor o
 
 `ResetButton` calls `reset` on: `useGeneratorStore`, `useMoneyStore`, `useUpgradeStore`, `useInnovationStore`, `useValuationStore`. It does **not** reset theme, global settings, or version.
 
+## Automated progression checks
+
+`bun test` runs [`src/simulation/progression-sim.test.ts`](../src/simulation/progression-sim.test.ts): store-backed time simulation (Jest-compatible fake timers from `bun:test`) plus pure catalog pacing checks. Preload [`src/test/preload.ts`](../src/test/preload.ts) installs an in-memory `localStorage` before stores load.
+
 ## Related docs
 
 - [domain-model.md](./domain-model.md) — what each store represents
