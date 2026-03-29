@@ -50,10 +50,12 @@ describe("satisfaction curves", () => {
     expect(vibeSingularityAccrualRatePerSecond(-50)).toBeCloseTo(0.006, 6);
   });
 
-  test("revenue mult: linear endpoints and clamp", () => {
+  test("revenue mult: piecewise linear, 0 is 1x, clamp", () => {
     expect(satisfactionRevenueMultiplier(-100)).toBeCloseTo(0.25, 6);
+    expect(satisfactionRevenueMultiplier(0)).toBeCloseTo(1, 6);
     expect(satisfactionRevenueMultiplier(100)).toBeCloseTo(10, 6);
-    expect(satisfactionRevenueMultiplier(0)).toBeCloseTo(5.125, 6);
+    expect(satisfactionRevenueMultiplier(-50)).toBeCloseTo(0.625, 6);
+    expect(satisfactionRevenueMultiplier(50)).toBeCloseTo(5.5, 6);
     expect(satisfactionRevenueMultiplier(-200)).toBeCloseTo(0.25, 6);
     expect(satisfactionRevenueMultiplier(200)).toBeCloseTo(10, 6);
   });

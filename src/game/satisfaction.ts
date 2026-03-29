@@ -19,7 +19,7 @@ function clampScore(n: number): number {
 export function satisfactionTargetForRole(
   id: GeneratorId,
   amount: number,
-  perks: EmployeePerks
+  perks: EmployeePerks,
 ): number {
   let t = 0;
   t -= Math.min(40, 8 * Math.log1p(amount));
@@ -31,30 +31,42 @@ export function satisfactionTargetForRole(
   return clampScore(t);
 }
 
-/** Cash (money) output multiplier for one employee type; linear in score. */
+/** Cash mult at −100 (worst). */
 export const SATISFACTION_REVENUE_MULT_AT_MIN = 0.25;
+/** Cash mult at +100 (best). Score 0 is always 1×. */
 export const SATISFACTION_REVENUE_MULT_AT_MAX = 10;
+export const SATISFACTION_REVENUE_MULT_NEUTRAL = 1;
 
+/**
+ * Piecewise linear in score: [−100, 0] → [0.25, 1], [0, 100] → [1, 10].
+ * Negative satisfaction is always below 1×; neutral is 1×.
+ */
 export function satisfactionRevenueMultiplier(score: number): number {
   const s = clampScore(score);
-  const span = SATISFACTION_MAX - SATISFACTION_MIN;
-  const t = (s - SATISFACTION_MIN) / span;
-  return (
-    SATISFACTION_REVENUE_MULT_AT_MIN +
-    t * (SATISFACTION_REVENUE_MULT_AT_MAX - SATISFACTION_REVENUE_MULT_AT_MIN)
-  );
+  if (s <= 0) {
+    const t = (s - SATISFACTION_MIN) / (0 - SATISFACTION_MIN);
+    return (
+      SATISFACTION_REVENUE_MULT_AT_MIN +
+      t * (1 - SATISFACTION_REVENUE_MULT_AT_MIN)
+    );
+  }
+  return 1 + (s / SATISFACTION_MAX) * (SATISFACTION_REVENUE_MULT_AT_MAX - 1);
 }
 
 export function stepSatisfactionScores(
   prev: SatisfactionScores,
   perksByRole: Record<GeneratorId, EmployeePerks>,
   amounts: Record<GeneratorId, number>,
-  seconds: number
+  seconds: number,
 ): SatisfactionScores {
   const k = 0.35;
   const next = { ...prev };
   for (const id of ["intern", "vibe_coder", "10x_dev"] as GeneratorId[]) {
-    const target = satisfactionTargetForRole(id, amounts[id] ?? 0, perksByRole[id]);
+    const target = satisfactionTargetForRole(
+      id,
+      amounts[id] ?? 0,
+      perksByRole[id],
+    );
     const cur = prev[id];
     next[id] = clampScore(cur + (target - cur) * Math.min(1, k * seconds));
   }
@@ -68,13 +80,17 @@ export function internSatisfactionIpsMultiplier(internScore: number): number {
 }
 
 /** Scales passive valuation gain; strong penalty when interns unhappy. */
-export function internSatisfactionValuationMultiplier(internScore: number): number {
+export function internSatisfactionValuationMultiplier(
+  internScore: number,
+): number {
   if (internScore >= 0) return 1;
   return Math.max(0, 1 + (internScore / SATISFACTION_MAX) * 0.75);
 }
 
 /** Manager progress gain mult; floor at 0 after apply in tick. */
-export function internSatisfactionManagerAccrualMultiplier(internScore: number): number {
+export function internSatisfactionManagerAccrualMultiplier(
+  internScore: number,
+): number {
   if (internScore >= 0) {
     return 1 + (internScore / SATISFACTION_MAX) * 0.1;
   }

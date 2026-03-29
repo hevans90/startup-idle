@@ -5,8 +5,10 @@ import {
   internSatisfactionManagerAccrualMultiplier,
   internSatisfactionValuationMultiplier,
   SATISFACTION_MAX,
+  SATISFACTION_MIN,
   SATISFACTION_REVENUE_MULT_AT_MAX,
   SATISFACTION_REVENUE_MULT_AT_MIN,
+  SATISFACTION_REVENUE_MULT_NEUTRAL,
   satisfactionRevenueMultiplier,
   type SatisfactionScores,
   vibeSingularityAccrualRatePerSecond,
@@ -193,6 +195,19 @@ function SatisfactionCurrentEffects({
 function SatisfactionEffectsHelp() {
   return (
     <div className="max-w-xs space-y-3 text-left text-xs leading-snug text-primary-800 dark:text-primary-100">
+      <p className="text-primary-600 dark:text-primary-300">
+        Bars run <span className="font-medium">{SATISFACTION_MIN}</span> to{" "}
+        <span className="font-medium">+{SATISFACTION_MAX}</span>.{" "}
+        <span className="font-medium">Cash per role:</span> that type’s money
+        output uses score{" "}
+        <span className="font-medium">{SATISFACTION_MIN}</span> → ×
+        {SATISFACTION_REVENUE_MULT_AT_MIN},{" "}
+        <span className="font-medium">0</span> → ×
+        {SATISFACTION_REVENUE_MULT_NEUTRAL},{" "}
+        <span className="font-medium">+{SATISFACTION_MAX}</span> → ×
+        {SATISFACTION_REVENUE_MULT_AT_MAX} (linear each side of 0; unhappy is
+        always under 1×).
+      </p>
 
       <div>
         <p className="mb-1 font-semibold text-primary-900 dark:text-primary-50">
