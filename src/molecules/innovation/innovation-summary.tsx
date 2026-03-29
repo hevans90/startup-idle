@@ -1,8 +1,5 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
-import {
-  getManagerEconomyMultipliers,
-  getValuationEconomyMultipliers,
-} from "../../game/economy-multipliers";
+import { getManagerEconomyMultipliers } from "../../game/economy-multipliers";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import { InfoRow } from "../../ui/InfoRow";
@@ -22,7 +19,6 @@ export const InnovationSummary = ({
   const ips = useGeneratorStore((state) => state.getInnovationPerSecond());
 
   const mgr = getManagerEconomyMultipliers();
-  const board = getValuationEconomyMultipliers();
   const managersActive = unlocks.managers?.unlocked;
 
   return (
@@ -56,11 +52,6 @@ export const InnovationSummary = ({
               size="small"
             />
           )}
-          <InfoRow
-            label="Board mandates ($ / IPS)"
-            value={`x${board.money.toFixed(2)} / x${board.innovation.toFixed(2)}`}
-            size="small"
-          />
         </div>
       ) : (
         <>

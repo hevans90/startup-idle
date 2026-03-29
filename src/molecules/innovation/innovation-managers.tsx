@@ -7,7 +7,6 @@ import { CycleButton } from "../../ui/CyclingButton";
 import { SystemPanel } from "../../ui/SystemPanel";
 import { EmployeeManagementPanel } from "./employee-management-panel";
 import ManagerRow from "./manager-row";
-import { ValuationMandatesPanel } from "./valuation-mandates-panel";
 
 export const InnovationManagers = () => {
   const {
@@ -80,15 +79,6 @@ export const InnovationManagers = () => {
           help="Spend points equal to your total manager tier levels on each role"
         >
           <EmployeeManagementPanel />
-        </SystemPanel>
-      )}
-
-      {managersState?.unlocked && (
-        <SystemPanel
-          title="Board & valuation"
-          help="Valuation accrues from revenue (boosted by Sales). Buy mandates for global bonuses."
-        >
-          <ValuationMandatesPanel />
         </SystemPanel>
       )}
     </div>

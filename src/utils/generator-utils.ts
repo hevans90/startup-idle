@@ -3,6 +3,7 @@ import Decimal from "break_infinity.js";
 import {
   GENERATOR_TYPES,
   GeneratorId,
+  MIN_GENERATOR_COST_EXPONENT,
   OwnedGenerator,
   useGeneratorStore,
 } from "../state/generators.store";
@@ -14,7 +15,9 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
   if (!generator) return new Decimal(0);
 
   const baseCost = new Decimal(generator.cost);
-  const exponent = new Decimal(generator.costExponent);
+  const exponent = new Decimal(
+    Math.max(MIN_GENERATOR_COST_EXPONENT, generator.costExponent)
+  );
   const costMultiplier = new Decimal(generator.costMultiplier);
   const currentAmount = new Decimal(generator.amount);
 
@@ -47,7 +50,9 @@ export const getMaxAffordableAmountAndCost = (
     };
 
   const baseCost = new Decimal(generator.cost);
-  const exponent = new Decimal(generator.costExponent);
+  const exponent = new Decimal(
+    Math.max(MIN_GENERATOR_COST_EXPONENT, generator.costExponent)
+  );
   const costMultiplier = new Decimal(generator.costMultiplier);
   const currentAmount = new Decimal(generator.amount);
 
@@ -72,7 +77,7 @@ export const getMaxAffordableAmountAndCost = (
   }
 
   const amount = Math.floor(
-    Decimal.log(affordableExponent, generator.costExponent)
+    Decimal.log(affordableExponent, exponent.toNumber())
   );
 
   // Total cost formula for geometric progression:

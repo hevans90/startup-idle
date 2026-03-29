@@ -6,6 +6,7 @@ import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
 import { Generators } from "./molecules/generators";
 import { InnovationCounter } from "./molecules/innovation-counter";
 import { PurchaseModeToggle } from "./molecules/purchase-mode-toggle";
+import { GameStageTicker } from "./molecules/game-stage-ticker";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Sidebar } from "./molecules/sidebar";
 import { Toolbar } from "./molecules/toolbar";
@@ -105,10 +106,12 @@ function App() {
       ) : (
         <div className="flex w-full h-full">
           {/* LEFT PANEL */}
-          <div className="w-2/3 flex flex-col items-center">
+          <div className="relative w-2/3 flex flex-col items-center min-h-0">
             <Toolbar />
 
-            <div ref={officeWrapperRef} className="w-full h-full relative">
+            <GameStageTicker className="absolute top-14 left-0 right-0 z-20" />
+
+            <div ref={officeWrapperRef} className="w-full flex-1 min-h-0 relative pt-8">
               <div className="absolute w-full">
                 <section className="flex flex-col items-center">
                   <h1 className="responsive-header font-bold mt-6">

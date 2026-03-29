@@ -52,6 +52,9 @@ export type EmployeePerkBranch = "money" | "innovation" | "cost" | "auto";
 
 export type GeneratorId = "intern" | "vibe_coder" | "10x_dev";
 
+/** Per-hire ratio must stay above 1 or costs tend to 0 at high counts; upgrades clamp to this floor. */
+export const MIN_GENERATOR_COST_EXPONENT = 1.02;
+
 const MAX_MONEY_INNO_LEVEL = 25;
 const MAX_COST_LEVEL = 15;
 const MAX_AUTO_LEVEL = 5;
@@ -199,7 +202,10 @@ const reconcileGeneratorsFromSavedArray = (
         ...gen,
         amount: saved?.amount ?? 0,
         multiplier: saved?.multiplier ?? 1,
-        costExponent: saved?.costExponent ?? gen.costExponent,
+        costExponent: Math.max(
+          MIN_GENERATOR_COST_EXPONENT,
+          saved?.costExponent ?? gen.costExponent
+        ),
         costMultiplier: saved?.costMultiplier ?? 1,
         lastTick: saved?.lastTick ?? Date.now(),
         innovationMultiplier: saved?.innovationMultiplier ?? 1,

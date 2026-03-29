@@ -6,6 +6,7 @@ import { InnovationManagers } from "./innovation/innovation-managers";
 import { InnovationSummary } from "./innovation/innovation-summary";
 import { PurchaseModeToggle } from "./purchase-mode-toggle";
 import { Upgrades } from "./upgrades";
+import { ValuationTab } from "./valuation-tab";
 
 export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const { sidebarTab, setSidebarTab } = useGlobalSettingsStore();
@@ -18,6 +19,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
         tabs={[
           { id: "employees", label: "Employees" },
           { id: "innovation", label: "Innovation" },
+          { id: "valuation", label: "Valuation" },
         ]}
       >
         {{
@@ -38,6 +40,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
               <InnovationManagers />
             </div>
           ),
+          valuation: <ValuationTab />,
         }}
       </Tabs>
     </div>
