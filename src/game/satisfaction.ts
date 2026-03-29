@@ -31,6 +31,20 @@ export function satisfactionTargetForRole(
   return clampScore(t);
 }
 
+/** Cash (money) output multiplier for one employee type; linear in score. */
+export const SATISFACTION_REVENUE_MULT_AT_MIN = 0.25;
+export const SATISFACTION_REVENUE_MULT_AT_MAX = 10;
+
+export function satisfactionRevenueMultiplier(score: number): number {
+  const s = clampScore(score);
+  const span = SATISFACTION_MAX - SATISFACTION_MIN;
+  const t = (s - SATISFACTION_MIN) / span;
+  return (
+    SATISFACTION_REVENUE_MULT_AT_MIN +
+    t * (SATISFACTION_REVENUE_MULT_AT_MAX - SATISFACTION_REVENUE_MULT_AT_MIN)
+  );
+}
+
 export function stepSatisfactionScores(
   prev: SatisfactionScores,
   perksByRole: Record<GeneratorId, EmployeePerks>,

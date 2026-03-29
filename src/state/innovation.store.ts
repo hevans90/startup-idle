@@ -128,19 +128,24 @@ export function getManagerRefund(key: ManagerKeys): {
   };
 }
 
-const estimateTimeToNextTierFormatted = (manager: {
-  assignment: Decimal;
-  progress: Decimal;
-  tier: Decimal;
-  tierScalingExponent: Decimal;
-  growthRate: Decimal;
-}): string => {
+const estimateTimeToNextTierFormatted = (
+  manager: {
+    assignment: Decimal;
+    progress: Decimal;
+    tier: Decimal;
+    tierScalingExponent: Decimal;
+    growthRate: Decimal;
+  },
+  /** Same factor applied in tickManagers (intern morale when EM is on). */
+  internAccrualMult = 1
+): string => {
   if (manager.assignment.equals(0)) return "∞";
 
   const tierModifier = Decimal.pow(manager.tierScalingExponent, manager.tier);
   const gainPerTick = manager.assignment
     .mul(manager.growthRate)
-    .div(tierModifier);
+    .div(tierModifier)
+    .mul(internAccrualMult);
 
   if (gainPerTick.equals(0)) return "∞ (no gain)";
 
@@ -390,12 +395,15 @@ export const useInnovationStore = create<InnovationState>()(
                 .mul(manager.growthRate)
                 .mul(ticks)
                 .div(tierModifier);
-              const internMult = new Decimal(getInternManagerAccrualMultiplierForTick());
+              const internAccrualMult = getInternManagerAccrualMultiplierForTick();
+              const internMult = new Decimal(internAccrualMult);
               const gain = baseGain.mul(internMult);
 
               const newProgress = manager.progress.add(gain);
-              manager.estimateToNextTier =
-                estimateTimeToNextTierFormatted(manager);
+              manager.estimateToNextTier = estimateTimeToNextTierFormatted(
+                manager,
+                internAccrualMult
+              );
 
               if (newProgress.greaterThanOrEqualTo(PROGRESS_THRESHOLD)) {
                 manager.tier = manager.tier.plus(1);

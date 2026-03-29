@@ -5,6 +5,9 @@ import {
   internSatisfactionManagerAccrualMultiplier,
   internSatisfactionValuationMultiplier,
   SATISFACTION_MAX,
+  SATISFACTION_REVENUE_MULT_AT_MAX,
+  SATISFACTION_REVENUE_MULT_AT_MIN,
+  satisfactionRevenueMultiplier,
   type SatisfactionScores,
   vibeSingularityAccrualRatePerSecond,
 } from "../game/satisfaction";
@@ -71,6 +74,9 @@ function SatisfactionCurrentEffects({
   const ips = internSatisfactionIpsMultiplier(scores.intern);
   const val = internSatisfactionValuationMultiplier(scores.intern);
   const mgr = internSatisfactionManagerAccrualMultiplier(scores.intern);
+  const revIntern = satisfactionRevenueMultiplier(scores.intern);
+  const revVibe = satisfactionRevenueMultiplier(scores.vibe_coder);
+  const rev10x = satisfactionRevenueMultiplier(scores["10x_dev"]);
   const expDelta = dev10xSatisfactionExponentDelta(scores["10x_dev"]);
   const singularityRate = vibeSingularityAccrualRatePerSecond(
     scores.vibe_coder,
@@ -84,32 +90,37 @@ function SatisfactionCurrentEffects({
             Intern
           </p>
           <p className="text-primary-700 dark:text-primary-300">
-            Global IPS {formatMult(ips)} · Valuation gain {formatMult(val)} ·
-            Manager tiers {formatMult(mgr)}
+            $ {formatMult(revIntern)} · Global IPS {formatMult(ips)} · Valuation
+            gain {formatMult(val)} · Manager tiers {formatMult(mgr)}
           </p>
         </div>
         <div>
           <p className="mb-0.5 font-semibold text-primary-900 dark:text-primary-50">
             Vibe
           </p>
-          {scores.vibe_coder >= 0 ? (
-            <p className="text-primary-700 dark:text-primary-300">
-              No accrual (score ≥ 0). Meter stays at {singularityPct.toFixed(1)}
-              %.
-            </p>
-          ) : (
-            <p className="text-primary-700 dark:text-primary-300">
-              Singularity +{singularityRate.toFixed(4)} %/s · meter{" "}
-              {singularityPct.toFixed(1)}%
-            </p>
-          )}
+          <p className="text-primary-700 dark:text-primary-300">
+            $ {formatMult(revVibe)}
+            {scores.vibe_coder >= 0 ? (
+              <>
+                {" "}
+                · No singularity accrual (score ≥ 0). Meter stays at{" "}
+                {singularityPct.toFixed(1)}%.
+              </>
+            ) : (
+              <>
+                {" "}
+                · Singularity +{singularityRate.toFixed(4)} %/s · meter{" "}
+                {singularityPct.toFixed(1)}%
+              </>
+            )}
+          </p>
         </div>
         <div>
           <p className="mb-0.5 font-semibold text-primary-900 dark:text-primary-50">
             10x
           </p>
           <p className="text-primary-700 dark:text-primary-300">
-            Hire cost exponent{" "}
+            $ {formatMult(rev10x)} · Hire cost exponent{" "}
             {expDelta === 0
               ? "unchanged"
               : expDelta > 0
@@ -128,6 +139,22 @@ function SatisfactionEffectsHelp() {
       <p className="text-primary-600 dark:text-primary-300">
         Each bar is <span className="font-medium">−100 (miserable)</span> to{" "}
         <span className="font-medium">+100 (happy)</span>. Center is neutral.
+      </p>
+      <p className="text-primary-600 dark:text-primary-300">
+        <span className="font-medium">Cash per role:</span> that row’s score
+        scales <span className="font-medium">only that employee type’s</span>{" "}
+        money output, linearly from{" "}
+        <span className="font-medium">
+          ×{SATISFACTION_REVENUE_MULT_AT_MIN} at −100
+        </span>{" "}
+        to{" "}
+        <span className="font-medium">
+          ×{SATISFACTION_REVENUE_MULT_AT_MAX} at +100
+        </span>{" "}
+        (score 0 is ×
+        {(SATISFACTION_REVENUE_MULT_AT_MIN + SATISFACTION_REVENUE_MULT_AT_MAX) /
+          2}
+        ).
       </p>
       <div className="border border-primary-300 bg-primary-200/40 p-2 dark:border-primary-600 dark:bg-primary-900/50">
         <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
@@ -148,8 +175,9 @@ function SatisfactionEffectsHelp() {
             Go lighter on <span className="font-medium">+Money</span>,{" "}
             <span className="font-medium">−Cost</span>, and{" "}
             <span className="font-medium">AutoBuy</span> (each level drags the
-            target down; you can’t refund perks, but you can stop stacking
-            them).
+            target down). Use <span className="font-medium">Refund</span> on
+            that role in Employee Management to return points and reset its
+            perks.
           </li>
           <li>
             <span className="font-medium">Fewer employees</span> of that type
@@ -167,6 +195,7 @@ function SatisfactionEffectsHelp() {
             <span className="font-medium text-emerald-700 dark:text-emerald-400">
               High:
             </span>{" "}
+            more cash from interns (up to ×{SATISFACTION_REVENUE_MULT_AT_MAX});
             bonus global innovation (IPS) from all generators; managers tier up
             a bit faster.
           </li>
@@ -174,7 +203,8 @@ function SatisfactionEffectsHelp() {
             <span className="font-medium text-rose-700 dark:text-rose-400">
               Low:
             </span>{" "}
-            much less passive valuation; manager tier progress slows sharply.
+            less cash from interns (down to ×{SATISFACTION_REVENUE_MULT_AT_MIN}
+            ); much less passive valuation; manager tier progress slows sharply.
           </li>
         </ul>
       </div>
@@ -187,13 +217,15 @@ function SatisfactionEffectsHelp() {
             <span className="font-medium text-emerald-700 dark:text-emerald-400">
               High:
             </span>{" "}
-            Nothing. Fuck you. Be sad.
+            more cash from vibe coders (up to ×
+            {SATISFACTION_REVENUE_MULT_AT_MAX}). Otherwise: nothing. Fuck you.
+            Be sad.
           </li>
           <li>
             <span className="font-medium text-rose-700 dark:text-rose-400">
               Low:
             </span>{" "}
-            Skynet approaches.
+            less cash from vibe coders; Skynet approaches.
           </li>
         </ul>
       </div>
@@ -206,13 +238,14 @@ function SatisfactionEffectsHelp() {
             <span className="font-medium text-emerald-700 dark:text-emerald-400">
               High:
             </span>{" "}
+            more cash from 10x devs (up to ×{SATISFACTION_REVENUE_MULT_AT_MAX});
             cheaper 10x hires (lower effective cost curve).
           </li>
           <li>
             <span className="font-medium text-rose-700 dark:text-rose-400">
               Low:
             </span>{" "}
-            pricier 10x hires (steeper exponent).
+            less cash from 10x devs; pricier 10x hires (steeper exponent).
           </li>
         </ul>
       </div>

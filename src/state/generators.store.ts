@@ -10,6 +10,7 @@ import {
   defaultSatisfactionScores,
   internSatisfactionIpsMultiplier,
   internSatisfactionValuationMultiplier,
+  satisfactionRevenueMultiplier,
   SATISFACTION_MAX,
   SATISFACTION_MIN,
   stepSatisfactionScores,
@@ -110,6 +111,9 @@ type GeneratorState = {
   ) => number;
   canPurchaseEmployeePerk: (id: GeneratorId, branch: EmployeePerkBranch) => boolean;
   purchaseEmployeePerk: (id: GeneratorId, branch: EmployeePerkBranch) => void;
+  /** Returns management points spent on this role’s perks (sum of historical purchase costs). */
+  getManagementPointsSpentOnRow: (id: GeneratorId) => number;
+  refundEmployeeManagementRow: (id: GeneratorId) => void;
 
   reset: () => void;
 };
@@ -327,6 +331,23 @@ function employeePerkPurchaseCost(
   return 0;
 }
 
+function totalManagementPointsSpentOnPerks(p: EmployeePerks): number {
+  let sum = 0;
+  for (let i = 0; i < p.moneyLevel; i++) {
+    sum += employeePerkPurchaseCost("money", i);
+  }
+  for (let i = 0; i < p.innovationLevel; i++) {
+    sum += employeePerkPurchaseCost("innovation", i);
+  }
+  for (let i = 0; i < p.costLevel; i++) {
+    sum += employeePerkPurchaseCost("cost", i);
+  }
+  for (let i = 0; i < p.autoBuyLevel; i++) {
+    sum += employeePerkPurchaseCost("auto", i);
+  }
+  return sum;
+}
+
 export const useGeneratorStore = create<GeneratorState>()(
   persist(
     (set, get) => {
@@ -438,6 +459,37 @@ export const useGeneratorStore = create<GeneratorState>()(
       });
     },
 
+    getManagementPointsSpentOnRow: (id) =>
+      totalManagementPointsSpentOnPerks(get().employeeManagement.perks[id]),
+
+    refundEmployeeManagementRow: (id) => {
+      if (!useInnovationStore.getState().unlocks.employeeManagement?.unlocked) {
+        return;
+      }
+      const refund = totalManagementPointsSpentOnPerks(
+        get().employeeManagement.perks[id]
+      );
+      if (refund <= 0) return;
+
+      set((state) => {
+        const perks = { ...state.employeeManagement.perks };
+        perks[id] = defaultEmployeePerks();
+        const autoBuyAcc = { ...state.employeeManagement.autoBuyAcc };
+        delete autoBuyAcc[id];
+        return {
+          employeeManagement: {
+            ...state.employeeManagement,
+            spentManagementPoints: Math.max(
+              0,
+              state.employeeManagement.spentManagementPoints - refund
+            ),
+            perks,
+            autoBuyAcc,
+          },
+        };
+      });
+    },
+
     addGenerator: (gen) =>
       set((state) => {
         const exists = state.generators.find((g) => g.id === gen.id);
@@ -500,6 +552,9 @@ export const useGeneratorStore = create<GeneratorState>()(
         ? internSatisfactionValuationMultiplier(satisfactionScores.intern)
         : 1;
 
+      const revenueMultFor = (id: GeneratorId) =>
+        emUnlocked ? satisfactionRevenueMultiplier(satisfactionScores[id]) : 1;
+
       const updatedGenerators = get().generators.map((gen) => {
         if (gen.amount === 0) return gen;
         const ticks = Math.floor(globalTickInterval / gen.interval);
@@ -512,6 +567,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(gen.amount)
             .times(gen.multiplier)
             .times(out.money)
+            .times(revenueMultFor(gen.id))
             .times(ticks);
           const innovationIncome = new Decimal(gen.innovationProduction)
             .times(innovationMultGlobal)
@@ -571,6 +627,11 @@ export const useGeneratorStore = create<GeneratorState>()(
         .getMultiplier();
       const managerMults = getManagerEconomyMultipliers();
       const valuationMults = getValuationEconomyMultipliers();
+      const emUnlocked =
+        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
+      const scores = get().satisfactionScores;
+      const revenueMultFor = (id: GeneratorId) =>
+        emUnlocked ? satisfactionRevenueMultiplier(scores[id]) : 1;
 
       return get().generators.reduce((sum, gen) => {
         if (gen.amount === 0) return sum;
@@ -583,7 +644,8 @@ export const useGeneratorStore = create<GeneratorState>()(
             gen.baseProduction *
             gen.amount *
             gen.multiplier *
-            out.money) /
+            out.money *
+            revenueMultFor(gen.id)) /
           (gen.interval / 1000);
 
         return sum + perSecond;

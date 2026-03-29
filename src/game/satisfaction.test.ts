@@ -5,6 +5,7 @@ import {
   internSatisfactionIpsMultiplier,
   internSatisfactionManagerAccrualMultiplier,
   internSatisfactionValuationMultiplier,
+  satisfactionRevenueMultiplier,
   satisfactionTargetForRole,
   stepSatisfactionScores,
   vibeSingularityAccrualRatePerSecond,
@@ -47,6 +48,14 @@ describe("satisfaction curves", () => {
     expect(vibeSingularityAccrualRatePerSecond(10)).toBe(0);
     expect(vibeSingularityAccrualRatePerSecond(-100)).toBeCloseTo(0.012, 6);
     expect(vibeSingularityAccrualRatePerSecond(-50)).toBeCloseTo(0.006, 6);
+  });
+
+  test("revenue mult: linear endpoints and clamp", () => {
+    expect(satisfactionRevenueMultiplier(-100)).toBeCloseTo(0.25, 6);
+    expect(satisfactionRevenueMultiplier(100)).toBeCloseTo(10, 6);
+    expect(satisfactionRevenueMultiplier(0)).toBeCloseTo(5.125, 6);
+    expect(satisfactionRevenueMultiplier(-200)).toBeCloseTo(0.25, 6);
+    expect(satisfactionRevenueMultiplier(200)).toBeCloseTo(10, 6);
   });
 });
 
