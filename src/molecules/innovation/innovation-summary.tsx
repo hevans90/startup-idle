@@ -46,11 +46,27 @@ export const InnovationSummary = ({
             size="large"
           ></InfoRow>
           {managersActive && (
-            <InfoRow
-              label="Managers (IPS / $ / valuation)"
-              value={`x${mgr.innovationIncome.toFixed(2)} / x${mgr.employeeMoney.toFixed(2)} / x${mgr.salesValuation.toFixed(2)}`}
-              size="small"
-            />
+            <div className="w-full text-left">
+              <div className="mt-1 border-t border-primary-300/70 dark:border-primary-600/60 pt-2" />
+              <p className="responsive-text-xs text-primary-500 dark:text-primary-400">
+                Managers
+              </p>
+              <InfoRow
+                label="IPS"
+                value={`x${mgr.innovationIncome.toFixed(2)}`}
+                size="small"
+              />
+              <InfoRow
+                label="$"
+                value={`x${mgr.employeeMoney.toFixed(2)}`}
+                size="small"
+              />
+              <InfoRow
+                label="Valuation"
+                value={`x${mgr.salesValuation.toFixed(2)}`}
+                size="small"
+              />
+            </div>
           )}
         </div>
       ) : (

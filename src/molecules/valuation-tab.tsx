@@ -21,10 +21,18 @@ export const ValuationTab = () => {
 
   return (
     <div className="p-2 pt-4 w-full flex flex-col gap-4 items-center">
-      <div className="w-64">
+      <div className="w-64 text-left">
+        <p className="responsive-text-xs text-primary-500 dark:text-primary-400">
+          Board mandates
+        </p>
         <InfoRow
-          label="Board mandates ($ / IPS)"
-          value={`x${board.money.toFixed(2)} / x${board.innovation.toFixed(2)}`}
+          label="$"
+          value={`x${board.money.toFixed(2)}`}
+          size="small"
+        />
+        <InfoRow
+          label="IPS"
+          value={`x${board.innovation.toFixed(2)}`}
           size="small"
         />
       </div>

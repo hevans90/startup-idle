@@ -6,7 +6,7 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
   return (
     <div
       className={twMerge(
-        "w-full h-14 bg-primary-200 dark:bg-primary-900 flex justify-start items-center gap-2",
+        "w-full h-13 bg-primary-200 dark:bg-primary-900 flex justify-start items-center gap-2",
         className
       )}
     >

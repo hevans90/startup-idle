@@ -24,7 +24,7 @@ export const ValuationMandatesPanel = () => {
         </p>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 px-2 pb-2">
         {MANDATES.map((m) => {
           const level = mandateLevels[m.id];
           const cost = getMandateCost(m.id);
@@ -33,7 +33,7 @@ export const ValuationMandatesPanel = () => {
           return (
             <div
               key={m.id}
-              className="border border-primary-400 dark:border-primary-600 rounded p-2 flex flex-col gap-1"
+              className="border border-primary-400 dark:border-primary-600 p-2 flex flex-col gap-1"
             >
               <div className="flex justify-between gap-2">
                 <span className="font-medium">{m.name}</span>
