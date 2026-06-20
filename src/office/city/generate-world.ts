@@ -41,10 +41,13 @@ const DISTRICT_GROUND: Record<GeneratorId, SpriteId> = {
 };
 
 /** Column on which each district connects to the avenue. */
+// Each connector aligns with one of its district's grid columns so it links
+// the internal grid to the avenue (intern/vibe x0=2 → col 13; downtown x0=30
+// → col 41; both are grid lanes at (x-x0) % BLOCK_STRIDE === BLOCK_STRIDE-1).
 const DISTRICT_CONNECTOR_COL: Record<GeneratorId, number> = {
   intern: 13,
   vibe_coder: 13,
-  "10x_dev": 42,
+  "10x_dev": 41,
 };
 
 function inRect(x: number, y: number, r: Rect): boolean {
@@ -65,6 +68,16 @@ function isDistrictRoad(x: number, y: number, r: Rect): boolean {
   return lx % BLOCK_STRIDE === BLOCK_STRIDE - 1 || ly % BLOCK_STRIDE === BLOCK_STRIDE - 1;
 }
 
+/**
+ * Keep a 1-cell clear buffer around the avenue: no district grid road may sit
+ * on or directly beside an avenue row. Otherwise (e.g. downtown spans the
+ * avenue) a thin road runs parallel one tile away and the avenue's branch
+ * detection mis-fires all along that lane. Connectors still cross this buffer.
+ */
+function nearAvenue(y: number): boolean {
+  return AVENUE_ROWS.some((ar) => Math.abs(ar - y) <= 1);
+}
+
 function buildRoadCells(): Set<string> {
   const roads = new Set<string>();
   // Main avenue across the full width.
@@ -75,14 +88,18 @@ function buildRoadCells(): Set<string> {
   for (const id of Object.keys(DISTRICT_REGIONS) as GeneratorId[]) {
     const region = DISTRICT_REGIONS[id];
     for (let y = region.y0; y <= region.y1; y++) {
+      if (nearAvenue(y)) continue; // keep the avenue's buffer clear
       for (let x = region.x0; x <= region.x1; x++) {
         if (isDistrictRoad(x, y, region)) roads.add(cellKey(x, y));
       }
     }
+    // One connector column, continuous from the district through the avenue —
+    // the only road that touches the avenue's outer edge (so branches there are
+    // intentional). Spans across the buffer to link the grid to the avenue.
     const col = DISTRICT_CONNECTOR_COL[id];
-    const from = Math.min(region.y1, AVENUE_ROWS[0]);
-    const to = Math.max(region.y0, AVENUE_ROWS[AVENUE_ROWS.length - 1]);
-    for (let y = from; y <= to; y++) roads.add(cellKey(col, y));
+    const lo = Math.min(region.y0, AVENUE_ROWS[0]);
+    const hi = Math.max(region.y1, AVENUE_ROWS[AVENUE_ROWS.length - 1]);
+    for (let y = lo; y <= hi; y++) roads.add(cellKey(col, y));
   }
   return roads;
 }
