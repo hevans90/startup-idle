@@ -1,7 +1,7 @@
 import { Viewport } from "pixi-viewport";
 import { Rectangle } from "pixi.js";
 
-import { getDefaultMap } from "../map";
+import { generateWorld } from "../city/generate-world";
 import {
   ISO_TILE_HEIGHT,
   ISO_TILE_WIDTH,
@@ -19,8 +19,8 @@ export function getOfficeWorldBounds(wrapperSize: {
   height: number;
 }) {
   const mapScale = 1;
-  const { cols, rows, tiles } = getDefaultMap();
-  const maxZ = tiles.reduce((m, t) => Math.max(m, t.z), 0);
+  const { cols, rows, ground } = generateWorld();
+  const maxZ = ground.reduce((m, t) => Math.max(m, t.z), 0);
   const corners: [number, number][] = [
     [0, 0],
     [cols - 1, 0],

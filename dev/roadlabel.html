@@ -1,0 +1,316 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Road tile labeller</title>
+<style>
+  :root { --bg:#1f2630; --panel:#2b3440; --line:#44505f; --accent:#7cc4ff; }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: #e8edf2; font-family: ui-monospace, monospace; margin: 0; padding: 16px 16px 220px 346px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.help { font-size: 13px; opacity: .8; margin: 0 0 14px; line-height: 1.5; max-width: 900px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .stage { position: relative; width: 100%; background: #46703a; border-radius: 6px; overflow: hidden; }
+  .stage img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+  .edge { position: absolute; width: 30px; height: 30px; border-radius: 50%; border: 2px solid #0008;
+          display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px;
+          cursor: pointer; user-select: none; transition: transform .05s; transform: translate(-50%, -50%); }
+  .edge:active { transform: translate(-50%, -50%) scale(.88); }
+  .edge.open { background: #3ecf6a; color: #06340f; }
+  .edge.closed { background: #ff5a5a; color: #3a0000; }
+  /* centred on the diamond's four edge-midpoints (where the road arms exit) */
+  .n { top: 36%; left: 25%; } .e { top: 36%; left: 75%; }
+  .s { top: 64%; left: 75%; } .w { top: 64%; left: 25%; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; gap: 6px; }
+  .id { font-weight: bold; font-size: 15px; color: #ffd84a; }
+  .type { font-size: 11px; opacity: .9; text-align: right; }
+  .roadtoggle { font-size: 11px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .card.notroad .stage { opacity: .35; }
+  .card.notroad .edge { display: none; }
+  .card.notroad .role { display: none; }
+  .role { width: 100%; margin-top: 6px; background: #1c232c; color: #e8edf2; border: 1px solid var(--line);
+          border-radius: 6px; padding: 5px; font-family: inherit; font-size: 11px; }
+  footer { position: fixed; left: 322px; right: 0; bottom: 0; background: #161b22; border-top: 1px solid var(--line);
+           padding: 10px 16px; display: flex; gap: 12px; align-items: flex-start; }
+  textarea { flex: 1; height: 150px; background: #0d1117; color: #9fe6b0; border: 1px solid var(--line);
+             border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12px; padding: 8px; }
+  .btns { display: flex; flex-direction: column; gap: 8px; }
+  button { background: var(--accent); color: #06243a; border: 0; border-radius: 6px; padding: 8px 14px;
+           font-weight: bold; cursor: pointer; font-family: inherit; }
+  button.sec { background: #3a4654; color: #e8edf2; }
+  /* floating guide sidebar */
+  .guide { position: fixed; left: 0; top: 0; bottom: 0; width: 322px; overflow-y: auto; z-index: 60;
+           background: #161d27; border-right: 1px solid var(--line); padding: 10px 12px; }
+  .guide h2 { font-size: 14px; margin: 0 0 8px; }
+  .guidecol h3 { font-size: 12px; margin: 13px 0 6px; color: var(--accent); }
+  .gcards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .gcard { background: #232c37; border: 1px solid var(--line); border-radius: 6px; padding: 5px; }
+  .gcard svg { width: 100%; height: auto; display: block; background: #46703a; border-radius: 4px; }
+  .gcard .grole { font-weight: bold; font-size: 10px; color: #ffd84a; margin-top: 4px; word-break: break-word; }
+  .gcard .gdesc { font-size: 9.5px; opacity: .85; line-height: 1.3; margin-top: 2px; }
+  .glegend { font-size: 10.5px; opacity: .9; margin: 2px 0 6px; display: flex; flex-direction: column; gap: 3px; }
+  .glegend span::before { content: ""; display: inline-block; width: 14px; height: 6px; vertical-align: middle;
+                          margin-right: 5px; border-radius: 2px; }
+  .glegend .road::before { background: #555; }
+  .glegend .pave::before { background: #e6e2cd; }
+  .glegend .open::before { background: #3ecf6a; }
+  .glegend .grass::before { background: #6a9a4a; }
+</style>
+</head>
+<body>
+  <h1>Road tile labeller 🛣️</h1>
+  <p class="help">
+    Edges: <b>N</b>=top-left, <b>E</b>=top-right, <b>S</b>=bottom-right, <b>W</b>=bottom-left.
+    Click an edge dot to toggle <span style="color:#3ecf6a">OPEN</span> (asphalt continues → connects to a neighbouring road)
+    vs <span style="color:#ff5a5a">CLOSED</span> (curb/sidewalk → faces grass). The inferred type updates live so you can sanity-check.
+    Then pick each road's <b>role</b>. Thin = 1-wide pieces. Thick = 2-wide road built from <b>lanes</b>
+    (each lane has its pavement on the outer edge — mark that edge closed) plus thick corners/junctions; the
+    pavement edges you mark give the orientation. Untick <b>road</b> for non-roads. Autosaves; copy the JSON when done.
+  </p>
+  <aside class="guide">
+    <h2>📖 Label guide</h2>
+    <div class="glegend">
+      <span class="road">asphalt (road)</span>
+      <span class="pave">pavement / curb (edge = red)</span>
+      <span class="open">open edge (continues, green)</span>
+      <span class="grass">grass</span>
+    </div>
+    <div class="guidecol"><h3>Thin — 1 tile wide</h3><div class="gcards" id="guide-thin"></div></div>
+    <div class="guidecol"><h3>Thick — 2 tiles wide (lanes)</h3><div class="gcards" id="guide-thick"></div></div>
+    <div class="guidecol"><h3>Thick road + thin junction</h3><div class="gcards" id="guide-hybrid"></div></div>
+  </aside>
+  <div class="grid" id="grid"></div>
+
+  <footer>
+    <textarea id="out" readonly></textarea>
+    <div class="btns">
+      <div id="status" style="font-size:11px;opacity:.85;min-height:14px">…</div>
+      <button onclick="copyOut()">Copy JSON</button>
+      <button class="sec" onclick="resetAll()">Reset all</button>
+    </div>
+  </footer>
+
+<script>
+  const L = "/isometric_assets/landscape/PNG/landscapeTiles_";
+  const pad = n => String(n).padStart(3, "0");
+  // Full landscape sheet — tick "road" on every road tile (they're scattered).
+  const FROM = 0, TO = 127;
+  const DIRS = ["N", "E", "S", "W"];
+  const KEY = "roadlabels_v1";
+
+  // Measure a tile's top-face diamond from its pixels so dots land exactly on
+  // the edge-midpoints regardless of the tile's height / how much cube it shows.
+  const geomCache = {};
+  function measure(img) {
+    const W = img.naturalWidth, H = img.naturalHeight;
+    const cv = measure._cv || (measure._cv = document.createElement("canvas"));
+    const ctx = measure._ctx || (measure._ctx = cv.getContext("2d", { willReadFrequently: true }));
+    cv.width = W; cv.height = H; ctx.clearRect(0, 0, W, H); ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, W, H).data;
+    const op = (x, y) => data[(y * W + x) * 4 + 3] > 40;
+    let topY = 0;
+    outer: for (let y = 0; y < H; y++) { for (let x = 0; x < W; x += 2) { if (op(x, y)) { topY = y; break outer; } } }
+    let midY = topY; // left vertex = topmost opaque pixel at the far-left columns
+    for (let y = topY; y < H; y++) { if (op(0, y) || op(1, y) || op(2, y)) { midY = y; break; } }
+    const bottomY = 2 * midY - topY;
+    return { W, H, topY, midY, bottomY };
+  }
+  function applyGeom(stage, g) {
+    const yTop = ((g.topY + g.midY) / 2) / g.H * 100;
+    const yBot = ((g.midY + g.bottomY) / 2) / g.H * 100;
+    const pos = { n: [25, yTop], e: [75, yTop], s: [75, yBot], w: [25, yBot] };
+    for (const d in pos) {
+      const dot = stage.querySelector(".edge." + d);
+      if (dot) { dot.style.left = pos[d][0] + "%"; dot.style.top = pos[d][1] + "%"; }
+    }
+  }
+
+  let state = {};
+  // state[id] = { road: bool, role: string, open: {N,E,S,W: bool} }
+  const API = "/api/roadlabels";
+  const ROLES = [
+    ["thin (1-wide)", ["thin-straight", "thin-corner", "thin-T", "thin-cross", "thin-end"]],
+    ["thick (2-wide lanes)", ["thick-lane", "thick-outer-corner", "thick-inner-corner", "thick-T", "thick-cross", "thick-end", "thick-fill"]],
+    ["thick + thin junction", ["thick-thru+thin-branch", "thick-lane+thin-branch", "thick+thin-cross"]],
+  ];
+  function ensure(id) {
+    if (!state[id]) state[id] = { road: (Number(id) >= 80 && Number(id) <= 99), role: "", open: { N:true, E:true, S:true, W:true } };
+    if (state[id].role === undefined) state[id].role = ""; // migrate older saves
+    return state[id];
+  }
+  let syncTimer = null;
+  function setStatus(t) { const el = document.getElementById("status"); if (el) el.textContent = t; }
+  function syncToDisk() {
+    setStatus("saving…");
+    fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) })
+      .then((r) => setStatus(r.ok ? "saved to road-labels.json ✓" : "save failed"))
+      .catch(() => setStatus("save failed (offline?)"));
+  }
+  function save() {
+    localStorage.setItem(KEY, JSON.stringify(state)); // instant local cache
+    render();
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncToDisk, 400); // debounced write to disk
+  }
+
+  function typeOf(open) {
+    const o = DIRS.filter(d => open[d]);
+    const n = o.length;
+    if (n === 4) return "crossroad";
+    if (n === 0) return "isolated";
+    if (n === 1) return "dead-end (open " + o[0] + ")";
+    if (n === 3) { const closed = DIRS.find(d => !open[d]); return "T (closed " + closed + ")"; }
+    // n === 2
+    const opp = (open.N && open.S) || (open.E && open.W);
+    return opp ? "straight (" + o.join("") + ")" : "corner (open " + o.join("") + ")";
+  }
+
+  const grid = document.getElementById("grid");
+  function render() {
+    grid.innerHTML = "";
+    for (let i = FROM; i <= TO; i++) {
+      const id = pad(i);
+      const s = ensure(id);
+      const card = document.createElement("div");
+      card.className = "card" + (s.road ? "" : " notroad");
+      const stage = document.createElement("div");
+      stage.className = "stage";
+      stage.innerHTML = '<img src="' + L + id + '.png" />';
+      for (const d of DIRS) {
+        const e = document.createElement("div");
+        e.className = "edge " + d.toLowerCase() + " " + (s.open[d] ? "open" : "closed");
+        e.textContent = d;
+        e.onclick = () => { s.open[d] = !s.open[d]; save(); };
+        stage.appendChild(e);
+      }
+      const imgEl = stage.querySelector("img");
+      if (geomCache[id]) applyGeom(stage, geomCache[id]);
+      else imgEl.addEventListener("load", () => { geomCache[id] = measure(imgEl); applyGeom(stage, geomCache[id]); });
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = '<span class="id">' + id + '</span>' +
+        '<label class="roadtoggle"><input type="checkbox" ' + (s.road ? "checked" : "") +
+        ' onchange="toggleRoad(\'' + id + '\', this.checked)"> road</label>';
+
+      const role = document.createElement("select");
+      role.className = "role";
+      role.innerHTML = '<option value="">— pick role —</option>' +
+        ROLES.map(([label, opts]) => '<optgroup label="' + label + '">' +
+          opts.map(o => '<option' + (s.role === o ? " selected" : "") + '>' + o + '</option>').join("") +
+          '</optgroup>').join("");
+      role.onchange = () => { s.role = role.value; save(); };
+
+      const type = document.createElement("div");
+      type.className = "type";
+      const pav = DIRS.filter(d => !s.open[d]);
+      type.textContent = s.road
+        ? (s.role || "(pick role)") + " · pavement: " + (pav.length ? pav.join(",") : "none")
+        : "—";
+      card.appendChild(stage); card.appendChild(row); card.appendChild(role); card.appendChild(type);
+      grid.appendChild(card);
+    }
+    updateOut();
+  }
+  window.toggleRoad = (id, v) => { ensure(id).road = v; save(); };
+
+  function updateOut() {
+    const obj = {};
+    for (const id in state) {
+      const s = state[id];
+      if (!s.road) continue;
+      obj[id] = {
+        role: s.role,
+        open: DIRS.filter(d => s.open[d]),
+        pavement: DIRS.filter(d => !s.open[d]),
+      };
+    }
+    document.getElementById("out").value = JSON.stringify(obj, null, 2);
+  }
+  window.copyOut = () => { navigator.clipboard.writeText(document.getElementById("out").value); };
+  window.resetAll = () => {
+    if (confirm("Reset all labels (clears road-labels.json too)?")) {
+      state = {}; localStorage.removeItem(KEY); render(); syncToDisk();
+    }
+  };
+
+  // ---- visual guide ----
+  const G = { T: [60, 18], R: [106, 42], B: [60, 66], L: [14, 42], C: [60, 42] };
+  const GMID = { N: [37, 30], E: [83, 30], S: [83, 54], W: [37, 54] };
+  const GEDGE = { N: ["L", "T"], E: ["T", "R"], S: ["R", "B"], W: ["B", "L"] };
+  const GLOFF = { N: [-6, -4], E: [6, -4], S: [6, 7], W: [-6, 7] };
+  function svgFor(spec) {
+    const open = new Set(spec.open || []);
+    const pave = new Set(spec.pave || []);
+    const junc = new Set(spec.junction || []); // pavement edge that a thin road breaks through
+    const rw = spec.thick ? 20 : 13;
+    const ln = (a, b, st, w, ex = "") =>
+      `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${st}" stroke-width="${w}" stroke-linecap="round" ${ex}/>`;
+    const lerp = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+    const curb = (a, b) => ln(a, b, "#b8b49a", 8) + ln(a, b, "#efebd6", 5);
+    const dot = (m, f, st) => `<circle cx="${m[0]}" cy="${m[1]}" r="3.4" fill="${f}" stroke="${st}" stroke-width="0.8"/>`;
+    let s = `<svg viewBox="0 0 120 84" xmlns="http://www.w3.org/2000/svg">`;
+    s += `<polygon points="${G.T} ${G.R} ${G.B} ${G.L}" fill="#6a9a4a" stroke="#5a8a3a"/>`;
+    for (const d of open) s += ln(G.C, GMID[d], "#555", rw);
+    for (const d of junc) s += ln(G.C, GMID[d], "#555", 9); // thin road through the junction gap
+    if (open.size || junc.size) s += `<circle cx="60" cy="42" r="${rw / 2}" fill="#555"/>`;
+    if (spec.thick) for (const d of open) s += ln(G.C, GMID[d], "#cfd3c0", 1.3, 'stroke-dasharray="2 3"');
+    for (const d of pave) { const [a, b] = GEDGE[d]; s += curb(G[a], G[b]); }
+    for (const d of junc) { const [a, b] = GEDGE[d], A = G[a], B = G[b]; s += curb(A, lerp(A, B, 0.36)) + curb(lerp(A, B, 0.64), B); } // pavement wraps the gap
+    for (const d of open) s += dot(GMID[d], "#3ecf6a", "#0a3");
+    for (const d of pave) s += dot(GMID[d], "#ff5a5a", "#a00");
+    for (const d of junc) s += dot(GMID[d], "#ff5a5a", "#a00"); // pavement wraps the junction → RED (role records the road crossing)
+    if (spec.nub) { const p = [(G.C[0] + G.B[0]) / 2, (G.C[1] + G.B[1]) / 2]; s += `<rect x="${p[0] - 5}" y="${p[1] - 3}" width="10" height="6" rx="1.5" fill="#efebd6" stroke="#b8b49a"/>`; }
+    for (const d of ["N", "E", "S", "W"]) { const m = GMID[d], o = GLOFF[d]; s += `<text x="${m[0] + o[0]}" y="${m[1] + o[1]}" font-size="8" fill="#eaf0f6" text-anchor="middle" font-family="monospace">${d}</text>`; }
+    return s + "</svg>";
+  }
+  const GUIDE_THIN = [
+    { role: "thin-straight", open: ["N", "S"], pave: ["E", "W"], desc: "Straight through. 2 OPPOSITE edges open." },
+    { role: "thin-corner", open: ["N", "E"], pave: ["S", "W"], desc: "90° bend. 2 ADJACENT edges open; outside = pavement." },
+    { role: "thin-T", open: ["N", "E", "W"], pave: ["S"], desc: "3-way split. 3 open, 1 pavement." },
+    { role: "thin-cross", open: ["N", "E", "S", "W"], pave: [], desc: "4-way junction. All edges open." },
+    { role: "thin-end", open: ["S"], pave: ["N", "E", "W"], desc: "Dead-end. 1 open, 3 pavement." },
+  ];
+  const GUIDE_THICK = [
+    { role: "thick-lane", open: ["N", "S", "E"], pave: ["W"], thick: true, desc: "One lane. Pavement on OUTER edge (W); inner edge (E) meets the sibling lane." },
+    { role: "thick-outer-corner", open: ["S", "W"], pave: ["N", "E"], thick: true, desc: "Outside of a 2-wide bend (convex). 2 ADJACENT outer edges = pavement." },
+    { role: "thick-inner-corner", open: ["N", "E", "S", "W"], nub: true, thick: true, desc: "Inside of a 2-wide bend. Mostly asphalt; small curb at the inner corner." },
+    { role: "thick-T", open: ["N", "E", "W"], pave: ["S"], thick: true, desc: "3-way junction in a 2-wide road." },
+    { role: "thick-cross", open: ["N", "E", "S", "W"], pave: [], thick: true, desc: "4-way junction (curbs only at the corners)." },
+    { role: "thick-end", open: ["S"], pave: ["N", "E", "W"], thick: true, desc: "Cap / end of a 2-wide road." },
+    { role: "thick-fill", open: ["N", "E", "S", "W"], pave: [], thick: true, desc: "Plain asphalt, no curb. Fills the middle of wide junctions." },
+  ];
+  const GUIDE_HYBRID = [
+    { role: "thick-thru+thin-branch", open: ["N", "S"], pave: ["E"], junction: ["W"], thick: true, desc: "2-wide road (N–S); a 1-wide road branches off W. W has pavement wrapping the branch → RED (role says a road crosses it). Solid outer E → RED too." },
+    { role: "thick-lane+thin-branch", open: ["N", "S", "E"], junction: ["W"], thick: true, desc: "Thick lane (inner E meets sibling, green). A thin road branches off the outer W; pavement wraps it → mark W RED. The red edge is how I know the branch is on W." },
+    { role: "thick+thin-cross", open: ["N", "S"], junction: ["E", "W"], thick: true, desc: "2-wide road (N–S) crossed by a 1-wide road (E–W). E & W have pavement wrapping the crossing → RED." },
+  ];
+  function buildGuide() {
+    const mk = (list, elId) => {
+      const el = document.getElementById(elId);
+      if (el) el.innerHTML = list.map(s =>
+        '<div class="gcard">' + svgFor(s) + '<div class="grole">' + s.role + '</div><div class="gdesc">' + s.desc + '</div></div>'
+      ).join("");
+    };
+    mk(GUIDE_THIN, "guide-thin");
+    mk(GUIDE_THICK, "guide-thick");
+    mk(GUIDE_HYBRID, "guide-hybrid");
+  }
+
+  async function init() {
+    buildGuide();
+    // Disk is the source of truth; fall back to the local cache if unreachable.
+    try {
+      const r = await fetch(API);
+      if (r.ok) { const j = await r.json(); if (j && typeof j === "object") state = j; }
+    } catch { /* dev server not running */ }
+    if (!Object.keys(state).length) {
+      try { state = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { state = {}; }
+    }
+    render();
+    setStatus("loaded from road-labels.json");
+  }
+  init();
+</script>
+</body>
+</html>

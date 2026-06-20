@@ -7,7 +7,10 @@ import { Rectangle, Text } from "pixi.js";
 
 import { useOfficeStore } from "../state/office.store";
 import { ISO_CELL_STRIDE } from "./math-utils";
-import { constrainViewportToOfficeBounds } from "./utils/clamp-viewport";
+import {
+  constrainViewportToOfficeBounds,
+  getOfficeWorldBounds,
+} from "./utils/clamp-viewport";
 import { updateScaledObjects } from "./utils/update-scaled-objects";
 
 extend({ Viewport, Text });
@@ -85,6 +88,14 @@ export const AppViewport = memo(
             2 *
             (ISO_CELL_STRIDE / viewportFitStrideWhenTuned),
           true
+        );
+
+        // Start centred on the city (the districts cluster around the central
+        // avenue) rather than the far top-left corner of the large world.
+        const b = getOfficeWorldBounds(screenSize);
+        viewportRef.current.moveCenter(
+          (b.minX + b.maxX) / 2,
+          (b.minY + b.maxY) / 2
         );
 
         constrainViewportToOfficeBounds(viewportRef.current, screenRect);

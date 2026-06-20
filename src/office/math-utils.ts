@@ -41,6 +41,34 @@ export function depthKey(mapX: number, mapY: number, z: number): number {
 }
 
 /**
+ * Column-dominant draw order for stacked city buildings: a cell closer to the
+ * camera (larger mapX+mapY) ALWAYS draws over one further back, regardless of
+ * height — then `floor` stacks sprites within a single column. This is the
+ * inverse weighting of {@link depthKey} (which lets elevation dominate, correct
+ * only for sparse terrain overlays, wrong for tall towers).
+ */
+export function cityDepthKey(
+  mapX: number,
+  mapY: number,
+  floor: number,
+): number {
+  return (mapX + mapY) * Z_LAYER_WEIGHT + floor;
+}
+
+/**
+ * Per-floor screen-up lift for stacked building modules. Calibrated to the
+ * Kenney flat-top module wall height (≈ ISO_TILE_HEIGHT / 3), so successive
+ * floors sit flush instead of floating (the terrain {@link ISO_Z_LIFT_PER_LAYER}
+ * is too large for these modules).
+ */
+export const FLOOR_LIFT = 33;
+
+/** Screen-Y of a building floor stacked on a base at `baseWorldY`. */
+export function stackedWorldY(baseWorldY: number, floorIndex: number): number {
+  return baseWorldY - floorIndex * FLOOR_LIFT;
+}
+
+/**
  * World position (viewport space) for a map cell before wrapper anchoring.
  * z lifts the sprite along the pseudo-vertical (screen-up) in isometric space.
  */
