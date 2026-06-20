@@ -4,6 +4,7 @@ import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { useUpgradeStore } from "../state/upgrades.store";
 import { useValuationStore } from "../state/valuation.store";
+import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 
 /**
  * Wipes persisted keys and in-memory state so simulations start from a known baseline.
@@ -16,6 +17,7 @@ export function resetAllGameStores(): void {
   useInnovationStore.getState().reset();
   useGeneratorStore.getState().reset();
   useAiSingularityStore.getState().reset();
+  useVapeAchievementsStore.getState().reset();
 
   const now = Date.now();
   useInnovationStore.setState({ globalLastTick: now });

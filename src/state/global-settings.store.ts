@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type SidebarTab = "employees" | "innovation" | "valuation";
+export type SidebarTab = "employees" | "innovation" | "valuation" | "achievements";
 
 type GlobalSettingsStore = {
   sidebarTab: SidebarTab;

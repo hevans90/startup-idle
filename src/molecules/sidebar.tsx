@@ -1,6 +1,7 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 import Tabs from "../ui/Tabs";
+import { AchievementsTab } from "./achievements-tab";
 import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation/innovation-managers";
 import { InnovationSummary } from "./innovation/innovation-summary";
@@ -20,6 +21,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
           { id: "employees", label: "Employees" },
           { id: "innovation", label: "Innovation" },
           { id: "valuation", label: "Valuation" },
+          { id: "achievements", label: "Achievements" },
         ]}
       >
         {{
@@ -41,6 +43,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
             </div>
           ),
           valuation: <ValuationTab />,
+          achievements: <AchievementsTab />,
         }}
       </Tabs>
     </div>

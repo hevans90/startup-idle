@@ -13,6 +13,8 @@ import { SettingsPopover } from "./molecules/settings-popover";
 import { Sidebar } from "./molecules/sidebar";
 import { Toolbar } from "./molecules/toolbar";
 import { Upgrades } from "./molecules/upgrades";
+import { evaluateAchievements } from "./game/achievements.engine";
+import { VapeJuiceDisplay } from "./molecules/vape-juice-display";
 import { Office } from "./office/office";
 import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
@@ -30,7 +32,7 @@ const useDynamicTitle = (interval = 1000) => {
         {
           exponentBreakpoint: 1e3,
           decimals: 0,
-        }
+        },
       )}`;
     }, interval);
 
@@ -45,10 +47,8 @@ function App() {
   const { innovation } = useInnovationStore();
 
   const officeWrapperRef = useRef<HTMLDivElement>(null);
+  const lastAchievementEvalRef = useRef(0);
   const wrapperSize = useResizeToWrapper(officeWrapperRef);
-
-  const { tickGenerators } = useGeneratorStore();
-  const { tickManagers } = useInnovationStore();
 
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
 
@@ -67,10 +67,21 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    setInterval(() => {
-      tickGenerators();
-      tickManagers();
-    }, 16); // check every 16ms for ticks (60fps)
+    // Grant any already-met achievements (e.g. from a loaded save) immediately
+    // rather than waiting for the first throttled tick.
+    lastAchievementEvalRef.current = Date.now();
+    evaluateAchievements();
+
+    const id = setInterval(() => {
+      useGeneratorStore.getState().tickGenerators();
+      useInnovationStore.getState().tickManagers();
+      const now = Date.now();
+      if (now - lastAchievementEvalRef.current >= 1000) {
+        lastAchievementEvalRef.current = now;
+        evaluateAchievements();
+      }
+    }, 16);
+    return () => clearInterval(id);
   }, []);
 
   return (
@@ -116,9 +127,7 @@ function App() {
             <div className="relative min-h-0 w-full flex-1 basis-0 overflow-hidden">
               <div className="absolute left-0 right-0 top-8 z-[1] w-full">
                 <section className="mt-6 flex flex-col items-center">
-                  <h1 className="responsive-header font-bold">
-                    Startup Idle
-                  </h1>
+                  <h1 className="responsive-header font-bold">Startup Idle</h1>
                   <button
                     className="min-w-36 p-2 responsive-subheader cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600"
                     onClick={() => increaseMoney(Math.max(mps / 10, 1))}
@@ -145,9 +154,13 @@ function App() {
 
               <EmployeeSatisfactionOverlay className="absolute bottom-3 right-3 z-10" />
 
+              <VapeJuiceDisplay className="absolute bottom-28 left-2 z-10 w-44" />
+
               <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1 items-start">
                 <AiSingularityReadout />
-                <div className="responsive-text-sm text-primary-300">v{version}</div>
+                <div className="responsive-text-sm text-primary-300">
+                  v{version}
+                </div>
               </div>
             </div>
           </div>

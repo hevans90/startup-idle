@@ -6,6 +6,7 @@ import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { useUpgradeStore } from "../state/upgrades.store";
 import { useValuationStore } from "../state/valuation.store";
+import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { Button } from "../ui/Button";
 
 export const ResetButton = () => {
@@ -15,6 +16,7 @@ export const ResetButton = () => {
   const { reset: resetInnovation } = useInnovationStore();
   const { reset: resetValuation } = useValuationStore();
   const { reset: resetSingularity } = useAiSingularityStore();
+  const { reset: resetVapeAchievements } = useVapeAchievementsStore();
 
   const totalReset = useCallback(() => {
     if (confirm("This will reset all progress, are you sure?")) {
@@ -24,6 +26,7 @@ export const ResetButton = () => {
       resetInnovation();
       resetValuation();
       resetSingularity();
+      resetVapeAchievements();
       toast.success("Game fully reset. All progress wiped.");
     }
   }, [
@@ -33,6 +36,7 @@ export const ResetButton = () => {
     resetSingularity,
     resetUpgrades,
     resetValuation,
+    resetVapeAchievements,
   ]);
 
   return (

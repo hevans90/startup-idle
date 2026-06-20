@@ -28,6 +28,7 @@ import { useMoneyStore } from "./money.store";
 import { useValuationStore } from "./valuation.store";
 import { useAiSingularityStore } from "./ai-singularity.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
+import { useVapeAchievementsStore } from "./vape-achievements.store";
 
 export type UnlockCondition = {
   requiredId: GeneratorId;
@@ -555,6 +556,9 @@ export const useGeneratorStore = create<GeneratorState>()(
       const revenueMultFor = (id: GeneratorId) =>
         emUnlocked ? satisfactionRevenueMultiplier(satisfactionScores[id]) : 1;
 
+      const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
+      const juiceIps = 1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
+
       const updatedGenerators = get().generators.map((gen) => {
         if (gen.amount === 0) return gen;
         const ticks = Math.floor(globalTickInterval / gen.interval);
@@ -568,6 +572,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(gen.multiplier)
             .times(out.money)
             .times(revenueMultFor(gen.id))
+            .times(juiceMps)
             .times(ticks);
           const innovationIncome = new Decimal(gen.innovationProduction)
             .times(innovationMultGlobal)
@@ -577,6 +582,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(valuationMults.innovation)
             .times(out.innovation)
             .times(internIpsMult)
+            .times(juiceIps)
             .times(ticks);
           useMoneyStore.getState().increaseMoney(income.toNumber());
           useInnovationStore
@@ -632,8 +638,9 @@ export const useGeneratorStore = create<GeneratorState>()(
       const scores = get().satisfactionScores;
       const revenueMultFor = (id: GeneratorId) =>
         emUnlocked ? satisfactionRevenueMultiplier(scores[id]) : 1;
+      const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
 
-      return get().generators.reduce((sum, gen) => {
+      const base = get().generators.reduce((sum, gen) => {
         if (gen.amount === 0) return sum;
 
         const out = get().getEmployeeOutputMults(gen.id);
@@ -650,6 +657,7 @@ export const useGeneratorStore = create<GeneratorState>()(
 
         return sum + perSecond;
       }, 0);
+      return base * juiceMps;
     },
     getInnovationPerSecond: () => {
       const innovationMultGlobal = useInnovationStore
@@ -663,8 +671,9 @@ export const useGeneratorStore = create<GeneratorState>()(
       const internIpsMult = emUnlocked
         ? internSatisfactionIpsMultiplier(get().satisfactionScores.intern)
         : 1;
+      const juiceIps = 1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
 
-      return get().generators.reduce((sum, gen) => {
+      const base = get().generators.reduce((sum, gen) => {
         if (gen.amount === 0) return sum;
 
         const out = get().getEmployeeOutputMults(gen.id);
@@ -681,6 +690,7 @@ export const useGeneratorStore = create<GeneratorState>()(
 
         return sum + perSecond;
       }, 0);
+      return base * juiceIps;
     },
 
     setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
