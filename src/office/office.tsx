@@ -11,8 +11,7 @@ import { useGeneratorStore } from "../state/generators.store";
 import { useOfficeStore } from "../state/office.store";
 import { useThemeStore } from "../state/theme.store";
 import { loadIsometricAtlasTextures } from "./atlas/load-isometric-atlases";
-import { BUILDING_STYLES } from "./city/buildings";
-import { computeCity } from "./city/compute-city";
+import { computeCity, type CityScene } from "./city/compute-city";
 import { AVENUE_ROWS, generateWorld } from "./city/generate-world";
 import { avenueTileFor, roadMaskAt, roadSpriteFor } from "./city/road-autotile";
 import { cellKey } from "./city/types";
@@ -21,7 +20,6 @@ import {
   cityDepthKey,
   mapToWorld,
   pickTopTileAtPlane,
-  stackedWorldY,
   viewportWorldToTilePlane,
 } from "./math-utils";
 import { useDisableDOMZoom } from "./utils/use-disable-dom-zoom";
@@ -68,37 +66,50 @@ const darkBg = window
 type Textures = Record<string, Texture<TextureSource>>;
 type WrapperSize = { width: number; height: number };
 
+// ~1px bleed: tiles drawn a hair larger than their cell so neighbours overlap
+// and hide sub-pixel diamond seams at fractional zoom. roundPixels keeps edges crisp.
+const TILE_BLEED = 1.02;
+
 /**
- * Static city base: dense ground + the full road network. Built imperatively
- * into a Pixi Container (≈2,800 sprites) so React never reconciles them — it
- * rebuilds only when textures/size change. Roads sit just above ground in the
- * same column. Drawn behind everything dynamic (buildings/props/vehicles),
- * which is correct because the base is flat and never occludes a raised sprite.
+ * City base: dense ground + the full road network, PLUS each building's ground
+ * floor. Built imperatively into one sorted Pixi Container so grass, roads and
+ * building bases all depth-sort together by `cityDepthKey` — essential because a
+ * tile in front of a road must draw over it (separate layers would force roads
+ * permanently on top). Grass + roads are static (rebuilt only on textures/size);
+ * the building base tiles are reconciled incrementally as you hire.
+ *
+ * The base tile sits at floor `0.25` — above the grass it replaces, below the
+ * roads. Building base tiles are buildings on a plinth wider than their cell, so
+ * the plinth spills onto the camera-facing neighbours; keeping it under the road
+ * layer means an adjacent road cleanly overdraws the spill instead of the
+ * building appearing to sit on the tarmac. Floors above the ground live in
+ * {@link BuildingLayer}, drawn over the roads so towers rise over the street.
  */
 const GroundRoadLayer = memo(function GroundRoadLayer({
   textures,
   wrapperSize,
   scale,
+  scene,
 }: {
   textures: Textures;
   wrapperSize: WrapperSize;
   scale: number;
+  scene: CityScene;
 }) {
   const containerRef = useRef<Container>(null);
+  // Building base sprites currently in the container, keyed by building.
+  const baseSpritesRef = useRef<Map<string, Sprite>>(new Map());
 
+  const ox = wrapperSize.width / 2;
+  const oy = wrapperSize.height / 4;
+
+  // Static grass + roads. Rebuilt only when textures/size/scale change.
   useEffect(() => {
     const c = containerRef.current;
     if (!c) return;
     c.sortableChildren = true;
 
     const world = generateWorld();
-    const ox = wrapperSize.width / 2;
-    const oy = wrapperSize.height / 4;
-
-    // Tiles are scaled a hair larger than their cell so neighbours overlap by
-    // ~1px, hiding the sub-pixel seams that otherwise show between diamonds at
-    // fractional viewport zoom. roundPixels keeps edges crisp.
-    const BLEED = 1.02;
     const place = (spriteId: SpriteId, mapX: number, mapY: number, floor: number) => {
       const tex = textures[spriteId];
       if (!tex) return;
@@ -107,7 +118,7 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
       s.anchor.set(0.5, 1);
       s.x = x + ox;
       s.y = y + oy;
-      s.scale.set(scale * BLEED);
+      s.scale.set(scale * TILE_BLEED);
       s.roundPixels = true;
       s.zIndex = cityDepthKey(mapX, mapY, floor);
       c.addChild(s);
@@ -131,88 +142,104 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
 
     return () => {
       c.removeChildren().forEach((child) => child.destroy());
+      baseSpritesRef.current.clear(); // base sprites were destroyed too
     };
-  }, [textures, wrapperSize.width, wrapperSize.height, scale]);
+  }, [textures, wrapperSize.width, wrapperSize.height, scale, ox, oy]);
+
+  // Reconcile building base tiles into the same sorted container as the scene
+  // changes (hiring). Only the small set of bases is touched, not the ~2,800
+  // static tiles.
+  useEffect(() => {
+    const c = containerRef.current;
+    if (!c) return;
+    const map = baseSpritesRef.current;
+
+    const wanted = new Map<string, CityScene["buildings"][number]>();
+    for (const b of scene.buildings) {
+      if (b.parts.some((p) => p.depth === 1)) wanted.set(b.key, b);
+    }
+
+    for (const [key, s] of map) {
+      if (!wanted.has(key)) {
+        c.removeChild(s);
+        s.destroy();
+        map.delete(key);
+      }
+    }
+
+    for (const [key, b] of wanted) {
+      const base = b.parts.find((p) => p.depth === 1)!;
+      const tex = textures[base.spriteId];
+      if (!tex) continue;
+      const { x, y } = mapToWorld(b.mapX, b.mapY, 0, scale);
+      let s = map.get(key);
+      if (!s) {
+        s = new Sprite(tex);
+        s.anchor.set(0.5, 1);
+        s.roundPixels = true;
+        c.addChild(s);
+        map.set(key, s);
+      } else {
+        s.texture = tex;
+      }
+      s.x = x + ox;
+      s.y = y + oy - base.lift * scale;
+      s.scale.set(scale * TILE_BLEED);
+      s.tint = base.tint ?? 0xffffff;
+      // Above grass (0), below roads (0.5): roads overdraw the plinth spill.
+      s.zIndex = cityDepthKey(b.mapX, b.mapY, 0.25);
+    }
+    c.sortChildren();
+  }, [scene, textures, scale, ox, oy]);
 
   return <pixiContainer ref={containerRef} />;
 });
 
 /**
- * Buildings derived from employee counts. Subscribes only to the three counts
- * (primitive selectors), so it re-renders when you hire — not every tick. Each
- * building is a vertical stack of module sprites + a roof, lifted by FLOOR_LIFT
- * and depth-sorted with `cityDepthKey` (column-dominant) so towers never draw
- * over buildings in front of them. Tinted per district for identity.
+ * The floors ABOVE each building's ground tile (mids → roof → rooftop props),
+ * drawn in a container above the roads so towers rise over the street. The
+ * ground floor itself is rendered into {@link GroundRoadLayer}. Depth-sorted
+ * with `cityDepthKey` (column-dominant) so towers never draw over buildings in
+ * front of them.
  */
 const BuildingLayer = memo(function BuildingLayer({
   textures,
   wrapperSize,
   scale,
+  scene,
 }: {
   textures: Textures;
   wrapperSize: WrapperSize;
   scale: number;
+  scene: CityScene;
 }) {
-  const intern = useGeneratorStore(
-    (s) => s.generators.find((g) => g.id === "intern")?.amount ?? 0,
-  );
-  const vibeCoder = useGeneratorStore(
-    (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
-  );
-  const dev10x = useGeneratorStore(
-    (s) => s.generators.find((g) => g.id === "10x_dev")?.amount ?? 0,
-  );
-
-  const scene = useMemo(
-    () =>
-      computeCity({
-        intern,
-        vibe_coder: vibeCoder,
-        "10x_dev": dev10x,
-      }),
-    [intern, vibeCoder, dev10x],
-  );
-
   const ox = wrapperSize.width / 2;
   const oy = wrapperSize.height / 4;
 
   return (
     <>
       {scene.buildings.flatMap((b) => {
-        const style = BUILDING_STYLES[b.district];
-        const moduleTex = textures[style.module];
-        const roofTex = textures[style.roof];
-        if (!moduleTex || !roofTex) return [];
         const { x: worldX, y: worldY } = mapToWorld(b.mapX, b.mapY, 0, scale);
         const baseY = worldY + oy;
-        const sprites = [];
-        for (let floor = 0; floor < b.floors; floor++) {
-          sprites.push(
+        // Ground floor (depth 1) is drawn in the ground layer; here we draw the
+        // mids → roof → props that rise above the street.
+        return b.parts.flatMap((part, idx) => {
+          if (part.depth <= 1) return [];
+          const tex = textures[part.spriteId];
+          if (!tex) return [];
+          return [
             <pixiSprite
-              key={`${b.key}_f${floor}`}
-              texture={moduleTex}
+              key={`${b.key}_p${idx}`}
+              texture={tex}
               x={worldX + ox}
-              y={stackedWorldY(baseY, floor)}
+              y={baseY - part.lift * scale}
               scale={scale}
               anchor={{ x: 0.5, y: 1 }}
-              tint={style.tint}
-              zIndex={cityDepthKey(b.mapX, b.mapY, 1 + floor)}
+              tint={part.tint ?? 0xffffff}
+              zIndex={cityDepthKey(b.mapX, b.mapY, part.depth)}
             />,
-          );
-        }
-        sprites.push(
-          <pixiSprite
-            key={`${b.key}_roof`}
-            texture={roofTex}
-            x={worldX + ox}
-            y={stackedWorldY(baseY, b.floors)}
-            scale={scale}
-            anchor={{ x: 0.5, y: 1 }}
-            tint={style.tint}
-            zIndex={cityDepthKey(b.mapX, b.mapY, 1 + b.floors)}
-          />,
-        );
-        return sprites;
+          ];
+        });
       })}
     </>
   );
@@ -232,6 +259,22 @@ const World = ({
   const theme = useThemeStore((state) => state.theme);
 
   const world = useMemo(() => generateWorld(), []);
+
+  // City scene (count-derived). Subscribes only to the three headcounts, so it
+  // recomputes when you hire — not every tick.
+  const intern = useGeneratorStore(
+    (s) => s.generators.find((g) => g.id === "intern")?.amount ?? 0,
+  );
+  const vibeCoder = useGeneratorStore(
+    (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
+  );
+  const dev10x = useGeneratorStore(
+    (s) => s.generators.find((g) => g.id === "10x_dev")?.amount ?? 0,
+  );
+  const scene = useMemo(
+    () => computeCity({ intern, vibe_coder: vibeCoder, "10x_dev": dev10x }),
+    [intern, vibeCoder, dev10x],
+  );
 
   const [, setHoveredTile] = useState<{
     mapX: number;
@@ -273,16 +316,20 @@ const World = ({
 
   return (
     <pixiContainer sortableChildren={true}>
+      {/* Grass + roads + building bases sort together here; floors above the
+          ground rise over the roads in the layer on top. */}
       <GroundRoadLayer
         textures={textures}
         wrapperSize={wrapperSize}
         scale={scale}
+        scene={scene}
       />
       <pixiContainer sortableChildren={true} zIndex={1}>
         <BuildingLayer
           textures={textures}
           wrapperSize={wrapperSize}
           scale={scale}
+          scene={scene}
         />
       </pixiContainer>
     </pixiContainer>

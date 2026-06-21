@@ -12,16 +12,15 @@ export const useResizeToWrapper = (
 
   useEffect(() => {
     if (!ref || !ref.current) return;
-    const resizeObserver = new ResizeObserver(() => {
-      setSize(
-        ref.current
-          ? {
-              width: ref.current.offsetWidth,
-              height: ref.current.offsetHeight,
-            }
-          : null
-      );
-    });
+    const measure = () => {
+      const el = ref.current;
+      setSize(el ? { width: el.offsetWidth, height: el.offsetHeight } : null);
+    };
+    // Measure synchronously on mount: ResizeObserver's first callback isn't
+    // guaranteed to fire promptly in every environment, and waiting on it
+    // leaves the wrapper (and the Pixi canvas gated on its size) unmounted.
+    measure();
+    const resizeObserver = new ResizeObserver(measure);
     resizeObserver.observe(ref.current);
     return () => resizeObserver.disconnect();
   }, [ref]);

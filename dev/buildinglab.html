@@ -1,0 +1,250 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Building-kit labeller</title>
+<style>
+  :root { --bg:#1f2630; --panel:#2b3440; --line:#44505f; --accent:#ffd84a; }
+  * { box-sizing: border-box; }
+  body { background:var(--bg); color:#e8edf2; font-family:ui-monospace,monospace; margin:0; padding:12px; display:grid;
+         grid-template-columns: 340px 1fr; gap:14px; height:100vh; }
+  h1 { font-size:16px; margin:0 0 8px; }
+  h2 { font-size:13px; margin:10px 0 6px; color:var(--accent); }
+  .col { overflow-y:auto; }
+  /* left: editor */
+  select, input[type=range] { width:100%; }
+  select { background:#1c232c; color:#e8edf2; border:1px solid var(--line); border-radius:6px; padding:6px; font-family:inherit; }
+  .slots { display:flex; gap:6px; margin:8px 0; }
+  .slot { flex:1; border:1px solid var(--line); border-radius:6px; padding:6px; text-align:center; cursor:pointer; font-size:11px; background:#232c37; }
+  .slot.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .slot .pic { height:48px; display:flex; align-items:center; justify-content:center; }
+  .slot img { max-height:46px; image-rendering:pixelated; }
+  .list { display:flex; flex-wrap:wrap; gap:4px; min-height:40px; background:#232c37; border:1px solid var(--line); border-radius:6px; padding:4px; }
+  .list img { height:38px; image-rendering:pixelated; cursor:pointer; border:1px solid transparent; }
+  .list img:hover { border-color:#f55; }
+  .ctrl { display:flex; align-items:center; gap:8px; font-size:11px; margin:6px 0; }
+  .ctrl label { width:84px; }
+  .val { width:34px; text-align:right; color:var(--accent); }
+  .preview { background:#46703a; border-radius:8px; position:relative; height:300px; overflow:hidden; margin-top:6px; }
+  .preview img { position:absolute; left:50%; image-rendering:pixelated; }
+  /* right: palette */
+  .pal { display:grid; grid-template-columns:repeat(auto-fill,minmax(58px,1fr)); gap:5px; }
+  .pal .t { background:#232c37; border:1px solid var(--line); border-radius:5px; padding:3px; text-align:center; cursor:pointer; font-size:9px; }
+  .pal .t:hover { border-color:var(--accent); }
+  .pal .t img { width:100%; image-rendering:pixelated; }
+  .bar { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
+  .status { font-size:11px; opacity:.85; }
+  button { background:var(--accent); color:#1f2630; border:0; border-radius:6px; padding:6px 10px; font-weight:bold; cursor:pointer; font-family:inherit; }
+  .colorrow { display:flex; align-items:center; gap:8px; font-size:11px; }
+</style>
+</head>
+<body>
+  <div class="col" id="editor">
+    <h1>🏙️ Building-kit labeller</h1>
+    <div class="status" id="status">…</div>
+    <h2>Editing</h2>
+    <select id="kitsel"></select>
+    <div class="ctrl" title="tiles 001-004, 009-012, 014-022, 025-030, 033-037, 040-042, 046, 085, 092-093, 099-101, 106-109, 113-117, 122-125 have a taller base; this pushes whatever stacks on them up by N px">
+      <label>base-tile nudge</label><input type="range" id="basenudge" min="0" max="48" /><span class="val" id="basenudge-v"></span>
+    </div>
+
+    <div id="kiteditor">
+      <div class="slots">
+        <div class="slot" data-slot="ground"><div>ground</div><div class="pic" id="slot-ground"></div></div>
+        <div class="slot" data-slot="roof"><div>roof</div><div class="pic" id="slot-roof"></div></div>
+      </div>
+      <h2>Mid floors (cycle for variety) — click to focus, click a tile in the list to remove</h2>
+      <div class="slot" data-slot="mids" style="text-align:left"><div class="list" id="list-mids"></div></div>
+      <h2>Rooftop props (optional)</h2>
+      <div class="slot" data-slot="rooftopProps" style="text-align:left"><div class="list" id="list-rooftopProps"></div></div>
+
+      <div class="ctrl"><label>stack lift</label><input type="range" id="lift" min="8" max="64" /><span class="val" id="lift-v"></span></div>
+      <div class="ctrl"><label>max floors</label><input type="range" id="maxFloors" min="1" max="16" /><span class="val" id="maxFloors-v"></span></div>
+      <div class="ctrl"><label>preview floors</label><input type="range" id="pfloors" min="1" max="16" /><span class="val" id="pfloors-v"></span></div>
+      <div class="colorrow"><label>tint</label><input type="checkbox" id="tinton"><input type="color" id="tint" value="#cdd6e0"></div>
+
+      <h2>Preview</h2>
+      <div class="preview" id="preview"></div>
+    </div>
+
+    <div id="propeditor" style="display:none">
+      <h2>Ground props — click tiles in the palette to add, click here to remove</h2>
+      <div class="slot" style="text-align:left"><div class="list" id="list-groundProps"></div></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="bar">
+      <h1 style="margin:0">Tiles</h1>
+      <span class="status" id="hint">click a slot on the left, then a tile here to assign</span>
+      <span style="flex:1"></span>
+      <button onclick="copyOut()">Copy JSON</button>
+    </div>
+    <div class="pal" id="pal"></div>
+  </div>
+
+<script>
+  const B = "/isometric_assets/buildings/PNG/buildingTiles_";
+  const pad = n => String(n).padStart(3,"0");
+  const sprite = id => "buildingTiles_" + id + ".png";       // role value stored as full atlas name
+  const idOf = name => name ? name.replace("buildingTiles_","").replace(".png","") : null;
+  const imgFor = name => B + idOf(name) + ".png";
+  // Tiles whose isometric floor-plate sits higher in the sprite (taller base),
+  // so anything stacked on them must be pushed up by `baseTileNudge` px.
+  const BASE_TILE_IDS = (() => {
+    const ranges = [[1,4],[9,12],[14,14],[17,22],[25,30],[33,37],[40,42],[46,46],[85,85],[92,93],[99,101],[106,109],[113,117],[122,125]];
+    const s = new Set();
+    for (const [a,b] of ranges) for (let n=a;n<=b;n++) s.add(String(n).padStart(3,"0"));
+    return s;
+  })();
+  const isBaseTile = name => BASE_TILE_IDS.has(idOf(name));
+  const API = "/api/buildingkits";
+  const KEY = "buildingkits_v1";
+
+  const DISTRICTS = ["intern","vibe_coder","10x_dev"];
+  const TIERS = ["t0","t1","t2","landmark"];
+  const KIT_KEYS = [];
+  for (const d of DISTRICTS) for (const t of TIERS) KIT_KEYS.push(d + "." + t);
+
+  function blankKit() { return { ground:null, mids:[], roof:null, rooftopProps:[], lift:33, maxFloors:6, tint:null, baseNudge:5 }; }
+  let state = { kits:{}, groundProps:[] };
+  function kit(k){ if(!state.kits[k]) state.kits[k]=blankKit(); return state.kits[k]; }
+
+  let current = KIT_KEYS[0];     // selected kit key, or "__ground__"
+  let activeSlot = "ground";
+  const previewFloors = {};      // per-kit preview scrubber (session only, not saved)
+
+  // ---- persistence ----
+  let timer=null;
+  function setStatus(t){ document.getElementById("status").textContent=t; }
+  function save(){
+    localStorage.setItem(KEY, JSON.stringify(state));
+    render();
+    clearTimeout(timer);
+    timer=setTimeout(()=>{ setStatus("saving…");
+      fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(state)})
+        .then(r=>setStatus(r.ok?"saved to building-kits.json ✓":"save failed")).catch(()=>setStatus("save failed (offline?)"));
+    },400);
+  }
+
+  // ---- palette ----
+  function buildPalette(){
+    const pal=document.getElementById("pal"); pal.innerHTML="";
+    for(let n=0;n<=128;n++){ const id=pad(n);
+      const t=document.createElement("div"); t.className="t";
+      t.innerHTML='<img src="'+B+id+'.png"/><div>'+id+'</div>';
+      t.onclick=()=>assign(sprite(id));
+      pal.appendChild(t);
+    }
+  }
+  function assign(name){
+    if(current==="__ground__"){ toggleInList(state.groundProps,name); save(); return; }
+    const k=kit(current);
+    if(activeSlot==="ground"||activeSlot==="roof"){ k[activeSlot]=name; }
+    else { k[activeSlot].push(name); }     // mids / rooftopProps: add
+    save();
+  }
+  function toggleInList(list,name){ const i=list.indexOf(name); if(i>=0) list.splice(i,1); else list.push(name); }
+
+  // ---- editor render ----
+  function render(){
+    // kit selector
+    const sel=document.getElementById("kitsel");
+    if(!sel.dataset.built){ sel.innerHTML = '<option value="__ground__">— ground props —</option>' +
+      KIT_KEYS.map(k=>'<option value="'+k+'">'+k+'</option>').join(""); sel.dataset.built="1";
+      sel.onchange=()=>{ current=sel.value; renderMode(); }; }
+    sel.value=current;
+    renderMode();
+    updateOut();
+  }
+  function renderMode(){
+    const isProp = current==="__ground__";
+    document.getElementById("kiteditor").style.display = isProp?"none":"block";
+    document.getElementById("propeditor").style.display = isProp?"block":"none";
+    if(isProp){ renderList("groundProps", state.groundProps, true); return; }
+    const k=kit(current);
+    // slot highlights
+    document.querySelectorAll(".slot[data-slot]").forEach(el=>el.classList.toggle("active", el.dataset.slot===activeSlot));
+    setSlot("ground",k.ground); setSlot("roof",k.roof);
+    renderList("mids",k.mids); renderList("rooftopProps",k.rooftopProps);
+    setRange("lift",k.lift); setRange("maxFloors",k.maxFloors);
+    document.getElementById("basenudge").value=k.baseNudge||0;
+    document.getElementById("basenudge-v").textContent=k.baseNudge||0;
+    const pf=document.getElementById("pfloors"); pf.max=k.maxFloors;
+    let pv=previewFloors[current]; if(pv==null||pv>k.maxFloors) pv=Math.min(4,k.maxFloors);
+    pf.value=pv; document.getElementById("pfloors-v").textContent=pv;
+    const ton=document.getElementById("tinton"), tc=document.getElementById("tint");
+    ton.checked = k.tint!=null;
+    tc.value = k.tint || "#cdd6e0";   // always reflect THIS kit's tint (no carry-over)
+    drawPreview(k, pv);
+  }
+  function setSlot(slot,name){ const el=document.getElementById("slot-"+slot); el.innerHTML = name?'<img src="'+imgFor(name)+'"/>':"—"; }
+  function setRange(id,v){ document.getElementById(id).value=v; document.getElementById(id+"-v").textContent=v; }
+  function renderList(slot,list,isGround){
+    const el=document.getElementById("list-"+slot); el.innerHTML="";
+    list.forEach((name,idx)=>{ const im=document.createElement("img"); im.src=imgFor(name); im.title="remove";
+      im.onclick=(e)=>{ e.stopPropagation(); list.splice(idx,1); save(); }; el.appendChild(im); });
+  }
+
+  // slot focus
+  document.querySelectorAll(".slot[data-slot]").forEach(el=>{
+    el.addEventListener("click",()=>{ if(current==="__ground__")return; activeSlot=el.dataset.slot; renderMode(); });
+  });
+  // sliders + tint
+  for(const id of ["lift","maxFloors"]){ document.getElementById(id).addEventListener("input",e=>{ kit(current)[id]=+e.target.value; save(); }); }
+  document.getElementById("pfloors").addEventListener("input",e=>{ previewFloors[current]=+e.target.value; document.getElementById("pfloors-v").textContent=e.target.value; drawPreview(kit(current),+e.target.value); });
+  document.getElementById("tinton").addEventListener("change",e=>{ kit(current).tint = e.target.checked ? document.getElementById("tint").value : null; save(); });
+  document.getElementById("tint").addEventListener("input",e=>{ if(document.getElementById("tinton").checked){ kit(current).tint=e.target.value; save(); } });
+  document.getElementById("basenudge").addEventListener("input",e=>{ if(current==="__ground__")return; kit(current).baseNudge=+e.target.value; document.getElementById("basenudge-v").textContent=e.target.value; drawPreview(kit(current), previewFloors[current]??4); save(); });
+
+  // ---- live tower preview (iso stacking + true multiply tint, like Pixi) ----
+  const imgCache={}; let previewToken=0;
+  function loadImg(name){ return imgCache[name] || (imgCache[name]=new Promise(res=>{ const i=new Image(); i.onload=()=>res(i); i.src=imgFor(name); })); }
+  function tintedCanvas(img, tint){
+    const cv=document.createElement("canvas"); cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+    const ctx=cv.getContext("2d"); ctx.drawImage(img,0,0);
+    if(tint && tint.toLowerCase()!=="#ffffff"){
+      ctx.globalCompositeOperation="multiply"; ctx.fillStyle=tint; ctx.fillRect(0,0,cv.width,cv.height);
+      ctx.globalCompositeOperation="destination-in"; ctx.drawImage(img,0,0); ctx.globalCompositeOperation="source-over";
+    }
+    return cv;
+  }
+  async function drawPreview(k, floors){
+    const box=document.getElementById("preview");
+    if(!k.ground && !k.mids.length && !k.roof){ box.innerHTML='<div style="color:#fff;padding:8px;font-size:11px">pick a ground + roof tile →</div>'; return; }
+    const parts=[ k.ground || k.mids[0] ];                    // floor 0
+    for(let f=1; f<floors; f++) parts.push(k.mids.length ? k.mids[(f-1)%k.mids.length] : (k.ground||k.roof));
+    if(k.roof) parts.push(k.roof);                            // roof is an additive cap, NOT a floor
+    const valid=parts.filter(Boolean);
+    const token=++previewToken;
+    const imgs=await Promise.all(valid.map(loadImg));
+    if(token!==previewToken) return;                          // a newer call superseded us
+    box.innerHTML="";
+    const PS=0.78, lift=k.lift*PS, nudge=(k.baseNudge||0)*PS;
+    let bottom=16;   // accumulate: a taller base tile pushes the tile above it up by `nudge`
+    imgs.forEach((img,level)=>{
+      const cv=tintedCanvas(img, k.tint);
+      cv.style.cssText="position:absolute;left:50%;transform:translateX(-50%);image-rendering:pixelated;width:"+(img.naturalWidth*PS)+"px";
+      cv.style.bottom=bottom+"px"; cv.style.zIndex=level;
+      box.appendChild(cv);
+      bottom += lift + (isBaseTile(valid[level]) ? nudge : 0);
+    });
+  }
+
+  function updateOut(){ /* JSON available via Copy */ }
+  window.copyOut=()=>navigator.clipboard.writeText(JSON.stringify(state,null,2));
+
+  async function init(){
+    try{ const r=await fetch(API); if(r.ok){ const j=await r.json(); if(j&&typeof j==="object"&&j.kits) state=j; } }catch{}
+    if(!state.kits) state.kits={}; if(!state.groundProps) state.groundProps=[];
+    if(!Object.keys(state.kits).length){ try{ const c=JSON.parse(localStorage.getItem(KEY)||"null"); if(c&&c.kits) state=c; }catch{} }
+    // migrate: old global baseTileNudge -> per-kit baseNudge (default 5)
+    const legacy = state.baseTileNudge;
+    for(const k of Object.values(state.kits)){ if(k.baseNudge==null) k.baseNudge = legacy!=null ? legacy : 5; }
+    delete state.baseTileNudge;
+    buildPalette(); render(); setStatus("loaded from building-kits.json");
+  }
+  init();
+</script>
+</body>
+</html>
