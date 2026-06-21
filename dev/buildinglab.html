@@ -216,18 +216,28 @@
     for(let f=1; f<floors; f++) parts.push(k.mids.length ? k.mids[(f-1)%k.mids.length] : (k.ground||k.roof));
     if(k.roof) parts.push(k.roof);                            // roof is an additive cap, NOT a floor
     const valid=parts.filter(Boolean);
+    const props=(k.rooftopProps||[]).filter(Boolean);         // seated ON the roof
+    const all=valid.concat(props);
     const token=++previewToken;
-    const imgs=await Promise.all(valid.map(loadImg));
+    const imgs=await Promise.all(all.map(loadImg));
     if(token!==previewToken) return;                          // a newer call superseded us
     box.innerHTML="";
     const PS=0.78, lift=k.lift*PS, nudge=(k.baseNudge||0)*PS;
-    let bottom=16;   // accumulate: a taller base tile pushes the tile above it up by `nudge`
-    imgs.forEach((img,level)=>{
-      const cv=tintedCanvas(img, k.tint);
-      cv.style.cssText="position:absolute;left:50%;transform:translateX(-50%);image-rendering:pixelated;width:"+(img.naturalWidth*PS)+"px";
+    let bottom=16, roofBottom=16;   // accumulate: a taller base tile pushes the tile above it up by `nudge`
+    valid.forEach((name,level)=>{
+      const cv=tintedCanvas(imgs[level], k.tint);
+      cv.style.cssText="position:absolute;left:50%;transform:translateX(-50%);image-rendering:pixelated;width:"+(imgs[level].naturalWidth*PS)+"px";
       cv.style.bottom=bottom+"px"; cv.style.zIndex=level;
       box.appendChild(cv);
-      bottom += lift + (isBaseTile(valid[level]) ? nudge : 0);
+      roofBottom=bottom;   // last structural tile is the roof
+      bottom += lift + (isBaseTile(name) ? nudge : 0);
+    });
+    props.forEach((name,i)=>{   // rooftop props share the roof's lift, drawn above it
+      const img=imgs[valid.length+i];
+      const cv=tintedCanvas(img, k.tint);
+      cv.style.cssText="position:absolute;left:50%;transform:translateX(-50%);image-rendering:pixelated;width:"+(img.naturalWidth*PS)+"px";
+      cv.style.bottom=roofBottom+"px"; cv.style.zIndex=valid.length+1+i;
+      box.appendChild(cv);
     });
   }
 

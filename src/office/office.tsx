@@ -97,7 +97,8 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
   scene: CityScene;
 }) {
   const containerRef = useRef<Container>(null);
-  // Building base sprites currently in the container, keyed by building.
+  // Ground-level dynamic sprites in the container (building bases + props),
+  // keyed so they can be reconciled as the scene changes.
   const baseSpritesRef = useRef<Map<string, Sprite>>(new Map());
 
   const ox = wrapperSize.width / 2;
@@ -154,9 +155,40 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     if (!c) return;
     const map = baseSpritesRef.current;
 
-    const wanted = new Map<string, CityScene["buildings"][number]>();
+    // Ground-level sprites to reconcile: each building's base tile (floor 0,
+    // at z 0.25) plus the scattered ground props (z 0.2). Both sit above grass
+    // and below roads, so an adjacent road overdraws their spill.
+    type GroundSprite = {
+      spriteId: SpriteId;
+      mapX: number;
+      mapY: number;
+      lift: number;
+      tint: number;
+      z: number;
+    };
+    const wanted = new Map<string, GroundSprite>();
     for (const b of scene.buildings) {
-      if (b.parts.some((p) => p.depth === 1)) wanted.set(b.key, b);
+      const base = b.parts.find((p) => p.depth === 1);
+      if (base) {
+        wanted.set(b.key, {
+          spriteId: base.spriteId,
+          mapX: b.mapX,
+          mapY: b.mapY,
+          lift: base.lift,
+          tint: base.tint ?? 0xffffff,
+          z: 0.25,
+        });
+      }
+    }
+    for (const p of scene.props) {
+      wanted.set(p.key, {
+        spriteId: p.spriteId,
+        mapX: p.mapX,
+        mapY: p.mapY,
+        lift: 0,
+        tint: 0xffffff,
+        z: 0.2,
+      });
     }
 
     for (const [key, s] of map) {
@@ -167,11 +199,10 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
       }
     }
 
-    for (const [key, b] of wanted) {
-      const base = b.parts.find((p) => p.depth === 1)!;
-      const tex = textures[base.spriteId];
+    for (const [key, g] of wanted) {
+      const tex = textures[g.spriteId];
       if (!tex) continue;
-      const { x, y } = mapToWorld(b.mapX, b.mapY, 0, scale);
+      const { x, y } = mapToWorld(g.mapX, g.mapY, 0, scale);
       let s = map.get(key);
       if (!s) {
         s = new Sprite(tex);
@@ -183,11 +214,10 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
         s.texture = tex;
       }
       s.x = x + ox;
-      s.y = y + oy - base.lift * scale;
+      s.y = y + oy - g.lift * scale;
       s.scale.set(scale * TILE_BLEED);
-      s.tint = base.tint ?? 0xffffff;
-      // Above grass (0), below roads (0.5): roads overdraw the plinth spill.
-      s.zIndex = cityDepthKey(b.mapX, b.mapY, 0.25);
+      s.tint = g.tint;
+      s.zIndex = cityDepthKey(g.mapX, g.mapY, g.z);
     }
     c.sortChildren();
   }, [scene, textures, scale, ox, oy]);

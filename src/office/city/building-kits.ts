@@ -95,14 +95,11 @@ export type BuildingPart = {
 
 /**
  * Compose a tower from a kit: ground floor, `floors-1` mid modules (seed-varied),
- * then a roof cap. `lift` accumulates per floor and a base tile adds its
- * `baseNudge` to everything above it — exactly mirroring the labeller's live
- * preview so authored kits render identically in-game.
- *
- * NOTE: `rooftopProps` are intentionally NOT placed yet — they need on-roof
- * positioning (sitting on the roof surface, not stacked a full floor above) and
- * a labeller preview. That lands in Phase 3; the authored data is preserved on
- * the kits until then.
+ * a roof cap, then any rooftop props seated ON the roof. `lift` accumulates per
+ * floor and a base tile adds its `baseNudge` to everything above it — exactly
+ * mirroring the labeller's live preview so authored kits render identically
+ * in-game. Rooftop props share the roof's lift (they rest on the roofline,
+ * not stacked a full floor above it) and draw over the roof.
  */
 export function composeBuilding(
   kit: BuildingKit,
@@ -123,9 +120,17 @@ export function composeBuilding(
   const tint = kit.tint ?? undefined;
   const parts: BuildingPart[] = [];
   let lift = 0;
-  tiles.forEach((spriteId, level) => {
+  let roofLift = 0; // lift of the topmost structural tile (the roof)
+  structural.forEach((spriteId, level) => {
     parts.push({ spriteId, lift, depth: 1 + level, tint });
+    roofLift = lift;
     lift += kit.lift + (isBaseTile(spriteId) ? kit.baseNudge : 0);
   });
+
+  // Rooftop props sit on the roof surface (the roof's own lift) and draw above it.
+  kit.rooftopProps.forEach((spriteId, i) => {
+    parts.push({ spriteId, lift: roofLift, depth: structural.length + 1 + i, tint });
+  });
+
   return parts;
 }
