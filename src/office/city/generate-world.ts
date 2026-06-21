@@ -61,11 +61,33 @@ function inRect(x: number, y: number, r: Rect): boolean {
  */
 const BLOCK_STRIDE = 6;
 
-/** A street lane runs every `BLOCK_STRIDE` rows/cols inside a district. */
+// Cross-streets (rows parallel to the avenue) are anchored to the AVENUE, not to
+// each district's own origin — otherwise districts with different `y0` (and so
+// different phase mod BLOCK_STRIDE) place their first street at different
+// distances from the spine, making one district's blocks hug the avenue closer
+// than the others. These anchors are the last buildable row before the avenue's
+// clear buffer on each side; blocks then march outward symmetrically.
+const ABOVE_ANCHOR = AVENUE_ROWS[0] - 2;
+const BELOW_ANCHOR = AVENUE_ROWS[AVENUE_ROWS.length - 1] + 2;
+
+/** Whether row `y` is a cross-street, measured outward from the avenue. */
+function isCrossStreetRow(y: number): boolean {
+  if (y <= ABOVE_ANCHOR)
+    return (ABOVE_ANCHOR - y) % BLOCK_STRIDE === BLOCK_STRIDE - 1;
+  if (y >= BELOW_ANCHOR)
+    return (y - BELOW_ANCHOR) % BLOCK_STRIDE === BLOCK_STRIDE - 1;
+  return false; // inside the avenue's buffer
+}
+
+/**
+ * A street lane runs every `BLOCK_STRIDE` cells. Vertical lanes are per-district
+ * (so connectors line up with a district's own grid); horizontal cross-streets
+ * are avenue-aligned so every district keeps the same block depth against the
+ * spine.
+ */
 function isDistrictRoad(x: number, y: number, r: Rect): boolean {
   const lx = x - r.x0;
-  const ly = y - r.y0;
-  return lx % BLOCK_STRIDE === BLOCK_STRIDE - 1 || ly % BLOCK_STRIDE === BLOCK_STRIDE - 1;
+  return lx % BLOCK_STRIDE === BLOCK_STRIDE - 1 || isCrossStreetRow(y);
 }
 
 /**
@@ -114,6 +136,11 @@ function buildDistricts(roads: Set<string>): DistrictLayout[] {
     const region = DISTRICT_REGIONS[id];
     const cells: Cell[] = [];
     for (let y = region.y0; y <= region.y1; y++) {
+      // Keep the avenue's clear buffer plot-free too. The left districts end
+      // before the buffer naturally, but the 10x region spans the avenue, so
+      // without this its buildings would sit a tile closer to the spine than
+      // the others.
+      if (nearAvenue(y)) continue;
       for (let x = region.x0; x <= region.x1; x++) {
         if (!roads.has(cellKey(x, y))) cells.push({ mapX: x, mapY: y });
       }

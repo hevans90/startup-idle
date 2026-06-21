@@ -6,11 +6,21 @@ import {
   Texture,
   TextureSource,
 } from "pixi.js";
-import { memo, RefObject, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  type MutableRefObject,
+  RefObject,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useGeneratorStore } from "../state/generators.store";
 import { useOfficeStore } from "../state/office.store";
 import { useThemeStore } from "../state/theme.store";
 import { loadIsometricAtlasTextures } from "./atlas/load-isometric-atlases";
+import { onKitsChanged } from "./city/building-kits";
 import { computeCity, type CityScene } from "./city/compute-city";
 import { AVENUE_ROWS, generateWorld } from "./city/generate-world";
 import { avenueTileFor, roadMaskAt, roadSpriteFor } from "./city/road-autotile";
@@ -155,9 +165,11 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     if (!c) return;
     const map = baseSpritesRef.current;
 
-    // Ground-level sprites to reconcile: each building's base tile (floor 0,
-    // at z 0.25) plus the scattered ground props (z 0.2). Both sit above grass
-    // and below roads, so an adjacent road overdraws their spill.
+    // Each building's base tile (floor 0) sits in the ground plane at z 0.25 —
+    // above the grass it replaces, below the roads — so an adjacent road
+    // overdraws its plinth spill. (Ground props are NOT here: they rise off the
+    // ground like buildings and would be occluded by the front ground tile, so
+    // they render in the upper BuildingLayer instead.)
     type GroundSprite = {
       spriteId: SpriteId;
       mapX: number;
@@ -179,16 +191,6 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
           z: 0.25,
         });
       }
-    }
-    for (const p of scene.props) {
-      wanted.set(p.key, {
-        spriteId: p.spriteId,
-        mapX: p.mapX,
-        mapY: p.mapY,
-        lift: 0,
-        tint: 0xffffff,
-        z: 0.2,
-      });
     }
 
     for (const [key, s] of map) {
@@ -225,12 +227,82 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
   return <pixiContainer ref={containerRef} />;
 });
 
+/** Grow-in tween: a new floor fades + scales + rises into place. */
+const GROW_IN_MS = 260;
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
 /**
- * The floors ABOVE each building's ground tile (mids → roof → rooftop props),
- * drawn in a container above the roads so towers rise over the street. The
- * ground floor itself is rendered into {@link GroundRoadLayer}. Depth-sorted
- * with `cityDepthKey` (column-dominant) so towers never draw over buildings in
- * front of them.
+ * A building floor sprite that plays a short construction "grow-in" (fade +
+ * scale-up + rise) when it first appears — but only once `enabledRef` is set,
+ * which happens after the initial city paint. So the existing skyline doesn't
+ * animate on load; only floors added by hiring (new keys → fresh mounts) do.
+ * The tween is driven imperatively so settled sprites cost a cheap early-return.
+ */
+function GrowInPart({
+  texture,
+  x,
+  y,
+  scale,
+  tint,
+  zIndex,
+  enabledRef,
+}: {
+  texture: Texture<TextureSource>;
+  x: number;
+  y: number;
+  scale: number;
+  tint: number;
+  zIndex: number;
+  enabledRef: MutableRefObject<boolean>;
+}) {
+  const ref = useRef<Sprite>(null);
+  // Read the enable flag at mount: parent flips it true only after first paint.
+  const progRef = useRef(enabledRef.current ? 0 : 1);
+
+  useLayoutEffect(() => {
+    const s = ref.current;
+    if (s && progRef.current < 1) {
+      // Set the entrance start state before the first frame paints (no flash).
+      s.alpha = 0;
+      s.scale.set(scale * 0.72);
+      s.y = y + 16 * scale;
+    }
+    // mount-only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useTick((ticker) => {
+    const s = ref.current;
+    if (!s || progRef.current >= 1) return;
+    const dt = (ticker as { deltaMS?: number })?.deltaMS ?? 16.7;
+    progRef.current = Math.min(1, progRef.current + dt / GROW_IN_MS);
+    const t = easeOutCubic(progRef.current);
+    s.alpha = t;
+    s.scale.set(scale * (0.72 + 0.28 * t));
+    s.y = y + (1 - t) * 16 * scale;
+  });
+
+  return (
+    <pixiSprite
+      ref={ref}
+      texture={texture}
+      x={x}
+      y={y}
+      scale={scale}
+      anchor={{ x: 0.5, y: 1 }}
+      tint={tint}
+      zIndex={zIndex}
+    />
+  );
+}
+
+/**
+ * Everything that rises off the ground, drawn in a container above the roads so
+ * it stands over the street: the floors ABOVE each building's ground tile
+ * (mids → roof → rooftop props) and the scattered ground props (trees). The
+ * building ground floor itself is rendered into {@link GroundRoadLayer}.
+ * Depth-sorted with `cityDepthKey` (column-dominant) so nothing draws over what
+ * sits in front of it. New floors play a construction grow-in (props do not).
  */
 const BuildingLayer = memo(function BuildingLayer({
   textures,
@@ -246,6 +318,13 @@ const BuildingLayer = memo(function BuildingLayer({
   const ox = wrapperSize.width / 2;
   const oy = wrapperSize.height / 4;
 
+  // Entrances are suppressed for the first paint (the standing skyline) and
+  // enabled afterwards, so only floors added by hiring animate in.
+  const entrancesEnabledRef = useRef(false);
+  useEffect(() => {
+    entrancesEnabledRef.current = true;
+  }, []);
+
   return (
     <>
       {scene.buildings.flatMap((b) => {
@@ -258,18 +337,34 @@ const BuildingLayer = memo(function BuildingLayer({
           const tex = textures[part.spriteId];
           if (!tex) return [];
           return [
-            <pixiSprite
+            <GrowInPart
               key={`${b.key}_p${idx}`}
               texture={tex}
               x={worldX + ox}
               y={baseY - part.lift * scale}
               scale={scale}
-              anchor={{ x: 0.5, y: 1 }}
               tint={part.tint ?? 0xffffff}
               zIndex={cityDepthKey(b.mapX, b.mapY, part.depth)}
+              enabledRef={entrancesEnabledRef}
             />,
           ];
         });
+      })}
+      {scene.props.map((p) => {
+        const tex = textures[p.spriteId];
+        if (!tex) return null;
+        const { x: worldX, y: worldY } = mapToWorld(p.mapX, p.mapY, 0, scale);
+        return (
+          <pixiSprite
+            key={p.key}
+            texture={tex}
+            x={worldX + ox}
+            y={worldY + oy}
+            scale={scale}
+            anchor={{ x: 0.5, y: 1 }}
+            zIndex={cityDepthKey(p.mapX, p.mapY, 1)}
+          />
+        );
       })}
     </>
   );
@@ -301,9 +396,14 @@ const World = ({
   const dev10x = useGeneratorStore(
     (s) => s.generators.find((g) => g.id === "10x_dev")?.amount ?? 0,
   );
+  // Bumped when the labeller live-updates the kits (dev only) so the scene
+  // recomputes against the freshly authored kits.
+  const [kitsVersion, setKitsVersion] = useState(0);
+  useEffect(() => onKitsChanged(() => setKitsVersion((v) => v + 1)), []);
   const scene = useMemo(
     () => computeCity({ intern, vibe_coder: vibeCoder, "10x_dev": dev10x }),
-    [intern, vibeCoder, dev10x],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [intern, vibeCoder, dev10x, kitsVersion],
   );
 
   const [, setHoveredTile] = useState<{

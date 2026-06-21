@@ -9,16 +9,22 @@ export type { BuildingKit } from "./building-kits";
 
 /**
  * Per-district growth tuning. `empPerBuilding` spreads the district outward (a
- * new plot opens every N employees); `empPerFloor` is the height budget shared
- * across active plots; `tierUp` are the headcounts at which the district climbs
- * to kit tier 1 / tier 2 (better, taller architecture); `landmarkAt` is when the
- * lead plot becomes the district's HQ landmark.
+ * new plot opens every N employees); `empPerFloor` is how many employees raise a
+ * single tower one floor; `tierUp` are the headcounts at which the district
+ * climbs to kit tier 1 / tier 2 (better, taller architecture); `landmarkAt` is
+ * when the lead plot becomes the district's HQ landmark.
+ *
+ * `sharedLiftPer` (optional) makes the WHOLE district rise together: every this
+ * many employees, every existing tower gains a floor. Interns/vibe coders sprawl
+ * wide so they leave it off, but 10x devs are rare and elite — you'll only ever
+ * have a handful — so each one visibly lifts the entire downtown skyline.
  */
 export type DistrictTuning = {
   empPerBuilding: number;
   empPerFloor: number;
   tierUp: [number, number];
   landmarkAt: number;
+  sharedLiftPer?: number;
 };
 
 export const DISTRICT_TUNING: Record<GeneratorId, DistrictTuning> = {
@@ -26,8 +32,18 @@ export const DISTRICT_TUNING: Record<GeneratorId, DistrictTuning> = {
   intern: { empPerBuilding: 5, empPerFloor: 4, tierUp: [40, 120], landmarkAt: 80 },
   // Vibe coders: a mid-rise quarter.
   vibe_coder: { empPerBuilding: 14, empPerFloor: 5, tierUp: [120, 400], landmarkAt: 250 },
-  // 10x devs: a downtown core — few plots, lots of height, slow to upgrade.
-  "10x_dev": { empPerBuilding: 200, empPerFloor: 12, tierUp: [2000, 10000], landmarkAt: 4000 },
+  // 10x devs: a boutique downtown. Headcount is tiny but each dev is elite, so
+  // it's scaled for the ~1–20 range: a new tower every couple of devs, fast tier
+  // upgrades, an early HQ, and a shared lift so every new dev raises the whole
+  // skyline. Pair with tall 10x kit `maxFloors` (tune live in the labeller) for
+  // a proper skyscraper financial district.
+  "10x_dev": {
+    empPerBuilding: 2,
+    empPerFloor: 2,
+    tierUp: [4, 10],
+    landmarkAt: 2,
+    sharedLiftPer: 3,
+  },
 };
 
 /** Highest kit tier (0–2) a district has unlocked at this headcount. */

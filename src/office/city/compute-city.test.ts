@@ -6,6 +6,8 @@ import {
   districtBuildingFloors,
   planDistrict,
 } from "./compute-city";
+import { generateWorld } from "./generate-world";
+import { cellKey } from "./types";
 
 describe("districtBuildingFloors", () => {
   test("no employees → no buildings", () => {
@@ -26,6 +28,32 @@ describe("districtBuildingFloors", () => {
     for (const b of planDistrict("10x_dev", 1_000_000)) {
       expect(b.floors).toBeLessThanOrEqual(b.kit.maxFloors);
     }
+  });
+
+  test("a building never loses floors as the company grows (no stealing)", () => {
+    for (const id of ["intern", "vibe_coder", "10x_dev"] as const) {
+      const prev = new Map<string, number>();
+      for (let count = 1; count <= 600; count++) {
+        for (const b of planDistrict(id, count)) {
+          const key = `${b.plot.mapX},${b.plot.mapY}`;
+          const last = prev.get(key) ?? 0;
+          expect(b.floors).toBeGreaterThanOrEqual(last);
+          prev.set(key, b.floors);
+        }
+      }
+    }
+  });
+
+  test("10x_dev builds a real downtown within its tiny headcount range", () => {
+    // ~20 devs is the realistic ceiling — it should still read as a downtown.
+    const at20 = planDistrict("10x_dev", 20);
+    expect(at20.length).toBeGreaterThan(4); // several towers, not one stub
+    expect(at20[0].isLandmark).toBe(true); // HQ present
+    expect(districtTier("10x_dev", 20)).toBe(2); // top-tier architecture
+    // each rare hire lifts the whole skyline: the lead tower is taller at 10
+    // devs than at 5 (shared lift + its own growth).
+    const lead = (n: number) => planDistrict("10x_dev", n)[0].floors;
+    expect(lead(10)).toBeGreaterThan(lead(5));
   });
 });
 
@@ -84,5 +112,31 @@ describe("computeCity", () => {
 
   test("empty company → empty scene", () => {
     expect(computeCity({}).buildings).toEqual([]);
+  });
+});
+
+describe("ground props", () => {
+  test("never overlap a road or building, nor sit in front of one", () => {
+    const scene = computeCity({ intern: 60, vibe_coder: 60, "10x_dev": 800 });
+    expect(scene.props.length).toBeGreaterThan(0); // sanity: some did place
+    const world = generateWorld();
+    const built = new Set(
+      scene.buildings.map((b) => cellKey(b.mapX, b.mapY)),
+    );
+    for (const p of scene.props) {
+      const here = cellKey(p.mapX, p.mapY);
+      expect(world.roadCells.has(here)).toBe(false);
+      expect(built.has(here)).toBe(false);
+      // down-screen spill cells must be clear of both roads and buildings
+      for (const [dx, dy] of [
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ]) {
+        const k = cellKey(p.mapX + dx, p.mapY + dy);
+        expect(world.roadCells.has(k)).toBe(false);
+        expect(built.has(k)).toBe(false);
+      }
+    }
   });
 });

@@ -48,8 +48,34 @@ async function loadOneAtlas(
 }
 
 /**
- * Loads buildings, landscape, and vehicle Starling atlases from `public/isometric_assets`.
- * Keys are SubTexture `name` values (e.g. `landscapeTiles_019.png`, `buildingTiles_061.png`).
+ * City detail props (trees, lamp posts, benches) ship as loose PNGs under
+ * `city_details/PNG/` rather than a packed Starling atlas. Loaded individually
+ * and keyed by filename (e.g. `cityDetails_010.png`) so they slot into the same
+ * texture map as the atlas SubTextures.
+ */
+const CITY_DETAIL_COUNT = 11; // cityDetails_000.png … cityDetails_010.png
+
+async function loadCityDetails(): Promise<
+  Record<string, Texture<TextureSource>>
+> {
+  const out: Record<string, Texture<TextureSource>> = {};
+  const base = `${ATLAS_BASE}/city_details/PNG`;
+  await Promise.all(
+    Array.from({ length: CITY_DETAIL_COUNT }, async (_, i) => {
+      const name = `cityDetails_${String(i).padStart(3, "0")}.png`;
+      const tex: Texture = await Assets.load(`${base}/${name}`);
+      tex.source.scaleMode = "nearest";
+      out[name] = tex;
+    }),
+  );
+  return out;
+}
+
+/**
+ * Loads buildings, landscape, and vehicle Starling atlases plus the loose
+ * city-detail props from `public/isometric_assets`. Keys are SubTexture `name`
+ * values (e.g. `landscapeTiles_019.png`, `buildingTiles_061.png`,
+ * `cityDetails_010.png`).
  */
 export async function loadIsometricAtlasTextures(): Promise<
   Record<string, Texture<TextureSource>>
@@ -65,6 +91,9 @@ export async function loadIsometricAtlasTextures(): Promise<
       }
       merged[name] = tex;
     }
+  }
+  for (const [name, tex] of Object.entries(await loadCityDetails())) {
+    merged[name] = tex;
   }
   return merged;
 }

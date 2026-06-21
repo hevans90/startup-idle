@@ -53,6 +53,8 @@ function devTools(): PluginOption {
               try {
                 JSON.parse(body || "{}"); // validate
                 fs.writeFileSync(at(t.file), body || "{}");
+                // The written JSON is imported by the app, so Vite's own file
+                // watcher picks up the change and HMRs it — no manual ping.
                 res.setHeader("Content-Type", "application/json");
                 res.end('{"ok":true}');
               } catch {

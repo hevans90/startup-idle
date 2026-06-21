@@ -1,19 +1,19 @@
 import type { GeneratorId } from "../../state/generators.store";
 import type { SpriteId } from "../map/types";
+import buildingKitsData from "../../../building-kits.json";
 
 /**
- * Baked building kits — the production copy of the data authored live in the
- * dev building-kit labeller (`dev/buildinglab.html` → `building-kits.json`).
- * Committed so the build never depends on the dev tool or its JSON file.
+ * Building kits — the single source of truth is `building-kits.json`, authored
+ * in the dev building-kit labeller (`dev/buildinglab.html`). It's imported
+ * directly, so Vite bundles it into production builds (no dev-tool dependency at
+ * runtime) and there's no duplicated copy to keep in sync. In dev it also
+ * hot-updates as the labeller saves (see the bottom of this file).
  *
  * Each kit composes a tower from parts: a `ground` entrance floor, one or more
  * `mids` (cycled for floor-to-floor variety), a `roof` cap, optional
  * `rooftopProps`, a per-kit `lift` (px each floor rises — modules differ in wall
  * height), `maxFloors` cap, optional `tint`, and `baseNudge` (extra lift the
  * taller-based ground tiles add to whatever stacks on them; see BASE_TILE_IDS).
- *
- * To re-bake after editing in the labeller: copy the kit values out of
- * `building-kits.json` into the literals below.
  */
 export type BuildingKit = {
   ground: SpriteId | null;
@@ -30,31 +30,68 @@ export type BuildingKit = {
   baseNudge: number;
 };
 
+/** A raw kit entry as stored in building-kits.json (tint is a hex string). */
+type RawKit = Partial<Omit<BuildingKit, "tint">> & { tint?: string | null };
+
+const TIER_SLOT: Record<string, number> = { t0: 0, t1: 1, t2: 2 };
+
+/** "#aabbcc" → 0xaabbcc; white or missing → null (untinted). */
+function toTint(hex: unknown): number | null {
+  if (typeof hex !== "string" || hex.toLowerCase() === "#ffffff") return null;
+  const n = parseInt(hex.replace("#", ""), 16);
+  return Number.isNaN(n) ? null : n;
+}
+
+function toKit(raw: RawKit): BuildingKit {
+  return {
+    ground: raw.ground ?? null,
+    mids: raw.mids ?? [],
+    roof: raw.roof ?? null,
+    rooftopProps: raw.rooftopProps ?? [],
+    lift: raw.lift ?? 33,
+    maxFloors: raw.maxFloors ?? 6,
+    tint: toTint(raw.tint),
+    baseNudge: raw.baseNudge ?? 0,
+  };
+}
+
 /** Tiers per district (t0 → t2), best last; a district climbs them as it grows. */
 export const KITS: Record<GeneratorId, BuildingKit[]> = {
-  intern: [
-    { ground: "buildingTiles_030.png", mids: ["buildingTiles_054.png", "buildingTiles_052.png"], roof: "buildingTiles_120.png", rooftopProps: [], lift: 33, maxFloors: 4, tint: null, baseNudge: 42 },
-    { ground: "buildingTiles_113.png", mids: ["buildingTiles_049.png", "buildingTiles_045.png"], roof: "buildingTiles_111.png", rooftopProps: [], lift: 32, maxFloors: 6, tint: null, baseNudge: 44 },
-    { ground: "buildingTiles_018.png", mids: ["buildingTiles_049.png", "buildingTiles_045.png", "buildingTiles_016.png"], roof: "buildingTiles_082.png", rooftopProps: [], lift: 33, maxFloors: 8, tint: null, baseNudge: 44 },
-  ],
-  vibe_coder: [
-    { ground: "buildingTiles_014.png", mids: ["buildingTiles_047.png", "buildingTiles_043.png"], roof: "buildingTiles_120.png", rooftopProps: [], lift: 33, maxFloors: 4, tint: null, baseNudge: 42 },
-    { ground: "buildingTiles_014.png", mids: ["buildingTiles_047.png", "buildingTiles_043.png"], roof: "buildingTiles_127.png", rooftopProps: [], lift: 33, maxFloors: 6, tint: null, baseNudge: 42 },
-    { ground: "buildingTiles_014.png", mids: ["buildingTiles_038.png", "buildingTiles_032.png"], roof: "buildingTiles_103.png", rooftopProps: [], lift: 33, maxFloors: 8, tint: null, baseNudge: 42 },
-  ],
-  "10x_dev": [
-    { ground: "buildingTiles_125.png", mids: ["buildingTiles_024.png"], roof: "buildingTiles_094.png", rooftopProps: ["buildingTiles_088.png"], lift: 32, maxFloors: 4, tint: null, baseNudge: 42 },
-    { ground: "buildingTiles_125.png", mids: ["buildingTiles_008.png", "buildingTiles_031.png"], roof: "buildingTiles_128.png", rooftopProps: [], lift: 32, maxFloors: 6, tint: null, baseNudge: 42 },
-    { ground: "buildingTiles_125.png", mids: ["buildingTiles_031.png", "buildingTiles_008.png"], roof: "buildingTiles_127.png", rooftopProps: [], lift: 32, maxFloors: 8, tint: null, baseNudge: 42 },
-  ],
+  intern: [],
+  vibe_coder: [],
+  "10x_dev": [],
 };
 
+/**
+ * Ground decorations (trees / planters) scattered on unbuilt, street-facing
+ * plots. These come from the city-detail atlas (not the labeller, whose palette
+ * is building tiles), so they're listed here directly. Empty = no scatter.
+ */
+export const GROUND_PROPS: SpriteId[] = ["cityDetails_010.png"];
+
 /** The hero / HQ building per district, on the plot nearest the access road. */
-export const LANDMARK_KITS: Record<GeneratorId, BuildingKit> = {
-  intern: { ground: "buildingTiles_002.png", mids: ["buildingTiles_023.png", "buildingTiles_016.png"], roof: "buildingTiles_121.png", rooftopProps: [], lift: 29, maxFloors: 10, tint: null, baseNudge: 40 },
-  vibe_coder: { ground: "buildingTiles_014.png", mids: ["buildingTiles_015.png", "buildingTiles_038.png", "buildingTiles_008.png", "buildingTiles_032.png"], roof: "buildingTiles_121.png", rooftopProps: [], lift: 29, maxFloors: 10, tint: null, baseNudge: 42 },
-  "10x_dev": { ground: "buildingTiles_116.png", mids: ["buildingTiles_031.png", "buildingTiles_024.png"], roof: "buildingTiles_064.png", rooftopProps: [], lift: 32, maxFloors: 10, tint: null, baseNudge: 42 },
-};
+export const LANDMARK_KITS = {} as Record<GeneratorId, BuildingKit>;
+
+/**
+ * Populate KITS / LANDMARK_KITS in place from a labeller-format kit map (keys
+ * like `"intern.t0"` / `"10x_dev.landmark"`). Mutates in place so live updates
+ * are seen by everything already holding the exported references.
+ */
+export function loadKits(data: { kits?: Record<string, RawKit> }): void {
+  if (!data?.kits) return;
+  for (const [key, raw] of Object.entries(data.kits)) {
+    const dot = key.lastIndexOf(".");
+    if (dot < 0) continue;
+    const district = key.slice(0, dot) as GeneratorId;
+    const slot = key.slice(dot + 1);
+    if (!KITS[district]) continue; // unknown district
+    const kit = toKit(raw);
+    if (slot === "landmark") LANDMARK_KITS[district] = kit;
+    else if (slot in TIER_SLOT) KITS[district][TIER_SLOT[slot]] = kit;
+  }
+}
+
+loadKits(buildingKitsData as { kits?: Record<string, RawKit> });
 
 /**
  * Building tiles whose isometric diamond sits on a taller base (extra ground /
@@ -106,16 +143,16 @@ export function composeBuilding(
   floors: number,
   seed: number,
 ): BuildingPart[] {
-  const tiles: SpriteId[] = [];
+  const structural: SpriteId[] = [];
   const ground = kit.ground ?? kit.mids[0] ?? kit.roof;
-  if (ground) tiles.push(ground);
+  if (ground) structural.push(ground);
   for (let f = 1; f < floors; f++) {
     const mid = kit.mids.length
       ? kit.mids[(seed + f) % kit.mids.length]
       : (kit.ground ?? kit.roof);
-    if (mid) tiles.push(mid);
+    if (mid) structural.push(mid);
   }
-  if (kit.roof) tiles.push(kit.roof); // roof is an additive cap, not a floor
+  if (kit.roof) structural.push(kit.roof); // roof is an additive cap, not a floor
 
   const tint = kit.tint ?? undefined;
   const parts: BuildingPart[] = [];
@@ -134,3 +171,34 @@ export function composeBuilding(
 
   return parts;
 }
+
+// ---------------------------------------------------------------------------
+// DEV-ONLY live authoring: re-read building-kits.json whenever the labeller
+// saves, so edits — max heights, tiles, lift, tint — appear in-game without a
+// reload. Production never fetches anything (this block is dead code when
+// `import.meta.env.DEV` is false and is tree-shaken away).
+// ---------------------------------------------------------------------------
+
+/** Subscribe to live kit changes (dev only). No-op in production. */
+type KitsListener = () => void;
+const kitsListeners = new Set<KitsListener>();
+export function onKitsChanged(cb: KitsListener): () => void {
+  kitsListeners.add(cb);
+  return () => kitsListeners.delete(cb);
+}
+
+// When building-kits.json changes (the labeller saves to it), Vite re-imports
+// it and calls this accept handler with the new data — we re-parse and notify,
+// so kits update in-place without a full reload. Undefined in production.
+const hot = (
+  import.meta as {
+    hot?: {
+      accept(dep: string, cb: (mod?: { default: unknown }) => void): void;
+    };
+  }
+).hot;
+hot?.accept("../../../building-kits.json", (mod) => {
+  if (!mod) return;
+  loadKits(mod.default as { kits?: Record<string, RawKit> });
+  kitsListeners.forEach((cb) => cb());
+});
