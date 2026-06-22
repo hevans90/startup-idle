@@ -1,10 +1,13 @@
 import { FloatingTree } from "@floating-ui/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import toast, { resolveValue, Toaster } from "react-hot-toast";
 import { useCompareVersion } from "./hooks/use-compare-version";
 import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
+import { computeOfflineProgress, type OfflineSummary } from "./game/offline-progress";
 import { AiSingularityReadout } from "./molecules/ai-singularity-readout";
 import { CityHoverPopover } from "./molecules/city-hover-popover";
+import { OfflineSummaryModal } from "./molecules/offline-summary";
+import { useSessionStore } from "./state/session.store";
 import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
 import { FounderSelect } from "./molecules/founder-select";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
@@ -59,6 +62,10 @@ function App() {
 
   const founderId = useFounderStore((state) => state.selectedFounderId);
 
+  const [offlineSummary, setOfflineSummary] = useState<OfflineSummary | null>(
+    null,
+  );
+
   const isMobile = window.innerWidth <= 768;
 
   const { theme } = useThemeStore();
@@ -72,6 +79,30 @@ function App() {
       document.documentElement.classList.remove("dark");
     }
   }, [theme]);
+
+  // Credit offline progression once, BEFORE the live loop starts ticking (it
+  // resets globalLastTick to now, so the first live tick can't double-count).
+  useEffect(() => {
+    const summary = computeOfflineProgress();
+    if (summary) setOfflineSummary(summary);
+  }, []);
+
+  // Mark presence so the next visit can measure time away: periodically and
+  // whenever the tab is hidden/closed (the most reliable last-write before exit).
+  useEffect(() => {
+    const touch = () => useSessionStore.getState().touch();
+    const id = setInterval(touch, 5000);
+    const onHide = () => {
+      if (document.visibilityState === "hidden") touch();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", touch);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", touch);
+    };
+  }, []);
 
   useEffect(() => {
     // Grant any already-met achievements (e.g. from a loaded save) immediately
@@ -100,6 +131,13 @@ function App() {
           </Toast>
         )}
       </Toaster>
+
+      {offlineSummary && (
+        <OfflineSummaryModal
+          summary={offlineSummary}
+          onClose={() => setOfflineSummary(null)}
+        />
+      )}
 
       {founderId == null ? (
         <FounderSelect />

@@ -36,8 +36,10 @@ export const useAiSingularityStore = create<AiSingularityState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({ value: s.value }),
       merge: (persisted, current) => {
-        const p = persisted as { state?: { value?: number } } | null | undefined;
-        const raw = p?.state?.value;
+        // zustand passes the unwrapped persisted state (what `partialize`
+        // returned), NOT the `{ state, version }` storage envelope.
+        const p = persisted as { value?: number } | null | undefined;
+        const raw = p?.value;
         const value =
           typeof raw === "number" && Number.isFinite(raw)
             ? Math.min(100, Math.max(0, raw))
