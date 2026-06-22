@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export const CURRENT_VERSION = "0.0.1";
+// Bumped to 0.1.0 for the founder mechanic (a breaking change): a minor bump
+// triggers a full progress wipe via hasMajorOrMinorChanged on next load.
+export const CURRENT_VERSION = "0.1.0";
 const VERSION_STORAGE_KEY = "game_version";
 
 // Utility: Clear everything except the version
