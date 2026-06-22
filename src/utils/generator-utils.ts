@@ -8,6 +8,7 @@ import {
   OwnedGenerator,
   useGeneratorStore,
 } from "../state/generators.store";
+import { useFounderStore } from "../state/founder.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 
@@ -20,6 +21,8 @@ function effectiveCostExponent(generator: OwnedGenerator, id: string): number {
     const score = useGeneratorStore.getState().satisfactionScores["10x_dev"];
     raw += dev10xSatisfactionExponentDelta(score);
   }
+  // Founder "Bootstrapper": leaner cost scaling (compounds at high counts).
+  raw -= useFounderStore.getState().costExponentReduction;
   return Math.max(MIN_GENERATOR_COST_EXPONENT, raw);
 }
 

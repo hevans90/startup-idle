@@ -2,6 +2,7 @@ import Decimal from "break_infinity.js";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
+import { useFounderStore } from "./founder.store";
 
 const LOCAL_STORAGE_KEY = "valuation";
 
@@ -89,7 +90,10 @@ export const useValuationStore = create<ValuationState>()(
         const def = MANDATES.find((m) => m.id === id)!;
         const level = get().mandateLevels[id];
         if (level >= def.maxLevel) return new Decimal(Infinity);
-        return new Decimal(def.baseCost).mul(Decimal.pow(def.costGrowth, level));
+        // Founder "Visionary": gentler cost escalation on board mandates.
+        const growth =
+          def.costGrowth - useFounderStore.getState().mandateCostGrowthReduction;
+        return new Decimal(def.baseCost).mul(Decimal.pow(growth, level));
       },
 
       canAffordMandate: (id: MandateId) => {

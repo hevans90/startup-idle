@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { getInternManagerAccrualMultiplierForTick } from "../game/employee-satisfaction-read";
 import { decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
+import { useFounderStore } from "./founder.store";
 
 const LOCAL_STORAGE_KEY = "innovation";
 
@@ -235,7 +236,10 @@ export const useInnovationStore = create<InnovationState>()(
 
       getMultiplier: () => {
         const { innovation } = get();
-        return new Decimal(Decimal.log10(innovation.add(1)) + 1);
+        // Founder "Hacker": steepen the log term so innovation compounds harder
+        // (logMult 1 = unchanged: 1 + log10(innovation+1)).
+        const logMult = useFounderStore.getState().innovationLogMult;
+        return new Decimal(1 + logMult * Decimal.log10(innovation.add(1)));
       },
 
       increaseInnovation: (increment: number) => {
@@ -397,7 +401,10 @@ export const useInnovationStore = create<InnovationState>()(
                 .div(tierModifier);
               const internAccrualMult = getInternManagerAccrualMultiplierForTick();
               const internMult = new Decimal(internAccrualMult);
-              const gain = baseGain.mul(internMult);
+              // Founder "Operator": managers tier up faster all run.
+              const gain = baseGain
+                .mul(internMult)
+                .mul(useFounderStore.getState().managerProgressMult);
 
               const newProgress = manager.progress.add(gain);
               manager.estimateToNextTier = estimateTimeToNextTierFormatted(

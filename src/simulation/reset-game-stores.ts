@@ -1,4 +1,5 @@
 import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
@@ -18,6 +19,7 @@ export function resetAllGameStores(): void {
   useGeneratorStore.getState().reset();
   useAiSingularityStore.getState().reset();
   useVapeAchievementsStore.getState().reset();
+  useFounderStore.getState().reset();
 
   const now = Date.now();
   useInnovationStore.setState({ globalLastTick: now });

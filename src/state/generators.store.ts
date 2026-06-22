@@ -24,6 +24,7 @@ import {
   getManagementTierTotal,
   useInnovationStore,
 } from "./innovation.store";
+import { useFounderStore } from "./founder.store";
 import { useMoneyStore } from "./money.store";
 import { useValuationStore } from "./valuation.store";
 import { useAiSingularityStore } from "./ai-singularity.store";
@@ -405,7 +406,8 @@ export const useGeneratorStore = create<GeneratorState>()(
     getAutoBuyRate: (id) => {
       const lv = get().employeeManagement.perks[id].autoBuyLevel;
       if (lv <= 0) return 0;
-      return AUTO_BUY_PER_LEVEL * lv;
+      // Founder "Operator": automation ramps faster.
+      return AUTO_BUY_PER_LEVEL * lv * useFounderStore.getState().autoBuyMult;
     },
 
     getAvailableManagementPoints: () => {
@@ -559,6 +561,11 @@ export const useGeneratorStore = create<GeneratorState>()(
       const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
       const juiceIps = 1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
 
+      // Founder "Hustler": money output scales with total headcount.
+      const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
+      const headcountMoneyMult =
+        1 + useFounderStore.getState().headcountMoneyPerEmployee * totalEmployees;
+
       const updatedGenerators = get().generators.map((gen) => {
         if (gen.amount === 0) return gen;
         const ticks = Math.floor(globalTickInterval / gen.interval);
@@ -573,6 +580,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(out.money)
             .times(revenueMultFor(gen.id))
             .times(juiceMps)
+            .times(headcountMoneyMult)
             .times(ticks);
           const innovationIncome = new Decimal(gen.innovationProduction)
             .times(innovationMultGlobal)
@@ -609,7 +617,9 @@ export const useGeneratorStore = create<GeneratorState>()(
         4e-5 *
         seconds *
         managerMults.salesValuation *
-        internValMult;
+        internValMult *
+        // Founder "Visionary": valuation builds faster.
+        useFounderStore.getState().valuationAccrualMult;
       if (valuationGain > 0) {
         useValuationStore.getState().increaseValuation(valuationGain);
       }
@@ -639,6 +649,10 @@ export const useGeneratorStore = create<GeneratorState>()(
       const revenueMultFor = (id: GeneratorId) =>
         emUnlocked ? satisfactionRevenueMultiplier(scores[id]) : 1;
       const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
+      // Founder "Hustler": money output scales with total headcount.
+      const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
+      const headcountMoneyMult =
+        1 + useFounderStore.getState().headcountMoneyPerEmployee * totalEmployees;
 
       const base = get().generators.reduce((sum, gen) => {
         if (gen.amount === 0) return sum;
@@ -657,7 +671,7 @@ export const useGeneratorStore = create<GeneratorState>()(
 
         return sum + perSecond;
       }, 0);
-      return base * juiceMps;
+      return base * juiceMps * headcountMoneyMult;
     },
     getInnovationPerSecond: () => {
       const innovationMultGlobal = useInnovationStore

@@ -17,6 +17,7 @@ import { ACHIEVEMENT_CATALOG } from "../game/achievements.catalog";
 import { JUICE_SHOP_UPGRADES } from "../game/achievements.juice-shop";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
+import { isLocalDev } from "../utils/dev-mode";
 import { VapeJuiceDisplay } from "./vape-juice-display";
 
 /** A distinct vape-themed glyph per juice-shop upgrade. */
@@ -47,8 +48,8 @@ export const AchievementsTab = () => {
 
   return (
     <div className="flex w-full flex-col gap-3 p-2 text-sm">
-      {/* TODO: temporary dev-only juice grant for testing the vape upgrades. */}
-      {import.meta.env.DEV && (
+      {/* Dev-only (localhost) juice grant for testing the vape upgrades. */}
+      {isLocalDev() && (
         <button
           type="button"
           onClick={() =>

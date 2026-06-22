@@ -5,6 +5,7 @@ import { useCompareVersion } from "./hooks/use-compare-version";
 import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
 import { AiSingularityReadout } from "./molecules/ai-singularity-readout";
 import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
+import { FounderSelect } from "./molecules/founder-select";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
 import { Generators } from "./molecules/generators";
 import { InnovationCounter } from "./molecules/innovation-counter";
@@ -15,6 +16,7 @@ import { Toolbar } from "./molecules/toolbar";
 import { Upgrades } from "./molecules/upgrades";
 import { evaluateAchievements } from "./game/achievements.engine";
 import { Office } from "./office/office";
+import { useFounderStore } from "./state/founder.store";
 import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
 import { useMoneyStore } from "./state/money.store";
@@ -50,6 +52,8 @@ function App() {
   const wrapperSize = useResizeToWrapper(officeWrapperRef);
 
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
+
+  const founderId = useFounderStore((state) => state.selectedFounderId);
 
   const isMobile = window.innerWidth <= 768;
 
@@ -93,7 +97,9 @@ function App() {
         )}
       </Toaster>
 
-      {isMobile ? (
+      {founderId == null ? (
+        <FounderSelect />
+      ) : isMobile ? (
         <div className="w-full h-full flex flex-col items-center pt-16 gap-2">
           <section className="flex flex-col items-center">
             <h1 className="text-4xl font-bold">Startup Idle</h1>
@@ -124,24 +130,9 @@ function App() {
             <GameStageTicker className="absolute top-13 left-0 right-0 z-20" />
 
             <div className="relative min-h-0 w-full flex-1 basis-0 overflow-hidden">
-              <div className="absolute left-0 right-0 top-8 z-[1] w-full">
-                <section className="mt-6 flex flex-col items-center">
-                  <h1 className="responsive-header font-bold">Startup Idle</h1>
-                  <button
-                    className="min-w-36 p-2 responsive-subheader cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600"
-                    onClick={() => increaseMoney(Math.max(mps / 10, 1))}
-                  >
-                    {formatCurrency(money)}
-                  </button>
-                  <div className="responsive-text">
-                    ({formatCurrency(mps)}/sec)
-                  </div>
-                </section>
-              </div>
-
               <div
                 ref={officeWrapperRef}
-                className="absolute inset-x-0 bottom-0 top-8 z-0 min-h-0"
+                className="absolute inset-x-0 bottom-0 top-0 z-0 min-h-0"
               >
                 {wrapperSize && (
                   <Office
