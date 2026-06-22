@@ -3,7 +3,11 @@ import { formatDistanceToNow } from "date-fns";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { getInternManagerAccrualMultiplierForTick } from "../game/employee-satisfaction-read";
-import { decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
+import {
+  coerceDecimal,
+  decimalReplacer,
+  decimalReviver,
+} from "./_break_infinity.decimals";
 import { useFounderStore } from "./founder.store";
 
 const LOCAL_STORAGE_KEY = "innovation";
@@ -235,7 +239,10 @@ export const useInnovationStore = create<InnovationState>()(
       setAssignment: (assignment: number | "max") => set({ assignment }),
 
       getMultiplier: () => {
-        const { innovation } = get();
+        // Coerce defensively: a malformed persisted value would otherwise crash
+        // `.add` here during render. merge() should already guarantee a Decimal,
+        // but this site is hot and the crash was fatal, so guard it directly.
+        const innovation = coerceDecimal(get().innovation);
         // Founder "Hacker": steepen the log term so innovation compounds harder
         // (logMult 1 = unchanged: 1 + log10(innovation+1)).
         const logMult = useFounderStore.getState().innovationLogMult;
@@ -445,6 +452,49 @@ export const useInnovationStore = create<InnovationState>()(
         globalLastTick: state.globalLastTick,
         // don't include functions like increaseInnovation, spendInnovation, etc.
       }),
+      // Defensively re-coerce every persisted Decimal. The reviver only revives
+      // the exact `{type:"decimal"}` shape, so an old/foreign save can leave
+      // `innovation` (or a manager field) as a raw number/plain object — and the
+      // first `.add`/`.mul` then hard-crashes during render (before the version
+      // wipe can run). This guarantees valid Decimals regardless of saved shape.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<InnovationState>;
+        const managers = { ...current.managers };
+        const pm = p.managers as
+          | Partial<Record<ManagerKeys, Partial<ManagerState>>>
+          | undefined;
+        for (const key of ManagerKeyValues) {
+          const saved = pm?.[key];
+          if (!saved) continue;
+          const base = current.managers[key];
+          managers[key] = {
+            ...base,
+            ...saved,
+            assignment: coerceDecimal(saved.assignment, base.assignment),
+            progress: coerceDecimal(saved.progress, base.progress),
+            tier: coerceDecimal(saved.tier, base.tier),
+            tierScalingExponent: coerceDecimal(
+              saved.tierScalingExponent,
+              base.tierScalingExponent,
+            ),
+            growthRate: coerceDecimal(saved.growthRate, base.growthRate),
+            bonusMultiplierGrowthPerTier: coerceDecimal(
+              saved.bonusMultiplierGrowthPerTier,
+              base.bonusMultiplierGrowthPerTier,
+            ),
+            bonusMultiplier: coerceDecimal(
+              saved.bonusMultiplier,
+              base.bonusMultiplier,
+            ),
+          };
+        }
+        return {
+          ...current,
+          ...p,
+          innovation: coerceDecimal(p.innovation, current.innovation),
+          managers,
+        };
+      },
     }
   )
 );

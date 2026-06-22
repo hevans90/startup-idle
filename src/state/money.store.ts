@@ -1,7 +1,11 @@
 import Decimal from "break_infinity.js";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
+import {
+  coerceDecimal,
+  decimalReplacer,
+  decimalReviver,
+} from "./_break_infinity.decimals";
 
 type MoneyState = {
   money: Decimal;
@@ -71,6 +75,13 @@ export const useMoneyStore = create<MoneyState>()(
         reviver: decimalReviver,
       }),
       partialize: (state) => ({ money: state.money }),
+      // Guarantee `money` is a Decimal even if an old save stored it in a shape
+      // the reviver doesn't recognise — `money.gt`/`formatCurrency(money)` run on
+      // first paint, so a non-Decimal here would crash-loop before any recovery.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<MoneyState>;
+        return { ...current, ...p, money: coerceDecimal(p.money, current.money) };
+      },
     }
   )
 );

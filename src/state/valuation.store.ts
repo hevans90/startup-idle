@@ -1,7 +1,11 @@
 import Decimal from "break_infinity.js";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
+import {
+  coerceDecimal,
+  decimalReplacer,
+  decimalReviver,
+} from "./_break_infinity.decimals";
 import { useFounderStore } from "./founder.store";
 
 const LOCAL_STORAGE_KEY = "valuation";
@@ -146,6 +150,16 @@ export const useValuationStore = create<ValuationState>()(
         valuation: state.valuation,
         mandateLevels: state.mandateLevels,
       }),
+      // Guarantee `valuation` is a Decimal regardless of the persisted shape
+      // (same crash class as the innovation/money stores).
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<ValuationState>;
+        return {
+          ...current,
+          ...p,
+          valuation: coerceDecimal(p.valuation, current.valuation),
+        };
+      },
     }
   )
 );

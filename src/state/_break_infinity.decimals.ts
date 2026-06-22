@@ -31,6 +31,29 @@ export function decimalReplacer(key: string, value: unknown): unknown {
   return value;
 }
 
+/**
+ * Coerce any persisted shape back into a Decimal. The reviver only revives the
+ * exact `{type:"decimal",...}` form, so older/foreign saves (a raw number, or a
+ * `{mantissa,exponent}` missing the `type` tag) slip through as non-Decimals and
+ * crash `.add`/`.mul`/etc. This is the defensive net at hydration.
+ */
+export function coerceDecimal(
+  value: unknown,
+  fallback: Decimal = new Decimal(0),
+): Decimal {
+  if (value instanceof Decimal) return value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Decimal(value);
+  }
+  if (value && typeof value === "object") {
+    const o = value as any;
+    if (typeof o.mantissa === "number" && typeof o.exponent === "number") {
+      return Decimal.fromMantissaExponent(o.mantissa, o.exponent);
+    }
+  }
+  return fallback;
+}
+
 // Key-aware reviver for Decimal
 export function decimalReviver(key: string, value: any): unknown {
   if (!key) {
