@@ -21,7 +21,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
           { id: "employees", label: "Employees" },
           { id: "innovation", label: "Innovation" },
           { id: "valuation", label: "Valuation" },
-          { id: "achievements", label: "Achievements" },
+          { id: "achievements", label: "Vape shop" },
         ]}
       >
         {{

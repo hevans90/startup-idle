@@ -14,7 +14,6 @@ import { Sidebar } from "./molecules/sidebar";
 import { Toolbar } from "./molecules/toolbar";
 import { Upgrades } from "./molecules/upgrades";
 import { evaluateAchievements } from "./game/achievements.engine";
-import { VapeJuiceDisplay } from "./molecules/vape-juice-display";
 import { Office } from "./office/office";
 import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
@@ -153,8 +152,6 @@ function App() {
               </div>
 
               <EmployeeSatisfactionOverlay className="absolute bottom-3 right-3 z-10" />
-
-              <VapeJuiceDisplay className="absolute bottom-28 left-2 z-10 w-44" />
 
               <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1 items-start">
                 <AiSingularityReadout />

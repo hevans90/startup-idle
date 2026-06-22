@@ -1,11 +1,33 @@
+import {
+  IconBattery,
+  IconBolt,
+  IconCloud,
+  IconDroplet,
+  IconFlame,
+  IconLock,
+  IconSparkles,
+  IconTrophy,
+  type Icon as TablerIcon,
+} from "@tabler/icons-react";
+import Decimal from "break_infinity.js";
 import { useMemo } from "react";
 import toast from "react-hot-toast";
+import { twMerge } from "tailwind-merge";
 import { ACHIEVEMENT_CATALOG } from "../game/achievements.catalog";
 import { JUICE_SHOP_UPGRADES } from "../game/achievements.juice-shop";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
-import { Button } from "../ui/Button";
-import { InfoRow } from "../ui/InfoRow";
-import { formatCurrency } from "../utils/money-utils";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
+import { VapeJuiceDisplay } from "./vape-juice-display";
+
+/** A distinct vape-themed glyph per juice-shop upgrade. */
+const UPGRADE_ICONS: Record<string, TablerIcon> = {
+  juice_coil_polish: IconBolt,
+  juice_wick_soak: IconDroplet,
+  juice_cloud_chaser: IconCloud,
+  juice_deep_steep: IconFlame,
+  juice_sub_ohm: IconBattery,
+  juice_max_vg: IconSparkles,
+};
 
 export const AchievementsTab = () => {
   const vapeJuice = useVapeAchievementsStore((s) => s.vapeJuice);
@@ -24,53 +46,79 @@ export const AchievementsTab = () => {
   );
 
   return (
-    <div className="flex w-full flex-col gap-4 p-2 text-sm">
-      <InfoRow
-        label="Vape juice"
-        value={formatCurrency(vapeJuice, {
-          showDollarSign: false,
-          exponentBreakpoint: 1e9,
-        })}
-        size="small"
-      />
-      <p className="text-xs opacity-80">
-        Complete achievements to earn juice. Spend it on permanent bonuses
-        below.
-      </p>
+    <div className="flex w-full flex-col gap-3 p-2 text-sm">
+      {/* TODO: temporary dev-only juice grant for testing the vape upgrades. */}
+      {import.meta.env.DEV && (
+        <button
+          type="button"
+          onClick={() =>
+            useVapeAchievementsStore.setState({ vapeJuice: new Decimal(1e9) })
+          }
+          className="cursor-pointer rounded border border-dashed border-amber-500 px-2 py-1 text-xs text-amber-600 dark:text-amber-400"
+        >
+          🧪 dev: grant 1B juice
+        </button>
+      )}
 
-      <div>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
-          Juice shop
-        </p>
-        <ul className="flex flex-col gap-2">
+      {/* Vape tank + juice shop, side by side. */}
+      <div className="flex items-start gap-3">
+        <VapeJuiceDisplay className="w-24 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap gap-2">
           {JUICE_SHOP_UPGRADES.map((u) => {
             const bought = purchasedSet.has(u.id);
             const canBuy = !bought && vapeJuice.gte(u.cost);
+            const Icon = UPGRADE_ICONS[u.id] ?? IconSparkles;
             return (
-              <li
-                key={u.id}
-                className="border border-primary-400 dark:border-primary-600 p-2 flex flex-col gap-1"
-              >
-                <span className="font-medium">{u.name}</span>
-                <span className="text-xs opacity-80">{u.description}</span>
-                <Button
-                  type="button"
-                  className="mt-1 text-xs"
-                  disabled={bought || !canBuy}
-                  onClick={() => {
-                    if (tryPurchaseJuiceUpgrade(u.id)) {
-                      toast.success(`${u.name} purchased`);
-                    }
-                  }}
-                >
-                  {bought ? "Owned" : `${u.cost} juice`}
-                </Button>
-              </li>
+              <Popover key={u.id} openOnHover placement="top">
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-disabled={!canBuy}
+                    onClick={() => {
+                      if (canBuy && tryPurchaseJuiceUpgrade(u.id)) {
+                        toast.success(`${u.name} purchased`);
+                      }
+                    }}
+                    className={twMerge(
+                      "flex h-16 w-16 flex-col items-center justify-center gap-1 rounded border p-1 transition-colors",
+                      bought
+                        ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                        : canBuy
+                          ? "cursor-pointer border-primary-400 hover:bg-primary-100 dark:border-primary-600 dark:hover:bg-primary-700"
+                          : "cursor-not-allowed border-primary-300 text-primary-400 opacity-60 dark:border-primary-700",
+                    )}
+                  >
+                    <Icon size={22} stroke={1.6} />
+                    <span className="text-[10px] font-medium tabular-nums">
+                      {bought ? "Owned" : u.cost}
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 max-w-[18rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col gap-1">
+                  <span className="text-sm font-medium">{u.name}</span>
+                  <span className="text-xs opacity-80">{u.description}</span>
+                  <span
+                    className={twMerge(
+                      "text-xs font-medium",
+                      bought
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : canBuy
+                          ? ""
+                          : "text-primary-500",
+                    )}
+                  >
+                    {bought ? "✓ Owned" : `Cost: ${u.cost} juice`}
+                  </span>
+                </PopoverContent>
+              </Popover>
             );
           })}
-        </ul>
+          </div>
+        </div>
       </div>
 
+      {/* Achievements — compact grid, strong locked/unlocked contrast. */}
       <div>
         <div className="mb-2 flex items-baseline justify-between gap-2">
           <p className="text-xs font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
@@ -80,38 +128,56 @@ export const AchievementsTab = () => {
             {unlockedCount} / {ACHIEVEMENT_CATALOG.length} unlocked
           </span>
         </div>
-        <ul className="flex max-h-[min(50vh,28rem)] flex-col gap-1 overflow-y-auto pr-1">
+        <div className="grid grid-cols-2 gap-1">
           {ACHIEVEMENT_CATALOG.map((a) => {
             const done = unlockedSet.has(a.id);
             const hiddenLocked = a.isHidden && !done;
+            const label = hiddenLocked ? "???" : a.name;
             return (
-              <li
-                key={a.id}
-                className="border border-primary-300/80 px-2 py-1.5 text-xs dark:border-primary-600/80"
-              >
-                <div className="flex justify-between gap-2">
-                  <span className="font-medium">
-                    {hiddenLocked ? "???" : a.name}
+              <Popover key={a.id} openOnHover placement="top">
+                <PopoverTrigger asChild>
+                  <div
+                    className={twMerge(
+                      "flex cursor-help items-center gap-1 rounded border px-1.5 py-1 text-[11px] leading-tight",
+                      done
+                        ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                        : "border-dashed border-primary-300 text-primary-500 opacity-70 dark:border-primary-600 dark:text-primary-400",
+                    )}
+                  >
+                    {done ? (
+                      <IconTrophy size={13} className="shrink-0" />
+                    ) : (
+                      <IconLock size={13} className="shrink-0" />
+                    )}
+                    <span className="truncate">{label}</span>
+                    <span className="ml-auto shrink-0 tabular-nums opacity-80">
+                      +{a.juiceReward}
+                    </span>
+                  </div>
+                </PopoverTrigger>
+                <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 max-w-[18rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col gap-1">
+                  <span className="text-sm font-medium">
+                    {hiddenLocked ? "Hidden achievement" : a.name}
                     {done ? " ✓" : ""}
                   </span>
-                  {!done && !hiddenLocked && (
-                    <span className="shrink-0 opacity-70">
-                      +{a.juiceReward}
-                    </span>
+                  {!hiddenLocked && (
+                    <span className="text-xs opacity-80">{a.description}</span>
                   )}
-                  {done && (
-                    <span className="shrink-0 text-emerald-600 dark:text-emerald-400">
-                      +{a.juiceReward}
-                    </span>
-                  )}
-                </div>
-                {!hiddenLocked && (
-                  <p className="mt-0.5 opacity-75">{a.description}</p>
-                )}
-              </li>
+                  <span
+                    className={twMerge(
+                      "text-xs font-medium",
+                      done
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-primary-500",
+                    )}
+                  >
+                    {done ? "Earned" : "Reward"}: +{a.juiceReward} juice
+                  </span>
+                </PopoverContent>
+              </Popover>
             );
           })}
-        </ul>
+        </div>
       </div>
     </div>
   );
