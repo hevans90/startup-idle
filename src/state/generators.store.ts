@@ -85,8 +85,8 @@ type EmployeeManagementData = {
   autoBuyAcc: Partial<Record<GeneratorId, number>>;
 };
 
-/** A full, human-readable breakdown of $/sec (for the money popover). */
-export type MoneyBreakdown = {
+/** A full, human-readable breakdown of a per-second resource (money / innovation). */
+export type ResourceBreakdown = {
   total: number;
   /** Multipliers applied to every employee's output. */
   globals: { label: string; mult: number }[];
@@ -119,8 +119,12 @@ type GeneratorState = {
   /** $/sec for `units` of one generator, with the full multiplier chain. */
   getGeneratorMoneyPerSecond: (id: GeneratorId, units: number) => number;
   /** Full per-employee + global breakdown of $/sec (for the money popover). */
-  getMoneyBreakdown: () => MoneyBreakdown;
+  getMoneyBreakdown: () => ResourceBreakdown;
   getInnovationPerSecond: () => number;
+  /** Innovation/sec for `units` of one generator, with the full multiplier chain. */
+  getGeneratorInnovationPerSecond: (id: GeneratorId, units: number) => number;
+  /** Full per-employee + global breakdown of innovation/sec. */
+  getInnovationBreakdown: () => ResourceBreakdown;
 
   getEmployeePerks: (id: GeneratorId) => EmployeePerks;
   getEmployeeOutputMults: (id: GeneratorId) => { money: number; innovation: number };
@@ -758,7 +762,10 @@ export const useGeneratorStore = create<GeneratorState>()(
 
       return { total: get().getMoneyPerSecond(), globals, perGenerator };
     },
-    getInnovationPerSecond: () => {
+
+    getGeneratorInnovationPerSecond: (id, units) => {
+      const gen = get().generators.find((g) => g.id === id);
+      if (!gen || units <= 0) return 0;
       const innovationMultGlobal = useInnovationStore
         .getState()
         .getMultiplier()
@@ -766,32 +773,84 @@ export const useGeneratorStore = create<GeneratorState>()(
       const managerMults = getManagerEconomyMultipliers();
       const valuationMults = getValuationEconomyMultipliers();
       const emUnlocked =
-        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
+        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
+        false;
       const internIpsMult = emUnlocked
         ? internSatisfactionIpsMultiplier(get().satisfactionScores.intern)
         : 1;
-      const juiceIps = 1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
+      const out = get().getEmployeeOutputMults(id);
+      const juiceIps =
+        1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
       const founder = useFounderStore.getState();
 
-      const base = get().generators.reduce((sum, gen) => {
-        if (gen.amount === 0) return sum;
+      return (
+        ((innovationMultGlobal *
+          managerMults.innovationIncome *
+          valuationMults.innovation *
+          gen.innovationProduction *
+          units *
+          gen.innovationMultiplier *
+          out.innovation *
+          internIpsMult *
+          (founder.generatorInnovationMult[id] ?? 1)) /
+          (gen.interval / 1000)) *
+        juiceIps
+      );
+    },
+    getInnovationPerSecond: () =>
+      get().generators.reduce(
+        (sum, gen) =>
+          sum + get().getGeneratorInnovationPerSecond(gen.id, gen.amount),
+        0,
+      ),
 
-        const out = get().getEmployeeOutputMults(gen.id);
-        const perSecond =
-          (innovationMultGlobal *
-            managerMults.innovationIncome *
-            valuationMults.innovation *
-            gen.innovationProduction *
-            gen.amount *
-            gen.innovationMultiplier *
-            out.innovation *
-            internIpsMult *
-            (founder.generatorInnovationMult[gen.id] ?? 1)) /
-          (gen.interval / 1000);
+    getInnovationBreakdown: () => {
+      const innovationMult = useInnovationStore
+        .getState()
+        .getMultiplier()
+        .toNumber();
+      const managerMults = getManagerEconomyMultipliers();
+      const valuationMults = getValuationEconomyMultipliers();
+      const emUnlocked =
+        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
+        false;
+      const internIpsMult = emUnlocked
+        ? internSatisfactionIpsMultiplier(get().satisfactionScores.intern)
+        : 1;
+      const juiceIps =
+        1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
+      const founder = useFounderStore.getState();
 
-        return sum + perSecond;
-      }, 0);
-      return base * juiceIps;
+      const globals = [
+        { label: "Innovation curve", mult: innovationMult },
+        { label: "Managers", mult: managerMults.innovationIncome },
+        { label: "Board mandates", mult: valuationMults.innovation },
+        { label: "Vape juice", mult: juiceIps },
+        { label: "Intern morale", mult: internIpsMult },
+      ];
+
+      const perGenerator = get()
+        .generators.filter((g) => g.amount > 0)
+        .map((gen) => {
+          const out = get().getEmployeeOutputMults(gen.id);
+          return {
+            id: gen.id,
+            name: gen.name,
+            amount: gen.amount,
+            perUnit: get().getGeneratorInnovationPerSecond(gen.id, 1),
+            total: get().getGeneratorInnovationPerSecond(gen.id, gen.amount),
+            factors: [
+              { label: "upgrades", mult: gen.innovationMultiplier },
+              { label: "perks", mult: out.innovation },
+              {
+                label: "founder",
+                mult: founder.generatorInnovationMult[gen.id] ?? 1,
+              },
+            ],
+          };
+        });
+
+      return { total: get().getInnovationPerSecond(), globals, perGenerator };
     },
 
     setPurchaseMode: (purchaseMode) => set({ purchaseMode }),

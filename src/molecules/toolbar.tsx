@@ -14,7 +14,7 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
   return (
     <div
       className={twMerge(
-        "w-full h-13 bg-primary-200 dark:bg-primary-900 flex items-center gap-1 sm:gap-2",
+        "w-full h-13 bg-primary-200 dark:bg-primary-900 flex items-center gap-2 sm:gap-5",
         className,
       )}
     >
@@ -24,10 +24,10 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
         value={formatCurrency(money)}
         rate={`${formatCurrency(mps)}/sec`}
         popover={<MoneySummary />}
-        className="shrink-0"
+        className="min-w-[9.5rem] shrink-0"
       />
 
-      <ToolbarInnovationCounter className="shrink-0" />
+      <ToolbarInnovationCounter className="min-w-[9.5rem] shrink-0" />
     </div>
   );
 };
