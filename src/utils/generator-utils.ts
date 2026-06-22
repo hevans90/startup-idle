@@ -111,6 +111,10 @@ export const getMaxAffordableAmountAndCost = (
 export const getUnlockedGeneratorIds = (
   generators: OwnedGenerator[]
 ): GeneratorId[] => {
+  // Founder "Agentic Delusionist": only one generator is buildable at all.
+  const only = useFounderStore.getState().onlyGenerator;
+  if (only) return [only];
+
   const ownedMap = Object.fromEntries(generators.map((g) => [g.id, g.amount]));
   const unlocked: GeneratorId[] = [];
 

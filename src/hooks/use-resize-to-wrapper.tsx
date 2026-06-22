@@ -1,29 +1,42 @@
-import { RefObject, useEffect, useState } from "react";
+import { useCallback, useRef, useState, type RefObject } from "react";
 
 type Size = {
   width: number;
   height: number;
 };
 
-export const useResizeToWrapper = (
-  ref: RefObject<HTMLDivElement | null>
-): Size | null => {
+/**
+ * Tracks an element's size. Returns a `setRef` callback to attach to the
+ * element, a `ref` object (for consumers that need a RefObject, e.g. Pixi's
+ * `resizeTo`), and the measured `size`.
+ *
+ * Uses a CALLBACK ref so measurement begins the instant the element mounts —
+ * even if that's long after the hook first ran (e.g. the element lives behind a
+ * conditional gate like the founder-select screen). A `useEffect(…, [ref])`
+ * would fire once before the element exists and never re-run, leaving `size`
+ * stuck at null.
+ */
+export const useResizeToWrapper = (): {
+  ref: RefObject<HTMLDivElement | null>;
+  setRef: (el: HTMLDivElement | null) => void;
+  size: Size | null;
+} => {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const observerRef = useRef<ResizeObserver | null>(null);
   const [size, setSize] = useState<Size | null>(null);
 
-  useEffect(() => {
-    if (!ref || !ref.current) return;
-    const measure = () => {
-      const el = ref.current;
-      setSize(el ? { width: el.offsetWidth, height: el.offsetHeight } : null);
-    };
-    // Measure synchronously on mount: ResizeObserver's first callback isn't
-    // guaranteed to fire promptly in every environment, and waiting on it
-    // leaves the wrapper (and the Pixi canvas gated on its size) unmounted.
+  const setRef = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    ref.current = el;
+    if (!el) return;
+    const measure = () =>
+      setSize({ width: el.offsetWidth, height: el.offsetHeight });
     measure();
-    const resizeObserver = new ResizeObserver(measure);
-    resizeObserver.observe(ref.current);
-    return () => resizeObserver.disconnect();
-  }, [ref]);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    observerRef.current = ro;
+  }, []);
 
-  return size;
+  return { ref, setRef, size };
 };

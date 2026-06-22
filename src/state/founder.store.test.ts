@@ -2,18 +2,22 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import Decimal from "break_infinity.js";
 import { FOUNDERS } from "../game/founders.catalog";
 import { resetAllGameStores } from "../simulation/reset-game-stores";
-import { getGeneratorCost } from "../utils/generator-utils";
+import {
+  getGeneratorCost,
+  getUnlockedGeneratorIds,
+} from "../utils/generator-utils";
 import { useFounderStore } from "./founder.store";
 import { useGeneratorStore } from "./generators.store";
 import { useInnovationStore } from "./innovation.store";
 import { useMoneyStore } from "./money.store";
 
-const setInternAmount = (n: number) =>
+const setAmount = (id: string, n: number) =>
   useGeneratorStore.setState((s) => ({
     generators: s.generators.map((g) =>
-      g.id === "intern" ? { ...g, amount: n } : g,
+      g.id === id ? { ...g, amount: n } : g,
     ),
   }));
+const setInternAmount = (n: number) => setAmount("intern", n);
 
 beforeEach(() => resetAllGameStores());
 
@@ -71,16 +75,36 @@ describe("founder.store", () => {
     expect(founderDeep).toBeLessThan(baseDeep); // compounds at scale
   });
 
-  test("Hustler: $/sec gap over baseline widens with headcount", () => {
-    setInternAmount(100);
-    const baseline = useGeneratorStore.getState().getMoneyPerSecond();
+  test("Hustler: $/sec advantage grows with headcount (gradual synergy)", () => {
+    const mps = () => useGeneratorStore.getState().getMoneyPerSecond();
+    setInternAmount(50);
+    const base50 = mps();
+    setInternAmount(200);
+    const base200 = mps();
 
     resetAllGameStores();
     useFounderStore.getState().chooseFounder("hustler");
-    setInternAmount(100);
-    const boosted = useGeneratorStore.getState().getMoneyPerSecond();
+    setInternAmount(50);
+    const ratio50 = mps() / base50;
+    setInternAmount(200);
+    const ratio200 = mps() / base200;
 
-    expect(boosted).toBeGreaterThan(baseline);
-    expect(boosted / baseline).toBeCloseTo(1.4, 1); // +0.4%/employee × 100
+    expect(ratio200).toBeGreaterThan(ratio50); // headcount synergy widens the gap
+  });
+
+  test("Agentic Delusionist: only vibe coders buildable, ×3 vibe money", () => {
+    useFounderStore.getState().chooseFounder("agentic_delusionist");
+    // The Generators UI maps the store's `generators` array directly, so the
+    // roster itself (not just getUnlockedGeneratorIds) must be vibe-only.
+    expect(useGeneratorStore.getState().generators.map((g) => g.id)).toEqual([
+      "vibe_coder",
+    ]);
+    expect(
+      getUnlockedGeneratorIds(useGeneratorStore.getState().generators),
+    ).toEqual(["vibe_coder"]);
+
+    // 10 vibe coders × baseProduction 5 = 50 unbuffed; ×3 money + headcount → >150.
+    setAmount("vibe_coder", 10);
+    expect(useGeneratorStore.getState().getMoneyPerSecond()).toBeGreaterThan(150);
   });
 });

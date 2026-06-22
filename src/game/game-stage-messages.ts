@@ -1,8 +1,12 @@
+import type { GeneratorId } from "../state/generators.store";
+
 /** Booleans / counts that only change on real progression — not every money tick. */
 export type GameStageSnapshot = {
   internAmount: number;
   vibeAmount: number;
   dev10xAmount: number;
+  /** Founder restriction (e.g. Agentic Delusionist → "vibe_coder"); null = normal. */
+  onlyGenerator: GeneratorId | null;
   hasPositiveMps: boolean;
   innovationBelowOne: boolean;
   innovationEarly: boolean;
@@ -27,8 +31,19 @@ const FALLBACK_LINES = [
 ];
 
 const NEWS_BUCKETS: NewsBucket[] = [
+  // Agentic Delusionist (vibe-only) start — interns are disabled, so the normal
+  // intern milestones never fire; speak to the vibe-coder path instead.
   {
-    when: (s) => s.internAmount === 0,
+    when: (s) => s.onlyGenerator === "vibe_coder" && s.vibeAmount === 0,
+    lines: [
+      "No vibe coders yet. The agents are 'almost done.'",
+      "Zero coders, infinite conviction. Peak pre-seed energy.",
+      "Hire a vibe coder — the interns were never going to ship anyway.",
+      "Runway is a mood. The agents will figure out revenue. Probably.",
+    ],
+  },
+  {
+    when: (s) => s.onlyGenerator == null && s.internAmount === 0,
     lines: [
       "No interns yet. The cruelty hasn't scaled.",
       "Empty office, loud ambition. Classic Series A cosplay.",
@@ -37,7 +52,7 @@ const NEWS_BUCKETS: NewsBucket[] = [
     ],
   },
   {
-    when: (s) => s.internAmount > 0 && s.internAmount < 10,
+    when: (s) => s.onlyGenerator == null && s.internAmount > 0 && s.internAmount < 10,
     lines: [
       "They asked for mentorship. You heard 'unpaid throughput.'",
       "Every intern is a little tragedy with a lanyard.",
@@ -46,7 +61,8 @@ const NEWS_BUCKETS: NewsBucket[] = [
     ],
   },
   {
-    when: (s) => s.internAmount >= 10 && s.vibeAmount === 0,
+    when: (s) =>
+      s.onlyGenerator == null && s.internAmount >= 10 && s.vibeAmount === 0,
     lines: [
       "Ten interns. The vibe coders unlock, like a curse in a terms-of-service update.",
       "You've bred enough juniors to summon the sloppers. Nature is healing.",

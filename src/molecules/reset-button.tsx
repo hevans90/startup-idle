@@ -1,43 +1,17 @@
 import { useCallback } from "react";
 import toast from "react-hot-toast";
-import { useAiSingularityStore } from "../state/ai-singularity.store";
-import { useGeneratorStore } from "../state/generators.store";
-import { useInnovationStore } from "../state/innovation.store";
-import { useMoneyStore } from "../state/money.store";
-import { useUpgradeStore } from "../state/upgrades.store";
-import { useValuationStore } from "../state/valuation.store";
-import { useVapeAchievementsStore } from "../state/vape-achievements.store";
+import { resetAllGameStores } from "../simulation/reset-game-stores";
 import { Button } from "../ui/Button";
 
 export const ResetButton = () => {
-  const { reset: resetMoney } = useMoneyStore();
-  const { reset: resetGenerators } = useGeneratorStore();
-  const { reset: resetUpgrades } = useUpgradeStore();
-  const { reset: resetInnovation } = useInnovationStore();
-  const { reset: resetValuation } = useValuationStore();
-  const { reset: resetSingularity } = useAiSingularityStore();
-  const { reset: resetVapeAchievements } = useVapeAchievementsStore();
-
   const totalReset = useCallback(() => {
     if (confirm("This will reset all progress, are you sure?")) {
-      resetGenerators();
-      resetMoney();
-      resetUpgrades();
-      resetInnovation();
-      resetValuation();
-      resetSingularity();
-      resetVapeAchievements();
+      // Single source of truth — resets every game store (incl. the founder),
+      // so a reset returns the player to the founder-selection screen.
+      resetAllGameStores();
       toast.success("Game fully reset. All progress wiped.");
     }
-  }, [
-    resetGenerators,
-    resetInnovation,
-    resetMoney,
-    resetSingularity,
-    resetUpgrades,
-    resetValuation,
-    resetVapeAchievements,
-  ]);
+  }, []);
 
   return (
     <Button

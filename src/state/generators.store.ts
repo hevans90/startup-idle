@@ -85,6 +85,22 @@ type EmployeeManagementData = {
   autoBuyAcc: Partial<Record<GeneratorId, number>>;
 };
 
+/** A full, human-readable breakdown of $/sec (for the money popover). */
+export type MoneyBreakdown = {
+  total: number;
+  /** Multipliers applied to every employee's output. */
+  globals: { label: string; mult: number }[];
+  /** Per-employee-type contribution + its own multipliers. */
+  perGenerator: {
+    id: GeneratorId;
+    name: string;
+    amount: number;
+    perUnit: number;
+    total: number;
+    factors: { label: string; mult: number }[];
+  }[];
+};
+
 type GeneratorState = {
   generators: OwnedGenerator[];
   globalLastTick: number;
@@ -100,6 +116,10 @@ type GeneratorState = {
   purchaseGenerator: (id: string, amount: number) => void;
 
   getMoneyPerSecond: () => number;
+  /** $/sec for `units` of one generator, with the full multiplier chain. */
+  getGeneratorMoneyPerSecond: (id: GeneratorId, units: number) => number;
+  /** Full per-employee + global breakdown of $/sec (for the money popover). */
+  getMoneyBreakdown: () => MoneyBreakdown;
   getInnovationPerSecond: () => number;
 
   getEmployeePerks: (id: GeneratorId) => EmployeePerks;
@@ -288,30 +308,33 @@ const generatorStateStorage: StateStorage = {
   removeItem: (name) => localStorage.removeItem(name),
 };
 
-const syncUnlockedGenerators = (): void => {
+export const syncUnlockedGenerators = (): void => {
   const state = useGeneratorStore.getState();
   const unlockedIds = getUnlockedGeneratorIds(state.generators);
-  const currentIds = state.generators.map((g) => g.id);
+  const byId = new Map(state.generators.map((g) => [g.id, g]));
 
-  const newlyUnlocked = unlockedIds.filter((id) => !currentIds.includes(id));
+  // Reconcile the roster to exactly the unlocked set: keep existing entries,
+  // add newly-unlocked ones, and DROP any that are no longer buildable (e.g. a
+  // founder restriction like the Agentic Delusionist's vibe-coders-only). In
+  // normal play unlocks are monotonic so nothing is ever dropped.
+  const next: OwnedGenerator[] = unlockedIds.map((id) => {
+    const existing = byId.get(id);
+    if (existing) return existing;
+    const base = GENERATOR_TYPES.find((g) => g.id === id)!;
+    return {
+      ...base,
+      amount: 0,
+      multiplier: 1,
+      costMultiplier: 1,
+      innovationMultiplier: 1,
+      lastTick: Date.now(),
+    } satisfies OwnedGenerator;
+  });
 
-  if (newlyUnlocked.length > 0) {
-    const newGenerators = newlyUnlocked.map((id) => {
-      const base = GENERATOR_TYPES.find((g) => g.id === id)!;
-      return {
-        ...base,
-        amount: 0,
-        multiplier: 1,
-        costMultiplier: 1,
-        innovationMultiplier: 1,
-        lastTick: Date.now(),
-      } satisfies OwnedGenerator;
-    });
-
-    useGeneratorStore.setState({
-      generators: [...state.generators, ...newGenerators],
-    });
-  }
+  const unchanged =
+    next.length === state.generators.length &&
+    next.every((g, i) => g.id === state.generators[i].id);
+  if (!unchanged) useGeneratorStore.setState({ generators: next });
 };
 
 function employeePerkPurchaseCost(
@@ -561,10 +584,11 @@ export const useGeneratorStore = create<GeneratorState>()(
       const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
       const juiceIps = 1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
 
-      // Founder "Hustler": money output scales with total headcount.
+      // Founder modifiers: headcount synergy + per-generator output scaling.
+      const founder = useFounderStore.getState();
       const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
       const headcountMoneyMult =
-        1 + useFounderStore.getState().headcountMoneyPerEmployee * totalEmployees;
+        1 + founder.headcountMoneyPerEmployee * totalEmployees;
 
       const updatedGenerators = get().generators.map((gen) => {
         if (gen.amount === 0) return gen;
@@ -581,6 +605,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(revenueMultFor(gen.id))
             .times(juiceMps)
             .times(headcountMoneyMult)
+            .times(founder.generatorMoneyMult[gen.id] ?? 1)
             .times(ticks);
           const innovationIncome = new Decimal(gen.innovationProduction)
             .times(innovationMultGlobal)
@@ -591,6 +616,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(out.innovation)
             .times(internIpsMult)
             .times(juiceIps)
+            .times(founder.generatorInnovationMult[gen.id] ?? 1)
             .times(ticks);
           useMoneyStore.getState().increaseMoney(income.toNumber());
           useInnovationStore
@@ -637,41 +663,100 @@ export const useGeneratorStore = create<GeneratorState>()(
       }
     },
 
-    getMoneyPerSecond: () => {
+    getGeneratorMoneyPerSecond: (id, units) => {
+      const gen = get().generators.find((g) => g.id === id);
+      if (!gen || units <= 0) return 0;
       const innovationMultGlobal = useInnovationStore
         .getState()
-        .getMultiplier();
+        .getMultiplier()
+        .toNumber();
       const managerMults = getManagerEconomyMultipliers();
       const valuationMults = getValuationEconomyMultipliers();
       const emUnlocked =
-        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
-      const scores = get().satisfactionScores;
-      const revenueMultFor = (id: GeneratorId) =>
-        emUnlocked ? satisfactionRevenueMultiplier(scores[id]) : 1;
+        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
+        false;
+      const revenueMult = emUnlocked
+        ? satisfactionRevenueMultiplier(get().satisfactionScores[id])
+        : 1;
+      const out = get().getEmployeeOutputMults(id);
       const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
-      // Founder "Hustler": money output scales with total headcount.
+      // Founder modifiers: headcount synergy + per-generator money scaling.
+      const founder = useFounderStore.getState();
       const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
       const headcountMoneyMult =
-        1 + useFounderStore.getState().headcountMoneyPerEmployee * totalEmployees;
+        1 + founder.headcountMoneyPerEmployee * totalEmployees;
 
-      const base = get().generators.reduce((sum, gen) => {
-        if (gen.amount === 0) return sum;
+      return (
+        ((innovationMultGlobal *
+          managerMults.employeeMoney *
+          valuationMults.money *
+          gen.baseProduction *
+          units *
+          gen.multiplier *
+          out.money *
+          revenueMult *
+          (founder.generatorMoneyMult[id] ?? 1)) /
+          (gen.interval / 1000)) *
+        juiceMps *
+        headcountMoneyMult
+      );
+    },
+    // Sum each generator's full-chain output (single source of truth: the
+    // employee-tab popovers and this getter stay in lockstep).
+    getMoneyPerSecond: () =>
+      get().generators.reduce(
+        (sum, gen) =>
+          sum + get().getGeneratorMoneyPerSecond(gen.id, gen.amount),
+        0,
+      ),
 
-        const out = get().getEmployeeOutputMults(gen.id);
-        const perSecond =
-          (innovationMultGlobal.toNumber() *
-            managerMults.employeeMoney *
-            valuationMults.money *
-            gen.baseProduction *
-            gen.amount *
-            gen.multiplier *
-            out.money *
-            revenueMultFor(gen.id)) /
-          (gen.interval / 1000);
+    getMoneyBreakdown: () => {
+      const innovationMult = useInnovationStore
+        .getState()
+        .getMultiplier()
+        .toNumber();
+      const managerMults = getManagerEconomyMultipliers();
+      const valuationMults = getValuationEconomyMultipliers();
+      const emUnlocked =
+        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
+        false;
+      const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
+      const founder = useFounderStore.getState();
+      const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
+      const headcountMult =
+        1 + founder.headcountMoneyPerEmployee * totalEmployees;
 
-        return sum + perSecond;
-      }, 0);
-      return base * juiceMps * headcountMoneyMult;
+      const globals = [
+        { label: "Innovation", mult: innovationMult },
+        { label: "Managers", mult: managerMults.employeeMoney },
+        { label: "Board mandates", mult: valuationMults.money },
+        { label: "Vape juice", mult: juiceMps },
+        { label: "Headcount synergy", mult: headcountMult },
+      ];
+
+      const perGenerator = get()
+        .generators.filter((g) => g.amount > 0)
+        .map((gen) => {
+          const out = get().getEmployeeOutputMults(gen.id);
+          const revenueMult = emUnlocked
+            ? satisfactionRevenueMultiplier(get().satisfactionScores[gen.id])
+            : 1;
+          return {
+            id: gen.id,
+            name: gen.name,
+            amount: gen.amount,
+            perUnit: get().getGeneratorMoneyPerSecond(gen.id, 1),
+            total: get().getGeneratorMoneyPerSecond(gen.id, gen.amount),
+            factors: [
+              { label: "upgrades", mult: gen.multiplier },
+              { label: "perks", mult: out.money },
+              { label: "satisfaction", mult: revenueMult },
+              { label: "founder", mult: founder.generatorMoneyMult[gen.id] ?? 1 },
+            ],
+          };
+        });
+
+      return { total: get().getMoneyPerSecond(), globals, perGenerator };
     },
     getInnovationPerSecond: () => {
       const innovationMultGlobal = useInnovationStore
@@ -686,6 +771,7 @@ export const useGeneratorStore = create<GeneratorState>()(
         ? internSatisfactionIpsMultiplier(get().satisfactionScores.intern)
         : 1;
       const juiceIps = 1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
+      const founder = useFounderStore.getState();
 
       const base = get().generators.reduce((sum, gen) => {
         if (gen.amount === 0) return sum;
@@ -699,7 +785,8 @@ export const useGeneratorStore = create<GeneratorState>()(
             gen.amount *
             gen.innovationMultiplier *
             out.innovation *
-            internIpsMult) /
+            internIpsMult *
+            (founder.generatorInnovationMult[gen.id] ?? 1)) /
           (gen.interval / 1000);
 
         return sum + perSecond;
@@ -763,3 +850,8 @@ setEmployeeSatisfactionReaders({
   employeeManagementUnlocked: () =>
     useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false,
 });
+
+// Re-sync the buildable roster whenever the chosen founder changes (e.g. the
+// Agentic Delusionist restricting it to vibe coders, or a reset clearing it).
+// One-directional dependency (generators → founder) avoids an import cycle.
+useFounderStore.subscribe(() => syncUnlockedGenerators());

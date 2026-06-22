@@ -4,6 +4,7 @@ import { useMoneyStore } from "../state/money.store";
 import { ResourceCounter } from "../ui/ResourceCounter";
 import { formatCurrency } from "../utils/money-utils";
 import { ToolbarInnovationCounter } from "./innovation-counter";
+import { MoneySummary } from "./money-summary";
 import { SettingsPopover } from "./settings-popover";
 
 export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
@@ -22,6 +23,7 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
       <ResourceCounter
         value={formatCurrency(money)}
         rate={`${formatCurrency(mps)}/sec`}
+        popover={<MoneySummary />}
         className="shrink-0"
       />
 

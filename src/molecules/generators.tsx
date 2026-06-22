@@ -1,3 +1,4 @@
+import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
@@ -6,6 +7,14 @@ import { GeneratorBuyButton } from "./generator-buy-button";
 
 export const Generators = ({ isMobile }: { isMobile: boolean }) => {
   const { generators } = useGeneratorStore();
+  // Full multiplier chain (globals + founder passives), so the displayed output
+  // matches actual earnings.
+  const genMps = useGeneratorStore((s) => s.getGeneratorMoneyPerSecond);
+  // Founder passives that touch money output (per-generator + headcount synergy).
+  const founderGenMoneyMult = useFounderStore((s) => s.generatorMoneyMult);
+  const headcountPerEmployee = useFounderStore((s) => s.headcountMoneyPerEmployee);
+  const totalEmployees = generators.reduce((n, g) => n + g.amount, 0);
+  const headcountMult = 1 + headcountPerEmployee * totalEmployees;
 
   return isMobile ? (
     <div className="flex flex-row flex-wrap gap-2">
@@ -17,13 +26,12 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
           {gen.name} - {gen.amount}
           <div className="flex items-center">
             <span className="responsive-text-xs text-primary-400">
-              {formatCurrency(gen.baseProduction * gen.multiplier * gen.amount)}
-              /s
+              {formatCurrency(genMps(gen.id, gen.amount))}/s
             </span>
           </div>
           <GeneratorBuyButton id={gen.id} />
           <span className="responsive-text-xs text-primary-400">
-            {formatCurrency(gen.baseProduction * gen.multiplier)}/s
+            {formatCurrency(genMps(gen.id, 1))}/s
           </span>
         </div>
       ))}
@@ -57,10 +65,7 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
                 total:
               </span>
               <span className="responsive-text-xs">
-                {formatCurrency(
-                  gen.baseProduction * gen.multiplier * gen.amount
-                )}
-                /s
+                {formatCurrency(genMps(gen.id, gen.amount))}/s
               </span>
             </div>
             <div className="flex items-center gap-3 justify-between border-b-[1px] border-primary-400 border-solid pb-2">
@@ -68,7 +73,7 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
                 per:
               </span>
               <span className="responsive-text-xs">
-                {formatCurrency(gen.baseProduction * gen.multiplier)}/s
+                {formatCurrency(genMps(gen.id, 1))}/s
               </span>
             </div>
             <div className="flex items-center gap-3 justify-between">
@@ -87,6 +92,26 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
                 x{gen.multiplier.toFixed(2)}
               </span>
             </div>
+            {(founderGenMoneyMult[gen.id] ?? 1) !== 1 && (
+              <div className="flex items-center gap-3 justify-between">
+                <span className="responsive-text-xs grow text-emerald-700 dark:text-emerald-400">
+                  founder:
+                </span>
+                <span className="responsive-text-xs text-emerald-700 dark:text-emerald-400">
+                  x{(founderGenMoneyMult[gen.id] ?? 1).toFixed(2)}
+                </span>
+              </div>
+            )}
+            {headcountMult !== 1 && (
+              <div className="flex items-center gap-3 justify-between">
+                <span className="responsive-text-xs grow text-emerald-700 dark:text-emerald-400">
+                  founder headcount:
+                </span>
+                <span className="responsive-text-xs text-emerald-700 dark:text-emerald-400">
+                  x{headcountMult.toFixed(2)}
+                </span>
+              </div>
+            )}
             <div className="flex items-center gap-3 justify-between">
               <span className="responsive-text-xs grow text-primary-500 dark:text-primary-300">
                 cost multiplier:

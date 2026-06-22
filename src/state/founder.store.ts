@@ -12,6 +12,9 @@ const NEUTRAL: Required<FounderModifiers> = {
   mandateCostGrowthReduction: 0,
   headcountMoneyPerEmployee: 0,
   autoBuyMult: 1,
+  onlyGenerator: null,
+  generatorMoneyMult: {},
+  generatorInnovationMult: {},
 };
 
 type FounderState = Required<FounderModifiers> & {
@@ -30,9 +33,10 @@ export const useFounderStore = create<FounderState>()(
       chooseFounder: (id: string) => {
         const def = FOUNDERS.find((f) => f.id === id);
         if (!def) return;
-        // Resolve modifiers (neutral defaults + the founder's overrides).
+        // Resolve modifiers (neutral defaults + the founder's overrides). The
+        // generators store subscribes to this store and re-syncs the buildable
+        // roster (e.g. a generator restriction) when it changes.
         set({ selectedFounderId: id, ...NEUTRAL, ...def.modifiers });
-        // The one up-front grant.
         useMoneyStore.getState().increaseMoney(def.startingCash);
       },
 

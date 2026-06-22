@@ -1,5 +1,4 @@
 import {
-  GENERATOR_TYPES,
   useGeneratorStore,
   type EmployeePerkBranch,
   type GeneratorId,
@@ -36,6 +35,8 @@ export const EmployeeManagementPanel = () => {
     (s) => s.getAvailableManagementPoints,
   );
   const perksByGen = useGeneratorStore((s) => s.employeeManagement.perks);
+  // Only the unlocked roster (e.g. the Agentic Delusionist's vibe-coders-only).
+  const generators = useGeneratorStore((s) => s.generators);
 
   const tierTotal = useInnovationStore((s) =>
     ManagerKeyValues.reduce(
@@ -61,7 +62,7 @@ export const EmployeeManagementPanel = () => {
       </div>
 
       <div className="flex flex-col gap-3 px-1 pb-1">
-        {GENERATOR_TYPES.map((gen) => {
+        {generators.map((gen) => {
           const gid = gen.id as GeneratorId;
           const rowSpent = getManagementPointsSpentOnRow(gid);
           return (

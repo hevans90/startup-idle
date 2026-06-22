@@ -4,6 +4,7 @@ import {
   collectNewsMessages,
   NEWS_ROTATION_MS,
 } from "../game/game-stage-messages";
+import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
 import {
   ManagerKeyValues,
@@ -45,7 +46,10 @@ export const GameStageTicker = ({ className }: { className?: ClassNameValue }) =
     )
   );
 
-  const isBrokeNews = lowMoney && lowMps && internAmount > 0;
+  const onlyGenerator = useFounderStore((s) => s.onlyGenerator);
+
+  const isBrokeNews =
+    lowMoney && lowMps && internAmount + vibeAmount + dev10xAmount > 0;
 
   const messages = useMemo(
     () =>
@@ -53,6 +57,7 @@ export const GameStageTicker = ({ className }: { className?: ClassNameValue }) =
         internAmount,
         vibeAmount,
         dev10xAmount,
+        onlyGenerator,
         hasPositiveMps,
         innovationBelowOne,
         innovationEarly,
@@ -67,6 +72,7 @@ export const GameStageTicker = ({ className }: { className?: ClassNameValue }) =
       internAmount,
       vibeAmount,
       dev10xAmount,
+      onlyGenerator,
       hasPositiveMps,
       innovationBelowOne,
       innovationEarly,

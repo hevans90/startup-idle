@@ -43,12 +43,12 @@ export const FounderSelect = () => {
                   <div className="text-xs italic opacity-70">{f.tagline}</div>
                 </div>
               </div>
-              <ul className="flex flex-col gap-1 text-xs opacity-90">
+              <ul className="flex flex-col gap-1 text-xs tabular-nums opacity-90">
                 {f.perks.map((p, i) => (
                   <li key={i}>• {p}</li>
                 ))}
               </ul>
-              <div className="mt-auto pt-1 text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
+              <div className="mt-auto border-t border-primary-300 pt-2 text-xs font-semibold tabular-nums text-emerald-700 dark:border-primary-700 dark:text-emerald-400">
                 Starts with ${f.startingCash}
               </div>
             </button>

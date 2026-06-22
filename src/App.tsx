@@ -47,9 +47,12 @@ function App() {
   const { money, increaseMoney } = useMoneyStore();
   const { innovation } = useInnovationStore();
 
-  const officeWrapperRef = useRef<HTMLDivElement>(null);
   const lastAchievementEvalRef = useRef(0);
-  const wrapperSize = useResizeToWrapper(officeWrapperRef);
+  const {
+    ref: officeWrapperRef,
+    setRef: setOfficeWrapperRef,
+    size: wrapperSize,
+  } = useResizeToWrapper();
 
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
 
@@ -131,7 +134,7 @@ function App() {
 
             <div className="relative min-h-0 w-full flex-1 basis-0 overflow-hidden">
               <div
-                ref={officeWrapperRef}
+                ref={setOfficeWrapperRef}
                 className="absolute inset-x-0 bottom-0 top-0 z-0 min-h-0"
               >
                 {wrapperSize && (

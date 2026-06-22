@@ -1,11 +1,13 @@
 import {
   IconBriefcase,
   IconCode,
+  IconRobot,
   IconSeeding,
   IconSettings,
   IconTelescope,
   type Icon,
 } from "@tabler/icons-react";
+import type { GeneratorId } from "../state/generators.store";
 
 /**
  * Founder modifiers bend a progression curve GRADUALLY (small early, compounding
@@ -28,6 +30,12 @@ export type FounderModifiers = {
   headcountMoneyPerEmployee?: number; // default 0
   /** Multiplies the auto-buy rate. */
   autoBuyMult?: number; // default 1
+  /** Restrict the buildable roster to ONLY this generator (others disabled). */
+  onlyGenerator?: GeneratorId | null; // default null
+  /** Per-generator money-output multiplier (e.g. { vibe_coder: 3 }). */
+  generatorMoneyMult?: Partial<Record<GeneratorId, number>>; // default {}
+  /** Per-generator innovation-output multiplier. */
+  generatorInnovationMult?: Partial<Record<GeneratorId, number>>; // default {}
 };
 
 export type FounderDef = {
@@ -38,7 +46,7 @@ export type FounderDef = {
   /** Small starting-cash float — the only up-front grant (cash-clicker is gone). */
   startingCash: number;
   modifiers: FounderModifiers;
-  /** Player-facing bullet(s) describing the gradual perk. */
+  /** Player-facing numeric effect bullet(s) — no flavour. */
   perks: string[];
 };
 
@@ -49,9 +57,13 @@ export const FOUNDERS: FounderDef[] = [
     tagline: "Ships product before slides",
     icon: IconCode,
     startingCash: 40,
-    modifiers: { innovationLogMult: 1.4 },
+    modifiers: {
+      innovationLogMult: 1.4,
+      generatorInnovationMult: { vibe_coder: 1.5 },
+    },
     perks: [
-      "Innovation compounds ~40% harder — negligible at first, snowballs as it accrues.",
+      "+40% innovation multiplier scaling",
+      "Vibe coders: +50% innovation",
     ],
   },
   {
@@ -60,9 +72,15 @@ export const FOUNDERS: FounderDef[] = [
     tagline: "Ramen profitable",
     icon: IconSeeding,
     startingCash: 30,
-    modifiers: { costExponentReduction: 0.012 },
+    modifiers: {
+      costExponentReduction: 0.012,
+      autoBuyMult: 1.3,
+      generatorMoneyMult: { intern: 1.5 },
+    },
     perks: [
-      "Hiring scales leaner — barely matters early, a huge edge deep into scaling.",
+      "−0.012 employee cost-growth exponent",
+      "Interns: +50% money",
+      "+30% auto-buy rate",
     ],
   },
   {
@@ -71,9 +89,15 @@ export const FOUNDERS: FounderDef[] = [
     tagline: "Scales the machine",
     icon: IconSettings,
     startingCash: 50,
-    modifiers: { managerProgressMult: 1.5, autoBuyMult: 1.5 },
+    modifiers: {
+      managerProgressMult: 1.5,
+      autoBuyMult: 1.5,
+      mandateCostGrowthReduction: 0.02,
+    },
     perks: [
-      "Managers tier up 50% faster and automation ramps quicker — an engine that builds all run.",
+      "+50% manager tier progression",
+      "+50% auto-buy rate",
+      "−0.02 board-mandate cost growth",
     ],
   },
   {
@@ -82,9 +106,15 @@ export const FOUNDERS: FounderDef[] = [
     tagline: "Sells the dream",
     icon: IconTelescope,
     startingCash: 50,
-    modifiers: { valuationAccrualMult: 1.5, mandateCostGrowthReduction: 0.03 },
+    modifiers: {
+      valuationAccrualMult: 1.5,
+      mandateCostGrowthReduction: 0.03,
+      innovationLogMult: 1.15,
+    },
     perks: [
-      "Valuation builds 50% faster and board mandates stay affordable — keep climbing the board flywheel.",
+      "+50% valuation per second",
+      "−0.03 board-mandate cost growth",
+      "+15% innovation multiplier scaling",
     ],
   },
   {
@@ -93,9 +123,34 @@ export const FOUNDERS: FounderDef[] = [
     tagline: "Always be closing",
     icon: IconBriefcase,
     startingCash: 100,
-    modifiers: { headcountMoneyPerEmployee: 0.004 },
+    modifiers: {
+      headcountMoneyPerEmployee: 0.004,
+      generatorMoneyMult: { intern: 1.5 },
+      costExponentReduction: 0.008,
+    },
     perks: [
-      "+0.4% money per employee — every hire lifts the whole team, compounding as you grow.",
+      "+0.4% money per employee owned",
+      "Interns: +50% money",
+      "−0.008 employee cost-growth exponent",
+    ],
+  },
+  {
+    id: "agentic_delusionist",
+    name: "The Agentic Delusionist",
+    tagline: "The agents will figure it out",
+    icon: IconRobot,
+    startingCash: 150,
+    modifiers: {
+      onlyGenerator: "vibe_coder",
+      generatorMoneyMult: { vibe_coder: 3 },
+      generatorInnovationMult: { vibe_coder: 2.5 },
+      headcountMoneyPerEmployee: 0.006,
+    },
+    perks: [
+      "Only vibe coders — interns & 10x devs disabled",
+      "Vibe coders: +200% money",
+      "Vibe coders: +150% innovation",
+      "+0.6% money per employee owned",
     ],
   },
 ];
