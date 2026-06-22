@@ -10,6 +10,7 @@ import {
   memo,
   type MutableRefObject,
   RefObject,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -31,12 +32,7 @@ import {
 } from "./city/road-autotile";
 import { cellKey } from "./city/types";
 import type { SpriteId } from "./map/types";
-import {
-  cityDepthKey,
-  mapToWorld,
-  pickTopTileAtPlane,
-  viewportWorldToTilePlane,
-} from "./math-utils";
+import { cityDepthKey, mapToWorld } from "./math-utils";
 import { useDisableDOMZoom } from "./utils/use-disable-dom-zoom";
 import { AppViewport } from "./viewport";
 
@@ -85,6 +81,10 @@ type WrapperSize = { width: number; height: number };
 // and hide sub-pixel diamond seams at fractional zoom. roundPixels keeps edges crisp.
 const TILE_BLEED = 1.02;
 
+// Warm multiplicative tint applied to every sprite of the hovered building so the
+// whole stack glows gold. 0xffffff = untinted. Tunable.
+const HOVER_TINT = 0xffd97a;
+
 /**
  * City base: dense ground + the full road network, PLUS each building's ground
  * floor. Built imperatively into one sorted Pixi Container so grass, roads and
@@ -105,16 +105,26 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
   wrapperSize,
   scale,
   scene,
+  hoveredKey,
+  onHover,
+  onUnhover,
 }: {
   textures: Textures;
   wrapperSize: WrapperSize;
   scale: number;
   scene: CityScene;
+  hoveredKey: string | null;
+  onHover: (key: string) => void;
+  onUnhover: (key: string) => void;
 }) {
   const containerRef = useRef<Container>(null);
   // Ground-level dynamic sprites in the container (building bases + props),
   // keyed so they can be reconciled as the scene changes.
   const baseSpritesRef = useRef<Map<string, Sprite>>(new Map());
+  // Hover handlers kept in a ref so the (heavy) reconcile effect can wire them
+  // onto new base sprites without depending on their identity.
+  const handlersRef = useRef({ onHover, onUnhover });
+  handlersRef.current = { onHover, onUnhover };
   // Thin grid road sprites, keyed by cell, so they can be swapped to their
   // pavemented city twin when a building lands next to them (and back again).
   const roadSpritesRef = useRef<
@@ -227,6 +237,12 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
         s = new Sprite(tex);
         s.anchor.set(0.5, 1);
         s.roundPixels = true;
+        // Base tile is part of the building's hover target (so short buildings,
+        // whose mass is mostly the ground floor, still highlight + pop a tooltip).
+        s.eventMode = "static";
+        s.cursor = "pointer";
+        s.on("pointerover", () => handlersRef.current.onHover(key));
+        s.on("pointerout", () => handlersRef.current.onUnhover(key));
         c.addChild(s);
         map.set(key, s);
       } else {
@@ -261,6 +277,14 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     }
   }, [scene, textures, scale, ox, oy]);
 
+  // Tint the hovered building's base tile gold (matching its floors in the layer
+  // above), so the whole stack — ground floor included — glows on hover.
+  useEffect(() => {
+    for (const [key, s] of baseSpritesRef.current) {
+      s.tint = key === hoveredKey ? HOVER_TINT : 0xffffff;
+    }
+  }, [hoveredKey, scene]);
+
   return <pixiContainer ref={containerRef} />;
 });
 
@@ -282,6 +306,9 @@ function GrowInPart({
   scale,
   zIndex,
   enabledRef,
+  tint,
+  onPointerOver,
+  onPointerOut,
 }: {
   texture: Texture<TextureSource>;
   x: number;
@@ -289,6 +316,9 @@ function GrowInPart({
   scale: number;
   zIndex: number;
   enabledRef: MutableRefObject<boolean>;
+  tint?: number;
+  onPointerOver?: () => void;
+  onPointerOut?: () => void;
 }) {
   const ref = useRef<Sprite>(null);
   // Read the enable flag at mount: parent flips it true only after first paint.
@@ -326,6 +356,11 @@ function GrowInPart({
       scale={scale}
       anchor={{ x: 0.5, y: 1 }}
       zIndex={zIndex}
+      tint={tint ?? 0xffffff}
+      eventMode="static"
+      cursor="pointer"
+      onPointerOver={onPointerOver}
+      onPointerOut={onPointerOut}
     />
   );
 }
@@ -343,11 +378,17 @@ const BuildingLayer = memo(function BuildingLayer({
   wrapperSize,
   scale,
   scene,
+  hoveredKey,
+  onHover,
+  onUnhover,
 }: {
   textures: Textures;
   wrapperSize: WrapperSize;
   scale: number;
   scene: CityScene;
+  hoveredKey: string | null;
+  onHover: (key: string) => void;
+  onUnhover: (key: string) => void;
 }) {
   const ox = wrapperSize.width / 2;
   const oy = wrapperSize.height / 4;
@@ -364,6 +405,7 @@ const BuildingLayer = memo(function BuildingLayer({
       {scene.buildings.flatMap((b) => {
         const { x: worldX, y: worldY } = mapToWorld(b.mapX, b.mapY, 0, scale);
         const baseY = worldY + oy;
+        const tint = b.key === hoveredKey ? HOVER_TINT : 0xffffff;
         // Ground floor (depth 1) is drawn in the ground layer; here we draw the
         // mids → roof → props that rise above the street.
         return b.parts.flatMap((part, idx) => {
@@ -379,6 +421,9 @@ const BuildingLayer = memo(function BuildingLayer({
               scale={scale}
               zIndex={cityDepthKey(b.mapX, b.mapY, part.depth)}
               enabledRef={entrancesEnabledRef}
+              tint={tint}
+              onPointerOver={() => onHover(b.key)}
+              onPointerOut={() => onUnhover(b.key)}
             />,
           ];
         });
@@ -412,11 +457,7 @@ const World = ({
     useState<Record<string, Texture<TextureSource>>>();
   const { app } = useApplication();
 
-  const viewport = useOfficeStore((state) => state.viewport);
-
   const theme = useThemeStore((state) => state.theme);
-
-  const world = useMemo(() => generateWorld(), []);
 
   // City scene (count-derived). Subscribes only to the three headcounts, so it
   // recomputes when you hire — not every tick.
@@ -439,11 +480,40 @@ const World = ({
     [intern, vibeCoder, dev10x, kitsVersion],
   );
 
-  const [, setHoveredTile] = useState<{
-    mapX: number;
-    mapY: number;
-    z: number;
-  } | null>(null);
+  // The building under the cursor. `hoveredKey` (React state) drives the gold
+  // tint on both layers; `hoverKeyRef` is read inside the tick (avoids stale
+  // closures) to keep the DOM popover's screen anchor in sync with pan/zoom.
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const hoverKeyRef = useRef<string | null>(null);
+  // Moving between the many sprites of one building fires pointerout→pointerover
+  // in the same frame; a tiny deferred clear (cancelled by the next enter) stops
+  // the popover flickering as the cursor crosses internal sprite seams.
+  const clearTimerRef = useRef<number | null>(null);
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
+  const wroteHoverRef = useRef(false);
+
+  const onHover = useCallback((key: string) => {
+    if (clearTimerRef.current != null) {
+      clearTimeout(clearTimerRef.current);
+      clearTimerRef.current = null;
+    }
+    if (hoverKeyRef.current !== key) {
+      hoverKeyRef.current = key;
+      setHoveredKey(key);
+    }
+  }, []);
+
+  const onUnhover = useCallback((key: string) => {
+    if (clearTimerRef.current != null) clearTimeout(clearTimerRef.current);
+    clearTimerRef.current = window.setTimeout(() => {
+      clearTimerRef.current = null;
+      if (hoverKeyRef.current === key) {
+        hoverKeyRef.current = null;
+        setHoveredKey(null);
+      }
+    }, 60);
+  }, []);
 
   useEffect(() => {
     if (app && app?.renderer && theme) {
@@ -463,16 +533,47 @@ const World = ({
   /** Uniform scale for all isometric sprites (tune with `ISO_CELL_STRIDE` in math-utils). */
   const scale = 1;
 
-  const checkHoveredTile = () => {
-    if (!viewport) return;
-
-    const pos = viewport.toWorld(app.renderer.events.pointer.global);
-    const local = viewportWorldToTilePlane(pos.x, pos.y, wrapperSize);
-    setHoveredTile(pickTopTileAtPlane(world.ground, local.x, local.y, scale));
-  };
-
+  // Each frame, project the hovered building's roof to screen space and publish
+  // it (with its info) for the DOM popover, so the tooltip rides along as the
+  // camera pans/zooms. Reads via refs/getState to dodge stale-closure issues.
   useTick(() => {
-    checkHoveredTile();
+    const store = useOfficeStore.getState();
+    const key = hoverKeyRef.current;
+    const vp = store.viewport;
+    if (!key || !vp) {
+      if (wroteHoverRef.current) {
+        store.setHovered(null);
+        wroteHoverRef.current = false;
+      }
+      return;
+    }
+    const b = sceneRef.current.buildings.find((x) => x.key === key);
+    if (!b) {
+      // The hovered building was rebuilt away (e.g. dev kit reload). Drop hover.
+      hoverKeyRef.current = null;
+      setHoveredKey(null);
+      if (wroteHoverRef.current) {
+        store.setHovered(null);
+        wroteHoverRef.current = false;
+      }
+      return;
+    }
+    const ox = wrapperSize.width / 2;
+    const oy = wrapperSize.height / 4;
+    const { x: worldX, y: worldY } = mapToWorld(b.mapX, b.mapY, 0, scale);
+    const topLift = b.parts.reduce((m, p) => Math.max(m, p.lift), 0);
+    const screen = vp.toScreen(worldX + ox, worldY + oy - topLift * scale);
+    store.setHovered({
+      key,
+      district: b.district,
+      name: b.name,
+      floors: b.floors,
+      occupants: b.occupants,
+      isLandmark: b.isLandmark,
+      x: screen.x,
+      y: screen.y,
+    });
+    wroteHoverRef.current = true;
   });
 
   if (!textures || !wrapperSize) return null;
@@ -486,6 +587,9 @@ const World = ({
         wrapperSize={wrapperSize}
         scale={scale}
         scene={scene}
+        hoveredKey={hoveredKey}
+        onHover={onHover}
+        onUnhover={onUnhover}
       />
       <pixiContainer sortableChildren={true} zIndex={1}>
         <BuildingLayer
@@ -493,6 +597,9 @@ const World = ({
           wrapperSize={wrapperSize}
           scale={scale}
           scene={scene}
+          hoveredKey={hoveredKey}
+          onHover={onHover}
+          onUnhover={onUnhover}
         />
       </pixiContainer>
     </pixiContainer>

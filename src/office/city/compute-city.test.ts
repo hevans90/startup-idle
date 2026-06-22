@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { isBaseTile } from "./building-kits";
-import { districtTier, landmarkKit } from "./buildings";
+import { buildingName, districtTier, landmarkKit } from "./buildings";
 import {
   computeCity,
   districtBuildingFloors,
+  districtBuildingOccupants,
   planDistrict,
 } from "./compute-city";
 import { generateWorld } from "./generate-world";
@@ -71,6 +72,58 @@ describe("tiers + landmarks", () => {
     expect(big[0].kit).toBe(landmarkKit("intern"));
     // only the lead plot is a landmark
     expect(big.slice(1).every((b) => !b.isLandmark)).toBe(true);
+  });
+});
+
+describe("districtBuildingOccupants", () => {
+  test("per-building counts sum to EXACTLY the headcount", () => {
+    for (const id of ["intern", "vibe_coder", "10x_dev"] as const) {
+      for (const count of [1, 6, 23, 80, 137, 500]) {
+        const occ = districtBuildingOccupants(id, count);
+        expect(occ.reduce((a, b) => a + b, 0)).toBe(count);
+        expect(occ.every((n) => n >= 0)).toBe(true);
+      }
+    }
+  });
+
+  test("no employees → no shares", () => {
+    expect(districtBuildingOccupants("intern", 0)).toEqual([]);
+  });
+
+  test("taller lead tower houses at least as many as the shortest", () => {
+    const occ = districtBuildingOccupants("intern", 200);
+    expect(occ[0]).toBeGreaterThanOrEqual(occ[occ.length - 1]);
+  });
+
+  test("computeCity attaches occupancy that sums to the headcount", () => {
+    const scene = computeCity({ intern: 137, vibe_coder: 42, "10x_dev": 9 });
+    for (const [id, n] of [
+      ["intern", 137],
+      ["vibe_coder", 42],
+      ["10x_dev", 9],
+    ] as const) {
+      const sum = scene.buildings
+        .filter((b) => b.district === id)
+        .reduce((a, b) => a + b.occupants, 0);
+      expect(sum).toBe(n);
+    }
+  });
+});
+
+describe("building names", () => {
+  test("tier picks the flavour name; landmark overrides", () => {
+    expect(buildingName("vibe_coder", 2, false)).toBe("Vibe Penthouses");
+    expect(buildingName("vibe_coder", 0, false)).toBe("Vibe Garage");
+    expect(buildingName("vibe_coder", 2, true)).toBe("Vibe Tower");
+  });
+
+  test("every computed building has a name", () => {
+    const scene = computeCity({ intern: 200, vibe_coder: 90, "10x_dev": 12 });
+    expect(scene.buildings.every((b) => b.name.length > 0)).toBe(true);
+    expect(
+      scene.buildings.find((b) => b.isLandmark && b.district === "10x_dev")
+        ?.name,
+    ).toBe("10x Spire");
   });
 });
 

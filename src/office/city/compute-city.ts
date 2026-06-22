@@ -5,6 +5,7 @@ import {
   GROUND_PROPS,
 } from "./building-kits";
 import {
+  buildingName,
   DISTRICT_TUNING,
   districtTier,
   kitFor,
@@ -22,6 +23,11 @@ export type CityBuilding = Cell & {
   floors: number;
   /** The district's HQ tower (lead plot, past the landmark milestone). */
   isLandmark: boolean;
+  /** Flavour name from its kit tier (e.g. "Vibe Penthouses"). */
+  name: string;
+  /** Exact employees housed here — the district headcount partitioned across
+   * its towers by height, so the per-building counts sum to the real total. */
+  occupants: number;
   /** Ready-to-render sprite stack (ground → mids → roof → props). */
   parts: BuildingPart[];
   /** Stable React key. */
@@ -74,6 +80,8 @@ export type PlannedBuilding = {
   kit: BuildingKit;
   floors: number;
   isLandmark: boolean;
+  /** Kit tier of this plot (0–2); meaningless for landmarks. */
+  tier: number;
   seed: number;
 };
 
@@ -107,7 +115,8 @@ export function planDistrict(
     const plot = plots[i];
     const seed = plotSeed(plot.mapX, plot.mapY);
     const isLandmark = i === 0 && count >= tune.landmarkAt;
-    const kit = isLandmark ? landmarkKit(id) : kitFor(id, seededTier(seed, tier));
+    const plotTier = seededTier(seed, tier);
+    const kit = isLandmark ? landmarkKit(id) : kitFor(id, plotTier);
     // Per-building MONOTONIC height: a function of the headcount past this
     // plot's opening threshold (`i * empPerBuilding`), plus the shared district
     // lift — so a building never loses floors when the company grows or a new
@@ -122,9 +131,41 @@ export function planDistrict(
     // (constant per plot, so it doesn't break monotonicity).
     const bonus = isLandmark ? 2 : (seed >>> 8) % 2;
     const floors = clamp(grown + bonus, 1, kit.maxFloors);
-    planned.push({ plot, kit, floors, isLandmark, seed });
+    planned.push({ plot, kit, floors, isLandmark, tier: plotTier, seed });
   }
   return planned;
+}
+
+/**
+ * Partition `count` into one share per building, weighted by each tower's
+ * floors, so the per-building headcounts sum to EXACTLY `count` (taller towers
+ * house more). Cumulative-proportional rounding: building i's share is the rise
+ * in the running floor-weighted total, so nothing is lost to rounding.
+ */
+function partitionByWeight(count: number, weights: number[]): number[] {
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (count <= 0 || total <= 0) return weights.map(() => 0);
+  const out: number[] = [];
+  let acc = 0;
+  let prevCum = 0;
+  for (const w of weights) {
+    acc += w;
+    const cum = Math.floor((count * acc) / total);
+    out.push(cum - prevCum);
+    prevCum = cum;
+  }
+  return out;
+}
+
+/** Exact employees housed in each active building of a district (sums to count). */
+export function districtBuildingOccupants(
+  id: GeneratorId,
+  count: number,
+): number[] {
+  return partitionByWeight(
+    count,
+    planDistrict(id, count).map((b) => b.floors),
+  );
 }
 
 /** Floor count of each active building in a district (heights only). */
@@ -153,8 +194,13 @@ export function computeCity(
   const builtCells = new Set<string>();
   const plannedByDistrict = new Map<GeneratorId, PlannedBuilding[]>();
   for (const district of world.districts) {
-    const planned = planDistrict(district.id, counts[district.id] ?? 0);
+    const count = counts[district.id] ?? 0;
+    const planned = planDistrict(district.id, count);
     plannedByDistrict.set(district.id, planned);
+    const occupants = partitionByWeight(
+      count,
+      planned.map((b) => b.floors),
+    );
     planned.forEach((b, i) => {
       buildings.push({
         mapX: b.plot.mapX,
@@ -162,6 +208,8 @@ export function computeCity(
         district: district.id,
         floors: b.floors,
         isLandmark: b.isLandmark,
+        name: buildingName(district.id, b.tier, b.isLandmark),
+        occupants: occupants[i],
         parts: composeBuilding(b.kit, b.floors, b.seed),
         key: `b_${district.id}_${i}`,
       });

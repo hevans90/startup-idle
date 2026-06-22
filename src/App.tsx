@@ -4,6 +4,7 @@ import toast, { resolveValue, Toaster } from "react-hot-toast";
 import { useCompareVersion } from "./hooks/use-compare-version";
 import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
 import { AiSingularityReadout } from "./molecules/ai-singularity-readout";
+import { CityHoverPopover } from "./molecules/city-hover-popover";
 import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
 import { FounderSelect } from "./molecules/founder-select";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
@@ -144,6 +145,8 @@ function App() {
                   />
                 )}
               </div>
+
+              <CityHoverPopover />
 
               <EmployeeSatisfactionOverlay className="absolute bottom-3 right-3 z-10" />
 

@@ -48,6 +48,40 @@ export const DISTRICT_TUNING: Record<GeneratorId, DistrictTuning> = {
   },
 };
 
+/**
+ * Flavour names per district, indexed by kit tier (0 → 2), plus the HQ landmark.
+ * A building's tier comes from {@link seededTier}, so a grown district shows a
+ * mix (a few Penthouses among the Lofts). Tunable — purely cosmetic.
+ */
+export const BUILDING_NAMES: Record<
+  GeneratorId,
+  { tiers: [string, string, string]; landmark: string }
+> = {
+  intern: {
+    tiers: ["Intern Bullpen", "Intern Block", "Intern Tower"],
+    landmark: "Intern HQ",
+  },
+  vibe_coder: {
+    tiers: ["Vibe Garage", "Vibe Lofts", "Vibe Penthouses"],
+    landmark: "Vibe Tower",
+  },
+  "10x_dev": {
+    tiers: ["Dev Cabin", "Dev Lab", "Dev Penthouse"],
+    landmark: "10x Spire",
+  },
+};
+
+/** Display name for a building given its kit tier and whether it's the HQ. */
+export function buildingName(
+  id: GeneratorId,
+  tier: number,
+  isLandmark: boolean,
+): string {
+  const names = BUILDING_NAMES[id];
+  if (isLandmark) return names.landmark;
+  return names.tiers[Math.max(0, Math.min(tier, names.tiers.length - 1))];
+}
+
 /** Highest kit tier (0–2) a district has unlocked at this headcount. */
 export function districtTier(id: GeneratorId, count: number): number {
   const [t1, t2] = DISTRICT_TUNING[id].tierUp;
