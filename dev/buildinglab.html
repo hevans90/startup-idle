@@ -61,7 +61,6 @@
       <div class="ctrl"><label>stack lift</label><input type="range" id="lift" min="8" max="64" /><span class="val" id="lift-v"></span></div>
       <div class="ctrl"><label>max floors</label><input type="range" id="maxFloors" min="1" max="16" /><span class="val" id="maxFloors-v"></span></div>
       <div class="ctrl"><label>preview floors</label><input type="range" id="pfloors" min="1" max="16" /><span class="val" id="pfloors-v"></span></div>
-      <div class="colorrow"><label>tint</label><input type="checkbox" id="tinton"><input type="color" id="tint" value="#cdd6e0"></div>
 
       <h2>Preview</h2>
       <div class="preview" id="preview"></div>
@@ -106,7 +105,7 @@
   const KIT_KEYS = [];
   for (const d of DISTRICTS) for (const t of TIERS) KIT_KEYS.push(d + "." + t);
 
-  function blankKit() { return { ground:null, mids:[], roof:null, rooftopProps:[], lift:33, maxFloors:6, tint:null, baseNudge:5 }; }
+  function blankKit() { return { ground:null, mids:[], roof:null, rooftopProps:[], lift:33, maxFloors:6, baseNudge:5 }; }
   let state = { kits:{}, groundProps:[] };
   function kit(k){ if(!state.kits[k]) state.kits[k]=blankKit(); return state.kits[k]; }
 
@@ -173,9 +172,6 @@
     const pf=document.getElementById("pfloors"); pf.max=k.maxFloors;
     let pv=previewFloors[current]; if(pv==null||pv>k.maxFloors) pv=Math.min(4,k.maxFloors);
     pf.value=pv; document.getElementById("pfloors-v").textContent=pv;
-    const ton=document.getElementById("tinton"), tc=document.getElementById("tint");
-    ton.checked = k.tint!=null;
-    tc.value = k.tint || "#cdd6e0";   // always reflect THIS kit's tint (no carry-over)
     drawPreview(k, pv);
   }
   function setSlot(slot,name){ const el=document.getElementById("slot-"+slot); el.innerHTML = name?'<img src="'+imgFor(name)+'"/>':"—"; }
@@ -190,23 +186,17 @@
   document.querySelectorAll(".slot[data-slot]").forEach(el=>{
     el.addEventListener("click",()=>{ if(current==="__ground__")return; activeSlot=el.dataset.slot; renderMode(); });
   });
-  // sliders + tint
+  // sliders
   for(const id of ["lift","maxFloors"]){ document.getElementById(id).addEventListener("input",e=>{ kit(current)[id]=+e.target.value; save(); }); }
   document.getElementById("pfloors").addEventListener("input",e=>{ previewFloors[current]=+e.target.value; document.getElementById("pfloors-v").textContent=e.target.value; drawPreview(kit(current),+e.target.value); });
-  document.getElementById("tinton").addEventListener("change",e=>{ kit(current).tint = e.target.checked ? document.getElementById("tint").value : null; save(); });
-  document.getElementById("tint").addEventListener("input",e=>{ if(document.getElementById("tinton").checked){ kit(current).tint=e.target.value; save(); } });
   document.getElementById("basenudge").addEventListener("input",e=>{ if(current==="__ground__")return; kit(current).baseNudge=+e.target.value; document.getElementById("basenudge-v").textContent=e.target.value; drawPreview(kit(current), previewFloors[current]??4); save(); });
 
-  // ---- live tower preview (iso stacking + true multiply tint, like Pixi) ----
+  // ---- live tower preview (iso stacking) ----
   const imgCache={}; let previewToken=0;
   function loadImg(name){ return imgCache[name] || (imgCache[name]=new Promise(res=>{ const i=new Image(); i.onload=()=>res(i); i.src=imgFor(name); })); }
-  function tintedCanvas(img, tint){
+  function tileCanvas(img){
     const cv=document.createElement("canvas"); cv.width=img.naturalWidth; cv.height=img.naturalHeight;
-    const ctx=cv.getContext("2d"); ctx.drawImage(img,0,0);
-    if(tint && tint.toLowerCase()!=="#ffffff"){
-      ctx.globalCompositeOperation="multiply"; ctx.fillStyle=tint; ctx.fillRect(0,0,cv.width,cv.height);
-      ctx.globalCompositeOperation="destination-in"; ctx.drawImage(img,0,0); ctx.globalCompositeOperation="source-over";
-    }
+    cv.getContext("2d").drawImage(img,0,0);
     return cv;
   }
   async function drawPreview(k, floors){
@@ -225,7 +215,7 @@
     const PS=0.78, lift=k.lift*PS, nudge=(k.baseNudge||0)*PS;
     let bottom=16, roofBottom=16;   // accumulate: a taller base tile pushes the tile above it up by `nudge`
     valid.forEach((name,level)=>{
-      const cv=tintedCanvas(imgs[level], k.tint);
+      const cv=tileCanvas(imgs[level]);
       cv.style.cssText="position:absolute;left:50%;transform:translateX(-50%);image-rendering:pixelated;width:"+(imgs[level].naturalWidth*PS)+"px";
       cv.style.bottom=bottom+"px"; cv.style.zIndex=level;
       box.appendChild(cv);
@@ -234,7 +224,7 @@
     });
     props.forEach((name,i)=>{   // rooftop props share the roof's lift, drawn above it
       const img=imgs[valid.length+i];
-      const cv=tintedCanvas(img, k.tint);
+      const cv=tileCanvas(img);
       cv.style.cssText="position:absolute;left:50%;transform:translateX(-50%);image-rendering:pixelated;width:"+(img.naturalWidth*PS)+"px";
       cv.style.bottom=roofBottom+"px"; cv.style.zIndex=valid.length+1+i;
       box.appendChild(cv);

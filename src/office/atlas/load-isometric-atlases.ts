@@ -21,6 +21,8 @@ const ISO_ATLASES: AtlasDescriptor[] = [
     pngFile: "landscape_sheet.png",
   },
   { dir: "vehicles", xmlFile: "vehicle_sheet.xml", pngFile: "vehicle_sheet.png" },
+  // Fully-pavemented road twins, swapped in beside buildings (cityTiles_NNN.png).
+  { dir: "city_tiles", xmlFile: "cityTiles_sheet.xml", pngFile: "cityTiles_sheet.png" },
 ];
 
 async function loadOneAtlas(

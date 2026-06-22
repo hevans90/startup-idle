@@ -15,9 +15,11 @@ import { defineConfig, type PluginOption } from "vite";
  *   POST /api/<name>    -> overwrite <name>.json with the body
  */
 function devTools(): PluginOption {
-  const TOOLS = [
+  const TOOLS: { route?: string; html?: string; api: string; file: string }[] = [
     { route: "_roadlabel.html", html: "dev/roadlabel.html", api: "roadlabels", file: "road-labels.json" },
     { route: "_buildinglab.html", html: "dev/buildinglab.html", api: "buildingkits", file: "building-kits.json" },
+    // City-pavement labels (authored inside the road labeller's "City" tab).
+    { api: "citytilelabels", file: "city-tile-labels.json" },
   ];
   const at = (p: string) => path.resolve(process.cwd(), p);
   return {
@@ -25,15 +27,18 @@ function devTools(): PluginOption {
     apply: "serve",
     configureServer(server) {
       for (const t of TOOLS) {
-        server.middlewares.use("/" + t.route, (_req, res) => {
-          try {
-            res.setHeader("Content-Type", "text/html");
-            res.end(fs.readFileSync(at(t.html), "utf8"));
-          } catch {
-            res.statusCode = 404;
-            res.end("tool not found");
-          }
-        });
+        if (t.route && t.html) {
+          const html = t.html;
+          server.middlewares.use("/" + t.route, (_req, res) => {
+            try {
+              res.setHeader("Content-Type", "text/html");
+              res.end(fs.readFileSync(at(html), "utf8"));
+            } catch {
+              res.statusCode = 404;
+              res.end("tool not found");
+            }
+          });
+        }
         server.middlewares.use("/api/" + t.api, (req, res) => {
           if (req.method === "GET") {
             let data = "{}";

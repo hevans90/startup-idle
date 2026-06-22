@@ -23,7 +23,12 @@ import { loadIsometricAtlasTextures } from "./atlas/load-isometric-atlases";
 import { onKitsChanged } from "./city/building-kits";
 import { computeCity, type CityScene } from "./city/compute-city";
 import { AVENUE_ROWS, generateWorld } from "./city/generate-world";
-import { avenueTileFor, roadMaskAt, roadSpriteFor } from "./city/road-autotile";
+import {
+  avenueTileFor,
+  cityRoadSpriteFor,
+  roadMaskAt,
+  roadSpriteFor,
+} from "./city/road-autotile";
 import { cellKey } from "./city/types";
 import type { SpriteId } from "./map/types";
 import {
@@ -110,6 +115,11 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
   // Ground-level dynamic sprites in the container (building bases + props),
   // keyed so they can be reconciled as the scene changes.
   const baseSpritesRef = useRef<Map<string, Sprite>>(new Map());
+  // Thin grid road sprites, keyed by cell, so they can be swapped to their
+  // pavemented city twin when a building lands next to them (and back again).
+  const roadSpritesRef = useRef<
+    Map<string, { sprite: Sprite; mask: number; plainId: SpriteId; curId: SpriteId }>
+  >(new Map());
 
   const ox = wrapperSize.width / 2;
   const oy = wrapperSize.height / 4;
@@ -121,9 +131,14 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     c.sortableChildren = true;
 
     const world = generateWorld();
-    const place = (spriteId: SpriteId, mapX: number, mapY: number, floor: number) => {
+    const place = (
+      spriteId: SpriteId,
+      mapX: number,
+      mapY: number,
+      floor: number,
+    ): Sprite | null => {
       const tex = textures[spriteId];
-      if (!tex) return;
+      if (!tex) return null;
       const { x, y } = mapToWorld(mapX, mapY, 0, scale);
       const s = new Sprite(tex);
       s.anchor.set(0.5, 1);
@@ -133,27 +148,31 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
       s.roundPixels = true;
       s.zIndex = cityDepthKey(mapX, mapY, floor);
       c.addChild(s);
+      return s;
     };
 
     for (const t of world.ground) place(t.spriteId, t.mapX, t.mapY, 0);
     for (const key of world.roadCells) {
       const [mx, my] = key.split(",").map(Number);
       const lane = AVENUE_ROWS.indexOf(my);
-      let sprite: SpriteId;
       if (lane >= 0) {
-        // 2-wide thick avenue: pick lane tile, branching where a connector tees in.
+        // 2-wide thick avenue: pick lane tile, branching where a connector tees
+        // in. Avenue cells keep a clear building buffer, so they never pave.
         const outer = lane === 0 ? cellKey(mx, my - 1) : cellKey(mx, my + 1);
-        sprite = avenueTileFor(lane, world.roadCells.has(outer));
+        place(avenueTileFor(lane, world.roadCells.has(outer)), mx, my, 0.5);
       } else {
-        sprite = roadSpriteFor(roadMaskAt(mx, my, world.roadCells));
+        const mask = roadMaskAt(mx, my, world.roadCells);
+        const plainId = roadSpriteFor(mask);
+        const s = place(plainId, mx, my, 0.5);
+        if (s) roadSpritesRef.current.set(key, { sprite: s, mask, plainId, curId: plainId });
       }
-      place(sprite, mx, my, 0.5);
     }
     c.sortChildren();
 
     return () => {
       c.removeChildren().forEach((child) => child.destroy());
       baseSpritesRef.current.clear(); // base sprites were destroyed too
+      roadSpritesRef.current.clear();
     };
   }, [textures, wrapperSize.width, wrapperSize.height, scale, ox, oy]);
 
@@ -175,7 +194,6 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
       mapX: number;
       mapY: number;
       lift: number;
-      tint: number;
       z: number;
     };
     const wanted = new Map<string, GroundSprite>();
@@ -187,7 +205,6 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
           mapX: b.mapX,
           mapY: b.mapY,
           lift: base.lift,
-          tint: base.tint ?? 0xffffff,
           z: 0.25,
         });
       }
@@ -218,10 +235,30 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
       s.x = x + ox;
       s.y = y + oy - g.lift * scale;
       s.scale.set(scale * TILE_BLEED);
-      s.tint = g.tint;
       s.zIndex = cityDepthKey(g.mapX, g.mapY, g.z);
     }
     c.sortChildren();
+
+    // Pave roads that now touch a building: swap each adjacent thin road tile to
+    // its city twin (and revert when the building's gone). Only changed sprites
+    // are re-textured.
+    const built = new Set(
+      scene.buildings.map((b) => cellKey(b.mapX, b.mapY)),
+    );
+    for (const [key, r] of roadSpritesRef.current) {
+      const [mx, my] = key.split(",").map(Number);
+      const touchesBuilding =
+        built.has(cellKey(mx + 1, my)) ||
+        built.has(cellKey(mx - 1, my)) ||
+        built.has(cellKey(mx, my + 1)) ||
+        built.has(cellKey(mx, my - 1));
+      const twin = touchesBuilding ? cityRoadSpriteFor(r.mask) : null;
+      const wantId = twin && textures[twin] ? twin : r.plainId;
+      if (wantId !== r.curId) {
+        r.sprite.texture = textures[wantId];
+        r.curId = wantId;
+      }
+    }
   }, [scene, textures, scale, ox, oy]);
 
   return <pixiContainer ref={containerRef} />;
@@ -243,7 +280,6 @@ function GrowInPart({
   x,
   y,
   scale,
-  tint,
   zIndex,
   enabledRef,
 }: {
@@ -251,7 +287,6 @@ function GrowInPart({
   x: number;
   y: number;
   scale: number;
-  tint: number;
   zIndex: number;
   enabledRef: MutableRefObject<boolean>;
 }) {
@@ -290,7 +325,6 @@ function GrowInPart({
       y={y}
       scale={scale}
       anchor={{ x: 0.5, y: 1 }}
-      tint={tint}
       zIndex={zIndex}
     />
   );
@@ -343,7 +377,6 @@ const BuildingLayer = memo(function BuildingLayer({
               x={worldX + ox}
               y={baseY - part.lift * scale}
               scale={scale}
-              tint={part.tint ?? 0xffffff}
               zIndex={cityDepthKey(b.mapX, b.mapY, part.depth)}
               enabledRef={entrancesEnabledRef}
             />,

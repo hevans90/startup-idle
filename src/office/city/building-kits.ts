@@ -12,7 +12,7 @@ import buildingKitsData from "../../../building-kits.json";
  * Each kit composes a tower from parts: a `ground` entrance floor, one or more
  * `mids` (cycled for floor-to-floor variety), a `roof` cap, optional
  * `rooftopProps`, a per-kit `lift` (px each floor rises — modules differ in wall
- * height), `maxFloors` cap, optional `tint`, and `baseNudge` (extra lift the
+ * height), `maxFloors` cap, and `baseNudge` (extra lift the
  * taller-based ground tiles add to whatever stacks on them; see BASE_TILE_IDS).
  */
 export type BuildingKit = {
@@ -24,23 +24,14 @@ export type BuildingKit = {
   lift: number;
   /** Tallest this kit grows. */
   maxFloors: number;
-  /** Optional Pixi tint (0xRRGGBB); null = untinted. */
-  tint: number | null;
   /** Extra lift a base-tile ground adds to the floors above it. */
   baseNudge: number;
 };
 
-/** A raw kit entry as stored in building-kits.json (tint is a hex string). */
-type RawKit = Partial<Omit<BuildingKit, "tint">> & { tint?: string | null };
+/** A raw kit entry as stored in building-kits.json. */
+type RawKit = Partial<BuildingKit>;
 
 const TIER_SLOT: Record<string, number> = { t0: 0, t1: 1, t2: 2 };
-
-/** "#aabbcc" → 0xaabbcc; white or missing → null (untinted). */
-function toTint(hex: unknown): number | null {
-  if (typeof hex !== "string" || hex.toLowerCase() === "#ffffff") return null;
-  const n = parseInt(hex.replace("#", ""), 16);
-  return Number.isNaN(n) ? null : n;
-}
 
 function toKit(raw: RawKit): BuildingKit {
   return {
@@ -50,7 +41,6 @@ function toKit(raw: RawKit): BuildingKit {
     rooftopProps: raw.rooftopProps ?? [],
     lift: raw.lift ?? 33,
     maxFloors: raw.maxFloors ?? 6,
-    tint: toTint(raw.tint),
     baseNudge: raw.baseNudge ?? 0,
   };
 }
@@ -126,8 +116,6 @@ export type BuildingPart = {
   lift: number;
   /** Stacking index, fed to `cityDepthKey` so parts sort within the column. */
   depth: number;
-  /** Pixi tint, if the kit specifies one. */
-  tint?: number;
 };
 
 /**
@@ -154,19 +142,18 @@ export function composeBuilding(
   }
   if (kit.roof) structural.push(kit.roof); // roof is an additive cap, not a floor
 
-  const tint = kit.tint ?? undefined;
   const parts: BuildingPart[] = [];
   let lift = 0;
   let roofLift = 0; // lift of the topmost structural tile (the roof)
   structural.forEach((spriteId, level) => {
-    parts.push({ spriteId, lift, depth: 1 + level, tint });
+    parts.push({ spriteId, lift, depth: 1 + level });
     roofLift = lift;
     lift += kit.lift + (isBaseTile(spriteId) ? kit.baseNudge : 0);
   });
 
   // Rooftop props sit on the roof surface (the roof's own lift) and draw above it.
   kit.rooftopProps.forEach((spriteId, i) => {
-    parts.push({ spriteId, lift: roofLift, depth: structural.length + 1 + i, tint });
+    parts.push({ spriteId, lift: roofLift, depth: structural.length + 1 + i });
   });
 
   return parts;
@@ -174,7 +161,7 @@ export function composeBuilding(
 
 // ---------------------------------------------------------------------------
 // DEV-ONLY live authoring: re-read building-kits.json whenever the labeller
-// saves, so edits — max heights, tiles, lift, tint — appear in-game without a
+// saves, so edits — max heights, tiles, lift — appear in-game without a
 // reload. Production never fetches anything (this block is dead code when
 // `import.meta.env.DEV` is false and is tree-shaken away).
 // ---------------------------------------------------------------------------

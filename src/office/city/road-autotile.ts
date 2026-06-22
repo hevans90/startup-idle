@@ -50,6 +50,36 @@ export function roadSpriteFor(mask: number): SpriteId {
   return BY_MASK[mask] ?? FALLBACK;
 }
 
+const cityTile = (n: string): SpriteId => `cityTiles_${n}.png`;
+
+/**
+ * Fully-pavemented city twins per connection mask, from the hand-labelled city
+ * sheet (dev labeller "City pavement" tab → city-tile-labels.json). A thin grid
+ * road cell adjacent to a building is swapped to its twin here for the paved
+ * downtown look. Masks without a labelled twin (corners, lone-E dead-end) return
+ * null → the cell keeps its plain landscape tile.
+ */
+const CITY_BY_MASK: Record<number, SpriteId> = {
+  [DIR.N]: cityTile("111"), // dead-end N
+  [DIR.S]: cityTile("104"), // dead-end S
+  [DIR.W]: cityTile("110"), // dead-end W
+  [DIR.N | DIR.S]: cityTile("073"), // straight N–S
+  [DIR.E | DIR.W]: cityTile("081"), // straight E–W
+  [DIR.N | DIR.E | DIR.S]: cityTile("103"), // T (back W)
+  [DIR.N | DIR.E | DIR.W]: cityTile("088"), // T (back S)
+  [DIR.N | DIR.S | DIR.W]: cityTile("022"), // T (back E)
+  [DIR.E | DIR.S | DIR.W]: cityTile("095"), // T (back N)
+  [DIR.N | DIR.E | DIR.S | DIR.W]: cityTile("082"), // cross
+};
+
+/**
+ * Pavemented city twin for a cell's connection mask, or null if there's no
+ * labelled twin for that shape (caller keeps the plain landscape tile).
+ */
+export function cityRoadSpriteFor(mask: number): SpriteId | null {
+  return CITY_BY_MASK[mask] ?? null;
+}
+
 /**
  * Tiles for the 2-wide thick avenue. The two lanes meet in the middle (asphalt)
  * with pavement on each lane's OUTER side. `topLane`/`bottomLane` are straight

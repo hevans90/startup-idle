@@ -60,6 +60,11 @@
 </head>
 <body>
   <h1>Road tile labeller 🛣️</h1>
+  <div style="display:flex; gap:8px; align-items:center; margin:0 0 10px;">
+    <span style="font-size:12px; opacity:.8;">Tile set:</span>
+    <button id="mode-landscape" onclick="switchMode('landscape')">Landscape roads</button>
+    <button id="mode-city" class="sec" onclick="switchMode('city')">City pavement</button>
+  </div>
   <p class="help">
     Edges: <b>N</b>=top-left, <b>E</b>=top-right, <b>S</b>=bottom-right, <b>W</b>=bottom-left.
     Click an edge dot to toggle <span style="color:#3ecf6a">OPEN</span> (asphalt continues → connects to a neighbouring road)
@@ -92,12 +97,20 @@
   </footer>
 
 <script>
-  const L = "/isometric_assets/landscape/PNG/landscapeTiles_";
   const pad = n => String(n).padStart(3, "0");
-  // Full landscape sheet — tick "road" on every road tile (they're scattered).
   const FROM = 0, TO = 127;
   const DIRS = ["N", "E", "S", "W"];
-  const KEY = "roadlabels_v1";
+
+  // Two tile sets share this labeller: the landscape road sheet, and the new
+  // city pavement sheet (fully-pavemented road twins, swapped in next to
+  // buildings). Each has its own image folder, persistence file and state.
+  const MODES = {
+    landscape: { prefix: "/isometric_assets/landscape/PNG/landscapeTiles_", api: "/api/roadlabels", key: "roadlabels_v1", file: "road-labels.json", defaultRoad: (i) => i >= 80 && i <= 99 },
+    city: { prefix: "/isometric_assets/city_tiles/PNG/cityTiles_", api: "/api/citytilelabels", key: "citytilelabels_v1", file: "city-tile-labels.json", defaultRoad: () => false },
+  };
+  let mode = "landscape";
+  const states = { landscape: {}, city: {} };
+  const cfg = () => MODES[mode];
 
   // Measure a tile's top-face diamond from its pixels so dots land exactly on
   // the edge-midpoints regardless of the tile's height / how much cube it shows.
@@ -126,16 +139,15 @@
     }
   }
 
-  let state = {};
+  let state = states[mode];
   // state[id] = { road: bool, role: string, open: {N,E,S,W: bool} }
-  const API = "/api/roadlabels";
   const ROLES = [
     ["thin (1-wide)", ["thin-straight", "thin-corner", "thin-T", "thin-cross", "thin-end"]],
     ["thick (2-wide lanes)", ["thick-lane", "thick-outer-corner", "thick-inner-corner", "thick-T", "thick-cross", "thick-end", "thick-fill"]],
     ["thick + thin junction", ["thick-thru+thin-branch", "thick-lane+thin-branch", "thick+thin-cross"]],
   ];
   function ensure(id) {
-    if (!state[id]) state[id] = { road: (Number(id) >= 80 && Number(id) <= 99), role: "", open: { N:true, E:true, S:true, W:true } };
+    if (!state[id]) state[id] = { road: cfg().defaultRoad(Number(id)), role: "", open: { N:true, E:true, S:true, W:true } };
     if (state[id].role === undefined) state[id].role = ""; // migrate older saves
     return state[id];
   }
@@ -143,12 +155,13 @@
   function setStatus(t) { const el = document.getElementById("status"); if (el) el.textContent = t; }
   function syncToDisk() {
     setStatus("saving…");
-    fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) })
-      .then((r) => setStatus(r.ok ? "saved to road-labels.json ✓" : "save failed"))
+    const { api, file } = cfg();
+    fetch(api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) })
+      .then((r) => setStatus(r.ok ? ("saved to " + file + " ✓") : "save failed"))
       .catch(() => setStatus("save failed (offline?)"));
   }
   function save() {
-    localStorage.setItem(KEY, JSON.stringify(state)); // instant local cache
+    localStorage.setItem(cfg().key, JSON.stringify(state)); // instant local cache
     render();
     clearTimeout(syncTimer);
     syncTimer = setTimeout(syncToDisk, 400); // debounced write to disk
@@ -176,7 +189,7 @@
       card.className = "card" + (s.road ? "" : " notroad");
       const stage = document.createElement("div");
       stage.className = "stage";
-      stage.innerHTML = '<img src="' + L + id + '.png" />';
+      stage.innerHTML = '<img src="' + cfg().prefix + id + '.png" />';
       for (const d of DIRS) {
         const e = document.createElement("div");
         e.className = "edge " + d.toLowerCase() + " " + (s.open[d] ? "open" : "closed");
@@ -185,8 +198,9 @@
         stage.appendChild(e);
       }
       const imgEl = stage.querySelector("img");
-      if (geomCache[id]) applyGeom(stage, geomCache[id]);
-      else imgEl.addEventListener("load", () => { geomCache[id] = measure(imgEl); applyGeom(stage, geomCache[id]); });
+      const gkey = mode + ":" + id; // landscape & city tiles differ per id
+      if (geomCache[gkey]) applyGeom(stage, geomCache[gkey]);
+      else imgEl.addEventListener("load", () => { geomCache[gkey] = measure(imgEl); applyGeom(stage, geomCache[gkey]); });
       const row = document.createElement("div");
       row.className = "row";
       row.innerHTML = '<span class="id">' + id + '</span>' +
@@ -229,8 +243,9 @@
   }
   window.copyOut = () => { navigator.clipboard.writeText(document.getElementById("out").value); };
   window.resetAll = () => {
-    if (confirm("Reset all labels (clears road-labels.json too)?")) {
-      state = {}; localStorage.removeItem(KEY); render(); syncToDisk();
+    if (confirm("Reset all " + mode + " labels (clears " + cfg().file + " too)?")) {
+      states[mode] = {}; state = states[mode];
+      localStorage.removeItem(cfg().key); render(); syncToDisk();
     }
   };
 
@@ -297,18 +312,29 @@
     mk(GUIDE_HYBRID, "guide-hybrid");
   }
 
+  // Disk is the source of truth; fall back to the local cache if unreachable.
+  async function loadMode(m) {
+    try {
+      const r = await fetch(MODES[m].api);
+      if (r.ok) { const j = await r.json(); if (j && typeof j === "object") states[m] = j; }
+    } catch { /* dev server not running */ }
+    if (!Object.keys(states[m]).length) {
+      try { states[m] = JSON.parse(localStorage.getItem(MODES[m].key) || "{}"); } catch { states[m] = {}; }
+    }
+  }
+  window.switchMode = (m) => {
+    mode = m; state = states[mode];
+    document.getElementById("mode-landscape").className = (m === "landscape" ? "" : "sec");
+    document.getElementById("mode-city").className = (m === "city" ? "" : "sec");
+    render();
+    setStatus("editing " + cfg().file);
+  };
   async function init() {
     buildGuide();
-    // Disk is the source of truth; fall back to the local cache if unreachable.
-    try {
-      const r = await fetch(API);
-      if (r.ok) { const j = await r.json(); if (j && typeof j === "object") state = j; }
-    } catch { /* dev server not running */ }
-    if (!Object.keys(state).length) {
-      try { state = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { state = {}; }
-    }
+    await Promise.all([loadMode("landscape"), loadMode("city")]);
+    state = states[mode];
     render();
-    setStatus("loaded from road-labels.json");
+    setStatus("loaded " + cfg().file);
   }
   init();
 </script>
