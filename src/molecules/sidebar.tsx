@@ -38,7 +38,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
           ),
           innovation: (
             <div className="p-2 pt-4 w-full h-full flex flex-col gap-4 items-center justify-center">
-              <InnovationSummary compact={true} className="my-4" />
+              <InnovationSummary compact={true} className="my-1" />
               <InnovationManagers />
             </div>
           ),

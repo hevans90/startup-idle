@@ -13,6 +13,10 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
   // Founder passives that touch money output (per-generator + headcount synergy).
   const founderGenMoneyMult = useFounderStore((s) => s.generatorMoneyMult);
   const headcountPerEmployee = useFounderStore((s) => s.headcountMoneyPerEmployee);
+  // Founder "Bootstrapper"/"Hustler": shaves every generator's cost-growth
+  // exponent. Applied in effectiveCostExponent (so real costs already reflect
+  // it) but not in `gen.costExponent`, hence surfaced as its own row here.
+  const costExponentReduction = useFounderStore((s) => s.costExponentReduction);
   const totalEmployees = generators.reduce((n, g) => n + g.amount, 0);
   const headcountMult = 1 + headcountPerEmployee * totalEmployees;
 
@@ -128,6 +132,16 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
                 {gen.costExponent.toFixed(2)}
               </span>
             </div>
+            {costExponentReduction !== 0 && (
+              <div className="flex items-center gap-3 justify-between">
+                <span className="responsive-text-xs grow text-emerald-700 dark:text-emerald-400">
+                  founder exponent:
+                </span>
+                <span className="responsive-text-xs text-emerald-700 dark:text-emerald-400">
+                  −{costExponentReduction.toFixed(3)}
+                </span>
+              </div>
+            )}
           </PopoverContent>
         </Popover>
       ))}

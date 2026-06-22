@@ -101,6 +101,22 @@ export type ResourceBreakdown = {
   }[];
 };
 
+/**
+ * Where valuation/sec comes from: a revenue "engine" (a sub-linear function of
+ * $/sec) scaled by board/morale/founder multipliers. Not per-generator, so it
+ * has its own shape rather than reusing {@link ResourceBreakdown}.
+ */
+export type ValuationBreakdown = {
+  /** Valuation accrued per second (the engine after all multipliers). */
+  total: number;
+  /** Engine output before the multiplier factors. */
+  base: number;
+  /** The $/sec feeding the engine. */
+  mps: number;
+  /** Multipliers applied to the engine (managers / morale / founder). */
+  factors: { label: string; mult: number }[];
+};
+
 type GeneratorState = {
   generators: OwnedGenerator[];
   globalLastTick: number;
@@ -125,6 +141,10 @@ type GeneratorState = {
   getGeneratorInnovationPerSecond: (id: GeneratorId, units: number) => number;
   /** Full per-employee + global breakdown of innovation/sec. */
   getInnovationBreakdown: () => ResourceBreakdown;
+  /** Valuation accrued per second (drives the board/mandate economy). */
+  getValuationPerSecond: () => number;
+  /** Full breakdown of valuation/sec (for the valuation popover). */
+  getValuationBreakdown: () => ValuationBreakdown;
 
   getEmployeePerks: (id: GeneratorId) => EmployeePerks;
   getEmployeeOutputMults: (id: GeneratorId) => { money: number; innovation: number };
@@ -578,9 +598,6 @@ export const useGeneratorStore = create<GeneratorState>()(
       const internIpsMult = emUnlocked
         ? internSatisfactionIpsMultiplier(satisfactionScores.intern)
         : 1;
-      const internValMult = emUnlocked
-        ? internSatisfactionValuationMultiplier(satisfactionScores.intern)
-        : 1;
 
       const revenueMultFor = (id: GeneratorId) =>
         emUnlocked ? satisfactionRevenueMultiplier(satisfactionScores[id]) : 1;
@@ -641,15 +658,9 @@ export const useGeneratorStore = create<GeneratorState>()(
       syncUnlockedGenerators();
       syncAvailableUpgrades();
 
-      const mps = get().getMoneyPerSecond();
-      const valuationGain =
-        Math.pow(Math.max(1, mps), 0.38) *
-        4e-5 *
-        seconds *
-        managerMults.salesValuation *
-        internValMult *
-        // Founder "Visionary": valuation builds faster.
-        useFounderStore.getState().valuationAccrualMult;
+      // Same formula as getValuationBreakdown (single source of truth), times
+      // the elapsed seconds, so the toolbar's valuation/sec matches accrual.
+      const valuationGain = get().getValuationPerSecond() * seconds;
       if (valuationGain > 0) {
         useValuationStore.getState().increaseValuation(valuationGain);
       }
@@ -852,6 +863,30 @@ export const useGeneratorStore = create<GeneratorState>()(
 
       return { total: get().getInnovationPerSecond(), globals, perGenerator };
     },
+
+    getValuationBreakdown: () => {
+      const mps = get().getMoneyPerSecond();
+      const managerMults = getManagerEconomyMultipliers();
+      const emUnlocked =
+        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
+        false;
+      const internValMult = emUnlocked
+        ? internSatisfactionValuationMultiplier(get().satisfactionScores.intern)
+        : 1;
+      const founderMult = useFounderStore.getState().valuationAccrualMult;
+
+      // Mirror of the accrual in tickGenerators: a sub-linear function of $/sec,
+      // scaled by board (sales), intern morale, and the founder modifier.
+      const base = Math.pow(Math.max(1, mps), 0.38) * 4e-5;
+      const factors = [
+        { label: "Sales managers", mult: managerMults.salesValuation },
+        { label: "Intern morale", mult: internValMult },
+        { label: "Founder", mult: founderMult },
+      ];
+      const total = factors.reduce((m, f) => m * f.mult, base);
+      return { total, base, mps, factors };
+    },
+    getValuationPerSecond: () => get().getValuationBreakdown().total,
 
     setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
 

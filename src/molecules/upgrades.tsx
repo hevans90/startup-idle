@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { GENERATOR_TYPES } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import {
@@ -9,6 +10,36 @@ import { Button } from "../ui/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
 import { RainbowText } from "../utils/vibe-utils";
+
+/**
+ * Which progression "set" an upgrade belongs to (by id prefix). Within a set we
+ * only ever surface the next (cheapest available) upgrade, so a generator's
+ * upgrades reveal one at a time instead of dumping the whole tier list at once.
+ */
+const upgradeSet = (u: Upgrade): string => {
+  if (u.id.startsWith("10x_dev")) return "10x_dev";
+  if (u.id.startsWith("vibe_coder")) return "vibe_coder";
+  if (u.id.startsWith("cross")) return "cross";
+  if (u.id.startsWith("intern")) return "intern";
+  return u.id;
+};
+
+/**
+ * Keep only the cheapest available upgrade per set. `availableUpgrades` is
+ * already cost-sorted ascending, so the first one seen per set is the next to
+ * reveal; the rest stay hidden until it's purchased.
+ */
+const nextPerSet = (available: Upgrade[]): Upgrade[] => {
+  const seen = new Set<string>();
+  const out: Upgrade[] = [];
+  for (const u of available) {
+    const set = upgradeSet(u);
+    if (seen.has(set)) continue;
+    seen.add(set);
+    out.push(u);
+  }
+  return out;
+};
 
 const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
   const renderEffect = (effect: GeneratorEffect) => {
@@ -100,12 +131,18 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
   const { availableUpgrades, unlockedUpgrades, unlockUpgrade } =
     useUpgradeStore();
 
+  // Reveal only the next upgrade per set (the rest of the tier stays hidden).
+  const visibleUpgrades = useMemo(
+    () => nextPerSet(availableUpgrades),
+    [availableUpgrades],
+  );
+
   const { money } = useMoneyStore();
 
   return isMobile ? (
     <>
       <div className="flex flex-wrap gap-3 justify-center text-center">
-        {availableUpgrades.map((upg) => (
+        {visibleUpgrades.map((upg) => (
           <Button
             disabled={money.lt(upg.cost)}
             key={upg.id}
@@ -138,7 +175,7 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
   ) : (
     <>
       <div className="flex flex-col gap-3 justify-center items-center px-2">
-        {availableUpgrades.map((upg) => (
+        {visibleUpgrades.map((upg) => (
           <Popover key={upg.id} openOnHover={true} placement="bottom">
             <PopoverTrigger asChild>
               <Button
