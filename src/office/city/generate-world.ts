@@ -15,7 +15,6 @@ export const WORLD_ROWS = 40;
 /** Ground sprite ids (atlas SubTexture names from the landscape sheet). */
 const GROUND = {
   grass: "landscapeTiles_067.png",
-  dirt: "landscapeTiles_083.png",
 } as const;
 
 /** Horizontal main avenue (spine) — 2-wide thick road (top lane, bottom lane). */
@@ -33,11 +32,11 @@ const DISTRICT_REGIONS: Record<GeneratorId, Rect> = {
   "10x_dev": { x0: 30, y0: 3, x1: 54, y1: 36 },
 };
 
-/** Ground under each district region (downtown is paved dirt, campuses grass). */
+/** Ground under each district region (all grass). */
 const DISTRICT_GROUND: Record<GeneratorId, SpriteId> = {
   intern: GROUND.grass,
   vibe_coder: GROUND.grass,
-  "10x_dev": GROUND.dirt,
+  "10x_dev": GROUND.grass,
 };
 
 /** Column on which each district connects to the avenue. */

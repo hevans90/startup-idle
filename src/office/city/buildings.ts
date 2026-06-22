@@ -30,8 +30,10 @@ export type DistrictTuning = {
 export const DISTRICT_TUNING: Record<GeneratorId, DistrictTuning> = {
   // Interns: a wide, low campus — many short buildings, upgrades early.
   intern: { empPerBuilding: 5, empPerFloor: 4, tierUp: [40, 120], landmarkAt: 80 },
-  // Vibe coders: a mid-rise quarter.
-  vibe_coder: { empPerBuilding: 14, empPerFloor: 5, tierUp: [120, 400], landmarkAt: 250 },
+  // Vibe coders: a mid-rise quarter — opens buildings briskly and rises a touch
+  // faster than the intern campus, so it reads as a real district at the modest
+  // headcounts vibe coders actually reach (not a couple of 1-floor stubs).
+  vibe_coder: { empPerBuilding: 7, empPerFloor: 3, tierUp: [24, 72], landmarkAt: 45 },
   // 10x devs: a boutique downtown. Headcount is tiny but each dev is elite, so
   // it's scaled for the ~1–20 range: a new tower every couple of devs, fast tier
   // upgrades, an early HQ, and a shared lift so every new dev raises the whole
