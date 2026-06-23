@@ -6,12 +6,20 @@ import { persist } from "zustand/middleware";
 export const CURRENT_VERSION = "0.1.0";
 const VERSION_STORAGE_KEY = "game_version";
 
-// Utility: Clear everything except the version
+/**
+ * localStorage keys that are user PREFERENCES, not game progress — they survive
+ * a version wipe (e.g. your dark/light theme shouldn't reset on an update).
+ */
+const PRESERVED_KEYS = [VERSION_STORAGE_KEY, "theme", "global-settings"];
+
+// Utility: wipe game progress but keep the version + user preferences.
 export const clearAllStorageExceptVersion = () => {
-  const saved = localStorage.getItem(VERSION_STORAGE_KEY);
+  const preserved = PRESERVED_KEYS.map(
+    (key) => [key, localStorage.getItem(key)] as const,
+  );
   localStorage.clear();
-  if (saved) {
-    localStorage.setItem(VERSION_STORAGE_KEY, saved);
+  for (const [key, value] of preserved) {
+    if (value != null) localStorage.setItem(key, value);
   }
 };
 

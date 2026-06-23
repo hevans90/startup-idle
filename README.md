@@ -15,6 +15,7 @@ You found a startup as one of several **founder archetypes**, each bending a dif
 - **AI singularity** — an ominous meter that creeps up when vibe coders are miserable.
 - **Founders** — six archetypes (Hacker, Bootstrapper, Operator, Visionary, Hustler, Agentic Delusionist) with gradual, compounding passive modifiers and a small starting-cash float. Chosen on a full-screen select before the game begins.
 - **Offline progression** — on return, the real game tick is replayed in chunks over the time away (full credit, capped at 2 days), with a "while you were away" popup.
+- **Company Acquisition (prestige)** — once you've built enough *total accrued valuation*, accept an acquisition offer to bank permanent **Equity** (diminishing-returns payout), soft-reset into a fresh company (re-picking a founder; Equity + skill tree persist), and spend Equity in a Path-of-Exile-style **skill tree** (rendered on its own PixiJS viewport with HTML node previews). The full loop — accrual tracking, payout, soft reset, allocation, persistence — is in; the node *effects* are still being designed.
 - **Isometric city** — a PixiJS + pixi-viewport scene that visualizes each district's headcount as growing building stacks, with hover highlighting and HTML info popovers.
 
 ## Tech stack
@@ -54,7 +55,8 @@ src/
   main.tsx             # Entry point
   state/               # Zustand stores (one per system), all persisted
   game/                # Pure game logic: catalogs, economy multipliers,
-                       #   satisfaction, achievements, offline-progress
+                       #   satisfaction, achievements, offline-progress, skill-tree
+  molecules/skill-tree/# PixiJS prestige skill-tree renderer + overlay
   molecules/           # Composite UI (toolbar, sidebar, popovers, counters…)
   ui/                  # Reusable primitives (Button, Popover, ResourceCounter…)
   office/              # Isometric PixiJS city renderer

@@ -63,6 +63,9 @@ type MandateLevels = Record<MandateId, number>;
 
 type ValuationState = {
   valuation: Decimal;
+  /** Total valuation accrued this run — only ever goes up (spending mandates
+   * doesn't reduce it). Drives the acquisition (prestige) Equity payout. */
+  accruedThisRun: Decimal;
   mandateLevels: MandateLevels;
 
   increaseValuation: (amount: number) => void;
@@ -83,11 +86,15 @@ export const useValuationStore = create<ValuationState>()(
   persist(
     (set, get) => ({
       valuation: new Decimal(0),
+      accruedThisRun: new Decimal(0),
       mandateLevels: { ...initialMandateLevels },
 
       increaseValuation: (amount: number) => {
         if (amount <= 0) return;
-        set((s) => ({ valuation: s.valuation.add(amount) }));
+        set((s) => ({
+          valuation: s.valuation.add(amount),
+          accruedThisRun: s.accruedThisRun.add(amount),
+        }));
       },
 
       getMandateCost: (id: MandateId) => {
@@ -136,6 +143,7 @@ export const useValuationStore = create<ValuationState>()(
       reset: () => {
         set({
           valuation: new Decimal(0),
+          accruedThisRun: new Decimal(0),
           mandateLevels: { ...initialMandateLevels },
         });
       },
@@ -148,16 +156,21 @@ export const useValuationStore = create<ValuationState>()(
       }),
       partialize: (state) => ({
         valuation: state.valuation,
+        accruedThisRun: state.accruedThisRun,
         mandateLevels: state.mandateLevels,
       }),
-      // Guarantee `valuation` is a Decimal regardless of the persisted shape
-      // (same crash class as the innovation/money stores).
+      // Guarantee Decimals regardless of the persisted shape (same crash class
+      // as the innovation/money stores).
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<ValuationState>;
         return {
           ...current,
           ...p,
           valuation: coerceDecimal(p.valuation, current.valuation),
+          accruedThisRun: coerceDecimal(
+            p.accruedThisRun,
+            current.accruedThisRun,
+          ),
         };
       },
     }
