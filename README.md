@@ -1,54 +1,84 @@
-# React + TypeScript + Vite
+# Startup Idle
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A satirical incremental/idle game about scaling a tech startup by any means necessary — hire interns, unleash vibe coders, anoint 10x devs, and watch an isometric city grow as your headcount does. Built as a single-page React app with a PixiJS-rendered city.
 
-Currently, two official plugins are available:
+## Gameplay
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+You found a startup as one of several **founder archetypes**, each bending a different progression curve, then grow the company through interlocking systems:
 
-## Expanding the ESLint configuration
+- **Employees (generators)** — three roles (`intern`, `vibe_coder`, `10x_dev`) that produce money and innovation each tick. Hire more and buy **upgrades** to scale output.
+- **Innovation** — a soft global multiplier (`1 + logMult · log₁₀(innovation+1)`) on all output, plus the currency for **managers** and unlocks.
+- **Managers** — auto-tiering multipliers for money / innovation / valuation; assign them and they progress on their own.
+- **Valuation & board mandates** — valuation accrues from revenue; spend it on permanent global mandates.
+- **Employee management & satisfaction** — perks (money/innovation/cost/auto-buy) and a morale system that drifts each tick and feeds back into output.
+- **Vape shop** — achievements + juice upgrades that visibly modify a high-def SVG vape.
+- **AI singularity** — an ominous meter that creeps up when vibe coders are miserable.
+- **Founders** — six archetypes (Hacker, Bootstrapper, Operator, Visionary, Hustler, Agentic Delusionist) with gradual, compounding passive modifiers and a small starting-cash float. Chosen on a full-screen select before the game begins.
+- **Offline progression** — on return, the real game tick is replayed in chunks over the time away (full credit, capped at 2 days), with a "while you were away" popup.
+- **Isometric city** — a PixiJS + pixi-viewport scene that visualizes each district's headcount as growing building stacks, with hover highlighting and HTML info popovers.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Tech stack
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+- **React 19** + **TypeScript** (Vite, SWC)
+- **Tailwind CSS v4**
+- **Zustand** for state (with `persist` to `localStorage`)
+- **@pixi/react v8** + **PixiJS v8** + **pixi-viewport** for the isometric city
+- **break_infinity.js** for large-number math (`Decimal`)
+- **Bun** as the runtime / test runner
+
+## Getting started
+
+```bash
+bun install
+bun run dev        # Vite dev server (HMR)
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Then open the printed local URL.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Scripts
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
+| Command | What it does |
+| --- | --- |
+| `bun run dev` | Vite dev server with HMR |
+| `bun run build` | Type-check (`tsc -b`) then production build |
+| `bun run typecheck` | `tsc -b` (the solution build — a bare `tsc --noEmit` is a no-op here) |
+| `bun test` | Run the test suite |
+| `bun run lint` | ESLint |
+| `bun run preview` | Preview the production build |
+
+## Project structure
+
 ```
+src/
+  App.tsx              # Root: founder gate, layout, game loop, offline check
+  main.tsx             # Entry point
+  state/               # Zustand stores (one per system), all persisted
+  game/                # Pure game logic: catalogs, economy multipliers,
+                       #   satisfaction, achievements, offline-progress
+  molecules/           # Composite UI (toolbar, sidebar, popovers, counters…)
+  ui/                  # Reusable primitives (Button, Popover, ResourceCounter…)
+  office/              # Isometric PixiJS city renderer
+    office.tsx         #   render tree (ground/road/building layers)
+    viewport.tsx       #   pixi-viewport (pan/zoom)
+    math-utils.ts      #   iso projection + depth-sort keys
+    city/              #   scene computation, building kits, world gen
+    atlas/             #   sprite-atlas loading
+  simulation/          # Headless sims + reset helpers (used by tests)
+  hooks/  utils/  icons/  assets/
+```
+
+## Architecture notes
+
+- **State & persistence.** Each system is a Zustand store under `src/state`, persisted to `localStorage` via the `persist` middleware. Large numbers are `break_infinity.js` `Decimal`s serialized via `decimalReplacer`/`decimalReviver` (see `state/_break_infinity.decimals.ts`); store `merge` functions use `coerceDecimal` to defensively re-hydrate any legacy/foreign shape so a malformed save can't crash on first render.
+- **Version wipe.** `state/version.store.ts` holds `CURRENT_VERSION`; bumping the major or minor triggers a full progress wipe (storage + in-memory) on next load via `useCompareVersion`. Use this for breaking changes.
+- **The game loop** runs in `App.tsx` (a `setInterval`), ticking generators and managers. Stores expose per-second getters (`getMoneyPerSecond`, `getInnovationPerSecond`, `getValuationPerSecond`) that mirror the tick's multiplier chains, so displayed rates match actual earnings.
+- **Isometric renderer.** Buildings are derived deterministically from headcount (`office/city/compute-city.ts`) and drawn into depth-sorted Pixi containers (`cityDepthKey`, column-dominant). Heights are monotonic in count to avoid "floor stealing."
+
+## Dev tools
+
+- A **building-kit labeller** (dev-only) authors `building-kits.json` / `road-labels.json` for the city renderer. ⚠️ These files hold hand-authored data — never overwrite them programmatically (e.g. via preview eval).
+- Some dev affordances (e.g. "grant juice") are gated to `localhost` via `utils/dev-mode.ts`.
+
+## Testing
+
+`bun test` runs unit/integration tests colocated as `*.test.ts`, plus headless progression simulations under `src/simulation`. App tsconfig excludes test files, so run them through Bun (not `tsc`).
