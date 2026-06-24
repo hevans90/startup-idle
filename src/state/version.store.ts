@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 
 // Bumped to 0.1.0 for the founder mechanic (a breaking change): a minor bump
 // triggers a full progress wipe via hasMajorOrMinorChanged on next load.
-export const CURRENT_VERSION = "0.1.0";
+export const CURRENT_VERSION = "0.1.1";
 const VERSION_STORAGE_KEY = "game_version";
 
 /**
@@ -26,7 +26,7 @@ export const clearAllStorageExceptVersion = () => {
 // Compare only major.minor
 export const hasMajorOrMinorChanged = (
   oldVersion: string,
-  newVersion: string
+  newVersion: string,
 ): boolean => {
   const [oldMajor, oldMinor] = oldVersion.split(".").map(Number);
   const [newMajor, newMinor] = newVersion.split(".").map(Number);
@@ -46,6 +46,6 @@ export const useVersionStore = create<VersionState>()(
     }),
     {
       name: VERSION_STORAGE_KEY,
-    }
-  )
+    },
+  ),
 );
