@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { nodeById, SKILL_TREE } from "../../game/skill-tree";
+import { nodeById, pathEquityCost, SKILL_TREE } from "../../game/skill-tree";
 import { usePrestigeStore } from "../../state/prestige.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 
@@ -15,8 +15,11 @@ const clamp = (n: number, lo: number, hi: number) =>
  */
 export const SkillTreeTooltip = () => {
   const hovered = useSkillTreeUiStore((s) => s.hovered);
+  const previewPath = useSkillTreeUiStore((s) => s.previewPath);
+  const respecMode = useSkillTreeUiStore((s) => s.respecMode);
   const allocated = usePrestigeStore((s) => s.allocated);
   const equity = usePrestigeStore((s) => s.equity);
+  const respecPoints = usePrestigeStore((s) => s.respecPoints);
   const ref = useRef<HTMLDivElement>(null);
 
   // Keep the card inside the canvas bounds (it's positioned absolutely within
@@ -41,7 +44,16 @@ export const SkillTreeTooltip = () => {
   if (!node) return null;
 
   const isAllocated = allocated.includes(node.id);
-  const affordable = equity.gte(node.cost);
+  const nextCost = usePrestigeStore.getState().getNextCost();
+  const affordable = equity.gte(nextCost);
+  // Multi-step route to a node you can't reach directly yet.
+  const onPathToHere = previewPath.length > 1 && previewPath[previewPath.length - 1] === node.id;
+  const routeCost = onPathToHere ? pathEquityCost(allocated.length, previewPath.length) : 0;
+  const routeAffordable = equity.gte(routeCost);
+  // Respec mode: previewPath is the subtree this node's refund would remove.
+  const refundCount =
+    respecMode && isAllocated && previewPath[0] === node.id ? previewPath.length : 0;
+  const enoughPoints = respecPoints >= refundCount;
 
   return (
     <div
@@ -62,9 +74,32 @@ export const SkillTreeTooltip = () => {
         </p>
 
         <div className="mt-2 border-t border-primary-400/40 pt-1.5 text-xs tabular-nums dark:border-primary-600/50">
-          {isAllocated ? (
+          {refundCount > 0 ? (
+            <span
+              className={
+                enoughPoints
+                  ? "text-rose-600 dark:text-rose-400"
+                  : "text-amber-600 dark:text-amber-400"
+              }
+            >
+              Refund: {refundCount} {refundCount === 1 ? "node" : "nodes"} ·{" "}
+              {refundCount} {refundCount === 1 ? "pt" : "pts"}
+              {enoughPoints ? "" : ` (only ${respecPoints})`}
+            </span>
+          ) : isAllocated ? (
             <span className="text-emerald-600 dark:text-emerald-400">
               ✓ Allocated
+            </span>
+          ) : onPathToHere ? (
+            <span
+              className={
+                routeAffordable
+                  ? "text-sky-600 dark:text-sky-400"
+                  : "text-rose-600 dark:text-rose-400"
+              }
+            >
+              Reach: {previewPath.length} nodes · {routeCost} Equity
+              {routeAffordable ? "" : " (can't afford)"}
             </span>
           ) : (
             <span
@@ -74,7 +109,7 @@ export const SkillTreeTooltip = () => {
                   : "text-rose-600 dark:text-rose-400"
               }
             >
-              Cost: {node.cost} Equity{affordable ? "" : " (can't afford)"}
+              Cost: {nextCost} Equity{affordable ? "" : " (can't afford)"}
             </span>
           )}
         </div>

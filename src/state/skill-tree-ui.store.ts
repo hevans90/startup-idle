@@ -15,6 +15,13 @@ type SkillTreeUiState = {
   setViewport: (viewport: Viewport | null) => void;
   hovered: HoveredSkillNode | null;
   setHovered: (hovered: HoveredSkillNode | null) => void;
+  /** Cheapest route (unallocated node ids, allocate order) to reach the hovered
+   * node from the current allocation. Published by the renderer for the tooltip. */
+  previewPath: string[];
+  setPreviewPath: (path: string[]) => void;
+  /** When on, clicking an allocated node refunds it instead of allocating. */
+  respecMode: boolean;
+  setRespecMode: (on: boolean) => void;
 };
 
 export const useSkillTreeUiStore = create<SkillTreeUiState>()((set) => ({
@@ -22,4 +29,8 @@ export const useSkillTreeUiStore = create<SkillTreeUiState>()((set) => ({
   setViewport: (viewport) => set({ viewport }),
   hovered: null,
   setHovered: (hovered) => set({ hovered }),
+  previewPath: [],
+  setPreviewPath: (previewPath) => set({ previewPath }),
+  respecMode: false,
+  setRespecMode: (respecMode) => set({ respecMode }),
 }));
