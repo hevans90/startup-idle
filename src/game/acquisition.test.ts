@@ -10,10 +10,31 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { useValuationStore } from "../state/valuation.store";
 import {
   ACQUISITION_THRESHOLD,
+  accruedForEquity,
   canAcquire,
   equityForAccrued,
   performAcquisition,
 } from "./acquisition";
+
+describe("accruedForEquity (inverse of equityForAccrued)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetAllGameStores();
+  });
+
+  test("a hair above the threshold pays the target; well below pays less", () => {
+    // targets must be achievable offers (≥ the base granted at the threshold)
+    for (const n of [16, 30, 100]) {
+      const accrued = accruedForEquity(n);
+      expect(equityForAccrued(accrued.mul(1.001)).toNumber()).toBeGreaterThanOrEqual(n);
+      expect(equityForAccrued(accrued.mul(0.9)).toNumber()).toBeLessThan(n);
+    }
+  });
+
+  test("is monotonic in the target", () => {
+    expect(accruedForEquity(100).gt(accruedForEquity(30))).toBe(true);
+  });
+});
 
 describe("equityForAccrued", () => {
   test("zero below the threshold", () => {
@@ -23,10 +44,10 @@ describe("equityForAccrued", () => {
     ).toBe(0);
   });
 
-  test("pays the base exactly at the threshold", () => {
+  test("pays the base exactly at the threshold (~5 starter nodes)", () => {
     expect(
       equityForAccrued(new Decimal(ACQUISITION_THRESHOLD)).toNumber(),
-    ).toBe(3);
+    ).toBe(15);
   });
 
   test("diminishing returns: 100x accrued is not 100x Equity", () => {
@@ -110,5 +131,21 @@ describe("reset scopes", () => {
     resetAllGameStores();
     expect(usePrestigeStore.getState().equity.toNumber()).toBe(0); // wiped
     expect(usePrestigeStore.getState().allocated).toEqual([]);
+  });
+
+  test("board mandates persist across a run reset, wiped on full reset", () => {
+    useValuationStore.getState().increaseValuation(10_000);
+    useValuationStore.getState().purchaseMandate("runway");
+    expect(useValuationStore.getState().mandateLevels.runway).toBe(1);
+
+    resetRunStores();
+    expect(useValuationStore.getState().mandateLevels.runway).toBe(1); // kept
+    expect(useValuationStore.getState().valuation.toNumber()).toBe(0); // run reset
+    expect(
+      useValuationStore.getState().getEconomyMultipliers().money,
+    ).toBeGreaterThan(1); // bonus still applies
+
+    resetAllGameStores();
+    expect(useValuationStore.getState().mandateLevels.runway).toBe(0); // wiped
   });
 });

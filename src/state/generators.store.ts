@@ -25,6 +25,7 @@ import {
   useInnovationStore,
 } from "./innovation.store";
 import { useFounderStore } from "./founder.store";
+import { usePrestigeStore } from "./prestige.store";
 import { useMoneyStore } from "./money.store";
 import { useValuationStore } from "./valuation.store";
 import { useAiSingularityStore } from "./ai-singularity.store";
@@ -125,6 +126,9 @@ type GeneratorState = {
 
   employeeManagement: EmployeeManagementData;
   satisfactionScores: SatisfactionScores;
+  /** A role's satisfaction score after skill-tree keystones (Crunch Mode → 0,
+   * Enshittify → positive side scaled). All satisfaction multipliers read this. */
+  getEffectiveSatisfaction: (id: GeneratorId) => number;
 
   addGenerator: (gen: OwnedGenerator) => void;
   increaseGenerator: (id: string, count?: number) => void;
@@ -450,11 +454,28 @@ export const useGeneratorStore = create<GeneratorState>()(
       return Math.pow(COST_DISCOUNT_BASE, lv);
     },
 
+    getEffectiveSatisfaction: (id) => {
+      const m = usePrestigeStore.getState().modifiers;
+      if (m.satisfactionNeutralized) return 0; // Crunch Mode: fully off
+      const s = get().satisfactionScores[id];
+      // Enshittify: halve only the positive side (penalties stay); the helpers
+      // are linear in score on the positive branch, so scaling the score scales
+      // exactly the bonus.
+      return m.satisfactionPositiveMult !== 1 && s > 0
+        ? s * m.satisfactionPositiveMult
+        : s;
+    },
+
     getAutoBuyRate: (id) => {
       const lv = get().employeeManagement.perks[id].autoBuyLevel;
       if (lv <= 0) return 0;
-      // Founder "Operator": automation ramps faster.
-      return AUTO_BUY_PER_LEVEL * lv * useFounderStore.getState().autoBuyMult;
+      // Founder "Operator" + skill-tree automation modifiers.
+      return (
+        AUTO_BUY_PER_LEVEL *
+        lv *
+        useFounderStore.getState().autoBuyMult *
+        usePrestigeStore.getState().modifiers.autoBuyMult
+      );
     },
 
     getAvailableManagementPoints: () => {
@@ -570,9 +591,13 @@ export const useGeneratorStore = create<GeneratorState>()(
 
       const seconds = globalTickInterval / 1000;
 
+      // Skill-tree modifiers for this whole tick (hoisted; reused below).
+      const prestige = usePrestigeStore.getState().modifiers;
       const emUnlocked =
         useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
-      let satisfactionScores = get().satisfactionScores;
+      // Raw satisfaction still evolves normally; the skill-tree keystones
+      // (Crunch Mode / Enshittify) are applied at READ time via
+      // getEffectiveSatisfaction, so every multiplier below honours them.
       if (emUnlocked) {
         const perks = get().employeeManagement.perks;
         const amounts: Record<GeneratorId, number> = {
@@ -583,33 +608,40 @@ export const useGeneratorStore = create<GeneratorState>()(
         for (const g of get().generators) {
           amounts[g.id] = g.amount;
         }
-        satisfactionScores = stepSatisfactionScores(
-          satisfactionScores,
-          perks,
-          amounts,
-          seconds
-        );
-        set({ satisfactionScores });
+        set({
+          satisfactionScores: stepSatisfactionScores(
+            get().satisfactionScores,
+            perks,
+            amounts,
+            // 996 slows how fast satisfaction moves toward its target.
+            seconds * prestige.satisfactionGainMult
+          ),
+        });
+        // Effective vibe → Crunch Mode (0) drives no singularity.
         useAiSingularityStore
           .getState()
-          .tick(seconds, satisfactionScores.vibe_coder, emUnlocked);
+          .tick(seconds, get().getEffectiveSatisfaction("vibe_coder"), emUnlocked);
       }
 
       const internIpsMult = emUnlocked
-        ? internSatisfactionIpsMultiplier(satisfactionScores.intern)
+        ? internSatisfactionIpsMultiplier(get().getEffectiveSatisfaction("intern"))
         : 1;
 
       const revenueMultFor = (id: GeneratorId) =>
-        emUnlocked ? satisfactionRevenueMultiplier(satisfactionScores[id]) : 1;
+        emUnlocked
+          ? satisfactionRevenueMultiplier(get().getEffectiveSatisfaction(id))
+          : 1;
 
       const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
       const juiceIps = 1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
 
-      // Founder modifiers: headcount synergy + per-generator output scaling.
+      // Founder + skill-tree modifiers: headcount synergy + output scaling.
       const founder = useFounderStore.getState();
       const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
       const headcountMoneyMult =
-        1 + founder.headcountMoneyPerEmployee * totalEmployees;
+        1 +
+        (founder.headcountMoneyPerEmployee + prestige.headcountPerEmployee) *
+          totalEmployees;
 
       const updatedGenerators = get().generators.map((gen) => {
         if (gen.amount === 0) return gen;
@@ -627,6 +659,9 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(juiceMps)
             .times(headcountMoneyMult)
             .times(founder.generatorMoneyMult[gen.id] ?? 1)
+            .times(prestige.moneyMult)
+            .times(prestige.employeeOutputMult)
+            .times(gen.id === "intern" ? prestige.internOutputMult : 1)
             .times(ticks);
           const innovationIncome = new Decimal(gen.innovationProduction)
             .times(innovationMultGlobal)
@@ -638,6 +673,9 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(internIpsMult)
             .times(juiceIps)
             .times(founder.generatorInnovationMult[gen.id] ?? 1)
+            .times(prestige.innovationMult)
+            .times(prestige.employeeOutputMult)
+            .times(gen.id === "intern" ? prestige.internOutputMult : 1)
             .times(ticks);
           useMoneyStore.getState().increaseMoney(income.toNumber());
           useInnovationStore
@@ -691,15 +729,18 @@ export const useGeneratorStore = create<GeneratorState>()(
         useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
         false;
       const revenueMult = emUnlocked
-        ? satisfactionRevenueMultiplier(get().satisfactionScores[id])
+        ? satisfactionRevenueMultiplier(get().getEffectiveSatisfaction(id))
         : 1;
       const out = get().getEmployeeOutputMults(id);
       const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
-      // Founder modifiers: headcount synergy + per-generator money scaling.
+      // Founder + skill-tree modifiers: headcount synergy + money scaling.
       const founder = useFounderStore.getState();
+      const prestige = usePrestigeStore.getState().modifiers;
       const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
       const headcountMoneyMult =
-        1 + founder.headcountMoneyPerEmployee * totalEmployees;
+        1 +
+        (founder.headcountMoneyPerEmployee + prestige.headcountPerEmployee) *
+          totalEmployees;
 
       return (
         ((innovationMultGlobal *
@@ -713,7 +754,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           (founder.generatorMoneyMult[id] ?? 1)) /
           (gen.interval / 1000)) *
         juiceMps *
-        headcountMoneyMult
+        headcountMoneyMult *
+        prestige.moneyMult *
+        prestige.employeeOutputMult *
+        (id === "intern" ? prestige.internOutputMult : 1)
       );
     },
     // Sum each generator's full-chain output (single source of truth: the
@@ -737,9 +781,12 @@ export const useGeneratorStore = create<GeneratorState>()(
         false;
       const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
       const founder = useFounderStore.getState();
+      const prestige = usePrestigeStore.getState().modifiers;
       const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
       const headcountMult =
-        1 + founder.headcountMoneyPerEmployee * totalEmployees;
+        1 +
+        (founder.headcountMoneyPerEmployee + prestige.headcountPerEmployee) *
+          totalEmployees;
 
       const globals = [
         { label: "Innovation", mult: innovationMult },
@@ -747,6 +794,7 @@ export const useGeneratorStore = create<GeneratorState>()(
         { label: "Board mandates", mult: valuationMults.money },
         { label: "Vape juice", mult: juiceMps },
         { label: "Headcount synergy", mult: headcountMult },
+        { label: "Skill tree", mult: prestige.moneyMult * prestige.employeeOutputMult },
       ];
 
       const perGenerator = get()
@@ -754,7 +802,7 @@ export const useGeneratorStore = create<GeneratorState>()(
         .map((gen) => {
           const out = get().getEmployeeOutputMults(gen.id);
           const revenueMult = emUnlocked
-            ? satisfactionRevenueMultiplier(get().satisfactionScores[gen.id])
+            ? satisfactionRevenueMultiplier(get().getEffectiveSatisfaction(gen.id))
             : 1;
           return {
             id: gen.id,
@@ -787,12 +835,13 @@ export const useGeneratorStore = create<GeneratorState>()(
         useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
         false;
       const internIpsMult = emUnlocked
-        ? internSatisfactionIpsMultiplier(get().satisfactionScores.intern)
+        ? internSatisfactionIpsMultiplier(get().getEffectiveSatisfaction("intern"))
         : 1;
       const out = get().getEmployeeOutputMults(id);
       const juiceIps =
         1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
       const founder = useFounderStore.getState();
+      const prestige = usePrestigeStore.getState().modifiers;
 
       return (
         ((innovationMultGlobal *
@@ -805,7 +854,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           internIpsMult *
           (founder.generatorInnovationMult[id] ?? 1)) /
           (gen.interval / 1000)) *
-        juiceIps
+        juiceIps *
+        prestige.innovationMult *
+        prestige.employeeOutputMult *
+        (id === "intern" ? prestige.internOutputMult : 1)
       );
     },
     getInnovationPerSecond: () =>
@@ -826,11 +878,12 @@ export const useGeneratorStore = create<GeneratorState>()(
         useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
         false;
       const internIpsMult = emUnlocked
-        ? internSatisfactionIpsMultiplier(get().satisfactionScores.intern)
+        ? internSatisfactionIpsMultiplier(get().getEffectiveSatisfaction("intern"))
         : 1;
       const juiceIps =
         1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
       const founder = useFounderStore.getState();
+      const prestige = usePrestigeStore.getState().modifiers;
 
       const globals = [
         { label: "Innovation curve", mult: innovationMult },
@@ -838,6 +891,7 @@ export const useGeneratorStore = create<GeneratorState>()(
         { label: "Board mandates", mult: valuationMults.innovation },
         { label: "Vape juice", mult: juiceIps },
         { label: "Intern morale", mult: internIpsMult },
+        { label: "Skill tree", mult: prestige.innovationMult * prestige.employeeOutputMult },
       ];
 
       const perGenerator = get()
@@ -871,17 +925,19 @@ export const useGeneratorStore = create<GeneratorState>()(
         useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
         false;
       const internValMult = emUnlocked
-        ? internSatisfactionValuationMultiplier(get().satisfactionScores.intern)
+        ? internSatisfactionValuationMultiplier(get().getEffectiveSatisfaction("intern"))
         : 1;
       const founderMult = useFounderStore.getState().valuationAccrualMult;
+      const prestigeMult = usePrestigeStore.getState().modifiers.valuationMult;
 
       // Mirror of the accrual in tickGenerators: a sub-linear function of $/sec,
-      // scaled by board (sales), intern morale, and the founder modifier.
+      // scaled by board (sales), intern morale, founder, and skill-tree modifiers.
       const base = Math.pow(Math.max(1, mps), 0.38) * 4e-5;
       const factors = [
         { label: "Sales managers", mult: managerMults.salesValuation },
         { label: "Intern morale", mult: internValMult },
         { label: "Founder", mult: founderMult },
+        { label: "Skill tree", mult: prestigeMult },
       ];
       const total = factors.reduce((m, f) => m * f.mult, base);
       return { total, base, mps, factors };
@@ -940,7 +996,7 @@ export const useGeneratorStore = create<GeneratorState>()(
 );
 
 setEmployeeSatisfactionReaders({
-  internScore: () => useGeneratorStore.getState().satisfactionScores.intern,
+  internScore: () => useGeneratorStore.getState().getEffectiveSatisfaction("intern"),
   employeeManagementUnlocked: () =>
     useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false,
 });

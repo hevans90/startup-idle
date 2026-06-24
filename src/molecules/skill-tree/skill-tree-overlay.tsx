@@ -1,4 +1,4 @@
-import { IconX } from "@tabler/icons-react";
+import { IconSearch, IconX } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { usePrestigeStore, RESPECS_PER_EXIT } from "../../state/prestige.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
@@ -20,17 +20,32 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
   const respecPoints = usePrestigeStore((s) => s.respecPoints);
   const allocated = usePrestigeStore((s) => s.allocated.length);
   const respecMode = useSkillTreeUiStore((s) => s.respecMode);
+  const search = useSkillTreeUiStore((s) => s.search);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Esc clears an active search first, otherwise closes the tree.
+      if (useSkillTreeUiStore.getState().search) {
+        useSkillTreeUiStore.getState().setSearch("");
+      } else {
+        onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Always leave respec mode off when the tree closes.
-  useEffect(() => () => useSkillTreeUiStore.getState().setRespecMode(false), []);
+  // Reset transient UI (respec mode, search, hover spotlight) when the tree closes.
+  useEffect(
+    () => () => {
+      const ui = useSkillTreeUiStore.getState();
+      ui.setRespecMode(false);
+      ui.setSearch("");
+      ui.setHighlightIds([]);
+    },
+    [],
+  );
 
   // Drop out of respec mode when you run out of points (the toggle is disabled,
   // so this avoids getting stuck in it).
@@ -57,6 +72,32 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
             <span className="font-bold text-rose-500 dark:text-rose-400">{respecPoints}</span>
           </span>
         </div>
+
+        <div className="relative">
+          <IconSearch
+            size={15}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-primary-400"
+          />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => useSkillTreeUiStore.getState().setSearch(e.target.value)}
+            placeholder="Search passives…"
+            aria-label="Search passives"
+            className="w-56 rounded-md border border-primary-300 bg-primary-100/80 py-1 pl-8 pr-7 text-xs text-primary-900 outline-none placeholder:text-primary-400 focus:border-cyan-500 dark:border-primary-700 dark:bg-primary-800/80 dark:text-primary-100"
+          />
+          {search && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => useSkillTreeUiStore.getState().setSearch("")}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-primary-400 hover:text-primary-700 dark:hover:text-primary-100"
+            >
+              <IconX size={14} />
+            </button>
+          )}
+        </div>
+
         <div className="flex items-center gap-2">
           <Button
             className="text-xs"

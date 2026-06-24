@@ -3,16 +3,7 @@ import type { OfflineSummary } from "../game/offline-progress";
 import { type GeneratorId, GENERATOR_TYPES } from "../state/generators.store";
 import { Button } from "../ui/Button";
 import { formatCurrency } from "../utils/money-utils";
-
-const fmtDuration = (ms: number): string => {
-  const s = Math.floor(ms / 1000);
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${Math.max(1, m)}m`;
-};
+import { formatDuration as fmtDuration } from "../utils/time-utils";
 
 const plain = (n: Decimal) => formatCurrency(n, { showDollarSign: false });
 

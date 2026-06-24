@@ -12,8 +12,9 @@ import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 /**
  * Resets a single RUN — everything that should start fresh when you get
  * acquired (money, employees, upgrades, innovation, valuation, AI singularity,
- * vape, founder, offline clock) — while PRESERVING prestige (Equity + skill
- * tree) and settings/version. The founder is cleared so a new one is chosen.
+ * founder, offline clock) — while PRESERVING prestige (Equity + skill tree),
+ * board mandates, and vape achievements/upgrades. The founder is cleared so a
+ * new one is chosen.
  */
 export function resetRunStores(): void {
   useMoneyStore.getState().reset();
@@ -22,13 +23,19 @@ export function resetRunStores(): void {
   useInnovationStore.getState().reset();
   useGeneratorStore.getState().reset();
   useAiSingularityStore.getState().reset();
-  useVapeAchievementsStore.getState().reset();
   useFounderStore.getState().reset();
   useSessionStore.getState().reset();
 
   const now = Date.now();
   useInnovationStore.setState({ globalLastTick: now });
   useGeneratorStore.setState({ globalLastTick: now });
+
+  // Skill-tree "Permanent Acqui-hire": start the new company with free intern
+  // levels (reads prestige, which is preserved across a run reset).
+  const freeLevels = usePrestigeStore.getState().modifiers.freeStartingLevels;
+  if (freeLevels > 0) {
+    useGeneratorStore.getState().increaseGenerator("intern", freeLevels);
+  }
 }
 
 /**
@@ -37,6 +44,12 @@ export function resetRunStores(): void {
  * (handled in `src/test/setup.ts`).
  */
 export function resetAllGameStores(): void {
-  resetRunStores();
+  // Wipe prestige FIRST so the run reset below sees neutral modifiers (no free
+  // Acqui-hire levels granted on a total wipe).
   usePrestigeStore.getState().reset();
+  resetRunStores();
+  // Board mandates persist across runs, so the run reset keeps them — clear them
+  // explicitly here for a true full wipe.
+  useValuationStore.getState().clearMandates();
+  useVapeAchievementsStore.getState().clearAll();
 }

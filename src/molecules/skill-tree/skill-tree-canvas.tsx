@@ -18,6 +18,8 @@ import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { useThemeStore } from "../../state/theme.store";
 import { useResizeToWrapper } from "../../hooks/use-resize-to-wrapper";
 import { useDisableDOMZoom } from "../../office/utils/use-disable-dom-zoom";
+import { applyViewportControls } from "../../utils/viewport-controls";
+import { searchNodeIds } from "../../game/skill-tree-search";
 
 extend({ Container, Graphics, Sprite, Viewport });
 
@@ -44,6 +46,8 @@ const C_ON_PATH = 0x2563eb; // blue — node lies on the previewed route to the 
 const C_EDGE_PREVIEW = 0x2563eb; // blue — edge on the previewed route
 const C_EDGE_DIM = 0x3a4258; // dark theme idle edge
 const C_EDGE_DIM_LIGHT = 0xd2d6dd; // light theme idle edge (faint)
+const C_SPOTLIGHT = 0x22d3ee; // bright cyan — search / panel-hover spotlight
+const POP_SCALE = 1.35; // how much a spotlit node grows
 
 // Per-theme disc fills so the 11 clusters read as distinct regions. State
 // (allocated / available / locked) stays on the ring; identity lives on the disc.
@@ -106,7 +110,7 @@ const iconTexture = (url: string): Texture => {
   return tex;
 };
 
-type NodeView = { ring: Graphics; glow: Graphics; disc: Graphics };
+type NodeView = { ring: Graphics; glow: Graphics; disc: Graphics; cont: Container };
 
 /**
  * Imperative scene: every node/edge graphic is built ONCE into a Pixi container,
@@ -126,12 +130,14 @@ const TreeScene = memo(function TreeScene() {
   const equity = usePrestigeStore((s) => s.equity);
   const respecMode = useSkillTreeUiStore((s) => s.respecMode);
   const hoveredId = useSkillTreeUiStore((s) => s.hovered?.id ?? null);
+  const search = useSkillTreeUiStore((s) => s.search);
+  const highlightIds = useSkillTreeUiStore((s) => s.highlightIds);
   const theme = useThemeStore((s) => s.theme);
 
   // Repaint the backdrop when the theme toggles while the tree is open.
   useEffect(() => {
     const renderer = pixiApp?.app?.renderer;
-    if (renderer) renderer.background.color = theme === "dark" ? 0x1b1f23 : 0xf4f5f6;
+    if (renderer) renderer.background.color = theme === "dark" ? 0x16191d : 0xf4f5f6;
   }, [pixiApp, theme]);
 
   // Hover tracking → publishes the hovered node + screen anchor each frame.
@@ -224,7 +230,7 @@ const TreeScene = memo(function TreeScene() {
       cont.on("pointerout", () => onUnhover(node.id));
 
       root.addChild(cont);
-      nodeViews.current.set(node.id, { ring, glow, disc });
+      nodeViews.current.set(node.id, { ring, glow, disc, cont });
     }
 
     return () => {
@@ -243,6 +249,11 @@ const TreeScene = memo(function TreeScene() {
     const cHover = theme === "dark" ? C_HOVER : C_HOVER_LIGHT;
     const cLocked = theme === "dark" ? C_LOCKED : C_LOCKED_LIGHT;
     const cEdgeDim = theme === "dark" ? C_EDGE_DIM : C_EDGE_DIM_LIGHT;
+
+    // Spotlight set: fuzzy-search matches (title + effect) plus any externally
+    // hovered ids (e.g. the bonuses panel). Matches just pop — nothing dims.
+    const spotlight = new Set<string>(highlightIds);
+    for (const id of searchNodeIds(search)) spotlight.add(id);
 
     // Cheapest route to reach the hovered node — drives the blue "what you'd buy
     // to get here" highlight (route nodes + edges) and the tooltip's total cost.
@@ -305,7 +316,23 @@ const TreeScene = memo(function TreeScene() {
                   : reachable
                     ? C_REACHABLE
                     : cLocked;
-      view.glow.visible = hot;
+
+      // Spotlight (search / panel hover) wins the ring and pops the node: it
+      // grows, glows cyan, rises above its neighbours; everything else dims while
+      // a search is active.
+      const spotlit = spotlight.has(node.id);
+      if (spotlit) {
+        view.ring.tint = C_SPOTLIGHT;
+        view.glow.tint = C_SPOTLIGHT;
+        view.glow.alpha = 0.6;
+        view.glow.visible = true;
+      } else {
+        view.glow.tint = C_AVAILABLE;
+        view.glow.alpha = 0.3;
+        view.glow.visible = hot;
+      }
+      view.cont.scale.set(spotlit ? POP_SCALE : 1);
+      view.cont.zIndex = spotlit ? 6 : 1;
     }
 
     SKILL_TREE.edges.forEach(([a, b], i) => {
@@ -328,7 +355,7 @@ const TreeScene = memo(function TreeScene() {
         g.alpha = theme === "dark" ? 0.55 : 0.55;
       }
     });
-  }, [allocated, equity, respecMode, hoveredId, theme]);
+  }, [allocated, equity, respecMode, hoveredId, theme, search, highlightIds]);
 
   // Project the hovered node to screen space each frame for the DOM tooltip.
   useTick(() => {
@@ -346,7 +373,9 @@ const TreeScene = memo(function TreeScene() {
     const node = NODES.get(id);
     if (!node) return;
     const screen = vp.toScreen(node.x, node.y);
-    store.setHovered({ id, x: screen.x, y: screen.y });
+    // On-screen radius scales with zoom, so the tooltip clears the disc.
+    const r = radiusFor(node) * vp.scale.x;
+    store.setHovered({ id, x: screen.x, y: screen.y, r });
     wroteRef.current = true;
   });
 
@@ -383,10 +412,10 @@ const TreeViewport = memo(function TreeViewport({
     if (didInit.current) return;
     didInit.current = true;
 
-    vp.drag({ mouseButtons: "left-middle" })
-      .pinch()
-      .wheel({ percent: 2 })
-      .clampZoom({ minScale: TREE_CAMERA.minScale, maxScale: TREE_CAMERA.maxScale });
+    applyViewportControls(vp, {
+      minScale: TREE_CAMERA.minScale,
+      maxScale: TREE_CAMERA.maxScale,
+    });
 
     const { width } = sizeRef.current;
     const b = treeBounds(SKILL_TREE);
@@ -417,8 +446,9 @@ const TreeViewport = memo(function TreeViewport({
   );
 });
 
-// Canvas backdrop — flips with the app theme (primary-900 dark / primary-50 light).
-const BG_DARK = "#1b1f23";
+// Canvas backdrop — flips with the app theme. Dark is a touch darker than
+// primary-900 so the tree sits on a deeper backdrop.
+const BG_DARK = "#16191d";
 const BG_LIGHT = "#f4f5f6";
 
 export const SkillTreeCanvas = () => {

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { vibeSingularityAccrualRatePerSecond } from "../game/satisfaction";
+import { usePrestigeStore } from "./prestige.store";
 
 type AiSingularityState = {
   value: number;
@@ -17,7 +18,10 @@ export const useAiSingularityStore = create<AiSingularityState>()(
 
       tick: (seconds, vibeScore, employeeManagementUnlocked) => {
         if (!employeeManagementUnlocked || vibeScore >= 0) return;
-        const rate = vibeSingularityAccrualRatePerSecond(vibeScore);
+        // Skill-tree "AI hype" passives accelerate the singularity.
+        const rate =
+          vibeSingularityAccrualRatePerSecond(vibeScore) *
+          usePrestigeStore.getState().modifiers.singularityMult;
         const cur = Math.min(100, Math.max(0, get().value));
         if (cur >= 100) {
           set({ value: 100 });

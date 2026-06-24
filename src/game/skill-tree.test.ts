@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
+  aggregateGrants,
   buildAdjacency,
   canRemoveWithoutOrphan,
   frontierPath,
   isReachable,
+  NEUTRAL_PRESTIGE_MODIFIERS,
   nodeById,
   nodeCost,
+  nodeEffectRows,
   nodesToRemove,
   pathEquityCost,
+  resolvePrestigeModifiers,
   SKILL_TREE,
 } from "./skill-tree";
 
@@ -162,6 +166,150 @@ describe("frontierPath + pathEquityCost", () => {
     expect(nodesToRemove(SKILL_TREE, alloc, "link_1_1", adj)).toEqual(["link_1_1"]);
     // a root is never removable
     expect(nodesToRemove(SKILL_TREE, alloc, "core", adj)).toEqual([]);
+  });
+});
+
+describe("node bonuses", () => {
+  test("every non-root node grants at least one bonus (travel included)", () => {
+    const bearing = SKILL_TREE.nodes.filter((n) => n.kind !== "root");
+    expect(bearing.length).toBeGreaterThan(0);
+    for (const n of bearing) {
+      expect(n.grants && n.grants.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("travel-node bonuses are small (≤ 2% per stat, no multipliers)", () => {
+    for (const n of SKILL_TREE.nodes) {
+      if (n.kind !== "travel") continue;
+      for (const g of n.grants ?? []) {
+        expect(g.kind).toBe("pct");
+        expect(Math.abs(g.value)).toBeLessThanOrEqual(2);
+      }
+    }
+  });
+
+  test("the root grants the unique all-rounder Founding Charter", () => {
+    const root = SKILL_TREE.nodes.find((n) => n.kind === "root")!;
+    const stats = new Set((root.grants ?? []).map((g) => g.stat));
+    // touches many distinct levers — the only such node in the tree
+    expect(stats.size).toBeGreaterThanOrEqual(5);
+    expect(resolvePrestigeModifiers([root.id]).moneyMult).toBeGreaterThan(1);
+  });
+
+  test("aggregateGrants sums percents, multiplies multipliers, drops no-ops", () => {
+    const totals = aggregateGrants([
+      { stat: "money", kind: "pct", value: 5 },
+      { stat: "money", kind: "pct", value: 3 },
+      { stat: "money", kind: "mult", value: 3 },
+      { stat: "innovation", kind: "mult", value: 0.2 },
+      { stat: "valuation", kind: "pct", value: 0 }, // net no-op → dropped
+    ]);
+    const money = totals.find((t) => t.stat === "money")!;
+    expect(money.pct).toBe(8);
+    expect(money.mult).toBe(3);
+    expect(totals.find((t) => t.stat === "innovation")!.mult).toBeCloseTo(0.2);
+    expect(totals.find((t) => t.stat === "valuation")).toBeUndefined();
+  });
+});
+
+describe("resolvePrestigeModifiers", () => {
+  const nodeWith = (pred: (g: { stat: string; kind: string; value: number }) => boolean) =>
+    SKILL_TREE.nodes.find((n) => n.grants?.some(pred))!;
+
+  test("nothing allocated → neutral modifiers", () => {
+    expect(resolvePrestigeModifiers([])).toEqual(NEUTRAL_PRESTIGE_MODIFIERS);
+  });
+
+  test("a money% node raises moneyMult by that fraction", () => {
+    const n = nodeWith((g) => g.stat === "money" && g.kind === "pct" && g.value > 0);
+    const g = n.grants!.find((x) => x.stat === "money" && x.kind === "pct")!;
+    // isolate: a node that ONLY grants money% so the assertion is exact
+    const moneyOnly = SKILL_TREE.nodes.find(
+      (x) => x.grants?.length === 1 && x.grants[0].stat === "money" && x.grants[0].kind === "pct",
+    );
+    const target = moneyOnly ?? n;
+    const v = (moneyOnly ?? n).grants!.find((x) => x.stat === "money")!.value;
+    expect(resolvePrestigeModifiers([target.id]).moneyMult).toBeCloseTo(1 + v / 100);
+    expect(g.value).toBeGreaterThan(0);
+  });
+
+  test("a money× keystone multiplies moneyMult", () => {
+    const k = nodeWith((g) => g.stat === "money" && g.kind === "mult");
+    const m = k.grants!.find((x) => x.stat === "money" && x.kind === "mult")!;
+    expect(resolvePrestigeModifiers([k.id]).moneyMult).toBeCloseTo(m.value);
+  });
+
+  test("a hireCost node makes hires cheaper (mult < 1)", () => {
+    const n = nodeWith((g) => g.stat === "hireCost" && g.value < 0);
+    expect(resolvePrestigeModifiers([n.id]).hireCostMult).toBeLessThan(1);
+  });
+
+  test("a headcount node yields an additive per-employee rate", () => {
+    const n = nodeWith((g) => g.stat === "headcount");
+    const g = n.grants!.find((x) => x.stat === "headcount")!;
+    expect(resolvePrestigeModifiers([n.id]).headcountPerEmployee).toBeCloseTo(g.value / 100);
+  });
+
+  test("a satisfactionGain node slows satisfaction (mult < 1)", () => {
+    const n = nodeWith((g) => g.stat === "satisfactionGain" && g.value < 0);
+    expect(resolvePrestigeModifiers([n.id]).satisfactionGainMult).toBeLessThan(1);
+  });
+
+  test("keystone structural flags resolve from their `special` tag", () => {
+    const bySpecial = (s: string) => SKILL_TREE.nodes.find((n) => n.special === s)!;
+    expect(resolvePrestigeModifiers([bySpecial("disableManagers").id]).disableManagers).toBe(true);
+    expect(
+      resolvePrestigeModifiers([bySpecial("neutralizeSatisfaction").id]).satisfactionNeutralized,
+    ).toBe(true);
+    expect(
+      resolvePrestigeModifiers([bySpecial("dampSatisfaction").id]).satisfactionPositiveMult,
+    ).toBeLessThan(1);
+    expect(
+      resolvePrestigeModifiers([bySpecial("internsCrippled").id]).internOutputMult,
+    ).toBeLessThan(1);
+    expect(
+      resolvePrestigeModifiers([bySpecial("freeStartingLevels").id]).freeStartingLevels,
+    ).toBeGreaterThan(0);
+  });
+
+  test("each structural special lives on exactly one keystone", () => {
+    for (const s of [
+      "disableManagers",
+      "neutralizeSatisfaction",
+      "dampSatisfaction",
+      "internsCrippled",
+      "freeStartingLevels",
+    ]) {
+      const hits = SKILL_TREE.nodes.filter((n) => n.special === s);
+      expect(hits.length).toBe(1);
+      expect(hits[0].kind).toBe("keystone");
+    }
+  });
+});
+
+describe("nodeEffectRows (signed, coloured breakdown)", () => {
+  test("996 splits into a green output gain and a red satisfaction downside", () => {
+    const n996 = SKILL_TREE.nodes.find((n) => n.title === "996")!;
+    const rows = nodeEffectRows(n996);
+    expect(rows.length).toBe(2);
+    const good = rows.find((r) => r.tone === "good");
+    const bad = rows.find((r) => r.tone === "bad");
+    expect(good?.label.toLowerCase()).toContain("employee output");
+    expect(bad?.label.toLowerCase()).toContain("satisfaction gain");
+  });
+
+  test("a keystone appends its structural reshape as a row", () => {
+    const boot = SKILL_TREE.nodes.find((n) => n.special === "disableManagers")!;
+    const rows = nodeEffectRows(boot);
+    expect(rows.some((r) => /manager/i.test(r.label) && r.tone === "bad")).toBe(true);
+  });
+
+  test("a beneficial multiplier reads good, a detrimental one reads bad", () => {
+    const downRound = SKILL_TREE.nodes.find((n) => n.title === "Down Round")!;
+    const rows = nodeEffectRows(downRound);
+    // money ×3 → good, valuation ×0.2 → bad
+    expect(rows.some((r) => /money/i.test(r.label) && r.tone === "good")).toBe(true);
+    expect(rows.some((r) => /valuation/i.test(r.label) && r.tone === "bad")).toBe(true);
   });
 });
 

@@ -20,7 +20,10 @@ export type VapeAchievementsState = {
   recordAchievementUnlock: (id: string, juiceReward: number) => boolean;
   spendJuice: (amount: number) => boolean;
   tryPurchaseJuiceUpgrade: (id: string) => boolean;
+  /** Run reset: no-op — achievements and juice upgrades persist across prestiges. */
   reset: () => void;
+  /** Full wipe only: clears everything including achievements and upgrades. */
+  clearAll: () => void;
 };
 
 const initial = () => ({
@@ -72,6 +75,10 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
       },
 
       reset: () => {
+        // Achievements and juice upgrades persist across prestiges — no-op.
+      },
+
+      clearAll: () => {
         set(initial());
         useVapeAchievementsStore.persist.clearStorage();
       },

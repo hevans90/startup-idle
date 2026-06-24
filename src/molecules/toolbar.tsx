@@ -4,6 +4,7 @@ import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { ResourceCounter } from "../ui/ResourceCounter";
 import { formatCurrency } from "../utils/money-utils";
+import { CompanyTimer } from "./company-timer";
 import { FounderBadge } from "./founder-badge";
 import { ToolbarInnovationCounter } from "./innovation-counter";
 import { MoneySummary } from "./money-summary";
@@ -40,7 +41,8 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
         <ToolbarValuationCounter className="min-w-[9.5rem] shrink-0" />
       )}
 
-      <FounderBadge className="ml-auto mr-2 shrink-0" />
+      <CompanyTimer className="ml-auto shrink-0 hidden md:flex" />
+      <FounderBadge className="ml-auto mr-2 shrink-0 md:ml-3" />
     </div>
   );
 };

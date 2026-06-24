@@ -29,7 +29,6 @@ export const ValuationMandatesPanel = () => {
           const level = mandateLevels[m.id];
           const cost = getMandateCost(m.id);
           const affordable = canAffordMandate(m.id);
-          const maxed = level >= m.maxLevel;
           return (
             <div
               key={m.id}
@@ -37,19 +36,15 @@ export const ValuationMandatesPanel = () => {
             >
               <div className="flex justify-between gap-2">
                 <span className="font-medium">{m.name}</span>
-                <span className="text-xs opacity-70">
-                  Lv {level}/{m.maxLevel}
-                </span>
+                <span className="text-xs opacity-70">Lv {level}</span>
               </div>
               <p className="text-xs opacity-80 text-left">{m.description}</p>
               <Button
                 className="text-xs mt-1"
-                disabled={maxed || !affordable}
+                disabled={!affordable}
                 onClick={() => purchaseMandate(m.id)}
               >
-                {maxed
-                  ? "Maxed"
-                  : `Buy (${formatCurrency(cost, { showDollarSign: false })})`}
+                {`Buy (${formatCurrency(cost, { showDollarSign: false })})`}
               </Button>
             </div>
           );

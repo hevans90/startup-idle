@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { FOUNDERS, type FounderModifiers } from "../game/founders.catalog";
 import { useMoneyStore } from "./money.store";
+import { useSessionStore } from "./session.store";
 
 /** Neutral (no-op) modifier values — read by every chokepoint when no founder is active. */
 const NEUTRAL: Required<FounderModifiers> = {
@@ -38,6 +39,8 @@ export const useFounderStore = create<FounderState>()(
         // roster (e.g. a generator restriction) when it changes.
         set({ selectedFounderId: id, ...NEUTRAL, ...def.modifiers });
         useMoneyStore.getState().increaseMoney(def.startingCash);
+        // The company is founded now — start its "incorporated X ago" clock.
+        useSessionStore.getState().incorporate();
       },
 
       reset: () => set({ selectedFounderId: null, ...NEUTRAL }),

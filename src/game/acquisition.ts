@@ -12,8 +12,9 @@ import { useValuationStore } from "../state/valuation.store";
 
 /** Minimum accrued valuation before an acquisition offer is available. */
 export const ACQUISITION_THRESHOLD = 1000;
-/** Equity granted exactly at the threshold. */
-const EQUITY_BASE = 3;
+/** Equity granted exactly at the threshold — enough for ~5 starter nodes
+ * (the first five nodes cost 1+2+3+4+5 = 15). */
+const EQUITY_BASE = 15;
 /** Diminishing-returns exponent on (accrued / threshold). */
 const EQUITY_EXP = 0.5;
 
@@ -24,7 +25,23 @@ const EQUITY_EXP = 0.5;
 export function equityForAccrued(accrued: Decimal): Decimal {
   if (accrued.lt(ACQUISITION_THRESHOLD)) return new Decimal(0);
   const ratio = accrued.div(ACQUISITION_THRESHOLD).toNumber();
-  return new Decimal(Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP)));
+  // Skill-tree "exit" passives boost the payout (equityMult ≥ 1, neutral = 1).
+  const equityMult = usePrestigeStore.getState().modifiers.equityMult;
+  return new Decimal(
+    Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP) * equityMult),
+  );
+}
+
+/**
+ * Inverse of {@link equityForAccrued}: the total accrued valuation needed for an
+ * acquisition offer of `targetEquity` (accounting for the equity multiplier).
+ * Used to show progress toward the next Equity point.
+ */
+export function accruedForEquity(targetEquity: number): Decimal {
+  if (targetEquity <= 0) return new Decimal(0);
+  const equityMult = usePrestigeStore.getState().modifiers.equityMult;
+  const ratio = Math.pow(targetEquity / (EQUITY_BASE * equityMult), 1 / EQUITY_EXP);
+  return new Decimal(ACQUISITION_THRESHOLD * ratio);
 }
 
 /** Equity the player would earn if they acquired right now. */

@@ -8,6 +8,9 @@ export type HoveredSkillNode = {
   id: string;
   x: number;
   y: number;
+  /** The node's on-screen radius (world radius × zoom), so the DOM tooltip can
+   * sit clear of the disc no matter how far you're zoomed in. */
+  r: number;
 };
 
 type SkillTreeUiState = {
@@ -22,6 +25,12 @@ type SkillTreeUiState = {
   /** When on, clicking an allocated node refunds it instead of allocating. */
   respecMode: boolean;
   setRespecMode: (on: boolean) => void;
+  /** Live search term — matching nodes "pop" and the rest dim. */
+  search: string;
+  setSearch: (search: string) => void;
+  /** Node ids to spotlight from an external hover (e.g. the bonuses panel). */
+  highlightIds: string[];
+  setHighlightIds: (ids: string[]) => void;
 };
 
 export const useSkillTreeUiStore = create<SkillTreeUiState>()((set) => ({
@@ -33,4 +42,8 @@ export const useSkillTreeUiStore = create<SkillTreeUiState>()((set) => ({
   setPreviewPath: (previewPath) => set({ previewPath }),
   respecMode: false,
   setRespecMode: (respecMode) => set({ respecMode }),
+  search: "",
+  setSearch: (search) => set({ search }),
+  highlightIds: [],
+  setHighlightIds: (highlightIds) => set({ highlightIds }),
 }));

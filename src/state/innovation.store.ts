@@ -9,6 +9,7 @@ import {
   decimalReviver,
 } from "./_break_infinity.decimals";
 import { useFounderStore } from "./founder.store";
+import { usePrestigeStore } from "./prestige.store";
 
 const LOCAL_STORAGE_KEY = "innovation";
 
@@ -390,6 +391,9 @@ export const useInnovationStore = create<InnovationState>()(
 
         set({ globalLastTick: now });
 
+        // Skill-tree "Bootstrapped": managers are disabled — no progression.
+        if (usePrestigeStore.getState().modifiers.disableManagers) return;
+
         const ticks = Math.floor(globalTickInterval / MANGER_TICK_INTERVAL);
 
         if (ticks > 0) {
@@ -408,10 +412,11 @@ export const useInnovationStore = create<InnovationState>()(
                 .div(tierModifier);
               const internAccrualMult = getInternManagerAccrualMultiplierForTick();
               const internMult = new Decimal(internAccrualMult);
-              // Founder "Operator": managers tier up faster all run.
+              // Founder "Operator" + skill-tree: managers tier up faster.
               const gain = baseGain
                 .mul(internMult)
-                .mul(useFounderStore.getState().managerProgressMult);
+                .mul(useFounderStore.getState().managerProgressMult)
+                .mul(usePrestigeStore.getState().modifiers.managerSpeedMult);
 
               const newProgress = manager.progress.add(gain);
               manager.estimateToNextTier = estimateTimeToNextTierFormatted(

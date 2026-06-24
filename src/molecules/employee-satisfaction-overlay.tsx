@@ -16,6 +16,7 @@ import {
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
+import { usePrestigeStore } from "../state/prestige.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 
 const ROW_LABELS = {
@@ -286,6 +287,9 @@ export const EmployeeSatisfactionOverlay = ({
   );
   const scores = useGeneratorStore((s) => s.satisfactionScores);
   const singularityPct = useAiSingularityStore((s) => s.value);
+  const neutralized = usePrestigeStore((s) => s.modifiers.satisfactionNeutralized);
+  const positiveMult = usePrestigeStore((s) => s.modifiers.satisfactionPositiveMult);
+  const damped = !neutralized && positiveMult !== 1;
 
   if (!employeeMgmtUnlocked) return null;
 
@@ -309,7 +313,22 @@ export const EmployeeSatisfactionOverlay = ({
             </p>
             <SatisfactionHowToRaiseHelpPopover />
           </div>
-          <div className="flex flex-col gap-2">
+          {neutralized && (
+            <p className="mb-1.5 text-[10px] leading-snug text-rose-600 dark:text-rose-400">
+              Disabled by keystone — all satisfaction effects are off.
+            </p>
+          )}
+          {damped && (
+            <p className="mb-1.5 text-[10px] leading-snug text-rose-600 dark:text-rose-400">
+              Enshittified — positive satisfaction bonuses cut to{" "}
+              {Math.round(positiveMult * 100)}%.
+            </p>
+          )}
+          <div
+            className={
+              neutralized ? "flex flex-col gap-2 opacity-40" : "flex flex-col gap-2"
+            }
+          >
             {(Object.keys(ROW_LABELS) as RowId[]).map((id) => (
               <SatisfactionBar
                 key={id}

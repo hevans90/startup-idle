@@ -24,6 +24,7 @@
     "culori": "^4.0.1",
     "date-fns": "^4.1.0",
     "fast-xml-parser": "^5.5.9",
+    "fuse.js": "^7.4.2",
     "mathjs": "^14.4.0",
     "pixi-viewport": "^6.0.3",
     "pixi.js": "^8.17.1",

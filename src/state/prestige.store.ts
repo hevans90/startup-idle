@@ -9,6 +9,9 @@ import {
   nodeById,
   nodeCost,
   nodesToRemove,
+  NEUTRAL_PRESTIGE_MODIFIERS,
+  type PrestigeModifiers,
+  resolvePrestigeModifiers,
   SKILL_TREE,
 } from "../game/skill-tree";
 import {
@@ -41,6 +44,9 @@ type PrestigeState = {
   respecPoints: number;
   /** Allocated skill-tree node ids. */
   allocated: string[];
+  /** Resolved economy modifiers from `allocated` (derived; recomputed on every
+   * change, never persisted). Read at the founder-style chokepoints. */
+  modifiers: PrestigeModifiers;
 
   /** Equity cost of the next node (escalates with allocation count). */
   getNextCost: () => number;
@@ -76,6 +82,7 @@ export const usePrestigeStore = create<PrestigeState>()(
       exits: 0,
       respecPoints: 0,
       allocated: [],
+      modifiers: { ...NEUTRAL_PRESTIGE_MODIFIERS },
 
       getNextCost: () => nodeCost(get().allocated.length),
 
@@ -89,10 +96,14 @@ export const usePrestigeStore = create<PrestigeState>()(
       allocate: (id) => {
         if (!get().canAllocate(id)) return;
         const cost = get().getNextCost();
-        set((s) => ({
-          equity: s.equity.sub(cost),
-          allocated: [...s.allocated, id],
-        }));
+        set((s) => {
+          const allocated = [...s.allocated, id];
+          return {
+            equity: s.equity.sub(cost),
+            allocated,
+            modifiers: resolvePrestigeModifiers(allocated),
+          };
+        });
       },
 
       allocatePath: (id) => {
@@ -114,7 +125,10 @@ export const usePrestigeStore = create<PrestigeState>()(
           count += 1;
         }
         if (!added.length) return;
-        set((st) => ({ equity, allocated: [...st.allocated, ...added] }));
+        set((st) => {
+          const allocated = [...st.allocated, ...added];
+          return { equity, allocated, modifiers: resolvePrestigeModifiers(allocated) };
+        });
       },
 
       canRespec: (id) => {
@@ -133,11 +147,15 @@ export const usePrestigeStore = create<PrestigeState>()(
         // Refund the current top marginal cost (symmetric with allocate), so
         // Equity is fully recoverable regardless of removal order.
         const refund = nodeCost(get().allocated.length - 1);
-        set((s) => ({
-          respecPoints: s.respecPoints - 1,
-          equity: s.equity.add(refund),
-          allocated: s.allocated.filter((n) => n !== id),
-        }));
+        set((s) => {
+          const allocated = s.allocated.filter((n) => n !== id);
+          return {
+            respecPoints: s.respecPoints - 1,
+            equity: s.equity.add(refund),
+            allocated,
+            modifiers: resolvePrestigeModifiers(allocated),
+          };
+        });
       },
 
       respecPath: (id) => {
@@ -163,7 +181,12 @@ export const usePrestigeStore = create<PrestigeState>()(
           target.delete(removable);
           points -= 1;
         }
-        set({ allocated, respecPoints: points, equity });
+        set({
+          allocated,
+          respecPoints: points,
+          equity,
+          modifiers: resolvePrestigeModifiers(allocated),
+        });
       },
 
       buyRespecs: () => {
@@ -185,7 +208,13 @@ export const usePrestigeStore = create<PrestigeState>()(
       },
 
       reset: () => {
-        set({ equity: new Decimal(0), exits: 0, respecPoints: 0, allocated: [] });
+        set({
+          equity: new Decimal(0),
+          exits: 0,
+          respecPoints: 0,
+          allocated: [],
+          modifiers: { ...NEUTRAL_PRESTIGE_MODIFIERS },
+        });
         usePrestigeStore.persist.clearStorage();
       },
     }),
@@ -203,12 +232,14 @@ export const usePrestigeStore = create<PrestigeState>()(
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<PrestigeState>;
+        // Drop any allocated ids that no longer exist in the tree.
+        const allocated = (p.allocated ?? []).filter((id) => NODES.has(id));
         return {
           ...current,
           ...p,
           equity: coerceDecimal(p.equity, current.equity),
-          // Drop any allocated ids that no longer exist in the tree.
-          allocated: (p.allocated ?? []).filter((id) => NODES.has(id)),
+          allocated,
+          modifiers: resolvePrestigeModifiers(allocated),
         };
       },
     },

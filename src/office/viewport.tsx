@@ -12,6 +12,7 @@ import {
   getOfficeWorldBounds,
 } from "./utils/clamp-viewport";
 import { updateScaledObjects } from "./utils/update-scaled-objects";
+import { applyViewportControls } from "../utils/viewport-controls";
 
 extend({ Viewport, Text });
 
@@ -40,21 +41,10 @@ export const AppViewport = memo(
 
     const initViewport = useCallback(() => {
       if (viewportRef.current) {
-        viewportRef.current
-          .drag({
-            clampWheel: false,
-            mouseButtons: "left-middle",
-          })
-          .pinch({ noDrag: false })
-          .wheel({
-            percent: 3,
-            trackpadPinch: true,
-            wheelZoom: false,
-          })
-          .clampZoom({
-            minScale: 0.1,
-            maxScale: 15,
-          });
+        applyViewportControls(viewportRef.current, {
+          minScale: 0.1,
+          maxScale: 15,
+        });
 
         const screenRect = new Rectangle(0, 0, screenSize.width, screenSize.height);
 

@@ -2,6 +2,7 @@ import {
   ManagerKeyValues,
   useInnovationStore,
 } from "../../state/innovation.store";
+import { usePrestigeStore } from "../../state/prestige.store";
 import { Button } from "../../ui/Button";
 import { CycleButton } from "../../ui/CyclingButton";
 import { SystemPanel } from "../../ui/SystemPanel";
@@ -27,9 +28,17 @@ export const InnovationManagers = () => {
   const canUnlockEmployeeManagement = canUnlock("employeeManagement");
 
   const employeeManagementState = unlocks.employeeManagement;
+  const disableManagers = usePrestigeStore((s) => s.modifiers.disableManagers);
 
   return (
     <div className="w-full flex flex-col gap-6 select-none mt-2">
+      {disableManagers && (
+        <div className="border border-rose-400/60 bg-rose-500/15 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
+          <span className="font-semibold">Bootstrapped</span> — managers and
+          auto-buy are disabled. Manager tiers and auto-buy levels have no effect
+          while this keystone is allocated.
+        </div>
+      )}
       {!managersState?.unlocked && (
         <Button
           onClick={() => unlock("managers")}

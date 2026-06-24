@@ -10,6 +10,7 @@ import { OfflineSummaryModal } from "./molecules/offline-summary";
 import { useSessionStore } from "./state/session.store";
 import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
 import { FounderSelect } from "./molecules/founder-select";
+import { SellTransitionProvider } from "./molecules/sell-transition";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
 import { Generators } from "./molecules/generators";
 import { InnovationCounter } from "./molecules/innovation-counter";
@@ -139,6 +140,7 @@ function App() {
         />
       )}
 
+      <SellTransitionProvider>
       {founderId == null ? (
         <FounderSelect />
       ) : isMobile ? (
@@ -201,6 +203,7 @@ function App() {
           <Sidebar className="h-full min-h-0 min-w-0 max-w-1/3 flex-1 overflow-y-auto" />
         </div>
       )}
+      </SellTransitionProvider>
     </FloatingTree>
   );
 }

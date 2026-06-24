@@ -1,5 +1,6 @@
 import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
+import { usePrestigeStore } from "../state/prestige.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
 import { RainbowText } from "../utils/vibe-utils";
@@ -17,8 +18,11 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
   // exponent. Applied in effectiveCostExponent (so real costs already reflect
   // it) but not in `gen.costExponent`, hence surfaced as its own row here.
   const costExponentReduction = useFounderStore((s) => s.costExponentReduction);
+  // Skill-tree (Equity) modifiers — already baked into genMps; surfaced as rows.
+  const prestige = usePrestigeStore((s) => s.modifiers);
   const totalEmployees = generators.reduce((n, g) => n + g.amount, 0);
   const headcountMult = 1 + headcountPerEmployee * totalEmployees;
+  const equityHeadcountMult = 1 + prestige.headcountPerEmployee * totalEmployees;
 
   return isMobile ? (
     <div className="flex flex-row flex-wrap gap-2">
@@ -116,6 +120,46 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
                 </span>
               </div>
             )}
+            {prestige.moneyMult !== 1 && (
+              <div className="flex items-center gap-3 justify-between">
+                <span className="responsive-text-xs grow text-cyan-700 dark:text-cyan-400">
+                  equity money:
+                </span>
+                <span className="responsive-text-xs text-cyan-700 dark:text-cyan-400">
+                  x{prestige.moneyMult.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {prestige.employeeOutputMult !== 1 && (
+              <div className="flex items-center gap-3 justify-between">
+                <span className="responsive-text-xs grow text-cyan-700 dark:text-cyan-400">
+                  equity output:
+                </span>
+                <span className="responsive-text-xs text-cyan-700 dark:text-cyan-400">
+                  x{prestige.employeeOutputMult.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {equityHeadcountMult !== 1 && (
+              <div className="flex items-center gap-3 justify-between">
+                <span className="responsive-text-xs grow text-cyan-700 dark:text-cyan-400">
+                  equity headcount:
+                </span>
+                <span className="responsive-text-xs text-cyan-700 dark:text-cyan-400">
+                  x{equityHeadcountMult.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {gen.id === "intern" && prestige.internOutputMult !== 1 && (
+              <div className="flex items-center gap-3 justify-between">
+                <span className="responsive-text-xs grow text-rose-600 dark:text-rose-400">
+                  AGI-pilled:
+                </span>
+                <span className="responsive-text-xs text-rose-600 dark:text-rose-400">
+                  x{prestige.internOutputMult.toFixed(2)}
+                </span>
+              </div>
+            )}
             <div className="flex items-center gap-3 justify-between">
               <span className="responsive-text-xs grow text-primary-500 dark:text-primary-300">
                 cost multiplier:
@@ -139,6 +183,16 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
                 </span>
                 <span className="responsive-text-xs text-emerald-700 dark:text-emerald-400">
                   −{costExponentReduction.toFixed(3)}
+                </span>
+              </div>
+            )}
+            {prestige.hireCostMult !== 1 && (
+              <div className="flex items-center gap-3 justify-between">
+                <span className="responsive-text-xs grow text-cyan-700 dark:text-cyan-400">
+                  equity cost:
+                </span>
+                <span className="responsive-text-xs text-cyan-700 dark:text-cyan-400">
+                  x{prestige.hireCostMult.toFixed(2)}
                 </span>
               </div>
             )}

@@ -19,7 +19,6 @@ export type MandateDef = {
   /** Cost for level L → L+1 scales with this base */
   baseCost: number;
   costGrowth: number;
-  maxLevel: number;
   /** Per level: multiply money from generators */
   moneyMultPerLevel: number;
   /** Per level: multiply innovation from generators */
@@ -33,7 +32,6 @@ export const MANDATES: MandateDef[] = [
     description: "+2% employee money output per level",
     baseCost: 15,
     costGrowth: 1.35,
-    maxLevel: 25,
     moneyMultPerLevel: 0.02,
     innovationMultPerLevel: 0,
   },
@@ -43,7 +41,6 @@ export const MANDATES: MandateDef[] = [
     description: "+1.5% innovation from employees per level",
     baseCost: 25,
     costGrowth: 1.4,
-    maxLevel: 25,
     moneyMultPerLevel: 0,
     innovationMultPerLevel: 0.015,
   },
@@ -53,7 +50,6 @@ export const MANDATES: MandateDef[] = [
     description: "+1% money and +0.5% innovation per level",
     baseCost: 40,
     costGrowth: 1.45,
-    maxLevel: 20,
     moneyMultPerLevel: 0.01,
     innovationMultPerLevel: 0.005,
   },
@@ -73,7 +69,11 @@ type ValuationState = {
   canAffordMandate: (id: MandateId) => boolean;
   purchaseMandate: (id: MandateId) => void;
   getEconomyMultipliers: () => { money: number; innovation: number };
+  /** Run reset (acquisition): clears valuation + accrual but KEEPS mandate
+   * levels — board mandates are a permanent investment, like the skill tree. */
   reset: () => void;
+  /** Full wipe only: also clears purchased mandate levels. */
+  clearMandates: () => void;
 };
 
 const initialMandateLevels: MandateLevels = {
@@ -100,7 +100,6 @@ export const useValuationStore = create<ValuationState>()(
       getMandateCost: (id: MandateId) => {
         const def = MANDATES.find((m) => m.id === id)!;
         const level = get().mandateLevels[id];
-        if (level >= def.maxLevel) return new Decimal(Infinity);
         // Founder "Visionary": gentler cost escalation on board mandates.
         const growth =
           def.costGrowth - useFounderStore.getState().mandateCostGrowthReduction;
@@ -108,9 +107,6 @@ export const useValuationStore = create<ValuationState>()(
       },
 
       canAffordMandate: (id: MandateId) => {
-        const def = MANDATES.find((m) => m.id === id)!;
-        const level = get().mandateLevels[id];
-        if (level >= def.maxLevel) return false;
         const cost = get().getMandateCost(id);
         return get().valuation.gte(cost);
       },
@@ -141,12 +137,15 @@ export const useValuationStore = create<ValuationState>()(
       },
 
       reset: () => {
+        // Run reset: valuation + accrual go to 0, but mandate levels persist
+        // across acquisitions (they're a permanent investment like the tree).
         set({
           valuation: new Decimal(0),
           accruedThisRun: new Decimal(0),
-          mandateLevels: { ...initialMandateLevels },
         });
       },
+
+      clearMandates: () => set({ mandateLevels: { ...initialMandateLevels } }),
     }),
     {
       name: LOCAL_STORAGE_KEY,

@@ -8,7 +8,12 @@ import { createJSONStorage, persist } from "zustand/middleware";
  */
 type SessionState = {
   lastSeenAt: number;
+  /** Wall-clock time the current company was founded (set when a founder is
+   * chosen); persists across reloads so "incorporated X ago" is real elapsed time. */
+  incorporatedAt: number;
   touch: () => void;
+  /** Stamp a fresh incorporation — a new company begins. */
+  incorporate: () => void;
   reset: () => void;
 };
 
@@ -16,13 +21,18 @@ export const useSessionStore = create<SessionState>()(
   persist(
     (set) => ({
       lastSeenAt: Date.now(),
+      incorporatedAt: Date.now(),
       touch: () => set({ lastSeenAt: Date.now() }),
+      incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({ lastSeenAt: Date.now() }),
     }),
     {
       name: "session",
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ lastSeenAt: s.lastSeenAt }),
+      partialize: (s) => ({
+        lastSeenAt: s.lastSeenAt,
+        incorporatedAt: s.incorporatedAt,
+      }),
     },
   ),
 );

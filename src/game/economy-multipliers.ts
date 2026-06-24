@@ -1,5 +1,12 @@
 import { useInnovationStore } from "../state/innovation.store";
+import { usePrestigeStore } from "../state/prestige.store";
 import { useValuationStore } from "../state/valuation.store";
+
+const NEUTRAL_MANAGER_MULTS = {
+  innovationIncome: 1,
+  employeeMoney: 1,
+  salesValuation: 1,
+};
 
 export type ManagerEconomyMultipliers = {
   /** Agile — scales innovation income from generators */
@@ -14,9 +21,13 @@ export type ManagerEconomyMultipliers = {
  * Composed multipliers from manager tiers. Inactive until the managers unlock is purchased.
  */
 export function getManagerEconomyMultipliers(): ManagerEconomyMultipliers {
+  // Skill-tree "Bootstrapped": managers contribute nothing.
+  if (usePrestigeStore.getState().modifiers.disableManagers) {
+    return { ...NEUTRAL_MANAGER_MULTS };
+  }
   const { unlocks, managers } = useInnovationStore.getState();
   if (!unlocks.managers?.unlocked) {
-    return { innovationIncome: 1, employeeMoney: 1, salesValuation: 1 };
+    return { ...NEUTRAL_MANAGER_MULTS };
   }
   return {
     innovationIncome: managers.agile.bonusMultiplier.toNumber(),
