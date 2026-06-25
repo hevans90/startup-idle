@@ -1,6 +1,5 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useGlobalSettingsStore, type SidebarTab } from "../state/global-settings.store";
-import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
