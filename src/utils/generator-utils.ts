@@ -12,6 +12,7 @@ import { useFounderStore } from "../state/founder.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
+import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 
 function effectiveCostExponent(generator: OwnedGenerator, id: string): number {
   let raw = generator.costExponent;
@@ -48,8 +49,13 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
     .getEmployeeCostMult(id as GeneratorId);
   // Skill-tree "lean" passives make hires cheaper (hireCostMult < 1).
   const hireCostMult = usePrestigeStore.getState().modifiers.hireCostMult;
+  // Vape shop hire-cost reduction (additive fraction, clamped so cost stays >= 10% of base).
+  const juiceHireReduction = Math.min(
+    0.9,
+    useVapeAchievementsStore.getState().juiceHireCostReduction,
+  );
 
-  return totalCost.times(employeeCostMult).times(hireCostMult);
+  return totalCost.times(employeeCostMult).times(hireCostMult).times(1 - juiceHireReduction);
 };
 
 export const getMaxAffordableAmountAndCost = (
@@ -60,10 +66,16 @@ export const getMaxAffordableAmountAndCost = (
     .getState()
     .getEmployeeCostMult(id as GeneratorId);
   const hireCostMult = usePrestigeStore.getState().modifiers.hireCostMult;
+  const juiceHireReduction = Math.min(
+    0.9,
+    useVapeAchievementsStore.getState().juiceHireCostReduction,
+  );
+  const juiceHireMult = 1 - juiceHireReduction;
   const money = useMoneyStore
     .getState()
     .money.div(employeeCostMult)
-    .div(hireCostMult);
+    .div(hireCostMult)
+    .div(juiceHireMult);
   const generator = generators.find((g) => g.id === id);
   if (!generator)
     return {
@@ -79,7 +91,7 @@ export const getMaxAffordableAmountAndCost = (
   if (exponent.eq(1)) {
     // Linear cost: total = baseCost * n
     const amount = money.div(baseCost).floor().toNumber();
-    const cost = baseCost.times(amount).times(employeeCostMult).times(hireCostMult);
+    const cost = baseCost.times(amount).times(employeeCostMult).times(hireCostMult).times(juiceHireMult);
     return { amount, cost };
   }
 
@@ -111,7 +123,8 @@ export const getMaxAffordableAmountAndCost = (
         .div(exponent.minus(1))
     )
     .times(employeeCostMult)
-    .times(hireCostMult);
+    .times(hireCostMult)
+    .times(juiceHireMult);
 
   return { amount, cost: totalCost };
 };

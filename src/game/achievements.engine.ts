@@ -8,6 +8,7 @@ import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { ManagerKeyValues, useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
+import { usePrestigeStore } from "../state/prestige.store";
 import { useUpgradeStore } from "../state/upgrades.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
@@ -24,19 +25,30 @@ export function buildAchievementContext(): AchievementContext {
     0,
   );
 
+  const prestigeState = usePrestigeStore.getState();
+  const valuationState = useValuationStore.getState();
+  const totalMandateLevels = Object.values(valuationState.mandateLevels).reduce(
+    (sum, lv) => sum + lv,
+    0,
+  );
+
   return {
     internCount: intern,
     vibeCoderCount: vibe,
     dev10xCount: dev10,
     money: useMoneyStore.getState().money.toNumber(),
     mps: useGeneratorStore.getState().getMoneyPerSecond(),
-    innovation: useInnovationStore.getState().innovation.toNumber(),
-    valuation: useValuationStore.getState().valuation.toNumber(),
+    innovation: innovationState.innovation.toNumber(),
+    valuation: valuationState.valuation.toNumber(),
     managersUnlocked: unlocks.managers?.unlocked ?? false,
     employeeManagementUnlocked: unlocks.employeeManagement?.unlocked ?? false,
     purchasedUpgradeCount: useUpgradeStore.getState().unlockedUpgradeIds.length,
     managerTierTotal,
     aiSingularity: useAiSingularityStore.getState().value,
+    exits: prestigeState.exits,
+    allocatedNodes: prestigeState.allocated.length,
+    totalMandateLevels,
+    juiceUpgradeCount: useVapeAchievementsStore.getState().purchasedJuiceUpgradeIds.length,
   };
 }
 

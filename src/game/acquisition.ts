@@ -2,6 +2,7 @@ import Decimal from "break_infinity.js";
 import { resetRunStores } from "../simulation/reset-game-stores";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useValuationStore } from "../state/valuation.store";
+import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 
 /**
  * Company Acquisition (prestige) economics. You "sell" the company once you've
@@ -27,8 +28,11 @@ export function equityForAccrued(accrued: Decimal): Decimal {
   const ratio = accrued.div(ACQUISITION_THRESHOLD).toNumber();
   // Skill-tree "exit" passives boost the payout (equityMult ≥ 1, neutral = 1).
   const equityMult = usePrestigeStore.getState().modifiers.equityMult;
+  // Vape shop DNA chip adds an additive equity bonus.
+  const juiceEquityMult =
+    1 + useVapeAchievementsStore.getState().juiceEquityMultBonus;
   return new Decimal(
-    Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP) * equityMult),
+    Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP) * equityMult * juiceEquityMult),
   );
 }
 
@@ -40,7 +44,12 @@ export function equityForAccrued(accrued: Decimal): Decimal {
 export function accruedForEquity(targetEquity: number): Decimal {
   if (targetEquity <= 0) return new Decimal(0);
   const equityMult = usePrestigeStore.getState().modifiers.equityMult;
-  const ratio = Math.pow(targetEquity / (EQUITY_BASE * equityMult), 1 / EQUITY_EXP);
+  const juiceEquityMult =
+    1 + useVapeAchievementsStore.getState().juiceEquityMultBonus;
+  const ratio = Math.pow(
+    targetEquity / (EQUITY_BASE * equityMult * juiceEquityMult),
+    1 / EQUITY_EXP,
+  );
   return new Decimal(ACQUISITION_THRESHOLD * ratio);
 }
 

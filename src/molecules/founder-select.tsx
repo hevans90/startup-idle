@@ -6,6 +6,7 @@ import { useFounderStore } from "../state/founder.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
+import { CURRENT_VERSION } from "../state/version.store";
 import { Button } from "../ui/Button";
 import { formatCurrency } from "../utils/money-utils";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
@@ -119,10 +120,16 @@ export const FounderSelect = () => {
   const activeMandates = MANDATES.filter((m) => mandateLevels[m.id] > 0);
 
   const juiceMpsBonus = useVapeAchievementsStore((s) => s.juiceMpsMultBonus);
-  const juiceInnovBonus = useVapeAchievementsStore(
-    (s) => s.juiceInnovationMultBonus,
-  );
-  const hasVape = juiceMpsBonus > 0 || juiceInnovBonus > 0;
+  const juiceInnovBonus = useVapeAchievementsStore((s) => s.juiceInnovationMultBonus);
+  const juiceValuationBonus = useVapeAchievementsStore((s) => s.juiceValuationMultBonus);
+  const juiceHireCostReduction = useVapeAchievementsStore((s) => s.juiceHireCostReduction);
+  const juiceEquityBonus = useVapeAchievementsStore((s) => s.juiceEquityMultBonus);
+  const hasVape =
+    juiceMpsBonus > 0 ||
+    juiceInnovBonus > 0 ||
+    juiceValuationBonus > 0 ||
+    juiceHireCostReduction > 0 ||
+    juiceEquityBonus > 0;
 
   const [treeOpen, setTreeOpen] = useState(false);
   const showPrestige = exits > 0 || equity.gt(0);
@@ -265,14 +272,35 @@ export const FounderSelect = () => {
                   {juiceMpsBonus > 0 && (
                     <BonusRow
                       label="Money output"
-                      value={`+${(juiceMpsBonus * 100).toFixed(1)}%`}
+                      value={`+${(juiceMpsBonus * 100).toFixed(0)}%`}
                       tone="good"
                     />
                   )}
                   {juiceInnovBonus > 0 && (
                     <BonusRow
                       label="Innovation"
-                      value={`+${(juiceInnovBonus * 100).toFixed(1)}%`}
+                      value={`+${(juiceInnovBonus * 100).toFixed(0)}%`}
+                      tone="good"
+                    />
+                  )}
+                  {juiceValuationBonus > 0 && (
+                    <BonusRow
+                      label="Valuation rate"
+                      value={`+${(juiceValuationBonus * 100).toFixed(0)}%`}
+                      tone="good"
+                    />
+                  )}
+                  {juiceHireCostReduction > 0 && (
+                    <BonusRow
+                      label="Hire cost"
+                      value={`−${(juiceHireCostReduction * 100).toFixed(0)}%`}
+                      tone="good"
+                    />
+                  )}
+                  {juiceEquityBonus > 0 && (
+                    <BonusRow
+                      label="Equity payout"
+                      value={`+${(juiceEquityBonus * 100).toFixed(0)}%`}
                       tone="good"
                     />
                   )}
@@ -295,6 +323,10 @@ export const FounderSelect = () => {
       >
         Found your startup →
       </Button>
+
+      <span className="mt-6 self-start text-[11px] tabular-nums opacity-30">
+        v{CURRENT_VERSION}
+      </span>
     </div>
   );
 };

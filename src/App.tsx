@@ -5,6 +5,7 @@ import { useCompareVersion } from "./hooks/use-compare-version";
 import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
 import { computeOfflineProgress, type OfflineSummary } from "./game/offline-progress";
 import { AiSingularityReadout } from "./molecules/ai-singularity-readout";
+import { VapeMapWrapper } from "./molecules/vape-map-wrapper";
 import { CityHoverPopover } from "./molecules/city-hover-popover";
 import { OfflineSummaryModal } from "./molecules/offline-summary";
 import { useSessionStore } from "./state/session.store";
@@ -26,7 +27,7 @@ import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
 import { useMoneyStore } from "./state/money.store";
 import { useThemeStore } from "./state/theme.store";
-import { useVersionStore } from "./state/version.store";
+import { useVapeAchievementsStore } from "./state/vape-achievements.store";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
 
@@ -47,7 +48,6 @@ const useDynamicTitle = (interval = 1000) => {
 };
 
 function App() {
-  const version = useVersionStore((state) => state.version);
   useCompareVersion();
   const { money, increaseMoney } = useMoneyStore();
   const { innovation } = useInnovationStore();
@@ -60,6 +60,13 @@ function App() {
   } = useResizeToWrapper();
 
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
+  const vibeCoderCount = useGeneratorStore(
+    (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
+  );
+  const achievementsUnlocked = useVapeAchievementsStore(
+    (s) => s.unlockedAchievementIds.length,
+  );
+  const vapeVisible = vibeCoderCount >= 100 || achievementsUnlocked > 0;
 
   const founderId = useFounderStore((state) => state.selectedFounderId);
 
@@ -192,9 +199,7 @@ function App() {
 
               <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1 items-start">
                 <AiSingularityReadout />
-                <div className="responsive-text-sm text-primary-300">
-                  v{version}
-                </div>
+                {vapeVisible && <VapeMapWrapper />}
               </div>
             </div>
           </div>

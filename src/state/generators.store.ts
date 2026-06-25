@@ -929,6 +929,8 @@ export const useGeneratorStore = create<GeneratorState>()(
         : 1;
       const founderMult = useFounderStore.getState().valuationAccrualMult;
       const prestigeMult = usePrestigeStore.getState().modifiers.valuationMult;
+      const juiceValuationMult =
+        1 + useVapeAchievementsStore.getState().juiceValuationMultBonus;
 
       // Mirror of the accrual in tickGenerators: a sub-linear function of $/sec,
       // scaled by board (sales), intern morale, founder, and skill-tree modifiers.
@@ -938,6 +940,7 @@ export const useGeneratorStore = create<GeneratorState>()(
         { label: "Intern morale", mult: internValMult },
         { label: "Founder", mult: founderMult },
         { label: "Skill tree", mult: prestigeMult },
+        { label: "Vape shop", mult: juiceValuationMult },
       ];
       const total = factors.reduce((m, f) => m * f.mult, base);
       return { total, base, mps, factors };

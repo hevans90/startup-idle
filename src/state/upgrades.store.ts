@@ -1,5 +1,9 @@
 import { create } from "zustand";
-import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
+import {
+  createJSONStorage,
+  persist,
+  type StateStorage,
+} from "zustand/middleware";
 import {
   GeneratorId,
   MIN_GENERATOR_COST_EXPONENT,
@@ -214,7 +218,7 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
         genId: "intern",
         changes: [
           { type: "multiplier", value: 4 },
-          { type: "costExponent", delta: -0.03 },
+          { type: "costExponent", delta: -0.04 },
         ],
       },
     ],
@@ -264,8 +268,8 @@ const INTERN_LATE_UPGRADES: Upgrade[] = [
       {
         genId: "intern",
         changes: [
-          { type: "costExponent", delta: -0.06 },
-          { type: "multiplier", value: 3 },
+          { type: "costExponent", delta: -0.03 },
+          { type: "multiplier", value: 5 },
         ],
       },
     ],
@@ -502,8 +506,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
     id: "vibe_coder_cost_exponent_2",
     abbreviation: "V10",
     name: "Copilot Tax Haven",
-    description:
-      "Expense every token as R&D. The IRS sends a thinking emoji.",
+    description: "Expense every token as R&D. The IRS sends a thinking emoji.",
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 150 }],
     effects: [
       {
@@ -693,8 +696,8 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
       {
         genId: "10x_dev",
         changes: [
-          { type: "multiplier", value: 8 },
-          { type: "costExponent", delta: -0.02 },
+          { type: "multiplier", value: 12 },
+          { type: "costExponent", delta: -0.2 },
         ],
       },
     ],
@@ -711,8 +714,8 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
       {
         genId: "10x_dev",
         changes: [
-          { type: "costMultiplier", value: 0.3 },
-          { type: "multiplier", value: 5 },
+          { type: "costMultiplier", value: 0.4 },
+          { type: "multiplier", value: 10 },
         ],
       },
     ],
@@ -728,7 +731,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
     effects: [
       {
         genId: "10x_dev",
-        changes: [{ type: "multiplier", value: 12 }],
+        changes: [{ type: "multiplier", value: 20 }],
       },
     ],
     cost: 1.2e15,
@@ -744,7 +747,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
       {
         genId: "10x_dev",
         changes: [
-          { type: "costExponent", delta: -0.08 },
+          { type: "costExponent", delta: -1 },
           { type: "multiplier", value: 6 },
         ],
       },
@@ -763,7 +766,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         genId: "10x_dev",
         changes: [
           { type: "multiplier", value: 15 },
-          { type: "costExponent", delta: 0.03 },
+          { type: "costExponent", delta: -1 },
         ],
       },
     ],
@@ -780,7 +783,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
       {
         genId: "10x_dev",
         changes: [
-          { type: "multiplier", value: 18 },
+          { type: "multiplier", value: 20 },
           { type: "costMultiplier", value: 0.4 },
         ],
       },
@@ -799,7 +802,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         genId: "10x_dev",
         changes: [
           { type: "multiplier", value: 25 },
-          { type: "costExponent", delta: -0.05 },
+          { type: "costExponent", delta: -0.5 },
         ],
       },
     ],
@@ -817,7 +820,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         genId: "10x_dev",
         changes: [
           { type: "multiplier", value: 35 },
-          { type: "costMultiplier", value: 0.35 },
+          { type: "costMultiplier", value: 0.15 },
         ],
       },
     ],
@@ -853,7 +856,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         genId: "10x_dev",
         changes: [
           { type: "multiplier", value: 60 },
-          { type: "costExponent", delta: -0.04 },
+          { type: "costExponent", delta: -2 },
           { type: "costMultiplier", value: 0.45 },
         ],
       },
@@ -872,7 +875,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         genId: "10x_dev",
         changes: [
           { type: "multiplier", value: 80 },
-          { type: "costExponent", delta: -0.05 },
+          { type: "costExponent", delta: -1 },
         ],
       },
     ],
@@ -890,7 +893,7 @@ const TEN_X_LATE_UPGRADES: Upgrade[] = [
         genId: "10x_dev",
         changes: [
           { type: "multiplier", value: 100 },
-          { type: "costExponent", delta: -0.06 },
+          { type: "costExponent", delta: -0.5 },
           { type: "costMultiplier", value: 0.4 },
         ],
       },
@@ -909,7 +912,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
     unlockConditions: [
       { requiredId: "intern", requiredAmount: 300 },
       { requiredId: "vibe_coder", requiredAmount: 100 },
-      { requiredId: "10x_dev", requiredAmount: 12 },
+      { requiredId: "10x_dev", requiredAmount: 6 },
     ],
     effects: [
       {
@@ -936,7 +939,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
     unlockConditions: [
       { requiredId: "intern", requiredAmount: 500 },
       { requiredId: "vibe_coder", requiredAmount: 180 },
-      { requiredId: "10x_dev", requiredAmount: 20 },
+      { requiredId: "10x_dev", requiredAmount: 8 },
     ],
     effects: [
       {
@@ -972,7 +975,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
     unlockConditions: [
       { requiredId: "intern", requiredAmount: 800 },
       { requiredId: "vibe_coder", requiredAmount: 350 },
-      { requiredId: "10x_dev", requiredAmount: 40 },
+      { requiredId: "10x_dev", requiredAmount: 14 },
     ],
     effects: [
       {
@@ -1008,7 +1011,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
     unlockConditions: [
       { requiredId: "intern", requiredAmount: 1200 },
       { requiredId: "vibe_coder", requiredAmount: 500 },
-      { requiredId: "10x_dev", requiredAmount: 60 },
+      { requiredId: "10x_dev", requiredAmount: 20 },
     ],
     effects: [
       {
@@ -1035,7 +1038,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
     unlockConditions: [
       { requiredId: "intern", requiredAmount: 1800 },
       { requiredId: "vibe_coder", requiredAmount: 700 },
-      { requiredId: "10x_dev", requiredAmount: 90 },
+      { requiredId: "10x_dev", requiredAmount: 30 },
     ],
     effects: [
       {
@@ -1071,7 +1074,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
     unlockConditions: [
       { requiredId: "intern", requiredAmount: 2500 },
       { requiredId: "vibe_coder", requiredAmount: 1000 },
-      { requiredId: "10x_dev", requiredAmount: 120 },
+      { requiredId: "10x_dev", requiredAmount: 40 },
     ],
     effects: [
       {
@@ -1107,7 +1110,7 @@ const CROSS_LATE_UPGRADES: Upgrade[] = [
     unlockConditions: [
       { requiredId: "intern", requiredAmount: 4000 },
       { requiredId: "vibe_coder", requiredAmount: 1500 },
-      { requiredId: "10x_dev", requiredAmount: 200 },
+      { requiredId: "10x_dev", requiredAmount: 55 },
     ],
     effects: [
       {
@@ -1163,7 +1166,7 @@ export const applyUpgradeEffect = (upgrade: Upgrade) => {
   const updated = state.generators.map((gen) => {
     // Find all effects that apply to this generator
     const applicableEffects = upgrade.effects.filter(
-      (effect) => effect.genId === gen.id
+      (effect) => effect.genId === gen.id,
     );
     if (applicableEffects.length === 0) return gen;
 
@@ -1189,7 +1192,7 @@ export const applyUpgradeEffect = (upgrade: Upgrade) => {
 
     updatedGen.costExponent = Math.max(
       MIN_GENERATOR_COST_EXPONENT,
-      updatedGen.costExponent
+      updatedGen.costExponent,
     );
 
     return updatedGen;
@@ -1200,7 +1203,7 @@ export const applyUpgradeEffect = (upgrade: Upgrade) => {
 
 export const syncAvailableUpgrades = () => {
   const ownedMap = Object.fromEntries(
-    useGeneratorStore.getState().generators.map((g) => [g.id, g.amount])
+    useGeneratorStore.getState().generators.map((g) => [g.id, g.amount]),
   );
 
   const unlockedIds = useUpgradeStore.getState().unlockedUpgradeIds;
@@ -1265,7 +1268,9 @@ export const useUpgradeStore = create<UpgradeStoreState>()(
         unlockedUpgradeIds: state.unlockedUpgradeIds,
       }),
       merge: (persisted, current) => {
-        const p = persisted as Partial<Pick<UpgradeStoreState, "unlockedUpgradeIds">> | null;
+        const p = persisted as Partial<
+          Pick<UpgradeStoreState, "unlockedUpgradeIds">
+        > | null;
         const ids = p?.unlockedUpgradeIds ?? [];
         return {
           ...current,
@@ -1274,6 +1279,6 @@ export const useUpgradeStore = create<UpgradeStoreState>()(
           unlockedUpgrades: unlockedUpgradesFromIds(ids),
         };
       },
-    }
-  )
+    },
+  ),
 );

@@ -11,7 +11,7 @@ You found a startup as one of several **founder archetypes**, each bending a dif
 - **Managers** — auto-tiering multipliers for money / innovation / valuation; assign them and they progress on their own.
 - **Valuation & board mandates** — valuation accrues from revenue; spend it on permanent global mandates.
 - **Employee management & satisfaction** — perks (money/innovation/cost/auto-buy) and a morale system that drifts each tick and feeds back into output.
-- **Vape shop** — achievements + juice upgrades that visibly modify a high-def SVG vape.
+- **Vape shop** — 53 achievements across all game systems earn *vape juice*; spend it on 12 impactful upgrades (money output, innovation, valuation rate, hire cost reduction, equity payout) that visibly modify a high-def SVG vape rendered as a compact overlay on the map canvas (bottom-left). Achievements and upgrades persist through prestige resets. Version `0.2.0` bumped the upgrade roster; returning players' vape progress resets on load.
 - **AI singularity** — an ominous meter that creeps up when vibe coders are miserable.
 - **Founders** — six archetypes (Hacker, Bootstrapper, Operator, Visionary, Hustler, Agentic Delusionist) with gradual, compounding passive modifiers and a small starting-cash float. Chosen on a full-screen select before the game begins.
 - **Offline progression** — on return, the real game tick is replayed in chunks over the time away (full credit, capped at 2 days), with a "while you were away" popup.

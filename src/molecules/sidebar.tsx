@@ -1,5 +1,7 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
-import { useGlobalSettingsStore } from "../state/global-settings.store";
+import { useGlobalSettingsStore, type SidebarTab } from "../state/global-settings.store";
+import { useGeneratorStore } from "../state/generators.store";
+import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import Tabs from "../ui/Tabs";
 import { AcquisitionTab } from "./acquisition-tab";
 import { AchievementsTab } from "./achievements-tab";
@@ -10,21 +12,34 @@ import { PurchaseModeToggle } from "./purchase-mode-toggle";
 import { Upgrades } from "./upgrades";
 import { ValuationTab } from "./valuation-tab";
 
+function useVapeVisible() {
+  const vibeCoders = useGeneratorStore(
+    (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
+  );
+  const achievementsUnlocked = useVapeAchievementsStore(
+    (s) => s.unlockedAchievementIds.length,
+  );
+  return vibeCoders >= 100 || achievementsUnlocked > 0;
+}
+
 export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const { sidebarTab, setSidebarTab } = useGlobalSettingsStore();
+  const vapeVisible = useVapeVisible();
+
+  const tabs: { id: SidebarTab; label: string }[] = [
+    { id: "employees", label: "Employees" },
+    { id: "innovation", label: "Innovation" },
+    { id: "valuation", label: "Valuation" },
+    { id: "acquisition", label: "Acquisition" },
+    ...(vapeVisible ? [{ id: "achievements" as SidebarTab, label: "Vape shop" }] : []),
+  ];
 
   return (
     <div className={twMerge("bg-primary-200 dark:bg-primary-900", className)}>
       <Tabs
         selectedTab={sidebarTab}
         onTabChange={setSidebarTab}
-        tabs={[
-          { id: "employees", label: "Employees" },
-          { id: "innovation", label: "Innovation" },
-          { id: "valuation", label: "Valuation" },
-          { id: "acquisition", label: "Acquisition" },
-          { id: "achievements", label: "Vape shop" },
-        ]}
+        tabs={tabs}
       >
         {{
           employees: (
