@@ -56,7 +56,7 @@ export const Office = ({ wrapperRef, wrapperSize }: OfficeProps) => {
       antialias={true}
       autoDensity={true}
       preference="webgpu"
-      resolution={4}
+      resolution={Math.min(window.devicePixelRatio, 2)}
     >
       <AppViewport screenSize={wrapperSize}>
         <World wrapperSize={wrapperSize} />
