@@ -1,6 +1,8 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useGlobalSettingsStore, type SidebarTab } from "../state/global-settings.store";
 import { useGeneratorStore } from "../state/generators.store";
+import { useInnovationStore } from "../state/innovation.store";
+import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import Tabs from "../ui/Tabs";
 import { AcquisitionTab } from "./acquisition-tab";
@@ -16,21 +18,26 @@ function useVapeVisible() {
   const vibeCoders = useGeneratorStore(
     (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
   );
-  const achievementsUnlocked = useVapeAchievementsStore(
-    (s) => s.unlockedAchievementIds.length,
+  const hasVibeArmy = useVapeAchievementsStore(
+    (s) => s.unlockedAchievementIds.includes("vibe_army"),
   );
-  return vibeCoders >= 100 || achievementsUnlocked > 0;
+  return vibeCoders >= 100 || hasVibeArmy;
 }
 
 export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const { sidebarTab, setSidebarTab } = useGlobalSettingsStore();
   const vapeVisible = useVapeVisible();
+  const employeeMgmtUnlocked = useInnovationStore(
+    (s) => s.unlocks.employeeManagement?.unlocked ?? false,
+  );
+  const accruedThisRun = useValuationStore((s) => s.accruedThisRun);
+  const acquisitionVisible = accruedThisRun.gte(100);
 
   const tabs: { id: SidebarTab; label: string }[] = [
     { id: "employees", label: "Employees" },
     { id: "innovation", label: "Innovation" },
-    { id: "valuation", label: "Valuation" },
-    { id: "acquisition", label: "Acquisition" },
+    ...(employeeMgmtUnlocked ? [{ id: "valuation" as SidebarTab, label: "Valuation" }] : []),
+    ...(acquisitionVisible ? [{ id: "acquisition" as SidebarTab, label: "Acquisition" }] : []),
     ...(vapeVisible ? [{ id: "achievements" as SidebarTab, label: "Vape shop" }] : []),
   ];
 

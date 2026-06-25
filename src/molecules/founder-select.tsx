@@ -2,6 +2,7 @@ import { type ReactNode, useState } from "react";
 import { twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
 import { type PrestigeModifiers } from "../game/skill-tree";
+import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
@@ -9,6 +10,8 @@ import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { CURRENT_VERSION } from "../state/version.store";
 import { Button } from "../ui/Button";
 import { formatCurrency } from "../utils/money-utils";
+import { TenXDevText } from "../utils/ten-x-utils";
+import { RainbowText } from "../utils/vibe-utils";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
 
 // ─── local helpers ───────────────────────────────────────────────────────────
@@ -100,6 +103,23 @@ function treeRows(m: PrestigeModifiers) {
   return rows;
 }
 
+// Split regex preserves matches via capture group so segments are either plain text or keywords.
+const SPLIT_RE = /(vibe coders?|10x devs?)/gi;
+
+function PerkText({ text }: { text: string }) {
+  const segments = text.split(SPLIT_RE);
+  return (
+    <>
+      {segments.map((seg, i) => {
+        if (/^vibe coders?$/i.test(seg))
+          return <RainbowText key={i} text={seg} inline />;
+        if (/^10x devs?$/i.test(seg)) return <TenXDevText key={i} text={seg} />;
+        return <span key={i}>{seg}</span>;
+      })}
+    </>
+  );
+}
+
 // ─── main component ──────────────────────────────────────────────────────────
 
 /**
@@ -113,6 +133,8 @@ export const FounderSelect = () => {
 
   const equity = usePrestigeStore((s) => s.equity);
   const exits = usePrestigeStore((s) => s.exits);
+  const founderExits = useExitsStore((s) => s.exits);
+  const bestExitValuation = useExitsStore((s) => s.bestExitValuation);
   const allocated = usePrestigeStore((s) => s.allocated.length);
   const modifiers = usePrestigeStore((s) => s.modifiers);
 
@@ -120,10 +142,18 @@ export const FounderSelect = () => {
   const activeMandates = MANDATES.filter((m) => mandateLevels[m.id] > 0);
 
   const juiceMpsBonus = useVapeAchievementsStore((s) => s.juiceMpsMultBonus);
-  const juiceInnovBonus = useVapeAchievementsStore((s) => s.juiceInnovationMultBonus);
-  const juiceValuationBonus = useVapeAchievementsStore((s) => s.juiceValuationMultBonus);
-  const juiceHireCostReduction = useVapeAchievementsStore((s) => s.juiceHireCostReduction);
-  const juiceEquityBonus = useVapeAchievementsStore((s) => s.juiceEquityMultBonus);
+  const juiceInnovBonus = useVapeAchievementsStore(
+    (s) => s.juiceInnovationMultBonus,
+  );
+  const juiceValuationBonus = useVapeAchievementsStore(
+    (s) => s.juiceValuationMultBonus,
+  );
+  const juiceHireCostReduction = useVapeAchievementsStore(
+    (s) => s.juiceHireCostReduction,
+  );
+  const juiceEquityBonus = useVapeAchievementsStore(
+    (s) => s.juiceEquityMultBonus,
+  );
   const hasVape =
     juiceMpsBonus > 0 ||
     juiceInnovBonus > 0 ||
@@ -173,37 +203,94 @@ export const FounderSelect = () => {
 
       {treeOpen && <SkillTreeOverlay onClose={() => setTreeOpen(false)} />}
 
-      <div className="grid w-full max-w-5xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid w-full max-w-5xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 [grid-auto-rows:1fr]">
         {FOUNDERS.map((f) => {
           const Icon = f.icon;
           const isSel = selected === f.id;
+          const exitRecord = founderExits[f.id];
+          const exitCount = exitRecord?.count ?? 0;
+          const hasExits = exitCount > 0;
+          const isUnlocked =
+            !f.unlockCondition ||
+            f.unlockCondition.check(exits, bestExitValuation);
+
           return (
             <button
               key={f.id}
               type="button"
-              onClick={() => setSelected(f.id)}
+              disabled={!isUnlocked}
+              onClick={() => isUnlocked && setSelected(f.id)}
               className={twMerge(
-                "flex cursor-pointer flex-col gap-2 rounded-lg border-2 p-4 text-left transition-colors",
-                isSel
-                  ? "border-emerald-500 bg-emerald-500/10"
-                  : "border-primary-300 hover:border-primary-400 dark:border-primary-700 dark:hover:border-primary-500",
+                "relative flex h-full flex-col overflow-hidden border p-4 text-left transition-colors",
+                isUnlocked
+                  ? twMerge(
+                      "cursor-pointer",
+                      isSel
+                        ? "border-emerald-600 bg-emerald-500/5"
+                        : "border-primary-300 hover:border-primary-400 dark:border-primary-700 dark:hover:border-primary-500",
+                    )
+                  : "cursor-not-allowed border-primary-300/40 dark:border-primary-700/40",
               )}
             >
-              <div className="flex items-center gap-2">
-                <Icon size={28} stroke={1.6} className="shrink-0" />
-                <div className="min-w-0">
+              {/* Header */}
+              <div className="flex items-start gap-2">
+                <Icon size={26} stroke={1.6} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
                   <div className="font-bold leading-tight">{f.name}</div>
-                  <div className="text-xs italic opacity-70">{f.tagline}</div>
+                  <div className="text-xs italic opacity-60">{f.tagline}</div>
                 </div>
+                {isUnlocked && hasExits && (
+                  <div className="shrink-0 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold tabular-nums text-amber-600 dark:text-amber-400">
+                    {exitCount}×
+                  </div>
+                )}
               </div>
-              <ul className="flex flex-col gap-1 text-xs tabular-nums opacity-90">
-                {f.perks.map((p, i) => (
-                  <li key={i}>• {p}</li>
+
+              {/* Perks — flex-1 so this section fills the variable space */}
+              <ul className="mt-3 flex flex-1 flex-col gap-1 text-xs tabular-nums opacity-90">
+                {f.perks(exitCount).map((p, i) => (
+                  <li key={i}>
+                    • <PerkText text={p} />
+                  </li>
                 ))}
               </ul>
-              <div className="mt-auto border-t border-primary-300 pt-2 text-xs font-semibold tabular-nums text-emerald-700 dark:border-primary-700 dark:text-emerald-400">
+
+              {/* Starting cash */}
+              <div className="mt-4 border-t border-primary-300 pt-2 text-xs font-semibold tabular-nums text-emerald-700 dark:border-primary-700 dark:text-emerald-400">
                 Starts with ${f.startingCash}
               </div>
+
+              {/* Per-exit scaling */}
+              <div className="mt-2 border border-violet-400/20 bg-violet-500/5 px-2 py-1.5 text-[10px] leading-snug text-violet-600 dark:text-violet-400">
+                <span className="font-semibold">
+                  {f.scalingModifier.label}:
+                </span>{" "}
+                {f.scalingModifier.perExitDescription}
+              </div>
+
+              {/* Lock overlay */}
+              {!isUnlocked && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-primary-900/40 backdrop-blur dark:bg-primary-950/50">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="drop-shadow-md"
+                  >
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  <span className="px-4 text-center text-[11px] font-semibold leading-snug drop-shadow-sm">
+                    {f.unlockCondition!.label}
+                  </span>
+                </div>
+              )}
             </button>
           );
         })}

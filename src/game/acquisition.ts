@@ -1,5 +1,7 @@
 import Decimal from "break_infinity.js";
 import { resetRunStores } from "../simulation/reset-game-stores";
+import { useExitsStore } from "../state/exits.store";
+import { useFounderStore } from "../state/founder.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
@@ -72,6 +74,14 @@ export function canAcquire(): boolean {
 export function performAcquisition(): Decimal {
   const gain = pendingEquity();
   if (gain.lte(0)) return new Decimal(0);
+
+  // Record the exit before the reset so the founder id is still set.
+  const founderId = useFounderStore.getState().selectedFounderId;
+  const accrued = useValuationStore.getState().accruedThisRun;
+  if (founderId) {
+    useExitsStore.getState().recordExit(founderId, accrued.toNumber());
+  }
+
   usePrestigeStore.getState().bankAcquisition(gain);
   resetRunStores();
   return gain;

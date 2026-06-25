@@ -9,7 +9,22 @@ import {
 import { Button } from "../ui/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
+import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
+
+function GenLabel({
+  id,
+  text,
+  inline = false,
+}: {
+  id: string;
+  text: string;
+  inline?: boolean;
+}) {
+  if (id.includes("vibe_coder")) return <RainbowText text={text} inline={inline} />;
+  if (id.includes("10x_dev")) return <TenXDevText text={text} />;
+  return <>{text}</>;
+}
 
 /**
  * Which progression "set" an upgrade belongs to (by id prefix). Within a set we
@@ -111,7 +126,7 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
             return (
               <tr key={i} className="border-b last:border-none">
                 <td className="font-bold whitespace-nowrap text-primary-900 dark:text-primary-50">
-                  {genName}
+                  <GenLabel id={effectBlock.genId} text={genName} />
                 </td>
                 {effectBlock.changes.map((effect, index) => (
                   <td key={index} className="text-left">
@@ -150,7 +165,9 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
             onClick={() => unlockUpgrade(upg.id)}
           >
             <div className="responsive-text mb-1">
-              <span className="underline-offset-2 underline">{upg.name}</span>:{" "}
+              <span className="underline-offset-2 underline">
+                <GenLabel id={upg.id} text={upg.name} inline />
+              </span>:{" "}
               {formatCurrency(upg.cost)}
             </div>
             <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow">
@@ -166,7 +183,7 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
             key={upg.id}
             className="responsive-text-sm opacity-50 border-[1px] border-solid border-primary-500 p-2 flex flex-col gap-2 items-center px-4 "
           >
-            {upg.name}
+            <GenLabel id={upg.id} text={upg.name} inline />
             <UpgradeSummary upg={upg} />
           </div>
         ))}
@@ -184,16 +201,8 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
                 className="flex w-full p-4 responsive-text-sm"
                 onClick={() => unlockUpgrade(upg.id)}
               >
-                {upg.id.includes("vibe_coder") ? (
-                  <>
-                    <RainbowText text={upg.name} />
-                    <span>: {formatCurrency(upg.cost)}</span>
-                  </>
-                ) : (
-                  <>
-                    {upg.name}: {formatCurrency(upg.cost)}
-                  </>
-                )}
+                <GenLabel id={upg.id} text={upg.name} />
+                <span>: {formatCurrency(upg.cost)}</span>
               </Button>
             </PopoverTrigger>
 
@@ -214,26 +223,14 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
                 key={upg.id}
                 className="bg-primary-300 dark:bg-primary-700 cursor-help p-2 responsive-text-xs"
               >
-                {upg.id.includes("vibe_coder") ? (
-                  <RainbowText text={upg?.abbreviation ?? "UPG"} />
-                ) : (
-                  <>{upg?.abbreviation ?? "UPG"}</>
-                )}
+                <GenLabel id={upg.id} text={upg?.abbreviation ?? "UPG"} />
               </div>
             </PopoverTrigger>
 
             <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 w-[26rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col items-center gap-2">
               <span className="flex responsive-text-xs">
-                {upg.id.includes("vibe_coder") ? (
-                  <>
-                    <RainbowText text={upg.name} />
-                    <span>: {formatCurrency(upg.cost)}</span>
-                  </>
-                ) : (
-                  <>
-                    {upg.name}: {formatCurrency(upg.cost)}
-                  </>
-                )}
+                <GenLabel id={upg.id} text={upg.name} />
+                <span>: {formatCurrency(upg.cost)}</span>
               </span>
               <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow text-center">
                 {upg.description}

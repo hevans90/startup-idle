@@ -1,5 +1,6 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
+import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 
@@ -9,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
  */
 export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
   const founderId = useFounderStore((s) => s.selectedFounderId);
+  const exitCount = useExitsStore((s) => s.exits[founderId ?? ""]?.count ?? 0);
   const founder = FOUNDERS.find((f) => f.id === founderId);
   if (!founder) return null;
 
@@ -38,7 +40,7 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
         <p className="mt-0.5 text-xs italic opacity-60">{founder.tagline}</p>
 
         <ul className="mt-2 flex flex-col gap-1 text-xs">
-          {founder.perks.map((perk) => (
+          {founder.perks(exitCount).map((perk) => (
             <li key={perk} className="flex gap-1.5">
               <span className="opacity-50">•</span>
               <span>{perk}</span>

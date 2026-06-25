@@ -1,17 +1,20 @@
 import toast from "react-hot-toast";
-import {
-  ACHIEVEMENT_CATALOG,
-  type AchievementContext,
-  type AchievementDef,
-} from "./achievements.catalog";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGeneratorStore } from "../state/generators.store";
-import { ManagerKeyValues, useInnovationStore } from "../state/innovation.store";
+import {
+  ManagerKeyValues,
+  useInnovationStore,
+} from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useUpgradeStore } from "../state/upgrades.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
+import {
+  ACHIEVEMENT_CATALOG,
+  type AchievementContext,
+  type AchievementDef,
+} from "./achievements.catalog";
 
 export function buildAchievementContext(): AchievementContext {
   const gens = useGeneratorStore.getState().generators;
@@ -48,7 +51,8 @@ export function buildAchievementContext(): AchievementContext {
     exits: prestigeState.exits,
     allocatedNodes: prestigeState.allocated.length,
     totalMandateLevels,
-    juiceUpgradeCount: useVapeAchievementsStore.getState().purchasedJuiceUpgradeIds.length,
+    juiceUpgradeCount:
+      useVapeAchievementsStore.getState().purchasedJuiceUpgradeIds.length,
   };
 }
 
@@ -78,9 +82,12 @@ export function evaluateAchievements(
       .recordAchievementUnlock(ach.id, ach.juiceReward);
     if (isNew) {
       unlocked.add(ach.id);
-      toast.success(`${ach.name} — +${ach.juiceReward} vape juice`, {
-        duration: 4000,
-      });
+      toast.success(
+        `Achievement unlocked: ${ach.name} (+${ach.juiceReward} juice)`,
+        {
+          duration: 8000,
+        },
+      );
     }
   }
 }

@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { FOUNDERS, type FounderModifiers } from "../game/founders.catalog";
+import { useExitsStore } from "./exits.store";
 import { useMoneyStore } from "./money.store";
 import { useSessionStore } from "./session.store";
 
 /** Neutral (no-op) modifier values — read by every chokepoint when no founder is active. */
-const NEUTRAL: Required<FounderModifiers> = {
+export const NEUTRAL: Required<FounderModifiers> = {
   costExponentReduction: 0,
   innovationLogMult: 1,
   managerProgressMult: 1,
@@ -16,14 +17,22 @@ const NEUTRAL: Required<FounderModifiers> = {
   onlyGenerator: null,
   generatorMoneyMult: {},
   generatorInnovationMult: {},
+  globalMoneyMult: 1,
 };
 
 type FounderState = Required<FounderModifiers> & {
-  /** null until the player founds their startup; gates the whole game. */
   selectedFounderId: string | null;
   chooseFounder: (id: string) => void;
   reset: () => void;
 };
+
+function deriveModifiers(founderId: string): Required<FounderModifiers> {
+  const def = FOUNDERS.find((f) => f.id === founderId);
+  if (!def) return NEUTRAL;
+  const record = useExitsStore.getState().getExitsForFounder(founderId);
+  const mods = def.scalingModifier.compute(record.count, record.totalValuation);
+  return { ...NEUTRAL, ...mods };
+}
 
 export const useFounderStore = create<FounderState>()(
   persist(
@@ -34,12 +43,9 @@ export const useFounderStore = create<FounderState>()(
       chooseFounder: (id: string) => {
         const def = FOUNDERS.find((f) => f.id === id);
         if (!def) return;
-        // Resolve modifiers (neutral defaults + the founder's overrides). The
-        // generators store subscribes to this store and re-syncs the buildable
-        // roster (e.g. a generator restriction) when it changes.
-        set({ selectedFounderId: id, ...NEUTRAL, ...def.modifiers });
+        const mods = deriveModifiers(id);
+        set({ selectedFounderId: id, ...mods });
         useMoneyStore.getState().increaseMoney(def.startingCash);
-        // The company is founded now — start its "incorporated X ago" clock.
         useSessionStore.getState().incorporate();
       },
 
@@ -48,21 +54,26 @@ export const useFounderStore = create<FounderState>()(
     {
       name: "founder",
       storage: createJSONStorage(() => localStorage),
-      // Persist only the chosen id; re-derive modifiers from the catalog on load
-      // so tuning the catalog applies to existing saves.
+      // Persist only the chosen id; re-derive modifiers from catalog + exits on load.
       partialize: (s) => ({ selectedFounderId: s.selectedFounderId }),
       merge: (persisted, current) => {
         const id =
           (persisted as { selectedFounderId?: string | null } | null)
             ?.selectedFounderId ?? null;
-        const def = id ? FOUNDERS.find((f) => f.id === id) : undefined;
-        return {
-          ...current,
-          selectedFounderId: id,
-          ...NEUTRAL,
-          ...(def?.modifiers ?? {}),
-        };
+        const mods = id ? deriveModifiers(id) : NEUTRAL;
+        return { ...current, selectedFounderId: id, ...mods };
       },
     },
   ),
 );
+
+// Re-derive flat modifiers whenever exits change for the active founder.
+useExitsStore.subscribe((state, prevState) => {
+  const { selectedFounderId } = useFounderStore.getState();
+  if (!selectedFounderId) return;
+  const record = state.exits[selectedFounderId];
+  const prevRecord = prevState.exits[selectedFounderId];
+  if ((record?.count ?? 0) === (prevRecord?.count ?? 0)) return;
+  const mods = deriveModifiers(selectedFounderId);
+  useFounderStore.setState(mods);
+});

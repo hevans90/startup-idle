@@ -63,10 +63,10 @@ function App() {
   const vibeCoderCount = useGeneratorStore(
     (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
   );
-  const achievementsUnlocked = useVapeAchievementsStore(
-    (s) => s.unlockedAchievementIds.length,
+  const hasVibeArmy = useVapeAchievementsStore(
+    (s) => s.unlockedAchievementIds.includes("vibe_army"),
   );
-  const vapeVisible = vibeCoderCount >= 100 || achievementsUnlocked > 0;
+  const vapeVisible = vibeCoderCount >= 100 || hasVibeArmy;
 
   const founderId = useFounderStore((state) => state.selectedFounderId);
 

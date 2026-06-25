@@ -22,12 +22,17 @@ export default function Tabs<T extends string>({
   onTabChange,
 }: TabsProps<T>) {
   const visibleTabs = tabs.filter((tab) => !tab.hidden);
+  const visibleTabIds = new Set(visibleTabs.map((t) => t.id));
   const firstEnabledTab = visibleTabs.find((tab) => !tab.disabled)?.id;
 
   const [internalTab, setInternalTab] = useState<T | undefined>(
     firstEnabledTab
   );
-  const activeTab = selectedTab ?? internalTab;
+  const rawActive = selectedTab ?? internalTab;
+  // If the persisted/selected tab is no longer in the visible list, fall back.
+  const activeTab = rawActive !== undefined && visibleTabIds.has(rawActive)
+    ? rawActive
+    : firstEnabledTab;
 
   const handleTabChange = (tabId: T) => {
     if (selectedTab === undefined) {

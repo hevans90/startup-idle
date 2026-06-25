@@ -3,6 +3,7 @@ import { useGeneratorStore } from "../state/generators.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
+import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { GeneratorBuyButton } from "./generator-buy-button";
 
@@ -55,6 +56,8 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
             >
               {gen.id === "vibe_coder" ? (
                 <RainbowText className="grow" text={gen.name} />
+              ) : gen.id === "10x_dev" ? (
+                <TenXDevText text={gen.name} className="grow" />
               ) : (
                 <span className="grow">{gen.name}</span>
               )}

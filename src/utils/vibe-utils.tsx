@@ -13,33 +13,35 @@ const colors = [
 interface RainbowTextProps {
   text: string;
   className?: string;
+  inline?: boolean;
 }
 
 export const RainbowText: React.FC<RainbowTextProps> = ({
   text,
   className = "",
+  inline = false,
 }) => {
   let colorIndex = 0;
 
-  return (
-    <div className={`flex flex-wrap ${className}`}>
-      {text.split("").map((char, i) => {
-        if (char === " ") {
-          return (
-            <span key={i} className="whitespace-pre">
-              {char}
-            </span>
-          );
-        } else {
-          const coloredChar = (
-            <span key={i} className={`${colors[colorIndex % colors.length]}`}>
-              {char}
-            </span>
-          );
-          colorIndex++;
-          return coloredChar;
-        }
-      })}
-    </div>
-  );
+  const chars = text.split("").map((char, i) => {
+    if (char === " ") {
+      return (
+        <span key={i} className="whitespace-pre">
+          {char}
+        </span>
+      );
+    }
+    const coloredChar = (
+      <span key={i} className={colors[colorIndex % colors.length]}>
+        {char}
+      </span>
+    );
+    colorIndex++;
+    return coloredChar;
+  });
+
+  if (inline) {
+    return <span className={`inline-flex flex-wrap ${className}`}>{chars}</span>;
+  }
+  return <div className={`flex flex-wrap ${className}`}>{chars}</div>;
 };

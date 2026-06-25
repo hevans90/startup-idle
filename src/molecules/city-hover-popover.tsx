@@ -1,8 +1,10 @@
 import { useLayoutEffect, useRef } from "react";
 import { useGeneratorStore } from "../state/generators.store";
 import { useOfficeStore } from "../state/office.store";
+import { TenXDevText } from "../utils/ten-x-utils";
 import { formatCurrency } from "../utils/money-utils";
 import { formatRate } from "../utils/rate-utils";
+import { RainbowText } from "../utils/vibe-utils";
 
 const clamp = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, n));
@@ -71,7 +73,15 @@ export const CityHoverPopover = () => {
             </span>
           )}
         </div>
-        <div className="text-[11px] capitalize opacity-60">{gen.name}</div>
+        <div className="text-[11px] capitalize opacity-60">
+          {gen.id === "vibe_coder" ? (
+            <RainbowText text={gen.name} inline />
+          ) : gen.id === "10x_dev" ? (
+            <TenXDevText text={gen.name} />
+          ) : (
+            gen.name
+          )}
+        </div>
 
         <div className="mt-1 flex flex-col gap-0.5 text-xs tabular-nums">
           <Row label="Floors" value={String(hovered.floors)} />

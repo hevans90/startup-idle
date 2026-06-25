@@ -659,6 +659,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(juiceMps)
             .times(headcountMoneyMult)
             .times(founder.generatorMoneyMult[gen.id] ?? 1)
+            .times(founder.globalMoneyMult)
             .times(prestige.moneyMult)
             .times(prestige.employeeOutputMult)
             .times(gen.id === "intern" ? prestige.internOutputMult : 1)
@@ -755,6 +756,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           (gen.interval / 1000)) *
         juiceMps *
         headcountMoneyMult *
+        founder.globalMoneyMult *
         prestige.moneyMult *
         prestige.employeeOutputMult *
         (id === "intern" ? prestige.internOutputMult : 1)
