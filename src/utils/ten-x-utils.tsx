@@ -22,12 +22,15 @@ const HOLD_MS = 2600;
 const EXIT_MS = 450;
 const CYCLE_MS = ENTER_MS + HOLD_MS + EXIT_MS;
 
-/**
- * Renders text with the Arwes decipher animation loop:
- * characters reveal randomly on enter, hold, then re-scramble on exit,
- * cycling indefinitely. Uses Share Tech Mono for the hacker aesthetic.
- */
-export function TenXDevText({
+export const TENX_GLOW_STYLE: React.CSSProperties = {
+  fontFamily: "'Share Tech Mono', 'Space Mono', monospace",
+  color: "rgb(74 222 128)",
+  textShadow: "0 0 8px rgba(74,222,128,0.55), 0 0 2px rgba(74,222,128,0.9)",
+  letterSpacing: "0.02em",
+};
+
+/** Animated decipher loop — characters scramble in/out on repeat. */
+function TenXDevTextAnimated({
   text,
   className = "",
 }: {
@@ -65,7 +68,6 @@ export function TenXDevText({
             .map((ch, i) => (ch === " " ? " " : deciphered.has(i) ? ch : randCipher()))
             .join(""),
         );
-        // Refresh exit indexes once per cycle at the start of enter phase
         if (elapsed > CYCLE_MS && phase < 16) {
           exitIdxRef.current = shuffleIndexes(text.length);
           enterIdxRef.current = shuffleIndexes(text.length);
@@ -92,16 +94,32 @@ export function TenXDevText({
   }, [text]);
 
   return (
-    <span
-      className={className}
-      style={{
-        fontFamily: "'Share Tech Mono', 'Space Mono', monospace",
-        color: "rgb(74 222 128)",
-        textShadow: "0 0 8px rgba(74,222,128,0.55), 0 0 2px rgba(74,222,128,0.9)",
-        letterSpacing: "0.02em",
-      }}
-    >
+    <span className={className} style={TENX_GLOW_STYLE}>
       {displayed}
     </span>
   );
+}
+
+/**
+ * Renders text with the Arwes decipher animation by default.
+ * Pass `static` to suppress the animation and show plain glowing text —
+ * useful where the label must always be readable (e.g. earned upgrade chips).
+ */
+export function TenXDevText({
+  text,
+  className = "",
+  static: isStatic = false,
+}: {
+  text: string;
+  className?: string;
+  static?: boolean;
+}) {
+  if (isStatic) {
+    return (
+      <span className={className} style={TENX_GLOW_STYLE}>
+        {text}
+      </span>
+    );
+  }
+  return <TenXDevTextAnimated text={text} className={className} />;
 }

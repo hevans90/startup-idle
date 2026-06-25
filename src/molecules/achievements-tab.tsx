@@ -15,7 +15,6 @@ import {
   IconTrophy,
   type Icon as TablerIcon,
 } from "@tabler/icons-react";
-import Decimal from "break_infinity.js";
 import { useMemo } from "react";
 import toast from "react-hot-toast";
 import { twMerge } from "tailwind-merge";
@@ -23,7 +22,6 @@ import { ACHIEVEMENT_CATALOG } from "../game/achievements.catalog";
 import { JUICE_SHOP_UPGRADES } from "../game/achievements.juice-shop";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
-import { isLocalDev } from "../utils/dev-mode";
 import { formatCurrency } from "../utils/money-utils";
 
 /** A distinct vape-themed glyph per juice-shop upgrade. */
@@ -45,6 +43,7 @@ const UPGRADE_ICONS: Record<string, TablerIcon> = {
 export const AchievementsTab = () => {
   const vapeJuice = useVapeAchievementsStore((s) => s.vapeJuice);
   const unlockedIds = useVapeAchievementsStore((s) => s.unlockedAchievementIds);
+  const hasVibeArmy = unlockedIds.includes("vibe_army");
   const purchasedIds = useVapeAchievementsStore(
     (s) => s.purchasedJuiceUpgradeIds,
   );
@@ -59,37 +58,26 @@ export const AchievementsTab = () => {
   );
 
   return (
-    <div className="flex w-full flex-col gap-3 p-2 text-sm">
-      {/* Dev-only (localhost) juice grant for testing the vape upgrades. */}
-      {isLocalDev() && (
-        <button
-          type="button"
-          onClick={() =>
-            useVapeAchievementsStore.setState({ vapeJuice: new Decimal(1e9) })
-          }
-          className="cursor-pointer rounded border border-dashed border-amber-500 px-2 py-1 text-xs text-amber-600 dark:text-amber-400"
-        >
-          🧪 dev: grant 1B juice
-        </button>
-      )}
+    <div className="flex h-full w-full flex-col overflow-hidden p-2 text-sm">
+      {/* Vape shop — locked behind vibe_army achievement; pinned, never scrolls */}
+      <div className="relative shrink-0 pb-3">
+        {/* Juice balance + shop header */}
+        <div className="flex items-baseline justify-between">
+          <p className="text-xs font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
+            Vape shop
+          </p>
+          <span className="tabular-nums text-sm font-bold text-violet-600 dark:text-violet-400">
+            {formatCurrency(vapeJuice, {
+              showDollarSign: false,
+              exponentBreakpoint: 1e9,
+            })}{" "}
+            <span className="text-xs font-normal opacity-60">juice</span>
+          </span>
+        </div>
 
-      {/* Juice balance + shop header */}
-      <div className="flex items-baseline justify-between">
-        <p className="text-xs font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
-          Vape shop
-        </p>
-        <span className="tabular-nums text-sm font-bold text-violet-600 dark:text-violet-400">
-          {formatCurrency(vapeJuice, {
-            showDollarSign: false,
-            exponentBreakpoint: 1e9,
-          })}{" "}
-          <span className="text-xs font-normal opacity-60">juice</span>
-        </span>
-      </div>
-
-      {/* Upgrade grid */}
-      <div className="flex flex-wrap gap-2">
-        {JUICE_SHOP_UPGRADES.map((u) => {
+        {/* Upgrade grid */}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {JUICE_SHOP_UPGRADES.map((u) => {
           const bought = purchasedSet.has(u.id);
           const canBuy = !bought && vapeJuice.gte(u.cost);
           const Icon = UPGRADE_ICONS[u.id] ?? IconSparkles;
@@ -142,12 +130,37 @@ export const AchievementsTab = () => {
               </PopoverContent>
             </Popover>
           );
-        })}
+          })}
+        </div>
+
+        {/* Lock overlay — until vibe_army (100 vibe coders) is earned */}
+        {!hasVibeArmy && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-primary-900/40 backdrop-blur-xl dark:bg-primary-950/50">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="drop-shadow-md"
+            >
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            <span className="px-4 text-center text-[11px] font-semibold leading-snug drop-shadow-sm">
+              Hire 100 vibe coders to unlock the shop
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Achievements — compact grid, strong locked/unlocked contrast. */}
-      <div>
-        <div className="mb-2 flex items-baseline justify-between gap-2">
+      {/* Achievements — header pinned, grid scrolls */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="mb-2 flex shrink-0 items-baseline justify-between gap-2">
           <p className="text-xs font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
             Achievements
           </p>
@@ -155,7 +168,7 @@ export const AchievementsTab = () => {
             {unlockedCount} / {ACHIEVEMENT_CATALOG.length} unlocked
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-1">
+        <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-1 overflow-y-auto">
           {ACHIEVEMENT_CATALOG.map((a) => {
             const done = unlockedSet.has(a.id);
             const hiddenLocked = a.isHidden && !done;

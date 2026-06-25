@@ -14,7 +14,6 @@ import { useSessionStore } from "../state/session.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
 import { Button } from "../ui/Button";
 import { SystemPanel } from "../ui/SystemPanel";
-import { isLocalDev } from "../utils/dev-mode";
 import { formatCurrency } from "../utils/money-utils";
 import { formatDuration } from "../utils/time-utils";
 import { useSellTransition } from "./sell-transition";
@@ -49,7 +48,7 @@ export const ChipRow = ({ chips }: { chips: Chip[] }) => (
     {chips.map((c) => (
       <span
         key={c.label}
-        className={`rounded px-1.5 py-0.5 text-[10px] tabular-nums ${
+        className={`px-1.5 py-0.5 text-[10px] tabular-nums ${
           c.good
             ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
             : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
@@ -160,11 +159,11 @@ export function modifierChips(
       });
   };
   mult("Money", m.moneyMult);
-  mult("Innov", m.innovationMult);
+  mult("Innovation", m.innovationMult);
   mult("Valuation", m.valuationMult);
   mult("Output", m.employeeOutputMult);
-  mult("Auto", m.autoBuyMult);
-  mult("Mgrs", m.managerSpeedMult);
+  mult("Auto-buy", m.autoBuyMult);
+  mult("Managers", m.managerSpeedMult);
   mult("Hire cost", m.hireCostMult, false);
   mult("Singularity", m.singularityMult);
   mult("Satisfaction", m.satisfactionGainMult);
@@ -324,14 +323,6 @@ export const AcquisitionTab = () => {
         </div>
       </SystemPanel>
 
-      {isLocalDev() && (
-        <Button
-          className="w-full text-xs opacity-80"
-          onClick={() => usePrestigeStore.getState().grantEquity(10)}
-        >
-          +10 Equity (dev)
-        </Button>
-      )}
 
       {treeOpen && <SkillTreeOverlay onClose={() => setTreeOpen(false)} />}
       {confirming && (

@@ -1,31 +1,35 @@
 import { FloatingTree } from "@floating-ui/react";
 import { useEffect, useRef, useState } from "react";
 import toast, { resolveValue, Toaster } from "react-hot-toast";
+import { evaluateAchievements } from "./game/achievements.engine";
+import {
+  computeOfflineProgress,
+  type OfflineSummary,
+} from "./game/offline-progress";
 import { useCompareVersion } from "./hooks/use-compare-version";
 import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
-import { computeOfflineProgress, type OfflineSummary } from "./game/offline-progress";
 import { AiSingularityReadout } from "./molecules/ai-singularity-readout";
-import { VapeMapWrapper } from "./molecules/vape-map-wrapper";
 import { CityHoverPopover } from "./molecules/city-hover-popover";
-import { OfflineSummaryModal } from "./molecules/offline-summary";
-import { useSessionStore } from "./state/session.store";
+import { DevPanel } from "./molecules/dev-panel";
 import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
 import { FounderSelect } from "./molecules/founder-select";
-import { SellTransitionProvider } from "./molecules/sell-transition";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
 import { Generators } from "./molecules/generators";
 import { InnovationCounter } from "./molecules/innovation-counter";
+import { OfflineSummaryModal } from "./molecules/offline-summary";
 import { PurchaseModeToggle } from "./molecules/purchase-mode-toggle";
+import { SellTransitionProvider } from "./molecules/sell-transition";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Sidebar } from "./molecules/sidebar";
 import { Toolbar } from "./molecules/toolbar";
 import { Upgrades } from "./molecules/upgrades";
-import { evaluateAchievements } from "./game/achievements.engine";
+import { VapeMapWrapper } from "./molecules/vape-map-wrapper";
 import { Office } from "./office/office";
 import { useFounderStore } from "./state/founder.store";
 import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
 import { useMoneyStore } from "./state/money.store";
+import { useSessionStore } from "./state/session.store";
 import { useThemeStore } from "./state/theme.store";
 import { useVapeAchievementsStore } from "./state/vape-achievements.store";
 import { Toast } from "./ui/Toast";
@@ -63,8 +67,8 @@ function App() {
   const vibeCoderCount = useGeneratorStore(
     (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
   );
-  const hasVibeArmy = useVapeAchievementsStore(
-    (s) => s.unlockedAchievementIds.includes("vibe_army"),
+  const hasVibeArmy = useVapeAchievementsStore((s) =>
+    s.unlockedAchievementIds.includes("vibe_army"),
   );
   const vapeVisible = vibeCoderCount >= 100 || hasVibeArmy;
 
@@ -148,66 +152,71 @@ function App() {
       )}
 
       <SellTransitionProvider>
-      {founderId == null ? (
-        <FounderSelect />
-      ) : isMobile ? (
-        <div className="w-full h-full flex flex-col items-center pt-16 gap-2">
-          <section className="flex flex-col items-center">
-            <h1 className="text-4xl font-bold">Startup Idle</h1>
-          </section>
-          <section className="flex flex-col items-center mb-6">
-            <button
-              className="min-w-36 p-2 text-3xl cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600 mb-2"
-              onClick={() => increaseMoney(Math.max(mps / 10, 1))}
-            >
-              {formatCurrency(money)}
-            </button>
-            <div className="text-sm">({formatCurrency(mps)}/sec)</div>
-          </section>
-          {innovation.gte(1) && <InnovationCounter />}
-          <PurchaseModeToggle />
-          <Generators isMobile={true} />
-          <section className="mt-8">
-            <Upgrades isMobile={true} />
-          </section>
-          <SettingsPopover className="absolute top-4 left-4" />
-        </div>
-      ) : (
-        <div className="flex h-full min-h-0 w-full">
-          {/* LEFT PANEL */}
-          <div className="relative flex h-full min-h-0 w-2/3 flex-col items-center">
-            <Toolbar />
-
-            <GameStageTicker className="absolute top-13 left-0 right-0 z-20" />
-
-            <div className="relative min-h-0 w-full flex-1 basis-0 overflow-hidden">
-              <div
-                ref={setOfficeWrapperRef}
-                className="absolute inset-x-0 bottom-0 top-0 z-0 min-h-0"
+        {founderId == null ? (
+          <FounderSelect />
+        ) : isMobile ? (
+          <div className="w-full h-full flex flex-col items-center pt-16 gap-2">
+            <section className="flex flex-col items-center">
+              <h1 className="text-4xl font-bold">Startup Idle</h1>
+            </section>
+            <section className="flex flex-col items-center mb-6">
+              <button
+                className="min-w-36 p-2 text-3xl cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600 mb-2"
+                onClick={() => increaseMoney(Math.max(mps / 10, 1))}
               >
-                {wrapperSize && (
-                  <Office
-                    wrapperRef={officeWrapperRef}
-                    wrapperSize={wrapperSize}
-                  />
-                )}
-              </div>
+                {formatCurrency(money)}
+              </button>
+              <div className="text-sm">({formatCurrency(mps)}/sec)</div>
+            </section>
+            {innovation.gte(1) && <InnovationCounter />}
+            <PurchaseModeToggle />
+            <Generators isMobile={true} />
+            <section className="mt-8">
+              <Upgrades isMobile={true} />
+            </section>
+            <SettingsPopover className="absolute top-4 left-4" />
+          </div>
+        ) : (
+          <div className="flex h-full min-h-0 w-full">
+            {/* LEFT PANEL */}
+            <div className="relative flex h-full min-h-0 w-2/3 flex-col items-center">
+              <Toolbar />
 
-              <CityHoverPopover />
+              <GameStageTicker className="absolute top-13 left-0 right-0 z-20" />
 
-              <EmployeeSatisfactionOverlay className="absolute bottom-3 right-3 z-10" />
+              <div className="relative min-h-0 w-full flex-1 basis-0 overflow-hidden">
+                <div
+                  ref={setOfficeWrapperRef}
+                  className="absolute inset-x-0 bottom-0 top-0 z-0 min-h-0"
+                >
+                  {wrapperSize && (
+                    <Office
+                      wrapperRef={officeWrapperRef}
+                      wrapperSize={wrapperSize}
+                    />
+                  )}
+                </div>
 
-              <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1 items-start">
-                <AiSingularityReadout />
-                {vapeVisible && <VapeMapWrapper />}
+                <CityHoverPopover />
+
+                <EmployeeSatisfactionOverlay className="absolute bottom-3 right-3 z-10" />
+
+                <div className="pointer-events-none absolute right-2 top-10 z-20">
+                  <DevPanel />
+                </div>
+
+                <AiSingularityReadout className="absolute top-10 left-2 z-10" />
+
+                <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1 items-start">
+                  {vapeVisible && <VapeMapWrapper />}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* SIDEBAR */}
-          <Sidebar className="h-full min-h-0 min-w-0 max-w-1/3 flex-1 overflow-y-auto" />
-        </div>
-      )}
+            {/* SIDEBAR */}
+            <Sidebar className="h-full min-h-0 min-w-0 max-w-1/3 flex-1 overflow-hidden" />
+          </div>
+        )}
       </SellTransitionProvider>
     </FloatingTree>
   );

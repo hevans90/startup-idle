@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
 import { type PrestigeModifiers } from "../game/skill-tree";
@@ -8,6 +8,7 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { CURRENT_VERSION } from "../state/version.store";
+import { BonusRow, BonusSection, fmtMult } from "../ui/BonusRow";
 import { Button } from "../ui/Button";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -15,48 +16,6 @@ import { RainbowText } from "../utils/vibe-utils";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
 
 // ─── local helpers ───────────────────────────────────────────────────────────
-
-const BonusSection = ({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) => (
-  <div className="flex min-w-40 flex-1 flex-col gap-2">
-    <p className="text-[10px] font-semibold uppercase tracking-wider opacity-40">
-      {title}
-    </p>
-    <div className="flex flex-col gap-1 text-xs">{children}</div>
-  </div>
-);
-
-const BonusRow = ({
-  label,
-  value,
-  tone = "good",
-}: {
-  label: string;
-  value: string;
-  tone?: "good" | "bad" | "neutral";
-}) => (
-  <div className="flex items-baseline justify-between gap-3">
-    <span className="truncate opacity-60">{label}</span>
-    {value && (
-      <span
-        className={`shrink-0 font-medium tabular-nums ${
-          tone === "good"
-            ? "text-emerald-600 dark:text-emerald-400"
-            : tone === "bad"
-              ? "text-rose-500 dark:text-rose-400"
-              : "text-cyan-600 dark:text-cyan-400"
-        }`}
-      >
-        {value}
-      </span>
-    )}
-  </div>
-);
 
 function treeRows(m: PrestigeModifiers) {
   type Row = { label: string; value: string; tone: "good" | "bad" };
@@ -66,7 +25,7 @@ function treeRows(m: PrestigeModifiers) {
     if (v === 1) return;
     rows.push({
       label,
-      value: `×${v.toFixed(2)}`,
+      value: fmtMult(v),
       tone: (betterUp ? v > 1 : v < 1) ? "good" : "bad",
     });
   };
@@ -297,8 +256,8 @@ export const FounderSelect = () => {
       </div>
 
       {showPrestige && (
-        <div className="mt-6 w-full max-w-5xl rounded-lg border border-primary-300 bg-primary-200/60 p-4 dark:border-primary-700 dark:bg-primary-800/60">
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider opacity-40">
+        <div className="mt-6 w-full max-w-5xl border border-primary-300 bg-primary-200/60 p-4 dark:border-primary-700 dark:bg-primary-800/60">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide opacity-50">
             Permanent bonuses
           </p>
 
@@ -328,27 +287,16 @@ export const FounderSelect = () => {
                       );
                     if (mandate.innovationMultPerLevel > 0)
                       parts.push(
-                        `+${(lv * mandate.innovationMultPerLevel * 100).toFixed(0)}% innov.`,
+                        `+${(lv * mandate.innovationMultPerLevel * 100).toFixed(0)}% innovation`,
                       );
+                    const detail = parts.length > 0 ? ` · ${parts.join(", ")}` : "";
                     return (
-                      <div
+                      <BonusRow
                         key={mandate.id}
-                        className="flex items-baseline justify-between gap-3 text-xs"
-                      >
-                        <span className="truncate opacity-60">
-                          {mandate.name}
-                        </span>
-                        <span className="shrink-0 tabular-nums">
-                          <span className="font-medium text-cyan-600 dark:text-cyan-400">
-                            Lv {lv}
-                          </span>
-                          {parts.length > 0 && (
-                            <span className="ml-1.5 opacity-50">
-                              {parts.join(", ")}
-                            </span>
-                          )}
-                        </span>
-                      </div>
+                        label={mandate.name}
+                        value={`Lv ${lv}${detail}`}
+                        tone="neutral"
+                      />
                     );
                   })}
                 </BonusSection>

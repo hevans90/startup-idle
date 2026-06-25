@@ -16,13 +16,15 @@ function GenLabel({
   id,
   text,
   inline = false,
+  static: isStatic = false,
 }: {
   id: string;
   text: string;
   inline?: boolean;
+  static?: boolean;
 }) {
   if (id.includes("vibe_coder")) return <RainbowText text={text} inline={inline} />;
-  if (id.includes("10x_dev")) return <TenXDevText text={text} />;
+  if (id.includes("10x_dev")) return <TenXDevText text={text} static={isStatic} />;
   return <>{text}</>;
 }
 
@@ -223,13 +225,13 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
                 key={upg.id}
                 className="bg-primary-300 dark:bg-primary-700 cursor-help p-2 responsive-text-xs"
               >
-                <GenLabel id={upg.id} text={upg?.abbreviation ?? "UPG"} />
+                <GenLabel id={upg.id} text={upg?.abbreviation ?? "UPG"} static />
               </div>
             </PopoverTrigger>
 
             <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 w-[26rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col items-center gap-2">
               <span className="flex responsive-text-xs">
-                <GenLabel id={upg.id} text={upg.name} />
+                <GenLabel id={upg.id} text={upg.name} static />
                 <span>: {formatCurrency(upg.cost)}</span>
               </span>
               <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow text-center">

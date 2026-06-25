@@ -18,6 +18,11 @@ const zeroCtx = {
   purchasedUpgradeCount: 0,
   managerTierTotal: 0,
   aiSingularity: 0,
+  exits: 0,
+  allocatedNodes: 0,
+  totalMandateLevels: 0,
+  juiceUpgradeCount: 0,
+  founderExitCounts: {} as Record<string, number>,
 };
 
 describe("achievementsNewlyMet", () => {
@@ -37,10 +42,10 @@ describe("achievementsNewlyMet", () => {
     expect(met.some((a) => a.id === "intern_squad")).toBe(false);
   });
 
-  test("hidden whale at money threshold", () => {
+  test("cash_titan at money threshold", () => {
     const ctx = { ...zeroCtx, money: 1e12 };
     const met = achievementsNewlyMet(ctx, new Set());
-    expect(met.some((a) => a.id === "hidden_whale")).toBe(true);
+    expect(met.some((a) => a.id === "cash_titan")).toBe(true);
   });
 });
 
@@ -77,11 +82,11 @@ describe("useVapeAchievementsStore", () => {
     useVapeAchievementsStore.getState().recordAchievementUnlock("seed", 500);
     const ok = useVapeAchievementsStore
       .getState()
-      .tryPurchaseJuiceUpgrade("juice_cloud_chaser");
+      .tryPurchaseJuiceUpgrade("juice_coil_polish");
     expect(ok).toBe(true);
-    expect(useVapeAchievementsStore.getState().juiceMpsMultBonus).toBeCloseTo(0.03, 5);
+    expect(useVapeAchievementsStore.getState().juiceMpsMultBonus).toBeCloseTo(0.08, 5);
     expect(
       useVapeAchievementsStore.getState().purchasedJuiceUpgradeIds,
-    ).toContain("juice_cloud_chaser");
+    ).toContain("juice_coil_polish");
   });
 });

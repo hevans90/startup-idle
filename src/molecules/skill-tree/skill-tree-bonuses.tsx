@@ -115,7 +115,7 @@ const TotalRow = ({ total }: { total: StatTotal }) => {
   const pctGood = meta.good === "up" ? total.pct >= 0 : total.pct <= 0;
   const multGood = meta.good === "up" ? total.mult >= 1 : total.mult <= 1;
   return (
-    <div className="flex items-baseline justify-between gap-2 rounded bg-primary-200/70 px-2 py-1 dark:bg-primary-800/60">
+    <div className="flex items-baseline justify-between gap-2 bg-primary-200/70 px-2 py-1 dark:bg-primary-800/60">
       <span className="text-xs">{meta.label}</span>
       <span className="flex items-baseline gap-1.5 text-xs font-semibold tabular-nums">
         {total.pct !== 0 && (
@@ -139,7 +139,7 @@ const Section = ({
   children: React.ReactNode;
 }) => (
   <div className="mb-3">
-    <p className={`mb-1 text-[10px] font-bold uppercase tracking-wide ${color}`}>
+    <p className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${color}`}>
       {label}
     </p>
     <div className="flex flex-col gap-1.5">{children}</div>
@@ -158,7 +158,7 @@ const Row = ({
   <div
     onMouseEnter={() => spotlight(ids)}
     onMouseLeave={clearSpotlight}
-    className="cursor-default rounded bg-primary-200/70 px-2 py-1 transition-colors hover:bg-cyan-500/20 dark:bg-primary-800/60 dark:hover:bg-cyan-400/20"
+    className="cursor-default bg-primary-200/70 px-2 py-1 transition-colors hover:bg-cyan-500/20 dark:bg-primary-800/60 dark:hover:bg-cyan-400/20"
   >
     <div className="text-xs font-medium">{title}</div>
     {rows.map((row, i) => (

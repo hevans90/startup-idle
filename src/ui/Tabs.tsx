@@ -42,7 +42,7 @@ export default function Tabs<T extends string>({
   };
 
   return (
-    <div className="w-full select-none">
+    <div className="flex h-full w-full select-none flex-col">
       {/* Tab Headers */}
       <div className="flex border-primary-300 dark:border-primary-600 h-[53px]">
         {visibleTabs.map((tab) => (
@@ -64,7 +64,11 @@ export default function Tabs<T extends string>({
       </div>
 
       {/* Tab Content */}
-      {activeTab && <>{children[activeTab]}</>}
+      {activeTab && (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {children[activeTab]}
+        </div>
+      )}
     </div>
   );
 }

@@ -15,13 +15,7 @@ import { Upgrades } from "./upgrades";
 import { ValuationTab } from "./valuation-tab";
 
 function useVapeVisible() {
-  const vibeCoders = useGeneratorStore(
-    (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
-  );
-  const hasVibeArmy = useVapeAchievementsStore(
-    (s) => s.unlockedAchievementIds.includes("vibe_army"),
-  );
-  return vibeCoders >= 100 || hasVibeArmy;
+  return useVapeAchievementsStore((s) => s.unlockedAchievementIds.length > 0);
 }
 
 export const Sidebar = ({ className }: { className: ClassNameValue }) => {
@@ -42,7 +36,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   ];
 
   return (
-    <div className={twMerge("bg-primary-200 dark:bg-primary-900", className)}>
+    <div className={twMerge("flex h-full flex-col overflow-hidden bg-primary-200 dark:bg-primary-900", className)}>
       <Tabs
         selectedTab={sidebarTab}
         onTabChange={setSidebarTab}

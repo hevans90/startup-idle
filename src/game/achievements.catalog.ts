@@ -21,6 +21,8 @@ export type AchievementContext = {
   totalMandateLevels: number;
   /** Number of vape shop upgrades purchased. */
   juiceUpgradeCount: number;
+  /** Exit count per founder id. */
+  founderExitCounts: Record<string, number>;
 };
 
 export type AchievementDef = {
@@ -429,5 +431,168 @@ export const ACHIEVEMENT_CATALOG: AchievementDef[] = [
     juiceReward: 200,
     isHidden: true,
     check: (c) => c.juiceUpgradeCount >= 12,
+  },
+
+  // ─── Founder: NEET ──────────────────────────────────────────────────────────
+  {
+    id: "neet_first_exit",
+    name: "Grinding in silence",
+    description: "Sell your first company as the NEET. You did it without leaving the house.",
+    juiceReward: 75,
+    check: (c) => (c.founderExitCounts["neet"] ?? 0) >= 1,
+  },
+  {
+    id: "neet_serial",
+    name: "Compounding hermit",
+    description: "Sell 3 companies as the NEET. Your passive income compounds. So does your social isolation.",
+    juiceReward: 160,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["neet"] ?? 0) >= 3,
+  },
+  {
+    id: "neet_legend",
+    name: "Technically retired",
+    description: "Sell 5 companies as the NEET. At this point you're just doing it for fun.",
+    juiceReward: 280,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["neet"] ?? 0) >= 5,
+  },
+
+  // ─── Founder: Bootstrapper ──────────────────────────────────────────────────
+  {
+    id: "bootstrapper_first_exit",
+    name: "Ramen profitable",
+    description: "Sell your first company as the Bootstrapper. Your first company sold for more than the ramen.",
+    juiceReward: 75,
+    check: (c) => (c.founderExitCounts["bootstrapper"] ?? 0) >= 1,
+  },
+  {
+    id: "bootstrapper_serial",
+    name: "Frugal empire",
+    description: "Sell 3 companies as the Bootstrapper. Every cent was earned the hard way.",
+    juiceReward: 160,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["bootstrapper"] ?? 0) >= 3,
+  },
+  {
+    id: "bootstrapper_legend",
+    name: "Scar tissue stack",
+    description: "Sell 5 companies as the Bootstrapper. The cost curves have nowhere left to go.",
+    juiceReward: 280,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["bootstrapper"] ?? 0) >= 5,
+  },
+
+  // ─── Founder: Hacker ────────────────────────────────────────────────────────
+  {
+    id: "hacker_first_exit",
+    name: "Shipped, not perfect",
+    description: "Sell your first company as the Hacker. The deck can wait. The product is live.",
+    juiceReward: 75,
+    check: (c) => (c.founderExitCounts["hacker"] ?? 0) >= 1,
+  },
+  {
+    id: "hacker_serial",
+    name: "Perpetual beta",
+    description: "Sell 3 companies as the Hacker. Version 3. Still no slides.",
+    juiceReward: 160,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["hacker"] ?? 0) >= 3,
+  },
+  {
+    id: "hacker_legend",
+    name: "Stack overflow",
+    description: "Sell 5 companies as the Hacker. You've answered your own question.",
+    juiceReward: 280,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["hacker"] ?? 0) >= 5,
+  },
+
+  // ─── Founder: Visionary ─────────────────────────────────────────────────────
+  {
+    id: "visionary_first_exit",
+    name: "Deck closed",
+    description: "Sell your first company as the Visionary. You sold the dream. They bought it.",
+    juiceReward: 75,
+    check: (c) => (c.founderExitCounts["visionary"] ?? 0) >= 1,
+  },
+  {
+    id: "visionary_serial",
+    name: "Term sheet collector",
+    description: "Sell 3 companies as the Visionary. The board mandate practically manages itself.",
+    juiceReward: 160,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["visionary"] ?? 0) >= 3,
+  },
+  {
+    id: "visionary_legend",
+    name: "Track record",
+    description: "Sell 5 companies as the Visionary. At this valuation, you are the product.",
+    juiceReward: 280,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["visionary"] ?? 0) >= 5,
+  },
+
+  // ─── Founder: Hustler ───────────────────────────────────────────────────────
+  {
+    id: "hustler_first_exit",
+    name: "Pipeline closed",
+    description: "Sell your first company as the Hustler. ABC. Always Be Closing. Done.",
+    juiceReward: 75,
+    check: (c) => (c.founderExitCounts["hustler"] ?? 0) >= 1,
+  },
+  {
+    id: "hustler_serial",
+    name: "Never not selling",
+    description: "Sell 3 companies as the Hustler. You don't have an off switch.",
+    juiceReward: 160,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["hustler"] ?? 0) >= 3,
+  },
+  {
+    id: "hustler_legend",
+    name: "Network effect",
+    description: "Sell 5 companies as the Hustler. Your headcount synergy has a synergy.",
+    juiceReward: 280,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["hustler"] ?? 0) >= 5,
+  },
+
+  // ─── Founder: Agentic Delusionist ───────────────────────────────────────────
+  {
+    id: "agentic_first_exit",
+    name: "It just works",
+    description: "Sell your first company as the Agentic Delusionist. The agents figured it out.",
+    juiceReward: 75,
+    check: (c) => (c.founderExitCounts["agentic_delusionist"] ?? 0) >= 1,
+  },
+  {
+    id: "agentic_serial",
+    name: "Agentic loop",
+    description: "Sell 3 companies as the Agentic Delusionist. The agents are generating agents.",
+    juiceReward: 160,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["agentic_delusionist"] ?? 0) >= 3,
+  },
+  {
+    id: "agentic_legend",
+    name: "Post-AGI startup",
+    description: "Sell 5 companies as the Agentic Delusionist. You're not sure which agents are running things anymore.",
+    juiceReward: 280,
+    isHidden: true,
+    check: (c) => (c.founderExitCounts["agentic_delusionist"] ?? 0) >= 5,
+  },
+
+  // ─── Meta: all founders ─────────────────────────────────────────────────────
+  {
+    id: "founder_collector",
+    name: "Founder collector",
+    description: "Sell at least one company with every founder. You've seen both sides of every archetype.",
+    juiceReward: 500,
+    isHidden: true,
+    check: (c) =>
+      ["neet", "bootstrapper", "hacker", "visionary", "hustler", "agentic_delusionist"].every(
+        (id) => (c.founderExitCounts[id] ?? 0) >= 1,
+      ),
   },
 ];

@@ -1,5 +1,6 @@
 import toast from "react-hot-toast";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { useExitsStore } from "../state/exits.store";
 import { useGeneratorStore } from "../state/generators.store";
 import {
   ManagerKeyValues,
@@ -35,6 +36,12 @@ export function buildAchievementContext(): AchievementContext {
     0,
   );
 
+  const exitRecords = useExitsStore.getState().exits;
+  const founderExitCounts: Record<string, number> = {};
+  for (const [id, record] of Object.entries(exitRecords)) {
+    founderExitCounts[id] = record.count;
+  }
+
   return {
     internCount: intern,
     vibeCoderCount: vibe,
@@ -53,6 +60,7 @@ export function buildAchievementContext(): AchievementContext {
     totalMandateLevels,
     juiceUpgradeCount:
       useVapeAchievementsStore.getState().purchasedJuiceUpgradeIds.length,
+    founderExitCounts,
   };
 }
 

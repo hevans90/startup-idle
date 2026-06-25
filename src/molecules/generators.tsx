@@ -2,10 +2,30 @@ import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
+import { fmtMult } from "../ui/BonusRow";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { GeneratorBuyButton } from "./generator-buy-button";
+
+const PopRow = ({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+}) => (
+  <div className="flex items-center justify-between gap-3">
+    <span
+      className={`responsive-text-xs grow ${color ?? "text-primary-500 dark:text-primary-300"}`}
+    >
+      {label}
+    </span>
+    <span className={`responsive-text-xs ${color ?? ""}`}>{value}</span>
+  </div>
+);
 
 export const Generators = ({ isMobile }: { isMobile: boolean }) => {
   const { generators } = useGeneratorStore();
@@ -71,133 +91,69 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
           </PopoverTrigger>
 
           <PopoverContent className="outline-none focus:ring-0 bg-primary-300 dark:bg-primary-800 p-2 flex flex-col gap-1 min-w-44">
-            <div className="flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-700 dark:text-primary-300">
-                total:
-              </span>
-              <span className="responsive-text-xs">
-                {formatCurrency(genMps(gen.id, gen.amount))}/s
-              </span>
+            <PopRow label="total" value={`${formatCurrency(genMps(gen.id, gen.amount))}/s`} />
+            <div className="border-b border-primary-400 pb-2">
+              <PopRow label="per" value={`${formatCurrency(genMps(gen.id, 1))}/s`} />
             </div>
-            <div className="flex items-center gap-3 justify-between border-b-[1px] border-primary-400 border-solid pb-2">
-              <span className="responsive-text-xs grow text-primary-600 dark:text-primary-300">
-                per:
-              </span>
-              <span className="responsive-text-xs">
-                {formatCurrency(genMps(gen.id, 1))}/s
-              </span>
-            </div>
-            <div className="flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-600 dark:text-primary-300">
-                base production:
-              </span>
-              <span className="responsive-text-xs">
-                {formatCurrency(gen.baseProduction)}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-500 dark:text-primary-300">
-                multiplier:
-              </span>
-              <span className="responsive-text-xs">
-                x{gen.multiplier.toFixed(2)}
-              </span>
-            </div>
+            <PopRow label="base production" value={formatCurrency(gen.baseProduction)} />
+            <PopRow label="multiplier" value={fmtMult(gen.multiplier)} />
             {(founderGenMoneyMult[gen.id] ?? 1) !== 1 && (
-              <div className="flex items-center gap-3 justify-between">
-                <span className="responsive-text-xs grow text-emerald-700 dark:text-emerald-400">
-                  founder:
-                </span>
-                <span className="responsive-text-xs text-emerald-700 dark:text-emerald-400">
-                  x{(founderGenMoneyMult[gen.id] ?? 1).toFixed(2)}
-                </span>
-              </div>
+              <PopRow
+                label="founder"
+                value={fmtMult(founderGenMoneyMult[gen.id] ?? 1)}
+                color="text-emerald-700 dark:text-emerald-400"
+              />
             )}
             {headcountMult !== 1 && (
-              <div className="flex items-center gap-3 justify-between">
-                <span className="responsive-text-xs grow text-emerald-700 dark:text-emerald-400">
-                  founder headcount:
-                </span>
-                <span className="responsive-text-xs text-emerald-700 dark:text-emerald-400">
-                  x{headcountMult.toFixed(2)}
-                </span>
-              </div>
+              <PopRow
+                label="founder headcount"
+                value={fmtMult(headcountMult)}
+                color="text-emerald-700 dark:text-emerald-400"
+              />
             )}
             {prestige.moneyMult !== 1 && (
-              <div className="flex items-center gap-3 justify-between">
-                <span className="responsive-text-xs grow text-cyan-700 dark:text-cyan-400">
-                  equity money:
-                </span>
-                <span className="responsive-text-xs text-cyan-700 dark:text-cyan-400">
-                  x{prestige.moneyMult.toFixed(2)}
-                </span>
-              </div>
+              <PopRow
+                label="equity money"
+                value={fmtMult(prestige.moneyMult)}
+                color="text-cyan-700 dark:text-cyan-400"
+              />
             )}
             {prestige.employeeOutputMult !== 1 && (
-              <div className="flex items-center gap-3 justify-between">
-                <span className="responsive-text-xs grow text-cyan-700 dark:text-cyan-400">
-                  equity output:
-                </span>
-                <span className="responsive-text-xs text-cyan-700 dark:text-cyan-400">
-                  x{prestige.employeeOutputMult.toFixed(2)}
-                </span>
-              </div>
+              <PopRow
+                label="equity output"
+                value={fmtMult(prestige.employeeOutputMult)}
+                color="text-cyan-700 dark:text-cyan-400"
+              />
             )}
             {equityHeadcountMult !== 1 && (
-              <div className="flex items-center gap-3 justify-between">
-                <span className="responsive-text-xs grow text-cyan-700 dark:text-cyan-400">
-                  equity headcount:
-                </span>
-                <span className="responsive-text-xs text-cyan-700 dark:text-cyan-400">
-                  x{equityHeadcountMult.toFixed(2)}
-                </span>
-              </div>
+              <PopRow
+                label="equity headcount"
+                value={fmtMult(equityHeadcountMult)}
+                color="text-cyan-700 dark:text-cyan-400"
+              />
             )}
             {gen.id === "intern" && prestige.internOutputMult !== 1 && (
-              <div className="flex items-center gap-3 justify-between">
-                <span className="responsive-text-xs grow text-rose-600 dark:text-rose-400">
-                  AGI-pilled:
-                </span>
-                <span className="responsive-text-xs text-rose-600 dark:text-rose-400">
-                  x{prestige.internOutputMult.toFixed(2)}
-                </span>
-              </div>
+              <PopRow
+                label="AGI-pilled"
+                value={fmtMult(prestige.internOutputMult)}
+                color="text-rose-600 dark:text-rose-400"
+              />
             )}
-            <div className="flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-500 dark:text-primary-300">
-                cost multiplier:
-              </span>
-              <span className="responsive-text-xs">
-                {gen.costMultiplier.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 justify-between">
-              <span className="responsive-text-xs grow text-primary-500 dark:text-primary-300">
-                cost exponent:
-              </span>
-              <span className="responsive-text-xs">
-                {gen.costExponent.toFixed(2)}
-              </span>
-            </div>
+            <PopRow label="cost multiplier" value={gen.costMultiplier.toFixed(2)} />
+            <PopRow label="cost exponent" value={gen.costExponent.toFixed(2)} />
             {costExponentReduction !== 0 && (
-              <div className="flex items-center gap-3 justify-between">
-                <span className="responsive-text-xs grow text-emerald-700 dark:text-emerald-400">
-                  founder exponent:
-                </span>
-                <span className="responsive-text-xs text-emerald-700 dark:text-emerald-400">
-                  −{costExponentReduction.toFixed(3)}
-                </span>
-              </div>
+              <PopRow
+                label="founder exponent"
+                value={`−${costExponentReduction.toFixed(3)}`}
+                color="text-emerald-700 dark:text-emerald-400"
+              />
             )}
             {prestige.hireCostMult !== 1 && (
-              <div className="flex items-center gap-3 justify-between">
-                <span className="responsive-text-xs grow text-cyan-700 dark:text-cyan-400">
-                  equity cost:
-                </span>
-                <span className="responsive-text-xs text-cyan-700 dark:text-cyan-400">
-                  x{prestige.hireCostMult.toFixed(2)}
-                </span>
-              </div>
+              <PopRow
+                label="equity cost"
+                value={fmtMult(prestige.hireCostMult)}
+                color="text-cyan-700 dark:text-cyan-400"
+              />
             )}
           </PopoverContent>
         </Popover>

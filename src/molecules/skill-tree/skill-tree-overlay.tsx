@@ -3,7 +3,6 @@ import { useEffect } from "react";
 import { usePrestigeStore, RESPECS_PER_EXIT } from "../../state/prestige.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { Button } from "../../ui/Button";
-import { isLocalDev } from "../../utils/dev-mode";
 import { formatCurrency } from "../../utils/money-utils";
 import { SkillTreeBonuses } from "./skill-tree-bonuses";
 import { SkillTreeCanvas } from "./skill-tree-canvas";
@@ -120,14 +119,6 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
           >
             {respecMode ? "Respeccing…" : "Respec"}
           </Button>
-          {isLocalDev() && (
-            <Button
-              className="text-xs"
-              onClick={() => usePrestigeStore.getState().grantEquity(50)}
-            >
-              +50 Equity (dev)
-            </Button>
-          )}
           <button
             type="button"
             aria-label="Close skill tree"
