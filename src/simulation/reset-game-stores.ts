@@ -1,4 +1,5 @@
 import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
@@ -52,4 +53,5 @@ export function resetAllGameStores(): void {
   // explicitly here for a true full wipe.
   useValuationStore.getState().clearMandates();
   useVapeAchievementsStore.getState().clearAll();
+  useExitsStore.getState().clearAll();
 }

@@ -76,12 +76,14 @@ export function performAcquisition(): Decimal {
   if (gain.lte(0)) return new Decimal(0);
 
   // Record the exit before the reset so the founder id is still set.
+  // Both recordExit and bankAcquisition must succeed together — if somehow
+  // no founder is active, bail rather than letting prestige.exits and
+  // exits.store diverge.
   const founderId = useFounderStore.getState().selectedFounderId;
-  const accrued = useValuationStore.getState().accruedThisRun;
-  if (founderId) {
-    useExitsStore.getState().recordExit(founderId, accrued.toNumber());
-  }
+  if (!founderId) return new Decimal(0);
 
+  const accrued = useValuationStore.getState().accruedThisRun;
+  useExitsStore.getState().recordExit(founderId, accrued.toNumber());
   usePrestigeStore.getState().bankAcquisition(gain);
   resetRunStores();
   return gain;
