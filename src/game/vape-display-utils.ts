@@ -1,6 +1,22 @@
 import Decimal from "break_infinity.js";
 import { JUICE_SHOP_UPGRADES } from "./achievements.juice-shop";
 
+/**
+ * Vape charge fraction (0–1) derived from the persisted last-puff timestamp, so
+ * the recharge cooldown survives reloads/remounts instead of resetting to full.
+ * `lastPuffAt <= 0` means "never puffed" → ready immediately.
+ */
+export function vapeChargeFromLastPuff(
+  lastPuffAt: number,
+  now: number,
+  chargeSecs: number,
+): number {
+  if (lastPuffAt <= 0) return 1;
+  const elapsed = (now - lastPuffAt) / 1000;
+  if (elapsed <= 0) return 0;
+  return Math.min(1, elapsed / chargeSecs);
+}
+
 export function nextUnpurchasedJuiceShopMinCost(
   purchasedIds: ReadonlySet<string>,
 ): number {

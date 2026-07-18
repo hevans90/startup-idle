@@ -33,8 +33,14 @@ export type VapeAchievementsState = {
   /** Accumulated perfect-cloud threshold reduction (fraction, subtracted from 0.92). */
   minigamePerfectThresholdReduction: number;
 
+  /** Timestamp (ms) of the last puff — persisted so the recharge cooldown
+   * survives reloads/remounts. 0 = never puffed (ready immediately). */
+  lastPuffAt: number;
+
   /** Unlock + grant juice; returns true if newly unlocked. */
   recordAchievementUnlock: (id: string, juiceReward: number) => boolean;
+  /** Stamp the current time as the last puff, starting the recharge cooldown. */
+  recordPuff: () => void;
   spendJuice: (amount: number) => boolean;
   tryPurchaseJuiceUpgrade: (id: string) => boolean;
   /** Run reset: no-op — achievements and juice upgrades persist across prestiges. */
@@ -58,6 +64,7 @@ const initial = () => ({
   minigameRewardBonus: 0,
   minigameForgiveness: 0,
   minigamePerfectThresholdReduction: 0,
+  lastPuffAt: 0,
 });
 
 export const useVapeAchievementsStore = create<VapeAchievementsState>()(
@@ -75,6 +82,8 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
         }));
         return true;
       },
+
+      recordPuff: () => set({ lastPuffAt: Date.now() }),
 
       spendJuice: (amount: number) => {
         if (amount <= 0) return true;
@@ -145,6 +154,7 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
         minigameRewardBonus: state.minigameRewardBonus,
         minigameForgiveness: state.minigameForgiveness,
         minigamePerfectThresholdReduction: state.minigamePerfectThresholdReduction,
+        lastPuffAt: state.lastPuffAt,
       }),
       merge: (persisted, current) => {
         const p = persisted as Partial<
@@ -164,6 +174,7 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
             | "minigameRewardBonus"
             | "minigameForgiveness"
             | "minigamePerfectThresholdReduction"
+            | "lastPuffAt"
           >
         > | null;
         if (!p) return current;
@@ -184,6 +195,7 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
           minigameRewardBonus: p.minigameRewardBonus ?? 0,
           minigameForgiveness: p.minigameForgiveness ?? 0,
           minigamePerfectThresholdReduction: p.minigamePerfectThresholdReduction ?? 0,
+          lastPuffAt: p.lastPuffAt ?? 0,
         };
       },
     },
