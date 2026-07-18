@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import Decimal from "break_infinity.js";
+import { useExitsStore } from "../state/exits.store";
+import { usePrestigeStore } from "../state/prestige.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { ACHIEVEMENT_CATALOG } from "./achievements.catalog";
-import { achievementsNewlyMet } from "./achievements.engine";
+import { achievementsNewlyMet, buildAchievementContext } from "./achievements.engine";
 import { vapeTankFillRatio } from "./vape-display-utils";
 
 const zeroCtx = {
@@ -53,6 +55,34 @@ describe("ACHIEVEMENT_CATALOG", () => {
   test("unique ids", () => {
     const ids = ACHIEVEMENT_CATALOG.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("exit-count achievements are respec-safe (lifetime, not spendable)", () => {
+  test("serial_founder still fires after exits are spent on respecs", () => {
+    useExitsStore.getState().clearAll();
+    usePrestigeStore.getState().reset();
+
+    // Three real acquisitions (monotonic lifetime record in exits.store).
+    useExitsStore.getState().recordExit("neet", 1000);
+    useExitsStore.getState().recordExit("neet", 1500);
+    useExitsStore.getState().recordExit("hacker", 2000);
+
+    // Bank each exit then immediately spend it on respecs, so the *spendable*
+    // prestige.exits currency drains back to 0 — the exact sequence that used to
+    // make serial_founder (which read prestige.exits) never unlock.
+    for (let i = 0; i < 3; i++) {
+      usePrestigeStore.getState().bankAcquisition(new Decimal(100));
+      usePrestigeStore.getState().buyRespecs();
+    }
+    expect(usePrestigeStore.getState().exits).toBe(0);
+
+    const ctx = buildAchievementContext();
+    expect(ctx.exits).toBe(3); // lifetime count, not the drained currency
+
+    const met = achievementsNewlyMet(ctx, new Set());
+    expect(met.some((a) => a.id === "first_exit")).toBe(true);
+    expect(met.some((a) => a.id === "serial_founder")).toBe(true);
   });
 });
 

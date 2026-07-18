@@ -38,8 +38,14 @@ export function buildAchievementContext(): AchievementContext {
 
   const exitRecords = useExitsStore.getState().exits;
   const founderExitCounts: Record<string, number> = {};
+  // Lifetime acquisitions completed, summed across founders from the monotonic
+  // exits.store. This is the source of truth for "how many companies sold" —
+  // NOT prestigeState.exits, which is the *spendable* respec currency that
+  // buyRespecs() decrements, so it can fall below the true count after respeccing.
+  let lifetimeExits = 0;
   for (const [id, record] of Object.entries(exitRecords)) {
     founderExitCounts[id] = record.count;
+    lifetimeExits += record.count;
   }
 
   return {
@@ -55,7 +61,7 @@ export function buildAchievementContext(): AchievementContext {
     purchasedUpgradeCount: useUpgradeStore.getState().unlockedUpgradeIds.length,
     managerTierTotal,
     aiSingularity: useAiSingularityStore.getState().value,
-    exits: prestigeState.exits,
+    exits: lifetimeExits,
     allocatedNodes: prestigeState.allocated.length,
     totalMandateLevels,
     juiceUpgradeCount:
