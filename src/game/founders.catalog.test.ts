@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { GENERATOR_TYPES } from "../state/generators.store";
+import { sumExitCounts, type ExitRecord } from "../state/exits.store";
 import { FOUNDERS } from "./founders.catalog";
 
 const GEN_IDS = new Set(GENERATOR_TYPES.map((g) => g.id));
@@ -113,6 +114,46 @@ describe("FOUNDERS catalog", () => {
     const neet = FOUNDERS.find((f) => f.id === "neet")!;
     expect(neet.scalingModifier.compute(0, 0).globalMoneyMult).toBe(1);
     expect(neet.scalingModifier.compute(3, 0).globalMoneyMult).toBe(8);
+  });
+
+  test("unlock gates key off lifetime acquisitions (respec-safe), summed across founders", () => {
+    // A save with 8 lifetime acquisitions spread across founders. Every gate is
+    // driven by this monotonic total — never usePrestigeStore.exits, which a
+    // respec-heavy player would have drained well below 8.
+    const exits: Record<string, ExitRecord> = {
+      neet: { count: 4, totalValuation: 4_000_000 },
+      bootstrapper: { count: 3, totalValuation: 300_000 },
+      hacker: { count: 1, totalValuation: 600_000 },
+    };
+    const lifetime = sumExitCounts(exits);
+    expect(lifetime).toBe(8);
+
+    const best = 600_000; // clears every best-valuation gate below
+    const unlocked = (id: string) => {
+      const f = FOUNDERS.find((x) => x.id === id)!;
+      return !f.unlockCondition || f.unlockCondition.check(lifetime, best);
+    };
+
+    // NEET always; every gated founder unlocked at 8 lifetime exits + high best.
+    for (const id of [
+      "neet",
+      "bootstrapper",
+      "hacker",
+      "visionary",
+      "hustler",
+      "agentic_delusionist",
+    ]) {
+      expect(unlocked(id)).toBe(true);
+    }
+
+    // And the gates still bind: at 2 lifetime exits the ≥3/≥5/≥8 founders lock.
+    const two = sumExitCounts({ neet: { count: 2, totalValuation: 0 } });
+    const check = (id: string) =>
+      FOUNDERS.find((x) => x.id === id)!.unlockCondition!.check(two, best);
+    expect(check("bootstrapper")).toBe(true); // ≥1
+    expect(check("hacker")).toBe(true); // ≥2
+    expect(check("visionary")).toBe(false); // ≥3
+    expect(check("hustler")).toBe(false); // ≥5
   });
 
   test("each curve-bending dimension is covered by at least one founder at exits=0", () => {

@@ -20,6 +20,15 @@ export type ExitsState = {
 
 const EMPTY_RECORD: ExitRecord = { count: 0, totalValuation: 0 };
 
+/**
+ * Lifetime acquisitions across all founders — the monotonic "companies sold"
+ * count. Use this for unlock gates and achievements. Do NOT use
+ * `usePrestigeStore.exits`: that is the *spendable* respec currency, decremented
+ * by `buyRespecs()`, so it can fall below the true count after respeccing.
+ */
+export const sumExitCounts = (exits: Record<string, ExitRecord>): number =>
+  Object.values(exits).reduce((total, r) => total + r.count, 0);
+
 export const useExitsStore = create<ExitsState>()(
   persist(
     (set, get) => ({

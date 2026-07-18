@@ -1,6 +1,6 @@
 import toast from "react-hot-toast";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
-import { useExitsStore } from "../state/exits.store";
+import { sumExitCounts, useExitsStore } from "../state/exits.store";
 import { useGeneratorStore } from "../state/generators.store";
 import {
   ManagerKeyValues,
@@ -41,6 +41,9 @@ export function buildAchievementContext(): AchievementContext {
   for (const [id, record] of Object.entries(exitRecords)) {
     founderExitCounts[id] = record.count;
   }
+  // Lifetime acquisitions completed (monotonic), NOT prestigeState.exits — that's
+  // the spendable respec currency, which buyRespecs() drains below the true count.
+  const lifetimeExits = sumExitCounts(exitRecords);
 
   return {
     internCount: intern,
@@ -55,7 +58,7 @@ export function buildAchievementContext(): AchievementContext {
     purchasedUpgradeCount: useUpgradeStore.getState().unlockedUpgradeIds.length,
     managerTierTotal,
     aiSingularity: useAiSingularityStore.getState().value,
-    exits: prestigeState.exits,
+    exits: lifetimeExits,
     allocatedNodes: prestigeState.allocated.length,
     totalMandateLevels,
     juiceUpgradeCount:

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
 import { type PrestigeModifiers } from "../game/skill-tree";
-import { useExitsStore } from "../state/exits.store";
+import { sumExitCounts, useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
@@ -93,6 +93,9 @@ export const FounderSelect = () => {
   const equity = usePrestigeStore((s) => s.equity);
   const exits = usePrestigeStore((s) => s.exits);
   const founderExits = useExitsStore((s) => s.exits);
+  // Lifetime acquisitions gate the founders — NOT prestige.exits (spendable, and
+  // decremented by respeccing, which would wrongly re-lock unlocked founders).
+  const lifetimeExits = sumExitCounts(founderExits);
   const bestExitValuation = useExitsStore((s) => s.bestExitValuation);
   const allocated = usePrestigeStore((s) => s.allocated.length);
   const modifiers = usePrestigeStore((s) => s.modifiers);
@@ -171,7 +174,7 @@ export const FounderSelect = () => {
           const hasExits = exitCount > 0;
           const isUnlocked =
             !f.unlockCondition ||
-            f.unlockCondition.check(exits, bestExitValuation);
+            f.unlockCondition.check(lifetimeExits, bestExitValuation);
 
           return (
             <button
