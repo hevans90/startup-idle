@@ -5,6 +5,7 @@ import { twMerge } from "tailwind-merge";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
+import { vapeChargeFromLastPuff } from "../game/vape-display-utils";
 import { formatCurrency } from "../utils/money-utils";
 import { VapeJuiceDisplay } from "./vape-juice-display";
 
@@ -680,26 +681,34 @@ function VapeMinigame({
 const CHARGE_SECS = 45;
 
 export function VapeMapWrapper() {
-  // Start at 1 so the vape is ready immediately on first load
-  const [charge, setCharge] = useState(1);
+  // Charge is derived from the persisted last-puff timestamp, so the recharge
+  // cooldown survives reloads/remounts (a fresh save has lastPuffAt=0 → ready).
+  const lastPuffAt = useVapeAchievementsStore((s) => s.lastPuffAt);
+  const recordPuff = useVapeAchievementsStore((s) => s.recordPuff);
+  const [charge, setCharge] = useState(() =>
+    vapeChargeFromLastPuff(lastPuffAt, Date.now(), CHARGE_SECS),
+  );
   const [playing, setPlaying] = useState(false);
   const [gameConfig, setGameConfig] = useState<MinigameConfig | null>(null);
 
   const ready = charge >= 1 && !playing;
 
-  // Charge up when not playing and not yet full
+  // Recompute charge from the persisted puff time until it's full.
   useEffect(() => {
-    if (playing || charge >= 1) return;
-    const startMs = Date.now();
-    const startCharge = charge;
+    if (playing) return;
+    const update = () =>
+      vapeChargeFromLastPuff(lastPuffAt, Date.now(), CHARGE_SECS);
+    if (update() >= 1) {
+      setCharge(1);
+      return;
+    }
     const id = setInterval(() => {
-      const elapsed = (Date.now() - startMs) / 1000;
-      const next = Math.min(1, startCharge + elapsed / CHARGE_SECS);
+      const next = update();
       setCharge(next);
       if (next >= 1) clearInterval(id);
     }, 100);
     return () => clearInterval(id);
-  }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playing, lastPuffAt]);
 
   const buildConfig = useCallback((): MinigameConfig => {
     const s = useVapeAchievementsStore.getState();
@@ -713,10 +722,11 @@ export function VapeMapWrapper() {
 
   const handleMouseDown = useCallback(() => {
     if (!ready) return;
+    recordPuff(); // persist the cooldown start so a reload can't re-arm the vape
     setCharge(0);
     setGameConfig(buildConfig());
     setPlaying(true);
-  }, [ready, buildConfig]);
+  }, [ready, buildConfig, recordPuff]);
 
   const handleComplete = useCallback((score: number) => {
     setPlaying(false);
