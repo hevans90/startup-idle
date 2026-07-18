@@ -1,6 +1,6 @@
 import toast from "react-hot-toast";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
-import { useExitsStore } from "../state/exits.store";
+import { sumExitCounts, useExitsStore } from "../state/exits.store";
 import { useGeneratorStore } from "../state/generators.store";
 import {
   ManagerKeyValues,
@@ -38,15 +38,12 @@ export function buildAchievementContext(): AchievementContext {
 
   const exitRecords = useExitsStore.getState().exits;
   const founderExitCounts: Record<string, number> = {};
-  // Lifetime acquisitions completed, summed across founders from the monotonic
-  // exits.store. This is the source of truth for "how many companies sold" —
-  // NOT prestigeState.exits, which is the *spendable* respec currency that
-  // buyRespecs() decrements, so it can fall below the true count after respeccing.
-  let lifetimeExits = 0;
   for (const [id, record] of Object.entries(exitRecords)) {
     founderExitCounts[id] = record.count;
-    lifetimeExits += record.count;
   }
+  // Lifetime acquisitions completed (monotonic), NOT prestigeState.exits — that's
+  // the spendable respec currency, which buyRespecs() drains below the true count.
+  const lifetimeExits = sumExitCounts(exitRecords);
 
   return {
     internCount: intern,
