@@ -14,8 +14,12 @@ const TRACK_H = 400;
 const TRACK_W = 160;
 const HIT_ZONE_Y = 340;
 const PPS = 220;
-const GAME_SECS = 7;
+export const GAME_SECS = 7;
 const GAME_MS = GAME_SECS * 1000;
+/** Latest a note's tail (a hold's end) may fall. The game finishes at a fixed
+ * GAME_MS, so any note extending past this would be cut off mid-beat when the
+ * result screen pops — leave grace for the hold-release/judge window. */
+const NOTE_TAIL_LIMIT = GAME_SECS - 0.4;
 
 const BASE_W_PERFECT = 0.055;
 const BASE_W_GOOD = 0.10;
@@ -65,13 +69,25 @@ type MinigameConfig = {
 
 // ─── note generation ──────────────────────────────────────────────────────────
 
-function generateNotes(): Note[] {
+export function generateNotes(): Note[] {
   const notes: Note[] = [];
   let t = 1.4;
   let id = 0;
   while (t < GAME_SECS - 0.5) {
-    const isTap = Math.random() > 0.45;
-    const duration = isTap ? 0 : 0.4 + Math.random() * 0.75;
+    let isTap = Math.random() > 0.45;
+    let duration = isTap ? 0 : 0.4 + Math.random() * 0.75;
+    // A hold must finish before the game ends, or the final long press gets cut
+    // off and the result pops mid-hold. Shrink it to the largest hold that still
+    // fits; if there's no room for even a minimal hold, fall back to a tap.
+    if (!isTap && t + duration > NOTE_TAIL_LIMIT) {
+      const room = NOTE_TAIL_LIMIT - t;
+      if (room >= 0.4) {
+        duration = room;
+      } else {
+        isTap = true;
+        duration = 0;
+      }
+    }
     notes.push({ id: id++, type: isTap ? "tap" : "hold", hitTime: t, duration });
     t += (isTap ? 0 : duration) + 0.45 + Math.random() * 0.55;
   }
