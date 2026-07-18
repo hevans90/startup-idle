@@ -27,8 +27,10 @@ describe("founder.store", () => {
     useFounderStore.getState().chooseFounder("hustler");
 
     expect(useFounderStore.getState().selectedFounderId).toBe("hustler");
+    // FounderDef exposes `scalingModifier.compute(exits, valuation)`, not a
+    // `.modifiers` field — at 0 exits it yields the base modifiers chooseFounder applies.
     expect(useFounderStore.getState().headcountMoneyPerEmployee).toBe(
-      hustler.modifiers.headcountMoneyPerEmployee,
+      hustler.scalingModifier.compute(0, 0).headcountMoneyPerEmployee,
     );
     expect(useMoneyStore.getState().money.toNumber()).toBe(hustler.startingCash);
   });
