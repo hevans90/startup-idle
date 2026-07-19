@@ -54,6 +54,20 @@ export function coerceDecimal(
   return fallback;
 }
 
+/**
+ * Whether `v` is a usable finite amount.
+ *
+ * The economy multiplies through some native-`number` factors (the founder's
+ * `globalMoneyMult` is `2^exits`, and several rate getters compute in floats),
+ * so at extreme scale a factor can overflow to `Infinity`. Adding that into a
+ * persisted Decimal poisons the save permanently — valuation/equity become
+ * `Infinity`/`NaN` and never recover. Guard every store entry point with this.
+ */
+export function isFiniteAmount(v: number | Decimal): boolean {
+  if (typeof v === "number") return Number.isFinite(v);
+  return Number.isFinite(v.mantissa) && Number.isFinite(v.exponent);
+}
+
 // Key-aware reviver for Decimal
 export function decimalReviver(key: string, value: any): unknown {
   if (!key) {

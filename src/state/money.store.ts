@@ -5,12 +5,15 @@ import {
   coerceDecimal,
   decimalReplacer,
   decimalReviver,
+  isFiniteAmount,
 } from "./_break_infinity.decimals";
 
 type MoneyState = {
   money: Decimal;
-  increaseMoney: (increment: number) => void;
-  spendMoney: (decrement: number) => void;
+  /** Accepts a Decimal so huge tick income never round-trips through a native
+   * number (which caps at ~1.8e308 and would silently become Infinity). */
+  increaseMoney: (increment: number | Decimal) => void;
+  spendMoney: (decrement: number | Decimal) => void;
   reset: () => void;
 };
 
@@ -53,12 +56,14 @@ export const useMoneyStore = create<MoneyState>()(
   persist(
     (set) => ({
       money: new Decimal(0),
-      increaseMoney: (increment: number) => {
+      increaseMoney: (increment: number | Decimal) => {
+        if (!isFiniteAmount(increment)) return;
         set((state) => ({
           money: state.money.add(increment),
         }));
       },
-      spendMoney: (decrement: number) => {
+      spendMoney: (decrement: number | Decimal) => {
+        if (!isFiniteAmount(decrement)) return;
         set((state) => ({
           money: state.money.subtract(decrement),
         }));

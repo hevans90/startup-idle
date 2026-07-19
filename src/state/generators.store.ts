@@ -136,8 +136,12 @@ type GeneratorState = {
   purchaseGenerator: (id: string, amount: number) => void;
 
   getMoneyPerSecond: () => number;
+  /** $/sec as a Decimal — the economy's source of truth; the native getters
+   * above/below are `.toNumber()` views that saturate past ~1.8e308. */
+  getMoneyPerSecondDecimal: () => Decimal;
   /** $/sec for `units` of one generator, with the full multiplier chain. */
   getGeneratorMoneyPerSecond: (id: GeneratorId, units: number) => number;
+  getGeneratorMoneyPerSecondDecimal: (id: GeneratorId, units: number) => Decimal;
   /** Full per-employee + global breakdown of $/sec (for the money popover). */
   getMoneyBreakdown: () => ResourceBreakdown;
   getInnovationPerSecond: () => number;
@@ -147,6 +151,8 @@ type GeneratorState = {
   getInnovationBreakdown: () => ResourceBreakdown;
   /** Valuation accrued per second (drives the board/mandate economy). */
   getValuationPerSecond: () => number;
+  /** Decimal valuation/sec — used for accrual so it can exceed a native double. */
+  getValuationPerSecondDecimal: () => Decimal;
   /** Full breakdown of valuation/sec (for the valuation popover). */
   getValuationBreakdown: () => ValuationBreakdown;
 
@@ -678,10 +684,10 @@ export const useGeneratorStore = create<GeneratorState>()(
             .times(prestige.employeeOutputMult)
             .times(gen.id === "intern" ? prestige.internOutputMult : 1)
             .times(ticks);
-          useMoneyStore.getState().increaseMoney(income.toNumber());
-          useInnovationStore
-            .getState()
-            .increaseInnovation(innovationIncome.toNumber());
+          // Pass the Decimals through — `.toNumber()` here would cap tick income
+          // at ~1.8e308 and turn anything beyond it into Infinity.
+          useMoneyStore.getState().increaseMoney(income);
+          useInnovationStore.getState().increaseInnovation(innovationIncome);
           return { ...gen, lastTick: now };
         }
         return gen;
@@ -699,8 +705,9 @@ export const useGeneratorStore = create<GeneratorState>()(
 
       // Same formula as getValuationBreakdown (single source of truth), times
       // the elapsed seconds, so the toolbar's valuation/sec matches accrual.
-      const valuationGain = get().getValuationPerSecond() * seconds;
-      if (valuationGain > 0) {
+      // Decimal so accrual survives past a native double.
+      const valuationGain = get().getValuationPerSecondDecimal().times(seconds);
+      if (valuationGain.gt(0)) {
         useValuationStore.getState().increaseValuation(valuationGain);
       }
     },
@@ -717,9 +724,9 @@ export const useGeneratorStore = create<GeneratorState>()(
       }
     },
 
-    getGeneratorMoneyPerSecond: (id, units) => {
+    getGeneratorMoneyPerSecondDecimal: (id, units) => {
       const gen = get().generators.find((g) => g.id === id);
-      if (!gen || units <= 0) return 0;
+      if (!gen || units <= 0) return new Decimal(0);
       const innovationMultGlobal = useInnovationStore
         .getState()
         .getMultiplier()
@@ -743,33 +750,39 @@ export const useGeneratorStore = create<GeneratorState>()(
         (founder.headcountMoneyPerEmployee + prestige.headcountPerEmployee) *
           totalEmployees;
 
-      return (
-        ((innovationMultGlobal *
-          managerMults.employeeMoney *
-          valuationMults.money *
-          gen.baseProduction *
-          units *
-          gen.multiplier *
-          out.money *
-          revenueMult *
-          (founder.generatorMoneyMult[id] ?? 1)) /
-          (gen.interval / 1000)) *
-        juiceMps *
-        headcountMoneyMult *
-        founder.globalMoneyMult *
-        prestige.moneyMult *
-        prestige.employeeOutputMult *
-        (id === "intern" ? prestige.internOutputMult : 1)
-      );
+      // Decimal, not native floats: the product can exceed a double (the
+      // founder's globalMoneyMult alone is 2^exits), and an Infinity here would
+      // propagate straight into the persisted money/valuation stores.
+      return new Decimal(gen.baseProduction)
+        .times(innovationMultGlobal)
+        .times(managerMults.employeeMoney)
+        .times(valuationMults.money)
+        .times(units)
+        .times(gen.multiplier)
+        .times(out.money)
+        .times(revenueMult)
+        .times(founder.generatorMoneyMult[id] ?? 1)
+        .div(gen.interval / 1000)
+        .times(juiceMps)
+        .times(headcountMoneyMult)
+        .times(founder.globalMoneyMult)
+        .times(prestige.moneyMult)
+        .times(prestige.employeeOutputMult)
+        .times(id === "intern" ? prestige.internOutputMult : 1);
     },
+    /** Native view for display/achievements; saturates to Infinity past ~1.8e308. */
+    getGeneratorMoneyPerSecond: (id, units) =>
+      get().getGeneratorMoneyPerSecondDecimal(id, units).toNumber(),
+
     // Sum each generator's full-chain output (single source of truth: the
     // employee-tab popovers and this getter stay in lockstep).
-    getMoneyPerSecond: () =>
+    getMoneyPerSecondDecimal: () =>
       get().generators.reduce(
         (sum, gen) =>
-          sum + get().getGeneratorMoneyPerSecond(gen.id, gen.amount),
-        0,
+          sum.add(get().getGeneratorMoneyPerSecondDecimal(gen.id, gen.amount)),
+        new Decimal(0),
       ),
+    getMoneyPerSecond: () => get().getMoneyPerSecondDecimal().toNumber(),
 
     getMoneyBreakdown: () => {
       const innovationMult = useInnovationStore
@@ -948,6 +961,39 @@ export const useGeneratorStore = create<GeneratorState>()(
       return { total, base, mps, factors };
     },
     getValuationPerSecond: () => get().getValuationBreakdown().total,
+
+    /**
+     * Decimal mirror of {@link getValuationBreakdown}'s total, used for actual
+     * accrual. The display version runs on a native `mps`, which saturates to
+     * Infinity at extreme scale; accrual must not, or `accruedThisRun` (and the
+     * Equity payout derived from it) would be permanently poisoned.
+     */
+    getValuationPerSecondDecimal: () => {
+      const mps = get().getMoneyPerSecondDecimal();
+      const managerMults = getManagerEconomyMultipliers();
+      const emUnlocked =
+        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
+        false;
+      const internValMult = emUnlocked
+        ? internSatisfactionValuationMultiplier(
+            get().getEffectiveSatisfaction("intern"),
+          )
+        : 1;
+      const founderMult = useFounderStore.getState().valuationAccrualMult;
+      const prestigeMult = usePrestigeStore.getState().modifiers.valuationMult;
+      const juiceValuationMult =
+        1 + useVapeAchievementsStore.getState().juiceValuationMultBonus;
+
+      return mps
+        .max(1)
+        .pow(0.38)
+        .times(4e-5)
+        .times(managerMults.salesValuation)
+        .times(internValMult)
+        .times(founderMult)
+        .times(prestigeMult)
+        .times(juiceValuationMult);
+    },
 
     setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
 
