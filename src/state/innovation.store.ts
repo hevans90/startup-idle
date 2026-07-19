@@ -7,6 +7,7 @@ import {
   coerceDecimal,
   decimalReplacer,
   decimalReviver,
+  isFiniteAmount,
 } from "./_break_infinity.decimals";
 import { useFounderStore } from "./founder.store";
 import { usePrestigeStore } from "./prestige.store";
@@ -172,7 +173,7 @@ type InnovationState = {
   getMultiplier: () => Decimal;
   globalLastTick: number;
 
-  increaseInnovation: (increment: number) => void;
+  increaseInnovation: (increment: number | Decimal) => void;
   spendInnovation: (decrement: number) => void;
   reset: () => void;
 
@@ -250,7 +251,8 @@ export const useInnovationStore = create<InnovationState>()(
         return new Decimal(1 + logMult * Decimal.log10(innovation.add(1)));
       },
 
-      increaseInnovation: (increment: number) => {
+      increaseInnovation: (increment: number | Decimal) => {
+        if (!isFiniteAmount(increment)) return;
         set((state) => ({
           innovation: state.innovation.add(increment),
         }));

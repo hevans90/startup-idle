@@ -5,6 +5,7 @@ import {
   coerceDecimal,
   decimalReplacer,
   decimalReviver,
+  isFiniteAmount,
 } from "./_break_infinity.decimals";
 import { useFounderStore } from "./founder.store";
 
@@ -64,7 +65,7 @@ type ValuationState = {
   accruedThisRun: Decimal;
   mandateLevels: MandateLevels;
 
-  increaseValuation: (amount: number) => void;
+  increaseValuation: (amount: number | Decimal) => void;
   getMandateCost: (id: MandateId) => Decimal;
   canAffordMandate: (id: MandateId) => boolean;
   purchaseMandate: (id: MandateId) => void;
@@ -89,8 +90,11 @@ export const useValuationStore = create<ValuationState>()(
       accruedThisRun: new Decimal(0),
       mandateLevels: { ...initialMandateLevels },
 
-      increaseValuation: (amount: number) => {
-        if (amount <= 0) return;
+      increaseValuation: (amount: number | Decimal) => {
+        // A non-finite gain would permanently poison accruedThisRun (and with it
+        // the Equity payout, which reads it), so refuse it outright.
+        if (!isFiniteAmount(amount)) return;
+        if (new Decimal(amount).lte(0)) return;
         set((s) => ({
           valuation: s.valuation.add(amount),
           accruedThisRun: s.accruedThisRun.add(amount),

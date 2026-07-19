@@ -76,6 +76,18 @@ export type FounderDef = {
 const pct = (n: number, decimals = 0) => `${(n * 100).toFixed(decimals)}%`;
 const x = (n: number, decimals = 2) => `×${n.toFixed(decimals)}`;
 
+/**
+ * NEET's compounding money multiplier, 2^exits.
+ *
+ * Clamped below the native-double ceiling: `Math.pow(2, 1024)` is `Infinity`,
+ * and this value is multiplied into the Decimal money chain, so an Infinity
+ * here would poison money/valuation permanently. 2^1023 (~9e307) is already far
+ * past any reachable economy, so the clamp is unobservable in real play.
+ */
+const MAX_POW2_EXPONENT = 1023;
+export const neetMoneyMult = (exits: number) =>
+  Math.pow(2, Math.min(exits, MAX_POW2_EXPONENT));
+
 // ─── founders ─────────────────────────────────────────────────────────────────
 
 export const FOUNDERS: FounderDef[] = [
@@ -90,14 +102,14 @@ export const FOUNDERS: FounderDef[] = [
       label: "Compounding Grind",
       perExitDescription: "each exit: ×2 all money output",
       compute: (exits) => ({
-        globalMoneyMult: Math.pow(2, exits),
+        globalMoneyMult: neetMoneyMult(exits),
       }),
     },
     perks: (exits) => [
       "$5 starting cash. No other bonuses.",
       exits === 0
         ? "Complete a run to unlock Compounding Grind"
-        : `Compounding Grind: ${x(Math.pow(2, exits), 0)} all money (×2 per exit)`,
+        : `Compounding Grind: ${x(neetMoneyMult(exits), 0)} all money (×2 per exit)`,
     ],
   },
 
