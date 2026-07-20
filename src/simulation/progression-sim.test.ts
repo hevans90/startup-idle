@@ -77,11 +77,15 @@ describe("progression simulation (store + fake timers)", () => {
 
 describe("upgrade catalog pacing (pure)", () => {
   test("early intern-only upgrades do not spike cost more than 80x between consecutive price tiers", () => {
-    const earlyInternOnly = UPGRADES.filter(
+    // "Early" is the main-line catalog (UPGRADES_CORE), not a headcount
+    // heuristic. Filtering all UPGRADES by `requiredAmount <= 200` also swept in
+    // intern_upgrade_5 — the first INTERN_LATE_UPGRADES entry — so the assertion
+    // was policing the deliberate early→late tier boundary (a ~500x step up from
+    // intern_upgrade_4) rather than early-game pacing.
+    const earlyInternOnly = UPGRADES_CORE.filter(
       (u) =>
         u.unlockConditions.length === 1 &&
-        u.unlockConditions[0].requiredId === "intern" &&
-        u.unlockConditions[0].requiredAmount <= 200
+        u.unlockConditions[0].requiredId === "intern"
     ).sort((a, b) => a.cost - b.cost);
 
     expect(earlyInternOnly.length).toBeGreaterThan(3);
