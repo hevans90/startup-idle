@@ -7,12 +7,14 @@ import {
   performAcquisition,
 } from "../game/acquisition";
 import { SKILL_TREE } from "../game/skill-tree";
+import { useShallow } from "zustand/shallow";
 import { useGeneratorStore } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useSessionStore } from "../state/session.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
 import { Button } from "../ui/Button";
+import { ModifierTag } from "../ui/ModifierTag";
 import { SystemPanel } from "../ui/SystemPanel";
 import { formatCurrency } from "../utils/money-utils";
 import { formatDuration } from "../utils/time-utils";
@@ -23,7 +25,7 @@ const TOTAL_NODES = SKILL_TREE.nodes.length;
 const plain = (n: Decimal) => formatCurrency(n, { showDollarSign: false });
 const trim = (n: number) => Number(n.toFixed(2)).toString();
 
-export type Chip = { label: string; value: string; good: boolean };
+export type Chip = { label: string; value: string; good: boolean; modKey?: string };
 
 /** A slim progress bar (0–1). */
 const Bar = ({
@@ -54,7 +56,10 @@ export const ChipRow = ({ chips }: { chips: Chip[] }) => (
             : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
         }`}
       >
-        {c.label} {c.value}
+        {c.modKey
+          ? <ModifierTag modKey={c.modKey}>{c.label}</ModifierTag>
+          : c.label}
+        {c.value && ` ${c.value}`}
       </span>
     ))}
   </div>
@@ -150,29 +155,31 @@ export function modifierChips(
   m: ReturnType<typeof usePrestigeStore.getState>["modifiers"],
 ): Chip[] {
   const chips: Chip[] = [];
-  const mult = (label: string, v: number, betterUp = true) => {
+  const mult = (label: string, v: number, modKey?: string, betterUp = true) => {
     if (v !== 1)
       chips.push({
         label,
         value: `×${trim(v)}`,
         good: betterUp ? v > 1 : v < 1,
+        modKey,
       });
   };
-  mult("Money", m.moneyMult);
-  mult("Innovation", m.innovationMult);
-  mult("Valuation", m.valuationMult);
-  mult("Output", m.employeeOutputMult);
-  mult("Auto-buy", m.autoBuyMult);
-  mult("Managers", m.managerSpeedMult);
-  mult("Hire cost", m.hireCostMult, false);
-  mult("Singularity", m.singularityMult);
-  mult("Satisfaction", m.satisfactionGainMult);
-  mult("Equity", m.equityMult);
+  mult("Money", m.moneyMult, "prestigeMoney");
+  mult("Innovation", m.innovationMult, "prestigeInnovation");
+  mult("Valuation", m.valuationMult, "prestigeValuation");
+  mult("Output", m.employeeOutputMult, "prestigeEmployeeOutput");
+  mult("Auto-buy", m.autoBuyMult, "prestigeAutoBuy");
+  mult("Managers", m.managerSpeedMult, "prestigeManagerSpeed");
+  mult("Hire cost", m.hireCostMult, "prestigeHireCost", false);
+  mult("Singularity", m.singularityMult, "prestigeSingularity");
+  mult("Satisfaction", m.satisfactionGainMult, "prestigeSatisfactionGain");
+  mult("Equity", m.equityMult, "prestigeEquity");
   if (m.headcountPerEmployee > 0) {
     chips.push({
       label: "Synergy",
       value: `+${trim(m.headcountPerEmployee * 100)}%/emp`,
       good: true,
+      modKey: "headcountMoney",
     });
   }
   if (m.disableManagers)
@@ -184,6 +191,7 @@ export function modifierChips(
       label: "Weak interns",
       value: `×${trim(m.internOutputMult)}`,
       good: false,
+      modKey: "prestigeInternOutput",
     });
   if (m.freeStartingLevels > 0)
     chips.push({
@@ -199,11 +207,15 @@ export function modifierChips(
  * Equity, see what your skill tree is doing, and sell the company for more.
  */
 export const AcquisitionTab = () => {
-  const equity = usePrestigeStore((s) => s.equity);
-  const exits = usePrestigeStore((s) => s.exits);
-  const respecPoints = usePrestigeStore((s) => s.respecPoints);
-  const allocated = usePrestigeStore((s) => s.allocated.length);
-  const modifiers = usePrestigeStore((s) => s.modifiers);
+  const { equity, exits, respecPoints, allocated, modifiers } = usePrestigeStore(
+    useShallow((s) => ({
+      equity: s.equity,
+      exits: s.exits,
+      respecPoints: s.respecPoints,
+      allocated: s.allocated.length,
+      modifiers: s.modifiers,
+    })),
+  );
   const accrued = useValuationStore((s) => s.accruedThisRun);
 
   const offer = equityForAccrued(accrued);

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { twMerge } from "tailwind-merge";
 
 type TabDefinition<T extends string> = {
@@ -33,6 +33,19 @@ export default function Tabs<T extends string>({
   const activeTab = rawActive !== undefined && visibleTabIds.has(rawActive)
     ? rawActive
     : firstEnabledTab;
+
+  // When the controlled selectedTab becomes hidden and we silently render a
+  // different tab, notify the parent so its state stays in sync.
+  useEffect(() => {
+    if (
+      selectedTab !== undefined &&
+      activeTab !== undefined &&
+      activeTab !== selectedTab
+    ) {
+      onTabChange?.(activeTab);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const handleTabChange = (tabId: T) => {
     if (selectedTab === undefined) {

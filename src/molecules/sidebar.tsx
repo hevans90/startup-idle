@@ -1,4 +1,5 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
+import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGlobalSettingsStore, type SidebarTab } from "../state/global-settings.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
@@ -6,6 +7,7 @@ import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import Tabs from "../ui/Tabs";
 import { AcquisitionTab } from "./acquisition-tab";
 import { AchievementsTab } from "./achievements-tab";
+import { DirectivesTab } from "./directives-tab";
 import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation/innovation-managers";
 import { InnovationSummary } from "./innovation/innovation-summary";
@@ -25,6 +27,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   );
   const accruedThisRun = useValuationStore((s) => s.accruedThisRun);
   const acquisitionVisible = accruedThisRun.gte(100);
+  const agiVisible = useAiSingularityStore((s) => s.everCompleted);
 
   const tabs: { id: SidebarTab; label: string }[] = [
     { id: "employees", label: "Employees" },
@@ -32,6 +35,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
     ...(employeeMgmtUnlocked ? [{ id: "valuation" as SidebarTab, label: "Valuation" }] : []),
     ...(acquisitionVisible ? [{ id: "acquisition" as SidebarTab, label: "Acquisition" }] : []),
     ...(vapeVisible ? [{ id: "achievements" as SidebarTab, label: "Vape shop" }] : []),
+    ...(agiVisible ? [{ id: "agi" as SidebarTab, label: "AGI" }] : []),
   ];
 
   return (
@@ -54,7 +58,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
             </div>
           ),
           innovation: (
-            <div className="p-2 pt-4 w-full h-full flex flex-col gap-4 items-center justify-center">
+            <div className="p-2 pt-4 w-full flex flex-col gap-4 items-center">
               <InnovationSummary compact={true} className="my-1" />
               <InnovationManagers />
             </div>
@@ -62,6 +66,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
           valuation: <ValuationTab />,
           acquisition: <AcquisitionTab />,
           achievements: <AchievementsTab />,
+          agi: <DirectivesTab />,
         }}
       </Tabs>
     </div>

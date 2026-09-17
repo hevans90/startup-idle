@@ -172,7 +172,7 @@ export const FOUNDERS: FounderDef[] = [
       }),
     },
     perks: (exits) => [
-      `Valuation/sec ${x(1.35 * Math.pow(1.25, exits))}${exits > 0 ? ` (compounds ×1.25 per exit)` : ""}`,
+      `Valuation rate ${x(1.35 * Math.pow(1.25, exits))}${exits > 0 ? ` (compounds ×1.25 per exit)` : ""}`,
       "−0.025 board-mandate cost growth",
     ],
   },

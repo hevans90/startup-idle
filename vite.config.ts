@@ -77,10 +77,22 @@ function devTools(): PluginOption {
   };
 }
 
+const host = process.env.TAURI_DEV_HOST;
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), svgr(), devTools()],
+  clearScreen: false,
+  server: {
+    port: 5173,
+    strictPort: true,
+    host: host || false,
+    hmr: host ? { protocol: "ws", host, port: 5174 } : undefined,
+    watch: { ignored: ["**/src-tauri/**"] },
+  },
+  envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {
     sourcemap: true,
+    target: ["es2021", "chrome105", "safari15"],
   },
 });

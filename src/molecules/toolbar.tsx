@@ -30,7 +30,7 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
 
       <ResourceCounter
         value={formatCurrency(money)}
-        rate={`${formatCurrency(mps)}/sec`}
+        rate={`${formatCurrency(mps)}/s`}
         popover={<MoneySummary />}
         className="min-w-[9.5rem] shrink-0"
       />

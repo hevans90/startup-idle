@@ -18,10 +18,6 @@ export const ValuationMandatesPanel = () => {
           value={formatCurrency(valuation, { showDollarSign: false })}
           size="small"
         />
-        <p className="text-xs opacity-70 text-left mt-1">
-          Passive valuation from revenue (scaled by Sales manager tier). Spend
-          it on board mandates for permanent global bonuses.
-        </p>
       </div>
 
       <div className="flex flex-col gap-2 px-1 pb-1">

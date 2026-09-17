@@ -9,10 +9,9 @@ import {
   useGeneratorStore,
 } from "../state/generators.store";
 import { useFounderStore } from "../state/founder.store";
-import { usePrestigeStore } from "../state/prestige.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
-import { useVapeAchievementsStore } from "../state/vape-achievements.store";
+import { computeHireCostMultipliers } from "../game/modifiers";
 
 function effectiveCostExponent(generator: OwnedGenerator, id: string): number {
   let raw = generator.costExponent;
@@ -44,38 +43,35 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
     .times(exponent.pow(amount).minus(1))
     .div(exponent.minus(1));
 
-  const employeeCostMult = useGeneratorStore
-    .getState()
-    .getEmployeeCostMult(id as GeneratorId);
-  // Skill-tree "lean" passives make hires cheaper (hireCostMult < 1).
-  const hireCostMult = usePrestigeStore.getState().modifiers.hireCostMult;
-  // Vape shop hire-cost reduction (additive fraction, clamped so cost stays >= 10% of base).
-  const juiceHireReduction = Math.min(
-    0.9,
-    useVapeAchievementsStore.getState().juiceHireCostReduction,
+  const genState = useGeneratorStore.getState();
+  const m = genState._buildModifiers();
+  const employeeCostMult = genState.getEmployeeCostMult(id as GeneratorId);
+  const { prestige: hireCostMult, juiceReduction, tlMult } = computeHireCostMultipliers(
+    m.teamLeaderEmpGlobalHireCostMult,
+    m.teamLeaderEmpRoleHireCostMult[id] ?? 1,
   );
 
-  return totalCost.times(employeeCostMult).times(hireCostMult).times(1 - juiceHireReduction);
+  return totalCost.times(employeeCostMult).times(hireCostMult).times(1 - juiceReduction).times(tlMult);
 };
 
 export const getMaxAffordableAmountAndCost = (
   id: string
 ): { amount: number; cost: Decimal } => {
-  const { generators } = useGeneratorStore.getState();
-  const employeeCostMult = useGeneratorStore
-    .getState()
-    .getEmployeeCostMult(id as GeneratorId);
-  const hireCostMult = usePrestigeStore.getState().modifiers.hireCostMult;
-  const juiceHireReduction = Math.min(
-    0.9,
-    useVapeAchievementsStore.getState().juiceHireCostReduction,
+  const genState = useGeneratorStore.getState();
+  const { generators } = genState;
+  const m = genState._buildModifiers();
+  const employeeCostMult = genState.getEmployeeCostMult(id as GeneratorId);
+  const { prestige: hireCostMult, juiceReduction, tlMult } = computeHireCostMultipliers(
+    m.teamLeaderEmpGlobalHireCostMult,
+    m.teamLeaderEmpRoleHireCostMult[id] ?? 1,
   );
-  const juiceHireMult = 1 - juiceHireReduction;
+  const juiceHireMult = 1 - juiceReduction;
   const money = useMoneyStore
     .getState()
     .money.div(employeeCostMult)
     .div(hireCostMult)
-    .div(juiceHireMult);
+    .div(juiceHireMult)
+    .div(tlMult);
   const generator = generators.find((g) => g.id === id);
   if (!generator)
     return {
@@ -91,7 +87,7 @@ export const getMaxAffordableAmountAndCost = (
   if (exponent.eq(1)) {
     // Linear cost: total = baseCost * n
     const amount = money.div(baseCost).floor().toNumber();
-    const cost = baseCost.times(amount).times(employeeCostMult).times(hireCostMult).times(juiceHireMult);
+    const cost = baseCost.times(amount).times(employeeCostMult).times(hireCostMult).times(juiceHireMult).times(tlMult);
     return { amount, cost };
   }
 
@@ -124,7 +120,8 @@ export const getMaxAffordableAmountAndCost = (
     )
     .times(employeeCostMult)
     .times(hireCostMult)
-    .times(juiceHireMult);
+    .times(juiceHireMult)
+    .times(tlMult);
 
   return { amount, cost: totalCost };
 };

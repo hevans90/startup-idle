@@ -1,25 +1,28 @@
 import Decimal from "break_infinity.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
 import { twMerge } from "tailwind-merge";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
+import { useAnyPopoverStore } from "../state/modifier-popover.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { formatCurrency } from "../utils/money-utils";
 import { VapeJuiceDisplay } from "./vape-juice-display";
 
 // ─── layout constants ─────────────────────────────────────────────────────────
 
-const TRACK_H = 400;
-const TRACK_W = 160;
-const HIT_ZONE_Y = 340;
-const PPS = 220;
-const GAME_SECS = 7;
+const TRACK_H = 560;
+const TRACK_W = 220;
+const HIT_ZONE_Y = 472;
+const PPS = 280;
+const GAME_SECS = 22;
 const GAME_MS = GAME_SECS * 1000;
 
-const BASE_W_PERFECT = 0.055;
-const BASE_W_GOOD = 0.10;
-const BASE_W_OK = 0.15;
+const BASE_W_PERFECT = 0.042;
+const BASE_W_GOOD = 0.075;
+const BASE_W_OK = 0.12;
+
 
 // ─── combo ────────────────────────────────────────────────────────────────────
 
@@ -37,9 +40,15 @@ function multColor(mult: number): string {
   return "text-gray-500";
 }
 
+function comboToBonus(maxCombo: number, totalNotes: number): number {
+  if (totalNotes <= 0) return 1;
+  const t = Math.min(1, maxCombo / totalNotes);
+  return 1 + t; // 1.0× at 0 combo, 2.0× at full chain
+}
+
 // ─── types ────────────────────────────────────────────────────────────────────
 
-type NoteType = "tap" | "hold";
+type NoteType = "tap" | "hold" | "double";
 type Judgment = "perfect" | "good" | "ok" | "miss";
 type FlashKind = Judgment | "break";
 
@@ -54,6 +63,10 @@ type NoteState = Note & {
   judgment: Judgment | null;
   holdStartMs: number | null;
   holdEndMs: number | null;
+  // For double notes
+  tapsDone: number;
+  firstTapMs: number | null;
+  firstTapDt: number;
 };
 
 type MinigameConfig = {
@@ -61,19 +74,31 @@ type MinigameConfig = {
   holdThreshold: number;
   forgiveness: number;
   perfectThreshold: number;
+  rewardBonus: number;
 };
 
 // ─── note generation ──────────────────────────────────────────────────────────
 
 function generateNotes(): Note[] {
   const notes: Note[] = [];
-  let t = 1.4;
+  let t = 1.2;
   let id = 0;
   while (t < GAME_SECS - 0.5) {
-    const isTap = Math.random() > 0.45;
-    const duration = isTap ? 0 : 0.4 + Math.random() * 0.75;
-    notes.push({ id: id++, type: isTap ? "tap" : "hold", hitTime: t, duration });
-    t += (isTap ? 0 : duration) + 0.45 + Math.random() * 0.55;
+    const r = Math.random();
+    let type: NoteType;
+    let duration: number;
+    if (r < 0.38) {
+      type = "tap";
+      duration = 0;
+    } else if (r < 0.70) {
+      type = "hold";
+      duration = 0.55 + Math.random() * 1.2;
+    } else {
+      type = "double";
+      duration = 0.20 + Math.random() * 0.15;
+    }
+    notes.push({ id: id++, type, hitTime: t, duration });
+    t += (type === "hold" || type === "double" ? duration : 0) + 0.38 + Math.random() * 0.48;
   }
   return notes;
 }
@@ -90,9 +115,9 @@ function computeMaxPoints(notes: Note[]): number {
 
 const NOTE_SCORE: Record<Judgment, number> = {
   perfect: 1.0,
-  good: 0.75,
-  ok: 0.5,
-  miss: 0,
+  good:    0.65,
+  ok:      0.25,
+  miss:   -0.5,
 };
 
 const FLASH_DISPLAY: Record<FlashKind, { text: string; className: string }> = {
@@ -104,18 +129,18 @@ const FLASH_DISPLAY: Record<FlashKind, { text: string; className: string }> = {
 };
 
 function scoreToMultiplier(score: number, perfectThreshold: number): number {
-  if (score >= perfectThreshold) return 3.5;
-  if (score >= 0.78) return 2.0;
-  if (score >= 0.58) return 1.2;
-  if (score >= 0.35) return 0.6;
-  return 0.2;
+  const s = Math.max(0, Math.min(1, score));
+  if (s < 0.20) return 0;
+  // Quadratic ramp: reaches 3.5× exactly at perfectThreshold, 0 at 20%
+  const t = Math.min(1, (s - 0.20) / Math.max(0.01, perfectThreshold - 0.20));
+  return t * t * 3.5;
 }
 
 function scoreLabel(score: number, perfectThreshold: number): string {
   if (score >= perfectThreshold) return "🌟 Perfect cloud";
-  if (score >= 0.78) return "💨 Good puff";
-  if (score >= 0.58) return "😮‍💨 Not bad";
-  if (score >= 0.35) return "😬 Rough hit";
+  if (score >= 0.75) return "💨 Good puff";
+  if (score >= 0.50) return "😮‍💨 Not bad";
+  if (score >= 0.30) return "😬 Rough hit";
   return "💀 Harsh";
 }
 
@@ -124,9 +149,11 @@ function scoreLabel(score: number, perfectThreshold: number): string {
 function VapeMinigame({
   config,
   onComplete,
+  computeReward,
 }: {
   config: MinigameConfig;
-  onComplete: (score: number) => void;
+  onComplete: (score: number, maxCombo: number, totalNotes: number) => void;
+  computeReward: (score: number, maxCombo: number, totalNotes: number) => number;
 }) {
   const [started, setStarted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -139,11 +166,8 @@ function VapeMinigame({
   } | null>(null);
   const [done, setDone] = useState(false);
   const [finalScore, setFinalScore] = useState(0);
-  // State-driven so the strikebar actually reacts on press/release
   const [isHeld, setIsHeld] = useState(false);
-  // "hit" = green burst, "miss" = red flash
   const [strikeFlash, setStrikeFlash] = useState<"hit" | "miss" | null>(null);
-  // Increments each hit to key the burst ring and remount it
   const [burstKey, setBurstKey] = useState(-1);
   const [liveScore, setLiveScore] = useState(0);
 
@@ -155,6 +179,9 @@ function VapeMinigame({
       judgment: null,
       holdStartMs: null,
       holdEndMs: null,
+      tapsDone: 0,
+      firstTapMs: null,
+      firstTapDt: 0,
     })),
   );
   const maxPossibleRef = useRef(computeMaxPoints(notesRef.current));
@@ -166,6 +193,19 @@ function VapeMinigame({
   const mountTimeRef = useRef(Date.now());
   const judgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const strikeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doneRef = useRef(false);
+  const claimButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Suppress map hover tooltip and other popovers for the game's full lifetime.
+  useEffect(() => {
+    useAnyPopoverStore.getState().open();
+    return () => useAnyPopoverStore.getState().close();
+  }, []);
+
+  useEffect(() => {
+    doneRef.current = done;
+    if (done) claimButtonRef.current?.focus();
+  }, [done]);
 
   const fireStrike = useCallback((kind: "hit" | "miss") => {
     setStrikeFlash(kind);
@@ -220,12 +260,38 @@ function VapeMinigame({
       const wPerfect = BASE_W_PERFECT * (1 + config.tapWindowBonus);
       const nowSec = nowMs / 1000;
 
+      // Priority: complete an in-progress double note (second tap must align with hitTime+duration)
+      const inProgressDoubleIdx = notesRef.current.findIndex(
+        (n) =>
+          n.type === "double" &&
+          n.tapsDone === 1 &&
+          n.judgment === null &&
+          nowSec >= n.hitTime + n.duration - wOk,
+      );
+      if (inProgressDoubleIdx >= 0) {
+        const note = notesRef.current[inProgressDoubleIdx];
+        const hitTime2 = note.hitTime + note.duration;
+        const dt2 = Math.abs(nowSec - hitTime2);
+        if (dt2 <= wOk) {
+          const j: Judgment = dt2 <= wPerfect ? "perfect" : dt2 <= wGood ? "good" : "ok";
+          hitNote(inProgressDoubleIdx, j);
+        } else {
+          breakCombo();
+          flash("break");
+          notesRef.current[inProgressDoubleIdx] = { ...note, judgment: "miss" };
+        }
+        return;
+      }
+
+      // Find nearest unjudged note in window
       let bestIdx = -1;
       let bestDt = Infinity;
       for (let i = 0; i < notesRef.current.length; i++) {
         const n = notesRef.current[i];
         if (n.judgment !== null) continue;
         if (n.type === "hold" && n.holdStartMs !== null) continue;
+        // Skip double notes already started (handled above or window expired)
+        if (n.type === "double" && n.tapsDone === 1) continue;
         const dt = Math.abs(nowSec - n.hitTime);
         if (dt <= wOk && dt < bestDt) {
           bestDt = dt;
@@ -244,7 +310,20 @@ function VapeMinigame({
         const j: Judgment =
           bestDt <= wPerfect ? "perfect" : bestDt <= wGood ? "good" : "ok";
         hitNote(bestIdx, j);
+      } else if (note.type === "double") {
+        // First tap — mark it and show interim flash
+        notesRef.current[bestIdx] = {
+          ...note,
+          tapsDone: 1,
+          firstTapMs: nowMs,
+          firstTapDt: bestDt,
+        };
+        fireStrike("hit");
+        setJudgeFlash({ text: "×2!", className: "text-amber-400", key: judgeKeyRef.current++ });
+        if (judgeTimerRef.current) clearTimeout(judgeTimerRef.current);
+        judgeTimerRef.current = setTimeout(() => setJudgeFlash(null), 650);
       } else {
+        // Hold note first press
         notesRef.current[bestIdx] = { ...note, holdStartMs: nowMs };
         comboRef.current++;
         if (comboRef.current > maxComboRef.current) {
@@ -282,11 +361,18 @@ function VapeMinigame({
       const n = notesRef.current[i];
       const startSec = n.holdStartMs != null ? n.holdStartMs / 1000 : null;
       const endSec = (n.holdEndMs ?? nowMs) / 1000;
+      const targetEnd = n.hitTime + n.duration;
       let fraction = 0;
+      let overshootSec = 0;
       if (startSec !== null) {
         const clampedStart = Math.max(startSec, n.hitTime);
-        const clampedEnd = Math.min(endSec, n.hitTime + n.duration);
+        const clampedEnd = Math.min(endSec, targetEnd);
         fraction = Math.max(0, clampedEnd - clampedStart) / Math.max(0.01, n.duration);
+        // Penalise holding past the end: grace 0.03 s, then linear to 0 at 0.33 s over
+        overshootSec = Math.max(0, endSec - targetEnd);
+        if (overshootSec > 0.03) {
+          fraction *= Math.max(0, 1 - (overshootSec - 0.03) / 0.30);
+        }
       }
       const j: Judgment =
         fraction >= 0.88 ? "perfect"
@@ -306,7 +392,8 @@ function VapeMinigame({
         fireStrike("hit");
       }
       notesRef.current[i] = { ...n, judgment: j };
-      flash(j);
+      // Use BREAK flash when the miss was caused by holding too long
+      flash(j === "miss" && overshootSec > 0.03 ? "break" : j);
     };
 
     const tick = () => {
@@ -327,15 +414,40 @@ function VapeMinigame({
             flash("miss");
             fireStrike("miss");
           }
+        } else if (n.type === "double") {
+          const hitTime2 = n.hitTime + n.duration;
+          if (n.tapsDone === 1) {
+            if (nowSec > hitTime2 + wOk) {
+              comboRef.current = 0;
+              setCombo(0);
+              notesRef.current[i] = { ...n, judgment: "miss" };
+              flash("break");
+              fireStrike("miss");
+            }
+          } else if (n.tapsDone === 0 && nowSec > n.hitTime + wOk) {
+            // Never started
+            comboRef.current = 0;
+            setCombo(0);
+            notesRef.current[i] = { ...n, judgment: "miss" };
+            flash("miss");
+            fireStrike("miss");
+          }
         } else {
+          // Hold note
           if (n.holdStartMs === null && nowSec > n.hitTime + wOk) {
             comboRef.current = 0;
             setCombo(0);
             notesRef.current[i] = { ...n, judgment: "miss" };
             flash("miss");
             fireStrike("miss");
-          } else if (n.holdStartMs !== null && nowSec > n.hitTime + n.duration + 0.15) {
-            judgeHold(i, nowMs);
+          } else if (n.holdStartMs !== null) {
+            if (n.holdEndMs !== null) {
+              // Released — judge on the very next tick so feedback is instant
+              judgeHold(i, nowMs);
+            } else if (nowSec > n.hitTime + n.duration + 0.40) {
+              // Still held 400 ms past the end — force-judge as overshoot miss
+              judgeHold(i, nowMs);
+            }
           }
         }
       }
@@ -372,6 +484,7 @@ function VapeMinigame({
   // Input
   useEffect(() => {
     const onDown = (e: Event) => {
+      if (doneRef.current) return;
       if (e instanceof KeyboardEvent) {
         if (e.key !== " ") return;
         if (e.repeat) return;
@@ -410,9 +523,16 @@ function VapeMinigame({
   const notes = notesRef.current;
   const currentMult = getComboMultiplier(combo);
 
+  const scoreMult = scoreToMultiplier(finalScore, config.perfectThreshold);
+  const comboBns = comboToBonus(maxCombo, notes.length);
+  const totalReward = computeReward(finalScore, maxCombo, notes.length);
+  const perfCount = notes.filter(n => n.judgment === "perfect").length;
+  const goodCount = notes.filter(n => n.judgment === "good").length;
+  const okCount   = notes.filter(n => n.judgment === "ok").length;
+  const missCount = notes.filter(n => n.judgment === "miss").length;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center select-none">
-      {/* CSS animations for judge text float and hit burst */}
       <style>{`
         @keyframes judgeFloat {
           0%   { opacity: 1; transform: translateY(0px) scale(1.05); }
@@ -432,9 +552,10 @@ function VapeMinigame({
 
       <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
 
-      <div className="relative z-10 flex flex-col overflow-hidden rounded-2xl border border-violet-500/30 bg-gray-950 shadow-2xl shadow-violet-900/50"
-        style={{ width: TRACK_W + 48 }}>
-
+      <div
+        className="relative z-10 flex flex-col overflow-hidden rounded-2xl border border-violet-500/30 bg-gray-950 shadow-2xl shadow-violet-900/50"
+        style={{ width: TRACK_W + 48 }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
           <div className="flex items-center gap-2">
@@ -460,7 +581,7 @@ function VapeMinigame({
           <div className="flex justify-center pt-3 pb-0">
             <div className="relative" style={{ width: TRACK_W, height: TRACK_H }}>
 
-              {/* Pre-game badge — sibling of track so it isn't clipped */}
+              {/* Pre-game badge */}
               {!started && (
                 <div
                   className="pointer-events-none absolute left-0 right-0 z-10 flex justify-center animate-bounce"
@@ -473,21 +594,61 @@ function VapeMinigame({
               )}
 
               {/* Inner track */}
-              <div className="absolute inset-0 overflow-hidden border-x border-white/[0.05]"
-                style={{ background: 'linear-gradient(to bottom, #0a0a12 0%, #0f0a1a 40%, #0d0814 100%)' }}>
-
-                {/* Subtle lane depth lines */}
+              <div
+                className="absolute inset-0 overflow-hidden border-x border-white/[0.05]"
+                style={{ background: 'linear-gradient(to bottom, #0a0a12 0%, #0f0a1a 40%, #0d0814 100%)' }}
+              >
                 <div className="absolute top-0 bottom-0 left-1/4 w-px bg-white/[0.03] pointer-events-none" />
                 <div className="absolute top-0 bottom-0 left-3/4 w-px bg-white/[0.03] pointer-events-none" />
 
-                {/* Horizon glow — faint violet at the bottom near hit zone */}
-                <div className="absolute left-0 right-0 pointer-events-none"
+                <div
+                  className="absolute left-0 right-0 pointer-events-none"
                   style={{
                     top: HIT_ZONE_Y - 60,
                     height: 100,
                     background: 'radial-gradient(ellipse 80% 40% at 50% 60%, rgba(109,40,217,0.12) 0%, transparent 70%)',
                   }}
                 />
+
+                {/* Track visual upgrades */}
+                {config.tapWindowBonus > 0 && (
+                  <div className="absolute left-0 right-0 pointer-events-none" style={{
+                    top: HIT_ZONE_Y - BASE_W_OK * (1 + config.tapWindowBonus) * PPS,
+                    height: BASE_W_OK * (1 + config.tapWindowBonus) * PPS * 2,
+                    background: `rgba(34,211,238,${Math.min(0.12, 0.05 + config.tapWindowBonus * 0.1)})`,
+                  }} />
+                )}
+                {config.holdThreshold < 0.6 && (
+                  <div className="absolute inset-0 pointer-events-none" style={{
+                    background: `rgba(16,185,129,${(0.6 - config.holdThreshold) * 0.2})`,
+                  }} />
+                )}
+                {config.rewardBonus > 0 && (
+                  <>
+                    <div className="absolute left-0 right-0 top-0 pointer-events-none" style={{
+                      height: 2,
+                      background: `rgba(251,191,36,${Math.min(0.75, 0.25 + config.rewardBonus * 0.5)})`,
+                    }} />
+                    <div className="absolute left-0 right-0 bottom-0 pointer-events-none" style={{
+                      height: 2,
+                      background: `rgba(251,191,36,${Math.min(0.75, 0.25 + config.rewardBonus * 0.5)})`,
+                    }} />
+                  </>
+                )}
+                {config.forgiveness > 0 && (
+                  <div className="absolute top-2 right-2 flex flex-col gap-1 pointer-events-none">
+                    {Array.from({ length: Math.min(2, config.forgiveness) }).map((_, i) => (
+                      <div key={i} className="w-1.5 h-1.5 rounded-full bg-violet-400/60" />
+                    ))}
+                  </div>
+                )}
+                {config.perfectThreshold < 0.92 && (
+                  <div className="absolute left-0 right-0 pointer-events-none" style={{
+                    top: HIT_ZONE_Y - 16,
+                    height: 1,
+                    background: 'rgba(251,191,36,0.45)',
+                  }} />
+                )}
 
                 {/* Progress indicator (right edge) */}
                 <div
@@ -498,8 +659,10 @@ function VapeMinigame({
                 {/* Combo display */}
                 {started && !done && combo > 0 && (
                   <div className="absolute top-3 left-0 right-0 flex flex-col items-center pointer-events-none gap-0.5">
-                    <span className="text-2xl font-black tabular-nums text-white leading-none"
-                      style={{ textShadow: '0 0 12px rgba(167,139,250,0.7)' }}>
+                    <span
+                      className="text-2xl font-black tabular-nums text-white leading-none"
+                      style={{ textShadow: '0 0 12px rgba(167,139,250,0.7)' }}
+                    >
                       {combo}
                     </span>
                     <span className={twMerge("text-[9px] font-bold uppercase tracking-widest leading-none", multColor(currentMult))}>
@@ -513,7 +676,6 @@ function VapeMinigame({
                   const headY = HIT_ZONE_Y - (n.hitTime - currentSec) * PPS;
 
                   if (n.type === "tap") {
-                    // Ghost: missed tap slides through and fades
                     if (n.judgment === "miss") {
                       if (headY > TRACK_H + 20 || headY < -20) return null;
                       return (
@@ -535,15 +697,70 @@ function VapeMinigame({
                     );
                   }
 
+                  if (n.type === "double") {
+                    const hitTime2 = n.hitTime + n.duration;
+                    const headY1 = HIT_ZONE_Y - (n.hitTime - currentSec) * PPS;
+                    const headY2 = HIT_ZONE_Y - (hitTime2 - currentSec) * PPS;
+                    const containerTop = headY2 - 12;
+                    const containerH = headY1 - headY2 + 24;
+
+                    if (n.judgment === "miss") {
+                      const visY = n.tapsDone === 1 ? headY2 : headY1;
+                      if (visY < -20 || visY > TRACK_H + 20) return null;
+                      return (
+                        <div key={n.id} className="absolute left-3 right-3"
+                          style={{ top: Math.round(containerTop), height: Math.round(containerH) }}>
+                          {n.tapsDone === 0 && (
+                            <div className="absolute inset-x-2 bg-gray-700/20" style={{ top: 12, bottom: 12 }} />
+                          )}
+                          <div className="absolute left-0 right-0 top-0 h-6 rounded-full border-2 bg-gray-700/25 border-gray-600/15" />
+                          {n.tapsDone === 0 && (
+                            <div className="absolute left-0 right-0 bottom-0 h-6 rounded-full border-2 bg-gray-700/25 border-gray-600/15" />
+                          )}
+                        </div>
+                      );
+                    }
+
+                    if (n.judgment !== null) return null;
+
+                    if (n.tapsDone === 1) {
+                      if (headY2 < -20 || headY2 > TRACK_H + 20) return null;
+                      return (
+                        <div
+                          key={n.id}
+                          className="absolute left-3 right-3 h-6 rounded-full border-2 flex items-center justify-center bg-amber-300 border-white/90 shadow-[0_0_20px_8px_rgba(251,191,36,0.85)]"
+                          style={{ top: Math.round(headY2 - 12) }}
+                        >
+                          <span className="text-[8px] font-black text-amber-950 leading-none">2</span>
+                        </div>
+                      );
+                    }
+
+                    if (headY2 < -20 || headY1 > TRACK_H + 20) return null;
+                    return (
+                      <div key={n.id} className="absolute left-3 right-3"
+                        style={{ top: Math.round(containerTop), height: Math.round(containerH) }}>
+                        {/* Amber background fill between the two tap heads */}
+                        <div className="absolute inset-x-2 bg-amber-400/30" style={{ top: 12, bottom: 12 }} />
+                        {/* Upper pill — second tap target */}
+                        <div className="absolute left-0 right-0 top-0 h-6 rounded-full border-2 flex items-center justify-center bg-amber-400 border-amber-200/80 shadow-[0_0_14px_5px_rgba(251,191,36,0.55)]">
+                          <span className="text-[8px] font-black text-amber-950 leading-none">2</span>
+                        </div>
+                        {/* Lower pill — first tap target */}
+                        <div className="absolute left-0 right-0 bottom-0 h-6 rounded-full border-2 flex items-center justify-center bg-amber-400 border-amber-200/80 shadow-[0_0_14px_5px_rgba(251,191,36,0.55)]">
+                          <span className="text-[8px] font-black text-amber-950 leading-none">1</span>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   // Hold note
                   const isActive = n.holdStartMs !== null && n.judgment === null;
                   const isDone = n.judgment !== null;
-                  // While actively holding, pin head to hit zone so the consumed portion disappears
                   const clampedHeadY = isActive && headY > HIT_ZONE_Y ? HIT_ZONE_Y : headY;
                   const tailY = HIT_ZONE_Y - (n.hitTime + n.duration - currentSec) * PPS;
                   const barH = Math.max(0, clampedHeadY - tailY);
 
-                  // Ghost: missed hold note continues falling
                   if (isDone && n.judgment === "miss") {
                     const gHeadY = HIT_ZONE_Y - (n.hitTime - currentSec) * PPS;
                     const gTailY = HIT_ZONE_Y - (n.hitTime + n.duration - currentSec) * PPS;
@@ -563,16 +780,12 @@ function VapeMinigame({
                   return (
                     <div key={n.id} className="absolute left-3 right-3"
                       style={{ top: Math.round(tailY), height: Math.round(barH) }}>
-                      {/* Sustain body */}
                       <div className={twMerge(
                         "absolute inset-x-2 top-0 bottom-3 rounded-t-md",
-                        isDone
-                          ? "bg-violet-500/15"
-                          : isActive
-                            ? "bg-violet-400/80"
-                            : "bg-violet-600/50",
+                        isDone ? "bg-violet-500/15"
+                        : isActive ? "bg-violet-400/80"
+                        : "bg-violet-600/50",
                       )} />
-                      {/* Head */}
                       <div className={twMerge(
                         "absolute left-0 right-0 bottom-0 h-6 rounded-full border-2",
                         isDone
@@ -585,7 +798,7 @@ function VapeMinigame({
                   );
                 })}
 
-                {/* Judgment text — floats upward */}
+                {/* Judgment text */}
                 {judgeFlash && (
                   <div
                     key={judgeFlash.key}
@@ -599,7 +812,7 @@ function VapeMinigame({
                   </div>
                 )}
 
-                {/* Strikebar — the fret button */}
+                {/* Strikebar */}
                 <div
                   className={twMerge(
                     "absolute left-2 right-2 rounded-full pointer-events-none transition-colors duration-75",
@@ -617,11 +830,13 @@ function VapeMinigame({
                 {/* Hit burst rings */}
                 {burstKey >= 0 && (
                   <>
-                    <div key={`outer-${burstKey}`}
+                    <div
+                      key={`outer-${burstKey}`}
                       className="absolute w-20 h-20 rounded-full border-2 border-yellow-300/60 pointer-events-none"
                       style={{ top: HIT_ZONE_Y, left: '50%', animation: 'burstRing 0.3s ease-out forwards' }}
                     />
-                    <div key={`inner-${burstKey}`}
+                    <div
+                      key={`inner-${burstKey}`}
                       className="absolute w-10 h-10 rounded-full bg-yellow-200/30 pointer-events-none"
                       style={{ top: HIT_ZONE_Y, left: '50%', animation: 'burstInner 0.25s ease-out forwards' }}
                     />
@@ -643,27 +858,53 @@ function VapeMinigame({
               <span className="inline-block w-3 h-3 rounded-md bg-violet-500/50" />
               hold
             </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-2.5 rounded-full bg-amber-400/50" />
+              ×2
+            </span>
             <span className="text-gray-700/50">×{getComboMultiplier(3)} → ×{getComboMultiplier(8)}</span>
           </div>
         )}
 
         {/* Result */}
         {done && (
-          <div className="flex flex-col items-center gap-2 px-4 py-6">
+          <div className="flex flex-col items-center gap-3 px-4 py-6">
             <div className="text-3xl font-black tabular-nums text-violet-200">
               {(finalScore * 100).toFixed(0)}%
             </div>
             <div className="text-sm text-gray-300">
               {scoreLabel(finalScore, config.perfectThreshold)}
             </div>
-            <div className="flex items-center gap-3 text-[10px] text-gray-600">
-              <span>×{scoreToMultiplier(finalScore, config.perfectThreshold).toFixed(1)} boost</span>
-              <span>·</span>
-              <span>best combo {maxCombo}</span>
+            <div className="w-full rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2 flex flex-col gap-1 text-[10px] tabular-nums">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500">accuracy</span>
+                <span className="flex gap-2">
+                  <span className="text-yellow-300">{perfCount}P</span>
+                  <span className="text-emerald-400">{goodCount}G</span>
+                  <span className="text-sky-400">{okCount}OK</span>
+                  <span className="text-rose-500">{missCount}M</span>
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500">score {(finalScore * 100).toFixed(0)}%</span>
+                <span className="text-gray-300 font-semibold">{scoreMult.toFixed(2)}×</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500">best combo ×{maxCombo}</span>
+                <span className="text-gray-300 font-semibold">{comboBns.toFixed(2)}×</span>
+              </div>
+              <div className="border-t border-white/[0.06] mt-0.5 pt-0.5 flex justify-between items-center">
+                <span className="text-gray-500">total boost</span>
+                <span className="text-violet-300 font-bold">{(scoreMult * comboBns).toFixed(2)}×</span>
+              </div>
+            </div>
+            <div className="text-base font-bold text-violet-300 tabular-nums">
+              +{formatCurrency(new Decimal(totalReward), { showDollarSign: false, exponentBreakpoint: 1e6 })} innovation
             </div>
             <button
-              onClick={() => onComplete(finalScore)}
-              className="mt-1 rounded-lg bg-violet-600 px-6 py-1.5 text-xs font-bold uppercase tracking-widest text-white hover:bg-violet-500 active:bg-violet-700"
+              ref={claimButtonRef}
+              onClick={() => onComplete(finalScore, maxCombo, notes.length)}
+              className="mt-1 rounded-lg bg-violet-600 px-6 py-1.5 text-xs font-bold uppercase tracking-widest text-white hover:bg-violet-500 active:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-gray-950"
             >
               Claim
             </button>
@@ -677,17 +918,15 @@ function VapeMinigame({
 // ─── VapeMapWrapper ───────────────────────────────────────────────────────────
 
 // How long (seconds) the vape takes to fully charge after a puff
-const CHARGE_SECS = 45;
+const CHARGE_SECS = 450;
 
 export function VapeMapWrapper() {
-  // Start at 1 so the vape is ready immediately on first load
   const [charge, setCharge] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [gameConfig, setGameConfig] = useState<MinigameConfig | null>(null);
 
   const ready = charge >= 1 && !playing;
 
-  // Charge up when not playing and not yet full
   useEffect(() => {
     if (playing || charge >= 1) return;
     const startMs = Date.now();
@@ -701,6 +940,15 @@ export function VapeMapWrapper() {
     return () => clearInterval(id);
   }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const computeReward = useCallback((score: number, maxCombo: number, totalNotes: number): number => {
+    const s = useVapeAchievementsStore.getState();
+    const perfectThreshold = Math.max(0.75, 0.92 - s.minigamePerfectThresholdReduction);
+    const scoreMult = scoreToMultiplier(score, perfectThreshold);
+    const comboBns = comboToBonus(maxCombo, totalNotes);
+    const ips = useGeneratorStore.getState().getInnovationPerSecond();
+    return ips * 260 * scoreMult * comboBns * (1 + s.minigameRewardBonus);
+  }, []);
+
   const buildConfig = useCallback((): MinigameConfig => {
     const s = useVapeAchievementsStore.getState();
     return {
@@ -708,6 +956,7 @@ export function VapeMapWrapper() {
       holdThreshold: Math.max(0.3, 0.6 - s.minigameHoldThresholdReduction),
       forgiveness: s.minigameForgiveness,
       perfectThreshold: Math.max(0.75, 0.92 - s.minigamePerfectThresholdReduction),
+      rewardBonus: s.minigameRewardBonus,
     };
   }, []);
 
@@ -718,15 +967,16 @@ export function VapeMapWrapper() {
     setPlaying(true);
   }, [ready, buildConfig]);
 
-  const handleComplete = useCallback((score: number) => {
+  const handleComplete = useCallback((score: number, maxCombo: number, totalNotes: number) => {
     setPlaying(false);
     setGameConfig(null);
 
     const s = useVapeAchievementsStore.getState();
     const perfectThreshold = Math.max(0.75, 0.92 - s.minigamePerfectThresholdReduction);
-    const mult = scoreToMultiplier(score, perfectThreshold);
+    const scoreMult = scoreToMultiplier(score, perfectThreshold);
+    const comboBns = comboToBonus(maxCombo, totalNotes);
     const ips = useGeneratorStore.getState().getInnovationPerSecond();
-    const boost = ips * 26 * mult * (1 + s.minigameRewardBonus);
+    const boost = ips * 260 * scoreMult * comboBns * (1 + s.minigameRewardBonus);
 
     useInnovationStore.getState().increaseInnovation(boost);
 
@@ -761,8 +1011,9 @@ export function VapeMapWrapper() {
         <VapeJuiceDisplay className="w-40" chargeFill={charge} />
       </div>
 
-      {playing && gameConfig && (
-        <VapeMinigame config={gameConfig} onComplete={handleComplete} />
+      {playing && gameConfig && createPortal(
+        <VapeMinigame config={gameConfig} onComplete={handleComplete} computeReward={computeReward} />,
+        document.body,
       )}
     </>
   );

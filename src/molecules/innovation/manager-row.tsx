@@ -103,12 +103,19 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
             <InfoRow
               label={
                 bonusType === "innovation"
-                  ? "Innovation (employee IPS)"
+                  ? "Innovation rate"
                   : bonusType === "employee"
                     ? "Employee output ($)"
                     : "Valuation rate"
               }
               value={`x${bonusMultiplier?.toFixed(3)}`}
+              modKey={
+                bonusType === "innovation"
+                  ? "managerInnovation"
+                  : bonusType === "employee"
+                    ? "managerMoney"
+                    : "managerSalesValuation"
+              }
             />
             <InfoRow
               label="growth/tier:"

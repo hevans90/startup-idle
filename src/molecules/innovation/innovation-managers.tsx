@@ -35,8 +35,8 @@ export const InnovationManagers = () => {
       {disableManagers && (
         <div className="border border-rose-400/60 bg-rose-500/15 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
           <span className="font-semibold">Bootstrapped</span> — managers and
-          auto-buy are disabled. Manager tiers and auto-buy levels have no effect
-          while this keystone is allocated.
+          auto-buy are disabled. Manager tiers and auto-buy levels have no
+          effect while this keystone is allocated.
         </div>
       )}
       {!managersState?.unlocked && (
@@ -85,7 +85,9 @@ export const InnovationManagers = () => {
       {employeeManagementState?.unlocked && (
         <SystemPanel
           title="Employee Management"
-          help="Spend points equal to your total manager tier levels on each role"
+          help="Spend management points from manager tiers on each role. Refund a row
+          to return all points spent on that role. Auto-buy purchases one
+          employee per tick when you can afford it (fractions accumulate)."
         >
           <EmployeeManagementPanel />
         </SystemPanel>

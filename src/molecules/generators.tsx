@@ -28,7 +28,7 @@ const PopRow = ({
 );
 
 export const Generators = ({ isMobile }: { isMobile: boolean }) => {
-  const { generators } = useGeneratorStore();
+  const generators = useGeneratorStore((s) => s.generators);
   // Full multiplier chain (globals + founder passives), so the displayed output
   // matches actual earnings.
   const genMps = useGeneratorStore((s) => s.getGeneratorMoneyPerSecond);

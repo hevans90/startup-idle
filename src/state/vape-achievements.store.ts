@@ -1,7 +1,7 @@
 import Decimal from "break_infinity.js";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
+import { coerceDecimal, decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
 import { JUICE_SHOP_UPGRADES } from "../game/achievements.juice-shop";
 
 const STORAGE_KEY = "vape-achievements";
@@ -169,10 +169,14 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
         if (!p) return current;
         return {
           ...current,
-          vapeJuice: p.vapeJuice ?? current.vapeJuice,
+          // coerceDecimal guards against pre-{type:"decimal"} saves where the
+          // reviver passes a raw number through — calling .add() on a number crashes.
+          vapeJuice: coerceDecimal(p.vapeJuice, current.vapeJuice),
           unlockedAchievementIds: p.unlockedAchievementIds ?? [],
-          lifetimeJuiceFromAchievements:
-            p.lifetimeJuiceFromAchievements ?? new Decimal(0),
+          lifetimeJuiceFromAchievements: coerceDecimal(
+            p.lifetimeJuiceFromAchievements,
+            new Decimal(0),
+          ),
           purchasedJuiceUpgradeIds: p.purchasedJuiceUpgradeIds ?? [],
           juiceMpsMultBonus: p.juiceMpsMultBonus ?? 0,
           juiceInnovationMultBonus: p.juiceInnovationMultBonus ?? 0,

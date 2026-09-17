@@ -1,14 +1,15 @@
-import { getValuationEconomyMultipliers } from "../game/economy-multipliers";
+import { useShallow } from "zustand/shallow";
 import { useInnovationStore } from "../state/innovation.store";
+import { useValuationStore } from "../state/valuation.store";
 import { InfoRow } from "../ui/InfoRow";
 import { SystemPanel } from "../ui/SystemPanel";
 import { ValuationMandatesPanel } from "./innovation/valuation-mandates-panel";
 
 export const ValuationTab = () => {
   const managersUnlocked = useInnovationStore(
-    (s) => s.unlocks.managers?.unlocked
+    (s) => s.unlocks.managers?.unlocked,
   );
-  const board = getValuationEconomyMultipliers();
+  const board = useValuationStore(useShallow((s) => s.getEconomyMultipliers()));
 
   if (!managersUnlocked) {
     return (
@@ -23,21 +24,23 @@ export const ValuationTab = () => {
     <div className="p-2 pt-4 w-full flex flex-col gap-4 items-center">
       <div className="w-64 text-left">
         <p className="responsive-text-xs text-primary-500 dark:text-primary-400">
-          Board mandates
+          Board mandate bonuses
         </p>
         <InfoRow
-          label="$"
+          label="Money output"
           value={`x${board.money.toFixed(2)}`}
           size="small"
+          modKey="mandateMoney"
         />
         <InfoRow
-          label="IPS"
+          label="Innovation rate"
           value={`x${board.innovation.toFixed(2)}`}
           size="small"
+          modKey="mandateInnovation"
         />
       </div>
       <SystemPanel
-        title="Board & valuation"
+        title="Board Mandates"
         help="Valuation accrues from revenue (boosted by Sales). Buy mandates for global bonuses."
         className="w-full"
       >

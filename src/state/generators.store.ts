@@ -1,36 +1,46 @@
-import Decimal from "break_infinity.js";
 import { create } from "zustand";
-import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
+import {
+  createJSONStorage,
+  persist,
+  type StateStorage,
+} from "zustand/middleware";
 import { setEmployeeSatisfactionReaders } from "../game/employee-satisfaction-read";
 import {
-  getManagerEconomyMultipliers,
-  getValuationEconomyMultipliers,
-} from "../game/economy-multipliers";
+  calcGeneratorIncome,
+  calcGeneratorPerSecond,
+} from "../game/generator-income";
+import {
+  applyEffectiveSatisfaction,
+  computeModifiers,
+  type GameModifiers,
+} from "../game/modifiers";
 import {
   defaultSatisfactionScores,
-  internSatisfactionIpsMultiplier,
-  internSatisfactionValuationMultiplier,
-  satisfactionRevenueMultiplier,
   SATISFACTION_MAX,
   SATISFACTION_MIN,
   stepSatisfactionScores,
   type SatisfactionScores,
 } from "../game/satisfaction";
 import {
+  computeTeamLeaderEmpSatOffsets,
+  skillMult,
+} from "../game/team-leaders.catalog";
+import {
   getGeneratorCost,
   getUnlockedGeneratorIds,
 } from "../utils/generator-utils";
-import {
-  getManagementTierTotal,
-  useInnovationStore,
-} from "./innovation.store";
-import { useFounderStore } from "./founder.store";
-import { usePrestigeStore } from "./prestige.store";
-import { useMoneyStore } from "./money.store";
-import { useValuationStore } from "./valuation.store";
 import { useAiSingularityStore } from "./ai-singularity.store";
+import { useDirectivesStore } from "./directives.store";
+import { useFounderStore } from "./founder.store";
+import { getManagementTierTotal, useInnovationStore } from "./innovation.store";
+import { useMoneyStore } from "./money.store";
+import { usePrestigeStore } from "./prestige.store";
+import {
+  useTeamLeadersEmployeesStore,
+  type TeamLeaderEmployee,
+} from "./team-leaders.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
-import { useVapeAchievementsStore } from "./vape-achievements.store";
+import { useValuationStore } from "./valuation.store";
 
 export type UnlockCondition = {
   requiredId: GeneratorId;
@@ -90,7 +100,7 @@ type EmployeeManagementData = {
 export type ResourceBreakdown = {
   total: number;
   /** Multipliers applied to every employee's output. */
-  globals: { label: string; mult: number }[];
+  globals: { label: string; mult: number; modKey?: string }[];
   /** Per-employee-type contribution + its own multipliers. */
   perGenerator: {
     id: GeneratorId;
@@ -98,13 +108,13 @@ export type ResourceBreakdown = {
     amount: number;
     perUnit: number;
     total: number;
-    factors: { label: string; mult: number }[];
+    factors: { label: string; mult: number; modKey?: string }[];
   }[];
 };
 
 /**
  * Where valuation/sec comes from: a revenue "engine" (a sub-linear function of
- * $/sec) scaled by board/morale/founder multipliers. Not per-generator, so it
+ * $/sec) scaled by board/satisfaction/founder multipliers. Not per-generator, so it
  * has its own shape rather than reusing {@link ResourceBreakdown}.
  */
 export type ValuationBreakdown = {
@@ -114,8 +124,8 @@ export type ValuationBreakdown = {
   base: number;
   /** The $/sec feeding the engine. */
   mps: number;
-  /** Multipliers applied to the engine (managers / morale / founder). */
-  factors: { label: string; mult: number }[];
+  /** Multipliers applied to the engine (managers / satisfaction / founder). */
+  factors: { label: string; mult: number; modKey?: string }[];
 };
 
 type GeneratorState = {
@@ -129,6 +139,8 @@ type GeneratorState = {
   /** A role's satisfaction score after skill-tree keystones (Crunch Mode → 0,
    * Enshittify → positive side scaled). All satisfaction multipliers read this. */
   getEffectiveSatisfaction: (id: GeneratorId) => number;
+
+  _buildModifiers: () => GameModifiers;
 
   addGenerator: (gen: OwnedGenerator) => void;
   increaseGenerator: (id: string, count?: number) => void;
@@ -151,15 +163,21 @@ type GeneratorState = {
   getValuationBreakdown: () => ValuationBreakdown;
 
   getEmployeePerks: (id: GeneratorId) => EmployeePerks;
-  getEmployeeOutputMults: (id: GeneratorId) => { money: number; innovation: number };
+  getEmployeeOutputMults: (id: GeneratorId) => {
+    money: number;
+    innovation: number;
+  };
   getEmployeeCostMult: (id: GeneratorId) => number;
   getAutoBuyRate: (id: GeneratorId) => number;
   getAvailableManagementPoints: () => number;
   getEmployeePerkNextCost: (
     id: GeneratorId,
-    branch: EmployeePerkBranch
+    branch: EmployeePerkBranch,
   ) => number;
-  canPurchaseEmployeePerk: (id: GeneratorId, branch: EmployeePerkBranch) => boolean;
+  canPurchaseEmployeePerk: (
+    id: GeneratorId,
+    branch: EmployeePerkBranch,
+  ) => boolean;
   purchaseEmployeePerk: (id: GeneratorId, branch: EmployeePerkBranch) => void;
   /** Returns management points spent on this role’s perks (sum of historical purchase costs). */
   getManagementPointsSpentOnRow: (id: GeneratorId) => number;
@@ -218,7 +236,7 @@ const defaultEmployeePerks = (): EmployeePerks => ({
 });
 
 const mergeEmployeePerks = (
-  partial?: Partial<Record<GeneratorId, EmployeePerks>>
+  partial?: Partial<Record<GeneratorId, EmployeePerks>>,
 ): Record<GeneratorId, EmployeePerks> => ({
   intern: { ...defaultEmployeePerks(), ...partial?.intern },
   vibe_coder: { ...defaultEmployeePerks(), ...partial?.vibe_coder },
@@ -231,7 +249,9 @@ const defaultEmployeeManagement = (): EmployeeManagementData => ({
   autoBuyAcc: {},
 });
 
-const parseEmployeeManagementJson = (raw: string | null): EmployeeManagementData => {
+const parseEmployeeManagementJson = (
+  raw: string | null,
+): EmployeeManagementData => {
   if (!raw) return defaultEmployeeManagement();
   try {
     const parsed = JSON.parse(raw) as {
@@ -255,14 +275,14 @@ const parseEmployeeManagementJson = (raw: string | null): EmployeeManagementData
 };
 
 const normalizeEmployeeManagement = (
-  value: unknown
+  value: unknown,
 ): EmployeeManagementData => {
   if (!value || typeof value !== "object") return defaultEmployeeManagement();
   return parseEmployeeManagementJson(JSON.stringify(value));
 };
 
 const reconcileGeneratorsFromSavedArray = (
-  savedData: OwnedGenerator[]
+  savedData: OwnedGenerator[],
 ): OwnedGenerator[] => {
   const ownedMap = Object.fromEntries(savedData.map((g) => [g.id, g]));
   const unlockedIds = getUnlockedGeneratorIds(savedData);
@@ -276,19 +296,19 @@ const reconcileGeneratorsFromSavedArray = (
         multiplier: saved?.multiplier ?? 1,
         costExponent: Math.max(
           MIN_GENERATOR_COST_EXPONENT,
-          saved?.costExponent ?? gen.costExponent
+          saved?.costExponent ?? gen.costExponent,
         ),
         costMultiplier: saved?.costMultiplier ?? 1,
         lastTick: saved?.lastTick ?? Date.now(),
         innovationMultiplier: saved?.innovationMultiplier ?? 1,
       } satisfies OwnedGenerator;
-    }
+    },
   );
 };
 
 const readLegacyEmployeeManagementFromStorage = (): EmployeeManagementData => {
   return parseEmployeeManagementJson(
-    localStorage.getItem(EMPLOYEE_MGMT_STORAGE_KEY)
+    localStorage.getItem(EMPLOYEE_MGMT_STORAGE_KEY),
   );
 };
 
@@ -320,7 +340,7 @@ const generatorStateStorage: StateStorage = {
         return JSON.stringify({
           state: {
             generators: reconcileGeneratorsFromSavedArray(
-              parsed as OwnedGenerator[]
+              parsed as OwnedGenerator[],
             ),
             employeeManagement: em,
           },
@@ -367,7 +387,7 @@ export const syncUnlockedGenerators = (): void => {
 
 function employeePerkPurchaseCost(
   branch: EmployeePerkBranch,
-  currentLevel: number
+  currentLevel: number,
 ): number {
   if (branch === "money" || branch === "innovation") {
     if (currentLevel >= MAX_MONEY_INNO_LEVEL) return 0;
@@ -401,567 +421,555 @@ function totalManagementPointsSpentOnPerks(p: EmployeePerks): number {
   return sum;
 }
 
+// ─── tickGenerators helpers ───────────────────────────────────────────────────
+
+function buildAmountsMap(generators: OwnedGenerator[]): Record<GeneratorId, number> {
+  const amounts: Record<GeneratorId, number> = { intern: 0, vibe_coder: 0, "10x_dev": 0 };
+  for (const g of generators) amounts[g.id] = g.amount;
+  return amounts;
+}
+
+function tickSatisfaction(
+  scores: SatisfactionScores,
+  perks: Record<GeneratorId, EmployeePerks>,
+  amounts: Record<GeneratorId, number>,
+  seconds: number,
+  prestige: { satisfactionGainMult: number },
+  employees: TeamLeaderEmployee[],
+): SatisfactionScores {
+  const satOffsets = computeTeamLeaderEmpSatOffsets(employees);
+  let driftMult = 1;
+  for (const emp of employees) {
+    const srLv = emp.skills.sat_recovery ?? 0;
+    if (srLv > 0) driftMult *= skillMult("sat_recovery", srLv);
+  }
+  // Culture Capital mandate: multiplies satisfaction recovery speed.
+  const mandateSatGain = useValuationStore.getState().getEconomyMultipliers().satisfactionGain;
+  return stepSatisfactionScores(
+    scores,
+    perks,
+    amounts,
+    seconds * prestige.satisfactionGainMult * driftMult * mandateSatGain,
+    satOffsets,
+  );
+}
+
+function accrueGeneratorIncome(
+  gen: OwnedGenerator,
+  m: GameModifiers,
+  out: { money: number; innovation: number },
+  ticks: number,
+): void {
+  const { money, innovation } = calcGeneratorIncome(gen, m, out, ticks);
+  useMoneyStore.getState().increaseMoney(money);
+  useInnovationStore.getState().increaseInnovation(innovation);
+  const dir = useDirectivesStore.getState();
+  if (dir.everUnlocked) {
+    if (money > 0) dir.onMoneyTick(money);
+    if (innovation > 0) dir.onInnovationTick(innovation);
+  }
+}
+
 export const useGeneratorStore = create<GeneratorState>()(
   persist(
     (set, get) => {
-  const runAutoBuy = (
-    em: EmployeeManagementData,
-    seconds: number
-  ): EmployeeManagementData => {
-    const acc = { ...em.autoBuyAcc };
+      const runAutoBuy = (
+        em: EmployeeManagementData,
+        seconds: number,
+      ): EmployeeManagementData => {
+        const acc = { ...em.autoBuyAcc };
 
-    for (const gen of get().generators) {
-      const rate = get().getAutoBuyRate(gen.id);
-      if (rate <= 0 || gen.amount === 0) continue;
+        for (const gen of get().generators) {
+          const rate = get().getAutoBuyRate(gen.id);
+          if (rate <= 0 || gen.amount === 0) continue;
 
-      let frac = (acc[gen.id] ?? 0) + rate * seconds;
-      const maxIter = 500;
-      let iter = 0;
-      while (frac >= 1 && iter < maxIter) {
-        const cost = getGeneratorCost(gen.id, 1);
-        const money = useMoneyStore.getState().money;
-        if (money.lt(cost)) break;
-        useMoneyStore.getState().spendMoney(cost.toNumber());
-        get().increaseGenerator(gen.id, 1);
-        frac -= 1;
-        iter += 1;
-      }
-      acc[gen.id] = frac;
-    }
+          let frac = (acc[gen.id] ?? 0) + rate * seconds;
+          const maxIter = 500;
+          let iter = 0;
+          let autoBought = 0;
+          while (frac >= 1 && iter < maxIter) {
+            const cost = getGeneratorCost(gen.id, 1);
+            const money = useMoneyStore.getState().money;
+            if (money.lt(cost)) break;
+            useMoneyStore.getState().spendMoney(cost.toNumber());
+            get().increaseGenerator(gen.id, 1);
+            frac -= 1;
+            iter += 1;
+            autoBought += 1;
+          }
+          if (autoBought > 0) {
+            useDirectivesStore.getState().onHired(gen.id as GeneratorId, autoBought);
+          }
+          acc[gen.id] = frac;
+        }
 
-    return { ...em, autoBuyAcc: acc };
-  };
-
-  return {
-    purchaseMode: "single",
-    generators: reconcileGeneratorsFromSavedArray([]),
-    globalLastTick: Date.now(),
-    employeeManagement: defaultEmployeeManagement(),
-    satisfactionScores: defaultSatisfactionScores(),
-
-    getEmployeePerks: (id) => get().employeeManagement.perks[id],
-
-    getEmployeeOutputMults: (id) => {
-      const p = get().employeeManagement.perks[id];
-      return {
-        money: 1 + p.moneyLevel * MONEY_MULT_PER_LEVEL,
-        innovation: 1 + p.innovationLevel * INNO_MULT_PER_LEVEL,
+        return { ...em, autoBuyAcc: acc };
       };
-    },
 
-    getEmployeeCostMult: (id) => {
-      const lv = get().employeeManagement.perks[id].costLevel;
-      return Math.pow(COST_DISCOUNT_BASE, lv);
-    },
-
-    getEffectiveSatisfaction: (id) => {
-      const m = usePrestigeStore.getState().modifiers;
-      if (m.satisfactionNeutralized) return 0; // Crunch Mode: fully off
-      const s = get().satisfactionScores[id];
-      // Enshittify: halve only the positive side (penalties stay); the helpers
-      // are linear in score on the positive branch, so scaling the score scales
-      // exactly the bonus.
-      return m.satisfactionPositiveMult !== 1 && s > 0
-        ? s * m.satisfactionPositiveMult
-        : s;
-    },
-
-    getAutoBuyRate: (id) => {
-      const lv = get().employeeManagement.perks[id].autoBuyLevel;
-      if (lv <= 0) return 0;
-      // Founder "Operator" + skill-tree automation modifiers.
-      return (
-        AUTO_BUY_PER_LEVEL *
-        lv *
-        useFounderStore.getState().autoBuyMult *
-        usePrestigeStore.getState().modifiers.autoBuyMult
-      );
-    },
-
-    getAvailableManagementPoints: () => {
-      if (!useInnovationStore.getState().unlocks.employeeManagement?.unlocked) {
-        return 0;
-      }
-      const total = getManagementTierTotal();
-      return Math.max(0, total - get().employeeManagement.spentManagementPoints);
-    },
-
-    getEmployeePerkNextCost: (id, branch) => {
-      const p = get().employeeManagement.perks[id];
-      const level =
-        branch === "money"
-          ? p.moneyLevel
-          : branch === "innovation"
-            ? p.innovationLevel
-            : branch === "cost"
-              ? p.costLevel
-              : p.autoBuyLevel;
-      return employeePerkPurchaseCost(branch, level);
-    },
-
-    canPurchaseEmployeePerk: (id, branch) => {
-      const cost = get().getEmployeePerkNextCost(id, branch);
-      if (cost <= 0) return false;
-      return get().getAvailableManagementPoints() >= cost;
-    },
-
-    purchaseEmployeePerk: (id, branch) => {
-      if (!useInnovationStore.getState().unlocks.employeeManagement?.unlocked) {
-        return;
-      }
-      if (!get().canPurchaseEmployeePerk(id, branch)) return;
-
-      const cost = get().getEmployeePerkNextCost(id, branch);
-      set((state) => {
-        const perks = { ...state.employeeManagement.perks };
-        const cur = { ...perks[id] };
-        if (branch === "money") cur.moneyLevel += 1;
-        else if (branch === "innovation") cur.innovationLevel += 1;
-        else if (branch === "cost") cur.costLevel += 1;
-        else cur.autoBuyLevel += 1;
-        perks[id] = cur;
-        return {
-          employeeManagement: {
-            ...state.employeeManagement,
-            spentManagementPoints: state.employeeManagement.spentManagementPoints + cost,
-            perks,
-          },
-        };
-      });
-    },
-
-    getManagementPointsSpentOnRow: (id) =>
-      totalManagementPointsSpentOnPerks(get().employeeManagement.perks[id]),
-
-    refundEmployeeManagementRow: (id) => {
-      if (!useInnovationStore.getState().unlocks.employeeManagement?.unlocked) {
-        return;
-      }
-      const refund = totalManagementPointsSpentOnPerks(
-        get().employeeManagement.perks[id]
-      );
-      if (refund <= 0) return;
-
-      set((state) => {
-        const perks = { ...state.employeeManagement.perks };
-        perks[id] = defaultEmployeePerks();
-        const autoBuyAcc = { ...state.employeeManagement.autoBuyAcc };
-        delete autoBuyAcc[id];
-        return {
-          employeeManagement: {
-            ...state.employeeManagement,
-            spentManagementPoints: Math.max(
-              0,
-              state.employeeManagement.spentManagementPoints - refund
-            ),
-            perks,
-            autoBuyAcc,
-          },
-        };
-      });
-    },
-
-    addGenerator: (gen) =>
-      set((state) => {
-        const exists = state.generators.find((g) => g.id === gen.id);
-        if (exists) return {};
-        return { generators: [...state.generators, gen] };
-      }),
-
-    increaseGenerator: (id, count = 1) =>
-      set((state) => ({
-        generators: state.generators.map((gen) =>
-          gen.id === id ? { ...gen, amount: gen.amount + count } : gen
-        ),
-      })),
-
-    tickGenerators: () => {
-      const now = Date.now();
-      const rawInterval = now - get().globalLastTick;
-      const globalTickInterval = Math.min(rawInterval, MAX_CATCH_UP_MS);
-      if (globalTickInterval < 1000) return;
-
-      const innovationMultGlobal = useInnovationStore
-        .getState()
-        .getMultiplier();
-      const managerMults = getManagerEconomyMultipliers();
-      const valuationMults = getValuationEconomyMultipliers();
-
-      set({ globalLastTick: now });
-
-      const seconds = globalTickInterval / 1000;
-
-      // Skill-tree modifiers for this whole tick (hoisted; reused below).
-      const prestige = usePrestigeStore.getState().modifiers;
-      const emUnlocked =
-        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
-      // Raw satisfaction still evolves normally; the skill-tree keystones
-      // (Crunch Mode / Enshittify) are applied at READ time via
-      // getEffectiveSatisfaction, so every multiplier below honours them.
-      if (emUnlocked) {
-        const perks = get().employeeManagement.perks;
-        const amounts: Record<GeneratorId, number> = {
-          intern: 0,
-          vibe_coder: 0,
-          "10x_dev": 0,
-        };
-        for (const g of get().generators) {
-          amounts[g.id] = g.amount;
-        }
-        set({
-          satisfactionScores: stepSatisfactionScores(
-            get().satisfactionScores,
-            perks,
-            amounts,
-            // 996 slows how fast satisfaction moves toward its target.
-            seconds * prestige.satisfactionGainMult
-          ),
-        });
-        // Effective vibe → Crunch Mode (0) drives no singularity.
-        useAiSingularityStore
-          .getState()
-          .tick(seconds, get().getEffectiveSatisfaction("vibe_coder"), emUnlocked);
-      }
-
-      const internIpsMult = emUnlocked
-        ? internSatisfactionIpsMultiplier(get().getEffectiveSatisfaction("intern"))
-        : 1;
-
-      const revenueMultFor = (id: GeneratorId) =>
-        emUnlocked
-          ? satisfactionRevenueMultiplier(get().getEffectiveSatisfaction(id))
-          : 1;
-
-      const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
-      const juiceIps = 1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
-
-      // Founder + skill-tree modifiers: headcount synergy + output scaling.
-      const founder = useFounderStore.getState();
-      const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
-      const headcountMoneyMult =
-        1 +
-        (founder.headcountMoneyPerEmployee + prestige.headcountPerEmployee) *
-          totalEmployees;
-
-      const updatedGenerators = get().generators.map((gen) => {
-        if (gen.amount === 0) return gen;
-        const ticks = Math.floor(globalTickInterval / gen.interval);
-        if (ticks > 0) {
-          const out = get().getEmployeeOutputMults(gen.id);
-          const income = new Decimal(gen.baseProduction)
-            .times(innovationMultGlobal)
-            .times(managerMults.employeeMoney)
-            .times(valuationMults.money)
-            .times(gen.amount)
-            .times(gen.multiplier)
-            .times(out.money)
-            .times(revenueMultFor(gen.id))
-            .times(juiceMps)
-            .times(headcountMoneyMult)
-            .times(founder.generatorMoneyMult[gen.id] ?? 1)
-            .times(founder.globalMoneyMult)
-            .times(prestige.moneyMult)
-            .times(prestige.employeeOutputMult)
-            .times(gen.id === "intern" ? prestige.internOutputMult : 1)
-            .times(ticks);
-          const innovationIncome = new Decimal(gen.innovationProduction)
-            .times(innovationMultGlobal)
-            .times(gen.amount)
-            .times(gen.innovationMultiplier)
-            .times(managerMults.innovationIncome)
-            .times(valuationMults.innovation)
-            .times(out.innovation)
-            .times(internIpsMult)
-            .times(juiceIps)
-            .times(founder.generatorInnovationMult[gen.id] ?? 1)
-            .times(prestige.innovationMult)
-            .times(prestige.employeeOutputMult)
-            .times(gen.id === "intern" ? prestige.internOutputMult : 1)
-            .times(ticks);
-          useMoneyStore.getState().increaseMoney(income.toNumber());
-          useInnovationStore
-            .getState()
-            .increaseInnovation(innovationIncome.toNumber());
-          return { ...gen, lastTick: now };
-        }
-        return gen;
-      });
-
-      set({ generators: updatedGenerators });
-      syncUnlockedGenerators();
-      syncAvailableUpgrades();
-
-      let em = get().employeeManagement;
-      em = runAutoBuy(em, seconds);
-      set({ employeeManagement: em });
-      syncUnlockedGenerators();
-      syncAvailableUpgrades();
-
-      // Same formula as getValuationBreakdown (single source of truth), times
-      // the elapsed seconds, so the toolbar's valuation/sec matches accrual.
-      const valuationGain = get().getValuationPerSecond() * seconds;
-      if (valuationGain > 0) {
-        useValuationStore.getState().increaseValuation(valuationGain);
-      }
-    },
-
-    purchaseGenerator: (id: string, amount = 1) => {
-      const cost = getGeneratorCost(id, amount);
-      const moneyState = useMoneyStore.getState();
-
-      if (moneyState.money.gte(cost)) {
-        moneyState.spendMoney(cost.toNumber());
-        get().increaseGenerator(id, amount);
-        syncUnlockedGenerators();
-        syncAvailableUpgrades();
-      }
-    },
-
-    getGeneratorMoneyPerSecond: (id, units) => {
-      const gen = get().generators.find((g) => g.id === id);
-      if (!gen || units <= 0) return 0;
-      const innovationMultGlobal = useInnovationStore
-        .getState()
-        .getMultiplier()
-        .toNumber();
-      const managerMults = getManagerEconomyMultipliers();
-      const valuationMults = getValuationEconomyMultipliers();
-      const emUnlocked =
-        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
-        false;
-      const revenueMult = emUnlocked
-        ? satisfactionRevenueMultiplier(get().getEffectiveSatisfaction(id))
-        : 1;
-      const out = get().getEmployeeOutputMults(id);
-      const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
-      // Founder + skill-tree modifiers: headcount synergy + money scaling.
-      const founder = useFounderStore.getState();
-      const prestige = usePrestigeStore.getState().modifiers;
-      const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
-      const headcountMoneyMult =
-        1 +
-        (founder.headcountMoneyPerEmployee + prestige.headcountPerEmployee) *
-          totalEmployees;
-
-      return (
-        ((innovationMultGlobal *
-          managerMults.employeeMoney *
-          valuationMults.money *
-          gen.baseProduction *
-          units *
-          gen.multiplier *
-          out.money *
-          revenueMult *
-          (founder.generatorMoneyMult[id] ?? 1)) /
-          (gen.interval / 1000)) *
-        juiceMps *
-        headcountMoneyMult *
-        founder.globalMoneyMult *
-        prestige.moneyMult *
-        prestige.employeeOutputMult *
-        (id === "intern" ? prestige.internOutputMult : 1)
-      );
-    },
-    // Sum each generator's full-chain output (single source of truth: the
-    // employee-tab popovers and this getter stay in lockstep).
-    getMoneyPerSecond: () =>
-      get().generators.reduce(
-        (sum, gen) =>
-          sum + get().getGeneratorMoneyPerSecond(gen.id, gen.amount),
-        0,
-      ),
-
-    getMoneyBreakdown: () => {
-      const innovationMult = useInnovationStore
-        .getState()
-        .getMultiplier()
-        .toNumber();
-      const managerMults = getManagerEconomyMultipliers();
-      const valuationMults = getValuationEconomyMultipliers();
-      const emUnlocked =
-        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
-        false;
-      const juiceMps = 1 + useVapeAchievementsStore.getState().juiceMpsMultBonus;
-      const founder = useFounderStore.getState();
-      const prestige = usePrestigeStore.getState().modifiers;
-      const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
-      const headcountMult =
-        1 +
-        (founder.headcountMoneyPerEmployee + prestige.headcountPerEmployee) *
-          totalEmployees;
-
-      const globals = [
-        { label: "Innovation", mult: innovationMult },
-        { label: "Managers", mult: managerMults.employeeMoney },
-        { label: "Board mandates", mult: valuationMults.money },
-        { label: "Vape juice", mult: juiceMps },
-        { label: "Headcount synergy", mult: headcountMult },
-        { label: "Skill tree", mult: prestige.moneyMult * prestige.employeeOutputMult },
-      ];
-
-      const perGenerator = get()
-        .generators.filter((g) => g.amount > 0)
-        .map((gen) => {
-          const out = get().getEmployeeOutputMults(gen.id);
-          const revenueMult = emUnlocked
-            ? satisfactionRevenueMultiplier(get().getEffectiveSatisfaction(gen.id))
-            : 1;
-          return {
-            id: gen.id,
-            name: gen.name,
-            amount: gen.amount,
-            perUnit: get().getGeneratorMoneyPerSecond(gen.id, 1),
-            total: get().getGeneratorMoneyPerSecond(gen.id, gen.amount),
-            factors: [
-              { label: "upgrades", mult: gen.multiplier },
-              { label: "perks", mult: out.money },
-              { label: "satisfaction", mult: revenueMult },
-              { label: "founder", mult: founder.generatorMoneyMult[gen.id] ?? 1 },
-            ],
-          };
-        });
-
-      return { total: get().getMoneyPerSecond(), globals, perGenerator };
-    },
-
-    getGeneratorInnovationPerSecond: (id, units) => {
-      const gen = get().generators.find((g) => g.id === id);
-      if (!gen || units <= 0) return 0;
-      const innovationMultGlobal = useInnovationStore
-        .getState()
-        .getMultiplier()
-        .toNumber();
-      const managerMults = getManagerEconomyMultipliers();
-      const valuationMults = getValuationEconomyMultipliers();
-      const emUnlocked =
-        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
-        false;
-      const internIpsMult = emUnlocked
-        ? internSatisfactionIpsMultiplier(get().getEffectiveSatisfaction("intern"))
-        : 1;
-      const out = get().getEmployeeOutputMults(id);
-      const juiceIps =
-        1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
-      const founder = useFounderStore.getState();
-      const prestige = usePrestigeStore.getState().modifiers;
-
-      return (
-        ((innovationMultGlobal *
-          managerMults.innovationIncome *
-          valuationMults.innovation *
-          gen.innovationProduction *
-          units *
-          gen.innovationMultiplier *
-          out.innovation *
-          internIpsMult *
-          (founder.generatorInnovationMult[id] ?? 1)) /
-          (gen.interval / 1000)) *
-        juiceIps *
-        prestige.innovationMult *
-        prestige.employeeOutputMult *
-        (id === "intern" ? prestige.internOutputMult : 1)
-      );
-    },
-    getInnovationPerSecond: () =>
-      get().generators.reduce(
-        (sum, gen) =>
-          sum + get().getGeneratorInnovationPerSecond(gen.id, gen.amount),
-        0,
-      ),
-
-    getInnovationBreakdown: () => {
-      const innovationMult = useInnovationStore
-        .getState()
-        .getMultiplier()
-        .toNumber();
-      const managerMults = getManagerEconomyMultipliers();
-      const valuationMults = getValuationEconomyMultipliers();
-      const emUnlocked =
-        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
-        false;
-      const internIpsMult = emUnlocked
-        ? internSatisfactionIpsMultiplier(get().getEffectiveSatisfaction("intern"))
-        : 1;
-      const juiceIps =
-        1 + useVapeAchievementsStore.getState().juiceInnovationMultBonus;
-      const founder = useFounderStore.getState();
-      const prestige = usePrestigeStore.getState().modifiers;
-
-      const globals = [
-        { label: "Innovation curve", mult: innovationMult },
-        { label: "Managers", mult: managerMults.innovationIncome },
-        { label: "Board mandates", mult: valuationMults.innovation },
-        { label: "Vape juice", mult: juiceIps },
-        { label: "Intern morale", mult: internIpsMult },
-        { label: "Skill tree", mult: prestige.innovationMult * prestige.employeeOutputMult },
-      ];
-
-      const perGenerator = get()
-        .generators.filter((g) => g.amount > 0)
-        .map((gen) => {
-          const out = get().getEmployeeOutputMults(gen.id);
-          return {
-            id: gen.id,
-            name: gen.name,
-            amount: gen.amount,
-            perUnit: get().getGeneratorInnovationPerSecond(gen.id, 1),
-            total: get().getGeneratorInnovationPerSecond(gen.id, gen.amount),
-            factors: [
-              { label: "upgrades", mult: gen.innovationMultiplier },
-              { label: "perks", mult: out.innovation },
-              {
-                label: "founder",
-                mult: founder.generatorInnovationMult[gen.id] ?? 1,
-              },
-            ],
-          };
-        });
-
-      return { total: get().getInnovationPerSecond(), globals, perGenerator };
-    },
-
-    getValuationBreakdown: () => {
-      const mps = get().getMoneyPerSecond();
-      const managerMults = getManagerEconomyMultipliers();
-      const emUnlocked =
-        useInnovationStore.getState().unlocks.employeeManagement?.unlocked ??
-        false;
-      const internValMult = emUnlocked
-        ? internSatisfactionValuationMultiplier(get().getEffectiveSatisfaction("intern"))
-        : 1;
-      const founderMult = useFounderStore.getState().valuationAccrualMult;
-      const prestigeMult = usePrestigeStore.getState().modifiers.valuationMult;
-      const juiceValuationMult =
-        1 + useVapeAchievementsStore.getState().juiceValuationMultBonus;
-
-      // Mirror of the accrual in tickGenerators: a sub-linear function of $/sec,
-      // scaled by board (sales), intern morale, founder, and skill-tree modifiers.
-      const base = Math.pow(Math.max(1, mps), 0.38) * 4e-5;
-      const factors = [
-        { label: "Sales managers", mult: managerMults.salesValuation },
-        { label: "Intern morale", mult: internValMult },
-        { label: "Founder", mult: founderMult },
-        { label: "Skill tree", mult: prestigeMult },
-        { label: "Vape shop", mult: juiceValuationMult },
-      ];
-      const total = factors.reduce((m, f) => m * f.mult, base);
-      return { total, base, mps, factors };
-    },
-    getValuationPerSecond: () => get().getValuationBreakdown().total,
-
-    setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
-
-    reset: () => {
-      localStorage.removeItem(EMPLOYEE_MGMT_STORAGE_KEY);
-      useGeneratorStore.persist.clearStorage();
-      set({
+      return {
+        purchaseMode: "single",
         generators: reconcileGeneratorsFromSavedArray([]),
         globalLastTick: Date.now(),
         employeeManagement: defaultEmployeeManagement(),
         satisfactionScores: defaultSatisfactionScores(),
-      });
-    },
-  };
+
+        getEmployeePerks: (id) => get().employeeManagement.perks[id],
+
+        getEmployeeOutputMults: (id) => {
+          const p = get().employeeManagement.perks[id];
+          return {
+            money: 1 + p.moneyLevel * MONEY_MULT_PER_LEVEL,
+            innovation: 1 + p.innovationLevel * INNO_MULT_PER_LEVEL,
+          };
+        },
+
+        getEmployeeCostMult: (id) => {
+          const lv = get().employeeManagement.perks[id].costLevel;
+          return Math.pow(COST_DISCOUNT_BASE, lv);
+        },
+
+        getEffectiveSatisfaction: (id) => {
+          const m = usePrestigeStore.getState().modifiers;
+          return applyEffectiveSatisfaction(get().satisfactionScores[id], m);
+        },
+
+        getAutoBuyRate: (id) => {
+          const lv = get().employeeManagement.perks[id].autoBuyLevel;
+          if (lv <= 0) return 0;
+          // Founder "Operator" + skill-tree automation modifiers.
+          return (
+            AUTO_BUY_PER_LEVEL *
+            lv *
+            useFounderStore.getState().autoBuyMult *
+            usePrestigeStore.getState().modifiers.autoBuyMult
+          );
+        },
+
+        getAvailableManagementPoints: () => {
+          if (
+            !useInnovationStore.getState().unlocks.employeeManagement?.unlocked
+          ) {
+            return 0;
+          }
+          const total = getManagementTierTotal();
+          return Math.max(
+            0,
+            total - get().employeeManagement.spentManagementPoints,
+          );
+        },
+
+        getEmployeePerkNextCost: (id, branch) => {
+          const p = get().employeeManagement.perks[id];
+          const level =
+            branch === "money"
+              ? p.moneyLevel
+              : branch === "innovation"
+                ? p.innovationLevel
+                : branch === "cost"
+                  ? p.costLevel
+                  : p.autoBuyLevel;
+          return employeePerkPurchaseCost(branch, level);
+        },
+
+        canPurchaseEmployeePerk: (id, branch) => {
+          const cost = get().getEmployeePerkNextCost(id, branch);
+          if (cost <= 0) return false;
+          return get().getAvailableManagementPoints() >= cost;
+        },
+
+        purchaseEmployeePerk: (id, branch) => {
+          if (
+            !useInnovationStore.getState().unlocks.employeeManagement?.unlocked
+          ) {
+            return;
+          }
+          if (!get().canPurchaseEmployeePerk(id, branch)) return;
+
+          const cost = get().getEmployeePerkNextCost(id, branch);
+          set((state) => {
+            const perks = { ...state.employeeManagement.perks };
+            const cur = { ...perks[id] };
+            if (branch === "money") cur.moneyLevel += 1;
+            else if (branch === "innovation") cur.innovationLevel += 1;
+            else if (branch === "cost") cur.costLevel += 1;
+            else cur.autoBuyLevel += 1;
+            perks[id] = cur;
+            return {
+              employeeManagement: {
+                ...state.employeeManagement,
+                spentManagementPoints:
+                  state.employeeManagement.spentManagementPoints + cost,
+                perks,
+              },
+            };
+          });
+        },
+
+        getManagementPointsSpentOnRow: (id) =>
+          totalManagementPointsSpentOnPerks(get().employeeManagement.perks[id]),
+
+        refundEmployeeManagementRow: (id) => {
+          if (
+            !useInnovationStore.getState().unlocks.employeeManagement?.unlocked
+          ) {
+            return;
+          }
+          const refund = totalManagementPointsSpentOnPerks(
+            get().employeeManagement.perks[id],
+          );
+          if (refund <= 0) return;
+
+          set((state) => {
+            const perks = { ...state.employeeManagement.perks };
+            perks[id] = defaultEmployeePerks();
+            const autoBuyAcc = { ...state.employeeManagement.autoBuyAcc };
+            delete autoBuyAcc[id];
+            return {
+              employeeManagement: {
+                ...state.employeeManagement,
+                spentManagementPoints: Math.max(
+                  0,
+                  state.employeeManagement.spentManagementPoints - refund,
+                ),
+                perks,
+                autoBuyAcc,
+              },
+            };
+          });
+        },
+
+        addGenerator: (gen) =>
+          set((state) => {
+            const exists = state.generators.find((g) => g.id === gen.id);
+            if (exists) return {};
+            return { generators: [...state.generators, gen] };
+          }),
+
+        increaseGenerator: (id, count = 1) =>
+          set((state) => ({
+            generators: state.generators.map((gen) =>
+              gen.id === id ? { ...gen, amount: gen.amount + count } : gen,
+            ),
+          })),
+
+        _buildModifiers: (): GameModifiers => {
+          const generators = get().generators;
+          const totalEmployees = generators.reduce((n, g) => n + g.amount, 0);
+          const emUnlocked =
+            useInnovationStore.getState().unlocks.employeeManagement
+              ?.unlocked ?? false;
+          return computeModifiers({
+            totalEmployees,
+            emUnlocked,
+            rawScores: get().satisfactionScores,
+          });
+        },
+
+        tickGenerators: () => {
+          const now = Date.now();
+          const rawInterval = now - get().globalLastTick;
+          const globalTickInterval = Math.min(rawInterval, MAX_CATCH_UP_MS);
+          if (globalTickInterval < 1000) return;
+
+          const seconds = globalTickInterval / 1000;
+          const prestige = usePrestigeStore.getState().modifiers;
+          // Raw satisfaction evolves normally; Crunch Mode / Enshittify keystones
+          // are applied at read time via getEffectiveSatisfaction.
+          const emUnlocked =
+            useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
+          const amounts = buildAmountsMap(get().generators);
+
+          // ── 1. Team leaders + satisfaction ───────────────────────────────────
+          // Compute the new satisfaction scores as a local variable; we pass
+          // them directly to computeModifiers below so the modifier snapshot
+          // already reflects the updated scores without an intermediate set().
+          let satisfactionScores = get().satisfactionScores;
+          if (emUnlocked) {
+            const tlStore = useTeamLeadersEmployeesStore.getState();
+            for (const g of get().generators) {
+              if (g.amount > 0) tlStore.generateCandidates(g.id);
+            }
+            tlStore.tickTeamLeaders(seconds, get().satisfactionScores, amounts);
+            satisfactionScores = tickSatisfaction(
+              get().satisfactionScores,
+              get().employeeManagement.perks,
+              amounts,
+              seconds,
+              prestige,
+              tlStore.employees,
+            );
+          }
+
+          // ── 2. Build full modifier snapshot ──────────────────────────────────
+          // Use the freshly computed satisfaction scores so the snapshot is
+          // consistent even though we haven't committed them to state yet.
+          const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
+          const m = computeModifiers({ totalEmployees, emUnlocked, rawScores: satisfactionScores });
+
+          // ── 3. AI singularity ─────────────────────────────────────────────────
+          if (emUnlocked) {
+            useAiSingularityStore
+              .getState()
+              .tick(seconds, m.effectiveScores["vibe_coder"] ?? 0, emUnlocked);
+          }
+
+          // ── 4. Income accrual (side effects only) ────────────────────────────
+          // Track which gens fire this tick; stamp lastTick after auto-buy so
+          // increaseGenerator's set() calls are not overwritten by ours.
+          const firingGenIds = new Set<string>();
+          for (const gen of get().generators) {
+            if (gen.amount === 0) continue;
+            const ticks = Math.floor(globalTickInterval / gen.interval);
+            if (ticks === 0) continue;
+            firingGenIds.add(gen.id);
+            accrueGeneratorIncome(gen, m, get().getEmployeeOutputMults(gen.id), ticks);
+          }
+
+          // ── 5. Auto-buy ───────────────────────────────────────────────────────
+          // runAutoBuy calls increaseGenerator (its own set() calls) — must run
+          // before we read generators for the lastTick stamp below.
+          const employeeManagement = runAutoBuy(get().employeeManagement, seconds);
+
+          // ── Commit all four mutations in a single set() call ─────────────────
+          // Read generators NOW (after auto-buy) so purchased units are preserved.
+          const generators = get().generators.map((gen) =>
+            firingGenIds.has(gen.id) ? { ...gen, lastTick: now } : gen,
+          );
+          set({ globalLastTick: now, satisfactionScores, generators, employeeManagement });
+
+          syncUnlockedGenerators();
+          syncAvailableUpgrades();
+
+          // ── 6. Valuation accrual ──────────────────────────────────────────────
+          // getValuationPerSecond() is the single source of truth — includes all
+          // active multipliers so the toolbar always matches actual accrual.
+          const valuationGain = get().getValuationPerSecond() * seconds;
+          if (valuationGain > 0) useValuationStore.getState().increaseValuation(valuationGain);
+
+        },
+
+        purchaseGenerator: (id: string, amount = 1) => {
+          const cost = getGeneratorCost(id, amount);
+          const moneyState = useMoneyStore.getState();
+
+          if (moneyState.money.gte(cost)) {
+            moneyState.spendMoney(cost.toNumber());
+            get().increaseGenerator(id, amount);
+            syncUnlockedGenerators();
+            syncAvailableUpgrades();
+            useDirectivesStore.getState().onHired(id as GeneratorId, amount);
+          }
+        },
+
+        getGeneratorMoneyPerSecond: (id, units) => {
+          const gen = get().generators.find((g) => g.id === id);
+          if (!gen || units <= 0) return 0;
+          const m = get()._buildModifiers();
+          const out = get().getEmployeeOutputMults(id);
+          return calcGeneratorPerSecond(gen, m, out, units).money;
+        },
+        // Sum each generator's full-chain output (single source of truth: the
+        // employee-tab popovers and this getter stay in lockstep).
+        getMoneyPerSecond: () =>
+          get().generators.reduce(
+            (sum, gen) =>
+              sum + get().getGeneratorMoneyPerSecond(gen.id, gen.amount),
+            0,
+          ),
+
+        getMoneyBreakdown: () => {
+          const m = get()._buildModifiers();
+
+          const globals = [
+            {
+              label: "Innovation",
+              mult: m.innovationCurve,
+              modKey: "innovationCurve",
+            },
+            { label: "Managers", mult: m.managerMoney, modKey: "managerMoney" },
+            {
+              label: "Board mandates",
+              mult: m.mandateMoney,
+              modKey: "mandateMoney",
+            },
+            { label: "Vape juice", mult: m.juiceMoney, modKey: "juiceMoney" },
+            {
+              label: "Headcount synergy",
+              mult: m.headcountMoney,
+              modKey: "headcountMoney",
+            },
+            {
+              label: "Skill tree",
+              mult: m.prestigeMoney * m.prestigeEmployeeOutput,
+              modKey: "skillTreeMoney",
+            },
+          ];
+
+          const perGenerator = get()
+            .generators.filter((g) => g.amount > 0)
+            .map((gen) => {
+              const out = get().getEmployeeOutputMults(gen.id);
+              return {
+                id: gen.id,
+                name: gen.name,
+                amount: gen.amount,
+                perUnit: get().getGeneratorMoneyPerSecond(gen.id, 1),
+                total: get().getGeneratorMoneyPerSecond(gen.id, gen.amount),
+                factors: [
+                  { label: "upgrades", mult: gen.multiplier },
+                  { label: "perks", mult: out.money },
+                  {
+                    label: "satisfaction",
+                    mult: m.satisfactionRevenue[gen.id] ?? 1,
+                    modKey: `satisfactionRevenue.${gen.id}`,
+                  },
+                  { label: "founder", mult: m.founderMoney[gen.id] ?? 1 },
+                ],
+              };
+            });
+
+          return { total: get().getMoneyPerSecond(), globals, perGenerator };
+        },
+
+        getGeneratorInnovationPerSecond: (id, units) => {
+          const gen = get().generators.find((g) => g.id === id);
+          if (!gen || units <= 0) return 0;
+          const m = get()._buildModifiers();
+          const out = get().getEmployeeOutputMults(id);
+          return calcGeneratorPerSecond(gen, m, out, units).innovation;
+        },
+        getInnovationPerSecond: () =>
+          get().generators.reduce(
+            (sum, gen) =>
+              sum + get().getGeneratorInnovationPerSecond(gen.id, gen.amount),
+            0,
+          ),
+
+        getInnovationBreakdown: () => {
+          const m = get()._buildModifiers();
+
+          const globals = [
+            {
+              label: "Innovation curve",
+              mult: m.innovationCurve,
+              modKey: "innovationCurve",
+            },
+            {
+              label: "Managers",
+              mult: m.managerInnovation,
+              modKey: "managerInnovation",
+            },
+            {
+              label: "Board mandates",
+              mult: m.mandateInnovation,
+              modKey: "mandateInnovation",
+            },
+            {
+              label: "Vape juice",
+              mult: m.juiceInnovation,
+              modKey: "juiceInnovation",
+            },
+            {
+              label: "Intern satisfaction",
+              mult: m.internIpsMult,
+              modKey: "internIpsMult",
+            },
+            {
+              label: "Skill tree",
+              mult: m.prestigeInnovation * m.prestigeEmployeeOutput,
+              modKey: "skillTreeInnovation",
+            },
+          ];
+
+          const perGenerator = get()
+            .generators.filter((g) => g.amount > 0)
+            .map((gen) => {
+              const out = get().getEmployeeOutputMults(gen.id);
+              return {
+                id: gen.id,
+                name: gen.name,
+                amount: gen.amount,
+                perUnit: get().getGeneratorInnovationPerSecond(gen.id, 1),
+                total: get().getGeneratorInnovationPerSecond(
+                  gen.id,
+                  gen.amount,
+                ),
+                factors: [
+                  { label: "upgrades", mult: gen.innovationMultiplier },
+                  { label: "perks", mult: out.innovation },
+                  {
+                    label: "founder",
+                    mult: m.founderInnovation[gen.id] ?? 1,
+                  },
+                ],
+              };
+            });
+
+          return {
+            total: get().getInnovationPerSecond(),
+            globals,
+            perGenerator,
+          };
+        },
+
+        getValuationBreakdown: () => {
+          const mps = get().getMoneyPerSecond();
+          const m = get()._buildModifiers();
+
+          // Mirror of the accrual in tickGenerators: a sub-linear function of $/sec,
+          // scaled by board (sales), intern satisfaction, founder, and skill-tree modifiers.
+          const base = Math.pow(Math.max(1, mps), 0.38) * 4e-5;
+          const factors = [
+            {
+              label: "Sales managers",
+              mult: m.managerSalesValuation,
+              modKey: "managerSalesValuation",
+            },
+            {
+              label: "Intern satisfaction",
+              mult: m.internValuationMult,
+              modKey: "internValuationMult",
+            },
+            {
+              label: "Founder",
+              mult: m.founderValuation,
+              modKey: "founderValuation",
+            },
+            {
+              label: "Skill tree",
+              mult: m.prestigeValuation,
+              modKey: "prestigeValuation",
+            },
+            {
+              label: "Vape shop",
+              mult: m.juiceValuation,
+              modKey: "juiceValuation",
+            },
+            {
+              label: "Team leaders",
+              mult: m.teamLeaderEmpValuationMult,
+              modKey: "teamLeaderEmpValuationMult",
+            },
+          ];
+          const total = factors.reduce((acc, f) => acc * f.mult, base);
+          return { total, base, mps, factors };
+        },
+        getValuationPerSecond: () => get().getValuationBreakdown().total,
+
+        setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
+
+        reset: () => {
+          localStorage.removeItem(EMPLOYEE_MGMT_STORAGE_KEY);
+          useGeneratorStore.persist.clearStorage();
+          useTeamLeadersEmployeesStore.getState().reset();
+          set({
+            generators: reconcileGeneratorsFromSavedArray([]),
+            globalLastTick: Date.now(),
+            employeeManagement: defaultEmployeeManagement(),
+            satisfactionScores: defaultSatisfactionScores(),
+          });
+        },
+      };
     },
     {
       name: GENERATOR_PERSIST_KEY,
@@ -996,12 +1004,13 @@ export const useGeneratorStore = create<GeneratorState>()(
           satisfactionScores: mergedScores,
         };
       },
-    }
-  )
+    },
+  ),
 );
 
 setEmployeeSatisfactionReaders({
-  internScore: () => useGeneratorStore.getState().getEffectiveSatisfaction("intern"),
+  internScore: () =>
+    useGeneratorStore.getState().getEffectiveSatisfaction("intern"),
   employeeManagementUnlocked: () =>
     useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false,
 });

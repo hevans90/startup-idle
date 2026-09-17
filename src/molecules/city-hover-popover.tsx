@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { useGeneratorStore } from "../state/generators.store";
+import { useAnyPopoverStore } from "../state/modifier-popover.store";
 import { useOfficeStore } from "../state/office.store";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { formatCurrency } from "../utils/money-utils";
@@ -17,6 +18,7 @@ const clamp = (n: number, lo: number, hi: number) =>
  */
 export const CityHoverPopover = () => {
   const hovered = useOfficeStore((s) => s.hovered);
+  const modifierPopoverOpen = useAnyPopoverStore((s) => s.openCount > 0);
   // Re-renders every frame while hovering (anchor updates), so reading the live
   // economics imperatively here is always fresh.
   useGeneratorStore((s) => s.generators);
@@ -41,7 +43,7 @@ export const CityHoverPopover = () => {
     el.style.top = `${y}px`;
   });
 
-  if (!hovered) return null;
+  if (!hovered || modifierPopoverOpen) return null;
 
   const gen = useGeneratorStore
     .getState()

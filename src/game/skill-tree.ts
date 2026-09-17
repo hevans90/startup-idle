@@ -74,7 +74,7 @@ export type BonusGrant = { stat: BonusStat; kind: "pct" | "mult"; value: number 
 export const STAT_META: Record<BonusStat, { label: string; good: "up" | "down" }> = {
   money: { label: "Money output", good: "up" },
   innovation: { label: "Innovation", good: "up" },
-  valuation: { label: "Valuation / sec", good: "up" },
+  valuation: { label: "Valuation", good: "up" },
   employeeOutput: { label: "Employee output", good: "up" },
   headcount: { label: "Money per employee", good: "up" },
   autoBuy: { label: "Automation speed", good: "up" },
@@ -158,7 +158,7 @@ const round1 = (n: number) => Number(n.toFixed(1));
 const STAT_SHORT: Record<BonusStat, string> = {
   money: "money",
   innovation: "innovation",
-  valuation: "valuation/sec",
+  valuation: "valuation",
   autoBuy: "automation",
   hireCost: "hire cost",
   employeeOutput: "employee output",
@@ -310,7 +310,7 @@ const CLUSTERS: ClusterDef[] = [
     minor: "+2.5% innovation",
     minorBonus: [pct("innovation", 2.5)],
     notables: [
-      { title: "Open Core", effect: "+6% money (convert 15% of innovation/sec to money).", bonus: [pct("money", 6)] },
+      { title: "Open Core", effect: "+6% money (convert 15% of innovation rate to money).", bonus: [pct("money", 6)] },
       { title: "Foundation Grant", effect: "+20% innovation and +10% valuation.", bonus: [pct("innovation", 20), pct("valuation", 10)] },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 1, minors: 6 }, { offset: 27, pods: 1, minors: 5 }] },

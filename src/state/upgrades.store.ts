@@ -4,6 +4,7 @@ import {
   persist,
   type StateStorage,
 } from "zustand/middleware";
+import { useDirectivesStore } from "./directives.store";
 import {
   GeneratorId,
   MIN_GENERATOR_COST_EXPONENT,
@@ -60,7 +61,7 @@ const INTERN_UPGRADES: Upgrade[] = [
     abbreviation: "IN1",
     name: "Micromanagement",
     description:
-      "Micromanage your interns harder. Weekly 1-1s will improve morale and productivity (you think).",
+      "Micromanage your interns harder. Weekly 1-1s will improve satisfaction and productivity (you think).",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 15 }],
     effects: [
       {
@@ -416,6 +417,21 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
     cost: 2e5,
   },
   {
+    id: "vibe_coder_upgrade_2b",
+    abbreviation: "V4b",
+    name: "Slop Optimisation",
+    description:
+      "The vibers discover they can recycle each other's output. Efficiency goes up. Quality, debatable.",
+    unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 45 }],
+    effects: [
+      {
+        genId: "vibe_coder",
+        changes: [{ type: "multiplier", value: 2 }],
+      },
+    ],
+    cost: 1.2e5,
+  },
+  {
     id: "vibe_coder_upgrade_3",
     abbreviation: "V5",
     name: "Pure Vibing",
@@ -442,18 +458,33 @@ const VIBE_CODER_UPGRADES: Upgrade[] = [
         genId: "vibe_coder",
         changes: [
           { type: "costExponent", delta: 0.05 },
-          { type: "multiplier", value: 8 },
+          { type: "multiplier", value: 3 },
         ],
       },
     ],
     cost: 1e6,
+  },
+  {
+    id: "vibe_coder_upgrade_4b",
+    abbreviation: "V7",
+    name: "Prompt Engineer Acceptance",
+    description:
+      "They stop fighting it. Vibing IS the job now. They have never been more productive.",
+    unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 80 }],
+    effects: [
+      {
+        genId: "vibe_coder",
+        changes: [{ type: "multiplier", value: 3 }],
+      },
+    ],
+    cost: 2.5e6,
   },
 ];
 
 const VIBE_LATE_UPGRADES: Upgrade[] = [
   {
     id: "vibe_coder_upgrade_5",
-    abbreviation: "V7",
+    abbreviation: "V8",
     name: "Vibe IPO Roadshow",
     description:
       "Investors only ask about AI. You only answer in LinkedIn poetry. Valuation up.",
@@ -471,7 +502,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_cost_2",
-    abbreviation: "V8",
+    abbreviation: "V9",
     name: "Prompt Engineer Guild Dues",
     description:
       "Mandatory certifications in 'asking nicely'. The certificate is a PNG.",
@@ -489,7 +520,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_6",
-    abbreviation: "V9",
+    abbreviation: "V10",
     name: "Hallucination As Feature",
     description:
       "Ship the bug. Call it emergent behavior. Charge enterprise for 'creativity mode'.",
@@ -504,7 +535,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_cost_exponent_2",
-    abbreviation: "V10",
+    abbreviation: "V11",
     name: "Copilot Tax Haven",
     description: "Expense every token as R&D. The IRS sends a thinking emoji.",
     unlockConditions: [{ requiredId: "vibe_coder", requiredAmount: 150 }],
@@ -521,7 +552,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_7",
-    abbreviation: "V11",
+    abbreviation: "V12",
     name: "Vibeocracy",
     description:
       "Engineering decisions are now decided by Spotify wrapped and moon phase.",
@@ -539,7 +570,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_8",
-    abbreviation: "V12",
+    abbreviation: "V13",
     name: "Stack Overflow Is The Product",
     description:
       "You monetize copy-paste. Lawyers say we're in uncharted water. You say 'ship it'.",
@@ -557,7 +588,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_9",
-    abbreviation: "V13",
+    abbreviation: "V14",
     name: "AI-Native Bloodline",
     description:
       "Every new hire must prove ancestry from a fork of Copilot. HR uses git blame.",
@@ -575,7 +606,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_10",
-    abbreviation: "V14",
+    abbreviation: "V15",
     name: "SLOP.EXE",
     description:
       "Your codebase is 40% comments that say 'TODO: fix before demo'. Demos never end.",
@@ -593,7 +624,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_11",
-    abbreviation: "V15",
+    abbreviation: "V16",
     name: "The Final Prompt",
     description:
       "One mega-prompt runs the company. It asked for a raise. You couldn't refuse.",
@@ -611,7 +642,7 @@ const VIBE_LATE_UPGRADES: Upgrade[] = [
   },
   {
     id: "vibe_coder_upgrade_12",
-    abbreviation: "V16",
+    abbreviation: "V17",
     name: "Post-Code Society",
     description:
       "Nobody writes syntax anymore. Everyone vibes in parallel realities. Revenue doubles.",
@@ -1207,6 +1238,7 @@ export const syncAvailableUpgrades = () => {
   );
 
   const unlockedIds = useUpgradeStore.getState().unlockedUpgradeIds;
+  const directives = useDirectivesStore.getState();
 
   const available = UPGRADES.filter((upg) => {
     const satisfied = upg.unlockConditions.every((cond) => {
@@ -1217,6 +1249,20 @@ export const syncAvailableUpgrades = () => {
   }).sort((a, b) => a.cost - b.cost);
 
   useUpgradeStore.setState({ availableUpgrades: available });
+
+  // D1 / D5: auto-unlock intern/vibe upgrades whose conditions are already met.
+  if (directives.autoInternUpgrades || directives.autoVibeUpgrades) {
+    const money = useMoneyStore.getState().money;
+    for (const upg of available) {
+      const isIntern = INTERN_UPGRADES.some((u) => u.id === upg.id);
+      const isVibe = VIBE_CODER_UPGRADES.some((u) => u.id === upg.id);
+      if ((isIntern && directives.autoInternUpgrades) || (isVibe && directives.autoVibeUpgrades)) {
+        if (money.gte(upg.cost)) {
+          useUpgradeStore.getState().unlockUpgrade(upg.id);
+        }
+      }
+    }
+  }
 };
 
 type UpgradeStoreState = {

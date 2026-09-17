@@ -7,7 +7,7 @@ import {
   type KeystoneSpecial,
 } from "../game/skill-tree";
 import { equityForAccrued } from "../game/acquisition";
-import { getManagerEconomyMultipliers } from "../game/economy-multipliers";
+import { computeModifiers } from "../game/modifiers";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { resetRunStores } from "../simulation/reset-game-stores";
 import { useAiSingularityStore } from "./ai-singularity.store";
@@ -247,13 +247,18 @@ describe("prestige modifiers are wired to the economy", () => {
         agile: { ...s.managers.agile, bonusMultiplier: new Decimal(2) },
       },
     }));
+    const ctx = {
+      totalEmployees: 0,
+      emUnlocked: false,
+      rawScores: { intern: 0, vibe_coder: 0, "10x_dev": 0 },
+    };
     applyNodes([]);
-    expect(getManagerEconomyMultipliers().innovationIncome).toBeCloseTo(2);
+    expect(computeModifiers(ctx).managerInnovation).toBeCloseTo(2);
     applyNodes([keystoneWith("disableManagers").id]);
-    const m = getManagerEconomyMultipliers();
-    expect(m.innovationIncome).toBe(1);
-    expect(m.employeeMoney).toBe(1);
-    expect(m.salesValuation).toBe(1);
+    const m = computeModifiers(ctx);
+    expect(m.managerInnovation).toBe(1);
+    expect(m.managerMoney).toBe(1);
+    expect(m.managerSalesValuation).toBe(1);
   });
 
   test("nothing allocated leaves the economy untouched", () => {

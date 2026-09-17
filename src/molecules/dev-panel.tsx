@@ -2,6 +2,7 @@ import Decimal from "break_infinity.js";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { usePrestigeStore } from "../state/prestige.store";
+import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 
 const BTN =
@@ -24,6 +25,9 @@ const DevPanelImpl = () => (
       onClick={() => useVapeAchievementsStore.setState({ vapeJuice: new Decimal(1e9) })}
     >
       +1B juice
+    </button>
+    <button type="button" className={BTN} onClick={() => useValuationStore.getState().increaseValuation(1e5)}>
+      +100k valuation
     </button>
     <button type="button" className={BTN} onClick={() => usePrestigeStore.getState().grantEquity(50)}>
       +50 equity

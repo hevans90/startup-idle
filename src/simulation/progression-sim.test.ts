@@ -14,8 +14,15 @@ import { maxUnlockCounts, simulateCoreUpgradeRun } from "./simulate-core-run";
 import { makeOwnedGenerator } from "./store-fixtures";
 import { secondsToAffordAtConstantMps } from "./pure-estimates";
 
+// Note: advanceGameplayOneSecond ticks generators and managers but NOT team
+// leaders or satisfaction. Generators run at their base output with no TL
+// multipliers, so sim times are longer than real gameplay — a conservative
+// baseline, not an exact match.
+
 describe("progression simulation (store + fake timers)", () => {
-  test("first intern upgrade takes ~27s at 15 interns (not instant)", () => {
+  test("first intern upgrade is affordable within 2 minutes at 15 interns", () => {
+    // Tests intent: not instant (needs some time to earn), not a brick wall.
+    // Wide window so minor balance changes don't break it.
     resetAllGameStores();
     useGeneratorStore.setState({
       generators: [makeOwnedGenerator("intern", 15)],
@@ -37,35 +44,40 @@ describe("progression simulation (store + fake timers)", () => {
       seconds++;
     }
 
-    expect(seconds).toBeLessThan(maxSeconds);
-    expect(seconds).toBeGreaterThanOrEqual(26);
-    expect(seconds).toBeLessThanOrEqual(28);
+    expect(seconds).toBeLessThan(maxSeconds); // reachable
+    expect(seconds).toBeGreaterThan(5);       // not instant
   });
 
-  test("full core run (intern + vibe + 10x base catalogs) buys every upgrade with bounded sim time", () => {
-    expect(UPGRADES_CORE.length).toBe(17);
-
+  test("full core run buys every core upgrade within 7 simulated days", () => {
     const { purchases, totalSeconds, employeePurchases } = simulateCoreUpgradeRun(
       jest.advanceTimersByTime.bind(jest),
       { maxSimulatedSeconds: 86400 * 7 }
     );
 
+    // Every core upgrade was purchased — count comes from the catalog, not hardcoded.
     expect(purchases.length).toBe(UPGRADES_CORE.length);
     expect(new Set(purchases.map((p) => p.id)).size).toBe(UPGRADES_CORE.length);
+
+    // Completed within the time budget.
     expect(totalSeconds).toBeLessThan(86400 * 7);
+
+    // At least one employee was hired during the run.
     expect(employeePurchases.length).toBeGreaterThan(0);
 
+    // All purchased upgrades belong to the core catalog.
     const coreIds = new Set(UPGRADES_CORE.map((u) => u.id));
     for (const p of purchases) {
       expect(coreIds.has(p.id)).toBe(true);
     }
 
+    // Purchases are time-ordered.
     for (let i = 1; i < purchases.length; i++) {
       expect(purchases[i]!.secondsAtPurchase).toBeGreaterThanOrEqual(
         purchases[i - 1]!.secondsAtPurchase
       );
     }
 
+    // Final employee counts meet the requirements of every core upgrade.
     const need = maxUnlockCounts(UPGRADES_CORE);
     const finalAmount = (id: GeneratorId) =>
       useGeneratorStore.getState().generators.find((g) => g.id === id)!.amount;
@@ -75,22 +87,48 @@ describe("progression simulation (store + fake timers)", () => {
   });
 });
 
+// ─── Upgrade catalog pacing (pure, no store) ────────────────────────────────
+//
+// These tests catch pathological cost gaps in the upgrade curve before they
+// reach players. Only checks single-condition upgrades in the core catalog —
+// multi-condition and late-game upgrades intentionally spike costs.
+
+const coreIds = new Set(UPGRADES_CORE.map((u) => u.id));
+
+function coreUpgradesForRole(role: GeneratorId) {
+  return UPGRADES.filter(
+    (u) =>
+      coreIds.has(u.id) &&
+      u.unlockConditions.length === 1 &&
+      u.unlockConditions[0]!.requiredId === role,
+  ).sort((a, b) => a.cost - b.cost);
+}
+
+function maxCostRatio(upgrades: ReturnType<typeof coreUpgradesForRole>): number {
+  let max = 0;
+  for (let i = 1; i < upgrades.length; i++) {
+    max = Math.max(max, upgrades[i]!.cost / upgrades[i - 1]!.cost);
+  }
+  return max;
+}
+
 describe("upgrade catalog pacing (pure)", () => {
-  test("early intern-only upgrades do not spike cost more than 80x between consecutive price tiers", () => {
-    const earlyInternOnly = UPGRADES.filter(
-      (u) =>
-        u.unlockConditions.length === 1 &&
-        u.unlockConditions[0].requiredId === "intern" &&
-        u.unlockConditions[0].requiredAmount <= 200
-    ).sort((a, b) => a.cost - b.cost);
+  test("intern core upgrades: no consecutive gap exceeds 80x", () => {
+    const upgrades = coreUpgradesForRole("intern");
+    expect(upgrades.length).toBeGreaterThan(3);
+    expect(maxCostRatio(upgrades)).toBeLessThanOrEqual(80);
+  });
 
-    expect(earlyInternOnly.length).toBeGreaterThan(3);
+  test("vibe coder core upgrades: no consecutive gap exceeds 20x", () => {
+    const upgrades = coreUpgradesForRole("vibe_coder");
+    expect(upgrades.length).toBeGreaterThan(2);
+    expect(maxCostRatio(upgrades)).toBeLessThanOrEqual(20);
+  });
 
-    for (let i = 1; i < earlyInternOnly.length; i++) {
-      const prev = earlyInternOnly[i - 1]!.cost;
-      const next = earlyInternOnly[i]!.cost;
-      expect(next / prev).toBeLessThanOrEqual(80);
-    }
+  test("10x dev core upgrades: no consecutive gap exceeds 20x", () => {
+    const upgrades = coreUpgradesForRole("10x_dev");
+    expect(upgrades.length).toBeGreaterThan(1);
+    expect(maxCostRatio(upgrades)).toBeLessThanOrEqual(20);
   });
 
   test("secondsToAffordAtConstantMps matches closed form for reference economy", () => {

@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 import { useGeneratorStore } from "../state/generators.store";
+import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
 import { formatRate } from "../utils/rate-utils";
 
@@ -71,7 +72,7 @@ export const ValuationSummary = () => {
             <Row
               key={f.label}
               indent
-              label={f.label}
+              label={f.modKey ? <ModifierTag modKey={f.modKey}>{f.label}</ModifierTag> : f.label}
               value={mult(f.mult)}
               className="opacity-80"
             />

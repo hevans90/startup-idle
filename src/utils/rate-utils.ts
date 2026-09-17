@@ -1,6 +1,6 @@
 type RateFormat = {
   value: number;
-  unit: "/sec" | "/min" | "/hour" | "/day";
+  unit: "/s" | "/min" | "/hr" | "/day";
   formatted: string;
 };
 
@@ -14,28 +14,12 @@ export const formatRate = (ratePerSecond: number): RateFormat => {
   const ratePerDay = ratePerHour * 24;
 
   if (ratePerSecond >= 1) {
-    return {
-      value: ratePerSecond,
-      unit: "/sec",
-      formatted: `${ratePerSecond.toFixed(2)} / sec`,
-    };
+    return { value: ratePerSecond, unit: "/s", formatted: `${ratePerSecond.toFixed(2)}/s` };
   } else if (ratePerMinute >= 0.1) {
-    return {
-      value: ratePerMinute,
-      unit: "/min",
-      formatted: `${ratePerMinute.toFixed(2)} / min`,
-    };
+    return { value: ratePerMinute, unit: "/min", formatted: `${ratePerMinute.toFixed(2)}/min` };
   } else if (ratePerHour >= 1) {
-    return {
-      value: ratePerHour,
-      unit: "/hour",
-      formatted: `${ratePerHour.toFixed(2)} / hour`,
-    };
+    return { value: ratePerHour, unit: "/hr", formatted: `${ratePerHour.toFixed(2)}/hr` };
   } else {
-    return {
-      value: ratePerDay,
-      unit: "/day",
-      formatted: `${ratePerDay.toFixed(2)} / day`,
-    };
+    return { value: ratePerDay, unit: "/day", formatted: `${ratePerDay.toFixed(2)}/day` };
   }
 };

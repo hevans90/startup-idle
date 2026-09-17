@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ModifierTag } from "./ModifierTag";
 
 export type BonusTone = "good" | "bad" | "neutral";
 
@@ -19,17 +20,19 @@ export const BonusRow = ({
   label,
   value,
   tone = "good",
+  modKey,
 }: {
   label: string;
   value: string;
   tone?: BonusTone;
+  modKey?: string;
 }) => (
   <div className="flex items-baseline justify-between gap-3">
-    <span className="truncate opacity-60">{label}</span>
+    <span className="truncate opacity-60">
+      <ModifierTag modKey={modKey}>{label}</ModifierTag>
+    </span>
     {value && (
-      <span
-        className={`shrink-0 font-medium tabular-nums ${VALUE_CLS[tone]}`}
-      >
+      <span className={`shrink-0 font-medium tabular-nums ${VALUE_CLS[tone]}`}>
         {value}
       </span>
     )}

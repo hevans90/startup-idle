@@ -28,7 +28,7 @@ describe("founder.store", () => {
 
     expect(useFounderStore.getState().selectedFounderId).toBe("hustler");
     expect(useFounderStore.getState().headcountMoneyPerEmployee).toBe(
-      hustler.modifiers.headcountMoneyPerEmployee,
+      hustler.scalingModifier.compute(0).headcountMoneyPerEmployee,
     );
     expect(useMoneyStore.getState().money.toNumber()).toBe(hustler.startingCash);
   });

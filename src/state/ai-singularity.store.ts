@@ -5,6 +5,7 @@ import { usePrestigeStore } from "./prestige.store";
 
 type AiSingularityState = {
   value: number;
+  everCompleted: boolean;
   tick: (seconds: number, vibeScore: number, employeeManagementUnlocked: boolean) => void;
   reset: () => void;
 };
@@ -15,6 +16,7 @@ export const useAiSingularityStore = create<AiSingularityState>()(
   persist(
     (set, get) => ({
       value: 0,
+      everCompleted: false,
 
       tick: (seconds, vibeScore, employeeManagementUnlocked) => {
         if (!employeeManagementUnlocked || vibeScore >= 0) return;
@@ -27,28 +29,38 @@ export const useAiSingularityStore = create<AiSingularityState>()(
           set({ value: 100 });
           return;
         }
-        set({ value: Math.min(100, cur + rate * seconds) });
+        const next = Math.min(100, cur + rate * seconds);
+        set({ value: next });
+        if (next >= 100 && cur < 100) {
+          if (!get().everCompleted) set({ everCompleted: true });
+          // Lazy import avoids a circular dep at module load time.
+          import("./directives.store").then(({ useDirectivesStore }) => {
+            useDirectivesStore.getState().onSingularityCompleted();
+          });
+        }
       },
 
       reset: () => {
-        set({ value: 0 });
-        useAiSingularityStore.persist.clearStorage();
+        import("./directives.store").then(({ useDirectivesStore }) => {
+          const pct = useDirectivesStore.getState().singularityCarryoverPct;
+          const carry = pct > 0 ? Math.min(100, get().value * pct) : 0;
+          set({ value: carry });
+          if (carry === 0) useAiSingularityStore.persist.clearStorage();
+        });
       },
     }),
     {
       name: KEY,
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ value: s.value }),
+      partialize: (s) => ({ value: s.value, everCompleted: s.everCompleted }),
       merge: (persisted, current) => {
-        // zustand passes the unwrapped persisted state (what `partialize`
-        // returned), NOT the `{ state, version }` storage envelope.
-        const p = persisted as { value?: number } | null | undefined;
+        const p = persisted as { value?: number; everCompleted?: boolean } | null | undefined;
         const raw = p?.value;
         const value =
           typeof raw === "number" && Number.isFinite(raw)
             ? Math.min(100, Math.max(0, raw))
             : current.value;
-        return { ...current, value };
+        return { ...current, value, everCompleted: p?.everCompleted ?? false };
       },
     }
   )

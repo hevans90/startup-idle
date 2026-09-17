@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import {
   dev10xSatisfactionExponentDelta,
@@ -17,17 +18,26 @@ import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { usePrestigeStore } from "../state/prestige.store";
+import { ModifierTag } from "../ui/ModifierTag";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
+import { TenXDevText } from "../utils/ten-x-utils";
+import { RainbowText } from "../utils/vibe-utils";
 
-const ROW_LABELS = {
+const ROW_LABEL_STRINGS = {
   intern: "Intern",
-  vibe_coder: "Vibe",
-  "10x_dev": "10x",
+  vibe_coder: "Vibe coder",
+  "10x_dev": "10x dev",
 } as const;
 
-type RowId = keyof typeof ROW_LABELS;
+type RowId = keyof typeof ROW_LABEL_STRINGS;
 
-function SatisfactionBar({ label, score }: { label: string; score: number }) {
+function RowLabel({ id }: { id: RowId }) {
+  if (id === "vibe_coder") return <RainbowText text={ROW_LABEL_STRINGS[id]} />;
+  if (id === "10x_dev") return <TenXDevText text={ROW_LABEL_STRINGS[id]} />;
+  return <>{ROW_LABEL_STRINGS[id]}</>;
+}
+
+function SatisfactionBar({ label, score }: { label: ReactNode; score: number }) {
   const halfWidthPct = (Math.abs(score) / SATISFACTION_MAX) * 50;
   const negLeftPct = score < 0 ? 50 - halfWidthPct : 50;
 
@@ -93,7 +103,7 @@ function SatisfactionHowToRaiseHelpContent() {
         </li>
         <li>
           <span className="font-medium">Fewer employees</span> of that type
-          raises the target (big stacks strain morale). 10x devs are extra
+          raises the target (big stacks lower satisfaction). 10x devs are extra
           sensitive to count.
         </li>
       </ul>
@@ -150,16 +160,28 @@ function SatisfactionCurrentEffects({
             Intern
           </p>
           <p className="text-primary-700 dark:text-primary-300">
-            $ {formatMult(revIntern)} · Global IPS {formatMult(ips)} · Valuation
-            gain {formatMult(val)} · Manager tiers {formatMult(mgr)}
+            <ModifierTag modKey="satisfactionRevenue.intern">$</ModifierTag>{" "}
+            {formatMult(revIntern)}
+            {" · "}
+            <ModifierTag modKey="internIpsMult">
+              Global innovation rate
+            </ModifierTag>{" "}
+            {formatMult(ips)}
+            {" · "}
+            <ModifierTag modKey="internValuationMult">
+              Valuation gain
+            </ModifierTag>{" "}
+            {formatMult(val)}
+            {" · "}Manager tiers {formatMult(mgr)}
           </p>
         </div>
         <div>
           <p className="mb-0.5 font-semibold text-primary-900 dark:text-primary-50">
-            Vibe
+            <RainbowText text="Vibe coder" />
           </p>
           <p className="text-primary-700 dark:text-primary-300">
-            $ {formatMult(revVibe)}
+            <ModifierTag modKey="satisfactionRevenue.vibe_coder">$</ModifierTag>{" "}
+            {formatMult(revVibe)}
             {scores.vibe_coder >= 0 ? (
               <>
                 {" "}
@@ -177,10 +199,11 @@ function SatisfactionCurrentEffects({
         </div>
         <div>
           <p className="mb-0.5 font-semibold text-primary-900 dark:text-primary-50">
-            10x
+            <TenXDevText text="10x dev" />
           </p>
           <p className="text-primary-700 dark:text-primary-300">
-            $ {formatMult(rev10x)} · Hire cost exponent{" "}
+            <ModifierTag modKey="satisfactionRevenue.10x_dev">$</ModifierTag>{" "}
+            {formatMult(rev10x)} · Hire cost exponent{" "}
             {expDelta === 0
               ? "unchanged"
               : expDelta > 0
@@ -199,7 +222,7 @@ function SatisfactionEffectsHelp() {
       <p className="text-primary-600 dark:text-primary-300">
         Bars run <span className="font-medium">{SATISFACTION_MIN}</span> to{" "}
         <span className="font-medium">+{SATISFACTION_MAX}</span>.{" "}
-        <span className="font-medium">Cash per role:</span> that type’s money
+        <span className="font-medium">money per role:</span> that type’s money
         output uses score{" "}
         <span className="font-medium">{SATISFACTION_MIN}</span> → ×
         {SATISFACTION_REVENUE_MULT_AT_MIN},{" "}
@@ -219,57 +242,56 @@ function SatisfactionEffectsHelp() {
             <span className="font-medium text-emerald-700 dark:text-emerald-400">
               High:
             </span>{" "}
-            more cash from interns (up to ×{SATISFACTION_REVENUE_MULT_AT_MAX});
-            bonus global innovation (IPS) from all generators; managers tier up
-            a bit faster.
+            more money from interns (up to ×{SATISFACTION_REVENUE_MULT_AT_MAX});
+            bonus global innovation rate for all employees; managers tier up
+            faster.
           </li>
           <li>
             <span className="font-medium text-rose-700 dark:text-rose-400">
               Low:
             </span>{" "}
-            less cash from interns (down to ×{SATISFACTION_REVENUE_MULT_AT_MIN}
+            less money from interns (down to ×{SATISFACTION_REVENUE_MULT_AT_MIN}
             ); much less passive valuation; manager tier progress slows sharply.
           </li>
         </ul>
       </div>
       <div>
         <p className="mb-1 font-semibold text-primary-900 dark:text-primary-50">
-          Vibe coder
+          <RainbowText text="Vibe coder" />
         </p>
         <ul className="list-disc space-y-0.5 pl-4 text-primary-700 dark:text-primary-300">
           <li>
             <span className="font-medium text-emerald-700 dark:text-emerald-400">
               High:
             </span>{" "}
-            more cash from vibe coders (up to ×
-            {SATISFACTION_REVENUE_MULT_AT_MAX}). Otherwise: nothing. Fuck you.
-            Be sad.
+            more money from vibe coders (up to ×
+            {SATISFACTION_REVENUE_MULT_AT_MAX}).
           </li>
           <li>
             <span className="font-medium text-rose-700 dark:text-rose-400">
               Low:
             </span>{" "}
-            less cash from vibe coders; Skynet approaches.
+            less money from vibe coders; Skynet approaches.
           </li>
         </ul>
       </div>
       <div>
         <p className="mb-1 font-semibold text-primary-900 dark:text-primary-50">
-          10x dev
+          <TenXDevText text="10x dev" />
         </p>
         <ul className="list-disc space-y-0.5 pl-4 text-primary-700 dark:text-primary-300">
           <li>
             <span className="font-medium text-emerald-700 dark:text-emerald-400">
               High:
             </span>{" "}
-            more cash from 10x devs (up to ×{SATISFACTION_REVENUE_MULT_AT_MAX});
-            cheaper 10x hires (lower effective cost curve).
+            more money from 10x devs (up to ×{SATISFACTION_REVENUE_MULT_AT_MAX}
+            ); cheaper 10x hires (lower effective cost curve).
           </li>
           <li>
             <span className="font-medium text-rose-700 dark:text-rose-400">
               Low:
             </span>{" "}
-            less cash from 10x devs; pricier 10x hires (steeper exponent).
+            less money from 10x devs; pricier 10x hires (steeper exponent).
           </li>
         </ul>
       </div>
@@ -287,8 +309,12 @@ export const EmployeeSatisfactionOverlay = ({
   );
   const scores = useGeneratorStore((s) => s.satisfactionScores);
   const singularityPct = useAiSingularityStore((s) => s.value);
-  const neutralized = usePrestigeStore((s) => s.modifiers.satisfactionNeutralized);
-  const positiveMult = usePrestigeStore((s) => s.modifiers.satisfactionPositiveMult);
+  const neutralized = usePrestigeStore(
+    (s) => s.modifiers.satisfactionNeutralized,
+  );
+  const positiveMult = usePrestigeStore(
+    (s) => s.modifiers.satisfactionPositiveMult,
+  );
   const damped = !neutralized && positiveMult !== 1;
 
   if (!employeeMgmtUnlocked) return null;
@@ -326,13 +352,15 @@ export const EmployeeSatisfactionOverlay = ({
           )}
           <div
             className={
-              neutralized ? "flex flex-col gap-2 opacity-40" : "flex flex-col gap-2"
+              neutralized
+                ? "flex flex-col gap-2 opacity-40"
+                : "flex flex-col gap-2"
             }
           >
-            {(Object.keys(ROW_LABELS) as RowId[]).map((id) => (
+            {(Object.keys(ROW_LABEL_STRINGS) as RowId[]).map((id) => (
               <SatisfactionBar
                 key={id}
-                label={ROW_LABELS[id]}
+                label={<RowLabel id={id} />}
                 score={scores[id]}
               />
             ))}

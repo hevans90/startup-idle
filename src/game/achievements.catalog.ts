@@ -117,10 +117,10 @@ export const ACHIEVEMENT_CATALOG: AchievementDef[] = [
   {
     id: "dev_army",
     name: "Dev army",
-    description: "Have at least 1,000 10x developers.",
+    description: "Have at least 250 10x developers.",
     juiceReward: 300,
     isHidden: true,
-    check: (c) => c.dev10xCount >= 1000,
+    check: (c) => c.dev10xCount >= 250,
   },
 
   // ─── Money ──────────────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ import {
   type Placement,
 } from "@floating-ui/react";
 import * as React from "react";
+import { useAnyPopoverStore } from "../state/modifier-popover.store";
 
 interface PopoverOptions {
   initialOpen?: boolean;
@@ -141,9 +142,18 @@ export function Popover({
 }: {
   children: React.ReactNode;
 } & PopoverOptions) {
-  // This can accept any props as options, e.g. `placement`,
-  // or other positioning options.
   const popover = usePopover({ ...restOptions });
+
+  // Keep a global count of open popovers so CityHoverPopover can hide itself
+  // while anything is open — regardless of which popover type it is.
+  const { open: trackOpen, close: trackClose } = useAnyPopoverStore.getState();
+  React.useEffect(() => {
+    if (popover.open) {
+      trackOpen();
+      return () => trackClose();
+    }
+  }, [popover.open]);
+
   return (
     <PopoverContext.Provider value={popover}>
       {children}

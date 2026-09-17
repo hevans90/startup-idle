@@ -1,4 +1,5 @@
 import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { useDirectivesStore } from "../state/directives.store";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
@@ -26,6 +27,7 @@ export function resetRunStores(): void {
   useAiSingularityStore.getState().reset();
   useFounderStore.getState().reset();
   useSessionStore.getState().reset();
+  useDirectivesStore.getState().reset();
 
   const now = Date.now();
   useInnovationStore.setState({ globalLastTick: now });
@@ -36,6 +38,16 @@ export function resetRunStores(): void {
   const freeLevels = usePrestigeStore.getState().modifiers.freeStartingLevels;
   if (freeLevels > 0) {
     useGeneratorStore.getState().increaseGenerator("intern", freeLevels);
+  }
+
+  // D6 "Compound Growth" reward: free starting headcount based on total exits.
+  const directives = useDirectivesStore.getState();
+  if (directives.freeStartingEnabled) {
+    const totalExits = usePrestigeStore.getState().exits;
+    const freeInterns = Math.floor(totalExits * 5);
+    const freeVibe = Math.floor(totalExits);
+    if (freeInterns > 0) useGeneratorStore.getState().increaseGenerator("intern", freeInterns);
+    if (freeVibe > 0) useGeneratorStore.getState().increaseGenerator("vibe_coder", freeVibe);
   }
 }
 
@@ -54,4 +66,5 @@ export function resetAllGameStores(): void {
   useValuationStore.getState().clearMandates();
   useVapeAchievementsStore.getState().clearAll();
   useExitsStore.getState().clearAll();
+  useDirectivesStore.getState().clearAll();
 }

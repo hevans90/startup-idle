@@ -1,5 +1,6 @@
 import {
   aggregateGrants,
+  type BonusStat,
   type EffectRow,
   nodeById,
   nodeEffectRows,
@@ -10,6 +11,7 @@ import {
 } from "../../game/skill-tree";
 import { usePrestigeStore } from "../../state/prestige.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
+import { ModifierTag } from "../../ui/ModifierTag";
 
 const NODES = nodeById(SKILL_TREE);
 const toneClass = (tone: "good" | "bad") =>
@@ -25,6 +27,21 @@ const trim = (n: number) => Number(n.toFixed(2)).toString();
 const fmtPct = (v: number) => `${v > 0 ? "+" : ""}${Number(v.toFixed(1))}%`;
 const goodClass = "text-emerald-600 dark:text-emerald-400";
 const badClass = "text-rose-600 dark:text-rose-400";
+
+const STAT_MOD_KEY: Partial<Record<BonusStat, string>> = {
+  money: "prestigeMoney",
+  innovation: "prestigeInnovation",
+  valuation: "prestigeValuation",
+  employeeOutput: "prestigeEmployeeOutput",
+  hireCost: "prestigeHireCost",
+  equity: "prestigeEquity",
+  autoBuy: "prestigeAutoBuy",
+  singularity: "prestigeSingularity",
+  headcount: "headcountMoney",
+  satisfactionGain: "prestigeSatisfactionGain",
+  internOutput: "prestigeInternOutput",
+  managerSpeed: "prestigeManagerSpeed",
+};
 
 /**
  * Right-hand panel summarising what your allocated passives do. The headline is
@@ -112,19 +129,25 @@ export const SkillTreeBonuses = () => {
  * whether each part helps (green) or hurts (rose) given the stat's direction. */
 const TotalRow = ({ total }: { total: StatTotal }) => {
   const meta = STAT_META[total.stat];
+  const modKey = STAT_MOD_KEY[total.stat];
   const pctGood = meta.good === "up" ? total.pct >= 0 : total.pct <= 0;
   const multGood = meta.good === "up" ? total.mult >= 1 : total.mult <= 1;
+  const valueSpan = (
+    <span className="flex items-baseline gap-1.5 text-xs font-semibold tabular-nums">
+      {total.pct !== 0 && (
+        <span className={pctGood ? goodClass : badClass}>{fmtPct(total.pct)}</span>
+      )}
+      {total.mult !== 1 && (
+        <span className={multGood ? goodClass : badClass}>×{trim(total.mult)}</span>
+      )}
+    </span>
+  );
   return (
     <div className="flex items-baseline justify-between gap-2 bg-primary-200/70 px-2 py-1 dark:bg-primary-800/60">
-      <span className="text-xs">{meta.label}</span>
-      <span className="flex items-baseline gap-1.5 text-xs font-semibold tabular-nums">
-        {total.pct !== 0 && (
-          <span className={pctGood ? goodClass : badClass}>{fmtPct(total.pct)}</span>
-        )}
-        {total.mult !== 1 && (
-          <span className={multGood ? goodClass : badClass}>×{trim(total.mult)}</span>
-        )}
+      <span className="text-xs">
+        {modKey ? <ModifierTag modKey={modKey}>{meta.label}</ModifierTag> : meta.label}
       </span>
+      {valueSpan}
     </div>
   );
 };

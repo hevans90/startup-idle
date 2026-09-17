@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 import type { ResourceBreakdown } from "../state/generators.store";
+import { ModifierTag } from "../ui/ModifierTag";
 
 const mult = (m: number) => `×${m.toFixed(2)}`;
 const isActive = (m: number) => Math.abs(m - 1) > 1e-9;
@@ -81,7 +82,7 @@ export const ResourceBreakdownView = ({
               <Row
                 key={f.label}
                 indent
-                label={f.label}
+                label={f.modKey ? <ModifierTag modKey={f.modKey}>{f.label}</ModifierTag> : f.label}
                 value={mult(f.mult)}
                 className="opacity-70"
               />
@@ -93,13 +94,13 @@ export const ResourceBreakdownView = ({
       {activeGlobals.length > 0 && (
         <div className="flex flex-col gap-0.5 border-t border-primary-400/40 pt-1.5 dark:border-primary-600/50">
           <p className="text-[10px] uppercase tracking-wide opacity-50">
-            Applies to everyone
+            Multipliers
           </p>
           {activeGlobals.map((g) => (
             <Row
               key={g.label}
               indent
-              label={g.label}
+              label={g.modKey ? <ModifierTag modKey={g.modKey}>{g.label}</ModifierTag> : g.label}
               value={mult(g.mult)}
               className="opacity-80"
             />

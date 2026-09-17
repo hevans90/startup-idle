@@ -38,6 +38,12 @@ export const AppViewport = memo(
     const events = pixiApp?.app.renderer?.events;
     const ticker = pixiApp?.app.ticker;
     const viewportRef = useRef<Viewport>(null);
+    // Mutable ref so the frame-end handler always uses current dimensions even
+    // after the window is resized — without triggering a full viewport reinit.
+    const screenRectRef = useRef(new Rectangle(0, 0, screenSize.width, screenSize.height));
+    useEffect(() => {
+      screenRectRef.current = new Rectangle(0, 0, screenSize.width, screenSize.height);
+    }, [screenSize.width, screenSize.height]);
 
     const initViewport = useCallback(() => {
       if (viewportRef.current) {
@@ -45,8 +51,6 @@ export const AppViewport = memo(
           minScale: 0.1,
           maxScale: 15,
         });
-
-        const screenRect = new Rectangle(0, 0, screenSize.width, screenSize.height);
 
         const onZoomed = () => {
           if (viewportRef.current) {
@@ -56,7 +60,7 @@ export const AppViewport = memo(
 
         const onFrameEnd = () => {
           const v = viewportRef.current;
-          if (v) constrainViewportToOfficeBounds(v, screenRect);
+          if (v) constrainViewportToOfficeBounds(v, screenRectRef.current);
         };
 
         const onSnapZoomEnd = () => {
@@ -88,7 +92,7 @@ export const AppViewport = memo(
           (b.minY + b.maxY) / 2
         );
 
-        constrainViewportToOfficeBounds(viewportRef.current, screenRect);
+        constrainViewportToOfficeBounds(viewportRef.current, screenRectRef.current);
 
         return () => {
           if (viewportRef.current) {

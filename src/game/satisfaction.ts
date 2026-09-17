@@ -11,7 +11,7 @@ export const defaultSatisfactionScores = (): SatisfactionScores => ({
   "10x_dev": 0,
 });
 
-function clampScore(n: number): number {
+export function clampScore(n: number): number {
   return Math.min(SATISFACTION_MAX, Math.max(SATISFACTION_MIN, n));
 }
 
@@ -58,22 +58,20 @@ export function stepSatisfactionScores(
   perksByRole: Record<GeneratorId, EmployeePerks>,
   amounts: Record<GeneratorId, number>,
   seconds: number,
+  targetOffsets: Partial<Record<GeneratorId, number>> = {},
 ): SatisfactionScores {
-  const k = 0.35;
+  const k = 0.05;
   const next = { ...prev };
   for (const id of ["intern", "vibe_coder", "10x_dev"] as GeneratorId[]) {
-    const target = satisfactionTargetForRole(
-      id,
-      amounts[id] ?? 0,
-      perksByRole[id],
-    );
+    const base = satisfactionTargetForRole(id, amounts[id] ?? 0, perksByRole[id]);
+    const target = clampScore(base + (targetOffsets[id] ?? 0));
     const cur = prev[id];
     next[id] = clampScore(cur + (target - cur) * Math.min(1, k * seconds));
   }
   return next;
 }
 
-/** Global IPS mult from intern morale: bonus when positive only. */
+/** Global IPS mult from intern satisfaction: bonus when positive only. */
 export function internSatisfactionIpsMultiplier(internScore: number): number {
   if (internScore <= 0) return 1;
   return 1 + (internScore / SATISFACTION_MAX) * 0.12;
@@ -109,3 +107,4 @@ export function vibeSingularityAccrualRatePerSecond(vibeScore: number): number {
   const intensity = -vibeScore / SATISFACTION_MAX;
   return intensity * 0.012;
 }
+

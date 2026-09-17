@@ -24,7 +24,7 @@ export const useSessionStore = create<SessionState>()(
       incorporatedAt: Date.now(),
       touch: () => set({ lastSeenAt: Date.now() }),
       incorporate: () => set({ incorporatedAt: Date.now() }),
-      reset: () => set({ lastSeenAt: Date.now() }),
+      reset: () => set({ lastSeenAt: Date.now(), incorporatedAt: Date.now() }),
     }),
     {
       name: "session",

@@ -1,13 +1,16 @@
 import { twMerge } from "tailwind-merge";
+import { ModifierTag } from "./ModifierTag";
 
 export const InfoRow = ({
   label,
   value,
   size = "small",
+  modKey,
 }: {
   label: string;
   value: string;
   size?: "large" | "small";
+  modKey?: string;
 }) => (
   <div className="w-full flex items-center gap-3 justify-between">
     <span
@@ -17,7 +20,7 @@ export const InfoRow = ({
         size === "large" && "responsive-text"
       )}
     >
-      {label}
+      <ModifierTag modKey={modKey}>{label}</ModifierTag>
     </span>
     <span
       className={twMerge(

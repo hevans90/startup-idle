@@ -53,8 +53,9 @@ const useDynamicTitle = (interval = 1000) => {
 
 function App() {
   useCompareVersion();
-  const { money, increaseMoney } = useMoneyStore();
-  const { innovation } = useInnovationStore();
+  const money = useMoneyStore((s) => s.money);
+  const increaseMoney = useMoneyStore((s) => s.increaseMoney);
+  const innovation = useInnovationStore((s) => s.innovation);
 
   const lastAchievementEvalRef = useRef(0);
   const {
@@ -63,7 +64,8 @@ function App() {
     size: wrapperSize,
   } = useResizeToWrapper();
 
-  const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
+  const getMoneyPerSecond = useGeneratorStore((s) => s.getMoneyPerSecond);
+  const mps = getMoneyPerSecond();
   const vibeCoderCount = useGeneratorStore(
     (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
   );
@@ -117,6 +119,8 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (founderId == null) return;
+
     // Grant any already-met achievements (e.g. from a loaded save) immediately
     // rather than waiting for the first throttled tick.
     lastAchievementEvalRef.current = Date.now();
@@ -132,7 +136,7 @@ function App() {
       }
     }, 16);
     return () => clearInterval(id);
-  }, []);
+  }, [founderId]);
 
   return (
     <FloatingTree>
@@ -166,7 +170,7 @@ function App() {
               >
                 {formatCurrency(money)}
               </button>
-              <div className="text-sm">({formatCurrency(mps)}/sec)</div>
+              <div className="text-sm">({formatCurrency(mps)}/s)</div>
             </section>
             {innovation.gte(1) && <InnovationCounter />}
             <PurchaseModeToggle />

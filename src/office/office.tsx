@@ -18,6 +18,7 @@ import {
   useState,
 } from "react";
 import { useGeneratorStore } from "../state/generators.store";
+import { useAnyPopoverStore } from "../state/modifier-popover.store";
 import { useOfficeStore } from "../state/office.store";
 import { useThemeStore } from "../state/theme.store";
 import { loadIsometricAtlasTextures } from "./atlas/load-isometric-atlases";
@@ -323,6 +324,7 @@ function GrowInPart({
   const ref = useRef<Sprite>(null);
   // Read the enable flag at mount: parent flips it true only after first paint.
   const progRef = useRef(enabledRef.current ? 0 : 1);
+  const [animDone, setAnimDone] = useState(progRef.current >= 1);
 
   useLayoutEffect(() => {
     const s = ref.current;
@@ -336,15 +338,19 @@ function GrowInPart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useTick((ticker) => {
-    const s = ref.current;
-    if (!s || progRef.current >= 1) return;
-    const dt = (ticker as { deltaMS?: number })?.deltaMS ?? 16.7;
-    progRef.current = Math.min(1, progRef.current + dt / GROW_IN_MS);
-    const t = easeOutCubic(progRef.current);
-    s.alpha = t;
-    s.scale.set(scale * (0.72 + 0.28 * t));
-    s.y = y + (1 - t) * 16 * scale;
+  useTick({
+    isEnabled: !animDone,
+    callback: (ticker) => {
+      const s = ref.current;
+      if (!s || progRef.current >= 1) return;
+      const dt = (ticker as { deltaMS?: number })?.deltaMS ?? 16.7;
+      progRef.current = Math.min(1, progRef.current + dt / GROW_IN_MS);
+      const t = easeOutCubic(progRef.current);
+      s.alpha = t;
+      s.scale.set(scale * (0.72 + 0.28 * t));
+      s.y = y + (1 - t) * 16 * scale;
+      if (progRef.current >= 1) setAnimDone(true);
+    },
   });
 
   return (
@@ -494,6 +500,7 @@ const World = ({
   const wroteHoverRef = useRef(false);
 
   const onHover = useCallback((key: string) => {
+    if (useAnyPopoverStore.getState().openCount > 0) return;
     if (clearTimerRef.current != null) {
       clearTimeout(clearTimerRef.current);
       clearTimerRef.current = null;
@@ -513,6 +520,21 @@ const World = ({
         setHoveredKey(null);
       }
     }, 60);
+  }, []);
+
+  // Clear the map hover whenever any modifier popover opens so the building
+  // tooltip doesn't stay stuck behind the modifier popover.
+  useEffect(() => {
+    return useAnyPopoverStore.subscribe((state) => {
+      if (state.openCount > 0) {
+        if (clearTimerRef.current != null) {
+          clearTimeout(clearTimerRef.current);
+          clearTimerRef.current = null;
+        }
+        hoverKeyRef.current = null;
+        setHoveredKey(null);
+      }
+    });
   }, []);
 
   useEffect(() => {

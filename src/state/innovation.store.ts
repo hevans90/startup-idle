@@ -142,7 +142,7 @@ const estimateTimeToNextTierFormatted = (
     tierScalingExponent: Decimal;
     growthRate: Decimal;
   },
-  /** Same factor applied in tickManagers (intern morale when EM is on). */
+  /** Same factor applied in tickManagers (intern satisfaction when EM is on). */
   internAccrualMult = 1
 ): string => {
   if (manager.assignment.equals(0)) return "∞";
@@ -254,6 +254,15 @@ export const useInnovationStore = create<InnovationState>()(
         set((state) => ({
           innovation: state.innovation.add(increment),
         }));
+        // D3 reward: auto-trigger innovation unlocks when conditions are met.
+        import("./directives.store").then(({ useDirectivesStore }) => {
+          if (!useDirectivesStore.getState().autoInnovationUnlocks) return;
+          const { canUnlock, unlock } = get();
+          const keys: UnlockKeys[] = ["managers", "employeeManagement"];
+          for (const key of keys) {
+            if (canUnlock(key)) unlock(key);
+          }
+        });
       },
 
       spendInnovation: (decrement: number) => {
@@ -424,12 +433,12 @@ export const useInnovationStore = create<InnovationState>()(
                 internAccrualMult
               );
 
-              if (newProgress.greaterThanOrEqualTo(PROGRESS_THRESHOLD)) {
+              let progress = newProgress;
+              while (progress.greaterThanOrEqualTo(PROGRESS_THRESHOLD)) {
                 manager.tier = manager.tier.plus(1);
-                manager.progress = newProgress.sub(PROGRESS_THRESHOLD);
-              } else {
-                manager.progress = newProgress;
+                progress = progress.sub(PROGRESS_THRESHOLD);
               }
+              manager.progress = progress;
 
               // Recalculate bonus multiplier
               manager.bonusMultiplier = Decimal.pow(
