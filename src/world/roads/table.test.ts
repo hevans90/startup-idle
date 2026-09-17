@@ -9,6 +9,8 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import roadLabels from "../../../road-labels.json";
+
 import { DIR } from "../../iso/dir";
 import { DIAG } from "./mask";
 import {
@@ -410,15 +412,27 @@ describe("a bridge is a road, but not an interchangeable one", () => {
   });
 
   /**
-   * THE FILE AS IT STANDS. Nothing is labelled a bridge yet, so the ground
-   * table must be exactly what it was before this existed — this is the test
-   * that says adding the partition changed nothing.
+   * THE REAL FILE, and stated as an INVARIANT rather than as a count.
+   *
+   * The first version of this asserted that nothing was labelled a bridge yet,
+   * which was true when it was written and stopped being true the moment
+   * somebody used the tool it was written for. A test that pins what the data
+   * happens to contain fails on the authoring it exists to protect. What holds
+   * whatever is labelled is that the two tables are disjoint, and that each
+   * one contains exactly the frames the file says it should.
    */
-  test("with nothing labelled, the real ground table is untouched", () => {
+  test("the real tables partition the real file, whatever is in it", () => {
     const ground = buildRoadTable("landscape");
     const bridges = buildRoadTable("landscape", "bridge");
-    expect(bridges.openOf.size).toBe(0);
-    expect(ground.openOf.size).toBeGreaterThan(20);
+    expect(ground.openOf.size).toBeGreaterThan(20);      // the file has roads in it
     for (const f of bridges.openOf.keys()) expect(ground.openOf.has(f)).toBe(false);
+
+    const labelled = new Set(
+      Object.entries(roadLabels as Record<string, RoadLabel>)
+        .filter(([, l]) => l.road && l.bridge)
+        .map(([k]) => `landscapeTiles_${k}.png`),
+    );
+    expect(new Set(bridges.openOf.keys())).toEqual(labelled);
+    for (const f of labelled) expect(ground.openOf.has(f)).toBe(false);
   });
 });

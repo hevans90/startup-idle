@@ -10,6 +10,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { generateMap } from "./generate-map";
+import { bedGuide, reachAt } from "./water";
+import { DEFAULT_GEN, withDefaults } from "./params";
 import { distanceFromPaved } from "./road";
 import { createGrid, idx } from "../grid";
 import {
@@ -143,7 +145,11 @@ describe("a map opens settled", () => {
       const r = run(seed, 120);
       // Water may still be draining away; what it may not do is keep arriving.
       expect(r.at[119]).toBeLessThanOrEqual(r.at[59] + 1);
-      expect(r.wet).toBeLessThan(r.cells / 8);
+      // TWO-SIDED ON PURPOSE. A ceiling alone is satisfied by having no river,
+      // which is the easiest way to pass it and the worst way: the map has to
+      // be wet enough to have one and dry enough not to be a swamp.
+      expect(r.wet).toBeGreaterThan(r.cells / 100);
+      expect(r.wet).toBeLessThan(r.cells / 6);
     });
   }
 
@@ -165,3 +171,149 @@ describe("a map opens settled", () => {
     }
   }, 30_000);
 });
+
+/**
+ * THE SHAPE OF A RIVER, as two rules a map is not needed to check.
+ *
+ * Both are functions of how far along the course you are, which is why the
+ * course is walked before any of it is cut — and testing them here rather than
+ * by measuring a finished map is the difference between a test that says what
+ * the rule is and one that says what one seed happened to produce.
+ */
+describe("a river is not the same river all the way down", () => {
+  const P = DEFAULT_GEN;
+
+  test("it widens from one tile at the head to its full width at the mouth", () => {
+    expect(reachAt(P, 0).half * 2).toBeCloseTo(1, 5);
+    expect(reachAt(P, 1).half * 2).toBeCloseTo(P.riverWidth, 5);
+    let last = -1;
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      const w = reachAt(P, t).half;
+      expect(w).toBeGreaterThanOrEqual(last);
+      last = w;
+    }
+  });
+
+  test("and deepens, without ever cutting nothing at all", () => {
+    expect(reachAt(P, 1).deep).toBeCloseTo(P.riverDepth, 5);
+    expect(reachAt(P, 0).deep).toBeLessThan(P.riverDepth);
+    let last = -1;
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      const d = reachAt(P, t).deep;
+      expect(d).toBeGreaterThanOrEqual(Math.max(2, last));
+      last = d;
+    }
+  });
+
+  /** A confluence of equals reads as a fork, and a fork reads as a mistake. */
+  test("a side stream is smaller than what it joins", () => {
+    expect(reachAt(P, 1, 0.55).half).toBeLessThan(reachAt(P, 1).half);
+    expect(reachAt(P, 1, 0.55).deep).toBeLessThan(reachAt(P, 1).deep);
+  });
+
+  /**
+   * CONCAVE, which is the shape every river on earth has. Half the drop inside
+   * the first third of the course — a straight line would put a third of it
+   * there, and the whole map would read as one uniform ramp.
+   */
+  test("the bed falls fast near the source and flattens towards the sea", () => {
+    const rise = 20, floor = -20, total = rise - floor;
+    expect(bedGuide(rise, floor, 0)).toBeCloseTo(rise, 5);
+    expect(bedGuide(rise, floor, 1)).toBeCloseTo(floor, 5);
+    expect(rise - bedGuide(rise, floor, 1 / 3)).toBeGreaterThan(total * 0.5);
+    let last = Infinity;
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      const h = bedGuide(rise, floor, t);
+      expect(h).toBeLessThanOrEqual(last);
+      last = h;
+    }
+  });
+});
+
+/**
+ * WHAT THE WALK HAS TO PRODUCE.
+ *
+ * The first draft's rivers were puddles — a mean of twenty-five wet cells in a
+ * bounding box of four by five — because the source was chosen for height
+ * alone and the carve clamps the highest ground hard against an edge. These
+ * are the properties that were missing, stated so they cannot quietly go away
+ * again.
+ */
+describe("a river is long, joined up, and does not eat the map", () => {
+  const spine = (seed: number, params = {}) => {
+    const g = createGrid(64, 64);
+    return { g, r: generateMap(g, { seed, ...MATS, params }) };
+  };
+
+  test("it crosses a real part of the map rather than puddling", () => {
+    let total = 0;
+    for (let seed = 0; seed < 12; seed++) {
+      const { r } = spine(seed, { lakes: 0 });
+      expect(r.river).toBeGreaterThan(30);
+      total += r.river;
+    }
+    expect(total / 12).toBeGreaterThan(60);              // measured: ~128
+  });
+
+  test("and asking for a longer one gets a longer one", () => {
+    let shortSum = 0, longSum = 0;
+    for (let seed = 0; seed < 8; seed++) {
+      shortSum += spine(seed, { riverLength: 1, tributaries: 0 }).r.river;
+      longSum += spine(seed, { riverLength: 6, tributaries: 0 }).r.river;
+    }
+    expect(longSum).toBeGreaterThan(shortSum * 1.5);
+  });
+
+  /**
+   * ONE WATER SYSTEM. A side stream that was carved without reaching its river
+   * is an orphan watercourse starting nowhere and ending nowhere — it happened
+   * on three of fifteen seeds before the walk's arrival was checked.
+   */
+  test("every side stream reaches the river it joins", () => {
+    for (let seed = 0; seed < 15; seed++) {
+      const { g } = spine(seed, { lakes: 0, rivers: 1, tributaries: 2 });
+      expect(componentsOfWater(g)).toBe(1);
+    }
+  });
+
+  /**
+   * THE RATCHET. A meandering course crosses its own valley, so a bed measured
+   * against the LIVE ground reads what it has already cut and takes another
+   * river's depth off it — twenty crossings at six half steps came out as a
+   * chasm to the floor of the world, height −126, on a default map. Stated as a
+   * bound on the whole map rather than on the code, so any future way of
+   * digging too deep trips it too.
+   */
+  test("the cut is bounded by the relief and the river's own depth", () => {
+    const p = withDefaults({});
+    const most = p.relief + 2 * p.riverDepth + 2 * p.terrace;
+    for (let seed = 0; seed < 40; seed++) {
+      const { g } = spine(seed);
+      let lo = Infinity;
+      for (const h of g.height) lo = Math.min(lo, h);
+      expect(lo).toBeGreaterThan(-most);
+    }
+  });
+});
+
+/** Connected components of standing water, 4-connected. */
+function componentsOfWater(g: ReturnType<typeof createGrid>): number {
+  const seen = new Uint8Array(g.w * g.h);
+  let n = 0;
+  for (let i = 0; i < seen.length; i++) {
+    if (!g.pool[i] || seen[i]) continue;
+    n++;
+    const stack = [i];
+    seen[i] = 1;
+    while (stack.length) {
+      const c = stack.pop()!;
+      const x = c % g.w, y = (c / g.w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        if (x + dx < 0 || y + dy < 0 || x + dx >= g.w || y + dy >= g.h) continue;
+        const j = idx(g, x + dx, y + dy);
+        if (g.pool[j] && !seen[j]) { seen[j] = 1; stack.push(j); }
+      }
+    }
+  }
+  return n;
+}

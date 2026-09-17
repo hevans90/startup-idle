@@ -760,8 +760,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       console.info(
         `WORLD: founded on seed ${report.seed} — ${report.road} cells of street`
         + ` along ${report.axis} at height ${report.roadHeight},`
-        + ` ${report.frontage} buildable frontage, ${report.wet} wet,`
-        + ` ${report.wooded} wooded`,
+        + ` ${report.frontage} buildable frontage,`
+        + ` ${report.river} cells of river feeding ${report.wet} wet`
+        + ` from ${report.springs} springs, ${report.wooded} wooded`,
       );
     }
   },

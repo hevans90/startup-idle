@@ -77,6 +77,10 @@ export type GenReport = {
   road: number;
   /** Cells holding water at the start. */
   wet: number;
+  /** Spine cells walked, across every river and side stream. */
+  river: number;
+  /** Springs feeding a river. */
+  springs: number;
   /** Cells under trees. */
   wooded: number;
 };
@@ -170,7 +174,7 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   }
 
   // 5. RIVERS AND LAKES, cut into ground that has stopped moving.
-  const water = carveWater(g, p, rng, road.distance, road.axis);
+  const water = carveWater(g, p, rng, road.distance);
 
   // 6. WHAT THE GROUND IS MADE OF, read off the finished map — so the materials
   //    describe it rather than predicting it.
@@ -188,6 +192,7 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   return {
     seed, roadHeight, axis: road.axis, road: road.cells,
     frontage: frontageOf(g), wet: water.wet, wooded,
+    river: water.length, springs: water.springs,
   };
 }
 

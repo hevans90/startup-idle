@@ -73,10 +73,42 @@ export type GenParams = {
   upland: number;
   /** Rivers to run down the land. */
   rivers: number;
-  /** Half steps a river's channel is cut below its banks. */
+  /**
+   * Half steps a river's channel is cut below its banks AT ITS MOUTH.
+   *
+   * At the mouth, because a river that is the same depth all the way along is
+   * a canal. The headwaters are cut a third of this and the bed deepens
+   * downstream. @see carveChannel
+   */
   riverDepth: number;
-  /** Tiles a river's channel is wide. */
+  /** Tiles a river's channel is wide AT ITS MOUTH; the head is always one. */
   riverWidth: number;
+  /**
+   * Tiles the valley flares, PER SLAB the channel is cut.
+   *
+   * The difference between a valley and a canyon. Measured against the depth of
+   * the cut rather than as a fixed width, so a shallow reach gets a lip and a
+   * gorge gets a proper side instead of a sheer face where the bank ran out.
+   * Nought cuts a trench with vertical walls, which is what a ditch looks like.
+   */
+  riverBank: number;
+  /**
+   * How far a river runs, as a multiple of the straight line to its outlet.
+   *
+   * A river that goes straight at the sea is a drain. This is the budget it
+   * has to follow the land instead — spend it, and the last stretch makes for
+   * the outlet directly so the channel always gets off the map.
+   */
+  riverLength: number;
+  /**
+   * How much a river wanders across the slope rather than straight down it.
+   *
+   * Nought is steepest descent, which on terraced ground is a staircase of
+   * straight runs. One is a river that barely reads the land at all.
+   */
+  riverMeander: number;
+  /** Side streams joining each river. */
+  tributaries: number;
   /** Standing lakes to sink into low ground, over and above the rivers. */
   lakes: number;
   /** Tiles across a lake. */
@@ -112,8 +144,12 @@ export const DEFAULT_GEN: GenParams = {
   lowland: 4,
   upland: 8,
   rivers: 1,
-  riverDepth: 4,
-  riverWidth: 2,
+  riverDepth: 6,
+  riverWidth: 3,
+  riverBank: 1,
+  riverLength: 3,
+  riverMeander: 0.55,
+  tributaries: 1,
   lakes: 1,
   lakeSize: 9,
   springs: 0,
@@ -167,10 +203,18 @@ export const GEN_SLIDERS: readonly Slider[] = [
     hint: "half steps over the street at which grass gives out" },
   { key: "rivers", label: "rivers", min: 0, max: 4, step: 1, group: "water",
     hint: "channels cut down the land from the high ground" },
-  { key: "riverDepth", label: "depth", min: 2, max: 12, step: 2, group: "water",
-    hint: "half steps a channel is cut below its banks" },
-  { key: "riverWidth", label: "width", min: 1, max: 5, step: 1, group: "water",
-    hint: "tiles across a channel" },
+  { key: "riverDepth", label: "depth", min: 2, max: 16, step: 2, group: "water",
+    hint: "half steps a channel is cut below its banks at its mouth" },
+  { key: "riverWidth", label: "width", min: 1, max: 7, step: 1, group: "water",
+    hint: "tiles across a channel at its mouth — the head is always one" },
+  { key: "riverBank", label: "banks", min: 0, max: 3, step: 1, group: "water",
+    hint: "tiles the valley flares per slab of depth; 0 cuts a ditch, not a valley" },
+  { key: "riverLength", label: "length", min: 1, max: 6, step: 1, group: "water",
+    hint: "how far it wanders before making for the sea, against the straight line" },
+  { key: "riverMeander", label: "meander", min: 0, max: 1, step: 0.05, group: "water",
+    hint: "wandering across the slope vs running straight down it" },
+  { key: "tributaries", label: "tributaries", min: 0, max: 3, step: 1, group: "water",
+    hint: "side streams joining each river" },
   { key: "lakes", label: "lakes", min: 0, max: 5, step: 1, group: "water",
     hint: "standing water sunk into the low ground" },
   { key: "lakeSize", label: "lake size", min: 3, max: 18, step: 1, group: "water",
