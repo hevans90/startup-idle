@@ -1155,15 +1155,24 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
      * when there is nothing to write, or a stale query index would be handed
      * to a later pass. @see Stamps
      */
+    // OPTIONAL ALL THE WAY DOWN, and that is the WebGL fix. The renderer has
+    // an `encoder` on both paths; only the WebGPU one has a `beginRenderPass`
+    // on it. `encoder?.beginRenderPass.bind(...)` guards the encoder being
+    // absent and not the METHOD being absent, so on WebGL it threw "Cannot
+    // read properties of undefined (reading 'bind')" — inside an effect,
+    // during mount, which takes `WorldScene` down with it and leaves a blank
+    // canvas. The one path that exists so somebody without WebGPU still gets
+    // a map was the one path that could not draw one.
     const es = renderer as unknown as {
       encoder?: {
-        beginRenderPass: (t: { descriptor: GPURenderPassDescriptor }) => void;
+        beginRenderPass?: (t: { descriptor: GPURenderPassDescriptor }) => void;
       };
     };
-    const encoder = es.encoder;
-    const realBegin = encoder?.beginRenderPass.bind(encoder);
     const device = (renderer as unknown as { gpu?: { device: GPUDevice } })
       .gpu?.device ?? null;
+    // No device, no timestamps to write: the wrapping below is WebGPU's alone.
+    const encoder = device ? es.encoder : undefined;
+    const realBegin = encoder?.beginRenderPass?.bind(encoder);
     holdStamps(device);
     if (encoder && realBegin) {
       encoder.beginRenderPass = (target) => {

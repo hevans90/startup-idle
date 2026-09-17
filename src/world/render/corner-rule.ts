@@ -311,6 +311,16 @@ export type Dialect = "wgsl" | "glsl";
  */
 export function cornerRuleSource(dialect: Dialect, drawdown = 0, rim = RIM): string {
   const wgsl = dialect === "wgsl";
+  /**
+   * A number that is definitely a FLOAT in both languages.
+   *
+   * WGSL promotes an abstract integer where a float is wanted; GLSL does not,
+   * and refuses `1 * someFloat` outright. So a tuning constant that happens to
+   * be whole — `RIM` is 1 — compiled on one path and took the other down with
+   * "no operation * exists that takes a const int and a highp float". Every
+   * number this template interpolates goes through here.
+   */
+  const f = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
   const head = wgsl
     ? "fn cornerOf(vx: i32, vy: i32) -> vec4<f32> {"
     : "vec4 cornerOf(int vx, int vy) {";
@@ -402,7 +412,7 @@ ${head}
   // four wet columns on this bed means the corner is on the outside of the
   // water, and how much of the rule applies depends on which kind of outside.
   ${NUM} aside = select(max(bed - lowest, highest - bed), 1000.0, edge > 0.0);
-  ${NUM} rimHere = ${rim} * (1.0 - clamp(aside / fallMin(), 0.0, 1.0));
+  ${NUM} rimHere = ${f(rim)} * (1.0 - clamp(aside / fallMin(), 0.0, 1.0));
   ${MUT} top = select(mHi, mHi + (bed - mHi) * rimHere, nHi < 4.0);
   // One again wherever the lower water reaches the higher bed — see the note
   // at the top of corner-rule.ts, and resolveCorner, which is this.

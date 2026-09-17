@@ -508,10 +508,10 @@ fn mainVertex(
   // THE LIST IS FLAT, stored two-dimensionally. A band's slots run from its
   // own offset, so the texel is that offset plus the instance, unwrapped by
   // the list's width. @see quadList
-  let flat = i32(water.uList.x) + i32(inst);
+  let at = i32(water.uList.x) + i32(inst);
   let lw = i32(water.uList.y);
   let quad = i32(textureLoad(
-    uQuads, vec2<i32>(flat % lw, flat / lw), 0,
+    uQuads, vec2<i32>(at % lw, at / lw), 0,
   ).r) - 1;
   if (quad < 0) { return out; }
   let part = quad % ${PARTS};
@@ -675,7 +675,19 @@ float fallMin() { return ${FALL_MIN}.0; }
 bool facesOn() { return uIso.w > 0.5; }
 // WGSL has this and GLSL does not. One helper is cheaper than teaching the
 // shared rule about two ways of writing a conditional.
+//
+// ONE OVERLOAD PER TYPE THE RULE USES, and the float one alone is why the
+// WebGL path did not compile. WGSL's select is generic; GLSL's functions are
+// not, so select(0, 1, k < 2) on INTS -- which the corner rule writes, to pick
+// a neighbour offset -- found only the float signature, returned a float into
+// an int, and took another dozen expressions down with it in the cascade. The
+// shared rule is written in the vocabulary both languages have, so this side
+// has to actually have it.
 float select(float a, float b, bool c) { return c ? b : a; }
+int   select(int a, int b, bool c)     { return c ? b : a; }
+vec2  select(vec2 a, vec2 b, bool c)   { return c ? b : a; }
+vec3  select(vec3 a, vec3 b, bool c)   { return c ? b : a; }
+vec4  select(vec4 a, vec4 b, bool c)   { return c ? b : a; }
 
 bool inside(int x, int y) {
   return x >= 0 && y >= 0 && x < int(uGrid.x) && y < int(uGrid.y);
@@ -796,11 +808,15 @@ void main() {
   vColor = vec4(0.0);
   // Nought is an EMPTY slot and not quad nought. Identity here in practice:
   // WebGL has no compute to gather a list with.
-  // Flat list, unwrapped by its width — see the WGSL twin.
-  int flat = int(uList.x) + gl_InstanceID;
-  int lw = int(uList.y);
-  int quad = int(texelFetch(uQuads, ivec2(flat % lw, flat / lw), 0).r) - 1;
-  if (quad < 0) { return; }
+  // THE LIST IS ALWAYS THE IDENTITY HERE, so this path does not read it.
+  //
+  // Gathering is a compute pass and WebGL has none, so the list this twin
+  // would look in holds exactly 0, 1, 2 … and the answer is the instance
+  // index. The WGSL side reads a texture because there the list has been
+  // compacted; reading it here buys nothing and costs the one thing this path
+  // could not do — an r32uint texture sampled through a usampler2D, which is
+  // where the water stopped drawing on WebGL even after the shader compiled.
+  int quad = gl_InstanceID;
   int part = quad % ${PARTS};
   int slot = quad / ${PARTS};
   int tileIdx = slot / per;

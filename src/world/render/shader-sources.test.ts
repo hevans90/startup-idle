@@ -15,6 +15,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { accelerateSource } from "../../fluid/gpu/accelerate";
+import { waterShaderSource } from "./water-gpu";
 import { applySource } from "../../fluid/gpu/apply";
 import { arriveSource } from "../../fluid/gpu/arrive";
 import { cliffsSource } from "../../fluid/gpu/cliffs";
@@ -176,6 +177,61 @@ describe("the rules written in both languages", () => {
     for (const d of ["wgsl", "glsl"] as const) {
       const s = dripShaderSource(d);
       expect(s, d).toBeTruthy();
+    }
+  });
+});
+
+/**
+ * THE GLSL TWIN IS A DIFFERENT LANGUAGE, and it is the one nobody runs.
+ *
+ * WebGL is the path somebody without WebGPU lands on, so it rots quietly: the
+ * water's GLSL had not compiled for a long time and nothing said so, because
+ * the only way to find out was to open the page in a browser that has no
+ * WebGPU. Both faults that kept it down were things a string could have been
+ * asked about, so now it is.
+ */
+describe("the GLSL twin speaks GLSL", () => {
+  const glsl = () => waterShaderSource().glsl;
+
+  /**
+   * WGSL's `select` is generic and GLSL's functions are not, so every type the
+   * shared rules use it on needs its own overload. The float one alone was
+   * there; the corner rule writes `select(0, 1, k < 2)` on INTS to pick a
+   * neighbour offset, found no signature for it, returned a float into an int,
+   * and took a dozen expressions down with it.
+   */
+  test("it declares a select for every type the shared rules use", () => {
+    const src = glsl();
+    const used = new Set<string>();
+    // Whatever the rule generators actually emitted, not a guess at it.
+    for (const m of src.matchAll(/\bselect\(\s*(-?\d+(?:\.\d+)?)\s*,/g)) {
+      used.add(m[1].includes(".") ? "float" : "int");
+    }
+    expect(used.size).toBeGreaterThan(0);
+    for (const type of used) {
+      expect(src).toContain(`${type === "int" ? "int  " : "float"} select(${type} a, ${type} b, bool c)`);
+    }
+  });
+
+  /**
+   * A whole-number constant interpolated into the shared rule is an INT in
+   * GLSL and an abstract number in WGSL, so `1 * aFloat` compiled on one path
+   * and was refused on the other. Caught by asking for the shape rather than
+   * the arithmetic: no bare integer literal may multiply a float here.
+   */
+  test("no whole-number constant is multiplied into a float", () => {
+    expect(glsl()).not.toMatch(/=\s*-?\d+\s*\*\s*\(/);
+  });
+
+  /**
+   * GLSL ES 3.00 keeps words that WGSL does not. `flat` is an interpolation
+   * qualifier, and a local named for it is a syntax error rather than a
+   * shadowing warning — the shader simply does not build.
+   */
+  test("nothing is named for a GLSL keyword", () => {
+    const reserved = ["flat", "smooth", "sample", "buffer", "filter", "input", "output", "active"];
+    for (const word of reserved) {
+      expect(glsl()).not.toMatch(new RegExp(`\\b(?:int|float|bool|u?vec[234]|mat[234])\\s+${word}\\b`));
     }
   });
 });
