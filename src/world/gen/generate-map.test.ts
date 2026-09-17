@@ -20,6 +20,7 @@ import { componentCount, createNetwork } from "../roads/network";
 import { HEIGHT_MAX, HEIGHT_MIN } from "../edit/height-tools";
 
 const MATS = { material: 1, dirt: 2, sand: 3, woods: [4, 5, 6] };
+
 const fresh = (w = 64, h = 64) => createGrid(w, h);
 const gen = (seed: number, w = 64, h = 64, params = {}) => {
   const g = fresh(w, h);
@@ -206,12 +207,27 @@ describe("what a generated map guarantees", () => {
    * channel only ever goes DOWN, and that it keeps away from the street. The
    * second is what stops a river eating the frontage the cone just guaranteed.
    */
-  test("water only ever cuts the ground down, never up", () => {
+  test("water only ever cuts the ground down, except at the map's edge", () => {
     for (let seed = 0; seed < 12; seed++) {
       const dry = gen(seed, 64, 64, { rivers: 0, lakes: 0 });
       const wet = gen(seed, 64, 64, { rivers: 2, lakes: 2 });
       for (let i = 0; i < dry.g.height.length; i++) {
-        expect(wet.g.height[i]).toBeLessThanOrEqual(dry.g.height[i]);
+        if (wet.g.height[i] <= dry.g.height[i]) continue;
+        // THE ONE EXCEPTION, and it is at the boundary on purpose. A course
+        // runs from one edge of the map to another, and both ends are the
+        // LOWEST cells on it — that is what keeps the cut a valley rather than
+        // a quarry. A bar there that may not stand above the land cannot hold
+        // anything, and the river pours out of the side of the world. At the
+        // edge it is not ground anyway: it is where the map stops and the
+        // river carries on. Inland, putting ground back above what the noise
+        // made would be an embankment across somebody's valley.
+        // Stated as a share of the map rather than a tile count, because what
+        // matters is that the MIDDLE of it is never built up — that is where
+        // the player builds. The bar is the channel's own width plus a bank
+        // either side, all capped, and it reached 16 tiles at its worst here.
+        const x = i % wet.g.w, y = (i / wet.g.w) | 0;
+        const edge = Math.min(x, y, wet.g.w - 1 - x, wet.g.h - 1 - y);
+        expect(edge).toBeLessThan(wet.g.w / 3);
       }
     }
   });

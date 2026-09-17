@@ -128,14 +128,17 @@ export type GenParams = {
   /**
    * Whether each river gets a spring at its head.
    *
-   * OFF BY DEFAULT, and that is a measurement rather than a preference. A
-   * spring is a promise the solver has to keep for ever: it runs until the map
-   * is closed, and it only balances if every drop can get off the map. The
-   * channel is graded below the map's own lowest ground to give it that
-   * chance, and on most seeds it takes it — but not on all, and a seed where
-   * it does not fills quietly for twenty minutes rather than failing. Standing
-   * water in the same channels finds its level inside a minute and then costs
-   * nothing, which is the better default for a map you may leave open.
+   * ON, now that a river runs from one edge of the map to another.
+   *
+   * It was off, and the reason was sound while it lasted: a spring is a promise
+   * the solver has to keep for ever, and it only balances if every drop can get
+   * off the map. A channel that began inland and petered out could not promise
+   * that, and a seed where it failed filled quietly for twenty minutes rather
+   * than breaking. A course that ENTERS at one edge and LEAVES at another can:
+   * the outflow is the map's boundary, which drains, so what arrives departs.
+   *
+   * This is what makes a river a river rather than a long pond. The water is
+   * moving, and it is full because more keeps coming.
    */
   springs: number;
   /** Share of the grass that is wooded, nought to one. */
@@ -165,7 +168,7 @@ export const DEFAULT_GEN: GenParams = {
   tributaries: 1,
   lakes: 1,
   lakeSize: 9,
-  springs: 0,
+  springs: 1,
   trees: 0.28,
   woodSize: 7,
 };
