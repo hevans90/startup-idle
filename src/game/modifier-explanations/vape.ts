@@ -1,7 +1,7 @@
 import { useVapeAchievementsStore } from "../../state/vape-achievements.store";
 import type { ModifierBreakdown } from "./types";
 import { NO_JUICE_ROW, juiceEntry } from "./factories";
-import { fmt2, pct1 } from "./utils";
+import { pct1 } from "./utils";
 
 export const entries: Record<string, () => ModifierBreakdown> = {
   juiceMoney: juiceEntry(

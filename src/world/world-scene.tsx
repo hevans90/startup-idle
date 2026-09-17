@@ -6,12 +6,18 @@
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
 import { extend, useApplication, useTick } from "@pixi/react";
-import { Container, Graphics, type FederatedPointerEvent } from "pixi.js";
+import {
+  Container, Graphics, UPDATE_PRIORITY, type FederatedPointerEvent,
+} from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
 import { drainDirty, getNetwork, useWorldStore } from "../state/world.store";
-import { createBandLayer, destroyBandLayer, setVisibleBands, visibleBandCount, type BandLayer } from "./render/bands";
+import { perfAdd, perfFrame } from "./debug/perf";
+import {
+  createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
+  type BandLayer,
+} from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, type TerrainLayer } from "./render/terrain";
 import { buildCliffs, createCliffLayer, syncCliff, type CliffLayer } from "./render/cliffs";
@@ -42,6 +48,16 @@ import {
   drawBandStripes, drawGrid, drawHeightTint, drawHover, drawNetComponents,
   drawOrigin, drawPickCrosshair, drawRoadGaps, drawRoadMask,
 } from "./render/overlays";
+
+/**
+ * How solid the ground stays in x-ray.
+ *
+ * Faint enough to see a pipe through a hillside, solid enough that the map is
+ * still a map — at a tenth you are looking at a wireframe and cannot tell
+ * where anything is, and at a half a deep run is still lost behind the cliff
+ * columns, which stack and so multiply their own alpha.
+ */
+const XRAY_GROUND = 0.26;
 import { createBuildCursor, type BuildCursor } from "./edit/cursor";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
@@ -49,6 +65,12 @@ import { syncCell } from "./render/terrain";
 import { footprintCells, surfaceSampler } from "./grid";
 import { pickCell, worldToCellF } from "./iso";
 import { runSources, stepWater } from "./water/field";
+import { runPipes } from "./water/pipes";
+import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
+import {
+  createFallLayer, destroyFallLayer, drawFalls, type FallLayer,
+} from "./render/falls-render";
+import { activeBox } from "../fluid/columns";
 
 // Required: <pixiContainer> is only a known element once Container is
 // registered with @pixi/react, and without it `rootRef` never populates.
@@ -72,6 +94,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // the CPU builder. Only one of the two ever exists: they draw into the same
   // band containers, and both would draw the same water twice.
   const gpuRef = useRef<GpuWaterLayer | null>(null);
+  // Drops in the air, which are neither path's business: a drop is at a point
+  // between two places rather than on a column, and both mesh builders are
+  // functions of the columns.
+  const drRef = useRef<GpuDripLayer | null>(null);
+  const faRef = useRef<FallLayer | null>(null);
   // held so an edit can re-texture just the cells that changed
   const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
@@ -103,6 +130,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const onGpu = waterOnGpu();
       const fl = water && !onGpu ? createWaterLayer(water, bl, scale) : null;
       gpuRef.current = water && onGpu ? createGpuWaterLayer(water, bl, scale) : null;
+      // Between the surface and the drips: a fall is drawn over the water
+      // it is leaving and under the drops coming off it.
+      faRef.current = water ? createFallLayer(bl, scale) : null;
+      drRef.current = water ? createGpuDripLayer(bl, scale) : null;
       buildTerrain(tl, bl, grid, textures);
       buildCliffs(cl, bl, grid, textures);
       buildPaved(pl, bl, grid, textures);
@@ -122,6 +153,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         window.__bands = bl;
         window.__water = water;
         window.__waterLayer = fl;
+        window.__falls = faRef.current;
+        window.__waterGpu = gpuRef.current;
         // Drives frames by hand, because the browser throttles rAF whenever
         // the preview is not on screen and a throttled clock has wrecked more
         // than one measurement in this file's history. Runs the same three
@@ -184,11 +217,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cursorRef.current = null;
       if (flRef.current) destroyWaterLayer(flRef.current);
       if (gpuRef.current) destroyGpuWaterLayer(gpuRef.current);
+      if (faRef.current) destroyFallLayer(faRef.current);
+      if (drRef.current) destroyGpuDripLayer(drRef.current);
       if (slRef.current) clearStructureLayer(slRef.current);
       if (blRef.current) destroyBandLayer(blRef.current);
       slRef.current = null;
       flRef.current = null;
       gpuRef.current = null;
+      drRef.current = null;
       blRef.current = null;
       tlRef.current = null;
       clRef.current = null;
@@ -274,6 +310,24 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       else originGfx.current.clear();
     }
   }, [grid, scale, overlays]);
+
+  /**
+   * X-RAY: fade the ground so what is buried in it can be seen.
+   *
+   * Not drawn like the other overlays — there is nothing to draw. The pipework
+   * and the water in it are already on the screen every frame, above the
+   * ground tiers; all that is in the way is the hill. So this takes the hill
+   * down to a quarter and leaves everything else exactly as it was, which
+   * means a buried run needs no second renderer and cannot disagree with the
+   * one that draws it the rest of the time.
+   *
+   * Re-applied on `sceneEpoch` as well, because a rebuilt band layer arrives
+   * with fresh containers at full strength.
+   */
+  useEffect(() => {
+    const bl = blRef.current;
+    if (bl) setGroundAlpha(bl, overlays.xray ? XRAY_GROUND : 1);
+  }, [overlays.xray, sceneEpoch, grid]);
 
   useEffect(() => {
     const root = overlayRoot.current;
@@ -526,12 +580,29 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const gpu = gpuRef.current;
     if (bl && field && (fl || gpu)) {
       runSources(field, grid, dt);
+      runPipes(field, grid, dt);
       const t0 = performance.now();
       stepWater(field, dt);
       const t1 = performance.now();
-      if (fl) drawWater(fl, field, bl, dt);
-      else if (gpu) drawGpuWater(gpu, field, bl, dt);
+      if (fl) drawWater(fl, field, bl, dt, overlays.faces);
+      else if (gpu) drawGpuWater(gpu, field, bl, dt, overlays.faces);
+      // The foam FIELD, not the solver's raw breaking: the surface is painted
+      // from this, so the sheet has to be too or a white lip goes over a
+      // cliff and turns blue in the air.
+      if (faRef.current) {
+        const box = activeBox(field.columns);
+        const layer = fl ?? gpu;
+        const white = layer?.foam.now ?? null;
+        // And the pattern the current carries, for the same reason: a sheet
+        // that leaves the lip in the surface's own colour needs everything the
+        // surface was shaded from — see `sheetLook`.
+        const drift = layer?.wash.now ?? null;
+        drawFalls(faRef.current, field.columns, box, white, drift);
+      }
+      if (drRef.current) drawGpuDrips(drRef.current, field, bl, grid, overlays.xray);
       const t2 = performance.now();
+      perfAdd("solve", t1 - t0);
+      perfAdd("build", t2 - t1);
       if (import.meta.env.DEV) {
         const w = (window as unknown as { __waterMs?: { solve: number; draw: number; n: number } });
         const acc = w.__waterMs ?? (w.__waterMs = { solve: 0, draw: 0, n: 0 });
@@ -542,6 +613,34 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (!sl || !bl || !tex || !hasAnimated(sl)) return;
     tickStructures(sl, { bands: bl, textures: tex, grid, scale }, dt);
   });
+
+  // SUBMIT, measured around the RENDER CALL ITSELF.
+  //
+  // Wrapping the method, so nothing can get between a function and itself —
+  // it was two ticker callbacks either side of Pixi's render step before, on
+  // the reasoning that the span between them is the render and nothing else.
+  //
+  // What it reads is mostly WAITING, and `perf.ts` says so at length: the call
+  // blocks on the compositor, so a quiet frame spends it idle. That is why it
+  // is called present and is kept out of the `js` total.
+  useEffect(() => {
+    if (!import.meta.env.DEV || !app?.renderer || !app?.ticker) return;
+    const renderer = app.renderer as unknown as { render: (...a: unknown[]) => unknown };
+    const real = renderer.render.bind(renderer);
+    renderer.render = (...a: unknown[]) => {
+      const at = performance.now();
+      const out = real(...a);
+      perfAdd("present", performance.now() - at);
+      return out;
+    };
+    // Closing the frame off goes after everything, so every slot is filled.
+    const done = () => perfFrame();
+    app.ticker.add(done, null, UPDATE_PRIORITY.LOW - 1);
+    return () => {
+      renderer.render = real as typeof renderer.render;
+      app.ticker.remove(done, null);
+    };
+  }, [app]);
 
   // Cull to the visible band range each frame. Cheap: one comparison per band,
   // and setVisibleBands early-returns when the range has not moved.

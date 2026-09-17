@@ -61,6 +61,29 @@ export type Grid = {
    */
   fluid: Uint16Array;
   /**
+   * Water STANDING on a cell when the map starts, in half steps. 0 = dry.
+   *
+   * The other half of {@link fluid}, which records only what was poured and
+   * not how much of it: a map could say a lake was here and never say how deep.
+   * That gap is why every fixture had to be a SPRING — water arrived by being
+   * run in from somewhere and the map had to be watched while it filled, so
+   * anything about water at rest, or about what a waterfall does to a pool
+   * that is already there, could not be set up at all, only waited for. And it
+   * is why saving a map lost every lake on it.
+   *
+   * A DEPTH and not a level, because a depth has a natural zero and a level
+   * does not — nought is dry wherever the ground is, while a level of nought
+   * is a real surface and "no water" needs a sentinel. Authoring still happens
+   * in levels, since a pond is a thing with a waterline; the fixtures turn one
+   * into the other, which is a subtraction.
+   *
+   * An INITIAL CONDITION, not a mirror of the simulation. Once the map is
+   * running the live depths are the truth and this does not follow them, the
+   * same way {@link source} is a rate the world obeys rather than a record of
+   * what came out of it.
+   */
+  pool: Uint8Array;
+  /**
    * Water in or out per second at a cell; 0 = nothing, negative = a drain.
    *
    * A SPRING is not a pour. A pour is a volume, placed once, and the simulation
@@ -75,6 +98,41 @@ export type Grid = {
   source: Int8Array;
   /** {@link RAMP} direction per cell; 0 = level. */
   ramp: Uint8Array;
+  /**
+   * A PIPE on the side of a cell: which way it points, or 0 for none.
+   *
+   * One of `DIR`'s bits, so a pipe is a cell plus a facing. It hangs at the top
+   * of that face and drips over whatever is beyond it — which is why it is a
+   * facing and not just a cell: a spring wells up out of the ground, a pipe
+   * sticks out of a wall and the side it sticks out of is the whole point.
+   *
+   * The RATE is not here. A spring's is, because a spring can be anything from
+   * a seep to a river and the number is the interesting part; a pipe is a
+   * pipe, and how often it drips comes out of the one rate every pipe has
+   * against the size a drop lets go at. See `fluid/drips`.
+   */
+  pipe: Uint8Array;
+  /**
+   * The INVERT of the pipe on a cell: the height its floor sits at, absolute.
+   *
+   * Absolute, and not a depth below the ground, because that is the whole of
+   * what lets a pipe run UNDER anything. A depth below the surface follows the
+   * surface, so a run crossing a ridge climbs the ridge and is stopped by it
+   * exactly as a surface pipe is; an invert of its own keeps its grade while
+   * the ground does whatever it likes over the top. That is also what a buried
+   * main IS — a thing with a level, that you then landscape around.
+   *
+   * It follows that there is no "buried" flag and does not need to be one. A
+   * pipe is buried when the ground beside it happens to be higher than its
+   * invert, which is a question you ask at the moment you need the answer, and
+   * it means that raising ground over a pipe buries it and lowering ground out
+   * from under one leaves it exposed — both of which are what actually happens
+   * when you dig.
+   *
+   * Only meaningful where {@link pipe} is set. Signed, because a pipe may run
+   * below the map's own floor.
+   */
+  pipeZ: Int8Array;
   /** Structure ID per cell, −1 = empty. An ID, not a list index — see {@link Structure}. */
   structureAt: Int32Array;
   /** Placed structures, by id. */
@@ -97,8 +155,11 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     height: new Int8Array(n),
     paved: new Uint16Array(n),
     fluid: new Uint16Array(n),
+    pool: new Uint8Array(n),
     source: new Int8Array(n),
     ramp: new Uint8Array(n),
+    pipe: new Uint8Array(n),
+    pipeZ: new Int8Array(n),
     structureAt: new Int32Array(n),
     structures: new Map(),
     nextStructureId: 1,
@@ -132,6 +193,14 @@ export function setFluid(g: Grid, x: number, y: number, v: number) {
 /** Rate in or out at a cell; 0 where there is no spring or drain. */
 export const sourceAt = (g: Grid, x: number, y: number) =>
   inBounds(g, x, y) ? g.source[idx(g, x, y)] : 0;
+
+/** Which way the pipe on a cell points, or 0 where there is none. */
+export const pipeAt = (g: Grid, x: number, y: number) =>
+  inBounds(g, x, y) ? g.pipe[idx(g, x, y)] : 0;
+
+/** The invert of the pipe on a cell — where its floor is. See {@link Grid.pipeZ}. */
+export const pipeInvertAt = (g: Grid, x: number, y: number) =>
+  inBounds(g, x, y) ? g.pipeZ[idx(g, x, y)] : 0;
 
 
 /** Structure id occupying a cell, or −1. */

@@ -4,6 +4,7 @@
  * clicked is worse than none.
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import { createGrid, setPaved, surfaceSampler } from "../grid";
 import { DIR, isPaved, maskAt, orthOf } from "../roads/mask";
@@ -11,13 +12,16 @@ import { buildRoadTable, roadSpriteFor } from "../roads/table";
 import { componentCount, createNetwork, netIdAt } from "../roads/network";
 import { HEIGHT_UNIT, HH, HW, RAMP, cellToWorld, faceCoords, pickCell, rampDir, rampRise, surfaceHeight } from "../iso";
 import {
-  OCCLUDER_GAP, OCCLUDER_HEIGHT, applyFixture, buildOccluder, buildRampFan, buildZiggurat,
-  type FixtureId,
+  FIXTURE_IDS, OCCLUDER_GAP, OCCLUDER_HEIGHT, applyFixture, buildOccluder, buildRampFan,
+  buildZiggurat, type FixtureId,
 } from "./fixtures";
-import { createWaterField, depthAt, runSources, stepWater, wetTiles } from "../water/field";
+import {
+  createWaterField, depthAt, runSources, stepWater, totalVolume, waterInPipes, wetTiles,
+} from "../water/field";
+import { PIPE_D, pipeLevelAt, runPipes } from "../water/pipes";
 
 /** The presets that come with their own water. */
-const WATER_FIXTURES: FixtureId[] = ["river", "cascade", "lake", "islands"];
+const WATER_FIXTURES: FixtureId[] = ["river", "cascade", "lake", "islands", "pipes", "plunge"];
 
 const world = (w = 48, h = 48) => createGrid(w, h, 1);
 
@@ -283,14 +287,18 @@ describe("the water fixtures", () => {
     }
   });
 
-  // Four fixtures, a minute of water each, on a 48x48 map: this one is simply
-  // a lot of simulation and it runs past the default five seconds.
+  // Every water fixture, a minute of water each, on a 48x48 map: this one is
+  // simply a lot of simulation and it runs past the default five seconds. The
+  // budget is per FIXTURE rather than a flat number, so adding one to the list
+  // does not silently spend the next one's time — which is what happened when
+  // `plunge` was added and a twenty second bound that had been comfortable for
+  // five became a failure that only showed up in a full run.
   test("and each of them is running a minute later", () => {
     for (const id of WATER_FIXTURES) {
       const { field } = live(id, 60);
       expect(wetTiles(field)).toBeGreaterThan(100);
     }
-  }, 20000);
+  }, WATER_FIXTURES.length * 8000);
 
   test("the river reaches a standing flow rather than filling up", () => {
     // As much arriving as leaving, which is the whole difference between a
@@ -324,5 +332,202 @@ describe("the water fixtures", () => {
     expect([...g.source].some((r) => r !== 0)).toBe(true);
     applyFixture(g, "flat", 1);
     expect([...g.source].some((r) => r !== 0)).toBe(false);
+  });
+});
+
+describe("the pipes fixture", () => {
+  /**
+   * The fixture exists to be WATCHED, and what it is worth is that the four
+   * things a pipe does happen in order and inside a minute. So this runs it
+   * and checks the order — which is also the only end-to-end test there is of
+   * the whole chain, from a tap on a map through a network to a drop in the
+   * air and back again.
+   */
+  const world64 = () => {
+    const g = createGrid(64, 64);
+    applyFixture(g, "pipes", 1);
+    const field = createWaterField(g);
+    const mid = Math.round(g.h / 2);
+    const len = Math.min(20, Math.round(g.w * 0.35));
+    const drop = 4 + len;
+    const run = (seconds: number) => {
+      for (let n = 0; n < Math.round(seconds * 60); n++) {
+        runSources(field, g, 1 / 60);
+        runPipes(field, g, 1 / 60);
+        stepWater(field, 1 / 60);
+      }
+    };
+    return {
+      g, field, run, mid, drop,
+      spout: () => pipeLevelAt(g, field, drop - 1, mid),
+      branch: () => pipeLevelAt(g, field, Math.round((7 + drop) / 2), mid - 2),
+      pocket: () => depthAt(field, drop + 1, mid),
+    };
+  };
+
+  test("fills, drips, pressurises, floods and then backs up — in that order", () => {
+    const w = world64();
+    const invert = 14;                             // the foot of the channel
+
+    // 1. It FILLS. Nothing is in it when the map loads, because a pipe makes
+    //    no water; what goes in comes from the channel it is lying in.
+    expect(waterInPipes(w.field)).toBe(0);
+    w.run(10);
+    expect(waterInPipes(w.field)).toBeGreaterThan(10);
+
+    // 2. It DRIPS, and the capped branch has nowhere to go so it PRESSURISES:
+    //    a dead end fills to its crown and then stands above it, which is a
+    //    head and not a volume.
+    expect(w.field.columns.drips.live).toBeGreaterThan(0);
+    expect(w.branch()).toBeGreaterThan(invert + PIPE_D);
+
+    // 3. The pocket below FILLS, from the drops and the channel together.
+    w.run(20);
+    expect(w.pocket()).toBeGreaterThan(5);
+
+    // 4. And once it is over the spout, the spout DROWNS: it stops dripping,
+    //    and the level inside the pipe comes up to the level outside it,
+    //    because through a drowned hole the two are one body of water.
+    w.run(40);
+    expect(w.pocket()).toBeGreaterThan(PIPE_D);
+    expect(w.spout()).toBeGreaterThan(invert + PIPE_D);
+    // The pocket's floor is the map's, at nought, so its depth IS its surface
+    // — and the level inside the pipe has come up to meet it.
+    expect(w.spout()).toBeCloseTo(w.pocket(), 0);
+    expect(w.field.columns.drips.live).toBe(0);
+  }, 20000);
+
+  test("and it makes no water of its own — only what its tap puts in", () => {
+    // The pipes themselves are not a source, and the check is arithmetic: one
+    // tile of spring at `SPRING` a second over its sixteen columns, times
+    // three taps, and nothing else anywhere.
+    const w = world64();
+    const taps = [...w.g.source].filter((r) => r > 0).length;
+    w.run(20);
+    expect(totalVolume(w.field)).toBeCloseTo(taps * 8 * 16 * 20, 0);
+  }, 20000);
+});
+
+describe("the culvert fixture", () => {
+  /**
+   * Two pockets in solid rock, and a pipe under the rock between them.
+   *
+   * The one thing a surface pipe could never do, set up so that there is no
+   * other explanation available: the right-hand pocket has no tap, and the
+   * rock between the two is taller than either pocket can ever fill, so over
+   * the ground they are separate worlds and the terrain solver is right about
+   * that. Anything that arrives on the right came through the pipe.
+   */
+  const world = () => {
+    const g = createGrid(64, 64);
+    applyFixture(g, "culvert", 1);
+    const field = createWaterField(g);
+    const mid = Math.round(g.h / 2), half = Math.round(g.w / 2);
+    const pool = (x0: number, x1: number) => {
+      let sum = 0;
+      for (let y = mid - 3; y <= mid + 3; y++) for (let x = x0; x <= x1; x++) sum += depthAt(field, x, y);
+      return sum;
+    };
+    return {
+      g, field, mid, half,
+      run: (seconds: number) => {
+        for (let n = 0; n < Math.round(seconds * 60); n++) {
+          runSources(field, g, 1 / 60);
+          runPipes(field, g, 1 / 60);
+          stepWater(field, 1 / 60);
+        }
+      },
+      left: () => pool(half - 11, half - 4),
+      right: () => pool(half + 4, half + 7),
+    };
+  };
+
+  test("the run is buried, and the rock it is under is unbroken", () => {
+    const w = world();
+    const under = w.g.height[w.mid * w.g.w + w.half];
+    expect(w.g.pipeZ[w.mid * w.g.w + w.half]).toBe(0);
+    expect(under).toBeGreaterThan(20);            // and the pipe is beneath it
+    // No gap anywhere in the ridge: every cell of it is high, on every row, so
+    // there is no surface route between the two at any depth of water.
+    for (let y = 0; y < w.g.h; y++) {
+      for (let x = w.half - 2; x <= w.half + 2; x++) {
+        expect(w.g.height[y * w.g.w + x]).toBe(under);
+      }
+    }
+  });
+
+  test("and water crosses it, which over the ground is impossible", () => {
+    const w = world();
+    expect(w.right()).toBe(0);
+    w.run(70);
+    expect(w.left()).toBeGreaterThan(0);          // the tap has filled its own
+    expect(w.right()).toBeGreaterThan(0.5);       // and this can only be the pipe
+  }, 30000);
+
+  test("and nothing is made on the way — only what the tap put in", () => {
+    const w = world();
+    const taps = [...w.g.source].filter((r) => r > 0).length;
+    w.run(20);
+    expect(totalVolume(w.field)).toBeCloseTo(taps * 8 * 16 * 20, 0);
+  }, 30000);
+});
+
+describe("a fixture can start with water in it", () => {
+  test("the lake is a lake on the first frame, not a hole that becomes one", () => {
+    // Every fixture with water in it used to be a SPRING, because the grid
+    // could say a lake had been poured and never how deep. So the water ran in
+    // from somewhere and the map had to be watched while it filled — half a
+    // minute of a dry basin before there was anything to look at.
+    const g = world();
+    applyFixture(g, "lake", 1);
+    const f = createWaterField(g);
+    expect(totalVolume(f)).toBeGreaterThan(0);
+    expect(wetTiles(f)).toBeGreaterThan(100);
+    // And it is the basin that is wet, not the rim round it.
+    expect(wetTiles(f)).toBeLessThan(g.w * g.h);
+  });
+
+  test("and the plunge fixture lands a fall in water that is already there", () => {
+    // The one that could not be set up at all before: the pool had to fill
+    // itself from the fall, so for the first half minute the fall was landing
+    // on rock and by the time there was a pool the interesting part was over.
+    const g = world();
+    applyFixture(g, "plunge", 1);
+    const f = createWaterField(g);
+    expect(totalVolume(f)).toBeGreaterThan(0);
+    // A pool on the low ground, a dry shelf above it, and a spring to feed it.
+    expect(depthAt(f, g.w - 6, g.h / 2)).toBeGreaterThan(1);
+    expect(depthAt(f, 6, g.h / 2)).toBe(0);
+    expect([...g.source].some((v) => v > 0)).toBe(true);
+  });
+
+  test("a fixture with no pool in it has none", () => {
+    const g = world();
+    applyFixture(g, "ziggurat", 1);
+    expect([...g.pool].every((v) => v === 0)).toBe(true);
+    expect(totalVolume(createWaterField(g))).toBe(0);
+  });
+});
+
+describe("fixtures can be asked for by name in the URL", () => {
+  test("every id in the list builds something", () => {
+    // `FixtureId` is a type and types are gone by the time a query string
+    // turns up, so the list has to be written out — and a written-out list is
+    // one that goes stale. This is what holds the two together.
+    for (const id of FIXTURE_IDS) {
+      const g = createGrid(16, 16);
+      applyFixture(g, id, 1);
+      expect(g.minHeight).toBeLessThanOrEqual(g.maxHeight);
+    }
+  });
+
+  test("and the list covers every id the switch handles", () => {
+    // The other direction: a fixture added to `applyFixture` and not to the
+    // list is one you cannot reach from a URL, silently.
+    const src = readFileSync(new URL("./fixtures.ts", import.meta.url), "utf8");
+    const handled = [...src.matchAll(/case "(\w+)":/g)].map((m) => m[1]);
+    expect(handled.length).toBeGreaterThan(0);
+    for (const id of handled) expect(FIXTURE_IDS).toContain(id as FixtureId);
+    expect(new Set(FIXTURE_IDS).size).toBe(FIXTURE_IDS.length);
   });
 });

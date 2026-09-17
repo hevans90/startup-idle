@@ -20,15 +20,15 @@
 import {
   MATERIAL_SLOTS, activeBox, flowX, flowY, surfaceAt, velocityAt, type ColumnField,
 } from "../../fluid/columns";
-import { fallExtent } from "../../fluid/falls";
 import { COLUMNS_PER_TILE, columnOf, tileOf, type WaterField } from "../water/field";
+import { FALL_MIN } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import {
   createQuadBatch, destroyQuadBatch, packAlpha, packRGB, pushQuad, resetQuads, rgba,
   uploadQuads, type QuadBatch,
 } from "./quads";
-import { levelAt, resolveCorner, resolveSide } from "./corner-rule";
+import { RIM, atBrink, levelAt, resolveCorner, resolveSide, spillAt } from "./corner-rule";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
 import { createFoam, stepFoam, type FoamField } from "./foam";
 import type { BandLayer } from "./bands";
@@ -104,18 +104,6 @@ export const FOAM_WHITE = 0.93;
 export const FOAM_COVER = 0.75;
 /** Flux at which a fall is the full width of the edge it goes over. */
 export const FULL_FALL_FLUX = 1.5;
-/**
- * How far below a lip a fall is still drawn, in half steps.
- *
- * A fall is a SKIRT hanging off an edge, not a sheet down a cliff. Water
- * leaving a lip falls through air; a quad hugging the rock the whole way down
- * is a translucent panel pasted over the terrain, and a row of them curtains
- * the entire face of anything raised — which is exactly what it looked like.
- * Where the ground comes back up inside this, the skirt reaches it and the two
- * bodies of water join; where it does not, the skirt fades out in mid-air and
- * the water reappears in whatever it lands in, which is drawn on its own.
- */
-export const FALL_REACH = 4;
 
 export type WaterLayer = {
   /** One quad batch per band, made once and rewritten every frame. */
@@ -211,17 +199,80 @@ export const LIGHTEST = 0.45;
 /** Shades per fluid: the water's own, then the foam's. */
 export const SHADES = TINTS + FOAM_TINTS;
 
+/**
+ * How LIT a piece of surface is, before foam: nought is the darkest shade
+ * water reaches and one the lightest.
+ *
+ * `lean` is which way it faces, already through {@link respond} and so in
+ * -1..1; `wash` is the pattern the current carries, and `shown` how much of
+ * that pattern is out — see the note at the call site.
+ *
+ * Shared with the SHEET going over a lip, which has to arrive at the same
+ * answer from the other side of the join and cannot be left to retype these
+ * three coefficients. A lip leans fully downstream by construction, so what it
+ * passes for `lean` is how much of a brink it is on.
+ */
+export const litAt = (lean: number, wash: number, shown: number) =>
+  0.5 + lean * 0.34 + wash * (0.2 + 0.8 * shown) * 0.3;
+
+/**
+ * What a piece of water LOOKS like: how far along the shade ramp it sits, and
+ * how much of what is behind it it covers.
+ *
+ * THE ONE PLACE, because there are two objects drawing the same water. The
+ * surface mesh stops at a lip and a SHEET carries on over it, and at the brink
+ * they are the same water seen in the same frame — so anything that decides
+ * how that water looks has to be asked once and answered once, or there is a
+ * seam exactly where the eye is already looking.
+ *
+ * It was two places, and they did not agree. Measured on a foaming lip: the
+ * surface at 0.93 of the way to white and RGB(240,245,248), the sheet leaving
+ * it at 0.72 and RGB(195,215,226) — a gap of forty-five, thirty and twenty-two
+ * across the join, with the sheet the greyer. And 0.72 was the sheet's
+ * CEILING: it took foam as something ADDED, `CARRIED * foam` with `CARRIED` a
+ * third, so the whitest sheet it could draw fell short of the whitest surface
+ * however hard the water was breaking.
+ *
+ * Which is the same fault the surface had and had already fixed, one object
+ * later — see the note below on foam as a MIX. Foam of one is the top of the
+ * ramp whatever was underneath it, so a fully broken lip and the fully broken
+ * sheet leaving it land on the same shade from either side.
+ *
+ * `shade` comes back as a position on the ramp rather than a colour: the mesh
+ * rounds it to a palette index, and a sheet — which has no palette — carries
+ * the fraction. See `paleAt` for the colour.
+ */
+export function surfaceLook(shown: number, foam: number, lit: number) {
+  const body = shade(shown);
+  // FOAM CLOSES THE SURFACE UP as well as whitening it. Water is clear and
+  // foam is not — it is full of air — so a crest that went pale and stayed as
+  // see-through as the pond behind it looked like a highlight painted on the
+  // mesh. It can only close what the water is already covering: the fade that
+  // brings a thin sheet in gates it, or a spreading front would paint white
+  // over ground its own sheet is still invisible on.
+  const fade = Math.min(1, shown / SHOW_DEPTH);
+  const cover = body + (1 - body) * foam * FOAM_COVER * fade;
+  // AND FOAM CARRIES THE SHADE past anything water does, into the range above
+  // — as a MIX towards the white end, not as something added on. Added on,
+  // foam had to work from wherever the water's own shading had got to, which
+  // is halfway up a ramp of thirty-two: a fully broken crest landed at 40 of
+  // 55 and came out RGB(174,...) against water's own ceiling of 138. Barely
+  // paler than water, for the whitest thing the renderer can draw.
+  const base = Math.max(0, Math.min(1, lit)) * (TINTS - 1);
+  return { cover, shade: base + foam * (SHADES - 1 - base) };
+}
+
+/** How far towards white a place on the shade ramp is. @see buildTints */
+export const paleAt = (k: number) => (k < TINTS
+  ? LIGHTEST * k / (TINTS - 1)
+  : LIGHTEST + (FOAM_WHITE - LIGHTEST) * (k - TINTS + 1) / FOAM_TINTS);
+
 /** Every shade of every fluid, packed once. See {@link TINTS}. */
 function buildTints(): Uint32Array {
   const out = new Uint32Array(MATERIAL_SLOTS * SHADES);
   for (let m = 0; m < MATERIAL_SLOTS; m++) {
     const base = fluidMaterial(m)?.colour ?? 0x2a6f97;
-    for (let k = 0; k < SHADES; k++) {
-      const t = k < TINTS
-        ? LIGHTEST * k / (TINTS - 1)
-        : LIGHTEST + (FOAM_WHITE - LIGHTEST) * (k - TINTS + 1) / FOAM_TINTS;
-      out[m * SHADES + k] = packRGB(aerate(base, t));
-    }
+    for (let k = 0; k < SHADES; k++) out[m * SHADES + k] = packRGB(aerate(base, paleAt(k)));
   }
   return out;
 }
@@ -239,8 +290,104 @@ export function destroyWaterLayer(wl: WaterLayer) {
  * fades the whole thing away as the sheet thins to nothing. The second is what
  * lets the mesh cover every wet column without a damp fringe painting the map.
  */
-const shade = (d: number) =>
-  (0.30 + 0.62 * Math.min(1, d / OPAQUE_DEPTH)) * Math.min(1, d / SHOW_DEPTH);
+/**
+ * The opacity ramp itself: from as faint as water is ever drawn to as solid as
+ * it gets, against how much of it there is to see through.
+ *
+ * One curve, used for three different measures of "how much" — the depth
+ * standing on a column, the depth at an edge, and how hard a lip is pouring —
+ * because they are all the same question and answering it three ways is how a
+ * surface, its sides and its falls come to disagree about being the same
+ * water.
+ */
+export const solid = (much: number) => 0.30 + 0.62 * Math.min(1, much);
+
+/**
+ * How solid a given DEPTH of this fluid is drawn, nought to one.
+ *
+ * Exported because the falls layer draws the same water: a sheet leaving a lip
+ * is as thick as the water on the lip, so it is as solid as that water, and
+ * asking the question a second way is what put a step in the middle of it.
+ */
+export const shade = (d: number) =>
+  solid(d / OPAQUE_DEPTH) * Math.min(1, d / SHOW_DEPTH);
+
+
+/**
+ * How much of its depth a column's surface is DRAWN DOWN by, in half steps.
+ *
+ * A free overfall does not go over the edge flat. The surface starts falling
+ * before the brink and is already tipped toward the fall when it gets there —
+ * that is the drawdown, and it is the curve you actually see at the top of a
+ * waterfall, as opposed to the arc of the sheet below it.
+ *
+ * The solver HAS it. Traced down a lip: 0.74, 0.70, 0.75, 0.75, 0.68, 0.65,
+ * 0.62, 0.63, 0.57, 0.48, 0.32 half steps, and the mesh draws every one of
+ * those faithfully. The trouble is that it is 0.42 of a half step spread over
+ * two and a half tiles — SEVEN PIXELS of sag across a hundred and sixty-five,
+ * which is nothing, and a sheet cannot sag further than it is thick.
+ *
+ * What it can do is sag in the right PLACE. A real drawdown is steepest in
+ * the last fraction before the brink; the solver spreads it across cells
+ * because cells are what it has. Leaning the same drop toward the lip turns
+ * seven flat pixels into a bend, and costs no water: this moves where the
+ * surface is DRAWN, not how much of it there is — the depth that decides how
+ * solid it looks is untouched, or the seam at the lip would open again.
+ *
+ * Bounded by the water's own depth, which is the honest limit of it. On a
+ * sheet twelve pixels deep there is no rounded lip to be had at any price,
+ * and the curve has to come from the sheet below — see `render/nappe`.
+ */
+export const DRAWDOWN = 0.55;
+
+/**
+ * The depth a column is SHOWN at: its own, unless its water stands at a BRINK.
+ *
+ * The fade that brings a shoreline in has no business at a lip — see
+ * `corner-rule`'s {@link atBrink}. Water at a brink is thin because it is
+ * leaving, not because it is ending, and faded as though it were ending the
+ * one place a sheet has to be continuous goes translucent.
+ *
+ * A FLOOR and not an override, so nothing deeper is touched, and the only
+ * thing it changes past the fade is the opacity ramp's own term — by at most
+ * `SHOW_DEPTH / OPAQUE_DEPTH`, which is six thousandths of an alpha.
+ */
+export function shownDepth(columns: ColumnField, i: number, d: number): number {
+  if (d >= SHOW_DEPTH) return d;
+  const brink = atBrink(
+    columns.nx, columns.ny, i, columns.ground, columns.depth,
+    columns.params.dryDepth, FALL_MIN,
+  );
+  const floor = SHOW_DEPTH * brink;
+  return d > floor ? d : floor;
+}
+
+/**
+ * The biggest STEP the ground makes beside a corner, either way up, in half
+ * steps.
+ *
+ * Over all four columns that meet there, dry ones included: the question is
+ * what the GROUND does, not what the water does. Either way up because the rim
+ * rule wants the one case where the ground stays at the water's own level — a
+ * shore — and a bank rising over the water is a container, not a shore, just
+ * as a lip falling away from it is not. See `rimAt`.
+ *
+ * Off the edge of the MAP it is unbounded, because a cut through the world is
+ * not a shore either: the terrain shows its skirt there and the water should
+ * show a cross-section to match.
+ */
+export function asideAt(columns: ColumnField, vx: number, vy: number, bed: number) {
+  const { nx, ny, ground } = columns;
+  let lowest = bed, highest = bed;
+  for (let k = 0; k < 4; k++) {
+    const cx = vx - 1 + (k & 1), cy = vy - 1 + (k >> 1);
+    if (cx < 0 || cy < 0 || cx >= nx || cy >= ny) return Infinity;
+    const g = ground[cy * nx + cx];
+    if (g < lowest) lowest = g;
+    if (g > highest) highest = g;
+  }
+  return Math.max(bed - lowest, highest - bed);
+}
 
 /**
  * Average the surrounding wet columns into each corner.
@@ -255,6 +402,7 @@ const shade = (d: number) =>
 function cornerValues(
   wl: WaterLayer, columns: ColumnField,
   region: { x0: number; y0: number; x1: number; y1: number },
+  rim: number,
 ) {
   const { nx, depth, params } = columns;
   const vw = nx + 1;
@@ -279,8 +427,15 @@ function cornerValues(
       const i = y * nx + x;
       const d = depth[i];
       if (d <= params.dryDepth) continue;
-      const s = surfaceAt(columns, i);
       const bed = columns.ground[i];
+      const shown = shownDepth(columns, i, d);
+      // Leaned toward the lip — see `DRAWDOWN`. The height only; `shown` is
+      // what decides how solid it looks and stays the water's own.
+      const sag = d * DRAWDOWN * atBrink(
+        columns.nx, columns.ny, i, columns.ground, columns.depth,
+        columns.params.dryDepth, FALL_MIN,
+      );
+      const s = surfaceAt(columns, i) - sag;
       const vx = flowX(columns, x, y), vy = flowY(columns, x, y);
       const wash = wl.wash.now, foam = wl.foam.now;
       for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
@@ -288,24 +443,49 @@ function cornerValues(
         // Sorted into the two groups as they arrive: anything standing lower
         // than the highest bed seen so far goes below, and a bed higher than
         // that demotes what was there and starts again.
+        //
+        // THE EXTRAS FOLLOW THE BED TOO. What height a corner is drawn at is
+        // split by the bed its contributors stand on, because a sheet on a
+        // plateau and a lake at the foot of its cliff are two bodies and no
+        // one height serves both. Everything else about that corner — how
+        // deep it is, how white, how fast, which way it leans — was averaged
+        // over BOTH of them regardless, so the last corner of a sheet before
+        // a lip took much of its colour from water twenty half steps below.
+        //
+        // What that looks like is the hard seam at the top of a waterfall.
+        // Measured at a brink with a foaming plunge pool under it: `shade` of
+        // the corner's own depth is 122 of 255 and the corner was drawn at
+        // 172, the extra fifty being the plunge pool's foam borrowed up the
+        // cliff. So the surface ended in a bright opaque lip while the sheet
+        // leaving it drew what the water on the lip actually is — 235 against
+        // 172 before, 111 against 172 after the sheet was put on the same
+        // curve, and a step either way is a seam.
+        //
+        // Only the high group contributes, and a bed that demotes what was
+        // there takes the extras with it.
         if (bed > wl.vBed[v]) {
           wl.vsLow[v] += wl.vs[v];
           wl.vnLow[v] += wl.vn[v];
           wl.vs[v] = s;
           wl.vn[v] = 1;
           wl.vBed[v] = bed;
+          wl.vd[v] = shown;
+          wl.vvx[v] = vx;
+          wl.vvy[v] = vy;
+          wl.vw[v] = wash[i];
+          wl.vf[v] = foam[i];
         } else if (bed === wl.vBed[v]) {
           wl.vs[v] += s;
           wl.vn[v]++;
+          wl.vd[v] += shown;
+          wl.vvx[v] += vx;
+          wl.vvy[v] += vy;
+          wl.vw[v] += wash[i];
+          wl.vf[v] += foam[i];
         } else {
           wl.vsLow[v] += s;
           wl.vnLow[v]++;
         }
-        wl.vd[v] += d;
-        wl.vvx[v] += vx;
-        wl.vvy[v] += vy;
-        wl.vw[v] += wash[i];
-        wl.vf[v] += foam[i];
       }
     }
   }
@@ -323,14 +503,27 @@ function cornerValues(
       // What HEIGHT the corner is drawn at is not decided here — see
       // `corner-rule.ts`, which the shader path is generated from too. It was
       // written out three times once, and the third one was wrong.
-      const corner = resolveCorner(wl.vs[v], hi, wl.vsLow[v], lo, wl.vBed[v]);
+      //
+      // The rule needs to know WHAT IS BESIDE the corner as well as what is on
+      // it: only a corner beside ground at its own level is a shore, and only
+      // a shore ends in a waterline. A bank over it is a container and a drop
+      // under it is a lip, and neither wants feathering. Measured here where
+      // the neighbours are to hand — over all four, wet or dry, since a dry
+      // one at the same height is exactly the shore case.
+      const corner = resolveCorner(
+        wl.vs[v], hi, wl.vsLow[v], lo, wl.vBed[v],
+        asideAt(columns, x, y, wl.vBed[v]), rim,
+      );
       wl.vs[v] = corner.high;
       wl.vsLow[v] = corner.low;
-      wl.vd[v] /= all;
-      wl.vvx[v] /= all;
-      wl.vvy[v] /= all;
-      wl.vw[v] /= all;
-      wl.vf[v] /= all;
+      // Over the HIGH group alone — see the note where they are gathered.
+      // On level ground every contributor is in it and this is `all`.
+      const n = hi || all;
+      wl.vd[v] /= n;
+      wl.vvx[v] /= n;
+      wl.vvy[v] /= n;
+      wl.vw[v] /= n;
+      wl.vf[v] /= n;
     }
   }
 
@@ -348,10 +541,7 @@ function cornerValues(
       // the mesh. It can only close what the water is already covering: the
       // fade that brings a thin sheet in gates it, or a spreading front would
       // paint white over ground its own sheet is still invisible on.
-      const body = shade(wl.vd[v]);
       const foam = wl.vf[v];
-      const fade = Math.min(1, wl.vd[v] / SHOW_DEPTH);
-      wl.va[v] = packAlpha(body + (1 - body) * foam * FOAM_COVER * fade);
 
       // How the surface leans, along BOTH axes rather than one: up-screen in
       // this projection is up and left together, so a wave running the other
@@ -370,7 +560,7 @@ function cornerValues(
       const sp = Math.sqrt(wl.vvx[v] * wl.vvx[v] + wl.vvy[v] * wl.vvy[v]);
       const rough = Math.min(1, (Math.abs(gx) + Math.abs(gy)) / (SLOPE_REF * 2));
       const shown = Math.max(rough, Math.min(1, sp / STREAK_SPEED));
-      const lit = 0.5 + respond(lean) * 0.34 + wl.vw[v] * (0.2 + 0.8 * shown) * 0.3;
+      const lit = litAt(respond(lean), wl.vw[v], shown);
       // And FOAM carries the shade on past anything water does, into the range
       // above — as a MIX towards the white end, not as something added on.
       // Added on, foam had to work from wherever the water's own shading had
@@ -379,8 +569,11 @@ function cornerValues(
       // ceiling of 138. Barely paler than water, for the whitest thing the
       // renderer can draw. Mixed, foam of one is the top of the ramp whatever
       // was underneath it, and foam of nothing leaves the water alone.
-      const base = Math.max(0, Math.min(1, lit)) * (TINTS - 1);
-      wl.vl[v] = Math.round(base + foam * (SHADES - 1 - base));
+      // Both of them in one place, because the SHEET going over a lip has to
+      // arrive at the same answer — see `surfaceLook`.
+      const look = surfaceLook(wl.vd[v], foam, lit);
+      wl.va[v] = packAlpha(look.cover);
+      wl.vl[v] = Math.round(look.shade);
     }
   }
 }
@@ -418,7 +611,7 @@ function nearby(wl: WaterLayer, v: number, step: number): number {
 const respond = (v: number) => v / (Math.abs(v) + SLOPE_REF);
 
 /** Lighten toward white, for the aerated look of moving water. */
-function aerate(colour: number, t: number): number {
+export function aerate(colour: number, t: number): number {
   const ch = (sh: number) => {
     const c = (colour >> sh) & 0xff;
     return Math.min(255, Math.round(c + (255 - c) * t));
@@ -437,6 +630,7 @@ function aerate(colour: number, t: number): number {
  */
 export function drawWater(
   wl: WaterLayer, field: WaterField, bands: BandLayer, dt: number,
+  faces = true, rim = RIM,
 ) {
   const { columns } = field;
   wl.t += dt;
@@ -455,8 +649,8 @@ export function drawWater(
       stepFlowWash(wl.wash, columns, dt, region);
       stepFoam(wl.foam, columns, dt, region);
     }
-    cornerValues(wl, columns, region);
-    fillQuads(wl, field, bands, region);
+    cornerValues(wl, columns, region, rim);
+    fillQuads(wl, field, bands, region, faces, rim);
   }
 
   for (const b of [...wl.live]) {
@@ -470,6 +664,7 @@ export function drawWater(
 function fillQuads(
   wl: WaterLayer, field: WaterField, bands: BandLayer,
   region: { x0: number; y0: number; x1: number; y1: number },
+  faces: boolean, rim: number,
 ) {
   const { columns } = field;
   const { nx, depth } = columns;
@@ -509,8 +704,10 @@ function fillQuads(
       const fx1v = fx0v + step;
 
       // A FALL is about what is crossing the edge, not what is standing on it.
-      fallFace(batch, columns, i, cx, cy, 1, 0, fx1v, fy0, fx1v, fy1, base, HWs, HHs, HUs);
-      fallFace(batch, columns, i, cx, cy, 0, 1, fx0v, fy1, fx1v, fy1, base, HWs, HHs, HUs);
+      // The FALLS are not here. Water thrown off a lip travels toward the
+      // camera as it drops, so by the time it lands it is in a different band
+      // from the column it left — which is the one thing a mesh sorted by
+      // column cannot express. See `render/falls-render`.
       wl.live.add(tx + ty);
 
       // A CORNER IS A CORNER. Every column that meets at one draws it at the
@@ -559,10 +756,40 @@ function fillQuads(
       // And the SIDE of the water body, on the two visible edges only, hung
       // from the very corners the surface quad just used — so the sheet and
       // its own edge share vertices and there is no seam between them.
-      sideFace(batch, wl, columns, i, cx, cy, 1, 0, fx1v, fy0, fx1v, fy1,
-        v10, v11, base, HWs, HHs, HUs);
-      sideFace(batch, wl, columns, i, cx, cy, 0, 1, fx0v, fy1, fx1v, fy1,
-        v01, v11, base, HWs, HHs, HUs);
+      //
+      // FILED FORWARD off a tile's far edge. A face hangs DOWN from the
+      // surface, so a face on the boundary of a tile pokes into the diamond of
+      // the tile in FRONT of it — and that tile's terrain is a later band and
+      // paints over it. On flat water nothing shows, because the tile in front
+      // is at the same level and its own water covers the same strip; at a LIP
+      // it is six half steps down, its water covers nothing there, and what is
+      // left is ground showing through the sheet. Along a stepped cascade that
+      // is a row of square teeth, one per band, each as tall as the water is
+      // deep.
+      //
+      // Only where the ground in front is BELOW this water. A tile in front
+      // that stands higher is genuinely in front, and its terrain covering the
+      // face is the band order doing its job — filed forward, a pond against a
+      // wall would paint its edge up the wall. And only on the tile's own far
+      // edge: an interior face never crosses a band boundary, so moving it
+      // would be a lie about where it is for no gain.
+      const surface = columns.ground[i] + d;
+      const last = COLUMNS_PER_TILE - 1;
+      const eastOn = cx % COLUMNS_PER_TILE === last
+        && cx + 1 < nx && columns.ground[i + 1] < surface;
+      const southOn = cy % COLUMNS_PER_TILE === last
+        && cy + 1 < columns.ny && columns.ground[i + nx] < surface;
+      // Never past the cull: a band that is switched off draws nothing, and
+      // the tile the face belongs to is still on screen.
+      if (!faces) continue;                     // the debug switch
+      const ahead = tx + ty + 1 <= hi ? wl.strips[tx + ty + 1] : undefined;
+      const eastB = eastOn && ahead ? ahead : batch;
+      const southB = southOn && ahead ? ahead : batch;
+      if (eastB !== batch || southB !== batch) wl.live.add(tx + ty + 1);
+      sideFace(eastB, wl, columns, i, cx, cy, 1, 0, fx1v, fy0, fx1v, fy1,
+        v10, v11, base, HWs, HHs, HUs, rim);
+      sideFace(southB, wl, columns, i, cx, cy, 0, 1, fx0v, fy1, fx1v, fy1,
+        v01, v11, base, HWs, HHs, HUs, rim);
     }
   }
 }
@@ -588,12 +815,18 @@ function sideFace(
   cx: number, cy: number, dx: number, dy: number,
   ax: number, ay: number, bx: number, by: number,
   vA: number, vB: number,
-  base: number, HWs: number, HHs: number, HUs: number,
+  base: number, HWs: number, HHs: number, HUs: number, rim: number,
 ) {
   const nx2 = cx + dx, ny2 = cy + dy;
-  if (nx2 >= columns.nx || ny2 >= columns.ny) return;
-  const j = ny2 * columns.nx + nx2;
-  const bed = columns.ground[i], bedJ = columns.ground[j];
+  const bed = columns.ground[i];
+  // THE RIM OF THE MAP IS NOT A NEIGHBOUR. It used to return here, and water
+  // running to the edge was drawn as a sheet with nothing under it — the
+  // terrain's own skirt showing through where the water's body should be. The
+  // edge behaves like dry ground at this column's own level, which is what
+  // makes the body reach all the way down to the bed it stands on.
+  const offMap = nx2 >= columns.nx || ny2 >= columns.ny;
+  const j = offMap ? i : ny2 * columns.nx + nx2;
+  const bedJ = offMap ? bed : columns.ground[j];
 
   // DOWN TO WHERE THE NEIGHBOUR'S OWN QUAD REACHES, corner for corner, and no
   // lower than this column's bed — below that is rock.
@@ -606,7 +839,7 @@ function sideFace(
   // 2.7% of the ground under it and every sample of it on a tile with a one
   // step drop. Matched to the neighbour's corners there is nothing left to
   // leave showing.
-  const wetJ = columns.depth[j] > columns.params.dryDepth;
+  const wetJ = !offMap && columns.depth[j] > columns.params.dryDepth;
   // Where the side starts and where it reaches is `corner-rule.ts`, which the
   // shader path is generated from too.
   const side = resolveSide(
@@ -623,51 +856,65 @@ function sideFace(
   // spray: aerated as hard as a fall it came out near white, and a ring of
   // near-white round every pool on a plateau is what made them read as panels
   // stuck to the rock rather than water standing on it.
+  // AS SOLID AS THE WATER IS DEEP, top to bottom, on the same ramp the surface
+  // uses — see `shade`. It was a flat 0.30 at the waterline and 0.48 at the
+  // foot whatever the water was doing, and that is what made a deep body read
+  // as a SHEET OVER A VOID: the geometry was there all along, a flooded
+  // sixteen tile map building a hundred and twenty-eight rim faces each
+  // exactly as tall as the water is deep, and at a third of an alpha over
+  // bright grass what you saw through them was the grass.
+  //
+  // Flat top to bottom, and that was tried the other way. Lightening the
+  // waterline is the physical story — you are looking through less water at
+  // the top of a face than at the bottom — but drawn it is worse: the grade
+  // puts the ground's own colour through the top half of every edge, so a
+  // lake picks up a rim of whatever it is standing on. One number, and the
+  // edge reads as the side of a body of water.
+  //
+  // AND AT A LIP IT IS HANDED OVER TO THE SHEET. A free vertical face of water
+  // cannot exist: water is bounded by a container, by a shore, or it is
+  // falling, and only two of those are a pane.
+  //
+  //  - A SHORE is a waterline, and the rim rule has already dealt with it —
+  //    the corner comes down to its bed and there is no height here to draw.
+  //  - A CONTAINER is a pane, and a real one. Water held by a bank stands full
+  //    depth against it. The neighbour is HIGHER, so `beside` is above `bed`,
+  //    the spill is nought and the face is untouched.
+  //  - THE MAP'S OWN EDGE is a pane too, and an honest one: the terrain shows
+  //    its skirt there and the water should show a cross-section to match. An
+  //    off-map neighbour stands at this column's own level, so again nought.
+  //  - FALLING is not a pane. The water at a lip is not cut and does not end:
+  //    it goes over, and what bounds it is the SHEET. Drawn as well, the pane
+  //    is a fish tank hung in front of the fall — flat, hard-edged, uniformly
+  //    translucent, with the cliff visible through it undistorted, and on a
+  //    deep lip the largest one in the scene.
+  //
+  // What this replaces is the argument that a face at a lip is "the
+  // cross-section of the water standing ON the lip, and that water is really
+  // there". True, and beside the point: the water is there and the SHEET is
+  // what draws it. A nappe hangs from the surface by the lip's own thickness
+  // and `driftAt` is NOUGHT at the lip itself, so at the brink the sheet
+  // covers this face end for end and every pixel of pane is a second, flatter
+  // copy of water already drawn. The bare cliff the old note measured at 82
+  // pixels was from when the nappe hung from the BED instead of the surface.
+  //
+  // Read off the GROUND, not off the solver's fall state, because the shader
+  // has the ground and does not have the falls, and the two paths agreeing
+  // matters more than either being clever. The one place they differ from
+  // "wherever a sheet is drawn" is a lip that is wet but has no fall yet,
+  // which lasts the one frame before the solver makes one.
+  //
+  // Faded rather than switched, over the same ramp `atBrink` uses, so a lip
+  // that deepens hands the boundary from the pane to the sheet gradually.
+  const beside = wetJ ? bedJ + columns.depth[j] : bedJ;
+  const spill = rim * spillAt(bed, beside, FALL_MIN);
+  const body = shade(shownDepth(columns, i, columns.depth[i])) * (1 - spill);
+  if (body <= 0) return;
+
   face(batch, ax, ay, bx, by,
     side.topA, side.topB, side.floorA, side.floorB,
-    aerate(base, 0.08 + speed(columns, cx, cy) * 0.14), 0.30, 0.48, HWs, HHs, HUs);
-}
-
-/**
- * The FALL below a lip: the column's ground down to whatever is beyond it.
- *
- * Drawn off the FLUX, not off the height difference — a height difference is
- * just a cliff, and one with a pond sitting on top of it was drawing a
- * waterfall that was not there. Water has to actually be crossing the edge.
- *
- */
-function fallFace(
-  batch: QuadBatch, columns: ColumnField, i: number,
-  cx: number, cy: number, dx: number, dy: number,
-  ax: number, ay: number, bx: number, by: number,
-  base: number, HWs: number, HHs: number, HUs: number,
-) {
-  if (cx + dx >= columns.nx || cy + dy >= columns.ny) return;
-  // HOW FAR DOWN IT HAS GOT, which is a thing that takes time — see `falls`.
-  // Drawn from the head of the fall to its front rather than from the lip to
-  // whatever is below, so a fall starting reaches down the wall at the speed a
-  // thing falls instead of spanning it in one frame, and a fall stopping
-  // detaches and drops away.
-  const reach = fallExtent(columns, i, dx ? 0 : 1);
-  if (!reach) return;
-  const lip = columns.ground[i];
-  const flux = dx ? columns.fx[i] : columns.fy[i];
-  const pouring = Math.min(1, Math.max(flux, 0) / FULL_FALL_FLUX);
-  // FULL WIDTH, top and bottom, so falls along an edge meet each other and
-  // read as one sheet going over it. Narrowed into the drop they were a row of
-  // tapering wedges side by side, which looks like bunting, not water — how
-  // hard it is pouring is in the OPACITY instead, where a trickle is a faint
-  // veil and a torrent is a curtain.
-  //
-  // And it thins with the DISTANCE fallen: past a few half steps a sheet is
-  // mostly air, so a long fall is bright at the lip and gone before the floor.
-  const thin = (below: number) => Math.max(0, 1 - below / FALL_REACH);
-  face(batch, ax, ay, bx, by,
-    lip - reach.head, lip - reach.head, lip - reach.front, lip - reach.front,
-    aerate(base, 0.20 + speed(columns, cx, cy) * 0.22),
-    (0.16 + 0.30 * pouring) * thin(reach.head),
-    (0.10 + 0.22 * pouring) * thin(reach.front),
-    HWs, HHs, HUs);
+    aerate(base, 0.08 + speed(columns, cx, cy) * 0.14),
+    body, body, HWs, HHs, HUs);
 }
 
 /**
@@ -684,14 +931,21 @@ function face(
   topA: number, topB: number, bottomA: number, bottomB: number,
   colour: number, topAlpha: number, bottomAlpha: number,
   HWs: number, HHs: number, HUs: number,
+  dx = 0, dy = 0, leanTop = 0, leanFoot = 0,
 ) {
   const crest = rgba(colour, topAlpha);
   const foot = rgba(colour, bottomAlpha);
+  // The LEAN is how far the quad's foot has travelled away from its top,
+  // along the axis it is falling down. A side of a body of water has none and
+  // is a vertical plane; a fall has one, because water going over a lip keeps
+  // the speed it had and the two ends of it are no longer above each other.
+  const tx = dx * leanTop, ty = dy * leanTop;
+  const bxx = dx * leanFoot, byy = dy * leanFoot;
   pushQuad(
     batch,
-    (ax - ay) * HWs, (ax + ay) * HHs - topA * HUs, crest,
-    (bx - by) * HWs, (bx + by) * HHs - topB * HUs, crest,
-    (bx - by) * HWs, (bx + by) * HHs - bottomB * HUs, foot,
-    (ax - ay) * HWs, (ax + ay) * HHs - bottomA * HUs, foot,
+    (ax + tx - ay - ty) * HWs, (ax + tx + ay + ty) * HHs - topA * HUs, crest,
+    (bx + tx - by - ty) * HWs, (bx + tx + by + ty) * HHs - topB * HUs, crest,
+    (bx + bxx - by - byy) * HWs, (bx + bxx + by + byy) * HHs - bottomB * HUs, foot,
+    (ax + bxx - ay - byy) * HWs, (ax + bxx + ay + byy) * HHs - bottomA * HUs, foot,
   );
 }

@@ -13,10 +13,13 @@ export const InnovationSummary = ({
   compact?: boolean;
   className?: ClassNameValue;
 }) => {
-  const { innovation, getMultiplier, unlocks } = useInnovationStore();
-  const globalMultiplier = getMultiplier().toFixed(4);
-  // Subscribing to this primitive also refreshes the breakdown below.
-  const ips = useGeneratorStore((state) => state.getInnovationPerSecond());
+  const { unlocks } = useInnovationStore();
+  // SUBSCRIBED AND NOT READ, on purpose. The breakdown below is pulled
+  // imperatively out of `getState()`, which does not subscribe to anything, so
+  // without a hook watching a primitive that moves with it this panel would
+  // render once and then show whatever was true at the time. Bound to a name
+  // it looks like a value nobody uses; it is the subscription that is wanted.
+  useGeneratorStore((state) => state.getInnovationPerSecond());
   const mgr = getManagerEconomyMultipliers();
   const managersActive = unlocks.managers?.unlocked;
 

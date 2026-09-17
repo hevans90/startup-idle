@@ -30,8 +30,11 @@
  */
 
 import {
-  createFalls, dropAt, intoAir, stepFalls, waterInAir, type FallState,
+  createFalls, dropAt, intoAir, markCliffs, stepFalls, waterInAir, type FallState,
 } from "./falls";
+import {
+  ACROSS, createDrips, crown, dripRoom, fadeSplashes, stepDrips, waterInDrips, type DripState,
+} from "./drips";
 
 /**
  * Tuning. Depths and heights are in HALF STEPS, the engine's height unit.
@@ -288,6 +291,14 @@ export type ColumnField = {
    * arrives below a cliff until it has actually fallen the distance.
    */
   readonly falls: FallState;
+  /**
+   * Water falling in DROPS, which is not the same thing as a fall.
+   *
+   * A fall is a sheet going over a lip and belongs to the edge it crosses; a
+   * drip is a parcel in free flight from a mouth that may be nowhere near a
+   * cliff at all. See `drips.ts`.
+   */
+  readonly drips: DripState;
 };
 
 /** How many TILES across one wind cell is. Gusts are weather, not ripples. */
@@ -342,6 +353,7 @@ export function createColumnField(
     box: { x0: 0, y0: 0, x1: -1, y1: -1 },      // empty
     deepest: 0,
     falls: createFalls(nx, ny),
+    drips: createDrips(nx, ny),
   };
 }
 
@@ -393,7 +405,9 @@ export const surfaceAt = (f: ColumnField, i: number) => f.ground[i] + f.depth[i]
 export function totalWater(f: ColumnField): number {
   let sum = 0;
   for (let i = 0; i < f.depth.length; i++) sum += f.depth[i];
-  return sum + waterInAir(f);
+  // Water in the air counts. A drop on its way down is still a drop, whether
+  // it is a sheet coming off a lip or a parcel out of a pipe.
+  return sum + waterInAir(f) + waterInDrips(f.drips);
 }
 
 /**
@@ -413,6 +427,256 @@ export function addWater(
   if (next <= 0) f.material[i] = 0;
   if (next > 0) include(f, x, y);
   if (next > f.deepest) f.deepest = next;
+}
+
+/**
+ * Reference impact speed, in half steps a second: a landing this fast digs as
+ * big a crater as a drop of {@link DROP}'s size ever digs.
+ *
+ * A drop off a five step lip arrives at about forty — `sqrt(2 g h)` on the
+ * fall gravity — so this is "a decent drop", and a pipe hanging a hand's
+ * breadth over a pool makes a ripple rather than a bomb crater.
+ */
+const IMPACT_REF = 40;
+
+/** Radial flow a full impact drives, in tiles a second. */
+const CRATER = 1.1;
+
+/**
+ * Never more than this much of the local wave speed.
+ *
+ * A crater is an initial condition for the solver, not an effect painted on
+ * it, so it has to be one the solver can carry: `sqrt(gravity * depth)` is how
+ * fast news travels in water that deep, and shoving faster than that is asking
+ * a scheme with a Courant limit to represent something supersonic. It rings
+ * instead. Half of it leaves room for the wave the crater itself becomes.
+ */
+const CRATER_CAP = 0.5;
+
+/** Water at least this many times the drop's own depth has room for a crater. */
+const CRATER_ROOM = 3;
+
+/**
+ * How fast a drop has to arrive to throw a crown, in half steps a second, and
+ * how much of itself it throws.
+ *
+ * The real criterion is a Weber number, `We = rho v^2 d / sigma`, of about
+ * forty: below it the drop merges with a ripple and nothing leaves the
+ * surface, above it the crater's rim goes unstable and flings droplets off.
+ * With the drop size fixed by {@link DROP} the Weber number is a speed, so
+ * that is what this is. Thirty is a fall of about three full steps.
+ */
+const CROWN_SPEED = 30;
+const CROWN_SHARE = 0.22;
+
+/**
+ * How hard a plunge drives the water away from it, against the momentum the
+ * sheet actually arrives with.
+ *
+ * One would be the honest number: all of the jet's downward momentum turned
+ * sideways at the bed, which is nearly what a plunging jet does. It is set at
+ * three, and it is worth being exact about why rather than calling it a
+ * fraction and quietly using four.
+ *
+ * At one, the depression this digs is 0.25 of a half step in a pool two and a
+ * half deep — and that is not a bug, it is the answer. The forcing settles
+ * where it balances the pressure gradient it has made, `q = gain * carry *
+ * head`, which for this fall predicts 0.30 against 0.25 measured. Real
+ * waterfalls do not dig visible holes in the water surface either. But a
+ * tenth of a half step is a dimple nobody can see at any zoom this game is
+ * played at, and a waterfall whose pool is indistinguishable from a pool under
+ * a tap is the thing this is here to fix.
+ *
+ * So it is exaggerated, in the same spirit and for the same reason as
+ * {@link CRATER} — a single drop does not really drive a tile a second of
+ * radial flow either. Three is where the pool reads as driven: measured on a
+ * river over a twenty-four half step cliff, 2.39 half steps deep and flowing
+ * at 0.61 becomes 1.08 deep and flowing at 1.48. Past three the cap takes over
+ * and it stops changing, which is the right place for a knob to stop.
+ */
+const PLUNGE_PUSH = 3;
+
+/**
+ * How fast a plunge may drive the water away from it, against the wave speed.
+ *
+ * The same rule a crater obeys and for the same reason — `sqrt(gravity *
+ * depth)` is how fast news travels in water that deep and a scheme with a
+ * Courant limit cannot carry anything faster — but it applies DIFFERENTLY,
+ * because a fall is not an impulse. A drop arrives once and the cap is on what
+ * that one arrival may do; a sheet arrives every step for as long as the river
+ * runs, so the cap is on the flow it BUILDS, and the forcing stops adding once
+ * the outflow is there. Left uncapped it is an accelerating push with only
+ * drag against it and the pool below a tall fall empties itself.
+ *
+ * Higher than a crater's half, because a plunge pool really does run out at
+ * the critical speed — that is what the white tongue spreading away from the
+ * foot of a waterfall IS. And it is a cap on the EDGE's flux and not on a
+ * quarter of it: the quartering belongs to the momentum being split four ways,
+ * not to how fast any one of the four may end up going. Quartered as well, the
+ * cap came out below the outflow the pool's own head was already driving, so
+ * the plunge could never add anything to it and the foot of a waterfall ran
+ * SLOWER than the same water arriving from a tap.
+ */
+const PLUNGE_CAP = 1;
+
+/**
+ * How much of what arrives fast comes back up as a plume, at most.
+ *
+ * A garnish and not the mechanism, which took some getting right. The plume
+ * moves real water out of the impact and lands it a column or two away, so it
+ * digs a depression all by itself — and in the first version of this it was
+ * digging MOST of it, with the momentum contributing a fifth. That is a bad
+ * way round for it to be, because whether the plume becomes drops at all is a
+ * question about the length of a list: a wide fall would have hit the budget,
+ * stopped making drops, and lost its plunge along with them. Now the momentum
+ * carries it — with the plume switched off entirely the pool is 1.08 deep and
+ * flowing at 1.48 against 1.06 and 1.63 with it.
+ */
+const PLUNGE_SPRAY = 0.05;
+
+/** How much of the drip list a plunge leaves for everything else. */
+const PLUNGE_ROOM = 0.3;
+
+/** How white a plunge makes the water it lands in, per unit arriving. */
+const PLUNGE_WHITE = 9;
+
+/**
+ * A SHEET arriving at the bottom of a fall: the water goes in, and the
+ * momentum it arrived with goes OUT across the pool.
+ *
+ * The thing that makes a waterfall do something to the water under it rather
+ * than be a picture hung in front of it. A fall used to arrive as
+ * `depth[to] += amount` — the whole of it, at rest, as though poured from a
+ * jug a hand's breadth above the surface — so the pool under a thirty half
+ * step drop was as still as a pond, and everything that looked like a plunge
+ * was foam painted on and the odd drop shed off the sheet. Measured on a
+ * twenty-four half step fall, the water in the receiving column moved at 0.02
+ * columns a second, which is nothing.
+ *
+ * A jet hitting a pool turns at the bed and runs away radially, and the
+ * DIVERGENCE of that is the standing depression you see under a waterfall —
+ * so it is not painted either, it comes out of the same continuity the rest of
+ * the solver runs on, along with the ring that travels away from it and the
+ * hydraulic jump where that ring meets still water.
+ *
+ * This is {@link splashInto} for something that keeps arriving: a drop's
+ * crater is an impulse capped at what one arrival may do, a plunge is a
+ * FORCING capped at the flow it may build. Same cap, different thing capped.
+ */
+export function plungeInto(
+  f: ColumnField, x: number, y: number, amount: number, material: number, speed: number,
+): void {
+  if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return;
+  const i = at(f, x, y);
+  // Some of it never joins the pool: a sheet coming in hard throws a plume
+  // straight back up, which is the loudest thing about a waterfall — if there
+  // are drops to spare for one. A crown is at least one drop however little is
+  // thrown, so a fall ninety columns wide fills the whole list in two frames
+  // if it is asked for a plume per column, and past the end of that list a
+  // drop is merged into another one and arrives somewhere it never was. Where
+  // there is no room the water simply stays in the pool: it is the same water
+  // either way, and whether it is drawn as drops is a budget rather than a
+  // fact about the water. See `PLUNGE_SPRAY` for why it is only a garnish.
+  const spray = speed > CROWN_SPEED && dripRoom(f.drips) > PLUNGE_ROOM
+    ? amount * PLUNGE_SPRAY * Math.min(1, (speed - CROWN_SPEED) / CROWN_SPEED)
+    : 0;
+  addWater(f, x, y, amount - spray, material);
+
+  const h = f.depth[i];
+  if (h > f.params.dryDepth) {
+    // Turned at the bed and sent out four ways. Only onto ground the water
+    // could reach — the cliff it just came off is RIGHT THERE, and a plunge
+    // that pushes back up its own wall is a waterfall feeding itself.
+    // Beware the units, which is what got this wrong the first time. The
+    // sheet arrives in HALF STEPS a second and the solver moves water in
+    // TILES a second; a half step draws at an eighth of a tile, which is half
+    // a COLUMN, so `ACROSS` converts to columns and `cell` from columns to
+    // tiles. Off by that factor and every plunge on the map pins itself
+    // against the cap, which makes the forcing a switch rather than a force.
+    const cap = h * PLUNGE_CAP * Math.sqrt(f.params.gravity * h);
+    const q = amount * (speed * ACROSS * f.cell) * PLUNGE_PUSH * 0.25;
+    const surface = f.ground[i] + h;
+    const n = f.nx;
+    if (x + 1 < f.nx && f.ground[i + 1] < surface) f.fx[i] += room(q, cap - f.fx[i]);
+    if (x > 0 && f.ground[i - 1] < surface) f.fx[i - 1] -= room(q, cap + f.fx[i - 1]);
+    if (y + 1 < f.ny && f.ground[i + n] < surface) f.fy[i] += room(q, cap - f.fy[i]);
+    if (y > 0 && f.ground[i - n] < surface) f.fy[i - n] -= room(q, cap + f.fy[i - n]);
+  }
+
+  if (spray > 0) crown(f.drips, x, y, f.ground[i] + f.depth[i], spray, material, speed);
+  // And it is WHITE, which the solver's own breaking test cannot tell: that
+  // reads the rate the surface is changing, and a sheet delivered straight
+  // into the depth never touches it.
+  const white = Math.min(1, (amount * PLUNGE_WHITE * speed) / IMPACT_REF);
+  if (white > f.drips.splash[i]) {
+    f.drips.splash[i] = white;
+    f.drips.splashed = true;
+  }
+}
+
+/** As much of `want` as `left` has room for, and never backwards. */
+const room = (want: number, left: number) => Math.max(0, Math.min(want, left));
+
+/**
+ * A drop landing: its water goes in, its MOMENTUM goes out.
+ *
+ * The part that makes a drop interact with the water rather than being pasted
+ * on top of it. A drop arrives with `m v` of downward momentum and the surface
+ * has to do something with it; what it does is get out of the way. The fluid
+ * is pushed aside into a crater, the crater's walls stand above the rest of
+ * the surface, and gravity pulls them back down and past — which is a ring
+ * wave, spreading. Nobody has to draw the ring. It is what this scheme does
+ * with a hole in a surface, and the hole is the only thing put in.
+ *
+ * Vertical velocity is not a variable a shallow water scheme HAS — that is the
+ * shallow water assumption — so the momentum cannot be handed over as itself.
+ * Its consequence can: an outward flux on the four edges of the column that
+ * was hit, which is the crater, capped at {@link CRATER_CAP} of the wave speed
+ * so the solver is never asked for something faster than it can carry.
+ *
+ * Returns the volume thrown back up as SPRAY — the crown — which the caller
+ * puts back in the air as drops. Only water deep enough to have a crater can
+ * throw one; a drop landing on dry ground or on a film just wets it.
+ */
+export function splashInto(
+  f: ColumnField, x: number, y: number, volume: number, material: number, speed: number,
+): number {
+  if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return 0;
+  const i = at(f, x, y);
+  const h = f.depth[i];
+  // How much room the water under it has: a crater needs somewhere to go.
+  const room = Math.min(1, h / Math.max(1e-6, volume * CRATER_ROOM));
+  const hit = Math.min(1, speed / IMPACT_REF);
+
+  if (room > 0 && hit > 0) {
+    const wave = Math.sqrt(f.params.gravity * h);
+    const out = Math.min(CRATER_CAP * wave, CRATER * hit * room);
+    // Split four ways, and only onto edges that exist — the rim of the map is
+    // a wall, and a flux written onto it is a flux the solver zeroes anyway.
+    //
+    // And only onto ground the water could actually get to. A crater is a raw
+    // flux, written straight onto the edges rather than driven by a head, so
+    // it is the one thing on the map that is not subject to the sill the rest
+    // of the solver measures everything from — and at the foot of a cliff that
+    // means a drop landing in the plunge pool shoves water UP the rock face.
+    // Nothing noticed while the only drops were pipe drips landing in the
+    // open; a fall sheds its spray exactly where a cliff is. Measured on a
+    // twenty half step shelf over a flooded plain, drops landing at the bottom
+    // put four hundredths of a unit of water on top of the shelf, which is
+    // water climbing twelve half steps with nothing pushing it.
+    const surface = f.ground[i] + h;
+    const q = h * out * 0.25;
+    if (x + 1 < f.nx && f.ground[i + 1] < surface) f.fx[i] += q;
+    if (x > 0 && f.ground[i - 1] < surface) f.fx[i - 1] -= q;
+    if (y + 1 < f.ny && f.ground[i + f.nx] < surface) f.fy[i] += q;
+    if (y > 0 && f.ground[i - f.nx] < surface) f.fy[i - f.nx] -= q;
+  }
+
+  const spray = speed > CROWN_SPEED && room >= 1
+    ? volume * CROWN_SHARE * Math.min(1, (speed - CROWN_SPEED) / CROWN_SPEED)
+    : 0;
+  addWater(f, x, y, volume - spray, material);
+  return spray;
 }
 
 /** Widen the active box to cover a column. */
@@ -546,6 +810,18 @@ function stableStep(f: ColumnField): number {
 const MAX_SUBSTEPS = 12;
 
 export function stepFlow(f: ColumnField, dt: number) {
+  // WHERE THE GROUND MAKES A CLIFF, once a frame — see `FallState.cliff`.
+  //
+  // Here rather than wherever the ground is written, and rebuilt rather than
+  // invalidated, because a derived index with an invalidation protocol is a
+  // rule somebody has to remember: `ground` is a public array and the tests
+  // write to it directly, quite reasonably. Ground cannot change during a
+  // frame — the editor writes it between them — so once at the top is always
+  // current, and there is no protocol to get wrong.
+  //
+  // It costs one pass of two comparisons per column. What it saves is
+  // `stepFalls` walking the whole box every SUBSTEP doing much more than that.
+  markCliffs(f);
   let left = dt;
   let guard = 0;
   while (left > 1e-6 && guard++ < MAX_SUBSTEPS) {
@@ -731,7 +1007,7 @@ function substep(f: ColumnField, dt: number) {
   f.t += dt;
   if (f.openEdge) spill(f);
   const region = activeBox(f);
-  if (!region) return;                          // nothing wet: nothing to do
+  if (!region) { stepAir(f, dt); return; }      // nothing wet, but drops still fall
   stirWind(f);
   // What was breaking at the end of the last step dissipates at the start of
   // this one, on the viscosity that step worked out. A step behind, which is
@@ -913,9 +1189,12 @@ function substep(f: ColumnField, dt: number) {
   }
   // Note the biggest contributor to each cell as we go, so a cell that fills
   // this step knows what filled it.
-  const credit = (to: number, from: number, move: number) => {
-    if (move > bestIn[to]) { bestIn[to] = move; bestMat[to] = material[from]; }
-  };
+  //
+  // WRITTEN OUT AND NOT A CLOSURE. It was a two-line arrow called once per
+  // moving edge, and neither engine inlines it: the divergence went from
+  // 0.25ms on still water to 1.0ms the moment anything moved, on arithmetic
+  // that is four array accesses. Four copies of two lines is the price, and
+  // the shape of each is identical so they read as one thing.
   for (let y = Y0; y <= Y1; y++) {
     for (let x = X0; x <= X1; x++) {
       const i = y * nx + x;
@@ -928,9 +1207,14 @@ function substep(f: ColumnField, dt: number) {
         if (move > 0 && dropAt(f, i, 0) > 0) {
           intoAir(f, i, 0, move);
         } else {
-          delta[i + 1] += move;
-          if (move > 0) credit(i + 1, i, move);
-          else if (move < 0) credit(i, i + 1, -move);
+          const j = i + 1;
+          delta[j] += move;
+          if (move > 0) {
+            if (move > bestIn[j]) { bestIn[j] = move; bestMat[j] = material[i]; }
+          } else if (move < 0) {
+            const up = -move;
+            if (up > bestIn[i]) { bestIn[i] = up; bestMat[i] = material[j]; }
+          }
         }
       }
       if (y + 1 < ny) {
@@ -939,9 +1223,14 @@ function substep(f: ColumnField, dt: number) {
         if (move > 0 && dropAt(f, i, 1) > 0) {
           intoAir(f, i, 1, move);
         } else {
-          delta[i + nx] += move;
-          if (move > 0) credit(i + nx, i, move);
-          else if (move < 0) credit(i, i + nx, -move);
+          const j = i + nx;
+          delta[j] += move;
+          if (move > 0) {
+            if (move > bestIn[j]) { bestIn[j] = move; bestMat[j] = material[i]; }
+          } else if (move < 0) {
+            const up = -move;
+            if (up > bestIn[i]) { bestIn[i] = up; bestMat[i] = material[j]; }
+          }
         }
       }
     }
@@ -990,6 +1279,34 @@ function substep(f: ColumnField, dt: number) {
   // And what has finished falling lands. After the depths, so what arrives
   // this step is water that left a lip on an earlier one.
   stepFalls(f, dt, region);
+  // The same for drops, which land wherever the surface has got to — so a pipe
+  // over a filling pool has a shorter fall as the pool comes up to meet it.
+  stepAir(f, dt);
+}
+
+/**
+ * The water that is in the AIR, which falls whether or not any is on the map.
+ *
+ * Everything else a step does is about columns that are wet, so a step over a
+ * dry map has nothing to do and says so — except for this. A pipe over dry
+ * ground is the first water that map ever gets, and a drop that only moved once
+ * something else was already wet would hang there forever: measured, a pipe on
+ * a dry map put twenty drops in the air in five seconds and landed none of
+ * them, while the same pipe with an unrelated puddle five tiles away landed all
+ * of it. So this runs on both sides of the nothing-wet return.
+ */
+function stepAir(f: ColumnField, dt: number) {
+  fadeSplashes(f.drips, dt);
+  stepDrips(
+    f.drips, dt,
+    (cx, cy) => {
+      const x = Math.round(cx), y = Math.round(cy);
+      if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return -1e9;
+      return surfaceAt(f, y * f.nx + x);
+    },
+    (cx, cy, volume, material, speed) =>
+      splashInto(f, Math.round(cx), Math.round(cy), volume, material, speed),
+  );
 }
 
 /**

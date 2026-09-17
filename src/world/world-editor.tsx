@@ -15,6 +15,7 @@ import { DEFAULT_SIZE, useWorldStore } from "../state/world.store";
 import "./debug/expose-store";
 import { bandCount } from "./iso";
 import { WorldScene } from "./world-scene";
+import { PerfHud } from "./debug/perf-hud";
 import { WorldViewport } from "./world-viewport";
 import { CellReadout } from "./debug/cell-readout";
 import { Minimap } from "./debug/minimap";
@@ -70,6 +71,7 @@ export function WorldEditor() {
         )}
         {/* anchored HTML — inside the wrapper but pointer-events-none, so it
             can never intercept a pick */}
+        {import.meta.env.DEV && <PerfHud />}
         <CellReadout />
       </div>
 
@@ -102,7 +104,8 @@ export function WorldEditor() {
 
         <p className="mt-4 mb-1 text-gray-400">overlays</p>
         <div className="flex flex-wrap gap-1">
-          {(["grid", "bands", "height", "origin", "net", "mask", "gaps"] as (keyof Overlays)[]).map((k) => (
+          {(["grid", "bands", "height", "origin", "net", "mask", "gaps", "xray",
+            "faces"] as (keyof Overlays)[]).map((k) => (
             <button
               key={k}
               type="button"

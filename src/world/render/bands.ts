@@ -66,6 +66,8 @@ export type BandLayer = {
   structureOf: Container[];
   /** Sorted per-band sublist for movers; draws above the static content. */
   dynamicOf: Container[];
+  /** How solid the ground is drawn, so {@link setGroundAlpha} can skip a no-op. */
+  groundAlpha: number;
   readonly w: number;
   readonly h: number;
   visibleLo: number;
@@ -117,7 +119,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
 
   return {
     root, bands, cliffOf, staticOf, pavedOf, structureOf, dynamicOf,
-    w, h, visibleLo: 0, visibleHi: n - 1,
+    w, h, visibleLo: 0, visibleHi: n - 1, groundAlpha: 1,
   };
 }
 
@@ -143,6 +145,31 @@ export function setVisibleBands(layer: BandLayer, lo: number, hi: number) {
   }
   layer.visibleLo = l;
   layer.visibleHi = r;
+}
+
+/**
+ * Fade the GROUND — the terrain, the cliff columns under it and the paving on
+ * top — so that what is buried in it can be seen.
+ *
+ * The three tiers below the structure tier, and no others, because "see
+ * through the ground" is exactly what it says: water and pipework live above
+ * them and keep their own strength, so a buried run shows through the hill it
+ * is under while a surface one looks as it always did.
+ *
+ * Per band and only on a change. Alpha on a CONTAINER rather than on each
+ * sprite, so a map of four thousand tiles costs three assignments a band and
+ * not four thousand — and the cliff columns under a tile go translucent with
+ * it, which is what makes a hillside something you can see into rather than a
+ * flat pane of glass.
+ */
+export function setGroundAlpha(layer: BandLayer, alpha: number) {
+  if (layer.groundAlpha === alpha) return;
+  for (let b = 0; b < layer.bands.length; b++) {
+    layer.cliffOf[b].alpha = alpha;
+    layer.staticOf[b].alpha = alpha;
+    layer.pavedOf[b].alpha = alpha;
+  }
+  layer.groundAlpha = alpha;
 }
 
 /** How many bands are currently drawn. */

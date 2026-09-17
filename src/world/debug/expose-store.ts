@@ -35,6 +35,26 @@ declare global {
     __water?: unknown;
     /** The water mesh layer, so a frame can be drawn by hand when rAF is paused. */
     __waterLayer?: unknown;
+    /**
+     * The waterfall layer, which no screenshot can settle on its own.
+     *
+     * A fall is a handful of quads filed into bands, and the whole question
+     * about it — is a piece in the band it is actually in — is about WHICH
+     * band holds WHICH quad. That is invisible when it is right and looks
+     * like ordinary terrain in front of water when it is wrong, so it is
+     * counted from a console rather than looked at.
+     */
+    __falls?: unknown;
+    /**
+     * The GPU water layer, which is where the FOAM field lives.
+     *
+     * `__waterLayer` is the CPU mesh builder and is null whenever the vertex
+     * shader path is the one running — which is most of the time — so it is no
+     * use for asking what the water is being drawn WITH. Foam is a field like
+     * the flow wash, it is the only thing that makes water white, and a
+     * console is the only place it can be read.
+     */
+    __waterGpu?: unknown;
     /** Drives frames by hand, past the rAF throttle. See world-scene. */
     __waterBench?: (n?: number, sync?: boolean) => Promise<unknown>;
     /** Draws one scene both ways and compares the pixels. See water-compare. */

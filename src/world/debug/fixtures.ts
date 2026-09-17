@@ -6,13 +6,16 @@
  * build the exact awkward cases on demand, so "the cursor lands on the wrong
  * cell" becomes reproducible.
  */
+import { DIR } from "../../iso/dir";
+import { layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import { fillTerrain, idx, inBounds, recomputeHeightRange, type Grid } from "../grid";
 
 export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
-  | "river" | "cascade" | "lake" | "islands";
+  | "river" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
+  | "waterfall" | "brink";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -28,6 +31,38 @@ const clear = (g: Grid, material: number) => {
   g.paved.fill(0);
   g.source.fill(0);
   g.fluid.fill(0);
+  g.pool.fill(0);
+  g.pipe.fill(0);
+};
+
+/**
+ * Water that is ALREADY THERE, filled to a waterline.
+ *
+ * Every fixture used to have to be a spring, because the grid could say a
+ * lake had been poured but never how deep — so water arrived by being run in
+ * from somewhere and the map had to be watched while it filled. Anything about
+ * water at rest, or about what a fall does to a pool that is already there,
+ * could only be waited for.
+ *
+ * Authored as a LEVEL rather than a depth, because a pond is a thing with a
+ * waterline: every cell in the box whose ground is under it gets the
+ * difference, and everything standing above it stays dry. So a basin fills
+ * and the rim round it does not, without anything having to say where the
+ * basin is.
+ */
+const pond = (
+  g: Grid, level: number, fluid = 1,
+  x0 = 0, y0 = 0, x1 = g.w - 1, y1 = g.h - 1,
+) => {
+  for (let y = Math.max(0, y0); y <= Math.min(g.h - 1, y1); y++) {
+    for (let x = Math.max(0, x0); x <= Math.min(g.w - 1, x1); x++) {
+      const i = idx(g, x, y);
+      const deep = level - g.height[i];
+      if (deep <= 0) continue;
+      g.pool[i] = Math.min(255, Math.round(deep));
+      g.fluid[i] = fluid;
+    }
+  }
 };
 
 /** A tap: positive feeds, negative drains. See the `source` layer. */
@@ -270,7 +305,135 @@ export function buildLake(g: Grid, material: number) {
   for (let y = Math.round(cy) - 1; y <= Math.round(cy) + 1; y++) {
     for (let x = Math.round(cx + r) - 1; x < g.w; x++) set(g, x, y, -4);
   }
+  // And it is a LAKE on the first frame, rather than a hole that becomes one
+  // in half a minute. Filled to just under the notch, so the spring still has
+  // somewhere to take it and the overflow is the thing you watch.
+  pond(g, -5);
   for (let d = -1; d <= 1; d++) tap(g, 1, Math.round(cy) + d, SPRING);
+}
+
+/**
+ * A river off a tall cliff into a pool that is already there.
+ *
+ * What a waterfall DOES to the water under it is the whole point of this one,
+ * and it is the thing that could not be set up before {@link Grid.pool}: the
+ * pool had to fill itself from the fall, so for the first half minute the fall
+ * was landing on rock and by the time there was anything to plunge into the
+ * interesting part had been and gone.
+ *
+ * A parapet round the plain keeps the pool where it is put, and the shelf is
+ * cut with a channel so the river arrives as one fall rather than a curtain
+ * along the whole cliff.
+ */
+export function buildPlunge(g: Grid, material: number) {
+  clear(g, material);
+  const mid = Math.round(g.h / 2), lip = Math.round(g.w * 0.45);
+  const rim = g.w - 2;
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const banked = Math.abs(y - mid) > 2 ? 24 : 0;
+      const wall = y < 1 || y > g.h - 2 || x > rim ? 40 : 0;
+      // A shelf sloping gently down to the lip, then nothing.
+      set(g, x, y, x < lip ? 24 + Math.max(0, lip - 4 - x) + banked : Math.max(0, wall));
+    }
+  }
+  // The pool it falls into, four half steps of it, held in by the parapet.
+  pond(g, 4, 1, lip, 0, g.w - 1, g.h - 1);
+  for (let d = -1; d <= 1; d++) tap(g, 2, mid + d, SPRING);
+}
+
+/**
+ * ONE STRAIGHT CLIFF, WITH THE RIVER ALREADY OVER IT.
+ *
+ * The plainest waterfall that can exist, and it exists for looking at. The
+ * others in here each bend the water some way to prove something — `plunge`
+ * banks its channel, `cascade` steps it, `lake` makes it find a level — and
+ * every one of those puts a corner or a slope in the one place you want
+ * nothing: the lip. This is a straight edge across the map, square to it, so
+ * anything you can see at the brink is the brink and not the shape of the
+ * channel.
+ *
+ * AND IT IS ALREADY RUNNING. A fixture fed only by a spring is dry at the lip
+ * for the first several seconds, so every look at a waterfall began by
+ * watching a puddle spread — and worse, what you finally saw was a front
+ * arriving, which is not what a waterfall looks like once it has settled. The
+ * shelf is poured to a level ABOVE the lip, so it is going over on the first
+ * frame; the springs behind it are only there to keep it going.
+ *
+ * There is a pool at the bottom for the same reason: a plunge into bare rock
+ * for the first two seconds is a different thing from a plunge into water,
+ * and the one worth looking at is the second.
+ */
+export function buildWaterfall(g: Grid, material: number) {
+  clear(g, material);
+  const lip = Math.round(g.w * 0.45);
+  const TOP = 20, BANK = 34;
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      // Banked at the north and south rims so the river stays on the map and
+      // arrives at the cliff square to it, and walled at the back so the head
+      // of water cannot simply run away behind the springs.
+      const rim = y < 2 || y > g.h - 3 || x < 1;
+      set(g, x, y, rim ? BANK : x < lip ? TOP : 0);
+    }
+  }
+  // Standing water over the shelf, two half steps above the lip, so the first
+  // frame already has a river going over. The bank is higher than the level,
+  // so `pond` leaves it dry without being told where the channel is.
+  pond(g, TOP + 2, 1, 0, 0, lip - 1, g.h - 1);
+  // And something for it to land in.
+  pond(g, 3, 1, lip, 0, g.w - 1, g.h - 1);
+  // Kept running. Along the whole width, so the sheet is even across the lip
+  // rather than a tongue in the middle with dry rock either side of it.
+  for (let y = 3; y < g.h - 3; y++) tap(g, 1, y, SPRING);
+}
+
+/**
+ * THE SMALLEST POSSIBLE WATERFALL, with far too much water going over it.
+ *
+ * A measuring rig rather than a scene. Everything else in here is a map you
+ * can look at; this is five tiles square, so a single lip fills the screen and
+ * every column of it can be printed in one line. When something at a brink is
+ * wrong by a few pixels, that is the difference between reading it off a
+ * screenshot and reading it off the numbers.
+ *
+ * DELIBERATELY DROWNED. A brink holding a third of a half step and a brink
+ * holding ten behave differently, and only the deep one shows the faults that
+ * scale with depth — the sheet's top folding over, the drawdown having
+ * something to actually sag by. A trickle over an edge looks fine even when
+ * the arithmetic under it is wrong, which is exactly how a fold that goes as
+ * `depth` survived being looked at for a long time.
+ *
+ * So: two tiles of shelf, walled on three sides to hold a head of water, a
+ * twenty-four half step drop, and a spring feeding it faster than the lip can
+ * take. What goes over is a wave, not a film.
+ */
+export function buildBrink(g: Grid, material: number) {
+  clear(g, material);
+  const TOP = 24, WALL = 48, LIP = 2;
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      // Walled at the back and along the far rim, so the head cannot escape
+      // except over the lip, and the lip is square to the map.
+      //
+      // AND OPEN ALONG THE NEAR ONE, past the lip. A band is `x + y`, so the
+      // near rim is the last thing drawn and a wall there stands in front of
+      // the very thing this fixture exists to look at — on five tiles it is
+      // not a frame round the picture, it IS the picture. It is kept where it
+      // holds the shelf up (a rig with no head of water measures nothing) and
+      // dropped over the floor, where all it was doing was hiding the fall and
+      // the pool it lands in.
+      const rim = y === g.h - 1;
+      const held = x === 0 || y === 0 || (rim && x < LIP);
+      set(g, x, y, held ? WALL : x < LIP ? TOP : 0);
+    }
+  }
+  // Ten half steps standing on the shelf, which is a wave and not a film.
+  pond(g, TOP + 10, 1, 1, 1, LIP - 1, g.h - 2);
+  // And enough below to plunge into rather than onto.
+  pond(g, 4, 1, LIP, 1, g.w - 1, g.h - 2);
+  // Fed harder than the lip can pass, so it stays drowned.
+  for (let y = 1; y < g.h - 1; y++) tap(g, 1, y, SPRING * 6);
 }
 
 /**
@@ -306,6 +469,152 @@ export function buildIslands(g: Grid, material: number) {
   }
 }
 
+/**
+ * A pipe carrying water down a channel into a pocket that eventually drowns it.
+ *
+ * Everything a pipe does, on one map that runs itself, in about half a minute.
+ * A spring feeds a walled CHANNEL; a run of pipe lying along the channel has
+ * its uphill end open under the flow, so it DRAWS, and its downhill end open
+ * over the drop at the far end, so it DISCHARGES — in drops, fourteen half
+ * steps, into the pocket below. A branch off the middle of the run is turned
+ * back into itself, which is how an end is capped, so it fills and then has
+ * nowhere to go. And the pocket is SMALL and walled, so it fills: give it half
+ * a minute and the water outside the spout rises above the spout, the head
+ * reverses, the run backs up and the whole thing goes under PRESSURE — the
+ * capped branch included, drawn pale. Four behaviours, in order, without
+ * touching anything.
+ *
+ * The channel carries water to the same drop the pipe does, and that is not a
+ * compromise but the honest arrangement: a pipe lying ON the ground cannot be
+ * the only way out of anything, because whatever it crosses to get out, water
+ * can cross too. It also cannot be higher than the surface feeding it, which
+ * is why the run lies IN the channel rather than climbing out of one — see the
+ * note about running UNDER the ground in `world/water/pipes`.
+ */
+export function buildPipes(g: Grid, material: number) {
+  clear(g, material);
+  const mid = Math.round(g.h / 2);
+  const LANE = 2;                                 // half the channel's width
+  const x0 = 4;
+  const len = Math.min(20, Math.round(g.w * 0.35));
+  const drop = x0 + len;                          // where the channel ends
+  const pocket = Math.min(g.w - 3, drop + 3);
+  const TOP = 20, FOOT = 14, WALL = 30;
+
+  // The channel SLOPES, so the water runs down it rather than ponding along
+  // it: a level channel of this length takes minutes to reach its own end,
+  // and the whole point of the fixture is that you can watch it happen.
+  const bed = (x: number) =>
+    Math.round(TOP - ((TOP - FOOT) * (x - x0)) / Math.max(1, len - 1));
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const lane = Math.abs(y - mid) <= LANE;
+      const channel = lane && x >= x0 && x < drop;
+      const basin = lane && x >= drop && x <= pocket;
+      set(g, x, y, channel ? bed(x) : basin ? 0 : WALL);
+    }
+  }
+  // Three taps across the head of the channel, so it runs properly rather than
+  // seeping — the pocket below has to fill while somebody is watching.
+  for (let d = -1; d <= 1; d++) tap(g, x0, mid + d, SPRING);
+
+  // The run, lying along the channel and descending with it. `S` is
+  // `(x + 1, y)`, so a cell facing S points at the next one along and is an
+  // interior joint; only the two ends open on anything at all.
+  const from = x0 + 3;
+  for (let x = from; x < drop; x++) layPipe(g, x, mid, DIR.S);
+  layPipe(g, from, mid, DIR.N, g.pipeZ[idx(g, from, mid)]);             // the intake, back up the channel
+
+  // And the capped branch. `E` is `(x, y - 1)`, so this runs across the
+  // channel, and its last cell turned back down it is an end with no opening.
+  const tee = Math.round((from + drop) / 2);
+  for (let d = 1; d <= LANE; d++) layPipe(g, tee, mid - d, DIR.E);
+  layPipe(g, tee, mid - LANE, DIR.W, g.pipeZ[idx(g, tee, mid - LANE)]);
+}
+
+/**
+ * Two basins either side of a ridge, joined UNDER it.
+ *
+ * The thing a surface pipe can never do, and the reason pipes have a level of
+ * their own. Over the ground these two are separate worlds: the ridge between
+ * them is taller than either basin can fill, so no amount of water in one ever
+ * reaches the other, and the terrain solver is right about that. A run laid
+ * from the floor of the left basin keeps that grade all the way across — it is
+ * buried under twenty-odd half steps of rock in the middle — and the two
+ * become one body of water that levels out.
+ *
+ * This is a culvert, or an inverted siphon, and it is worth naming which: the
+ * pipe goes UNDER the obstacle, and its water is pushed up the far side by the
+ * head behind it. A true siphon goes OVER, holds itself up by suction, and
+ * this scheme cannot do one and should not pretend to — a free surface cannot
+ * be at less than nothing.
+ *
+ * Nothing chooses the burial. `layPipe` takes the lower of the ground it is on
+ * and the run it is joining, so a ridge in the way simply fails to lift it.
+ */
+export function buildCulvert(g: Grid, material: number) {
+  clear(g, material);
+  const mid = Math.round(g.h / 2);
+  const half = Math.round(g.w / 2);
+  const LANE = 3, ROCK = 16, RIDGE = 26;
+  // Two pockets in solid rock, and nothing between them but rock. Small on
+  // purpose: a basin the size of the map takes minutes to show a level, and a
+  // fixture nobody will sit through is a fixture nobody will run.
+  // Close together, because a pipe has RESISTANCE: thirty cells of it throttle
+  // the flow to a trickle however much head is behind it, and the fixture then
+  // shows a full pipe and a dry pocket, which is true and useless.
+  const leftFrom = half - 11, leftTo = half - 4;
+  // The receiving pocket is the SMALLER of the two, so that what crosses shows
+  // as a level rather than as a film. A pipe passes a few units a second
+  // against a spring's sixteen or more — that is not a fault in either, it is
+  // what a hole of that size does — so the demonstration has to be the water
+  // arriving somewhere, not the two coming level.
+  const rightFrom = half + 4, rightTo = half + 7;
+
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const lane = Math.abs(y - mid) <= LANE;
+      const basin = lane && ((x >= leftFrom && x <= leftTo) || (x >= rightFrom && x <= rightTo));
+      // A RIDGE across the middle, standing above the rock either side of it,
+      // so that what the pipe is going under is unmistakable — and so the
+      // pockets are shallow enough to see into, which a hole sunk the ridge's
+      // full depth is not.
+      const crest = Math.abs(x - half) <= 2;
+      set(g, x, y, basin ? 0 : crest ? RIDGE : ROCK);
+    }
+  }
+  // One tap, in the left pocket. The right one has no water of its own, so
+  // anything that ever appears in it came through the pipe.
+  tap(g, leftFrom + 1, mid, SPRING);
+
+  // Laid from the left pocket's floor, eastward, straight through the rock.
+  // `S` is `(x + 1, y)`, so every cell but the last points at the next, and
+  // only the two ends open on anything.
+  for (let x = leftFrom + 1; x <= rightTo - 1; x++) layPipe(g, x, mid, DIR.S);
+  layPipe(g, leftFrom + 1, mid, DIR.N, g.pipeZ[idx(g, leftFrom + 1, mid)]);
+}
+
+/**
+ * Fixtures that want a map of their own size, rather than the one on screen.
+ *
+ * A rig is a size as much as it is a shape: `brink` is five tiles because five
+ * tiles is what fits in one printed line of numbers, and building it into a
+ * sixty-four square map would bury the thing it exists to show.
+ */
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5 };
+
+/**
+ * Every fixture id, so `?fixture=` can be checked against something real.
+ *
+ * Written out rather than derived, because `FixtureId` is a type and types are
+ * gone by the time a query string turns up. The test holds the two together.
+ */
+export const FIXTURE_IDS: readonly FixtureId[] = [
+  "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
+  "splitTrap", "river", "cascade", "lake", "islands", "pipes", "culvert",
+  "plunge", "waterfall", "brink",
+];
+
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
   const cx = Math.floor(g.w / 2), cy = Math.floor(g.h / 2);
   switch (id) {
@@ -321,5 +630,10 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "cascade": buildCascade(g, material); recomputeHeightRange(g); return;
     case "lake": buildLake(g, material); recomputeHeightRange(g); return;
     case "islands": buildIslands(g, material); recomputeHeightRange(g); return;
+    case "pipes": buildPipes(g, material); recomputeHeightRange(g); return;
+    case "culvert": buildCulvert(g, material); recomputeHeightRange(g); return;
+    case "plunge": buildPlunge(g, material); recomputeHeightRange(g); return;
+    case "waterfall": buildWaterfall(g, material); recomputeHeightRange(g); return;
+    case "brink": buildBrink(g, material); recomputeHeightRange(g); return;
   }
 }

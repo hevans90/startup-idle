@@ -27,6 +27,7 @@ export type ToolId =
   | "drainWater"
   | "spring"
   | "sink"
+  | "pipe"
   | "placeStructure"
   | "demolish"
   | "inspect";
@@ -62,6 +63,16 @@ export const isWaterTool = (t: ToolId) => t === "pourWater" || t === "drainWater
  * from and somewhere for it to go.
  */
 export const isSourceTool = (t: ToolId) => t === "spring" || t === "sink";
+
+/**
+ * A PIPE on the side of a cell, which drips rather than wells up.
+ *
+ * Its own tool and not a third source, because a source is a rate on a cell
+ * and a pipe is a rate on a FACE: the side it points out of decides where the
+ * water goes, and placing one has to choose that. Clicking a cell that already
+ * has one turns it round rather than placing it twice.
+ */
+export const isPipeTool = (t: ToolId) => t === "pipe";
 
 /**
  * Tools that act on a STRUCTURE rather than on cells.
@@ -222,6 +233,7 @@ export function strokeLabel(s: Stroke, n: number): string {
     s.tool === "drainWater" ? "drain" :
     s.tool === "spring" ? "spring" :
     s.tool === "sink" ? "sink" :
+    s.tool === "pipe" ? "pipe" :
     isHeightTool(s.tool) ? s.tool :
     "paint";
   const shape = s.brush === "point" ? "" : ` ${s.brush}`;

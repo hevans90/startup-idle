@@ -19,7 +19,8 @@
  * drops away. Nothing lands until the front reaches the bottom, and after that
  * water leaves the air at the rate it is arriving.
  */
-import type { ColumnField } from "./columns";
+import { flowX, flowY, plungeInto, type ColumnField } from "./columns";
+import { DROP, dripFrom, dripRoom } from "./drips";
 
 /**
  * Gravity for a falling sheet, in half steps per second squared.
@@ -51,6 +52,127 @@ export const FALL_MIN = 4;
  */
 const CLING = 1 / 6;
 
+/**
+ * The fastest a lip may throw its water outward, in TILES a second.
+ *
+ * Physically there is nothing here to clamp: a river doing three tiles a
+ * second off a twenty-eight half step drop really is in the air 0.79 seconds
+ * and really does land two and a bit tiles out. Drawn, the arc is so flat that
+ * the water reads as thrown AT the valley rather than dropping into it, which
+ * is a worse lie than the vertical sheet it replaced.
+ *
+ * So it is a cap adopted for the look of it, and it lives HERE rather than
+ * with the drawing because the drawing is no longer the only thing that
+ * follows the arc. A sheet that comes apart sheds real drops, and a drop
+ * thrown two tiles while the sheet it left is drawn one tile out does not come
+ * off the sheet, it comes out of the cliff beside it. One cap, one arc, one
+ * place.
+ *
+ * It was ONE, and one is what made every waterfall read as a corner.
+ *
+ * The RADIUS of the bend at a lip is `v^2 / g` — it goes as the SQUARE of the
+ * launch, while how far the water lands goes only as the first power. A cap
+ * of one is a radius of three pixels. Traced off the drawn vertices, the
+ * sheet turned 27, 35, 43, 48, 54, 59, 64, 70 degrees over segments 0.7, 1.2,
+ * 1.8, 2.4, 3.1, 3.9, 4.9 and 6.1 pixels long: every angle in a smooth
+ * sequence, the whole turn finished inside twenty-four pixels, which is less
+ * than the length of one quad of the surface feeding it. The curve was the
+ * right shape at the wrong SIZE, and cutting it finer cannot make a curve out
+ * of a corner.
+ *
+ * Measured at a lip the water is going 2.0 to 2.6 tiles a second, so three is
+ * a cap that rarely binds and the arc is the one the water is really on: it
+ * reaches seventy degrees after 133 pixels rather than 38.
+ *
+ * Bleeding the sideways speed off as it falls was tried, to keep the foot in
+ * close. It does the opposite of what it looks like it should — taking the
+ * horizontal away while the vertical keeps building makes the sheet go
+ * vertical SOONER, and at a fifth of a second it was back to seventy degrees
+ * after 45 pixels. There is no version of this where a wide bend is cheap:
+ * the arc is as wide as the water's own speed makes it, and the foot goes
+ * where the arc goes.
+ *
+ * So the water goes where the arc goes — see {@link landsAt}. Keeping those
+ * two together is what the old cap was really paying for.
+ */
+export const FALL_THROW = 3;
+
+/** The lip speed a fall actually gets to use: outward only, and capped. */
+export const throwOf = (speed: number) =>
+  Math.min(FALL_THROW, Math.max(0, speed));
+
+/**
+ * How far out of the rock a fall has got, `below` half steps down.
+ *
+ * Water over a lip is a PROJECTILE and nothing more complicated than one: it
+ * leaves at the speed it had and falls at {@link FALL_GRAVITY}, so `below`
+ * half steps down it has been in the air `sqrt(2 below / g)` seconds. Whatever
+ * unit the speed is in, the answer is in — tiles for the sheet the renderer
+ * draws, columns for the drops the sheet sheds.
+ */
+export const driftAt = (lipSpeed: number, below: number) =>
+  lipSpeed * Math.sqrt((2 * Math.max(0, below)) / FALL_GRAVITY);
+
+/**
+ * How far a sheet holds together before it starts coming apart, in half steps.
+ *
+ * A nappe is not stable. Surface waves grow on it, the air drags at it, and it
+ * is thinning the whole way down because it is accelerating — past some
+ * distance it stops being a sheet with a surface and becomes a great many
+ * drops travelling together. That distance is what decides whether a drop
+ * reads as a curtain hung off a ledge or as a waterfall, and it is the reason
+ * anything here knows about drips at all.
+ *
+ * Eight half steps: four full steps, about the point at which a fall stops
+ * being something water pours over and starts being something it falls down.
+ */
+export const BREAK = 8;
+
+/**
+ * How much a column's width of breaking sheet sheds, per second.
+ *
+ * A rate per EDGE and not a fraction of what is in the air, because it is the
+ * SURFACE of a nappe that comes apart and an edge is one column wide however
+ * much is going over it. A fraction of the volume would have a river shedding
+ * a hundred times what a trickle does and put ten thousand drops in the air;
+ * per edge, a wide fall sheds along its whole width and a narrow one does not,
+ * which is both what happens and what keeps the count bounded.
+ */
+const SHED = 1.3;
+
+/**
+ * How long a DROWNED fall takes to give up what it is holding, in seconds.
+ *
+ * A fall whose cliff has gone still has water in the air, and that water has
+ * to arrive. It used to arrive ALL AT ONCE — one `land` at a full share, the
+ * whole column into one cell in one step — and on a real river that is a
+ * great deal of water: an edge under a steady pour holds tens of half steps,
+ * because it holds everything that went over during the time the fall takes.
+ *
+ * Measured on a twelve half step cliff, the cell below went from 6.7 half
+ * steps deep to 27.7 in a single frame. That is four times the water that was
+ * there, dropped in at once, and it is self-sustaining: the spike puts the
+ * pool up past the cliff, which is what `drop < FALL_MIN` tests, so the fall
+ * stays dead for the ten frames it takes to drain, restarts from nothing, and
+ * does the same thing again. The waterfall flickered several times a second
+ * and between flickers there was no sheet at all.
+ *
+ * So it drains over a time instead, and the time is the one a fall of the
+ * shortest height there is takes to happen — the drop has just stopped being
+ * one, so that is the longest it could still have been in the air for.
+ */
+const DROWN = Math.sqrt((2 * FALL_MIN) / FALL_GRAVITY);
+
+/**
+ * How far a shed drop is thrown sideways out of the sheet, in columns and
+ * columns a second.
+ *
+ * Without it the drops leave along the sheet's own arc, which is a second
+ * sheet drawn as dots. Spray is spray because it does NOT all go the same way.
+ */
+const FAN = 0.7;
+
+
 export type FallState = {
   /** Water in the air on each edge, `+x` then `+y` per column. */
   readonly air: Float32Array;
@@ -61,7 +183,67 @@ export type FallState = {
   readonly headSpeed: Float32Array;
   /** Seconds since water last went over. */
   readonly since: Float32Array;
+  /**
+   * Water owed to the spray, banked until it is worth a drop.
+   *
+   * {@link SHED} is a rate and a drop is a quantity, so at sixty frames a
+   * second an edge earns a fortieth of a drop per step. Emitting that would
+   * make forty times as many drops, each a fortieth the size, which is fog
+   * rather than spray and forty times the cost. So it accumulates here and
+   * comes off as a drop when there is a drop's worth of it.
+   */
+  readonly shed: Float32Array;
+  /**
+   * The launch velocity a lip throws with, SMOOTHED, per column.
+   *
+   * One arc, and now one that holds still. The throw is the water's own
+   * velocity, and that surges: on a real river the flux over a lip wanders by
+   * a column or two's worth of drift from frame to frame. Read raw, the place
+   * the water lands hops about with it, and a plunge pool that should be a
+   * definite hole comes out as a smear — measured, the scour went from 40%
+   * below the pool around it to 23%.
+   *
+   * A landing point cannot honestly respond faster than the water takes to
+   * get there anyway, which for any sensible drop is a good fraction of a
+   * second. So it is followed on {@link THROW_EASE} and everything that
+   * cares — where the water lands, where the sheet is drawn, where the spray
+   * leaves from — reads the same smoothed number.
+   */
+  readonly throwX: Float32Array;
+  readonly throwY: Float32Array;
+  /**
+   * Every edge the GROUND makes a cliff of, packed as `i * 2 + axis`, and how
+   * many of them there are.
+   *
+   * THE SET A FALL CAN EVER HAPPEN ON, and it is a property of the terrain
+   * alone. Water only goes into the air through `intoAir`, which the
+   * divergence calls only where `dropAt` is over `FALL_MIN`; `dropAt` measures
+   * down to the neighbour's SURFACE, which is never below its ground, so an
+   * edge with air on it always has `ground[i] - ground[j] >= FALL_MIN`. The
+   * converse does not hold — a pool can fill a cliff in from below and stop
+   * the fall — so this is a superset, and a cheap one to keep: the ground is
+   * written in exactly one place.
+   *
+   * Before this, `stepFalls` walked the whole active box every substep. On a
+   * flooded flat map, with no cliff anywhere on it, that was 1.18ms of a
+   * 1.96ms solver — SIXTY PERCENT of the frame spent establishing, 65,536
+   * times over, that there was nothing to do.
+   */
+  cliff: Int32Array;
+  cliffN: number;
+  /** Which COLUMNS own one, so the smoothed throw is followed once each. */
+  readonly cliffCol: Uint8Array;
 };
+
+/**
+ * How quickly a lip's smoothed launch follows the water's own, in seconds.
+ *
+ * Half a second: longer than the chatter, shorter than a river changing its
+ * mind, and about the time water spends in the air off a serious drop — which
+ * is the honest floor, since a landing point cannot respond faster than the
+ * water takes to arrive.
+ */
+const THROW_EASE = 0.5;
 
 export function createFalls(nx: number, ny: number): FallState {
   const n = nx * ny * 2;
@@ -74,11 +256,66 @@ export function createFalls(nx: number, ny: number): FallState {
     // Long ago: an edge nobody has poured over has no fall on it, and starting
     // at zero put one on every cliff in the world on the first frame.
     since: new Float32Array(n).fill(CLING),
+    shed: new Float32Array(n),
+    throwX: new Float32Array(nx * ny),
+    throwY: new Float32Array(nx * ny),
+    cliff: new Int32Array(n),
+    cliffN: 0,
+    cliffCol: new Uint8Array(nx * ny),
   };
 }
 
+/**
+ * Find every edge the ground makes a cliff of. @see FallState.cliff
+ *
+ * Called wherever `ground` is written and nowhere else, which is once at
+ * creation and once per terrain edit. Everything in `stepFalls` then walks
+ * this instead of the map.
+ *
+ * A column that has just BECOME a cliff has its smoothed throw snapped to the
+ * flow rather than eased onto it. While it was not a cliff nothing followed
+ * it, so what it holds is whatever it held the last time it was one, which may
+ * be from another shape of terrain entirely — easing from that is easing from
+ * nothing, and it is the one place this optimisation could have been seen.
+ */
+export function markCliffs(f: ColumnField) {
+  const { nx, ny, ground } = f;
+  const s = f.falls;
+  const { air, front } = s;
+  let n = 0;
+  for (let y = 0; y < ny; y++) {
+    for (let x = 0; x < nx; x++) {
+      const i = y * nx + x;
+      const k = i * 2;
+      const was = s.cliffCol[i];
+      let own = 0;
+      if (x + 1 < nx
+        && (ground[i] - ground[i + 1] >= FALL_MIN || air[k] > 0 || front[k] > 0)) {
+        s.cliff[n++] = k;
+        own = 1;
+      }
+      if (y + 1 < ny
+        && (ground[i] - ground[i + nx] >= FALL_MIN
+          || air[k + 1] > 0 || front[k + 1] > 0)) {
+        s.cliff[n++] = k + 1;
+        own = 1;
+      }
+      s.cliffCol[i] = own;
+      if (own && !was) {
+        s.throwX[i] = throwOf(flowX(f, x, y));
+        s.throwY[i] = throwOf(flowY(f, x, y));
+      }
+    }
+  }
+  s.cliffN = n;
+}
+
+/** The smoothed launch at a column, as a pair. @see FallState.throwX */
+export const throwAt = (f: ColumnField, i: number) =>
+  ({ x: f.falls.throwX[i], y: f.falls.throwY[i] });
+
 /** Where a neighbour's water, or failing that its ground, stands. */
-const besideAt = (f: ColumnField, j: number) =>
+export const besideAt = (f: ColumnField, j: number) =>
   f.depth[j] > f.params.dryDepth ? f.ground[j] + f.depth[j] : f.ground[j];
 
 /**
@@ -111,21 +348,51 @@ export function stepFalls(
   f: ColumnField, dt: number,
   region: { x0: number; y0: number; x1: number; y1: number },
 ) {
-  const { nx, ny, depth, material, params } = f;
+  const { nx, depth, params } = f;
   const s = f.falls;
-  for (let y = region.y0; y <= region.y1; y++) {
-    for (let x = region.x0; x <= region.x1; x++) {
-      const i = y * nx + x;
-      for (let axis = 0; axis < 2; axis++) {
-        const k = i * 2 + axis;
+  // Hoisted because it is a function of `dt` alone. Measured as worth nothing
+  // — both engines already lift a pure `Math.exp` of loop invariants out — but
+  // it reads as what it is up here.
+  const ease = 1 - Math.exp(-dt / THROW_EASE);
+  // ONLY WHERE THE GROUND MAKES A CLIFF — see `FallState.cliff`. Water can
+  // only be in the air on one of these, and a fall can only start on one, so
+  // every other column in the box had nothing to do here but be walked past.
+  //
+  // An edge off the map is not in the set at all, and nothing can ever be in
+  // the air on one: `dropAt` answers nought past the last column, so `intoAir`
+  // is never called there. The drain that used to run for every edge of the
+  // last row and column, every substep, was draining nothing.
+  let lastCol = -1;
+  for (let n = 0; n < s.cliffN; n++) {
+      const k = s.cliff[n];
+      const i = k >> 1, axis = k & 1;
+      const x = i % nx, y = (i / nx) | 0;
+      // The box still decides, exactly as it did: a cliff outside it is one
+      // the solver is not looking at this step.
+      if (x < region.x0 || x > region.x1 || y < region.y0 || y > region.y1) continue;
+      // The smoothed launch, followed once per column — see `FallState.throwX`.
+      // Every edge of it, the renderer and the spray all read this, so there
+      // is one arc and it does not chatter. Once per column and not once per
+      // edge: the set is in column order, so a column's two edges are adjacent.
+      if (i !== lastCol) {
+        s.throwX[i] += (throwOf(flowX(f, x, y)) - s.throwX[i]) * ease;
+        s.throwY[i] += (throwOf(flowY(f, x, y)) - s.throwY[i]) * ease;
+        lastCol = i;
+      }
+      {
         const jx = axis === 0 ? x + 1 : x, jy = axis === 0 ? y : y + 1;
-        if (jx >= nx || jy >= ny) { land(f, k, i, i, 1); continue; }
         const j = jy * nx + jx;
         const drop = f.ground[i] - besideAt(f, j);
         if (drop < FALL_MIN) {
           // The cliff has gone — filled in from below, or the ground moved.
-          // Whatever was in the air belongs to the cell below it.
-          land(f, k, j, i, 1);
+          // Whatever was in the air belongs to the cell below it, but it
+          // arrives over {@link DROWN} rather than all in one step: dumped,
+          // it lands hard enough to put the pool up over the cliff and kill
+          // the next fall too, which is a flicker and not a waterfall.
+          //
+          // `reset` leaves the air alone, so what is left drains through here
+          // again next step. The sheet stops being drawn either way.
+          land(f, k, j, i, Math.min(1, dt / DROWN));
           reset(s, k);
           continue;
         }
@@ -145,12 +412,19 @@ export function stepFalls(
           s.front[k] = Math.min(drop, s.front[k] + s.frontSpeed[k] * dt);
         }
 
+        // Past the breaking point it starts throwing water off itself, and
+        // what it throws is DROPS — real ones, out of its own mass, so the
+        // sheet is lighter for it and what lands at the bottom lands twice:
+        // most of it through the sheet, some of it a drop at a time.
+        if (s.front[k] > BREAK && s.air[k] > 0) shedSpray(f, k, i, axis, dt, drop);
+
         // NOTHING lands until the front gets there. After that it leaves the
         // air at the rate it is arriving, which in a steady fall is the rate
         // it went over — the time constant is the time the fall takes.
         if (s.front[k] >= drop && s.air[k] > 0) {
           const fall = Math.sqrt((2 * drop) / FALL_GRAVITY);
-          land(f, k, j, i, Math.min(1, dt / fall));
+          // Where the SHEET gets to, not the column over the edge.
+          land(f, k, landsAt(f, i, j, drop), i, Math.min(1, dt / fall), drop);
         }
         // Caught its own front, or fallen past the bottom: nothing is left of
         // it, and anything still in the air has landed by now.
@@ -159,20 +433,132 @@ export function stepFalls(
           reset(s, k);
         }
       }
-    }
   }
-  void material;
 }
 
-/** Put a share of what is in the air into the cell below it. */
-function land(f: ColumnField, k: number, to: number, from: number, share: number) {
+/**
+ * Put a share of what is in the air into the cell below it.
+ *
+ * `drop` is how far it fell, and is what makes the difference between arriving
+ * and LANDING. Water comes in here through the side door — the solver's own
+ * breaking test reads the rate the surface is changing, and a sheet delivered
+ * straight into the depth never touches it — so the foot of a waterfall was
+ * the one piece of water on the map that churned less the harder it was hit.
+ * Nought for the tidying-up calls, where nothing fell anywhere.
+ */
+function land(
+  f: ColumnField, k: number, to: number, from: number, share: number, drop = 0,
+) {
   const air = f.falls.air[k];
   if (air <= 0) return;
   const amount = air * share;
   f.falls.air[k] = air - amount;
-  if (f.depth[to] <= f.params.dryDepth && f.material[from]) f.material[to] = f.material[from];
+  // A column takes the arriving material only if it had none — the rule
+  // `addWater` would otherwise apply is "whatever arrived last", which would
+  // let a trickle recolour a lake.
+  const mat = f.depth[to] <= f.params.dryDepth ? f.material[from] : 0;
+
+  if (drop > 0) {
+    // It arrives at the speed a thing that fell that far arrives at, and what
+    // it does with that is `plungeInto`. This is the whole difference between
+    // a waterfall and a tap over a bowl.
+    plungeInto(
+      f, to % f.nx, (to / f.nx) | 0, amount, mat, Math.sqrt(2 * FALL_GRAVITY * drop),
+    );
+    return;
+  }
+  // The tidying-up calls: the cliff has gone, or the fall has caught its own
+  // front. Nothing fell anywhere, so nothing lands on anything.
+  if (mat) f.material[to] = mat;
   f.depth[to] += amount;
   include(f, to % f.nx, (to / f.nx) | 0);
+}
+
+/**
+ * The column a sheet off this lip actually reaches, `drop` half steps down.
+ *
+ * Water thrown off a lip travels while it falls, and it used to arrive in the
+ * column immediately over the edge however far out the sheet had been drawn —
+ * so the splash, the foam and the scoured pool all happened behind the sheet
+ * that made them. Keeping that mismatch small is what held {@link FALL_THROW}
+ * down to a tile a second, and a tile a second is what made the bend at every
+ * lip too tight to see.
+ *
+ * Off the SMOOTHED launch, or the landing point hops about with the flux and
+ * the pool it digs comes out as a smear rather than a hole.
+ *
+ * A target off the map, or one standing higher than the lip, falls back to the
+ * column over the edge: a sheet that would hit a wall on the way down is not
+ * modelled, and inventing it here is worse than landing the water short.
+ */
+export function landsAt(
+  f: ColumnField, i: number, j: number, drop: number,
+): number {
+  const ox = Math.round(driftAt(f.falls.throwX[i], drop) / f.cell);
+  const oy = Math.round(driftAt(f.falls.throwY[i], drop) / f.cell);
+  if (ox === 0 && oy === 0) return j;
+  const jx = (j % f.nx) + ox, jy = ((j / f.nx) | 0) + oy;
+  if (jx < 0 || jy < 0 || jx >= f.nx || jy >= f.ny) return j;
+  const to = jy * f.nx + jx;
+  return f.ground[to] < f.ground[i] ? to : j;
+}
+
+/**
+ * Throw a drop off a breaking sheet.
+ *
+ * Where it leaves from is the sheet's own arc — {@link driftAt} with the lip's
+ * speed, the same call the renderer makes to decide where to put the quad, so
+ * the drop starts ON the sheet rather than beside it. What it does next is not
+ * the sheet's business: it is a drop, it has the speed it had, and it falls.
+ *
+ * The scatter is a hash of the fall's own state rather than a random number,
+ * so the same scene run twice sheds the same spray. It changes every step
+ * because `frontSpeed` does.
+ */
+function shedSpray(
+  f: ColumnField, k: number, i: number, axis: number, dt: number, drop: number,
+) {
+  const s = f.falls;
+  const loose = Math.min(1, (s.front[k] - BREAK) / BREAK);
+  // Backed off as the drip list fills — see `dripRoom`. A fall sheds along
+  // its whole width, so a rate that suits one off a notch asks for thousands
+  // off one across the map.
+  s.shed[k] += SHED * loose * dripRoom(f.drips) * dt;
+  if (s.shed[k] < DROP) return;
+  // A DROP, and not whatever has piled up in the bank. The rate puts a
+  // fortieth of one in there per step, so the bank crosses the line somewhere
+  // past it and letting the whole bank go would throw a drop a few percent
+  // over the size anything is allowed to be. The rest stays owed.
+  const take = Math.min(s.air[k], DROP);
+  if (take <= 0) return;
+  s.shed[k] -= take;
+  s.air[k] -= take;
+
+  const x = i % f.nx, y = (i / f.nx) | 0;
+  const wob = Math.sin(s.frontSpeed[k] * 12.9898 + k * 78.233) * 43758.5453;
+  const u = wob - Math.floor(wob);              // 0..1, and stable given the state
+  const v = u * 1000 - Math.floor(u * 1000);
+
+  // Out of the LOWER half of the sheet: the top of a nappe is still a sheet
+  // and it is the part that has thinned and sped up that comes apart.
+  const below = Math.min(drop, s.head[k] + (s.front[k] - s.head[k]) * (0.5 + 0.5 * v));
+  // Tiles a second into columns a second: the arc does not care which, but
+  // the drop lives in column space and the lip's speed is read in tiles.
+  // The SMOOTHED launch, the same one the sheet is drawn on and the water
+  // lands on, so a drop still leaves from where the sheet is.
+  const lip = (axis === 0 ? f.falls.throwX[i] : f.falls.throwY[i]) / f.cell;
+  const out = driftAt(lip, below);
+  const side = (u - 0.5) * FAN;
+  dripFrom(
+    f.drips,
+    axis === 0 ? x + 0.5 + out : x + side,
+    axis === 0 ? y + side : y + 0.5 + out,
+    f.ground[i] - below,
+    take, f.material[i],
+    axis === 0 ? lip : side * FAN,
+    axis === 0 ? side * FAN : lip,
+    Math.sqrt(2 * FALL_GRAVITY * below),
+  );
 }
 
 function reset(s: FallState, k: number) {
@@ -199,6 +585,18 @@ export function waterInAir(f: ColumnField): number {
   for (let k = 0; k < f.falls.air.length; k++) sum += f.falls.air[k];
   return sum;
 }
+
+/**
+ * Is anything in the air off this edge?
+ *
+ * The cheap half of {@link fallExtent}, which allocates to hand back the two
+ * numbers. Asking about a NEIGHBOUR is the common case — anything drawing a
+ * fall has to know whether the column beside it has one too, to decide what
+ * the two of them share along the lip between them — and that asks twice per
+ * fall per frame for an answer that is a comparison.
+ */
+export const falling = (f: ColumnField, i: number, axis: number) =>
+  f.falls.front[i * 2 + axis] > f.falls.head[i * 2 + axis];
 
 /** How far down its wall a fall has got, or null where there is no fall. */
 export function fallExtent(f: ColumnField, i: number, axis: number) {

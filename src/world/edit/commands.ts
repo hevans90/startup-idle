@@ -17,7 +17,8 @@ import { recomputeHeightRange, type Grid, type Structure } from "../grid";
 
 /** Which dense layer a patch applies to. */
 export type LayerKey =
-  | "terrain" | "height" | "paved" | "fluid" | "source" | "ramp" | "structureAt";
+  | "terrain" | "height" | "paved" | "fluid" | "source" | "pipe" | "pipeZ" | "ramp"
+  | "structureAt";
 
 export type CellPatch = {
   layer: LayerKey;

@@ -39,8 +39,11 @@ const STAT_MOD_KEY: Partial<Record<BonusStat, string>> = {
   singularity: "prestigeSingularity",
   headcount: "headcountMoney",
   satisfactionGain: "prestigeSatisfactionGain",
-  internOutput: "prestigeInternOutput",
   managerSpeed: "prestigeManagerSpeed",
+  // No `internOutput`, though `prestigeInternOutput` is a real modifier key
+  // and the entry read perfectly: intern output comes from a SPECIAL
+  // (`internsCrippled`), not from a node's grant, so it is not a `BonusStat`
+  // and nothing could ever look it up here.
 };
 
 /**

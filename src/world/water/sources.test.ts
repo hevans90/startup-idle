@@ -15,6 +15,7 @@ import {
   runSources, setWaterEdge, stepWater, totalVolume, waterEdgeIsOpen, wetTiles,
 } from "./field";
 import { fluidIndexOf } from "./materials";
+import { flowEnergy } from "../../fluid/columns";
 
 const flat = (w = 24, h = 24) => {
   const g = createGrid(w, h);
@@ -199,5 +200,79 @@ describe("the layer", () => {
 
   test("a fresh grid has no springs", () => {
     expect(flat().source.every((r) => r === 0)).toBe(true);
+  });
+});
+
+describe("water the map already has", () => {
+  /** A basin four deep in a flat plain, with the water put in rather than run in. */
+  const basin = (level: number) => {
+    const g = flat(16, 16);
+    for (let y = 5; y <= 10; y++) for (let x = 5; x <= 10; x++) setHeight(g, x, y, -4);
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        const deep = level - g.height[idx(g, x, y)];
+        if (deep > 0) { g.pool[idx(g, x, y)] = deep; g.fluid[idx(g, x, y)] = 1; }
+      }
+    }
+    return g;
+  };
+
+  test("is there on the first frame, with no spring and no waiting", () => {
+    // The thing the `pool` layer is FOR. The grid could say a lake had been
+    // poured and never how deep, so every fixture with water in it had to be
+    // a spring — the water ran in from somewhere and the map had to be watched
+    // while it filled. Nothing about water at rest could be set up at all.
+    const g = basin(-1);
+    const f = createWaterField(g);
+    expect(totalVolume(f)).toBeGreaterThan(0);
+    expect(depthAt(f, 7, 7)).toBeCloseTo(3, 6);   // floor at -4, filled to -1
+    expect(wetTiles(f)).toBe(36);                 // the basin, and nothing else
+  });
+
+  test("and it arrives at REST, which is the difference from pouring one", () => {
+    // A pool authored to a waterline is already level, so there is nothing for
+    // the solver to do to it. The same water poured in as a slug spends the
+    // first second finding its own level, and that settling is exactly the
+    // waiting this exists to remove — so the test is not that the pool holds
+    // still (the wind ripples it, as it ripples everything) but that it starts
+    // with no flow in it.
+    const held = createWaterField(basin(-1));
+    const g2 = flat(16, 16);
+    for (let y = 5; y <= 10; y++) for (let x = 5; x <= 10; x++) setHeight(g2, x, y, -4);
+    const same = createWaterField(g2);
+    pourAt(same, 7, 7, 108, 1);                   // the same volume, in a heap
+
+    expect(flowEnergy(same.columns)).toBe(0);     // neither has been stepped yet
+    stepWater(held, 1 / 60);
+    stepWater(same, 1 / 60);
+    expect(flowEnergy(held.columns)).toBeLessThan(flowEnergy(same.columns) * 0.2);
+    // And it is the same water: 36 tiles three half steps deep, which is what
+    // the heap was, so the two are comparable in the first place.
+    expect(totalVolume(held)).toBeCloseTo(totalVolume(same), 3);
+  });
+
+  test("nothing stands on ground above the waterline", () => {
+    // Which is what makes a level the right thing to author in: the rim of a
+    // basin does not need saying, it follows from being above the water.
+    const g = basin(-1);
+    const f = createWaterField(g);
+    expect(depthAt(f, 1, 1)).toBe(0);             // the plain, at height 0
+    expect(depthAt(f, 5, 5)).toBeGreaterThan(0);  // the basin, at -4
+  });
+
+  test("a dry map is still dry", () => {
+    const f = createWaterField(flat(16, 16));
+    expect(totalVolume(f)).toBe(0);
+  });
+
+  test("and it is an initial condition, not a mirror of the simulation", () => {
+    // The grid does not follow the water once it is running, the same way a
+    // spring is a rate the world obeys rather than a record of what came out
+    // of it. Draining the pool does not rewrite the map.
+    const g = basin(-1);
+    const f = createWaterField(g);
+    const held = g.pool[idx(g, 7, 7)];
+    for (let n = 0; n < 120; n++) stepWater(f, 1 / 60);
+    expect(g.pool[idx(g, 7, 7)]).toBe(held);
   });
 });

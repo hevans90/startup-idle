@@ -443,7 +443,6 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
 
     const sc    = pitScaleRef.current;
     const HH    = ISO_CELL_STRIDE * sc / 4;
-    const DEPTH = HH * PIT_DEPTH_HH;
     const sludgeOffset = HH * (PIT_DEPTH_HH - 1) * (1 - pct);
 
     const SURF_FC = [0x12261a, 0x1e3a1e, 0x92400e, 0x7c2d12] as const;
@@ -870,6 +869,22 @@ type SlopRing   = { x: number; y: number; r: number; maxR: number; alpha: number
 
 // drawIsoPipe: isometric cylinder pipe protruding from the inside face of the top-right pit wall.
 // Uses computed perpendicular vectors for proper isometric cylinder shading and polygon end caps.
+/**
+ * The `draw` a `<pixiGraphics>` must have, for the ones that do not use it.
+ *
+ * These two are drawn imperatively from a `useTick` through their refs, which
+ * is the pattern this whole layer uses — but the element's types demand a
+ * `draw` callback, and v2 sidesteps the same friction by building its Graphics
+ * by hand instead (see the note in `world/world-scene`). pixi-react calls this
+ * when the prop changes and does nothing else to the object — no `clear()` —
+ * so a no-op cannot wipe what the tick drew.
+ *
+ * Declared once at module scope rather than written inline: an arrow in the
+ * JSX is a new function every render, which makes the prop look changed and
+ * calls it again on each one.
+ */
+const drawnByTick = () => {};
+
 function drawIsoPipe(g: Graphics, ax: number, ay: number, ex: number, ey: number, HW: number, _HH: number) {
   const r = Math.max(4, HW * 0.10);
   const ddx = ex - ax, ddy = ey - ay;
@@ -1153,8 +1168,8 @@ function SlopPitFX({
 
   return (
     <>
-      <pixiGraphics ref={pipeGRef} x={cx} y={cy} zIndex={cityDepthKey(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 2)} />
-      <pixiGraphics ref={fxGRef}   x={cx} y={cy} zIndex={cityDepthKey(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 3)} />
+      <pixiGraphics draw={drawnByTick} ref={pipeGRef} x={cx} y={cy} zIndex={cityDepthKey(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 2)} />
+      <pixiGraphics draw={drawnByTick} ref={fxGRef}   x={cx} y={cy} zIndex={cityDepthKey(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 3)} />
     </>
   );
 }

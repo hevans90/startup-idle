@@ -51,7 +51,8 @@ import {
 } from "pixi.js";
 
 import { activeBox, MATERIAL_SLOTS, MAX_FLOW_SPEED } from "../../fluid/columns";
-import { cornerRuleSource } from "./corner-rule";
+import { RIM, cornerRuleSource } from "./corner-rule";
+import { FALL_MIN } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
 import { COLUMNS_PER_TILE, type WaterField } from "../water/field";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -88,14 +89,18 @@ export function waterOnGpu(): boolean {
  * agree about lives in `water.ts` and is read from here.
  */
 import {
-  FALL_REACH, FOAM_COVER, FOAM_TINTS, FOAM_WHITE, FULL_FALL_FLUX, LIGHTEST,
+  DRAWDOWN, FOAM_COVER, FOAM_TINTS, FOAM_WHITE, LIGHTEST,
   OPAQUE_DEPTH, SHADES, SHOW_DEPTH, SLOPE_REF, STREAK_SPEED, TINTS,
 } from "./water";
 
 const PER_TILE = COLUMNS_PER_TILE * COLUMNS_PER_TILE;
 /**
- * Quads a column gets: its surface, its two visible SIDES, and the two FALLS
- * that may go over those same two edges.
+ * Quads a column gets: its surface and its two visible SIDES.
+ *
+ * The FALLS used to be two more. They are their own layer now, because water
+ * thrown off a lip travels toward the camera as it drops and lands in a
+ * different band from the column it left — which is the one thing a mesh
+ * sorted by column cannot express. See `render/falls-render`.
  *
  * Allocated whether or not they are there, because a procedural draw has no
  * way to skip: a part that is not drawn collapses its four vertices onto one
@@ -104,6 +109,29 @@ const PER_TILE = COLUMNS_PER_TILE * COLUMNS_PER_TILE;
  * this walks what could exist.
  */
 const PARTS = 5;
+
+/**
+ * Why FIVE and not three.
+ *
+ * A side face hangs DOWN from the surface, so a face on a tile's far edge
+ * pokes into the diamond of the tile in FRONT of it — whose terrain is a later
+ * band and paints over it. On flat water nothing shows, because the tile in
+ * front is at the same level and its own water covers the same strip; at a LIP
+ * it is six half steps down and covers nothing there, so the ground shows
+ * through the sheet in band-shaped bites, one per band, each as tall as the
+ * water is deep.
+ *
+ * The CPU builder simply files those quads into the next band's batch. This
+ * path cannot: a band's mesh IS its band, and a slot can only choose what to
+ * draw, not where to put it. So a band draws two more parts — the far-edge
+ * faces of the columns BEHIND it, which is the same thing said the only way a
+ * procedural draw can say it.
+ *
+ * They are idle for every column that is not on a tile boundary, which is
+ * three in four of them, and idle again wherever the ground in front is not
+ * below the water. An idle part collapses to a point: four vertex invocations
+ * and no fragments, the trade this whole path is built on.
+ */
 
 const WGSL = /* wgsl */ `
 struct GlobalUniforms {
@@ -123,7 +151,7 @@ struct LocalUniforms {
 
 struct Water {
   uGrid: vec4<f32>,       // nx, ny, columns per tile, 1 / columns per tile
-  uIso: vec4<f32>,        // HW, HH, HEIGHT_UNIT, all already scaled
+  uIso: vec4<f32>,        // HW, HH, HEIGHT_UNIT (all scaled), faces on
   uBand: vec4<f32>,       // band, first tile x, dry depth, tiles in this band
 };
 @group(2) @binding(0) var<uniform> water : Water;
@@ -133,12 +161,8 @@ struct Water {
 @group(2) @binding(4) var uFoam : texture_2d<f32>;
 @group(2) @binding(5) var uFx : texture_2d<f32>;
 @group(2) @binding(6) var uFy : texture_2d<f32>;
-// How far down its wall each fall has got. Twice as wide as the map: a fall
-// belongs to an EDGE, and the two edges of a column sit side by side.
-@group(2) @binding(7) var uFallHead : texture_2d<f32>;
-@group(2) @binding(8) var uFallFront : texture_2d<f32>;
-@group(2) @binding(9) var uTint : texture_2d<f32>;
-@group(2) @binding(10) var uMaterial : texture_2d<f32>;
+@group(2) @binding(7) var uTint : texture_2d<f32>;
+@group(2) @binding(8) var uMaterial : texture_2d<f32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -149,12 +173,15 @@ fn depthAt(x: i32, y: i32) -> f32 { return textureLoad(uDepth, vec2<i32>(x, y), 
 fn groundAt(x: i32, y: i32) -> f32 { return textureLoad(uGround, vec2<i32>(x, y), 0).r; }
 /** The four things the shared corner rule asks its host for. */
 fn dryDepth() -> f32 { return water.uBand.z; }
+fn fallMin() -> f32 { return ${FALL_MIN}.0; }
+/** Whether the sides of the water are drawn at all — a debug switch. */
+fn facesOn() -> bool { return water.uIso.w > 0.5; }
 
 fn inside(x: i32, y: i32) -> bool {
   return x >= 0 && y >= 0 && x < i32(water.uGrid.x) && y < i32(water.uGrid.y);
 }
 
-${cornerRuleSource("wgsl")}
+${cornerRuleSource("wgsl", DRAWDOWN)}
 
 /** Flux over a depth FLOOR, clamped — flowX and flowY, in the shader. */
 fn flowAt(cx: i32, cy: i32, d: f32) -> vec2<f32> {
@@ -172,13 +199,24 @@ fn flowAt(cx: i32, cy: i32, d: f32) -> vec2<f32> {
 fn cornerExtras(vx: i32, vy: i32) -> vec4<f32> {
   var d = 0.0; var wash = 0.0; var foam = 0.0; var n = 0.0;
   var vel = vec2<f32>(0.0, 0.0);
+  var bed = -1000.0;
   for (var k = 0; k < 4; k = k + 1) {
     let cx = vx - 1 + (k & 1);
     let cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
     let dd = depthAt(cx, cy);
     if (dd <= water.uBand.z) { continue; }
-    d = d + dd;
+    // THE EXTRAS FOLLOW THE BED, the same way the corner's height does — see
+    // water.ts's cornerValues, which is this. Averaged over both groups, the
+    // last corner before a lip took much of its colour from the water at the
+    // foot of the cliff, and that is the hard seam at the top of a fall.
+    let g = groundAt(cx, cy);
+    if (g < bed) { continue; }
+    if (g > bed) { d = 0.0; wash = 0.0; foam = 0.0; n = 0.0;
+      vel = vec2<f32>(0.0, 0.0); bed = g; }
+    // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
+    // shownDepth, which is this.
+    d = d + max(dd, ${SHOW_DEPTH} * atBrink(cx, cy));
     wash = wash + textureLoad(uWash, vec2<i32>(cx, cy), 0).r;
     foam = foam + textureLoad(uFoam, vec2<i32>(cx, cy), 0).r;
     vel = vel + flowAt(cx, cy, dd);
@@ -224,16 +262,39 @@ struct Part {
  * actually drawn rather than guessed at, which is the only way it cannot leave
  * a gap — see the long note the CPU builder carries.
  */
+/**
+ * Is this face filed FORWARD, into the band of the tile in front? See PARTS.
+ *
+ * Only on a tile's own far edge — an interior face never crosses a band
+ * boundary — and only where the ground in front is BELOW this water, because a
+ * tile in front that stands higher is genuinely in front and its terrain
+ * covering the face is the band order doing its job.
+ *
+ * The sub-index is worked out here rather than handed in, so that asking about
+ * the column BEHIND cannot be asked with the wrong one.
+ */
+fn forward(cx: i32, cy: i32, axis: i32, cpt: i32) -> bool {
+  let onEdge = select(cy % cpt, cx % cpt, axis == 0) == cpt - 1;
+  if (!onEdge) { return false; }
+  let jx = cx + select(0, 1, axis == 0);
+  let jy = cy + select(1, 0, axis == 0);
+  if (!inside(jx, jy)) { return false; }
+  return groundAt(jx, jy) < groundAt(cx, cy) + depthAt(cx, cy);
+}
+
 fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: f32, d: f32) -> Part {
   var p: Part;
   p.ok = false;
   let jx = cx + select(0, 1, axis == 0);
   let jy = cy + select(1, 0, axis == 0);
-  if (!inside(jx, jy)) { return p; }
-
+  // THE RIM OF THE MAP IS NOT A NEIGHBOUR. This used to return here, and water
+  // running to the edge came out a sheet with a void under it. The edge is
+  // treated as dry ground at this column's own level, which is what takes the
+  // body all the way down to the bed it stands on.
+  let rim = !inside(jx, jy);
   let bed = groundAt(cx, cy);
-  let bedJ = groundAt(jx, jy);
-  let wetJ = depthAt(jx, jy) > dryDepth();
+  let bedJ = select(groundAt(jx, jy), bed, rim);
+  let wetJ = !rim && depthAt(jx, jy) > dryDepth();
 
   // The edge: east runs (fx1,fy0)-(fx1,fy1), south runs (fx0,fy1)-(fx1,fy1).
   let ax = select(fx0, fx0 + step, axis == 0);
@@ -258,52 +319,22 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   // near-white round every pool on a plateau read as a panel stuck to the rock.
   let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, cy), 0).r * 255.0 + 0.5);
   p.colour = aerated(mat, 0.08 + pace(cx, cy, d) * 0.14);
-  p.alpha = select(0.48, 0.30, onTop);
-  p.ok = true;
-  return p;
-}
-
-/**
- * The FALL below a lip, drawn from the head of the fall to its front.
- *
- * Off the FLUX and not off the height difference: a height difference is a
- * cliff, and a waterfall is water going over one. Full width top and bottom so
- * a run of them reads as one sheet; how hard it is pouring is in the opacity.
- */
-fn fallPart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: f32, d: f32) -> Part {
-  var p: Part;
-  p.ok = false;
-  let jx = cx + select(0, 1, axis == 0);
-  let jy = cy + select(1, 0, axis == 0);
-  if (!inside(jx, jy)) { return p; }
-
-  // A fall belongs to an edge, and the two edges of a column sit side by side
-  // in a texture twice the width of the map.
-  let at = vec2<i32>(cx * 2 + axis, cy);
-  let head = textureLoad(uFallHead, at, 0).r;
-  let front = textureLoad(uFallFront, at, 0).r;
-  if (front <= head) { return p; }
-
-  let lip = groundAt(cx, cy);
-  let flux = select(textureLoad(uFy, vec2<i32>(cx, cy), 0).r,
-                    textureLoad(uFx, vec2<i32>(cx, cy), 0).r, axis == 0);
-  let pouring = min(1.0, max(flux, 0.0) / ${FULL_FALL_FLUX});
-
-  let ax = select(fx0, fx0 + step, axis == 0);
-  let ay = select(fy0 + step, fy0, axis == 0);
-  let onA = corner == 0 || corner == 3;
-  let onTop = corner == 0 || corner == 1;
-  p.fx = select(fx0 + step, ax, onA);
-  p.fy = select(fy0 + step, ay, onA);
-  p.h = lip - select(front, head, onTop);
-
-  // It thins with the DISTANCE fallen: past a few half steps a sheet is mostly
-  // air, so a long fall is bright at the lip and gone before the floor.
-  let below = select(front, head, onTop);
-  let thin = max(0.0, 1.0 - below / ${FALL_REACH}.0);
-  let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, cy), 0).r * 255.0 + 0.5);
-  p.colour = aerated(mat, 0.20 + pace(cx, cy, d) * 0.22);
-  p.alpha = select((0.10 + 0.22 * pouring), (0.16 + 0.30 * pouring), onTop) * thin;
+  // The same ramp the surface uses, on the water standing at this edge: you
+  // see through the side of a puddle and not through the side of a lake. Flat
+  // at a third of an alpha, a deep body read as a sheet over a void — the
+  // faces were there, and what you saw through them was the grass. The same
+  // top to bottom, too: grading the waterline lighter is the physical story
+  // and reads worse, because it puts the ground's colour through the top half
+  // of every edge.
+  // Floored at a brink, the same as the surface — see corner-rule's atBrink.
+  let sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy));
+  let body = (0.30 + 0.62 * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
+  // HANDED OVER TO THE SHEET AT A LIP — see water.ts's sideFace, which is
+  // this. A face is a pane of water, and a pane is only one of the three ways
+  // water is bounded: a shore's corner has already come down to its bed, the
+  // map's edge is an honest cut, and a LIP is bounded by the sheet leaving it.
+  let beside = select(bedJ, bedJ + depthAt(jx, jy), wetJ);
+  p.alpha = body * (1.0 - ${RIM}.0 * spillAt(bed, beside));
   p.ok = true;
   return p;
 }
@@ -372,17 +403,29 @@ fn mainVertex(@location(0) aVertexId: f32) -> VSOutput {
     let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, cy), 0).r * 255.0 + 0.5);
     rgb = textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb;
   } else if (part <= 2) {
-    // A SIDE. Hung from the very corners the surface quad used, so the two
-    // share vertices and there is no seam between them.
+    // A SIDE of this column. Hung from the very corners the surface quad
+    // used, so the two share vertices and there is no seam between them.
+    // Skipped where it is filed FORWARD instead — see PARTS.
     if (d <= water.uBand.z) { return out; }
-    let p = sidePart(cx, cy, part - 1, corner, fx0, fy0, step, d);
+    if (!facesOn()) { return out; }
+    let axis = part - 1;
+    if (forward(cx, cy, axis, cpt)) { return out; }
+    let p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d);
     if (!p.ok) { return out; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   } else {
-    // A FALL. Drawn whether or not the column is deep enough to show a
-    // surface, because water accelerates and thins as it goes over a lip and
-    // at the lip itself it usually is not.
-    let p = fallPart(cx, cy, part - 3, corner, fx0, fy0, step, d);
+    // The far-edge face of the column BEHIND this one, filed into this band
+    // because that is the diamond it hangs into — see PARTS.
+    if (!facesOn()) { return out; }
+    let axis = part - 3;
+    let bx = cx - select(0, 1, axis == 0);
+    let by = cy - select(1, 0, axis == 0);
+    if (!inside(bx, by)) { return out; }
+    let bd = depthAt(bx, by);
+    if (bd <= water.uBand.z) { return out; }
+    if (!forward(bx, by, axis, cpt)) { return out; }
+    let p = sidePart(bx, by, axis, corner,
+      fx0 - select(0.0, step, axis == 0), fy0 - select(step, 0.0, axis == 0), step, bd);
     if (!p.ok) { return out; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   }
@@ -455,14 +498,14 @@ uniform sampler2D uWash;
 uniform sampler2D uFoam;
 uniform sampler2D uFx;
 uniform sampler2D uFy;
-uniform sampler2D uFallHead;
-uniform sampler2D uFallFront;
 uniform sampler2D uTint;
 uniform sampler2D uMaterial;
 
 float depthAt(int x, int y) { return texelFetch(uDepth, ivec2(x, y), 0).r; }
 float groundAt(int x, int y) { return texelFetch(uGround, ivec2(x, y), 0).r; }
 float dryDepth() { return uBand.z; }
+float fallMin() { return ${FALL_MIN}.0; }
+bool facesOn() { return uIso.w > 0.5; }
 // WGSL has this and GLSL does not. One helper is cheaper than teaching the
 // shared rule about two ways of writing a conditional.
 float select(float a, float b, bool c) { return c ? b : a; }
@@ -471,7 +514,7 @@ bool inside(int x, int y) {
   return x >= 0 && y >= 0 && x < int(uGrid.x) && y < int(uGrid.y);
 }
 
-${cornerRuleSource("glsl")}
+${cornerRuleSource("glsl", DRAWDOWN)}
 
 vec2 flowAt(int cx, int cy, float d) {
   float by = max(d, uBand.z * 8.0);
@@ -485,13 +528,21 @@ vec2 flowAt(int cx, int cy, float d) {
 vec4 cornerExtras(int vx, int vy) {
   float d = 0.0; float wash = 0.0; float foam = 0.0; float n = 0.0;
   vec2 vel = vec2(0.0);
+  float bed = -1000.0;
   for (int k = 0; k < 4; ++k) {
     int cx = vx - 1 + (k & 1);
     int cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
     float dd = depthAt(cx, cy);
     if (dd <= uBand.z) { continue; }
-    d += dd;
+    // The extras follow the BED — see the WGSL twin.
+    float g = groundAt(cx, cy);
+    if (g < bed) { continue; }
+    if (g > bed) { d = 0.0; wash = 0.0; foam = 0.0; n = 0.0;
+      vel = vec2(0.0); bed = g; }
+    // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
+    // shownDepth, which is this.
+    d += max(dd, ${SHOW_DEPTH} * atBrink(cx, cy));
     wash += texelFetch(uWash, ivec2(cx, cy), 0).r;
     foam += texelFetch(uFoam, ivec2(cx, cy), 0).r;
     vel += flowAt(cx, cy, dd);
@@ -525,17 +576,27 @@ struct Part {
   float alpha;
 };
 
+// The same rule as the WGSL forward().
+bool forward(int cx, int cy, int axis, int cpt) {
+  bool onEdge = (axis == 0 ? cx % cpt : cy % cpt) == cpt - 1;
+  if (!onEdge) { return false; }
+  int jx = cx + (axis == 0 ? 1 : 0);
+  int jy = cy + (axis == 0 ? 0 : 1);
+  if (!inside(jx, jy)) { return false; }
+  return groundAt(jx, jy) < groundAt(cx, cy) + depthAt(cx, cy);
+}
+
 Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float step, float d) {
   Part p;
   p.ok = false;
   p.fx = 0.0; p.fy = 0.0; p.h = 0.0; p.colour = vec3(0.0); p.alpha = 0.0;
   int jx = cx + (axis == 0 ? 1 : 0);
   int jy = cy + (axis == 0 ? 0 : 1);
-  if (!inside(jx, jy)) { return p; }
-
+  // THE RIM OF THE MAP IS NOT A NEIGHBOUR — see the WGSL twin.
+  bool rim = !inside(jx, jy);
   float bed = groundAt(cx, cy);
-  float bedJ = groundAt(jx, jy);
-  bool wetJ = depthAt(jx, jy) > dryDepth();
+  float bedJ = rim ? bed : groundAt(jx, jy);
+  bool wetJ = !rim && depthAt(jx, jy) > dryDepth();
 
   float ax = axis == 0 ? fx0 + step : fx0;
   float ay = axis == 0 ? fy0 : fy0 + step;
@@ -555,43 +616,13 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
 
   int mat = int(texelFetch(uMaterial, ivec2(cx, cy), 0).r * 255.0 + 0.5);
   p.colour = aerated(mat, 0.08 + pace(cx, cy, d) * 0.14);
-  p.alpha = onTop ? 0.30 : 0.48;
-  p.ok = true;
-  return p;
-}
-
-Part fallPart(int cx, int cy, int axis, int corner, float fx0, float fy0, float step, float d) {
-  Part p;
-  p.ok = false;
-  p.fx = 0.0; p.fy = 0.0; p.h = 0.0; p.colour = vec3(0.0); p.alpha = 0.0;
-  int jx = cx + (axis == 0 ? 1 : 0);
-  int jy = cy + (axis == 0 ? 0 : 1);
-  if (!inside(jx, jy)) { return p; }
-
-  ivec2 at = ivec2(cx * 2 + axis, cy);
-  float head = texelFetch(uFallHead, at, 0).r;
-  float front = texelFetch(uFallFront, at, 0).r;
-  if (front <= head) { return p; }
-
-  float lip = groundAt(cx, cy);
-  float flux = axis == 0
-    ? texelFetch(uFx, ivec2(cx, cy), 0).r
-    : texelFetch(uFy, ivec2(cx, cy), 0).r;
-  float pouring = min(1.0, max(flux, 0.0) / ${FULL_FALL_FLUX});
-
-  float ax = axis == 0 ? fx0 + step : fx0;
-  float ay = axis == 0 ? fy0 : fy0 + step;
-  bool onA = corner == 0 || corner == 3;
-  bool onTop = corner == 0 || corner == 1;
-  p.fx = onA ? ax : fx0 + step;
-  p.fy = onA ? ay : fy0 + step;
-  float below = onTop ? head : front;
-  p.h = lip - below;
-
-  float thin = max(0.0, 1.0 - below / ${FALL_REACH}.0);
-  int mat = int(texelFetch(uMaterial, ivec2(cx, cy), 0).r * 255.0 + 0.5);
-  p.colour = aerated(mat, 0.20 + pace(cx, cy, d) * 0.22);
-  p.alpha = (onTop ? (0.16 + 0.30 * pouring) : (0.10 + 0.22 * pouring)) * thin;
+  // The same ramp the surface uses — see the WGSL twin.
+  // Floored at a brink, the same as the surface — see the WGSL twin.
+  float sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy));
+  float body = (0.30 + 0.62 * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
+  // HANDED OVER TO THE SHEET AT A LIP — see the WGSL twin.
+  float beside = wetJ ? bedJ + depthAt(jx, jy) : bedJ;
+  p.alpha = body * (1.0 - ${RIM}.0 * spillAt(bed, beside));
   p.ok = true;
   return p;
 }
@@ -658,11 +689,23 @@ void main() {
     rgb = texelFetch(uTint, ivec2(int(shade + 0.5), mat), 0).rgb;
   } else if (part <= 2) {
     if (d <= uBand.z) { return; }
-    Part p = sidePart(cx, cy, part - 1, corner, fx0, fy0, step, d);
+    if (!facesOn()) { return; }
+    int axis = part - 1;
+    if (forward(cx, cy, axis, cpt)) { return; }
+    Part p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d);
     if (!p.ok) { return; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   } else {
-    Part p = fallPart(cx, cy, part - 3, corner, fx0, fy0, step, d);
+    if (!facesOn()) { return; }
+    int axis = part - 3;
+    int bx = cx - (axis == 0 ? 1 : 0);
+    int by = cy - (axis == 0 ? 0 : 1);
+    if (!inside(bx, by)) { return; }
+    float bd = depthAt(bx, by);
+    if (bd <= uBand.z) { return; }
+    if (!forward(bx, by, axis, cpt)) { return; }
+    Part p = sidePart(bx, by, axis, corner,
+      fx0 - (axis == 0 ? step : 0.0), fy0 - (axis == 0 ? 0.0 : step), step, bd);
     if (!p.ok) { return; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   }
@@ -682,8 +725,25 @@ out vec4 finalColor;
 void main() { finalColor = vColor; }
 `;
 
+/**
+ * The two halves of the surface shader, for anyone checking they agree.
+ *
+ * Unlike the corner rule and the drip shaders, these two are written out by
+ * hand rather than generated from one text — they are long, and the
+ * transliteration is the price of that. The price is real: the falls learned
+ * to leave the rock in the WGSL and not in the GLSL, because an edit matched
+ * one twin's exact lines and silently did nothing to the other's, and nothing
+ * noticed until somebody counted. Exposed so a test can count.
+ */
+export const waterShaderSource = () => ({
+  wgsl: WGSL + FRAGMENT_WGSL,
+  glsl: VERTEX_GLSL + FRAGMENT_GLSL,
+});
+
 export type GpuWaterLayer = {
   meshes: Mesh<Geometry, Shader>[];
+  /** Whether the sides of the water are drawn — a debug switch. @see drawGpuWater */
+  faces: number;
   /** The textures, each a view straight onto an array the solver owns. */
   sources: TextureSource[];
   wash: FlowWash;
@@ -714,7 +774,7 @@ const FRAGMENT_STAGE = 2;
  * Nothing is filtered here in any case — every read is a `textureLoad` at an
  * integer coordinate, which is a fetch and not a sample, and needs no sampler.
  */
-const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uFallHead", "uFallFront"];
+const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy"];
 const BYTE_FIELDS = ["uTint", "uMaterial"];
 
 function gpuLayout(): GPUBindGroupLayoutEntry[][] {
@@ -825,17 +885,6 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
     resource: columns.material, width: nx, height: ny, format: "r8unorm",
     scaleMode: "nearest",
   });
-  // A fall belongs to an EDGE, and the solver keeps the two edges of a column
-  // next to each other — so a texture twice the width of the map is the same
-  // bytes in the same order, and needs no copy either.
-  const fallHead = new BufferImageSource({
-    resource: columns.falls.head, width: nx * 2, height: ny, format: "r32float",
-    scaleMode: "nearest",
-  });
-  const fallFront = new BufferImageSource({
-    resource: columns.falls.front, width: nx * 2, height: ny, format: "r32float",
-    scaleMode: "nearest",
-  });
   const tint = tintSource();
 
   const meshes: Mesh<Geometry, Shader>[] = [];
@@ -847,7 +896,7 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
 
     const water = new UniformGroup({
       uGrid: { value: new Float32Array([nx, ny, COLUMNS_PER_TILE, 1 / COLUMNS_PER_TILE]), type: "vec4<f32>" },
-      uIso: { value: new Float32Array([HW * scale, HH * scale, HEIGHT_UNIT * scale, 0]), type: "vec4<f32>" },
+      uIso: { value: new Float32Array([HW * scale, HH * scale, HEIGHT_UNIT * scale, 1]), type: "vec4<f32>" },
       uBand: { value: new Float32Array([b, tx0, columns.params.dryDepth, tiles]), type: "vec4<f32>" },
     });
 
@@ -866,7 +915,7 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
       resources: {
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
-        uFx: fx, uFy: fy, uFallHead: fallHead, uFallFront: fallFront,
+        uFx: fx, uFy: fy,
         uTint: tint, uMaterial: material,
       },
     });
@@ -878,7 +927,8 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
 
   return {
     meshes,
-    sources: [depth, ground, washTex, foamTex, fx, fy, fallHead, fallFront, material],
+    faces: 1,
+    sources: [depth, ground, washTex, foamTex, fx, fy, material],
     wash, foam, cpuMs: 0,
   };
 }
@@ -900,9 +950,23 @@ export function destroyGpuWaterLayer(wl: GpuWaterLayer) {
  */
 export function drawGpuWater(
   wl: GpuWaterLayer, field: WaterField, bands: BandLayer, dt: number,
+  faces = true,
 ) {
   const t0 = performance.now();
   const { columns } = field;
+  // The debug switch, into the spare slot of `uIso`. Written per band because
+  // each one carries its own group, and only when it changes: a uniform
+  // upload per band per frame to say the same thing again is not free.
+  const want = faces ? 1 : 0;
+  if (wl.faces !== want) {
+    wl.faces = want;
+    for (const m of wl.meshes) {
+      const grp = m.shader?.resources.water as UniformGroup | undefined;
+      if (!grp) continue;
+      (grp.uniforms.uIso as Float32Array)[3] = want;
+      grp.update();
+    }
+  }
   const region = activeBox(columns);
   if (region && dt > 0) {
     stepFlowWash(wl.wash, columns, dt, region);

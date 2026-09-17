@@ -2,7 +2,6 @@ import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import { usePrestigeStore } from "../../state/prestige.store";
 import { MANDATES, useValuationStore } from "../../state/valuation.store";
-import { useVapeAchievementsStore } from "../../state/vape-achievements.store";
 import {
   SATISFACTION_MAX,
   SATISFACTION_MIN,

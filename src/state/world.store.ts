@@ -5,11 +5,12 @@
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
-import { createGrid, fillTerrain, type Grid , structureAt } from "../world/grid";
+import { createGrid, fillTerrain, idx, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
+import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
 import {
   OPEN_EDGE_DEFAULT, POUR_AMOUNT, SOURCE_RATE, createWaterField, drainAt, pourAt,
   setWaterEdge, syncGround, totalVolume,
@@ -29,13 +30,15 @@ import {
   type Network,
 } from "../world/roads/network";
 import {
-  isWaterTool, isHeightTool, isRoadTool, isSlopeTool, isSourceTool, isStructureTool,
+  isWaterTool, isHeightTool, isPipeTool, isRoadTool, isSlopeTool, isSourceTool, isStructureTool,
   strokeFootprint,
   strokeLabel,
   type BrushId, type Stroke, type ToolId,
 } from "../world/edit/tools";
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
-import { applyFixture as applyFixtureTo, type FixtureId } from "../world/debug/fixtures";
+import {
+  FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
+} from "../world/debug/fixtures";
 
 export type Overlays = {
   grid: boolean;
@@ -48,6 +51,26 @@ export type Overlays = {
   mask: boolean;
   /** Paved cells whose art is substituted or missing — the labelling to-do list. */
   gaps: boolean;
+  /**
+   * See THROUGH the ground, to the pipework buried in it.
+   *
+   * Not a debug readout like the others — it is the only way to look at a
+   * buried run at all. A pipe under a hill is drawn as a ghost of itself
+   * ordinarily, which says it is there and not much else; with this on the
+   * ground goes translucent and the run, and the water standing in it, are
+   * drawn at full strength through the hill they are under.
+   */
+  xray: boolean;
+  /**
+   * The SIDES of the water — the vertical faces at an edge of a body.
+   *
+   * On by default and not really an overlay, but it lives here because it is
+   * the same kind of thing: a switch for looking. A face is right at a kerb
+   * or the rim of the map and contentious at a lip, where it is the water's
+   * own cross-section and stands as tall as the water is deep — so being able
+   * to take them away and see what is left is how that argument gets settled.
+   */
+  faces: boolean;
 };
 
 /**
@@ -288,7 +311,31 @@ function freshGrid(w: number, h: number): Grid {
   return g;
 }
 
-const INITIAL_GRID = freshGrid(DEFAULT_SIZE, DEFAULT_SIZE);
+/**
+ * The fixture named in `?fixture=`, if it names one.
+ *
+ * So a rig survives a RELOAD. Applying one from the panel is a click, but a
+ * fixture is most useful when you are going round a loop — change a constant,
+ * refresh, look again — and re-clicking it every lap both wastes the lap and
+ * quietly changes what you are looking at, because the water is a few hundred
+ * frames further on each time you get there. Named in the URL, every refresh
+ * starts from exactly the same scene.
+ *
+ * Unknown names are ignored rather than thrown on: this is a debug affordance
+ * and a typo in a query string should give you the ordinary editor, not a
+ * blank screen.
+ */
+function fixtureFromUrl(): FixtureId | null {
+  if (typeof location === "undefined") return null;
+  const want = new URLSearchParams(location.search).get("fixture");
+  return want && FIXTURE_IDS.includes(want as FixtureId) ? (want as FixtureId) : null;
+}
+
+const START_FIXTURE = fixtureFromUrl();
+const START_SIZE = (START_FIXTURE && FIXTURE_SIZE[START_FIXTURE]) ?? DEFAULT_SIZE;
+
+const INITIAL_GRID = freshGrid(START_SIZE, START_SIZE);
+if (START_FIXTURE) applyFixtureTo(INITIAL_GRID, START_FIXTURE, GRASS);
 // built for the starting grid too, so `network` is never null and no call site
 // has to special-case the first render
 network = createNetwork(INITIAL_GRID);
@@ -304,7 +351,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   wetTiles: 0,
   waterVolume: 0,
   openEdge: OPEN_EDGE_DEFAULT,
-  overlays: { grid: true, bands: false, height: false, origin: true, net: false, mask: false, gaps: false },
+  overlays: {
+    grid: true, bands: false, height: false, origin: true, faces: true,
+    net: false, mask: false, gaps: false, xray: false,
+  },
   palette: [...INITIAL_TERRAIN_PALETTE],
   tool: "paintTerrain",
   structureDefId: "kit:intern.t0",
@@ -345,7 +395,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // effect keys on grid identity, so reusing the object would change the data
     // and render none of it. A fixture rewrites every cell, so a rebuild is
     // also the right cost — this is the load path, not the edit path.
-    const next = createGrid(grid.w, grid.h);
+    // Some fixtures are a SIZE as much as a shape — see `FIXTURE_SIZE`.
+    const n = FIXTURE_SIZE[id];
+    const next = createGrid(n ?? grid.w, n ?? grid.h);
     applyFixtureTo(next, id, GRASS);
     get().loadGrid(next);
   },
@@ -421,6 +473,32 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       for (const c of cells) {
         b.set("source", c.x, c.y, s0.tool === "spring" ? SOURCE_RATE : -SOURCE_RATE);
         if (s0.tool === "spring") b.set("fluid", c.x, c.y, st.fluidMaterial);
+      }
+    } else if (isPipeTool(s0.tool)) {
+      // A facing, not a rate. Placed pointing at the LOWEST neighbour, which is
+      // the side it would actually drip off — a pipe pointing into a hillside
+      // is not a thing anyone means to place — and a second click on a cell
+      // that already has one turns it to the next facing instead of placing it
+      // again, which is the only way to say "not that side" with one tool.
+      for (const c of cells) {
+        const had = st.grid.pipe[idx(st.grid, c.x, c.y)];
+        const next = had
+          ? PIPE_FACINGS[(PIPE_FACINGS.indexOf(had as 1 | 2 | 4 | 8) + 1) % PIPE_FACINGS.length]
+          : facingFor(st.grid, c.x, c.y);
+        b.set("pipe", c.x, c.y, next);
+        b.set("fluid", c.x, c.y, st.fluidMaterial);
+        // A new length of pipe CONTINUES the grade of the run it is joining,
+        // and only drops to the ground where the ground has fallen below it.
+        // That one rule is the whole of laying a buried main: a run lies on
+        // the ground while the ground behaves, burrows under anything that
+        // rises in front of it, and comes back up to daylight wherever the
+        // ground falls away. Nothing to set, nothing to choose — which is the
+        // only version of this that survives being drawn with a mouse.
+        //
+        // Re-clicking an existing pipe turns it and leaves its level alone: a
+        // pipe already laid has a grade, and cycling which way it opens is not
+        // a reason to re-lay it.
+        if (!had) b.set("pipeZ", c.x, c.y, pipeGrade(st.grid, c.x, c.y));
       }
     } else if (isWaterTool(s0.tool)) {
       // Water is LIVE state, not a layer, so pouring is not a cell patch — see

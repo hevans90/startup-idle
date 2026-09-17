@@ -11,7 +11,6 @@ import {
   nextRankThreshold,
   RANK_THRESHOLDS,
   type TeamLeaderSkillId,
-  type TeamLeaderTraitId,
   type PairSynergy,
 } from "../../game/team-leaders.catalog";
 import {
@@ -19,11 +18,7 @@ import {
   type EmployeePerkBranch,
   type GeneratorId,
 } from "../../state/generators.store";
-import {
-  getManagementTierTotal,
-  ManagerKeyValues,
-  useInnovationStore,
-} from "../../state/innovation.store";
+import { ManagerKeyValues, useInnovationStore } from "../../state/innovation.store";
 import {
   FIRE_COST_PER_RANK,
   useTeamLeadersEmployeesStore,

@@ -44,6 +44,11 @@ const FIXTURES: [FixtureId, string][] = [
   ["cascade", "cascade"],
   ["lake", "lake"],
   ["islands", "islands"],
+  ["pipes", "pipes"],
+  ["culvert", "culvert"],
+  ["plunge", "plunge"],
+  ["waterfall", "waterfall"],
+  ["brink", "brink (5²)"],
 ];
 const STEPS: [number, string][] = [
   [1, "×0.5"],
@@ -71,18 +76,19 @@ export function EditPanel() {
     setMaterial, setHeightStep, doUndo, doRedo, loadGrid, resize, applyFixture,
     netComponents, structureDefId, setStructureDef,
     fluidMaterial, setFluidMaterial, wetTiles, waterVolume, revision,
-    openEdge, setOpenEdge,
+    openEdge, setOpenEdge, getWaterField,
   } = useWorldStore();
 
   // Counted off the grid rather than mirrored into the store: a spring is an
   // ordinary layer write, so `revision` already says when it can have changed.
-  const { springs, sinks } = useMemo(() => {
-    let springs = 0, sinks = 0;
+  const { springs, sinks, pipes } = useMemo(() => {
+    let springs = 0, sinks = 0, pipes = 0;
     for (const r of grid.source) {
       if (r > 0) springs++;
       else if (r < 0) sinks++;
     }
-    return { springs, sinks };
+    for (const p of grid.pipe) if (p) pipes++;
+    return { springs, sinks, pipes };
     // `revision` is the dependency that matters and the one the rule cannot
     // see: an edit mutates the grid's typed arrays in place, so the object it
     // is watching never changes identity.
@@ -90,7 +96,13 @@ export function EditPanel() {
   }, [grid, revision]);
 
   const save = () => {
-    const json = toJSON(serializeWorld(grid, { terrain: palette, paved: [null] }));
+    // With the live field, so the file keeps the water that is on the map and
+    // not the water the map was authored with. Pouring is not an edit — it
+    // goes into the running world rather than into the grid — so without this
+    // a map you have spent ten minutes filling saves as the dry basin it was.
+    const json = toJSON(
+      serializeWorld(grid, { terrain: palette, paved: [null] }, getWaterField() ?? undefined),
+    );
     const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
     const a = document.createElement("a");
     a.href = url;
@@ -162,6 +174,9 @@ export function EditPanel() {
           className={`${BTN} ${tool === "spring" ? ON : OFF}`}>spring (l)</button>
         <button type="button" onClick={() => setTool("sink")}
           className={`${BTN} ${tool === "sink" ? ON : OFF}`}>sink (;)</button>
+        <button type="button" onClick={() => setTool("pipe")}
+          title="a pipe on the side of a cell — drips over whatever is beyond it. Click again to turn it."
+          className={`${BTN} ${tool === "pipe" ? ON : OFF}`}>pipe (&apos;)</button>
         <button type="button" onClick={() => setOpenEdge(!openEdge)}
           title="whether water runs off the edge of the map"
           className={`${BTN} ${openEdge ? ON : OFF}`}>open edge</button>
@@ -173,6 +188,7 @@ export function EditPanel() {
           {wetTiles} wet · {waterVolume}
           {springs > 0 && ` · ${springs} spring${springs === 1 ? "" : "s"}`}
           {sinks > 0 && ` · ${sinks} sink${sinks === 1 ? "" : "s"}`}
+          {pipes > 0 && ` · ${pipes} pipe${pipes === 1 ? "" : "s"}`}
         </span>
       </div>
 

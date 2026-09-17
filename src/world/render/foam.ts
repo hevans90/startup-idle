@@ -28,10 +28,12 @@
  * against 28%, a waterfall at 44% against 31%, a big wave at 22% against 17%,
  * and a settled pond at nought either way.
  *
- * The one thing still decided here is the foot of a WATERFALL, which is not a
- * wave breaking at all. Water arriving out of the air has air in it, and the
- * solver has no opinion about that because landing water is put into the
- * column directly rather than through the divergence the breaking test reads.
+ * The two things still decided here are both about water ARRIVING out of the
+ * air rather than breaking: the foot of a waterfall, and where a drop from a
+ * pipe lands. Neither is a wave coming apart — water that has been falling has
+ * air in it — and the solver has no opinion about either, because both are put
+ * into the column directly rather than through the divergence the breaking
+ * test reads.
  */
 import { flowX, flowY, type ColumnField } from "../../fluid/columns";
 import { dropAt } from "../../fluid/falls";
@@ -111,6 +113,7 @@ export function stepFoam(
 ) {
   const { nx, cell, now, next } = foam;
   const { depth, broke, params } = columns;
+  const splash = columns.drips.splashed ? columns.drips.splash : null;
   const dry = params.dryDepth;
   const air = columns.falls.air;
   const back = dt / cell;
@@ -143,7 +146,13 @@ export function stepFoam(
       // And what the SOLVER says is breaking here, which is the same number it
       // dissipates on — so the water goes white exactly where it loses energy.
       const wave = broke[i];
-      const born = landed > wave ? landed : wave;
+      // And where a DROP landed. Water arriving out of the air has air in it
+      // whether it came over a lip as a sheet or out of a pipe as a drop; the
+      // difference is that a drop is put in by hand rather than through the
+      // divergence, so the surface rate the breaking test reads never sees it
+      // and it has to leave word — see `splash` in fluid/drips.
+      const splashed = splash ? splash[i] : 0;
+      const born = Math.max(landed, wave, splashed);
       next[i] = carried > born ? carried : born;
     }
   }

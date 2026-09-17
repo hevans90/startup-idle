@@ -10,13 +10,14 @@ import { describe, expect, test } from "bun:test";
 
 import { FLOW_DEFAULTS } from "../../fluid/columns";
 import {
-  COLUMNS_PER_TILE, createWaterField, pourAt, runSources, stepWater, type WaterField,
+  COLUMNS_PER_TILE, createWaterField, pourAt, runSources, stepWater, syncGround,
+  type WaterField,
 } from "../water/field";
 import { createGrid, fillTerrain, setHeight } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { createBandLayer } from "./bands";
 import { colourAt, quadAt, type QuadBatch } from "./quads";
-import { createWaterLayer, destroyWaterLayer, drawWater } from "./water";
+import { createWaterLayer, destroyWaterLayer, drawWater, asideAt } from "./water";
 
 /** Every quad a band's batch holds this frame, as flat point arrays. */
 function polysOf(b: QuadBatch): number[][] {
@@ -55,6 +56,60 @@ function pool(field: WaterField, x0: number, y0: number, n: number, amount = 6) 
   }
 }
 
+describe("how far the ground falls away beside a corner", () => {
+  // What tells a SHORE from a LIP, and the rim rule turns on which. Measured
+  // here rather than in corner-rule.ts because it is the indexing that can be
+  // wrong: a corner is named by its own coordinates and reads the four COLUMNS
+  // that meet there, which are the ones a step back in each direction.
+  function ground(w: number, h: number) {
+    const grid = createGrid(w, h);
+    fillTerrain(grid, 1);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) setHeight(grid, x, y, 4);
+    const field = createWaterField(grid);
+    syncGround(field, grid);
+    return { grid, field };
+  }
+
+  test("nothing, over ground that stays where it is", () => {
+    const { field } = ground(8, 8);
+    const bed = field.columns.ground[0];
+    expect(asideAt(field.columns, 12, 12, bed)).toBe(0);
+  });
+
+  test("the whole of the step, at the corners of a hole in the ground", () => {
+    const { grid, field } = ground(8, 8);
+    // One tile dropped by two half steps. Tiles are COLUMNS_PER_TILE columns wide,
+    // so the hole is the block of columns from 8 to 11 inclusive.
+    setHeight(grid, 2, 2, 2);
+    syncGround(field, grid);
+    const bed = field.columns.ground[0];
+    const deep = bed - field.columns.ground[8 * field.columns.nx + 8];
+    expect(deep).toBeGreaterThan(0);
+
+    // Every corner ON the hole's rim sees it — the corner at column 8 is the
+    // one between column 7 and column 8.
+    expect(asideAt(field.columns, 8, 8, bed)).toBeCloseTo(deep, 12);
+    expect(asideAt(field.columns, 12, 12, bed)).toBeCloseTo(deep, 12);
+    // And a corner one further out does not, or the fringe would be two wide.
+    expect(asideAt(field.columns, 7, 7, bed)).toBe(0);
+    expect(asideAt(field.columns, 13, 13, bed)).toBe(0);
+  });
+
+  test("unbounded at the rim of the map, where there is no neighbour", () => {
+    // A cut through the world is not a shore: the terrain shows its skirt
+    // there and the water has to keep a cross-section to match it.
+    const { field } = ground(8, 8);
+    const { nx, ny } = field.columns;
+    const bed = field.columns.ground[0];
+    expect(asideAt(field.columns, 0, 4, bed)).toBe(Infinity);
+    expect(asideAt(field.columns, 4, 0, bed)).toBe(Infinity);
+    expect(asideAt(field.columns, nx, 4, bed)).toBe(Infinity);
+    expect(asideAt(field.columns, 4, ny, bed)).toBe(Infinity);
+    // One corner in from the edge is ordinary ground again.
+    expect(asideAt(field.columns, 1, 4, bed)).toBe(0);
+  });
+});
+
 describe("the surface the mesh carries", () => {
   test("every wet column gets its OWN quad", () => {
     // The regression this file was written for. A shared point buffer left
@@ -91,13 +146,24 @@ describe("the surface the mesh carries", () => {
   test("a tile is COLUMNS_PER_TILE squared surface quads when it is fully wet", () => {
     const { field, bands, wl } = scene();
     pourAt(field, 5, 5, 6, 1);
-    drawWater(wl, field, bands, 1 / 60);
+    // Pinned at rim NOUGHT — the rule this replaced. A puddle on flat
+    // ground is bounded by a SHORE, so the rim ends it in a waterline and
+    // there is no pane here at all any more; `what the rim rule does to the
+    // faces` is the same scene from the other side. Kept because the count
+    // is what a face used to be, and the surface quads either way.
+    drawWater(wl, field, bands, 1 / 60, true, 0);
     const polys = polysOf(wl.strips[10]);
     expect(polys.filter((p) => !isFace(p)).length).toBe(COLUMNS_PER_TILE * COLUMNS_PER_TILE);
     // Poured onto dry ground it stands proud of it, so the columns along its
     // two down-screen edges drop to the bare ground. Only those: a column with
     // a wet neighbour inside the same tile has nothing to fall to.
-    expect(polys.filter(isFace).length).toBe(2 * COLUMNS_PER_TILE);
+    //
+    // And they are in the NEXT band, because those edges are the TILE's far
+    // edges: a face there hangs down into the diamond of the tile in front and
+    // is filed with it. See the note at the call site.
+    const faces = [...polysOf(wl.strips[10]), ...polysOf(wl.strips[11])].filter(isFace);
+    expect(faces.length).toBe(2 * COLUMNS_PER_TILE);
+    expect(polys.filter(isFace).length).toBe(0);
     destroyWaterLayer(wl);
   });
 
@@ -233,14 +299,17 @@ describe("the surface the mesh carries", () => {
     // One column's edge is a quarter tile across, which is a half diamond
     // width on screen: HW / COLUMNS_PER_TILE.
     const full = HW / COLUMNS_PER_TILE;
+    // To four places, not six: a fall LEANS now, and adding the same drift to
+    // both ends of an edge and then projecting is not bit-for-bit the same
+    // arithmetic as not adding it. Two millionths of a pixel is not a ribbon.
     for (const p of faces) {
-      expect(Math.abs(p[0] - p[2])).toBeCloseTo(full, 6);
-      expect(Math.abs(p[4] - p[6])).toBeCloseTo(full, 6);
+      expect(Math.abs(p[0] - p[2])).toBeCloseTo(full, 4);
+      expect(Math.abs(p[4] - p[6])).toBeCloseTo(full, 4);
     }
     destroyWaterLayer(wl);
   });
 
-  test("a face shades from its top to its foot rather than being a flat panel", () => {
+  test("a face is one flat alpha, and never a wall", () => {
     const grid = createGrid(16, 16);
     fillTerrain(grid, 1);
     for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 10);
@@ -251,19 +320,59 @@ describe("the surface the mesh carries", () => {
     for (let n = 0; n < 30; n++) stepWater(field, 1 / 60);
     drawWater(wl, field, bands, 1 / 60);
 
-    let shaded = 0, opaque = 0;
+    let solidWall = 0;
     for (const b of wl.strips) {
       for (let q = 0; q < b.n; q++) {
         if (!isFace(quadAt(b, q))) continue;
         const top = colourAt(b, q, 0) >>> 24, foot = colourAt(b, q, 2) >>> 24;
-        if (top !== foot) shaded++;
-        // Water, not frosted glass: nothing on a cliff is more than half solid.
-        if (Math.max(top, foot) > 140) opaque++;
+        // FLAT, top to bottom. Lightening the waterline is the physical story
+        // — you are looking through less water at the top of a face than at
+        // the bottom — and drawn it is worse, because the grade puts the
+        // ground's own colour through the top half of every edge.
+        expect(top).toBe(foot);
+        // Water, not frosted glass. This used to be a flat cap at 140 — half
+        // solid, whatever the water was doing — and that cap is what made a
+        // deep body and a heavy fall both read as things you could see the
+        // rock through. What replaced it is a RAMP, so the bound that is still
+        // worth holding is the one at the end of it: water always lets
+        // something through, and the ramp tops out at 0.92.
+        if (Math.max(top, foot) > 240) solidWall++;
       }
     }
-    expect(shaded).toBeGreaterThan(0);
-    expect(opaque).toBe(0);
+    // Falls are not in this mesh at all any more — they thin down their own
+    // length and are their own layer, in `render/falls-render`. Everything
+    // left here is the side of a body of water.
+    expect(solidWall).toBe(0);
     destroyWaterLayer(wl);
+  });
+
+  test("and how solid it is follows how much water there is", () => {
+    // The ramp, which is the whole of what the flat pair of numbers was
+    // missing: you see through the edge of a puddle and you do not see through
+    // the edge of a lake. Same cliff, same everything, twice.
+    const boldest = (depth: number) => {
+      const grid = createGrid(16, 16);
+      fillTerrain(grid, 1);
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 10);
+      const field = createWaterField(grid);
+      const bands = createBandLayer(16, 16);
+      const wl = createWaterLayer(field, bands, 1);
+      for (let y = 4; y <= 8; y++) for (let x = 4; x <= 7; x++) pourAt(field, x, y, depth, 1);
+      drawWater(wl, field, bands, 1 / 60);
+      let most = 0;
+      for (const b of wl.strips) {
+        for (let q = 0; q < b.n; q++) {
+          if (!isFace(quadAt(b, q))) continue;
+          most = Math.max(most, colourAt(b, q, 2) >>> 24);
+        }
+      }
+      destroyWaterLayer(wl);
+      return most;
+    };
+    const puddle = boldest(0.5), lake = boldest(8);
+    expect(lake).toBeGreaterThan(puddle * 1.5);
+    expect(lake).toBeGreaterThan(200);            // near enough a curtain
+    expect(puddle).toBeLessThan(140);             // still a veil
   });
 
   test("the lips of neighbouring faces meet, leaving no rock between them", () => {
@@ -275,7 +384,12 @@ describe("the surface the mesh carries", () => {
     const wl = createWaterLayer(field, bands, 1);
     for (let y = 3; y <= 9; y++) pourAt(field, 7, y, 4, 1);
     for (let n = 0; n < 30; n++) stepWater(field, 1 / 60);
-    drawWater(wl, field, bands, 1 / 60);
+    // Pinned at rim NOUGHT. These are the panes along a LIP, which the rim
+    // now hands to the sheet, so with the rule at its default there are
+    // none here to abut. What it checks — that a run of faces is one sheet
+    // and not a row of ribbons — still holds wherever faces ARE drawn, and
+    // this is the scene the complaint came from.
+    drawWater(wl, field, bands, 1 / 60, true, 0);
 
     // Every DISTINCT lip along the cliff, as a screen-x span, sorted and
     // walked. Distinct because one edge can carry both the side of the water
@@ -292,6 +406,55 @@ describe("the surface the mesh carries", () => {
     }
     // A run of abutting lips, not a scatter of separated ribbons.
     expect(touching).toBeGreaterThan(lips.length / 2);
+    destroyWaterLayer(wl);
+  });
+
+  test("water running to the RIM of the map still has a body under it", () => {
+    // The edge of the map is not a neighbour, and the side face used to give
+    // up when it could not find one. What that drew was a sheet that stopped
+    // dead at the rim with the terrain's own skirt showing through where the
+    // water's body should have been — most visible on exactly the maps where
+    // water is meant to run off the edge, which is all of them by default.
+    //
+    // A map flooded corner to corner has no dry neighbour anywhere, so every
+    // face in it is a rim face and there is nothing else it could be.
+    const grid = createGrid(8, 8);
+    fillTerrain(grid, 1);
+    const field = createWaterField(grid);
+    const bands = createBandLayer(8, 8);
+    const wl = createWaterLayer(field, bands, 1);
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) pourAt(field, x, y, 4, 1);
+    drawWater(wl, field, bands, 1 / 60);
+
+    const faces = allPolys(wl.strips).filter(isFace);
+    expect(faces.length).toBeGreaterThan(0);
+    const tall = Math.max(...faces.map((p) => Math.abs(p[1] - p[7]))) / HEIGHT_UNIT;
+    expect(tall).toBeCloseTo(4, 1);               // as deep as the water is
+    destroyWaterLayer(wl);
+  });
+
+  test("and so does water standing against a bank that RISES over it", () => {
+    // The other half of the same rule. A face buried in the hillside next door
+    // used to be squashed to nothing, on the reasoning that nobody can see it
+    // — true until x-ray, which makes the hillside translucent on purpose and
+    // so turns every one of those into a sheet with a void under it. Drawn
+    // always: the normal view is unchanged, because the bank in front is a
+    // later band and paints over it.
+    const grid = createGrid(12, 12);
+    fillTerrain(grid, 1);
+    for (let y = 0; y < 12; y++) for (let x = 6; x < 12; x++) setHeight(grid, x, y, 20);
+    const field = createWaterField(grid);
+    const bands = createBandLayer(12, 12);
+    const wl = createWaterLayer(field, bands, 1);
+    // A pool on the low ground, reaching the foot of the bank but nowhere near
+    // its top, so the bank is dry and stands well above the water.
+    for (let y = 3; y <= 8; y++) for (let x = 3; x <= 5; x++) pourAt(field, x, y, 5, 1);
+    drawWater(wl, field, bands, 1 / 60);
+
+    const tall = Math.max(
+      ...allPolys(wl.strips).filter(isFace).map((p) => Math.abs(p[1] - p[7])),
+    ) / HEIGHT_UNIT;
+    expect(tall).toBeCloseTo(5, 1);               // the full depth, not nothing
     destroyWaterLayer(wl);
   });
 
@@ -313,7 +476,12 @@ describe("the surface the mesh carries", () => {
       const bands = createBandLayer(20, 20);
       const wl = createWaterLayer(field, bands, 1);
       for (let y = 6; y <= 12; y++) for (let x = 5; x <= 9; x++) pourAt(field, x, y, 4, 1);
-      drawWater(wl, field, bands, 1 / 60);
+      // Pinned at rim NOUGHT. A pool at a plateau's edge is at a LIP and
+      // the rim hands its pane to the sheet, so at the default there is no
+      // face here to measure. Kept at nought because this is where getting
+      // the clamp wrong was WORST — the excess was the height of the cliff
+      // — and `resolveSide` pins the rule itself directly.
+      drawWater(wl, field, bands, 1 / 60, true, 0);
       // Corner 0 against corner 3 — the SAME end of the edge, top and bottom,
       // so the isometric offset between the two ends cancels and what is left
       // is the height. Corner 0 against corner 2 measures the diagonal.
@@ -410,7 +578,9 @@ describe("the surface the mesh carries", () => {
       const bands = createBandLayer(9, 9);
       const wl = createWaterLayer(field, bands, 1);
       pourAt(field, 4, 4, depth, 1);
-      drawWater(wl, field, bands, 1 / 60);
+      // Pinned at rim NOUGHT — a raised tile's edges are lips, and at the
+      // default the sheet going over them is what bounds the water.
+      drawWater(wl, field, bands, 1 / 60, true, 0);
       const n = allPolys(wl.strips).filter(isFace).length;
       destroyWaterLayer(wl);
       return n;
@@ -420,66 +590,6 @@ describe("the surface the mesh carries", () => {
     for (const depth of [0.4, 0.8, 1.5, 3]) {
       expect(edges(depth)).toBe(2 * COLUMNS_PER_TILE);
     }
-  });
-
-  test("a fall reaches down its wall at the speed a thing falls, not in one frame", () => {
-    // Water went over a lip and arrived at the bottom in the same frame, so a
-    // cliff was either bare or curtained with no moment in between: the wave
-    // at the top stopped and the wave at the bottom started, and nothing
-    // crossed the distance.
-    const grid = createGrid(24, 16);
-    fillTerrain(grid, 1);
-    for (let y = 0; y < 16; y++) {
-      for (let x = 0; x < 12; x++) setHeight(grid, x, y, 12 + (11 - x));
-    }
-    grid.source[8 * 24 + 2] = 20;
-    const field = createWaterField(grid);
-    const bands = createBandLayer(24, 16);
-    const wl = createWaterLayer(field, bands, 1);
-    const tick = () => {
-      runSources(field, grid, 1 / 60);
-      stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
-    };
-    /** The tallest vertical face anywhere, in half steps. */
-    const reach = () => Math.max(0, ...allPolys(wl.strips).filter(isFace)
-      .map((p) => Math.abs(p[1] - p[7]) / HEIGHT_UNIT));
-
-    // Nothing hangs off the cliff before the water gets to it.
-    for (let n = 0; n < 60; n++) tick();
-    expect(reach()).toBeLessThan(3);
-
-    // Run on until one starts, then follow that one down. The max over every
-    // face on the map is no use here: falls all along the cliff are at
-    // different points of their own descent.
-    let k = -1;
-    for (let n = 0; n < 60 * 25 && k < 0; n++) {
-      tick();
-      for (let j = 0; j < field.columns.falls.front.length; j++) {
-        if (field.columns.falls.front[j] > 0 && field.columns.falls.front[j] < 0.1 && field.columns.falls.head[j] === 0) k = j;
-      }
-    }
-    expect(k).toBeGreaterThanOrEqual(0);
-
-    // Distance goes as the SQUARE of the time, which is what falling means:
-    // twice as long is four times as far.
-    const after = (frames: number) => {
-      for (let n = 0; n < frames; n++) tick();
-      return field.columns.falls.front[k];
-    };
-    const at8 = after(8), at16 = after(8);
-    expect(at8).toBeGreaterThan(0.2);
-    expect(at8).toBeLessThan(1.5);
-    expect(at16 / at8).toBeGreaterThan(2.5);
-    expect(at16 / at8).toBeLessThan(5.5);
-
-    // And it lands, on the floor and not through it, at about the time a
-    // twelve half-step drop takes.
-    const landed = after(24);
-    expect(landed).toBeGreaterThan(10);
-    expect(landed).toBeLessThanOrEqual(12);
-    expect(reach()).toBeGreaterThan(10);          // and it is being DRAWN
-    destroyWaterLayer(wl);
   });
 
   test("a fall that stops lets go of its lip instead of vanishing", () => {
@@ -507,71 +617,6 @@ describe("the surface the mesh carries", () => {
       }
     }
     expect(detached).toBe(true);
-    destroyWaterLayer(wl);
-  });
-
-  test("a fall is drawn where water CROSSES a lip, not where it merely stands above one", () => {
-    // A height difference is a cliff. A waterfall is water going over it, and
-    // telling them apart is what the flux is for — drawn off the drop alone,
-    // there was one under every pond that happened to be on high ground.
-    const plateau = (settle: number) => {
-      const grid = createGrid(20, 20);
-      fillTerrain(grid, 1);
-      for (let y = 0; y < 20; y++) for (let x = 0; x < 10; x++) setHeight(grid, x, y, 10);
-      const field = createWaterField(grid);
-      const bands = createBandLayer(20, 20);
-      const wl = createWaterLayer(field, bands, 1);
-      for (let y = 6; y <= 12; y++) for (let x = 5; x <= 9; x++) pourAt(field, x, y, 4, 1);
-      for (let n = 0; n < settle; n++) stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
-      // A live fall is one whose front has got further down the wall than its
-      // head — see `render/falls`.
-      let falls = 0;
-      for (let k = 0; k < field.columns.falls.front.length; k++) {
-        if (field.columns.falls.front[k] > field.columns.falls.head[k]) falls++;
-      }
-      destroyWaterLayer(wl);
-      return falls;
-    };
-    // The instant it is poured nothing is moving yet, so nothing is falling —
-    // even though it is already sitting on the edge of a ten-step drop.
-    expect(plateau(0)).toBe(0);
-    // A moment later it is going over.
-    expect(plateau(30)).toBeGreaterThan(0);
-  });
-
-  test("a fall reaching the bottom of a tall cliff is a thread, not a curtain", () => {
-    // It DOES reach the bottom now — water that goes over a cliff arrives at
-    // the foot of it, having taken the time to get there. What it must not do
-    // is arrive as a solid panel pasted over the rock: a sheet thins with the
-    // distance fallen, so a long one is bright at the lip and gone well before
-    // the floor.
-    const grid = createGrid(20, 20);
-    fillTerrain(grid, 1);
-    for (let y = 0; y < 20; y++) for (let x = 0; x < 10; x++) setHeight(grid, x, y, 24);
-    const field = createWaterField(grid);
-    const bands = createBandLayer(20, 20);
-    const wl = createWaterLayer(field, bands, 1);
-    for (let y = 6; y <= 12; y++) for (let x = 5; x <= 9; x++) pourAt(field, x, y, 4, 1);
-    for (let n = 0; n < 120; n++) {
-      stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
-    }
-
-    let tall = 0, solid = 0;
-    for (const b of wl.strips) {
-      for (let q = 0; q < b.n; q++) {
-        const p = quadAt(b, q);
-        // The falls: nothing standing at the foot of a cliff is eight half
-        // steps deep, so height is enough to tell them from a pool's side.
-        if (!isFace(p) || Math.abs(p[1] - p[7]) / HEIGHT_UNIT <= 8) continue;
-        tall++;
-        // Nothing on that wall is even a third solid where it lands.
-        if ((colourAt(b, q, 2) >>> 24) > 85) solid++;
-      }
-    }
-    expect(tall).toBeGreaterThan(0);              // it does get down there
-    expect(solid).toBe(0);                        // and you can see through it
     destroyWaterLayer(wl);
   });
 
@@ -639,20 +684,32 @@ describe("shading a sheet over uneven ground", () => {
     const bands = createBandLayer(16, 16);
     const wl = createWaterLayer(field, bands, 1);
     for (let y = 4; y <= 8; y++) for (let x = 4; x <= 8; x++) pourAt(field, x, y, 6, 1);
+    // Let it find its level: poured and drawn on the same frame every column
+    // holds the same SIX, hollow or not, so there is no gradient to read and
+    // never was. What this used to pass on was the sides.
+    for (let n = 0; n < 60 * 3; n++) stepWater(field, 1 / 60);
     drawWater(wl, field, bands, 1 / 60);
+
+    // SURFACE quads only, which is what this is about. Read across every quad
+    // in the band it also passed on the sides, whose two ends used to carry
+    // different alphas for a reason of their own — so it was green while
+    // saying nothing about the surface, and went red the day the sides became
+    // one flat number.
+    const over = wl.strips[12];               // band of tile (6,6)
+    const tops = [...Array(over.n).keys()].filter((q) => !isFace(quadAt(over, q)));
+    expect(tops.length).toBeGreaterThan(0);
 
     // The quads over the hollow are not flat: deeper water at the corners
     // inside it, shallower at the corners on the rim.
-    const over = wl.strips[12];               // band of tile (6,6)
-    const varied = [...Array(over.n).keys()]
+    const varied = tops
       .map((q) => alphas(over, q))
       .filter((a) => Math.max(...a) > Math.min(...a));
     expect(varied.length).toBeGreaterThan(0);
 
     // And the shading is CONTINUOUS: a corner shared by two columns has one
     // alpha, so neighbouring quads meet without a step.
-    const deepest = Math.max(...[...Array(over.n).keys()].flatMap((q) => alphas(over, q)));
-    const shallowest = Math.min(...[...Array(over.n).keys()].flatMap((q) => alphas(over, q)));
+    const deepest = Math.max(...tops.flatMap((q) => alphas(over, q)));
+    const shallowest = Math.min(...tops.flatMap((q) => alphas(over, q)));
     expect(deepest).toBeGreaterThan(shallowest);
     destroyWaterLayer(wl);
   });
@@ -877,10 +934,164 @@ describe("running water reads as running", () => {
     const wl = createWaterLayer(field, bands, 1);
     for (let y = 4; y <= 11; y++) for (let x = 4; x <= 11; x++) pourAt(field, x, y, 4, 1);
     for (let n = 0; n < 60 * 60; n++) stepWater(field, 1 / 60);
-    drawWater(wl, field, bands, 1 / 60);
+    // Pinned at rim NOUGHT, which is what makes every corner alike: at the
+    // default the fringe is deliberately a BEVEL and leans, so the flattest
+    // pond in the world has a ring of corners that are not the middle. The
+    // INTERIOR is what this is about and the interior is untouched.
+    drawWater(wl, field, bands, 1 / 60, true, 0);
     const mid = shades(wl);
     expect(Math.min(...mid)).toBeGreaterThan(60);     // nothing pinned at the floor
     destroyWaterLayer(wl);
+  });
+});
+
+describe("what the rim rule does to the faces", () => {
+  /**
+   * The other half of every test above that asserts a face EXISTS.
+   *
+   * A FREE VERTICAL FACE OF WATER CANNOT EXIST. Water is bounded by a
+   * container, by a shore, or it is falling, and only one of those three is a
+   * pane you can see through. The strength goes in as an argument so that
+   * what the rule REPLACED can be pinned beside what it does — the tests
+   * above passing nought are the same scenes from the other side.
+   *
+   * The two halves are deliberately the same scenes: what the rim takes away
+   * is exactly what the pinned-at-off tests still assert is there.
+   */
+  const faceCount = (
+    build: (field: WaterField, grid: ReturnType<typeof createGrid>) => void,
+    rim: number, w = 16,
+  ) => {
+    const grid = createGrid(w, w);
+    fillTerrain(grid, 1);
+    const field = createWaterField(grid);
+    build(field, grid);
+    const bands = createBandLayer(w, w);
+    const wl = createWaterLayer(field, bands, 1);
+    drawWater(wl, field, bands, 1 / 60, true, rim);
+    // Faces with HEIGHT in them. A quad whose two ends both sit on their own
+    // floor makes no fragments, and `resolveSide` leaves those behind rather
+    // than paying to blank them — counting one as a pane would be counting
+    // something nobody can see.
+    const faces = allPolys(wl.strips).filter(isFace)
+      .filter((p) => Math.abs(p[1] - p[7]) > 1e-6 || Math.abs(p[3] - p[5]) > 1e-6);
+    const tall = faces.length
+      ? Math.max(...faces.map((p) => Math.abs(p[1] - p[7]))) / HEIGHT_UNIT : 0;
+    destroyWaterLayer(wl);
+    return { n: faces.length, tall };
+  };
+
+  /** The two end heights of every face with anything in it, in half steps. */
+  const faceShapes = (
+    build: (field: WaterField, grid: ReturnType<typeof createGrid>) => void,
+    rim: number, w = 16,
+  ) => {
+    const grid = createGrid(w, w);
+    fillTerrain(grid, 1);
+    const field = createWaterField(grid);
+    build(field, grid);
+    const bands = createBandLayer(w, w);
+    const wl = createWaterLayer(field, bands, 1);
+    drawWater(wl, field, bands, 1 / 60, true, rim);
+    const out = allPolys(wl.strips).filter(isFace)
+      .map((p) => ({
+        a: Math.abs(p[1] - p[7]) / HEIGHT_UNIT,
+        b: Math.abs(p[3] - p[5]) / HEIGHT_UNIT,
+      }))
+      .filter((e) => e.a > 1e-6 || e.b > 1e-6);
+    destroyWaterLayer(wl);
+    return out;
+  };
+
+  test("a puddle on flat ground loses its panes: a shore is a waterline", () => {
+    // THE FISH TANK, in its simplest form. A pool standing proud of dry ground
+    // at its own level had a hard, flat, uniformly translucent side with the
+    // grass visible through it undistorted. The water does not end in a wall,
+    // it ends in a waterline: the corner comes down to its bed and there is no
+    // height left for a face to hang in.
+    const puddle = (f: WaterField) => pourAt(f, 5, 5, 6, 1);
+    expect(faceCount(puddle, 0).n).toBe(2 * COLUMNS_PER_TILE);
+    expect(faceCount(puddle, 1).n).toBe(0);
+  });
+
+  test("and so does a pool at a LIP: the sheet leaving it is its boundary", () => {
+    // The largest one in any scene, and the one that survived the first cut of
+    // this rule. The corner at a lip KEEPS its height — a sheet starts there
+    // and needs the thickness — so the pane comes back with it unless the face
+    // is handed over separately. A nappe hangs from the surface by the lip's
+    // own thickness and drifts by nothing at the lip itself, so at the brink
+    // the sheet already covers this face end for end.
+    const plateau = (f: WaterField, g: ReturnType<typeof createGrid>) => {
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(g, x, y, 10);
+      syncGround(f, g);
+      for (let y = 6; y <= 10; y++) for (let x = 4; x <= 7; x++) pourAt(f, x, y, 4, 1);
+    };
+    // With the rule off, a PANE: both ends standing at full depth.
+    const off = faceShapes(plateau, 0);
+    expect(off.filter((e) => e.a > 1 && e.b > 1).length).toBeGreaterThan(0);
+    // With it on, no pane anywhere. What is left is at most a WEDGE where the
+    // waterline turns into the lip — one end on the bed, the other carrying
+    // the lip's own thickness, which is the shape that transition really is.
+    // A rectangle there would be a fish tank; a wedge is the corner of a body
+    // of water seen end on.
+    for (const e of faceShapes(plateau, 1)) {
+      expect(Math.min(e.a, e.b)).toBeCloseTo(0, 6);
+    }
+  });
+
+  test("but water HELD BY A BANK keeps its full side against it", () => {
+    // A container is not a shore. The water does not end at a bank, it is held
+    // by one, and it stands full depth right up against it — feathered, a lake
+    // in a crater tapers away from the crater wall, and under `?xray`, where
+    // the wall in front is translucent on purpose, what is behind it is a
+    // sheet with a void under it. That is the bug `sideFace` was fixed for and
+    // the rim rule very nearly put back.
+    const bowl = (f: WaterField, g: ReturnType<typeof createGrid>) => {
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+        if (x < 4 || x > 11 || y < 4 || y > 11) setHeight(g, x, y, 10);
+      }
+      syncGround(f, g);
+      // Right up to the wall, or the outermost water is standing on the bowl's
+      // own floor beside DRY floor, which is a shore and not a container.
+      for (let y = 4; y <= 11; y++) for (let x = 4; x <= 11; x++) pourAt(f, x, y, 4, 1);
+    };
+    expect(faceCount(bowl, 1).n).toBeGreaterThan(0);
+    // And as tall as the water is deep, the same as with the rule off.
+    expect(faceCount(bowl, 1).tall).toBeCloseTo(faceCount(bowl, 0).tall, 6);
+  });
+
+  test("and water running to the EDGE OF THE MAP keeps its cross-section", () => {
+    // A cut through the world is honest when the thing cut is the world. The
+    // terrain shows its own skirt at the map's edge and the water should show
+    // a matching cross-section, so an off-map neighbour counts as the biggest
+    // step there is and the rule stays off. A map flooded corner to corner has
+    // no dry neighbour anywhere, so every face in it is a rim face.
+    const flooded = (f: WaterField) => {
+      for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) pourAt(f, x, y, 4, 1);
+    };
+    expect(faceCount(flooded, 1, 8).n).toBeGreaterThan(0);
+    expect(faceCount(flooded, 1, 8).tall).toBeCloseTo(4, 1);   // as deep as the water
+  });
+
+  test("a BEACH is a shore, and a wall is not, with the same ramp between", () => {
+    // The rule reads one number — the step the ground makes beside the corner,
+    // either way up — so a bank that rises gently is a shore and keeps the
+    // waterline, and one that rises sharply is a container and keeps the body.
+    // Ramped rather than switched, or a bank being raised a half step at a
+    // time pops a whole ring of surface.
+    const bank = (h: number) => faceCount((f, g) => {
+      for (let y = 0; y < 16; y++) for (let x = 8; x < 16; x++) setHeight(g, x, y, h);
+      syncGround(f, g);
+      for (let y = 4; y <= 11; y++) for (let x = 4; x <= 7; x++) pourAt(f, x, y, 4, 1);
+    }, 1).tall;
+    // Monotone from a beach to a wall, and the wall keeps the whole body.
+    let last = -Infinity;
+    for (const h of [0, 1, 2, 3, 4, 6]) {
+      const t = bank(h);
+      expect(t).toBeGreaterThanOrEqual(last - 1e-9);
+      last = t;
+    }
+    expect(bank(6)).toBeGreaterThan(bank(0));
   });
 });
 
@@ -1044,11 +1255,56 @@ describe("which bands get any of it", () => {
     destroyWaterLayer(wl);
   });
 
+  test("a face on a tile's far edge is filed with the tile it hangs INTO", () => {
+    // The teeth. A side face hangs DOWN from the surface, so a face on a
+    // tile's far edge pokes into the diamond of the tile in front of it —
+    // whose terrain is a later band and paints over it. On flat water nothing
+    // shows, because the tile in front is at the same level and its own water
+    // covers the same strip. At a LIP it is six half steps down and covers
+    // nothing there, so what is left is ground showing through the sheet:
+    // along a stepped cascade, a row of square teeth, one per band, each as
+    // tall as the water is deep.
+    const { grid, field, bands, wl } = scene();
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 6);
+    syncGround(field, grid);
+    pourAt(field, 7, 7, 3, 1);                    // the last tile before the drop
+    drawWater(wl, field, bands, 1 / 60);
+
+    // Its surface is in band 14; the face on its east edge hangs over the lip
+    // and is filed in 15, with the tile it hangs into.
+    expect(polysOf(wl.strips[14]).filter(isFace).length).toBe(0);
+    expect(polysOf(wl.strips[15]).filter(isFace).length).toBeGreaterThan(0);
+  });
+
+  test("but a face against HIGHER ground stays where it is", () => {
+    // A tile in front that stands above the water is genuinely in front of it,
+    // and its terrain covering the face is the band order doing its job. Filed
+    // forward, a pond against a wall would paint its edge up the wall.
+    const { grid, field, bands, wl } = scene();
+    for (let y = 0; y < 16; y++) for (let x = 8; x < 16; x++) setHeight(grid, x, y, 20);
+    syncGround(field, grid);
+    pourAt(field, 7, 7, 3, 1);                    // lapping against the wall
+    drawWater(wl, field, bands, 1 / 60);
+
+    // The east face is against the wall, so it stays in its own band; the
+    // south face is over open ground and goes forward.
+    const home = polysOf(wl.strips[14]).filter(isFace);
+    expect(home.length).toBeGreaterThan(0);
+    expect(polysOf(wl.strips[15]).filter(isFace).length).toBeLessThan(home.length + 1);
+  });
+
   test("water lands in the band of the tile it sits in", () => {
+    // Its SURFACE does. The faces on the tile's two far edges are filed one
+    // band on, because that is the diamond they hang into — see the call site.
     const { field, bands, wl } = scene();
     pourAt(field, 5, 6, 6, 1);
+    // Band 12 holds the two far edges' PANES, so which bands come alive is
+    // a question the rim rule answers: on a flat map a puddle is bounded by
+    // a shore, has no panes, and never reaches the band in front of it.
+    drawWater(wl, field, bands, 1 / 60, true, 0);
+    expect([...wl.live].sort((a, b) => a - b)).toEqual([11, 12]);
     drawWater(wl, field, bands, 1 / 60);
-    expect([...wl.live]).toEqual([11]);
+    expect([...wl.live].sort((a, b) => a - b)).toEqual([11]);
     expect(wl.strips[11].mesh.visible).toBe(true);
     destroyWaterLayer(wl);
   });

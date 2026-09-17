@@ -22,7 +22,7 @@ const TOOL_KEYS: Record<string, ToolId> = {
   j: "pourWater", k: "drainWater",
   // l/; carry on the same row: a spring and a drain are the running versions
   // of the two beside them
-  l: "spring", ";": "sink",
+  l: "spring", ";": "sink", "'": "pipe",
   u: "slope", i: "unslope",
 };
 const BRUSH_KEYS: Record<string, BrushId> = { "1": "point", "2": "rect", "3": "line" };
@@ -54,6 +54,9 @@ export function useEditKeys() {
       if (ev.key === "[") { ev.preventDefault(); st.setBrushRadius(Math.max(0, st.brushRadius - 1)); return; }
       if (ev.key === "]") { ev.preventDefault(); st.setBrushRadius(Math.min(4, st.brushRadius + 1)); return; }
       if (k === "g") { ev.preventDefault(); st.toggleOverlay("grid"); }
+      // `y`, not `x`: demolish has that one, and x-ray is the sort of thing
+      // you flick on and off while laying a run rather than hunt for.
+      if (k === "y") { ev.preventDefault(); st.toggleOverlay("xray"); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
