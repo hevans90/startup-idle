@@ -431,6 +431,12 @@
   const ROLES = [
     ["thin (1-wide)", ["thin-straight", "thin-corner", "thin-T", "thin-cross", "thin-end"]],
     ["thick (2-wide lanes)", ["thick-lane", "thick-outer-corner", "thick-inner-corner", "thick-T", "thick-cross", "thick-end", "thick-fill"]],
+    // A single-width thick road has no square-edged corner in the artset — its
+    // bend is drawn as a CURVE (123/125/126/127). Assembled they form a
+    // continuous rounded road; the square `thick-outer-corner` pieces are for
+    // the corner of a paved BLOCK, where the road fills the cell, and used on a
+    // single-width bend their kerbs do not meet across the turn.
+    ["thick (single-width bend)", ["thick-curve"]],
     ["thick + thin junction", ["thick-thru+thin-branch", "thick-lane+thin-branch", "thick+thin-cross"]],
   ];
   function ensure(id) {

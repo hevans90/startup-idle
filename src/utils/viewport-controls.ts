@@ -22,3 +22,21 @@ export function applyViewportControls(
     .wheel({ percent, trackpadPinch: true, wheelZoom: true })
     .clampZoom({ minScale, maxScale });
 }
+
+/**
+ * Re-bind which mouse buttons pan.
+ *
+ * A paint tool needs left-drag, which is also the default pan gesture — so
+ * while one is active panning moves to middle/right. Pinch and wheel-zoom are
+ * untouched, so touch and trackpad behaviour is unchanged.
+ *
+ * Separate from {@link applyViewportControls} so the shared default (and the
+ * skill tree, which also uses it) is never affected.
+ */
+export function setPanButtons(
+  vp: Viewport,
+  buttons: "left-middle" | "middle-right",
+): void {
+  vp.plugins.remove("drag");
+  vp.drag({ clampWheel: false, mouseButtons: buttons });
+}

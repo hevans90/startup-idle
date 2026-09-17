@@ -23,6 +23,14 @@ const ISO_ATLASES: AtlasDescriptor[] = [
   { dir: "vehicles", xmlFile: "vehicle_sheet.xml", pngFile: "vehicle_sheet.png" },
   // Fully-pavemented road twins, swapped in beside buildings (cityTiles_NNN.png).
   { dir: "city_tiles", xmlFile: "cityTiles_sheet.xml", pngFile: "cityTiles_sheet.png" },
+  /**
+   * DERIVED, not vendor art: inner-corner road tiles composited from the
+   * landscape sheet by `dev/bake-road-corners.ts` (`bun run bake:road-corners`).
+   * Baked rather than composited at runtime so they sample and batch exactly
+   * like every other frame — see that script's header. Frames are named
+   * `roadCorner_<base>_<corners>.png`.
+   */
+  { dir: "derived", xmlFile: "roadCorners_sheet.xml", pngFile: "roadCorners_sheet.png" },
 ];
 
 async function loadOneAtlas(

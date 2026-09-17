@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="roadCorners_sheet.png">
+    <SubTexture name="roadCorner_095_SE.png" x="0" y="0" width="132" height="99"/>
+    <SubTexture name="roadCorner_095_NE.png" x="132" y="0" width="132" height="99"/>
+    <SubTexture name="roadCorner_088_NW.png" x="264" y="0" width="132" height="99"/>
+    <SubTexture name="roadCorner_088_NE.png" x="396" y="0" width="132" height="99"/>
+    <SubTexture name="roadCorner_080_NW.png" x="528" y="0" width="132" height="99"/>
+    <SubTexture name="roadCorner_080_SW.png" x="660" y="0" width="132" height="99"/>
+    <SubTexture name="roadCorner_087_SW.png" x="0" y="99" width="132" height="99"/>
+    <SubTexture name="roadCorner_087_SE.png" x="132" y="99" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_SESWNW.png" x="264" y="99" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_NESWNW.png" x="396" y="99" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_SWNW.png" x="528" y="99" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_NESENW.png" x="660" y="99" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_SENW.png" x="0" y="198" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_NENW.png" x="132" y="198" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_NW.png" x="264" y="198" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_NESESW.png" x="396" y="198" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_SESW.png" x="528" y="198" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_NESW.png" x="660" y="198" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_SW.png" x="0" y="297" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_NESE.png" x="132" y="297" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_SE.png" x="264" y="297" width="132" height="99"/>
+    <SubTexture name="roadCorner_081_NE.png" x="396" y="297" width="132" height="99"/>
+</TextureAtlas>
