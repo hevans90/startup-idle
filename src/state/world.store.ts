@@ -46,8 +46,9 @@ import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
-import { clearSaved, saveNow, scheduleSave } from "../world/io/world-save";
+import { clearSaved, hasSaved, saveNow, scheduleSave } from "../world/io/world-save";
 import { buildCost, spendForBuild } from "../game/build-cost";
+import { generatePlayableMap } from "../world/gen/generate-map";
 
 export type Overlays = {
   grid: boolean;
@@ -311,6 +312,14 @@ type WorldState = {
   doUndo: () => void;
   doRedo: () => void;
   loadGrid: (g: Grid, palette?: (string | null)[]) => void;
+  /**
+   * Found a company on fresh ground: terrain and a road, from a seed.
+   *
+   * Goes through `loadGrid` like a loaded file does, so the history, the water
+   * field and the road network are all rebuilt for the new map rather than
+   * carrying over from the old one.
+   */
+  generateWorld: (seed: number, size?: number) => void;
   setPickNudge: (n: number) => void;
   /** @see WorldState.gpuWater */
   setGpuWater: (on: boolean) => void;
@@ -694,6 +703,20 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     });
   },
 
+  generateWorld: (seed, size = DEFAULT_SIZE) => {
+    const grid = freshGrid(size, size);
+    // GRASS, not the current material: a new company should not found on
+    // whatever the last thing painted in the editor happened to be.
+    const report = generatePlayableMap(grid, { seed, material: GRASS });
+    get().loadGrid(grid, [...INITIAL_TERRAIN_PALETTE]);
+    if (import.meta.env.DEV) {
+      console.info(
+        `WORLD: founded on seed ${report.seed} — road at row ${report.roadRow},`
+        + ` height ${report.roadHeight}, ${report.frontage} buildable frontage`,
+      );
+    }
+  },
+
   loadGrid: (grid, palette) => {
     history = createHistory();
     network = createNetwork(grid);
@@ -734,12 +757,28 @@ export function startAutosave(): () => void {
     palette: { terrain: useWorldStore.getState().palette, paved: [null] },
     water: water ?? undefined,
   });
-  let seen = useWorldStore.getState().revision;
+  // THE GRID'S IDENTITY AS WELL AS ITS REVISION, and the second one alone was
+  // a bug. `loadGrid` resets `revision` to zero, so generating a fresh map on
+  // a session that had not edited anything went from nought to nought and read
+  // as "nothing happened" — the new map was never written, and only the seed
+  // being persisted stopped that being data loss. A new grid is always a save.
+  let seenRev = useWorldStore.getState().revision;
+  let seenGrid = useWorldStore.getState().grid;
   const stop = useWorldStore.subscribe((s) => {
-    if (s.revision === seen) return;
-    seen = s.revision;
+    if (s.revision === seenRev && s.grid === seenGrid) return;
+    seenRev = s.revision;
+    seenGrid = s.grid;
     scheduleSave(input);
   });
+  // AND WHATEVER IS ALREADY HERE, if nothing has been saved yet.
+  //
+  // The map is generated in the editor's first render and this subscription is
+  // made in an effect, which runs after — so the baseline above is already the
+  // NEW map and the change that produced it is invisible. Watching harder does
+  // not help; the event happened before anyone was listening. Writing once at
+  // start is what closes it, and it is skipped when a save already exists so a
+  // loaded map is not immediately rewritten.
+  if (!hasSaved()) scheduleSave(input);
   // THE LAST WRITE BEFORE THE TAB GOES, which is the one that actually matters:
   // a debounce that never fires is a lost map. Same triggers the session store
   // uses for presence. @see App.tsx

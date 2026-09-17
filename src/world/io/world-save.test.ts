@@ -146,3 +146,32 @@ describe("a bad save starts a new world rather than a blank screen", () => {
     expect(localStorage.getItem("world-map")).toBe("{ broken");
   });
 });
+
+/**
+ * A FRESH MAP IS A SAVE, and this is the case that got away.
+ *
+ * `loadGrid` resets `revision` to zero, so a generated map arriving on a
+ * session that had not edited anything went from nought to nought. Watching
+ * the revision alone read that as "nothing happened" and never wrote it.
+ */
+describe("what counts as something to save", () => {
+  beforeEach(() => { clearSaved(); localStorage.clear(); });
+
+  test("a map that replaces another is saved even at the same revision", () => {
+    const a = world(8, 8);
+    const b = world(8, 8);
+    // Two different maps, both at "revision 0" as far as any counter goes.
+    b.grid.height[idx(b.grid, 4, 4)] = 9;
+
+    saveSoon(() => serializeWorld(a.grid, PALETTE, a.field));
+    saveNow();
+    const first = localStorage.getItem("world-map");
+
+    saveSoon(() => serializeWorld(b.grid, PALETTE, b.field));
+    saveNow();
+    const second = localStorage.getItem("world-map");
+
+    expect(second).not.toBe(first);
+    expect(loadSaved()!.grid.height[idx(b.grid, 4, 4)]).toBe(9);
+  });
+});

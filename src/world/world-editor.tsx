@@ -29,6 +29,7 @@ import { useEditKeys } from "./edit/use-edit-keys";
 import { bandCount } from "./iso";
 import { housingCapacity, setHousingReader } from "../game/housing";
 import { loadSaved } from "./io/world-save";
+import { useSessionStore } from "../state/session.store";
 import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
 
@@ -63,7 +64,21 @@ export function WorldEditor() {
    */
   useState(() => {
     const saved = loadSaved();
-    if (saved) useWorldStore.getState().loadGrid(saved.grid, saved.palette.terrain);
+    if (saved) {
+      useWorldStore.getState().loadGrid(saved.grid, saved.palette.terrain);
+      return true;
+    }
+    /**
+     * NO SAVED MAP MEANS A NEW COMPANY, so found one on fresh ground.
+     *
+     * SEEDED ON `incorporatedAt`, which is already unique per company and
+     * already persisted — so the map is a consequence of founding rather than
+     * something the founder flow has to know how to make. Nothing in
+     * `src/state/founder` reaches into the world; the world simply generates
+     * from the number that is already there. Clearing the save is what makes a
+     * new startup a new map. @see generatePlayableMap
+     */
+    useWorldStore.getState().generateWorld(useSessionStore.getState().incorporatedAt);
     return true;
   });
   // And keep it saved from here on. @see startAutosave
