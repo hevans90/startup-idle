@@ -40,6 +40,7 @@ import {
   type TeamLeaderEmployee,
 } from "./team-leaders.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
+import { useSlopPitStore } from "./slop-pit.store";
 import { useValuationStore } from "./valuation.store";
 
 export type UnlockCondition = {
@@ -459,9 +460,10 @@ function accrueGeneratorIncome(
   m: GameModifiers,
   out: { money: number; innovation: number },
   ticks: number,
+  moneyMult = 1,
 ): void {
   const { money, innovation } = calcGeneratorIncome(gen, m, out, ticks);
-  useMoneyStore.getState().increaseMoney(money);
+  useMoneyStore.getState().increaseMoney(money * moneyMult);
   useInnovationStore.getState().increaseInnovation(innovation);
   const dir = useDirectivesStore.getState();
   if (dir.everUnlocked) {
@@ -714,6 +716,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           }
 
           // ── 4. Income accrual (side effects only) ────────────────────────────
+          // Slop pit fills from vibe coders and penalises all income when full.
+          useSlopPitStore.getState().tick(amounts.vibe_coder, seconds);
+          const slopPenaltyMult = useSlopPitStore.getState().getMoneyPenaltyMult();
+
           // Track which gens fire this tick; stamp lastTick after auto-buy so
           // increaseGenerator's set() calls are not overwritten by ours.
           const firingGenIds = new Set<string>();
@@ -722,7 +728,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             const ticks = Math.floor(globalTickInterval / gen.interval);
             if (ticks === 0) continue;
             firingGenIds.add(gen.id);
-            accrueGeneratorIncome(gen, m, get().getEmployeeOutputMults(gen.id), ticks);
+            accrueGeneratorIncome(gen, m, get().getEmployeeOutputMults(gen.id), ticks, slopPenaltyMult);
           }
 
           // ── 5. Auto-buy ───────────────────────────────────────────────────────

@@ -32,6 +32,13 @@ const DISTRICT_REGIONS: Record<GeneratorId, Rect> = {
   "10x_dev": { x0: 30, y0: 3, x1: 54, y1: 36 },
 };
 
+/**
+ * The slop pit occupies a reserved 5×5 plot in the vibe_coder district.
+ * No buildings are placed here; the pit grows to fill this block.
+ */
+export const SLOP_PIT_CENTER = { x: 16, y: 23 } as const;
+export const SLOP_PIT_BLOCK = { x0: 14, y0: 21, x1: 18, y1: 25 } as const;
+
 /** Ground under each district region (all grass). */
 const DISTRICT_GROUND: Record<GeneratorId, SpriteId> = {
   intern: GROUND.grass,
@@ -141,7 +148,13 @@ function buildDistricts(roads: Set<string>): DistrictLayout[] {
       // the others.
       if (nearAvenue(y)) continue;
       for (let x = region.x0; x <= region.x1; x++) {
-        if (!roads.has(cellKey(x, y))) cells.push({ mapX: x, mapY: y });
+        if (roads.has(cellKey(x, y))) continue;
+        // Skip the slop pit's reserved block — buildings must not overlap it.
+        if (
+          x >= SLOP_PIT_BLOCK.x0 && x <= SLOP_PIT_BLOCK.x1 &&
+          y >= SLOP_PIT_BLOCK.y0 && y <= SLOP_PIT_BLOCK.y1
+        ) continue;
+        cells.push({ mapX: x, mapY: y });
       }
     }
     // Fill from the access road outward for a coherent growth feel.
@@ -159,6 +172,11 @@ function buildGround(): TileInstance[] {
   const ground: TileInstance[] = [];
   for (let y = 0; y < WORLD_ROWS; y++) {
     for (let x = 0; x < WORLD_COLS; x++) {
+      // Leave the slop pit plot as a bare void — no ground tile placed here.
+      if (
+        x >= SLOP_PIT_BLOCK.x0 && x <= SLOP_PIT_BLOCK.x1 &&
+        y >= SLOP_PIT_BLOCK.y0 && y <= SLOP_PIT_BLOCK.y1
+      ) continue;
       let spriteId: SpriteId = GROUND.grass;
       for (const id of Object.keys(DISTRICT_REGIONS) as GeneratorId[]) {
         if (inRect(x, y, DISTRICT_REGIONS[id])) {

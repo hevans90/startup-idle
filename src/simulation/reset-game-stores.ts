@@ -1,4 +1,5 @@
 import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { useSlopPitStore } from "../state/slop-pit.store";
 import { useDirectivesStore } from "../state/directives.store";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
@@ -28,6 +29,7 @@ export function resetRunStores(): void {
   useFounderStore.getState().reset();
   useSessionStore.getState().reset();
   useDirectivesStore.getState().reset();
+  useSlopPitStore.getState().reset();
 
   const now = Date.now();
   useInnovationStore.setState({ globalLastTick: now });
