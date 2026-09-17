@@ -218,12 +218,26 @@ type WorldState = {
    */
   openEdge: boolean;
   /**
-   * Step the water with the WebGPU compute passes instead of the CPU solver.
+   * Step the water with the WebGPU compute passes instead of the host solver.
    *
-   * A switch, not a comparison — see `debug/gpu-water-toggle`. Off by default
-   * and never persisted: the CPU solver is the reference and the fallback, and
-   * a map that loaded onto the device path without anybody asking would be a
-   * map whose water nobody chose.
+   * ON BY DEFAULT NOW, and the reason it was not is worth keeping: the host
+   * solver is the REFERENCE — the one the render tests hold to account and the
+   * one every comparison is measured against — so putting a map on the device
+   * path without anybody asking meant water nobody had chosen. What changed is
+   * that the two are now held to each other rather than taken on trust.
+   * `__waterCompare` diffs the paths pixel for pixel, `?gpucheck` diffs the
+   * solvers pass by pass, and the reference is a toggle away.
+   *
+   * What it buys is the difference between a map that is pleasant at any size
+   * and one that is not. On a settling 128² map the host solver spends about
+   * 14ms a frame against the device's 0.2, and the gap is all in the first
+   * seconds after a generate — which is exactly when somebody is looking.
+   *
+   * STILL NOT PERSISTED, and it degrades rather than fails: with no WebGPU, a
+   * device that never arrived, or one that has been lost, the effect that
+   * builds the solver falls straight through to the host path and the flag is
+   * inert. So this is a preference for the better path where there is one, not
+   * a claim that there is one.
    */
   gpuWater: boolean;
   overlays: Overlays;
@@ -430,7 +444,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   hover: null,
   drawnBands: 0,
   openEdge: OPEN_EDGE_DEFAULT,
-  gpuWater: false,
+  gpuWater: true,
   overlays: {
     grid: true, bands: false, height: false, origin: true, faces: true,
     net: false, mask: false, gaps: false, xray: false,
