@@ -194,16 +194,21 @@ export type Slider = {
  * nothing can be built on.
  */
 export const GEN_SLIDERS: readonly Slider[] = [
-  // SIXTEEN TO NINETY-SIX, and the top end is a measurement rather than taste.
+  // SIXTEEN TO A HUNDRED AND TWENTY-EIGHT, both ends measured.
   //
   // Sixteen is the smallest that still fits a street with its margins and a
-  // buildable side. Ninety-six is where the RENDERER stops, for two separate
-  // reasons that both bite between 96 and 128 — the quad list's texture width,
-  // which is fixed (@see quadList), and Pixi's packing of the per-band uniform
-  // groups, which throws `offset is out of bounds` somewhere past 191 bands
-  // and is not ours to fix from here. A slider that offers a map the renderer
-  // will not draw is a slider that offers a wall of validation errors.
-  { key: "size", label: "tiles", min: 16, max: 96, step: 16, group: "map",
+  // buildable side either way. A hundred and twenty-eight is 16,384 cells and
+  // 262,144 water columns, and it draws at 119fps on the device solver and
+  // 102 on the host one — so it is where the testing stops rather than where
+  // the renderer does.
+  //
+  // IT USED TO STOP AT 96, and the reason given was wrong twice over. The
+  // first was real and is fixed: the quad list's stride was a texture WIDTH,
+  // and 128 tiles wanted 10,240 of the 8,192 a device is guaranteed
+  // (@see quadList). The second was a `RangeError` at boot that looked like it
+  // scaled with the band count — it does not. It happens at 64² too, on a
+  // fresh load, and has nothing to do with the size of the map.
+  { key: "size", label: "tiles", min: 16, max: 128, step: 16, group: "map",
     hint: "tiles across the map, both ways — applied by generate" },
   { key: "relief", label: "relief", min: 0, max: 48, step: 2, group: "land",
     hint: "half steps between the highest ground and the lowest" },
