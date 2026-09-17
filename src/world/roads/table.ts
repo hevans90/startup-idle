@@ -30,9 +30,40 @@ export type RoadLabel = {
   open?: Partial<Record<"N" | "E" | "S" | "W", boolean>>;
   width?: string;
   role?: string;
+  /**
+   * The road is carried on a DECK, over water.
+   *
+   * A bridge is a road — same roles, same open edges, same resolution — but it
+   * is not an INTERCHANGEABLE one: a span drawn where the ground is dry has a
+   * river painted across a field, and a straight drawn where the channel is has
+   * a road running into the water. So the two families are indexed separately
+   * and a caller asks for the one it wants. @see buildRoadTable
+   */
+  bridge?: boolean;
+  /**
+   * Which edges the WATER passes through, as direction letters (e.g. "EW").
+   *
+   * Usually the two the road does not, but not always — the artset has spans
+   * that meet a bank, where the water leaves by one edge only. Authored rather
+   * than assumed, because "perpendicular to the road" is a guess that is wrong
+   * exactly where it matters.
+   */
+  under?: string;
 };
 
 export type RoadSet = "landscape" | "city";
+
+/**
+ * What a road is carried on.
+ *
+ * The default is the ground, so every existing caller keeps the table it always
+ * had — and, more to the point, labelling a bridge cannot change what a dry
+ * road picks. That is the whole reason this is a partition and not a flag on
+ * the entries: a bridge frame that stayed in `byOpen` would be in the fallback
+ * pool for an ordinary straight, and the first one labelled would start
+ * appearing in the middle of fields.
+ */
+export type Deck = "ground" | "bridge";
 
 const SHEET: Record<RoadSet, { data: Record<string, RoadLabel>; frame: (k: string) => string }> = {
   landscape: {
@@ -116,6 +147,13 @@ export type RoadTable = {
    */
   byOpen: Map<number, string[]>;
   /**
+   * Frame → the edges the water passes under it, as a DIR mask.
+   *
+   * Empty for a ground table. For a bridge table it is what lets a span be
+   * matched to the channel it is meant to cross. @see RoadLabel.under
+   */
+  underOf: Map<string, number>;
+  /**
    * The fill tile, resolved by ROLE alone.
    *
    * Full pavement has no open edges to match a mask against — its label says
@@ -145,20 +183,42 @@ export type RoadTable = {
  *    and kerb, carries the same role, and is marked `thick`. So the filter's
  *    only effect was to leave every N–S run without a straight.
  */
-export function buildRoadTable(set: RoadSet): RoadTable {
+export function buildRoadTable(set: RoadSet, deck: Deck = "ground"): RoadTable {
   const { data, frame } = SHEET[set];
+  return indexLabels(set, data, frame, deck);
+}
+
+/**
+ * The indexing, over a label record given rather than imported.
+ *
+ * Split out ONLY so the partition can be tested. The property that matters —
+ * that marking a frame as a bridge takes it out of the ground table and cannot
+ * change what a dry road picks — is untestable against the real files until
+ * somebody has labelled a bridge, which is exactly when it is too late to find
+ * out it was wrong.
+ */
+export function indexLabels(
+  set: RoadSet,
+  data: Record<string, RoadLabel>,
+  frame: (k: string) => string,
+  deck: Deck = "ground",
+): RoadTable {
   const byRole = new Map<string, Map<number, string>>();
   const byOpen = new Map<number, string[]>();
   const openOf = new Map<string, number>();
+  const underOf = new Map<string, number>();
 
   let fill: string | null = null;
 
   for (const key of Object.keys(data).sort()) {
     const l = data[key];
     if (!l.road) continue;
+    // THE PARTITION. A frame belongs to one deck or the other and never both.
+    if ((l.bridge === true) !== (deck === "bridge")) continue;
     const open = openMaskOf(l);
     const f = frame(key);
     openOf.set(f, open);
+    if (l.under) underOf.set(f, maskOfLetters(l.under));
 
     // the fallback pool takes every width — see the note on `byOpen`
     const pool = byOpen.get(open) ?? [];
@@ -172,8 +232,12 @@ export function buildRoadTable(set: RoadSet): RoadTable {
     if (!byMask.has(open)) byMask.set(open, f);
     byRole.set(role, byMask);
   }
-  return { set, byRole, byOpen, openOf, fill };
+  return { set, byRole, byOpen, openOf, underOf, fill };
 }
+
+/** "EW" → the DIR bits for those edges. Unknown letters are ignored. */
+export const maskOfLetters = (s: string): number =>
+  (["N", "E", "S", "W"] as const).reduce((m, d) => (s.includes(d) ? m | DIR[d] : m), 0);
 
 /** Adjacent orthogonal pair → the diagonal bit for the vertex between them. */
 const CORNER_DIAGONAL = new Map<number, number>([

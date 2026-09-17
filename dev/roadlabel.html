@@ -32,7 +32,16 @@
   .roadtoggle { font-size: 11px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
   .card.notroad .stage { opacity: .35; }
   .card.notroad .edge { display: none; }
-  .card.notroad .role { display: none; }
+  .card.notroad .role, .card.notroad .deck { display: none; }
+  .deck { margin-top: 6px; }
+  .bridgetoggle { font-size: 11px; opacity: .9; cursor: pointer; user-select: none; }
+  .under { margin-top: 4px; font-size: 10px; opacity: .8; display: flex; gap: 4px; align-items: center; }
+  .wbtn { background: #1c232c; color: #8a97a5; border: 1px solid var(--line); border-radius: 3px;
+          font: inherit; padding: 1px 5px; cursor: pointer; }
+  /* A GUESS IS DRAWN DIFFERENTLY FROM AN ANSWER — dotted while it is still the
+     default pair, solid once the tile has actually been told. */
+  .wbtn.guess { color: #6fa8d6; border-style: dotted; }
+  .wbtn.on { background: #2b6cb0; border-color: #4f9de0; color: #eaf3fb; }
   /* ---- slope mode ---- */
   .hint { font-size: 10px; opacity: .8; margin-top: 4px; font-family: ui-monospace, monospace; }
   .kinds, .dirs { display: flex; gap: 3px; margin-top: 5px; flex-wrap: wrap; }
@@ -88,6 +97,9 @@
     <button id="mode-landscape" onclick="switchMode('landscape')">Landscape roads</button>
     <button id="mode-city" class="sec" onclick="switchMode('city')">City pavement</button>
     <button id="mode-slope" class="sec" onclick="switchMode('slope')">Slopes / ramps</button>
+    <label id="bridgefilter" style="font-size:12px;opacity:.85;cursor:pointer;margin-left:8px">
+      <input type="checkbox" onchange="setBridgeOnly(this.checked)"> bridges only
+    </label>
   </div>
   <p class="help">
     Edges: <b>N</b>=top-left, <b>E</b>=top-right, <b>S</b>=bottom-right, <b>W</b>=bottom-left.
@@ -95,7 +107,12 @@
     vs <span style="color:#ff5a5a">CLOSED</span> (curb/sidewalk → faces grass). The inferred type updates live so you can sanity-check.
     Then pick each road's <b>role</b>. Thin = 1-wide pieces. Thick = 2-wide road built from <b>lanes</b>
     (each lane has its pavement on the outer edge — mark that edge closed) plus thick corners/junctions; the
-    pavement edges you mark give the orientation. Untick <b>road</b> for non-roads. Autosaves; copy the JSON when done.
+    pavement edges you mark give the orientation. Untick <b>road</b> for non-roads.
+    Tick <b>bridge</b> 🌉 for a deck carried over water: it keeps the ordinary role and open edges — a span
+    is just a straight with a river under it — and the engine keeps the two families apart, so a bridge is
+    only ever drawn where the water is and never stands in for a dry road. The <b>water out</b> buttons say
+    which edges the channel leaves by; they start as a dotted guess (the edges the road does not use) and go
+    solid once you click one, so an unconfirmed guess never looks like an answer. Autosaves; copy the JSON when done.
   </p>
   <aside class="guide">
     <h2>📖 Label guide</h2>
@@ -109,6 +126,18 @@
     <div class="guidecol"><h3>Thick — 2 tiles wide (lanes)</h3><div class="gcards" id="guide-thick"></div></div>
     <div class="guidecol"><h3>Thick road + thin junction</h3><div class="gcards" id="guide-hybrid"></div></div>
     </div>
+  <div class="guidecol" id="bridgeguide">
+    <h3>Bridges 🌉</h3>
+    <p style="font-size:11px;opacity:.8;line-height:1.45;margin:0 0 8px">
+      A deck over water. Label the ROAD exactly as you would on dry land — the open edges are where the
+      asphalt continues, the role is the shape — then tick <b>bridge</b>. The tick is what keeps it out of
+      the ordinary road table, so it can never be picked for a road in the middle of a field.
+      <br><br>
+      <b>water out</b> is the other half: which edges the channel leaves by. For a through-span that is the
+      two edges the road does not use, which is what the dotted guess shows. Click to confirm or change it —
+      a deck that meets a bank has water leaving by ONE edge, and only you can see that.
+    </p>
+  </div>
   <div class="guidecol" id="slopeguide" style="display:none">
     <h3>Slopes — orientation</h3>
     <div class="gcards" id="guide-slope"></div>
@@ -145,6 +174,8 @@
   ];
   const KINDS = ["flat", "ramp", "cliff", "water", "other"];
   let slopeFilter = "slopes";
+  /** Show only the tiles already ticked as bridges — 128 cards is a lot to scroll. */
+  let bridgeOnly = false;
 
   let mode = "landscape";
   const states = { landscape: {}, city: {}, slope: {} };
@@ -426,7 +457,8 @@
   }
 
   let state = states[mode];
-  // state[id] = { road: bool, role: string, open: {N,E,S,W: bool} }
+  // state[id] = { road: bool, role: string, open: {N,E,S,W: bool},
+  //               bridge: bool, under: "" | letters of the edges water uses }
   // slope:  state["landscapeTiles_028.png"] = { kind, dir, rise }
   const ROLES = [
     ["thin (1-wide)", ["thin-straight", "thin-corner", "thin-T", "thin-cross", "thin-end"]],
@@ -440,10 +472,23 @@
     ["thick + thin junction", ["thick-thru+thin-branch", "thick-lane+thin-branch", "thick+thin-cross"]],
   ];
   function ensure(id) {
-    if (!state[id]) state[id] = { road: cfg().defaultRoad(Number(id)), role: "", open: { N:true, E:true, S:true, W:true } };
-    if (state[id].role === undefined) state[id].role = ""; // migrate older saves
+    if (!state[id]) state[id] = { road: cfg().defaultRoad(Number(id)), role: "", open: { N:true, E:true, S:true, W:true }, bridge: false, under: "" };
+    if (state[id].role === undefined) state[id].role = "";   // migrate older saves
+    if (state[id].bridge === undefined) state[id].bridge = false;
+    if (state[id].under === undefined) state[id].under = "";
     return state[id];
   }
+  /**
+   * The edges water runs under a bridge, guessed from the road.
+   *
+   * A span crosses what the road does not, so the default is the pair of edges
+   * the road has closed — right for every through-span in the sheet. It is only
+   * a DEFAULT: a deck that meets a bank has water leaving by one edge, and that
+   * case has to be clicked. Shown greyed until it is confirmed, so the guess is
+   * never mistaken for an answer.
+   */
+  const guessUnder = (s) => DIRS.filter(d => !s.open[d]).join("");
+
   let syncTimer = null;
   function setStatus(t) { const el = document.getElementById("status"); if (el) el.textContent = t; }
   function syncToDisk() {
@@ -823,6 +868,7 @@
     for (let i = FROM; i <= TO; i++) {
       const id = pad(i);
       const s = ensure(id);
+      if (bridgeOnly && !s.bridge) continue;
       const card = document.createElement("div");
       card.className = "card" + (s.road ? "" : " notroad");
       const stage = document.createElement("div");
@@ -853,18 +899,58 @@
           '</optgroup>').join("");
       role.onchange = () => { s.role = role.value; save(); };
 
+      // THE DECK. A bridge carries the same roles over the same open edges —
+      // what makes it a different tile is that there is water under it, so it
+      // may only be drawn where the water is. Kept as one tick plus the edges
+      // the water uses, rather than a parallel set of "bridge-straight" roles,
+      // so the road vocabulary stays one vocabulary.
+      const deck = document.createElement("div");
+      deck.className = "deck";
+      const bridge = document.createElement("label");
+      bridge.className = "bridgetoggle";
+      const bx = document.createElement("input");
+      bx.type = "checkbox"; bx.checked = !!s.bridge;
+      bx.onchange = () => { s.bridge = bx.checked; if (!bx.checked) s.under = ""; save(); };
+      bridge.appendChild(bx);
+      bridge.appendChild(document.createTextNode(" bridge 🌉"));
+      deck.appendChild(bridge);
+
+      if (s.bridge) {
+        const under = document.createElement("div");
+        under.className = "under";
+        under.appendChild(document.createTextNode("water out:"));
+        for (const d of DIRS) {
+          const b = document.createElement("button");
+          const on = (s.under || guessUnder(s)).includes(d);
+          b.textContent = d;
+          b.className = "wbtn" + (on ? (s.under ? " on" : " guess") : "");
+          b.onclick = () => {
+            const cur = (s.under || guessUnder(s)).split("").filter(Boolean);
+            s.under = (cur.includes(d) ? cur.filter(x => x !== d) : cur.concat(d))
+              .sort((a, b2) => DIRS.indexOf(a) - DIRS.indexOf(b2)).join("");
+            save();
+          };
+          under.appendChild(b);
+        }
+        deck.appendChild(under);
+      }
+
       const type = document.createElement("div");
       type.className = "type";
       const pav = DIRS.filter(d => !s.open[d]);
       type.textContent = s.road
-        ? (s.role || "(pick role)") + " · pavement: " + (pav.length ? pav.join(",") : "none")
+        ? (s.bridge ? "🌉 " : "") + (s.role || "(pick role)")
+          + " · pavement: " + (pav.length ? pav.join(",") : "none")
+          + (s.bridge ? " · water: " + (s.under || guessUnder(s) || "none") : "")
         : "—";
-      card.appendChild(stage); card.appendChild(row); card.appendChild(role); card.appendChild(type);
+      card.appendChild(stage); card.appendChild(row); card.appendChild(role);
+      card.appendChild(deck); card.appendChild(type);
       grid.appendChild(card);
     }
     updateOut();
   }
   window.toggleRoad = (id, v) => { ensure(id).road = v; save(); };
+  window.setBridgeOnly = (v) => { bridgeOnly = v; render(); };
 
   function updateOut() {
     if (mode === "slope") {
@@ -895,6 +981,7 @@
         role: s.role,
         open: DIRS.filter(d => s.open[d]),
         pavement: DIRS.filter(d => !s.open[d]),
+        ...(s.bridge ? { bridge: true, under: s.under || guessUnder(s) } : {}),
       };
     }
     document.getElementById("out").value = JSON.stringify(obj, null, 2);
@@ -1189,6 +1276,7 @@
     for (const k of ["landscape", "city", "slope"])
       document.getElementById("mode-" + k).className = (m === k ? "" : "sec");
     const isSlope = (m === "slope");
+    document.getElementById("bridgefilter").style.display = isSlope ? "none" : "";
     for (const el of document.querySelectorAll(".guide > .guidecol"))
       el.style.display = (el.id === "slopeguide") === isSlope ? "" : "none";
     const gh = document.querySelector(".guide h2, .guide > h3");

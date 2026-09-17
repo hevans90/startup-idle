@@ -12,7 +12,8 @@ import { describe, expect, test } from "bun:test";
 import { DIR } from "../../iso/dir";
 import { DIAG } from "./mask";
 import {
-  buildRoadTable, cornersExpressible, openMaskOf, resolveRole, roadCoverage,
+  buildRoadTable, cornersExpressible, indexLabels, maskOfLetters, openMaskOf,
+  resolveRole, roadCoverage, type RoadLabel,
   roadSpriteFor,
 } from "./table";
 
@@ -350,5 +351,74 @@ describe("inner-corner coverage", () => {
     expect(cornersExpressible(ORTH_ALL, 0)).toBe(true);          // crossroads
     expect(cornersExpressible(DIR.S | DIR.W, 0)).toBe(true);      // a turn
     expect(cornersExpressible(DIR.S | DIR.W, DIAG.SW)).toBe(true); // a block corner
+  });
+});
+
+/**
+ * BRIDGES ARE A SEPARATE FAMILY, and the reason is asymmetric.
+ *
+ * A bridge drawn on dry land has a river painted across a field; a plain
+ * straight drawn over the channel has a road running into the water. Both are
+ * wrong, but only the first can happen by accident — a bridge frame left in the
+ * ordinary tables is in the fallback pool for every straight on the map, so the
+ * FIRST tile anybody labels starts appearing in the middle of fields.
+ *
+ * Tested against a record given rather than the real file because, until
+ * somebody has labelled one, the real file cannot exercise it — and the moment
+ * it can, the damage is done. @see indexLabels
+ */
+describe("a bridge is a road, but not an interchangeable one", () => {
+  const frame = (k: string) => `landscapeTiles_${k}.png`;
+  const LABELS: Record<string, RoadLabel> = {
+    // The same shape twice: one on the ground, one on a deck over water.
+    "074": { road: true, role: "thin-straight", open: { N: true, S: true } },
+    "023": {
+      road: true, role: "thin-straight", open: { N: true, S: true },
+      bridge: true, under: "EW",
+    },
+  };
+
+  test("the ground table does not know about it", () => {
+    const t = indexLabels("landscape", LABELS, frame);
+    expect(t.byRole.get("thin-straight")?.get(DIR.N | DIR.S)).toBe(frame("074"));
+    expect([...t.openOf.keys()]).not.toContain(frame("023"));
+    // The fallback pool is the dangerous one: shape matters more than family
+    // there, so a span left in it stands in for any straight.
+    expect(t.byOpen.get(DIR.N | DIR.S)).toEqual([frame("074")]);
+  });
+
+  test("and the bridge table knows about nothing else", () => {
+    const t = indexLabels("landscape", LABELS, frame, "bridge");
+    expect(t.byRole.get("thin-straight")?.get(DIR.N | DIR.S)).toBe(frame("023"));
+    expect([...t.openOf.keys()]).toEqual([frame("023")]);
+  });
+
+  /** A span resolves by the same rules; only the pool it draws from differs. */
+  test("a span is picked the way any straight is", () => {
+    const t = indexLabels("landscape", LABELS, frame, "bridge");
+    const pick = roadSpriteFor(t, DIR.N | DIR.S);
+    expect(pick.role).toBe("thin-straight");
+    expect(pick.frame).toBe(frame("023"));
+    expect(pick.exact).toBe(true);
+  });
+
+  test("the water's own edges come through, so a span can be matched to a channel", () => {
+    const t = indexLabels("landscape", LABELS, frame, "bridge");
+    expect(t.underOf.get(frame("023"))).toBe(DIR.E | DIR.W);
+    expect(maskOfLetters("N")).toBe(DIR.N);
+    expect(maskOfLetters("")).toBe(0);
+  });
+
+  /**
+   * THE FILE AS IT STANDS. Nothing is labelled a bridge yet, so the ground
+   * table must be exactly what it was before this existed — this is the test
+   * that says adding the partition changed nothing.
+   */
+  test("with nothing labelled, the real ground table is untouched", () => {
+    const ground = buildRoadTable("landscape");
+    const bridges = buildRoadTable("landscape", "bridge");
+    expect(bridges.openOf.size).toBe(0);
+    expect(ground.openOf.size).toBeGreaterThan(20);
+    for (const f of bridges.openOf.keys()) expect(ground.openOf.has(f)).toBe(false);
   });
 });
