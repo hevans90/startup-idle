@@ -95,6 +95,7 @@ export const INITIAL_TERRAIN_PALETTE: (string | null)[] = [
   null,
   "landscapeTiles_067.png", // 1 grass
   "landscapeTiles_083.png", // 2 dirt
+  "landscapeTiles_059.png", // 3 sand
 ];
 
 /**
@@ -107,6 +108,7 @@ export const PAVED_MATERIAL = 1;
 
 export const GRASS = 1;
 export const DIRT = 2;
+export const SAND = 3;
 export const VOID_MATERIAL = 0;
 export const DEFAULT_SIZE = 64;
 
@@ -718,7 +720,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const grid = freshGrid(size, size);
     // GRASS, not the current material: a new company should not found on
     // whatever the last thing painted in the editor happened to be.
-    const report = generatePlayableMap(grid, { seed, material: GRASS });
+    const report = generatePlayableMap(grid, {
+      seed, material: GRASS, dirt: DIRT, sand: SAND,
+    });
     get().loadGrid(grid, [...INITIAL_TERRAIN_PALETTE]);
     // AFTER `loadGrid`, which resets the rest of the map's state — set before,
     // it would be cleared by the load it is describing. The REPORTED seed, not

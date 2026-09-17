@@ -31,18 +31,20 @@ describe("world store", () => {
   });
 
   test("a browser-picked frame survives save and load", () => {
+    // Appended past the built-in materials, wherever those happen to end.
+    const next = INITIAL_TERRAIN_PALETTE.length;
     const m = s().selectFrame("buildingTiles_003.png");
-    expect(m).toBe(3);
+    expect(m).toBe(next);
 
     s().beginStroke({ x: 2, y: 2 });
     s().endStroke();
-    expect(s().grid.terrain[2 * 8 + 2]).toBe(3);
+    expect(s().grid.terrain[2 * 8 + 2]).toBe(next);
 
     roundTrip();
 
     // the index is meaningless without the palette that gave it meaning
-    expect(s().palette[3]).toBe("buildingTiles_003.png");
-    expect(s().grid.terrain[2 * 8 + 2]).toBe(3);
+    expect(s().palette[next]).toBe("buildingTiles_003.png");
+    expect(s().grid.terrain[2 * 8 + 2]).toBe(next);
   });
 
   test("selectFrame reuses an index rather than appending twice", () => {
@@ -55,7 +57,7 @@ describe("world store", () => {
   test("loading a shorter palette clamps the selected material", () => {
     s().selectFrame("buildingTiles_003.png");
     s().selectFrame("buildingTiles_004.png");
-    expect(s().material).toBe(4);
+    expect(s().material).toBe(INITIAL_TERRAIN_PALETTE.length + 1);
 
     // a map saved before those frames existed
     s().loadGrid(s().grid, [...INITIAL_TERRAIN_PALETTE]);

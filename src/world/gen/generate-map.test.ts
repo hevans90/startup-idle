@@ -10,10 +10,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  MIN_FRONTAGE, frontageOf, generateMap, generatePlayableMap,
+  MIN_FRONTAGE, frontageOf, generateMap, generatePlayableMap, paintGround,
 } from "./generate-map";
 import { fbm, valueNoise } from "./noise";
-import { createGrid, idx } from "../grid";
+import { createGrid, fillTerrain, idx } from "../grid";
 import { HEIGHT_MAX, HEIGHT_MIN } from "../edit/height-tools";
 
 const fresh = (w = 64, h = 64) => createGrid(w, h);
@@ -104,14 +104,6 @@ describe("what a generated map guarantees", () => {
     }
   });
 
-  /** Terrain has to actually vary, or this is an elaborate flat map. */
-  test("the land away from the road has relief", () => {
-    const { g } = gen(11);
-    let lo = Infinity, hi = -Infinity;
-    for (const h of g.height) { lo = Math.min(lo, h); hi = Math.max(hi, h); }
-    expect(hi - lo).toBeGreaterThan(4);
-  });
-
   test("and it stays inside what the editor can represent", () => {
     for (let seed = 0; seed < 20; seed++) {
       const { g } = gen(seed);
@@ -123,19 +115,70 @@ describe("what a generated map guarantees", () => {
   });
 
   /**
-   * The shoulder is what makes frontage buildable rather than merely adjacent:
-   * ground beside the street should meet it, not tower over it.
+   * THE CONE, which is what makes frontage buildable rather than merely
+   * adjacent: ground beside the street should meet it, not tower over it.
+   * Stated as the rule itself rather than as a number for the first row, so it
+   * still means something if the relief is ever turned up. @see RISE
    */
-  test("the ground beside the road meets it", () => {
+  test("the land climbs at most a slab a tile away from the road", () => {
     for (let seed = 0; seed < 20; seed++) {
       const { g, r } = gen(seed);
       const road = g.height[idx(g, 0, r.roadRow)];
-      for (let x = 0; x < g.w; x++) {
-        for (const y of [r.roadRow - 1, r.roadRow + 2]) {
-          if (y < 0 || y >= g.h) continue;
-          expect(Math.abs(g.height[idx(g, x, y)] - road)).toBeLessThanOrEqual(3);
+      for (let y = 0; y < g.h; y++) {
+        const away = y < r.roadRow ? r.roadRow - y
+          : y >= r.roadRow + 2 ? y - (r.roadRow + 1)
+          : 0;
+        for (let x = 0; x < g.w; x++) {
+          expect(Math.abs(g.height[idx(g, x, y)] - road)).toBeLessThanOrEqual(away * 2);
         }
       }
+    }
+  });
+
+  /**
+   * EVERY CELL ON A WHOLE SLAB. The tileset's skirt is exactly one full step,
+   * so terrain quantised to it has cliff art that lines up; terrain on half
+   * steps has walls the art can only approximate. @see TERRACE
+   */
+  test("the ground is terraced to whole slabs", () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const { g } = gen(seed);
+      // `Math.abs`, because -2 % 2 is -0 and `toBe` can tell the difference.
+      for (const h of g.height) expect(Math.abs(h % 2)).toBe(0);
+    }
+  });
+
+  /**
+   * THE ONE THAT CAUGHT THE FIRST DRAFT, which took its height straight off
+   * four octaves of noise. Three quarters of its cells sat a single half step
+   * from a neighbour: a 16.5px ledge everywhere, no plane anywhere, and every
+   * house needing its ground levelled first. It read as static, not landscape.
+   * Measured over forty seeds: 21.8% level then, 64% now.
+   */
+  test("most of the map is a plain you can build on", () => {
+    let level = 0, cells = 0;
+    for (let seed = 0; seed < 12; seed++) {
+      const { g } = gen(seed);
+      for (let y = 1; y < g.h - 1; y++) {
+        for (let x = 1; x < g.w - 1; x++) {
+          const h = g.height[idx(g, x, y)];
+          const flat = g.height[idx(g, x + 1, y)] === h && g.height[idx(g, x - 1, y)] === h
+            && g.height[idx(g, x, y + 1)] === h && g.height[idx(g, x, y - 1)] === h;
+          if (flat) level++;
+          cells++;
+        }
+      }
+    }
+    expect(level / cells).toBeGreaterThan(0.5);
+  });
+
+  /** And plains are not the whole story, or this is an elaborate flat map. */
+  test("every seed still gets real hills", () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const { g } = gen(seed);
+      let lo = Infinity, hi = -Infinity;
+      for (const h of g.height) { lo = Math.min(lo, h); hi = Math.max(hi, h); }
+      expect(hi - lo).toBeGreaterThanOrEqual(20);          // ten slabs
     }
   });
 
@@ -167,5 +210,100 @@ describe("rerolling a bad opening", () => {
   test("it gives up rather than hanging", () => {
     const g = fresh(16, 16);
     expect(() => generatePlayableMap(g, { seed: 1, material: 1 }, 2)).not.toThrow();
+  });
+});
+
+/**
+ * What the ground is MADE of.
+ *
+ * Tested through `paintGround` on ground chosen rather than ground the noise
+ * happened to produce — the rules are about height and adjacency, and a test
+ * that has to go hunting through forty seeds for a cliff is testing the noise.
+ * The margins below are `JITTER`-wide on purpose: the thresholds wander by
+ * design, so a case sitting on one proves nothing either way.
+ */
+describe("grass, earth and sand", () => {
+  const M = { grass: 1, dirt: 2, sand: 3 };
+  /** Flat bare ground at one height, nothing paved. */
+  const ground = (h = 0, w = 13) => {
+    const g = createGrid(w, w);
+    fillTerrain(g, M.grass);
+    g.height.fill(h);
+    return g;
+  };
+  const at = (g: ReturnType<typeof ground>, x: number, y: number) => g.terrain[idx(g, x, y)];
+
+  test("the middle ground is grass", () => {
+    const g = ground(2);
+    paintGround(g, 7, 0, M);
+    expect(at(g, 6, 6)).toBe(M.grass);
+  });
+
+  test("the low ground is sand — where water will one day collect", () => {
+    const g = ground(-8);
+    paintGround(g, 7, 0, M);
+    expect(at(g, 6, 6)).toBe(M.sand);
+  });
+
+  test("the high ground goes back to bare earth", () => {
+    const g = ground(12);
+    paintGround(g, 7, 0, M);
+    expect(at(g, 6, 6)).toBe(M.dirt);
+  });
+
+  /**
+   * THE VERGE IS THE RULE MADE VISIBLE: these are exactly the cells housing
+   * may be built on, so the art says where to build without a tooltip.
+   */
+  test("the verge beside the road is earth, and so is its bed", () => {
+    const g = ground(0);
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 6)] = 1;
+    paintGround(g, 7, 0, M);
+    expect(at(g, 4, 6)).toBe(M.dirt);                     // under the road
+    expect(at(g, 4, 5)).toBe(M.dirt);                     // beside it
+    expect(at(g, 4, 7)).toBe(M.dirt);
+    expect(at(g, 4, 3)).toBe(M.grass);                    // and no further
+  });
+
+  test("a verge in the low ground is still earth, not sand", () => {
+    const g = ground(-8);
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 6)] = 1;
+    paintGround(g, 7, 0, M);
+    expect(at(g, 4, 5)).toBe(M.dirt);
+    expect(at(g, 4, 2)).toBe(M.sand);
+  });
+
+  /** A two-slab face is drawn in earth; grass over it is a lawn on a quarry. */
+  test("the brow of a cliff is earth", () => {
+    const g = ground(2);
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 7; x < g.w; x++) g.height[idx(g, x, y)] = -4;
+    }
+    paintGround(g, 7, 0, M);
+    expect(at(g, 6, 6)).toBe(M.dirt);                     // the brow
+    expect(at(g, 3, 6)).toBe(M.grass);                    // well back from it
+  });
+
+  test("void stays void", () => {
+    const g = ground(0);
+    g.terrain[idx(g, 6, 6)] = 0;
+    paintGround(g, 7, 0, M);
+    expect(at(g, 6, 6)).toBe(0);
+  });
+
+  /** A caller with one tile still gets a map, rather than a hole in the palette. */
+  test("without a separate earth or sand tile, it is all one material", () => {
+    const g = createGrid(24, 24);
+    generateMap(g, { seed: 3, material: 1 });
+    expect([...g.terrain].every((t) => t === 1)).toBe(true);
+  });
+
+  test("a generated map uses all three", () => {
+    const g = createGrid(64, 64);
+    for (const seed of [0, 1, 2, 3, 4]) {
+      generateMap(g, { seed, material: 1, dirt: 2, sand: 3 });
+      const seen = new Set(g.terrain);
+      expect(seen).toEqual(new Set([1, 2, 3]));
+    }
   });
 });
