@@ -52,6 +52,7 @@ import { heightAt, type Grid } from "../grid";
 import { fluidMaterial } from "../water/materials";
 import { COLUMNS_PER_TILE, tileOf, type WaterField } from "../water/field";
 import { PIPE_D, PIPE_FACINGS, pipeAcross, pipeDepth, pipeMouth } from "../water/pipes";
+import { findPipeNets, pipeCellCount } from "../water/pipe-net";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "./bands";
 
@@ -739,7 +740,13 @@ export function drawGpuDrips(
     const r = WIDE * HWs * Math.cbrt(d.volume[k] / DROP);
     // The ringing, as two radii. Long one way is short the other — the drop
     // has a fixed volume and is only changing shape.
-    const s = Math.max(-0.6, Math.min(1.2, d.shape[k]));
+    // A CLAMP THAT LETS NaN THROUGH IS NOT A CLAMP. `Math.min(1.2, NaN)` is
+    // NaN and so is the `max` around it, so a drop whose ringing came apart
+    // put NaN straight into a vertex buffer — four corners at no position at
+    // all. The cause is fixed where it belongs, in the integrator, but this
+    // is the last gate before the device and it should hold on its own.
+    const shape = d.shape[k];
+    const s = shape > -0.6 ? (shape < 1.2 ? shape : 1.2) : -0.6;
     const trail = speed * STREAK * 0.5;
     const along = r * (1 + s) + trail;
     const across = r / Math.sqrt(1 + s);
@@ -795,118 +802,124 @@ export function drawGpuDrips(
   //    it — and every casing of a cell goes down before any of its water, so
   //    that at a junction one limb's wall cannot be painted over the next
   //    limb's water.
-  for (let ty = 0; ty < grid.h; ty++) {
-    for (let tx = 0; tx < grid.w; tx++) {
-      const i = ty * grid.w + tx;
-      const facing = grid.pipe[i];
-      if (!facing) continue;
-      const band = tx + ty;
-      // The PIPE's level, not the ground's — a run keeps its grade while the
-      // ground rises over it, and drawing it at the ground would put a buried
-      // main back on the surface.
-      const z = grid.pipeZ[i];
-      // How far under the ground this length is, and so how faint. With the
-      // ground itself made translucent there is nothing left to fade FOR, and
-      // a run drawn faint through a hill you can already see into is just hard
-      // to read — so in that mode a buried pipe is drawn like any other.
-      const under = (heightAt(grid, tx, ty) ?? 0) - z;
-      const ghost = xray || under <= 0
-        ? 0
-        : GHOST_MOST * Math.min(1, under / GHOST_DEEP);
-      const cpx = (tx - ty) * HWs, cpy = (tx + ty) * HHs - z * HUs;
+  //
+  //    OFF THE LIST OF PIPE CELLS rather than off every cell of the map. The
+  //    networks are a flood fill over exactly these, kept between edits, so
+  //    the cells are already gathered and in hand — see `findPipeNets`. This
+  //    walked four thousand tiles to find nineteen.
+  const pipes = findPipeNets(grid, field.nets);
+  const pipeCells = pipeCellCount(pipes);
+  for (let k = 0; k < pipeCells; k++) {
+    const i = pipes.cells[k];
+    const tx = i % grid.w, ty = (i / grid.w) | 0;
+    const facing = grid.pipe[i];
+    if (!facing) continue;
+    const band = tx + ty;
+    // The PIPE's level, not the ground's — a run keeps its grade while the
+    // ground rises over it, and drawing it at the ground would put a buried
+    // main back on the surface.
+    const z = grid.pipeZ[i];
+    // How far under the ground this length is, and so how faint. With the
+    // ground itself made translucent there is nothing left to fade FOR, and
+    // a run drawn faint through a hill you can already see into is just hard
+    // to read — so in that mode a buried pipe is drawn like any other.
+    const under = (heightAt(grid, tx, ty) ?? 0) - z;
+    const ghost = xray || under <= 0
+      ? 0
+      : GHOST_MOST * Math.min(1, under / GHOST_DEEP);
+    const cpx = (tx - ty) * HWs, cpy = (tx + ty) * HHs - z * HUs;
 
-      let limbs = 0;
-      const add = (ax: number, ay: number, bx: number, by: number) => {
-        if (limbs >= MAX_LIMBS) return;
-        const o = limbs++ * 4;
-        LIMB[o] = ax; LIMB[o + 1] = ay; LIMB[o + 2] = bx; LIMB[o + 3] = by;
-      };
+    let limbs = 0;
+    const add = (ax: number, ay: number, bx: number, by: number) => {
+      if (limbs >= MAX_LIMBS) return;
+      const o = limbs++ * 4;
+      LIMB[o] = ax; LIMB[o + 1] = ay; LIMB[o + 2] = bx; LIMB[o + 3] = by;
+    };
 
-      let joined = false;
-      for (const face of PIPE_FACINGS) {
-        if (!pipeAcross(grid, tx, ty, face)) continue;
-        joined = true;
-        const [dx, dy] = NEIGHBOUR[FACE_OF[face]];
-        // Out to the middle of the shared face, where the neighbour's own limb
-        // is coming the other way. Each cell draws its own half.
-        const ffx = tx + dx * 0.5, ffy = ty + dy * 0.5;
-        add(cpx, cpy, (ffx - ffy) * HWs, (ffx + ffy) * HHs - z * HUs);
-      }
-
-      // And the opening, if this facing is one — a facing turned into the run
-      // beside it is a capped end with nothing sticking out of it.
-      if (!pipeAcross(grid, tx, ty, facing)) {
-        const mouth = pipeMouth(grid, tx, ty, facing);
-        if (mouth) {
-          const [dx, dy] = NEIGHBOUR[FACE_OF[facing]];
-          // The two ends that have to line up are the wall and the MOUTH: the
-          // drop hangs at the mouth, and a fitting that stopped at the face
-          // left it hanging half a column clear of the pipe it came out of.
-          // Asking `pipeMouth` where that is, rather than working it out again
-          // here, is what keeps them together.
-          const mfx = toTile(mouth.cx), mfy = toTile(mouth.cy);
-          const mpx = (mfx - mfy) * HWs, mpy = (mfx + mfy) * HHs - mouth.z * HUs;
-          // A joined cell runs its stub from the middle, so it meets its other
-          // limbs; a lone pipe runs it from just inside the wall, so it reads
-          // as coming out of the wall rather than lying across the tile.
-          let ax = cpx, ay = cpy;
-          if (!joined) {
-            const ffx = tx + dx * 0.5, ffy = ty + dy * 0.5;
-            const fpx = (ffx - ffy) * HWs, fpy = (ffx + ffy) * HHs - z * HUs;
-            const ux = mpx - fpx, uy = mpy - fpy;
-            const len = Math.hypot(ux, uy) || 1;
-            ax = fpx - (ux / len) * NUB_BACK * HWs;
-            ay = fpy - (uy / len) * NUB_BACK * HWs;
-          }
-          add(ax, ay, mpx, mpy);
-        }
-      }
-      if (limbs === 0) continue;
-
-      const wide = NUB_WIDE * HWs;
-      /** A bar from `a` to `b`, of half-thickness `half`, nudged sideways. */
-      const bar = (n: number, half: number, shift: number, kind: number, mat: number) => {
-        const o = put(band);
-        if (o < 0) return;
-        const q = n * 4;
-        const ax = LIMB[q], ay = LIMB[q + 1], bx = LIMB[q + 2], by = LIMB[q + 3];
-        let ux = bx - ax, uy = by - ay;
-        const len = Math.hypot(ux, uy) || 1;
-        ux /= len; uy /= len;
-        // Across the bar, and DOWN the screen, because that is the way water
-        // settles. A bar has two perpendiculars and they are the same line;
-        // the one to shift along is whichever of them points downwards, which
-        // is the one with a positive screen y.
-        let nx = -uy, ny = ux;
-        if (ny < 0) { nx = -nx; ny = -ny; }
-        data[o] = (ax + bx) * 0.5 + nx * shift;
-        data[o + 1] = (ay + by) * 0.5 + ny * shift;
-        data[o + 2] = half;
-        data[o + 3] = len * 0.5;
-        data[o + 4] = -ux;
-        data[o + 5] = -uy;
-        data[o + 6] = ghost;
-        data[o + 7] = mat + kind * 256;
-      };
-
-      for (let n = 0; n < limbs; n++) bar(n, wide, 0, KIND_NUB, 0);
-
-      // And the water. How full the bore is, out of the level the solver
-      // holds — the same number a port measures its head from, so what you
-      // see is what is driving it. A bar that thin cannot show the curve of a
-      // free surface, so what it shows is HOW MUCH: an empty pipe is a line
-      // of casing, a half full one has a seam of water lying along its floor,
-      // and a full one is water wall to wall.
-      const depth = pipeDepth(field.pipe[i]);
-      if (depth <= 0) continue;
-      const fill = depth < PIPE_D ? depth / PIPE_D : 1;
-      const bore = wide - LINING * HWs;           // inside the casing's wall
-      const half = bore * fill;
-      if (half < 0.4) continue;                   // thinner than a pixel
-      const kind = depth > PIPE_D ? KIND_PRESSED : KIND_FLOW;
-      const mat = grid.fluid[i] || 1;
-      for (let n = 0; n < limbs; n++) bar(n, half, bore - half, kind, mat);
+    let joined = false;
+    for (const face of PIPE_FACINGS) {
+      if (!pipeAcross(grid, tx, ty, face)) continue;
+      joined = true;
+      const [dx, dy] = NEIGHBOUR[FACE_OF[face]];
+      // Out to the middle of the shared face, where the neighbour's own limb
+      // is coming the other way. Each cell draws its own half.
+      const ffx = tx + dx * 0.5, ffy = ty + dy * 0.5;
+      add(cpx, cpy, (ffx - ffy) * HWs, (ffx + ffy) * HHs - z * HUs);
     }
+
+    // And the opening, if this facing is one — a facing turned into the run
+    // beside it is a capped end with nothing sticking out of it.
+    if (!pipeAcross(grid, tx, ty, facing)) {
+      const mouth = pipeMouth(grid, tx, ty, facing);
+      if (mouth) {
+        const [dx, dy] = NEIGHBOUR[FACE_OF[facing]];
+        // The two ends that have to line up are the wall and the MOUTH: the
+        // drop hangs at the mouth, and a fitting that stopped at the face
+        // left it hanging half a column clear of the pipe it came out of.
+        // Asking `pipeMouth` where that is, rather than working it out again
+        // here, is what keeps them together.
+        const mfx = toTile(mouth.cx), mfy = toTile(mouth.cy);
+        const mpx = (mfx - mfy) * HWs, mpy = (mfx + mfy) * HHs - mouth.z * HUs;
+        // A joined cell runs its stub from the middle, so it meets its other
+        // limbs; a lone pipe runs it from just inside the wall, so it reads
+        // as coming out of the wall rather than lying across the tile.
+        let ax = cpx, ay = cpy;
+        if (!joined) {
+          const ffx = tx + dx * 0.5, ffy = ty + dy * 0.5;
+          const fpx = (ffx - ffy) * HWs, fpy = (ffx + ffy) * HHs - z * HUs;
+          const ux = mpx - fpx, uy = mpy - fpy;
+          const len = Math.hypot(ux, uy) || 1;
+          ax = fpx - (ux / len) * NUB_BACK * HWs;
+          ay = fpy - (uy / len) * NUB_BACK * HWs;
+        }
+        add(ax, ay, mpx, mpy);
+      }
+    }
+    if (limbs === 0) continue;
+
+    const wide = NUB_WIDE * HWs;
+    /** A bar from `a` to `b`, of half-thickness `half`, nudged sideways. */
+    const bar = (n: number, half: number, shift: number, kind: number, mat: number) => {
+      const o = put(band);
+      if (o < 0) return;
+      const q = n * 4;
+      const ax = LIMB[q], ay = LIMB[q + 1], bx = LIMB[q + 2], by = LIMB[q + 3];
+      let ux = bx - ax, uy = by - ay;
+      const len = Math.hypot(ux, uy) || 1;
+      ux /= len; uy /= len;
+      // Across the bar, and DOWN the screen, because that is the way water
+      // settles. A bar has two perpendiculars and they are the same line;
+      // the one to shift along is whichever of them points downwards, which
+      // is the one with a positive screen y.
+      let nx = -uy, ny = ux;
+      if (ny < 0) { nx = -nx; ny = -ny; }
+      data[o] = (ax + bx) * 0.5 + nx * shift;
+      data[o + 1] = (ay + by) * 0.5 + ny * shift;
+      data[o + 2] = half;
+      data[o + 3] = len * 0.5;
+      data[o + 4] = -ux;
+      data[o + 5] = -uy;
+      data[o + 6] = ghost;
+      data[o + 7] = mat + kind * 256;
+    };
+
+    for (let n = 0; n < limbs; n++) bar(n, wide, 0, KIND_NUB, 0);
+
+    // And the water. How full the bore is, out of the level the solver
+    // holds — the same number a port measures its head from, so what you
+    // see is what is driving it. A bar that thin cannot show the curve of a
+    // free surface, so what it shows is HOW MUCH: an empty pipe is a line
+    // of casing, a half full one has a seam of water lying along its floor,
+    // and a full one is water wall to wall.
+    const depth = pipeDepth(field.pipe[i]);
+    if (depth <= 0) continue;
+    const fill = depth < PIPE_D ? depth / PIPE_D : 1;
+    const bore = wide - LINING * HWs;           // inside the casing's wall
+    const half = bore * fill;
+    if (half < 0.4) continue;                   // thinner than a pixel
+    const kind = depth > PIPE_D ? KIND_PRESSED : KIND_FLOW;
+    const mat = grid.fluid[i] || 1;
+    for (let n = 0; n < limbs; n++) bar(n, half, bore - half, kind, mat);
   }
 
   // Nothing to say if nothing changed and nothing was there — an empty map

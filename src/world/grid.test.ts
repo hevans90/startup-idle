@@ -2,9 +2,72 @@ import { describe, expect, test } from "bun:test";
 import { bandCount, bandOf } from "./iso";
 import {
   VOID, createGrid, fillTerrain, forEachInBand, heightAt, idx, inBounds,
-  pavedAt, recomputeHeightRange, setHeight, setPaved, setTerrain,
-  structureAt, terrainAt,
+  pavedAt, recomputeHeightRange, setFluid, setHeight, setPaved, setRamp,
+  setTerrain, stampFootprint, structureAt, terrainAt,
 } from "./grid";
+import { RAMP } from "./iso";
+import { layPipe } from "./water/pipes";
+import { applyFixture } from "./debug/fixtures";
+import { deserializeWorld, serializeWorld } from "./io/serialize";
+import { PatchBuilder, commit, createHistory, redo, undo } from "./edit/commands";
+
+describe("the map says when it has been edited", () => {
+  // EVERY LIST BUILT OFF THE GRID HANGS FROM THIS. The springs, the pipe runs
+  // and the cells a run joins are all walked once and kept until the map
+  // changes, and what tells them it has changed is `rev` — so a mutator that
+  // forgets to move it is a list that is quietly, permanently wrong. There is
+  // no way to notice that from the inside, which is what this test is for.
+  const moves = (what: string, run: (g: ReturnType<typeof createGrid>) => void) => {
+    test(`${what} moves it`, () => {
+      const g = createGrid(8, 8);
+      const was = g.rev;
+      run(g);
+      expect(g.rev).toBeGreaterThan(was);
+    });
+  };
+
+  moves("setTerrain", (g) => setTerrain(g, 1, 1, 3));
+  moves("setPaved", (g) => setPaved(g, 1, 1, 1));
+  moves("setRamp", (g) => setRamp(g, 1, 1, RAMP.N));
+  moves("setHeight", (g) => setHeight(g, 1, 1, 4));
+  moves("setFluid", (g) => setFluid(g, 1, 1, 1));
+  moves("fillTerrain", (g) => fillTerrain(g, 2));
+  moves("stampFootprint", (g) =>
+    stampFootprint(g, { id: 7, x: 1, y: 1, w: 2, h: 2, kind: "" } as never));
+  moves("layPipe", (g) => layPipe(g, 2, 2, 1));
+  moves("a fixture", (g) => applyFixture(g, "pipes", 1));
+  moves("a command", (g) => {
+    const p = new PatchBuilder(g);
+    p.set("source", 3, 3, 8);
+    commit(g, createHistory(), p.build("tap")!);
+  });
+  moves("undo", (g) => {
+    const p = new PatchBuilder(g);
+    p.set("source", 3, 3, 8);
+    const h = createHistory();
+    commit(g, h, p.build("tap")!);
+    const was = g.rev;
+    undo(g, h);
+    expect(g.rev).toBeGreaterThan(was);
+  });
+  moves("redo", (g) => {
+    const p = new PatchBuilder(g);
+    p.set("source", 3, 3, 8);
+    const h = createHistory();
+    commit(g, h, p.build("tap")!);
+    undo(g, h);
+    const was = g.rev;
+    redo(g, h);
+    expect(g.rev).toBeGreaterThan(was);
+  });
+  moves("loading a map", (g) => {
+    setHeight(g, 1, 1, 5);
+    const loaded = deserializeWorld(serializeWorld(g, { terrain: [null], paved: [null] }));
+    // The loaded grid is a different object, so what is checked is that IT
+    // reads as edited rather than as a grid nobody has touched.
+    expect(loaded.grid.rev).toBeGreaterThan(0);
+  });
+});
 
 describe("createGrid", () => {
   test("allocates every layer at the right size", () => {

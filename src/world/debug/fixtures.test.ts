@@ -371,9 +371,9 @@ describe("the pipes fixture", () => {
 
     // 1. It FILLS. Nothing is in it when the map loads, because a pipe makes
     //    no water; what goes in comes from the channel it is lying in.
-    expect(waterInPipes(w.field)).toBe(0);
+    expect(waterInPipes(w.field, w.g)).toBe(0);
     w.run(10);
-    expect(waterInPipes(w.field)).toBeGreaterThan(10);
+    expect(waterInPipes(w.field, w.g)).toBeGreaterThan(10);
 
     // 2. It DRIPS, and the capped branch has nowhere to go so it PRESSURISES:
     //    a dead end fills to its crown and then stands above it, which is a
@@ -404,7 +404,7 @@ describe("the pipes fixture", () => {
     const w = world64();
     const taps = [...w.g.source].filter((r) => r > 0).length;
     w.run(20);
-    expect(totalVolume(w.field)).toBeCloseTo(taps * 8 * 16 * 20, 0);
+    expect(totalVolume(w.field, w.g)).toBeCloseTo(taps * 8 * 16 * 20, 0);
   }, 20000);
 });
 
@@ -468,7 +468,7 @@ describe("the culvert fixture", () => {
     const w = world();
     const taps = [...w.g.source].filter((r) => r > 0).length;
     w.run(20);
-    expect(totalVolume(w.field)).toBeCloseTo(taps * 8 * 16 * 20, 0);
+    expect(totalVolume(w.field, w.g)).toBeCloseTo(taps * 8 * 16 * 20, 0);
   }, 30000);
 });
 
@@ -481,7 +481,7 @@ describe("a fixture can start with water in it", () => {
     const g = world();
     applyFixture(g, "lake", 1);
     const f = createWaterField(g);
-    expect(totalVolume(f)).toBeGreaterThan(0);
+    expect(totalVolume(f, g)).toBeGreaterThan(0);
     expect(wetTiles(f)).toBeGreaterThan(100);
     // And it is the basin that is wet, not the rim round it.
     expect(wetTiles(f)).toBeLessThan(g.w * g.h);
@@ -494,7 +494,7 @@ describe("a fixture can start with water in it", () => {
     const g = world();
     applyFixture(g, "plunge", 1);
     const f = createWaterField(g);
-    expect(totalVolume(f)).toBeGreaterThan(0);
+    expect(totalVolume(f, g)).toBeGreaterThan(0);
     // A pool on the low ground, a dry shelf above it, and a spring to feed it.
     expect(depthAt(f, g.w - 6, g.h / 2)).toBeGreaterThan(1);
     expect(depthAt(f, 6, g.h / 2)).toBe(0);
@@ -505,7 +505,7 @@ describe("a fixture can start with water in it", () => {
     const g = world();
     applyFixture(g, "ziggurat", 1);
     expect([...g.pool].every((v) => v === 0)).toBe(true);
-    expect(totalVolume(createWaterField(g))).toBe(0);
+    expect(totalVolume(createWaterField(g), g)).toBe(0);
   });
 });
 

@@ -3,13 +3,15 @@
  *
  * React, per the Pixi/React boundary: none of this lives in world space.
  */
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/shallow";
 
 import {
   DEFAULT_SIZE, useWorldStore, VOID_MATERIAL,
 } from "../../state/world.store";
 import { deserializeWorld, serializeWorld, toJSON } from "../io/serialize";
 import type { FixtureId } from "./fixtures";
+import { waterMetaRead } from "./water-meta";
 import type { BrushId, ToolId } from "../edit/tools";
 import { allStructureDefs } from "../structures/def";
 import { fluidChoices } from "../water/materials";
@@ -68,16 +70,60 @@ const SIZES: [number, string][] = [
   [2, "5×5"],
 ];
 
+/**
+ * The wet count and the volume, POLLED.
+ *
+ * Its own component and its own four-a-second timer, because both numbers
+ * change every frame while water is moving and the panel around it is the
+ * whole sidebar. As store state this re-rendered all of it sixty times a
+ * second after a single pour. @see waterMetaSaw
+ */
+function WaterMeta() {
+  const [m, setM] = useState(waterMetaRead);
+  useEffect(() => {
+    const t = setInterval(() => setM(waterMetaRead()), 250);
+    return () => clearInterval(t);
+  }, []);
+  return <>{m.wet} wet · {m.volume}</>;
+}
+
 export function EditPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
+  /**
+   * WHAT THIS PANEL ACTUALLY READS, and nothing else.
+   *
+   * `useWorldStore()` with no selector subscribes to the whole state, and
+   * zustand hands back a new state object on every write — so the panel, which
+   * is the entire sidebar and several hundred buttons, re-rendered on every
+   * `setHover`. That is once per pointer move across the canvas. It showed up
+   * in a profile of a single pour as the biggest thing in the trace, in
+   * React's own per-commit cost rather than in any component here.
+   *
+   * Shallow over the slice it names: the actions are stable references and the
+   * rest are primitives or objects that only change when they really do.
+   */
   const {
     tool, brush, brushRadius, material, palette, grid, undoDepth, redoDepth,
     undoName, redoName, heightStep, setTool, setBrush, setBrushRadius,
     setMaterial, setHeightStep, doUndo, doRedo, loadGrid, resize, applyFixture,
     netComponents, structureDefId, setStructureDef,
-    fluidMaterial, setFluidMaterial, wetTiles, waterVolume, revision,
+    fluidMaterial, setFluidMaterial, revision,
     openEdge, setOpenEdge, getWaterField,
-  } = useWorldStore();
+  } = useWorldStore(useShallow((s) => ({
+    tool: s.tool, brush: s.brush, brushRadius: s.brushRadius,
+    material: s.material, palette: s.palette, grid: s.grid,
+    undoDepth: s.undoDepth, redoDepth: s.redoDepth,
+    undoName: s.undoName, redoName: s.redoName, heightStep: s.heightStep,
+    setTool: s.setTool, setBrush: s.setBrush, setBrushRadius: s.setBrushRadius,
+    setMaterial: s.setMaterial, setHeightStep: s.setHeightStep,
+    doUndo: s.doUndo, doRedo: s.doRedo, loadGrid: s.loadGrid,
+    resize: s.resize, applyFixture: s.applyFixture,
+    netComponents: s.netComponents, structureDefId: s.structureDefId,
+    setStructureDef: s.setStructureDef, fluidMaterial: s.fluidMaterial,
+    setFluidMaterial: s.setFluidMaterial, revision: s.revision,
+    openEdge: s.openEdge, setOpenEdge: s.setOpenEdge,
+    getWaterField: s.getWaterField,
+  })));
 
   // Counted off the grid rather than mirrored into the store: a spring is an
   // ordinary layer write, so `revision` already says when it can have changed.
@@ -185,7 +231,7 @@ export function EditPanel() {
             className={`${BTN} ${fluidMaterial === index ? ON : OFF}`}>{material.name}</button>
         ))}
         <span className="ml-1 text-gray-500 dark:text-gray-500">
-          {wetTiles} wet · {waterVolume}
+          <WaterMeta />
           {springs > 0 && ` · ${springs} spring${springs === 1 ? "" : "s"}`}
           {sinks > 0 && ` · ${sinks} sink${sinks === 1 ? "" : "s"}`}
           {pipes > 0 && ` · ${pipes} pipe${pipes === 1 ? "" : "s"}`}

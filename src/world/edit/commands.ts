@@ -13,7 +13,7 @@
  * is down and commits on release, so a painted line undoes in a single step
  * rather than fifty.
  */
-import { recomputeHeightRange, type Grid, type Structure } from "../grid";
+import { edited, recomputeHeightRange, type Grid, type Structure } from "../grid";
 
 /** Which dense layer a patch applies to. */
 export type LayerKey =
@@ -178,20 +178,36 @@ function applyPatches(grid: Grid, cmd: Command, dir: "do" | "undo"): number[] {
   // read that range, so a stale one means unpickable hills and a camera that
   // clips them — rescan once per command rather than per cell.
   if (height) recomputeHeightRange(grid);
+  // WHATEVER LAYER IT WAS. A patch writes the typed arrays directly, so it is
+  // the one place that can change any layer without going through a setter —
+  // and the lists built off the grid would never hear about it. @see edited
+  if (cmd.patches.length || cmd.structures) edited(grid);
   return touched;
 }
 
 /**
- * Whether a command changes a cell's SURFACE — its height or its ramp.
+ * Whether a command changes a cell's SURFACE — its height, its ramp, or what
+ * is built on it.
  *
  * Callers need this to know how far a change spreads: a surface edit alters how
  * the NEIGHBOURS render (a column belongs to the taller cell but exists because
  * of the shorter one), a material edit does not. Exposed as a predicate rather
  * than folded into the return values so undo and redo can be asked BEFORE they
  * run, which is when the answer is needed.
+ *
+ * `structureAt` BELONGS HERE because the water's bed reads it: a built-on cell
+ * stands `SOLID_LIFT` above its ground, so placing or demolishing moves the bed
+ * without moving the height.
+ *
+ * Leaving it out cost more than a demolish. `build` DROPS A CELL WHOSE BEFORE
+ * EQUALS ITS AFTER, so on flat ground the levelling patch a placement writes
+ * disappears and the command carries `structureAt` alone — meaning building
+ * beside water never moved the bed either, not just knocking down.
+ * @see syncGround
  */
 export const touchesSurface = (cmd: Command) =>
-  cmd.patches.some((p) => p.layer === "height" || p.layer === "ramp");
+  cmd.patches.some((p) =>
+    p.layer === "height" || p.layer === "ramp" || p.layer === "structureAt");
 
 /**
  * Whether a command can change road connectivity.

@@ -9,7 +9,9 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { createGrid, fillTerrain, idx, setHeight, sourceAt } from "../grid";
+import {
+  createGrid, fillTerrain, idx, setHeight, setSource, sourceAt,
+} from "../grid";
 import {
   COLUMNS_PER_TILE, OPEN_EDGE_DEFAULT, SOURCE_RATE, createWaterField, depthAt, pourAt,
   runSources, setWaterEdge, stepWater, totalVolume, waterEdgeIsOpen, wetTiles,
@@ -37,7 +39,7 @@ const tank = (g: ReturnType<typeof flat>) => {
 };
 
 const spring = (g: ReturnType<typeof flat>, x: number, y: number, rate = SOURCE_RATE) => {
-  g.source[idx(g, x, y)] = rate;
+  setSource(g, x, y, rate);
 };
 
 /** Run the world for `seconds`, sources and flow together, as the scene does. */
@@ -56,7 +58,7 @@ describe("a spring", () => {
     spring(g, 12, 12);
     const f = tank(g);
     live(f, g, 10);
-    expect(totalVolume(f) / (COLUMNS_PER_TILE * COLUMNS_PER_TILE))
+    expect(totalVolume(f, g) / (COLUMNS_PER_TILE * COLUMNS_PER_TILE))
       .toBeCloseTo(SOURCE_RATE * 10, 1);
   });
 
@@ -65,18 +67,18 @@ describe("a spring", () => {
     spring(g, 12, 12);
     const f = tank(g);
     live(f, g, 5);
-    const early = totalVolume(f);
+    const early = totalVolume(f, g);
     live(f, g, 5);
-    expect(totalVolume(f)).toBeCloseTo(early * 2, 0);
+    expect(totalVolume(f, g)).toBeCloseTo(early * 2, 0);
   });
 
   test("a pour does the opposite: it arrives once and that is all of it", () => {
     const g = flat();
     const f = tank(g);
     pourAt(f, 12, 12, 6, 1);
-    const placed = totalVolume(f);
+    const placed = totalVolume(f, g);
     live(f, g, 10);
-    expect(totalVolume(f)).toBeCloseTo(placed, 3);
+    expect(totalVolume(f, g)).toBeCloseTo(placed, 3);
   });
 
   test("it runs downhill from where it stands", () => {
@@ -115,11 +117,11 @@ describe("a drain", () => {
     const g = flat();
     const f = tank(g);
     for (let y = 8; y <= 16; y++) for (let x = 8; x <= 16; x++) pourAt(f, x, y, 60, 1);
-    g.source[idx(g, 12, 12)] = -SOURCE_RATE;
+    setSource(g, 12, 12, -SOURCE_RATE);
     live(f, g, 5);                                  // let the pour settle over it
-    const held = totalVolume(f);
+    const held = totalVolume(f, g);
     live(f, g, 5);
-    const perSecond = (held - totalVolume(f)) / (COLUMNS_PER_TILE * COLUMNS_PER_TILE) / 5;
+    const perSecond = (held - totalVolume(f, g)) / (COLUMNS_PER_TILE * COLUMNS_PER_TILE) / 5;
     expect(perSecond).toBeCloseTo(SOURCE_RATE, 0);
   });
 
@@ -131,20 +133,20 @@ describe("a drain", () => {
     const g = flat();
     const f = tank(g);
     for (let y = 10; y <= 14; y++) for (let x = 10; x <= 14; x++) pourAt(f, x, y, 20, 1);
-    const held = totalVolume(f);
-    g.source[idx(g, 12, 12)] = -SOURCE_RATE;
+    const held = totalVolume(f, g);
+    setSource(g, 12, 12, -SOURCE_RATE);
     live(f, g, 5);
-    const gone = (held - totalVolume(f)) / (COLUMNS_PER_TILE * COLUMNS_PER_TILE);
+    const gone = (held - totalVolume(f, g)) / (COLUMNS_PER_TILE * COLUMNS_PER_TILE);
     expect(gone).toBeGreaterThan(0);
     expect(gone).toBeLessThan(SOURCE_RATE * 5);
   });
 
   test("and cannot take what is not there", () => {
     const g = flat();
-    g.source[idx(g, 12, 12)] = -SOURCE_RATE;
+    setSource(g, 12, 12, -SOURCE_RATE);
     const f = tank(g);
     live(f, g, 10);
-    expect(totalVolume(f)).toBe(0);
+    expect(totalVolume(f, g)).toBe(0);
     expect(f.columns.depth.every((d) => d >= 0)).toBe(true);
   });
 
@@ -156,13 +158,13 @@ describe("a drain", () => {
       for (let x = 0; x < 32; x++) setHeight(g, x, y, Math.round((30 - x) * 0.5));
     }
     spring(g, 2, 6);
-    g.source[idx(g, 30, 6)] = -SOURCE_RATE;
+    setSource(g, 30, 6, -SOURCE_RATE);
     const f = tank(g);
     live(f, g, 30);
-    const a = totalVolume(f);
+    const a = totalVolume(f, g);
     live(f, g, 30);
     // Still holding about as much thirty seconds later: what comes in leaves.
-    expect(Math.abs(totalVolume(f) - a)).toBeLessThan(a * 0.25);
+    expect(Math.abs(totalVolume(f, g) - a)).toBeLessThan(a * 0.25);
     expect(wetTiles(f)).toBeGreaterThan(10);        // and there IS a flow
   });
 });
@@ -182,7 +184,7 @@ describe("the edge of the map", () => {
     const open = createWaterField(g), walled = tank(g);
     live(open, g, 60);
     live(walled, g, 60);
-    expect(totalVolume(open)).toBeLessThan(totalVolume(walled) * 0.5);
+    expect(totalVolume(open, g)).toBeLessThan(totalVolume(walled, g) * 0.5);
   });
 });
 
@@ -190,7 +192,7 @@ describe("the layer", () => {
   test("reads back what was written, and nothing outside the map", () => {
     const g = flat(8, 8);
     spring(g, 3, 4);
-    g.source[idx(g, 5, 5)] = -SOURCE_RATE;
+    setSource(g, 5, 5, -SOURCE_RATE);
     expect(sourceAt(g, 3, 4)).toBe(SOURCE_RATE);
     expect(sourceAt(g, 5, 5)).toBe(-SOURCE_RATE);
     expect(sourceAt(g, 0, 0)).toBe(0);
@@ -224,7 +226,7 @@ describe("water the map already has", () => {
     // while it filled. Nothing about water at rest could be set up at all.
     const g = basin(-1);
     const f = createWaterField(g);
-    expect(totalVolume(f)).toBeGreaterThan(0);
+    expect(totalVolume(f, g)).toBeGreaterThan(0);
     expect(depthAt(f, 7, 7)).toBeCloseTo(3, 6);   // floor at -4, filled to -1
     expect(wetTiles(f)).toBe(36);                 // the basin, and nothing else
   });
@@ -236,7 +238,8 @@ describe("water the map already has", () => {
     // waiting this exists to remove — so the test is not that the pool holds
     // still (the wind ripples it, as it ripples everything) but that it starts
     // with no flow in it.
-    const held = createWaterField(basin(-1));
+    const g1 = basin(-1);
+    const held = createWaterField(g1);
     const g2 = flat(16, 16);
     for (let y = 5; y <= 10; y++) for (let x = 5; x <= 10; x++) setHeight(g2, x, y, -4);
     const same = createWaterField(g2);
@@ -248,7 +251,7 @@ describe("water the map already has", () => {
     expect(flowEnergy(held.columns)).toBeLessThan(flowEnergy(same.columns) * 0.2);
     // And it is the same water: 36 tiles three half steps deep, which is what
     // the heap was, so the two are comparable in the first place.
-    expect(totalVolume(held)).toBeCloseTo(totalVolume(same), 3);
+    expect(totalVolume(held, g1)).toBeCloseTo(totalVolume(same, g2), 3);
   });
 
   test("nothing stands on ground above the waterline", () => {
@@ -261,8 +264,9 @@ describe("water the map already has", () => {
   });
 
   test("a dry map is still dry", () => {
-    const f = createWaterField(flat(16, 16));
-    expect(totalVolume(f)).toBe(0);
+    const g = flat(16, 16);
+    const f = createWaterField(g);
+    expect(totalVolume(f, g)).toBe(0);
   });
 
   test("and it is an initial condition, not a mirror of the simulation", () => {

@@ -49,9 +49,9 @@
  * crosses each opening this step.
  */
 import { FALL_GRAVITY } from "../../fluid/falls";
-import { addWater, surfaceAt, type ColumnField } from "../../fluid/columns";
+import { addWater, surfaceAt, wantDepth, type ColumnField } from "../../fluid/columns";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { heightAt, inBounds, idx, type Grid } from "../grid";
+import { edited, heightAt, inBounds, idx, type Grid } from "../grid";
 import { resetMouths, runMouth } from "../../fluid/drips";
 import { COLUMNS_PER_TILE, columnOf, type WaterField } from "./field";
 import { findPipeNets } from "./pipe-net";
@@ -244,6 +244,7 @@ export function layPipe(grid: Grid, x: number, y: number, facing: number, z?: nu
   const i = idx(grid, x, y);
   grid.pipe[i] = facing;
   grid.pipeZ[i] = z ?? pipeGrade(grid, x, y);
+  edited(grid);
 }
 
 /**
@@ -279,6 +280,12 @@ export function runPipes(field: WaterField, grid: Grid, dt: number): void {
       if (!mouth) continue;
 
       const j = mouth.cy * columns.nx + mouth.cx;
+      // THIS CELL'S DEPTH IS READ EVERY BITE, and while the device owns the
+      // water the host's copy of it is a readback old. Asked for by name so
+      // the next one answers it: a mouth reading a stale depth is a mouth that
+      // thinks it is drowned when it is not, or draws from a pool that has
+      // gone. @see wantDepth
+      wantDepth(columns, j);
       // A mouth under the ground opens onto rock, and rock is not something to
       // draw from or discharge into. Sealed, it reads as a capped end — which
       // is what the middle of a buried run IS.

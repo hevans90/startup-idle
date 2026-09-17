@@ -17,9 +17,16 @@
  * surface is a quarter of a million corners a frame and had to move to a
  * vertex shader to be affordable, while a busy map has under a hundred falls
  * on it and six pieces each. Five hundred quads is not a budget worth writing
- * a shader for — and keeping them here means the one parabola in `nappe.ts` is
- * the only copy, rather than a copy per shading language, which is exactly how
- * the falls came to behave differently on WebGL than on WebGPU.
+ * a shader for.
+ *
+ * THAT ARGUMENT NO LONGER HOLDS ON ITS OWN, and this used to end by saying
+ * keeping the pieces here meant one parabola rather than a copy per shading
+ * language. The sheets moved to the device — see `fluid/gpu/sheet` — so there
+ * IS a shader. What keeps it to one copy now is that the shader is PRINTED
+ * from `nappe.ts` rather than typed beside it. @see sheetRuleSource
+ *
+ * This layer is still the reference for what a sheet should look like, and is
+ * what runs wherever there is no device.
  *
  * What it draws is the sheet between the lip and wherever the water has got
  * to. What happens when it lands is not here: it arrives in the column below
@@ -40,7 +47,9 @@ import {
 import { DRAWDOWN, FULL_FALL_FLUX, aerate, litAt, shownDepth } from "./water";
 import { atBrink } from "./corner-rule";
 import { FALL_MIN } from "../../fluid/falls";
-import { nappeSteps, sheetLook, type NappeStep } from "./nappe";
+import {
+  nappeSteps, sheetLook, type NappeStep, type SheetLook,
+} from "./nappe";
 
 export type FallLayer = {
   strips: QuadBatch[];
@@ -65,6 +74,11 @@ export function destroyFallLayer(layer: FallLayer) {
 
 /** Scratch, so a frame allocates nothing. */
 const STEPS: NappeStep[] = [];
+/** The same, for the four looks a step asks for. @see sheetLook */
+const LOOK: SheetLook[] = [
+  { pale: 0, cover: 0 }, { pale: 0, cover: 0 },
+  { pale: 0, cover: 0 }, { pale: 0, cover: 0 },
+];
 
 /** How hard a column is pouring over its `axis` edge, nought to one. */
 export function pourOf(c: ColumnField, i: number, axis: number) {
@@ -271,176 +285,184 @@ export function drawFalls(
   const { nx, material } = columns;
   const lastBand = layer.strips.length - 1;
 
-  for (let cy = region.y0; cy <= region.y1; cy++) {
-    for (let cx = region.x0; cx <= region.x1; cx++) {
-      const i = cy * nx + cx;
-      for (let axis = 0; axis < 2; axis++) {
-        const jx = axis === 0 ? cx + 1 : cx, jy = axis === 0 ? cy : cy + 1;
-        if (jx >= columns.nx || jy >= columns.ny) continue;
-        const reach = fallExtent(columns, i, axis);
-        if (!reach) continue;
+  // THE LIPS, AS A LIST, rather than every edge of the active box in the hope
+  // of finding one. The box on a flooded map is the whole map, which is a
+  // hundred and twenty thousand edge tests a frame to find seven hundred —
+  // and both solvers have known which edges they are all along. `markCliffs`
+  // fills this on the CPU path and the readback fills it on the device's, with
+  // the same encoding either way: an edge is its column twice, plus its axis.
+  const lips = columns.falls.cliffN;
+  const cliff = columns.falls.cliff;
+  for (let n = 0; n < lips; n++) {
+    const k = cliff[n];
+    const i = k >> 1, axis = k & 1;
+    const cx = i % nx, cy = (i / nx) | 0;
+    const jx = axis === 0 ? cx + 1 : cx, jy = axis === 0 ? cy : cy + 1;
+    if (jx >= columns.nx || jy >= columns.ny) continue;
+    const reach = fallExtent(columns, i, axis);
+    if (!reach) continue;
 
-        // The edge it goes over, in tiles: the east edge runs along y, the
-        // south edge along x. Full width, always — the whole edge of the
-        // column is what the water leaves by, and anything narrower leaves
-        // the rock showing between one fall and the next.
-        const tx = tileOf(cx), ty = tileOf(cy);
-        const fx0 = tx - 0.5 + (cx % COLUMNS_PER_TILE) * step;
-        const fy0 = ty - 0.5 + (cy % COLUMNS_PER_TILE) * step;
-        const ax = axis === 0 ? fx0 + step : fx0;
-        const ay = axis === 0 ? fy0 : fy0 + step;
-        const bx = fx0 + step, by = fy0 + step;
-        const base = fluidMaterial(material[i])?.colour ?? 0x2a6f97;
+    // The edge it goes over, in tiles: the east edge runs along y, the
+    // south edge along x. Full width, always — the whole edge of the
+    // column is what the water leaves by, and anything narrower leaves
+    // the rock showing between one fall and the next.
+    const tx = tileOf(cx), ty = tileOf(cy);
+    const fx0 = tx - 0.5 + (cx % COLUMNS_PER_TILE) * step;
+    const fy0 = ty - 0.5 + (cy % COLUMNS_PER_TILE) * step;
+    const ax = axis === 0 ? fx0 + step : fx0;
+    const ay = axis === 0 ? fy0 : fy0 + step;
+    const bx = fx0 + step, by = fy0 + step;
+    const base = fluidMaterial(material[i])?.colour ?? 0x2a6f97;
 
-        // The lip's two ENDS, each shared with whatever is beside it — see
-        // `sharedPour`. `a` is the end towards −y on an east edge and −x on a
-        // south edge, which is the same side `alongLip` calls −1.
-        const back = alongLip(columns, i, axis, -1);
-        const fwd = alongLip(columns, i, axis, 1);
-        // The throw at each end, as a VECTOR — see `throwX`. Both components,
-        // because a sheet goes the way the water was going and not the way the
-        // rock happens to face.
-        const axThrow = sharedThrow(columns, i, back, 0);
-        const ayThrow = sharedThrow(columns, i, back, 1);
-        const bxThrow = sharedThrow(columns, i, fwd, 0);
-        const byThrow = sharedThrow(columns, i, fwd, 1);
-        // What the lip is carrying, so the fall is not the one clean stretch
-        // between two white pools — see `sharedFoam`.
-        const foamA = foam ? sharedFoam(foam, i, back) : 0;
-        const foamB = foam ? sharedFoam(foam, i, fwd) : 0;
-        // AND EVERYTHING ELSE THE SURFACE KNOWS ABOUT THIS WATER. The sheet
-        // used to mix its own colour from a flat 0.20, how hard the lip was
-        // pouring and a third of the foam — a recipe that agreed with the
-        // surface above it nowhere. See `sheetLook`, which these feed.
-        const shownA = sharedShown(columns, i, back);
-        const shownB = sharedShown(columns, i, fwd);
-        const litA = sharedLit(columns, i, back, wash);
-        const litB = sharedLit(columns, i, fwd, wash);
+    // The lip's two ENDS, each shared with whatever is beside it — see
+    // `sharedPour`. `a` is the end towards −y on an east edge and −x on a
+    // south edge, which is the same side `alongLip` calls −1.
+    const back = alongLip(columns, i, axis, -1);
+    const fwd = alongLip(columns, i, axis, 1);
+    // The throw at each end, as a VECTOR — see `throwX`. Both components,
+    // because a sheet goes the way the water was going and not the way the
+    // rock happens to face.
+    const axThrow = sharedThrow(columns, i, back, 0);
+    const ayThrow = sharedThrow(columns, i, back, 1);
+    const bxThrow = sharedThrow(columns, i, fwd, 0);
+    const byThrow = sharedThrow(columns, i, fwd, 1);
+    // What the lip is carrying, so the fall is not the one clean stretch
+    // between two white pools — see `sharedFoam`.
+    const foamA = foam ? sharedFoam(foam, i, back) : 0;
+    const foamB = foam ? sharedFoam(foam, i, fwd) : 0;
+    // AND EVERYTHING ELSE THE SURFACE KNOWS ABOUT THIS WATER. The sheet
+    // used to mix its own colour from a flat 0.20, how hard the lip was
+    // pouring and a third of the foam — a recipe that agreed with the
+    // surface above it nowhere. See `sheetLook`, which these feed.
+    const shownA = sharedShown(columns, i, back);
+    const shownB = sharedShown(columns, i, fwd);
+    const litA = sharedLit(columns, i, back, wash);
+    const litB = sharedLit(columns, i, fwd, wash);
 
-        // How thick the sheet is where it leaves, at each end — see
-        // `sharedBrink`. This is what the sheet is HUNG FROM.
-        const brinkA = sharedBrink(columns, i, back);
-        const brinkB = sharedBrink(columns, i, fwd);
-        // And the height it leaves FROM, shared for the same reason — see
-        // `sharedLip`. This is the one that was not, and it is the one that
-        // tore a stepped lip into a plate per tread.
-        const lipA = sharedLip(columns, i, back);
-        const lipB = sharedLip(columns, i, fwd);
+    // How thick the sheet is where it leaves, at each end — see
+    // `sharedBrink`. This is what the sheet is HUNG FROM.
+    const brinkA = sharedBrink(columns, i, back);
+    const brinkB = sharedBrink(columns, i, fwd);
+    // And the height it leaves FROM, shared for the same reason — see
+    // `sharedLip`. This is the one that was not, and it is the one that
+    // tore a stepped lip into a plate per tread.
+    const lipA = sharedLip(columns, i, back);
+    const lipB = sharedLip(columns, i, fwd);
 
-        nappeSteps(reach.head, reach.front, STEPS);
-        for (const piece of STEPS) {
-          // THE BAND THIS PIECE IS IN, not the band the lip is in. Drift in
-          // either axis moves the piece forward in `x + y`, so the middle of
-          // the quad decides — one band for the whole of it, because a quad is
-          // drawn in one place however far its two ends have been thrown.
-          const deep = (piece.from + piece.to) * 0.5;
-          const midX = driftAt((axThrow + bxThrow) * 0.5, deep);
-          const midY = driftAt((ayThrow + byThrow) * 0.5, deep);
-          const band = Math.round((ax + bx) * 0.5 + midX)
-            + Math.round((ay + by) * 0.5 + midY);
-          if (band < 0 || band > lastBand) continue;
-          const batch = layer.strips[band];
+    nappeSteps(reach.head, reach.front, STEPS);
+    for (const piece of STEPS) {
+      // THE BAND THIS PIECE IS IN, not the band the lip is in. Drift in
+      // either axis moves the piece forward in `x + y`, so the middle of
+      // the quad decides — one band for the whole of it, because a quad is
+      // drawn in one place however far its two ends have been thrown.
+      const deep = (piece.from + piece.to) * 0.5;
+      const midX = driftAt((axThrow + bxThrow) * 0.5, deep);
+      const midY = driftAt((ayThrow + byThrow) * 0.5, deep);
+      const band = Math.round((ax + bx) * 0.5 + midX)
+        + Math.round((ay + by) * 0.5 + midY);
+      if (band < 0 || band > lastBand) continue;
+      const batch = layer.strips[band];
 
-          // WHERE THE TOP OF THE SHEET IS, which is not the lip.
-          //
-          // A nappe used to hang from `ground[i]` — the BED, the bottom of the
-          // water — so a body of water arrived at a lip, stopped dead in a
-          // vertical wall as deep as it was, and a separate curtain of no
-          // thickness at all started again underneath. That wall is the whole
-          // of what a free overfall does not look like, and it was there at
-          // every lip on every map: measured on a river over a twelve half
-          // step cliff, thirty-seven faces between four and nine half steps,
-          // up to a hundred and fifty-four pixels of flat colour standing on
-          // edge along the brink.
-          //
-          // The sheet is the body CARRYING ON over the edge, so it is as thick
-          // at the lip as the water on the lip is deep, and it thins from
-          // there by the same continuity that already decides how much of it
-          // is left — {@link thinAt} was the SHAPE of this all along and was
-          // being spent on opacity instead. At nought below the lip the top of
-          // the sheet is the surface the mesh draws at the brink, so there is
-          // nothing left for a vertical face to fill; by `FALL_REACH` the two
-          // have converged and it is the ribbon it always was.
-          //
-          // Per END and not per piece, exactly like the drift: the two lateral
-          // ends of a quad belong to two different columns' worth of lip.
-          // THE VERTICAL THICKNESS DOES NOT CHANGE, and that is the whole of
-          // the shear on a big fall.
-          //
-          // This used to be `brink * thinAt(b)`, so the top of the sheet was
-          // dragged down by the thinning ON TOP OF falling. On a trickle that
-          // is nothing — the top edge falls 1.02 times as fast as the water —
-          // but the error goes with the depth, and a wave eight half steps
-          // deep going over had its top edge fall 11.4 half steps while the
-          // water fell 8. Half again as fast as gravity, collapsing onto the
-          // ballistic path inside `FALL_REACH`, which is a fold across the
-          // top of the sheet. That is why a small flow over an edge looked
-          // right and a big one sheared.
-          //
-          // And it was never the physics. Two particles leaving a brink
-          // horizontally at the same speed fall under the same gravity, so
-          // their vertical separation is CONSTANT — a nappe thins
-          // perpendicular to its flow, and its vertical extent does not
-          // change at all. Continuity says as much: perpendicular thickness
-          // goes as `cos θ` and vertical extent is that over `cos θ`, which
-          // is the thickness it left with, for ever.
-          //
-          // What makes a sheet look thin further down is that it has turned
-          // toward vertical, and the projection does that on its own: two
-          // curves a constant height apart, both going straight down, are the
-          // same line. So it thickens at the lip, collapses to a ribbon where
-          // it is falling, and nothing has to be told to do either.
-          //
-          // {@link thinAt} keeps its job, which is OPACITY — that is the
-          // thickness you look THROUGH, and it really does thin.
-          const topZA = lipA - piece.from + brinkA;
-          const topZB = lipB - piece.from + brinkB;
-          const footZA = lipA - piece.to + brinkA;
-          const footZB = lipB - piece.to + brinkB;
-          // Thinned because it is accelerating, and BREAKING UP because past
-          // a few full steps the solver is pulling drops out of it — which
-          // takes some of its body away and turns the rest white, those being
-          // two halves of one fact. See `breakingAt`.
-          // How much sheet is left and how white it has gone, at each end of
-          const hiA = sheetLook(shownA, foamA, litA, brinkA, piece.from);
-          const hiB = sheetLook(shownB, foamB, litB, brinkB, piece.from);
-          const loA = sheetLook(shownA, foamA, litA, brinkA, piece.to);
-          const loB = sheetLook(shownB, foamB, litB, brinkB, piece.to);
-          // AS SOLID AS THE WATER IT IS, on the SURFACE'S OWN CURVE. It used
-          // to be `solid(pour)` — how hard the lip was pouring — while the
-          // sheet's own crest sits on the surface quad's last corner, which
-          // is `shade(depth)`. Two answers to "how much water is there" a
-          // pixel apart: measured at the join, 235 against 172 out of 255, a
-          // quarter of an alpha, stepping along the whole length of every lip.
-          // That is the hard seam, and no amount of bending the arc touches
-          // it, because it is not the arc.
-          //
-          // The sheet is as thick as the water on the lip and thins from
-          // there, so its thickness IS a depth and goes through the same
-          // curve. At nought below the lip it asks `shade` the same question
-          // the corner above it did.
-          const crestA = rgba(aerate(base, hiA.pale), hiA.cover);
-          const crestB = rgba(aerate(base, hiB.pale), hiB.cover);
-          const footA = rgba(aerate(base, loA.pale), loA.cover);
-          const footB = rgba(aerate(base, loB.pale), loB.cover);
-          const tax = ax + driftAt(axThrow, piece.from);
-          const tay = ay + driftAt(ayThrow, piece.from);
-          const tbx = bx + driftAt(bxThrow, piece.from);
-          const tby = by + driftAt(byThrow, piece.from);
-          const fax = ax + driftAt(axThrow, piece.to);
-          const fay = ay + driftAt(ayThrow, piece.to);
-          const fbx = bx + driftAt(bxThrow, piece.to);
-          const fby = by + driftAt(byThrow, piece.to);
-          pushQuad(
-            batch,
-            (tax - tay) * HWs, (tax + tay) * HHs - topZA * HUs, crestA,
-            (tbx - tby) * HWs, (tbx + tby) * HHs - topZB * HUs, crestB,
-            (fbx - fby) * HWs, (fbx + fby) * HHs - footZB * HUs, footB,
-            (fax - fay) * HWs, (fax + fay) * HHs - footZA * HUs, footA,
-          );
-          layer.live.add(band);
-        }
-      }
+      // WHERE THE TOP OF THE SHEET IS, which is not the lip.
+      //
+      // A nappe used to hang from `ground[i]` — the BED, the bottom of the
+      // water — so a body of water arrived at a lip, stopped dead in a
+      // vertical wall as deep as it was, and a separate curtain of no
+      // thickness at all started again underneath. That wall is the whole
+      // of what a free overfall does not look like, and it was there at
+      // every lip on every map: measured on a river over a twelve half
+      // step cliff, thirty-seven faces between four and nine half steps,
+      // up to a hundred and fifty-four pixels of flat colour standing on
+      // edge along the brink.
+      //
+      // The sheet is the body CARRYING ON over the edge, so it is as thick
+      // at the lip as the water on the lip is deep, and it thins from
+      // there by the same continuity that already decides how much of it
+      // is left — {@link thinAt} was the SHAPE of this all along and was
+      // being spent on opacity instead. At nought below the lip the top of
+      // the sheet is the surface the mesh draws at the brink, so there is
+      // nothing left for a vertical face to fill; by `FALL_REACH` the two
+      // have converged and it is the ribbon it always was.
+      //
+      // Per END and not per piece, exactly like the drift: the two lateral
+      // ends of a quad belong to two different columns' worth of lip.
+      // THE VERTICAL THICKNESS DOES NOT CHANGE, and that is the whole of
+      // the shear on a big fall.
+      //
+      // This used to be `brink * thinAt(b)`, so the top of the sheet was
+      // dragged down by the thinning ON TOP OF falling. On a trickle that
+      // is nothing — the top edge falls 1.02 times as fast as the water —
+      // but the error goes with the depth, and a wave eight half steps
+      // deep going over had its top edge fall 11.4 half steps while the
+      // water fell 8. Half again as fast as gravity, collapsing onto the
+      // ballistic path inside `FALL_REACH`, which is a fold across the
+      // top of the sheet. That is why a small flow over an edge looked
+      // right and a big one sheared.
+      //
+      // And it was never the physics. Two particles leaving a brink
+      // horizontally at the same speed fall under the same gravity, so
+      // their vertical separation is CONSTANT — a nappe thins
+      // perpendicular to its flow, and its vertical extent does not
+      // change at all. Continuity says as much: perpendicular thickness
+      // goes as `cos θ` and vertical extent is that over `cos θ`, which
+      // is the thickness it left with, for ever.
+      //
+      // What makes a sheet look thin further down is that it has turned
+      // toward vertical, and the projection does that on its own: two
+      // curves a constant height apart, both going straight down, are the
+      // same line. So it thickens at the lip, collapses to a ribbon where
+      // it is falling, and nothing has to be told to do either.
+      //
+      // {@link thinAt} keeps its job, which is OPACITY — that is the
+      // thickness you look THROUGH, and it really does thin.
+      const topZA = lipA - piece.from + brinkA;
+      const topZB = lipB - piece.from + brinkB;
+      const footZA = lipA - piece.to + brinkA;
+      const footZB = lipB - piece.to + brinkB;
+      // Thinned because it is accelerating, and BREAKING UP because past
+      // a few full steps the solver is pulling drops out of it — which
+      // takes some of its body away and turns the rest white, those being
+      // two halves of one fact. See `breakingAt`.
+      // How much sheet is left and how white it has gone, at each end of
+      // Into scratch: each is read into a colour on the next few lines and
+      // never looked at again. @see sheetLook
+      const hiA = sheetLook(shownA, foamA, litA, brinkA, piece.from, LOOK[0]);
+      const hiB = sheetLook(shownB, foamB, litB, brinkB, piece.from, LOOK[1]);
+      const loA = sheetLook(shownA, foamA, litA, brinkA, piece.to, LOOK[2]);
+      const loB = sheetLook(shownB, foamB, litB, brinkB, piece.to, LOOK[3]);
+      // AS SOLID AS THE WATER IT IS, on the SURFACE'S OWN CURVE. It used
+      // to be `solid(pour)` — how hard the lip was pouring — while the
+      // sheet's own crest sits on the surface quad's last corner, which
+      // is `shade(depth)`. Two answers to "how much water is there" a
+      // pixel apart: measured at the join, 235 against 172 out of 255, a
+      // quarter of an alpha, stepping along the whole length of every lip.
+      // That is the hard seam, and no amount of bending the arc touches
+      // it, because it is not the arc.
+      //
+      // The sheet is as thick as the water on the lip and thins from
+      // there, so its thickness IS a depth and goes through the same
+      // curve. At nought below the lip it asks `shade` the same question
+      // the corner above it did.
+      const crestA = rgba(aerate(base, hiA.pale), hiA.cover);
+      const crestB = rgba(aerate(base, hiB.pale), hiB.cover);
+      const footA = rgba(aerate(base, loA.pale), loA.cover);
+      const footB = rgba(aerate(base, loB.pale), loB.cover);
+      const tax = ax + driftAt(axThrow, piece.from);
+      const tay = ay + driftAt(ayThrow, piece.from);
+      const tbx = bx + driftAt(bxThrow, piece.from);
+      const tby = by + driftAt(byThrow, piece.from);
+      const fax = ax + driftAt(axThrow, piece.to);
+      const fay = ay + driftAt(ayThrow, piece.to);
+      const fbx = bx + driftAt(bxThrow, piece.to);
+      const fby = by + driftAt(byThrow, piece.to);
+      pushQuad(
+        batch,
+        (tax - tay) * HWs, (tax + tay) * HHs - topZA * HUs, crestA,
+        (tbx - tby) * HWs, (tbx + tby) * HHs - topZB * HUs, crestB,
+        (fbx - fby) * HWs, (fbx + fby) * HHs - footZB * HUs, footB,
+        (fax - fay) * HWs, (fax + fay) * HHs - footZA * HUs, footA,
+      );
+      layer.live.add(band);
     }
   }
 

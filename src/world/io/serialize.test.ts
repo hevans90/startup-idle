@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DIR } from "../../iso/dir";
 import {
   RAMP, createGrid, fillTerrain, idx, pipeAt, rampAt, setHeight, setPaved, setRamp, setTerrain,
-  sourceAt,
+  setSource, sourceAt,
 } from "../grid";
 import { commit, createHistory } from "../edit/commands";
 import { structureDef } from "../structures/def";
@@ -84,7 +84,7 @@ describe("round trip", () => {
     // each of its columns, and nothing may be gained that was not there.
     const wetTiles = [...wet.pool].filter((v) => v > 0).length;
     const slack = wetTiles * 0.5 * 16;
-    expect(Math.abs(totalVolume(again) - totalVolume(field))).toBeLessThan(slack);
+    expect(Math.abs(totalVolume(again, wet) - totalVolume(field, g))).toBeLessThan(slack);
   });
 
   test("but the snapshot is only what is STANDING", () => {
@@ -262,8 +262,8 @@ describe("source layer", () => {
     // live state. The TAP does, which is what makes a river reload as a river
     // rather than as the puddle it happened to be when you saved.
     const grid = createGrid(6, 6, 1);
-    grid.source[idx(grid, 1, 2)] = 8;
-    grid.source[idx(grid, 4, 4)] = -8;
+    setSource(grid, 1, 2, 8);
+    setSource(grid, 4, 4, -8);
     const { grid: back } = fromJSON(toJSON(serializeWorld(grid, PAL)));
     expect(sourceAt(back, 1, 2)).toBe(8);
     expect(sourceAt(back, 4, 4)).toBe(-8);
@@ -272,7 +272,7 @@ describe("source layer", () => {
 
   test("a file written before springs existed still opens, with none", () => {
     const grid = createGrid(6, 6, 1);
-    grid.source[idx(grid, 1, 2)] = 8;
+    setSource(grid, 1, 2, 8);
     const file = serializeWorld(grid, PAL);
     delete file.source;
     const { grid: back } = deserializeWorld(JSON.parse(JSON.stringify(file)));

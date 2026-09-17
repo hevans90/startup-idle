@@ -3,8 +3,12 @@
  *
  * LIVE STATE, not a map layer. Depth is a float that changes every frame, so it
  * does not belong in the undo system alongside `terrain` and `height`: it sits
- * outside the grid the way the road network and the dirty set do. Pouring water
- * is undoable; the flowing is not, any more than the passage of time is.
+ * outside the grid the way the road network and the dirty set do.
+ *
+ * WHICH MEANS NO WATER EDIT IS UNDOABLE — not the pour and not the drain. This
+ * used to claim the pour was. What undo reverses is the `fluid` layer, which
+ * records what was poured where for the save file; the depth it put on the
+ * columns stays. @see world.store, where the measurement is.
  *
  * The columns are FINER than the tiles. Terrain height is per tile, so every
  * column of a tile starts from the same ground — but a finer grid gives the
@@ -12,20 +16,14 @@
  * as a row of flat plates, and it gives the flow room to turn.
  */
 import {
-  FLOW_DEFAULTS,
-  addWater,
-  createColumnField,
-  setMaterialDrag,
-  setOpenEdge,
-  stepFlow,
-  surfaceAt,
-  totalWater,
-  type ColumnField,
-  type FlowParams,
+  FLOW_DEFAULTS, addWater, createColumnField, setMaterialDrag, setOpenEdge, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
 } from "../../fluid/columns";
+import { waterInDrips } from "../../fluid/drips";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
 import { fluidChoices } from "./materials";
-import { createPipeNets, type PipeNets } from "./pipe-net";
+import {
+  createPipeNets, findPipeNets, pipeCellCount, type PipeNets,
+} from "./pipe-net";
 
 /**
  * Columns per map tile, per axis.
@@ -82,9 +80,27 @@ export type WaterField = {
    * slosh — a level without one settles and cannot overshoot.
    */
   pipeFlux: Float32Array;
-  /** The networks, rebuilt from the grid each step. Scratch, not state. */
+  /** The networks, rebuilt from the grid when the map changes. @see findPipeNets */
   nets: PipeNets;
+  /** The `grid.rev` the orphans were last swept at. @see spillOrphaned */
+  spilled: number;
+  /**
+   * THE CELLS THAT HAVE A SPRING OR A DRAIN ON THEM, and nothing else.
+   *
+   * `runSources` walked all four thousand cells of a 64² map every frame to
+   * find three of them, and the walk grows with the map while the number of
+   * taps on it does not — a spring is something a hand puts down. Built when
+   * `grid.rev` says the map has changed and kept until it changes again.
+   */
+  taps: CellList;
 };
+
+/** A list of cell indices built off the grid, and the `rev` it was built at. */
+export type CellList = { at: Int32Array; n: number; rev: number };
+
+/** An empty list, which every `rev` but the grid's own disagrees with. */
+export const emptyCellList = (n: number): CellList =>
+  ({ at: new Int32Array(n), n: 0, rev: -1 });
 
 /**
  * Whether a new map lets water off its edge.
@@ -112,6 +128,8 @@ export function createWaterField(
     pipe: new Float32Array(grid.w * grid.h),
     pipeFlux: new Float32Array(grid.w * grid.h * 2),
     nets: createPipeNets(grid.w, grid.h),
+    spilled: -1,
+    taps: emptyCellList(grid.w * grid.h),
   };
   // Each fluid keeps its own momentum differently — the only thing that makes
   // one behave unlike another now that depth and levels are gone.
@@ -181,6 +199,20 @@ export function fillPools(field: WaterField, grid: Grid) {
  * the AIR is not here either: a fall in flight, a drop, what is standing in a
  * pipe. That is a fraction of a second of the map's water and it refills from
  * the ports and springs that made it.
+ *
+ * AND IT STOPS AT 255, which is the layer's type and not a choice: `pool` is a
+ * `Uint8Array`, so a tile holding more than 255 half steps saves as 255 and
+ * reloads shallower than it was.
+ *
+ * It is REACHABLE, which is why this is written down rather than waved at. The
+ * editor clamps terrain to [-126, 126] half steps, so a basin cut to the floor
+ * beside a wall at the ceiling is 252 deep — just inside — and any of it
+ * poured over the brim of that wall goes past. Nobody builds that by accident
+ * and nothing in play approaches it, but "cannot happen" would be wrong.
+ *
+ * Widening it is a change to the FILE FORMAT and wants a version bump, which
+ * is why this says so rather than doing it.
+ * @see WORLD_FILE_VERSION, HEIGHT_MAX
  */
 export function poolSnapshot(field: WaterField, grid: Grid): Uint8Array {
   const out = new Uint8Array(grid.w * grid.h);
@@ -194,6 +226,9 @@ export function poolSnapshot(field: WaterField, grid: Grid): Uint8Array {
 
 export function syncGround(field: WaterField, grid: Grid) {
   const { columns } = field;
+  // SAID ONCE, HERE, so the device does not have to be told every frame just
+  // in case. @see ColumnField.groundRev
+  columns.groundRev++;
   for (let cy = 0; cy < columns.ny; cy++) {
     const ty = tileOf(cy);
     for (let cx = 0; cx < columns.nx; cx++) {
@@ -213,7 +248,7 @@ export function syncGround(field: WaterField, grid: Grid) {
 }
 
 /** How far above its ground a built-on cell is treated as standing. */
-const SOLID_LIFT = 64;
+export const SOLID_LIFT = 64;
 
 /** Let water off the edge of the map, or wall it in. */
 export const setWaterEdge = (field: WaterField, open: boolean) =>
@@ -241,15 +276,33 @@ export const stepWater = (field: WaterField, dt: number) =>
  */
 export function runSources(field: WaterField, grid: Grid, dt: number) {
   const { source } = grid;
-  for (let y = 0; y < grid.h; y++) {
-    for (let x = 0; x < grid.w; x++) {
-      const i = y * grid.w + x;
-      const rate = source[i];
-      if (rate === 0) continue;
-      if (rate > 0) pourAt(field, x, y, rate * dt, grid.fluid[i] || 1);
-      else drainAt(field, x, y, -rate * dt);
-    }
+  const taps = findTaps(field, grid);
+  for (let k = 0; k < taps.n; k++) {
+    const i = taps.at[k];
+    const rate = source[i];
+    if (rate === 0) continue;
+    const x = i % grid.w, y = (i / grid.w) | 0;
+    if (rate > 0) pourAt(field, x, y, rate * dt, grid.fluid[i] || 1);
+    else drainAt(field, x, y, -rate * dt);
   }
+}
+
+/**
+ * The cells with a tap on them, walked out of the grid only when it changes.
+ *
+ * The `rate === 0` test above still stands, because the list is allowed to be
+ * a superset: what must never happen is a tap that is running and not on it,
+ * and `grid.rev` is what promises that. @see edited
+ */
+export function findTaps(field: WaterField, grid: Grid): CellList {
+  const taps = field.taps;
+  if (taps.rev === grid.rev) return taps;
+  const { source } = grid;
+  let n = 0;
+  for (let i = 0; i < source.length; i++) if (source[i] !== 0) taps.at[n++] = i;
+  taps.n = n;
+  taps.rev = grid.rev;
+  return taps;
 }
 
 /** How much a spring puts out, and a drain takes, in half steps a second. */
@@ -290,7 +343,16 @@ export function drainAt(
   }
 }
 
-/** Mean depth over a tile's columns, for readouts and the inspector. */
+/**
+ * Mean depth over a tile's columns, for readouts and the inspector.
+ *
+ * AND IT ASKS FOR NEXT TIME. While the device owns the water this reads a copy
+ * some frames old, and the whole depth field only comes back on the slow
+ * refresh — so a tile nobody has looked at lately answers from whenever that
+ * was. Registering the columns it just read means the pointer's own tile is
+ * current from the next readback on, which is what the inspector is for.
+ * A no-op on the CPU path. @see wantDepth
+ */
 export function depthAt(field: WaterField, x: number, y: number): number {
   const { columns } = field;
   const cx0 = columnOf(x),
@@ -302,7 +364,9 @@ export function depthAt(field: WaterField, x: number, y: number): number {
       const cx = cx0 + dx,
         cy = cy0 + dy;
       if (cx >= columns.nx || cy >= columns.ny) continue;
-      sum += columns.depth[cy * columns.nx + cx];
+      const i = cy * columns.nx + cx;
+      sum += columns.depth[i];
+      wantDepth(columns, i);
       n++;
     }
   }
@@ -354,19 +418,56 @@ export function wetTiles(field: WaterField): number {
  * a pipe has not been destroyed, and a total that stopped counting it would
  * report a leak every time a drain worked.
  */
-export const totalVolume = (field: WaterField) =>
-  totalWater(field.columns) + waterInPipes(field) + waterAtMouths(field);
+export const totalVolume = (field: WaterField, grid: Grid, onTheMap?: number) =>
+  (onTheMap === undefined
+    ? totalWater(field.columns)
+    // THE MAP'S SHARE, COUNTED ELSEWHERE. When the device solver is running it
+    // has already summed both the depths and what is in the air — see
+    // `createMeta` and `createFallout` — and the alternative is walking sixty
+    // five thousand columns and a hundred and thirty thousand edges every
+    // tick to work out a number somebody has already worked out. The DROPS
+    // still come from here: the drip list is the host's own.
+    : onTheMap + waterInDrips(field.columns.drips))
+  + waterInPipes(field, grid) + waterAtMouths(field, grid);
 
-/** Every drop standing in a pipe anywhere on the map. */
-export function waterInPipes(field: WaterField): number {
-  let sum = 0;
-  for (let i = 0; i < field.pipe.length; i++) sum += field.pipe[i];
-  return sum;
+/**
+ * Every drop standing in a pipe anywhere on the map.
+ *
+ * OVER THE PIPE CELLS, which is where the only non-zero entries can be —
+ * water gets into `pipe` by flowing along a run, and every cell of a run
+ * carries pipe. Both of these ran down the whole four thousand cell array
+ * every frame for a readout in the corner of the screen.
+ *
+ * EXCEPT WITH AN EDIT OUTSTANDING, which is the one moment the two disagree.
+ * Cut a run and its middle cell is off the networks at once while the water
+ * standing in it is still there, waiting for the sweep — so the list is short
+ * by that cell, and a total taken from it would report the water as lost. The
+ * flag the sweep keeps says exactly when that can be true, and while it is,
+ * this walks the array as it always did. {@link spillOrphaned} clears it on
+ * the next step and the list is exact again.
+ *
+ * TAKES THE GRID for that comparison, which also rules out the version of
+ * this that reads nought on a map whose networks nobody has built yet.
+ */
+export function waterInPipes(field: WaterField, grid: Grid): number {
+  return overPipes(field, grid, field.pipe);
 }
 
-/** What is hanging at the mouths, grown but not yet let go. */
-export function waterAtMouths(field: WaterField): number {
+/** What is hanging at the mouths, grown but not yet let go. @see waterInPipes */
+export function waterAtMouths(field: WaterField, grid: Grid): number {
+  return overPipes(field, grid, field.held);
+}
+
+/** Sum a per-cell array over the pipes, by whichever route is exact. */
+function overPipes(field: WaterField, grid: Grid, of: Float32Array): number {
   let sum = 0;
-  for (let i = 0; i < field.held.length; i++) sum += field.held[i];
+  if (field.spilled !== grid.rev) {
+    for (let i = 0; i < of.length; i++) sum += of[i];
+    return sum;
+  }
+  const nets = findPipeNets(grid, field.nets);
+  const { cells } = nets;
+  const upto = pipeCellCount(nets);
+  for (let k = 0; k < upto; k++) sum += of[cells[k]];
   return sum;
 }

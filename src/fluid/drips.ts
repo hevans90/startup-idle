@@ -79,7 +79,7 @@ const MAX_MOUTHS = 256;
 const SPLASH = 3;
 
 /** How long a splash mark lasts before the foam has to have taken it. */
-const SPLASH_LIFE = 0.15;
+export const SPLASH_LIFE = 0.15;
 
 /**
  * How fast a drop of {@link DROP}'s size rings, in radians a second.
@@ -109,6 +109,19 @@ const WOBBLE = 2 * Math.PI * 5.5;
  * per-drop loop for something that lasts a quarter of a second.
  */
 const WOBBLE_DAMP = 0.11;
+
+/**
+ * The most a drop may turn through in one step, in radians.
+ *
+ * The semi-implicit integrator is stable while `w * dt` is under about two,
+ * and sampling gives out before that: at pi the drop is at the frame rate's
+ * Nyquist and there is nothing left to see. Under both, with room.
+ *
+ * A whole `DROP` at sixty frames sits at 0.58, so nothing ordinary is touched
+ * by this — it only ever binds on the small end, where the shape was
+ * unrepresentable anyway. @see wobbleOf
+ */
+const WOBBLE_STEP = 1.5;
 
 /**
  * How stretched a drop is at the moment the neck lets go, as a fraction of its
@@ -230,6 +243,19 @@ export type DripState = {
    * to pick up, and cleared when it does.
    */
   readonly splash: Float32Array;
+  /**
+   * WHICH COLUMNS CARRY A MARK, so fading them is not a walk of the map.
+   *
+   * A mark goes on the list when its column goes from nothing to something and
+   * comes off when it fades back to nothing, so the list is exactly the
+   * non-zero entries of {@link splash} and can hold every one of them. Fading
+   * them used to be sixty five thousand columns every frame to touch the few
+   * hundred that had anything on them, and it ran on exactly the frames the
+   * map was busiest — a mark only exists while water is arriving.
+   */
+  readonly lit: Int32Array;
+  nlit: number;
+  /** Whether there is any mark at all. Kept with {@link lit}, never apart. */
   splashed: boolean;
   /** Turns the next crown by a bit, so two landings do not throw alike. */
   spun: number;
@@ -256,6 +282,8 @@ export function createDrips(nx: number, ny: number): DripState {
     mmaterial: new Uint8Array(MAX_MOUTHS),
     mouths: 0,
     splash: new Float32Array(nx * ny),
+    lit: new Int32Array(nx * ny),
+    nlit: 0,
     splashed: false,
     spun: 0,
   };
@@ -371,7 +399,22 @@ export function stepDrips(
 
     // The ringing: a damped harmonic oscillator, integrated semi-implicitly so
     // it cannot gain energy at a long step the way the explicit form does.
-    const w = wobbleOf(volume);
+    //
+    // SEMI-IMPLICIT IS NOT UNCONDITIONALLY STABLE, which is the trap. It holds
+    // while `w * dt` stays under about two and comes apart above it, and
+    // `wobbleOf` goes as the inverse square root of the volume — so the
+    // smaller the drop the faster it rings. A crown fleck at a five-hundredth
+    // of `DROP` rings at 773 radians a second, which is `w * dt` of 12.9 at
+    // sixty frames: measured, its shape grew by about 167x a step and reached
+    // NaN inside forty frames. From there it is NaN in a vertex buffer, and
+    // the renderer's own clamp does not stop it — `min` and `max` PASS NaN.
+    //
+    // Clamped, and not merely for stability. Past `w * dt` of pi there is no
+    // oscillation left to sample: the frame rate cannot show a ringing faster
+    // than twice its own, so a fleck ringing at 123 Hz drawn at 60 shows
+    // aliasing whatever the arithmetic does. Holding it at {@link WOBBLE_STEP}
+    // draws the fastest ring the frame can actually carry.
+    const w = Math.min(wobbleOf(volume), WOBBLE_STEP / dt);
     d.shaken[k] -= (w * w * d.shape[k] + 2 * WOBBLE_DAMP * w * d.shaken[k]) * dt;
     d.shape[k] += d.shaken[k] * dt;
 
@@ -389,11 +432,7 @@ export function stepDrips(
     const spray = Math.min(volume, Math.max(0, land(cx, cy, volume, mat, hit)));
     // A drop's arrival, left for the foam to pick up. Bigger drops splash
     // harder, up to as white as anything gets.
-    const at = Math.round(cy) * d.nx + Math.round(cx);
-    if (at >= 0 && at < d.splash.length) {
-      d.splash[at] = Math.min(1, Math.max(d.splash[at], volume * SPLASH));
-      d.splashed = true;
-    }
+    markSplash(d, Math.round(cy) * d.nx + Math.round(cx), volume * SPLASH);
 
     // Swap the last live drop into this slot rather than shuffling the rest;
     // nothing here cares what order they are in.
@@ -451,16 +490,42 @@ export function crown(
  * landed a second ago.
  */
 export function fadeSplashes(d: DripState, dt: number): void {
-  if (!d.splashed) return;
+  if (d.nlit === 0) return;
   const keep = Math.exp(-dt / SPLASH_LIFE);
-  let any = false;
-  for (let i = 0; i < d.splash.length; i++) {
-    if (d.splash[i] <= 0) continue;
-    d.splash[i] *= keep;
-    if (d.splash[i] < 0.01) d.splash[i] = 0;
-    else any = true;
+  // Compacted in place: the ones still lit are written back over the front of
+  // the list as it is read, so a mark that has faded out simply is not carried
+  // forward. Reading and writing the same array at the same index is safe
+  // because the write never gets ahead of the read.
+  let n = 0;
+  for (let k = 0; k < d.nlit; k++) {
+    const i = d.lit[k];
+    const was = d.splash[i] * keep;
+    if (was < 0.01) { d.splash[i] = 0; continue; }
+    d.splash[i] = was;
+    d.lit[n++] = i;
   }
-  d.splashed = any;
+  d.nlit = n;
+  d.splashed = n > 0;
+}
+
+/**
+ * Mark a column where water arrived, at `white` or whatever it already had.
+ *
+ * THE ONE WAY IN, and the reason it is one: a mark is three things that have
+ * to agree — the value, the list it is fading from, and the flag the renderer
+ * and the device upload both gate on. Written by hand they did not agree.
+ * `plungeInto` set the value and left the flag alone, so the whiteness under
+ * every waterfall was invisible to the foam, was never faded because the fade
+ * returned early, and then appeared all at once the moment some unrelated drop
+ * landed and turned the flag on. A mark placed through here cannot do that.
+ */
+export function markSplash(d: DripState, i: number, white: number): void {
+  if (i < 0 || i >= d.splash.length) return;
+  const had = d.splash[i];
+  if (white <= had) return;
+  if (had <= 0) d.lit[d.nlit++] = i;
+  d.splash[i] = white < 1 ? white : 1;
+  d.splashed = true;
 }
 
 /**

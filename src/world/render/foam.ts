@@ -36,27 +36,38 @@
  * test reads.
  */
 import { flowX, flowY, type ColumnField } from "../../fluid/columns";
-import { dropAt } from "../../fluid/falls";
-
-/** How white the foot of a fall goes, where the water arrives out of the air. */
-const LANDING = 0.9;
 
 /**
- * The water in the air, in half steps over one column, at which a fall lands
- * as white as it is going to get.
+ * How white the foot of a fall used to go, kept as the scale the splash is
+ * read against.
  *
- * A fall is a fall whatever its size, so the arrival was flat out at first —
- * and a walled basin grew a permanent white fringe, because a film a thirtieth
- * of a half step deep had crept onto the top of the wall and was trickling
- * back in over a ten step drop. That IS a fall and it does land, but it lands
- * a trickle: the edges of a fed waterfall carry two to five, the fringe
- * carried 0.003 to 0.04, and at one they come out two orders of magnitude
- * apart, which is what they look like.
+ * Nothing uses it now: the white at a fall's foot comes from the splash the
+ * plunge banks, which measured 0.895 here against this 0.9. Left as the note
+ * of what that number was chosen to match. @see stepFoam
  */
-const FULL_AIR = 1;
+export const LANDING = 0.9;
+
+/**
+ * A TRICKLE MUST NOT READ AS A WATERFALL, which `FULL_AIR` used to guarantee
+ * and the splash now does better.
+ *
+ * The landing term went white in proportion to `min(1, air / FULL_AIR)`, and
+ * that ceiling existed for a real fault: a walled basin grew a permanent white
+ * fringe, because a film a thirtieth of a half step deep had crept onto the
+ * top of the wall and was trickling back in over a ten step drop. That IS a
+ * fall and it does land, but it lands a trickle — the edges of a fed waterfall
+ * carry two to five, the fringe carried 0.003 to 0.04.
+ *
+ * With the landing term gone the white comes from the plunge's splash, which
+ * is `amount * PLUNGE_WHITE * speed / IMPACT_REF` — scaled by the water
+ * actually delivered AND by how hard it arrives, rather than clipped at a
+ * ceiling. Measured on the waterfall fixture the marks run from 0.012 to 0.895
+ * with a tenth percentile of 0.276, so the faint falls stay faint.
+ * @see markSplash
+ */
 
 /** How long foam lasts, in seconds — an e-folding, not a cutoff. */
-const LIFE = 1.1;
+export const LIFE = 1.1;
 
 export type FoamField = {
   readonly nx: number;
@@ -75,27 +86,29 @@ export function createFoam(columns: ColumnField): FoamField {
 }
 
 /**
- * How much water is landing on this column out of the air, 0 to 1.
+ * THERE IS NO LANDING TERM HERE ANY MORE, and it took a measurement to see why.
  *
- * Only the two edges that can reach it — a fall crosses an edge in the `+x` or
- * `+y` direction, so what lands here left the column behind it on that axis.
- * It counts from the moment the fall's front arrives, which is the moment the
- * water does, and it counts by how much is coming: see {@link FULL_AIR}.
+ * There was one: for each column, look at the two edges that could reach it —
+ * the ones immediately west and north — and if a fall's front had arrived on
+ * either, go white in proportion to what was in the air. It marked the column
+ * IMMEDIATELY OVER THE EDGE, and that is not where the water goes. Water
+ * thrown off a lip travels while it falls; {@link landsAt} is what says where
+ * it arrives.
+ *
+ * Measured on the waterfall fixture: every one of the 240 edges with water in
+ * flight landed between four and eight columns from the foot of its cliff, six
+ * most often. Four columns is a tile. So the white sat a tile or two BEHIND
+ * the sheet that made it, on water the sheet never touched.
+ *
+ * And it was not needed. `plungeInto` already marks a splash at the column the
+ * water reaches, unconditionally, the moment the front arrives — the same
+ * moment this fired — and the loop below already reads those marks. Measured
+ * on the same scene: all 240 landing columns marked, at 0.895, against a
+ * LANDING of 0.9; and not one of the 240 cliff feet marked. The two terms were
+ * the same white, one of them in the wrong place.
+ *
+ * So this is a deletion and not a move. @see markSplash, plungeInto
  */
-function landingAt(columns: ColumnField, x: number, y: number): number {
-  const { nx, falls } = columns;
-  const i = y * nx + x;
-  let most = 0;
-  if (x > 0 && falls.air[(i - 1) * 2] > 0) {
-    const k = (i - 1) * 2, drop = dropAt(columns, i - 1, 0);
-    if (drop > 0 && falls.front[k] >= drop) most = falls.air[k];
-  }
-  if (y > 0 && falls.air[(i - nx) * 2 + 1] > 0) {
-    const k = (i - nx) * 2 + 1, drop = dropAt(columns, i - nx, 1);
-    if (drop > 0 && falls.front[k] >= drop && falls.air[k] > most) most = falls.air[k];
-  }
-  return most > 0 ? LANDING * Math.min(1, most / FULL_AIR) : 0;
-}
 
 /**
  * Carry the foam one frame down the current, fading it as it goes.
@@ -115,13 +128,22 @@ export function stepFoam(
   const { depth, broke, params } = columns;
   const splash = columns.drips.splashed ? columns.drips.splash : null;
   const dry = params.dryDepth;
-  const air = columns.falls.air;
   const back = dt / cell;
   const keep = Math.exp(-dt / LIFE);
   const lastX = foam.nx - 1, lastY = foam.ny - 1;
+  const rim = columns.openEdge;
   for (let y = region.y0; y <= region.y1; y++) {
     for (let x = region.x0; x <= region.x1; x++) {
       const i = y * nx + x;
+      // AND THE RIM LOSES ITS WHITE WITH ITS WATER. `spill` empties the
+      // outermost ring every substep, and foam advected into it has nothing
+      // left to ride out on — so it piles up there and the edge of the map
+      // goes white and stays white. Cleared, what reaches the rim leaves with
+      // everything it was carrying, which is what an open edge means.
+      if (rim && (x === 0 || y === 0 || x === lastX || y === lastY)) {
+        next[i] = 0;
+        continue;
+      }
       if (depth[i] <= dry) { next[i] = 0; continue; }
       const vx = flowX(columns, x, y), vy = flowY(columns, x, y);
       let sx = x - vx * back;
@@ -135,15 +157,7 @@ export function stepFoam(
       const c = now[y1 * nx + x0], d = now[y1 * nx + x1];
       const top = a + (b - a) * fx, bot = c + (d - c) * fx;
       const carried = (top + (bot - top) * fy) * keep;
-      // The air on the two edges that can reach this column, read INLINE and
-      // before anything else. There is no fall anywhere near almost every
-      // column on almost every map, and a call per column to find that out
-      // cost as much as the whole of the rest of this loop.
-      const west = x > 0 ? (i - 1) * 2 : -1;
-      const north = y > 0 ? (i - nx) * 2 + 1 : -1;
-      const maybe = (west >= 0 && air[west] > 0) || (north >= 0 && air[north] > 0);
-      const landed = maybe ? landingAt(columns, x, y) : 0;
-      // And what the SOLVER says is breaking here, which is the same number it
+      // What the SOLVER says is breaking here, which is the same number it
       // dissipates on — so the water goes white exactly where it loses energy.
       const wave = broke[i];
       // And where a DROP landed. Water arriving out of the air has air in it
@@ -152,7 +166,7 @@ export function stepFoam(
       // divergence, so the surface rate the breaking test reads never sees it
       // and it has to leave word — see `splash` in fluid/drips.
       const splashed = splash ? splash[i] : 0;
-      const born = Math.max(landed, wave, splashed);
+      const born = wave > splashed ? wave : splashed;
       next[i] = carried > born ? carried : born;
     }
   }

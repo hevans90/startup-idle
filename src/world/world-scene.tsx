@@ -26,7 +26,8 @@ import {
   createWaterLayer, destroyWaterLayer, drawWater, type WaterLayer,
 } from "./render/water";
 import {
-  createGpuWaterLayer, destroyGpuWaterLayer, drawGpuWater, waterOnGpu,
+  attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
+  destroyQuadGather, drawGpuWater, gatherQuads, showGpuWater, waterOnGpu,
   type GpuWaterLayer,
 } from "./render/water-gpu";
 import { compareWaterPaths } from "./debug/water-compare";
@@ -63,14 +64,37 @@ import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
 import { footprintCells, surfaceSampler } from "./grid";
-import { pickCell, worldToCellF } from "./iso";
+import { HEIGHT_UNIT, HH, HW, pickCell, worldToCellF } from "./iso";
 import { runSources, stepWater } from "./water/field";
 import { runPipes } from "./water/pipes";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
 import {
   createFallLayer, destroyFallLayer, drawFalls, type FallLayer,
 } from "./render/falls-render";
-import { activeBox } from "../fluid/columns";
+import { createSpike, spikeExpected } from "./render/compute-spike";
+import {
+  createGpuWater, setDepthBand, setFallList, setReadback, setSkip,
+  setWholeMap, type GpuWater,
+} from "../fluid/gpu/solver";
+import {
+  SPRAY_BOUNDS, checkPour, checkPourLive, compareFrames, flat,
+} from "../fluid/gpu/compare-frames";
+import { gpuWaterSaw } from "./debug/gpu-water-stat";
+import { flushStamps, holdStamps, stampsNow } from "./debug/gpu-stamps";
+import {
+  createGpuFallLayer, destroyGpuFallLayer, drawGpuFalls, type GpuFallLayer,
+} from "./render/falls-gpu";
+import { COLUMNS_PER_TILE } from "./water/field";
+import { pointerRead, type PointerAt } from "./debug/pointer-at";
+import { heldDevice } from "./debug/gpu-device";
+import { deviceLost, onDeviceLost } from "./render/device";
+import {
+  compareAccelerate, compareCliffs, pour as pourScene,
+  scene as accelScene, spray,
+} from "../fluid/gpu/compare-pass";
+import { checkLive } from "../fluid/gpu/check-live";
+import { holdDevice } from "./debug/gpu-device";
+import { activeBox, maxStep } from "../fluid/columns";
 
 // Required: <pixiContainer> is only a known element once Container is
 // registered with @pixi/react, and without it `rootRef` never populates.
@@ -99,6 +123,24 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // functions of the columns.
   const drRef = useRef<GpuDripLayer | null>(null);
   const faRef = useRef<FallLayer | null>(null);
+  /** The falls' sheets when the device builds them. @see createGpuFallLayer */
+  const gfRef = useRef<GpuFallLayer | null>(null);
+  /**
+   * The water stepped by the compute passes, when the switch is on.
+   *
+   * Built on demand rather than with the scene: it holds a copy of the whole
+   * field on the device, and a map nobody has switched over should not be
+   * paying for one. @see createGpuWater
+   */
+  const solverRef = useRef<GpuWater | null>(null);
+  /** Which field the solver was built for. @see solverRef */
+  const solverField = useRef<unknown>(null);
+  /**
+   * The renderer, for the one question Pixi's own surface does not answer:
+   * which GPU texture stands behind a `TextureSource`. The solver fills those
+   * textures itself. @see deviceSinks
+   */
+  const rendererRef = useRef<unknown>(null);
   // held so an edit can re-texture just the cells that changed
   const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
@@ -128,6 +170,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const sl = createStructureLayer();
       const water = useWorldStore.getState().getWaterField();
       const onGpu = waterOnGpu();
+      rendererRef.current = app?.renderer ?? null;
       const fl = water && !onGpu ? createWaterLayer(water, bl, scale) : null;
       gpuRef.current = water && onGpu ? createGpuWaterLayer(water, bl, scale) : null;
       // Between the surface and the drips: a fall is drawn over the water
@@ -154,7 +197,29 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         window.__water = water;
         window.__waterLayer = fl;
         window.__falls = faRef.current;
+        // The device-built sheets, so a harness can count what it drew.
+        window.__sheets = () => gfRef.current;
+        window.__solver = () => solverRef.current;
         window.__waterGpu = gpuRef.current;
+        window.__renderer = app.renderer;
+        // What the readback costs, answered by not doing it. @see setReadback
+        window.__readback = setReadback;
+        // And whether the dispatch region is the box or the map. @see setWholeMap
+        window.__wholeMap = setWholeMap;
+        // And which passes to leave out, for bisecting. @see setSkip
+        window.__skip = setSkip;
+        // And whether the lips come back as a list or as five whole arrays,
+        // so the two can be diffed on one bench. @see setFallList
+        window.__fallList = setFallList;
+        // And whether depth comes back by the band or whole. @see setDepthBand
+        window.__depthBand = setDepthBand;
+        // The water's meshes, hidden, so the render pass can be timed with and
+        // without them. @see showGpuWater
+        // What the GPU spent, per pass, for a harness rather than the eye.
+        window.__gpuTime = () => stampsNow()?.says() ?? null;
+        window.__showWater = (show: boolean) => {
+          if (gpuRef.current) showGpuWater(gpuRef.current, show);
+        };
         // Drives frames by hand, because the browser throttles rAF whenever
         // the preview is not on screen and a throttled clock has wrecked more
         // than one measurement in this file's history. Runs the same three
@@ -167,24 +232,225 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // Does the vertex shader draw the same water as the mesh builder? It
         // builds its own scene and answers in pixels — see water-compare.
         window.__waterCompare = (o) => compareWaterPaths(app.renderer, o);
+        // THE SPIKE for the compute port — see `render/compute-spike`. Behind
+        // `?spike` because it draws a bar chart over the map and exists to
+        // answer one question before three weeks of work rest on the answer.
+        if (new URLSearchParams(location.search).has("spike")) {
+          const spike = createSpike(app.renderer);
+          window.__spike = async () => {
+            if (!spike) return { ok: false, why: "no WebGPU device on this renderer" };
+            spike.run();
+            app.renderer.render({ container: app.stage });
+            const got = await spike.read();
+            const want = spikeExpected();
+            let worst = 0;
+            for (let i = 0; i < want.length; i++) {
+              worst = Math.max(worst, Math.abs(got[i] - want[i]));
+            }
+            return { ok: worst < 1e-6, worst, first: [...got.slice(0, 6)], n: got.length };
+          };
+          if (spike) {
+            // On the STAGE, not the world root: the chart is an instrument and
+            // not part of the map, and in world space the camera shrinks it to
+            // a smudge exactly where the answer needs to be legible.
+            spike.mesh.x = 40;
+            spike.mesh.y = 160;
+            app.stage.addChild(spike.mesh);
+          }
+        }
+        // ONE PASS, both ways, from one state — see `fluid/gpu/compare-pass`.
+        // The instrument the compute port is built against: a disagreement
+        // here has exactly one candidate, which is why the passes go over one
+        // at a time. `bun test` cannot run WGSL, so this lives in the browser.
+        window.__accelCompare = async (
+          settle = 90, wind?: number,
+          through?: "diffuse" | "accelerate" | "limit" | "divergence" | "apply"
+          | "falls",
+          solo?: boolean,
+        ) => {
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device;
+          if (!device) return { ok: false, why: "no WebGPU device" };
+          return compareAccelerate(device, settle,
+            wind === undefined ? undefined : () => accelScene(wind), through, solo);
+        };
+        // WHOLE FRAMES, both solvers, from one scene — the only question a
+        // person watching the water would ask. @see compareFrames
+        window.__frameCompare = async (frames = 60, sprayScene = false) => {
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device;
+          if (!device) return { ok: false, why: "no WebGPU device" };
+          // THE SPRAY SCENE CARRIES AN ACCEPTED DIVERGENCE and its own bounds
+          // say so, rather than every scene being loosened to let it pass.
+          // @see SPRAY_BOUNDS
+          return sprayScene
+            ? compareFrames(device, frames, spray, undefined, SPRAY_BOUNDS)
+            : compareFrames(device, frames);
+        };
+        // THE SAME POUR, DRIVEN LIKE THE TICK. @see checkPourLive
+        // STARTED RATHER THAN AWAITED: it paces itself on animation frames, so
+        // it only runs while the tab is in front, and a caller that awaited it
+        // from a console would be waiting on frames it is itself preventing.
+        // The answer lands in `__pourLiveResult`.
+        window.__pourLive = (
+          frames = 40, openEdge = false, onWet = false, twin = false,
+          pace = "frame" as "frame" | "free", away = 0,
+        ) => {
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device;
+          if (!device) return "no WebGPU device";
+          (window as unknown as { __pourLiveResult?: unknown }).__pourLiveResult = null;
+          void checkPourLive(
+            device, frames, openEdge, onWet, twin, undefined, pace, away,
+          ).then((r) => {
+              (window as unknown as { __pourLiveResult?: unknown })
+                .__pourLiveResult = r;
+            });
+          return "started";
+        };
+        // A POUR, between frames, the way a click lands. @see checkPour
+        // `breaking` is a switch rather than a constant because the leak this
+        // is chasing starts at about the frame a collapsing pour begins to
+        // break, and the cheapest way to accuse the diffusion is to take it
+        // away and pour again.
+        window.__pourCheck = async (
+          onWet = false, breaking = true, openEdge = true, frames = 24,
+          wind?: number,
+        ) => {
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device;
+          if (!device) return { ok: false, why: "no WebGPU device" };
+          const build = () => {
+            const f = flat();
+            f.params.breaking = breaking ? 1 : 0;
+            // THE WIND OFF makes the scene symmetric, and a symmetric scene is
+            // worth a great deal: any asymmetry left in the answer is then the
+            // solver's and not the weather's. With it on the two sides drift
+            // apart for a reason that is not a fault — the substep sizes are
+            // each solver's own, so the clock the wind is a function of is not
+            // quite the same clock.
+            if (wind !== undefined) f.params.wind = wind;
+            return f;
+          };
+          return checkPour(device, build, openEdge, true, frames, onWet);
+        };
+        // THE CLIFF INDEX, which is not a pass in a substep — it runs once a
+        // frame and produces the set the falls are dispatched over, so it is
+        // compared on its own rather than through its effect on water.
+        window.__cliffCompare = async (
+          settle = 90, sprayScene = false, fresh = false,
+        ) => {
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device;
+          if (!device) return { ok: false, why: "no WebGPU device" };
+          return compareCliffs(
+            device, settle, sprayScene ? spray : undefined, fresh,
+          );
+        };
+        // THE SPRAY, which the scene above deliberately never reaches — its
+        // drop is kept under `BREAK` so the five passes before the falls are
+        // compared on water that is only flowing. This one throws a sheet off
+        // a shelf tall enough to come apart, which is the only way the shed
+        // branch, the outbox and the drain are run at all.
+        // A HUNDRED AND FIFTY FIVE frames, which is not arbitrary. A sheet
+        // banks a fortieth of a drop a step, so which edges cross the line in
+        // the one step under test is a matter of phase: most settle counts
+        // reach the crowns and not the shed spray, or the other way about.
+        // This one reaches both — four shed drops and fifty four crowns — and
+        // a comparison that misses half the branch is a comparison that will
+        // one day be quietly wrong about it. `sprayed` says which it got.
+        // ONE PASS, ON A COLLAPSING POUR — the scene where the LIMITER fires.
+        // `__accelCompare`'s scene is a settled sheet and never asks a cell for
+        // more water than it has, so every pass agreed on it while a pour was
+        // losing eight per cent of itself. @see pour
+        window.__pourPass = async (
+          settle = 12, through = "apply", solo = true,
+        ) => {
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device;
+          if (!device) return { ok: false, why: "no WebGPU device" };
+          return compareAccelerate(
+            device, settle, pourScene,
+            through as "limit" | "divergence" | "apply", solo,
+          );
+        };
+        window.__sprayCompare = async (settle = 155, through = "landings") => {
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device;
+          if (!device) return { ok: false, why: "no WebGPU device" };
+          return compareAccelerate(
+            device, settle, spray,
+            through as "falls" | "landings", true,
+          );
+        };
+        // EVERY PASS, AGAINST THE MAP IN FRONT OF YOU — see `gpu/check-live`.
+        // Not the switch, which exists and is on: this says WHICH of the seven
+        // passes disagrees, where the frame comparison only says that two
+        // solvers do. It is slow on purpose — the whole field goes up and comes
+        // back every time — and it points at your own terrain, which is where
+        // the faults have all come from.
+        holdDevice((app.renderer as unknown as { gpu?: { device: GPUDevice } })
+          .gpu?.device ?? null);
+        window.__gpuCheck = async () => {
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device;
+          if (!device) return [{ pass: "—", ok: false, why: "no WebGPU device" }];
+          const field = useWorldStore.getState().getWaterField();
+          if (!field) return [{ pass: "—", ok: false, why: "no water field" }];
+          return checkLive(device, field.columns);
+        };
         const scene = { water, bl, grid };
         const renderer = app.renderer, stage = app.stage;
         window.__waterBench = async (n = 200, sync = false) => {
           const field = useWorldStore.getState().getWaterField();
+          // THE SOLVER AND THE MESH ARE TWO CHOICES, and this reported one
+          // name for both. `path` was read off the solver while `build` ran
+          // whichever layer existed, so a device solver drawing the host's
+          // mesh — which is what `?cpuwater=1` plus the GPU toggle IS —
+          // reported `drawWater`'s twenty-five milliseconds under the name
+          // `device`, next to a `solve` of nought. The build was the honest
+          // cost of what that frame builds; the label said it belonged to the
+          // path that does not build it.
+          const onDevice = solverRef.current !== null;
           const cpu = flRef.current, gpu = gpuRef.current;
           if (!field || !scene.bl || (!cpu && !gpu)) return null;
           const build = () => (cpu
             ? drawWater(cpu, field, scene.bl!, 1 / 60)
-            : drawGpuWater(gpu!, field, scene.bl!, 1 / 60));
+            : drawGpuWater(gpu!, field, scene.bl!, 1 / 60, true, onDevice));
           const device = (renderer as unknown as { gpu?: { device: GPUDevice } }).gpu?.device;
-          const frame = () => renderer.render({ container: stage });
-          for (let i = 0; i < 30; i++) { stepWater(field, 1 / 60); build(); frame(); }
+          // THE STAMPS GO ROUND TOO. They are resolved at the end of the
+          // ticker's frame, and the bench does not use the ticker — so without
+          // this a bench fills the query set, stops timing at the cap, and
+          // reports whatever the live path last left behind. @see flushStamps
+          const frame = () => {
+            renderer.render({ container: stage });
+            flushStamps(
+              (renderer as unknown as { gpu?: { device: GPUDevice } })
+                .gpu?.device ?? null,
+              true,
+            );
+          };
+          // THE SOLVER THE TICK WOULD USE, not `stepWater` unconditionally —
+          // which is what this used to do, so in GPU mode it benched the CPU
+          // solver and reported the number as the device's. A bench that
+          // measures the path you are not running is worse than none.
+          const step = () => {
+            const s = solverRef.current;
+            if (!s) { stepWater(field, 1 / 60); return; }
+            s.sync(field.columns);
+            s.step(field.columns, 1 / 60);
+            // AND THE READOUT GETS FED, exactly as the tick feeds it — so the
+            // leak alarm is armed while the bench is driving, which is the one
+            // way to exercise it with the tab in the background.
+            gpuWaterSaw(s.last());
+          };
+          for (let i = 0; i < 30; i++) { step(); build(); frame(); }
           if (device) await device.queue.onSubmittedWorkDone();
 
           let solve = 0, draw = 0, submit = 0;
           const t0 = performance.now();
           for (let i = 0; i < n; i++) {
-            const a = performance.now(); stepWater(field, 1 / 60);
+            const a = performance.now(); step();
             const b = performance.now(); build();
             const c = performance.now(); frame();
             const d = performance.now();
@@ -195,8 +461,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const wall = performance.now() - t0;
           const per = (v: number) => Math.round((v / n) * 100) / 100;
           return {
-            path: cpu ? "cpu" : "gpu", frames: n, sync,
+            // BOTH HALVES, NAMED SEPARATELY, because they vary separately:
+            // `solve` belongs to the solver and `build` to the mesh, and one
+            // word for the pair of them is how a host mesh's cost came to be
+            // read as the device path's. `path` is kept as the pair so an old
+            // reading is still recognisable.
+            path: `${onDevice ? "device" : "host"}+${cpu ? "cpu" : "gpu"}mesh`,
+            solver: onDevice ? "device" : "host",
+            mesh: cpu ? "cpu" : "gpu",
+            frames: n, sync,
             solve: per(solve), build: per(draw), submit: per(submit), wall: per(wall),
+            ...(solverRef.current ? { last: solverRef.current.last() } : {}),
           };
         };
       }
@@ -269,6 +544,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const hoverGfx = useRef<Graphics | null>(null);
   const crossGfx = useRef<Graphics | null>(null);
   const overlays = useWorldStore((s) => s.overlays);
+  const gpuWater = useWorldStore((s) => s.gpuWater);
   const bandRange = useRef({ lo: 0, hi: 0 });
 
   // Redraw the static overlays when their inputs change, not per frame.
@@ -447,15 +723,30 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // Calibration: changing the offset re-picks at the last pointer position, so
   // the highlight and crosshair move while you drag the slider.
   const pickNudge = useWorldStore((s) => s.pickNudge);
-  const pointer = useWorldStore((s) => s.pointer);
   useEffect(() => {
-    const p = useWorldStore.getState().pointer;
+    const p = pointerRead();
     if (p && repickRef.current) repickRef.current(p.wx, p.wy);
   }, [pickNudge]);
 
-  useEffect(() => {
-    if (crossGfx.current) drawPickCrosshair(crossGfx.current, pointer, hover, grid, scale);
-  }, [pointer, hover, grid, scale]);
+  /**
+   * THE PICK CROSSHAIR, drawn from the tick rather than from an effect.
+   *
+   * It used to depend on `pointer` in the store, which meant a React render
+   * and an effect on every pointer move — for a debug overlay drawn with two
+   * lines. The pointer is a latch now, so this watches it the way the rest of
+   * the scene watches the water: every frame, and it only redraws when the
+   * thing it draws has actually moved. @see pointerSaw
+   */
+  const crossAt = useRef<PointerAt | null>(null);
+  useTick(() => {
+    const p = pointerRead();
+    if (p === crossAt.current) return;
+    crossAt.current = p;
+    const st = useWorldStore.getState();
+    if (crossGfx.current) {
+      drawPickCrosshair(crossGfx.current, p, st.hover, st.grid, st.scale);
+    }
+  });
 
   // The palette grows when the browser paints an unused frame, so the terrain
   // layer's copy must be refreshed or a brand-new material renders as nothing.
@@ -566,26 +857,230 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     grid, scale, revision, sceneEpoch,
   ]);
 
+  /**
+   * BUILT AND TORN DOWN WITH THE SWITCH, and rebuilt only when the FIELD
+   * ITSELF is replaced.
+   *
+   * It holds a whole copy of the field on the device, so a map nobody has
+   * switched over should not be paying for one — and a solver left pointing at
+   * a field that has been replaced would step the wrong water.
+   *
+   * NOT ON `revision`, which is what this used to key on and which was wrong
+   * in a way that looked like the switch being broken: `revision` bumps on
+   * every edit, and pouring water is an edit. So every pour tore the solver
+   * down and built it again — every pipeline recompiled, the readback in
+   * flight killed, the upload forced back to a full one — and a DRAG pour
+   * bumps it every pointer move, so the solver never got past its first frame
+   * and the water never appeared at all.
+   *
+   * What a rebuild is actually for is a different field: a new map, or a
+   * resize, where the buffers are the wrong size. That is a change of object
+   * identity and is tested as one, so no counter can be wrong about it. A
+   * terrain edit needs nothing — `ground` goes up with every frame's arrivals.
+   */
+  /**
+   * THE DEVICE GOING IS A HANDOVER, not a crash.
+   *
+   * A lost device makes every call a silent no-op and every readback reject,
+   * and those rejections are swallowed on purpose throughout the solver
+   * because teardown causes them too — so without this the map simply stopped
+   * moving, with the water toggle still reading ON and nothing in the console.
+   *
+   * Turning the toggle off tears the solver down and the host solver takes the
+   * field over, which is what it is kept correct for — and that handover drew
+   * a third of the map until `5093e1e`, which is half of why this is worth
+   * doing now.
+   *
+   * IT IS NOT A FULL RECOVERY AND NOTHING HERE CAN MAKE IT ONE. Pixi was
+   * handed the same device, so a real loss takes the canvas with it and the
+   * map is black whatever the water does — verified by forcing one with
+   * `device.destroy()`: the water goes on stepping on the host, the meshes go
+   * back to drawing their whole complement, and the screen stays empty.
+   * What this buys is a state that is consistent and a message that says what
+   * happened, instead of a map that quietly stopped with the toggle still
+   * reading ON. Coming back for real means rebuilding every Pixi resource on a
+   * new device, which is its own piece of work.
+   */
+  useEffect(() => onDeviceLost(() => {
+    if (useWorldStore.getState().gpuWater) useWorldStore.getState().setGpuWater(false);
+  }), []);
+
+  useEffect(() => {
+    const field = useWorldStore.getState().getWaterField();
+    const device = heldDevice();
+    // A DEVICE THAT HAS GONE IS NOT A DEVICE. Checked here as well as in the
+    // listener above, because a scene can be rebuilt after the loss — and
+    // building a solver on a dead device is a set of buffers that will never
+    // answer.
+    if (!gpuWater || !field || !device || deviceLost() !== null) {
+      solverRef.current?.destroy();
+      solverRef.current = null;
+      gpuWaterSaw(null);
+      return;
+    }
+    // The water layer's own carried fields go with it: the device advects
+    // them and writes the answer straight back into the arrays the layer's
+    // textures are views over. @see Carried
+    const layer = gpuRef.current;
+    solverField.current = field.columns;
+    solverRef.current = createGpuWater(
+      device, field.columns,
+      layer
+        ? { seed: layer.wash.seed, now: layer.wash.now, foam: layer.foam.now }
+        : undefined,
+      // AND THE SURFACE'S TEXTURES, for the device to fill directly. Empty on
+      // any renderer or map shape that cannot take the copy, in which case the
+      // layer goes on uploading them. @see deviceSinks
+      layer && rendererRef.current
+        ? deviceSinks(layer, rendererRef.current, field.columns.nx)
+        : [],
+    );
+    // AND THE GATHERING, which only runs while the device owns the water: it
+    // reads the depth and ground TEXTURES, and those are only filled ahead of
+    // it by the solver's own copy. @see gatherQuads
+    if (layer) {
+      // Read rather than closed over, for the reason the field above is: this
+      // effect is keyed on the scene and not on the grid, and a grid it had
+      // captured could be a grid ago.
+      const g = useWorldStore.getState().grid;
+      layer.gather = attachQuadGather(
+        layer, rendererRef.current, device, g.w, g.h,
+      );
+      // AND THE SHEETS, BUILT WHERE THE LIPS ARE. The falls' own layer keeps a
+      // buffer the compute pass writes and the mesh draws, so `drawFalls` has
+      // nothing left to do on this path. @see createSheet
+      const bl = blRef.current;
+      const sr = solverRef.current;
+      const rend = rendererRef.current as unknown as {
+        buffer?: { getGPUBuffer: (b: unknown) => GPUBuffer };
+        texture?: { getGpuSource: (s: unknown) => GPUTexture };
+      };
+      if (bl && sr && rend?.buffer && rend?.texture) {
+        const gfl = createGpuFallLayer(bl);
+        gfRef.current = gfl;
+        sr.sheetTo({
+          verts: () => gfl.verts.map((v) => rend.buffer!.getGPUBuffer(v)),
+          tint: rend.texture.getGpuSource(layer.tint).createView(),
+          bands: bl.bands.length,
+          cap: gfl.cap,
+          // READ, not closed over, for the reason the grid above is — and the
+          // tick re-says it whenever the camera moves. @see sheetScale
+          proj: [HW, HH, HEIGHT_UNIT, useWorldStore.getState().scale],
+          cpt: COLUMNS_PER_TILE,
+          tilesHigh: g.h,
+        });
+        // The host's sheets go quiet rather than being drawn twice.
+        if (faRef.current) drawFalls(faRef.current, field.columns, null);
+      }
+    }
+    return () => {
+      solverRef.current?.destroy();
+      solverRef.current = null;
+      // BACK TO THE IDENTITY. The list holds a gathering that will not be
+      // refreshed once the device stops, and a stale gathering is water drawn
+      // where it no longer is. @see quadCap
+      if (gfRef.current) {
+        destroyGpuFallLayer(gfRef.current);
+        gfRef.current = null;
+      }
+      const l = gpuRef.current;
+      if (l?.gather) {
+        destroyQuadGather(l.gather);
+        l.gather = null;
+        l.quads.update();
+      }
+      gpuWaterSaw(null);
+    };
+  }, [gpuWater, sceneEpoch]);
+
   // Animated structures — the fluid in an excavation. Costs one Map walk per
   // frame when nothing on the map animates, because a renderer that declares no
   // `tick` is skipped outright.
   useTick((ticker) => {
     const sl = slRef.current, bl = blRef.current, tex = texRef.current;
     const fl = flRef.current;
-    const dt = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
+    const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
     // The water runs every frame, and the mesh is rebuilt from it every frame:
     // the surface changes everywhere at once, so there is no incremental
     // version of drawing it.
     const field = useWorldStore.getState().getWaterField();
+    /**
+     * THE FRAME'S TIME, CUT TO WHAT THE WATER CAN ACTUALLY TAKE.
+     *
+     * The solver drops whatever it cannot fit into `MAX_SUBSTEPS` — that is
+     * the backstop, and it is right — but everything else in this tick was
+     * still being handed the WHOLE frame. So on a long frame the springs
+     * poured a full frame's water into a flow that had advanced a fifth of
+     * one, and the map gained water it had had no time to move.
+     *
+     * A backgrounded tab is not a corner case here: rAF throttles to about
+     * one frame a second, which is sixty times the step the water can take,
+     * and the map floods while nobody is looking at it. Measured on a spring
+     * at 48 squared — five seconds of wall clock in one-second frames left 80
+     * of water against the 16 the same second of flow should hold.
+     *
+     * Clamped HERE, where time enters, rather than scaled at each use: then
+     * `dt` means one thing to the springs, the pipes, the solver and the two
+     * renderers, and nothing downstream has to know this happened. @see maxStep
+     */
+    const dt = field ? Math.min(raw, maxStep(field.columns)) : raw;
     const gpu = gpuRef.current;
     if (bl && field && (fl || gpu)) {
+      // WHAT THE DEVICE FINISHED COMES BACK FIRST, before a spring or a pipe
+      // pours a drop into this frame. The scatter overwrites the host's
+      // depths, so done after them it lands on top of this frame's water and
+      // wipes it — see `GpuWater.sync`.
+      // MEASURED FROM HERE, which is where the frame's water starts. The mark
+      // used to go after these three, so the scatter that brings the device's
+      // answer down, the springs and the whole of the pipe network were in no
+      // slot at all — work the HUD's own rows could not account for, showing
+      // up only as the gap between `frame` and everything named. What a timer
+      // leaves out is the part nobody goes looking at.
+      const t0 = performance.now();
+      // A FIELD THIS SOLVER WAS NOT BUILT FOR is a solver with buffers of the
+      // wrong size. Tested by identity rather than by a counter, because the
+      // counters are about edits and this is about the object.
+      //
+      // ASKED BEFORE `sync`, because `sync` scatters the readback that was in
+      // flight into whatever field it is handed, and a readback is sized for
+      // the field the solver was BUILT for. Handing it another throws
+      // `RangeError: offset is out of bounds` on the first call that finds one
+      // pending — measured, on the second `resize` of a session.
+      //
+      // NOT REACHABLE THROUGH A RESIZE TODAY, and it took six tries to find
+      // out why: the scene teardown nulls `blRef` synchronously, and this
+      // whole block is gated on it, so the window between a new field and a
+      // rebuilt solver has no ticks in it. The order is still wrong, and the
+      // guard that actually closes the hazard is in the solver. @see bringDown
+      if (solverRef.current && solverField.current !== field.columns) {
+        solverRef.current.destroy();
+        solverRef.current = null;
+        gpuWaterSaw(null);
+      }
+      solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);
       runPipes(field, grid, dt);
-      const t0 = performance.now();
-      stepWater(field, dt);
+      // THE SWITCH. With the solver built, the frame's water is the device's
+      // and the CPU solver does not run at all — see `gpu/solver`, and the
+      // note there about the round trip this still pays for.
+      const solver = solverRef.current;
+      if (solver) {
+        solver.step(field.columns, dt);
+        gpuWaterSaw(solver.last());
+      }
+      else stepWater(field, dt);
       const t1 = performance.now();
+      // THE QUADS THIS FRAME IS WORTH DRAWING, gathered before the mesh is
+      // told how many to draw and after the solver has filled the textures it
+      // reads. @see gatherQuads
+      const dev = heldDevice();
+      if (gpu?.gather && solver && dev) {
+        gatherQuads(gpu.gather, dev, field.columns, grid.w, grid.h, overlays.faces);
+      }
       if (fl) drawWater(fl, field, bl, dt, overlays.faces);
-      else if (gpu) drawGpuWater(gpu, field, bl, dt, overlays.faces);
+      else if (gpu) {
+        drawGpuWater(gpu, field, bl, dt, overlays.faces, solver !== null);
+      }
       // The foam FIELD, not the solver's raw breaking: the surface is painted
       // from this, so the sheet has to be too or a white lip goes over a
       // cliff and turns blue in the air.
@@ -597,7 +1092,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // that leaves the lip in the surface's own colour needs everything the
         // surface was shaded from — see `sheetLook`.
         const drift = layer?.wash.now ?? null;
-        drawFalls(faRef.current, field.columns, box, white, drift);
+        // THE DEVICE'S OWN SHEETS where it is building them, which is a
+        // number per band off a readback of half a kilobyte — no geometry, no
+        // colours, no neighbour reads. @see drawGpuFalls
+        if (gfRef.current) {
+          // The camera's own scale, in case it has moved since the pass was
+          // set up — a no-op on every frame it has not. @see sheetScale
+          solverRef.current?.sheetScale(scale);
+          drawGpuFalls(gfRef.current, solverRef.current?.sheetCounts() ?? null);
+        } else {
+          drawFalls(faRef.current, field.columns, box, white, drift);
+        }
       }
       if (drRef.current) drawGpuDrips(drRef.current, field, bl, grid, overlays.xray);
       const t2 = performance.now();
@@ -608,7 +1113,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const acc = w.__waterMs ?? (w.__waterMs = { solve: 0, draw: 0, n: 0 });
         acc.solve += t1 - t0; acc.draw += t2 - t1; acc.n++;
       }
-      useWorldStore.getState().refreshWaterMeta();
+      // THE DEVICE'S OWN TALLY when it is the one holding the water, and the
+      // walk over the columns when it is not. @see createMeta
+      const tally = solverRef.current?.last().reduce ?? null;
+      useWorldStore.getState().refreshWaterMeta(
+        tally ? { wet: tally.wet, water: tally.water } : undefined,
+      );
     }
     if (!sl || !bl || !tex || !hasAnimated(sl)) return;
     tickStructures(sl, { bands: bl, textures: tex, grid, scale }, dt);
@@ -633,11 +1143,50 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       perfAdd("present", performance.now() - at);
       return out;
     };
-    // Closing the frame off goes after everything, so every slot is filled.
-    const done = () => perfFrame();
+    /**
+     * AND WHAT THE RENDER COSTS THE GPU, which is the one part of a frame
+     * nothing here has ever been able to read.
+     *
+     * A render pass has to carry its own timestamps — bracketing it with
+     * passes of ours measures nothing, because nothing orders an empty compute
+     * pass against a render. So Pixi's own `beginRenderPass` is wrapped and
+     * the pair goes into the descriptor it was about to use. That descriptor
+     * is a cached object Pixi reuses, so it is set on EVERY call and deleted
+     * when there is nothing to write, or a stale query index would be handed
+     * to a later pass. @see Stamps
+     */
+    const es = renderer as unknown as {
+      encoder?: {
+        beginRenderPass: (t: { descriptor: GPURenderPassDescriptor }) => void;
+      };
+    };
+    const encoder = es.encoder;
+    const realBegin = encoder?.beginRenderPass.bind(encoder);
+    const device = (renderer as unknown as { gpu?: { device: GPUDevice } })
+      .gpu?.device ?? null;
+    holdStamps(device);
+    if (encoder && realBegin) {
+      encoder.beginRenderPass = (target) => {
+        // FROM THE DEVICE'S SET, not the solver's. The water's mesh is built
+        // in a vertex shader on BOTH paths, so what the render costs is the
+        // same question whichever solver is running — and a number that only
+        // exists while the compute one is on cannot be checked against
+        // anything. @see holdStamps
+        const writes = stampsNow()?.take("render");
+        if (writes) target.descriptor.timestampWrites = writes;
+        else delete target.descriptor.timestampWrites;
+        return realBegin(target);
+      };
+    }
+    // Closing the frame off goes after everything, so every slot is filled —
+    // and the GPU's clocks are copied out here for the same reason: a resolve
+    // only sees queries the commands before it wrote, and the renderer has
+    // just submitted. @see flushStamps
+    const done = () => { flushStamps(device); perfFrame(); };
     app.ticker.add(done, null, UPDATE_PRIORITY.LOW - 1);
     return () => {
       renderer.render = real as typeof renderer.render;
+      if (encoder && realBegin) encoder.beginRenderPass = realBegin;
       app.ticker.remove(done, null);
     };
   }, [app]);

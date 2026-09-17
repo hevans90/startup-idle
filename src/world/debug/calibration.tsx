@@ -17,14 +17,23 @@
  *   the shift is wrong. Sweep the offset until it tracks, and the value it
  *   lands on is the correction the derivation is missing. It should be 0.
  */
+import { useEffect, useState } from "react";
+
 import { useWorldStore } from "../../state/world.store";
 import { HH, HW } from "../iso";
 import { pickError } from "../render/overlays";
+import { pointerRead } from "./pointer-at";
 
 export function Calibration() {
   const nudge = useWorldStore((s) => s.pickNudge);
   const setNudge = useWorldStore((s) => s.setPickNudge);
-  const pointer = useWorldStore((s) => s.pointer);
+  // POLLED, because the pointer is a latch: it changes faster than anyone can
+  // read it and a subscriber would re-render on every move. @see pointerSaw
+  const [pointer, setPointer] = useState(pointerRead);
+  useEffect(() => {
+    const t = setInterval(() => setPointer(pointerRead()), 100);
+    return () => clearInterval(t);
+  }, []);
   const hover = useWorldStore((s) => s.hover);
   const grid = useWorldStore((s) => s.grid);
   const scale = useWorldStore((s) => s.scale);

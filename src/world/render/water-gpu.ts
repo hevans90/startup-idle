@@ -1,9 +1,11 @@
 /**
- * World v2 — the water surface built in a VERTEX SHADER, as a measurement.
+ * World v2 — the water surface built in a VERTEX SHADER.
  *
- * A prototype behind `?gpuwater=1`, not a replacement. The CPU mesh builder in
- * `water.ts` is still the one that ships and the one the tests hold to
- * account; this exists to put a number on what moving it to the GPU is worth.
+ * THE PATH THAT SHIPS, wherever there is a device. This began as a prototype
+ * behind a flag, with `water.ts` as the one that shipped, and that is the
+ * other way round now: the host mesh builder is the REFERENCE — what
+ * `__frameCompare` diffs against, and what runs on WebGL and anywhere WebGPU
+ * is not to be had — and this is what a player sees. @see drawWater
  *
  * WHAT IT MOVES. Measured on a flooded 64² map, `drawWater` costs 9.15ms: the
  * two carried fields 2.14ms, working the corners out 3.29ms, and writing the
@@ -29,10 +31,11 @@
  * bands, so there is no per-frame geometry at all.
  *
  * A dry column collapses its quad to a point: a vertex shader invocation and
- * no fragments. That is the one place this is wasteful where the CPU version
- * is not — the CPU walks the wet columns and this walks all of them, so a
- * nearly dry map costs it the same as a flooded one. On the map being measured
- * they are the same map.
+ * no fragments. That used to be the one place this was wasteful where the CPU
+ * version is not — the CPU walks the wet columns and this walked all of them,
+ * so a nearly dry map cost it the same as a flooded one. The gathering fixed
+ * that: a compute pass lists the quads worth drawing and the draw is cut to
+ * what it found. @see gatherQuads
  *
  * WHY PER BAND. The scene is sorted by diagonal band, because water draws
  * between the terrain behind it and the structures in front of it, so one draw
@@ -40,24 +43,34 @@
  * behind it. A band is `x + y` in tiles, so its tiles are `(tx, b - tx)` over a
  * range, and that range is all a vertex needs to find itself.
  *
- * WHAT IT DOES NOT DO. Side faces and falls are still the CPU's — they are
- * conditional geometry, and a procedural draw would have to allocate for the
- * worst case whether or not it is there. On a flooded map they are a small
- * part of the work, which is exactly why this measures the surface first.
+ * WHAT IT DOES NOW that it did not. Side faces are here — five PARTS to a
+ * column, the surface and four sides, switched by `facesOn` — and the falls'
+ * sheets are built by a compute pass of their own. Both were named here as
+ * conditional geometry a procedural draw could not afford, which was true of
+ * the shape this had then and is not true of the shape it has now: the
+ * gathering allocates for what is actually there rather than the worst case.
+ * @see createSheet, gatherQuads
  */
 import {
   Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh,
   Shader, TextureSource, UniformGroup,
 } from "pixi.js";
 
-import { activeBox, MATERIAL_SLOTS, MAX_FLOW_SPEED } from "../../fluid/columns";
+import {
+  activeBox, MATERIAL_SLOTS, MAX_FLOW_SPEED, type ColumnField,
+} from "../../fluid/columns";
 import { RIM, cornerRuleSource } from "./corner-rule";
+import { quadRuleSource } from "./quad-rule";
+import { createQuadsPass, type QuadsPass } from "./quads-gpu";
 import { FALL_MIN } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
 import { COLUMNS_PER_TILE, type WaterField } from "../water/field";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "./bands";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
+import {
+  canCopyOut, type FieldName, type Sink,
+} from "../../fluid/gpu/state";
 import { createFoam, stepFoam, type FoamField } from "./foam";
 
 /**
@@ -90,7 +103,8 @@ export function waterOnGpu(): boolean {
  */
 import {
   DRAWDOWN, FOAM_COVER, FOAM_TINTS, FOAM_WHITE, LIGHTEST,
-  OPAQUE_DEPTH, SHADES, SHOW_DEPTH, SLOPE_REF, STREAK_SPEED, TINTS,
+  OPAQUE_DEPTH, SHADES, SHOW_DEPTH, SLOPE_REF, SOLID_FLOOR, SOLID_RANGE,
+  STREAK_SPEED, TINTS,
 } from "./water";
 
 const PER_TILE = COLUMNS_PER_TILE * COLUMNS_PER_TILE;
@@ -109,6 +123,64 @@ const PER_TILE = COLUMNS_PER_TILE * COLUMNS_PER_TILE;
  * this walks what could exist.
  */
 const PARTS = 5;
+
+/**
+ * WHICH QUADS A BAND ACTUALLY DRAWS, as a list it looks up by draw index.
+ *
+ * The note above states the trade this path makes — every part allocated
+ * whether or not it is there, four vertex invocations for a quad that
+ * collapses to a point — and the trade has now been priced. Timed on the
+ * `waterfall` fixture, the render pass is about three milliseconds of having
+ * the hundred and twenty seven draws at all plus eleven and a half
+ * PROPORTIONAL TO THE QUAD COUNT, and it is the whole of the frame's GPU:
+ * fourteen and a half milliseconds with the water drawn against a third of one
+ * with its meshes hidden, identical on both solvers, and unchanged by quartering
+ * the pixels.
+ *
+ * So the quads that draw are gathered into a list, the band draws only as many
+ * as the list holds, and the vertex shader reads which quad it is from the
+ * list rather than deriving it from its own index. The entries are the SAME
+ * numbers the derivation produced — a subset of them, in whatever order the
+ * gathering happened to claim — so everything downstream of the lookup is
+ * untouched.
+ *
+ * THE IDENTITY IS THE DEFAULT and it is what makes this safe. Filled with
+ * `0, 1, 2 …` the lookup is exactly the arithmetic it replaced, so a path with
+ * nothing to compact it — WebGL, which has no compute, or the device solver
+ * switched off — draws precisely what it always drew.
+ */
+/**
+ * Room for the widest band's worth of quads — which is the LONGEST DIAGONAL and
+ * not a constant. This was written as sixty four, which is the tile count of
+ * the only map anybody had run it on.
+ */
+export const quadCap = (w: number, h: number) =>
+  Math.min(w, h) * PER_TILE * PARTS;
+
+/**
+ * STORED ONE HIGHER THAN IT IS, so that nought means EMPTY.
+ *
+ * The list is cleared before it is gathered and the count the host draws by is
+ * a frame or two stale, so a band can be asked for more instances than the
+ * gathering put there. Those have to draw nothing — and with the ids stored
+ * as they are, nought is a perfectly good quad: tile nought, column nought,
+ * the surface. Shifted by one, an empty slot is unmistakable and a clear is
+ * all it takes to make one.
+ */
+
+/** The list, as a texture: a storage buffer would have no WebGL twin. */
+function quadListSource(w: number, h: number, bands: number): TextureSource {
+  const cap = quadCap(w, h);
+  const ids = new Uint32Array(cap * bands);
+  for (let b = 0; b < bands; b++) {
+    const at = b * cap;
+    for (let q = 0; q < cap; q++) ids[at + q] = q + 1;
+  }
+  return new BufferImageSource({
+    resource: ids, width: cap, height: bands, format: "r32uint",
+    scaleMode: "nearest",
+  });
+}
 
 /**
  * Why FIVE and not three.
@@ -163,6 +235,7 @@ struct Water {
 @group(2) @binding(6) var uFy : texture_2d<f32>;
 @group(2) @binding(7) var uTint : texture_2d<f32>;
 @group(2) @binding(8) var uMaterial : texture_2d<f32>;
+@group(2) @binding(9) var uQuads : texture_2d<u32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -182,6 +255,7 @@ fn inside(x: i32, y: i32) -> bool {
 }
 
 ${cornerRuleSource("wgsl", DRAWDOWN)}
+${quadRuleSource("wgsl")}
 
 /** Flux over a depth FLOOR, clamped — flowX and flowY, in the shader. */
 fn flowAt(cx: i32, cy: i32, d: f32) -> vec2<f32> {
@@ -262,25 +336,6 @@ struct Part {
  * actually drawn rather than guessed at, which is the only way it cannot leave
  * a gap — see the long note the CPU builder carries.
  */
-/**
- * Is this face filed FORWARD, into the band of the tile in front? See PARTS.
- *
- * Only on a tile's own far edge — an interior face never crosses a band
- * boundary — and only where the ground in front is BELOW this water, because a
- * tile in front that stands higher is genuinely in front and its terrain
- * covering the face is the band order doing its job.
- *
- * The sub-index is worked out here rather than handed in, so that asking about
- * the column BEHIND cannot be asked with the wrong one.
- */
-fn forward(cx: i32, cy: i32, axis: i32, cpt: i32) -> bool {
-  let onEdge = select(cy % cpt, cx % cpt, axis == 0) == cpt - 1;
-  if (!onEdge) { return false; }
-  let jx = cx + select(0, 1, axis == 0);
-  let jy = cy + select(1, 0, axis == 0);
-  if (!inside(jx, jy)) { return false; }
-  return groundAt(jx, jy) < groundAt(cx, cy) + depthAt(cx, cy);
-}
 
 fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: f32, d: f32) -> Part {
   var p: Part;
@@ -328,7 +383,7 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   // of every edge.
   // Floored at a brink, the same as the surface — see corner-rule's atBrink.
   let sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy));
-  let body = (0.30 + 0.62 * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
+  let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
   // HANDED OVER TO THE SHEET AT A LIP — see water.ts's sideFace, which is
   // this. A face is a pane of water, and a pane is only one of the three ways
   // water is bounded: a shore's corner has already come down to its bed, the
@@ -340,20 +395,31 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
 }
 
 @vertex
-fn mainVertex(@location(0) aVertexId: f32) -> VSOutput {
+fn mainVertex(
+  @location(0) aVertexId: f32,
+  @builtin(instance_index) inst: u32,
+) -> VSOutput {
+  var out: VSOutput;
+  out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  out.vColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   let cpt = i32(water.uGrid.z);
   let per = cpt * cpt;
-  let vi = i32(aVertexId);
-  let quad = vi >> 2;
-  let corner = vi & 3;
+  // ONE INSTANCE PER QUAD, four vertices each. The band's instance count is
+  // how many quads it has to draw, which is what lets it draw the ones that
+  // survive rather than all the ones that might.
+  let corner = i32(aVertexId);
+  // WHICH QUAD THIS INSTANCE STANDS FOR. The identity unless something has
+  // gathered the list, in which case it is the n'th quad that actually draws.
+  // Nought is an EMPTY slot and not quad nought. @see quadCap
+  let quad = i32(textureLoad(
+    uQuads, vec2<i32>(i32(inst), i32(water.uBand.x)), 0,
+  ).r) - 1;
+  if (quad < 0) { return out; }
   let part = quad % ${PARTS};
   let slot = quad / ${PARTS};
   let tileIdx = slot / per;
   let sub = slot % per;
 
-  var out: VSOutput;
-  out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-  out.vColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   if (f32(tileIdx) >= water.uBand.w) { return out; }
 
   let tx = i32(water.uBand.y) + tileIdx;
@@ -398,7 +464,7 @@ fn mainVertex(@location(0) aVertexId: f32) -> VSOutput {
     let base = clamp(lit, 0.0, 1.0) * ${TINTS - 1}.0;
     let shade = base + foam * (${SHADES - 1}.0 - base);
     let fade = min(1.0, cd / ${SHOW_DEPTH});
-    let body = (0.30 + 0.62 * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
+    let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
     alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
     let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, cy), 0).r * 255.0 + 0.5);
     rgb = textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb;
@@ -500,6 +566,7 @@ uniform sampler2D uFx;
 uniform sampler2D uFy;
 uniform sampler2D uTint;
 uniform sampler2D uMaterial;
+uniform highp usampler2D uQuads;
 
 float depthAt(int x, int y) { return texelFetch(uDepth, ivec2(x, y), 0).r; }
 float groundAt(int x, int y) { return texelFetch(uGround, ivec2(x, y), 0).r; }
@@ -515,6 +582,7 @@ bool inside(int x, int y) {
 }
 
 ${cornerRuleSource("glsl", DRAWDOWN)}
+${quadRuleSource("glsl")}
 
 vec2 flowAt(int cx, int cy, float d) {
   float by = max(d, uBand.z * 8.0);
@@ -577,14 +645,6 @@ struct Part {
 };
 
 // The same rule as the WGSL forward().
-bool forward(int cx, int cy, int axis, int cpt) {
-  bool onEdge = (axis == 0 ? cx % cpt : cy % cpt) == cpt - 1;
-  if (!onEdge) { return false; }
-  int jx = cx + (axis == 0 ? 1 : 0);
-  int jy = cy + (axis == 0 ? 0 : 1);
-  if (!inside(jx, jy)) { return false; }
-  return groundAt(jx, jy) < groundAt(cx, cy) + depthAt(cx, cy);
-}
 
 Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float step, float d) {
   Part p;
@@ -619,7 +679,7 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
   // The same ramp the surface uses — see the WGSL twin.
   // Floored at a brink, the same as the surface — see the WGSL twin.
   float sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy));
-  float body = (0.30 + 0.62 * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
+  float body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
   // HANDED OVER TO THE SHEET AT A LIP — see the WGSL twin.
   float beside = wetJ ? bedJ + depthAt(jx, jy) : bedJ;
   p.alpha = body * (1.0 - ${RIM}.0 * spillAt(bed, beside));
@@ -630,16 +690,19 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
 void main() {
   int cpt = int(uGrid.z);
   int per = cpt * cpt;
-  int vi = int(aVertexId);
-  int quad = vi >> 2;
-  int corner = vi & 3;
+  // ONE INSTANCE PER QUAD — see the WGSL twin.
+  int corner = int(aVertexId);
+  gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+  vColor = vec4(0.0);
+  // Nought is an EMPTY slot and not quad nought. Identity here in practice:
+  // WebGL has no compute to gather a list with.
+  int quad = int(texelFetch(uQuads, ivec2(gl_InstanceID, int(uBand.x)), 0).r) - 1;
+  if (quad < 0) { return; }
   int part = quad % ${PARTS};
   int slot = quad / ${PARTS};
   int tileIdx = slot / per;
   int sub = slot % per;
 
-  gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
-  vColor = vec4(0.0);
   if (float(tileIdx) >= uBand.w) { return; }
 
   int tx = int(uBand.y) + tileIdx;
@@ -683,7 +746,7 @@ void main() {
     float base = clamp(lit, 0.0, 1.0) * ${TINTS - 1}.0;
     float shade = base + foam * (${SHADES - 1}.0 - base);
     float fade = min(1.0, cd / ${SHOW_DEPTH});
-    float body = (0.30 + 0.62 * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
+    float body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
     alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
     int mat = int(texelFetch(uMaterial, ivec2(cx, cy), 0).r * 255.0 + 0.5);
     rgb = texelFetch(uTint, ivec2(int(shade + 0.5), mat), 0).rgb;
@@ -746,10 +809,35 @@ export type GpuWaterLayer = {
   faces: number;
   /** The textures, each a view straight onto an array the solver owns. */
   sources: TextureSource[];
+  /** Which quads each band draws, by draw index. @see quadCap */
+  quads: TextureSource;
+  /** The gathering that fills it, where there is a device to do it. */
+  gather: QuadGather | null;
+  /**
+   * How many quads each band draws when NOTHING has gathered — the whole
+   * complement, in draw order, which is what the identity list means.
+   *
+   * ON THE LAYER AND NOT ON THE GATHER, because it has to outlive it. The
+   * gather goes when the device hands the water back to the host, and the
+   * count the meshes were left holding is the last COMPACTED one: a few
+   * hundred quads where identity wants tens of thousands. The map went dry the
+   * instant it came off the device, which read as the host path being broken.
+   * @see drawGpuWater
+   */
+  most: number[];
+  /** The shade ramp, shared with whatever else paints this water. */
+  tint: TextureSource;
+  /** The ground revision the texture holds. @see ColumnField.groundRev */
+  groundSent: number;
   wash: FlowWash;
   foam: FoamField;
+  /** Whether the meshes draw at all. A measurement switch. @see showGpuWater */
+  drawing: boolean;
   /** Milliseconds of CPU the last frame's build took, for measuring. */
   cpuMs: number;
+  /** The two carried fields' advection, and the textures' re-upload. */
+  advectMs: number;
+  uploadMs: number;
 };
 
 /** `GPUShaderStage.VERTEX` and `.FRAGMENT`, without needing the global. */
@@ -776,6 +864,8 @@ const FRAGMENT_STAGE = 2;
  */
 const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy"];
 const BYTE_FIELDS = ["uTint", "uMaterial"];
+/** The quad list, which is `r32uint` and so neither of the above. @see QUAD_CAP */
+const UINT_FIELDS = ["uQuads"];
 
 function gpuLayout(): GPUBindGroupLayoutEntry[][] {
   const uniform = (binding: number): GPUBindGroupLayoutEntry => ({
@@ -788,13 +878,17 @@ function gpuLayout(): GPUBindGroupLayoutEntry[][] {
   const own: GPUBindGroupLayoutEntry[] = [uniform(0)];
   FLOAT_FIELDS.forEach((_, k) => own.push(texture(1 + k, "unfilterable-float")));
   BYTE_FIELDS.forEach((_, k) => own.push(texture(1 + FLOAT_FIELDS.length + k, "float")));
+  UINT_FIELDS.forEach((_, k) => own.push(texture(
+    1 + FLOAT_FIELDS.length + BYTE_FIELDS.length + k, "uint",
+  )));
   return [[uniform(0)], [uniform(0)], own];
 }
 
 /** Which group each named resource belongs to — the other half Pixi infers. */
 function nameLayout(): Record<string, number>[] {
   const own: Record<string, number> = { water: 0 };
-  [...FLOAT_FIELDS, ...BYTE_FIELDS].forEach((n, k) => { own[n] = 1 + k; });
+  [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS]
+    .forEach((n, k) => { own[n] = 1 + k; });
   return [{ globalUniforms: 0 }, { localUniforms: 0 }, own];
 }
 
@@ -861,17 +955,18 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
   // Every vertex knows only its own index. One buffer, built once, shared by
   // every band — the widest band is the longest diagonal, and no band needs
   // more than that many tiles.
-  const maxTiles = Math.min(bands.w, bands.h);
-  const maxQuads = maxTiles * PER_TILE * PARTS;
-  const ids = new Float32Array(maxQuads * 4);
-  for (let v = 0; v < ids.length; v++) ids[v] = v;
-  const idx = new Uint32Array(maxQuads * 6);
-  for (let q = 0; q < maxQuads; q++) {
-    const v = q * 4, o = q * 6;
-    idx[o] = v; idx[o + 1] = v + 1; idx[o + 2] = v + 2;
-    idx[o + 3] = v; idx[o + 4] = v + 2; idx[o + 5] = v + 3;
-  }
-  const idBuffer = new Buffer({ data: ids, usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
+  // ONE QUAD, and every band draws it as many times as it has quads. This was
+  // a vertex per corner of every quad a band could ever hold and an index
+  // buffer to match — hundreds of thousands of them, whose only content was
+  // the numbers 0, 1, 2 … counted out. An instance index is that number.
+  const idBuffer = new Buffer({
+    data: new Float32Array([0, 1, 2, 3]),
+    usage: BufferUsage.VERTEX | BufferUsage.COPY_DST,
+  });
+  const idxBuffer = new Buffer({
+    data: new Uint32Array([0, 1, 2, 0, 2, 3]),
+    usage: BufferUsage.INDEX | BufferUsage.COPY_DST,
+  });
 
   const depth = viewOf(columns.depth, nx, ny);
   const ground = viewOf(columns.ground, nx, ny);
@@ -886,6 +981,9 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
     scaleMode: "nearest",
   });
   const tint = tintSource();
+  // WHICH QUADS EACH BAND DRAWS. The identity until something gathers it.
+  // @see QUAD_CAP
+  const quads = quadListSource(bands.w, bands.h, bands.bands.length);
 
   const meshes: Mesh<Geometry, Shader>[] = [];
   for (let b = 0; b < bands.bands.length; b++) {
@@ -905,10 +1003,10 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
     // draws is simply how many indices it hands over.
     const geometry = new Geometry({
       attributes: { aVertexId: { buffer: idBuffer, format: "float32", stride: 4, offset: 0 } },
-      indexBuffer: new Buffer({
-        data: idx.slice(0, tiles * PER_TILE * PARTS * 6),
-        usage: BufferUsage.INDEX | BufferUsage.COPY_DST,
-      }),
+      indexBuffer: idxBuffer,
+      // EVERY QUAD THIS BAND COULD HOLD, until something gathers the list and
+      // says how many of them are worth drawing. @see drawGpuWater
+      instanceCount: tiles * PER_TILE * PARTS,
     });
     const shader = new Shader({
       gpuProgram: gpu, glProgram: gl,
@@ -916,7 +1014,7 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy,
-        uTint: tint, uMaterial: material,
+        uTint: tint, uMaterial: material, uQuads: quads,
       },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
@@ -929,8 +1027,299 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
     meshes,
     faces: 1,
     sources: [depth, ground, washTex, foamTex, fx, fy, material],
-    wash, foam, cpuMs: 0,
+    // THE SHADE RAMP, kept on the layer because the falls colour from it too:
+    // a sheet and the surface it leaves are the same water, so they read the
+    // same table. @see createSheet
+    tint,
+    quads,
+    wash, foam, gather: null, groundSent: -1,
+    most: meshes.map((m) => m.geometry.instanceCount),
+    drawing: true, cpuMs: 0, advectMs: 0, uploadMs: 0,
   };
+}
+
+/**
+ * WHICH SOURCE THE DEVICE CAN FILL, and out of which field.
+ *
+ * By index into `sources`, which is built once just above and in one place, so
+ * the pairing is stated next to it rather than searched for.
+ *
+ * `ground` is not here and never will be: the device does not write the
+ * terrain, so there is nothing to copy.
+ *
+ * MATERIAL IS HERE, and it comes out of a different field from the one it
+ * lives in. Its texture is `r8unorm` — one byte a column — while the solver
+ * holds material as a float like everything else, and a buffer-to-texture copy
+ * does not convert. So a pass packs four of them into a word, which is exactly
+ * the bytes the texture wants in exactly the order it wants them, and the copy
+ * reads THAT. @see createMatpack
+ */
+const FED: readonly (readonly [number, FieldName, 1 | 4])[] = [
+  [0, "depth", 4], [2, "washNow", 4], [3, "foamNow", 4],
+  [4, "fx", 4], [5, "fy", 4], [6, "matByte", 1],
+];
+const FED_AT = new Set(FED.map(([k]) => k));
+/** Where the ground sits in `sources`. The one the device never writes. */
+const GROUND_AT = 1;
+
+/** Just enough of the renderer to ask what stands behind a texture source. */
+type GpuTextureSystem = {
+  texture: { getGpuSource: (s: TextureSource) => GPUTexture };
+};
+
+/**
+ * The textures for the solver to fill, or nothing at all.
+ *
+ * Nothing at all on the WebGL path, where there is no `getGpuSource` to ask,
+ * and one at a time on a map whose rows are the wrong width for that texel —
+ * see `canCopyOut`. Whatever is left out the layer keeps uploading exactly as
+ * it always has, which is slower and right rather than faster and absent.
+ *
+ * The solver READS THIS BACK: material left out here has to keep coming down
+ * every frame, because the host's copy is then what fills the texture.
+ */
+export function deviceSinks(
+  wl: GpuWaterLayer, renderer: unknown, nx: number,
+): Sink[] {
+  const sys = renderer as Partial<GpuTextureSystem>;
+  if (typeof sys?.texture?.getGpuSource !== "function") return [];
+  const get = sys.texture.getGpuSource.bind(sys.texture);
+  // PER TEXTURE, not once for the layer. A map 128 columns across can take the
+  // float copies and cannot take the material's byte one, and asking the
+  // question once gave the stricter answer to all six. @see canCopyOut
+  const fed = FED.filter(([, , texel]) => canCopyOut(nx, texel));
+  // AND SAY SO WHEN ONE IS REFUSED. A map whose rows are the wrong width falls
+  // back to the host uploading that texture every frame — slower, correct, and
+  // completely silent, so the first anybody knows is a frame time that does
+  // not match the same code on a different map. Once, at build, with the
+  // number that would have to change.
+  if (import.meta.env.DEV && fed.length < FED.length) {
+    const out = FED.filter(([, , t]) => !canCopyOut(nx, t)).map(([, n]) => n);
+    console.info(
+      `WATER: ${out.join(", ")} cannot be copied into at ${nx} columns and will`
+      + " be uploaded by the host every frame. A row must be a multiple of 256"
+      + " bytes: 64 columns for a float texture, 256 for the material's byte one.",
+    );
+  }
+  return fed.map(([k, name, texel]) => ({ name, texture: get(wl.sources[k]), texel }));
+}
+
+/**
+ * THE WATER'S MESHES, HIDDEN, to find out what they cost the GPU.
+ *
+ * Everything the scene draws goes into ONE render pass, so the timestamps on
+ * it are a single number for the lot and there is no splitting it from the
+ * inside. What there is is subtraction: time the pass with the water drawing
+ * and again with it hidden, and the difference is the water's share of it.
+ *
+ * A measurement and not a feature — it leaves the map showing terrain with
+ * nothing on it — which is why it is a function nobody calls rather than a
+ * switch on the layer. The band visibility it overwrites is recomputed from
+ * the active box on the next frame that draws, so turning it back on needs
+ * nothing but turning it back on.
+ */
+export function showGpuWater(wl: GpuWaterLayer, show: boolean) {
+  wl.drawing = show;
+  for (const m of wl.meshes) m.visible = show && m.visible;
+}
+
+/**
+ * The gathering, and what the host needs to draw by its answer.
+ *
+ * Held on the layer because it is the layer's textures it reads and the
+ * layer's texture it fills. Null on WebGL and anywhere there is no device.
+ */
+export type QuadGather = {
+  pass: QuadsPass;
+  /** Where the ids land, in the shader's own texture. */
+  into: GPUTexture;
+  /** The last counts to come back, padded and clamped when they are used. */
+  count: Uint32Array;
+  /**
+   * WHAT EACH BAND HAS LATELY GROWN BY between one gathering and the next.
+   *
+   * The pad the draw uses, rather than a constant. A constant has to be sized
+   * for the worst thing that can happen to a band — a pour landing on dry
+   * ground, which is 34% and 72 quads — and is then paid on every frame of the
+   * steady state, which asks for 3.2% and 18. Measured over twenty-five
+   * thousand band-frames, the constant that was here was eight times what the
+   * still map needed.
+   *
+   * A RUNNING MAXIMUM THAT LEAKS DOWN. It rises the frame after a band grows
+   * and comes back a quad a frame, so a pour widens that band for about half a
+   * second and nothing else. @see LEAK
+   */
+  grew: Int32Array;
+  /** The counts the growth is measured against. @see grew */
+  was: Uint32Array;
+  /** One readback at a time; it is a frame or two behind and that is fine. */
+  staging: GPUBuffer;
+  busy: boolean;
+  /** Whether the list currently holds a gathering or the identity. */
+  gathered: boolean;
+  /** Frames still checked for validation errors. @see createQuadsPass */
+  watch: number;
+  cap: number;
+};
+
+/** Just enough of the renderer to ask what stands behind a texture source. */
+type GetGpu = { texture: { getGpuSource: (s: TextureSource) => GPUTexture } };
+
+export function attachQuadGather(
+  wl: GpuWaterLayer, renderer: unknown, device: GPUDevice | null,
+  w: number, h: number,
+): QuadGather | null {
+  const sys = renderer as Partial<GetGpu>;
+  if (!device || typeof sys?.texture?.getGpuSource !== "function") return null;
+  const get = sys.texture.getGpuSource.bind(sys.texture);
+  const cap = quadCap(w, h);
+  const bands = wl.meshes.length;
+  // The copy into the texture is a row per band, and a row has to be a
+  // multiple of 256 bytes. @see copyOut, where the same rule bites.
+  if ((cap * 4) % 256 !== 0) {
+    // AND THAT IS A SILENT DEMOTION otherwise: with no gathering every band
+    // draws its whole complement every frame however little water there is.
+    // The map still draws correctly, which is exactly why nobody notices.
+    if (import.meta.env.DEV) {
+      console.info(
+        `WATER: no quad gathering at ${w}x${h} tiles — a band holds ${cap} quads`
+        + " and the list's row must be a multiple of 64. Every band will draw"
+        + " its whole complement. The shorter side wants to be a multiple of 4.",
+      );
+    }
+    return null;
+  }
+  const pass = createQuadsPass(device, bands, cap, DRAWDOWN);
+  pass.bind(
+    get(wl.sources[0]).createView(),
+    get(wl.sources[1]).createView(),
+  );
+  return {
+    pass,
+    into: get(wl.quads),
+    count: new Uint32Array(bands),
+    grew: new Int32Array(bands),
+    was: new Uint32Array(bands),
+    staging: device.createBuffer({
+      size: Math.max(16, bands * 4),
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      label: "quad counts back",
+    }),
+    busy: false,
+    gathered: false,
+    watch: 4,
+    cap,
+  };
+}
+
+/**
+ * Gather this frame's quads, and ask for the counts.
+ *
+ * Its own encoder and its own submit, after the solver's: the pass reads the
+ * depth and the ground TEXTURES, and on the device path those are filled by a
+ * copy on the end of the solver's frame. Run before it, this would gather
+ * last frame's water.
+ */
+export function gatherQuads(
+  g: QuadGather, device: GPUDevice, columns: ColumnField,
+  w: number, h: number, faces: boolean,
+) {
+  g.pass.say(
+    columns.nx, columns.ny, COLUMNS_PER_TILE, h,
+    columns.params.dryDepth, FALL_MIN, faces, g.cap,
+  );
+  const enc = device.createCommandEncoder({ label: "quads" });
+  g.pass.encode(enc, columns.nx * columns.ny);
+  enc.copyBufferToTexture(
+    { buffer: g.pass.list, bytesPerRow: g.cap * 4, rowsPerImage: g.count.length },
+    { texture: g.into },
+    { width: g.cap, height: g.count.length, depthOrArrayLayers: 1 },
+  );
+  if (!g.busy) {
+    enc.copyBufferToBuffer(
+      g.pass.counts, 0, g.staging, 0, g.count.length * 4,
+    );
+  }
+  if (g.watch > 0) {
+    g.watch--;
+    device.pushErrorScope("validation");
+    device.queue.submit([enc.finish()]);
+    void device.popErrorScope().then((e) => {
+      if (e) console.error("WATER: the gathering did not validate —", e.message);
+    });
+  } else device.queue.submit([enc.finish()]);
+  g.gathered = true;
+  void w;
+  if (g.busy) return;
+  g.busy = true;
+  void g.staging.mapAsync(GPUMapMode.READ).then(() => {
+    const got = new Uint32Array(g.staging.getMappedRange());
+    // HOW MUCH EACH BAND JUST GREW, before the new counts overwrite the old.
+    // @see QuadGather.grew
+    for (let b = 0; b < g.count.length; b++) {
+      const by = got[b] - g.was[b];
+      const fell = g.grew[b] - LEAK;
+      g.grew[b] = Math.max(by, fell > 0 ? fell : 0);
+      g.was[b] = got[b];
+    }
+    g.count.set(got);
+    g.staging.unmap();
+  }).catch(() => { /* torn down mid-flight */ })
+    .finally(() => { g.busy = false; });
+}
+
+/**
+ * How many instances a band draws: what came back, with room to grow.
+ *
+ * The count is a readback and so a frame or two old, and a puddle spreading
+ * under it means the real number is a little larger by the time it is used.
+ * Too MANY is free — the list is cleared every frame, so the slots past the
+ * gathering read as empty and collapse — and too few would drop quads that
+ * exist, which is water flickering. So it rounds up generously and clamps to
+ * what the band can hold.
+ */
+/**
+ * How fast the remembered growth comes back down, in quads a frame.
+ *
+ * One. A band that took a pour is padded for it for about as many frames as
+ * the pour was wide — half a second on the worst one measured — and a band
+ * that is merely spreading is back to the floor within a few.
+ */
+const LEAK = 1;
+
+/**
+ * And the floor, which is what a band that has never grown still carries.
+ *
+ * Above the 18 quads the steady state was measured to want, so a map that is
+ * simply flowing never reaches for the remembered part at all.
+ */
+const SPARE = 24;
+
+/**
+ * How many quads a band draws: what was gathered, plus room to have grown.
+ *
+ * SHORT IS NOT A FAULT. The count is a frame stale, so a band that has just
+ * grown draws fewer quads than it has for one frame and a sliver of new water
+ * appears eight milliseconds late. That is the trade this is making, and both
+ * halves of it are measured over 38,100 band-frames:
+ *
+ *   steady        no band ever drew short at all
+ *   six pours     58 band-frames short, 0.15%, by at most 36 quads
+ *   drawn         108,576 -> 73,963 for the same 60,600 gathered
+ *   render        4.63ms -> 3.98ms
+ *
+ * Thirty-six quads is thirty-six columns of sixty thousand, for one frame, at
+ * the moment of a click. Covering it would want `SPARE` at 64, which is seven
+ * per cent more vertices on every frame of the session to remove something
+ * nobody can see.
+ */
+export const roomFor = (n: number, grew: number, most: number) =>
+  Math.min(most, n + (grew > 0 ? grew : 0) + SPARE);
+
+export function destroyQuadGather(g: QuadGather | null) {
+  if (!g) return;
+  g.pass.destroy();
+  g.staging.destroy();
 }
 
 export function destroyGpuWaterLayer(wl: GpuWaterLayer) {
@@ -950,7 +1339,7 @@ export function destroyGpuWaterLayer(wl: GpuWaterLayer) {
  */
 export function drawGpuWater(
   wl: GpuWaterLayer, field: WaterField, bands: BandLayer, dt: number,
-  faces = true,
+  faces = true, carried = false,
 ) {
   const t0 = performance.now();
   const { columns } = field;
@@ -968,11 +1357,37 @@ export function drawGpuWater(
     }
   }
   const region = activeBox(columns);
+  const tA = performance.now();
   if (region && dt > 0) {
-    stepFlowWash(wl.wash, columns, dt, region);
-    stepFoam(wl.foam, columns, dt, region);
+    // `carried` says the device has already advected the wash and filled
+    // `wash.now` from its own readback. Stepping it again here would not just
+    // waste the time — it would advect the device's answer a second time.
+    if (!carried) {
+      stepFlowWash(wl.wash, columns, dt, region);
+      stepFoam(wl.foam, columns, dt, region);
+    }
   }
-  for (const s of wl.sources) s.update();
+  const tB = performance.now();
+  // ONLY THE ONES THE DEVICE IS NOT FILLING. With the solver running, five of
+  // these seven textures are written by a buffer copy on the end of its own
+  // command buffer, and marking them dirty here would send the host's copy of
+  // the same numbers straight back up — a megabyte and a quarter a frame to
+  // overwrite the answer with itself. @see deviceSinks
+  for (let k = 0; k < wl.sources.length; k++) {
+    if (carried && FED_AT.has(k)) continue;
+    // THE GROUND ONLY WHEN IT MOVES. With the device filling the rest, this
+    // loop was uploading the terrain and nothing else — a quarter of a
+    // megabyte a frame to say what it said last frame. The CPU path still
+    // marks everything, because on that path nothing else is filling them.
+    if (carried && k === GROUND_AT && columns.groundRev === wl.groundSent) {
+      continue;
+    }
+    wl.sources[k].update();
+  }
+  wl.groundSent = columns.groundRev;
+  const tC = performance.now();
+  wl.advectMs = tB - tA;
+  wl.uploadMs = tC - tB;
 
   // WHICH BANDS DRAW AT ALL, which is the one thing this path has to be told
   // and the CPU builder works out for itself by walking the wet columns. Left
@@ -992,8 +1407,17 @@ export function drawGpuWater(
   } else {
     hi = lo - 1;                                  // nothing wet: nothing draws
   }
+  const g = wl.gather;
   for (let b = 0; b < wl.meshes.length; b++) {
-    const show = b >= lo && b <= hi;
+    const show = wl.drawing && b >= lo && b <= hi;
+    // HOW MANY QUADS THIS BAND DRAWS. What the gathering found, with room to
+    // grow, or every quad it could hold when nothing has gathered. @see roomFor
+    //
+    // `wl.most` EITHER WAY, so losing the gather falls back to identity rather
+    // than to whatever the last gathering happened to leave behind. @see most
+    wl.meshes[b].geometry.instanceCount = g && g.gathered
+      ? roomFor(g.count[b], g.grew[b], wl.most[b])
+      : wl.most[b];
     // Only on a change: visibility is structural, and flipping it every frame
     // makes the renderer rebuild the scene's instruction list every frame.
     if (wl.meshes[b].visible !== show) wl.meshes[b].visible = show;

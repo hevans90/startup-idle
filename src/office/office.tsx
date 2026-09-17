@@ -9,7 +9,6 @@ import {
 } from "pixi.js";
 import {
   memo,
-  type MutableRefObject,
   RefObject,
   useCallback,
   useEffect,
@@ -17,16 +16,26 @@ import {
   useMemo,
   useRef,
   useState,
+  type MutableRefObject,
 } from "react";
+import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
 import { useGeneratorStore } from "../state/generators.store";
 import { useAnyPopoverStore } from "../state/modifier-popover.store";
 import { useOfficeStore } from "../state/office.store";
-import { useSlopPitStore, SLOP_PIT_UNLOCK_COUNT } from "../state/slop-pit.store";
+import {
+  SLOP_PIT_UNLOCK_COUNT,
+  useSlopPitStore,
+} from "../state/slop-pit.store";
 import { useThemeStore } from "../state/theme.store";
-import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
+import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
 import { onKitsChanged } from "./city/building-kits";
 import { computeCity, type CityScene } from "./city/compute-city";
-import { AVENUE_ROWS, generateWorld, SLOP_PIT_CENTER, SLOP_PIT_BLOCK } from "./city/generate-world";
+import {
+  AVENUE_ROWS,
+  generateWorld,
+  SLOP_PIT_BLOCK,
+  SLOP_PIT_CENTER,
+} from "./city/generate-world";
 import {
   avenueTileFor,
   cityRoadSpriteFor,
@@ -36,8 +45,18 @@ import {
 import { cellKey } from "./city/types";
 import type { SpriteId } from "./map/types";
 import { cityDepthKey, ISO_CELL_STRIDE, mapToWorld } from "./math-utils";
-import { sweH, sweReset, sweSplash, sweApplyModalForcing, sweStep, sweNormalizeMean, SIM_N, SIM_N1, SWE_MAX_AMP, PIT_DEPTH_HH } from "./slop-pit-fluid";
-import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
+import {
+  PIT_DEPTH_HH,
+  SIM_N,
+  SIM_N1,
+  SWE_MAX_AMP,
+  sweApplyModalForcing,
+  sweH,
+  sweNormalizeMean,
+  sweReset,
+  sweSplash,
+  sweStep,
+} from "./slop-pit-fluid";
 import { AppViewport } from "./viewport";
 
 extend({
@@ -61,6 +80,7 @@ export const Office = ({ wrapperRef, wrapperSize }: OfficeProps) => {
       antialias={true}
       autoDensity={true}
       preference="webgpu"
+      hello={true}
       resolution={Math.min(window.devicePixelRatio, 2)}
     >
       <AppViewport screenSize={wrapperSize}>
@@ -133,7 +153,10 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
   // Thin grid road sprites, keyed by cell, so they can be swapped to their
   // pavemented city twin when a building lands next to them (and back again).
   const roadSpritesRef = useRef<
-    Map<string, { sprite: Sprite; mask: number; plainId: SpriteId; curId: SpriteId }>
+    Map<
+      string,
+      { sprite: Sprite; mask: number; plainId: SpriteId; curId: SpriteId }
+    >
   >(new Map());
   // Sludge/pit graphics: floor, walls, and the fluid mesh — all in this container
   // so they depth-sort against grass and roads via cityDepthKey.
@@ -147,9 +170,9 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
   const pitPrevFillRef = useRef(0);
   // 8 pre-shaded variants of the current tier base color — recomputed when tier
   // changes so we never allocate inside the per-frame hot path.
-  const pitTierRef    = useRef(-1);
-  const pitShadesRef  = useRef(new Int32Array(32));
-  const sloshTimeRef  = useRef(0);
+  const pitTierRef = useRef(-1);
+  const pitShadesRef = useRef(new Int32Array(32));
+  const sloshTimeRef = useRef(0);
   const pitScaleRef = useRef(scale);
   pitScaleRef.current = scale;
   const slopVibeCoderCount = useGeneratorStore(
@@ -201,7 +224,13 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
         const mask = roadMaskAt(mx, my, world.roadCells);
         const plainId = roadSpriteFor(mask);
         const s = place(plainId, mx, my, 0.5);
-        if (s) roadSpritesRef.current.set(key, { sprite: s, mask, plainId, curId: plainId });
+        if (s)
+          roadSpritesRef.current.set(key, {
+            sprite: s,
+            mask,
+            plainId,
+            curId: plainId,
+          });
       }
     }
     c.sortChildren();
@@ -223,16 +252,24 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     if (!c) return;
 
     // Destroy any existing pit graphics (floor, walls, mesh) before rebuilding.
-    if (meshGRef.current) { meshGRef.current = null; }
+    if (meshGRef.current) {
+      meshGRef.current = null;
+    }
     for (const g of sludgeGraphicsRef.current) {
-      if (g.parent) { g.parent.removeChild(g); g.destroy({ children: true }); }
+      if (g.parent) {
+        g.parent.removeChild(g);
+        g.destroy({ children: true });
+      }
     }
     sludgeGraphicsRef.current = [];
 
-    if (!pitUnlockedRef.current) { c.sortChildren(); return; }
+    if (!pitUnlockedRef.current) {
+      c.sortChildren();
+      return;
+    }
 
-    const HW = ISO_CELL_STRIDE * scale / 2;
-    const HH = ISO_CELL_STRIDE * scale / 4;
+    const HW = (ISO_CELL_STRIDE * scale) / 2;
+    const HH = (ISO_CELL_STRIDE * scale) / 4;
     const DEPTH = HH * PIT_DEPTH_HH;
 
     // Pit floor — very dark base at the bottom
@@ -242,7 +279,11 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
         const mapY = SLOP_PIT_MAP_Y + dy;
         const { x: wx, y: wy } = mapToWorld(mapX, mapY, 0, scale);
         const g = new Graphics();
-        g.moveTo(0, -HH); g.lineTo(HW, 0); g.lineTo(0, HH); g.lineTo(-HW, 0); g.closePath();
+        g.moveTo(0, -HH);
+        g.lineTo(HW, 0);
+        g.lineTo(0, HH);
+        g.lineTo(-HW, 0);
+        g.closePath();
         g.fill({ color: 0x0a0b0d, alpha: 1 });
         g.x = wx + ox;
         g.y = wy + oy - HH + DEPTH;
@@ -252,7 +293,7 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
       }
     }
 
-    const dirtTex = textures['landscapeTiles_083.png'];
+    const dirtTex = textures["landscapeTiles_083.png"];
 
     // Place dirt wall tiles at the terrain positions JUST OUTSIDE the pit.
     // The existing terrain tile at that position is d=0 (ground level cover).
@@ -276,16 +317,20 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     };
 
     // SE wall (lit) — terrain row just outside right pit edge (mapX = SLOP_PIT_MAP_X + 3)
-    for (let dy = -2; dy <= 2; dy++) placeDirtColumn(SLOP_PIT_MAP_X + 3, SLOP_PIT_MAP_Y + dy, 0xccb89a);
+    for (let dy = -2; dy <= 2; dy++)
+      placeDirtColumn(SLOP_PIT_MAP_X + 3, SLOP_PIT_MAP_Y + dy, 0xccb89a);
 
     // SW wall (shadow) — terrain row just outside bottom pit edge (mapY = SLOP_PIT_MAP_Y + 3)
-    for (let dx = -2; dx <= 2; dx++) placeDirtColumn(SLOP_PIT_MAP_X + dx, SLOP_PIT_MAP_Y + 3, 0x88795e);
+    for (let dx = -2; dx <= 2; dx++)
+      placeDirtColumn(SLOP_PIT_MAP_X + dx, SLOP_PIT_MAP_Y + 3, 0x88795e);
 
     // NE wall (lit) — terrain row just outside top pit edge (mapY = SLOP_PIT_MAP_Y - 3)
-    for (let dx = -2; dx <= 2; dx++) placeDirtColumn(SLOP_PIT_MAP_X + dx, SLOP_PIT_MAP_Y - 3, 0xccb89a);
+    for (let dx = -2; dx <= 2; dx++)
+      placeDirtColumn(SLOP_PIT_MAP_X + dx, SLOP_PIT_MAP_Y - 3, 0xccb89a);
 
     // NW wall (shadow) — terrain row just outside left pit edge (mapX = SLOP_PIT_MAP_X - 3)
-    for (let dy = -2; dy <= 2; dy++) placeDirtColumn(SLOP_PIT_MAP_X - 3, SLOP_PIT_MAP_Y + dy, 0x88795e);
+    for (let dy = -2; dy <= 2; dy++)
+      placeDirtColumn(SLOP_PIT_MAP_X - 3, SLOP_PIT_MAP_Y + dy, 0x88795e);
 
     // Fluid surface — single Graphics mesh redrawn every frame by useTick.
     // Position (0,0): vertex coords are absolute (ox/oy baked into base arrays).
@@ -298,8 +343,8 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     // Precompute base vertex screen positions for the (SIM_N+1)² grid.
     // These are constant until ox/oy/scale changes (i.e. this effect re-runs).
     // Pit covers mapX ∈ [14,18], mapY ∈ [21,25] (4 iso-cell span each side).
-    const PIT_X0   = SLOP_PIT_BLOCK.x0 - 0.5; // 13.5 — half-tile before left edge
-    const PIT_Y0   = SLOP_PIT_BLOCK.y0 - 0.5; // 20.5
+    const PIT_X0 = SLOP_PIT_BLOCK.x0 - 0.5; // 13.5 — half-tile before left edge
+    const PIT_Y0 = SLOP_PIT_BLOCK.y0 - 0.5; // 20.5
     const PIT_SPAN = SLOP_PIT_BLOCK.x1 - SLOP_PIT_BLOCK.x0 + 1; // 5 — full tile extent
     const bvx = new Float32Array(SIM_N1 * SIM_N1);
     const bvy = new Float32Array(SIM_N1 * SIM_N1);
@@ -390,9 +435,7 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     // Pave roads that now touch a building: swap each adjacent thin road tile to
     // its city twin (and revert when the building's gone). Only changed sprites
     // are re-textured.
-    const built = new Set(
-      scene.buildings.map((b) => cellKey(b.mapX, b.mapY)),
-    );
+    const built = new Set(scene.buildings.map((b) => cellKey(b.mapX, b.mapY)));
     for (const [key, r] of roadSpritesRef.current) {
       const [mx, my] = key.split(",").map(Number);
       const touchesBuilding =
@@ -423,9 +466,10 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     const mg = meshGRef.current;
     if (!pitUnlockedRef.current || !mg) return;
 
-    const dt   = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
+    const dt =
+      ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
     const fill = useSlopPitStore.getState().fill;
-    const pct  = fill / 100;
+    const pct = fill / 100;
 
     if (fill <= 0 && pitPrevFillRef.current > 0) sweReset();
     pitPrevFillRef.current = fill;
@@ -441,13 +485,13 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     sweStep(dt);
     sweNormalizeMean(); // prevent brightness drift from net-negative drip impulses
 
-    const sc    = pitScaleRef.current;
-    const HH    = ISO_CELL_STRIDE * sc / 4;
+    const sc = pitScaleRef.current;
+    const HH = (ISO_CELL_STRIDE * sc) / 4;
     const sludgeOffset = HH * (PIT_DEPTH_HH - 1) * (1 - pct);
 
     const SURF_FC = [0x12261a, 0x1e3a1e, 0x92400e, 0x7c2d12] as const;
     const tier = pct > 0.8 ? 3 : pct > 0.5 ? 2 : pct > 0.25 ? 1 : 0;
-    const fc   = SURF_FC[tier];
+    const fc = SURF_FC[tier];
 
     // Rebuild the 8 shaded variants whenever the tier (and thus base color) changes.
     // 8 levels span brightness 0.30× (deep trough) → 1.60× (crest highlight).
@@ -455,15 +499,15 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     if (tier !== pitTierRef.current) {
       pitTierRef.current = tier;
       const r0 = (fc >> 16) & 0xff;
-      const g0 = (fc >> 8)  & 0xff;
-      const b0 =  fc        & 0xff;
+      const g0 = (fc >> 8) & 0xff;
+      const b0 = fc & 0xff;
       const shades = pitShadesRef.current;
       for (let s = 0; s < 32; s++) {
-        const bright = 0.30 + s * (1.30 / 31); // 0.30 → 1.60
+        const bright = 0.3 + s * (1.3 / 31); // 0.30 → 1.60
         shades[s] =
           (Math.min(255, (r0 * bright) | 0) << 16) |
-          (Math.min(255, (g0 * bright) | 0) <<  8) |
-           Math.min(255, (b0 * bright) | 0);
+          (Math.min(255, (g0 * bright) | 0) << 8) |
+          Math.min(255, (b0 * bright) | 0);
       }
     }
     const shades = pitShadesRef.current;
@@ -480,30 +524,39 @@ const GroundRoadLayer = memo(function GroundRoadLayer({
     // Quantised to 8 shades so consecutive same-shade quads batch in one draw call.
     for (let gi = 0; gi < SIM_N; gi++) {
       for (let gj = 0; gj < SIM_N; gj++) {
-        const i00 = gi       * SIM_N1 +  gj;
-        const i10 = (gi + 1) * SIM_N1 +  gj;
+        const i00 = gi * SIM_N1 + gj;
+        const i10 = (gi + 1) * SIM_N1 + gj;
         const i11 = (gi + 1) * SIM_N1 + (gj + 1);
-        const i01 = gi       * SIM_N1 + (gj + 1);
+        const i01 = gi * SIM_N1 + (gj + 1);
 
-        const h00 = sweH[i00], h10 = sweH[i10], h11 = sweH[i11], h01 = sweH[i01];
+        const h00 = sweH[i00],
+          h10 = sweH[i10],
+          h11 = sweH[i11],
+          h01 = sweH[i01];
 
         // Vertex Y = bvy + sludgeOffset + h*sc: positive h pushes DOWN (deeper = trough),
         // negative h pushes UP (shallower = crest).  Crests catch more light → brighter,
         // so brightness is INVERSELY proportional to h.
-        const h_avg      = (h00 + h10 + h11 + h01) * 0.25;
-        const brightness = Math.max(0, Math.min(1, 0.5 - h_avg / (SWE_MAX_AMP * 0.5)));
-        const shadeIdx   = Math.round(brightness * 31);
+        const h_avg = (h00 + h10 + h11 + h01) * 0.25;
+        const brightness = Math.max(
+          0,
+          Math.min(1, 0.5 - h_avg / (SWE_MAX_AMP * 0.5)),
+        );
+        const shadeIdx = Math.round(brightness * 31);
 
         mg.poly([
-          bvx[i00], bvy[i00] + sludgeOffset + h00 * sc,
-          bvx[i10], bvy[i10] + sludgeOffset + h10 * sc,
-          bvx[i11], bvy[i11] + sludgeOffset + h11 * sc,
-          bvx[i01], bvy[i01] + sludgeOffset + h01 * sc,
+          bvx[i00],
+          bvy[i00] + sludgeOffset + h00 * sc,
+          bvx[i10],
+          bvy[i10] + sludgeOffset + h10 * sc,
+          bvx[i11],
+          bvy[i11] + sludgeOffset + h11 * sc,
+          bvx[i01],
+          bvy[i01] + sludgeOffset + h01 * sc,
         ]);
         mg.fill({ color: shades[shadeIdx], alpha: 0.93 });
       }
     }
-
   });
 
   return <pixiContainer ref={containerRef} />;
@@ -860,12 +913,34 @@ const PIPE_EMIT_RATE = 0.7; // drips / second at 100% fill
 // groundY: tap's ground-level Y in local FX space (used to compute dynamic target)
 // splashed: whether the drip has already triggered a fluid impulse on landing
 type SlopDrip = {
-  x: number; y: number; vy: number; alpha: number; r: number; groundY: number; splashed: boolean;
-  phase: 'forming' | 'falling';
-  sx: number; sy: number; maxR: number; formT: number; formDur: number;
+  x: number;
+  y: number;
+  vy: number;
+  alpha: number;
+  r: number;
+  groundY: number;
+  splashed: boolean;
+  phase: "forming" | "falling";
+  sx: number;
+  sy: number;
+  maxR: number;
+  formT: number;
+  formDur: number;
 };
-type SlopBubble = { x: number; y: number; r: number; maxR: number; decay: number };
-type SlopRing   = { x: number; y: number; r: number; maxR: number; alpha: number };
+type SlopBubble = {
+  x: number;
+  y: number;
+  r: number;
+  maxR: number;
+  decay: number;
+};
+type SlopRing = {
+  x: number;
+  y: number;
+  r: number;
+  maxR: number;
+  alpha: number;
+};
 
 // drawIsoPipe: isometric cylinder pipe protruding from the inside face of the top-right pit wall.
 // Uses computed perpendicular vectors for proper isometric cylinder shading and polygon end caps.
@@ -885,14 +960,25 @@ type SlopRing   = { x: number; y: number; r: number; maxR: number; alpha: number
  */
 const drawnByTick = () => {};
 
-function drawIsoPipe(g: Graphics, ax: number, ay: number, ex: number, ey: number, HW: number, _HH: number) {
-  const r = Math.max(4, HW * 0.10);
-  const ddx = ex - ax, ddy = ey - ay;
+function drawIsoPipe(
+  g: Graphics,
+  ax: number,
+  ay: number,
+  ex: number,
+  ey: number,
+  HW: number,
+  _HH: number,
+) {
+  const r = Math.max(4, HW * 0.1);
+  const ddx = ex - ax,
+    ddy = ey - ay;
   const dlen = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
   // Unit vector along pipe axis
-  const ux = ddx / dlen, uy = ddy / dlen;
+  const ux = ddx / dlen,
+    uy = ddy / dlen;
   // Perpendicular: 90° CW = shadow/lower side in iso view
-  const px = uy, py = -ux;
+  const px = uy,
+    py = -ux;
 
   // Helper: polygon for an iso-foreshortened ellipse (end cap)
   // major axis r along (px,py), minor axis r*0.42 along (ux,uy)
@@ -914,34 +1000,38 @@ function drawIsoPipe(g: Graphics, ax: number, ay: number, ex: number, ey: number
   const borePoly: number[] = [];
   for (let i = 0; i < 10; i++) {
     const t = (i / 10) * Math.PI * 2;
-    borePoly.push(ax + px * boreR * Math.cos(t) + ux * boreR * 0.42 * Math.sin(t));
-    borePoly.push(ay + py * boreR * Math.cos(t) + uy * boreR * 0.42 * Math.sin(t));
+    borePoly.push(
+      ax + px * boreR * Math.cos(t) + ux * boreR * 0.42 * Math.sin(t),
+    );
+    borePoly.push(
+      ay + py * boreR * Math.cos(t) + uy * boreR * 0.42 * Math.sin(t),
+    );
   }
   g.poly(borePoly);
   g.fill({ color: 0x374556 });
 
   // ── Pipe body: 3-strip shading (shadow bottom → main face → highlight top) ─
   // Shadow strip: far side of cylinder
-  g.moveTo(ax + px * r * 0.50, ay + py * r * 0.50);
-  g.lineTo(ex + px * r * 0.50, ey + py * r * 0.50);
-  g.lineTo(ex + px * r,        ey + py * r);
-  g.lineTo(ax + px * r,        ay + py * r);
+  g.moveTo(ax + px * r * 0.5, ay + py * r * 0.5);
+  g.lineTo(ex + px * r * 0.5, ey + py * r * 0.5);
+  g.lineTo(ex + px * r, ey + py * r);
+  g.lineTo(ax + px * r, ay + py * r);
   g.closePath();
   g.fill({ color: 0x1a2a38 });
 
   // Main face: center of cylinder
-  g.moveTo(ax - px * r * 0.70, ay - py * r * 0.70);
-  g.lineTo(ex - px * r * 0.70, ey - py * r * 0.70);
-  g.lineTo(ex + px * r * 0.50, ey + py * r * 0.50);
-  g.lineTo(ax + px * r * 0.50, ay + py * r * 0.50);
+  g.moveTo(ax - px * r * 0.7, ay - py * r * 0.7);
+  g.lineTo(ex - px * r * 0.7, ey - py * r * 0.7);
+  g.lineTo(ex + px * r * 0.5, ey + py * r * 0.5);
+  g.lineTo(ax + px * r * 0.5, ay + py * r * 0.5);
   g.closePath();
   g.fill({ color: 0x2c3e50 });
 
   // Highlight strip: near side of cylinder (toward camera)
-  g.moveTo(ax - px * r,        ay - py * r);
-  g.lineTo(ex - px * r,        ey - py * r);
-  g.lineTo(ex - px * r * 0.70, ey - py * r * 0.70);
-  g.lineTo(ax - px * r * 0.70, ay - py * r * 0.70);
+  g.moveTo(ax - px * r, ay - py * r);
+  g.lineTo(ex - px * r, ey - py * r);
+  g.lineTo(ex - px * r * 0.7, ey - py * r * 0.7);
+  g.lineTo(ax - px * r * 0.7, ay - py * r * 0.7);
   g.closePath();
   g.fill({ color: 0x4a6070 });
 
@@ -955,24 +1045,35 @@ function drawIsoPipe(g: Graphics, ax: number, ay: number, ex: number, ey: number
   g.fill({ color: 0x2c3e50 });
   // Dark bore hole
   const boreSpoutPoly: number[] = [];
-  const br = r * 0.50;
+  const br = r * 0.5;
   for (let i = 0; i < 10; i++) {
     const t = (i / 10) * Math.PI * 2;
-    boreSpoutPoly.push(ex + px * br * Math.cos(t) + ux * br * 0.42 * Math.sin(t));
-    boreSpoutPoly.push(ey + py * br * Math.cos(t) + uy * br * 0.42 * Math.sin(t));
+    boreSpoutPoly.push(
+      ex + px * br * Math.cos(t) + ux * br * 0.42 * Math.sin(t),
+    );
+    boreSpoutPoly.push(
+      ey + py * br * Math.cos(t) + uy * br * 0.42 * Math.sin(t),
+    );
   }
   g.poly(boreSpoutPoly);
   g.fill({ color: 0x04080e });
-
 }
 
 function SlopPitFX({
-  cx, cy, fill, scale, vibeCoderCount,
+  cx,
+  cy,
+  fill,
+  scale,
+  vibeCoderCount,
 }: {
-  cx: number; cy: number; fill: number; scale: number; vibeCoderCount: number;
+  cx: number;
+  cy: number;
+  fill: number;
+  scale: number;
+  vibeCoderCount: number;
 }) {
-  const HW = ISO_CELL_STRIDE * scale / 2;
-  const HH = ISO_CELL_STRIDE * scale / 4;
+  const HW = (ISO_CELL_STRIDE * scale) / 2;
+  const HH = (ISO_CELL_STRIDE * scale) / 4;
 
   const taps = useMemo(() => {
     // NE wall rim: connects right corner (5HW, 0) to far corner (0, -5HH).
@@ -983,37 +1084,44 @@ function SlopPitFX({
     // Pipe extends LX screen-x inward along iso +j direction (screen: -LX, +LY).
     // groundY = spoutX*(HH/HW): sludge surface y at 100% fill at that iso-x.
     const RISE = HH * 0.5;
-    const LX   = HW * 1.5;
-    const LY   = LX * (HH / HW); // = 1.5*HH
+    const LX = HW * 1.5;
+    const LY = LX * (HH / HW); // = 1.5*HH
     const rimY = (x: number) => x * (HH / HW) - 5 * HH;
     return [
-      { // near right corner, x=3HW
-        attachX: 3 * HW,      attachY: rimY(3 * HW) - RISE,        // -2.5HH
-        spoutX:  3 * HW - LX, spoutY:  rimY(3 * HW) - RISE + LY,   // -1HH
-        groundY: (3 * HW - LX) * (HH / HW),                         // 1.5HH
+      {
+        // near right corner, x=3HW
+        attachX: 3 * HW,
+        attachY: rimY(3 * HW) - RISE, // -2.5HH
+        spoutX: 3 * HW - LX,
+        spoutY: rimY(3 * HW) - RISE + LY, // -1HH
+        groundY: (3 * HW - LX) * (HH / HW), // 1.5HH
       },
-      { // near far corner, x=HW
-        attachX: HW,           attachY: rimY(HW) - RISE,             // -4.5HH
-        spoutX:  HW - LX,      spoutY:  rimY(HW) - RISE + LY,        // -3HH
-        groundY: (HW - LX) * (HH / HW),                              // -0.5HH
+      {
+        // near far corner, x=HW
+        attachX: HW,
+        attachY: rimY(HW) - RISE, // -4.5HH
+        spoutX: HW - LX,
+        spoutY: rimY(HW) - RISE + LY, // -3HH
+        groundY: (HW - LX) * (HH / HW), // -0.5HH
       },
     ];
   }, [HW, HH]);
 
-  const dripsRef   = useRef<SlopDrip[]>([]);
+  const dripsRef = useRef<SlopDrip[]>([]);
   const bubblesRef = useRef<SlopBubble[]>([]);
-  const ringsRef   = useRef<SlopRing[]>([]);
-  const emitAccRef   = useRef([0, 0]);
+  const ringsRef = useRef<SlopRing[]>([]);
+  const emitAccRef = useRef([0, 0]);
   const bubbleAccRef = useRef(0);
-  const pipeGRef     = useRef<Graphics>(null);
-  const fxGRef       = useRef<Graphics>(null);
+  const pipeGRef = useRef<Graphics>(null);
+  const fxGRef = useRef<Graphics>(null);
 
   useEffect(() => {
     const g = pipeGRef.current;
     if (!g) return;
     g.clear();
     if (vibeCoderCount < SLOP_PIT_UNLOCK_COUNT) return;
-    for (const tap of taps) drawIsoPipe(g, tap.attachX, tap.attachY, tap.spoutX, tap.spoutY, HW, HH);
+    for (const tap of taps)
+      drawIsoPipe(g, tap.attachX, tap.attachY, tap.spoutX, tap.spoutY, HW, HH);
   }, [vibeCoderCount, taps, HW, HH]);
 
   // Clip drips to the pit polygon so they never bleed onto surrounding tiles.
@@ -1024,7 +1132,9 @@ function SlopPitFX({
     if (!g) return;
     const mask = new Graphics();
     // 5×5 pit diamond in FX-local coords: N(0,-6HH) E(5HW,-HH) S(0,4HH) W(-5HW,-HH)
-    mask.poly([0, -6 * HH, 5 * HW, -HH, 0, 4 * HH, -5 * HW, -HH]).fill({ color: 0xffffff });
+    mask
+      .poly([0, -6 * HH, 5 * HW, -HH, 0, 4 * HH, -5 * HW, -HH])
+      .fill({ color: 0xffffff });
     g.addChild(mask);
     g.mask = mask;
     return () => {
@@ -1037,34 +1147,51 @@ function SlopPitFX({
     const g = fxGRef.current;
     if (!g) return;
     const active = fill > 0 && vibeCoderCount >= SLOP_PIT_UNLOCK_COUNT;
-    if (!active) { g.clear(); dripsRef.current = []; bubblesRef.current = []; ringsRef.current = []; return; }
+    if (!active) {
+      g.clear();
+      dripsRef.current = [];
+      bubblesRef.current = [];
+      ringsRef.current = [];
+      return;
+    }
 
-    const dt = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
+    const dt =
+      ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
     const pct = fill / 100;
     const SURF_FC = [0x12261a, 0x1e3a1e, 0x92400e, 0x7c2d12] as const;
     const fc = SURF_FC[pct > 0.8 ? 3 : pct > 0.5 ? 2 : pct > 0.25 ? 1 : 0];
-    const dripColor = (Math.min(255, (((fc >> 16) & 0xff) * 1.60) | 0) << 16) |
-                      (Math.min(255, (((fc >>  8) & 0xff) * 1.60) | 0) <<  8) |
-                       Math.min(255, (( fc        & 0xff) * 1.60) | 0);
+    const dripColor =
+      (Math.min(255, (((fc >> 16) & 0xff) * 1.6) | 0) << 16) |
+      (Math.min(255, (((fc >> 8) & 0xff) * 1.6) | 0) << 8) |
+      Math.min(255, ((fc & 0xff) * 1.6) | 0);
     // Sludge surface Y in local FX space (container is centred at pit centre, ground level)
     const sludgeOffset = HH * (PIT_DEPTH_HH - 1) * (1 - pct);
 
     for (let i = 0; i < taps.length; i++) {
-      emitAccRef.current[i] = (emitAccRef.current[i] ?? 0) + dt * PIPE_EMIT_RATE * pct;
+      emitAccRef.current[i] =
+        (emitAccRef.current[i] ?? 0) + dt * PIPE_EMIT_RATE * pct;
       while (emitAccRef.current[i] >= 1) {
         emitAccRef.current[i] -= 1;
         const sx = taps[i].spoutX + (Math.random() - 0.5) * 2;
         dripsRef.current.push({
-          x: sx, y: taps[i].spoutY, vy: 0,
+          x: sx,
+          y: taps[i].spoutY,
+          vy: 0,
           alpha: 0.9 + Math.random() * 0.1,
-          r: 0, maxR: 3 + Math.random() * 2.5,
-          groundY: taps[i].groundY, splashed: false,
-          phase: 'forming', sx, sy: taps[i].spoutY, formT: 0,
+          r: 0,
+          maxR: 3 + Math.random() * 2.5,
+          groundY: taps[i].groundY,
+          splashed: false,
+          phase: "forming",
+          sx,
+          sy: taps[i].spoutY,
+          formT: 0,
           formDur: 0.5 + Math.random() * 0.4,
         });
       }
     }
-    if (dripsRef.current.length > 12) dripsRef.current.splice(0, dripsRef.current.length - 12);
+    if (dripsRef.current.length > 12)
+      dripsRef.current.splice(0, dripsRef.current.length - 12);
 
     // Bubbles across the full 5×5 pit when there is any sludge
     if (fill > 0) {
@@ -1072,25 +1199,32 @@ function SlopPitFX({
       while (bubbleAccRef.current >= 1) {
         bubbleAccRef.current -= 1;
         const angle = Math.random() * Math.PI * 2;
-        const dist  = Math.random() * 2 * HW * 0.55; // always full pit (radius=2)
-        bubblesRef.current.push({ x: Math.cos(angle) * dist, y: Math.sin(angle) * dist * 0.4, r: 0, maxR: 1 + Math.random() * 2.5, decay: 0 });
+        const dist = Math.random() * 2 * HW * 0.55; // always full pit (radius=2)
+        bubblesRef.current.push({
+          x: Math.cos(angle) * dist,
+          y: Math.sin(angle) * dist * 0.4,
+          r: 0,
+          maxR: 1 + Math.random() * 2.5,
+          decay: 0,
+        });
       }
     }
-    if (bubblesRef.current.length > 18) bubblesRef.current.splice(0, bubblesRef.current.length - 18);
+    if (bubblesRef.current.length > 18)
+      bubblesRef.current.splice(0, bubblesRef.current.length - 18);
 
     g.clear();
-    dripsRef.current = dripsRef.current.filter(d => d.alpha > 0.05);
+    dripsRef.current = dripsRef.current.filter((d) => d.alpha > 0.05);
     for (const d of dripsRef.current) {
       const target = d.groundY + sludgeOffset;
 
-      if (d.phase === 'forming') {
+      if (d.phase === "forming") {
         d.formT += dt / d.formDur;
-        const t  = Math.min(d.formT, 1);
+        const t = Math.min(d.formT, 1);
         const tE = t * t * (3 - 2 * t);
         d.r = d.maxR * Math.pow(tE, 0.55);
         // Thread grows from pipe down to bead; bead hangs at thread end
         const threadLen = tE * d.maxR * 2.0;
-        const threadW   = Math.max(0.5, d.maxR * 0.07);
+        const threadW = Math.max(0.5, d.maxR * 0.07);
         d.y = d.sy + threadLen + d.r;
         d.x = d.sx;
         // Tapered filament: full width at spout, pinched to a neck at bead tip
@@ -1104,22 +1238,37 @@ function SlopPitFX({
           g.closePath();
           g.fill({ color: dripColor, alpha: d.alpha });
         }
-        if (d.formT >= 1) { d.phase = 'falling'; d.vy = 4; }
+        if (d.formT >= 1) {
+          d.phase = "falling";
+          d.vy = 4;
+        }
       } else {
         // ── Falling phase ─────────────────────────────────────────────────────
         if (d.y < target) {
           d.vy = Math.min(d.vy + 45 * dt, 55);
-          d.y  = Math.min(d.y + d.vy * dt, target);
+          d.y = Math.min(d.y + d.vy * dt, target);
         } else {
           d.alpha -= dt * 4.5;
           if (!d.splashed) {
             d.splashed = true;
             const dmapX = (d.x / HW + d.groundY / HH) * 0.5;
             const dmapY = (d.groundY / HH - d.x / HW) * 0.5;
-            const simI  = Math.max(0, Math.min(SIM_N, Math.round((2.5 + dmapX) / 5 * SIM_N)));
-            const simJ  = Math.max(0, Math.min(SIM_N, Math.round((2.5 + dmapY) / 5 * SIM_N)));
+            const simI = Math.max(
+              0,
+              Math.min(SIM_N, Math.round(((2.5 + dmapX) / 5) * SIM_N)),
+            );
+            const simJ = Math.max(
+              0,
+              Math.min(SIM_N, Math.round(((2.5 + dmapY) / 5) * SIM_N)),
+            );
             sweSplash(simI, simJ, -16);
-            ringsRef.current.push({ x: d.x, y: target, r: d.r * 0.2, alpha: 0.75, maxR: d.r * 4 });
+            ringsRef.current.push({
+              x: d.x,
+              y: target,
+              r: d.r * 0.2,
+              alpha: 0.75,
+              maxR: d.r * 4,
+            });
           }
         }
 
@@ -1128,27 +1277,46 @@ function SlopPitFX({
         if (tailLen > 0.5 && !d.splashed) {
           g.moveTo(d.x, d.y - d.r * 1.0);
           g.lineTo(d.x, d.y - d.r * 1.0 - tailLen);
-          g.stroke({ color: dripColor, alpha: d.alpha * 0.4, width: d.r * 0.2 });
+          g.stroke({
+            color: dripColor,
+            alpha: d.alpha * 0.4,
+            width: d.r * 0.2,
+          });
         }
       }
 
       // Drop body: teardrop — pointed at TOP (neck/trailing), round bulge at BOTTOM
       if (d.r > 0.2) {
-        const stretch = d.phase === 'forming' ? 1 : 1 + d.vy * 0.007;
-        const rx  = d.r * 0.54;
+        const stretch = d.phase === "forming" ? 1 : 1 + d.vy * 0.007;
+        const rx = d.r * 0.54;
         // During forming, tip = d.y - d.r = thread bottom (flush with neck end)
-        const tip = d.phase === 'forming' ? (d.y - d.r) : d.y - d.r * 1.05 * stretch;
-        const bot = d.y + d.r * 0.72;            // rounded cap at BOTTOM
+        const tip =
+          d.phase === "forming" ? d.y - d.r : d.y - d.r * 1.05 * stretch;
+        const bot = d.y + d.r * 0.72; // rounded cap at BOTTOM
         g.moveTo(d.x, tip);
         // right side: from tip sweep wide in the lower half, end at rounded bottom
-        g.bezierCurveTo(d.x + rx * 0.5, d.y - d.r * 0.3, d.x + rx * 1.25, d.y + d.r * 0.35, d.x, bot);
+        g.bezierCurveTo(
+          d.x + rx * 0.5,
+          d.y - d.r * 0.3,
+          d.x + rx * 1.25,
+          d.y + d.r * 0.35,
+          d.x,
+          bot,
+        );
         // left side: from rounded bottom back up to tip
-        g.bezierCurveTo(d.x - rx * 1.25, d.y + d.r * 0.35, d.x - rx * 0.5, d.y - d.r * 0.3, d.x, tip);
+        g.bezierCurveTo(
+          d.x - rx * 1.25,
+          d.y + d.r * 0.35,
+          d.x - rx * 0.5,
+          d.y - d.r * 0.3,
+          d.x,
+          tip,
+        );
         g.fill({ color: dripColor, alpha: d.alpha });
       }
     }
     // Impact rings
-    ringsRef.current = ringsRef.current.filter(r => r.alpha > 0.02);
+    ringsRef.current = ringsRef.current.filter((r) => r.alpha > 0.02);
     for (const ring of ringsRef.current) {
       ring.r = Math.min(ring.r + dt * ring.maxR * 3.5, ring.maxR);
       ring.alpha -= dt * 3.2;
@@ -1157,7 +1325,7 @@ function SlopPitFX({
         g.stroke({ color: dripColor, alpha: ring.alpha, width: 0.7 });
       }
     }
-    bubblesRef.current = bubblesRef.current.filter(b => b.decay < 1);
+    bubblesRef.current = bubblesRef.current.filter((b) => b.decay < 1);
     for (const b of bubblesRef.current) {
       b.r < b.maxR ? (b.r += dt * 7) : (b.decay += dt * 2.5);
       // Bubbles float at sludge surface Y
@@ -1168,8 +1336,20 @@ function SlopPitFX({
 
   return (
     <>
-      <pixiGraphics draw={drawnByTick} ref={pipeGRef} x={cx} y={cy} zIndex={cityDepthKey(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 2)} />
-      <pixiGraphics draw={drawnByTick} ref={fxGRef}   x={cx} y={cy} zIndex={cityDepthKey(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 3)} />
+      <pixiGraphics
+        draw={drawnByTick}
+        ref={pipeGRef}
+        x={cx}
+        y={cy}
+        zIndex={cityDepthKey(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 2)}
+      />
+      <pixiGraphics
+        draw={drawnByTick}
+        ref={fxGRef}
+        x={cx}
+        y={cy}
+        zIndex={cityDepthKey(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 3)}
+      />
     </>
   );
 }
@@ -1195,8 +1375,13 @@ function SlopPitLayer({
 
   const ox = wrapperSize.width / 2;
   const oy = wrapperSize.height / 4;
-  const HH = ISO_CELL_STRIDE * scale / 4; // needed for tile-anchor alignment
-  const { x: worldX, y: worldY } = mapToWorld(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 0, scale);
+  const HH = (ISO_CELL_STRIDE * scale) / 4; // needed for tile-anchor alignment
+  const { x: worldX, y: worldY } = mapToWorld(
+    SLOP_PIT_MAP_X,
+    SLOP_PIT_MAP_Y,
+    0,
+    scale,
+  );
   const cx = worldX + ox;
   // Tile sprites use anchor(0.5,1) so the world position is the diamond BOTTOM.
   // The diamond centre is HH above that; align the sludge container to the centre.
@@ -1223,8 +1408,13 @@ function SlopPitLayer({
         y={cy}
         zIndex={cityDepthKey(SLOP_PIT_MAP_X, SLOP_PIT_MAP_Y, 1)}
       />
-      <SlopPitFX cx={cx} cy={cy} fill={fill} scale={scale} vibeCoderCount={vibeCoderCount} />
+      <SlopPitFX
+        cx={cx}
+        cy={cy}
+        fill={fill}
+        scale={scale}
+        vibeCoderCount={vibeCoderCount}
+      />
     </>
   );
 }
-

@@ -50,7 +50,7 @@ export const FALL_MIN = 4;
  * zero from one frame to the next. Without this the head lets go and grabs on
  * again several times a second, which is a stutter rather than a waterfall.
  */
-const CLING = 1 / 6;
+export const CLING = 1 / 6;
 
 /**
  * The fastest a lip may throw its water outward, in TILES a second.
@@ -94,6 +94,26 @@ const CLING = 1 / 6;
  *
  * So the water goes where the arc goes — see {@link landsAt}. Keeping those
  * two together is what the old cap was really paying for.
+ *
+ * AND IT IS INERT, which is worth knowing before anybody tunes it. `throwOf`
+ * is only ever handed `flowX`/`flowY`, and those are already clamped to
+ * {@link MAX_FLOW_SPEED} — the same three — so the `min` below has never once
+ * bound. Two independent literals that had to agree and nothing saying so.
+ *
+ * Kept rather than deleted, because the cap means "a lip throws no faster than
+ * the water can flow" and that rule should survive the flow cap moving.
+ *
+ * AND WRITTEN OUT RATHER THAN IMPORTED, which is the opposite of what it looks
+ * like it should be. `columns` and `falls` import each other, and a cycle is
+ * harmless while everything crossing it is a FUNCTION — nothing is called
+ * until both modules are loaded. A `const` read at module scope is not: set to
+ * `MAX_FLOW_SPEED`, this throws "Cannot access before initialization" for any
+ * entry point that loads `columns` first, because `columns` runs `falls` to
+ * completion before its own body declares anything. The whole suite passed on
+ * load-order luck and one new test file was enough to find it.
+ *
+ * So the relationship is pinned by a test instead of by an import, which is
+ * the one place it can be stated without the cycle. @see falls.test
  */
 export const FALL_THROW = 3;
 
@@ -138,7 +158,7 @@ export const BREAK = 8;
  * per edge, a wide fall sheds along its whole width and a narrow one does not,
  * which is both what happens and what keeps the count bounded.
  */
-const SHED = 1.3;
+export const SHED = 1.3;
 
 /**
  * How long a DROWNED fall takes to give up what it is holding, in seconds.
@@ -161,7 +181,7 @@ const SHED = 1.3;
  * shortest height there is takes to happen — the drop has just stopped being
  * one, so that is the longest it could still have been in the air for.
  */
-const DROWN = Math.sqrt((2 * FALL_MIN) / FALL_GRAVITY);
+export const DROWN = Math.sqrt((2 * FALL_MIN) / FALL_GRAVITY);
 
 /**
  * How far a shed drop is thrown sideways out of the sheet, in columns and
@@ -243,7 +263,7 @@ export type FallState = {
  * is the honest floor, since a landing point cannot respond faster than the
  * water takes to arrive.
  */
-const THROW_EASE = 0.5;
+export const THROW_EASE = 0.5;
 
 export function createFalls(nx: number, ny: number): FallState {
   const n = nx * ny * 2;
@@ -354,6 +374,9 @@ export function stepFalls(
   // — both engines already lift a pure `Math.exp` of loop invariants out — but
   // it reads as what it is up here.
   const ease = 1 - Math.exp(-dt / THROW_EASE);
+  // ONCE, for every fall in this step — see `ColumnField.room`. Read per fall
+  // it is what made the falls depend on the order they were walked in.
+  f.room = dripRoom(f.drips);
   // ONLY WHERE THE GROUND MAKES A CLIFF — see `FallState.cliff`. Water can
   // only be in the air on one of these, and a fall can only start on one, so
   // every other column in the box had nothing to do here but be walked past.
@@ -383,6 +406,18 @@ export function stepFalls(
         const jx = axis === 0 ? x + 1 : x, jy = axis === 0 ? y : y + 1;
         const j = jy * nx + jx;
         const drop = f.ground[i] - besideAt(f, j);
+        // AND THE SAME NUMBER AS AN F32, because `front` and `head` are f32
+        // arrays and a sheet arriving is a sheet that has SATURATED at the
+        // bottom. Clamp with `Math.min(drop, ...)` and store, and what comes
+        // back is `drop` rounded to f32 — which can be a hair BELOW `drop`, so
+        // the very next line, `front >= drop`, says no and a fall that has
+        // reached the bottom fails its own arrival test for a frame.
+        //
+        // Found by the device, which does every step of this in f32 and so
+        // saturates exactly: it landed two sheets the CPU held back, 0.115 of
+        // water on a scene of 529. The device was right. A value a float array
+        // cannot hold is not a threshold that array can be tested against.
+        const reach = Math.fround(drop);
         if (drop < FALL_MIN) {
           // The cliff has gone — filled in from below, or the ground moved.
           // Whatever was in the air belongs to the cell below it, but it
@@ -407,9 +442,9 @@ export function stepFalls(
           s.headSpeed[k] += FALL_GRAVITY * dt;
           s.head[k] += s.headSpeed[k] * dt;
         }
-        if (s.front[k] < drop) {
+        if (s.front[k] < reach) {
           s.frontSpeed[k] += FALL_GRAVITY * dt;
-          s.front[k] = Math.min(drop, s.front[k] + s.frontSpeed[k] * dt);
+          s.front[k] = Math.min(reach, s.front[k] + s.frontSpeed[k] * dt);
         }
 
         // Past the breaking point it starts throwing water off itself, and
@@ -421,14 +456,14 @@ export function stepFalls(
         // NOTHING lands until the front gets there. After that it leaves the
         // air at the rate it is arriving, which in a steady fall is the rate
         // it went over — the time constant is the time the fall takes.
-        if (s.front[k] >= drop && s.air[k] > 0) {
+        if (s.front[k] >= reach && s.air[k] > 0) {
           const fall = Math.sqrt((2 * drop) / FALL_GRAVITY);
           // Where the SHEET gets to, not the column over the edge.
           land(f, k, landsAt(f, i, j, drop), i, Math.min(1, dt / fall), drop);
         }
         // Caught its own front, or fallen past the bottom: nothing is left of
         // it, and anything still in the air has landed by now.
-        if (s.head[k] >= s.front[k] || s.head[k] >= drop) {
+        if (s.head[k] >= s.front[k] || s.head[k] >= reach) {
           land(f, k, j, i, 1);
           reset(s, k);
         }
@@ -468,9 +503,16 @@ function land(
     return;
   }
   // The tidying-up calls: the cliff has gone, or the fall has caught its own
-  // front. Nothing fell anywhere, so nothing lands on anything.
-  if (mat) f.material[to] = mat;
-  f.depth[to] += amount;
+  // front. Nothing fell anywhere, so nothing lands on anything — but it is
+  // still BANKED rather than added, for exactly the reason the plunge is. Put
+  // straight into the depth it is a depth the NEXT landing reads, both for its
+  // own material test and, through `besideAt`, for the drop that decides which
+  // branch it takes. See `applyLandings`.
+  f.landing[to] += amount;
+  if (mat && amount > f.landBest[to]) {
+    f.landBest[to] = amount;
+    f.landMat[to] = mat;
+  }
   include(f, to % f.nx, (to / f.nx) | 0);
 }
 
@@ -504,6 +546,43 @@ export function landsAt(
 }
 
 /**
+ * THE SPRAY'S SCATTER, as a number both a CPU and a GPU can arrive at.
+ *
+ * This used to be `fract(sin(frontSpeed * 12.9898 + k * 78.233) * 43758.5453)`,
+ * the hash everybody writes in a shader, and it cannot survive the crossing.
+ * JavaScript does that arithmetic in f64 and WGSL does it in f32, and the
+ * argument alone runs to millions: at edge 100000 it is 7823462.3725 in f64
+ * and 7823462.5 exactly in f32, so `u` comes out 0.147 one side and 0.941 the
+ * other. Not a rounding difference — a different number, before `sin` is even
+ * reached, and `sin` of a few million is its own argument-reduction lottery.
+ * It was also quietly degenerate on the CPU: past the point where `k * 78.233`
+ * outruns the mantissa the "hash" is sampling a sine at aliased intervals.
+ *
+ * An INTEGER hash has none of that. A u32 multiply wraps, by definition, in
+ * both languages — `Math.imul` here, plain `*` on `u32` there — so every step
+ * is exact rather than nearly exact. The seed is the edge and the FLOAT'S OWN
+ * BITS, which is the one way to read an f32 identically on both sides: no
+ * arithmetic is done on the value, only on its pattern. And 24 bits over 2^24
+ * lands exactly on an f32, so even the final division agrees to the last bit.
+ *
+ * The mixer is murmur3's finalizer. It is not a random number and does not
+ * need to be: it needs to be spread out, and to be the same twice.
+ */
+const bitsF = new Float32Array(1);
+const bitsU = new Uint32Array(bitsF.buffer);
+
+export function scatterOf(k: number, speed: number, salt = 0): number {
+  bitsF[0] = speed;
+  let h = (bitsU[0] ^ Math.imul(k, 0x9e3779b9) ^ Math.imul(salt, 0x632be5ab)) | 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  h = h ^ (h >>> 16);
+  // The top 24, because the low bits of any multiply-shift mixer are the worst
+  // ones — and 24 over 2^24 is exact in an f32.
+  return (h >>> 8) / 16777216;
+}
+
+/**
  * Throw a drop off a breaking sheet.
  *
  * Where it leaves from is the sheet's own arc — {@link driftAt} with the lip's
@@ -512,8 +591,31 @@ export function landsAt(
  * the sheet's business: it is a drop, it has the speed it had, and it falls.
  *
  * The scatter is a hash of the fall's own state rather than a random number,
- * so the same scene run twice sheds the same spray. It changes every step
- * because `frontSpeed` does.
+ * so the same scene run twice sheds the same spray.
+ *
+ * IT DOES NOT CHANGE FROM STEP TO STEP, and this used to say it did — "because
+ * `frontSpeed` does". `frontSpeed` is only integrated while the front is still
+ * TRAVELLING, and a steady fall's front saturated at the drop long ago.
+ * Measured over 200 steps of a fed waterfall, `frontSpeed` and `head` took one
+ * distinct value each; `shed` and `air` took 200.
+ *
+ * So each edge sheds from a point of its own and keeps it. Milder than it
+ * sounds — the hash mixes `k`, so a fall 240 edges wide scatters over 240
+ * points — but they are 240 FIXED points, and spray that should shimmer
+ * instead retraces the same trajectories.
+ *
+ * SEEDING IT ON `shed` WAS TRIED AND PUT BACK. It works, and it costs more
+ * than it buys: the hash is built to turn a one-bit change into a completely
+ * different number, so seeding it on a quantity that tracks the water makes
+ * the spray a chaos amplifier. `compare.test` has a case that pins exactly
+ * this — two solvers seeded one ULP apart must read as DRIFTING and not as
+ * different, because a harness that calls a correct port broken gets switched
+ * off — and with `shed` as the seed it read as different inside the horizon.
+ *
+ * What this wants is a seed that advances without tracking the water: a shed
+ * counter per edge, or a frame index. Neither path carries one today, and
+ * adding one means a new field in the device's fall state. That is the fix;
+ * it is not a one-line one.
  */
 function shedSpray(
   f: ColumnField, k: number, i: number, axis: number, dt: number, drop: number,
@@ -523,7 +625,7 @@ function shedSpray(
   // Backed off as the drip list fills — see `dripRoom`. A fall sheds along
   // its whole width, so a rate that suits one off a notch asks for thousands
   // off one across the map.
-  s.shed[k] += SHED * loose * dripRoom(f.drips) * dt;
+  s.shed[k] += SHED * loose * f.room * dt;
   if (s.shed[k] < DROP) return;
   // A DROP, and not whatever has piled up in the bank. The rate puts a
   // fortieth of one in there per step, so the bank crosses the line somewhere
@@ -534,11 +636,8 @@ function shedSpray(
   s.shed[k] -= take;
   s.air[k] -= take;
 
-  const x = i % f.nx, y = (i / f.nx) | 0;
-  const wob = Math.sin(s.frontSpeed[k] * 12.9898 + k * 78.233) * 43758.5453;
-  const u = wob - Math.floor(wob);              // 0..1, and stable given the state
-  const v = u * 1000 - Math.floor(u * 1000);
-
+  const u = scatterOf(k, s.frontSpeed[k]);
+  const v = scatterOf(k, s.frontSpeed[k], 1);
   // Out of the LOWER half of the sheet: the top of a nappe is still a sheet
   // and it is the part that has thinned and sped up that comes apart.
   const below = Math.min(drop, s.head[k] + (s.front[k] - s.head[k]) * (0.5 + 0.5 * v));
@@ -547,6 +646,29 @@ function shedSpray(
   // The SMOOTHED launch, the same one the sheet is drawn on and the water
   // lands on, so a drop still leaves from where the sheet is.
   const lip = (axis === 0 ? f.falls.throwX[i] : f.falls.throwY[i]) / f.cell;
+  dropFrom(f, k, take, below, u, lip, f.material[i]);
+}
+
+/**
+ * WHERE A SHED DROP GOES, given what the sheet decided to throw.
+ *
+ * Its own function because the decision and the arc happen in different
+ * places once the falls run on the device: the shader works out `take`,
+ * `below`, the scatter and the lip, because all four read state that lives
+ * there, and hands them back for the drip list — which is still the host's.
+ * This is the half they share, and it is written once. @see drainSpawns
+ *
+ * `lip` and `material` are passed rather than read off `f` for the same
+ * reason: on the device path the host's copies of `throwX` and `material` are
+ * a frame behind, and a drop leaving from where the sheet USED to be is the
+ * sort of seam that takes an afternoon to see.
+ */
+export function dropFrom(
+  f: ColumnField, k: number, take: number, below: number, u: number,
+  lip: number, material: number,
+) {
+  const i = k >> 1, axis = k & 1;
+  const x = i % f.nx, y = (i / f.nx) | 0;
   const out = driftAt(lip, below);
   const side = (u - 0.5) * FAN;
   dripFrom(
@@ -554,7 +676,7 @@ function shedSpray(
     axis === 0 ? x + 0.5 + out : x + side,
     axis === 0 ? y + side : y + 0.5 + out,
     f.ground[i] - below,
-    take, f.material[i],
+    take, material,
     axis === 0 ? lip : side * FAN,
     axis === 0 ? side * FAN : lip,
     Math.sqrt(2 * FALL_GRAVITY * below),

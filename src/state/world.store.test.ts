@@ -13,6 +13,7 @@ import {
 } from "./world.store";
 import { componentCount } from "../world/roads/network";
 import { RAMP, rampDir, rampRise } from "../world/iso";
+import { COLUMNS_PER_TILE, SOLID_LIFT } from "../world/water/field";
 
 const s = () => useWorldStore.getState();
 
@@ -333,5 +334,67 @@ describe("dirty accumulation", () => {
     s().doUndo();
     const keys = new Set(drainDirty(s().grid).map((c) => `${c.x},${c.y}`));
     expect(keys.has("4,4")).toBe(true);
+  });
+
+  /**
+   * THE SOLVER'S BED IS NOT THE TERRAIN. A built-on cell stands `SOLID_LIFT`
+   * above its ground, so placing and demolishing move the bed without moving
+   * the height — and `demolishCommand` writes `structureAt` and nothing else,
+   * which is how a demolish stayed invisible to every one of these paths at
+   * once. One test per path because they were three separate omissions.
+   */
+  describe("a structure moves the water's bed", () => {
+    /** The bed under a tile, read at the tile's first column. */
+    const bedAt = (x: number, y: number) => {
+      const f = s().getWaterField();
+      if (!f) throw new Error("no water field");
+      const c = f.columns;
+      return c.ground[(y * COLUMNS_PER_TILE) * c.nx + x * COLUMNS_PER_TILE];
+    };
+
+    /** Place, and refuse to go on if the bed did not move — so the tests
+     *  below cannot pass by nothing ever having happened. */
+    const place = (x: number, y: number) => {
+      const before = bedAt(x, y);
+      s().setTool("place");
+      s().commitStructure({ x, y });
+      expect(bedAt(x, y)).toBe(before + SOLID_LIFT);
+      return before;
+    };
+
+    beforeEach(() => {
+      s().setStructureDef("kit:intern.t0");
+    });
+
+    /**
+     * ON FLAT GROUND A PLACE WRITES `structureAt` AND NOTHING ELSE. The
+     * levelling patch is there, but `build` drops a cell whose before equals
+     * its after — so the command that lifts the bed carries no height patch at
+     * all, and the predicate that decides whether to re-read the bed never saw
+     * it. Building beside water simply did not move the bed.
+     */
+    test("placing lifts it", () => {
+      place(3, 3);
+    });
+
+    test("demolishing drops it back", () => {
+      const before = place(3, 3);
+      s().setTool("demolish");
+      s().commitStructure({ x: 3, y: 3 });
+      expect(bedAt(3, 3)).toBe(before);
+    });
+
+    test("undo drops it back", () => {
+      const before = place(3, 3);
+      s().doUndo();
+      expect(bedAt(3, 3)).toBe(before);
+    });
+
+    test("redo lifts it again", () => {
+      const before = place(3, 3);
+      s().doUndo();
+      s().doRedo();
+      expect(bedAt(3, 3)).toBe(before + SOLID_LIFT);
+    });
   });
 });

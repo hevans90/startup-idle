@@ -9,9 +9,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  FLOW_DEFAULTS, MAX_FLOW_SPEED, addWater, at, createColumnField, flowEnergy, setMaterialDrag,
-  setOpenEdge,
-  stepFlow, surfaceAt, totalWater, velocityAt, type ColumnField,
+  FLOW_DEFAULTS, MAX_FLOW_SPEED, addWater, at, createColumnField, flowEnergy, maxStep,
+  setMaterialDrag, setOpenEdge,
+  stepFlow, substepsFor, surfaceAt, totalWater, velocityAt, type ColumnField,
 } from "./columns";
 
 /**
@@ -1121,5 +1121,63 @@ describe("per-material drag", () => {
     addWater(f, 4, 4, 5, 2);
     run(f, 2);
     expect(f.depth.some((d) => d > 0)).toBe(true);     // it still flows
+  });
+});
+
+/**
+ * WHAT A FRAME ACTUALLY INTEGRATES, which is not what it was asked for.
+ *
+ * `substepsFor` stops at MAX_SUBSTEPS and drops the rest, so the simulation
+ * runs slower than real time on a long frame. That is the backstop and it is
+ * right. What is NOT right is handing the whole frame to everything else —
+ * the springs, the pipes, the drips — while the flow only advanced part of
+ * it, which is a map gaining water it has had no time to move.
+ *
+ * A backgrounded tab is the case that matters: rAF throttles to about one
+ * frame a second, sixty times what the water can take in one go.
+ */
+describe("a frame longer than the water can take", () => {
+  test("stops at the ceiling and says so, rather than stretching a step", () => {
+    const f = flat(16, 16);
+    addWater(f, 8, 8, 4, 1);
+    const asked = 1.0;
+    const plan = substepsFor(f, asked);
+    const got = plan.reduce((a, b) => a + b, 0);
+    expect(plan.length).toBe(12);                    // MAX_SUBSTEPS
+    expect(got).toBeLessThan(asked);                 // the rest is dropped
+    expect(got).toBeCloseTo(maxStep(f), 12);         // and this is how much
+  });
+
+  test("maxStep is what a caller must clamp to, and clamping makes it exact", () => {
+    const f = flat(16, 16);
+    addWater(f, 8, 8, 4, 1);
+    const clamped = Math.min(1.0, maxStep(f));
+    const plan = substepsFor(f, clamped);
+    expect(plan.reduce((a, b) => a + b, 0)).toBeCloseTo(clamped, 12);
+  });
+
+  /**
+   * THE FAULT ITSELF, as volume. A spring pours in proportion to the time it
+   * is given, so giving it the frame while the flow takes the ceiling puts
+   * water on the map at several times the rate the map can move it.
+   */
+  test("a source given the whole frame outruns a flow given the ceiling", () => {
+    const pourFor = (dt: number, steps: number, clamp: boolean) => {
+      const f = flat(16, 16);
+      for (let n = 0; n < steps; n++) {
+        const h = clamp ? Math.min(dt, maxStep(f)) : dt;
+        addWater(f, 8, 8, 2 * h, 1);                 // a spring: rate x time
+        stepFlow(f, h);
+      }
+      return totalWater(f);
+    };
+    // Five seconds of wall clock, in frames a second long.
+    const loose = pourFor(1.0, 5, false);
+    const tight = pourFor(1.0, 5, true);
+    // The flow advanced the same either way — five ceilings — but the loose
+    // run poured five whole seconds into it.
+    expect(loose).toBeGreaterThan(tight * 4);
+    const f = flat(16, 16);
+    expect(tight).toBeCloseTo(5 * 2 * maxStep(f), 6);
   });
 });

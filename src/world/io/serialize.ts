@@ -11,7 +11,8 @@
  * still be valid but would mean something else.
  */
 import {
-  VOID, createGrid, recomputeHeightRange, stampFootprint, type Grid, type Structure,
+  VOID, createGrid, edited, recomputeHeightRange, stampFootprint,
+  type Grid, type Structure,
 } from "../grid";
 import { poolSnapshot, type WaterField } from "../water/field";
 
@@ -237,6 +238,9 @@ export function deserializeWorld(file: unknown): { grid: Grid; palette: WorldFil
     if (s.id >= grid.nextStructureId) grid.nextStructureId = s.id + 1;
   }
   recomputeHeightRange(grid);
+  // A LOADED MAP IS AN EDIT, and the bulkiest one there is. The layers go in
+  // by `set` rather than through any setter, so nothing else says so. @see edited
+  edited(grid);
   const palette = {
     terrain: f.palette?.terrain ?? [null],
     paved: f.palette?.paved ?? [null],

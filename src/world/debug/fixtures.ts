@@ -9,7 +9,9 @@
 import { DIR } from "../../iso/dir";
 import { layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
-import { fillTerrain, idx, inBounds, recomputeHeightRange, type Grid } from "../grid";
+import {
+  edited, fillTerrain, idx, inBounds, recomputeHeightRange, setSource, type Grid,
+} from "../grid";
 
 export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
@@ -22,10 +24,11 @@ const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   const i = idx(g, x, y);
   g.height[i] = h;
   g.ramp[i] = ramp;
+  edited(g);
 };
 
 const clear = (g: Grid, material: number) => {
-  fillTerrain(g, material);
+  fillTerrain(g, material);   // which is itself an edit
   g.height.fill(0);
   g.ramp.fill(0);
   g.paved.fill(0);
@@ -61,20 +64,21 @@ const pond = (
       if (deep <= 0) continue;
       g.pool[i] = Math.min(255, Math.round(deep));
       g.fluid[i] = fluid;
+      edited(g);
     }
   }
 };
 
 /** A tap: positive feeds, negative drains. See the `source` layer. */
-const tap = (g: Grid, x: number, y: number, rate: number) => {
-  if (inBounds(g, x, y)) g.source[idx(g, x, y)] = rate;
-};
+const tap = (g: Grid, x: number, y: number, rate: number) => setSource(g, x, y, rate);
 
 /** How hard a fixture's springs run, in half steps a second. */
 const SPRING = 8;
 
 const pave = (g: Grid, x: number, y: number) => {
-  if (inBounds(g, x, y)) g.paved[idx(g, x, y)] = 1;
+  if (!inBounds(g, x, y)) return;
+  g.paved[idx(g, x, y)] = 1;
+  edited(g);
 };
 const paveRun = (g: Grid, x0: number, y0: number, x1: number, y1: number) => {
   const dx = Math.sign(x1 - x0), dy = Math.sign(y1 - y0);

@@ -46,7 +46,7 @@
  */
 import { addWater } from "../../fluid/columns";
 import type { Grid } from "../grid";
-import type { WaterField } from "./field";
+import { columnOf, type WaterField } from "./field";
 
 /**
  * The bore, in half steps from invert to crown.
@@ -362,15 +362,44 @@ function substep(
  * honest somewhere is the ground it was lying on. Left in the array it would
  * be counted by `totalVolume` for ever while belonging to nothing, which is a
  * leak with the sign the other way round.
+ *
+ * ON THE EDIT AND NOT EVERY FRAME. Water only gets into `pipe` and `held` by
+ * being pushed along a run, and every cell of a run carries pipe — so the only
+ * way a cell can come to be holding water it does not own is for the pipe
+ * under it to be taken away, which is an edit. Between edits this walk is four
+ * thousand cells to find none, and `grid.rev` is what says an edit happened.
+ *
+ * THE DROP AT THE MOUTH GOES TOO. It was left behind: `held` is real water
+ * hanging off a nozzle, and deleting the nozzle stranded it in an array
+ * nothing would ever read again while `waterAtMouths` went on counting it —
+ * the same leak this function exists to close, at the other end of the pipe.
  */
 export function spillOrphaned(field: WaterField, grid: Grid) {
-  const { pipe } = field;
+  if (field.spilled === grid.rev) return;
+  field.spilled = grid.rev;
+  const { pipe, held } = field;
   for (let i = 0; i < pipe.length; i++) {
-    if (pipe[i] <= 0 || grid.pipe[i]) continue;
+    if (grid.pipe[i]) continue;
+    const standing = pipe[i] + held[i];
+    if (standing <= 0) continue;
     const x = i % grid.w, y = (i / grid.w) | 0;
-    const cx = x * 4, cy = y * 4;                 // its own first column
-    addWater(field.columns, cx, cy, pipe[i], grid.fluid[i] || 1);
+    // ITS OWN FIRST COLUMN, through `columnOf` rather than a hardcoded four:
+    // the stride is `COLUMNS_PER_TILE` and this was the one place that knew
+    // it by its value instead of its name. At two columns to the tile it
+    // addressed a column in the wrong tile, and past the middle of the map,
+    // one off the end of the array.
+    //
+    // ONE COLUMN AND NOT THE TILE, which looks like the bug next to it and is
+    // not. Pipe volume and a single column's depth are the SAME UNIT here —
+    // `totalVolume` adds `waterInPipes` straight onto `totalWater`, and the
+    // mouth delivers with `addWater` at one column too. Spreading `standing`
+    // over the tile the way `pourAt` does puts that depth on every one of the
+    // sixteen, which would not spread the water, it would make sixteen times
+    // as much of it.
+    const cx = columnOf(x), cy = columnOf(y);
+    addWater(field.columns, cx, cy, standing, grid.fluid[i] || 1);
     pipe[i] = 0;
+    held[i] = 0;
     field.pipeFlux[i * 2] = 0;
     field.pipeFlux[i * 2 + 1] = 0;
   }

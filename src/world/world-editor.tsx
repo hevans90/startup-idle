@@ -8,22 +8,32 @@
  * inside it.
  */
 import { Application } from "@pixi/react";
+import { useEffect, useState } from "react";
+
+import { openDevice, type HeldGpu } from "./render/device";
 
 import { useResizeToWrapper } from "../hooks/use-resize-to-wrapper";
-import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
+import type { Overlays } from "../state/world.store";
 import { DEFAULT_SIZE, useWorldStore } from "../state/world.store";
-import "./debug/expose-store";
-import { bandCount } from "./iso";
-import { WorldScene } from "./world-scene";
-import { PerfHud } from "./debug/perf-hud";
-import { WorldViewport } from "./world-viewport";
-import { CellReadout } from "./debug/cell-readout";
-import { Minimap } from "./debug/minimap";
+import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
 import { Calibration } from "./debug/calibration";
+import { CellReadout } from "./debug/cell-readout";
 import { EditPanel } from "./debug/edit-panel";
+import "./debug/expose-store";
+import { GpuCheckHud } from "./debug/gpu-check-hud";
+import { GpuWaterToggle } from "./debug/gpu-water-toggle";
+import { Minimap } from "./debug/minimap";
+import { PerfHud } from "./debug/perf-hud";
 import { TileBrowser } from "./debug/tile-browser";
 import { useEditKeys } from "./edit/use-edit-keys";
-import type { Overlays } from "../state/world.store";
+import { bandCount } from "./iso";
+import { WorldScene } from "./world-scene";
+import { WorldViewport } from "./world-viewport";
+
+/** @see GpuCheckHud — six comparisons and a copy of the field per run. */
+const GPU_CHECK =
+  typeof location !== "undefined" &&
+  new URLSearchParams(location.search).has("gpucheck");
 
 /**
  * Which renderer to ask for: WebGPU, unless `?webgl=1` says otherwise.
@@ -34,12 +44,36 @@ import type { Overlays } from "../state/world.store";
  * blank map. This makes it one URL away.
  */
 const rendererAsked = (): "webgpu" | "webgl" =>
-  typeof location !== "undefined" && new URLSearchParams(location.search).has("webgl")
+  typeof location !== "undefined" &&
+  new URLSearchParams(location.search).has("webgl")
     ? "webgl"
     : "webgpu";
 
 export function WorldEditor() {
   const { ref: wrapperRef, setRef, size } = useResizeToWrapper();
+  /**
+   * THE DEVICE, MADE BEFORE THE RENDERER RATHER THAN BY IT.
+   *
+   * `undefined` while the ask is out, then an adapter and device, or `null` on
+   * WebGL and anywhere WebGPU is not to be had — in which case Pixi makes its
+   * own exactly as it always did. Nothing mounts until the ask has come back,
+   * because mounting first and swapping later would build the whole scene on
+   * the device we are trying to replace. @see openDevice
+   */
+  const [gpu, setGpu] = useState<HeldGpu | null | undefined>(undefined);
+  useEffect(() => {
+    if (rendererAsked() === "webgl") {
+      setGpu(null);
+      return;
+    }
+    let live = true;
+    void openDevice().then((g) => {
+      if (live) setGpu(g);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   useDisableDOMZoom({ wrapperRef });
   useEditKeys();
   const grid = useWorldStore((s) => s.grid);
@@ -55,14 +89,17 @@ export function WorldEditor() {
       {/* canvas — min-width so the flex child can never collapse to zero,
           which is the failure mode that makes v1's map-harness look broken */}
       <div ref={setRef} className="relative min-h-0 min-w-[420px] flex-1">
-        {size && (
+        {size && gpu !== undefined && (
           <Application
             resizeTo={wrapperRef}
             antialias
             autoDensity
+            // Pixi skips its own device when handed one. @see openDevice
+            {...(gpu ? { gpu } : {})}
             preference={rendererAsked()}
             resolution={Math.min(window.devicePixelRatio, 2)}
             backgroundColor={0x101418}
+            hello={true}
           >
             <WorldViewport screenSize={size}>
               <WorldScene screenSize={size} />
@@ -72,6 +109,12 @@ export function WorldEditor() {
         {/* anchored HTML — inside the wrapper but pointer-events-none, so it
             can never intercept a pick */}
         {import.meta.env.DEV && <PerfHud />}
+        {/* CPU or device, on the water in front of you. A real switch — see
+            `gpu-water-toggle`, and the cost note in `gpu/solver`. */}
+        {import.meta.env.DEV && <GpuWaterToggle />}
+        {/* Which compute passes agree with the CPU, on THIS map — behind
+            `?gpucheck`. Not a CPU/GPU switch; see `gpu-check-hud`. */}
+        {import.meta.env.DEV && GPU_CHECK && <GpuCheckHud />}
         <CellReadout />
       </div>
 
@@ -83,19 +126,28 @@ export function WorldEditor() {
 
         <dl className="grid grid-cols-2 gap-y-1 font-mono">
           <dt className="text-gray-400">size</dt>
-          <dd>{grid.w}×{grid.h}</dd>
+          <dd>
+            {grid.w}×{grid.h}
+          </dd>
           <dt className="text-gray-400">cells</dt>
           <dd>{(grid.w * grid.h).toLocaleString()}</dd>
           <dt className="text-gray-400">bands</dt>
           <dd>{total}</dd>
           <dt className="text-gray-400">drawn</dt>
-          <dd className={drawnBands < total ? "text-emerald-400" : "text-gray-100"}>
-            {drawnBands} <span className="text-gray-500">
+          <dd
+            className={
+              drawnBands < total ? "text-emerald-400" : "text-gray-100"
+            }
+          >
+            {drawnBands}{" "}
+            <span className="text-gray-500">
               ({total ? Math.round((drawnBands / total) * 100) : 0}%)
             </span>
           </dd>
           <dt className="text-gray-400">height</dt>
-          <dd>{grid.minHeight}…{grid.maxHeight}</dd>
+          <dd>
+            {grid.minHeight}…{grid.maxHeight}
+          </dd>
           <dt className="text-gray-400">hover</dt>
           <dd className={hover ? "text-emerald-300" : "text-gray-600"}>
             {hover ? `${hover.x},${hover.y}` : "—"}
@@ -104,8 +156,19 @@ export function WorldEditor() {
 
         <p className="mt-4 mb-1 text-gray-400">overlays</p>
         <div className="flex flex-wrap gap-1">
-          {(["grid", "bands", "height", "origin", "net", "mask", "gaps", "xray",
-            "faces"] as (keyof Overlays)[]).map((k) => (
+          {(
+            [
+              "grid",
+              "bands",
+              "height",
+              "origin",
+              "net",
+              "mask",
+              "gaps",
+              "xray",
+              "faces",
+            ] as (keyof Overlays)[]
+          ).map((k) => (
             <button
               key={k}
               type="button"

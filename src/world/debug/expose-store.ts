@@ -45,6 +45,10 @@ declare global {
      * counted from a console rather than looked at.
      */
     __falls?: unknown;
+    /** The device-built falls layer. @see createGpuFallLayer */
+    __sheets?: () => unknown;
+    /** The live device solver, for a harness. */
+    __solver?: () => unknown;
     /**
      * The GPU water layer, which is where the FOAM field lives.
      *
@@ -55,10 +59,82 @@ declare global {
      * console is the only place it can be read.
      */
     __waterGpu?: unknown;
+    /**
+     * The Pixi renderer, for the work that has to reach past Pixi's own API.
+     *
+     * The device-fed textures are the reason: asking what GPU object stands
+     * behind a `TextureSource`, and whether it can be copied into, is not a
+     * question Pixi's surface answers. Dev only.
+     */
+    __renderer?: unknown;
+    /** Turns the solver's readback off, to measure it. @see setReadback */
+    __readback?: (on: boolean) => void;
+    /** Forces the dispatch region to the whole map. @see setWholeMap */
+    __wholeMap?: (on: boolean) => void;
+    /** Leaves passes out of the frame, for bisecting a fault. @see setSkip */
+    __skip?: (names: string[]) => void;
+    /** Lips back as a list, or as five whole arrays. @see setFallList */
+    __fallList?: (list: boolean) => void;
+    /** Depth back by the band, or whole. @see setDepthBand */
+    __depthBand?: (band: boolean) => void;
+    /** Hides the water's meshes, to time the render without them. */
+    __showWater?: (show: boolean) => void;
+    /** Milliseconds of GPU per pass, averaged. @see Stamps */
+    __gpuTime?: () => {
+      of: Record<string, number>; total: number; frames: number;
+    } | null;
     /** Drives frames by hand, past the rAF throttle. See world-scene. */
     __waterBench?: (n?: number, sync?: boolean) => Promise<unknown>;
     /** Draws one scene both ways and compares the pixels. See water-compare. */
     __waterCompare?: (o?: Record<string, number>) => unknown;
+    /**
+     * Runs the compute spike and says whether the round trip held.
+     *
+     * Only under `?spike` — see `render/compute-spike`, which is the one
+     * question the whole compute port rests on.
+     */
+    __spike?: () => Promise<{ ok: boolean; why?: string; worst?: number }>;
+    /**
+     * One solver pass on the device against the same pass on the CPU.
+     *
+     * The instrument the compute port is built against — see
+     * `fluid/gpu/compare-pass`. `bun test` cannot run WGSL, so this is the
+     * only place the answer exists.
+     */
+    /**
+     * Every solver pass, run against the map on screen. See `gpu/check-live`.
+     */
+    __gpuCheck?: () => Promise<unknown>;
+    /** One pass, on a collapsing pour — the scene the limiter fires on. */
+    __pourPass?: (
+      settle?: number, through?: string, solo?: boolean,
+    ) => Promise<unknown>;
+    __accelCompare?: (
+      settle?: number, wind?: number,
+      through?: "diffuse" | "accelerate" | "limit" | "divergence" | "apply"
+      | "falls",
+      solo?: boolean,
+    ) => Promise<unknown>;
+    /** A pour between frames, on the device path. @see checkPour */
+    __pourCheck?: (
+      onWet?: boolean, breaking?: boolean, openEdge?: boolean, frames?: number,
+      wind?: number,
+    ) => Promise<unknown>;
+    /** The same pour, driven the way the tick drives it. @see checkPourLive */
+    __pourLive?: (
+      frames?: number, openEdge?: boolean, onWet?: boolean, twin?: boolean,
+      pace?: "frame" | "free", away?: number,
+    ) => string;
+    /** Where `__pourLive` leaves its answer. @see checkPourLive */
+    __pourLiveResult?: unknown;
+    /** Whole frames, both solvers. @see compareFrames */
+    __frameCompare?: (frames?: number, spray?: boolean) => Promise<unknown>;
+    /** The cliff index, both ways. @see compareCliffs */
+    __cliffCompare?: (
+      settle?: number, spray?: boolean, fresh?: boolean,
+    ) => Promise<unknown>;
+    /** The falls pass on a scene that actually SPRAYS. @see spray */
+    __sprayCompare?: (settle?: number, through?: string) => Promise<unknown>;
     /**
      * The band layer, so a console session can move the camera.
      *

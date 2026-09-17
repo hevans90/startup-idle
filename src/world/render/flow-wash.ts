@@ -27,7 +27,7 @@ import { flowX, flowY, type ColumnField } from "../../fluid/columns";
  * seconds. A streak comes out about this long in tiles times the speed of the
  * water, so at one and a half tiles a second this is a streak a tile long.
  */
-const SETTLE = 0.7;
+export const SETTLE = 0.7;
 
 /**
  * The still pattern: three waves at angles and wavelengths that do not divide

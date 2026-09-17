@@ -56,22 +56,41 @@ export function useCellAnchorFollow(
 
   useEffect(() => {
     let alive = true;
+    /**
+     * WHAT WAS LAST WRITTEN, so that a still mouse over a still camera costs
+     * nothing but the arithmetic.
+     *
+     * This wrote the transform and the visibility on EVERY frame, whether or
+     * not either had changed — a string built and two style properties set,
+     * sixty times a second, for ever. In a profile of a single pour it came to
+     * eleven per cent of the trace, more than the whole of the Pixi tick on
+     * the device path. A DOM write is not free just because the value is the
+     * same.
+     */
+    let wasX = NaN, wasY = NaN, shown = false;
+    // Hoisted: a closure per frame is a closure per frame.
+    let vp: { toScreen: (x: number, y: number) => { x: number; y: number } } | null = null;
+    const toScreen = (x: number, y: number) => vp!.toScreen(x, y);
 
     const place = () => {
       if (!alive) return;
       raf.current = requestAnimationFrame(place);
       const el = ref.current;
       if (!el) return;
-      const s = useWorldStore.getState();
-      const { hover, viewport, grid, scale } = s;
+      const { hover, viewport, grid, scale } = useWorldStore.getState();
       if (!hover || !viewport) {
-        if (el.style.visibility !== "hidden") el.style.visibility = "hidden";
+        if (shown) { el.style.visibility = "hidden"; shown = false; }
         return;
       }
       const h = grid.height[hover.y * grid.w + hover.x] ?? 0;
-      const p = projectCell(hover, h, scale, (x, y) => viewport.toScreen(x, y), lift);
-      el.style.visibility = "visible";
-      el.style.transform = `translate3d(${Math.round(p.x)}px, ${Math.round(p.y)}px, 0)`;
+      vp = viewport;
+      const p = projectCell(hover, h, scale, toScreen, lift);
+      const x = Math.round(p.x), y = Math.round(p.y);
+      if (!shown) { el.style.visibility = "visible"; shown = true; }
+      if (x !== wasX || y !== wasY) {
+        wasX = x; wasY = y;
+        el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      }
     };
 
     raf.current = requestAnimationFrame(place);

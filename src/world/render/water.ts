@@ -300,7 +300,18 @@ export function destroyWaterLayer(wl: WaterLayer) {
  * surface, its sides and its falls come to disagree about being the same
  * water.
  */
-export const solid = (much: number) => 0.30 + 0.62 * Math.min(1, much);
+/**
+ * The two ends of the opacity ramp, NAMED so the shaders can be given them.
+ *
+ * They were literals inside `solid`, which was fine while `solid` was the only
+ * statement of it — and it is not: `sheet.ts` writes the same two numbers into
+ * WGSL by hand. @see sheetRuleSource
+ */
+export const SOLID_FLOOR = 0.30;
+export const SOLID_RANGE = 0.62;
+
+export const solid = (much: number) =>
+  SOLID_FLOOR + SOLID_RANGE * Math.min(1, much);
 
 /**
  * How solid a given DEPTH of this fluid is drawn, nought to one.

@@ -9,8 +9,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  DROP, createDrips, dripFrom, fadeSplashes, resetMouths, runMouth, stepDrips,
-  waterInDrips, wobbleOf,
+  DROP, SPLASH_LIFE, createDrips, dripFrom, fadeSplashes, markSplash,
+  resetMouths, runMouth, stepDrips, waterInDrips, wobbleOf,
 } from "./drips";
 import { FALL_GRAVITY } from "./falls";
 import {
@@ -191,6 +191,62 @@ describe("a drop landing in the simulation", () => {
     for (let n = 0; n < 60; n++) fadeSplashes(f.drips, 1 / 60);
     expect(f.drips.splash[i]).toBe(0);
     expect(f.drips.splashed).toBe(false);
+  });
+});
+
+describe("the marks a landing leaves are a LIST", () => {
+  const marks = (d: ReturnType<typeof createDrips>) => {
+    let n = 0;
+    for (let i = 0; i < d.splash.length; i++) if (d.splash[i] > 0) n++;
+    return n;
+  };
+
+  test("and the list is exactly the marks, however they come and go", () => {
+    // What fades them walks the list, so a mark the list has lost is a mark
+    // nothing will ever clear — it would sit at its value for the rest of the
+    // session and be drawn as fresh white water whenever anything else lit up.
+    const d = createDrips(24, 24);
+    for (const i of [5, 5, 300, 12, 300]) markSplash(d, i, 0.5);
+    expect(d.nlit).toBe(3);                       // three columns, not five marks
+    expect(marks(d)).toBe(3);
+    expect(d.splashed).toBe(true);
+
+    // A brighter mark on a lit column is the same column, not another entry.
+    markSplash(d, 5, 0.9);
+    expect(d.splash[5]).toBeCloseTo(0.9, 6);
+    expect(d.nlit).toBe(3);
+    // And a dimmer one does not dim it.
+    markSplash(d, 5, 0.1);
+    expect(d.splash[5]).toBeCloseTo(0.9, 6);
+
+    // Fading drops them as they go out, and the list tracks it the whole way.
+    for (let n = 0; n < 200; n++) {
+      fadeSplashes(d, 1 / 60);
+      expect(d.nlit).toBe(marks(d));
+      expect(d.splashed).toBe(d.nlit > 0);
+    }
+    expect(d.nlit).toBe(0);
+    // Still usable afterwards: the compaction must not have left the array in
+    // a state where the next mark lands on a stale entry.
+    markSplash(d, 77, 0.4);
+    expect(d.nlit).toBe(1);
+    expect(d.lit[0]).toBe(77);
+  });
+
+  test("a mark out of bounds is no mark, and does not take a slot", () => {
+    const d = createDrips(8, 8);
+    markSplash(d, -1, 1);
+    markSplash(d, 64, 1);
+    expect(d.nlit).toBe(0);
+    expect(d.splashed).toBe(false);
+  });
+
+  test("and they fade on the clock, not on being looked at", () => {
+    const d = createDrips(8, 8);
+    markSplash(d, 3, 1);
+    fadeSplashes(d, SPLASH_LIFE);
+    expect(d.splash[3]).toBeCloseTo(Math.exp(-1), 5);
+    expect(d.nlit).toBe(1);
   });
 });
 
@@ -375,5 +431,42 @@ describe("the drop still hanging at a mouth", () => {
       runMouth(d, pending, DROP, 1 / 60, 4, 4, 12, 1);
     }
     expect(d.mouths).toBe(1);
+  });
+});
+
+/**
+ * THE RINGING HAS A TIMESTEP IT CANNOT OUTRUN.
+ *
+ * `wobbleOf` goes as the inverse square root of the volume, so the smaller the
+ * drop the faster it rings, and the semi-implicit integrator holds only while
+ * `w * dt` stays near two. A crown fleck is small enough to break it.
+ */
+describe("a fleck ringing faster than the step", () => {
+  test("the shape stays finite where it used to reach NaN", () => {
+    const d = createDrips(64);
+    const volume = DROP * 0.002;                 // an ordinary crown fleck
+    dripFrom(d, 4, 4, 20, volume, 1, 0, 0, -1);
+    // Unclamped this is 12.9 radians a step, and the shape grew about 167x a
+    // step and was NaN inside forty frames.
+    expect(wobbleOf(volume) * (1 / 60)).toBeGreaterThan(2);
+    for (let n = 0; n < 240; n++) stepDrips(d, 1 / 60, () => -1000, () => 0);
+    expect(Number.isFinite(d.shape[0])).toBe(true);
+    expect(Math.abs(d.shape[0])).toBeLessThan(2);
+  });
+
+  test("and at a frame long enough to break even a whole drop", () => {
+    const d = createDrips(64);
+    dripFrom(d, 4, 4, 400, DROP, 1, 0, 0, -1);
+    // 0.2 s is the solver's own ceiling on a frame, and a whole DROP rings at
+    // 34.6 — seven radians a step.
+    expect(wobbleOf(DROP) * 0.2).toBeGreaterThan(2);
+    for (let n = 0; n < 60; n++) stepDrips(d, 0.2, () => -1000, () => 0);
+    expect(Number.isFinite(d.shape[0])).toBe(true);
+  });
+
+  test("an ordinary drop at an ordinary frame is not touched by the clamp", () => {
+    // 0.58 radians a step — nowhere near the limit, so the shape it rings
+    // through must be the unclamped one.
+    expect(wobbleOf(DROP) * (1 / 60)).toBeLessThan(1.5);
   });
 });

@@ -13,7 +13,7 @@ import {
   COLUMNS_PER_TILE, createWaterField, pourAt, runSources, stepWater, syncGround,
   type WaterField,
 } from "../water/field";
-import { createGrid, fillTerrain, setHeight } from "../grid";
+import { createGrid, fillTerrain, setHeight, setSource } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { createBandLayer } from "./bands";
 import { colourAt, quadAt, type QuadBatch } from "./quads";
@@ -791,7 +791,7 @@ describe("running water reads as running", () => {
         setHeight(grid, x, y, Math.round((22 - x) * 0.5) + (y <= 3 || y >= 8 ? 6 : 0));
       }
     }
-    grid.source[6 * 24 + 2] = 8;
+    setSource(grid, 2, 6, 8);
     const field = createWaterField(grid);
     const bands = createBandLayer(24, 12);
     const wl = createWaterLayer(field, bands, 1);

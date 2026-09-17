@@ -4,8 +4,9 @@
  * Four numbers, and it matters which is which, because they answer different
  * questions and only one of them is the renderer's.
  *
- *   SOLVE   the water stepping — `stepWater`. On a flooded map this is the
- *           biggest single cost in the whole frame, and it is not drawing.
+ *   SOLVE   the water stepping. On the host path this is the biggest single
+ *           cost in the whole frame and it is not drawing; on the device it is
+ *           about a tenth of a millisecond, and the render is what is left.
  *   BUILD   turning the simulation into geometry. On the shader path that is
  *           a handful of uniforms and the falls; on `?cpuwater=1` it is a
  *           quarter of a million corners, which is what the shader path was
@@ -20,12 +21,17 @@
  *           while the real number on a flooded map is the solver.
  *   FRAME   the interval between frames, which is what FPS is made of.
  *
- * WHAT IS NOT HERE, deliberately: the time the GPU spends executing. Reading
- * that wants `timestamp-query`, which has to be asked for when the device is
- * created, and the device is Pixi's. So the last line is `frame - js`, the
- * time nobody in JavaScript accounted for — which is vsync when it sits near
- * the refresh interval and the GPU falling behind when it does not. Labelled
- * as the estimate it is rather than as a measurement it is not.
+ * THE LAST LINE IS `frame - js`, the time nobody in JavaScript accounted for —
+ * vsync when it sits near the refresh interval, the GPU falling behind when it
+ * does not. Labelled as the estimate it is rather than as a measurement it is
+ * not.
+ *
+ * It used to say the GPU's own time could not be had at all, because
+ * `timestamp-query` must be asked for when a device is created and the device
+ * was Pixi's. It is not Pixi's any more — `render/device` makes it, with that
+ * feature where it exists, and hands it over. `__gpuTime` reads the real
+ * per-pass cost. This estimate is kept because it is the one number available
+ * on every path, including WebGL. @see openDevice, holdStamps
  *
  * Rolling averages, because a single frame is mostly noise: a garbage
  * collection or a scheduler hiccup swamps the thing being measured, and what
@@ -66,7 +72,7 @@ export function perfAdd(slot: PerfSlot, ms: number) {
 }
 
 /**
- * Longest a frame can be and still count, in ms.
+ * Longest a frame can be and still count, in ms — AND ONLY AGAINST THE REST.
  *
  * A frame that follows a STALL is not a frame anyone wants averaged in. The
  * browser parks rAF whenever the page is not visible, so the first frame back
@@ -75,10 +81,24 @@ export function perfAdd(slot: PerfSlot, ms: number) {
  * of twenty is a readout made entirely of the atypical, and it is how a submit
  * of half a millisecond came to be shown as nearly four.
  *
- * Three frames at sixty. Anything slower than that is a stall and not a frame,
- * and the honest thing is to drop it rather than average it.
+ * THIS USED TO BE A FLAT CEILING and that was much worse than the thing it
+ * was guarding against. Fifty milliseconds is three frames at sixty, so any
+ * app sustained under twenty frames a second had EVERY frame dropped — and
+ * the ring keeps whatever it last held, so the readout froze at the last
+ * twenty fast frames and stayed there. Not wrong slowly: frozen, silently,
+ * for ever, and showing a healthy number while the thing in front of you
+ * stuttered. It is exactly when a readout is most needed that it went blind,
+ * and it made every measurement taken across a slow patch a measurement of
+ * the patch before it.
+ *
+ * So a frame is dropped when it is long AND OUT OF CHARACTER — several times
+ * what the window has been seeing. A wake-up after a second asleep is sixty
+ * times the mean and goes; a map that has settled into fifty-five milliseconds
+ * a frame is not an outlier by the third one, and is reported.
  */
 const STALL = 50;
+/** How many times the running mean counts as out of character. @see STALL */
+const OUTLIER = 4;
 
 /** Close the frame off and start the next. */
 export function perfFrame() {
@@ -87,7 +107,9 @@ export function perfFrame() {
   last = t;
   // Dropped, not counted: see `STALL`. The slots still have to be cleared, or
   // the stalled frame's work lands on the next one's tally.
-  if (gap > 0 && gap <= STALL) {
+  const seen = mean(rings.frame);
+  const odd = gap > STALL && rings.frame.n >= WINDOW && gap > seen * OUTLIER;
+  if (gap > 0 && !odd) {
     put(rings.frame, gap);
     for (const s of SLOTS) put(rings[s], now[s]);
   }

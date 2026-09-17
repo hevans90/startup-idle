@@ -8,12 +8,13 @@
 import { describe, expect, test } from "bun:test";
 
 import { DIR } from "../../iso/dir";
-import { createGrid, fillTerrain, idx, setHeight } from "../grid";
+import { createGrid, edited, fillTerrain, idx, setHeight } from "../grid";
 import { createPipeNets, findPipeNets } from "./pipe-net";
 import {
   COLUMNS_PER_TILE, columnOf, createWaterField, depthAt, drainAt, pourAt, setWaterEdge, stepWater,
   totalVolume, waterInPipes,
 } from "./field";
+import { spillOrphaned } from "./pipe-flow";
 import {
   PIPE_D, PIPE_FULL, PIPE_HEAD, facingFor, layPipe, pipeLevelAt, pipeMouth, runPipes,
 } from "./pipes";
@@ -112,7 +113,7 @@ describe("a pipe running", () => {
     setWaterEdge(f, false);
     layPipe(g, 5, 6, DIR.S);
     live(f, g, 20);
-    expect(totalVolume(f)).toBe(0);
+    expect(totalVolume(f, g)).toBe(0);
   });
 
   test("carries what it is given, and none of it goes missing", () => {
@@ -121,13 +122,13 @@ describe("a pipe running", () => {
     // mouth. Nothing anywhere is making water, so this is the strictest form
     // the check can take: not "accounted for", but unchanged.
     const { g, f } = rig();
-    const before = totalVolume(f);
+    const before = totalVolume(f, g);
     for (let n = 0; n < 60 * 4; n++) {
       runPipes(f, g, 1 / 60);
       stepWater(f, 1 / 60);
-      expect(totalVolume(f)).toBeCloseTo(before, 3);
+      expect(totalVolume(f, g)).toBeCloseTo(before, 3);
     }
-    expect(waterInPipes(f)).toBeGreaterThan(0);   // and it did pick some up
+    expect(waterInPipes(f, g)).toBeGreaterThan(0);   // and it did pick some up
   });
 
   test("in DROPS — it is not a continuous trickle", () => {
@@ -195,13 +196,13 @@ describe("pipes that touch are one pipe", () => {
     const { g, f } = flatNet();
     for (let x = 4; x <= 8; x++) layPipe(g, x, 6, DIR.S);
     for (const i of [4, 5, 6, 7, 8]) f.pipe[idx(g, i, 6)] = 0.4;
-    const held = waterInPipes(f);
+    const held = waterInPipes(f, g);
     layPipe(g, 6, 6, 0);                     // cut it in the middle
     expect(findPipeNets(g, createPipeNets(g.w, g.h)).count).toBe(2);
     // The cut cell's own water is orphaned, but nothing in either half moved.
     expect(f.pipe[idx(g, 4, 6)]).toBeCloseTo(0.4, 6);
     expect(f.pipe[idx(g, 8, 6)]).toBeCloseTo(0.4, 6);
-    expect(waterInPipes(f)).toBe(held);
+    expect(waterInPipes(f, g)).toBe(held);
   });
 });
 
@@ -234,8 +235,8 @@ describe("a port is one rule, whichever way the water is going", () => {
 
     run(wet.f, wet.g, 0.25);
     run(dry.f, dry.g, 0.25);
-    expect(waterInPipes(wet.f)).toBeGreaterThan(PIPE_FULL);  // full, and then some
-    expect(waterInPipes(dry.f)).toBeLessThan(PIPE_FULL * 0.2);
+    expect(waterInPipes(wet.f, wet.g)).toBeGreaterThan(PIPE_FULL);  // full, and then some
+    expect(waterInPipes(dry.f, dry.g)).toBeLessThan(PIPE_FULL * 0.2);
     // Past full it is communicating vessels: the pipe comes up to the pond's
     // own surface and stops, the extra standing in the slot as pressure.
     expect(pipeLevelAt(wet.g, wet.f, 5, 7)).toBeCloseTo(5, 0);
@@ -276,7 +277,7 @@ describe("a port is one rule, whichever way the water is going", () => {
     };
 
     run(f, g, 3);
-    const spouting = waterInPipes(f);
+    const spouting = waterInPipes(f, g);
     expect(low()).toBeGreaterThan(0);             // it is discharging, downhill
 
     // Turn it round. The shelf is wiped dry so nothing is feeding the pipe
@@ -288,18 +289,18 @@ describe("a port is one rule, whichever way the water is going", () => {
     // Dry to within a trace — spray from the flood being poured in lands a
     // hundredth of a unit up there, which is not a route for anything.
     expect(shelf()).toBeLessThan(0.01);
-    const held = totalVolume(f);
+    const held = totalVolume(f, g);
     run(f, g, 4);
 
     // It has backed up, and it has come to the FLOOD's own level: the two are
     // communicating vessels through the drowned hole, which is the same rule
     // that was carrying water the other way a moment ago.
-    expect(waterInPipes(f)).toBeGreaterThan(spouting * 2);
+    expect(waterInPipes(f, g)).toBeGreaterThan(spouting * 2);
     expect(pipeLevelAt(g, f, 5, 6)).toBeCloseTo(12, 0);
     // Nothing came over the ground, and nothing anywhere made any — so what
     // is now standing in the pipe can only have come up out of the flood.
     expect(shelf()).toBeLessThan(0.01);
-    expect(totalVolume(f)).toBeCloseTo(held, 2);
+    expect(totalVolume(f, g)).toBeCloseTo(held, 2);
     void low;
   });
 
@@ -353,11 +354,11 @@ describe("a port is one rule, whichever way the water is going", () => {
     for (const [x, d] of [[4, DIR.N], [5, DIR.S], [6, DIR.S], [7, DIR.S]] as const) {
       layPipe(g, x, 7, d);
     }
-    const before = totalVolume(f);
+    const before = totalVolume(f, g);
     for (let n = 0; n < 60 * 3; n++) {
       runPipes(f, g, 1 / 60);
       stepWater(f, 1 / 60);
-      expect(totalVolume(f)).toBeCloseTo(before, 2);
+      expect(totalVolume(f, g)).toBeCloseTo(before, 2);
     }
   });
 
@@ -379,14 +380,14 @@ describe("a port is one rule, whichever way the water is going", () => {
     for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) pourAt(f, x, y, 8, 1);
     for (let n = 0; n < 120; n++) stepWater(f, 1 / 60);
 
-    const held = totalVolume(f);
+    const held = totalVolume(f, g);
     for (let n = 0; n < 60 * 6; n++) { runPipes(f, g, 1 / 60); stepWater(f, 1 / 60); }
-    const at6 = waterInPipes(f);
+    const at6 = waterInPipes(f, g);
     for (let n = 0; n < 60 * 6; n++) { runPipes(f, g, 1 / 60); stepWater(f, 1 / 60); }
 
     expect(at6).toBeGreaterThan(5 * PIPE_FULL);        // past the crown
-    expect(waterInPipes(f)).toBeCloseTo(at6, 0);       // and no longer rising
-    expect(totalVolume(f)).toBeCloseTo(held, 2);       // out of the pool, not thin air
+    expect(waterInPipes(f, g)).toBeCloseTo(at6, 0);       // and no longer rising
+    expect(totalVolume(f, g)).toBeCloseTo(held, 2);       // out of the pool, not thin air
     let mean = 0;
     for (let x = 4; x <= 8; x++) mean += pipeLevelAt(g, f, x, 7) / 5;
     // Up to about the pool's own surface. About, and not exactly: past the
@@ -409,10 +410,10 @@ describe("a port is one rule, whichever way the water is going", () => {
     for (let x = 4; x <= 8; x++) layPipe(g, x, 7, DIR.S);
     layPipe(g, 8, 7, DIR.N);                 // sealed at both ends: it stays in
     f.pipe[idx(g, 4, 7)] = PIPE_FULL;             // charged at the high end
-    const put = waterInPipes(f);
+    const put = waterInPipes(f, g);
 
     for (let n = 0; n < 60 * 8; n++) { runPipes(f, g, 1 / 60); stepWater(f, 1 / 60); }
-    expect(waterInPipes(f)).toBeCloseTo(put, 5);  // sealed, so all of it is still there
+    expect(waterInPipes(f, g)).toBeCloseTo(put, 5);  // sealed, so all of it is still there
     expect(f.pipe[idx(g, 8, 7)]).toBeGreaterThan(f.pipe[idx(g, 4, 7)]);
     expect(f.pipe[idx(g, 4, 7)]).toBeLessThan(PIPE_FULL * 0.1);   // the top has drained
   });
@@ -437,7 +438,7 @@ describe("a port is one rule, whichever way the water is going", () => {
     expect(g.pipeZ[idx(g, 10, 9)]).toBe(0);                     // under twenty of rock
 
     for (let y = 7; y <= 11; y++) for (let x = 1; x <= 8; x++) pourAt(f, x, y, 6, 1);
-    const before = totalVolume(f);
+    const before = totalVolume(f, g);
     const beyond = () => {
       let sum = 0;
       for (let y = 0; y < 20; y++) for (let x = 11; x < 20; x++) sum += depthAt(f, x, y);
@@ -447,7 +448,7 @@ describe("a port is one rule, whichever way the water is going", () => {
 
     for (let n = 0; n < 60 * 25; n++) { runPipes(f, g, 1 / 60); stepWater(f, 1 / 60); }
     expect(beyond()).toBeGreaterThan(0);               // water on the far side
-    expect(totalVolume(f)).toBeCloseTo(before, 2);     // and none of it invented
+    expect(totalVolume(f, g)).toBeCloseTo(before, 2);     // and none of it invented
   }, 20000);
 
   test("and the middle of a buried run is SEALED, so it is a conduit", () => {
@@ -470,6 +471,66 @@ describe("a port is one rule, whichever way the water is going", () => {
     // ten-millionth of a unit of float noise is not a leak; a sealed port is a
     // `continue`, and nothing crosses it at all.
     expect(depthAt(f, 10, 8)).toBeLessThan(1e-6);
-    expect(waterInPipes(f)).toBeGreaterThan(0);
+    expect(waterInPipes(f, g)).toBeGreaterThan(0);
   }, 20000);
+});
+
+/**
+ * WATER LEFT IN A PIPE THAT IS NO LONGER THERE.
+ *
+ * Deleting a run strands whatever was standing in it: off the networks at
+ * once, still in the array, and counted by `waterInPipes` until somebody
+ * sweeps it. `spillOrphaned` is that sweep.
+ *
+ * These pin the two things about it that are easy to get wrong, and one of
+ * them is a trap: pipe volume and a single column's DEPTH are the same unit
+ * here — `totalVolume` adds `waterInPipes` straight onto `totalWater` — so
+ * the spill puts the whole standing amount on ONE column. Spreading it over
+ * the tile the way `pourAt` does would put that depth on each of sixteen and
+ * make sixteen times the water.
+ */
+describe("spilling an orphaned pipe", () => {
+  /** Strand `amount` in the pipe at a tile, then delete the pipe. */
+  const orphan = (w: number, h: number, tx: number, ty: number, amount: number) => {
+    const g = flat(w, h);
+    const f = createWaterField(g);
+    layPipe(g, tx, ty, DIR.E);
+    f.pipe[idx(g, tx, ty)] = amount;
+    g.pipe[idx(g, tx, ty)] = 0;                    // the run is gone
+    edited(g);
+    return { g, f };
+  };
+
+  test("not a drop is gained or lost", () => {
+    const { g, f } = orphan(12, 12, 5, 5, 3);
+    const before = totalVolume(f, g);
+    spillOrphaned(f, g);
+    expect(totalVolume(f, g)).toBeCloseTo(before, 10);
+    expect(waterInPipes(f, g)).toBe(0);
+  });
+
+  /**
+   * AND IT LANDS AT `columnOf`, not at a hardcoded stride.
+   *
+   * These agree while `COLUMNS_PER_TILE` is four, so this passes either way
+   * today — it is here for the day somebody tries two, which the plan
+   * contemplates. With the literal left behind, the spill lands in the wrong
+   * tile, and past the middle of the map, off the end of the array.
+   */
+  test("lands on the tile's own first column, by name and not by value", () => {
+    const tx = 9, ty = 7, amount = 3;
+    const { g, f } = orphan(12, 12, tx, ty, amount);
+    spillOrphaned(f, g);
+    expect(depthAt(f, tx, ty)).toBeGreaterThan(0);
+    const c = f.columns;
+    expect(c.depth[columnOf(ty) * c.nx + columnOf(tx)]).toBeCloseTo(amount, 10);
+    // ONE column of the tile, not all COLUMNS_PER_TILE squared of them.
+    let wet = 0;
+    for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
+      for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
+        if (c.depth[(columnOf(ty) + dy) * c.nx + columnOf(tx) + dx] > 0) wet++;
+      }
+    }
+    expect(wet).toBe(1);
+  });
 });

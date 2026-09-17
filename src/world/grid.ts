@@ -142,7 +142,35 @@ export type Grid = {
   /** Cached bounds of `height`, kept current by {@link setHeight}. */
   minHeight: number;
   maxHeight: number;
+  /**
+   * Bumped by every edit to a layer. @see edited
+   *
+   * WHAT THE MAP IS MADE OF CHANGES WHEN SOMEBODY CHANGES IT, and at no other
+   * time — which is obvious, and which the simulation spent every frame
+   * rediscovering. Where the springs are, where the pipes are, which cells the
+   * pipes join into a run: all of these were walked out of the whole grid
+   * sixty times a second to find a handful of cells that had been sitting
+   * there since the last click.
+   *
+   * One counter rather than one per layer. A height edit then rebuilds the
+   * spring list too, which is work that was not needed — but edits happen at
+   * the speed of a hand, and one number to remember to bump is a great deal
+   * safer than nine. What a missed bump costs is a list that is quietly wrong,
+   * so every mutator goes through {@link edited} and a test holds each of them
+   * to it.
+   */
+  rev: number;
 };
+
+/**
+ * Say that the map has changed.
+ *
+ * Every write to a layer array goes through here — the setters below,
+ * {@link fillTerrain}, `layPipe`, `applyPatches`, the fixtures and the
+ * loader. Anything derived from the grid that is kept between frames
+ * remembers the `rev` it was built at and rebuilds when it does not match.
+ */
+export const edited = (g: Grid) => { g.rev++; };
 
 export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
   if (!Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) {
@@ -165,6 +193,7 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     nextStructureId: 1,
     minHeight: 0,
     maxHeight: 0,
+    rev: 0,
   };
   if (terrainFill !== VOID) g.terrain.fill(terrainFill);
   g.structureAt.fill(-1);
@@ -187,7 +216,9 @@ export const fluidAt = (g: Grid, x: number, y: number) =>
   inBounds(g, x, y) ? g.fluid[idx(g, x, y)] : VOID;
 
 export function setFluid(g: Grid, x: number, y: number, v: number) {
-  if (inBounds(g, x, y)) g.fluid[idx(g, x, y)] = v;
+  if (!inBounds(g, x, y)) return;
+  g.fluid[idx(g, x, y)] = v;
+  edited(g);
 }
 
 /** Rate in or out at a cell; 0 where there is no spring or drain. */
@@ -229,6 +260,7 @@ export function footprintCells(x: number, y: number, w: number, h: number) {
 export function stampFootprint(g: Grid, s: Structure, id = s.id) {
   for (const c of footprintCells(s.x, s.y, s.w, s.h)) {
     if (inBounds(g, c.x, c.y)) g.structureAt[idx(g, c.x, c.y)] = id;
+  edited(g);
   }
 }
 
@@ -265,15 +297,36 @@ export const heightAt = (g: Grid, x: number, y: number): number | null =>
   inBounds(g, x, y) ? g.height[idx(g, x, y)] : null;
 
 export function setTerrain(g: Grid, x: number, y: number, v: number) {
-  if (inBounds(g, x, y)) g.terrain[idx(g, x, y)] = v;
+  if (!inBounds(g, x, y)) return;
+  g.terrain[idx(g, x, y)] = v;
+  edited(g);
 }
 
 export function setPaved(g: Grid, x: number, y: number, v: number) {
-  if (inBounds(g, x, y)) g.paved[idx(g, x, y)] = v;
+  if (!inBounds(g, x, y)) return;
+  g.paved[idx(g, x, y)] = v;
+  edited(g);
+}
+
+/**
+ * Put a spring or a drain on a cell, or take one off. @see Grid.source
+ *
+ * A SETTER, where the layer had none and callers wrote the array. Every other
+ * layer has had one all along; this one did not, and the day the spring list
+ * started being kept between frames that stopped being a cosmetic difference —
+ * a raw write is an edit the map never hears about, and the list goes on
+ * running the springs that were there before it.
+ */
+export function setSource(g: Grid, x: number, y: number, rate: number) {
+  if (!inBounds(g, x, y)) return;
+  g.source[idx(g, x, y)] = rate;
+  edited(g);
 }
 
 export function setRamp(g: Grid, x: number, y: number, v: RampDir) {
-  if (inBounds(g, x, y)) g.ramp[idx(g, x, y)] = v;
+  if (!inBounds(g, x, y)) return;
+  g.ramp[idx(g, x, y)] = v;
+  edited(g);
 }
 
 /** Sets height and keeps the cached range correct (widen now, rescan on shrink). */
@@ -283,6 +336,7 @@ export function setHeight(g: Grid, x: number, y: number, v: number) {
   const prev = g.height[i];
   if (prev === v) return;
   g.height[i] = v;
+  edited(g);
   if (v > g.maxHeight || v < g.minHeight) {
     // widening is O(1)
     g.maxHeight = Math.max(g.maxHeight, v);
@@ -307,6 +361,7 @@ export function recomputeHeightRange(g: Grid) {
 /** Fill the whole map with one terrain material at height 0. */
 export function fillTerrain(g: Grid, material: number) {
   g.terrain.fill(material);
+  edited(g);
 }
 
 /** Iterate every cell of one band (`x + y === band`), ascending in x. */

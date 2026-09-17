@@ -33,7 +33,8 @@ import {
   createFalls, dropAt, intoAir, markCliffs, stepFalls, waterInAir, type FallState,
 } from "./falls";
 import {
-  ACROSS, createDrips, crown, dripRoom, fadeSplashes, stepDrips, waterInDrips, type DripState,
+  ACROSS, createDrips, crown, fadeSplashes, markSplash, stepDrips, waterInDrips,
+  type DripState,
 } from "./drips";
 
 /**
@@ -200,6 +201,24 @@ export type ColumnField = {
   readonly params: FlowParams;
   /** Ground height per column. Callers keep this in step with the terrain. */
   readonly ground: Float32Array;
+  /**
+   * BUMPED WHENEVER THE TERRAIN UNDER THE WATER CHANGES.
+   *
+   * The device keeps its own copy of the ground and the host's used to be sent
+   * up every frame — a quarter of a megabyte to say what it said last frame,
+   * because the editor changes terrain and nothing was telling the solver when.
+   * This is that telling. @see syncGround
+   *
+   * A COUNTER AND NOT A FLAG, so that nobody has to remember to clear it, and
+   * a reader that missed a frame still sees a difference.
+   *
+   * `ground` is a public array and things do write to it directly — fixtures,
+   * tests — which is reasonable and is why this is worth naming: a writer that
+   * does not bump it leaves the device holding terrain that has moved. The
+   * editor's path goes through `syncGround` and is covered; a fixture replaces
+   * the grid, which rebuilds the scene and the solver with it.
+   */
+  groundRev: number;
   /** Water depth per column, never negative. */
   readonly depth: Float32Array;
   /** Flux on the +x edge of each column, and on the +y edge. */
@@ -207,6 +226,84 @@ export type ColumnField = {
   readonly fy: Float32Array;
   /** Scratch for one step's depth change, so a step allocates nothing. */
   readonly delta: Float32Array;
+  /**
+   * WHAT A STEP'S LANDINGS ADD UP TO, before any of it is applied.
+   *
+   * A fall used to land straight into the depth, and the next fall in the same
+   * step then read that depth — for whether the cell was dry, which decides
+   * its material, and for how deep it is, which sets both the plunge's cap and
+   * whether it kicks at all. So the answer depended on which lip the loop
+   * reached first. Measured, over ONE step with the cliff set walked
+   * backwards: 3104 of 9600 values differed, the worst by 18.4 against a scale
+   * of 29.4. Disabling only the landing took that to 1.16 — sixteen times
+   * smaller — which is what named it.
+   *
+   * That is a latent fault on its own, since nothing guarantees the order
+   * `markCliffs` emits edges in. It is fatal on a device, where there is no
+   * order at all.
+   *
+   * So a landing accumulates: the WATER into `landing`, its momentum into
+   * `impulse`, and the material of the biggest arrival into `landMat` by the
+   * same argmax rule the divergence uses. Nothing reads a depth another
+   * landing has changed, because nothing has changed one yet.
+   */
+  /**
+   * How much room the drip list has, sampled ONCE at the top of a step.
+   *
+   * `dripRoom` read as each fall is reached gives whoever is reached first the
+   * drops — and a drop is water, taken out of the sheet by `shedSpray` and
+   * held back from the pool by the plunge's crown. So the budget, which is a
+   * drawing allowance, decided the water, and the answer depended on the order
+   * `markCliffs` happened to emit edges in.
+   *
+   * Sampled once, every fall in a step sees the same allowance and the water
+   * comes out the same whichever way the set is walked. What is left over is
+   * only WHICH drops get their own slot when the list is full — and a drop
+   * that does not fit merges into another rather than being lost, so no water
+   * turns on it.
+   */
+  room: number;
+  /**
+   * WHY THESE ARE DOUBLES, and it is not precision for its own sake.
+   *
+   * Banking a landing rather than applying it is what makes the falls
+   * commute — but only if the BANK itself commutes, and in an f32 array it
+   * does not. Every term arriving here is computed in f64 (`amount * speed`,
+   * say) and `+=` on a Float32Array rounds after each one, so two lips
+   * landing in one cell give `fl32(fl32(A) + B)` one way round and
+   * `fl32(fl32(B) + A)` the other, and those are different numbers. Two terms
+   * is enough; associativity never comes into it.
+   *
+   * It cost a real measurement to see. `falls-order.test.ts` went red on a
+   * scene where exactly two lips met, the two contributions traced out
+   * IDENTICAL and merely swapped, and the sum still differed by a float step.
+   * In doubles the terms arrive unrounded and `A + B == B + A` exactly, which
+   * is all this needs. Three lips into one cell would still be associativity
+   * and would still not commute — the device has no such limit, because it
+   * banks in fixed point, and integers associate.
+   *
+   * The same trap is in the argmax below: `kept > landBest[i]` against an f32
+   * store can pick a different winner each way round, when `A > B` but the
+   * rounded `A` is not.
+   */
+  readonly landing: Float64Array;
+  /** `amount * speed`, summed — see `landing`. A sum, so order cannot matter. */
+  readonly impulse: Float64Array;
+  readonly landMat: Float32Array;
+  readonly landBest: Float64Array;
+  /**
+   * The plunge's push, per edge, and the largest cap any contributor to it
+   * wanted.
+   *
+   * Accumulated for the same reason and applied once — `fx[i] += room(q, cap -
+   * fx[i])` clamps against the flux as it stands, so two plunges into one edge
+   * gave a different answer each way round. Summed and clamped once they
+   * cannot.
+   */
+  readonly kickX: Float64Array;
+  readonly kickY: Float64Array;
+  readonly capX: Float64Array;
+  readonly capY: Float64Array;
   /**
    * Breaking: how fast the surface is moving, how long it has been breaking,
    * HOW HARD it is breaking, and scratch for the solve.
@@ -299,6 +396,31 @@ export type ColumnField = {
    * cliff at all. See `drips.ts`.
    */
   readonly drips: DripState;
+  /**
+   * Set while a DEVICE solver owns this water, null otherwise.
+   *
+   * When it is set the host is no longer the owner: it keeps a copy for the
+   * renderer and everything else to read, and what it WRITES is collected here
+   * and sent up as a short list. The alternative — sending the copy back every
+   * frame — is what made the two sides disagree, because then both of them own
+   * the state and every frame has to reconcile them. @see Arrivals
+   */
+  arrivals: Arrivals | null;
+  /**
+   * CELLS WHOSE DEPTH THE HOST WILL READ, written down so the device can
+   * answer just those.
+   *
+   * Null on the CPU path, where the host owns the depth and reading it is a
+   * lookup. While the device owns it, every read is of a copy that came back
+   * some frames ago — and bringing the whole band back to serve two hundred
+   * and ninety questions was 97% of the readback. So the readers say what they
+   * want: the drops before they are stepped, the pipe mouths, the cursor.
+   *
+   * Filled through {@link wantDepth} and emptied when it is uploaded, so
+   * anything registering during a frame is answered by that frame's readback.
+   * @see gatherWanted
+   */
+  wanted: { at: Int32Array; n: number } | null;
 };
 
 /** How many TILES across one wind cell is. Gusts are weather, not ripples. */
@@ -314,6 +436,42 @@ const WIND_TILES = 4;
  * wave on at all, neither of which a depth-averaged model on half-tile cells
  * can represent. Gating it is the cheaper lie.
  */
+/**
+ * The flux below which nothing moves at all, in the flux's own units.
+ *
+ * A PRECURSOR FILM IS NOT WATER. An advancing front pushes a trickle ahead of
+ * itself that thins without ever reaching nothing — the arithmetic has no
+ * reason to stop — and at the tip that trickle is a millionth of a half step
+ * over a sill. Neither solver is wrong about it and neither can be right: the
+ * host carries 1.2e-6 in f64 where the device underflows the same quantity to
+ * 3.4e-36 in f32, thirty orders of magnitude apart on an amount that is not
+ * there.
+ *
+ * It matters because it feeds a THRESHOLD. The film decides which frame the
+ * front tops the sill, and the pool that fills behind it is then a per cent
+ * out on water that is unambiguously there — which is the whole of the
+ * no-drop disagreement between the two solvers, traced cell by cell.
+ *
+ * THE FLUX AND NOT THE DEPTH, which is the part that has to be right. Clamping
+ * a depth DESTROYS the water in it, every frame, for ever — a leak, and this
+ * file's central invariant is that there is none. Clamping a flux moves
+ * nothing: the head goes on building until it can push past the floor, and
+ * then it pushes. What that looks like is a front that advances in steps
+ * rather than creeping, which is closer to what water on a dry slope does than
+ * an infinitely thin precursor is.
+ *
+ * A HUNDRED MILLIONTH, and the size was measured rather than picked. Real flow
+ * on these maps runs between one and twenty; the trickle this exists to stop
+ * was 4e-9. A millionth was tried first and it is too big — it changed the
+ * outflow under a plunge by seven per cent and `falls.test` said so, which is
+ * the test earning its keep. At this floor a cell fed by nothing else gains
+ * about a millionth of a half step a MINUTE, against a dry depth of 0.02.
+ */
+export const FLUX_FLOOR = 1e-8;
+
+/** A flux, with anything under the floor treated as the nothing it is. */
+const floored = (q: number) => (q > FLUX_FLOOR || q < -FLUX_FLOOR ? q : 0);
+
 const WIND_DEPTH = 2.5;
 const INV_WIND_DEPTH = 1 / WIND_DEPTH;
 
@@ -334,10 +492,20 @@ export function createColumnField(
     windY: new Float32Array(wnx * wny),
     wnx, wny, wstride: stride,
     ground: new Float32Array(n),
+    groundRev: 0,
     depth: new Float32Array(n),
     fx: new Float32Array(n),
     fy: new Float32Array(n),
     delta: new Float32Array(n),
+    room: 1,
+    landing: new Float64Array(n),
+    impulse: new Float64Array(n),
+    landMat: new Float32Array(n),
+    landBest: new Float64Array(n),
+    kickX: new Float64Array(n),
+    kickY: new Float64Array(n),
+    capX: new Float64Array(n),
+    capY: new Float64Array(n),
     rate: new Float32Array(n),
     breakAge: new Float32Array(n).fill(-1),
     broke: new Float32Array(n),
@@ -354,6 +522,8 @@ export function createColumnField(
     deepest: 0,
     falls: createFalls(nx, ny),
     drips: createDrips(nx, ny),
+    arrivals: null,
+    wanted: null,
   };
 }
 
@@ -423,10 +593,92 @@ export function addWater(
   const i = at(f, x, y);
   const next = Math.max(0, f.depth[i] + amount);
   if (material && amount > 0) f.material[i] = material;
+  // WHAT ACTUALLY WENT IN, which is not always what was asked for: a drain
+  // that asks for more than is there takes what is there.
+  if (f.arrivals) note(f.arrivals, i, next - f.depth[i], material);
   f.depth[i] = next;
   if (next <= 0) f.material[i] = 0;
   if (next > 0) include(f, x, y);
   if (next > f.deepest) f.deepest = next;
+}
+
+/**
+ * WHAT THE HOST HAS PUT IN SINCE THE DEVICE LAST LOOKED.
+ *
+ * The device owns the water when it is running, and the host does not send it
+ * back — it sends what it has ADDED. This is where that is collected: a
+ * per-cell accumulator with a list of which cells have been touched, so what
+ * goes up is a few dozen numbers rather than a megabyte of arrays, and so that
+ * two writes to one cell in a frame arrive as one number rather than as two
+ * threads racing to add to the same place.
+ *
+ * It exists only while a device solver is attached. On the CPU path `arrivals`
+ * is null, `note` is never called, and none of this costs anything.
+ */
+export type Arrivals = {
+  /** Cells touched this frame, in order, each one once. */
+  readonly cell: Int32Array;
+  /** Per cell, what has been added to it. Only `cell[0..n]` is meaningful. */
+  readonly depth: Float32Array;
+  readonly fx: Float32Array;
+  readonly fy: Float32Array;
+  readonly mat: Uint8Array;
+  /** Whether a cell is already in `cell`, so it is listed once. */
+  readonly listed: Uint8Array;
+  n: number;
+};
+
+/**
+ * Ask for a cell's depth in the next readback.
+ *
+ * A no-op on the CPU path and past the cap, and BOTH are silent on purpose: a
+ * reader that is not answered reads whatever the last full refresh left, which
+ * is the same thing it would have read before any of this existed. The cap is
+ * sized for every reader at once. @see ColumnField.wanted, WANT_MAX
+ */
+export function wantDepth(f: ColumnField, i: number): void {
+  const w = f.wanted;
+  if (!w || i < 0 || i >= f.depth.length || w.n >= w.at.length) return;
+  w.at[w.n++] = i;
+}
+
+export function createArrivals(cells: number): Arrivals {
+  return {
+    cell: new Int32Array(cells), depth: new Float32Array(cells),
+    fx: new Float32Array(cells), fy: new Float32Array(cells),
+    mat: new Uint8Array(cells), listed: new Uint8Array(cells), n: 0,
+  };
+}
+
+/** Add to a cell's pending arrival, listing it the first time. @see Arrivals */
+function reach(a: Arrivals, i: number): void {
+  if (a.listed[i]) return;
+  a.listed[i] = 1;
+  a.cell[a.n++] = i;
+}
+
+export function note(a: Arrivals, i: number, amount: number, material: number) {
+  if (amount === 0 && !material) return;
+  reach(a, i);
+  a.depth[i] += amount;
+  if (material && amount > 0) a.mat[i] = material;
+}
+
+/** The same, for a flux an arrival pushed — see the crater in `splashInto`. */
+export function noteFlux(a: Arrivals, i: number, dx: number, dy: number) {
+  if (dx === 0 && dy === 0) return;
+  reach(a, i);
+  a.fx[i] += dx;
+  a.fy[i] += dy;
+}
+
+/** Everything is on the device; start collecting again. @see Arrivals */
+export function clearArrivals(a: Arrivals) {
+  for (let k = 0; k < a.n; k++) {
+    const i = a.cell[k];
+    a.listed[i] = 0; a.depth[i] = 0; a.fx[i] = 0; a.fy[i] = 0; a.mat[i] = 0;
+  }
+  a.n = 0;
 }
 
 /**
@@ -437,7 +689,7 @@ export function addWater(
  * fall gravity — so this is "a decent drop", and a pipe hanging a hand's
  * breadth over a pool makes a ripple rather than a bomb crater.
  */
-const IMPACT_REF = 40;
+export const IMPACT_REF = 40;
 
 /** Radial flow a full impact drives, in tiles a second. */
 const CRATER = 1.1;
@@ -466,7 +718,7 @@ const CRATER_ROOM = 3;
  * With the drop size fixed by {@link DROP} the Weber number is a speed, so
  * that is what this is. Thirty is a fall of about three full steps.
  */
-const CROWN_SPEED = 30;
+export const CROWN_SPEED = 30;
 const CROWN_SHARE = 0.22;
 
 /**
@@ -494,7 +746,7 @@ const CROWN_SHARE = 0.22;
  * at 0.61 becomes 1.08 deep and flowing at 1.48. Past three the cap takes over
  * and it stops changing, which is the right place for a knob to stop.
  */
-const PLUNGE_PUSH = 3;
+export const PLUNGE_PUSH = 3;
 
 /**
  * How fast a plunge may drive the water away from it, against the wave speed.
@@ -517,7 +769,7 @@ const PLUNGE_PUSH = 3;
  * the plunge could never add anything to it and the foot of a waterfall ran
  * SLOWER than the same water arriving from a tap.
  */
-const PLUNGE_CAP = 1;
+export const PLUNGE_CAP = 1;
 
 /**
  * How much of what arrives fast comes back up as a plume, at most.
@@ -532,13 +784,13 @@ const PLUNGE_CAP = 1;
  * carries it — with the plume switched off entirely the pool is 1.08 deep and
  * flowing at 1.48 against 1.06 and 1.63 with it.
  */
-const PLUNGE_SPRAY = 0.05;
+export const PLUNGE_SPRAY = 0.05;
 
 /** How much of the drip list a plunge leaves for everything else. */
-const PLUNGE_ROOM = 0.3;
+export const PLUNGE_ROOM = 0.3;
 
 /** How white a plunge makes the water it lands in, per unit arriving. */
-const PLUNGE_WHITE = 9;
+export const PLUNGE_WHITE = 9;
 
 /**
  * A SHEET arriving at the bottom of a fall: the water goes in, and the
@@ -577,45 +829,117 @@ export function plungeInto(
   // there is no room the water simply stays in the pool: it is the same water
   // either way, and whether it is drawn as drops is a budget rather than a
   // fact about the water. See `PLUNGE_SPRAY` for why it is only a garnish.
-  const spray = speed > CROWN_SPEED && dripRoom(f.drips) > PLUNGE_ROOM
+  const spray = speed > CROWN_SPEED && f.room > PLUNGE_ROOM
     ? amount * PLUNGE_SPRAY * Math.min(1, (speed - CROWN_SPEED) / CROWN_SPEED)
     : 0;
-  addWater(f, x, y, amount - spray, material);
 
-  const h = f.depth[i];
-  if (h > f.params.dryDepth) {
-    // Turned at the bed and sent out four ways. Only onto ground the water
-    // could reach — the cliff it just came off is RIGHT THERE, and a plunge
-    // that pushes back up its own wall is a waterfall feeding itself.
-    // Beware the units, which is what got this wrong the first time. The
-    // sheet arrives in HALF STEPS a second and the solver moves water in
-    // TILES a second; a half step draws at an eighth of a tile, which is half
-    // a COLUMN, so `ACROSS` converts to columns and `cell` from columns to
-    // tiles. Off by that factor and every plunge on the map pins itself
-    // against the cap, which makes the forcing a switch rather than a force.
-    const cap = h * PLUNGE_CAP * Math.sqrt(f.params.gravity * h);
-    const q = amount * (speed * ACROSS * f.cell) * PLUNGE_PUSH * 0.25;
-    const surface = f.ground[i] + h;
-    const n = f.nx;
-    if (x + 1 < f.nx && f.ground[i + 1] < surface) f.fx[i] += room(q, cap - f.fx[i]);
-    if (x > 0 && f.ground[i - 1] < surface) f.fx[i - 1] -= room(q, cap + f.fx[i - 1]);
-    if (y + 1 < f.ny && f.ground[i + n] < surface) f.fy[i] += room(q, cap - f.fy[i]);
-    if (y > 0 && f.ground[i - n] < surface) f.fy[i - n] -= room(q, cap + f.fy[i - n]);
+  // BANKED, NOT APPLIED — see `ColumnField.landing`. Nothing here reads a
+  // depth, so nothing here can depend on which lip landed first.
+  const kept = amount - spray;
+  f.landing[i] += kept;
+  f.impulse[i] += kept * speed;
+  if (material && kept > f.landBest[i]) {
+    f.landBest[i] = kept;
+    f.landMat[i] = material;
   }
 
   if (spray > 0) crown(f.drips, x, y, f.ground[i] + f.depth[i], spray, material, speed);
   // And it is WHITE, which the solver's own breaking test cannot tell: that
   // reads the rate the surface is changing, and a sheet delivered straight
-  // into the depth never touches it.
-  const white = Math.min(1, (amount * PLUNGE_WHITE * speed) / IMPACT_REF);
-  if (white > f.drips.splash[i]) {
-    f.drips.splash[i] = white;
-    f.drips.splashed = true;
+  // into the depth never touches it. A max, so it does not care about order.
+  markSplash(f.drips, i, (amount * PLUNGE_WHITE * speed) / IMPACT_REF);
+  include(f, x, y);
+}
+
+/**
+ * Put the step's landings into the water, and turn their momentum outward.
+ *
+ * FOUR PHASES, EACH ORDER-FREE, and the order between them is the whole point:
+ *
+ *  1. the landings are banked as they happen — see `ColumnField.landing`;
+ *  2. here, the water goes in and every cell's depth is final;
+ *  3. the plunge's push is worked out from THAT depth and banked per edge;
+ *  4. and each edge's push is clamped against its cap, once.
+ *
+ * Phase 3 reading a depth phase 2 has finished with is what keeps the cap and
+ * the wet test the same for every contributor. Phase 4 clamping a sum rather
+ * than each arrival is what makes two plunges into one edge commute.
+ *
+ * A cell hit by ONE fall — which is every fixture the plunge is looked at on —
+ * comes out exactly where it did before.
+ */
+export function applyLandings(f: ColumnField) {
+  const {
+    nx, ny, depth, ground, fx, fy, material, params,
+    landing, impulse, landMat, landBest, kickX, kickY, capX, capY,
+  } = f;
+  const b = f.box;
+  // 2. THE WATER, and the material it brought, decided against the depth as
+  //    it stood before any of this step's landings — which is what the old
+  //    code did too, for the first landing into a cell.
+  for (let i = 0; i < landing.length; i++) {
+    if (landing[i] <= 0) continue;
+    if (landMat[i] && depth[i] <= params.dryDepth) material[i] = landMat[i];
+    depth[i] += landing[i];
   }
+  // 3. THE PUSH, from the depth as it now stands.
+  for (let i = 0; i < impulse.length; i++) {
+    if (impulse[i] <= 0) continue;
+    const h = depth[i];
+    if (h <= params.dryDepth) continue;
+    const x = i % nx, y = (i / nx) | 0;
+    // Turned at the bed and sent out four ways. Only onto ground the water
+    // could reach — the cliff it just came off is RIGHT THERE, and a plunge
+    // that pushes back up its own wall is a waterfall feeding itself.
+    //
+    // Beware the units, which is what got this wrong the first time. The sheet
+    // arrives in HALF STEPS a second and the solver moves water in TILES a
+    // second; a half step draws at an eighth of a tile, which is half a
+    // COLUMN, so `ACROSS` converts to columns and `cell` from columns to
+    // tiles.
+    const cap = h * PLUNGE_CAP * Math.sqrt(params.gravity * h);
+    const q = impulse[i] * (ACROSS * f.cell) * PLUNGE_PUSH * 0.25;
+    const surface = ground[i] + h;
+    if (x + 1 < nx && ground[i + 1] < surface) {
+      kickX[i] += q;
+      if (cap > capX[i]) capX[i] = cap;
+    }
+    if (x > 0 && ground[i - 1] < surface) {
+      kickX[i - 1] -= q;
+      if (cap > capX[i - 1]) capX[i - 1] = cap;
+    }
+    if (y + 1 < ny && ground[i + nx] < surface) {
+      kickY[i] += q;
+      if (cap > capY[i]) capY[i] = cap;
+    }
+    if (y > 0 && ground[i - nx] < surface) {
+      kickY[i - nx] -= q;
+      if (cap > capY[i - nx]) capY[i - nx] = cap;
+    }
+  }
+  // 4. AND THE CLAMP, once per edge. A push can only ever move a flux AWAY
+  //    from nought and never past the cap, which is what `room` said one
+  //    arrival at a time.
+  for (let i = 0; i < kickX.length; i++) {
+    const kx = kickX[i];
+    if (kx > 0) fx[i] = Math.max(fx[i], Math.min(fx[i] + kx, capX[i]));
+    else if (kx < 0) fx[i] = Math.min(fx[i], Math.max(fx[i] + kx, -capX[i]));
+    const ky = kickY[i];
+    if (ky > 0) fy[i] = Math.max(fy[i], Math.min(fy[i] + ky, capY[i]));
+    else if (ky < 0) fy[i] = Math.min(fy[i], Math.max(fy[i] + ky, -capY[i]));
+  }
+  landing.fill(0);
+  impulse.fill(0);
+  landMat.fill(0);
+  landBest.fill(0);
+  kickX.fill(0);
+  kickY.fill(0);
+  capX.fill(0);
+  capY.fill(0);
+  void b;
 }
 
 /** As much of `want` as `left` has room for, and never backwards. */
-const room = (want: number, left: number) => Math.max(0, Math.min(want, left));
 
 /**
  * A drop landing: its water goes in, its MOMENTUM goes out.
@@ -666,10 +990,23 @@ export function splashInto(
     // water climbing twelve half steps with nothing pushing it.
     const surface = f.ground[i] + h;
     const q = h * out * 0.25;
-    if (x + 1 < f.nx && f.ground[i + 1] < surface) f.fx[i] += q;
-    if (x > 0 && f.ground[i - 1] < surface) f.fx[i - 1] -= q;
-    if (y + 1 < f.ny && f.ground[i + f.nx] < surface) f.fy[i] += q;
-    if (y > 0 && f.ground[i - f.nx] < surface) f.fy[i - f.nx] -= q;
+    const a = f.arrivals;
+    if (x + 1 < f.nx && f.ground[i + 1] < surface) {
+      f.fx[i] += q;
+      if (a) noteFlux(a, i, q, 0);
+    }
+    if (x > 0 && f.ground[i - 1] < surface) {
+      f.fx[i - 1] -= q;
+      if (a) noteFlux(a, i - 1, -q, 0);
+    }
+    if (y + 1 < f.ny && f.ground[i + f.nx] < surface) {
+      f.fy[i] += q;
+      if (a) noteFlux(a, i, 0, q);
+    }
+    if (y > 0 && f.ground[i - f.nx] < surface) {
+      f.fy[i - f.nx] -= q;
+      if (a) noteFlux(a, i - f.nx, 0, -q);
+    }
   }
 
   const spray = speed > CROWN_SPEED && room >= 1
@@ -719,7 +1056,7 @@ const GUSTS = [
   { length: 13, period: 5.3, dx: -0.42, dy: 0.91, weight: 0.7 },
 ];
 
-function stirWind(f: ColumnField) {
+export function stirWind(f: ColumnField) {
   const { windX, windY, wnx, wny, params } = f;
   if (params.wind <= 0) {
     windX.fill(0);
@@ -803,9 +1140,15 @@ function stableStep(f: ColumnField): number {
 /**
  * How many substeps a frame may be broken into before the clock gives way.
  *
- * Past this the step is left too long for the water in it and `hMax` catches
- * what is left, holding the wave speed down rather than letting the scheme
- * come apart. Running slow is a thing you can look at; ringing is not.
+ * And GIVES WAY is the whole of it: past this, `substepsFor` stops and the
+ * rest of the frame's time is not integrated at all. The simulation runs
+ * SLOWER THAN REAL TIME rather than taking a step too long for the water in
+ * it. Running slow is a thing you can look at; ringing is not.
+ *
+ * This used to claim `hMax` caught what was left by holding the wave speed
+ * down. It does not and never did — nothing stretches the step, the time is
+ * simply dropped — and the difference matters to everything else that is
+ * given the frame's dt. @see maxStep
  */
 const MAX_SUBSTEPS = 12;
 
@@ -822,13 +1165,48 @@ export function stepFlow(f: ColumnField, dt: number) {
   // It costs one pass of two comparisons per column. What it saves is
   // `stepFalls` walking the whole box every SUBSTEP doing much more than that.
   markCliffs(f);
+  for (const h of substepsFor(f, dt)) substep(f, h);
+}
+
+/**
+ * How a frame is cut into substeps.
+ *
+ * Lifted out because the device solver has to cut the frame the same way and
+ * a stepping rule written twice is a pair of solvers that diverge for a
+ * reason that is nobody's physics. The device plans its frame from the
+ * `deepest` its last reduction reported, which is a frame stale — the `hMax`
+ * backstop in `substep` is what makes that safe, exactly as it is here.
+ *
+ * The list is short by construction: the guard is the same {@link
+ * MAX_SUBSTEPS} the loop used to carry, and a frame that runs out of substeps
+ * simply does not finish its dt, which is the old behaviour written down.
+ */
+/**
+ * The most simulated time one call can advance, from the water as it stands.
+ *
+ * `stepFlow` cuts `dt` into substeps no longer than `stableStep` and stops at
+ * {@link MAX_SUBSTEPS} of them, so anything past this product is dropped. Ask
+ * for it BEFORE handing a frame's dt to anything, and hand everything the same
+ * answer: a frame that only integrates a fifth of its time must only pour a
+ * fifth of its springs, or the map gains water it has had no time to move.
+ *
+ * Measured on a spring at 48 squared, five seconds of wall clock in one-second
+ * frames — which is what a backgrounded tab's throttled rAF hands over. The
+ * flow advances one second either way. Unclamped the map held 80 of water;
+ * clamped it holds 16, which is what five seconds of one-sixtieth frames hold
+ * after the same one second of flow.
+ */
+export const maxStep = (f: ColumnField) => MAX_SUBSTEPS * stableStep(f);
+
+export function substepsFor(f: ColumnField, dt: number): number[] {
+  const out: number[] = [];
   let left = dt;
-  let guard = 0;
-  while (left > 1e-6 && guard++ < MAX_SUBSTEPS) {
+  while (left > 1e-6 && out.length < MAX_SUBSTEPS) {
     const h = Math.min(left, stableStep(f));
-    substep(f, h);
+    out.push(h);
     left -= h;
   }
+  return out;
 }
 
 /**
@@ -844,8 +1222,8 @@ export function stepFlow(f: ColumnField, dt: number) {
  * time, so both lengths have to be the same one. A half step is an eighth of a
  * tile, and it appears twice.
  */
-const VERTICAL = 1 / 8;
-const MIXING = 1.44 * VERTICAL * VERTICAL;
+export const VERTICAL = 1 / 8;
+export const MIXING = 1.44 * VERTICAL * VERTICAL;
 
 /**
  * How fast the surface has to move for a wave to be breaking, and how slow
@@ -864,9 +1242,9 @@ const MIXING = 1.44 * VERTICAL * VERTICAL;
  * Breaking starts hard and stops soft, and between them the bar slides from
  * one to the other over `PERSIST` depths travelled.
  */
-const BREAK_START = 0.65 / VERTICAL;
-const BREAK_STOP = 0.15 / VERTICAL;
-const PERSIST = 5;
+export const BREAK_START = 0.65 / VERTICAL;
+export const BREAK_STOP = 0.15 / VERTICAL;
+export const PERSIST = 5;
 
 /**
  * How many Jacobi sweeps the implicit diffusion gets.
@@ -890,7 +1268,7 @@ const PERSIST = 5;
  * rather than graded. What it damaged, it damaged at every setting — a drain
  * lost a third of its throughput and rivers stopped running.
  */
-const SWEEPS = 2;
+export const SWEEPS = 2;
 
 /**
  * Work out what is breaking, and how hard, from the last step's surface rate.
@@ -930,147 +1308,45 @@ function stepBreaking(f: ColumnField, dt: number, i: number, d: number) {
 }
 
 /**
- * Spread the momentum of a breaking column into the ones around it, implicitly.
+ * Constants a substep works out once and every pass then reads.
  *
- * A diffusion, because that is what turbulence does to momentum. It is scale
- * SELECTIVE in the way the drags are not — a one column spike has an enormous
- * second derivative and a ten tile swell has almost none — and it cannot
- * create anything, because every sweep is an average of values already there.
- *
- * On the VELOCITY and not the discharge. The published term diffuses `h u` and
- * divides by `h`; diffusing the discharge on its own moves momentum between
- * columns of very different depth as though they were the same water, which
- * over rolling ground is most of the pairs there are.
- *
- * And only between WET neighbours. A dry cell stands in as this edge's own
- * velocity, which is a zero gradient and so no exchange at all. Read instead
- * as a velocity of zero — which is what a dry cell's flux over the depth floor
- * comes to — every waterline becomes a wall for the turbulence to drag the
- * flow down against, and a river is nearly all bank.
+ * Passed rather than recomputed because the GPU gets them as a uniform block
+ * and the two have to be the same numbers — a pass that derives its own is a
+ * pass that can disagree with its twin about `dt`.
  */
-function diffuseBreaking(
-  f: ColumnField, dt: number,
-  region: { x0: number; y0: number; x1: number; y1: number },
-) {
-  const { nx, fx, fy, depth, broke, rate, velo, iterA, iterB, cell, params } = f;
-  const { x0, y0, x1, y1 } = region;
-  const floor = params.dryDepth * 8;
-  const dry = params.dryDepth;
-  const scale = dt / (cell * cell);
+export type PassConsts = {
+  x0: number; y0: number; x1: number; y1: number;
+  /** `gravity * dt / cell` — a head becomes a gradient. */
+  gain: number;
+  /** `bedDrag * dt`. */
+  bedGain: number;
+  /** Deepest water the flux term credits, from the CFL condition. */
+  hMax: number;
+  /** `minSlope * cell` — the slope below which nothing accelerates. */
+  minHead: number;
+  /** `dt / cell` — a flux crosses one edge, the depth it moves is one cell. */
+  spread: number;
+  /** `dt / cell^2` — a viscosity is a length squared over a time. */
+  diffScale: number;
+  dt: number;
+};
 
-  for (let axis = 0; axis < 2; axis++) {
-    const q = axis === 0 ? fx : fy;
-    const step = axis === 0 ? 1 : nx;
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const i = y * nx + x;
-        const far = i + step;
-        const h = Math.max((depth[i] + (far < depth.length ? depth[far] : depth[i])) * 0.5, floor);
-        velo[i] = q[i] / h;
-        iterA[i] = velo[i];
-      }
-    }
-    // (I - dt nu grad^2) u_new = u_old, by Jacobi: each cell is its own old
-    // value plus its neighbours' new ones, in the ratio the viscosity sets.
-    let from = iterA, into = iterB;
-    for (let sweep = 0; sweep < SWEEPS; sweep++) {
-      for (let y = y0; y <= y1; y++) {
-        for (let x = x0; x <= x1; x++) {
-          const i = y * nx + x;
-          // The viscosity, from the intensity: a mixing length squared over
-          // a time, the length being the depth.
-          const d = scale * broke[i] * MIXING * depth[i] * rate[i] * params.breaking;
-          if (d <= 0) { into[i] = velo[i]; continue; }
-          const here = from[i];
-          const w = x > x0 && depth[i - 1] > dry ? from[i - 1] : here;
-          const e = x < x1 && depth[i + 1] > dry ? from[i + 1] : here;
-          const n = y > y0 && depth[i - nx] > dry ? from[i - nx] : here;
-          const s = y < y1 && depth[i + nx] > dry ? from[i + nx] : here;
-          into[i] = (velo[i] + d * (w + e + n + s)) / (1 + 4 * d);
-        }
-      }
-      const swap = from; from = into; into = swap;
-    }
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const i = y * nx + x;
-        if (broke[i] <= 0) continue;
-        const far = i + step;
-        const h = Math.max((depth[i] + (far < depth.length ? depth[far] : depth[i])) * 0.5, floor);
-        q[i] = from[i] * h;
-      }
-    }
-  }
-}
-
-function substep(f: ColumnField, dt: number) {
-  f.t += dt;
-  if (f.openEdge) spill(f);
-  const region = activeBox(f);
-  if (!region) { stepAir(f, dt); return; }      // nothing wet, but drops still fall
-  stirWind(f);
-  // What was breaking at the end of the last step dissipates at the start of
-  // this one, on the viscosity that step worked out. A step behind, which is
-  // what an explicit indicator always is.
-  if (f.breaking && f.params.breaking > 0) diffuseBreaking(f, dt, region);
-  const { X0, Y0, X1, Y1 } = { X0: region.x0, Y0: region.y0, X1: region.x1, Y1: region.y1 };
-  const { nx, ny, ground, depth, fx, fy, delta, params, cell } = f;
-  // A head is the surface difference across one cell; what accelerates water is
-  // the GRADIENT, so the head is divided by how far apart the two columns are.
-  const gain = params.gravity * dt / cell;
-  const keep = Math.pow(params.drag, dt);
-  const bedGain = params.bedDrag * dt;
-  const { windX, windY, wnx, wstride } = f;
-  // Likewise the friction threshold, which is a slope and becomes a head here.
-  const minHead = params.minSlope * cell;
-  // A flux crosses one edge; the depth it changes is spread over one cell.
-  const spread = dt / cell;
-  /**
-   * Deepest water the flux term will credit, from the CFL condition.
-   *
-   * A wave runs at `sqrt(gravity * depth)`, so deep water is fast water, and
-   * once it outruns a cell in a step the scheme rings instead of settling.
-   *
-   * The factor of two is the whole of it, and leaving it out was a real bug
-   * for a long time. The condition is TWO dimensional: a wave crossing a
-   * square grid diagonally has to satisfy `c dt sqrt(1/dx^2 + 1/dy^2) <= 1`,
-   * which on a square cell is `c dt / dx <= 1/sqrt(2)`, not 1. Written from
-   * the one dimensional form the guard sat at a Courant number of 1 and the
-   * scheme came apart at about 0.7 — measured, a pond 48 half steps deep runs
-   * at 0.69 and settles, and one 64 deep runs at 0.80 and never does.
-   *
-   * What it looked like: any pool past about fifty half steps rang for ever.
-   * A shove came back at 1.12 times its own size a minute later instead of a
-   * quarter of it; with the weather on, such a pond sat at a chop of 18 to 49
-   * half steps where a shallower one sits at a third of one. Nothing damped
-   * it, because nothing was wrong with the damping — it survived the wind
-   * being turned off, the bed drag raised tenfold and the fluid drag doubled.
-   * It pumped volume as well as energy: a pit lowered under a pool dug itself
-   * to 112 half steps where the lowering had made 58.
-   *
-   * The obvious way to reach one is to LOWER THE GROUND under a pool, which
-   * deepens it by however far you lowered, so this was never the pathological
-   * case the old note here claimed it was.
-   *
-   * This is the BACKSTOP and not the working limit — `stableStep` keeps the
-   * step short enough that nothing ever reaches this, and it only binds when
-   * a frame has run out of substeps. It deliberately sits well above where
-   * the stepper aims, because a cap that lands ON the water's own depth is
-   * worse than one that lands miles above it: some edges get capped and their
-   * neighbours do not, and that switching is itself a thing a scheme can ring
-   * on. Measured, a 96 deep pond with the cap at 96 came apart after six
-   * seconds while the same pond with the cap at 50 — every edge capped, all of
-   * them consistently — sat still. Uniform is fine. Half on, half off is not.
-   */
-  const hMax = (cell / params.maxDt) ** 2 / (2 * params.gravity);
-  for (let m = 0; m < MATERIAL_SLOTS; m++) {
-    f.keepOf[m] = f.dragOf[m] > 0 ? Math.pow(f.dragOf[m], dt) : keep;
-  }
+/**
+ * PASS 1 — every edge accelerated by the head across it and the water able to
+ * carry it, then dragged.
+ *
+ * Lifted out of `substep` whole and unchanged. It is a pure GATHER: an edge
+ * reads only the two cells it lies between and writes only itself, which is
+ * what makes it the first pass worth moving to the device and the easiest to
+ * prove right there — see `fluid/gpu/accelerate`, its twin, and
+ * `fluid/compare`, which is how the two are held together.
+ */
+export function accelerate(f: ColumnField, c: PassConsts) {
+  const { x0: X0, y0: Y0, x1: X1, y1: Y1, gain, bedGain, hMax, minHead, dt } = c;
+  const { nx, ny, ground, depth, fx, fy, windX, windY, wnx, wstride } = f;
   const keepOf = f.keepOf;
   const material = f.material;
-  void ny;
-
-  // 1. Accelerate every edge by the head across it and the water able to CARRY
+  // Accelerate every edge by the head across it and the water able to CARRY
   //    it, then apply drag.
   //
   // BOTH SIDES ARE MEASURED FROM THE SILL BETWEEN THEM, not from the sea
@@ -1129,10 +1405,10 @@ function substep(f: ColumnField, dt: number) {
         // than something the drag has already taken a bite out of, and only
         // where there is water to push: on a dry edge the limiter would stop
         // anything moving anyway, but the flux itself would wind up.
-        fx[i] = carry > 0
+        fx[i] = floored(carry > 0
           ? q / (1 + bedGain * Math.abs(q) / (carry * carry))
             + wxv * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1)
-          : q;
+          : q);
       } else {
         fx[i] = 0;                            // the map edge is a wall
       }
@@ -1145,21 +1421,37 @@ function substep(f: ColumnField, dt: number) {
         const k = keepOf[material[head > 0 ? i : j]];
         const push = carry > 0 && Math.abs(head) > minHead;
         const q = push ? (fy[i] + gain * carry * head) * k : fy[i] * k;
-        fy[i] = carry > 0
+        fy[i] = floored(carry > 0
           ? q / (1 + bedGain * Math.abs(q) / (carry * carry))
             + wyv * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1)
-          : q;
+          : q);
       } else {
         fy[i] = 0;
       }
     }
   }
 
-  // 2. Scale each cell's outflows down to the water it actually has.
-  //
-  // This is what makes the scheme positivity-preserving, and one pass is
-  // enough: reducing an outflow can only reduce a neighbour's INflow, so no
-  // cell's own limit can be violated by another cell being limited.
+}
+
+/**
+ * PASS 2 — every cell's outflows scaled down to the water it actually has.
+ *
+ * This is what makes the scheme positivity-preserving, and one pass is enough:
+ * reducing an outflow can only reduce a neighbour's INflow, so no cell's own
+ * limit can be violated by another cell being limited.
+ *
+ * IT LOOKS LIKE A SCATTER AND IS NOT. A cell writes its west and north
+ * neighbours' edges as well as its own, which reads like a race waiting to
+ * happen — but an edge is only ever scaled by the cell it flows OUT of, and
+ * the two conditions (`fx[i] > 0` for cell `i`, `fx[i] < 0` for cell `i + 1`)
+ * cannot both hold. So each edge has exactly one writer and the pass is
+ * order-independent: run over the cells forwards and backwards it gives the
+ * same answer to the bit, which is measured and not argued. That is what lets
+ * the device do it with no atomics — see `fluid/gpu/limit`.
+ */
+export function limit(f: ColumnField, c: PassConsts) {
+  const { x0: X0, y0: Y0, x1: X1, y1: Y1, spread } = c;
+  const { nx, depth, fx, fy } = f;
   for (let y = Y0; y <= Y1; y++) {
     for (let x = X0; x <= X1; x++) {
       const i = y * nx + x;
@@ -1179,8 +1471,33 @@ function substep(f: ColumnField, dt: number) {
     }
   }
 
-  // 3. Apply the divergence. Every unit that leaves a cell arrives in exactly
-  //    one other, so the total is conserved to the last bit the floats carry.
+}
+
+/**
+ * PASS 3 — every unit that leaves a cell arrives in exactly one other, so the
+ * total is conserved to the last bit the floats carry.
+ *
+ * A SCATTER HERE AND A GATHER ON THE DEVICE, and the two are bit-identical,
+ * which is measured rather than hoped for — see `divergence.test.ts`. Each
+ * cell's `delta` is touched by three others: the row above adds its southward
+ * move, the cell before adds its eastward one, and the cell itself subtracts
+ * its own two. A cell that sums its own four incident edges IN THAT ORDER gets
+ * the same answer to the bit.
+ *
+ * The order is not a detail. `delta` is a `Float32Array`, so the scatter rounds
+ * on every one of its accumulations; a gather that sums in double and stores
+ * once is a different number, and was, in 1371 cells out of 2976. The device
+ * rounds every operation anyway, so it gets that for free — which is the whole
+ * reason the gather is worth having there and not here: written out in
+ * JavaScript, with `Math.fround` at each step and `dropAt` asked twice per
+ * edge, it costs 1.79 times what the scatter does.
+ *
+ * `air` is not a scatter at all. An edge belongs to exactly one cell, so the
+ * water going over a lip has one writer either way and needs no atomic.
+ */
+export function divergence(f: ColumnField, c: PassConsts) {
+  const { x0: X0, y0: Y0, x1: X1, y1: Y1, spread } = c;
+  const { nx, ny, fx, fy, delta, material } = f;
   const { bestIn, bestMat } = f;
   for (let y = Y0; y <= Y1; y++) {
     const row = y * nx;
@@ -1235,8 +1552,23 @@ function substep(f: ColumnField, dt: number) {
       }
     }
   }
-  // Apply, and rebuild the box from what is left wet — and with it the
-  // deepest column, which is what sizes the next substep.
+}
+
+/**
+ * PASS 4 — the depths move by the divergence, and the box is rebuilt from what
+ * is left wet.
+ *
+ * THE FIRST PASS WITH A REDUCTION IN IT. Three things here are not per cell:
+ * the deepest column, which sizes the next substep; the active box, which
+ * every other pass is bounded by; and whether anything is breaking, which
+ * decides if the diffusion runs at all. On the device those are atomics — see
+ * `fluid/gpu/apply`, where the whole of the difficulty is that three numbers
+ * have to be agreed by 65,536 threads and the rest is a gather.
+ */
+export function applyDepths(f: ColumnField, c: PassConsts) {
+  const { x0: X0, y0: Y0, x1: X1, y1: Y1, dt } = c;
+  const { nx, ny, depth, delta, params, material } = f;
+  const bestMat = f.bestMat;
   const b = f.box;
   b.x0 = f.nx; b.y0 = f.ny; b.x1 = -1; b.y1 = -1;
   let deepest = 0;
@@ -1252,7 +1584,19 @@ function substep(f: ColumnField, dt: number) {
       // How fast the surface moved, which is what says whether it is breaking.
       // Free here: the divergence has just worked it out.
       f.rate[i] = Math.abs(delta[i]) / dt;
-      if (depth[i] > params.dryDepth && params.breaking > 0) {
+      // THE RIM IS NOT BREAKING, IT IS LEAVING. With an open edge `spill`
+      // empties the outermost ring every substep and the flow refills it from
+      // inside, so the rate there is a whole column arriving and going again —
+      // the largest there is, and nothing to do with a wave coming apart.
+      //
+      // Read as breaking it painted the rim with SATURATED foam: measured on a
+      // flooded map, `broke` pinned at 1 on ninety-two of the ring's columns
+      // and the foam with it, against 0.02 and no breaking anywhere with the
+      // edge closed. And it pulsed, because the refill does — which is the
+      // flicker somebody reported at the edge of the map, half a cell wide.
+      const rim = f.openEdge
+        && (x === 0 || y === 0 || x === nx - 1 || y === ny - 1);
+      if (!rim && depth[i] > params.dryDepth && params.breaking > 0) {
         stepBreaking(f, dt, i, depth[i]);
       } else {
         f.breakAge[i] = -1;
@@ -1275,10 +1619,168 @@ function substep(f: ColumnField, dt: number) {
     }
   }
   f.deepest = deepest;
+}
+
+/**
+ * Spread the momentum of a breaking column into the ones around it, implicitly.
+ *
+ * A diffusion, because that is what turbulence does to momentum. It is scale
+ * SELECTIVE in the way the drags are not — a one column spike has an enormous
+ * second derivative and a ten tile swell has almost none — and it cannot
+ * create anything, because every sweep is an average of values already there.
+ *
+ * On the VELOCITY and not the discharge. The published term diffuses `h u` and
+ * divides by `h`; diffusing the discharge on its own moves momentum between
+ * columns of very different depth as though they were the same water, which
+ * over rolling ground is most of the pairs there are.
+ *
+ * And only between WET neighbours. A dry cell stands in as this edge's own
+ * velocity, which is a zero gradient and so no exchange at all. Read instead
+ * as a velocity of zero — which is what a dry cell's flux over the depth floor
+ * comes to — every waterline becomes a wall for the turbulence to drag the
+ * flow down against, and a river is nearly all bank.
+ */
+export function diffuseBreaking(f: ColumnField, c: PassConsts) {
+  const { nx, fx, fy, depth, broke, rate, velo, iterA, iterB, params } = f;
+  const { x0, y0, x1, y1, diffScale: scale } = c;
+  const floor = params.dryDepth * 8;
+  const dry = params.dryDepth;
+
+  for (let axis = 0; axis < 2; axis++) {
+    const q = axis === 0 ? fx : fy;
+    const step = axis === 0 ? 1 : nx;
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const i = y * nx + x;
+        const far = i + step;
+        const h = Math.max((depth[i] + (far < depth.length ? depth[far] : depth[i])) * 0.5, floor);
+        velo[i] = q[i] / h;
+        iterA[i] = velo[i];
+      }
+    }
+    // (I - dt nu grad^2) u_new = u_old, by Jacobi: each cell is its own old
+    // value plus its neighbours' new ones, in the ratio the viscosity sets.
+    let from = iterA, into = iterB;
+    for (let sweep = 0; sweep < SWEEPS; sweep++) {
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const i = y * nx + x;
+          // The viscosity, from the intensity: a mixing length squared over
+          // a time, the length being the depth.
+          const d = scale * broke[i] * MIXING * depth[i] * rate[i] * params.breaking;
+          if (d <= 0) { into[i] = velo[i]; continue; }
+          const here = from[i];
+          const w = x > x0 && depth[i - 1] > dry ? from[i - 1] : here;
+          const e = x < x1 && depth[i + 1] > dry ? from[i + 1] : here;
+          const n = y > y0 && depth[i - nx] > dry ? from[i - nx] : here;
+          const s = y < y1 && depth[i + nx] > dry ? from[i + nx] : here;
+          into[i] = (velo[i] + d * (w + e + n + s)) / (1 + 4 * d);
+        }
+      }
+      const swap = from; from = into; into = swap;
+    }
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const i = y * nx + x;
+        if (broke[i] <= 0) continue;
+        const far = i + step;
+        const h = Math.max((depth[i] + (far < depth.length ? depth[far] : depth[i])) * 0.5, floor);
+        q[i] = from[i] * h;
+      }
+    }
+  }
+}
+
+function substep(f: ColumnField, dt: number) {
+  f.t += dt;
+  if (f.openEdge) spill(f);
+  const region = activeBox(f);
+  if (!region) { stepAir(f, dt); return; }      // nothing wet, but drops still fall
+  stirWind(f);
+  const { X0, Y0, X1, Y1 } = { X0: region.x0, Y0: region.y0, X1: region.x1, Y1: region.y1 };
+  const { ny, params, cell } = f;
+  // A head is the surface difference across one cell; what accelerates water is
+  // the GRADIENT, so the head is divided by how far apart the two columns are.
+  const gain = params.gravity * dt / cell;
+  const keep = Math.pow(params.drag, dt);
+  const bedGain = params.bedDrag * dt;
+  // Likewise the friction threshold, which is a slope and becomes a head here.
+  const minHead = params.minSlope * cell;
+  // A flux crosses one edge; the depth it changes is spread over one cell.
+  const spread = dt / cell;
+  /**
+   * Deepest water the flux term will credit, from the CFL condition.
+   *
+   * A wave runs at `sqrt(gravity * depth)`, so deep water is fast water, and
+   * once it outruns a cell in a step the scheme rings instead of settling.
+   *
+   * The factor of two is the whole of it, and leaving it out was a real bug
+   * for a long time. The condition is TWO dimensional: a wave crossing a
+   * square grid diagonally has to satisfy `c dt sqrt(1/dx^2 + 1/dy^2) <= 1`,
+   * which on a square cell is `c dt / dx <= 1/sqrt(2)`, not 1. Written from
+   * the one dimensional form the guard sat at a Courant number of 1 and the
+   * scheme came apart at about 0.7 — measured, a pond 48 half steps deep runs
+   * at 0.69 and settles, and one 64 deep runs at 0.80 and never does.
+   *
+   * What it looked like: any pool past about fifty half steps rang for ever.
+   * A shove came back at 1.12 times its own size a minute later instead of a
+   * quarter of it; with the weather on, such a pond sat at a chop of 18 to 49
+   * half steps where a shallower one sits at a third of one. Nothing damped
+   * it, because nothing was wrong with the damping — it survived the wind
+   * being turned off, the bed drag raised tenfold and the fluid drag doubled.
+   * It pumped volume as well as energy: a pit lowered under a pool dug itself
+   * to 112 half steps where the lowering had made 58.
+   *
+   * The obvious way to reach one is to LOWER THE GROUND under a pool, which
+   * deepens it by however far you lowered, so this was never the pathological
+   * case the old note here claimed it was.
+   *
+   * This is the BACKSTOP and not the working limit — `stableStep` keeps the
+   * step short enough that nothing ever reaches this, and it only binds when
+   * a frame has run out of substeps. It deliberately sits well above where
+   * the stepper aims, because a cap that lands ON the water's own depth is
+   * worse than one that lands miles above it: some edges get capped and their
+   * neighbours do not, and that switching is itself a thing a scheme can ring
+   * on. Measured, a 96 deep pond with the cap at 96 came apart after six
+   * seconds while the same pond with the cap at 50 — every edge capped, all of
+   * them consistently — sat still. Uniform is fine. Half on, half off is not.
+   */
+  const hMax = (cell / params.maxDt) ** 2 / (2 * params.gravity);
+  for (let m = 0; m < MATERIAL_SLOTS; m++) {
+    f.keepOf[m] = f.dragOf[m] > 0 ? Math.pow(f.dragOf[m], dt) : keep;
+  }
+  void ny;
+
+  // 1. ACCELERATE — see `accelerate`, which is a separate function because
+  //    the compute port replaces it one pass at a time and a pass that cannot
+  //    be called on its own cannot be compared on its own.
+  const consts: PassConsts = {
+    x0: X0, y0: Y0, x1: X1, y1: Y1, gain, bedGain, hMax, minHead, spread, dt,
+    diffScale: dt / (cell * cell),
+  };
+  // 0. What was breaking at the end of the last step dissipates at the start
+  //    of this one, on the viscosity that step worked out. A step behind,
+  //    which is what an explicit indicator always is.
+  if (f.breaking && params.breaking > 0) diffuseBreaking(f, consts);
+  accelerate(f, consts);
+
+  // 2. LIMIT — see `limit`, lifted out for the same reason as `accelerate`.
+  limit(f, consts);
+
+  // 3. DIVERGENCE — see `divergence`, lifted out like the two before it.
+  divergence(f, consts);
+
+  // 4. APPLY — see `applyDepths`, lifted out like the three before it.
+  applyDepths(f, consts);
+
 
   // And what has finished falling lands. After the depths, so what arrives
   // this step is water that left a lip on an earlier one.
   stepFalls(f, dt, region);
+  // 6. AND WHAT LANDED GOES IN, all of it at once — see `applyLandings`. After
+  //    the falls rather than inside them, which is the whole of the change:
+  //    nothing a fall does can be seen by the next fall in the same step.
+  applyLandings(f);
   // The same for drops, which land wherever the surface has got to — so a pipe
   // over a filling pool has a shorter fall as the pool comes up to meet it.
   stepAir(f, dt);
@@ -1295,7 +1797,7 @@ function substep(f: ColumnField, dt: number) {
  * them, while the same pipe with an unrelated puddle five tiles away landed all
  * of it. So this runs on both sides of the nothing-wet return.
  */
-function stepAir(f: ColumnField, dt: number) {
+export function stepAir(f: ColumnField, dt: number) {
   fadeSplashes(f.drips, dt);
   stepDrips(
     f.drips, dt,

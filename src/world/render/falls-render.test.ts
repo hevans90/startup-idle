@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { createGrid, fillTerrain, setHeight } from "../grid";
+import { createGrid, fillTerrain, setHeight, setSource } from "../grid";
 import {
   COLUMNS_PER_TILE, createWaterField, pourAt, runSources, stepWater, tileOf,
 } from "../water/field";
@@ -26,6 +26,7 @@ import {
 } from "./falls-render";
 import {
   AERATED, FRAY, NAPPE_STEPS, breakingAt, nappeSteps, sheetLook, thinAt,
+  type NappeStep, type SheetLook,
 } from "./nappe";
 import {
   LIGHTEST, SHADES, TINTS, createWaterLayer, destroyWaterLayer, drawWater,
@@ -166,7 +167,7 @@ describe("the parabola a fall follows", () => {
         setHeight(grid, x, y, y <= 18 ? Math.max(0, tread) : -6);
       }
     }
-    for (let x = 2; x < 26; x++) grid.source[6 * W + x] = 16;
+    for (let x = 2; x < 26; x++) setSource(grid, x, 6, 16);
     const field = createWaterField(grid);
     const bands = createBandLayer(W, W);
     const layer = createFallLayer(bands, 1);
@@ -309,6 +310,42 @@ describe("the parabola a fall follows", () => {
     expect(nappeSteps(0, 0).length).toBe(0);
     expect(nappeSteps(5, 3).length).toBe(0);
   });
+
+  test("and an array handed back gets the same answer a fresh one does", () => {
+    // The falls renderer hands the same array back every frame, so the steps
+    // are rewritten in place rather than pushed. That is a hundred and fifty
+    // thousand objects a frame saved and one way to be wrong: a call that
+    // wants fewer pieces than the last one left behind, or one that wants
+    // none at all, must not be able to read the previous fall's tail.
+    const kept: NappeStep[] = [];
+    for (const [head, front, count] of [
+      [0, 24, NAPPE_STEPS], [2, 14, NAPPE_STEPS], [0, 1, 4], [3, 9, NAPPE_STEPS],
+    ] as const) {
+      nappeSteps(head, front, kept, count);
+      const fresh = nappeSteps(head, front, [], count);
+      expect(kept.length).toBe(fresh.length);
+      expect(kept.map((k) => [k.from, k.to, k.thinFrom, k.thinTo]))
+        .toEqual(fresh.map((k) => [k.from, k.to, k.thinFrom, k.thinTo]));
+    }
+    // And a dry lip empties it, rather than leaving the last fall hanging.
+    nappeSteps(5, 3, kept);
+    expect(kept.length).toBe(0);
+    nappeSteps(0, 24, kept);
+    expect(kept.length).toBe(NAPPE_STEPS);
+    expect(kept[0].from).toBe(0);
+    expect(kept[NAPPE_STEPS - 1].to).toBeCloseTo(24, 6);
+  });
+
+  test("and a look written into scratch is the look it would have made", () => {
+    const into: SheetLook = { pale: 0, cover: 0 };
+    for (const below of [0, 1.5, 7, 20]) {
+      const made = sheetLook(0.6, 0.3, 0.2, 4, below);
+      const wrote = sheetLook(0.6, 0.3, 0.2, 4, below, into);
+      expect(wrote).toBe(into);
+      expect(wrote.pale).toBe(made.pale);
+      expect(wrote.cover).toBe(made.cover);
+    }
+  });
 });
 
 /** A river fed over a tall cliff, run until it is falling properly. */
@@ -317,7 +354,7 @@ function cascade(cliff = 24, seconds = 25) {
   const grid = createGrid(W, W);
   fillTerrain(grid, 1);
   for (let y = 0; y < W; y++) for (let x = 0; x < 16; x++) setHeight(grid, x, y, cliff);
-  for (let d = -2; d <= 2; d++) grid.source[(16 + d) * W + 13] = 8;
+  for (let d = -2; d <= 2; d++) setSource(grid, 13, 16 + d, 8);
   const field = createWaterField(grid);
   const bands = createBandLayer(W, W);
   const layer = createFallLayer(bands, 1);
@@ -705,7 +742,7 @@ describe("the sheet leaves the lip in the SURFACE'S OWN colour", () => {
     const grid = createGrid(W, W);
     fillTerrain(grid, 1);
     for (let y = 0; y < W; y++) for (let x = 0; x < 16; x++) setHeight(grid, x, y, cliff);
-    for (let d = -2; d <= 2; d++) grid.source[(16 + d) * W + 13] = 8;
+    for (let d = -2; d <= 2; d++) setSource(grid, 13, 16 + d, 8);
     const field = createWaterField(grid);
     const bands = createBandLayer(W, W);
     const wl = createWaterLayer(field, bands, 1);
@@ -752,7 +789,7 @@ describe("a fall takes time to get down", () => {
     const grid = createGrid(W, W);
     fillTerrain(grid, 1);
     for (let y = 0; y < W; y++) for (let x = 0; x < 16; x++) setHeight(grid, x, y, CLIFF);
-    for (let d = -2; d <= 2; d++) grid.source[(16 + d) * W + 13] = 8;
+    for (let d = -2; d <= 2; d++) setSource(grid, 13, 16 + d, 8);
     const field = createWaterField(grid);
     const bands = createBandLayer(W, W);
     const layer = createFallLayer(bands, 1);

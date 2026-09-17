@@ -31,9 +31,21 @@
  * Kept apart from anything that draws so both the mesh builder and the tests
  * can ask the same questions of it, and so there is one parabola rather than
  * one per renderer.
+ *
+ * AND ONE PER SHADING LANGUAGE IS THE SAME HAZARD, which this file did not
+ * used to guard against: the sheets run on the device now, and the shader that
+ * builds them carried a hand-typed copy of the arithmetic below with every
+ * constant retyped as a literal. It is PRINTED from here instead.
+ * @see sheetRuleSource
  */
 import { BREAK, FALL_GRAVITY } from "../../fluid/falls";
-import { SHADES, paleAt, surfaceLook } from "./water";
+import {
+  FOAM_COVER, OPAQUE_DEPTH, SHADES, SHOW_DEPTH, SOLID_FLOOR, SOLID_RANGE, TINTS,
+  paleAt, surfaceLook,
+} from "./water";
+
+/** A number WGSL will read as a float, whole ones included. @see sheetRuleSource */
+const num = (v: number) => (Number.isInteger(v) ? `${v}.0` : `${v}`);
 
 /**
  * How many pieces a fall is cut into.
@@ -86,7 +98,7 @@ export const FALL_REACH = 4;
  * at its worst, the sheet leaves at 29 against flat water's 27, and no chord
  * strays more than a tenth of a pixel from the arc it is drawn across.
  */
-const LIP_BIAS = 1.5;
+export const LIP_BIAS = 1.5;
 
 /**
  * How much of the sheet is left, `below` half steps down, from nothing to one.
@@ -208,13 +220,23 @@ export function sheetAt(brink: number, below: number) {
  * the thing building the geometry. What survives here is what a piece has ONE
  * of: a depth range, and the thinning that follows from it.
  */
+/**
+ * SCRATCH, and the fields say so by being writable.
+ *
+ * They were readonly, which is the right contract for a value and the wrong
+ * one for what this is: a caller that hands the same array back every frame
+ * gets the same objects back rewritten, so a step is only good until the next
+ * call. Held past one, it is a step from a different fall. Nothing holds one —
+ * `drawFalls` reads each piece into geometry inside the loop — and this is
+ * where that is written down.
+ */
 export type NappeStep = {
   /** Half steps below the lip, at the top of this piece and at its foot. */
-  readonly from: number;
-  readonly to: number;
+  from: number;
+  to: number;
   /** How much sheet is left at each, nought to one. */
-  readonly thinFrom: number;
-  readonly thinTo: number;
+  thinFrom: number;
+  thinTo: number;
 };
 
 /**
@@ -230,8 +252,18 @@ export function nappeSteps(
   into: NappeStep[] = [],
   count = NAPPE_STEPS,
 ): NappeStep[] {
-  into.length = 0;
-  if (!(front > head)) return into;
+  // THE OBJECTS ALREADY IN HAND ARE REUSED, and the length is trimmed at the
+  // end rather than cleared at the start. A caller that hands the same array
+  // back every frame — which is what the falls renderer does — then allocates
+  // nothing at all: twenty four of these per lip and a couple of hundred lips
+  // is tens of thousands of short-lived objects a frame, for four numbers that
+  // are overwritten immediately.
+  //
+  // Per ARRAY and not from a pool of its own, so two callers cannot be handed
+  // the same objects: a default `into` is a fresh array and behaves exactly as
+  // it did.
+  const had = into.length;
+  if (!(front > head)) { into.length = 0; return into; }
   // CUT IN TIME, not in depth, because a projectile's path is the straight
   // one in time and all of its bend is in the first moment of it.
   //
@@ -256,9 +288,17 @@ export function nappeSteps(
     // The last one is `front` by construction rather than by arithmetic, so a
     // fall ends exactly where the solver says its front has got to.
     const to = k === count ? front : (FALL_GRAVITY * t * t) / 2;
-    into.push({ from, to, thinFrom: thinAt(from), thinTo: thinAt(to) });
+    const at = k - 1;
+    if (at < had) {
+      const step = into[at];
+      step.from = from; step.to = to;
+      step.thinFrom = thinAt(from); step.thinTo = thinAt(to);
+    } else {
+      into.push({ from, to, thinFrom: thinAt(from), thinTo: thinAt(to) });
+    }
     from = to;
   }
+  into.length = count;
   return into;
 }
 
@@ -287,17 +327,88 @@ export function nappeSteps(
  * out of {@link sheetAt}: less water to look through, and what is left going
  * whiter as the solver pulls drops out of it.
  */
+export type SheetLook = { pale: number; cover: number };
+
 export function sheetLook(
   shown: number, foam: number, lit: number, brink: number, below: number,
-) {
+  // WRITTEN INTO, where the caller has somewhere to put it. Four of these per
+  // step and twenty four steps a lip is a hundred short-lived objects per fall,
+  // for two numbers that are read on the next line and never again.
+  into?: SheetLook,
+): SheetLook {
   const s = sheetAt(brink, below);
   // How much of the lip's own body is still in the sheet here. Through the
   // same curve the surface uses rather than scaling the answer, because
   // `shade` is not a straight line and half the water is not half the alpha.
   const left = brink > 0 ? s.body / brink : 0;
   const look = surfaceLook(shown * left, foam, lit);
-  return {
-    pale: paleAt(look.shade + s.white * (SHADES - 1 - look.shade)),
-    cover: look.cover,
-  };
+  const pale = paleAt(look.shade + s.white * (SHADES - 1 - look.shade));
+  if (!into) return { pale, cover: look.cover };
+  into.pale = pale;
+  into.cover = look.cover;
+  return into;
+}
+
+/**
+ * The sheet's arithmetic as WGSL, generated from the statements above.
+ *
+ * WHY THIS EXISTS. `fluid/gpu/sheet` builds the nappes on the device, and it
+ * used to carry its own hand-typed copy of `thinAt`, `breakingAt`, `sheetAt`,
+ * `surfaceLook` and the opacity ramp — every constant retyped as a literal.
+ * The header of this file and of `falls-render` both claimed there was one
+ * parabola and one look; there were two of each, and nothing compared them.
+ * That is exactly the failure `corner-rule` was written to end, and this is
+ * the same remedy: one statement, and the shader is printed from it.
+ *
+ * WGSL ONLY, unlike `cornerRuleSource`. The host builds the sheets on every
+ * other path — `drawFalls` is the reference for what these should produce —
+ * so there is no GLSL twin to keep in step.
+ *
+ * The caller supplies nothing: every value this needs is a parameter, and
+ * every constant is interpolated from the exports above.
+ */
+export function sheetRuleSource(): string {
+  return `
+fn thinAt(below: f32) -> f32 {
+  return 1.0 / sqrt(1.0 + max(0.0, below) / ${num(FALL_REACH)});
+}
+
+fn breakingAt(below: f32) -> f32 {
+  return clamp((below - ${num(BREAK)}) / ${num(BREAK)}, 0.0, 1.0);
+}
+
+/** How opaque this much water is drawn. @see solid and shade */
+fn shadeOf(d: f32) -> f32 {
+  let much = min(1.0, d / ${num(OPAQUE_DEPTH)});
+  return (${num(SOLID_FLOOR)} + ${num(SOLID_RANGE)} * much)
+    * min(1.0, d / ${num(SHOW_DEPTH)});
+}
+
+/**
+ * WHERE ON THE SHADE RAMP a piece of the sheet sits, and how much it covers.
+ *
+ * The whole of sheetLook bar the two table lookups on the end: the ramp index
+ * goes to the tint texture, which already holds the aerated colour for it.
+ */
+struct Look { shade: f32, cover: f32 }
+
+fn sheetLook(shown: f32, foam: f32, lit: f32, brink: f32, below: f32) -> Look {
+  let thin = thinAt(below);
+  let gone = breakingAt(below);
+  let body = brink * thin * (1.0 - ${num(FRAY)} * gone);
+  let white = min(1.0, ${num(SPRAYED)} * (1.0 - thin) + ${num(AERATED)} * gone);
+  var left = 0.0;
+  if (brink > 0.0) { left = body / brink; }
+  let show = shown * left;
+  let solid = shadeOf(show);
+  let fade = min(1.0, show / ${num(SHOW_DEPTH)});
+  let cover = solid + (1.0 - solid) * foam * ${num(FOAM_COVER)} * fade;
+  let base = clamp(lit, 0.0, 1.0) * ${num(TINTS - 1)};
+  let shade = base + foam * (${num(SHADES - 1)} - base);
+  var out: Look;
+  out.shade = shade + white * (${num(SHADES - 1)} - shade);
+  out.cover = cover;
+  return out;
+}
+`;
 }

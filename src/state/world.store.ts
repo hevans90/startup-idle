@@ -5,6 +5,8 @@
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
+import { waterMetaSaw } from "../world/debug/water-meta";
+import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
 import { createGrid, fillTerrain, idx, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
@@ -126,9 +128,20 @@ let network: Network | null = null;
  *
  * Depth is a float that changes every frame. Putting it in state would mean a
  * re-render per frame, and putting it in the GRID would mean the undo system
- * carrying a snapshot of a simulation. Pouring is undoable; the flowing is not,
- * any more than the passage of time is. The store mirrors the wet-tile count
+ * carrying a snapshot of a simulation. The store mirrors the wet-tile count
  * and the volume, which is all the readout needs.
+ *
+ * WATER EDITS ARE NOT UNDOABLE, in either direction, and this said they were.
+ * A pour calls `pourAt` on the live field and patches the `fluid` LAYER; undo
+ * reverses the layer — the record of what was poured where, which is what a
+ * saved map needs — and does not touch the depth. Measured: a pour took the
+ * volume from 26.9 to 122.9 and undo left it at 122.9; a drain took 218.9 to
+ * 122.9 and undo left it at 122.9.
+ *
+ * Whether that should change is a question about the editor, not a bug in it,
+ * and the answer is not obviously yes: undoing a pour a second later means
+ * taking water out of a pool it has since spread into, so any version of it is
+ * an approximation. @see stroke, where the pour is made.
  */
 let water: WaterField | null = null;
 
@@ -174,17 +187,9 @@ type WorldState = {
   viewport: Viewport | null;
   /** Cell under the pointer, or null when off-map. */
   hover: Cell | null;
-  /**
-   * Last pointer position in WORLD space, and the fractional cell it maps to.
-   * Kept so the calibration overlay can show where picking thinks the cursor
-   * is, and so changing the offset can re-pick without needing a mouse move.
-   */
-  pointer: { wx: number; wy: number; fx: number; fy: number } | null;
   /** Bands currently drawn, for the debug readout. */
   drawnBands: number;
   /** Tiles holding water, and the total volume — mirrored for the readout. */
-  wetTiles: number;
-  waterVolume: number;
   /**
    * Whether water runs off the edge of the map.
    *
@@ -193,6 +198,15 @@ type WorldState = {
    * into the store because the field it lives on is outside the store.
    */
   openEdge: boolean;
+  /**
+   * Step the water with the WebGPU compute passes instead of the CPU solver.
+   *
+   * A switch, not a comparison — see `debug/gpu-water-toggle`. Off by default
+   * and never persisted: the CPU solver is the reference and the fallback, and
+   * a map that loaded onto the device path without anybody asking would be a
+   * map whose water nobody chose.
+   */
+  gpuWater: boolean;
   overlays: Overlays;
   /** Material index → atlas frame name. Index 0 is VOID. */
   palette: (string | null)[];
@@ -237,10 +251,16 @@ type WorldState = {
   pickNudge: number;
   setViewport: (v: Viewport) => void;
   setHover: (c: Cell | null) => void;
-  setPointer: (p: WorldState["pointer"]) => void;
+  /** Where the pointer is, latched rather than stored. @see pointerSaw */
+  setPointer: (p: PointerAt | null) => void;
   setDrawnBands: (n: number) => void;
   /** Re-read the water totals from the live field. Called by the scene's tick. */
-  refreshWaterMeta: () => void;
+  /**
+   * The wet count and the volume. Given the device's own tally when the
+   * compute solver is running, and walked out of the columns when it is not.
+   * @see createMeta
+   */
+  refreshWaterMeta: (counted?: { wet: number; water: number }) => void;
   /** The live water field. Outside state deliberately — see `water`. */
   getWaterField: () => WaterField | null;
   toggleOverlay: (k: keyof Overlays) => void;
@@ -275,6 +295,8 @@ type WorldState = {
   doRedo: () => void;
   loadGrid: (g: Grid, palette?: (string | null)[]) => void;
   setPickNudge: (n: number) => void;
+  /** @see WorldState.gpuWater */
+  setGpuWater: (on: boolean) => void;
   resize: (w: number, h: number) => void;
   /** Replace the terrain with a named test shape. Clears history, like a load. */
   applyFixture: (id: FixtureId) => void;
@@ -346,11 +368,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   scale: 1,
   viewport: null,
   hover: null,
-  pointer: null,
   drawnBands: 0,
-  wetTiles: 0,
-  waterVolume: 0,
   openEdge: OPEN_EDGE_DEFAULT,
+  gpuWater: false,
   overlays: {
     grid: true, bands: false, height: false, origin: true, faces: true,
     net: false, mask: false, gaps: false, xray: false,
@@ -374,13 +394,25 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   pickNudge: 0,
   setViewport: (viewport) => set({ viewport }),
   setHover: (hover) => set({ hover }),
-  setPointer: (pointer) => set({ pointer }),
+  // A LATCH, not a `set`: this fires on every pointer move with a fresh
+  // object, and a store write is a React root pass. @see pointerSaw
+  setPointer: (pointer) => pointerSaw(pointer),
   setDrawnBands: (drawnBands) => set({ drawnBands }),
   getWaterField: () => water,
-  refreshWaterMeta: () => {
+  refreshWaterMeta: (counted) => {
     if (!water) return;
-    const wet = wetTiles(water), volume = Math.round(totalVolume(water));
-    set((s) => (s.wetTiles === wet && s.waterVolume === volume ? {} : { wetTiles: wet, waterVolume: volume }));
+    // COUNTED ON THE DEVICE WHERE THERE IS ONE. Both of these used to be
+    // walked out of the whole depth map every tick — four thousand tile means
+    // and sixty five thousand column reads, for two integers in the corner of
+    // the screen. The solver has the depths in registers while it is applying
+    // them, so it counts there and the answer rides back in the reduction that
+    // already comes down. @see createMeta
+    const wet = counted ? counted.wet : wetTiles(water);
+    const volume = Math.round(totalVolume(water, get().grid, counted?.water));
+    // A LATCH AND NOT A `set`. Both of these change every frame while water is
+    // moving, and a store write is a React root pass — which on a profile of
+    // one pour was the biggest single thing in the trace. @see waterMetaSaw
+    waterMetaSaw({ wet, volume });
   },
   toggleOverlay: (k) =>
     set((st) => ({ overlays: { ...st.overlays, [k]: !st.overlays[k] } })),
@@ -389,6 +421,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     set({ openEdge: open });
   },
   setPickNudge: (pickNudge) => set({ pickNudge }),
+  setGpuWater: (gpuWater) => set({ gpuWater }),
   applyFixture: (id) => {
     const { grid } = get();
     // A FRESH grid, not the current one mutated in place: the scene's build
@@ -410,7 +443,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
-      grid, hover: null, pointer: null, stroke: null,
+      grid, hover: null, stroke: null,
       revision: 0, lastTouched: [], ...historyMeta(), ...netMeta(),
     });
   },
@@ -587,6 +620,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       : def && placeCommand(st.grid, def, c.x, c.y);
     if (!cmd) { set({ stroke: null }); return; }
     const touched = commit(st.grid, history, cmd);
+    // The bed stands on what is built as well as on the terrain — a placed
+    // structure lifts it, a demolish drops it back. @see syncGround
+    if (water && touchesSurface(cmd)) syncGround(water, st.grid);
     if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
     set({
       stroke: null,
@@ -621,6 +657,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const touched = redoCmd(st.grid, history);
     if (!touched) return;
     if (network && pending && touchesNetwork(pending)) rebuildNet(network, st.grid);
+    if (water && pending && touchesSurface(pending)) syncGround(water, st.grid);
     set({
       revision: st.revision + 1,
       lastTouched: markDirty(st.grid, touched, surface),
@@ -640,7 +677,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const next = palette ?? get().palette;
     set({
       grid, palette: [...next], material: Math.min(get().material, next.length - 1),
-      hover: null, pointer: null, stroke: null,
+      hover: null, stroke: null,
       revision: 0, lastTouched: [], ...historyMeta(), ...netMeta(),
     });
   },

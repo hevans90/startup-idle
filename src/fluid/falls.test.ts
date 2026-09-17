@@ -8,10 +8,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  FLOW_DEFAULTS, addWater, at, createColumnField, flowX, stepFlow, totalWater,
+  FLOW_DEFAULTS, MAX_FLOW_SPEED, addWater, at, createColumnField, flowX, stepFlow,
+  totalWater,
 } from "./columns";
 import {
-  BREAK, FALL_GRAVITY, FALL_MIN, driftAt, fallExtent, landsAt, throwOf, waterInAir,
+  BREAK, FALL_GRAVITY, FALL_MIN, FALL_THROW, driftAt, fallExtent, landsAt, throwOf,
+  waterInAir,
 } from "./falls";
 import { DROP, dripRoom, waterInDrips } from "./drips";
 
@@ -547,4 +549,24 @@ describe("and the pool it lands in is DRIVEN, not just filled", () => {
     // runs against the river.
     expect(vel[0]).toBeLessThan(0);
   }, 30000);
+});
+
+/**
+ * THE CAP THAT MUST NOT DRIFT, pinned here because it cannot be pinned by an
+ * import: `columns` and `falls` import each other, and a `const` read across
+ * that cycle at module scope throws for whichever entry point loads `columns`
+ * first. @see FALL_THROW
+ */
+describe("a lip throws no faster than the water flows", () => {
+  test("FALL_THROW is MAX_FLOW_SPEED", () => {
+    expect(FALL_THROW).toBe(MAX_FLOW_SPEED);
+  });
+
+  test("so the cap can never bind, because its input is already clamped", () => {
+    // `throwOf` only ever sees flowX/flowY, and those come out of the same
+    // clamp. Anything it is handed is already inside the cap.
+    expect(throwOf(MAX_FLOW_SPEED)).toBe(MAX_FLOW_SPEED);
+    expect(throwOf(MAX_FLOW_SPEED * 10)).toBe(FALL_THROW);
+    expect(throwOf(-1)).toBe(0);                 // and outward only
+  });
 });

@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 
 import { perfRead, type PerfRead } from "./perf";
+import { stampsNow } from "./gpu-stamps";
 
 /** Four a second. Faster than that and the digits are unreadable anyway. */
 const EVERY = 250;
@@ -21,10 +22,22 @@ const bar = (v: number) =>
     : v > 11 ? "text-amber-400 dark:text-amber-400"
       : "text-emerald-400 dark:text-emerald-400";
 
+type Gpu = { of: Record<string, number>; total: number; frames: number };
+
 export function PerfHud() {
   const [p, setP] = useState<PerfRead | null>(null);
+  /**
+   * WHAT THE GPU SPENT, which is the half `frame - js` cannot separate from
+   * waiting. Here rather than on the water toggle because the render is timed
+   * whichever solver is running, and putting it with the water implied it was
+   * the water's. @see holdStamps
+   */
+  const [g, setG] = useState<Gpu | null>(null);
   useEffect(() => {
-    const t = setInterval(() => setP(perfRead()), EVERY);
+    const t = setInterval(() => {
+      setP(perfRead());
+      setG(stampsNow()?.says() ?? null);
+    }, EVERY);
     return () => clearInterval(t);
   }, []);
   if (!p) return null;
@@ -58,6 +71,26 @@ export function PerfHud() {
           See `perf.ts` — it goes DOWN as the frame fills up. */}
       {row("js", p.js, bar(p.js))}
       {row("frame", p.frame, bar(p.frame))}
+      {g && g.frames > 0 && (
+        <>
+          <div className="my-1 border-t border-gray-700 dark:border-gray-700" />
+          {row("gpu", g.total, bar(g.total))}
+          {/* Biggest first, and only what clears the browser's own hundred
+              microsecond quantisation — below that a row is noise. */}
+          {Object.entries(g.of)
+            .sort((a, b) => b[1] - a[1])
+            .filter(([, v]) => v >= 0.1)
+            .slice(0, 5)
+            .map(([name, v]) => (
+              <div key={name} className="flex justify-between gap-3 pl-2">
+                <span className="text-gray-500 dark:text-gray-600">{name}</span>
+                <span className="tabular-nums text-gray-400 dark:text-gray-500">
+                  {ms(v)}
+                </span>
+              </div>
+            ))}
+        </>
+      )}
     </div>
   );
 }

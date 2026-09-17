@@ -88,7 +88,7 @@ describe("water in a pipe SLOSHES", () => {
     // back, and carries past the other way.
     const r = run(8);
     for (let x = 4; x < 12; x++) r.set(x, x < 8 ? 1.2 : 0.2);
-    const mean = pipeDepth(waterInPipes(r.f) / 8);
+    const mean = pipeDepth(waterInPipes(r.f, r.g) / 8);
 
     let low = Infinity, high = -Infinity, crossings = 0;
     let above = r.depth(4) > mean;
@@ -111,8 +111,8 @@ describe("water in a pipe SLOSHES", () => {
     const N = 8;
     const r = run(N);
     for (let x = 4; x < 4 + N; x++) r.set(x, x < 4 + N / 2 ? 1.2 : 0.2);
-    const mean = pipeDepth(waterInPipes(r.f) / N);
-    const expected = (2 * N) / pipeCelerity(waterInPipes(r.f) / N);
+    const mean = pipeDepth(waterInPipes(r.f, r.g) / N);
+    const expected = (2 * N) / pipeCelerity(waterInPipes(r.f, r.g) / N);
 
     // Time from the release to the SECOND crossing of the mean, which is half
     // a period — down through it, and back up through it.
@@ -150,10 +150,10 @@ describe("water in a pipe SLOSHES", () => {
   test("and none of it is created or lost while it does", () => {
     const r = run(8);
     for (let x = 4; x < 12; x++) r.set(x, x < 8 ? 1.2 : 0.2);
-    const before = waterInPipes(r.f);
+    const before = waterInPipes(r.f, r.g);
     for (let n = 0; n < 60 * 20; n++) {
       r.step(1 / 60);
-      expect(waterInPipes(r.f)).toBeCloseTo(before, 5);
+      expect(waterInPipes(r.f, r.g)).toBeCloseTo(before, 5);
     }
   });
 });
@@ -236,12 +236,12 @@ describe("over a ridge, and under one", () => {
     layPipe(g, 14, 12, DIR.N, g.pipeZ[idx(g, 14, 12)]);
     expect(g.pipeZ[idx(g, 9, 12)]).toBe(0);       // under twenty half steps of it
     for (let x = 4; x <= 8; x++) f.pipe[idx(g, x, 12)] = PIPE_FULL * 0.9;
-    const held = waterInPipes(f);
+    const held = waterInPipes(f, g);
     const nets = findPipeNets(g, createPipeNets(g.w, g.h));
     for (let n = 0; n < 60 * 10; n++) {
       stepPipeFlow(f, g, nets.cells, nets.at[0], nets.at[1], 1 / 60);
     }
     expect(f.pipe[idx(g, 14, 12)]).toBeGreaterThan(0);   // it got there
-    expect(waterInPipes(f)).toBeCloseTo(held, 5);        // and all of it did
+    expect(waterInPipes(f, g)).toBeCloseTo(held, 5);        // and all of it did
   });
 });
