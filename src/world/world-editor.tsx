@@ -24,6 +24,19 @@ import { TileBrowser } from "./debug/tile-browser";
 import { useEditKeys } from "./edit/use-edit-keys";
 import type { Overlays } from "../state/world.store";
 
+/**
+ * Which renderer to ask for: WebGPU, unless `?webgl=1` says otherwise.
+ *
+ * Not a preference so much as a way to LOOK at the other one. Everything here
+ * runs on WebGPU in practice, so the WebGL path is the one that rots quietly
+ * until somebody opens the page in a browser that has no WebGPU and gets a
+ * blank map. This makes it one URL away.
+ */
+const rendererAsked = (): "webgpu" | "webgl" =>
+  typeof location !== "undefined" && new URLSearchParams(location.search).has("webgl")
+    ? "webgl"
+    : "webgpu";
+
 export function WorldEditor() {
   const { ref: wrapperRef, setRef, size } = useResizeToWrapper();
   useDisableDOMZoom({ wrapperRef });
@@ -46,7 +59,7 @@ export function WorldEditor() {
             resizeTo={wrapperRef}
             antialias
             autoDensity
-            preference="webgpu"
+            preference={rendererAsked()}
             resolution={Math.min(window.devicePixelRatio, 2)}
             backgroundColor={0x101418}
           >

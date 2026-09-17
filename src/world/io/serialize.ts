@@ -27,6 +27,14 @@ export type WorldFile = {
   /** base64 Uint16Array */
   paved: string;
   /**
+   * base64 Uint16Array of fluid material indices.
+   *
+   * OPTIONAL on read, like `ramp`: a file written before pools existed is a
+   * valid dry map. Indices, not ids — the material list is append-only for
+   * exactly this reason, and re-ordering it would repaint every saved map.
+   */
+  fluid?: string;
+  /**
    * base64 Uint8Array of {@link import("../grid").RAMP} directions.
    *
    * OPTIONAL on read rather than a version bump: a file written before ramps
@@ -34,6 +42,13 @@ export type WorldFile = {
    * is always written.
    */
   ramp?: string;
+  /**
+   * base64 Int8Array of spring and drain rates.
+   *
+   * OPTIONAL on read, like `ramp`: a file written before springs existed has
+   * none, and none is what `createGrid` already gives.
+   */
+  source?: string;
   /**
    * Placed structures, as readable JSON — they are few, and worth eyeballing
    * in a diff.
@@ -109,6 +124,8 @@ export function serializeWorld(
     terrain: encodeU16(grid.terrain),
     height: encodeI8(grid.height),
     paved: encodeU16(grid.paved),
+    fluid: encodeU16(grid.fluid),
+    source: encodeI8(grid.source),
     ramp: encodeU8(grid.ramp),
     structures: [...grid.structures.values()],
     palette: { terrain: [...palette.terrain], paved: [...palette.paved] },
@@ -160,6 +177,8 @@ export function deserializeWorld(file: unknown): { grid: Grid; palette: WorldFil
   grid.paved.set(decodeU16(f.paved, n));
   // absent means a pre-ramp file: every cell level, which createGrid already gives
   if (typeof f.ramp === "string") grid.ramp.set(decodeU8(f.ramp, n));
+  if (typeof f.fluid === "string") grid.fluid.set(decodeU16(f.fluid, n));
+  if (typeof f.source === "string") grid.source.set(decodeI8(f.source, n));
   grid.structureAt.fill(-1);
   for (const raw of Array.isArray(f.structures) ? f.structures : []) {
     const s = readStructure(raw);

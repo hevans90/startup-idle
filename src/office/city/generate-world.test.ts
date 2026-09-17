@@ -1,15 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { generateWorld, WORLD_COLS, WORLD_ROWS } from "./generate-world";
+import { generateWorld, SLOP_PIT_BLOCK, WORLD_COLS, WORLD_ROWS } from "./generate-world";
 import { avenueTileFor, DIR, roadMaskAt, roadSpriteFor } from "./road-autotile";
 import { cellKey } from "./types";
 
 describe("generateWorld", () => {
   const world = generateWorld();
 
-  test("ground is dense (one sprite per cell)", () => {
-    expect(world.ground.length).toBe(WORLD_COLS * WORLD_ROWS);
+  test("ground is one sprite per cell, and a hole where the pit is", () => {
+    // Dense EXCEPT the slop pit's reserved plot, which is left a bare void on
+    // purpose: the pit draws its own floor and its own camera-facing walls, and
+    // a grass tile underneath would only fight with them. This test asserted
+    // plain density until the pit was given that plot, and then it was simply
+    // out of date — the generator has been right about this for a while.
+    const { x0, y0, x1, y1 } = SLOP_PIT_BLOCK;
+    const pit = (x: number, y: number) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+    const hole = (x1 - x0 + 1) * (y1 - y0 + 1);
+
     const seen = new Set(world.ground.map((t) => cellKey(t.mapX, t.mapY)));
-    expect(seen.size).toBe(WORLD_COLS * WORLD_ROWS);
+    // No cell gets two, which is what a set of the keys is for.
+    expect(seen.size).toBe(world.ground.length);
+    expect(world.ground.length).toBe(WORLD_COLS * WORLD_ROWS - hole);
+
+    // And the hole is where the pit is, rather than merely being the right
+    // size somewhere. A count alone would pass with the gap in the wrong place.
+    for (let y = 0; y < WORLD_ROWS; y++) {
+      for (let x = 0; x < WORLD_COLS; x++) {
+        expect(seen.has(cellKey(x, y))).toBe(!pit(x, y));
+      }
+    }
   });
 
   test("memoized: same reference each call", () => {

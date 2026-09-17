@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { RAMP, createGrid, fillTerrain, rampAt, setHeight, setPaved, setRamp, setTerrain } from "../grid";
+import {
+  RAMP, createGrid, fillTerrain, idx, rampAt, setHeight, setPaved, setRamp, setTerrain, sourceAt,
+} from "../grid";
 import { commit, createHistory } from "../edit/commands";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
@@ -66,12 +68,20 @@ describe("round trip", () => {
     expect(palette.paved).toEqual(PAL.paved);
   });
 
-  /** base64 keeps a big map small — JSON number arrays would not. */
+  /**
+   * base64 keeps a big map small — JSON number arrays would not.
+   *
+   * Five dense layers at 64²: terrain and paved and fluid as Uint16, height as
+   * Int8, ramp as Uint8 — about 44KB of base64 all told, against several
+   * hundred KB as decimal text. Every layer added costs its own share, which is
+   * the price of the format being a plain dump; a run-length pass would mostly
+   * erase it, since a typical map is almost entirely zeroes outside `terrain`.
+   */
   test("a 64² map encodes compactly", () => {
     const g = createGrid(64, 64);
     fillTerrain(g, 1);
     const json = toJSON(serializeWorld(g, PAL));
-    expect(json.length).toBeLessThan(40_000);   // vs ~100k+ as decimal text
+    expect(json.length).toBeLessThan(60_000);
     const { grid } = fromJSON(json);
     expect([...grid.terrain]).toEqual([...g.terrain]);
   });
@@ -142,12 +152,36 @@ describe("ramp layer", () => {
   });
 });
 
+describe("source layer", () => {
+  test("springs and drains round-trip, signs and all", () => {
+    // The water they produce does not survive a save and should not: depth is
+    // live state. The TAP does, which is what makes a river reload as a river
+    // rather than as the puddle it happened to be when you saved.
+    const grid = createGrid(6, 6, 1);
+    grid.source[idx(grid, 1, 2)] = 8;
+    grid.source[idx(grid, 4, 4)] = -8;
+    const { grid: back } = fromJSON(toJSON(serializeWorld(grid, PAL)));
+    expect(sourceAt(back, 1, 2)).toBe(8);
+    expect(sourceAt(back, 4, 4)).toBe(-8);
+    expect(sourceAt(back, 0, 0)).toBe(0);
+  });
+
+  test("a file written before springs existed still opens, with none", () => {
+    const grid = createGrid(6, 6, 1);
+    grid.source[idx(grid, 1, 2)] = 8;
+    const file = serializeWorld(grid, PAL);
+    delete file.source;
+    const { grid: back } = deserializeWorld(JSON.parse(JSON.stringify(file)));
+    expect(back.source.some((v) => v !== 0)).toBe(false);
+  });
+});
+
 describe("structures", () => {
   test("survive a round trip, and the layer is rebuilt from them", () => {
     const g = createGrid(8, 8);
     fillTerrain(g, 1);
     const hist = createHistory();
-    commit(g, hist, placeCommand(g, structureDef("pit")!, 2, 2)!);
+    commit(g, hist, placeCommand(g, structureDef("kit:intern.t1")!, 2, 2)!);
     commit(g, hist, placeCommand(g, structureDef("kit:intern.t0")!, 0, 7)!);
 
     const back = fromJSON(toJSON(serializeWorld(g, { terrain: [null, "a"], paved: [null] }))).grid;

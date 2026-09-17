@@ -17,10 +17,20 @@ import { buildTerrain, createTerrainLayer, type TerrainLayer } from "./render/te
 import { buildCliffs, createCliffLayer, syncCliff, type CliffLayer } from "./render/cliffs";
 import { buildPaved, createPavedLayer, recountInexact, syncPaved, type PavedLayer } from "./render/paved";
 import {
-  clearStructureLayer, createStructureLayer, refreshStructuresAt, syncStructures,
-  type StructureLayer,
+  createWaterLayer, destroyWaterLayer, drawWater, type WaterLayer,
+} from "./render/water";
+import {
+  createGpuWaterLayer, destroyGpuWaterLayer, drawGpuWater, waterOnGpu,
+  type GpuWaterLayer,
+} from "./render/water-gpu";
+import { compareWaterPaths } from "./debug/water-compare";
+import {
+  clearStructureLayer, createStructureLayer, hasAnimated, refreshStructuresAt,
+  syncStructures, tickStructures, type StructureLayer,
 } from "./structures/layer";
 import type { RenderCtx } from "./structures/render";
+import { structureDef } from "./structures/def";
+import { strokeFootprint as structureFootprint } from "./structures/place";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import "./structures/tiles-renderer";
@@ -33,11 +43,12 @@ import {
   drawOrigin, drawPickCrosshair, drawRoadGaps, drawRoadMask,
 } from "./render/overlays";
 import { createBuildCursor, type BuildCursor } from "./edit/cursor";
-import { strokeFootprint, type Stroke } from "./edit/tools";
+import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { surfaceSampler } from "./grid";
+import { footprintCells, surfaceSampler } from "./grid";
 import { pickCell, worldToCellF } from "./iso";
+import { runSources, stepWater } from "./water/field";
 
 // Required: <pixiContainer> is only a known element once Container is
 // registered with @pixi/react, and without it `rootRef` never populates.
@@ -56,6 +67,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const clRef = useRef<CliffLayer | null>(null);
   const plRef = useRef<PavedLayer | null>(null);
   const slRef = useRef<StructureLayer | null>(null);
+  const flRef = useRef<WaterLayer | null>(null);
+  // The water's mesh is built in a vertex shader unless `?cpuwater=1` asks for
+  // the CPU builder. Only one of the two ever exists: they draw into the same
+  // band containers, and both would draw the same water twice.
+  const gpuRef = useRef<GpuWaterLayer | null>(null);
   // held so an edit can re-texture just the cells that changed
   const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
@@ -83,16 +99,74 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const cl = createCliffLayer(grid, useWorldStore.getState().palette, scale);
       const pl = createPavedLayer(grid, ROAD_TABLE, scale);
       const sl = createStructureLayer();
+      const water = useWorldStore.getState().getWaterField();
+      const onGpu = waterOnGpu();
+      const fl = water && !onGpu ? createWaterLayer(water, bl, scale) : null;
+      gpuRef.current = water && onGpu ? createGpuWaterLayer(water, bl, scale) : null;
       buildTerrain(tl, bl, grid, textures);
       buildCliffs(cl, bl, grid, textures);
       buildPaved(pl, bl, grid, textures);
       syncStructures(sl, { bands: bl, textures, grid, scale });
+
       rootRef.current.addChild(bl.root);
       blRef.current = bl;
       tlRef.current = tl;
       clRef.current = cl;
       plRef.current = pl;
       slRef.current = sl;
+      flRef.current = fl;
+      // See expose-store: an animated structure's state is not observable from
+      // outside any other way.
+      if (import.meta.env.DEV) {
+        window.__structures = sl;
+        window.__bands = bl;
+        window.__water = water;
+        window.__waterLayer = fl;
+        // Drives frames by hand, because the browser throttles rAF whenever
+        // the preview is not on screen and a throttled clock has wrecked more
+        // than one measurement in this file's history. Runs the same three
+        // steps the tick does — solve, build, render — and reports each.
+        //
+        // Twice over: once pipelined, which is how it really runs, and once
+        // waiting on the device after every frame, which serialises the GPU
+        // behind the CPU. The difference between the two is what the GPU is
+        // doing while the CPU gets on with the next frame.
+        // Does the vertex shader draw the same water as the mesh builder? It
+        // builds its own scene and answers in pixels — see water-compare.
+        window.__waterCompare = (o) => compareWaterPaths(app.renderer, o);
+        const scene = { water, bl, grid };
+        const renderer = app.renderer, stage = app.stage;
+        window.__waterBench = async (n = 200, sync = false) => {
+          const field = useWorldStore.getState().getWaterField();
+          const cpu = flRef.current, gpu = gpuRef.current;
+          if (!field || !scene.bl || (!cpu && !gpu)) return null;
+          const build = () => (cpu
+            ? drawWater(cpu, field, scene.bl!, 1 / 60)
+            : drawGpuWater(gpu!, field, scene.bl!, 1 / 60));
+          const device = (renderer as unknown as { gpu?: { device: GPUDevice } }).gpu?.device;
+          const frame = () => renderer.render({ container: stage });
+          for (let i = 0; i < 30; i++) { stepWater(field, 1 / 60); build(); frame(); }
+          if (device) await device.queue.onSubmittedWorkDone();
+
+          let solve = 0, draw = 0, submit = 0;
+          const t0 = performance.now();
+          for (let i = 0; i < n; i++) {
+            const a = performance.now(); stepWater(field, 1 / 60);
+            const b = performance.now(); build();
+            const c = performance.now(); frame();
+            const d = performance.now();
+            solve += b - a; draw += c - b; submit += d - c;
+            if (sync && device) await device.queue.onSubmittedWorkDone();
+          }
+          if (device) await device.queue.onSubmittedWorkDone();
+          const wall = performance.now() - t0;
+          const per = (v: number) => Math.round((v / n) * 100) / 100;
+          return {
+            path: cpu ? "cpu" : "gpu", frames: n, sync,
+            solve: per(solve), build: per(draw), submit: per(submit), wall: per(wall),
+          };
+        };
+      }
 
       // Ghosts need the bands (true depth), the outline needs the overlay
       // (above everything) — see edit/cursor.
@@ -108,14 +182,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cancelled = true;
       cursorRef.current?.destroy();
       cursorRef.current = null;
+      if (flRef.current) destroyWaterLayer(flRef.current);
+      if (gpuRef.current) destroyGpuWaterLayer(gpuRef.current);
       if (slRef.current) clearStructureLayer(slRef.current);
       if (blRef.current) destroyBandLayer(blRef.current);
       slRef.current = null;
+      flRef.current = null;
+      gpuRef.current = null;
       blRef.current = null;
       tlRef.current = null;
       clRef.current = null;
       plRef.current = null;
     };
+    // The renderer and stage are read only by the dev bench above, and both
+    // outlive this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grid, scale]);
 
   // Frame the map once the viewport registers. Separate from the build effect
@@ -368,6 +449,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const ctx: RenderCtx = { bands: bl, textures: tex, grid, scale };
     syncStructures(sl, ctx);
     refreshStructuresAt(sl, ctx, touched);
+
     // an edit can change the height range, so overlays may need redrawing
     redrawOverlays();
   }, [revision, grid, scale, redrawOverlays]);
@@ -389,6 +471,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const brushRadius = useWorldStore((s) => s.brushRadius);
   const hoverForBrush = useWorldStore((s) => s.hover);
   const material = useWorldStore((s) => s.material);
+  const structureDefId = useWorldStore((s) => s.structureDefId);
   // `palette` and `revision` are already selected above, for the terrain
   // layer's copy and the per-cell reconcile respectively.
 
@@ -406,8 +489,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     );
     if (!s0) { cur.clear(); return; }
 
+    // A STRUCTURE tool previews its footprint, not a brush: the same function
+    // the commit uses, so the rect you drag out is the rect you get.
+    const cells = isStructureTool(s0.tool)
+      ? (() => {
+          const fp = structureFootprint(structureDef(structureDefId), s0.anchor, s0.head);
+          return footprintCells(fp.x, fp.y, fp.w, fp.h);
+        })()
+      : strokeFootprint(grid, s0, brushRadius);
+
     cur.update(grid, {
-      cells: strokeFootprint(grid, s0, brushRadius),
+      cells,
       // Only a material tool places a tile, so only it gets a ghost. Erase and
       // the height tools show the outline alone — ghosting a material they
       // never write would claim the wrong thing about what the click does.
@@ -416,9 +508,40 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       scale,
     }, tex);
   }, [
-    stroke, hoverForBrush, brushRadius, tool, material, palette,
+    stroke, hoverForBrush, brushRadius, tool, material, palette, structureDefId,
     grid, scale, revision, sceneEpoch,
   ]);
+
+  // Animated structures — the fluid in an excavation. Costs one Map walk per
+  // frame when nothing on the map animates, because a renderer that declares no
+  // `tick` is skipped outright.
+  useTick((ticker) => {
+    const sl = slRef.current, bl = blRef.current, tex = texRef.current;
+    const fl = flRef.current;
+    const dt = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
+    // The water runs every frame, and the mesh is rebuilt from it every frame:
+    // the surface changes everywhere at once, so there is no incremental
+    // version of drawing it.
+    const field = useWorldStore.getState().getWaterField();
+    const gpu = gpuRef.current;
+    if (bl && field && (fl || gpu)) {
+      runSources(field, grid, dt);
+      const t0 = performance.now();
+      stepWater(field, dt);
+      const t1 = performance.now();
+      if (fl) drawWater(fl, field, bl, dt);
+      else if (gpu) drawGpuWater(gpu, field, bl, dt);
+      const t2 = performance.now();
+      if (import.meta.env.DEV) {
+        const w = (window as unknown as { __waterMs?: { solve: number; draw: number; n: number } });
+        const acc = w.__waterMs ?? (w.__waterMs = { solve: 0, draw: 0, n: 0 });
+        acc.solve += t1 - t0; acc.draw += t2 - t1; acc.n++;
+      }
+      useWorldStore.getState().refreshWaterMeta();
+    }
+    if (!sl || !bl || !tex || !hasAnimated(sl)) return;
+    tickStructures(sl, { bands: bl, textures: tex, grid, scale }, dt);
+  });
 
   // Cull to the visible band range each frame. Cheap: one comparison per band,
   // and setVisibleBands early-returns when the range has not moved.

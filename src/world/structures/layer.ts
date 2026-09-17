@@ -98,6 +98,26 @@ export function refreshStructuresAt(
 const idAt = (g: Grid, x: number, y: number) =>
   x >= 0 && y >= 0 && x < g.w && y < g.h ? g.structureAt[y * g.w + x] : -1;
 
+/**
+ * Advance every animated structure by `dt` seconds.
+ *
+ * Driven from the scene's ticker. Costs one map lookup when nothing on the map
+ * animates, because a renderer without a `tick` is skipped outright.
+ */
+export function tickStructures(sl: StructureLayer, ctx: RenderCtx, dt: number): void {
+  for (const m of sl.mounted.values()) {
+    if (!m.renderer.tick) continue;
+    const def = structureDef(m.s.def);
+    if (def) m.renderer.tick(m.handle, m.s, def, ctx, dt);
+  }
+}
+
+/** Whether anything on the map needs a per-frame tick at all. */
+export const hasAnimated = (sl: StructureLayer) => {
+  for (const m of sl.mounted.values()) if (m.renderer.tick) return true;
+  return false;
+};
+
 /** Unmount everything. For a map reload or a teardown. */
 export function clearStructureLayer(sl: StructureLayer): void {
   for (const id of [...sl.mounted.keys()]) unmountOne(sl, id);

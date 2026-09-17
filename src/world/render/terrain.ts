@@ -13,7 +13,8 @@
  */
 import { Sprite, type Texture } from "pixi.js";
 
-import { cellToWorld, bandOf, spriteY } from "../iso";
+import { GROUND_FRAME_H, RAMP, bandOf, cellToWorld, rampDir, rampRise, spriteY } from "../iso";
+import { terrainRampFrame } from "../ramp-art";
 import { VOID, idx, inBounds, structureOf, type Grid } from "../grid";
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
@@ -60,7 +61,15 @@ export function syncCell(
   // a bare void. Suppressed at RENDER time and not in the layer: the material
   // stays whatever it was, so it comes straight back when the structure goes.
   const hidden = hidesTerrain(grid, x, y);
-  const frame = mat === VOID || hidden ? null : (tl.palette[mat] ?? null);
+  // A SLOPED cell draws the tilted ground tile instead of the flat one. The
+  // ramp layer used to affect only the paved renderer, so a hillside could be
+  // stepped but never sloped — see edit/slope.
+  const ramp = rampDir(grid.ramp[i]);
+  const frame = mat === VOID || hidden
+    ? null
+    : (ramp !== RAMP.NONE
+        ? terrainRampFrame(ramp, rampRise(grid.ramp[i])) ?? (tl.palette[mat] ?? null)
+        : (tl.palette[mat] ?? null));
   const tex = frame ? textures[frame] : undefined;
 
   const existing = tl.sprites[i];
@@ -86,7 +95,9 @@ export function syncCell(
     s.texture = tex;
   }
   s.x = wx;
-  s.y = spriteY(wy, tex.height, tl.scale);
+  // A slope frame is anchored by the STANDARD ground height, not its own: the
+  // extra height on one is a deeper skirt below its low side. See GROUND_FRAME_H.
+  s.y = spriteY(wy, ramp !== RAMP.NONE ? GROUND_FRAME_H : tex.height, tl.scale);
   s.scale.set(tl.scale * TILE_BLEED);
 }
 

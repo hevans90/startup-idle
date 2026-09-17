@@ -22,21 +22,17 @@ export type KitRef = {
   floors?: number;
 };
 
-/** A fluid surface inside an excavation — the slop pit's sim, generalised. */
-export type FluidSpec = {
-  /** Rest level, in HALF steps below the surrounding ground. */
-  restHH: number;
-  rendererId: string;
-};
-
 /**
- * How a structure draws. Three strategies, because the art supports three
- * shapes and no more: stacked tiles, a hole in the ground, and "a renderer
- * written by hand" for anything procedural.
+ * How a structure draws. Stacked tiles, or "a renderer written by hand" for
+ * anything procedural.
+ *
+ * There was an `excavation` strategy here for the slop pit. It is gone: a pool
+ * merges with its neighbours on contact and splits when you fill it in, which
+ * makes it a REGION and not a placed object, so fluid became a layer with
+ * derived components — see `world/pools`.
  */
 export type RenderSpec =
   | { kind: "tiles"; kit: KitRef }
-  | { kind: "excavation"; depthHH: number; fluid?: FluidSpec }
   | { kind: "custom"; rendererId: string };
 
 export type Placement = {
@@ -56,7 +52,7 @@ export type StructureDef = {
   footprint: { w: number; h: number };
   render: RenderSpec;
   /**
-   * The footprint draws no ground tile — the pit is a bare void.
+   * The footprint draws no ground tile.
    *
    * A RENDER rule, not a data one: the terrain layer keeps its material and the
    * renderer skips those cells while the structure stands. Zeroing the layer
@@ -106,28 +102,8 @@ const kitDefs = (): StructureDef[] =>
     render: { kind: "tiles", kit: { kit } },
   }));
 
-/**
- * The slop pit, as a definition rather than as constants in a layer.
- *
- * 5×5 is the only shipped size on purpose: the pit's recent history is all
- * masking and depth tuning, and a variable footprint reopens exactly that. Take
- * the architecture, hold the shape.
- */
-const PIT: StructureDef = {
-  id: "pit",
-  name: "slop pit",
-  footprint: { w: 5, h: 5 },
-  render: {
-    kind: "excavation",
-    depthHH: 3,
-    fluid: { restHH: 1, rendererId: "slop" },
-  },
-  clearsTerrain: true,
-  placement: { allowOnPaved: false },
-};
-
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), PIT].map((d) => [d.id, d]),
+  kitDefs().map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;
@@ -153,3 +129,4 @@ export function placementOf(def: StructureDef): Required<Placement> {
     autoFlatten: def.placement?.autoFlatten ?? true,
   };
 }
+

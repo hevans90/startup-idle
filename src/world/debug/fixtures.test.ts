@@ -12,7 +12,12 @@ import { componentCount, createNetwork, netIdAt } from "../roads/network";
 import { HEIGHT_UNIT, HH, HW, RAMP, cellToWorld, faceCoords, pickCell, rampDir, rampRise, surfaceHeight } from "../iso";
 import {
   OCCLUDER_GAP, OCCLUDER_HEIGHT, applyFixture, buildOccluder, buildRampFan, buildZiggurat,
+  type FixtureId,
 } from "./fixtures";
+import { createWaterField, depthAt, runSources, stepWater, wetTiles } from "../water/field";
+
+/** The presets that come with their own water. */
+const WATER_FIXTURES: FixtureId[] = ["river", "cascade", "lake", "islands"];
 
 const world = (w = 48, h = 48) => createGrid(w, h, 1);
 
@@ -252,5 +257,72 @@ describe("road fixtures", () => {
     expect(componentCount(createNetwork(g))).toBe(1);   // still a loop, just open
     setPaved(g, 10, 14, 0);
     expect(componentCount(createNetwork(g))).toBe(2);   // now two arcs
+  });
+});
+
+describe("the water fixtures", () => {
+  /** Run a preset's own taps and flow for a while, as the scene does. */
+  const live = (id: FixtureId, seconds: number) => {
+    const g = createGrid(48, 48);
+    applyFixture(g, id, 1);
+    const field = createWaterField(g);
+    for (let n = 0; n < seconds * 60; n++) {
+      runSources(field, g, 1 / 60);
+      stepWater(field, 1 / 60);
+    }
+    return { g, field };
+  };
+
+  test("every one of them arrives with its own taps, so loading it starts a flow", () => {
+    // The point of them. A fixture that hands you a shape to pour into is
+    // half an hour of raising terrain before you can look at anything.
+    for (const id of WATER_FIXTURES) {
+      const g = createGrid(48, 48);
+      applyFixture(g, id, 1);
+      expect([...g.source].filter((r) => r > 0).length).toBeGreaterThan(0);
+    }
+  });
+
+  // Four fixtures, a minute of water each, on a 48x48 map: this one is simply
+  // a lot of simulation and it runs past the default five seconds.
+  test("and each of them is running a minute later", () => {
+    for (const id of WATER_FIXTURES) {
+      const { field } = live(id, 60);
+      expect(wetTiles(field)).toBeGreaterThan(100);
+    }
+  }, 20000);
+
+  test("the river reaches a standing flow rather than filling up", () => {
+    // As much arriving as leaving, which is the whole difference between a
+    // river and a bath.
+    const { g, field } = live("river", 60);
+    const a = wetTiles(field);
+    for (let n = 0; n < 60 * 60; n++) {
+      runSources(field, g, 1 / 60);
+      stepWater(field, 1 / 60);
+    }
+    expect(Math.abs(wetTiles(field) - a)).toBeLessThan(a * 0.15);
+  });
+
+  test("the cascade holds a pool on every tread", () => {
+    // Each tread has a lip on its downhill side, so water stands at every
+    // riser instead of a film racing over all of them.
+    const { g, field } = live("cascade", 60);
+    let pools = 0;
+    for (let x = 2; x < g.w - 2; x++) {
+      // A tile deeper than its downhill neighbour is standing water, not a
+      // sheet on its way somewhere.
+      const here = depthAt(field, x, Math.floor(g.h / 2));
+      if (here > 1) pools++;
+    }
+    expect(pools).toBeGreaterThan(4);
+  });
+
+  test("switching to another fixture leaves no taps behind", () => {
+    const g = createGrid(48, 48);
+    applyFixture(g, "river", 1);
+    expect([...g.source].some((r) => r !== 0)).toBe(true);
+    applyFixture(g, "flat", 1);
+    expect([...g.source].some((r) => r !== 0)).toBe(false);
   });
 });

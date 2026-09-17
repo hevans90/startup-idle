@@ -139,6 +139,24 @@ export function rampFrameExact(
   return ix.get(key(dir, rise))?.find((f) => f.paved === paved) ?? null;
 }
 
+/**
+ * The BARE ramp frame for a direction and rise — a plain open slope.
+ *
+ * "Open on all four edges" is the filter that matters. The artset also holds
+ * cuttings: `landscapeTiles_009` is a S slope with grass banks either side,
+ * which is the right tile for a sunken path and the wrong one for a hillside,
+ * and it sorts first for S at a full rise. The labels say which is which —
+ * an `edges` of four `open` values is a slope with nothing built around it.
+ */
+export function terrainRampFrame(dir: RampDir, rise: number): string | null {
+  const open = (f: RampFrame) => {
+    const e = SLOPE_LABELS[f.frame]?.edges;
+    return !!e && ["N", "E", "S", "W"].every((s) => e[s] === "open");
+  };
+  const list = shared().get(`${dir}:${rise}`)?.filter((f) => !f.paved) ?? [];
+  return (list.find(open) ?? list[0])?.frame ?? null;
+}
+
 /** Built once: the label file never changes at runtime. */
 let sharedIndex: RampIndex | null = null;
 const shared = () => (sharedIndex ??= buildRampIndex());

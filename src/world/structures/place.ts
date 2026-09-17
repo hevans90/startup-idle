@@ -19,6 +19,16 @@ import {
 import { RAMP } from "../iso";
 import { placementOf, type StructureDef } from "./def";
 
+/** Where a structure stroke places: the head cell, with the definition's footprint. */
+export function strokeFootprint(
+  def: StructureDef | null,
+  _anchor: { x: number; y: number },
+  head: { x: number; y: number },
+): { x: number; y: number; w: number; h: number } {
+  if (!def) return { x: head.x, y: head.y, w: 1, h: 1 };
+  return { x: head.x, y: head.y, w: def.footprint.w, h: def.footprint.h };
+}
+
 export type PlacementCheck = {
   ok: boolean;
   /** One verdict per footprint cell, row-major — for the cursor's per-cell tint. */
@@ -107,20 +117,14 @@ export function placeCommand(
   const check = validatePlacement(grid, def, ox, oy);
   if (!check.ok) return null;
 
+  const { w, h } = def.footprint;
   const b = new PatchBuilder(grid);
-  const structure: Structure = {
-    id: grid.nextStructureId,
-    def: def.id,
-    x: ox,
-    y: oy,
-    w: def.footprint.w,
-    h: def.footprint.h,
-  };
+  const structure: Structure = { id: grid.nextStructureId, def: def.id, x: ox, y: oy, w, h };
 
-  for (const c of footprintCells(ox, oy, def.footprint.w, def.footprint.h)) {
+  for (const c of footprintCells(ox, oy, w, h)) {
     if (placementOf(def).autoFlatten) {
       b.set("height", c.x, c.y, check.groundHeight);
-      // A ramp under a building is a contradiction: the cell is flat now.
+      // A ramp under a structure is a contradiction: the cell is flat now.
       b.set("ramp", c.x, c.y, RAMP.NONE);
     }
     b.set("structureAt", c.x, c.y, structure.id);
@@ -139,7 +143,7 @@ export function placeCommand(
  * what used to be there, and a map edited and reloaded in between would not.
  *
  * Note this does NOT undo the levelling: flattening a hill to build on it is a
- * change to the ground, and knocking the building down does not put the hill
+ * change to the GROUND, and knocking the building down does not put the hill
  * back. Undo does, because undo reverses the whole command.
  */
 export function demolishCommand(grid: Grid, id: number): Command | null {

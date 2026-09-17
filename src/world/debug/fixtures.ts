@@ -11,7 +11,8 @@ import { fillTerrain, idx, inBounds, recomputeHeightRange, type Grid } from "../
 
 export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
-  | "roadShapes" | "avenue" | "plaza" | "splitTrap";
+  | "roadShapes" | "avenue" | "plaza" | "splitTrap"
+  | "river" | "cascade" | "lake" | "islands";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -25,7 +26,17 @@ const clear = (g: Grid, material: number) => {
   g.height.fill(0);
   g.ramp.fill(0);
   g.paved.fill(0);
+  g.source.fill(0);
+  g.fluid.fill(0);
 };
+
+/** A tap: positive feeds, negative drains. See the `source` layer. */
+const tap = (g: Grid, x: number, y: number, rate: number) => {
+  if (inBounds(g, x, y)) g.source[idx(g, x, y)] = rate;
+};
+
+/** How hard a fixture's springs run, in half steps a second. */
+const SPRING = 8;
 
 const pave = (g: Grid, x: number, y: number) => {
   if (inBounds(g, x, y)) g.paved[idx(g, x, y)] = 1;
@@ -186,6 +197,115 @@ export function buildSplitTrap(g: Grid, material: number, cx: number, cy: number
   recomputeHeightRange(g);
 }
 
+/**
+ * WATER FIXTURES.
+ *
+ * The others exist so a picking bug is reproducible; these exist so the water
+ * is. Every one of them carries its own taps in the `source` layer, so loading
+ * it starts a flow rather than handing you a shape to pour into — which is the
+ * difference between a scene and a still life, and half an hour of raising
+ * terrain by hand before you can look at anything.
+ */
+
+/**
+ * A graded valley with a spring at its head.
+ *
+ * The plain river: a source up top, a slope, and the open edge of the map at
+ * the bottom. It reaches a standing flow — as much water arriving as leaving —
+ * within about half a minute.
+ */
+export function buildRiver(g: Grid, material: number) {
+  clear(g, material);
+  const mid = g.h / 2, halfWidth = Math.max(2, Math.round(g.h * 0.09));
+  for (let y = 0; y < g.h; y++) {
+    const bank = Math.abs(y - mid) > halfWidth ? 10 : 0;
+    for (let x = 0; x < g.w; x++) set(g, x, y, Math.round((g.w - 1 - x) * 0.4) + bank);
+  }
+  for (let d = -1; d <= 1; d++) tap(g, 1, Math.round(mid) + d, SPRING);
+}
+
+/**
+ * Terraces, each a full step down from the last, with a spring at the top.
+ *
+ * Falls, and what they do to a ledge they land on. The treads are wide enough
+ * that the water pools on each before it goes over the next, so every riser
+ * has a body of water standing at its lip rather than a film racing past it.
+ */
+export function buildCascade(g: Grid, material: number) {
+  clear(g, material);
+  const mid = g.h / 2, halfWidth = Math.max(2, Math.round(g.h * 0.11));
+  const tread = Math.max(3, Math.round(g.w / 9));
+  for (let y = 0; y < g.h; y++) {
+    const bank = Math.abs(y - mid) > halfWidth ? 14 : 0;
+    for (let x = 0; x < g.w; x++) {
+      const step = Math.floor((g.w - 1 - x) / tread);
+      // A lip on the downhill side of each tread, so each one holds a pool.
+      const lip = (g.w - 1 - x) % tread === 0 ? 1 : 0;
+      set(g, x, y, step * 4 + lip + bank);
+    }
+  }
+  for (let d = -1; d <= 1; d++) tap(g, 1, Math.round(mid) + d, SPRING);
+}
+
+/**
+ * A basin fed from a shelf and drained through a notch in its rim.
+ *
+ * A body of water with an inflow and an outflow, which is a different thing
+ * from a pour: the level finds itself and then stays, and the fall coming into
+ * it never stops.
+ */
+export function buildLake(g: Grid, material: number) {
+  clear(g, material);
+  const cx = g.w / 2, cy = g.h / 2, r = Math.min(g.w, g.h) * 0.3;
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const d = Math.hypot(x - cx, y - cy);
+      // A shelf on the up-slope side, the basin in the middle, and a rim.
+      const shelf = x < cx - r ? 12 : 0;
+      set(g, x, y, d < r ? -6 : Math.max(2, shelf));
+    }
+  }
+  // The notch: one tile of the rim cut down to the basin floor, so the lake
+  // overflows there and runs off the map rather than rising for ever.
+  for (let y = Math.round(cy) - 1; y <= Math.round(cy) + 1; y++) {
+    for (let x = Math.round(cx + r) - 1; x < g.w; x++) set(g, x, y, -4);
+  }
+  for (let d = -1; d <= 1; d++) tap(g, 1, Math.round(cy) + d, SPRING);
+}
+
+/**
+ * Blocks at every elevation, each with a spring on top, in a shallow flood.
+ *
+ * The render bed. Water on a raised tile has been wrong at one step and right
+ * at ten, and wrong at ten and right at one, more than once — so here they all
+ * are at once: one step, two, four and eight, each pouring off its own edges
+ * into water that is already there.
+ */
+export function buildIslands(g: Grid, material: number) {
+  clear(g, material);
+  const heights = [2, 4, 8, 16];
+  const size = Math.max(3, Math.round(Math.min(g.w, g.h) / 10));
+  const gap = size * 2;
+  let n = 0;
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 2; col++) {
+      const x0 = Math.round(g.w / 2 - gap + col * gap);
+      const y0 = Math.round(g.h / 2 - gap + row * gap);
+      const h = heights[n++];
+      for (let y = y0; y < y0 + size; y++) {
+        for (let x = x0; x < x0 + size; x++) set(g, x, y, h);
+      }
+      tap(g, x0 + (size >> 1), y0 + (size >> 1), SPRING);
+    }
+  }
+  // A rim, so the flood they pour into stays on the map and finds a level.
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      if (x < 2 || y < 2 || x >= g.w - 2 || y >= g.h - 2) set(g, x, y, 20);
+    }
+  }
+}
+
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
   const cx = Math.floor(g.w / 2), cy = Math.floor(g.h / 2);
   switch (id) {
@@ -197,5 +317,9 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "avenue": buildAvenue(g, material, cx, cy); return;
     case "plaza": buildPlaza(g, material, cx, cy); return;
     case "splitTrap": buildSplitTrap(g, material, cx, cy); return;
+    case "river": buildRiver(g, material); recomputeHeightRange(g); return;
+    case "cascade": buildCascade(g, material); recomputeHeightRange(g); return;
+    case "lake": buildLake(g, material); recomputeHeightRange(g); return;
+    case "islands": buildIslands(g, material); recomputeHeightRange(g); return;
   }
 }

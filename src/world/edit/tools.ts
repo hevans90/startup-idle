@@ -21,6 +21,12 @@ export type ToolId =
   | "smooth"
   | "paintRoad"
   | "eraseRoad"
+  | "slope"
+  | "unslope"
+  | "pourWater"
+  | "drainWater"
+  | "spring"
+  | "sink"
   | "placeStructure"
   | "demolish"
   | "inspect";
@@ -33,6 +39,29 @@ export const isHeightTool = (t: ToolId): t is (typeof HEIGHT_TOOLS)[number] =>
 
 /** Tools that write the `paved` layer. */
 export const isRoadTool = (t: ToolId) => t === "paintRoad" || t === "eraseRoad";
+
+/** Tools that write the `ramp` layer on bare ground. See `edit/slope`. */
+export const isSlopeTool = (t: ToolId) => t === "slope" || t === "unslope";
+
+/**
+ * Tools that POUR water, rather than painting it.
+ *
+ * A volume goes down and the simulation decides where it ends up — which is the
+ * whole point, and why these are not layer writes like every other brush. Pour
+ * on a hilltop and it runs off.
+ */
+export const isWaterTool = (t: ToolId) => t === "pourWater" || t === "drainWater";
+
+/**
+ * Tools that place a SPRING or a drain — a rate, not a volume.
+ *
+ * The difference from pouring is the whole point of them. A pour is a slug of
+ * water that arrives once; a spring keeps arriving, so what it makes is a
+ * standing flow rather than a thing that runs out. A drain is the same
+ * mechanism backwards, and between them a map has somewhere for water to come
+ * from and somewhere for it to go.
+ */
+export const isSourceTool = (t: ToolId) => t === "spring" || t === "sink";
 
 /**
  * Tools that act on a STRUCTURE rather than on cells.
@@ -187,6 +216,12 @@ export function strokeLabel(s: Stroke, n: number): string {
     s.tool === "erase" ? "erase" :
     s.tool === "paintRoad" ? "road" :
     s.tool === "eraseRoad" ? "unroad" :
+    s.tool === "slope" ? "slope" :
+    s.tool === "unslope" ? "unslope" :
+    s.tool === "pourWater" ? "pour" :
+    s.tool === "drainWater" ? "drain" :
+    s.tool === "spring" ? "spring" :
+    s.tool === "sink" ? "sink" :
     isHeightTool(s.tool) ? s.tool :
     "paint";
   const shape = s.brush === "point" ? "" : ` ${s.brush}`;

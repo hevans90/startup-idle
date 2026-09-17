@@ -23,7 +23,19 @@ import { tileSpriteCount } from "./tiles-renderer";
 import { placeCommand, demolishCommand } from "./place";
 
 const KIT = structureDef("kit:intern.t0")!;
-const PIT = structureDef("pit")!;
+/**
+ * A big footprint that clears its ground. The slop pit used to be this; it is a
+ * POOL now, so the tests that need a multi-cell clearing structure register
+ * their own rather than depending on whatever content happens to ship.
+ */
+const PIT: StructureDef = {
+  id: "test:yard",
+  name: "yard",
+  footprint: { w: 5, h: 5 },
+  render: { kind: "custom", rendererId: "none" },
+  clearsTerrain: true,
+};
+registerStructureDef(PIT);
 
 /** Every frame any kit names, as a stand-in with a plausible ground size. */
 const TEX: Record<string, Texture> = {};

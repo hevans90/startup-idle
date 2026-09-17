@@ -9,6 +9,14 @@ import { createGrid, fillTerrain, type Grid , structureAt } from "../world/grid"
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { structureDef } from "../world/structures/def";
+import { DRY } from "../world/water/materials";
+import {
+  OPEN_EDGE_DEFAULT, POUR_AMOUNT, SOURCE_RATE, createWaterField, drainAt, pourAt,
+  setWaterEdge, syncGround, totalVolume,
+  wetTiles, type WaterField,
+} from "../world/water/field";
+import { derivedSlope } from "../world/edit/slope";
+import { RAMP } from "../world/iso";
 import { demolishCommand, placeCommand } from "../world/structures/place";
 
 import {
@@ -21,7 +29,9 @@ import {
   type Network,
 } from "../world/roads/network";
 import {
-  isHeightTool, isRoadTool, isStructureTool, strokeFootprint, strokeLabel,
+  isWaterTool, isHeightTool, isRoadTool, isSlopeTool, isSourceTool, isStructureTool,
+  strokeFootprint,
+  strokeLabel,
   type BrushId, type Stroke, type ToolId,
 } from "../world/edit/tools";
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
@@ -89,6 +99,20 @@ const historyMeta = () => ({
 let network: Network | null = null;
 
 /**
+ * The map's water, outside the store for a stronger version of the same reason.
+ *
+ * Depth is a float that changes every frame. Putting it in state would mean a
+ * re-render per frame, and putting it in the GRID would mean the undo system
+ * carrying a snapshot of a simulation. Pouring is undoable; the flowing is not,
+ * any more than the passage of time is. The store mirrors the wet-tile count
+ * and the volume, which is all the readout needs.
+ */
+let water: WaterField | null = null;
+
+/** The live water field, for the renderer and the debug hook. */
+export const getWater = () => water;
+
+/**
  * Cells the renderer has not reconciled yet, ACCUMULATED across edits.
  *
  * Outside the store for the same reason as `history` and `network`: it is
@@ -135,6 +159,17 @@ type WorldState = {
   pointer: { wx: number; wy: number; fx: number; fy: number } | null;
   /** Bands currently drawn, for the debug readout. */
   drawnBands: number;
+  /** Tiles holding water, and the total volume — mirrored for the readout. */
+  wetTiles: number;
+  waterVolume: number;
+  /**
+   * Whether water runs off the edge of the map.
+   *
+   * A map is a piece of somewhere larger, so on by default — walled in, a
+   * spring fills the world and the only way out is a hole you dug. Mirrored
+   * into the store because the field it lives on is outside the store.
+   */
+  openEdge: boolean;
   overlays: Overlays;
   /** Material index → atlas frame name. Index 0 is VOID. */
   palette: (string | null)[];
@@ -143,6 +178,8 @@ type WorldState = {
   tool: ToolId;
   /** Which {@link import("../world/structures/def").StructureDef} the place tool builds. */
   structureDefId: string;
+  /** Layer index the fluid brush paints. See `world/pools/materials`. */
+  fluidMaterial: number;
   brush: BrushId;
   /** Brush radius in cells: 0 = one tile, 1 = 3×3, 2 = 5×5. */
   brushRadius: number;
@@ -179,9 +216,15 @@ type WorldState = {
   setHover: (c: Cell | null) => void;
   setPointer: (p: WorldState["pointer"]) => void;
   setDrawnBands: (n: number) => void;
+  /** Re-read the water totals from the live field. Called by the scene's tick. */
+  refreshWaterMeta: () => void;
+  /** The live water field. Outside state deliberately — see `water`. */
+  getWaterField: () => WaterField | null;
   toggleOverlay: (k: keyof Overlays) => void;
+  setOpenEdge: (open: boolean) => void;
   setTool: (t: ToolId) => void;
   setStructureDef: (id: string) => void;
+  setFluidMaterial: (index: number) => void;
   /** Place or demolish at one cell. Called by `endStroke` for the structure tools. */
   commitStructure: (c: Cell) => void;
   setBrush: (b: BrushId) => void;
@@ -249,6 +292,7 @@ const INITIAL_GRID = freshGrid(DEFAULT_SIZE, DEFAULT_SIZE);
 // built for the starting grid too, so `network` is never null and no call site
 // has to special-case the first render
 network = createNetwork(INITIAL_GRID);
+water = createWaterField(INITIAL_GRID);
 
 export const useWorldStore = create<WorldState>()((set, get) => ({
   grid: INITIAL_GRID,
@@ -257,10 +301,14 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   hover: null,
   pointer: null,
   drawnBands: 0,
+  wetTiles: 0,
+  waterVolume: 0,
+  openEdge: OPEN_EDGE_DEFAULT,
   overlays: { grid: true, bands: false, height: false, origin: true, net: false, mask: false, gaps: false },
   palette: [...INITIAL_TERRAIN_PALETTE],
   tool: "paintTerrain",
   structureDefId: "kit:intern.t0",
+  fluidMaterial: 1,
   brush: "point",
   brushRadius: 0,
   material: DIRT,
@@ -278,8 +326,18 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setHover: (hover) => set({ hover }),
   setPointer: (pointer) => set({ pointer }),
   setDrawnBands: (drawnBands) => set({ drawnBands }),
+  getWaterField: () => water,
+  refreshWaterMeta: () => {
+    if (!water) return;
+    const wet = wetTiles(water), volume = Math.round(totalVolume(water));
+    set((s) => (s.wetTiles === wet && s.waterVolume === volume ? {} : { wetTiles: wet, waterVolume: volume }));
+  },
   toggleOverlay: (k) =>
     set((st) => ({ overlays: { ...st.overlays, [k]: !st.overlays[k] } })),
+  setOpenEdge: (open) => {
+    if (water) setWaterEdge(water, open);
+    set({ openEdge: open });
+  },
   setPickNudge: (pickNudge) => set({ pickNudge }),
   applyFixture: (id) => {
     const { grid } = get();
@@ -296,6 +354,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     history = createHistory();
     const grid = freshGrid(w, h);
     network = createNetwork(grid);
+    water = createWaterField(grid);
+    setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
       grid, hover: null, pointer: null, stroke: null,
@@ -305,6 +365,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   setTool: (tool) => set({ tool, stroke: null }),
   setStructureDef: (structureDefId) => set({ structureDefId }),
+  setFluidMaterial: (fluidMaterial) => set({ fluidMaterial }),
   setBrush: (brush) => set({ brush, stroke: null }),
   setBrushRadius: (brushRadius) => set({ brushRadius }),
   setMaterial: (material) => set({ material }),
@@ -348,6 +409,33 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       for (const wr of heightWrites(st.grid, cells, s0.tool, { step: st.heightStep })) {
         b.set("height", wr.x, wr.y, wr.value);
       }
+    } else if (isSlopeTool(s0.tool)) {
+      // The brush says WHERE; the ground says which way and how far.
+      for (const c of cells) {
+        b.set("ramp", c.x, c.y,
+          s0.tool === "unslope" ? RAMP.NONE : derivedSlope(st.grid, c.x, c.y));
+      }
+    } else if (isSourceTool(s0.tool)) {
+      // A rate, and a layer write like any other brush — which is what makes a
+      // spring undoable and saveable while the water it produces is neither.
+      for (const c of cells) {
+        b.set("source", c.x, c.y, s0.tool === "spring" ? SOURCE_RATE : -SOURCE_RATE);
+        if (s0.tool === "spring") b.set("fluid", c.x, c.y, st.fluidMaterial);
+      }
+    } else if (isWaterTool(s0.tool)) {
+      // Water is LIVE state, not a layer, so pouring is not a cell patch — see
+      // `water/field`. The `fluid` layer still records what was poured where,
+      // which is what a saved map needs; the depth is the simulation's.
+      const w = water;
+      for (const c of cells) {
+        if (s0.tool === "drainWater") {
+          if (w) drainAt(w, c.x, c.y, Infinity);
+          b.set("fluid", c.x, c.y, DRY);
+        } else {
+          if (w) pourAt(w, c.x, c.y, POUR_AMOUNT, st.fluidMaterial);
+          b.set("fluid", c.x, c.y, st.fluidMaterial);
+        }
+      }
     } else if (isRoadTool(s0.tool)) {
       const value = s0.tool === "eraseRoad" ? VOID_MATERIAL : PAVED_MATERIAL;
       for (const c of cells) b.set("paved", c.x, c.y, value);
@@ -355,10 +443,25 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const value = s0.tool === "erase" ? VOID_MATERIAL : st.material;
       for (const c of cells) b.set("terrain", c.x, c.y, value);
     }
+    // A TERRAIN SLOPE already placed follows the ground it is on. Placing one
+    // stays deliberate — nothing here creates a slope that was not asked for —
+    // but leaving an existing one at its old direction and rise after the
+    // ground moved under it draws a tilt the heightmap does not have.
+    if (!isSlopeTool(s0.tool)) {
+      for (const c of heightDirtyCells(st.grid, cells)) {
+        const i = c.y * st.grid.w + c.x;
+        if (st.grid.ramp[i] === RAMP.NONE || st.grid.paved[i] !== VOID_MATERIAL) continue;
+        b.set("ramp", c.x, c.y, derivedSlope(st.grid, c.x, c.y));
+      }
+    }
+
     // RAMPS ARE DERIVED, and derived INSIDE this command so undo reverses the
     // road and the ramp together. `b.peek` reads the staged edit rather than
     // the grid, which has not been written yet.
-    if (isRoadTool(s0.tool) || isHeightTool(s0.tool)) {
+    // A slope tool writes `ramp` itself, so it must not then be overwritten by
+    // the road derivation — which would clear it, there being no road here.
+    if (!isSlopeTool(s0.tool)
+        && (isRoadTool(s0.tool) || isHeightTool(s0.tool) || isWaterTool(s0.tool))) {
       const read = readerFor(b, st.grid);
       for (const c of heightDirtyCells(st.grid, cells)) {
         b.set("ramp", c.x, c.y, derivedRamp(read, c.x, c.y));
@@ -368,6 +471,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const cmd = b.build(strokeLabel(s0, cells.length));
     if (!cmd) { set({ stroke: null }); return; }   // no-op click adds no history
     const touched = commit(st.grid, history, cmd);
+    // The columns stand on the terrain, so the terrain moving moves them. Done
+    // after the commit, on the grid the command actually produced.
+    if (water && touchesSurface(cmd)) syncGround(water, st.grid);
     // The graph reconciles to the grid AFTER the write. Only painting road is
     // purely additive; everything else can remove a link, and union-find has no
     // split, so it refloods.
@@ -422,6 +528,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (!touched) return;
     // An undo REMOVES whatever was added, so it always refloods.
     if (network && pending && touchesNetwork(pending)) rebuildNet(network, st.grid);
+    if (water && pending && touchesSurface(pending)) syncGround(water, st.grid);
     set({
       revision: st.revision + 1,
       lastTouched: markDirty(st.grid, touched, surface),
@@ -446,6 +553,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   loadGrid: (grid, palette) => {
     history = createHistory();
     network = createNetwork(grid);
+    water = createWaterField(grid);
+    setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();   // the scene rebuilds wholesale on a new grid identity
     // A saved map's terrain indices only mean anything against the palette it
     // was saved with, so the file's palette replaces the live one wholesale.

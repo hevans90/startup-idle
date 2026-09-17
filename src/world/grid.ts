@@ -51,6 +51,28 @@ export type Grid = {
   height: Int8Array;
   /** Paved material index per cell; 0 = unpaved. */
   paved: Uint16Array;
+  /**
+   * Fluid material poured into each cell; 0 = never poured.
+   *
+   * A record of what the player put WHERE, for saving and reloading a map. The
+   * water itself is not here: depth changes every frame, so it lives outside
+   * the grid as live state — see `water/field`. This layer says a lake was
+   * poured here, not where the lake is now.
+   */
+  fluid: Uint16Array;
+  /**
+   * Water in or out per second at a cell; 0 = nothing, negative = a drain.
+   *
+   * A SPRING is not a pour. A pour is a volume, placed once, and the simulation
+   * decides where it ends up; a spring is a rate, and it keeps deciding. This
+   * is what makes a river a standing thing rather than a slug of water that
+   * arrives once and stops — and what gives water anywhere to go, since a map
+   * with no outlet is a bathtub with the plug in.
+   *
+   * One signed number because a drain is the same mechanism running backwards.
+   * In HALF STEPS per second, over the tile, whatever the column resolution.
+   */
+  source: Int8Array;
   /** {@link RAMP} direction per cell; 0 = level. */
   ramp: Uint8Array;
   /** Structure ID per cell, −1 = empty. An ID, not a list index — see {@link Structure}. */
@@ -74,6 +96,8 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     terrain: new Uint16Array(n),
     height: new Int8Array(n),
     paved: new Uint16Array(n),
+    fluid: new Uint16Array(n),
+    source: new Int8Array(n),
     ramp: new Uint8Array(n),
     structureAt: new Int32Array(n),
     structures: new Map(),
@@ -97,6 +121,18 @@ export const terrainAt = (g: Grid, x: number, y: number) =>
 
 export const pavedAt = (g: Grid, x: number, y: number) =>
   inBounds(g, x, y) ? g.paved[idx(g, x, y)] : VOID;
+
+export const fluidAt = (g: Grid, x: number, y: number) =>
+  inBounds(g, x, y) ? g.fluid[idx(g, x, y)] : VOID;
+
+export function setFluid(g: Grid, x: number, y: number, v: number) {
+  if (inBounds(g, x, y)) g.fluid[idx(g, x, y)] = v;
+}
+
+/** Rate in or out at a cell; 0 where there is no spring or drain. */
+export const sourceAt = (g: Grid, x: number, y: number) =>
+  inBounds(g, x, y) ? g.source[idx(g, x, y)] : 0;
+
 
 /** Structure id occupying a cell, or −1. */
 export const structureAt = (g: Grid, x: number, y: number) =>

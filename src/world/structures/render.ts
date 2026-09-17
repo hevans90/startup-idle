@@ -41,6 +41,14 @@ export type StructureRenderer = {
   mount(s: Structure, def: StructureDef, ctx: RenderCtx): StructureHandle;
   /** Reposition or restyle in place — a height edit under the footprint, say. */
   update(h: StructureHandle, s: Structure, def: StructureDef, ctx: RenderCtx): void;
+  /**
+   * Advance by `dt` seconds. OPTIONAL, and absent on everything static.
+   *
+   * A building is a stack of sprites that never moves, and a per-frame hook it
+   * does not need is a per-frame cost it should not pay — so the layer only
+   * calls this on strategies that declare it, and asks nothing of the rest.
+   */
+  tick?(h: StructureHandle, s: Structure, def: StructureDef, ctx: RenderCtx, dt: number): void;
   unmount(h: StructureHandle): void;
 };
 

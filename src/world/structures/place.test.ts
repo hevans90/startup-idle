@@ -13,7 +13,7 @@ import {
   VOID, createGrid, fillTerrain, idx, setHeight, setPaved, structureOf, type Grid,
 } from "../grid";
 import { RAMP, packRamp } from "../iso";
-import { structureDef, type StructureDef } from "./def";
+import { registerStructureDef, structureDef, type StructureDef } from "./def";
 import { demolishCommand, medianHeight, placeCommand, validatePlacement } from "./place";
 
 const GRASS = 1;
@@ -24,7 +24,19 @@ const fresh = (w = 12, h = 12) => {
 };
 
 const KIT = structureDef("kit:intern.t0")!;
-const PIT = structureDef("pit")!;
+/**
+ * A big footprint that clears its ground. The slop pit used to be this; it is a
+ * POOL now, so the tests that need a multi-cell clearing structure register
+ * their own rather than depending on whatever content happens to ship.
+ */
+const PIT: StructureDef = {
+  id: "test:yard",
+  name: "yard",
+  footprint: { w: 5, h: 5 },
+  render: { kind: "custom", rendererId: "none" },
+  clearsTerrain: true,
+};
+registerStructureDef(PIT);
 /** A 2×2 that does NOT level the ground, for the uneven-ground rule. */
 const RIGID: StructureDef = {
   id: "test:rigid",
@@ -35,10 +47,9 @@ const RIGID: StructureDef = {
 };
 
 describe("definitions", () => {
-  test("every building kit is placeable, and the pit is 5x5", () => {
+  test("every building kit is placeable as a 1x1", () => {
     expect(KIT.footprint).toEqual({ w: 1, h: 1 });
-    expect(PIT.footprint).toEqual({ w: 5, h: 5 });
-    expect(PIT.clearsTerrain).toBe(true);
+    expect(structureDef("kit:10x_dev.landmark")).not.toBeNull();
   });
 });
 
@@ -110,7 +121,7 @@ describe("placeCommand", () => {
     const { g, hist } = fresh();
     commit(g, hist, placeCommand(g, PIT, 3, 3)!);
     const s = structureOf(g, 5, 5)!;
-    expect(s.def).toBe("pit");
+    expect(s.def).toBe(PIT.id);
     expect(s.x).toBe(3);
     for (const [x, y] of [[3, 3], [7, 7], [3, 7], [7, 3]] as const) {
       expect(g.structureAt[idx(g, x, y)]).toBe(s.id);

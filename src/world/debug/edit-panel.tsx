@@ -3,7 +3,7 @@
  *
  * React, per the Pixi/React boundary: none of this lives in world space.
  */
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 
 import {
   DEFAULT_SIZE, useWorldStore, VOID_MATERIAL,
@@ -12,6 +12,7 @@ import { deserializeWorld, serializeWorld, toJSON } from "../io/serialize";
 import type { FixtureId } from "./fixtures";
 import type { BrushId, ToolId } from "../edit/tools";
 import { allStructureDefs } from "../structures/def";
+import { fluidChoices } from "../water/materials";
 
 const BTN = "cursor-pointer rounded border px-2 py-1 font-mono";
 const ON = "border-emerald-500 bg-emerald-500/20 text-emerald-300";
@@ -39,6 +40,10 @@ const FIXTURES: [FixtureId, string][] = [
   ["avenue", "avenue"],
   ["plaza", "plaza"],
   ["splitTrap", "split trap"],
+  ["river", "river"],
+  ["cascade", "cascade"],
+  ["lake", "lake"],
+  ["islands", "islands"],
 ];
 const STEPS: [number, string][] = [
   [1, "×0.5"],
@@ -65,7 +70,24 @@ export function EditPanel() {
     undoName, redoName, heightStep, setTool, setBrush, setBrushRadius,
     setMaterial, setHeightStep, doUndo, doRedo, loadGrid, resize, applyFixture,
     netComponents, structureDefId, setStructureDef,
+    fluidMaterial, setFluidMaterial, wetTiles, waterVolume, revision,
+    openEdge, setOpenEdge,
   } = useWorldStore();
+
+  // Counted off the grid rather than mirrored into the store: a spring is an
+  // ordinary layer write, so `revision` already says when it can have changed.
+  const { springs, sinks } = useMemo(() => {
+    let springs = 0, sinks = 0;
+    for (const r of grid.source) {
+      if (r > 0) springs++;
+      else if (r < 0) sinks++;
+    }
+    return { springs, sinks };
+    // `revision` is the dependency that matters and the one the rule cannot
+    // see: an edit mutates the grid's typed arrays in place, so the object it
+    // is watching never changes identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grid, revision]);
 
   const save = () => {
     const json = toJSON(serializeWorld(grid, { terrain: palette, paved: [null] }));
@@ -120,6 +142,37 @@ export function EditPanel() {
           className={`${BTN} ${tool === "eraseRoad" ? ON : OFF}`}>unpave (o)</button>
         <span className="ml-1 text-gray-500 dark:text-gray-500">
           {netComponents} network{netComponents === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        <button type="button" onClick={() => setTool("slope")}
+          className={`${BTN} ${tool === "slope" ? ON : OFF}`}>slope (u)</button>
+        <button type="button" onClick={() => setTool("unslope")}
+          className={`${BTN} ${tool === "unslope" ? ON : OFF}`}>unslope (i)</button>
+      </div>
+
+      <p className="mt-3 mb-1 text-gray-400">water</p>
+      <div className="flex flex-wrap items-center gap-1">
+        <button type="button" onClick={() => setTool("pourWater")}
+          className={`${BTN} ${tool === "pourWater" ? ON : OFF}`}>pour (j)</button>
+        <button type="button" onClick={() => setTool("drainWater")}
+          className={`${BTN} ${tool === "drainWater" ? ON : OFF}`}>drain (k)</button>
+        <button type="button" onClick={() => setTool("spring")}
+          className={`${BTN} ${tool === "spring" ? ON : OFF}`}>spring (l)</button>
+        <button type="button" onClick={() => setTool("sink")}
+          className={`${BTN} ${tool === "sink" ? ON : OFF}`}>sink (;)</button>
+        <button type="button" onClick={() => setOpenEdge(!openEdge)}
+          title="whether water runs off the edge of the map"
+          className={`${BTN} ${openEdge ? ON : OFF}`}>open edge</button>
+        {fluidChoices().map(({ index, material }: { index: number; material: { name: string } }) => (
+          <button key={index} type="button" onClick={() => setFluidMaterial(index)}
+            className={`${BTN} ${fluidMaterial === index ? ON : OFF}`}>{material.name}</button>
+        ))}
+        <span className="ml-1 text-gray-500 dark:text-gray-500">
+          {wetTiles} wet · {waterVolume}
+          {springs > 0 && ` · ${springs} spring${springs === 1 ? "" : "s"}`}
+          {sinks > 0 && ` · ${sinks} sink${sinks === 1 ? "" : "s"}`}
         </span>
       </div>
 
