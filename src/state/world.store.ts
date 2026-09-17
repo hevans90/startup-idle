@@ -49,6 +49,7 @@ import {
 import { clearSaved, hasSaved, saveNow, scheduleSave } from "../world/io/world-save";
 import { buildCost, spendForBuild } from "../game/build-cost";
 import { generatePlayableMap } from "../world/gen/generate-map";
+import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
 
 export type Overlays = {
   grid: boolean;
@@ -96,6 +97,11 @@ export const INITIAL_TERRAIN_PALETTE: (string | null)[] = [
   "landscapeTiles_067.png", // 1 grass
   "landscapeTiles_083.png", // 2 dirt
   "landscapeTiles_059.png", // 3 sand
+  // 4-6 grass under one, two and three trees. Derived frames, baked by
+  // `bun run bake:trees` — a wood is a material, not a structure. @see WOODS
+  "landscapeTiles_067_trees1.png",
+  "landscapeTiles_067_trees2.png",
+  "landscapeTiles_067_trees3.png",
 ];
 
 /**
@@ -109,6 +115,8 @@ export const PAVED_MATERIAL = 1;
 export const GRASS = 1;
 export const DIRT = 2;
 export const SAND = 3;
+/** Grass under one, two and three trees — thin wood to thick. */
+export const WOODS = [4, 5, 6] as const;
 export const VOID_MATERIAL = 0;
 export const DEFAULT_SIZE = 64;
 
@@ -241,6 +249,15 @@ type WorldState = {
    */
   seed: number | null;
   /**
+   * What KIND of map the next generate makes.
+   *
+   * The other half of the seed, and held separately for the same reason it is
+   * a separate input: the seed picks which map, these pick its weather. Kept
+   * across generates so a player can hold one and move the other, which is the
+   * only way to see what a knob does. @see GenParams
+   */
+  gen: GenParams;
+  /**
    * Whether the game's rules apply, rather than the editor's.
    *
    * Off is the authoring surface: every tool, no costs, build anywhere. On is
@@ -332,6 +349,10 @@ type WorldState = {
    * carrying over from the old one.
    */
   generateWorld: (seed: number, size?: number) => void;
+  /** Change one generation parameter. Does NOT regenerate — press generate. */
+  setGenParam: (key: keyof GenParams, value: number) => void;
+  /** Put every generation parameter back to its default. */
+  resetGenParams: () => void;
   setPickNudge: (n: number) => void;
   /** @see WorldState.gpuWater */
   setGpuWater: (on: boolean) => void;
@@ -414,6 +435,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     net: false, mask: false, gaps: false, xray: false,
   },
   seed: null,
+  gen: { ...DEFAULT_GEN },
   playing: false,
   setPlaying: (playing) => set({ playing }),
   palette: [...INITIAL_TERRAIN_PALETTE],
@@ -716,12 +738,17 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     });
   },
 
+  setGenParam: (key, value) => set({ gen: withDefaults({ ...get().gen, [key]: value }) }),
+
+  resetGenParams: () => set({ gen: { ...DEFAULT_GEN } }),
+
   generateWorld: (seed, size = DEFAULT_SIZE) => {
     const grid = freshGrid(size, size);
     // GRASS, not the current material: a new company should not found on
     // whatever the last thing painted in the editor happened to be.
     const report = generatePlayableMap(grid, {
-      seed, material: GRASS, dirt: DIRT, sand: SAND,
+      seed, material: GRASS, dirt: DIRT, sand: SAND, woods: WOODS,
+      params: get().gen,
     });
     get().loadGrid(grid, [...INITIAL_TERRAIN_PALETTE]);
     // AFTER `loadGrid`, which resets the rest of the map's state — set before,
@@ -731,8 +758,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     set({ seed: report.seed });
     if (import.meta.env.DEV) {
       console.info(
-        `WORLD: founded on seed ${report.seed} — road at row ${report.roadRow},`
-        + ` height ${report.roadHeight}, ${report.frontage} buildable frontage`,
+        `WORLD: founded on seed ${report.seed} — ${report.road} cells of street`
+        + ` along ${report.axis} at height ${report.roadHeight},`
+        + ` ${report.frontage} buildable frontage, ${report.wet} wet,`
+        + ` ${report.wooded} wooded`,
       );
     }
   },

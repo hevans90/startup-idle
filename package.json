@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "bake:road-corners": "bun run dev/bake-road-corners.ts"
+    "bake:road-corners": "bun run dev/bake-road-corners.ts",
+    "bake:trees": "bun run dev/bake-trees.ts"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.7",

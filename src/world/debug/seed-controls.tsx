@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/shallow";
 
+import { GenControls } from "./gen-controls";
 import { useWorldStore } from "../../state/world.store";
 import { seedFrom } from "../../utils/rng";
 
@@ -74,6 +75,8 @@ export function SeedControls() {
           authored, loaded or a fixture — not generated
         </p>
       )}
+      {/* The other half of the input. @see GenParams */}
+      <div className="mt-2"><GenControls /></div>
     </div>
   );
 }

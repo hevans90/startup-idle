@@ -31,6 +31,14 @@ const ISO_ATLASES: AtlasDescriptor[] = [
    * `roadCorner_<base>_<corners>.png`.
    */
   { dir: "derived", xmlFile: "roadCorners_sheet.xml", pngFile: "roadCorners_sheet.png" },
+  /**
+   * DERIVED: ground tiles with trees stamped on them, from
+   * `dev/bake-trees.ts` (`bun run bake:trees`). Frames are named
+   * `<base>_trees<n>.png`. A wood is a terrain MATERIAL rather than a
+   * structure, so it saves, paints and renders through the paths that already
+   * exist — see that script's header.
+   */
+  { dir: "derived", xmlFile: "trees_sheet.xml", pngFile: "trees_sheet.png" },
 ];
 
 async function loadOneAtlas(

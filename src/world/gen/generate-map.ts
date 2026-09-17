@@ -5,121 +5,43 @@
  * it has to be somewhere you can actually start. Those pull against each other,
  * and the whole design here is about the second one winning where they conflict.
  *
- * THE ROAD IS CARVED, NOT ROUTED. Terrain is generated first and the road is
- * then cut through it at ONE height, with the ground either side clamped into a
- * cone that rises a slab a tile. Routing a road over existing terrain means
- * pathfinding for a route that is flat enough, which can fail; carving cannot.
- * The player is guaranteed a flat street with buildable frontage on both sides,
- * whatever the noise did.
+ * THE ROAD IS CARVED, NOT ROUTED. The street is laid first and the terrain is
+ * then clamped into a cone around it that rises a slab a tile. Routing a road
+ * over existing terrain means pathfinding for a route that is flat enough,
+ * which can fail; carving cannot. The player is guaranteed a flat street with
+ * buildable frontage along all of it, whatever the noise did. @see layRoad
  *
- * DETERMINISTIC. Everything comes from the seed, so a map is stored as a number
- * and the same company always founds on the same ground. @see mulberry32
+ * TWO INPUTS. The seed picks WHICH map; the parameters pick what kind. Every
+ * random draw comes from the seed alone, so holding it and moving a slider
+ * gives the same country under different weather. @see GenParams
+ *
+ * DETERMINISTIC. Everything comes from the two, so a map is stored as a number
+ * and a settings object, and the same company always founds on the same ground.
  */
 import { edited, fillTerrain, idx, inBounds, recomputeHeightRange, type Grid } from "../grid";
 import { HEIGHT_MAX, HEIGHT_MIN } from "../edit/height-tools";
 import { fbm, valueNoise } from "./noise";
+import { layRoad, type Road } from "./road";
+import { carveWater } from "./water";
+import { withDefaults, type GenParams } from "./params";
 import { mulberry32 } from "../../utils/rng";
 
 export type GenOptions = {
   /** The same seed always gives the same map. */
   seed: number;
-  /** Terrain palette index for the grass, and the fallback for the other two. */
+  /** Terrain palette index for the grass, and the fallback for the rest. */
   material: number;
-  /** Bare earth: the road's verge and the brows of cliffs. */
+  /** Bare earth: the verge, the brows of cliffs, the tops of hills. */
   dirt?: number;
-  /** Low ground, where water will one day collect. */
+  /** Low ground, where water collects. */
   sand?: number;
+  /** Grass under trees, thinnest first. Empty leaves the map unwooded. */
+  woods?: readonly number[];
   /** Road palette index. */
   paved?: number;
+  /** What kind of map. Anything left out takes its default. @see DEFAULT_GEN */
+  params?: Partial<GenParams>;
 };
-
-/**
- * How tall the land gets, in half steps.
- *
- * Terrain exists here to make WHERE you build a decision, not to be scenery
- * you cannot use — and every half step of relief is ground that has to be
- * levelled before anything stands on it. Sixteen is eight slabs either way,
- * which the shaping below spends on a few real hills rather than on a general
- * unevenness: measured over forty seeds, two thirds of the map comes out with
- * a level neighbourhood and the highest ground stands about fifteen slabs over
- * the lowest.
- */
-const RELIEF = 16;
-
-/** Tiles across one feature of the landscape — bigger is smoother, broader hills. */
-const FEATURE = 34;
-
-/**
- * Octaves of noise in the land.
- *
- * THREE, NOT FOUR, and dropping one is a fix rather than a saving. The fourth
- * octave's wavelength is under two tiles, so all it can express at this scale
- * is a one-cell bump — and a one-cell bump is a full 16.5px ledge that has to
- * be levelled before anything stands on it. The first draft had it, and the
- * result read as static rather than as landscape: every cell a slightly
- * different height, no plane anywhere big enough to notice.
- */
-const OCTAVES = 3;
-
-/**
- * How hard the land is pushed away from its middle.
- *
- * Noise is densest in the middle of its range, so terrain taken straight off it
- * is gently undulating EVERYWHERE and flat nowhere. Raising the signed height to
- * a power above one pulls the middle towards nought and leaves the extremes
- * where they are: most of the map settles into plains you can build on, and what
- * is left rises into hills that are worth the levelling. Below one it would do
- * the opposite and there would be nothing but slope.
- */
-const CONTRAST = 3;
-
-/**
- * Half steps the land is quantised to.
- *
- * TWO — one full slab, which is the step the tileset is drawn for: a ground
- * frame is a diamond top plus a 33px skirt, and that skirt is exactly one full
- * step of wall. @see WALL_FRAME. Terraced to it, every cliff on a generated map
- * is a whole number of slabs and the art lines up; left unterraced, half the
- * map sits on half-step ledges that the wall art has to fake.
- */
-const TERRACE = 2;
-
-/**
- * Half steps the land may climb per tile away from the road.
- *
- * THE FRONTAGE GUARANTEE, and it is a cone rather than a shoulder for a reason.
- * A shoulder that blends the land towards the road over a fixed few tiles keeps
- * frontage gentle only for as long as nobody raises `RELIEF` — the blend is a
- * FRACTION of the drop, so taller land means a taller first step. A cap on the
- * climb per tile is absolute: the cell beside the street is within one slab of
- * it whatever the noise did, the next within two, and by seven tiles out the
- * cone is wider than the relief and the land is its own shape again. No seam,
- * because the constraint fades out instead of stopping.
- */
-const RISE = 2;
-
-/** Lanes the road is wide. Two, or the autotiler draws a path rather than a street. */
-const ROAD_W = 2;
-
-/**
- * Half steps below the street at which ground becomes sand.
- *
- * The bottom of the map, where water will collect once there are rivers — so
- * the sand is a promise about drainage rather than decoration. Two slabs down,
- * which after terracing is the first level that reads as a basin and not as a
- * dip.
- */
-const LOWLAND = 4;
-
-/**
- * Half steps above the street at which ground goes back to bare earth.
- *
- * The mirror of `LOWLAND`, and the pair of them is what makes height legible
- * at a glance: sand in the bottoms, grass in the middle where the building
- * happens, earth on the tops. Without it the only cue for how high a hill is
- * is counting its slabs, and flat land is the resource this game is about.
- */
-const UPLAND = 8;
 
 /**
  * The drop to a neighbour that counts as a cliff, in half steps.
@@ -134,11 +56,11 @@ const SCARP = 4;
 const PATCH = 9;
 
 /**
- * Half steps the sand line wanders by.
+ * Half steps the sand and earth lines wander by.
  *
- * Without it the sand's edge is a CONTOUR — a smooth closed curve at exactly
- * one height, which no coastline is. Displacing the threshold by its own slow
- * noise breaks the line up without moving where the sand broadly is.
+ * Without it their edges are CONTOURS — smooth closed curves at exactly one
+ * height, which no coastline is. Displacing the threshold by its own slow noise
+ * breaks the line up without moving where the sand broadly is.
  */
 const JITTER = 3;
 
@@ -149,8 +71,14 @@ export type GenReport = {
   frontage: number;
   /** The height the road sits at. */
   roadHeight: number;
-  /** Which row the road runs along. */
-  roadRow: number;
+  /** Which axis the street runs along. */
+  axis: "x" | "y";
+  /** Cells the street paved. */
+  road: number;
+  /** Cells holding water at the start. */
+  wet: number;
+  /** Cells under trees. */
+  wooded: number;
 };
 
 /**
@@ -162,11 +90,9 @@ export type GenReport = {
  */
 export const MIN_FRONTAGE = 12;
 
-/** Snap to whole slabs. @see TERRACE */
-const terrace = (v: number) => Math.round(v / TERRACE) * TERRACE;
-
 /**
- * Lay down terrain and a road. Returns what it made, for the caller to judge.
+ * Lay down terrain, a road and water. Returns what it made, for the caller to
+ * judge.
  *
  * The grid is written in place and its cached height range recomputed once at
  * the end — the fixtures' own idiom, and much cheaper than `setHeight` per cell,
@@ -174,7 +100,9 @@ const terrace = (v: number) => Math.round(v / TERRACE) * TERRACE;
  */
 export function generateMap(g: Grid, opts: GenOptions): GenReport {
   const { seed, material, paved = 1 } = opts;
+  const p = withDefaults(opts.params);
   const rng = mulberry32(seed);
+  const terrace = (v: number) => Math.round(v / p.terrace) * p.terrace;
 
   fillTerrain(g, material);
   g.height.fill(0);
@@ -186,17 +114,15 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   g.pipe.fill(0);
   g.pipeZ.fill(0);
 
-  // THE ROAD'S ROW, kept away from the edges so both sides have frontage and
-  // the map does not open with the street along a border.
-  const margin = 5;
-  const roadRow = margin + Math.floor(rng() * Math.max(1, g.h - 2 * margin - ROAD_W));
+  // 1. THE STREET, first, because everything else is measured from it.
+  const road: Road = layRoad(g, p, rng, paved);
 
   // OFFSET THE NOISE BY THE SEED so two maps do not share a corner. Sampling
   // the same field at a different origin is cheaper than reseeding the hash and
   // gives the same independence.
   const ox = rng() * 1000, oy = rng() * 1000;
 
-  // 1. THE LAND, in a scratch field rather than in the grid. `g.height` is an
+  // 2. THE LAND, in a scratch field rather than in the grid. `g.height` is an
   //    Int8Array and would truncate every sample on the way in — the carve
   //    below reads these numbers back, and rounding them twice, once by
   //    accident, is how a terrace ends up a half step out.
@@ -204,7 +130,7 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   let lo = Infinity, hi = -Infinity;
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
-      const n = fbm(seed, ox + x / FEATURE, oy + y / FEATURE, OCTAVES);
+      const n = fbm(seed, ox + x / p.feature, oy + y / p.feature, p.octaves);
       land[idx(g, x, y)] = n;
       if (n < lo) lo = n;
       if (n > hi) hi = n;
@@ -220,47 +146,49 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   const span = Math.max(1e-6, hi - lo);
   for (let i = 0; i < land.length; i++) {
     const s = ((land[i] - lo) / span - 0.5) * 2;                 // −1…1
-    land[i] = Math.sign(s) * Math.abs(s) ** CONTRAST * RELIEF;
+    land[i] = Math.sign(s) * Math.abs(s) ** p.contrast * p.relief;
   }
 
-  // 2. THE ROAD'S OWN LEVEL: the median of the land it crosses, so the carve
+  // 3. THE ROAD'S OWN LEVEL: the median of the land it crosses, so the carve
   //    moves as little ground as possible and the street sits IN the landscape
   //    rather than on an embankment across it.
   const along: number[] = [];
-  for (let x = 0; x < g.w; x++) along.push(land[idx(g, x, roadRow)]);
+  for (let i = 0; i < land.length; i++) if (g.paved[i] !== 0) along.push(land[i]);
   along.sort((a, b) => a - b);
-  const roadHeight = clampHeight(terrace(along[(along.length - 1) >> 1]));
+  const roadHeight = along.length
+    ? clampHeight(terrace(along[(along.length - 1) >> 1]))
+    : 0;
 
-  // 3. CARVE, AND TERRACE, in the one pass — every cell's final height is
-  //    decided here. The road's own rows are pinned to its level; everywhere
+  // 4. CARVE, AND TERRACE, in the one pass — every cell's final height is
+  //    decided here. Paved cells are pinned to the street's level; everywhere
   //    else the land may differ from it by a slab per tile of distance, which
   //    stops binding as soon as the cone is wider than the relief.
-  for (let y = 0; y < g.h; y++) {
-    const away = y < roadRow ? roadRow - y
-      : y >= roadRow + ROAD_W ? y - (roadRow + ROAD_W - 1)
-      : 0;
-    const cap = away * RISE;
-    for (let x = 0; x < g.w; x++) {
-      const i = idx(g, x, y);
-      const dh = Math.max(-cap, Math.min(cap, land[i] - roadHeight));
-      g.height[i] = clampHeight(terrace(roadHeight + dh));
-    }
+  for (let i = 0; i < land.length; i++) {
+    const cap = road.distance[i] * p.rise;
+    const dh = Math.max(-cap, Math.min(cap, land[i] - roadHeight));
+    g.height[i] = clampHeight(terrace(roadHeight + dh));
   }
 
-  // 4. THE STREET ITSELF, once the ground under it is flat.
-  for (let y = roadRow; y < roadRow + ROAD_W; y++) {
-    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, y)] = paved;
-  }
+  // 5. RIVERS AND LAKES, cut into ground that has stopped moving.
+  const water = carveWater(g, p, rng, road.distance, road.axis);
 
-  // 5. WHAT THE GROUND IS MADE OF, read off the ground once it has stopped
-  //    moving — so the materials describe the map rather than predicting it.
-  paintGround(g, seed, roadHeight, {
-    grass: material, dirt: opts.dirt ?? material, sand: opts.sand ?? opts.dirt ?? material,
-  });
+  // 6. WHAT THE GROUND IS MADE OF, read off the finished map — so the materials
+  //    describe it rather than predicting it.
+  const mats = {
+    grass: material,
+    dirt: opts.dirt ?? material,
+    sand: opts.sand ?? opts.dirt ?? material,
+    woods: opts.woods ?? [],
+  };
+  paintGround(g, seed, roadHeight, mats, p);
+  const wooded = plantTrees(g, seed, mats, p);
 
   recomputeHeightRange(g);
   edited(g);
-  return { seed, roadHeight, roadRow, frontage: frontageOf(g) };
+  return {
+    seed, roadHeight, axis: road.axis, road: road.cells,
+    frontage: frontageOf(g), wet: water.wet, wooded,
+  };
 }
 
 const clampHeight = (v: number) =>
@@ -290,8 +218,10 @@ export type Materials = {
   grass: number;
   /** Bare earth: the verge, the brows of cliffs, the tops of hills. */
   dirt: number;
-  /** Low ground, where water will one day collect. */
+  /** Low ground, where water collects. */
   sand: number;
+  /** Grass under trees, thinnest first. Empty leaves the map unwooded. */
+  woods: readonly number[];
 };
 
 /**
@@ -308,18 +238,18 @@ export type Materials = {
  *    already (@see WALL_FRAME), and grass over a two-slab face reads as a lawn
  *    laid on a quarry;
  *  - **the high ground is earth** and **the low ground is sand** — the pair
- *    that makes elevation readable without counting slabs, and the sand is a
- *    promise about drainage: it marks where water will collect once there are
- *    rivers.
+ *    that makes elevation readable without counting slabs, and the sand marks
+ *    where the water is and where it would go.
  *
  * Everything else is grass. Separate from `generateMap` because it is a pure
  * function of a finished grid, which is the only way to test the rules on
  * ground chosen rather than ground the noise happened to produce.
  */
 export function paintGround(
-  g: Grid, seed: number, roadHeight: number, m: Materials,
+  g: Grid, seed: number, roadHeight: number, m: Materials, params?: Partial<GenParams>,
 ): void {
-  const sandLine = roadHeight - LOWLAND, dirtLine = roadHeight + UPLAND;
+  const p = withDefaults(params);
+  const sandLine = roadHeight - p.lowland, dirtLine = roadHeight + p.upland;
 
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
@@ -337,6 +267,48 @@ export function paintGround(
         : m.grass;
     }
   }
+}
+
+/**
+ * Trees, on the grass and nowhere else.
+ *
+ * WOODS ARE A MATERIAL, not objects standing on one: a wooded cell is a ground
+ * tile with trees baked into it (@see bake-trees), so it saves, paints, undoes
+ * and renders through the paths that already exist and nothing downstream has
+ * to learn about a second kind of thing. What that costs is felling a single
+ * tree; what it buys is that trees are free everywhere else.
+ *
+ * ON GRASS ONLY, deliberately. The verge, the brows and the sand are all saying
+ * something — where you may build, where the ground breaks, where the water is
+ * — and a tree over any of them is noise on a signal. It also means woods never
+ * touch the street, so they cannot be mistaken for an obstacle to building.
+ *
+ * Thicker where the noise is higher, so a wood has an inside.
+ */
+export function plantTrees(
+  g: Grid, seed: number, m: Materials, params?: Partial<GenParams>,
+): number {
+  const p = withDefaults(params);
+  if (!m.woods.length || p.trees <= 0) return 0;
+  // The share asked for, as a level in a field that is roughly flat in [0,1).
+  const line = 1 - p.trees;
+  let n = 0;
+
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const i = idx(g, x, y);
+      if (g.terrain[i] !== m.grass) continue;
+      const v = valueNoise(seed ^ 0x7ee5, x / p.woodSize, y / p.woodSize);
+      if (v < line) continue;
+      // How far INTO the wood this cell is, nought at its edge and one at its
+      // densest — which is what makes a stand thin out rather than end.
+      const into = (v - line) / p.trees;
+      const tier = Math.min(m.woods.length - 1, Math.floor(into * m.woods.length));
+      g.terrain[i] = m.woods[tier];
+      n++;
+    }
+  }
+  return n;
 }
 
 /**
@@ -362,9 +334,9 @@ export function frontageOf(g: Grid): number {
 /**
  * Generate, and reroll a seed that would open badly.
  *
- * Carving means the first seed should always pass, so this is insurance rather
- * than a search — but "should always" is exactly the kind of claim that stops
- * being true after someone tunes `RISE`, and an unplayable opening is a much
+ * Carving guarantees frontage, so this is insurance rather than a search — but
+ * "should always" is exactly the kind of claim that stops being true after
+ * someone drags a slider somewhere new, and an unplayable opening is a much
  * worse failure than a slightly different map. Falls back to the last attempt
  * rather than looping: a dull map beats no map.
  */

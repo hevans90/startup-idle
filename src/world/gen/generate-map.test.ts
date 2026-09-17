@@ -4,22 +4,32 @@
  * Two promises, and they pull against each other: it should be somewhere you
  * have not seen, and it must be somewhere you can start. These test the second
  * one hardest, because a varied map that cannot be built on is worse than a
- * dull one — and because carving the road is exactly the design decision that
- * makes the guarantee possible.
+ * dull one — and because carving around the street is exactly the design
+ * decision that makes the guarantee possible whatever shape the street takes.
  */
 import { describe, expect, test } from "bun:test";
 
 import {
-  MIN_FRONTAGE, frontageOf, generateMap, generatePlayableMap, paintGround,
+  MIN_FRONTAGE, frontageOf, generateMap, generatePlayableMap, paintGround, plantTrees,
 } from "./generate-map";
+import { distanceFromPaved } from "./road";
+import { DEFAULT_GEN, GEN_SLIDERS, withDefaults } from "./params";
 import { fbm, valueNoise } from "./noise";
 import { createGrid, fillTerrain, idx } from "../grid";
+import { componentCount, createNetwork } from "../roads/network";
 import { HEIGHT_MAX, HEIGHT_MIN } from "../edit/height-tools";
 
+const MATS = { material: 1, dirt: 2, sand: 3, woods: [4, 5, 6] };
 const fresh = (w = 64, h = 64) => createGrid(w, h);
-const gen = (seed: number, w = 64, h = 64) => {
+const gen = (seed: number, w = 64, h = 64, params = {}) => {
   const g = fresh(w, h);
-  return { g, r: generateMap(g, { seed, material: 1 }) };
+  return { g, r: generateMap(g, { seed, ...MATS, params }) };
+};
+/** Every paved cell's height, as a set — one entry means the street is flat. */
+const roadHeights = (g: ReturnType<typeof fresh>) => {
+  const seen = new Set<number>();
+  for (let i = 0; i < g.paved.length; i++) if (g.paved[i] !== 0) seen.add(g.height[i]);
+  return seen;
 };
 
 describe("the noise underneath", () => {
@@ -58,7 +68,8 @@ describe("what a generated map guarantees", () => {
     const a = gen(12345), b = gen(12345);
     expect([...a.g.height]).toEqual([...b.g.height]);
     expect([...a.g.paved]).toEqual([...b.g.paved]);
-    expect(a.r.roadRow).toBe(b.r.roadRow);
+    expect([...a.g.terrain]).toEqual([...b.g.terrain]);
+    expect(a.r.axis).toBe(b.r.axis);
   });
 
   test("different seeds give different ground", () => {
@@ -69,25 +80,87 @@ describe("what a generated map guarantees", () => {
   /**
    * THE CARVE'S WHOLE PURPOSE. Routing a road over terrain can fail to find
    * anywhere flat; carving cannot, so this must hold for every seed rather
-   * than most of them.
+   * than most of them — and for a street of any shape, which is why it is
+   * asked of the paved cells rather than of a row.
    */
-  test("the road is dead flat, on every seed", () => {
+  test("the street is dead flat, on every seed", () => {
     for (let seed = 0; seed < 40; seed++) {
-      const { g, r } = gen(seed);
-      const h = g.height[idx(g, 0, r.roadRow)];
-      for (let x = 0; x < g.w; x++) {
-        for (let y = r.roadRow; y < r.roadRow + 2; y++) {
-          expect(g.height[idx(g, x, y)]).toBe(h);
-        }
-      }
+      expect(roadHeights(gen(seed).g).size).toBe(1);
+    }
+  });
+
+  /**
+   * ONE STREET, NOT SEVERAL. A wander that moves more than a tile of cross
+   * axis per tile of long axis leaves the road in disconnected rungs — which
+   * looks like a dashed line and, worse, splits the road graph, so "is this
+   * house on a street" starts answering about a fragment. Counted as
+   * components rather than eyeballed, because a single missing cell is
+   * invisible on a 64² map and fatal to the rule.
+   */
+  test("the street is one connected road, on every seed", () => {
+    for (let seed = 0; seed < 40; seed++) {
+      const { g } = gen(seed);
+      expect(componentCount(createNetwork(g))).toBe(1);
     }
   });
 
   test("and it crosses the whole map", () => {
-    const { g, r } = gen(4);
-    for (let x = 0; x < g.w; x++) {
-      expect(g.paved[idx(g, x, r.roadRow)]).not.toBe(0);
+    for (let seed = 0; seed < 20; seed++) {
+      const { g, r } = gen(seed);
+      const long = r.axis === "x" ? g.w : g.h;
+      const cross = r.axis === "x" ? g.h : g.w;
+      for (let a = 0; a < long; a++) {
+        let any = false;
+        for (let c = 0; c < cross && !any; c++) {
+          any = g.paved[r.axis === "x" ? idx(g, a, c) : idx(g, c, a)] !== 0;
+        }
+        expect(any).toBe(true);                             // no gap in the street
+      }
     }
+  });
+
+  /**
+   * A STREET THAT IS ALWAYS TWO ROWS ACROSS THE MIDDLE makes the seed a
+   * decoration: the first thing a player looks at would be identical on every
+   * map. Both halves matter — it has to bend, and it has to sometimes run the
+   * other way.
+   */
+  test("it does not run the same way on every map", () => {
+    const axes = new Set<string>();
+    for (let seed = 0; seed < 20; seed++) axes.add(gen(seed).r.axis);
+    expect(axes.size).toBe(2);
+  });
+
+  test("and it bends rather than running dead straight", () => {
+    let bent = 0;
+    for (let seed = 0; seed < 20; seed++) {
+      const { g, r } = gen(seed);
+      const long = r.axis === "x" ? g.w : g.h;
+      const cross = r.axis === "x" ? g.h : g.w;
+      const firstAt = (a: number) => {
+        for (let c = 0; c < cross; c++) {
+          if (g.paved[r.axis === "x" ? idx(g, a, c) : idx(g, c, a)] !== 0) return c;
+        }
+        return -1;
+      };
+      const seen = new Set<number>();
+      for (let a = 0; a < long; a++) seen.add(firstAt(a));
+      if (seen.size > 1) bent++;
+    }
+    expect(bent).toBe(20);
+  });
+
+  test("a street with no wander IS dead straight", () => {
+    const { g, r } = gen(4, 64, 64, { wander: 0 });
+    const cross = r.axis === "x" ? g.h : g.w;
+    const long = r.axis === "x" ? g.w : g.h;
+    const first = new Set<number>();
+    for (let a = 0; a < long; a++) {
+      for (let c = 0; c < cross; c++) {
+        if (g.paved[r.axis === "x" ? idx(g, a, c) : idx(g, c, a)] !== 0) { first.add(c); break; }
+      }
+    }
+    expect(first.size).toBe(1);
   });
 
   test("every seed opens with somewhere to build", () => {
@@ -96,20 +169,15 @@ describe("what a generated map guarantees", () => {
     }
   });
 
-  test("the road is not jammed against an edge", () => {
-    for (let seed = 0; seed < 40; seed++) {
-      const { g, r } = gen(seed);
-      expect(r.roadRow).toBeGreaterThan(0);
-      expect(r.roadRow + 2).toBeLessThan(g.h);
-    }
-  });
-
-  test("and it stays inside what the editor can represent", () => {
+  test("the street is not jammed against an edge", () => {
     for (let seed = 0; seed < 20; seed++) {
-      const { g } = gen(seed);
-      for (const h of g.height) {
-        expect(h).toBeGreaterThanOrEqual(HEIGHT_MIN);
-        expect(h).toBeLessThanOrEqual(HEIGHT_MAX);
+      const { g, r } = gen(seed);
+      for (let i = 0; i < g.paved.length; i++) {
+        if (g.paved[i] === 0) continue;
+        const c = r.axis === "x" ? (i / g.w) | 0 : i % g.w;
+        const cross = r.axis === "x" ? g.h : g.w;
+        expect(c).toBeGreaterThan(0);
+        expect(c).toBeLessThan(cross - 1);
       }
     }
   });
@@ -117,20 +185,46 @@ describe("what a generated map guarantees", () => {
   /**
    * THE CONE, which is what makes frontage buildable rather than merely
    * adjacent: ground beside the street should meet it, not tower over it.
-   * Stated as the rule itself rather than as a number for the first row, so it
-   * still means something if the relief is ever turned up. @see RISE
+   * Stated against the distance field rather than against a row, so it holds
+   * for a street of any shape and still means something if the relief is ever
+   * turned up. @see RISE
    */
-  test("the land climbs at most a slab a tile away from the road", () => {
+  test("the land climbs at most a slab a tile away from the street", () => {
     for (let seed = 0; seed < 20; seed++) {
-      const { g, r } = gen(seed);
-      const road = g.height[idx(g, 0, r.roadRow)];
-      for (let y = 0; y < g.h; y++) {
-        const away = y < r.roadRow ? r.roadRow - y
-          : y >= r.roadRow + 2 ? y - (r.roadRow + 1)
-          : 0;
-        for (let x = 0; x < g.w; x++) {
-          expect(Math.abs(g.height[idx(g, x, y)] - road)).toBeLessThanOrEqual(away * 2);
-        }
+      const { g } = gen(seed, 64, 64, { rivers: 0, lakes: 0 });
+      const dist = distanceFromPaved(g);
+      const road = [...roadHeights(g)][0];
+      for (let i = 0; i < g.height.length; i++) {
+        expect(Math.abs(g.height[i] - road)).toBeLessThanOrEqual(dist[i] * DEFAULT_GEN.rise);
+      }
+    }
+  });
+
+  /**
+   * The cone is a ceiling on the LAND, and water is cut into it afterwards —
+   * so the pair of rules that has to hold once there are channels is that a
+   * channel only ever goes DOWN, and that it keeps away from the street. The
+   * second is what stops a river eating the frontage the cone just guaranteed.
+   */
+  test("water only ever cuts the ground down, never up", () => {
+    for (let seed = 0; seed < 12; seed++) {
+      const dry = gen(seed, 64, 64, { rivers: 0, lakes: 0 });
+      const wet = gen(seed, 64, 64, { rivers: 2, lakes: 2 });
+      for (let i = 0; i < dry.g.height.length; i++) {
+        expect(wet.g.height[i]).toBeLessThanOrEqual(dry.g.height[i]);
+      }
+    }
+  });
+
+  test("and never within reach of the street", () => {
+    for (let seed = 0; seed < 12; seed++) {
+      const dry = gen(seed, 64, 64, { rivers: 0, lakes: 0 });
+      const wet = gen(seed, 64, 64, { rivers: 3, lakes: 3 });
+      const dist = distanceFromPaved(dry.g);
+      for (let i = 0; i < dist.length; i++) {
+        if (dist[i] > 2) continue;
+        expect(wet.g.height[i]).toBe(dry.g.height[i]);
+        expect(wet.g.pool[i]).toBe(0);
       }
     }
   });
@@ -138,11 +232,11 @@ describe("what a generated map guarantees", () => {
   /**
    * EVERY CELL ON A WHOLE SLAB. The tileset's skirt is exactly one full step,
    * so terrain quantised to it has cliff art that lines up; terrain on half
-   * steps has walls the art can only approximate. @see TERRACE
+   * steps has walls the art can only approximate. @see terrace
    */
   test("the ground is terraced to whole slabs", () => {
     for (let seed = 0; seed < 20; seed++) {
-      const { g } = gen(seed);
+      const { g } = gen(seed, 64, 64, { rivers: 0, lakes: 0 });
       // `Math.abs`, because -2 % 2 is -0 and `toBe` can tell the difference.
       for (const h of g.height) expect(Math.abs(h % 2)).toBe(0);
     }
@@ -182,18 +276,27 @@ describe("what a generated map guarantees", () => {
     }
   });
 
-  test("a generated map starts dry and unbuilt", () => {
+  test("and it stays inside what the editor can represent", () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const { g } = gen(seed);
+      for (const h of g.height) {
+        expect(h).toBeGreaterThanOrEqual(HEIGHT_MIN);
+        expect(h).toBeLessThanOrEqual(HEIGHT_MAX);
+      }
+    }
+  });
+
+  test("a generated map starts unbuilt", () => {
     const { g } = gen(3);
     expect(g.structures.size).toBe(0);
-    expect([...g.pool].every((p) => p === 0)).toBe(true);
-    expect([...g.source].every((s) => s === 0)).toBe(true);
   });
 
   test("it works on the small map sizes too", () => {
     for (const size of [16, 32, 96]) {
       const { g, r } = gen(5, size, size);
-      expect(r.roadRow + 2).toBeLessThan(g.h);
+      expect(r.road).toBeGreaterThan(0);
       expect(r.frontage).toBeGreaterThan(0);
+      expect(roadHeights(g).size).toBe(1);
     }
   });
 });
@@ -201,7 +304,7 @@ describe("what a generated map guarantees", () => {
 describe("rerolling a bad opening", () => {
   test("a playable map is returned and reports its frontage", () => {
     const g = fresh();
-    const r = generatePlayableMap(g, { seed: 99, material: 1 });
+    const r = generatePlayableMap(g, { seed: 99, ...MATS });
     expect(r.frontage).toBeGreaterThanOrEqual(MIN_FRONTAGE);
     expect(frontageOf(g)).toBe(r.frontage);
   });
@@ -209,7 +312,7 @@ describe("rerolling a bad opening", () => {
   /** A dull map beats no map: it must never loop or throw looking for a good one. */
   test("it gives up rather than hanging", () => {
     const g = fresh(16, 16);
-    expect(() => generatePlayableMap(g, { seed: 1, material: 1 }, 2)).not.toThrow();
+    expect(() => generatePlayableMap(g, { seed: 1, ...MATS }, 2)).not.toThrow();
   });
 });
 
@@ -223,7 +326,7 @@ describe("rerolling a bad opening", () => {
  * design, so a case sitting on one proves nothing either way.
  */
 describe("grass, earth and sand", () => {
-  const M = { grass: 1, dirt: 2, sand: 3 };
+  const M = { grass: 1, dirt: 2, sand: 3, woods: [] };
   /** Flat bare ground at one height, nothing paved. */
   const ground = (h = 0, w = 13) => {
     const g = createGrid(w, w);
@@ -239,7 +342,7 @@ describe("grass, earth and sand", () => {
     expect(at(g, 6, 6)).toBe(M.grass);
   });
 
-  test("the low ground is sand — where water will one day collect", () => {
+  test("the low ground is sand — where the water is and where it would go", () => {
     const g = ground(-8);
     paintGround(g, 7, 0, M);
     expect(at(g, 6, 6)).toBe(M.sand);
@@ -304,6 +407,137 @@ describe("grass, earth and sand", () => {
       generateMap(g, { seed, material: 1, dirt: 2, sand: 3 });
       const seen = new Set(g.terrain);
       expect(seen).toEqual(new Set([1, 2, 3]));
+    }
+  });
+});
+
+/**
+ * WOODS ARE A MATERIAL, so the only thing that can go wrong is WHERE they go —
+ * and the answer is grass, because every other material is saying something a
+ * tree would talk over. @see plantTrees
+ */
+describe("trees", () => {
+  const M = { grass: 1, dirt: 2, sand: 3, woods: [4, 5, 6] };
+  const meadow = (w = 40) => {
+    const g = createGrid(w, w);
+    fillTerrain(g, M.grass);
+    return g;
+  };
+  const wooded = (g: ReturnType<typeof meadow>) =>
+    [...g.terrain].filter((t) => (M.woods as number[]).includes(t)).length;
+
+  test("none asked for, none planted", () => {
+    const g = meadow();
+    expect(plantTrees(g, 5, M, { trees: 0 })).toBe(0);
+    expect(wooded(g)).toBe(0);
+  });
+
+  test("more woods planted the more are asked for", () => {
+    const a = meadow(), b = meadow();
+    plantTrees(a, 5, M, { trees: 0.15 });
+    plantTrees(b, 5, M, { trees: 0.8 });
+    expect(wooded(b)).toBeGreaterThan(wooded(a));
+  });
+
+  test("they only stand on the grass", () => {
+    const g = meadow();
+    for (let i = 0; i < g.terrain.length; i += 3) g.terrain[i] = M.sand;
+    for (let i = 1; i < g.terrain.length; i += 3) g.terrain[i] = M.dirt;
+    plantTrees(g, 5, M, { trees: 0.9 });
+    for (let i = 0; i < g.terrain.length; i++) {
+      if (i % 3 === 0) expect(g.terrain[i]).toBe(M.sand);
+      if (i % 3 === 1) expect(g.terrain[i]).toBe(M.dirt);
+    }
+  });
+
+  /** A stand has an inside: thicker in the middle, thinning to its edge. */
+  test("a wood thins out rather than ending", () => {
+    const g = meadow(64);
+    plantTrees(g, 5, M, { trees: 0.5 });
+    const seen = new Set([...g.terrain].filter((t) => (M.woods as number[]).includes(t)));
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  test("with no wooded tiles in the palette, nothing is planted", () => {
+    const g = meadow();
+    expect(plantTrees(g, 5, { ...M, woods: [] }, { trees: 1 })).toBe(0);
+  });
+
+  test("a generated map plants some", () => {
+    expect(gen(6).r.wooded).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * TWO INPUTS, AND THE SPLIT BETWEEN THEM IS A PROMISE. The seed picks which
+ * map; the parameters pick what kind. Anything that let a parameter reseed the
+ * draws would break the one thing sliders are for — seeing what your change
+ * did — so it is held here rather than left to care.
+ */
+describe("seed and settings are separate inputs", () => {
+  test("same seed, same settings, same map", () => {
+    const a = gen(21, 64, 64, { relief: 24 });
+    const b = gen(21, 64, 64, { relief: 24 });
+    expect([...a.g.height]).toEqual([...b.g.height]);
+  });
+
+  test("the street does not move when the LAND settings change", () => {
+    const a = gen(21, 64, 64, { relief: 8, contrast: 1.5 });
+    const b = gen(21, 64, 64, { relief: 40, contrast: 5 });
+    expect([...a.g.paved]).toEqual([...b.g.paved]);
+    expect(a.r.axis).toBe(b.r.axis);
+  });
+
+  test("but the land does", () => {
+    const a = gen(21, 64, 64, { relief: 8 });
+    const b = gen(21, 64, 64, { relief: 40 });
+    expect([...a.g.height]).not.toEqual([...b.g.height]);
+  });
+
+  test("flatter settings give flatter ground", () => {
+    const tall = gen(9, 64, 64, { relief: 40 }), flat = gen(9, 64, 64, { relief: 4 });
+    const range = (g: ReturnType<typeof fresh>) => {
+      let lo = Infinity, hi = -Infinity;
+      for (const h of g.height) { lo = Math.min(lo, h); hi = Math.max(hi, h); }
+      return hi - lo;
+    };
+    expect(range(tall.g)).toBeGreaterThan(range(flat.g));
+  });
+
+  /**
+   * A generator is only worth tuning by hand if every position of every slider
+   * still makes a map — so this walks each one to both ends and asks for the
+   * guarantees back. It is the test that catches a range nobody tried.
+   */
+  test("every slider makes a playable map at both ends", () => {
+    for (const s of GEN_SLIDERS) {
+      for (const v of [s.min, s.max]) {
+        const g = fresh(48, 48);
+        const r = generateMap(g, { seed: 11, ...MATS, params: { [s.key]: v } });
+        expect(roadHeights(g).size).toBe(1);
+        expect(componentCount(createNetwork(g))).toBe(1);
+        expect(r.frontage).toBeGreaterThan(0);
+        for (const h of g.height) {
+          expect(h).toBeGreaterThanOrEqual(HEIGHT_MIN);
+          expect(h).toBeLessThanOrEqual(HEIGHT_MAX);
+        }
+      }
+    }
+  });
+
+  test("a nonsense parameter is clamped, not obeyed", () => {
+    expect(withDefaults({ relief: -50 }).relief).toBe(0);
+    expect(withDefaults({ octaves: 99 }).octaves).toBe(6);
+    expect(withDefaults({ relief: NaN }).relief).toBe(DEFAULT_GEN.relief);
+  });
+
+  test("every parameter has a slider, and every slider a parameter", () => {
+    const keys = new Set(Object.keys(DEFAULT_GEN));
+    expect(new Set(GEN_SLIDERS.map((s) => s.key))).toEqual(keys);
+    for (const s of GEN_SLIDERS) {
+      expect(s.min).toBeLessThan(s.max);
+      expect(DEFAULT_GEN[s.key]).toBeGreaterThanOrEqual(s.min);
+      expect(DEFAULT_GEN[s.key]).toBeLessThanOrEqual(s.max);
     }
   });
 });

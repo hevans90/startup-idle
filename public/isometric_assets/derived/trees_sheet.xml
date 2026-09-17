@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="trees_sheet.png">
+    <SubTexture name="landscapeTiles_067_trees1.png" x="0" y="0" width="132" height="99"/>
+    <SubTexture name="landscapeTiles_067_trees2.png" x="132" y="0" width="132" height="99"/>
+    <SubTexture name="landscapeTiles_067_trees3.png" x="264" y="0" width="132" height="99"/>
+</TextureAtlas>
