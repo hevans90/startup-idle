@@ -23,7 +23,7 @@ import { useAnyPopoverStore } from "../state/modifier-popover.store";
 import { useOfficeStore } from "../state/office.store";
 import { useSlopPitStore, SLOP_PIT_UNLOCK_COUNT } from "../state/slop-pit.store";
 import { useThemeStore } from "../state/theme.store";
-import { loadIsometricAtlasTextures } from "./atlas/load-isometric-atlases";
+import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
 import { onKitsChanged } from "./city/building-kits";
 import { computeCity, type CityScene } from "./city/compute-city";
 import { AVENUE_ROWS, generateWorld, SLOP_PIT_CENTER, SLOP_PIT_BLOCK } from "./city/generate-world";
@@ -37,7 +37,7 @@ import { cellKey } from "./city/types";
 import type { SpriteId } from "./map/types";
 import { cityDepthKey, ISO_CELL_STRIDE, mapToWorld } from "./math-utils";
 import { sweH, sweReset, sweSplash, sweApplyModalForcing, sweStep, sweNormalizeMean, SIM_N, SIM_N1, SWE_MAX_AMP, PIT_DEPTH_HH } from "./slop-pit-fluid";
-import { useDisableDOMZoom } from "./utils/use-disable-dom-zoom";
+import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
 import { AppViewport } from "./viewport";
 
 extend({

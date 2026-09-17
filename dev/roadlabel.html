@@ -19,6 +19,10 @@
   .edge:active { transform: translate(-50%, -50%) scale(.88); }
   .edge.open { background: #3ecf6a; color: #06340f; }
   .edge.closed { background: #ff5a5a; color: #3a0000; }
+  .edge.e-open  { background: #3ecf6a; color: #06340f; }
+  .edge.e-paved { background: #ff5a5a; color: #3a0000; }
+  .edge.e-half  { background: linear-gradient(135deg, #ff5a5a 50%, #6a9a4a 50%); color: #2a1600; }
+  .edge.e-grass { background: #6a9a4a; color: #10300f; }
   /* centred on the diamond's four edge-midpoints (where the road arms exit) */
   .n { top: 36%; left: 25%; } .e { top: 36%; left: 75%; }
   .s { top: 64%; left: 75%; } .w { top: 64%; left: 25%; }
@@ -29,6 +33,25 @@
   .card.notroad .stage { opacity: .35; }
   .card.notroad .edge { display: none; }
   .card.notroad .role { display: none; }
+  /* ---- slope mode ---- */
+  .hint { font-size: 10px; opacity: .8; margin-top: 4px; font-family: ui-monospace, monospace; }
+  .kinds, .dirs { display: flex; gap: 3px; margin-top: 5px; flex-wrap: wrap; }
+  .kinds button, .dirs button { flex: 1 1 auto; font-size: 10px; padding: 3px 2px; cursor: pointer;
+    background: #1c232c; color: #e8edf2; border: 1px solid var(--line); border-radius: 4px; }
+  .kinds button.on2 { background: #5aa9ff; color: #04203f; border-color: #5aa9ff; font-weight: 700; }
+  .feats { margin-top: 3px; }
+  .tiltrow { margin-top: 5px; align-items: center; }
+  .tlab { font-size: 10px; opacity: .6; margin-right: 2px; font-family: ui-monospace, monospace; }
+  .kinds button.on { background: #3ecf6a; color: #06240f; border-color: #3ecf6a; font-weight: 700; }
+  .dirs button.on  { background: #f0a63c; color: #2a1600; border-color: #f0a63c; font-weight: 700; }
+  .dirs button.likely { border-color: #f0a63c; }
+  .dirs button:disabled { opacity: .3; cursor: default; }
+  .card.isflat .stage, .card.iswater .stage { opacity: .4; }
+  .card.iswall .stage { opacity: .45; filter: grayscale(.6); }
+  .kinds button.on.wallon { background: #ff7a7a; color: #300; border-color: #ff7a7a; }
+  .sheethdr { grid-column: 1 / -1; font-size: 13px; font-weight: 700; opacity: .8;
+    border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-top: 8px; }
+  .filters { display: flex; gap: 6px; align-items: center; margin: 8px 0; font-size: 12px; }
   .role { width: 100%; margin-top: 6px; background: #1c232c; color: #e8edf2; border: 1px solid var(--line);
           border-radius: 6px; padding: 5px; font-family: inherit; font-size: 11px; }
   footer { position: fixed; left: 322px; right: 0; bottom: 0; background: #161b22; border-top: 1px solid var(--line);
@@ -64,6 +87,7 @@
     <span style="font-size:12px; opacity:.8;">Tile set:</span>
     <button id="mode-landscape" onclick="switchMode('landscape')">Landscape roads</button>
     <button id="mode-city" class="sec" onclick="switchMode('city')">City pavement</button>
+    <button id="mode-slope" class="sec" onclick="switchMode('slope')">Slopes / ramps</button>
   </div>
   <p class="help">
     Edges: <b>N</b>=top-left, <b>E</b>=top-right, <b>S</b>=bottom-right, <b>W</b>=bottom-left.
@@ -84,7 +108,11 @@
     <div class="guidecol"><h3>Thin — 1 tile wide</h3><div class="gcards" id="guide-thin"></div></div>
     <div class="guidecol"><h3>Thick — 2 tiles wide (lanes)</h3><div class="gcards" id="guide-thick"></div></div>
     <div class="guidecol"><h3>Thick road + thin junction</h3><div class="gcards" id="guide-hybrid"></div></div>
-  </aside>
+    </div>
+  <div class="guidecol" id="slopeguide" style="display:none">
+    <h3>Slopes — orientation</h3>
+    <div class="gcards" id="guide-slope"></div>
+</aside>
   <div class="grid" id="grid"></div>
 
   <footer>
@@ -108,8 +136,18 @@
     landscape: { prefix: "/isometric_assets/landscape/PNG/landscapeTiles_", api: "/api/roadlabels", key: "roadlabels_v1", file: "road-labels.json", defaultRoad: (i) => i >= 80 && i <= 99 },
     city: { prefix: "/isometric_assets/city_tiles/PNG/cityTiles_", api: "/api/citytilelabels", key: "citytilelabels_v1", file: "city-tile-labels.json", defaultRoad: () => false },
   };
+  // Slopes are labelled across BOTH sheets into one file, keyed by full sprite
+  // id (e.g. "landscapeTiles_028.png") so the engine can look them up directly.
+  MODES.slope = { api: "/api/slopelabels", key: "slopelabels_v1", file: "slope-labels.json" };
+  const SLOPE_SHEETS = [
+    { name: "landscape", prefix: "/isometric_assets/landscape/PNG/landscapeTiles_", idPrefix: "landscapeTiles_" },
+    { name: "cityTiles", prefix: "/isometric_assets/city_tiles/PNG/cityTiles_",     idPrefix: "cityTiles_" },
+  ];
+  const KINDS = ["flat", "ramp", "cliff", "water", "other"];
+  let slopeFilter = "slopes";
+
   let mode = "landscape";
-  const states = { landscape: {}, city: {} };
+  const states = { landscape: {}, city: {}, slope: {} };
   const cfg = () => MODES[mode];
 
   // Measure a tile's top-face diamond from its pixels so dots land exactly on
@@ -139,8 +177,257 @@
     }
   }
 
+  // Measure a tile for the Slopes tab: the tilt of its top face, the face's
+  // four corners (so edge dots land correctly on a TILTED face), and what the
+  // surface is made of. Tilt alone is ambiguous — a tilted face can be a slope,
+  // a plateau edge OR a water surface below its bank — so we sample materials
+  // too and let the labeller compose form + features.
+  const slopeGeom = {};
+  function measureSlope(img) {
+    const W = img.naturalWidth, H = img.naturalHeight;
+    const cv = measureSlope._cv || (measureSlope._cv = document.createElement("canvas"));
+    const ctx = measureSlope._ctx || (measureSlope._ctx = cv.getContext("2d", { willReadFrequently: true }));
+    cv.width = W; cv.height = H; ctx.clearRect(0, 0, W, H); ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, W, H).data;
+    let topY = -1, botY = -1, leftY = -1, rightY = -1, op = 0;
+    const c = { water: 0, grass: 0, asphalt: 0, paving: 0, dirt: 0, sand: 0 };
+    for (let y = 0; y < H; y++) {
+      let any = false;
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4;
+        if (d[i + 3] <= 8) continue;
+        any = true; op++;
+        const r = d[i], g = d[i + 1], b = d[i + 2], mx = Math.max(r, g, b);
+        if (b > r + 20 && b > g + 8) c.water++;
+        else if (g > r + 18 && g > b + 18) c.grass++;
+        else if (Math.abs(r - g) < 24 && Math.abs(g - b) < 24) (mx < 115 ? c.asphalt++ : c.paving++);
+        else if (r > 150 && g > 130 && b < 130) c.sand++;
+        else c.dirt++;
+        if (x === 0 && leftY < 0) leftY = y;
+        if (x === W - 1 && rightY < 0) rightY = y;
+      }
+      if (any) { if (topY < 0) topY = y; botY = y; }
+    }
+    for (const k in c) c[k] = op ? c[k] / op : 0;
+    // An embankment (road climbing over level grass) leaves the CORNERS level
+    // but pushes the upper outline above the straight corner-to-corner lines.
+    // That bulge is what separates it from an ordinary flat road tile.
+    let bulge = 0;
+    if (leftY >= 0 && rightY >= 0) {
+      const apexX = W / 2;
+      for (let x = 0; x < W; x++) {
+        let t = -1;
+        for (let y = 0; y < H; y++) { if (d[(y * W + x) * 4 + 3] > 8) { t = y; break; } }
+        if (t < 0) continue;
+        const exp = x <= apexX ? leftY + (topY - leftY) * (x / apexX)
+                               : topY + (rightY - topY) * ((x - apexX) / (W - 1 - apexX));
+        if (exp - t > bulge) bulge = exp - t;
+      }
+      bulge = Math.round(bulge);
+    }
+    const skew = (leftY < 0 || rightY < 0) ? 0 : leftY - rightY;
+    // Top face is a parallelogram: bottom corner completes top/left/right.
+    const faceBotY = (leftY < 0 || rightY < 0) ? botY : leftY + rightY - topY;
+
+    // Sample the surface ALONG each face edge, so we can tell whether the
+    // tile's linear feature (water / road) actually reaches that boundary —
+    // i.e. whether it continues into the neighbour. Samples are pulled toward
+    // the face centre so we read the surface, not the outline or its AA.
+    const cx = W / 2;
+    const C = { top: [cx, topY], left: [0, leftY], right: [W - 1, rightY], bot: [cx, faceBotY] };
+    const mid = [(C.top[0] + C.bot[0]) / 2, (C.top[1] + C.bot[1]) / 2];
+    const EDGE_PAIRS = { N: ["left", "top"], E: ["top", "right"], S: ["right", "bot"], W: ["bot", "left"] };
+    const classify = (x, y) => {
+      x = Math.round(x); y = Math.round(y);
+      if (x < 0 || y < 0 || x >= W || y >= H) return null;
+      const i = (y * W + x) * 4;
+      if (d[i + 3] <= 8) return null;
+      const r = d[i], g = d[i + 1], b = d[i + 2], mx = Math.max(r, g, b);
+      if (b > r + 20 && b > g + 8) return "water";
+      if (g > r + 18 && g > b + 18) return "grass";
+      if (Math.abs(r - g) < 24 && Math.abs(g - b) < 24) return mx < 115 ? "asphalt" : "paving";
+      return "dirt";
+    };
+    const edges = {};
+    for (const e in EDGE_PAIRS) {
+      const [pa, pb] = EDGE_PAIRS[e].map((k) => C[k]);
+      const tally = { water: 0, grass: 0, asphalt: 0, paving: 0, dirt: 0, n: 0 };
+      for (let k = 0; k <= 8; k++) {
+        const t = 0.2 + (0.6 * k) / 8;
+        let x = pa[0] + (pb[0] - pa[0]) * t, y = pa[1] + (pb[1] - pa[1]) * t;
+        x += (mid[0] - x) * 0.16; y += (mid[1] - y) * 0.16;   // step inside the face
+        const m = classify(x, y);
+        if (m) { tally[m]++; tally.n++; }
+      }
+      const n = tally.n || 1;
+      edges[e] = { water: tally.water / n, asphalt: tally.asphalt / n, paving: tally.paving / n, grass: tally.grass / n };
+    }
+    return { W, H, topY, botY, leftY, rightY, faceBotY, skew, bulge, edges, ...c };
+  }
+
+  // Solve the top face's corner elevations. The face is PLANAR, so three
+  // measured vertices fix it and the fourth follows — which means the rise
+  // direction is fully determined, not a guess between two candidates.
+  //
+  //   a = top, b = left, c = right, d = bottom   (screen-up px, a := 0)
+  //   flat tile => leftY = rightY = topY + HH_FACE, so a = b = c = d = 0
+  //
+  // A ramp raises one EDGE, i.e. two adjacent corners together:
+  //   N = (left,top)   E = (top,right)   S = (right,bottom)   W = (bottom,left)
+  const HH_FACE = 33;
+  // The artset (and the engine) support exactly two rises: a HALF step and a
+  // FULL step. Nothing taller exists, so anything bigger measured on a frame is
+  // frame thickness, not additional rise. Split at the midpoint of 16.5 / 33.
+  const RISE_STEPS = [0.5, 1];
+  const RISE_SPLIT = HH_FACE * 0.75;               // 24.75px
+  const stepsFor = (amp) => (amp < RISE_SPLIT ? 0.5 : 1);
+  const nextRise = (v) => (v === 0.5 ? 1 : 0.5);
+  function corners(g) {
+    if (!g || g.leftY < 0 || g.rightY < 0) return null;
+    const a = 0;
+    const b = g.topY + HH_FACE - g.leftY;
+    const c = g.topY + HH_FACE - g.rightY;
+    return { a, b, c, d: b + c - a };
+  }
+  const EDGE_CORNERS = { N: ["b", "a"], E: ["a", "c"], S: ["c", "d"], W: ["d", "b"] };
+  // Diamond CORNERS sit between two edges. A rise toward a corner folds the
+  // face along a diagonal — two triangles, one raised — rather than lifting a
+  // whole edge. Named by the two edges they sit between.
+  //   a = top = between N and E   c = right = between E and S
+  //   d = bottom = between S and W  b = left = between W and N
+  const CORNER_OF = { NE: "a", ES: "c", SW: "d", WN: "b" };
+  const CORNER_DIRS = ["NE", "ES", "SW", "WN"];
+  // open  = the road/water continues into the neighbour
+  // paved = fully pavement/kerb along the edge
+  // half  = half pavement, half grass (a transition edge)
+  // grass = plain grass boundary, no pavement at all
+  const EDGE_STATES = ["open", "paved", "half", "grass"];
+  const nextEdgeState = (v) => EDGE_STATES[(EDGE_STATES.indexOf(v) + 1) % EDGE_STATES.length];
+  /**
+   * Is this face tilted? `form` IS the answer once it is set — a separate
+   * stored override was redundant with it (and `tilt="no"` was never used,
+   * because clicking "flat" already rejects a bad detection). Fall back to the
+   * measurement only while the tile is still undecided.
+   */
+  const isTilted = (st, g) =>
+    st.form === "slope" || st.form === "cliff" ? true
+    : st.form === "flat" || st.form === "wall" ? false
+    : !!(g && riseOf(g));
+
+  /**
+   * Which way the face rises, and by how many steps.
+   * The face is planar, so a + d = b + c and the four corner elevations sort
+   * into exactly two signatures:
+   *    edge rise    [0, 0, h, h]        two adjacent corners lifted together
+   *    corner rise  [0, h/2, h/2, h]    one corner lifted, opposite dropped
+   * Returns null when level.
+   */
+  function riseOf(g) {
+    const k = corners(g);
+    if (!k) return null;
+    const v = [k.a, k.b, k.c, k.d].slice().sort((x, y) => x - y);
+    const amp = v[3] - v[0];
+    if (amp < 8) return null;
+    const mid = (v[1] + v[2]) / 2, half = v[0] + amp / 2;
+    // middle pair sitting near the halfway mark => the fold is diagonal
+    const isCorner = Math.abs(v[1] - v[2]) < amp * 0.34 && Math.abs(mid - half) < amp * 0.22;
+    if (isCorner) {
+      let best = null, hi = -1e9;
+      for (const c of CORNER_DIRS) if (k[CORNER_OF[c]] > hi) { hi = k[CORNER_OF[c]]; best = c; }
+      return { kind: "corner", dir: best, amp, steps: stepsFor(amp) };
+    }
+    let best = null, bestScore = -1e9;
+    for (const d in EDGE_CORNERS) {
+      const [x, y] = EDGE_CORNERS[d];
+      const score = Math.min(k[x], k[y]);
+      if (score > bestScore) { bestScore = score; best = d; }
+    }
+    return { kind: "edge", dir: best, amp, steps: stepsFor(amp) };
+  }
+
+  // Pixel evidence -> a starting guess. Form and features are independent:
+  // a tile can be a slope AND water AND have paved flanks.
+  function suggest(g) {
+    if (!g) return null;
+    const r = riseOf(g);
+    const features = [];
+    if (g.water   > 0.12) features.push("water");
+    if (g.asphalt > 0.10) features.push("road");
+    if (g.paving  > 0.10) features.push("paving");
+    // A tilted silhouette is a ramp OR a cliff OR a wall face — indistinguishable
+    // from pixels. So only assert "flat" (which IS determinable); leave tilted
+    // tiles UNDECIDED and just supply dir/rise as a hint for the human.
+    return {
+      form: r ? "" : "flat",
+      // Only assert a direction for EDGE rises — those came out balanced across
+      // N/E/S/W and check out by hand. CORNER rises are biased by the solver's
+      // choice of reference corner, so leave those for the human and just flag
+      // "◣ diagonal" in the hint.
+      dir: r && r.kind === "edge" ? r.dir : "",
+      rise: r ? r.steps : 1,
+      features,
+      open: openFromEdges(g, features),
+      edges: edgeStatesFrom(g, features),
+    };
+  }
+
+  /**
+   * Which edges the tile's linear feature reaches — i.e. where it CONTINUES
+   * into the neighbour (green dot). Everything else is a kerb/bank (red).
+   * A river with grass banks is open on the two edges the water reaches, NOT
+   * closed on all four: all-closed means an isolated pond, and would make the
+   * engine treat every river tile as unconnected.
+   */
+  function openFromEdges(g, features) {
+    const st = edgeStatesFrom(g, features);
+    const o = {};
+    for (const dch of DIRS) o[dch] = st[dch] === "open";
+    return o;
+  }
+  /**
+   * Per-edge state from the sampled materials. Connectivity first (does the
+   * feature reach this edge), then what the boundary is made of.
+   */
+  function edgeStatesFrom(g, features) {
+    const out = {};
+    if (!g || !g.edges) { for (const d of DIRS) out[d] = "open"; return out; }
+    const key = features.includes("water") ? "water"
+              : features.includes("road")  ? "asphalt" : null;
+    for (const dch of DIRS) {
+      const e = g.edges[dch];
+      if (key && (e[key] || 0) >= 0.34) { out[dch] = "open"; continue; }
+      const pav = e.paving || 0;
+      out[dch] = pav >= 0.50 ? "paved" : pav >= 0.12 ? "half" : "grass";
+    }
+    return out;
+  }
+  window.detectEdges = () => {
+    let n = 0;
+    for (const sh of SLOPE_SHEETS) for (let i = FROM; i <= TO; i++) {
+      const id = sh.idPrefix + pad(i) + ".png", g = slopeGeom[id];
+      if (!g) continue;
+      const v = ensureSlope(id);
+      if (!v.features || !v.features.length) continue;
+      v.edges = edgeStatesFrom(g, v.features);
+      v.open = openFromEdges(g, v.features); n++;
+    }
+    save(); setStatus("re-derived edge connectivity on " + n + " tiles with features");
+  };
+  const likelyDirs = (g) => { const r = riseOf(g); return r ? [r.dir] : []; };
+
+  // Edge-dot positions on the (possibly tilted) top face, in % of the frame.
+  // Labeller convention: N = upper-left edge, E = upper-right, S = lower-right,
+  // W = lower-left. Midpoint of each edge between adjacent face corners.
+  function slopeEdgePos(g) {
+    const cx = g.W / 2;
+    const P = { top: [cx, g.topY], left: [0, g.leftY], right: [g.W - 1, g.rightY], bot: [cx, g.faceBotY] };
+    const mid = (a, b) => [(a[0] + b[0]) / 2 / g.W * 100, (a[1] + b[1]) / 2 / g.H * 100];
+    return { n: mid(P.left, P.top), e: mid(P.top, P.right), s: mid(P.right, P.bot), w: mid(P.bot, P.left) };
+  }
+
   let state = states[mode];
   // state[id] = { road: bool, role: string, open: {N,E,S,W: bool} }
+  // slope:  state["landscapeTiles_028.png"] = { kind, dir, rise }
   const ROLES = [
     ["thin (1-wide)", ["thin-straight", "thin-corner", "thin-T", "thin-cross", "thin-end"]],
     ["thick (2-wide lanes)", ["thick-lane", "thick-outer-corner", "thick-inner-corner", "thick-T", "thick-cross", "thick-end", "thick-fill"]],
@@ -157,15 +444,44 @@
     setStatus("saving…");
     const { api, file } = cfg();
     fetch(api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) })
-      .then((r) => setStatus(r.ok ? ("saved to " + file + " ✓") : "save failed"))
+      .then((r) => { syncTimer = null; setStatus(r.ok ? ("saved to " + file + " ✓") : "save failed"); })
       .catch(() => setStatus("save failed (offline?)"));
+  }
+  /**
+   * Re-render without moving the page. `render()` rebuilds the whole grid, so
+   * without this every click jumps you back up — which makes labelling by
+   * clicking edge dots basically unusable.
+   */
+  function renderKeepingScroll() {
+    const y = window.scrollY, x = window.scrollX;
+    render();
+    window.scrollTo(x, y);
+  }
+  /** Persist without touching the DOM — for edits that update their own card. */
+  function saveQuiet() {
+    localStorage.setItem(cfg().key, JSON.stringify(state));
+    updateOut();
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncToDisk, 400);
   }
   function save() {
     localStorage.setItem(cfg().key, JSON.stringify(state)); // instant local cache
-    render();
+    renderKeepingScroll();
     clearTimeout(syncTimer);
     syncTimer = setTimeout(syncToDisk, 400); // debounced write to disk
   }
+  // A debounced write can be lost if the tab is hidden or closed inside the
+  // 400ms window — which is easy to hit when clicking through labels quickly.
+  // Flush any pending write synchronously on the way out.
+  function flushPending() {
+    if (syncTimer == null) return;
+    clearTimeout(syncTimer); syncTimer = null;
+    const body = JSON.stringify(state);
+    if (navigator.sendBeacon) navigator.sendBeacon(cfg().api, new Blob([body], { type: "application/json" }));
+    else fetch(cfg().api, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+  }
+  window.addEventListener("beforeunload", flushPending);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushPending(); });
 
   function typeOf(open) {
     const o = DIRS.filter(d => open[d]);
@@ -180,7 +496,323 @@
   }
 
   const grid = document.getElementById("grid");
-  function render() {
+
+  function render() { return mode === "slope" ? renderSlopes() : renderRoads(); }
+
+  const FORMS = ["flat", "slope", "cliff", "wall"];
+  const FEATURES = ["water", "road", "paving", "rail", "tunnel", "bridge"];
+  function ensureSlope(id) {
+    let v = state[id];
+    if (!v) v = state[id] = { form: "", features: [], dir: "", rise: 1, open: { N:true, E:true, S:true, W:true } };
+    if (v.kind !== undefined) {                  // migrate the first-pass {kind,dir,rise} schema
+      const k = v.kind;
+      v.form = k === "ramp" ? "slope" : (k === "cliff" ? "cliff" : (k ? "flat" : ""));
+      v.features = k === "water" ? ["water"] : [];
+      delete v.kind;
+    }
+    if (!Array.isArray(v.features)) v.features = [];
+    if (!v.open) v.open = { N:true, E:true, S:true, W:true };
+    // Edges carry TWO facts: whether the feature continues (connectivity) and
+    // what the boundary is made of. Binary open/closed could only say the
+    // first, so each edge is now a 4-state cycle. Migrated from `open`.
+    if (!v.edges) {
+      v.edges = {};
+      for (const d of DIRS) v.edges[d] = v.open[d] ? "open" : "paved";
+    }
+    if (v.rise === undefined) v.rise = 1;
+    // Only 0.5 and 1 exist; older data may hold 2 from the pre-half-step maths.
+    if (v.rise !== 0.5 && v.rise !== 1) v.rise = v.rise < 0.75 ? 0.5 : 1;
+    if (v.dir === undefined) v.dir = "";
+    // "" = trust the pixel measurement, "yes"/"no" = human override. The
+    // measurement assumes every frame is a flat-topped diamond slab, which is
+    // false for trees, walls, cliff pieces and the 99px-wide frames — so it
+    // must always be correctable.
+    // `tilt` was a redundant override of `form`; drop it on load.
+            if (v.tilt !== undefined) {
+              if (v.tilt === "yes" && !v.form) v.form = "";     // still undecided
+              delete v.tilt;
+            }
+    // Which way a tunnel mouth faces. Only meaningful with the "tunnel"
+    // feature; a portal is a hole INTO the terrain, so it is not the same as
+    // `dir` (which is the way the surface rises).
+    if (v.portal === undefined) v.portal = "";
+    // WHAT rises. "full" = the whole top face tilts, grass and road together
+    // (the silhouette shears, so the detector sees it). "road" = only the
+    // carriageway climbs while the surrounding terrain stays level — an
+    // embankment/causeway. Those leave a LEVEL silhouette, so they are
+    // invisible to the tilt detector and must be found by eye.
+    if (v.extent === undefined) v.extent = "";
+    return v;
+  }
+  window.setSlopeFilter = (f) => { slopeFilter = f; renderSlopes(); };
+  window.applySuggestions = () => {
+    let n = 0;
+    for (const sh of SLOPE_SHEETS) for (let i = FROM; i <= TO; i++) {
+      const id = sh.idPrefix + pad(i) + ".png", g = slopeGeom[id];
+      if (!g) continue;                          // not measured yet
+      const cur = state[id];
+      if (cur && cur.form) continue;             // never overwrite a human label
+      const sg = suggest(g);
+      if (sg) { state[id] = sg; n++; }
+    }
+    save(); setStatus("pre-filled " + n + " unlabelled tiles from pixel measurements");
+  };
+
+  // Materials are the tedious part to eyeball, and they're independent of form.
+  // This fills FEATURES only, leaving form/dir/rise and any existing features alone.
+  window.detectFeatures = () => {
+    let n = 0;
+    for (const sh of SLOPE_SHEETS) for (let i = FROM; i <= TO; i++) {
+      const id = sh.idPrefix + pad(i) + ".png", g = slopeGeom[id];
+      if (!g) continue;
+      const v = ensureSlope(id);
+      if (v.features.length) continue;          // respect anything already set
+      const sg = suggest(g);
+      if (sg && sg.features.length) { v.features = sg.features; n++; }
+    }
+    save(); setStatus("detected materials on " + n + " tiles (form/direction untouched)");
+  };
+
+  // Which ids the current filter is showing — so bulk actions act on exactly
+  // what is on screen.
+  function visibleSlopeIds() {
+    const out = [];
+    for (const sh of SLOPE_SHEETS) for (let i = FROM; i <= TO; i++) {
+      const id = sh.idPrefix + pad(i) + ".png";
+      const st = ensureSlope(id), g = slopeGeom[id];
+      const tilted = isTilted(st, g);
+      const slopey = st.form === "slope" || st.form === "cliff";
+      const rejected = st.form === "wall" || st.form === "flat";
+      if (slopeFilter === "slopes" && g && (rejected || st.features.includes("water") || !(tilted || slopey))) continue;
+      if (slopeFilter === "undecided" && g && (st.form || !tilted)) continue;
+      if (slopeFilter === "water" && !st.features.includes("water")) continue;
+      if (slopeFilter === "road" && !st.features.includes("road")) continue;
+      if (slopeFilter === "tunnel" && !st.features.includes("tunnel")) continue;
+      // Embankment candidates: a road on a tile whose SILHOUETTE measures level.
+      if (slopeFilter === "level-road" && !(st.features.includes("road") && g && !riseOf(g) && g.bulge >= 6)) continue;
+      out.push(id);
+    }
+    return out;
+  }
+  /** Bulk-set form on everything the filter is showing. */
+  window.markVisible = (form) => {
+    const ids = visibleSlopeIds();
+    for (const id of ids) { const v = ensureSlope(id); v.form = form; if (form !== "slope" && form !== "cliff") v.dir = ""; }
+    save(); setStatus("set form=" + form + " on " + ids.length + " visible tiles");
+  };
+  /** Drop machine-guessed forms, keeping direction / materials / edges. */
+  window.clearForms = () => {
+    if (!confirm("Clear the FORM on every tile (keeps direction, materials and edges)?")) return;
+    let n = 0;
+    for (const id in state) { if (state[id].form) { state[id].form = ""; n++; } }
+    save(); setStatus("cleared form on " + n + " tiles — direction/materials kept");
+  };
+
+  function renderSlopes() {
+    grid.innerHTML = "";
+    const bar = document.createElement("div");
+    bar.className = "sheethdr";
+    bar.innerHTML = 'Filter: ' +
+      ['slopes', 'undecided', 'level-road', 'water', 'road', 'tunnel', 'all'].map(f =>
+        '<button onclick="setSlopeFilter(\'' + f + '\')" style="margin-left:6px;font-size:11px;padding:2px 8px;cursor:pointer;' +
+        (slopeFilter === f ? 'background:#3ecf6a;color:#06240f;font-weight:700;' : 'background:#1c232c;color:#e8edf2;') +
+        'border:1px solid #2b3440;border-radius:4px">' + f + '</button>').join('') +
+      ' &nbsp;<button onclick="applySuggestions()" style="font-size:11px;padding:2px 8px;cursor:pointer;background:#1c232c;color:#e8edf2;border:1px solid #2b3440;border-radius:4px">pre-fill from pixels</button>' +
+      ' <button onclick="detectFeatures()" style="font-size:11px;padding:2px 8px;cursor:pointer;background:#1c232c;color:#e8edf2;border:1px solid #2b3440;border-radius:4px">detect materials</button>' +
+      ' <button onclick="detectEdges()" style="font-size:11px;padding:2px 8px;cursor:pointer;background:#1c232c;color:#e8edf2;border:1px solid #2b3440;border-radius:4px">detect edges</button>' +
+      ' &nbsp;<span style="opacity:.6">bulk:</span>' +
+      ' <button onclick="markVisible(\'wall\')" style="font-size:11px;padding:2px 8px;cursor:pointer;background:#5a2b2b;color:#ffdede;border:1px solid #7a3a3a;border-radius:4px">visible → wall</button>' +
+      ' <button onclick="markVisible(\'flat\')" style="font-size:11px;padding:2px 8px;cursor:pointer;background:#2b3a4a;color:#dbeaff;border:1px solid #3a4a5a;border-radius:4px">visible → flat</button>' +
+      ' <button onclick="redetectRises()" style="font-size:11px;padding:2px 8px;cursor:pointer;background:#2b3a4a;color:#dbeaff;border:1px solid #3a4a5a;border-radius:4px">re-derive rises</button>' +
+      ' <button onclick="clearForms()" style="font-size:11px;padding:2px 8px;cursor:pointer;background:#1c232c;color:#e8edf2;border:1px solid #2b3440;border-radius:4px">clear forms</button>' +
+      ' <span style="font-weight:400;opacity:.7;font-size:11px">&nbsp;rises are only ×0.5 or ×1. form × features are independent. Edge dots cycle: green open · red paved · amber half · olive grass. Rise is measured from the tile outline; ~16px = ×0.5, ~33px = ×1.</span>';
+    grid.appendChild(bar);
+
+    for (const sh of SLOPE_SHEETS) {
+      const hdr = document.createElement("div");
+      hdr.className = "sheethdr"; hdr.textContent = sh.name;
+      grid.appendChild(hdr);
+      for (let i = FROM; i <= TO; i++) {
+        const id = sh.idPrefix + pad(i) + ".png";
+        const st = ensureSlope(id);
+        const g = slopeGeom[id];
+        const tilted = isTilted(st, g);
+        // "tilted" = geometry looks sloped, OR a human called it a slope/cliff.
+        const slopey = st.form === "slope" || st.form === "cliff";
+        // "ramps" = what the elevation phase needs: tilted geometry (or a human
+        // saying slope/cliff), not water, and not already rejected as wall/flat.
+        const rejected = st.form === "wall" || st.form === "flat";
+        if (slopeFilter === "slopes" && g && (rejected || st.features.includes("water") || !(tilted || slopey))) continue;
+        if (slopeFilter === "undecided" && g && (st.form || !tilted)) continue;
+        if (slopeFilter === "tilted"     && g && !tilted && !slopey) continue;
+        if (slopeFilter === "unlabelled" && st.form) continue;
+        if (slopeFilter === "water"      && !st.features.includes("water")) continue;
+        if (slopeFilter === "road"       && !st.features.includes("road")) continue;
+        if (slopeFilter === "tunnel" && !st.features.includes("tunnel")) continue;
+        if (slopeFilter === "level-road" && !(st.features.includes("road") && g && !riseOf(g) && g.bulge >= 6)) continue;
+
+        const card = document.createElement("div");
+        card.className = "card" + (st.form === "flat" && !st.features.length ? " isflat" : "")
+                                  + (st.form === "wall" ? " iswall" : "");
+        const stage = document.createElement("div");
+        stage.className = "stage";
+        stage.innerHTML = '<img src="' + sh.prefix + pad(i) + '.png" />';
+        const imgEl = stage.querySelector("img");
+
+        // Per-edge dots — same affordance as the road tabs, positioned on the
+        // TILTED face so they stay on the right edges of a slope.
+        for (const dch of DIRS) {
+          const e = document.createElement("div");
+          e.className = "edge " + dch.toLowerCase() + " e-" + (st.edges[dch] || "paved");
+          e.textContent = dch;
+          e.title = st.edges[dch];
+          e.onclick = () => {
+            st.edges[dch] = nextEdgeState(st.edges[dch] || "paved");
+            st.open[dch] = st.edges[dch] === "open";     // keep connectivity in sync
+            // Cycling an edge changes nothing about which controls are shown,
+            // so patch this dot and the summary line rather than re-rendering.
+            e.className = "edge " + dch.toLowerCase() + " e-" + st.edges[dch];
+            e.title = st.edges[dch];
+            refreshDesc();
+            saveQuiet();
+          };
+          stage.appendChild(e);
+        }
+
+        const hint = document.createElement("div");
+        hint.className = "hint";
+        const paint = () => {
+          const gg = slopeGeom[id];
+          if (!gg) { hint.textContent = "measuring…"; return; }
+          const pct = (v) => Math.round(v * 100);
+          const mats = [["water", gg.water], ["asph", gg.asphalt], ["pave", gg.paving], ["grass", gg.grass]]
+            .filter(([, v]) => v > 0.06).map(([k, v]) => k + " " + pct(v) + "%").join(" · ");
+          const rr = riseOf(gg);
+          const meas = rr ? "rises " + rr.dir + " " + rr.amp + "px = ×" + rr.steps
+                            + (rr.steps === 0.5 ? " HALF" : " FULL")
+                            + (rr.kind === "corner" ? " ◣ diagonal" : "") : "level";
+
+          const bul = gg.bulge >= 6 ? " · bulge " + gg.bulge + "px ⇧road?" : "";
+          const cor = " · corners L/R " + gg.leftY + "/" + gg.rightY
+                    + (gg.leftY === gg.rightY ? " (no shear)" : "");
+          hint.textContent = "measured: " + meas + " · " + gg.W + "x" + gg.H + (mats ? " · " + mats : "") + cor + bul;
+          const pos = slopeEdgePos(gg);
+          for (const dch in pos) {
+            const dot = stage.querySelector(".edge." + dch);
+            if (dot) { dot.style.left = pos[dch][0] + "%"; dot.style.top = pos[dch][1] + "%"; }
+          }
+          for (const b of dirs.querySelectorAll("button"))
+            b.classList.toggle("likely", likelyDirs(gg).includes(b.textContent) && st.dir !== b.textContent);
+        };
+        const doMeasure = () => {
+          slopeGeom[id] = measureSlope(imgEl); paint();
+          clearTimeout(renderSlopes._t);
+          renderSlopes._t = setTimeout(() => {
+            if (mode !== "slope" || slopeFilter === "all") return;
+            const y = window.scrollY; renderSlopes(); window.scrollTo(0, y);
+          }, 250);
+        };
+        if (g) setTimeout(paint, 0);
+        else if (imgEl.complete && imgEl.naturalWidth) setTimeout(doMeasure, 0);
+        else imgEl.addEventListener("load", doMeasure);
+
+        const row = document.createElement("div");
+        row.className = "row";
+        const descOf = () => (st.form || "—") + (st.dir ? " " + st.dir + "×" + st.rise : "") +
+                     (st.features.length ? " + " + st.features.join("+") : "") +
+                     (st.portal ? " ⌒" + st.portal : "") +
+                     (st.extent === "road" ? " [road only]" : "");
+        row.innerHTML = '<span class="id">' + pad(i) + '</span><span class="type">' + descOf() + '</span>';
+        const refreshDesc = () => { const el = row.querySelector(".type"); if (el) el.textContent = descOf(); };
+
+        const forms = document.createElement("div");
+        forms.className = "kinds";
+        for (const f of FORMS) {
+          const b = document.createElement("button");
+          b.textContent = f;
+          if (st.form === f) b.className = "on" + (f === "wall" ? " wallon" : "");
+          b.onclick = () => { st.form = (st.form === f ? "" : f); if (st.form !== "slope" && st.form !== "cliff") st.dir = ""; save(); };
+          forms.appendChild(b);
+        }
+
+        const dirs = document.createElement("div");
+        dirs.className = "dirs";
+        for (const dch of DIRS.concat(CORNER_DIRS)) {
+          const b = document.createElement("button");
+          b.textContent = dch;
+          if (st.dir === dch) b.className = "on";
+          b.disabled = !(st.form === "slope" || st.form === "cliff");
+          b.onclick = () => { st.dir = (st.dir === dch ? "" : dch); save(); };
+          dirs.appendChild(b);
+        }
+        const riseBtn = document.createElement("button");
+        riseBtn.textContent = "×" + st.rise;
+        riseBtn.title = "rise: ×0.5 half step or ×1 full step (the only two the engine supports)";
+        riseBtn.disabled = !(st.form === "slope" || st.form === "cliff");
+        riseBtn.onclick = () => {
+          st.rise = nextRise(st.rise);
+          riseBtn.textContent = "×" + st.rise; refreshDesc(); saveQuiet();
+        };
+        dirs.appendChild(riseBtn);
+
+        const feats = document.createElement("div");
+        feats.className = "kinds feats";
+        for (const f of FEATURES) {
+          const b = document.createElement("button");
+          b.textContent = f;
+          if (st.features.includes(f)) b.className = "on2";
+          b.onclick = () => {
+            const k = st.features.indexOf(f);
+            if (k < 0) st.features.push(f); else st.features.splice(k, 1);
+            save();
+          };
+          feats.appendChild(b);
+        }
+
+        card.appendChild(stage); card.appendChild(hint); card.appendChild(row);
+        card.appendChild(forms); card.appendChild(dirs); card.appendChild(feats);
+
+        // What actually rises — only meaningful once something is sloping.
+        if (st.form === "slope" || st.form === "cliff") {
+          const erow = document.createElement("div");
+          erow.className = "kinds tiltrow";
+          const el = document.createElement("span");
+          el.className = "tlab"; el.textContent = "rises";
+          erow.appendChild(el);
+          for (const [val, txt] of [["full", "whole face"], ["road", "road only"]]) {
+            const b = document.createElement("button");
+            b.textContent = txt;
+            if (st.extent === val) b.className = "on";
+            b.onclick = () => { st.extent = (st.extent === val ? "" : val); save(); };
+            erow.appendChild(b);
+          }
+          card.appendChild(erow);
+        }
+
+        // Portal direction — only shown once the tile is marked as a tunnel,
+        // so it doesn't clutter the other ~250 cards.
+        if (st.features.includes("tunnel")) {
+          const prow = document.createElement("div");
+          prow.className = "kinds tiltrow";
+          const pl = document.createElement("span");
+          pl.className = "tlab"; pl.textContent = "portal";
+          prow.appendChild(pl);
+          for (const dch of DIRS.concat(CORNER_DIRS)) {
+            const b = document.createElement("button");
+            b.textContent = dch;
+            if (st.portal === dch) b.className = "on";
+            b.onclick = () => { st.portal = (st.portal === dch ? "" : dch); save(); };
+            prow.appendChild(b);
+          }
+          card.appendChild(prow);
+        }
+        grid.appendChild(card);
+      }
+    }
+    updateOut();
+  }
+
+  function renderRoads() {
     grid.innerHTML = "";
     for (let i = FROM; i <= TO; i++) {
       const id = pad(i);
@@ -229,6 +861,26 @@
   window.toggleRoad = (id, v) => { ensure(id).road = v; save(); };
 
   function updateOut() {
+    if (mode === "slope") {
+      const o = {};
+      for (const id in state) {
+        const v = state[id];
+        if (!v.form && !v.features.length && !v.portal && !v.extent) continue;
+        const e = { form: v.form };
+        if (v.portal) e.portal = v.portal;
+        if (v.extent) e.extent = v.extent;
+        if (v.form === "slope" || v.form === "cliff") { e.dir = v.dir; e.rise = v.rise; }
+        if (v.features.length) e.features = v.features.slice();
+        const es = v.edges || {};
+        if (DIRS.some((d) => es[d] && es[d] !== "open")) {
+          e.open = DIRS.filter((d) => es[d] === "open");
+          e.edges = Object.fromEntries(DIRS.map((d) => [d, es[d] || "paved"]));
+        }
+        o[id] = e;
+      }
+      document.getElementById("out").value = JSON.stringify(o, null, 2);
+      return;
+    }
     const obj = {};
     for (const id in state) {
       const s = state[id];
@@ -300,7 +952,211 @@
     { role: "thick-lane+thin-branch", open: ["N", "S", "E"], junction: ["W"], thick: true, desc: "Thick lane (inner E meets sibling, green). A thin road branches off the outer W; pavement wraps it → mark W RED. The red edge is how I know the branch is on W." },
     { role: "thick+thin-cross", open: ["N", "S"], junction: ["E", "W"], thick: true, desc: "2-wide road (N–S) crossed by a 1-wide road (E–W). E & W have pavement wrapping the crossing → RED." },
   ];
+  // ---- slope guide ----
+  // Diamond in guide space; corners match the tile: top / right / bottom / left.
+  // Edge naming is the labeller's: N = upper-left, E = upper-right,
+  // S = lower-right, W = lower-left.
+  function slopeSvg(dir, opts = {}) {
+    const T = [60, 16], R = [110, 42], B = [60, 68], L = [10, 42];
+    const LIFT = 16;
+    const raise = { N: ["L", "T"], E: ["T", "R"], S: ["R", "B"], W: ["B", "L"] }[dir] || [];
+    const P = { T: [...T], R: [...R], B: [...B], L: [...L] };
+    for (const k of raise) P[k][1] -= LIFT;
+    const pt = (p) => p[0] + "," + p[1];
+    const face = [P.T, P.R, P.B, P.L].map(pt).join(" ");
+    // skirt: drop lines from the two lowest corners so the lift reads as height
+    let sk = "";
+    for (const k of ["L", "B", "R"]) sk += `<line x1="${P[k][0]}" y1="${P[k][1]}" x2="${P[k][0]}" y2="${P[k][1] + 12}" stroke="#6b5a3a" stroke-width="2"/>`;
+    sk += `<polygon points="${pt(P.L)} ${pt(P.B)} ${pt([P.B[0], P.B[1] + 12])} ${pt([P.L[0], P.L[1] + 12])}" fill="#6b5a3a"/>`;
+    sk += `<polygon points="${pt(P.B)} ${pt(P.R)} ${pt([P.R[0], P.R[1] + 12])} ${pt([P.B[0], P.B[1] + 12])}" fill="#5a4a2e"/>`;
+    const fill = opts.water ? "#3d7fb5" : opts.road ? "#7d7f82" : "#6a9a4a";
+    let s2 = `<svg viewBox="0 0 120 92" xmlns="http://www.w3.org/2000/svg">` + sk +
+      `<polygon points="${face}" fill="${fill}" stroke="#4e7a36"/>`;
+    const EM = { N: [P.L, P.T], E: [P.T, P.R], S: [P.R, P.B], W: [P.B, P.L] };
+    // Carriageway: runs between the two OPEN edges (the ones with no kerb).
+    if (opts.road) {
+      const open = ["N", "E", "S", "W"].filter((d) => !(opts.pave || []).includes(d));
+      const mp = (d) => [(EM[d][0][0] + EM[d][1][0]) / 2, (EM[d][0][1] + EM[d][1][1]) / 2];
+      if (open.length >= 2) {
+        const [p1, p2] = [mp(open[0]), mp(open[1])];
+        s2 += `<line x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}" stroke="#4a4c4f" stroke-width="15" stroke-linecap="round"/>`;
+        s2 += `<line x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}" stroke="#cfd3c0" stroke-width="1.2" stroke-dasharray="3 4"/>`;
+      }
+    }
+    // edge labels at each edge midpoint
+    for (const d in EM) {
+      const [x1, y1] = EM[d][0], [x2, y2] = EM[d][1];
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      const on = (d === dir);
+      const paved = (opts.pave || []).includes(d);
+      s2 += `<circle cx="${mx}" cy="${my}" r="7" fill="${paved ? "#ff5a5a" : (on ? "#f0a63c" : "#3ecf6a")}" stroke="#0008" stroke-width="1"/>`;
+      s2 += `<text x="${mx}" y="${my + 3.2}" font-size="8" text-anchor="middle" fill="#062" font-family="ui-monospace,monospace">${d}</text>`;
+    }
+    if (dir) s2 += `<text x="60" y="88" font-size="8.5" text-anchor="middle" fill="#f0a63c" font-family="ui-monospace,monospace">uphill → ${dir}</text>`;
+    return s2 + `</svg>`;
+  }
+  // Corner rise: one corner lifted, the fold running diagonally across the face.
+  function cornerSvg(cdir) {
+    const T=[60,16], R=[110,42], B=[60,68], L=[10,42], LIFT=16;
+    const P={T:[...T],R:[...R],B:[...B],L:[...L]};
+    const key={NE:"T",ES:"R",SW:"B",WN:"L"}[cdir];
+    P[key][1]-=LIFT;
+    // the two neighbours of the lifted corner sit halfway up
+    const nb={T:["L","R"],R:["T","B"],B:["R","L"],L:["B","T"]}[key];
+    for(const n of nb) P[n][1]-=LIFT/2;
+    const pt=p=>p[0]+","+p[1];
+    const opp={T:"B",R:"L",B:"T",L:"R"}[key];
+    let g=`<svg viewBox="0 0 120 92" xmlns="http://www.w3.org/2000/svg">`;
+    g+=`<polygon points="${pt(P.L)} ${pt(P.B)} ${pt([P.B[0],P.B[1]+12])} ${pt([P.L[0],P.L[1]+12])}" fill="#6b5a3a"/>`;
+    g+=`<polygon points="${pt(P.B)} ${pt(P.R)} ${pt([P.R[0],P.R[1]+12])} ${pt([P.B[0],P.B[1]+12])}" fill="#5a4a2e"/>`;
+    // two triangles either side of the diagonal fold
+    g+=`<polygon points="${pt(P[key])} ${pt(P[nb[0]])} ${pt(P[opp])}" fill="#7aad55" stroke="#4e7a36"/>`;
+    g+=`<polygon points="${pt(P[key])} ${pt(P[nb[1]])} ${pt(P[opp])}" fill="#5d8a3f" stroke="#4e7a36"/>`;
+    g+=`<line x1="${P[key][0]}" y1="${P[key][1]}" x2="${P[opp][0]}" y2="${P[opp][1]}" stroke="#f0a63c" stroke-width="2" stroke-dasharray="4 3"/>`;
+    g+=`<circle cx="${P[key][0]}" cy="${P[key][1]}" r="6" fill="#f0a63c" stroke="#0008"/>`;
+    g+=`<text x="60" y="88" font-size="8.5" text-anchor="middle" fill="#f0a63c" font-family="ui-monospace,monospace">corner rise → ${cdir}</text>`;
+    return g+`</svg>`;
+  }
+
+  // Paved slope with a tunnel mouth cut into the raised face.
+  function tunnelSvg(dir) {
+    const T=[60,16], R=[110,42], B=[60,68], L=[10,42], LIFT=16;
+    const P={T:[...T],R:[...R],B:[...B],L:[...L]};
+    for (const k of ({N:["L","T"],E:["T","R"],S:["R","B"],W:["B","L"]}[dir]||[])) P[k][1]-=LIFT;
+    const pt=p=>p[0]+","+p[1];
+    let g=`<svg viewBox="0 0 120 92" xmlns="http://www.w3.org/2000/svg">`;
+    g+=`<polygon points="${pt(P.L)} ${pt(P.B)} ${pt([P.B[0],P.B[1]+14])} ${pt([P.L[0],P.L[1]+14])}" fill="#6b5a3a"/>`;
+    g+=`<polygon points="${pt(P.B)} ${pt(P.R)} ${pt([P.R[0],P.R[1]+14])} ${pt([P.B[0],P.B[1]+14])}" fill="#5a4a2e"/>`;
+    g+=`<polygon points="${pt(P.T)} ${pt(P.R)} ${pt(P.B)} ${pt(P.L)}" fill="#7d7f82" stroke="#5f6164"/>`;
+    // carriageway down the middle
+    g+=`<line x1="${(P.L[0]+P.T[0])/2}" y1="${(P.L[1]+P.T[1])/2}" x2="${(P.R[0]+P.B[0])/2}" y2="${(P.R[1]+P.B[1])/2}" stroke="#4a4c4f" stroke-width="13"/>`;
+    // portal arch in the raised face
+    const mx=(P.L[0]+P.T[0])/2, my=(P.L[1]+P.T[1])/2;
+    g+=`<path d="M ${mx-9} ${my+9} a 9 11 0 0 1 18 0 z" fill="#0a0b0d" stroke="#2a2c2f"/>`;
+    g+=`<text x="60" y="88" font-size="8.5" text-anchor="middle" fill="#f0a63c" font-family="ui-monospace,monospace">portal → ${dir}</text>`;
+    return g+`</svg>`;
+  }
+
+  // Road climbing over terrain that stays LEVEL — an embankment/causeway.
+  // The tile outline is an ordinary flat diamond; only the carriageway rises.
+  function embankmentSvg(dir) {
+    const T=[60,16], R=[110,42], B=[60,68], L=[10,42], LIFT=15;
+    const pt=p=>p[0]+","+p[1];
+    let g=`<svg viewBox="0 0 120 92" xmlns="http://www.w3.org/2000/svg">`;
+    g+=`<polygon points="${pt(L)} ${pt(B)} ${pt([B[0],B[1]+12])} ${pt([L[0],L[1]+12])}" fill="#6b5a3a"/>`;
+    g+=`<polygon points="${pt(B)} ${pt(R)} ${pt([R[0],R[1]+12])} ${pt([B[0],B[1]+12])}" fill="#5a4a2e"/>`;
+    g+=`<polygon points="${pt(T)} ${pt(R)} ${pt(B)} ${pt(L)}" fill="#6a9a4a" stroke="#4e7a36"/>`;
+    // carriageway N->S, its far end lifted clear of the level grass
+    const nMid=[(L[0]+T[0])/2,(L[1]+T[1])/2 - LIFT], sMid=[(R[0]+B[0])/2,(R[1]+B[1])/2];
+    g+=`<polygon points="${pt([nMid[0]-7,nMid[1]+4])} ${pt([nMid[0]+7,nMid[1]+4])} ${pt([sMid[0]+7,sMid[1]+4])} ${pt([sMid[0]-7,sMid[1]+4])}" fill="#5a4a2e"/>`;
+    g+=`<line x1="${nMid[0]}" y1="${nMid[1]}" x2="${sMid[0]}" y2="${sMid[1]}" stroke="#4a4c4f" stroke-width="14" stroke-linecap="round"/>`;
+    g+=`<line x1="${nMid[0]}" y1="${nMid[1]}" x2="${sMid[0]}" y2="${sMid[1]}" stroke="#cfd3c0" stroke-width="1.2" stroke-dasharray="3 4"/>`;
+    g+=`<text x="60" y="88" font-size="8" text-anchor="middle" fill="#f0a63c" font-family="ui-monospace,monospace">road rises ${dir} · grass level</text>`;
+    return g+`</svg>`;
+  }
+
+  // Side-by-side diagnostic: how to TELL a sheared face from an embankment.
+  // Both show a road climbing; the difference is whether the tile OUTLINE
+  // tilts with it. Stacked vertically to stay legible in the narrow column.
+  function shearCompareSvg() {
+    const W = 120;
+    const panel = (oy, sheared) => {
+      const T=[60,14+oy], R=[104,36+oy], B=[60,58+oy], L=[16,36+oy];
+      const P={T:[...T],R:[...R],B:[...B],L:[...L]};
+      if (sheared) { P.L[1]-=14; P.T[1]-=14; }        // N edge lifted: outline shears
+      const pt=q=>q[0]+","+q[1];
+      let g="";
+      // level reference: where an untilted diamond's L–R line sits
+      g+=`<line x1="8" y1="${36+oy}" x2="112" y2="${36+oy}" stroke="#5a6470" stroke-width="1" stroke-dasharray="3 3"/>`;
+      g+=`<polygon points="${pt(P.L)} ${pt(P.B)} ${pt([P.B[0],P.B[1]+9])} ${pt([P.L[0],P.L[1]+9])}" fill="#6b5a3a"/>`;
+      g+=`<polygon points="${pt(P.B)} ${pt(P.R)} ${pt([P.R[0],P.R[1]+9])} ${pt([P.B[0],P.B[1]+9])}" fill="#5a4a2e"/>`;
+      g+=`<polygon points="${pt(P.T)} ${pt(P.R)} ${pt(P.B)} ${pt(P.L)}" fill="#6a9a4a" stroke="#cfd3c0" stroke-width="1.6"/>`;
+      // the road: climbs in both cases
+      const nMid=[(P.L[0]+P.T[0])/2, (P.L[1]+P.T[1])/2 - (sheared?0:14)];
+      const sMid=[(P.R[0]+P.B[0])/2, (P.R[1]+P.B[1])/2];
+      if (!sheared) g+=`<polygon points="${pt([nMid[0]-6,nMid[1]+3])} ${pt([nMid[0]+6,nMid[1]+3])} ${pt([sMid[0]+6,sMid[1]+3])} ${pt([sMid[0]-6,sMid[1]+3])}" fill="#5a4a2e"/>`;
+      g+=`<line x1="${nMid[0]}" y1="${nMid[1]}" x2="${sMid[0]}" y2="${sMid[1]}" stroke="#4a4c4f" stroke-width="11" stroke-linecap="round"/>`;
+      // corner markers — the thing to actually look at
+      const mark=(q,ok)=>`<circle cx="${q[0]}" cy="${q[1]}" r="4" fill="${ok?"#3ecf6a":"#ff5a5a"}" stroke="#0008" stroke-width="1"/>`;
+      g+=mark(P.L,!sheared)+mark(P.R,!sheared);
+      g+=`<text x="60" y="${oy+78}" font-size="7.5" text-anchor="middle" fill="${sheared?"#ff9a9a":"#8fe0a8"}" font-family="ui-monospace,monospace">${sheared?"corners MISALIGNED":"corners LEVEL"}</text>`;
+      g+=`<text x="60" y="${oy+87}" font-size="7" text-anchor="middle" fill="#9aa4b0" font-family="ui-monospace,monospace">${sheared?"whole face":"road only"}</text>`;
+      return g;
+    };
+    return `<svg viewBox="0 0 ${W} 190" xmlns="http://www.w3.org/2000/svg">`
+      + panel(0, true) + panel(96, false) + `</svg>`;
+  }
+
+  // One tile carrying all four edge states, as a legend.
+  function edgeStatesSvg() {
+    const T=[60,16], R=[110,42], B=[60,68], L=[10,42];
+    const pt=q=>q[0]+","+q[1];
+    let g=`<svg viewBox="0 0 120 96" xmlns="http://www.w3.org/2000/svg">`;
+    g+=`<polygon points="${pt(L)} ${pt(B)} ${pt([B[0],B[1]+12])} ${pt([L[0],L[1]+12])}" fill="#6b5a3a"/>`;
+    g+=`<polygon points="${pt(B)} ${pt(R)} ${pt([R[0],R[1]+12])} ${pt([B[0],B[1]+12])}" fill="#5a4a2e"/>`;
+    g+=`<polygon points="${pt(T)} ${pt(R)} ${pt(B)} ${pt(L)}" fill="#7d7f82" stroke="#5f6164"/>`;
+    const EM={N:[L,T],E:[T,R],S:[R,B],W:[B,L]};
+    const mid=d=>[(EM[d][0][0]+EM[d][1][0])/2,(EM[d][0][1]+EM[d][1][1])/2];
+    // carriageway between the two "open" edges (N and S here)
+    g+=`<line x1="${mid("N")[0]}" y1="${mid("N")[1]}" x2="${mid("S")[0]}" y2="${mid("S")[1]}" stroke="#4a4c4f" stroke-width="14" stroke-linecap="round"/>`;
+    const COL={open:"#3ecf6a",paved:"#ff5a5a",half:"#f0a63c",grass:"#6a9a4a"};
+    const demo={N:"open",S:"open",E:"paved",W:"half"};
+    for(const d of ["N","E","S","W"]){
+      const m=mid(d);
+      g+=`<circle cx="${m[0]}" cy="${m[1]}" r="8" fill="${COL[demo[d]]}" stroke="#0008" stroke-width="1"/>`;
+      g+=`<text x="${m[0]}" y="${m[1]+3}" font-size="8" text-anchor="middle" fill="#062" font-family="ui-monospace,monospace">${d}</text>`;
+    }
+    let y=84;
+    g+=`<text x="4" y="${y}" font-size="7" fill="#9aa4b0" font-family="ui-monospace,monospace">open · paved · half · grass</text>`;
+    g+=`<text x="4" y="${y+8}" font-size="7" fill="#9aa4b0" font-family="ui-monospace,monospace">click a dot to cycle</text>`;
+    return g+`</svg>`;
+  }
+
+  // Half vs full step — the only two rises that exist.
+  function riseCompareSvg() {
+    const panel=(oy,half)=>{
+      const LIFT = half ? 8 : 16;
+      const T=[60,16+oy],R=[104,38+oy],B=[60,60+oy],L=[16,38+oy];
+      const P={T:[...T],R:[...R],B:[...B],L:[...L]};
+      P.L[1]-=LIFT; P.T[1]-=LIFT;                     // N edge raised
+      const pt=q=>q[0]+","+q[1];
+      let g=`<line x1="10" y1="${38+oy}" x2="110" y2="${38+oy}" stroke="#5a6470" stroke-width="1" stroke-dasharray="3 3"/>`;
+      g+=`<polygon points="${pt(P.L)} ${pt(P.B)} ${pt([P.B[0],P.B[1]+9])} ${pt([P.L[0],P.L[1]+9])}" fill="#6b5a3a"/>`;
+      g+=`<polygon points="${pt(P.B)} ${pt(P.R)} ${pt([P.R[0],P.R[1]+9])} ${pt([P.B[0],P.B[1]+9])}" fill="#5a4a2e"/>`;
+      g+=`<polygon points="${pt(P.T)} ${pt(P.R)} ${pt(P.B)} ${pt(P.L)}" fill="#6a9a4a" stroke="#cfd3c0" stroke-width="1.4"/>`;
+      g+=`<line x1="${P.L[0]}" y1="${38+oy}" x2="${P.L[0]}" y2="${P.L[1]}" stroke="#f0a63c" stroke-width="1.6"/>`;
+      g+=`<text x="60" y="${oy+76}" font-size="8" text-anchor="middle" fill="#f0a63c" font-family="ui-monospace,monospace">${half?"×0.5  ~16px":"×1  ~33px"}</text>`;
+      g+=`<text x="60" y="${oy+85}" font-size="7" text-anchor="middle" fill="#9aa4b0" font-family="ui-monospace,monospace">${half?"half step":"full step"}</text>`;
+      return g;
+    };
+    return `<svg viewBox="0 0 120 188" xmlns="http://www.w3.org/2000/svg">`+panel(0,true)+panel(94,false)+`</svg>`;
+  }
+
+  const GUIDE_SLOPE = [
+    { svg: () => slopeSvg("", {}), role: "orientation", desc: "N = upper-LEFT edge, E = upper-RIGHT, S = lower-RIGHT, W = lower-LEFT. In map space N=(x−1,y) E=(x,y−1) S=(x+1,y) W=(x,y+1). Green dots = the feature continues through that edge." },
+    { svg: () => slopeSvg("N"), role: "slope · dir N", desc: "The N edge (upper-left) is RAISED — uphill toward N. Pick the direction the ground GOES UP." },
+    { svg: () => slopeSvg("E"), role: "slope · dir E", desc: "Upper-right edge raised. ×1 = one height step (33px, the same as a slab's skirt); ×2 for the taller 131px frames." },
+    { svg: () => slopeSvg("S"), role: "slope · dir S", desc: "Lower-right edge raised." },
+    { svg: () => slopeSvg("W"), role: "slope · dir W", desc: "Lower-left edge raised." },
+    { svg: () => riseCompareSvg(), role: "×0.5 vs ×1 (only two)",
+      desc: "There are exactly TWO rise heights in the artset and in the engine: a half step (~16px) and a full step (~33px, the same as a ground slab's own skirt). Nothing taller exists — a bigger measurement on a frame is extra frame thickness, not extra rise. The card hint prints the raw amplitude and the verdict, e.g. 'rises E 16px = ×0.5 HALF'; anything under ~25px is half, at or above is full." },
+    { svg: () => cornerSvg("NE"), role: "diagonal · dir NE", desc: "A rise toward a CORNER, not an edge: the fold runs diagonally (dashed) and splits the face into two triangles, one raised. Corners are named by the two edges they sit between — NE = the corner shared by the N and E edges. Use NE/ES/SW/WN instead of N/E/S/W for these." },
+    { svg: () => slopeSvg("N", { road: true, pave: ["E", "W"] }), role: "slope + road + paving",
+      desc: "A road ramp — the most common case. form=slope, dir=N, rise=×1, features=road+paving. You drive UP the slope, so the carriageway runs along the RISE AXIS: N and S stay green (the road continues into the next tile), and the flanking E and W get kerbs → RED. Rule of thumb: for a road ramp the two green edges are the rise direction and its opposite. (Water is different — a channel's flow axis is independent of any tilt.) Here the WHOLE face tilts, verges included → rises: whole face." },
+    { svg: () => edgeStatesSvg(), role: "edge states (click to cycle)",
+      desc: "Each edge carries two facts, so the dot has FOUR states, not two. GREEN open = the road/water continues into the neighbour. RED paved = a full pavement or kerb runs the whole edge. AMBER half = half pavement, half grass — a transition edge. OLIVE grass = a plain grass boundary with no pavement at all. Only 'open' affects connectivity; the other three all stop the feature but differ in what the boundary is made of, which is what the pavement autotiling needs. 'detect edges' derives all four from the sampled materials." },
+    { svg: () => shearCompareSvg(), role: "⚖ shear vs no shear",
+      desc: "HOW TO TELL THEM APART — look at the tile's LEFT and RIGHT corners against the dashed level line. Misaligned (top) = the whole face is sheared → rises: whole face. Level, with the road poking above the diamond's straight edge (bottom) = the terrain is flat and only the road climbs → rises: road only. The card hint prints the two corner rows as 'corners L/R', so you can check it numerically: equal = no shear." },
+    { svg: () => embankmentSvg("N"), role: "rises: road only",
+      desc: "An EMBANKMENT — the road climbs but the grass either side stays flat. Contrast the card above, where the whole face tilts and the verges rise with the road. Label both as form=slope, then set 'rises' → road only vs whole face. ⚠ These are invisible to the detector: with level grass the tile OUTLINE is an ordinary flat diamond, so they sit in the flat pile. Use the 'level-road' filter to hunt them." },
+    { svg: () => tunnelSvg("N"), role: "slope + road + tunnel", desc: "A paved slope with a portal cut into it. form=slope (the surface still rises), features=road+paving+tunnel, and PORTAL is the direction the mouth faces — which is a hole INTO the terrain, so it is not the same as the rise direction. Tunnels are NOT auto-detected: the darkest pixel in either terrain sheet is luminance 45, so a portal mouth is drawn in the same tonal range as plain asphalt and cannot be separated by colour. Spot these by eye." },
+    { svg: () => slopeSvg("N", { water: true, pave: ["E", "W"] }), role: "slope + water + paving", desc: "Composite: form=slope dir=N, features=water+paving. Flanking edges E/W set RED = kerb/bank (water does not continue through them); N/S green = the channel runs on." },
+  ];
+
   function buildGuide() {
+    const el = document.getElementById("guide-slope");
+    if (el) el.innerHTML = GUIDE_SLOPE.map(s =>
+      '<div class="gcard">' + s.svg() + '<div class="grole">' + s.role + '</div><div class="gdesc">' + s.desc + '</div></div>').join("");
     const mk = (list, elId) => {
       const el = document.getElementById(elId);
       if (el) el.innerHTML = list.map(s =>
@@ -324,14 +1180,19 @@
   }
   window.switchMode = (m) => {
     mode = m; state = states[mode];
-    document.getElementById("mode-landscape").className = (m === "landscape" ? "" : "sec");
-    document.getElementById("mode-city").className = (m === "city" ? "" : "sec");
+    for (const k of ["landscape", "city", "slope"])
+      document.getElementById("mode-" + k).className = (m === k ? "" : "sec");
+    const isSlope = (m === "slope");
+    for (const el of document.querySelectorAll(".guide > .guidecol"))
+      el.style.display = (el.id === "slopeguide") === isSlope ? "" : "none";
+    const gh = document.querySelector(".guide h2, .guide > h3");
+    if (gh) gh.style.display = "";
     render();
     setStatus("editing " + cfg().file);
   };
   async function init() {
     buildGuide();
-    await Promise.all([loadMode("landscape"), loadMode("city")]);
+    await Promise.all([loadMode("landscape"), loadMode("city"), loadMode("slope")]);
     state = states[mode];
     render();
     setStatus("loaded " + cfg().file);

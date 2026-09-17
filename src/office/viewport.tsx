@@ -11,7 +11,7 @@ import {
   constrainViewportToOfficeBounds,
   getOfficeWorldBounds,
 } from "./utils/clamp-viewport";
-import { updateScaledObjects } from "./utils/update-scaled-objects";
+import { updateScaledObjects } from "../utils/update-scaled-objects";
 import { applyViewportControls } from "../utils/viewport-controls";
 
 extend({ Viewport, Text });

@@ -17,7 +17,7 @@ import { usePrestigeStore } from "../../state/prestige.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { useThemeStore } from "../../state/theme.store";
 import { useResizeToWrapper } from "../../hooks/use-resize-to-wrapper";
-import { useDisableDOMZoom } from "../../office/utils/use-disable-dom-zoom";
+import { useDisableDOMZoom } from "../../utils/use-disable-dom-zoom";
 import { applyViewportControls } from "../../utils/viewport-controls";
 import { searchNodeIds } from "../../game/skill-tree-search";
 

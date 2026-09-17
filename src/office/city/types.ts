@@ -1,9 +1,9 @@
 import type { GeneratorId } from "../../state/generators.store";
 import type { SpriteId, TileInstance } from "../map/types";
+import type { Cell, Rect } from "../../iso/types";
 
-export type Cell = { mapX: number; mapY: number };
-
-export type Rect = { x0: number; y0: number; x1: number; y1: number };
+// Phase 0: moved to `src/iso/`. Re-exported here so v1 call sites are unchanged.
+export type { Cell, Rect };
 
 /** A buildable slot inside a district, ordered by activation priority. */
 export type Plot = Cell & {

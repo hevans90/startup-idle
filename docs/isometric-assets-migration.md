@@ -38,7 +38,7 @@ Parse each **Starling XML** (via `fast-xml-parser`) → Pixi [Spritesheet](https
 ### 1. Atlas pipeline
 
 - Dependency: `fast-xml-parser` (`bun add fast-xml-parser`).
-- Add e.g. [`src/office/atlas/parse-starling-atlas.ts`](../src/office/atlas/parse-starling-atlas.ts): `XMLParser` → read `TextureAtlas` + `SubTexture[]` → Pixi `Spritesheet` data per file (normalize one vs many `SubTexture` nodes).
+- Add e.g. [`src/iso/atlas/parse-starling-atlas.ts`](../src/iso/atlas/parse-starling-atlas.ts): `XMLParser` → read `TextureAtlas` + `SubTexture[]` → Pixi `Spritesheet` data per file (normalize one vs many `SubTexture` nodes).
 - For each category: load XML (`fetch` or `?raw`), `Assets.load('/isometric_assets/<cat>/<name>_sheet.png')`, build `Spritesheet`, `parse()`, then merge into a **`Record<string, Texture>`** keyed by SubTexture `name`.
 - **Base URL:** resolve PNG as sibling of XML (same folder); `imagePath` matches the filename.
 

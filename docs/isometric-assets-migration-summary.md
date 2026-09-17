@@ -12,7 +12,7 @@ One-page overview. Full detail: [isometric-assets-migration.md](./isometric-asse
 
 ## Workstream (done)
 
-1. **Parser + load** — [fast-xml-parser](https://www.npmjs.com/package/fast-xml-parser); Starling XML → Pixi `Spritesheet` per atlas; load from `/isometric_assets/{buildings,landscape,vehicles}/`; merge textures by SubTexture name; [`load-isometric-atlases.ts`](../src/office/atlas/load-isometric-atlases.ts).
+1. **Parser + load** — [fast-xml-parser](https://www.npmjs.com/package/fast-xml-parser); Starling XML → Pixi `Spritesheet` per atlas; load from `/isometric_assets/{buildings,landscape,vehicles}/`; merge textures by SubTexture name; [`load-isometric-atlases.ts`](../src/iso/atlas/load-isometric-atlases.ts).
 2. **Map types** — `TileInstance.spriteId` + [`legend.txt`](../src/office/map/tilemaps/default/legend.txt) / layers / [`parse-tilemap-text.ts`](../src/office/map/parse-tilemap-text.ts).
 3. **Math** — [`ISO_CELL_STRIDE`](../src/office/math-utils.ts) replaces `ISO_TILE_STRIDE`; pick/plane and z lift; bottom-center sprite anchor in `office.tsx`.
 4. **Cleanup** — `blocks.png` and hand atlas table removed; `docs/rendering.md`, `docs/isometric-map-format.md`, tilemap README updated.

@@ -46,7 +46,7 @@ flowchart TB
 
 - **`Application`:** `resizeTo={wrapperRef}`, `preference="webgpu"`, high `resolution` for crisp pixels.
 - **`AppViewport`:** `pixi-viewport` with drag, pinch, wheel zoom; registers instance in `office.store` for world/pointer math; `clampZoom` for scale limits; each `frame-end`, [`constrainViewportToOfficeBounds`](../src/office/utils/clamp-viewport.ts) keeps the view inside fixed world min/max (no `viewport.clamp()` plugin).
-- **`World`:** loads **Starling** atlases from [`public/isometric_assets/`](../public/isometric_assets/) via [`loadIsometricAtlasTextures`](../src/office/atlas/load-isometric-atlases.ts) (`fast-xml-parser` + Pixi `Spritesheet`), renders an **isometric tile list** with depth sorting, tints the **top** tile under the pointer when a column is stacked.
+- **`World`:** loads **Starling** atlases from [`public/isometric_assets/`](../public/isometric_assets/) via [`loadIsometricAtlasTextures`](../src/iso/atlas/load-isometric-atlases.ts) (`fast-xml-parser` + Pixi `Spritesheet`), renders an **isometric tile list** with depth sorting, tints the **top** tile under the pointer when a column is stacked.
 
 Background color follows theme by reading CSS variables from `document.body` at module load (`lightBg` / `darkBg`) and applying to `app.renderer.background` when theme changes.
 
@@ -60,12 +60,13 @@ Background color follows theme by reading CSS variables from `document.body` at 
 | [`src/office/map/tilemaps/default/`](../src/office/map/tilemaps/default/) | `legend.txt`, `layer-0-ground.txt`, `layer-1.txt`, `layer-2.txt` (visual grid) |
 | [`src/office/map/map-utils.ts`](../src/office/map/map-utils.ts) | `roadMapX` helper |
 | [`src/office/map/index.ts`](../src/office/map/index.ts) | Re-exports for imports from `./map` |
-| [`src/office/math-utils.ts`](../src/office/math-utils.ts) | `ISO_TILE_WIDTH` / `ISO_TILE_HEIGHT`, `ISO_CELL_STRIDE`, `ISO_Z_LIFT_PER_LAYER`, `mapToWorld`, `depthKey`, `viewportWorldToTilePlane`, `worldPlaneToMapCell`, `pickTopTileAtPlane` |
-| [`src/office/atlas/`](../src/office/atlas/) | `parse-starling-atlas.ts`, `load-isometric-atlases.ts` — XML → Pixi textures |
+| [`src/iso/projection.ts`](../src/iso/projection.ts) | **shared:** `ISO_TILE_WIDTH` / `ISO_TILE_HEIGHT`, `ISO_CELL_STRIDE`, `ISO_Z_LIFT_PER_LAYER`, `FLOOR_LIFT`, `Z_LAYER_WEIGHT`, `mapToWorld`, `worldPlaneToMapCell`, `stackedWorldY`, `cityDepthKey` |
+| [`src/office/math-utils.ts`](../src/office/math-utils.ts) | **v1-only:** `depthKey`, `viewportWorldToTilePlane`, `pickTopTileAtPlane`; re-exports everything above |
+| [`src/iso/atlas/`](../src/iso/atlas/) | `parse-starling-atlas.ts`, `load-isometric-atlases.ts` — XML → Pixi textures |
 
 **Draw order:** `depthKey(mapX, mapY, z) = mapX + mapY + z * Z_LAYER_WEIGHT` (`Z_LAYER_WEIGHT = 1000`). Larger keys draw on top (`sortableChildren` + per-sprite `zIndex`). This matches the current fixed camera; change the formula if the iso axes or view rotate.
 
-**Pseudo-3D lift:** `mapToWorld` subtracts `z * (ISO_Z_LIFT_PER_LAYER * scale)` from the projected Y so higher layers move screen-up. Sprites use **bottom-center** anchor (`anchor.y = 1`). Flattened iso tiles are **132×99** (`ISO_TILE_WIDTH` / `ISO_TILE_HEIGHT` in [`math-utils.ts`](../src/office/math-utils.ts)); change those when the art pack size changes.
+**Pseudo-3D lift:** `mapToWorld` subtracts `z * (ISO_Z_LIFT_PER_LAYER * scale)` from the projected Y so higher layers move screen-up. Sprites use **bottom-center** anchor (`anchor.y = 1`). Flattened iso tiles are **132×99** (`ISO_TILE_WIDTH` / `ISO_TILE_HEIGHT` in [`src/iso/projection.ts`](../src/iso/projection.ts)); change those when the art pack size changes.
 
 **Hover:** Pointer is converted with `viewportWorldToTilePlane` (same frame as `mapToWorld` + wrapper offsets). `pickTopTileAtPlane` resolves the column and selects the **maximum `z`**, so only the uppermost brick tints.
 

@@ -1,5 +1,7 @@
-/** SubTexture `name` from a `*_sheet.xml` under `public/isometric_assets` (e.g. `landscapeTiles_019.png`). */
-export type SpriteId = string;
+import type { SpriteId } from "../../iso/types";
+
+// Phase 0: moved to `src/iso/`. Re-exported here so v1 call sites are unchanged.
+export type { SpriteId };
 
 /** One placed tile in map space; z=0 is ground, higher z stacks upward (screen-up). */
 export type TileInstance = {

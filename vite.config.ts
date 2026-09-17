@@ -20,6 +20,9 @@ function devTools(): PluginOption {
     { route: "_buildinglab.html", html: "dev/buildinglab.html", api: "buildingkits", file: "building-kits.json" },
     // City-pavement labels (authored inside the road labeller's "City" tab).
     { api: "citytilelabels", file: "city-tile-labels.json" },
+    // Terrain slope / ramp labels (road labeller's "Slopes" tab). Keyed by full
+    // sprite id so one file covers both the landscape and cityTiles sheets.
+    { api: "slopelabels", file: "slope-labels.json" },
   ];
   const at = (p: string) => path.resolve(process.cwd(), p);
   return {

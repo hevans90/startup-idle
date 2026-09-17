@@ -30,8 +30,9 @@ This guide is written for **automated agents and humans** who need to ship chang
 | Sidebar tabs | `src/molecules/sidebar.tsx`, `src/state/global-settings.store.ts` |
 | Generator / upgrade lists | `src/molecules/generators.tsx`, `src/molecules/upgrades.tsx` |
 | Reset | `src/molecules/reset-button.tsx` |
-| Office canvas | `src/office/office.tsx`, `src/office/viewport.tsx`, `src/office/math-utils.ts`, `src/office/atlas/` |
-| Office map data (iso tiles / stacks) | `src/office/map/tilemaps/default/*.txt`, `parse-tilemap-text.ts`, `build-office-map.ts`, `TileInstance` in `types.ts` |
+| Office canvas | `src/office/office.tsx`, `src/office/viewport.tsx`, `src/office/math-utils.ts` |
+| Shared iso helpers (projection, kits, atlas) | `src/iso/` — moved verbatim from `src/office/`; `src/office/math-utils.ts` and `city/building-kits.ts` re-export them. Do not change behaviour here; add siblings instead. |
+| Office map data (iso tiles / stacks) | `src/office/map/tilemaps/default/*.txt`, `parse-tilemap-text.ts`, `build-office-map.ts`, `TileInstance` in `types.ts` — **note: this ASCII tilemap path is no longer rendered; the live world comes from `src/office/city/generate-world.ts`** |
 | Version / wipe | `src/state/version.store.ts`, `src/hooks/use-compare-version.ts` |
 | Shared UI | `src/ui/*` |
 

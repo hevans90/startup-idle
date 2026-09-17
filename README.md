@@ -61,12 +61,17 @@ src/
   molecules/skill-tree/# PixiJS prestige skill-tree renderer + overlay
   molecules/           # Composite UI (toolbar, sidebar, popovers, counters…)
   ui/                  # Reusable primitives (Button, Popover, ResourceCounter…)
-  office/              # Isometric PixiJS city renderer
+  iso/                 # SHARED isometric helpers (no game state, no world model)
+    projection.ts      #   iso projection + depth-sort keys (+ closed-form twins)
+    kits.ts            #   building-kit composition (composeBuilding)
+    types.ts           #   SpriteId, Cell, Rect
+    dir.ts             #   N/E/S/W bits + neighbour offsets
+    atlas/             #   Starling XML → Pixi textures
+  office/              # Isometric PixiJS city renderer (v1)
     office.tsx         #   render tree (ground/road/building layers)
     viewport.tsx       #   pixi-viewport (pan/zoom)
-    math-utils.ts      #   iso projection + depth-sort keys
-    city/              #   scene computation, building kits, world gen
-    atlas/             #   sprite-atlas loading
+    math-utils.ts      #   v1-only iso helpers; re-exports src/iso/projection
+    city/              #   scene computation, building kits data, world gen
   simulation/          # Headless sims + reset helpers (used by tests)
   debug/               # Debug harnesses (map-harness.tsx, top-down-map.tsx)
                        #   loaded dynamically via ?debug=map URL param
