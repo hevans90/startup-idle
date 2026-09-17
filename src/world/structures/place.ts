@@ -41,8 +41,34 @@ export type PlacementCheck = {
 
 const OK: CellVerdict = { ok: true };
 
+/**
+ * Rules the GAME imposes on top of structural legality.
+ *
+ * `validatePlacement` answers whether a placement is possible at all — on the
+ * map, on ground, not already occupied. Those are facts about the data and the
+ * editor must obey them too. Whether a building needs a street in front of it
+ * is a rule of PLAY, and the editor has to stay able to author a map with a
+ * building anywhere it likes — a fixture dropping one on bare ground should not
+ * have to lay a road first.
+ *
+ * So it arrives here, per call, from whoever is enforcing the game.
+ */
+export type PlaceRules = {
+  /**
+   * The footprint must touch paving. Orthogonally — a corner is not frontage.
+   *
+   * This is what makes the opening a choice rather than a click: the map starts
+   * with one road across it, so where you build is where the road is.
+   */
+  needsRoad?: boolean;
+};
+
+const NO_RULES: PlaceRules = {};
+
 /** Per-cell rules. Everything here is decidable without looking at the others. */
-function cellVerdict(grid: Grid, def: StructureDef, x: number, y: number): CellVerdict {
+function cellVerdict(
+  grid: Grid, def: StructureDef, x: number, y: number, rules: PlaceRules,
+): CellVerdict {
   if (!inBounds(grid, x, y)) return { ok: false, reason: "off map" };
   const i = idx(grid, x, y);
   if (grid.terrain[i] === VOID) return { ok: false, reason: "no ground" };
@@ -50,7 +76,33 @@ function cellVerdict(grid: Grid, def: StructureDef, x: number, y: number): CellV
   if (!placementOf(def).allowOnPaved && grid.paved[i] !== VOID) {
     return { ok: false, reason: "on a road" };
   }
+  // BESIDE a road, which is not the same as ON one — and both rules apply, so
+  // housing wants a cell that is bare itself and touches paving.
+  if (rules.needsRoad && !touchesRoad(grid, x, y)) {
+    return { ok: false, reason: "no road access" };
+  }
   return OK;
+}
+
+/**
+ * Whether a cell orthogonally touches paving.
+ *
+ * Its own four-neighbour test rather than `cellsAdjacentToNet`, which answers
+ * the inverse question by walking the whole map to list every cell beside a
+ * given component. Placement asks about ONE cell and asks it per footprint cell
+ * per pointer move, so it wants the cheap direction.
+ *
+ * Any paving, not a particular network: "does this house front a street" is a
+ * question about the street outside it, not about where that street goes. When
+ * reachability starts to matter, the component is what to ask. @see Network
+ */
+export function touchesRoad(grid: Grid, x: number, y: number): boolean {
+  return (
+    (inBounds(grid, x + 1, y) && grid.paved[idx(grid, x + 1, y)] !== VOID)
+    || (inBounds(grid, x - 1, y) && grid.paved[idx(grid, x - 1, y)] !== VOID)
+    || (inBounds(grid, x, y + 1) && grid.paved[idx(grid, x, y + 1)] !== VOID)
+    || (inBounds(grid, x, y - 1) && grid.paved[idx(grid, x, y - 1)] !== VOID)
+  );
 }
 
 /**
@@ -72,10 +124,11 @@ export function validatePlacement(
   def: StructureDef,
   ox: number,
   oy: number,
+  rules: PlaceRules = NO_RULES,
 ): PlacementCheck {
   const { w, h } = def.footprint;
   const cells = footprintCells(ox, oy, w, h);
-  const verdicts = cells.map((c) => cellVerdict(grid, def, c.x, c.y));
+  const verdicts = cells.map((c) => cellVerdict(grid, def, c.x, c.y, rules));
 
   const heights = cells
     .filter((c) => inBounds(grid, c.x, c.y))
@@ -113,8 +166,9 @@ export function placeCommand(
   def: StructureDef,
   ox: number,
   oy: number,
+  rules: PlaceRules = NO_RULES,
 ): Command | null {
-  const check = validatePlacement(grid, def, ox, oy);
+  const check = validatePlacement(grid, def, ox, oy, rules);
   if (!check.ok) return null;
 
   const { w, h } = def.footprint;

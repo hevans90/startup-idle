@@ -17,7 +17,8 @@ export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
-  | "waterfall" | "brink";
+  | "waterfall" | "brink"
+  | "firstRoad";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -198,6 +199,24 @@ export function buildAvenue(g: Grid, material: number, cx: number, cy: number) {
   clear(g, material);
   for (let d = -10; d <= 10; d++) { pave(g, cx + d, cy); pave(g, cx + d, cy + 1); }
   for (let d = -10; d <= 10; d++) { pave(g, cx, cy + 6 + d); pave(g, cx + 1, cy + 6 + d); }
+  recomputeHeightRange(g);
+}
+
+/**
+ * WHERE THE GAME STARTS: flat ground and one road, and nothing else.
+ *
+ * Not a test rig like the rest of this file — this is the opening position. A
+ * single road crossing the map, no water, no height, so the first thing a
+ * player does is choose where along it to put their first housing.
+ *
+ * TWO LANES WIDE, like `buildAvenue`, because a one-cell road autotiles as a
+ * lone strip and reads as a path rather than a street. The length is the whole
+ * map: the constraint should be MONEY at the start, not frontage, or the
+ * opening is a jigsaw before it is a choice.
+ */
+export function buildFirstRoad(g: Grid, material: number, _cx: number, cy: number) {
+  clear(g, material);
+  for (let x = 0; x < g.w; x++) { pave(g, x, cy); pave(g, x, cy + 1); }
   recomputeHeightRange(g);
 }
 
@@ -617,6 +636,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
+  "firstRoad",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -628,6 +648,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "rampFan": buildRampFan(g, material, cx, cy); return;
     case "roadShapes": buildRoadShapes(g, material, cx, cy); return;
     case "avenue": buildAvenue(g, material, cx, cy); return;
+    case "firstRoad": buildFirstRoad(g, material, cx, cy); return;
     case "plaza": buildPlaza(g, material, cx, cy); return;
     case "splitTrap": buildSplitTrap(g, material, cx, cy); return;
     case "river": buildRiver(g, material); recomputeHeightRange(g); return;

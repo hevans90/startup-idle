@@ -93,6 +93,15 @@ export function kitByName(id: string): BuildingKit | null {
  *
  * Generated rather than hand-listed so the registry cannot drift from the kit
  * file — which is hand-authored, and the place new buildings actually arrive.
+ *
+ * EVERY KIT IS HOUSING, because the kits ARE the three employee districts:
+ * `intern`, `vibe_coder`, `10x_dev`, each in tiers. That is what binds the map
+ * to the economy — a placed building is beds, and beds are the ceiling on
+ * hiring. @see housedBy
+ *
+ * The road requirement is NOT set here. It is a rule of the GAME, not a fact
+ * about the building, and the editor has to stay able to author a map with a
+ * building wherever it likes. @see PlaceRules
  */
 const kitDefs = (): StructureDef[] =>
   KIT_IDS.map((kit) => ({

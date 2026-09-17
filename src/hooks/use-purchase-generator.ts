@@ -2,7 +2,8 @@ import { useMemo } from "react";
 
 import { useMoneyStore } from "../state/money.store";
 
-import { useGeneratorStore } from "../state/generators.store";
+import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
+import { roomFor } from "../game/housing";
 import {
   getGeneratorCost,
   getMaxAffordableAmountAndCost,
@@ -36,8 +37,25 @@ export function useGeneratorPurchase(id: string) {
   );
   const displayCost = useMemo(() => resolvedCost.toFixed(1), [resolvedCost]);
 
+  /**
+   * BEDS, AND WHETHER THERE ARE ENOUGH FOR THIS HIRE.
+   *
+   * Recomputed against the owned count rather than held, because the map can
+   * change under it — a building placed in the world view raises this without
+   * anything here being told. `Infinity` while no map is registered, which is
+   * what keeps the game playable on its own. @see roomFor
+   *
+   * The store refuses the purchase anyway; this is so the BUTTON can say so
+   * rather than looking broken when it is clicked and nothing happens.
+   */
+  const owned = useGeneratorStore(
+    (state) => state.generators.find((g) => g.id === id)?.amount ?? 0
+  );
+  const beds = roomFor(id as GeneratorId, owned);
+  const housed = beds >= resolvedAmount;
+
   const onPurchase = () => {
-    if (affordable && resolvedAmount > 0) {
+    if (affordable && housed && resolvedAmount > 0) {
       purchase(id, resolvedAmount);
     }
   };
@@ -46,6 +64,10 @@ export function useGeneratorPurchase(id: string) {
     cost: resolvedCost,
     displayCost,
     affordable,
+    /** Whether there is somewhere for this hire to live. @see housing */
+    housed,
+    /** Beds free right now — for the readout, and `Infinity` with no map. */
+    beds,
     onPurchase,
     max,
     resolvedAmount,

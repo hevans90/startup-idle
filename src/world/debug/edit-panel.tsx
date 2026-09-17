@@ -15,6 +15,7 @@ import { waterMetaRead } from "./water-meta";
 import type { BrushId, ToolId } from "../edit/tools";
 import { allStructureDefs } from "../structures/def";
 import { fluidChoices } from "../water/materials";
+import { housingCapacity } from "../../game/housing";
 
 const BTN = "cursor-pointer rounded border px-2 py-1 font-mono";
 const ON = "border-emerald-500 bg-emerald-500/20 text-emerald-300";
@@ -108,7 +109,7 @@ export function EditPanel() {
     setMaterial, setHeightStep, doUndo, doRedo, loadGrid, resize, applyFixture,
     netComponents, structureDefId, setStructureDef,
     fluidMaterial, setFluidMaterial, revision,
-    openEdge, setOpenEdge, getWaterField,
+    openEdge, setOpenEdge, getWaterField, playing, setPlaying,
   } = useWorldStore(useShallow((s) => ({
     tool: s.tool, brush: s.brush, brushRadius: s.brushRadius,
     material: s.material, palette: s.palette, grid: s.grid,
@@ -123,6 +124,7 @@ export function EditPanel() {
     setFluidMaterial: s.setFluidMaterial, revision: s.revision,
     openEdge: s.openEdge, setOpenEdge: s.setOpenEdge,
     getWaterField: s.getWaterField,
+    playing: s.playing, setPlaying: s.setPlaying,
   })));
 
   // Counted off the grid rather than mirrored into the store: a spring is an
@@ -140,6 +142,12 @@ export function EditPanel() {
     // is watching never changes identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grid, revision]);
+
+  // Beds on the map, which is the ceiling on hiring. Off the grid for the same
+  // reason the springs are: an edit mutates in place, so `revision` is the only
+  // thing that can say it changed. @see housingCapacity
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const beds = useMemo(() => housingCapacity(grid), [grid, revision]);
 
   const save = () => {
     // With the live field, so the file keeps the water that is on the map and
@@ -244,6 +252,22 @@ export function EditPanel() {
           className={`${BTN} ${tool === "placeStructure" ? ON : OFF}`}>build (n)</button>
         <button type="button" onClick={() => setTool("demolish")}
           className={`${BTN} ${tool === "demolish" ? ON : OFF}`}>demolish (x)</button>
+        {/* THE GAME'S RULES OR THE EDITOR'S. On, a building needs a road and
+            has to be paid for; off, this is an authoring tool. @see playing */}
+        <button type="button" onClick={() => setPlaying(!playing)}
+          title="Play rules: housing needs road frontage and costs money"
+          className={`${BTN} ${playing ? ON : OFF}`}>play rules</button>
+      </div>
+      <div className="mt-1 text-gray-400">
+        {beds.intern + beds.vibe_coder + beds["10x_dev"] === 0
+          ? <span>no housing built</span>
+          : (
+            <span>
+              beds — intern <span className="text-gray-200">{beds.intern}</span>
+              {" · vibe "}<span className="text-gray-200">{beds.vibe_coder}</span>
+              {" · 10x "}<span className="text-gray-200">{beds["10x_dev"]}</span>
+            </span>
+          )}
       </div>
       <div className="mt-1 flex flex-wrap gap-1">
         {allStructureDefs().map((d) => (

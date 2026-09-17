@@ -5,6 +5,7 @@ import {
   type StateStorage,
 } from "zustand/middleware";
 import { setEmployeeSatisfactionReaders } from "../game/employee-satisfaction-read";
+import { roomFor } from "../game/housing";
 import {
   calcGeneratorIncome,
   calcGeneratorPerSecond,
@@ -647,12 +648,32 @@ export const useGeneratorStore = create<GeneratorState>()(
             return { generators: [...state.generators, gen] };
           }),
 
-        increaseGenerator: (id, count = 1) =>
+        /**
+         * THE HOUSING GATE LIVES HERE, because this is the one door.
+         *
+         * Both hiring paths end at this function — `purchaseGenerator` for a
+         * manual hire, and `runAutoBuy` (through `tickGenerators`) for an
+         * automatic one, which is also what offline progress replays. Gating
+         * here covers all three at once; gating in `purchaseGenerator` alone
+         * would let auto-buy and every absence walk straight past it.
+         *
+         * IT CLAMPS RATHER THAN REFUSING. Asked for five when there are beds
+         * for two, it hires two. A refusal would make auto-buy stall
+         * permanently the moment a player asked for more than they had room
+         * for, and the honest answer to "hire as many as you can" is "as many
+         * as you can". @see roomFor
+         */
+        increaseGenerator: (id, count = 1) => {
+          const gid = id as GeneratorId;
+          const owned = get().generators.find((g) => g.id === id)?.amount ?? 0;
+          const take = Math.min(count, roomFor(gid, owned));
+          if (take <= 0) return;
           set((state) => ({
             generators: state.generators.map((gen) =>
-              gen.id === id ? { ...gen, amount: gen.amount + count } : gen,
+              gen.id === id ? { ...gen, amount: gen.amount + take } : gen,
             ),
-          })),
+          }));
+        },
 
         _buildModifiers: (): GameModifiers => {
           const generators = get().generators;
@@ -755,6 +776,14 @@ export const useGeneratorStore = create<GeneratorState>()(
         },
 
         purchaseGenerator: (id: string, amount = 1) => {
+          // BEDS BEFORE MONEY, and this order is the whole point. The clamp in
+          // `increaseGenerator` keeps the count honest, but this function
+          // charges FIRST and increases after — so without this check a player
+          // at capacity would pay full price for employees who never arrive.
+          // @see increaseGenerator
+          const owned = get().generators.find((g) => g.id === id)?.amount ?? 0;
+          if (roomFor(id as GeneratorId, owned) < amount) return;
+
           const cost = getGeneratorCost(id, amount);
           const moneyState = useMoneyStore.getState();
 

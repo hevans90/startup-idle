@@ -1,6 +1,11 @@
 /**
- * World v2 editor state. Transient — nothing here is persisted yet; the map
- * format lands with the serialization step.
+ * World v2 editor state.
+ *
+ * The SESSION is transient — tool, brush, camera, overlays, undo history. The
+ * MAP is not: it autosaves to localStorage and comes back on reload, because
+ * the housing a player builds gates who they can hire, and a map that vanished
+ * would leave a save file holding employees with nowhere to live.
+ * @see startAutosave, loadSaved
  */
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
@@ -41,6 +46,8 @@ import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
+import { clearSaved, saveNow, scheduleSave } from "../world/io/world-save";
+import { buildCost, spendForBuild } from "../game/build-cost";
 
 export type Overlays = {
   grid: boolean;
@@ -220,6 +227,16 @@ type WorldState = {
   brush: BrushId;
   /** Brush radius in cells: 0 = one tile, 1 = 3×3, 2 = 5×5. */
   brushRadius: number;
+  /**
+   * Whether the game's rules apply, rather than the editor's.
+   *
+   * Off is the authoring surface: every tool, no costs, build anywhere. On is
+   * the game — housing needs frontage and has to be paid for. One flag rather
+   * than two routes, so the same scene, the same store and the same renderer
+   * serve both and there is no second code path to keep in step.
+   */
+  playing: boolean;
+  setPlaying: (on: boolean) => void;
   /** Terrain palette index the paint tool writes. */
   material: number;
   /**
@@ -375,6 +392,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     grid: true, bands: false, height: false, origin: true, faces: true,
     net: false, mask: false, gaps: false, xray: false,
   },
+  playing: false,
+  setPlaying: (playing) => set({ playing }),
   palette: [...INITIAL_TERRAIN_PALETTE],
   tool: "paintTerrain",
   structureDefId: "kit:intern.t0",
@@ -615,10 +634,20 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   commitStructure: (c) => {
     const st = get();
     const def = structureDef(st.structureDefId);
-    const cmd = st.tool === "demolish"
+    const demolishing = st.tool === "demolish";
+    // THE GAME'S RULES, NOT THE EDITOR'S. Frontage is a rule of play; the
+    // editor has to stay able to author a building anywhere. @see PlaceRules
+    const rules = st.playing ? { needsRoad: true } : {};
+    const cmd = demolishing
       ? demolishCommand(st.grid, structureAt(st.grid, c.x, c.y))
-      : def && placeCommand(st.grid, def, c.x, c.y);
+      : def && placeCommand(st.grid, def, c.x, c.y, rules);
     if (!cmd) { set({ stroke: null }); return; }
+    // AND IT HAS TO BE PAID FOR, before anything is committed. Checked and
+    // charged together so a refusal cannot leave the money spent — the same
+    // order the hiring gate needs, and for the same reason.
+    if (st.playing && !demolishing && def) {
+      if (!spendForBuild(buildCost(def.id))) { set({ stroke: null }); return; }
+    }
     const touched = commit(st.grid, history, cmd);
     // The bed stands on what is built as well as on the terrain — a placed
     // structure lifts it, a demolish drops it back. @see syncGround
@@ -682,3 +711,49 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     });
   },
 }));
+
+/**
+ * Start saving the map as it changes, and stop when the returned function is
+ * called.
+ *
+ * SUBSCRIBED RATHER THAN SPRINKLED. Every mutator here already bumps
+ * `revision` — that is what tells the renderer something moved — so one
+ * subscription catches every edit, every undo, every load and every resize,
+ * and no future mutator can forget to save. The alternative is a `scheduleSave`
+ * call at each of the seven places that mutate, and the eighth one added later
+ * without it.
+ *
+ * EXPLICIT AND NOT AT MODULE SCOPE, so importing this store in a test does not
+ * start a timer or reach for `localStorage`. The editor turns it on.
+ */
+export function startAutosave(): () => void {
+  const input = () => ({
+    grid: useWorldStore.getState().grid,
+    // The paved palette is a placeholder the editor has never filled; passed as
+    // the file wants it rather than inventing a second shape here.
+    palette: { terrain: useWorldStore.getState().palette, paved: [null] },
+    water: water ?? undefined,
+  });
+  let seen = useWorldStore.getState().revision;
+  const stop = useWorldStore.subscribe((s) => {
+    if (s.revision === seen) return;
+    seen = s.revision;
+    scheduleSave(input);
+  });
+  // THE LAST WRITE BEFORE THE TAB GOES, which is the one that actually matters:
+  // a debounce that never fires is a lost map. Same triggers the session store
+  // uses for presence. @see App.tsx
+  const flush = () => saveNow();
+  const onHide = () => { if (document.visibilityState === "hidden") flush(); };
+  document.addEventListener("visibilitychange", onHide);
+  window.addEventListener("pagehide", flush);
+  return () => {
+    stop();
+    document.removeEventListener("visibilitychange", onHide);
+    window.removeEventListener("pagehide", flush);
+    flush();
+  };
+}
+
+/** Throw the saved map away. A deliberate act — see the reset button. */
+export const forgetSavedWorld = () => clearSaved();

@@ -14,7 +14,7 @@ import { openDevice, type HeldGpu } from "./render/device";
 
 import { useResizeToWrapper } from "../hooks/use-resize-to-wrapper";
 import type { Overlays } from "../state/world.store";
-import { DEFAULT_SIZE, useWorldStore } from "../state/world.store";
+import { DEFAULT_SIZE, startAutosave, useWorldStore } from "../state/world.store";
 import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
 import { Calibration } from "./debug/calibration";
 import { CellReadout } from "./debug/cell-readout";
@@ -27,6 +27,8 @@ import { PerfHud } from "./debug/perf-hud";
 import { TileBrowser } from "./debug/tile-browser";
 import { useEditKeys } from "./edit/use-edit-keys";
 import { bandCount } from "./iso";
+import { housingCapacity, setHousingReader } from "../game/housing";
+import { loadSaved } from "./io/world-save";
 import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
 
@@ -51,6 +53,32 @@ const rendererAsked = (): "webgpu" | "webgl" =>
 
 export function WorldEditor() {
   const { ref: wrapperRef, setRef, size } = useResizeToWrapper();
+  /**
+   * THE SAVED MAP, BEFORE ANYTHING DRAWS.
+   *
+   * In a layout effect rather than an effect: the scene builds off `grid`
+   * identity, so loading after the first paint would build the whole scene for
+   * the empty default map and immediately throw it away. `useState`'s
+   * initialiser runs once and is the cheapest place to do a one-shot load.
+   */
+  useState(() => {
+    const saved = loadSaved();
+    if (saved) useWorldStore.getState().loadGrid(saved.grid, saved.palette.terrain);
+    return true;
+  });
+  // And keep it saved from here on. @see startAutosave
+  useEffect(() => startAutosave(), []);
+  /**
+   * TELL THE ECONOMY ABOUT THE BEDS, for as long as this world is mounted.
+   *
+   * Registered from here rather than from the store so the gate exists exactly
+   * while a map does: unmount and hiring goes back to being limited by money
+   * alone, which is what the rest of the game expects. @see setHousingReader
+   */
+  useEffect(
+    () => setHousingReader(() => housingCapacity(useWorldStore.getState().grid)),
+    [],
+  );
   /**
    * THE DEVICE, MADE BEFORE THE RENDERER RATHER THAN BY IT.
    *
