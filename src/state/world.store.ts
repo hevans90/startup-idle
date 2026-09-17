@@ -118,7 +118,8 @@ export const SAND = 3;
 /** Grass under one, two and three trees — thin wood to thick. */
 export const WOODS = [4, 5, 6] as const;
 export const VOID_MATERIAL = 0;
-export const DEFAULT_SIZE = 64;
+/** Kept in step with the generator's own default, which is where size lives. */
+export const DEFAULT_SIZE = DEFAULT_GEN.size;
 
 /**
  * History lives OUTSIDE the store: it is mutated in place (arrays pushed and
@@ -742,7 +743,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   resetGenParams: () => set({ gen: { ...DEFAULT_GEN } }),
 
-  generateWorld: (seed, size = DEFAULT_SIZE) => {
+  // The size comes from the generation settings unless a caller names one —
+  // a fixture or a test, which wants the size it asked for and not the panel's.
+  generateWorld: (seed, size = get().gen.size) => {
     const grid = freshGrid(size, size);
     // GRASS, not the current material: a new company should not found on
     // whatever the last thing painted in the editor happened to be.

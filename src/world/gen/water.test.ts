@@ -140,6 +140,8 @@ describe("a map opens settled", () => {
     return { at, wet: wetTiles(f, g), cells: g.w * g.h };
   };
 
+  // Two simulated minutes of solver, three times over: its own timeout, or a
+  // busy machine fails it for being busy.
   for (const seed of [11, 4242, 7]) {
     test(`seed ${seed} finds its level and stays there`, () => {
       const r = run(seed, 120);
@@ -150,7 +152,7 @@ describe("a map opens settled", () => {
       // be wet enough to have one and dry enough not to be a swamp.
       expect(r.wet).toBeGreaterThan(r.cells / 100);
       expect(r.wet).toBeLessThan(r.cells / 6);
-    });
+    }, 30_000);
   }
 
   /**

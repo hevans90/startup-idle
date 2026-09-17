@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { quadCap, roomFor } from "./water-gpu";
+import { LIST_W, bandTiles, quadCap, quadList, roomFor } from "./water-gpu";
 import { COLUMNS_PER_TILE } from "../water/field";
 import { canCopyOut } from "../../fluid/gpu/state";
 import { readReduce, reduceSeed } from "../../fluid/gpu/apply";
@@ -88,14 +88,86 @@ describe("how many quads a band could ever hold", () => {
     expect(quadCap(128, 128)).toBeGreaterThan(quadCap(64, 64));
   });
 
-  /**
-   * The gather REFUSES a shape whose row is not a multiple of 256 bytes, and
-   * falls back to drawing every quad. Worth knowing which shapes those are.
-   */
-  test("and a square map of tiles gives a row the copy will take", () => {
-    for (const tiles of [16, 32, 64, 128]) {
-      expect((quadCap(tiles, tiles) * 4) % 256).toBe(0);
+});
+
+/**
+ * WHERE EACH BAND'S QUADS LIVE.
+ *
+ * The list used to be a rectangle with the WIDEST band's stride, for every
+ * band — which is two copies of the map in a texture that can only ever
+ * address one, and a texture width the map dictated rather than the code. Both
+ * of those are what these hold to account.
+ */
+describe("the quad list is packed, not a rectangle", () => {
+  const cases: [number, number][] = [[64, 64], [128, 128], [16, 16], [13, 7], [96, 40]];
+
+  test("a band gets exactly its own diagonal's worth", () => {
+    for (const [w, h] of cases) {
+      const l = quadList(w, h);
+      expect(l.caps.length).toBe(w + h - 1);
+      for (let b = 0; b < l.caps.length; b++) {
+        expect(l.caps[b]).toBe(bandTiles(w, h, b) * COLUMNS_PER_TILE ** 2 * 5);
+      }
+      // The widest band is still the shorter side, which is what `quadCap` says.
+      expect(Math.max(...l.caps)).toBe(quadCap(w, h));
     }
+  });
+
+  test("the slices tile the list — no gap, no overlap", () => {
+    for (const [w, h] of cases) {
+      const l = quadList(w, h);
+      let at = 0;
+      for (let b = 0; b < l.caps.length; b++) {
+        expect(l.offsets[b]).toBe(at);
+        at += l.caps[b];
+      }
+      expect(l.total).toBe(at);
+    }
+  });
+
+  /**
+   * THE NUMBER THAT MADE THIS WORTH DOING. A rectangle of the widest band's
+   * stride holds `min(w,h) * (w+h-1) * 80` slots; the quads that can exist
+   * anywhere on the map at once are `w * h * 80`. Measured at 64², 96² and
+   * 128², the rectangle was 1.99 times the second — so half of every
+   * allocation was unreachable by construction.
+   */
+  test("it holds every quad that can exist, and not twice that", () => {
+    for (const [w, h] of cases) {
+      const l = quadList(w, h);
+      expect(l.total).toBe(w * h * COLUMNS_PER_TILE ** 2 * 5);
+      const rectangle = quadCap(w, h) * (w + h - 1);
+      expect(l.total).toBeLessThanOrEqual(rectangle);
+    }
+    // On a square map the old layout was almost exactly twice this one.
+    for (const n of [64, 96, 128]) {
+      const ratio = (quadCap(n, n) * (2 * n - 1)) / quadList(n, n).total;
+      expect(ratio).toBeGreaterThan(1.9);
+      expect(ratio).toBeLessThan(2.0);
+    }
+  });
+
+  /**
+   * THE ROW RULE IS NO LONGER ABOUT THE MAP. A buffer-to-texture row must be a
+   * multiple of 256 bytes. It used to be a band's stride, so a map whose
+   * shorter side was not a multiple of four lost its gathering outright and
+   * every band drew its whole complement for ever — correctly and slowly,
+   * which is why nobody noticed. 13 by 7 is such a map.
+   */
+  test("the copy's row is legal whatever shape the map is", () => {
+    expect((LIST_W * 4) % 256).toBe(0);
+    expect((quadCap(13, 7) * 4) % 256).not.toBe(0);      // the old rule refused it
+    for (const [w, h] of cases) {
+      const l = quadList(w, h);
+      expect(l.rows * LIST_W).toBeGreaterThanOrEqual(l.total);
+      expect(l.rows).toBeGreaterThan(0);
+    }
+  });
+
+  test("and the widest map's list is a texture any device will make", () => {
+    // The guarantee every WebGPU device offers, whatever the adapter can do.
+    expect(LIST_W).toBeLessThanOrEqual(8192);
+    expect(quadCap(128, 128)).toBeGreaterThan(8192);      // the old width would not
   });
 });
 

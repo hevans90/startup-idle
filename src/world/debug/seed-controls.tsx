@@ -20,10 +20,9 @@ const BTN = "cursor-pointer rounded border px-2 py-1 font-mono";
 const OFF = "border-gray-700 text-gray-300 hover:border-gray-500";
 
 export function SeedControls() {
-  const { seed, gridW, generateWorld } = useWorldStore(
+  const { seed, generateWorld } = useWorldStore(
     useShallow((s) => ({
       seed: s.seed,
-      gridW: s.grid.w,
       generateWorld: s.generateWorld,
     })),
   );
@@ -38,15 +37,23 @@ export function SeedControls() {
   const [text, setText] = useState<string>(seed === null ? "" : String(seed));
   useEffect(() => { setText(seed === null ? "" : String(seed)); }, [seed]);
 
-  /** Found somewhere new. */
-  const reroll = () => generateWorld((Math.random() * 0x7fffffff) | 0, gridW);
+  /**
+   * Found somewhere new.
+   *
+   * NO SIZE PASSED, and that is the point. This used to hand over the CURRENT
+   * grid's width, which meant the size in the settings could be moved, shown in
+   * the panel, and then silently overruled by the map already on screen — you
+   * pressed generate and got the old size back. The size is a generation
+   * setting; generation reads it. @see GenParams
+   */
+  const reroll = () => generateWorld((Math.random() * 0x7fffffff) | 0);
 
   /** Regenerate from whatever is in the box; a non-number is hashed. */
   const fromField = () => {
     const raw = text.trim();
     if (!raw) { reroll(); return; }
     const n = Number(raw);
-    generateWorld(Number.isFinite(n) ? Math.trunc(n) : seedFrom(raw), gridW);
+    generateWorld(Number.isFinite(n) ? Math.trunc(n) : seedFrom(raw));
   };
 
   return (

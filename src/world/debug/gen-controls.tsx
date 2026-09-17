@@ -22,6 +22,7 @@ import { useWorldStore } from "../../state/world.store";
 import { DEFAULT_GEN, GEN_SLIDERS, type Slider } from "../gen/params";
 
 const GROUPS: { id: Slider["group"]; name: string }[] = [
+  { id: "map", name: "map" },
   { id: "land", name: "land" },
   { id: "road", name: "street" },
   { id: "water", name: "water" },

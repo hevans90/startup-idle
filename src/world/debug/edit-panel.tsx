@@ -109,7 +109,7 @@ export function EditPanel() {
     setMaterial, setHeightStep, doUndo, doRedo, loadGrid, resize, applyFixture,
     netComponents, structureDefId, setStructureDef,
     fluidMaterial, setFluidMaterial, revision,
-    openEdge, setOpenEdge, getWaterField, playing, setPlaying,
+    openEdge, setOpenEdge, getWaterField, playing, setPlaying, setGenParam,
   } = useWorldStore(useShallow((s) => ({
     tool: s.tool, brush: s.brush, brushRadius: s.brushRadius,
     material: s.material, palette: s.palette, grid: s.grid,
@@ -118,7 +118,7 @@ export function EditPanel() {
     setTool: s.setTool, setBrush: s.setBrush, setBrushRadius: s.setBrushRadius,
     setMaterial: s.setMaterial, setHeightStep: s.setHeightStep,
     doUndo: s.doUndo, doRedo: s.doRedo, loadGrid: s.loadGrid,
-    resize: s.resize, applyFixture: s.applyFixture,
+    resize: s.resize, applyFixture: s.applyFixture, setGenParam: s.setGenParam,
     netComponents: s.netComponents, structureDefId: s.structureDefId,
     setStructureDef: s.setStructureDef, fluidMaterial: s.fluidMaterial,
     setFluidMaterial: s.setFluidMaterial, revision: s.revision,
@@ -346,10 +346,14 @@ export function EditPanel() {
         }}
       />
 
+      {/* A BLANK map at this size, for authoring — and the generator's size is
+          set to match, or pressing generate afterwards would quietly hand back
+          a map of a different size from the one just chosen. @see GenParams */}
       <p className="mt-3 mb-1 text-gray-400">size</p>
       <div className="flex flex-wrap gap-1">
         {[16, 32, DEFAULT_SIZE, 96].map((n) => (
-          <button key={n} type="button" onClick={() => resize(n, n)}
+          <button key={n} type="button"
+            onClick={() => { resize(n, n); setGenParam("size", n); }}
             className={`${BTN} ${grid.w === n ? ON : OFF}`}>{n}²</button>
         ))}
       </div>

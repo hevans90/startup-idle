@@ -512,7 +512,12 @@ describe("seed and settings are separate inputs", () => {
   test("every slider makes a playable map at both ends", () => {
     for (const s of GEN_SLIDERS) {
       for (const v of [s.min, s.max]) {
-        const g = fresh(48, 48);
+        // `size` is the one parameter generation does not read — the grid is
+        // made before there is anything to generate into it — so this is where
+        // it is honoured, and both ends of it are a real case: the smallest map
+        // that still fits a street and the largest one anybody can ask for.
+        const n = s.key === "size" ? v : 48;
+        const g = fresh(n, n);
         const r = generateMap(g, { seed: 11, ...MATS, params: { [s.key]: v } });
         expect(roadHeights(g).size).toBe(1);
         expect(componentCount(createNetwork(g))).toBe(1);

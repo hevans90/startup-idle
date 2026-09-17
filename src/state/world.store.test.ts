@@ -12,6 +12,7 @@ import {
   DIRT, GRASS, INITIAL_TERRAIN_PALETTE, drainDirty, getNetwork, useWorldStore,
 } from "./world.store";
 import { componentCount } from "../world/roads/network";
+import { DEFAULT_GEN, GEN_SLIDERS } from "../world/gen/params";
 import { RAMP, rampDir, rampRise } from "../world/iso";
 import { COLUMNS_PER_TILE, SOLID_LIFT } from "../world/water/field";
 
@@ -398,5 +399,48 @@ describe("dirty accumulation", () => {
       s().doRedo();
       expect(bedAt(3, 3)).toBe(before + SOLID_LIFT);
     });
+  });
+});
+
+/**
+ * THE SIZE IS A GENERATION SETTING, and the reason it is worth a test is that
+ * it is the one setting `generateMap` cannot apply: the grid is allocated
+ * before there is anything to generate into it. If `generateWorld` stopped
+ * reading it, the slider would move, the panel would show the new number, and
+ * pressing generate would quietly hand back a map of the old size — which
+ * looks like the button not working rather than like a bug.
+ */
+describe("the map is generated at the size the settings ask for", () => {
+  test("a changed size is what the next generate builds", () => {
+    s().setGenParam("size", 32);
+    s().generateWorld(7);
+    expect(s().grid.w).toBe(32);
+    expect(s().grid.h).toBe(32);
+
+    s().setGenParam("size", 96);
+    s().generateWorld(7);
+    expect(s().grid.w).toBe(96);
+  });
+
+  test("a caller that names a size still gets it", () => {
+    s().setGenParam("size", 96);
+    s().generateWorld(7, 16);
+    expect(s().grid.w).toBe(16);
+  });
+
+  test("and a nonsense size is clamped rather than obeyed", () => {
+    s().setGenParam("size", 4);
+    expect(s().gen.size).toBe(16);
+    s().setGenParam("size", 9999);
+    // The top of the slider, wherever the renderer's own limits put it.
+    expect(s().gen.size).toBe(
+      GEN_SLIDERS.find((x) => x.key === "size")!.max,
+    );
+  });
+
+  test("resetting the settings puts it back", () => {
+    s().setGenParam("size", 16);
+    s().resetGenParams();
+    expect(s().gen.size).toBe(DEFAULT_GEN.size);
   });
 });

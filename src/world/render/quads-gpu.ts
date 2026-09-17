@@ -36,13 +36,17 @@ const PARTS = 5;
 const QUADS_WGSL = (drawdown: number) => `
 struct Say {
   dims: vec4<i32>,        // nx, ny, columns per tile, tiles high
-  a: vec4<f32>,           // dryDepth, fallMin, faces on, cap
+  a: vec4<f32>,           // dryDepth, fallMin, faces on, spare
 };
 @group(0) @binding(0) var<uniform> say : Say;
 @group(0) @binding(1) var uDepth : texture_2d<f32>;
 @group(0) @binding(2) var uGround : texture_2d<f32>;
 @group(0) @binding(3) var<storage, read_write> list : array<u32>;
 @group(0) @binding(4) var<storage, read_write> counts : array<atomic<u32>>;
+// WHERE EACH BAND'S SLICE STARTS, and how long it is. The list used to be a
+// rectangle with the widest band's stride, which is two copies of the map in a
+// texture that can only address one. @see quadList
+@group(0) @binding(5) var<storage, read> slice : array<vec2<u32>>;
 
 // NO BACKTICKS IN HERE — a backtick in a comment ends the template literal.
 
@@ -87,12 +91,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let sub = (cy % cpt) * cpt + (cx % cpt);
   let quad = (tileIdx * cpt * cpt + sub) * ${PARTS} + part;
 
-  let cap = i32(say.a.w);
-  let at = i32(atomicAdd(&counts[band], 1u));
-  if (at >= cap) { return; }
+  let here = slice[band];
+  let at = atomicAdd(&counts[band], 1u);
+  if (at >= here.y) { return; }
   // STORED ONE HIGHER, so that a slot the gathering did not reach reads as
   // empty rather than as quad nought. @see quadCap
-  list[band * cap + at] = u32(quad + 1);
+  list[here.x + at] = u32(quad + 1);
 }
 `;
 
@@ -108,14 +112,18 @@ export type QuadsPass = {
   counts: GPUBuffer;
   say: (
     nx: number, ny: number, cpt: number, tilesHigh: number,
-    dryDepth: number, fallMin: number, faces: boolean, cap: number,
+    dryDepth: number, fallMin: number, faces: boolean,
   ) => void;
   destroy: () => void;
 };
 
+/** Offset and length per band, as the shader wants them. @see quadList */
+export type Slices = { offsets: Uint32Array; caps: Uint32Array; total: number };
+
 export function createQuadsPass(
-  device: GPUDevice, bands: number, cap: number, drawdown: number,
+  device: GPUDevice, slices: Slices, slots: number, drawdown: number,
 ): QuadsPass {
+  const bands = slices.caps.length;
   const layout = device.createBindGroupLayout({
     entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
@@ -135,6 +143,10 @@ export function createQuadsPass(
         binding: 4, visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "storage" },
       },
+      {
+        binding: 5, visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" },
+      },
     ],
   });
   const pipeline = device.createComputePipeline({
@@ -152,7 +164,10 @@ export function createQuadsPass(
     label: "quads say",
   });
   const list = device.createBuffer({
-    size: bands * cap * 4,
+    // As long as the TEXTURE is, not as long as the quads are: the copy out
+    // moves whole rows, so the last row has to exist even where nothing in the
+    // map reaches it.
+    size: slots * 4,
     // COPY_DST is for the CLEAR, which is a copy as far as the API is
     // concerned — without it the clear is invalid, and an invalid command
     // takes the whole command buffer with it: no gathering, no copy, and a
@@ -167,6 +182,22 @@ export function createQuadsPass(
       | GPUBufferUsage.COPY_DST,
     label: "quad counts",
   });
+  // The layout, uploaded once: it is a function of the map's shape and the map
+  // is rebuilt rather than resized.
+  const slice = device.createBuffer({
+    size: Math.max(16, bands * 8),
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    label: "quad list slices",
+  });
+  {
+    const pairs = new Uint32Array(bands * 2);
+    for (let b = 0; b < bands; b++) {
+      pairs[b * 2] = slices.offsets[b];
+      pairs[b * 2 + 1] = slices.caps[b];
+    }
+    device.queue.writeBuffer(slice, 0, pairs);
+  }
+
   let group: GPUBindGroup | null = null;
   /**
    * Frames still to be checked for validation errors.
@@ -192,14 +223,15 @@ export function createQuadsPass(
           { binding: 2, resource: ground },
           { binding: 3, resource: { buffer: list } },
           { binding: 4, resource: { buffer: counts } },
+          { binding: 5, resource: { buffer: slice } },
         ],
       });
     },
-    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, capacity) => {
+    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces) => {
       const buf = new ArrayBuffer(32);
       new Int32Array(buf, 0, 4).set([nx, ny, cpt, tilesHigh]);
-      new Float32Array(buf, 16, 4)
-        .set([dryDepth, fallMin, faces ? 1 : 0, capacity]);
+      // The fourth was the cap, which is per band now and comes from `slice`.
+      new Float32Array(buf, 16, 4).set([dryDepth, fallMin, faces ? 1 : 0, 0]);
       device.queue.writeBuffer(uniform, 0, buf);
     },
     encode: (enc, cells) => {
@@ -216,7 +248,9 @@ export function createQuadsPass(
       pass.dispatchWorkgroups(Math.ceil((cells * PARTS) / WORKGROUP));
       pass.end();
     },
-    destroy: () => { uniform.destroy(); list.destroy(); counts.destroy(); },
+    destroy: () => {
+      uniform.destroy(); list.destroy(); counts.destroy(); slice.destroy();
+    },
   };
 }
 

@@ -20,6 +20,18 @@
  */
 
 export type GenParams = {
+  /**
+   * Tiles across the map, both ways.
+   *
+   * THE ONE PARAMETER `generateMap` DOES NOT READ, and it cannot: the grid is
+   * allocated before there is anything to generate into it, and it is the
+   * caller that owns it. `generateWorld` is what honours this — it makes the
+   * grid this big and then generates. It lives here anyway because it is
+   * plainly one of the things that decides what kind of map you get, and a
+   * size that lived somewhere else would be a size you could set and then not
+   * have applied by the button marked generate.
+   */
+  size: number;
   /** Half steps between the highest ground and the lowest, before carving. */
   relief: number;
   /** Tiles across one feature of the landscape — bigger is broader hills. */
@@ -133,6 +145,7 @@ export type GenParams = {
 };
 
 export const DEFAULT_GEN: GenParams = {
+  size: 64,
   relief: 16,
   feature: 34,
   contrast: 3,
@@ -165,7 +178,7 @@ export type Slider = {
   max: number;
   step: number;
   /** Which fieldset it belongs under. */
-  group: "land" | "road" | "water" | "cover";
+  group: "map" | "land" | "road" | "water" | "cover";
   /** What moving it does, for the control's title. */
   hint: string;
 };
@@ -181,6 +194,17 @@ export type Slider = {
  * nothing can be built on.
  */
 export const GEN_SLIDERS: readonly Slider[] = [
+  // SIXTEEN TO NINETY-SIX, and the top end is a measurement rather than taste.
+  //
+  // Sixteen is the smallest that still fits a street with its margins and a
+  // buildable side. Ninety-six is where the RENDERER stops, for two separate
+  // reasons that both bite between 96 and 128 — the quad list's texture width,
+  // which is fixed (@see quadList), and Pixi's packing of the per-band uniform
+  // groups, which throws `offset is out of bounds` somewhere past 191 bands
+  // and is not ours to fix from here. A slider that offers a map the renderer
+  // will not draw is a slider that offers a wall of validation errors.
+  { key: "size", label: "tiles", min: 16, max: 96, step: 16, group: "map",
+    hint: "tiles across the map, both ways — applied by generate" },
   { key: "relief", label: "relief", min: 0, max: 48, step: 2, group: "land",
     hint: "half steps between the highest ground and the lowest" },
   { key: "feature", label: "feature", min: 6, max: 80, step: 1, group: "land",

@@ -51,6 +51,7 @@
  * gathering allocates for what is actually there rather than the worst case.
  * @see createSheet, gatherQuads
  */
+import { heldGpu, textureLimit } from "./device";
 import {
   Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh,
   Shader, TextureSource, UniformGroup,
@@ -153,9 +154,102 @@ const PARTS = 5;
  * Room for the widest band's worth of quads — which is the LONGEST DIAGONAL and
  * not a constant. This was written as sixty four, which is the tile count of
  * the only map anybody had run it on.
+ *
+ * Still the widest band, and still what the gather's worst case is measured
+ * against — but no longer the STRIDE every band is stored at. @see quadList.
  */
 export const quadCap = (w: number, h: number) =>
   Math.min(w, h) * PER_TILE * PARTS;
+
+/** Tiles on band `b` of a `w` by `h` map — its own diagonal, not the longest. */
+export const bandTiles = (w: number, h: number, b: number): number =>
+  Math.max(0, Math.min(w - 1, b) - Math.max(0, b - (h - 1)) + 1);
+
+/**
+ * Texels across the quad list.
+ *
+ * ANY MULTIPLE OF 64 WOULD DO, and that is the point of packing it flat: the
+ * list is a one-dimensional thing stored two-dimensionally, so its width is now
+ * a number chosen for the copy rather than a number the map dictates. 64
+ * because a buffer-to-texture row must be a multiple of 256 bytes and these are
+ * four bytes each; 2048 because it keeps the height small at every map size
+ * anyone will ask for.
+ */
+export const LIST_W = 2048;
+
+/**
+ * Where each band's quads live in the list, and how many it may hold.
+ *
+ * THE STRIDE USED TO BE THE WIDEST BAND'S, FOR EVERY BAND, and that is two
+ * copies of the map in a texture that can only ever address one. A band on a
+ * corner holds one tile's worth of quads; the middle band holds `min(w, h)`.
+ * Laid out in a rectangle as wide as the widest, the total comes to
+ * `min(w,h) * (w+h-1) * 80` slots against the `w * h * 80` quads that could
+ * exist anywhere on the map at once — measured at 64², 96² and 128², exactly
+ * 1.99 times, so half of every allocation was unreachable by construction:
+ *
+ *     64²   5120 x 127 =   650,240 slots = 2.48 MB, against 1.25 MB of quads
+ *     96²   7680 x 191 = 1,466,880 slots = 5.60 MB, against 2.81 MB
+ *     128² 10240 x 255 = 2,611,200 slots = 9.96 MB, against 5.00 MB
+ *
+ * It was also a hard ceiling on the map: the stride is a texture WIDTH, and
+ * 128 tiles wants 10,240 against the 8,192 a WebGPU device is guaranteed. The
+ * texture came back invalid, Pixi bound it anyway, and every frame after was
+ * "invalid due to a previous error" with the first error long gone.
+ *
+ * Given its own offset each band takes exactly what it needs, the total is the
+ * quads that can exist and not twice that, and the texture's width is chosen
+ * rather than imposed — so the limit stops being about the map at all.
+ */
+export type QuadList = {
+  /** Slots band `b` may hold. */
+  caps: Uint32Array;
+  /** Where band `b` starts in the flat list. */
+  offsets: Uint32Array;
+  /** Slots in all, and the buffer's length. */
+  total: number;
+  /** Rows of `LIST_W` the texture needs to hold them. */
+  rows: number;
+};
+
+export function quadList(w: number, h: number): QuadList {
+  const bands = w + h - 1;
+  const caps = new Uint32Array(bands);
+  const offsets = new Uint32Array(bands);
+  let at = 0;
+  for (let b = 0; b < bands; b++) {
+    offsets[b] = at;
+    caps[b] = bandTiles(w, h, b) * PER_TILE * PARTS;
+    at += caps[b];
+  }
+  return { caps, offsets, total: at, rows: Math.max(1, Math.ceil(at / LIST_W)) };
+}
+
+/**
+ * The largest square map whose quad list still fits in a texture.
+ *
+ * THE LIST IS AS WIDE AS THE CAP, so the device's texture limit is a limit on
+ * the MAP, and one nobody had met because the only map anybody ran was 64².
+ * At the guaranteed 8,192 it is 102 tiles; on hardware that offers 16,384, and
+ * asked for it, 204. Exported because a size the player can choose has to stop
+ * where the device does — a slider that offers a map the GPU will refuse is a
+ * slider that offers a wall of validation errors. @see textureLimit
+ */
+export const maxMapTiles = (textureWidth: number): number =>
+  Math.floor(textureWidth / (PER_TILE * PARTS));
+
+/**
+ * The largest map this machine will actually draw, rounded DOWN to `step`.
+ *
+ * Down, because a size that rounds up is a size the device refuses — which is
+ * the whole failure this exists to stop. Synchronous on purpose: a slider's
+ * range cannot wait for a promise, and before the device arrives the
+ * guaranteed minimum is the right answer. @see heldGpu
+ */
+export const mapSizeCeiling = (step = 1): number => {
+  const tiles = maxMapTiles(textureLimit(heldGpu()?.device));
+  return Math.max(step, Math.floor(tiles / step) * step);
+};
 
 /**
  * STORED ONE HIGHER THAN IT IS, so that nought means EMPTY.
@@ -169,15 +263,14 @@ export const quadCap = (w: number, h: number) =>
  */
 
 /** The list, as a texture: a storage buffer would have no WebGL twin. */
-function quadListSource(w: number, h: number, bands: number): TextureSource {
-  const cap = quadCap(w, h);
-  const ids = new Uint32Array(cap * bands);
-  for (let b = 0; b < bands; b++) {
-    const at = b * cap;
-    for (let q = 0; q < cap; q++) ids[at + q] = q + 1;
+function quadListSource(list: QuadList): TextureSource {
+  const ids = new Uint32Array(LIST_W * list.rows);
+  for (let b = 0; b < list.caps.length; b++) {
+    const at = list.offsets[b];
+    for (let q = 0; q < list.caps[b]; q++) ids[at + q] = q + 1;
   }
   return new BufferImageSource({
-    resource: ids, width: cap, height: bands, format: "r32uint",
+    resource: ids, width: LIST_W, height: list.rows, format: "r32uint",
     scaleMode: "nearest",
   });
 }
@@ -225,6 +318,7 @@ struct Water {
   uGrid: vec4<f32>,       // nx, ny, columns per tile, 1 / columns per tile
   uIso: vec4<f32>,        // HW, HH, HEIGHT_UNIT (all scaled), faces on
   uBand: vec4<f32>,       // band, first tile x, dry depth, tiles in this band
+  uList: vec4<f32>,       // this band's offset into the quad list, list width
 };
 @group(2) @binding(0) var<uniform> water : Water;
 @group(2) @binding(1) var uDepth : texture_2d<f32>;
@@ -411,8 +505,13 @@ fn mainVertex(
   // WHICH QUAD THIS INSTANCE STANDS FOR. The identity unless something has
   // gathered the list, in which case it is the n'th quad that actually draws.
   // Nought is an EMPTY slot and not quad nought. @see quadCap
+  // THE LIST IS FLAT, stored two-dimensionally. A band's slots run from its
+  // own offset, so the texel is that offset plus the instance, unwrapped by
+  // the list's width. @see quadList
+  let flat = i32(water.uList.x) + i32(inst);
+  let lw = i32(water.uList.y);
   let quad = i32(textureLoad(
-    uQuads, vec2<i32>(i32(inst), i32(water.uBand.x)), 0,
+    uQuads, vec2<i32>(flat % lw, flat / lw), 0,
   ).r) - 1;
   if (quad < 0) { return out; }
   let part = quad % ${PARTS};
@@ -557,6 +656,7 @@ uniform vec4 uColor;
 uniform vec4 uGrid;
 uniform vec4 uIso;
 uniform vec4 uBand;
+uniform vec4 uList;
 
 uniform sampler2D uDepth;
 uniform sampler2D uGround;
@@ -696,7 +796,10 @@ void main() {
   vColor = vec4(0.0);
   // Nought is an EMPTY slot and not quad nought. Identity here in practice:
   // WebGL has no compute to gather a list with.
-  int quad = int(texelFetch(uQuads, ivec2(gl_InstanceID, int(uBand.x)), 0).r) - 1;
+  // Flat list, unwrapped by its width — see the WGSL twin.
+  int flat = int(uList.x) + gl_InstanceID;
+  int lw = int(uList.y);
+  int quad = int(texelFetch(uQuads, ivec2(flat % lw, flat / lw), 0).r) - 1;
   if (quad < 0) { return; }
   int part = quad % ${PARTS};
   int slot = quad / ${PARTS};
@@ -982,8 +1085,9 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
   });
   const tint = tintSource();
   // WHICH QUADS EACH BAND DRAWS. The identity until something gathers it.
-  // @see QUAD_CAP
-  const quads = quadListSource(bands.w, bands.h, bands.bands.length);
+  // @see quadList
+  const list = quadList(bands.w, bands.h);
+  const quads = quadListSource(list);
 
   const meshes: Mesh<Geometry, Shader>[] = [];
   for (let b = 0; b < bands.bands.length; b++) {
@@ -996,6 +1100,11 @@ export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale =
       uGrid: { value: new Float32Array([nx, ny, COLUMNS_PER_TILE, 1 / COLUMNS_PER_TILE]), type: "vec4<f32>" },
       uIso: { value: new Float32Array([HW * scale, HH * scale, HEIGHT_UNIT * scale, 1]), type: "vec4<f32>" },
       uBand: { value: new Float32Array([b, tx0, columns.params.dryDepth, tiles]), type: "vec4<f32>" },
+      // WHERE THIS BAND'S SLICE OF THE LIST STARTS, and how wide the list is.
+      // A uniform rather than a lookup because a band already has its own
+      // shader — the offset is as much a property of the band as its first
+      // tile is. @see quadList
+      uList: { value: new Float32Array([list.offsets[b], LIST_W, 0, 0]), type: "vec4<f32>" },
     });
 
     // Its own index buffer, exactly as long as the band is: the vertex buffer
@@ -1159,7 +1268,8 @@ export type QuadGather = {
   gathered: boolean;
   /** Frames still checked for validation errors. @see createQuadsPass */
   watch: number;
-  cap: number;
+  /** Where each band's quads live. @see quadList */
+  list: QuadList;
 };
 
 /** Just enough of the renderer to ask what stands behind a texture source. */
@@ -1172,24 +1282,15 @@ export function attachQuadGather(
   const sys = renderer as Partial<GetGpu>;
   if (!device || typeof sys?.texture?.getGpuSource !== "function") return null;
   const get = sys.texture.getGpuSource.bind(sys.texture);
-  const cap = quadCap(w, h);
+  const list = quadList(w, h);
   const bands = wl.meshes.length;
-  // The copy into the texture is a row per band, and a row has to be a
-  // multiple of 256 bytes. @see copyOut, where the same rule bites.
-  if ((cap * 4) % 256 !== 0) {
-    // AND THAT IS A SILENT DEMOTION otherwise: with no gathering every band
-    // draws its whole complement every frame however little water there is.
-    // The map still draws correctly, which is exactly why nobody notices.
-    if (import.meta.env.DEV) {
-      console.info(
-        `WATER: no quad gathering at ${w}x${h} tiles — a band holds ${cap} quads`
-        + " and the list's row must be a multiple of 64. Every band will draw"
-        + " its whole complement. The shorter side wants to be a multiple of 4.",
-      );
-    }
-    return null;
-  }
-  const pass = createQuadsPass(device, bands, cap, DRAWDOWN);
+  // THE ROW RULE IS NOW SATISFIED BY CONSTRUCTION. A buffer-to-texture row has
+  // to be a multiple of 256 bytes, and it used to be a band's STRIDE — so a map
+  // whose shorter side was not a multiple of four lost its gathering outright
+  // and every band drew its whole complement for ever, correctly and slowly,
+  // which is exactly why nobody noticed. The row is `LIST_W` now and nothing
+  // about the map's shape can change it.
+  const pass = createQuadsPass(device, list, LIST_W * list.rows, DRAWDOWN);
   pass.bind(
     get(wl.sources[0]).createView(),
     get(wl.sources[1]).createView(),
@@ -1208,7 +1309,7 @@ export function attachQuadGather(
     busy: false,
     gathered: false,
     watch: 4,
-    cap,
+    list,
   };
 }
 
@@ -1226,14 +1327,14 @@ export function gatherQuads(
 ) {
   g.pass.say(
     columns.nx, columns.ny, COLUMNS_PER_TILE, h,
-    columns.params.dryDepth, FALL_MIN, faces, g.cap,
+    columns.params.dryDepth, FALL_MIN, faces,
   );
   const enc = device.createCommandEncoder({ label: "quads" });
   g.pass.encode(enc, columns.nx * columns.ny);
   enc.copyBufferToTexture(
-    { buffer: g.pass.list, bytesPerRow: g.cap * 4, rowsPerImage: g.count.length },
+    { buffer: g.pass.list, bytesPerRow: LIST_W * 4, rowsPerImage: g.list.rows },
     { texture: g.into },
-    { width: g.cap, height: g.count.length, depthOrArrayLayers: 1 },
+    { width: LIST_W, height: g.list.rows, depthOrArrayLayers: 1 },
   );
   if (!g.busy) {
     enc.copyBufferToBuffer(
