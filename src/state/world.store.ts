@@ -229,6 +229,16 @@ type WorldState = {
   /** Brush radius in cells: 0 = one tile, 1 = 3×3, 2 = 5×5. */
   brushRadius: number;
   /**
+   * The seed the current map was generated from, or null if it was authored,
+   * loaded from a file, or built by a fixture.
+   *
+   * Kept so the editor can SHOW it: a map you like is worth being able to write
+   * down, and a map that generated badly is worth being able to report. Not
+   * persisted in the store — the map itself is saved, so the seed is a label on
+   * it rather than the way it is restored.
+   */
+  seed: number | null;
+  /**
    * Whether the game's rules apply, rather than the editor's.
    *
    * Off is the authoring surface: every tool, no costs, build anywhere. On is
@@ -401,6 +411,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     grid: true, bands: false, height: false, origin: true, faces: true,
     net: false, mask: false, gaps: false, xray: false,
   },
+  seed: null,
   playing: false,
   setPlaying: (playing) => set({ playing }),
   palette: [...INITIAL_TERRAIN_PALETTE],
@@ -709,6 +720,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // whatever the last thing painted in the editor happened to be.
     const report = generatePlayableMap(grid, { seed, material: GRASS });
     get().loadGrid(grid, [...INITIAL_TERRAIN_PALETTE]);
+    // AFTER `loadGrid`, which resets the rest of the map's state — set before,
+    // it would be cleared by the load it is describing. The REPORTED seed, not
+    // the asked-for one: a reroll for playability returns a different number
+    // and the panel must show the map you are actually looking at.
+    set({ seed: report.seed });
     if (import.meta.env.DEV) {
       console.info(
         `WORLD: founded on seed ${report.seed} — road at row ${report.roadRow},`
@@ -729,7 +745,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const next = palette ?? get().palette;
     set({
       grid, palette: [...next], material: Math.min(get().material, next.length - 1),
-      hover: null, stroke: null,
+      hover: null, stroke: null, seed: null,
       revision: 0, lastTouched: [], ...historyMeta(), ...netMeta(),
     });
   },
