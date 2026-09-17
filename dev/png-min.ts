@@ -109,7 +109,22 @@ export function encodePng({ w, h, px }: Image): Buffer {
   ]);
 }
 
-/** Copy a rect from `src` into `dst`, skipping fully transparent source pixels. */
+/**
+ * Draw a rect of `src` OVER `dst` — source-over, not copy.
+ *
+ * IT USED TO COPY, and that is a halo. The tileset is antialiased, so a sprite
+ * carries a fringe of partly transparent pixels around its edge — the tree
+ * prop has 208 of them. Copied rather than composited, each one REPLACES an
+ * opaque pixel of the tile underneath with a half-transparent one, which is
+ * not a soft edge but a hole: the grass that was there is gone and whatever is
+ * behind the tile shows through it. Stamped a few hundred times across a map
+ * it reads as a ring of light around every tree.
+ *
+ * Straight (non-premultiplied) alpha, which is what these PNGs carry, so the
+ * colour has to be divided back out by the result's alpha rather than simply
+ * added. Where the destination is already clear this reduces to the source
+ * pixel unchanged, which is what the canopy above a tile's top vertex wants.
+ */
 export function blit(
   dst: Image, src: Image,
   sx: number, sy: number, sw: number, sh: number,
@@ -118,10 +133,21 @@ export function blit(
   for (let y = 0; y < sh; y++) {
     for (let x = 0; x < sw; x++) {
       const s = ((sy + y) * src.w + (sx + x)) * 4;
-      if (src.px[s + 3] === 0) continue;
+      const sa = src.px[s + 3];
+      if (sa === 0) continue;
       const d = ((dy + y) * dst.w + (dx + x)) * 4;
-      dst.px[d] = src.px[s]; dst.px[d + 1] = src.px[s + 1];
-      dst.px[d + 2] = src.px[s + 2]; dst.px[d + 3] = src.px[s + 3];
+      if (sa === 255) {                       // the common case, and exact
+        dst.px[d] = src.px[s]; dst.px[d + 1] = src.px[s + 1];
+        dst.px[d + 2] = src.px[s + 2]; dst.px[d + 3] = 255;
+        continue;
+      }
+      const a = sa / 255, keep = (dst.px[d + 3] / 255) * (1 - a);
+      const out = a + keep;
+      if (out <= 0) continue;
+      for (let c = 0; c < 3; c++) {
+        dst.px[d + c] = Math.round((src.px[s + c] * a + dst.px[d + c] * keep) / out);
+      }
+      dst.px[d + 3] = Math.round(out * 255);
     }
   }
 }
