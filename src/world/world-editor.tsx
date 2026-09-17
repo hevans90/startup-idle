@@ -19,6 +19,7 @@ import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
 import { Calibration } from "./debug/calibration";
 import { CellReadout } from "./debug/cell-readout";
 import { EditPanel } from "./debug/edit-panel";
+import { SeedControls } from "./debug/seed-controls";
 import "./debug/expose-store";
 import { GpuCheckHud } from "./debug/gpu-check-hud";
 import { GpuWaterToggle } from "./debug/gpu-water-toggle";
@@ -163,9 +164,9 @@ export function WorldEditor() {
 
       {/* chrome — sibling of the wrapper, so wheel events are its own */}
       <aside className="w-72 shrink-0 overflow-y-auto border-l border-gray-800 bg-gray-950 p-4 text-xs">
-        <p className="mb-3 text-sm font-bold uppercase tracking-wider text-amber-400">
-          World v2
-        </p>
+        {/* WHERE THE TITLE WAS. A panel does not need to say which panel it
+            is; the seed is the thing worth writing down. @see SeedControls */}
+        <SeedControls />
 
         <dl className="grid grid-cols-2 gap-y-1 font-mono">
           <dt className="text-gray-400">size</dt>

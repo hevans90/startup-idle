@@ -16,7 +16,6 @@ import type { BrushId, ToolId } from "../edit/tools";
 import { allStructureDefs } from "../structures/def";
 import { fluidChoices } from "../water/materials";
 import { housingCapacity } from "../../game/housing";
-import { seedFrom } from "../../utils/rng";
 
 const BTN = "cursor-pointer rounded border px-2 py-1 font-mono";
 const ON = "border-emerald-500 bg-emerald-500/20 text-emerald-300";
@@ -110,7 +109,7 @@ export function EditPanel() {
     setMaterial, setHeightStep, doUndo, doRedo, loadGrid, resize, applyFixture,
     netComponents, structureDefId, setStructureDef,
     fluidMaterial, setFluidMaterial, revision,
-    openEdge, setOpenEdge, getWaterField, playing, setPlaying, seed, generateWorld,
+    openEdge, setOpenEdge, getWaterField, playing, setPlaying,
   } = useWorldStore(useShallow((s) => ({
     tool: s.tool, brush: s.brush, brushRadius: s.brushRadius,
     material: s.material, palette: s.palette, grid: s.grid,
@@ -126,7 +125,6 @@ export function EditPanel() {
     openEdge: s.openEdge, setOpenEdge: s.setOpenEdge,
     getWaterField: s.getWaterField,
     playing: s.playing, setPlaying: s.setPlaying,
-    seed: s.seed, generateWorld: s.generateWorld,
   })));
 
   // Counted off the grid rather than mirrored into the store: a spring is an
@@ -150,27 +148,6 @@ export function EditPanel() {
   // thing that can say it changed. @see housingCapacity
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const beds = useMemo(() => housingCapacity(grid), [grid, revision]);
-
-  /**
-   * The seed field's text, held locally so typing does not regenerate on every
-   * keystroke — the map is rebuilt when you press the button or Enter.
-   *
-   * Re-synced when the STORE's seed changes, so "new" and a load both write
-   * their result into the box rather than leaving whatever was typed.
-   */
-  const [seedText, setSeedText] = useState<string>(seed === null ? "" : String(seed));
-  useEffect(() => { setSeedText(seed === null ? "" : String(seed)); }, [seed]);
-
-  /** Regenerate from whatever is in the box; a non-number is hashed. */
-  const generateFromField = () => {
-    const raw = seedText.trim();
-    if (!raw) { rerollSeed(); return; }
-    const n = Number(raw);
-    generateWorld(Number.isFinite(n) ? Math.trunc(n) : seedFrom(raw), grid.w);
-  };
-
-  /** Found somewhere new. */
-  const rerollSeed = () => generateWorld((Math.random() * 0x7fffffff) | 0, grid.w);
 
   const save = () => {
     // With the live field, so the file keeps the water that is on the map and
@@ -375,32 +352,6 @@ export function EditPanel() {
           <button key={n} type="button" onClick={() => resize(n, n)}
             className={`${BTN} ${grid.w === n ? ON : OFF}`}>{n}²</button>
         ))}
-      </div>
-
-      <p className="mt-3 mb-1 text-gray-400">world seed</p>
-      <div className="flex flex-wrap items-center gap-1">
-        <input
-          type="text"
-          inputMode="numeric"
-          value={seedText}
-          onChange={(e) => setSeedText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") generateFromField(); }}
-          placeholder="seed"
-          title="A seed to found on. Enter regenerates."
-          className="w-28 rounded border border-gray-700 bg-gray-900 px-2 py-1
-                     font-mono text-gray-200 placeholder:text-gray-600"
-        />
-        <button type="button" onClick={generateFromField}
-          title="Regenerate from the seed in the field"
-          className={`${BTN} ${OFF}`}>generate</button>
-        <button type="button" onClick={rerollSeed}
-          title="Found on a brand new seed"
-          className={`${BTN} ${OFF}`}>new</button>
-      </div>
-      <div className="mt-1 text-gray-400">
-        {seed === null
-          ? <span>not generated — authored, loaded or a fixture</span>
-          : <span>on seed <span className="text-gray-200">{seed}</span></span>}
       </div>
 
       <p className="mt-3 mb-1 text-gray-400">terrain fixture</p>
