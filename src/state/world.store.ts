@@ -50,6 +50,7 @@ import { clearSaved, hasSaved, saveNow, scheduleSave } from "../world/io/world-s
 import { buildCost, spendForBuild } from "../game/build-cost";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
+import { forgetGenParams, loadGenParams, saveGenParams } from "../world/io/gen-settings";
 
 export type Overlays = {
   grid: boolean;
@@ -428,7 +429,14 @@ function fixtureFromUrl(): FixtureId | null {
 }
 
 const START_FIXTURE = fixtureFromUrl();
-const START_SIZE = (START_FIXTURE && FIXTURE_SIZE[START_FIXTURE]) ?? DEFAULT_SIZE;
+/**
+ * The generator's settings as they were left. @see loadGenParams
+ *
+ * Read once, here, rather than in the initialiser below, because the SIZE is
+ * one of them and the first grid is built before the store exists.
+ */
+const START_GEN = loadGenParams();
+const START_SIZE = (START_FIXTURE && FIXTURE_SIZE[START_FIXTURE]) ?? START_GEN.size;
 
 const INITIAL_GRID = freshGrid(START_SIZE, START_SIZE);
 if (START_FIXTURE) applyFixtureTo(INITIAL_GRID, START_FIXTURE, GRASS);
@@ -450,7 +458,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     net: false, mask: false, gaps: false, xray: false,
   },
   seed: null,
-  gen: { ...DEFAULT_GEN },
+  gen: START_GEN,
   playing: false,
   setPlaying: (playing) => set({ playing }),
   palette: [...INITIAL_TERRAIN_PALETTE],
@@ -753,9 +761,18 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     });
   },
 
-  setGenParam: (key, value) => set({ gen: withDefaults({ ...get().gen, [key]: value }) }),
+  setGenParam: (key, value) => {
+    const gen = withDefaults({ ...get().gen, [key]: value });
+    set({ gen });
+    saveGenParams(gen);
+  },
 
-  resetGenParams: () => set({ gen: { ...DEFAULT_GEN } }),
+  resetGenParams: () => {
+    // FORGOTTEN rather than overwritten with today's defaults, so a default
+    // that changes later still reaches somebody who asked for the defaults.
+    forgetGenParams();
+    set({ gen: { ...DEFAULT_GEN } });
+  },
 
   // The size comes from the generation settings unless a caller names one —
   // a fixture or a test, which wants the size it asked for and not the panel's.
