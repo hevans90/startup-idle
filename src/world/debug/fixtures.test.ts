@@ -396,25 +396,54 @@ describe("the inlet fixture", () => {
     field: ReturnType<typeof createWaterField>, g: Grid, cells: readonly number[],
   ) => cells.filter((i) => depthAt(field, i % g.w, (i / g.w) | 0) > 0.5).length;
 
-  test("the channel is full from the edge it enters to the edge it leaves", () => {
+  test("the channel is full the moment the map opens", () => {
+    // NOT AFTER A MINUTE. Fed from dry this channel takes about that long to
+    // reach its far edge, and for that minute the map is showing something
+    // that is not what it is. Nothing has stepped here.
     const { g, field, chan } = built("inflow");
-    runFor(g, field, 60);
     expect(wetIn(field, g, chan)).toBeGreaterThan(chan.length * 0.95);
-    // AND IT GOT THERE, which "most of it is wet" does not say on its own: a
-    // channel full for four fifths of its length and dry at the mouth is a
-    // long pond. Measured, the water is at the far column inside a minute.
+    // AND ALL THE WAY DOWN IT, which "most of it is wet" does not say on its
+    // own: full for four fifths of its length and dry at the mouth is a long
+    // pond, not a river that leaves by the far side.
     const far = Math.max(...chan
       .filter((i) => depthAt(field, i % g.w, (i / g.w) | 0) > 0.5)
       .map((i) => i % g.w));
     expect(far).toBe(g.w - 1);
-  }, 20000);
+  });
+
+  test("and the inflow HOLDS it there, rather than it draining away", () => {
+    // MEASURED BY VOLUME, not by how many tiles are wet, and the difference
+    // is the whole test. A tile counts as wet with half a half step on it, so
+    // a channel emptying under a film reads as full the entire way down: the
+    // spring below keeps 97% of its tiles wet while losing nearly three
+    // quarters of its water. What "full" means is how much is in it.
+    const { g, field } = built("inflow");
+    const spawned = totalVolume(field, g);
+    runFor(g, field, 120);
+    expect(totalVolume(field, g)).toBeGreaterThanOrEqual(spawned);
+  }, 40000);
+
+  test("where the same ground fed by a spring loses most of it", () => {
+    // THE FIXTURE CAN FAIL, which is what it is for. This grade and this cut
+    // are the ones generated maps actually have, and at a spring's rate the
+    // channel drains from full to about a quarter of what it opened with —
+    // barely better than feeding it nothing at all. A change that quietly
+    // turned the boundary back into a tap would be caught here rather than
+    // looking like a map that goes off slowly.
+    const { g, field } = built("spring");
+    const spawned = totalVolume(field, g);
+    runFor(g, field, 120);
+    expect(totalVolume(field, g)).toBeLessThan(spawned * 0.5);
+  }, 40000);
 
   test("and it never gets out of the valley, however hard it is fed", () => {
     // The level is held two half steps ABOVE the channel's brim, so this is
-    // the boundary being asked to overfill and failing to. It is checked
-    // every half minute rather than at the end, because a flood that came and
-    // drained would pass a test that only looked afterwards.
+    // the boundary being asked to overfill and failing to. Checked at the
+    // moment it opens and then every half minute, rather than only at the
+    // end: a flood that came and drained would pass a test that just looked
+    // afterwards.
     const { g, field, wall } = built("inflow");
+    expect(wetIn(field, g, wall)).toBe(0);
     for (let m = 0; m < 4; m++) {
       runFor(g, field, 30);
       expect(wetIn(field, g, wall)).toBe(0);
@@ -431,17 +460,6 @@ describe("the inlet fixture", () => {
     runFor(g, field, 120);
     expect(Math.abs(totalVolume(field, g) - settled)).toBeLessThan(settled * 0.05);
   }, 40000);
-
-  test("where the same ground fed by a spring is still a trickle", () => {
-    // THE FIXTURE CAN FAIL, which is what it is for. This grade and this cut
-    // are the ones generated maps actually have, and at the rate a spring
-    // runs they fill a third of the channel in the minute the inflow fills
-    // all of it — so a change that quietly turned the boundary back into a
-    // tap would be caught here rather than looking like a slow map.
-    const { g, field, chan } = built("spring");
-    runFor(g, field, 60);
-    expect(wetIn(field, g, chan)).toBeLessThan(chan.length * 0.5);
-  }, 20000);
 });
 
 describe("the pipes fixture", () => {

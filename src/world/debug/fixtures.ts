@@ -325,6 +325,30 @@ export function buildInlet(g: Grid, material: number) {
       set(g, x, y, fall + rel);
     }
   }
+  // AND IT OPENS FULL.
+  //
+  // A river is not a trench that fills while you watch. Fed from dry the
+  // channel here takes about a minute to reach its far edge, and for that
+  // minute the map is showing something that is not what it is — which reads
+  // as the fixture having failed and then thought better of it.
+  //
+  // COLUMN BY COLUMN, because a river's surface FALLS. `pond` takes one level
+  // and a flat one across the whole map would drown the low end and leave the
+  // high end dry; a strip at a time, each at the level its own floodplain sits
+  // at, is a waterline that descends with the valley. Its rule does the rest:
+  // only ground under the line gets water, so the channel fills to its brim
+  // and the shoulders and the valley wall stay dry without being told where
+  // they are.
+  //
+  // To the BRIM, which is a shade under where the flow settles at the head and
+  // over it at the mouth, so the solver trims both within a second or two of
+  // opening. Nothing needs to be exact here: the inflow holds the head and the
+  // open edge takes the surplus, so the map converges on the same river
+  // whatever it starts with — this only decides whether you watch it happen.
+  for (let x = 0; x < g.w; x++) {
+    pond(g, Math.round((g.w - 1 - x) * INLET_GRADE), 1, x, 0, x, g.h - 1);
+  }
+
   // THE WHOLE CROSS-SECTION, which is what an inflow is: a river entering a map
   // is a width of water, and holding one tile of it at a level while its
   // neighbours are held at nothing is a hole in a wall rather than a river.

@@ -43,12 +43,13 @@ const FIXTURES: [FixtureId, string][] = [
   ["avenue", "avenue"],
   ["plaza", "plaza"],
   ["splitTrap", "split trap"],
-  // THE INLET ONE, under the old one's name. Both are rivers; this is the one
-  // worth looking at, because it is fed the way a map's rivers are now — over
-  // the boundary, at a level — and it is built on the slack grade and the deep
-  // channel that generated maps actually have. `river` is still there for
-  // `?fixture=river` and still has its own tests. @see buildInlet
-  ["inlet", "river"],
+  // The river fixture worth looking at: fed the way a map's rivers are now —
+  // over the boundary, at a level — and built on the slack grade and the deep
+  // channel that generated maps actually have. Named for what it is rather
+  // than inheriting "river", so the button and the fixture agree; the old
+  // `river` is still there for `?fixture=river` and still has its own tests.
+  // @see buildInlet
+  ["inlet", "inlet"],
   ["cascade", "cascade"],
   ["lake", "lake"],
   ["islands", "islands"],
