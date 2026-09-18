@@ -93,8 +93,29 @@ export type GenParams = {
    * downstream. @see carveChannel
    */
   riverDepth: number;
-  /** Tiles a river's channel is wide AT ITS MOUTH; the head is always one. */
+  /** Tiles a river's channel is wide AT ITS MOUTH. @see reachAt */
   riverWidth: number;
+  /**
+   * Half steps the valley floor lies below the plain around it.
+   *
+   * The valley and the CHANNEL are different things and this is the first of
+   * them: the floor is the flat the river wanders over, and the channel is cut
+   * into that. A river with no valley is a slot in a field, which is what the
+   * generator used to make.
+   */
+  valleyDepth: number;
+  /** Tiles from the river to the top of its valley side. */
+  valleyWidth: number;
+  /**
+   * Half steps the valley floor falls from the inlet to the mouth.
+   *
+   * THE ONE NUMBER THE OLD GENERATOR HAD NO WAY TO SET, and its absence is why
+   * rivers did not flow. The bed took whatever fall the noise happened to
+   * leave between two edges, which over eight seeds was 15 half steps of net
+   * descent against 38 of CLIMB. Set here, the floor descends because it is
+   * built to and the noise is faded out where it would argue.
+   */
+  riverFall: number;
   /**
    * Tiles the valley flares, PER SLAB the channel is cut.
    *
@@ -126,19 +147,18 @@ export type GenParams = {
   /** Tiles across a lake. */
   lakeSize: number;
   /**
-   * Whether each river gets a spring at its head.
+   * Whether each river is fed from beyond the map's edge.
    *
-   * ON, now that a river runs from one edge of the map to another.
+   * ON, and it is what makes a river a river rather than a long pond. The
+   * water arrives over the boundary at the head and leaves over it at the
+   * mouth, so the map is a reach of something larger.
    *
-   * It was off, and the reason was sound while it lasted: a spring is a promise
-   * the solver has to keep for ever, and it only balances if every drop can get
-   * off the map. A channel that began inland and petered out could not promise
-   * that, and a seed where it failed filled quietly for twenty minutes rather
-   * than breaking. A course that ENTERS at one edge and LEAVES at another can:
-   * the outflow is the map's boundary, which drains, so what arrives departs.
-   *
-   * This is what makes a river a river rather than a long pond. The water is
-   * moving, and it is full because more keeps coming.
+   * It is a LEVEL and not a rate, which is why it can be on by default. A
+   * spring delivers the same amount whatever the channel is already holding,
+   * so the number has to be guessed against each map's own grade and section
+   * and is wrong on most of them — too little and the river is a trickle, too
+   * much and the country drowns. A held level delivers what the channel will
+   * take and nothing once it is full. @see Grid.inflow
    */
   springs: number;
   /** Share of the grass that is wooded, nought to one. */
@@ -162,8 +182,11 @@ export const DEFAULT_GEN: GenParams = {
   rivers: 1,
   riverDepth: 6,
   riverWidth: 3,
+  valleyDepth: 6,
+  valleyWidth: 5,
+  riverFall: 12,
   riverBank: 1,
-  riverLength: 3,
+  riverLength: 1,
   riverMeander: 0.55,
   tributaries: 1,
   lakes: 1,
@@ -238,7 +261,13 @@ export const GEN_SLIDERS: readonly Slider[] = [
   { key: "riverDepth", label: "depth", min: 2, max: 16, step: 2, group: "water",
     hint: "half steps a channel is cut below its banks at its mouth" },
   { key: "riverWidth", label: "width", min: 1, max: 7, step: 1, group: "water",
-    hint: "tiles across a channel at its mouth — the head is always one" },
+    hint: "tiles across a channel at its mouth" },
+  { key: "valleyDepth", label: "valley", min: 0, max: 24, step: 2, group: "water",
+    hint: "half steps the valley floor lies below the plain around it" },
+  { key: "valleyWidth", label: "valley wide", min: 2, max: 24, step: 1, group: "water",
+    hint: "tiles from the river to the top of its valley side" },
+  { key: "riverFall", label: "fall", min: 0, max: 64, step: 2, group: "water",
+    hint: "half steps the valley falls from where the river enters to where it leaves" },
   { key: "riverBank", label: "banks", min: 0, max: 3, step: 1, group: "water",
     hint: "tiles the valley flares per slab of depth; 0 cuts a ditch, not a valley" },
   { key: "riverLength", label: "length", min: 1, max: 6, step: 1, group: "water",

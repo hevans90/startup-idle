@@ -23,6 +23,7 @@ import { HEIGHT_MAX, HEIGHT_MIN } from "../edit/height-tools";
 import { fbm, valueNoise } from "./noise";
 import { layRoad, type Road } from "./road";
 import { carveWater } from "./water";
+import { planRivers, valleyGround } from "./valley";
 import { withDefaults, type GenParams } from "./params";
 import { mulberry32 } from "../../utils/rng";
 
@@ -113,6 +114,7 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   g.ramp.fill(0);
   g.paved.fill(0);
   g.source.fill(0);
+  g.inflow.fill(0);
   g.fluid.fill(0);
   g.pool.fill(0);
   g.pipe.fill(0);
@@ -126,7 +128,18 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   // gives the same independence.
   const ox = rng() * 1000, oy = rng() * 1000;
 
-  // 2. THE LAND, in a scratch field rather than in the grid. `g.height` is an
+  // 2. THE RIVERS, as lines on a blank map, BEFORE there is any land.
+  //
+  //    This is the order everything else here turned on. Shaped first and cut
+  //    afterwards, the bed inherits whatever the noise did between its two
+  //    ends — measured over eight seeds, 38 half steps of CLIMB against 15 of
+  //    net fall, because `relief` is bigger than a river's whole descent. A
+  //    course chosen first can be given ground that falls all the way.
+  //    @see planRivers
+  const plan = planRivers(g, p, rng, road.distance);
+  const valley = valleyGround(g, p, plan);
+
+  // 3. THE LAND, in a scratch field rather than in the grid. `g.height` is an
   //    Int8Array and would truncate every sample on the way in — the carve
   //    below reads these numbers back, and rounding them twice, once by
   //    accident, is how a terrace ends up a half step out.
@@ -150,10 +163,16 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   const span = Math.max(1e-6, hi - lo);
   for (let i = 0; i < land.length; i++) {
     const s = ((land[i] - lo) / span - 0.5) * 2;                 // −1…1
-    land[i] = Math.sign(s) * Math.abs(s) ** p.contrast * p.relief;
+    const shaped = Math.sign(s) * Math.abs(s) ** p.contrast * p.relief;
+    // THE VALLEY FIRST, AND THE NOISE FADED OUT INSIDE IT. Full strength in
+    // the channel the noise is larger than the river's entire fall, which is
+    // exactly how a bed ends up climbing; `blend` is nought on the spine and
+    // one out on the plain, so the floor is clean and the uplands are as
+    // rough as they ever were. @see valleyGround
+    land[i] = valley.base[i] + shaped * valley.blend[i];
   }
 
-  // 3. THE ROAD'S OWN LEVEL: the median of the land it crosses, so the carve
+  // 4. THE ROAD'S OWN LEVEL: the median of the land it crosses, so the carve
   //    moves as little ground as possible and the street sits IN the landscape
   //    rather than on an embankment across it.
   const along: number[] = [];
@@ -163,7 +182,7 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
     ? clampHeight(terrace(along[(along.length - 1) >> 1]))
     : 0;
 
-  // 4. CARVE, AND TERRACE, in the one pass — every cell's final height is
+  // 5. CARVE, AND TERRACE, in the one pass — every cell's final height is
   //    decided here. Paved cells are pinned to the street's level; everywhere
   //    else the land may differ from it by a slab per tile of distance, which
   //    stops binding as soon as the cone is wider than the relief.
@@ -173,10 +192,10 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
     g.height[i] = clampHeight(terrace(roadHeight + dh));
   }
 
-  // 5. RIVERS AND LAKES, cut into ground that has stopped moving.
-  const water = carveWater(g, p, rng, road.distance);
+  // 6. THE CHANNELS AND THE WATER, cut into ground that has stopped moving.
+  const water = carveWater(g, p, rng, road.distance, plan);
 
-  // 6. WHAT THE GROUND IS MADE OF, read off the finished map — so the materials
+  // 7. WHAT THE GROUND IS MADE OF, read off the finished map — so the materials
   //    describe it rather than predicting it.
   const mats = {
     grass: material,

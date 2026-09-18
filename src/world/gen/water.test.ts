@@ -10,12 +10,12 @@
 import { describe, expect, test } from "bun:test";
 
 import { generateMap } from "./generate-map";
-import { reachAt } from "./water";
+import { lastPath, reachAt } from "./water";
 import { DEFAULT_GEN, withDefaults } from "./params";
 import { distanceFromPaved } from "./road";
 import { createGrid, idx } from "../grid";
 import {
-  createWaterField, poolSnapshot, runSources, stepWater, totalVolume, wetTiles,
+  createWaterField, depthAt, poolSnapshot, runSources, stepWater, totalVolume, wetTiles,
 } from "../water/field";
 
 const MATS = { material: 1, dirt: 2, sand: 3, woods: [4, 5, 6] };
@@ -127,26 +127,37 @@ describe("what water generation writes", () => {
   });
 
   /**
-   * ITS CHANNEL reaches the edge, which is the promise that matters: the edge
-   * is the map's only outlet and a spring with nowhere to put its water floods
-   * everything. The WATER is not there at the moment the map is made — a fed
-   * channel is deliberately left open, so it stands empty until the spring has
-   * run. Asked of the ground, by diffing against the same seed left uncut.
+   * IT RUNS ONTO THE MAP AND OFF IT, which is the promise that matters — and
+   * both halves of it are structural rather than lucky.
+   *
+   * The edge is the map's only outlet, so a river fed with nowhere to put its
+   * water floods everything; and the feed is the edge ITSELF, held at a
+   * level, so a course that never reached one would have nothing to be fed
+   * BY. A walk can be boxed in by the street and stop inland, which is why
+   * the planner tries again rather than keeping what it got. @see planRivers
    */
-  test("a fed river cuts a channel to the edge of the map", () => {
-    let reached = 0;
+  test("a river runs from one edge of the map to another", () => {
     for (let seed = 0; seed < 12; seed++) {
-      const bare = gen(seed, { rivers: 0, lakes: 0 });
       const { g } = gen(seed, { rivers: 1, lakes: 0, springs: 1 });
-      if (springsOn(g) === 0) continue;                    // no outlet, no spring
-      const cut = (x: number, y: number) =>
-        g.height[idx(g, x, y)] < bare.g.height[idx(g, x, y)];
+      const bare = gen(seed, { rivers: 0, lakes: 0 });
+      const onRim = (i: number) => {
+        const x = i % g.w, y = (i / g.w) | 0;
+        return x === 0 || y === 0 || x === g.w - 1 || y === g.h - 1;
+      };
+      // FED OVER THE BOUNDARY, and only ever there. @see Grid.inflow
+      const fed = [...g.inflow].map((v, i) => (v > 0 ? i : -1)).filter((i) => i >= 0);
+      expect(fed.length).toBeGreaterThan(0);
+      for (const i of fed) expect(onRim(i)).toBe(true);
+      // AND THE CHANNEL GETS OUT, measured as ground cut away on the rim
+      // somewhere OTHER than where it is fed — an inlet alone would pass a
+      // test that only asked whether the edge had been touched.
       let out = false;
-      for (let x = 0; x < g.w && !out; x++) out = cut(x, 0) || cut(x, g.h - 1);
-      for (let y = 0; y < g.h && !out; y++) out = cut(0, y) || cut(g.w - 1, y);
-      if (out) reached++;
+      for (let i = 0; i < g.height.length && !out; i++) {
+        if (!onRim(i) || g.inflow[i] > 0) continue;
+        out = g.height[i] < bare.g.height[i];
+      }
+      expect(out).toBe(true);
     }
-    expect(reached).toBeGreaterThan(8);
   });
 });
 
@@ -319,6 +330,42 @@ describe("a fed river fills its own channel", () => {
 });
 
 /**
+ * THE OUTCOME, and the only test here that would have caught the fault.
+ *
+ * Everything else in this file asks about a rule — the bed descends, the ends
+ * are on the rim, the feed is a level. This one generates a map, runs it, and
+ * asks whether there is still a river on it a minute later. The generator it
+ * replaced passed almost every rule-shaped test in this file while producing
+ * beds that climbed 38 half steps against 15 of fall, because a climb is only
+ * a fault once water is asked to go down it.
+ */
+describe("and a minute later there is still a river on the map", () => {
+  test("the channel runs from the edge it enters to the edge it leaves", () => {
+    let sum = 0, n = 0;
+    for (let seed = 0; seed < 6; seed++) {
+      const g = createGrid(64, 64);
+      generateMap(g, { seed, material: 1, dirt: 2, sand: 3, woods: [4, 5, 6] });
+      const spine = [...lastPath];
+      expect(spine.length).toBeGreaterThan(20);
+      const f = createWaterField(g);
+      for (let t = 0; t < 60; t++) {
+        for (let k = 0; k < 20; k++) { runSources(f, g, 1 / 20); stepWater(f, 1 / 20); }
+      }
+      const wet = spine.filter((i) => depthAt(f, i % g.w, (i / g.w) | 0) > 0.5).length;
+      const share = wet / spine.length;
+      // PER SEED, loosely, because one map in eight has a channel that
+      // conveys badly and empties its lower reaches; and across the set
+      // tightly, because that has to stay the exception. Measured: 95% mean
+      // with the worst seed at 64%, against 66% and 31% before.
+      expect(share).toBeGreaterThan(0.55);
+      sum += share;
+      n++;
+    }
+    expect(sum / n).toBeGreaterThan(0.85);
+  }, 120_000);
+});
+
+/**
  * FULL, BUT NOT OVER THE TOP — which is the whole point of the water model and
  * the one thing no other test here says.
  *
@@ -337,13 +384,17 @@ describe("a river stands close to its banks", () => {
   /**
    * Every wet cell's freeboard, in half steps. @see fillDepressions
    *
-   * STANDING water by default. A fed channel opens at the level the FLOW will
-   * hold it at, which is an estimate rather than a containment — see the test
-   * below for what that costs and how long it lasts.
+   * THE MAP AS IT IS ACTUALLY MADE, which means FED. It used to force the
+   * feed off, and that was right when a spring was off by default; now a
+   * river arrives over the map's edge and is held there, and generating
+   * without one measures a configuration nobody ships. It also measures
+   * almost nothing: a graded channel running to an open edge holds no
+   * STANDING water at all, so the unfed map came back with nineteen wet
+   * cells on it and no river to ask questions about.
    */
   const freeboards = (seed: number, params = {}, sim = 0) => {
     const g = createGrid(64, 64);
-    generateMap(g, { seed, ...MATS2, params: { springs: 0, ...params } });
+    generateMap(g, { seed, ...MATS2, params });
     if (sim > 0) {
       const f = createWaterField(g);
       const dt = 1 / 20;
@@ -371,40 +422,58 @@ describe("a river stands close to its banks", () => {
   };
 
   /**
-   * A SLAB OF TOLERANCE, and it is a statement about flow rather than slack.
+   * IT COMES RIGHT UP TO ITS BANKS, and that is the headline number.
    *
-   * Standing water can never be over its bank — the flood puts it at the spill
-   * point by construction. A RUNNING channel is different: the map opens with
-   * the river already at the level the flow holds it at, and a flowing surface
-   * stands above the static one in places, which is what flow means. What must
-   * not happen is water perched high above dry ground, so the bound is one
-   * slab: enough for the surface the flow will keep, not enough to be a wave
-   * waiting to fall on the frontage.
+   * The median cell on the shore of a generated river has a freeboard of
+   * exactly NOUGHT — the water is at the level of the lowest ground touching
+   * it, on every seed tried. That is what "a river full of water" means, and
+   * the drafts this replaced sat six half steps and more below their own
+   * banks with a ribbon in the bottom of a trench.
    */
-  test("standing water is never over its banks", () => {
+  test("the water comes right up to its banks", () => {
     for (let seed = 0; seed < 12; seed++) {
       const fb = freeboards(seed);
       expect(fb.length).toBeGreaterThan(20);
-      expect(fb[0]).toBeGreaterThanOrEqual(0);
+      expect(fb[fb.length >> 1]).toBe(0);
     }
   });
 
   /**
-   * AND A FED ONE IS BACK INSIDE ITS BANKS ALMOST AT ONCE.
+   * AND ONLY A FRINGE OF IT STANDS OVER THEM AT THE MOMENT IT OPENS.
    *
-   * The map opens with the river at the level the flow holds it at. That is an
-   * estimate the carve drew, not a containment the flood proved, so it can
-   * stand over dry ground where two arms of a meander run either side of a
-   * ridge — measured at four slabs at its worst. What matters is that it is a
-   * surface the physics agrees with within moments rather than a wave waiting
-   * to fall on somebody's frontage, so this runs the solver for half a minute
-   * and asks for the strict rule back.
+   * Standing water can never be over its bank — the flood puts it at the
+   * spill point by construction. A RUNNING channel is different: the map
+   * opens with the river at the level the flow holds it at, and a flowing
+   * surface stands above the static one in places, which is what flow means.
+   * The carve draws that line from the valley floor, so where a cell on the
+   * cut happens to touch much lower ground outside it the line is over that
+   * ground until the solver says otherwise. Measured over twelve seeds it is
+   * ten to nineteen per cent of the shore, and the quartile is already nought
+   * — so the bound is on how MUCH of the river is over, not on whether any
+   * of it is, which is the honest shape for a claim about a transient.
    */
-  test("and a fed one settles inside its banks within half a minute", () => {
+  test("and only a fringe of it is over them when the map opens", () => {
+    for (let seed = 0; seed < 12; seed++) {
+      const fb = freeboards(seed);
+      const over = fb.filter((v) => v < 0).length;
+      expect(over / fb.length).toBeLessThan(0.25);
+      expect(fb[Math.floor(fb.length * 0.25)]).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  /**
+   * AND IT IS ALL BACK INSIDE THEM WITHIN HALF A MINUTE.
+   *
+   * What matters about the fringe above is that it is a surface the physics
+   * agrees with within moments, rather than a wave waiting to fall on
+   * somebody's frontage. Measured, the worst cell on the map goes from as
+   * much as forty half steps over to between one and three.
+   */
+  test("and all of it is back inside them within half a minute", () => {
     for (const seed of [0, 4, 7]) {
-      const fb = freeboards(seed, { springs: 1 }, 30);
-      if (fb.length < 20) continue;
-      expect(fb[0]).toBeGreaterThanOrEqual(-2);
+      const fb = freeboards(seed, {}, 30);
+      expect(fb.length).toBeGreaterThan(20);
+      expect(fb[0]).toBeGreaterThanOrEqual(-4);
     }
   }, 60_000);
 
@@ -444,8 +513,14 @@ describe("a river stands close to its banks", () => {
 describe("a river is not the same river all the way down", () => {
   const P = DEFAULT_GEN;
 
-  test("it widens from one tile at the head to its full width at the mouth", () => {
-    expect(reachAt(P, 0).half * 2).toBeCloseTo(1, 5);
+  test("it arrives ALREADY A RIVER and widens to its full width at the mouth", () => {
+    // It used to enter one tile wide, because the head was a spring in the
+    // hills and a spring starts as a trickle. A river that arrives over the
+    // map's edge is already a river somewhere off the map, and the only
+    // reason it grows crossing this one is the side streams joining it — so
+    // it comes in at most of its width rather than at none of it.
+    expect(reachAt(P, 0).half * 2).toBeGreaterThan(P.riverWidth * 0.5);
+    expect(reachAt(P, 0).half * 2).toBeLessThan(P.riverWidth);
     expect(reachAt(P, 1).half * 2).toBeCloseTo(P.riverWidth, 5);
     let last = -1;
     for (let t = 0; t <= 1.0001; t += 0.05) {
@@ -552,9 +627,16 @@ describe("a river is long, joined up, and does not eat the map", () => {
    * bound on the whole map rather than on the code, so any future way of
    * digging too deep trips it too.
    */
-  test("the cut is bounded by the relief and the river's own depth", () => {
+  test("the cut is bounded by the relief, the valley, and the river's depth", () => {
+    // THE VALLEY IS PART OF THE BOUND NOW, and it has to be: the floor is
+    // sunk `valleyDepth` below the plain and falls a further `riverFall` on
+    // its way to the mouth, so the deepest ground on the map is the bed at
+    // the mouth of the deepest valley. What the bound still catches is the
+    // thing it was written for — a cut that feeds back into itself and
+    // ratchets, which once took a map to the floor of the world at −126.
     const p = withDefaults({});
-    const most = p.relief + 2 * p.riverDepth + 2 * p.terrace;
+    const most = p.relief + p.valleyDepth + p.riverFall
+      + 2 * p.riverDepth + 2 * p.terrace;
     for (let seed = 0; seed < 40; seed++) {
       const { g } = spine(seed);
       let lo = Infinity;

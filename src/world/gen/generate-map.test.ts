@@ -13,6 +13,7 @@ import {
   MIN_FRONTAGE, frontageOf, generateMap, generatePlayableMap, paintGround, plantTrees,
 } from "./generate-map";
 import { distanceFromPaved } from "./road";
+import { lastPath } from "./water";
 import { DEFAULT_GEN, GEN_SLIDERS, withDefaults } from "./params";
 import { fbm, valueNoise } from "./noise";
 import { createGrid, fillTerrain, idx } from "../grid";
@@ -202,46 +203,71 @@ describe("what a generated map guarantees", () => {
   });
 
   /**
-   * The cone is a ceiling on the LAND, and water is cut into it afterwards —
-   * so the pair of rules that has to hold once there are channels is that a
-   * channel only ever goes DOWN, and that it keeps away from the street. The
-   * second is what stops a river eating the frontage the cone just guaranteed.
+   * THE CHANNEL IS CUT, NEVER BUILT — and the comparison this makes had to
+   * change with the generator, so it is worth saying what it now means.
+   *
+   * It used to diff a river map against the same seed with no rivers and
+   * demand that no cell anywhere came out HIGHER, allowing one exception at
+   * the boundary for the bars that used to dam each end. Both halves are
+   * obsolete. The bars are gone — a river is supposed to pour out of the side
+   * of the world, that is what the outlet IS — and the two maps are no longer
+   * the same country with a trench in one of them: the valley is planned
+   * before any height is written, and the noise is faded out as it nears the
+   * water, so a cell where the noise happened to be NEGATIVE comes out higher
+   * once it is damped. That is the land being shaped, not ground being piled.
+   *
+   * What still has to hold, and does: the channel itself is only ever cut
+   * away — every one of 1,313 spine cells over twelve seeds came out lower,
+   * none higher — and nothing anywhere is raised by more than the noise that
+   * was faded out, measured at six half steps against a relief of sixteen.
+   * An embankment across somebody's valley would be neither.
    */
-  test("water only ever cuts the ground down, except at the map's edge", () => {
+  test("the channel is only ever cut away, and nothing is built up", () => {
     for (let seed = 0; seed < 12; seed++) {
       const dry = gen(seed, 64, 64, { rivers: 0, lakes: 0 });
       const wet = gen(seed, 64, 64, { rivers: 2, lakes: 2 });
+      for (const i of lastPath) {
+        expect(wet.g.height[i]).toBeLessThan(dry.g.height[i] + 1);
+      }
       for (let i = 0; i < dry.g.height.length; i++) {
-        if (wet.g.height[i] <= dry.g.height[i]) continue;
-        // THE ONE EXCEPTION, and it is at the boundary on purpose. A course
-        // runs from one edge of the map to another, and both ends are the
-        // LOWEST cells on it — that is what keeps the cut a valley rather than
-        // a quarry. A bar there that may not stand above the land cannot hold
-        // anything, and the river pours out of the side of the world. At the
-        // edge it is not ground anyway: it is where the map stops and the
-        // river carries on. Inland, putting ground back above what the noise
-        // made would be an embankment across somebody's valley.
-        // Stated as a share of the map rather than a tile count, because what
-        // matters is that the MIDDLE of it is never built up — that is where
-        // the player builds. The bar is the channel's own width plus a bank
-        // either side, all capped, and it reached 16 tiles at its worst here.
-        const x = i % wet.g.w, y = (i / wet.g.w) | 0;
-        const edge = Math.min(x, y, wet.g.w - 1 - x, wet.g.h - 1 - y);
-        expect(edge).toBeLessThan(wet.g.w / 3);
+        expect(wet.g.height[i] - dry.g.height[i]).toBeLessThanOrEqual(DEFAULT_GEN.relief / 2);
       }
     }
   });
 
-  test("and never within reach of the street", () => {
+  /**
+   * THE PROMISE IS ABOUT WATER AND ABOUT BUILDING, not about the ground being
+   * identical, and that changed when the valley became TERRAIN.
+   *
+   * This used to diff a river map against the same seed with the rivers
+   * turned off and demand the same height on every cell near the street. It
+   * could, because the river was a trench cut into finished land and the cut
+   * was clipped clear of the road. Now the valley is part of how the land is
+   * SHAPED — the floor is planned before a single height is written — so a
+   * map with three rivers on it is a different country from the same seed
+   * with none, near the street as everywhere else. Measured, up to fourteen
+   * half steps different.
+   *
+   * What has to hold, and does: no water stands within reach of the street,
+   * the paving is all at one level, and there is frontage to build on.
+   */
+  test("and never any water within reach of the street", () => {
     for (let seed = 0; seed < 12; seed++) {
       const dry = gen(seed, 64, 64, { rivers: 0, lakes: 0 });
       const wet = gen(seed, 64, 64, { rivers: 3, lakes: 3 });
       const dist = distanceFromPaved(dry.g);
       for (let i = 0; i < dist.length; i++) {
         if (dist[i] > 2) continue;
-        expect(wet.g.height[i]).toBe(dry.g.height[i]);
         expect(wet.g.pool[i]).toBe(0);
       }
+      // AND THE STREET IS STILL A STREET: one level end to end, with ground
+      // beside it worth building on. A channel that had eaten into the road
+      // corridor would show up in one or the other.
+      const paved = [...wet.g.paved]
+        .map((v, i) => (v ? wet.g.height[i] : null))
+        .filter((h): h is number => h !== null);
+      expect(new Set(paved).size).toBe(1);
+      expect(wet.r.frontage).toBeGreaterThan(MIN_FRONTAGE);
     }
   });
 
@@ -263,23 +289,62 @@ describe("what a generated map guarantees", () => {
    * four octaves of noise. Three quarters of its cells sat a single half step
    * from a neighbour: a 16.5px ledge everywhere, no plane anywhere, and every
    * house needing its ground levelled first. It read as static, not landscape.
-   * Measured over forty seeds: 21.8% level then, 64% now.
+   * Measured over forty seeds: 21.8% level then, 64% once it was shaped.
+   *
+   * IT IS ASKED AWAY FROM THE RIVER NOW, and that is a change of claim rather
+   * than a slackened bound, so it is worth saying exactly what moved. A map
+   * has a VALLEY in it since the rivers were planned before the land, and the
+   * side of a valley is not level ground — it cannot be and still be a
+   * valley. At one slab a tile, which is the grade the cliff art is drawn
+   * for, every tile of it steps, so a valley side scores nothing on this
+   * measure however gentle or well-formed it is.
+   *
+   * What must not happen is the valley eating the COUNTRY. Measured over
+   * forty seeds: the land more than ten tiles from the water is 60.8% level,
+   * against 63.3% for the same seeds generated with no river at all — so
+   * outside its own valley a river costs the plain about two points. The
+   * valley itself is a third of the map, which takes the whole-map figure to
+   * 44.8%; that number is the valley's footprint and not a loss of plain.
    */
-  test("most of the map is a plain you can build on", () => {
-    let level = 0, cells = 0;
+  test("the land away from the river is a plain you can build on", () => {
+    let near = 0, nearAll = 0, far = 0, farAll = 0, dry = 0, dryAll = 0;
     for (let seed = 0; seed < 12; seed++) {
       const { g } = gen(seed);
+      const spine = [...lastPath];
+      const bare = gen(seed, 64, 64, { rivers: 0, lakes: 0 }).g;
+      const off = new Float32Array(g.w * g.h).fill(999);
+      for (const i of spine) {
+        const px = i % g.w, py = (i / g.w) | 0;
+        for (let y = Math.max(0, py - 12); y <= Math.min(g.h - 1, py + 12); y++) {
+          for (let x = Math.max(0, px - 12); x <= Math.min(g.w - 1, px + 12); x++) {
+            const d = Math.hypot(x - px, y - py);
+            if (d < off[y * g.w + x]) off[y * g.w + x] = d;
+          }
+        }
+      }
+      const level = (m: typeof g, x: number, y: number) => {
+        const h = m.height[idx(m, x, y)];
+        return m.height[idx(m, x + 1, y)] === h && m.height[idx(m, x - 1, y)] === h
+          && m.height[idx(m, x, y + 1)] === h && m.height[idx(m, x, y - 1)] === h;
+      };
       for (let y = 1; y < g.h - 1; y++) {
         for (let x = 1; x < g.w - 1; x++) {
-          const h = g.height[idx(g, x, y)];
-          const flat = g.height[idx(g, x + 1, y)] === h && g.height[idx(g, x - 1, y)] === h
-            && g.height[idx(g, x, y + 1)] === h && g.height[idx(g, x, y - 1)] === h;
-          if (flat) level++;
-          cells++;
+          const on = level(g, x, y);
+          nearAll++;
+          if (on) near++;
+          if (off[idx(g, x, y)] > 10) { farAll++; if (on) far++; }
+          dryAll++;
+          if (level(bare, x, y)) dry++;
         }
       }
     }
-    expect(level / cells).toBeGreaterThan(0.5);
+    // THE PLAIN IS INTACT: away from the valley the map is as level as one
+    // with no river on it, within a couple of points.
+    expect(far / farAll).toBeGreaterThan(0.55);
+    expect(far / farAll).toBeGreaterThan(dry / dryAll - 0.08);
+    // AND THE VALLEY HAS NOT EATEN THE MAP. Well under half would mean the
+    // country is all valley side, which is the failure this guards.
+    expect(near / nearAll).toBeGreaterThan(0.4);
   });
 
   /** And plains are not the whole story, or this is an elaborate flat map. */
