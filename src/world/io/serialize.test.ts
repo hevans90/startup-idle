@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DIR } from "../../iso/dir";
 import {
   RAMP, createGrid, fillTerrain, idx, pipeAt, rampAt, setHeight, setPaved, setRamp, setTerrain,
-  setSource, sourceAt,
+  setInflow, setSource, sourceAt,
 } from "../grid";
 import { commit, createHistory } from "../edit/commands";
 import { structureDef } from "../structures/def";
@@ -110,6 +110,25 @@ describe("round trip", () => {
     expect([...grid.pool].every((v) => v === 0)).toBe(true);
   });
 
+  test("a river fed over the edge is still fed when the map comes back", () => {
+    // The layer is small and it is the whole difference between a map that
+    // opens with a river running and one that opens with a river draining:
+    // `pool` saves the water that is in the channel, so a file that lost its
+    // inflow would look right for about a minute. @see Grid.inflow
+    const g = sample();
+    setInflow(g, 0, 3, 8);
+    setInflow(g, g.w - 1, 4, -2);        // signed: a level below the ground
+    const { grid } = fromJSON(toJSON(serializeWorld(g, PAL)));
+    expect([...grid.inflow]).toEqual([...g.inflow]);
+  });
+
+  test("and a file written before there were any opens with none", () => {
+    const file = serializeWorld(sample(), PAL);
+    delete (file as { inflow?: string }).inflow;
+    const { grid } = deserializeWorld(file);
+    expect([...grid.inflow].every((v) => v === 0)).toBe(true);
+  });
+
   test("through JSON text too", () => {
     const g = sample();
     const { grid } = fromJSON(toJSON(serializeWorld(g, PAL)));
@@ -157,11 +176,11 @@ describe("round trip", () => {
     const g = createGrid(64, 64);
     fillTerrain(g, 1);
     const json = toJSON(serializeWorld(g, PAL));
-    // Nine dense layers of 4,096 cells, base64. The budget is a guard against
+    // Ten dense layers of 4,096 cells, base64. The budget is a guard against
     // a layer being written as something other than packed bytes, not a tight
     // fit — each one it gains costs about 5.5KB and it should be obvious in a
-    // diff when one does.
-    expect(json.length).toBeLessThan(70_000);
+    // diff when one does. Ten since `inflow` joined them. @see Grid.inflow
+    expect(json.length).toBeLessThan(76_000);
     const { grid } = fromJSON(json);
     expect([...grid.terrain]).toEqual([...g.terrain]);
   });

@@ -408,6 +408,7 @@ export async function compareAccelerate(
   writeConsts(state, {
     ...consts, windDepth: 2.5, dryDepth: p.dryDepth, fallMin: FALL_MIN,
     openEdge: gpuSide.openEdge,
+    rimMaterial: gpuSide.rimMaterial, rimHeld: gpuSide.rim !== null,
     gravity: p.gravity, breaking: p.breaking, diffScale: consts.diffScale,
     room: dripRoom(gpuSide.drips), cell: gpuSide.cell,
     cliffN: gpuSide.falls.cliffN, frameDt: consts.dt, arriveN: 0, wantN: 0,
@@ -911,6 +912,7 @@ export async function compareCliffs(
     gain: 0, bedGain: 0, hMax: 0, minHead: 0, spread: 0, dt: 1 / 60,
     windDepth: 2.5, dryDepth: p.dryDepth, fallMin: FALL_MIN,
     openEdge: gpuSide.openEdge,
+    rimMaterial: gpuSide.rimMaterial, rimHeld: gpuSide.rim !== null,
     gravity: p.gravity, breaking: p.breaking, diffScale: 0,
     room: dripRoom(gpuSide.drips), cell: gpuSide.cell, cliffN: 0, frameDt: 1 / 60, arriveN: 0, wantN: 0,
   }, gpuSide.wnx, gpuSide.wstride);

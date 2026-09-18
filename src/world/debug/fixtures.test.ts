@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import { createGrid, setPaved, surfaceSampler } from "../grid";
+import { createGrid, setPaved, setSource, surfaceSampler, type Grid } from "../grid";
 import { DIR, isPaved, maskAt, orthOf } from "../roads/mask";
 import { buildRoadTable, roadSpriteFor } from "../roads/table";
 import { componentCount, createNetwork, netIdAt } from "../roads/network";
@@ -16,7 +16,7 @@ import {
   buildZiggurat, type FixtureId,
 } from "./fixtures";
 import {
-  createWaterField, depthAt, runSources, stepWater, totalVolume, waterInPipes, wetTiles,
+  SOURCE_RATE, createWaterField, depthAt, runSources, stepWater, totalVolume, waterInPipes, wetTiles,
 } from "../water/field";
 import { PIPE_D, pipeLevelAt, runPipes } from "../water/pipes";
 
@@ -333,6 +333,115 @@ describe("the water fixtures", () => {
     applyFixture(g, "flat", 1);
     expect([...g.source].some((r) => r !== 0)).toBe(false);
   });
+
+  test("and no inflow behind either", () => {
+    // The same rule for the other kind of feed. A fixture switched away from
+    // that left its rim held at a level would go on feeding the next one.
+    const g = createGrid(48, 48);
+    applyFixture(g, "inlet", 1);
+    expect([...g.inflow].some((v) => v !== 0)).toBe(true);
+    applyFixture(g, "flat", 1);
+    expect([...g.inflow].some((v) => v !== 0)).toBe(false);
+  });
+});
+
+/**
+ * The inlet fixture — a river arriving over the map's edge.
+ *
+ * NOT IN `WATER_FIXTURES`, and the reason is the point of it: every fixture on
+ * that list is checked for having its own TAPS, and this one deliberately has
+ * none. Its water comes over the boundary. @see buildInlet
+ *
+ * The channel and the valley wall are found from the ground itself — the
+ * lowest and highest cells of each column — rather than from the sine the
+ * fixture drew them with. A test that recomputes the fixture's own shape
+ * checks that two copies of one formula agree, which they always will.
+ */
+describe("the inlet fixture", () => {
+  const built = (feed: "inflow" | "spring") => {
+    const g = createGrid(48, 48);
+    applyFixture(g, "inlet", 1);
+    if (feed === "spring") {
+      // The same cells, fed the other way, so the comparison is only about how
+      // the water arrives. @see SOURCE_RATE
+      const at = [...g.inflow].map((v, i) => (v > 0 ? i : -1)).filter((i) => i >= 0);
+      g.inflow.fill(0);
+      for (const i of at) setSource(g, i % g.w, (i / g.w) | 0, SOURCE_RATE);
+    }
+    const chan: number[] = [], wall: number[] = [];
+    for (let x = 0; x < g.w; x++) {
+      let lo = Infinity, hi = -Infinity;
+      for (let y = 0; y < g.h; y++) {
+        const v = g.height[y * g.w + x];
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      for (let y = 0; y < g.h; y++) {
+        const v = g.height[y * g.w + x];
+        if (v <= lo + 1) chan.push(y * g.w + x);
+        if (v >= hi - 1) wall.push(y * g.w + x);
+      }
+    }
+    return { g, field: createWaterField(g), chan, wall };
+  };
+
+  const runFor = (g: Grid, field: ReturnType<typeof createWaterField>, secs: number) => {
+    for (let n = 0; n < secs * 60; n++) {
+      runSources(field, g, 1 / 60);
+      stepWater(field, 1 / 60);
+    }
+  };
+
+  const wetIn = (
+    field: ReturnType<typeof createWaterField>, g: Grid, cells: readonly number[],
+  ) => cells.filter((i) => depthAt(field, i % g.w, (i / g.w) | 0) > 0.5).length;
+
+  test("the channel is full from the edge it enters to the edge it leaves", () => {
+    const { g, field, chan } = built("inflow");
+    runFor(g, field, 60);
+    expect(wetIn(field, g, chan)).toBeGreaterThan(chan.length * 0.95);
+    // AND IT GOT THERE, which "most of it is wet" does not say on its own: a
+    // channel full for four fifths of its length and dry at the mouth is a
+    // long pond. Measured, the water is at the far column inside a minute.
+    const far = Math.max(...chan
+      .filter((i) => depthAt(field, i % g.w, (i / g.w) | 0) > 0.5)
+      .map((i) => i % g.w));
+    expect(far).toBe(g.w - 1);
+  }, 20000);
+
+  test("and it never gets out of the valley, however hard it is fed", () => {
+    // The level is held two half steps ABOVE the channel's brim, so this is
+    // the boundary being asked to overfill and failing to. It is checked
+    // every half minute rather than at the end, because a flood that came and
+    // drained would pass a test that only looked afterwards.
+    const { g, field, wall } = built("inflow");
+    for (let m = 0; m < 4; m++) {
+      runFor(g, field, 30);
+      expect(wetIn(field, g, wall)).toBe(0);
+    }
+  }, 30000);
+
+  test("and it settles to a standing flow instead of filling the map", () => {
+    // As much leaving as arriving. An inflow that did not settle would be the
+    // old failure with a new name: measured, the volume moves by well under a
+    // percent between the second minute and the fourth.
+    const { g, field } = built("inflow");
+    runFor(g, field, 120);
+    const settled = totalVolume(field, g);
+    runFor(g, field, 120);
+    expect(Math.abs(totalVolume(field, g) - settled)).toBeLessThan(settled * 0.05);
+  }, 40000);
+
+  test("where the same ground fed by a spring is still a trickle", () => {
+    // THE FIXTURE CAN FAIL, which is what it is for. This grade and this cut
+    // are the ones generated maps actually have, and at the rate a spring
+    // runs they fill a third of the channel in the minute the inflow fills
+    // all of it — so a change that quietly turned the boundary back into a
+    // tap would be caught here rather than looking like a slow map.
+    const { g, field, chan } = built("spring");
+    runFor(g, field, 60);
+    expect(wetIn(field, g, chan)).toBeLessThan(chan.length * 0.5);
+  }, 20000);
 });
 
 describe("the pipes fixture", () => {

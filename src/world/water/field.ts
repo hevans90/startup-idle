@@ -16,7 +16,7 @@
  * as a row of flat plates, and it gives the flow room to turn.
  */
 import {
-  FLOW_DEFAULTS, addWater, createColumnField, setMaterialDrag, setOpenEdge, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
+  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, setMaterialDrag, setOpenEdge, setRim, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
 } from "../../fluid/columns";
 import { waterInDrips } from "../../fluid/drips";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
@@ -226,6 +226,11 @@ export function poolSnapshot(field: WaterField, grid: Grid): Uint8Array {
 
 export function syncGround(field: WaterField, grid: Grid) {
   const { columns } = field;
+  // THE RIM'S LEVEL IS A FUNCTION OF THE GROUND UNDER IT, so it is rebuilt
+  // here rather than at a call site that would have to remember. Raising the
+  // land at a river's mouth raises the water the map is fed at, which is what
+  // an inflow measured above its own ground means. @see syncInflow
+  syncInflow(field, grid);
   // SAID ONCE, HERE, so the device does not have to be told every frame just
   // in case. @see ColumnField.groundRev
   columns.groundRev++;
@@ -246,6 +251,38 @@ export function syncGround(field: WaterField, grid: Grid) {
     }
   }
 }
+
+/**
+ * Tell the solver where the map is fed from beyond its edge.
+ *
+ * READ OFF THE COLUMN, NOT THE STEP. Two of the perimeter's steps land on each
+ * corner column, and the boundary condition lets the later one win — so the
+ * two must agree, and asking the column which tile it is in gives the same
+ * answer whichever step asked. @see rimAt
+ *
+ * A map with no inflow gets NO ARRAY AT ALL rather than one full of the
+ * sentinel: it is the common case by far, and it means the device has nothing
+ * to upload and the host's boundary keeps the branch it had.
+ */
+export function syncInflow(field: WaterField, grid: Grid) {
+  const { columns } = field;
+  const n = rimLength(columns.nx, columns.ny);
+  let rim: Float32Array | null = null;
+  for (let k = 0; k < n; k++) {
+    const i = rimAt(columns.nx, columns.ny, k);
+    const tx = tileOf(i % columns.nx), ty = tileOf((i / columns.nx) | 0);
+    if (!inBounds(grid, tx, ty)) continue;
+    const t = idx(grid, tx, ty);
+    const stage = grid.inflow[t];
+    if (stage <= 0) continue;
+    rim = rim ?? new Float32Array(n).fill(NO_INFLOW);
+    rim[k] = grid.height[t] + stage;
+  }
+  setRim(columns, rim, WATER_MATERIAL);
+}
+
+/** The fluid an off-map inflow carries. @see fluidChoices */
+const WATER_MATERIAL = 1;
 
 /** How far above its ground a built-on cell is treated as standing. */
 export const SOLID_LIFT = 64;

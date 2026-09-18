@@ -96,6 +96,30 @@ export type Grid = {
    * In HALF STEPS per second, over the tile, whatever the column resolution.
    */
   source: Int8Array;
+  /**
+   * An OFF-MAP INFLOW at the rim: half steps of water held over this tile.
+   *
+   * The other kind of water supply, and the difference from {@link source} is
+   * the whole reason it exists. A spring is a RATE — it delivers the same
+   * amount however full the channel already is, so it is the map's job to
+   * choose a number that fills the river without drowning the country round
+   * it, and that number is a function of the channel's own grade and section.
+   * Measured over one fixture's geometries the right rate ranged from nine to
+   * eighty half steps a second a cell; there is no one value, so a river fed
+   * this way is either a trickle or a marsh.
+   *
+   * This is a LEVEL. The map's edge is held at a water surface and delivers
+   * whatever discharge that surface drives — much at first, less as the
+   * channel backs up, nothing once it is full to the line. So the flow tunes
+   * itself to the channel, and OVERFILLING IS NOT REPRESENTABLE rather than
+   * merely avoided: water cannot stand above a line it is being held at.
+   *
+   * In half steps ABOVE THIS TILE'S OWN GROUND, so nought is no inflow and a
+   * map with none behaves exactly as it did. Only the outermost ring of tiles
+   * can carry one: an inflow is the world beyond the map arriving, and
+   * everywhere else the world beyond the map is not adjacent. @see spill
+   */
+  inflow: Int8Array;
   /** {@link RAMP} direction per cell; 0 = level. */
   ramp: Uint8Array;
   /**
@@ -185,6 +209,7 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     fluid: new Uint16Array(n),
     pool: new Uint8Array(n),
     source: new Int8Array(n),
+    inflow: new Int8Array(n),
     ramp: new Uint8Array(n),
     pipe: new Uint8Array(n),
     pipeZ: new Int8Array(n),
@@ -320,6 +345,22 @@ export function setPaved(g: Grid, x: number, y: number, v: number) {
 export function setSource(g: Grid, x: number, y: number, rate: number) {
   if (!inBounds(g, x, y)) return;
   g.source[idx(g, x, y)] = rate;
+  edited(g);
+}
+
+/**
+ * Hold the map's edge at a water level here. @see Grid.inflow
+ *
+ * IGNORED AWAY FROM THE RIM, rather than refused. An inflow is the world
+ * outside the map arriving over the boundary, so inland it has no meaning at
+ * all — and the boundary condition that reads this only ever looks at the
+ * outermost ring, so an inland value would be a number nothing would ever act
+ * on. Dropping it here means the layer says what is true.
+ */
+export function setInflow(g: Grid, x: number, y: number, stage: number) {
+  if (!inBounds(g, x, y)) return;
+  if (x > 0 && y > 0 && x < g.w - 1 && y < g.h - 1) return;
+  g.inflow[idx(g, x, y)] = stage;
   edited(g);
 }
 

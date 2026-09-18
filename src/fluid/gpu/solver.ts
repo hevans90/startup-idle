@@ -473,6 +473,8 @@ export function createGpuWater(
   let primed = false;
   /** The ground revision the device is holding. @see ColumnField.groundRev */
   let sentGround = f.groundRev;
+  /** The rim revision the device is holding. @see ColumnField.rimRev */
+  let sentRim = f.rimRev;
   /** Whether the last splash sent up had anything alive in it. */
   let sentSplash = false;
   /** Seconds a tick could not submit and the next one has to make up. */
@@ -1112,6 +1114,14 @@ export function createGpuWater(
           state.field, state.offset.ground * 4, field.ground,
         );
       }
+      // THE SAME DEAL FOR THE RIM, which moves when the map does: an inflow is
+      // a level over the ground beneath it, so raising a river's mouth raises
+      // what the map is fed at. It is the map's perimeter rather than its
+      // area, so this is a few kilobytes on an edit and nothing otherwise.
+      if (field.rim && field.rimRev !== sentRim) {
+        sentRim = field.rimRev;
+        device.queue.writeBuffer(state.field, state.offset.rim * 4, field.rim);
+      }
       // ONE FRAME PAST THE LAST MARK. `splashed` goes false on the frame the
       // last one fades out, and the device is still holding whatever was sent
       // before that — so the falling edge has to go up too, or a drop's white
@@ -1278,6 +1288,7 @@ export function createGpuWater(
       writeConsts(state, {
         ...consts, windDepth: 2.5, dryDepth: p.dryDepth, fallMin: FALL_MIN,
         openEdge: field.openEdge,
+        rimMaterial: field.rimMaterial, rimHeld: field.rim !== null,
         gravity: p.gravity, breaking: p.breaking,
         room: dripRoom(field.drips), cell: field.cell, frameDt: whole,
         arriveN, wantN,

@@ -26,8 +26,11 @@ ${STATE_WGSL}
 /**
  * One thread per border column, the four sides laid end to end.
  *
- * The corners are covered twice and clearing a cleared cell is still a
- * cleared cell, so nothing has to know where the sides meet.
+ * The corners are covered twice. Clearing a cleared cell is still a cleared
+ * cell, so that cost nothing while the rim was only ever emptied; with a level
+ * held on it the two steps naming one corner column could disagree and the
+ * later write would win. They cannot, because the array is filled by reading
+ * the COLUMN rather than the step. @see syncInflow
  */
 @compute @workgroup_size(${WORKGROUP})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -40,8 +43,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   else if (n < w * 2 + h) { i = (n - w * 2) * w; }        // the left column
   else if (n < w * 2 + h * 2) { i = (n - w * 2 - h) * w + w - 1; }
   if (i < 0) { return; }
-  setDepth(i, 0.0);
-  setMaterial(i, 0.0);
+  // HELD, OR EMPTIED, and it is one expression rather than two cases — exactly
+  // as the host writes it, because a boundary the two solvers disagree about
+  // is a seam along one edge of every map. An absorbing edge is an inflow
+  // whose level is under the ground. @see spill in columns.ts
+  var held = 0.0;
+  if (rimHeld()) { held = rimLevelAt(n) - groundAt(i); }
+  if (held > 0.0) {
+    setDepth(i, held);
+    setMaterial(i, rimMaterial());
+  } else {
+    setDepth(i, 0.0);
+    setMaterial(i, 0.0);
+  }
 }
 `;
 

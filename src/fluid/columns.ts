@@ -176,6 +176,22 @@ export type ColumnField = {
    */
   openEdge: boolean;
   /**
+   * The water LEVEL the open rim is held at, per border column, or dry.
+   *
+   * Indexed by {@link rimAt}'s walk round the perimeter rather than by column,
+   * because the rim is the perimeter and a whole map of numbers to describe it
+   * would be the map's area to say something about its edge.
+   *
+   * {@link NO_INFLOW} — anything below the world's floor — is an ordinary
+   * absorbing edge, so a field that never sets this behaves exactly as it did.
+   * @see spill, Grid.inflow
+   */
+  rim: Float32Array | null;
+  /** Which fluid arrives over the rim. @see setRim */
+  rimMaterial: number;
+  /** Bumped whenever {@link rim} changes, so a device copy knows to re-read. */
+  rimRev: number;
+  /**
    * The wind, on a grid far coarser than the water.
    *
    * A gust is a weather-sized thing — `WIND_TILES` across — so sampling it per
@@ -488,6 +504,9 @@ export function createColumnField(
     nx, ny, cell, params,
     t: 0,
     openEdge: false,
+    rim: null,
+    rimMaterial: 1,
+    rimRev: 0,
     windX: new Float32Array(wnx * wny),
     windY: new Float32Array(wnx * wny),
     wnx, wny, wstride: stride,
@@ -545,11 +564,76 @@ export function setOpenEdge(f: ColumnField, open: boolean) {
  * would have to go looking for.
  */
 function spill(f: ColumnField) {
-  const { nx, ny, depth, material } = f;
-  const clear = (i: number) => { depth[i] = 0; material[i] = 0; };
-  const last = (ny - 1) * nx;
-  for (let x = 0; x < nx; x++) { clear(x); clear(last + x); }
-  for (let y = 0; y < ny; y++) { clear(y * nx); clear(y * nx + nx - 1); }
+  const { nx, ny, depth, material, ground, rim, rimMaterial } = f;
+  const n = rimLength(nx, ny);
+  for (let k = 0; k < n; k++) {
+    const i = rimAt(nx, ny, k);
+    // HELD, OR EMPTIED, and the two are one expression rather than two cases:
+    // an absorbing edge is an inflow whose level is below the ground, so there
+    // is no branch here that a map without an inflow takes and a map with one
+    // does not. @see NO_INFLOW
+    const held = rim ? rim[k] - ground[i] : 0;
+    if (held > 0) {
+      depth[i] = held;
+      material[i] = rimMaterial;
+      // WATER THE FIELD DOES NOT OTHERWISE KNOW ABOUT. Everything else that
+      // puts water down goes through `addWater`, which widens the active box
+      // and raises the deepest column; this writes the depth itself, so it
+      // owes both. Without the box the solver looks at an empty region and
+      // does nothing at all — a rim held at its level, and a map still dry
+      // half a minute later. @see include, ColumnField.deepest
+      include(f, i % nx, (i / nx) | 0);
+      if (held > f.deepest) f.deepest = held;
+    } else { depth[i] = 0; material[i] = 0; }
+  }
+}
+
+/**
+ * A level below anything the world can hold: an ordinary absorbing edge.
+ *
+ * Heights are clamped to a hundred and twenty six half steps, so this is not
+ * merely large, it is unreachable — which is what lets "no inflow" and "an
+ * inflow this low" be the same thing and spares the boundary a second array
+ * saying which cells are which.
+ */
+export const NO_INFLOW = -1e9;
+
+/** How many entries a field's rim has. @see rimAt */
+export const rimLength = (nx: number, ny: number) => nx * 2 + ny * 2;
+
+/**
+ * The column the `n`th step round the rim lands on.
+ *
+ * WRITTEN ONCE AND READ BY BOTH SOLVERS. The device walks the border in a
+ * compute pass, one thread per step, and the host walks it here; if the two
+ * disagree about which column is the ninth step the maps differ along one
+ * edge, which is exactly the kind of seam that gets blamed on the solver.
+ *
+ * THE FOUR CORNERS ARE VISITED TWICE, once by a row and once by a column, and
+ * nothing here stops that — clearing a cleared column is still a cleared
+ * column. It matters only for a held level, where two entries name one column
+ * and the later write wins, so whoever fills the array owes it the same answer
+ * for both. @see buildRim, which gets it by reading the column rather than the
+ * step.
+ */
+export function rimAt(nx: number, ny: number, n: number): number {
+  if (n < nx) return n;                                    // the top row
+  if (n < nx * 2) return (ny - 1) * nx + (n - nx);         // the bottom row
+  if (n < nx * 2 + ny) return (n - nx * 2) * nx;           // the left column
+  return (n - nx * 2 - ny) * nx + nx - 1;                  // the right column
+}
+
+/**
+ * Hold the rim at these levels, or pass null to make it absorbing again.
+ *
+ * The array is kept, not copied: it is rebuilt from the map whenever the
+ * ground under it moves, and a copy here would be a second thing to keep in
+ * step. @see ColumnField.rim
+ */
+export function setRim(f: ColumnField, rim: Float32Array | null, material = 1) {
+  f.rim = rim;
+  f.rimMaterial = material;
+  f.rimRev++;
 }
 
 /** Material indices the per-material drag table covers. */

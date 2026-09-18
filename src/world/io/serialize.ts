@@ -61,6 +61,17 @@ export type WorldFile = {
    */
   source?: string;
   /**
+   * base64 Int8Array of the levels the map's rim is fed at. @see Grid.inflow
+   *
+   * OPTIONAL on read, like `source`, and for a sharper version of the reason:
+   * a map written before off-map inflows existed has none, and none is what a
+   * fresh grid gives. It is WRITTEN unconditionally though, because a river
+   * fed over the boundary that came back without its inflow would open as a
+   * full channel and then quietly drain — the water is saved by `pool`, so the
+   * map would look right for as long as it took to empty.
+   */
+  inflow?: string;
+  /**
    * base64 Uint8Array of pipe facings; 0 where there is no pipe.
    *
    * OPTIONAL on read for the same reason as the rest: a file written before
@@ -171,6 +182,7 @@ export function serializeWorld(
     fluid: encodeU16(grid.fluid),
     pool: encodeU8(water ? poolSnapshot(water, grid) : grid.pool),
     source: encodeI8(grid.source),
+    inflow: encodeI8(grid.inflow),
     pipe: encodeU8(grid.pipe),
     pipeZ: encodeI8(grid.pipeZ),
     ramp: encodeU8(grid.ramp),
@@ -227,6 +239,7 @@ export function deserializeWorld(file: unknown): { grid: Grid; palette: WorldFil
   if (typeof f.fluid === "string") grid.fluid.set(decodeU16(f.fluid, n));
   if (typeof f.pool === "string") grid.pool.set(decodeU8(f.pool, n));
   if (typeof f.source === "string") grid.source.set(decodeI8(f.source, n));
+  if (typeof f.inflow === "string") grid.inflow.set(decodeI8(f.inflow, n));
   if (typeof f.pipe === "string") grid.pipe.set(decodeU8(f.pipe, n));
   if (typeof f.pipeZ === "string") grid.pipeZ.set(decodeI8(f.pipeZ, n));
   grid.structureAt.fill(-1);

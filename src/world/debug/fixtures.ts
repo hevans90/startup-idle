@@ -10,13 +10,13 @@ import { DIR } from "../../iso/dir";
 import { layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
-  edited, fillTerrain, idx, inBounds, recomputeHeightRange, setSource, type Grid,
+  edited, fillTerrain, idx, inBounds, recomputeHeightRange, setInflow, setSource, type Grid,
 } from "../grid";
 
 export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
-  | "river" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
+  | "river" | "inlet" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
   | "firstRoad";
 
@@ -34,6 +34,7 @@ const clear = (g: Grid, material: number) => {
   g.ramp.fill(0);
   g.paved.fill(0);
   g.source.fill(0);
+  g.inflow.fill(0);
   g.fluid.fill(0);
   g.pool.fill(0);
   g.pipe.fill(0);
@@ -281,6 +282,80 @@ export function buildRiver(g: Grid, material: number) {
   }
   for (let d = -1; d <= 1; d++) tap(g, 1, Math.round(mid) + d, SPRING);
 }
+
+/**
+ * A river that arrives from off the map and leaves by the far side.
+ *
+ * THE HARD CASE ON PURPOSE, and that is the difference from {@link buildRiver}.
+ * The plain river fixture is a straight lane on a grade steep enough that any
+ * feed runs down it, so it passes whatever the boundary does; it proved the
+ * solver could carry a river long before the maps could hold one. This one is
+ * built out of the four things that were actually wrong with generated maps,
+ * measured on them:
+ *
+ *  - A GRADE TOO SLACK TO CARRY A SPRING. `river` falls 0.4 half steps a tile;
+ *    generated courses fell 0.05 to 0.07, and at that slope a rate-fed channel
+ *    fills for two minutes without reaching its own end.
+ *  - A CHANNEL DEEPER THAN A RATE WILL FILL. Cut {@link INLET_CUT} below its
+ *    floodplain, against the one to two half steps a spring sustains here — so
+ *    "the river is full" is a claim that can fail rather than a foregone one.
+ *  - A FEED ON THE RIM ITSELF, where the open edge empties the outer ring
+ *    every substep. A tap on the boundary keeps about a sixth of what the same
+ *    tap three tiles in keeps; an inflow is not a tap and loses nothing,
+ *    because it is the boundary rather than something standing on it.
+ *  - A COURSE THAT BENDS, so nothing here is a special case of a straight
+ *    solve down one axis.
+ *
+ * The level is set ABOVE the channel's own brim — see {@link INLET_STAGE} — so
+ * the fixture is asking the boundary to overfill it and the banks are the
+ * evidence that it cannot. @see Grid.inflow
+ */
+export function buildInlet(g: Grid, material: number) {
+  clear(g, material);
+  const mid = g.h / 2;
+  const half = Math.max(2, Math.round(g.h * 0.06));
+  const amp = g.h * 0.18, period = g.w / 1.7;
+  for (let x = 0; x < g.w; x++) {
+    const centre = mid + amp * Math.sin(x / period * Math.PI * 2);
+    const fall = Math.round((g.w - 1 - x) * INLET_GRADE);
+    for (let y = 0; y < g.h; y++) {
+      const off = Math.abs(y - centre);
+      // Bed, then two tiles of floodplain either side, then the valley wall.
+      const rel = off <= half ? -INLET_CUT : off <= half + 2 ? 0 : INLET_BANK;
+      set(g, x, y, fall + rel);
+    }
+  }
+  // THE WHOLE CROSS-SECTION, which is what an inflow is: a river entering a map
+  // is a width of water, and holding one tile of it at a level while its
+  // neighbours are held at nothing is a hole in a wall rather than a river.
+  const centre = mid + amp * Math.sin(0);
+  for (let y = Math.round(centre - half); y <= Math.round(centre + half); y++) {
+    setInflow(g, 0, y, INLET_STAGE);
+  }
+}
+
+/**
+ * How fast the inlet fixture's valley falls, in half steps a tile.
+ *
+ * At the slack end of what generated maps produce, because a fixture that only
+ * works on good ground tests the ground and not the boundary.
+ */
+const INLET_GRADE = 0.1;
+
+/** Half steps the channel is cut below its floodplain. */
+const INLET_CUT = 6;
+
+/**
+ * The level the map's edge is held at, above the channel bed.
+ *
+ * TWO HALF STEPS PROUD OF THE BRIM, so the boundary is being asked for more
+ * than the channel can hold and the banks have to say no. Held exactly at the
+ * brim the fixture would pass without the thing it exists to check.
+ */
+const INLET_STAGE = INLET_CUT + 2;
+
+/** How far the valley wall stands above the floodplain. */
+const INLET_BANK = 10;
 
 /**
  * Terraces, each a full step down from the last, with a spring at the top.
@@ -634,7 +709,7 @@ export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5 };
  */
 export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
-  "splitTrap", "river", "cascade", "lake", "islands", "pipes", "culvert",
+  "splitTrap", "river", "inlet", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
   "firstRoad",
 ];
@@ -652,6 +727,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "plaza": buildPlaza(g, material, cx, cy); return;
     case "splitTrap": buildSplitTrap(g, material, cx, cy); return;
     case "river": buildRiver(g, material); recomputeHeightRange(g); return;
+    case "inlet": buildInlet(g, material); recomputeHeightRange(g); return;
     case "cascade": buildCascade(g, material); recomputeHeightRange(g); return;
     case "lake": buildLake(g, material); recomputeHeightRange(g); return;
     case "islands": buildIslands(g, material); recomputeHeightRange(g); return;

@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   FLOW_DEFAULTS, MAX_FLOW_SPEED, addWater, at, createColumnField, flowEnergy, maxStep,
-  setMaterialDrag, setOpenEdge,
+  rimAt, rimLength, setMaterialDrag, setOpenEdge, setRim,
   stepFlow, substepsFor, surfaceAt, totalWater, velocityAt, type ColumnField,
 } from "./columns";
 
@@ -1179,5 +1179,84 @@ describe("a frame longer than the water can take", () => {
     expect(loose).toBeGreaterThan(tight * 4);
     const f = flat(16, 16);
     expect(tight).toBeCloseTo(5 * 2 * maxStep(f), 6);
+  });
+});
+
+/**
+ * The walk round the rim, which the device spells out for itself.
+ *
+ * A DUPLICATED RULE, deliberately: the boundary runs in a compute pass indexed
+ * by thread and here in a loop, and the two have to land on the same columns or
+ * a map differs along one edge. The device's copy is held by `?gpucheck`; this
+ * holds the host's to the PROPERTY rather than to a table of expected indices,
+ * which is the version that stays true when the map changes size.
+ */
+describe("the rim", () => {
+  const border = (nx: number, ny: number, i: number) => {
+    const x = i % nx, y = (i / nx) | 0;
+    return x === 0 || y === 0 || x === nx - 1 || y === ny - 1;
+  };
+
+  test("names every border column, and nothing inside", () => {
+    for (const [nx, ny] of [[8, 5], [5, 8], [2, 2], [17, 13]] as const) {
+      const seen = new Set<number>();
+      for (let k = 0; k < rimLength(nx, ny); k++) {
+        const i = rimAt(nx, ny, k);
+        expect(i).toBeGreaterThanOrEqual(0);
+        expect(i).toBeLessThan(nx * ny);
+        expect(border(nx, ny, i)).toBe(true);
+        seen.add(i);
+      }
+      // And ALL of them: a step missed is a hole in the side of the world.
+      let want = 0;
+      for (let i = 0; i < nx * ny; i++) if (border(nx, ny, i)) want++;
+      expect(seen.size).toBe(want);
+    }
+  });
+
+  test("a held rim FEEDS the map, and an unheld one drains it", () => {
+    // The two halves of one expression, tested by what they do rather than by
+    // the depth on the rim itself: the boundary runs at the top of a substep
+    // and the flux pass then moves that water on, so the held column is never
+    // sitting at its level by the time a step has finished. @see NO_INFLOW
+    const flat = () => {
+      const f = createColumnField(12, 12, { ...FLOW_DEFAULTS, wind: 0 });
+      setOpenEdge(f, true);
+      f.ground.fill(0);
+      return f;
+    };
+
+    // Nothing on the map, a run of its rim held three half steps up.
+    //
+    // MID-EDGE, and not at a corner, which is not fussiness: the only
+    // neighbours a corner column has are two more rim columns, and those are
+    // emptied every substep like the rest of the rim — so a corner held at a
+    // level feeds the edge of the world and nothing else, for ever. An inflow
+    // wants an INTERIOR column to hand its water to.
+    const fed = flat();
+    const rim = new Float32Array(rimLength(fed.nx, fed.ny)).fill(-1e9);
+    for (let k = 5; k <= 7; k++) rim[k] = 3;
+    setRim(fed, rim);
+    for (let n = 0; n < 60; n++) stepFlow(fed, 1 / 60);
+    expect(totalWater(fed)).toBeGreaterThan(0);
+
+    // The same map and the same second with an ordinary absorbing edge gets
+    // NOTHING, which is the contrast that matters: the water above came over
+    // the boundary rather than from anywhere on the map.
+    const dry = flat();
+    for (let n = 0; n < 60; n++) stepFlow(dry, 1 / 60);
+    expect(totalWater(dry)).toBe(0);
+
+    // And stopping the hold stops the FEEDING, which is the claim that can be
+    // made cleanly. Not that the map then drains — what came in is a puddle on
+    // a flat plane now, and a flat plane keeps its puddles, since below
+    // `minSlope` nothing moves at all. Nor that the rim goes to nought after a
+    // step: the ring is cleared at the top of a substep and the flux pass then
+    // runs water back into it on its way off the map, which is what an
+    // absorbing edge looks like from the inside.
+    const had = totalWater(fed);
+    setRim(fed, null);
+    for (let n = 0; n < 60 * 5; n++) stepFlow(fed, 1 / 60);
+    expect(totalWater(fed)).toBeLessThanOrEqual(had);
   });
 });

@@ -56,7 +56,7 @@
  * nothing in the physics is asking for.
  */
 import {
-  MATERIAL_SLOTS, MAX_FLOW_SPEED, type Arrivals, type ColumnField,
+  MATERIAL_SLOTS, MAX_FLOW_SPEED, rimLength, type Arrivals, type ColumnField,
 } from "../columns";
 import { FALL_THROW } from "../falls";
 import type { Stamps } from "./stamps";
@@ -352,6 +352,7 @@ export const FIELDS = [
   // keeps every other reader (the save, the handover to the CPU solver) seeing
   // a field that is stale rather than one that is frozen. @see WANT_MAX
   "wantAt", "wantOut",
+  "rim",
 ] as const;
 export type FieldName = (typeof FIELDS)[number];
 
@@ -440,6 +441,10 @@ export type PassUniforms = {
   arriveN: number;
   /** How many cells the host wants the depth of. @see WANT_MAX */
   wantN: number;
+  /** Which fluid arrives over the rim. @see ColumnField.rimMaterial */
+  rimMaterial: number;
+  /** Whether any of the rim is held at a level. @see ColumnField.rim */
+  rimHeld: boolean;
 };
 
 export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
@@ -477,6 +482,8 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     foamNow: cells, foamNext: cells, splashNow: cells, splashIn: cells,
     spawn: SPAWN_MAX * SPAWN_STRIDE,
     wantAt: WANT_MAX, wantOut: WANT_MAX,
+    // The PERIMETER, not the area: the rim is an edge. @see rimAt
+    rim: rimLength(f.nx, f.ny),
   };
   const offset = {} as Record<FieldName, number>;
   let at = 0;
@@ -761,6 +768,9 @@ export function upload(s: GpuState, f: ColumnField) {
     q.writeBuffer(s.field, s.offset[name] * 4, data);
   put("ground", f.ground);
   put("depth", f.depth);
+  // ONLY WHEN THERE IS ONE. A map with no inflow leaves the slice untouched
+  // and the shader never reads it, because `rimHeld` is false. @see spill
+  if (f.rim) put("rim", f.rim);
   put("fx", f.fx);
   put("fy", f.fy);
   put("windX", f.windX);
@@ -884,6 +894,9 @@ export function writeConsts(
   i32[73] = u.openEdge ? 1 : 0;
   i32[74] = o.wantAt; i32[75] = o.wantOut;
   i32[76] = u.wantN;
+  i32[77] = o.rim;
+  i32[78] = u.rimMaterial;
+  i32[79] = u.rimHeld ? 1 : 0;
   i32[68] = o.foamNow; i32[69] = o.foamNext;
   i32[70] = o.splashNow; i32[71] = o.splashIn;
   f32[51] = u.frameDt;
@@ -959,7 +972,7 @@ struct Consts {
   o10: vec4<i32>,        // offsets: washNow, washNext, washSeed, fallOut
   o11: vec4<i32>,        // offsets: foamNow, foamNext, splashNow, splashIn
   o12: vec4<i32>,        // offset: matByte, open edge, wantAt, wantOut
-  o13: vec4<i32>,        // how many cells the host asked the depth of, 3 spare
+  o13: vec4<i32>,        // wantN, then the rim: offset, material, whether held
 };
 
 @group(0) @binding(0) var<uniform> consts : Consts;
@@ -1007,6 +1020,13 @@ fn wantAt(k: i32) -> i32 { return i32(field[consts.o12.z + k]); }
 fn setWantOut(k: i32, v: f32) { field[consts.o12.w + k] = v; }
 /** How many it asked. */
 fn wantN() -> i32 { return consts.o13.x; }
+
+/** The level the rim's k-th step is held at. @see Grid.inflow */
+fn rimLevelAt(k: i32) -> f32 { return field[consts.o13.y + k]; }
+/** Which fluid arrives over the rim. */
+fn rimMaterial() -> f32 { return f32(consts.o13.z); }
+/** Whether any of the rim is held at a level at all. */
+fn rimHeld() -> bool { return consts.o13.w != 0; }
 /**
  * Whether this column is the rim water LEAVES by, rather than water.
  *
