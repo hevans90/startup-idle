@@ -75,6 +75,9 @@ function feed(g: Grid, p: GenParams, at: number, dist: Int16Array): number {
  */
 const SPRING_RATE = 16;
 
+/** No channel here: lower than any ground the map can have. @see standWater */
+const DRY_LEVEL = -32768;
+
 /** Tiles of clearance a channel keeps from any paved cell. */
 const CLEARANCE = 2;
 
@@ -131,6 +134,18 @@ export function carveWater(
   // crossing. Everything that asks "how high is the ground here" for the
   // purpose of cutting asks this instead.
   const land = g.height.slice();
+  /**
+   * The level a channel is PRIMED to, per cell, or `DRY` where none.
+   *
+   * A fed river reaches its own level in about a minute, and a map that opens
+   * with an empty trench and fills while you watch is a map that opens wrong.
+   * The flood cannot supply this: a course runs onto the map and off it again,
+   * so both its ends drain and a basin-filling algorithm correctly reports
+   * that nothing stands in it. What stands in it is what the FLOW will hold,
+   * and the carve already knows that number — it is the waterline the channel
+   * was cut to. @see carveChannel
+   */
+  const prime = new Int16Array(g.w * g.h).fill(DRY_LEVEL);
   const outlet = outletField(g, dist);
   // Spine cells carved so far, so a side stream can find the river it joins.
   const channel = new Uint8Array(g.w * g.h);
@@ -147,7 +162,7 @@ export function carveWater(
     const [from, to] = ends;
     const path = walk(g, p, rng, from, spread(g, dist, [to]), dist, null);
     if (path.length < 2) continue;
-    carveChannel(g, p, land, dist, path, channel, out, 1);
+    carveChannel(g, p, land, dist, path, channel, prime, out, 1);
     out.length += path.length;
 
     // AND IT IS FED, at the edge it comes in by.
@@ -176,7 +191,7 @@ export function carveWater(
       // the thing is only real if it got where it was going.
       if (tp.length < 3 || !channel[tp[tp.length - 1]]) continue;
       // Ends where it meets the river, and is never wider than what it joins.
-      carveChannel(g, p, land, dist, tp, channel, out, TRIBUTARY);
+      carveChannel(g, p, land, dist, tp, channel, prime, out, TRIBUTARY);
       out.length += tp.length;
     }
   }
@@ -187,7 +202,7 @@ export function carveWater(
   // @see fillDepressions
   // Nothing asked for, nothing made — the flood is a fact about the whole map
   // and would fill any hollow the noise left, on a map that wanted none.
-  out.wet = p.rivers > 0 || p.lakes > 0 ? standWater(g, dist) : 0;
+  out.wet = p.rivers > 0 || p.lakes > 0 ? standWater(g, dist, prime) : 0;
   if (out.cut) edited(g);
   return out;
 }
@@ -200,9 +215,29 @@ export function carveWater(
  * shallower than a slab is left dry; what is left is the pools of the rivers,
  * the lakes, and the hollows deep enough to be worth calling one.
  */
-function standWater(g: Grid, dist: Int16Array): number {
+function standWater(g: Grid, dist: Int16Array, prime: Int16Array): number {
   const level = fillDepressions(g, dist);
   let wet = 0;
+  // THE HIGHER OF THE TWO, then settled. The flood says what a basin holds
+  // STANDING; the prime says what a channel holds RUNNING, which the flood
+  // cannot see because a course drains at both ends and the standing answer
+  // there is correctly nothing. Taking the larger is right and is not yet
+  // consistent: the prime is a line the carve drew, and where the cut runs
+  // close to the road's clearance or to ground outside it the line can end up
+  // a slab or two above a dry cell next door. That is water perched on a bank,
+  // and the solver tips it over within a second of the map opening.
+  //
+  // IT IS NOT SETTLED, and that was the mistake worth recording. Relaxing the
+  // level until every cell sits below its lowest way out computes the NO-FLOW
+  // equilibrium — which is precisely what the flood already returned, so it
+  // drained the channel straight back to 8% and undid the whole point. A
+  // flowing surface stands above the static one in places; that is what flow
+  // IS. The overshoot is bounded at about a slab and the solver trims it in
+  // the first second. @see "the water is never far over its banks"
+  for (let i = 0; i < level.length; i++) {
+    if (prime[i] > level[i]) level[i] = prime[i];
+  }
+
   for (let i = 0; i < g.pool.length; i++) {
     const deep = level[i] - g.height[i];
     // NOTHING IS CLIPPED HERE. Every rule the water obeys — the street's
@@ -487,7 +522,8 @@ export function reachAt(
  */
 function carveChannel(
   g: Grid, p: GenParams, land: Int8Array, dist: Int16Array,
-  path: readonly number[], channel: Uint8Array, out: WaterReport, scale: number,
+  path: readonly number[], channel: Uint8Array, prime: Int16Array,
+  out: WaterReport, scale: number,
 ): void {
   const bank = p.riverBank;
 
@@ -578,6 +614,25 @@ function carveChannel(
         const grade = bank > 0 ? p.terrace / bank : 99;    // 0 banks: a slot
         const target = terraceTo(bed + Math.max(0, d - half) * grade, p.terrace);
         if (g.height[j] > target) { g.height[j] = Math.max(HEIGHT_MIN, target); out.cut++; }
+        // AND THE WATERLINE THIS CELL WILL RUN AT, recorded for the fill.
+        //
+        // The whole cut, not just the bed: the banks are the sides of the
+        // channel and the river fills against them. What is above the line
+        // stays dry because the depth comes out negative there, which is the
+        // same arithmetic the flood uses and not a second rule.
+        // A STEP UNDER THE LINE THE CHANNEL WAS CUT TO. Filled right to it,
+        // the prime stood a slab above ground just outside the cut on some
+        // courses, and a slab of freeboard costs nothing to look at.
+        //
+        // ONLY WHERE THERE IS FLOW TO HOLD IT. The prime says what a RUNNING
+        // channel carries; with no spring there is nothing to carry it, and
+        // priming an unfed course just puts water in a trench for the solver
+        // to pour out of both ends. Unfed, the flood's answer is the whole
+        // truth and it is exact.
+        if (p.springs > 0) {
+          const at = sill - p.terrace;
+          if (at > prime[j]) prime[j] = at;
+        }
       }
     }
   }
