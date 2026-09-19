@@ -14,7 +14,10 @@ import {
 } from "./grid";
 import { applyFixture } from "./debug/fixtures";
 import { generateMap } from "./gen/generate-map";
-import { createWaterField, depthAt, stepWater, totalVolume } from "./water/field";
+import {
+  createWaterField, deckedAt, depthAt, pourAt, setWaterEdge, stepWater, totalVolume,
+} from "./water/field";
+import { totalWater } from "../fluid/columns";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
 import { componentCount, createNetwork } from "./roads/network";
 import { derivedRamp, type SurfaceReader } from "./roads/ramp-derive";
@@ -196,5 +199,88 @@ describe("the ramp derivation reads the surface", () => {
     let wrong = 0;
     for (let seed = 0; seed < 6; seed++) wrong += ramped(generated(seed), false).length;
     expect(wrong).toBeGreaterThan(20);
+  });
+});
+
+/**
+ * WATER STANDS ON A BRIDGE, which is the other half of a deck being a surface.
+ *
+ * The picker resolves a click to the surface you can SEE, and a span is that
+ * surface where there is one — so an edit aimed at a bridge has to act on the
+ * bridge. It did not: every tool wrote the terrain, and a pour aimed at a span
+ * landed on the riverbed twenty half steps below it, out of sight underneath.
+ *
+ * The fix is a second field over the same map — ground at the deck, no floor
+ * anywhere else — stepped by the SAME solver rather than by a second, cheaper
+ * set of rules about how water behaves. @see WaterField.over
+ */
+describe("water on a deck", () => {
+  /** A walled pan with a flat deck over part of it, and nothing else. */
+  const pan = (deckAt: number) => {
+    const g = createGrid(12, 12);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) setHeight(g, x, y, -6);
+    for (let y = 4; y <= 7; y++) for (let x = 4; x <= 7; x++) setDeck(g, x, y, 1, deckAt);
+    const field = createWaterField(g);
+    setWaterEdge(field, false);            // a closed pan: nothing may leave
+    return { g, field };
+  };
+
+  test("a map with no deck on it has no upper storey at all", () => {
+    // It is a second field's worth of memory and of solver time, and a map
+    // with no bridge should pay neither.
+    const g = createGrid(8, 8);
+    fillTerrain(g, 1);
+    expect(createWaterField(g).over).toBeNull();
+  });
+
+  test("pouring on a span puts the water ON it, not on the ground beneath", () => {
+    const { field } = pan(10);
+    expect(deckedAt(field, 5, 5)).toBe(true);
+    expect(deckedAt(field, 1, 1)).toBe(false);
+    pourAt(field, 5, 5, 6, 1);
+    // All of it upstairs, none of it on the bed — which is the whole bug.
+    expect(totalWater(field.over!)).toBeGreaterThan(0);
+    expect(totalWater(field.columns)).toBe(0);
+  });
+
+  test("and it runs off the end and falls to the ground below", () => {
+    const { g, field } = pan(10);
+    pourAt(field, 5, 5, 6, 1);
+    const put = totalVolume(field, g);
+    for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
+    // Off the deck and down: most of it leaves, and what stays is the film a
+    // FLAT surface always keeps — below `minSlope` nothing moves, which is
+    // the same rule that lets a puddle sit on a plain instead of creeping
+    // across it for ever. A deck is a plain four tiles wide.
+    expect(totalWater(field.over!)).toBeLessThan(put * 0.25);
+    expect(totalWater(field.columns)).toBeGreaterThan(put * 0.5);
+  }, 20_000);
+
+  test("and NOTHING IS LOST ON THE WAY DOWN", () => {
+    // The handover is the part that can leak: the solver takes the water off
+    // the upper field and the world puts it on the lower one, and a field
+    // that knew about only one of those would report a leak or make water.
+    // A closed pan, so the only way the total can move is a mistake here.
+    const { g, field } = pan(10);
+    pourAt(field, 5, 5, 6, 1);
+    const put = totalVolume(field, g);
+    for (let n = 0; n < 60 * 20; n++) {
+      stepWater(field, 1 / 60);
+      expect(totalVolume(field, g)).toBeCloseTo(put, 1);
+    }
+  }, 30_000);
+
+  test("and it does not fall THROUGH the deck it is standing on", () => {
+    // The gap is under the span, not in it. Water on a deck reaches the bed
+    // by running off an edge, which takes time; it must not simply appear
+    // below on the first step.
+    const { field } = pan(10);
+    pourAt(field, 5, 5, 6, 1);
+    stepWater(field, 1 / 60);
+    // The cells under the span itself are still dry after a step.
+    for (let y = 5; y <= 6; y++) {
+      for (let x = 5; x <= 6; x++) expect(depthAt(field, x, y)).toBe(0);
+    }
   });
 });

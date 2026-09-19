@@ -192,6 +192,27 @@ export type ColumnField = {
   /** Bumped whenever {@link rim} changes, so a device copy knows to re-read. */
   rimRev: number;
   /**
+   * Columns with NO FLOOR: water here falls through instead of standing.
+   *
+   * What makes a second storey possible. A field whose ground is a bridge's
+   * deck has to end somewhere, and the end of a bridge is not a wall — water
+   * running off it goes DOWN. So the columns that are not deck have no floor
+   * at all: whatever reaches them is taken off this field and handed to the
+   * one below. @see fell, ColumnField.ground
+   *
+   * Null on an ordinary field, which is every field that is not an upper
+   * storey, and costs it nothing.
+   */
+  through: Uint8Array | null;
+  /**
+   * What fell through, per column, waiting to be handed down.
+   *
+   * Accumulated rather than transferred here, because this file knows nothing
+   * about a world with two storeys in it — it is one field's physics. The
+   * world reads this, pours it into the field below, and clears it.
+   */
+  fell: Float32Array | null;
+  /**
    * The wind, on a grid far coarser than the water.
    *
    * A gust is a weather-sized thing — `WIND_TILES` across — so sampling it per
@@ -507,6 +528,8 @@ export function createColumnField(
     rim: null,
     rimMaterial: 1,
     rimRev: 0,
+    through: null,
+    fell: null,
     windX: new Float32Array(wnx * wny),
     windY: new Float32Array(wnx * wny),
     wnx, wny, wstride: stride,
@@ -634,6 +657,41 @@ export function setRim(f: ColumnField, rim: Float32Array | null, material = 1) {
   f.rim = rim;
   f.rimMaterial = material;
   f.rimRev++;
+}
+
+/**
+ * Take the water off every column that has no floor, and remember how much.
+ *
+ * At the top of a substep beside {@link spill}, and for the same reason: the
+ * columns a body of water is about to be bounded by have to be empty when the
+ * heads are taken, or the body is standing on water that is not there.
+ *
+ * It does NOT put the water anywhere. This field is one storey and knows
+ * nothing about what is under it; the world reads {@link ColumnField.fell} and
+ * pours it into the storey below. @see through
+ */
+function drop(f: ColumnField) {
+  const { depth, material, through, fell } = f;
+  if (!through || !fell) return;
+  for (let i = 0; i < depth.length; i++) {
+    if (!through[i] || depth[i] <= 0) continue;
+    fell[i] += depth[i];
+    depth[i] = 0;
+    material[i] = 0;
+  }
+}
+
+/**
+ * Make this field an upper storey: solid only where `solid` says so.
+ *
+ * Pass null to make it an ordinary field again, which drops the arrays.
+ */
+export function setStorey(f: ColumnField, solid: Uint8Array | null) {
+  if (!solid) { f.through = null; f.fell = null; return; }
+  const through = new Uint8Array(f.depth.length);
+  for (let i = 0; i < through.length; i++) through[i] = solid[i] ? 0 : 1;
+  f.through = through;
+  f.fell = f.fell ?? new Float32Array(f.depth.length);
 }
 
 /** Material indices the per-material drag table covers. */
@@ -1778,6 +1836,7 @@ export function diffuseBreaking(f: ColumnField, c: PassConsts) {
 function substep(f: ColumnField, dt: number) {
   f.t += dt;
   if (f.openEdge) spill(f);
+  if (f.through) drop(f);
   const region = activeBox(f);
   if (!region) { stepAir(f, dt); return; }      // nothing wet, but drops still fall
   stirWind(f);

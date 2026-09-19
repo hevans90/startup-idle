@@ -16,7 +16,7 @@
  * as a row of flat plates, and it gives the flow room to turn.
  */
 import {
-  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, setMaterialDrag, setOpenEdge, setRim, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
+  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, setMaterialDrag, setOpenEdge, setRim, setStorey, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
 } from "../../fluid/columns";
 import { waterInDrips } from "../../fluid/drips";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
@@ -52,6 +52,21 @@ export const POUR_AMOUNT = 6;
 
 export type WaterField = {
   columns: ColumnField;
+  /**
+   * The UPPER STOREY: water standing on decks, with nothing under it.
+   *
+   * A second field over the same map whose ground is the deck where there is
+   * one and which has no floor anywhere else, so water running off the end of
+   * a bridge falls out of it and is handed to `columns` below. Null until the
+   * map has a deck on it, and it costs nothing until then.
+   *
+   * ONE SOLVER, TWICE, rather than a second water model. A deck is flat and a
+   * puddle on one has little to do, so a cheaper bespoke thing was tempting —
+   * and a bespoke thing is a second set of rules about how water behaves, in a
+   * codebase whose seams have all come from one rule written twice.
+   * @see setStorey, Grid.deck
+   */
+  over: ColumnField | null;
   /** Map size in TILES, so a resize can be detected. */
   w: number;
   h: number;
@@ -130,6 +145,7 @@ export function createWaterField(
     nets: createPipeNets(grid.w, grid.h),
     spilled: -1,
     taps: emptyCellList(grid.w * grid.h),
+    over: null,
   };
   // Each fluid keeps its own momentum differently — the only thing that makes
   // one behave unlike another now that depth and levels are gone.
@@ -179,7 +195,19 @@ export function fillPools(field: WaterField, grid: Grid) {
     for (let x = 0; x < grid.w; x++) {
       const i = idx(grid, x, y);
       const deep = grid.pool[i];
-      if (deep > 0) pourAt(field, x, y, deep, grid.fluid[i] || 1);
+      if (deep <= 0) continue;
+      // STRAIGHT ONTO THE GROUND, not through `pourAt`, which now sends a
+      // pour to the deck where there is one. `Grid.pool` is standing water on
+      // the LAND — the river in a channel, the lake in its basin — and a span
+      // over it does not catch it on the way in. Routed through the pour it
+      // did exactly that: a map that opened with a river under a bridge put
+      // that stretch of it on top of the bridge instead. @see pourAt
+      const material = grid.fluid[i] || 1;
+      for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
+        for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
+          addWater(field.columns, columnOf(x) + dx, columnOf(y) + dy, deep, material);
+        }
+      }
     }
   }
 }
@@ -233,6 +261,7 @@ export function poolSnapshot(field: WaterField, grid: Grid): Uint8Array {
 
 export function syncGround(field: WaterField, grid: Grid) {
   const { columns } = field;
+  syncDecks(field, grid);
   // THE RIM'S LEVEL IS A FUNCTION OF THE GROUND UNDER IT, so it is rebuilt
   // here rather than at a call site that would have to remember. Raising the
   // land at a river's mouth raises the water the map is fed at, which is what
@@ -288,6 +317,59 @@ export function syncInflow(field: WaterField, grid: Grid) {
   setRim(columns, rim, WATER_MATERIAL);
 }
 
+/**
+ * Build, rebuild or drop the upper storey to match the map's decks.
+ *
+ * Here rather than at a call site because a deck's LEVEL is part of it and the
+ * ground moving is what changes levels — the same argument `syncInflow` makes
+ * next door.
+ *
+ * NOTHING AT ALL WHERE THERE ARE NO DECKS, which is most maps: a second field
+ * is a second field's worth of memory and of solver time, and a map with no
+ * bridge on it should pay neither.
+ */
+export function syncDecks(field: WaterField, grid: Grid) {
+  let any = false;
+  for (let i = 0; i < grid.deck.length && !any; i++) if (grid.deck[i] !== 0) any = true;
+  if (!any) { field.over = null; return; }
+
+  const { nx, ny } = field.columns;
+  const over = field.over ?? createColumnField(nx, ny, field.columns.params, field.columns.cell);
+  field.over = over;
+  // OPEN AT THE MAP'S RIM like the storey below, so a span that reaches the
+  // edge of the world drains off it rather than damming against nothing.
+  setOpenEdge(over, field.columns.openEdge);
+  for (const { index, material } of fluidChoices()) setMaterialDrag(over, index, material.drag);
+
+  const solid = new Uint8Array(nx * ny);
+  for (let cy = 0; cy < ny; cy++) {
+    for (let cx = 0; cx < nx; cx++) {
+      const tx = tileOf(cx), ty = tileOf(cy);
+      const i = cy * nx + cx;
+      if (!inBounds(grid, tx, ty)) { over.ground[i] = 127; continue; }
+      const t = idx(grid, tx, ty);
+      if (grid.deck[t] !== 0) {
+        solid[i] = 1;
+        over.ground[i] = grid.deckZ[t];
+      } else {
+        // No floor: whatever reaches here is on its way down. The ground is
+        // the real land, so the fall starts from somewhere true.
+        over.ground[i] = grid.height[t];
+      }
+    }
+  }
+  over.groundRev++;
+  setStorey(over, solid);
+}
+
+/** Whether a tile has a deck that water can stand on. @see syncDecks */
+export const deckedAt = (field: WaterField, x: number, y: number): boolean => {
+  const over = field.over;
+  if (!over) return false;
+  const i = columnOf(y) * over.nx + columnOf(x);
+  return over.through ? over.through[i] === 0 : false;
+};
+
 /** The fluid an off-map inflow carries. @see fluidChoices */
 const WATER_MATERIAL = 1;
 
@@ -302,8 +384,24 @@ export const setWaterEdge = (field: WaterField, open: boolean) =>
 export const waterEdgeIsOpen = (field: WaterField) => field.columns.openEdge;
 
 /** Advance the flow. */
-export const stepWater = (field: WaterField, dt: number) =>
+export function stepWater(field: WaterField, dt: number) {
+  const over = field.over;
+  if (over) {
+    stepFlow(over, dt);
+    // AND WHAT RAN OFF THE BRIDGE GOES DOWN. Handed over here rather than
+    // inside the solver, which is one field's physics and knows nothing about
+    // there being another one under it. @see ColumnField.fell
+    const fell = over.fell;
+    if (fell) {
+      for (let i = 0; i < fell.length; i++) {
+        if (fell[i] <= 0) continue;
+        addWater(field.columns, i % over.nx, (i / over.nx) | 0, fell[i], 1);
+        fell[i] = 0;
+      }
+    }
+  }
   stepFlow(field.columns, dt);
+}
 
 /**
  * Run the springs and drains for `dt` seconds.
@@ -360,7 +458,13 @@ export function pourAt(
   amount: number,
   material: number,
 ) {
-  const { columns } = field;
+  // ON THE DECK WHERE THERE IS ONE, which is the answer to "I clicked the
+  // bridge and the water went somewhere else". The pick resolves to the
+  // surface you can see — a span, if one is over this cell — and an edit has
+  // to act on the surface the pick named. It did not: every tool wrote the
+  // terrain, so a pour aimed at a bridge landed on the riverbed twenty half
+  // steps below it, out of sight under its own span. @see deckedAt
+  const columns = deckedAt(field, x, y) ? field.over! : field.columns;
   const cx0 = columnOf(x),
     cy0 = columnOf(y);
   for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
@@ -463,7 +567,11 @@ export function wetTiles(field: WaterField): number {
  * report a leak every time a drain worked.
  */
 export const totalVolume = (field: WaterField, grid: Grid, onTheMap?: number) =>
-  (onTheMap === undefined
+  // BOTH STOREYS. Water standing on a bridge is water on the map, and a total
+  // that stopped counting it would report a leak the moment anybody poured on
+  // one — the same argument the pipes make below.
+  (field.over ? totalWater(field.over) : 0)
+  + (onTheMap === undefined
     ? totalWater(field.columns)
     // THE MAP'S SHARE, COUNTED ELSEWHERE. When the device solver is running it
     // has already summed both the depths and what is in the air — see
