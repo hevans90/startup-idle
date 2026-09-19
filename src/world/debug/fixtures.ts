@@ -10,13 +10,13 @@ import { DIR } from "../../iso/dir";
 import { layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
-  edited, fillTerrain, idx, inBounds, recomputeHeightRange, setInflow, setSource, type Grid,
+  edited, fillTerrain, idx, inBounds, recomputeHeightRange, setDeck, setInflow, setSource, type Grid,
 } from "../grid";
 
 export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
-  | "river" | "inlet" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
+  | "river" | "inlet" | "bridge" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
   | "firstRoad";
 
@@ -35,6 +35,8 @@ const clear = (g: Grid, material: number) => {
   g.paved.fill(0);
   g.source.fill(0);
   g.inflow.fill(0);
+  g.deck.fill(0);
+  g.deckZ.fill(0);
   g.fluid.fill(0);
   g.pool.fill(0);
   g.pipe.fill(0);
@@ -380,6 +382,38 @@ const INLET_STAGE = INLET_CUT + 2;
 
 /** How far the valley wall stands above the floodplain. */
 const INLET_BANK = 10;
+
+/**
+ * The inlet river, with something built OVER it.
+ *
+ * The first thing on this map that is not a heightfield. A deck is a second
+ * surface over a cell with a gap under it — @see Grid.deck — and the reason
+ * to want one is sitting in this fixture: the generator forbids a river to go
+ * near the street, because with one surface per cell a crossing is a choice
+ * between damming the river and washing out the road. A span is the third
+ * answer.
+ *
+ * It is laid at the height of the valley WALL, which is where a road crossing
+ * this valley would arrive from: a bridge is only a bridge if it meets the
+ * land at either end.
+ *
+ * THE GROUND UNDER IT IS UNTOUCHED, deliberately and visibly. The river below
+ * is the same river it would be with nothing over it — a test asserts exactly
+ * that, tile for tile — because the deck is never told to the water solver.
+ */
+export function buildBridge(g: Grid, material: number) {
+  buildInlet(g, material);
+  const at = Math.round(g.w / 2);
+  const level = Math.round((g.w - 1 - at) * INLET_GRADE) + INLET_BANK;
+  for (let y = 0; y < g.h; y++) {
+    // Only where it is actually spanning something. On the valley wall the
+    // deck would sit AT the ground, which is a road and not a bridge.
+    for (const x of [at, at + 1]) setDeck(g, x, y, PAVED, level);
+  }
+}
+
+/** The paved material a fixture's deck is made of. @see Grid.deck */
+const PAVED = 1;
 
 /**
  * Terraces, each a full step down from the last, with a spring at the top.
@@ -733,7 +767,7 @@ export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5 };
  */
 export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
-  "splitTrap", "river", "inlet", "cascade", "lake", "islands", "pipes", "culvert",
+  "splitTrap", "river", "inlet", "bridge", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
   "firstRoad",
 ];
@@ -752,6 +786,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "splitTrap": buildSplitTrap(g, material, cx, cy); return;
     case "river": buildRiver(g, material); recomputeHeightRange(g); return;
     case "inlet": buildInlet(g, material); recomputeHeightRange(g); return;
+    case "bridge": buildBridge(g, material); recomputeHeightRange(g); return;
     case "cascade": buildCascade(g, material); recomputeHeightRange(g); return;
     case "lake": buildLake(g, material); recomputeHeightRange(g); return;
     case "islands": buildIslands(g, material); recomputeHeightRange(g); return;

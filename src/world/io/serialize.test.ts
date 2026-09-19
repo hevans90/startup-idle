@@ -176,11 +176,14 @@ describe("round trip", () => {
     const g = createGrid(64, 64);
     fillTerrain(g, 1);
     const json = toJSON(serializeWorld(g, PAL));
-    // Ten dense layers of 4,096 cells, base64. The budget is a guard against
-    // a layer being written as something other than packed bytes, not a tight
-    // fit — each one it gains costs about 5.5KB and it should be obvious in a
-    // diff when one does. Ten since `inflow` joined them. @see Grid.inflow
-    expect(json.length).toBeLessThan(76_000);
+    // Twelve dense layers of 4,096 cells, base64. The budget is a guard
+    // against a layer being written as something other than packed bytes, not
+    // a tight fit — each byte-wide one costs about 5.5KB and it should be
+    // obvious in a diff when one arrives. It has caught two: `inflow`, and
+    // `deck`, which arrived as a Uint16 of materials and left as a Uint8 flag
+    // once the budget made the duplicated material obvious.
+    // @see Grid.inflow, Grid.deck
+    expect(json.length).toBeLessThan(88_000);
     const { grid } = fromJSON(json);
     expect([...grid.terrain]).toEqual([...g.terrain]);
   });

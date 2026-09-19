@@ -154,6 +154,13 @@ export const columnOf = (tx: number) => tx * COLUMNS_PER_TILE;
  * Called after any height edit. A structure's footprint is treated as solid
  * ground raised out of reach, so water goes round a building rather than
  * through it — the alternative is a pond appearing inside someone's office.
+ *
+ * A DECK IS NOT GROUND, and its absence here is the whole feature rather than
+ * an oversight. {@link Grid.deck} is a surface in the AIR with a gap under it;
+ * the ground below is untouched, so the solver never hears about the bridge
+ * and the river runs under it without anything having to say so. Lifting a
+ * deck into `ground` the way a structure is lifted would dam the channel it
+ * spans, which is the opposite of a bridge.
  */
 /**
  * Put the map's standing water where the map says it is.

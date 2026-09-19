@@ -15,7 +15,7 @@
 import { Sprite, type Texture } from "pixi.js";
 
 import { GROUND_FRAME_H, bandOf, cellToWorld, spriteY } from "../iso";
-import { RAMP, idx, inBounds, rampDir, rampRise, VOID, type Grid } from "../grid";
+import { RAMP, idx, inBounds, rampDir, rampRise, surfaceHeightAt, VOID, type Grid } from "../grid";
 import { maskAt } from "../roads/mask";
 import { pavedRampFrame } from "../ramp-art";
 import { roadSpriteFor, type RoadTable } from "../roads/table";
@@ -97,7 +97,10 @@ export function syncPaved(
     s.texture = tex;
   }
   pl.frames[i] = pick.frame;
-  const { wx, wy } = cellToWorld(x, y, grid.height[i], pl.scale);
+  // AT THE SURFACE, which for a deck is up in the air with a gap under it.
+  // The terrain tier still draws the ground below, so the riverbed and the
+  // water on it stay visible either side of a span. @see Grid.deck
+  const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(grid, x, y), pl.scale);
   s.x = wx;
   // A slope frame is anchored by the STANDARD ground height, not its own: the
   // extra height on a ramp frame is a deeper skirt below the low side, so using

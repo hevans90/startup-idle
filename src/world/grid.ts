@@ -120,6 +120,37 @@ export type Grid = {
    * everywhere else the world beyond the map is not adjacent. @see spill
    */
   inflow: Int8Array;
+  /**
+   * A DECK over a cell: 1 where this cell's paved surface is up in the air.
+   *
+   * THE ONE PLACE THE WORLD STOPS BEING A HEIGHTFIELD. Every other layer here
+   * gives a cell exactly one surface, which is what makes the projection cheap
+   * — see {@link import("./iso").bandOf}. A deck is a second surface over the
+   * same cell with a GAP under it, which is what a bridge is, and what a river
+   * needs if it is ever to cross the street instead of being forbidden to go
+   * near one.
+   *
+   * It is deliberately NOT terrain. The ground under it is untouched, so the
+   * water solver knows nothing about the deck and runs under it without being
+   * told to — @see syncGround. A deck you could not see under would be a lump
+   * of hill, and the whole point is the gap.
+   *
+   * A FLAG, not a material, because the material is already {@link paved}'s:
+   * a deck IS a paved cell, and saying what it is made of twice is two things
+   * to keep in step. This says only that the paved surface here is in the air,
+   * and {@link deckZ} says how far up. Same split as {@link pipe} and
+   * {@link pipeZ}: the thing, and the level it runs at.
+   */
+  deck: Uint8Array;
+  /**
+   * The height a {@link deck} sits at, absolute, in half steps.
+   *
+   * Absolute rather than a clearance above the ground, for the reason
+   * {@link pipeZ} is: a bridge has a LEVEL, and it keeps it while the land
+   * does whatever it likes underneath. That is what makes it a bridge — dig
+   * the channel deeper and the span stays where it was.
+   */
+  deckZ: Int8Array;
   /** {@link RAMP} direction per cell; 0 = level. */
   ramp: Uint8Array;
   /**
@@ -210,6 +241,8 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     pool: new Uint8Array(n),
     source: new Int8Array(n),
     inflow: new Int8Array(n),
+    deck: new Uint8Array(n),
+    deckZ: new Int8Array(n),
     ramp: new Uint8Array(n),
     pipe: new Uint8Array(n),
     pipeZ: new Int8Array(n),
@@ -307,9 +340,50 @@ export const rampPackedAt = (g: Grid, x: number, y: number): number =>
 export const surfaceSampler = (g: Grid): SurfaceAt => (x, y): Surface | null => {
   if (!inBounds(g, x, y)) return null;
   const i = idx(g, x, y);
+  // THE DECK WINS, where there is one. Two surfaces share this cell and the
+  // upper one covers the lower completely — a top face is the whole diamond,
+  // so nothing of the ground under a deck is visible THROUGH it. What you see
+  // under a bridge is the cells either side of it, not this one.
+  //
+  // It is flat: a deck carries no ramp. @see Grid.deck
+  if (g.deck[i] !== 0) return { height: g.deckZ[i], ramp: RAMP.NONE, rise: 0 };
   const packed = g.ramp[i];
   return { height: g.height[i], ramp: rampDir(packed), rise: rampRise(packed) };
 };
+
+/**
+ * The level you would STAND on at a cell: the deck if there is one, else the
+ * ground.
+ *
+ * What almost everything outside the terrain editor means by "how high is it
+ * here" — a road connects to what you can walk on, and a ramp is derived from
+ * the levels either side of it. @see Grid.deck
+ */
+export const surfaceHeightAt = (g: Grid, x: number, y: number): number => {
+  const i = idx(g, x, y);
+  return g.deck[i] !== 0 ? g.deckZ[i] : g.height[i];
+};
+
+/**
+ * Put a deck over a cell, or take one away with material 0.
+ *
+ * NEVER BELOW THE GROUND IT SPANS, which is the one rule that makes a deck a
+ * deck: at or under the ground there is no gap, and what it would describe is
+ * terrain that the terrain layer already describes better.
+ */
+export function setDeck(g: Grid, x: number, y: number, material: number, z = 0) {
+  if (!inBounds(g, x, y)) return;
+  const i = idx(g, x, y);
+  if (material !== 0 && z <= g.height[i]) return;
+  g.deck[i] = material === 0 ? 0 : 1;
+  g.deckZ[i] = material === 0 ? 0 : z;
+  // A DECK IS PAVED GROUND AT A LEVEL OF ITS OWN, so it is paved. Everything
+  // the road system does — the autotile mask, the connectivity graph, the
+  // sprite — then works on it unchanged, once those read the SURFACE height
+  // rather than the terrain under it. @see edgeHeight
+  g.paved[i] = material;
+  edited(g);
+}
 
 /**
  * Height, or `null` out of bounds.

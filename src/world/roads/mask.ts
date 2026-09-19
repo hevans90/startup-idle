@@ -11,7 +11,7 @@
  * when the diagonals behind it are paved, and a T-junction when they are not.
  */
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { idx, inBounds, rampDir, rampRise, VOID, type Grid } from "../grid";
+import { idx, inBounds, rampDir, rampRise, surfaceHeightAt, VOID, type Grid } from "../grid";
 import { RAMP } from "../iso";
 
 export { DIR };
@@ -58,6 +58,14 @@ export const isPaved = (g: Grid, x: number, y: number) =>
  */
 export function edgeHeight(g: Grid, x: number, y: number, dir: keyof typeof DIR): number {
   const i = idx(g, x, y);
+  // THE SURFACE, NOT THE TERRAIN, which is the whole of what a deck needs from
+  // the road system. A span over a river is paved ground at a level of its
+  // own; asked for the ground under it, this would compare a road on the bank
+  // against a riverbed and correctly call them unconnected — so a bridge would
+  // render as a row of loose tiles and the network would see a dead end at
+  // each bank. A deck carries no ramp, so there is nothing to add to it.
+  // @see Grid.deck
+  if (g.deck[i] !== 0) return g.deckZ[i];
   const packed = g.ramp[i];
   const d = rampDir(packed);
   if (d === RAMP.NONE) return g.height[i];
@@ -104,12 +112,12 @@ export function maskAt(g: Grid, x: number, y: number): number {
   for (const dir of ["N", "E", "S", "W"] as const) {
     if (connects(g, x, y, dir)) m |= DIR[dir];
   }
-  const h = g.height[idx(g, x, y)];
+  const h = surfaceHeightAt(g, x, y);
   for (const dir of ["NE", "SE", "SW", "NW"] as const) {
     const [dx, dy] = DIAG_NEIGHBOUR[dir];
     const nx = x + dx, ny = y + dy;
     if (!isPaved(g, nx, ny)) continue;
-    if (g.height[idx(g, nx, ny)] !== h) continue;
+    if (surfaceHeightAt(g, nx, ny) !== h) continue;
     m |= DIAG[dir];
   }
   return m;

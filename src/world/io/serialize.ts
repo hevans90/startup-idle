@@ -72,6 +72,15 @@ export type WorldFile = {
    */
   inflow?: string;
   /**
+   * base64 Uint8Array of deck flags, and Int8Array of their levels.
+   *
+   * OPTIONAL on read like the rest: a map written before anything could be
+   * built over anything else has no decks, and none is what `createGrid`
+   * gives. @see Grid.deck
+   */
+  deck?: string;
+  deckZ?: string;
+  /**
    * base64 Uint8Array of pipe facings; 0 where there is no pipe.
    *
    * OPTIONAL on read for the same reason as the rest: a file written before
@@ -182,6 +191,8 @@ export function serializeWorld(
     fluid: encodeU16(grid.fluid),
     pool: encodeU8(water ? poolSnapshot(water, grid) : grid.pool),
     source: encodeI8(grid.source),
+    deck: encodeU8(grid.deck),
+    deckZ: encodeI8(grid.deckZ),
     inflow: encodeI8(grid.inflow),
     pipe: encodeU8(grid.pipe),
     pipeZ: encodeI8(grid.pipeZ),
@@ -239,6 +250,8 @@ export function deserializeWorld(file: unknown): { grid: Grid; palette: WorldFil
   if (typeof f.fluid === "string") grid.fluid.set(decodeU16(f.fluid, n));
   if (typeof f.pool === "string") grid.pool.set(decodeU8(f.pool, n));
   if (typeof f.source === "string") grid.source.set(decodeI8(f.source, n));
+  if (typeof f.deck === "string") grid.deck.set(decodeU8(f.deck, n));
+  if (typeof f.deckZ === "string") grid.deckZ.set(decodeI8(f.deckZ, n));
   if (typeof f.inflow === "string") grid.inflow.set(decodeI8(f.inflow, n));
   if (typeof f.pipe === "string") grid.pipe.set(decodeU8(f.pipe, n));
   if (typeof f.pipeZ === "string") grid.pipeZ.set(decodeI8(f.pipeZ, n));
