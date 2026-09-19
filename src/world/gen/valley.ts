@@ -27,13 +27,37 @@ import { idx, inBounds, type Grid } from "../grid";
 import { valueNoise } from "./noise";
 import type { GenParams } from "./params";
 
-/** Tiles of clearance a channel keeps from any paved cell. */
+/**
+ * Tiles of clearance a LAKE keeps from any paved cell.
+ *
+ * Rivers no longer keep any. A river that meets the street is carried under a
+ * bridge — see {@link import("./water").carveChannel} — and that is a
+ * crossing, which is a thing a map is allowed to have. A lake is not: it has
+ * no span over it and nothing to gain from drowning somebody's frontage.
+ */
 export const CLEARANCE = 2;
 
 export const STEPS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
-/** Whether a cell may be cut: on the map, and well clear of the street. */
-export const free = (g: Grid, dist: Int16Array, x: number, y: number) =>
+/**
+ * Whether a cell may be cut: on the map, and that is now the whole rule.
+ *
+ * IT USED TO MEAN "CLEAR OF THE STREET", and that one condition shaped every
+ * map this generator has ever made. With one surface per cell a river meeting
+ * a road is a choice between damming the river and washing out the road, so
+ * the river was simply forbidden to go near one — and the consequence was not
+ * a detail. The road spans the map and the corridor round it is uncuttable,
+ * so the cells a river may use fall into two regions with no way between
+ * them: every course had to begin and end on ONE side of the street, and
+ * river and road ran roughly parallel on every seed because that is the only
+ * shape left.
+ *
+ * A deck is the third answer. @see Grid.deck, clearOfRoad
+ */
+export const free = (g: Grid, x: number, y: number) => inBounds(g, x, y);
+
+/** Whether a cell is clear of the street, for the things that must be. */
+export const clearOfRoad = (g: Grid, dist: Int16Array, x: number, y: number) =>
   inBounds(g, x, y) && dist[idx(g, x, y)] > CLEARANCE;
 
 /** No way there, as far as {@link spread} is concerned. */
@@ -58,12 +82,10 @@ export type RiverPlan = {
  * are two cells on one side of the road, and nothing has to work out where the
  * road is.
  */
-export function planRivers(
-  g: Grid, p: GenParams, rng: () => number, dist: Int16Array,
-): RiverPlan {
+export function planRivers(g: Grid, p: GenParams, rng: () => number): RiverPlan {
   const paths: number[][] = [];
   if (p.rivers > 0) {
-    const outlet = outletField(g, dist);
+    const outlet = outletField(g);
     for (let n = 0; n < p.rivers; n++) {
       // A COURSE THAT STOPS INLAND IS NOT A RIVER, so one is tried again
       // rather than kept. The walk is bounded by the street and by ground it
@@ -73,9 +95,9 @@ export function planRivers(
       // river that never reaches one has nowhere to put what is fed into it.
       let path: number[] = [];
       for (let tries = 0; tries < 6 && !path.length; tries++) {
-        const ends = pickCrossing(g, rng, dist, outlet);
+        const ends = pickCrossing(g, rng, outlet);
         if (!ends) break;
-        const got = walk(g, p, rng, ends[0], spread(g, dist, [ends[1]]), dist, null, null);
+        const got = walk(g, p, rng, ends[0], spread(g, [ends[1]]), null, null);
         if (got.length >= 2 && onRim(g, got[got.length - 1])) path = got;
       }
       if (path.length) paths.push(path);
@@ -120,7 +142,7 @@ export const onRim = (g: Grid, i: number) => {
  * maximising it puts the river in the same place on every seed.
  */
 function pickCrossing(
-  g: Grid, rng: () => number, dist: Int16Array, outlet: Int32Array,
+  g: Grid, rng: () => number, outlet: Int32Array,
 ): [number, number] | null {
   const edge: number[] = [];
   for (let i = 0; i < outlet.length; i++) if (outlet[i] === 0) edge.push(i);
@@ -147,7 +169,7 @@ function pickCrossing(
     if (apart < short) continue;
     const mx = ((a % g.w) + (b % g.w)) / 2, my = (((a / g.w) | 0) + ((b / g.w) | 0)) / 2;
     if (Math.min(mx, my, g.w - 1 - mx, g.h - 1 - my) < inland) continue;
-    if (spread(g, dist, [b])[a] === UNREACHED) continue;   // opposite sides
+    if (spread(g, [b])[a] === UNREACHED) continue;         // no way between
     if (apart >= long) found.push([a, b]);
     else fallback = fallback ?? [a, b];
   }
@@ -165,15 +187,15 @@ function pickCrossing(
  * makes arrival a PROOF: any walk that strictly decreases this reaches nought,
  * and nought is the edge.
  */
-export function outletField(g: Grid, dist: Int16Array): Int32Array {
+export function outletField(g: Grid): Int32Array {
   const seeds: number[] = [];
   for (let x = 0; x < g.w; x++) {
-    for (const y of [0, g.h - 1]) if (free(g, dist, x, y)) seeds.push(idx(g, x, y));
+    for (const y of [0, g.h - 1]) seeds.push(idx(g, x, y));
   }
   for (let y = 0; y < g.h; y++) {
-    for (const x of [0, g.w - 1]) if (free(g, dist, x, y)) seeds.push(idx(g, x, y));
+    for (const x of [0, g.w - 1]) seeds.push(idx(g, x, y));
   }
-  return spread(g, dist, seeds);
+  return spread(g, seeds);
 }
 
 /**
@@ -184,9 +206,7 @@ export function outletField(g: Grid, dist: Int16Array): Int32Array {
  * Unreachable cells keep {@link UNREACHED}, so a walker can tell "no way
  * there" from "a long way there".
  */
-export function spread(
-  g: Grid, dist: Int16Array, seeds: readonly number[],
-): Int32Array {
+export function spread(g: Grid, seeds: readonly number[]): Int32Array {
   const n = g.w * g.h;
   const out = new Int32Array(n).fill(UNREACHED);
   const queue = new Int32Array(n);
@@ -197,7 +217,7 @@ export function spread(
     const i = queue[head++];
     const x = i % g.w, y = (i / g.w) | 0, d = out[i] + 1;
     for (const [dx, dy] of STEPS) {
-      if (!free(g, dist, x + dx, y + dy)) continue;
+      if (!free(g, x + dx, y + dy)) continue;
       const j = idx(g, x + dx, y + dy);
       if (out[j] <= d) continue;
       out[j] = d;
@@ -227,7 +247,7 @@ export function spread(
  */
 export function walk(
   g: Grid, p: GenParams, rng: () => number,
-  head: number, target: Int32Array, dist: Int16Array,
+  head: number, target: Int32Array,
   /** Stop on reaching one of these, for a side stream meeting its river. */
   stopAt: Uint8Array | null,
   lie: Int8Array | null,
@@ -253,7 +273,7 @@ export function walk(
     const forced = stuck || step >= budget;
     let next = -1, bestScore = Infinity;
     for (const [dx, dy] of STEPS) {
-      if (!free(g, dist, x + dx, y + dy)) continue;
+      if (!free(g, x + dx, y + dy)) continue;
       const j = idx(g, x + dx, y + dy);
       if (seen[j]) continue;
       if (forced && target[j] >= target[cur]) continue;
@@ -287,7 +307,7 @@ export function walk(
       // pocket, and the planner threw the whole course away and tried
       // another. Asking for six got 513 cells where asking for one got 799.
       for (const [dx, dy] of STEPS) {
-        if (!free(g, dist, x + dx, y + dy)) continue;
+        if (!free(g, x + dx, y + dy)) continue;
         const j = idx(g, x + dx, y + dy);
         if (seen[j]) continue;
         if (next < 0 || target[j] < target[next]) next = j;

@@ -71,18 +71,29 @@ describe("what water generation writes", () => {
   });
 
   /**
-   * THE FRONTAGE IS NOT NEGOTIABLE. The cone guarantees gentle ground beside
-   * the street; a channel cut through it would take that away, and there is no
-   * bridge in the tileset to put back what it broke.
+   * WHERE THERE IS WATER BESIDE THE STREET, THERE IS A SPAN OVER IT.
+   *
+   * This used to say nothing was ever cut or wetted within reach of the
+   * street, and the reason given was "there is no bridge in the tileset to
+   * put back what it broke". There is now — not a sprite, but the thing that
+   * matters, a surface at its own level with a gap under it — so a river may
+   * cross, and on every seed tried it does. What replaces the old rule is
+   * that a crossing is always a CROSSING: water by the road means road over
+   * water, never road in it.
    */
-  test("nothing is cut or wetted within reach of the street", () => {
+  test("water beside the street only ever means a span over it", () => {
     for (let seed = 0; seed < 12; seed++) {
       const { g } = gen(seed, { rivers: 3, lakes: 3 });
       const dist = distanceFromPaved(g);
       for (let i = 0; i < dist.length; i++) {
         if (dist[i] > 2) continue;
-        expect(g.pool[i]).toBe(0);
+        // A tap on the street's own ground would be a spring in the road.
         expect(g.source[i]).toBe(0);
+        if (g.pool[i] === 0) continue;
+        // Wet, so this is a crossing: the paving here is carried over it, and
+        // the water stands below the level you drive on.
+        expect(g.paved[i] === 0 || g.deck[i] !== 0).toBe(true);
+        if (g.deck[i] !== 0) expect(g.height[i] + g.pool[i]).toBeLessThan(g.deckZ[i]);
       }
     }
   });
@@ -222,7 +233,15 @@ describe("a map opens settled", () => {
   test("and a fed one does not drown, even on the seed that used to", () => {
     for (const seed of [11, 4242]) {
       const r = run(seed, 180, { springs: 1 });
-      expect(r.wet).toBeLessThan(r.cells / 3);
+      // A LOOSER CEILING THAN THE PER-SEED ONE ABOVE, and only for these two.
+      // They are the historically wettest seeds, and a river is now allowed
+      // to cross the street — the corridor round it used to be forced dry and
+      // is now valley like anywhere else, which is worth about three points
+      // of wet on a 48² map. Measured minute by minute they sit at 34-36% and
+      // are flat or falling: 38, 36, 36, 35, 35, 34. That is the claim this
+      // test makes, and the stability assertions below are what carry it —
+      // the ceiling is only here to stop a swamp passing them.
+      expect(r.wet).toBeLessThan(r.cells * 0.4);
       // Still filling is allowed; filling as fast as it started is not.
       // ONLY RISES COUNT. Written as `early * 1.5` it inverts the moment the
       // map is DRAINING, where a smaller fall is a bigger number and a
@@ -469,11 +488,19 @@ describe("a river stands close to its banks", () => {
    * somebody's frontage. Measured, the worst cell on the map goes from as
    * much as forty half steps over to between one and three.
    */
-  test("and all of it is back inside them within half a minute", () => {
+  test("and it is back inside them within half a minute", () => {
     for (const seed of [0, 4, 7]) {
       const fb = freeboards(seed, {}, 30);
       expect(fb.length).toBeGreaterThan(20);
+      // MEASURED BY HOW FAR OVER, NOT BY HOW MANY, and the difference is a
+      // real thing about shorelines rather than a loosened bound. Settling
+      // takes the worst cell on the map from six half steps over to one, and
+      // at the same time takes the SHARE that are over from 9% up to 20% —
+      // because a settled shore is a film creeping one half step onto the
+      // bank all the way along, which is what a waterline between two
+      // terraces looks like. Counting those would call a calm river a flood.
       expect(fb[0]).toBeGreaterThanOrEqual(-4);
+      expect(fb[fb.length >> 1]).toBeLessThanOrEqual(1);
     }
   }, 60_000);
 

@@ -391,7 +391,26 @@ type WorldState = {
 const readerFor = (b: PatchBuilder, grid: Grid): SurfaceReader => ({
   inBounds: (x, y) => x >= 0 && y >= 0 && x < grid.w && y < grid.h,
   paved: (x, y) => b.peek("paved", x, y) !== VOID_MATERIAL,
-  height: (x, y) => b.peek("height", x, y),
+  /**
+   * THE SURFACE, not the ground under it, for the same reason `edgeHeight`
+   * wants the surface: a span over a river is paved ground at a level of its
+   * own, and the terrain beneath it is the riverbed.
+   *
+   * Asked for the terrain, this derived a RAMP at every tile of every bridge
+   * — the derivation compares a paved cell against its paved neighbours and
+   * saw a road stepping up and down a channel bed — and it did it on POURING
+   * WATER, because a water tool touches the surface and every surface edit
+   * re-derives the ramps around it. What that looked like was a road with
+   * slopes cut across it appearing the moment you poured anywhere near it.
+   *
+   * Read off the GRID rather than the builder: `deck` is not a `LayerKey`,
+   * and nothing in an edit command changes one, so the grid is current.
+   * @see Grid.deck, surfaceHeightAt
+   */
+  height: (x, y) => {
+    const i = idx(grid, x, y);
+    return grid.deck[i] !== 0 ? grid.deckZ[i] : b.peek("height", x, y);
+  },
 });
 
 const markDirty = (grid: Grid, touched: number[], surface: boolean) => {

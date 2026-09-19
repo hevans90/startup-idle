@@ -136,7 +136,7 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   //    net fall, because `relief` is bigger than a river's whole descent. A
   //    course chosen first can be given ground that falls all the way.
   //    @see planRivers
-  const plan = planRivers(g, p, rng, road.distance);
+  const plan = planRivers(g, p, rng);
   const valley = valleyGround(g, p, plan);
 
   // 3. THE LAND, in a scratch field rather than in the grid. `g.height` is an
@@ -193,7 +193,7 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   }
 
   // 6. THE CHANNELS AND THE WATER, cut into ground that has stopped moving.
-  const water = carveWater(g, p, rng, road.distance, plan);
+  const water = carveWater(g, p, rng, road.distance, plan, roadHeight);
 
   // 7. WHAT THE GROUND IS MADE OF, read off the finished map — so the materials
   //    describe it rather than predicting it.

@@ -13,9 +13,12 @@ import {
   createGrid, fillTerrain, idx, setDeck, setHeight, surfaceHeightAt, surfaceSampler,
 } from "./grid";
 import { applyFixture } from "./debug/fixtures";
+import { generateMap } from "./gen/generate-map";
 import { createWaterField, depthAt, stepWater, totalVolume } from "./water/field";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
 import { componentCount, createNetwork } from "./roads/network";
+import { derivedRamp, type SurfaceReader } from "./roads/ramp-derive";
+import { RAMP } from "./iso";
 
 const PALETTE = { terrain: [null, "grass.png"], paved: [null, "road.png"] };
 
@@ -143,5 +146,55 @@ describe("a deck is road at the level it is laid", () => {
     // And the deck really is level.
     expect(new Set(decked.map((i) => g.deckZ[i])).size).toBe(1);
     expect(componentCount(createNetwork(g))).toBe(1);
+  });
+});
+
+/**
+ * AND NOTHING DERIVES A RAMP ONTO A BRIDGE.
+ *
+ * Ramps are derived from paving and height, and a surface edit anywhere —
+ * including POURING WATER, which is a surface tool — re-derives them around
+ * the cells it touched. Handed the terrain under a span, the derivation
+ * compares a paved cell against its paved neighbours, sees a road stepping up
+ * and down a channel bed, and cuts slopes across the bridge. It showed up as
+ * ramps appearing in a road the moment you poured near it.
+ */
+describe("the ramp derivation reads the surface", () => {
+  /** The reader an edit command builds, in both the right and the wrong form. */
+  const readerFor = (g: ReturnType<typeof createGrid>, surface: boolean): SurfaceReader => ({
+    inBounds: (x, y) => x >= 0 && y >= 0 && x < g.w && y < g.h,
+    paved: (x, y) => g.paved[idx(g, x, y)] !== 0,
+    height: (x, y) => (surface ? surfaceHeightAt(g, x, y) : g.height[idx(g, x, y)]),
+  });
+
+  const ramped = (g: ReturnType<typeof createGrid>, surface: boolean) =>
+    [...g.paved]
+      .map((v, i) => (v ? i : -1))
+      .filter((i) => i >= 0)
+      .filter((i) => derivedRamp(readerFor(g, surface), i % g.w, (i / g.w) | 0) !== RAMP.NONE);
+
+  const generated = (seed: number) => {
+    const g = createGrid(64, 64);
+    generateMap(g, { seed, material: 1, dirt: 2, sand: 3, woods: [4, 5, 6], paved: 7 });
+    return g;
+  };
+
+  test("a span derives no ramps, however uneven the ground under it", () => {
+    for (let seed = 0; seed < 6; seed++) {
+      const g = generated(seed);
+      expect([...g.deck].some((v) => v !== 0)).toBe(true);
+      expect(ramped(g, true)).toEqual([]);
+    }
+  });
+
+  test("where reading the ground under it cuts slopes across the road", () => {
+    // THE BUG, AS A TEST. A surface edit re-derives the ramps around it, and
+    // a water tool is a surface tool — so pouring anywhere near a crossing
+    // handed this the riverbed, which steps a slab at a time exactly like a
+    // road running down a hill does. Measured over these seeds: ten to
+    // twenty-six ramps cut across the street per map, against none.
+    let wrong = 0;
+    for (let seed = 0; seed < 6; seed++) wrong += ramped(generated(seed), false).length;
+    expect(wrong).toBeGreaterThan(20);
   });
 });

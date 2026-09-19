@@ -96,12 +96,21 @@ describe("a planned river", () => {
     }
   });
 
-  test("and it keeps clear of the street it must not cross", () => {
+  test("and it may cross the street, which it could never do before", () => {
+    // THE RULE THAT IS GONE. A channel used to keep two tiles clear of any
+    // paving, and that one condition shaped every map: the road spans the
+    // map, so the cells a river could use fell into two regions with no way
+    // between them, and every course had to begin and end on ONE side of the
+    // street. River and road ran roughly parallel on every seed because it
+    // was the only shape left. A deck is the third answer — where a course
+    // meets the road, the road goes over it. @see Grid.deck, carveChannel
+    let crossed = 0;
     for (let seed = 0; seed < 12; seed++) {
       const { road, plan: r } = plan(seed);
       for (const path of r.paths) {
-        for (const i of path) expect(road.distance[i]).toBeGreaterThan(2);
+        if (path.some((i) => road.distance[i] === 0)) { crossed++; break; }
       }
     }
+    expect(crossed).toBeGreaterThan(6);
   });
 });

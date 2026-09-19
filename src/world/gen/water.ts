@@ -27,12 +27,12 @@
  * edge empties the outer ring every substep — a tap there keeps about a sixth
  * of what one three tiles in keeps. @see Grid.inflow
  */
-import { edited, idx, inBounds, setInflow, type Grid } from "../grid";
+import { edited, idx, inBounds, setDeck, setInflow, type Grid } from "../grid";
 import { HEIGHT_MIN } from "../edit/height-tools";
 import { valueNoise } from "./noise";
 import type { GenParams } from "./params";
 import {
-  CLEARANCE, STEPS, UNREACHED, free, spread, walk, type RiverPlan,
+  CLEARANCE, STEPS, UNREACHED, clearOfRoad, free, spread, walk, type RiverPlan,
 } from "./valley";
 
 /** The fluid index water is stored under. @see FLUIDS */
@@ -51,6 +51,16 @@ const DRY_LEVEL = -32768;
 const BANK_MAX = 6;
 
 /**
+ * Half steps of air between a river's surface and the span over it.
+ *
+ * Two slabs. One reads as a road lying on the water; less than that and the
+ * terracing can round the two together. It is clearance for the eye rather
+ * than for anything in the simulation, which is why it is a round number and
+ * not derived from the channel. @see carveChannel
+ */
+const HEADROOM = 4;
+
+/**
  * How much of a river a side stream is.
  *
  * Under a half, so a tributary is visibly the smaller of the two where they
@@ -66,6 +76,8 @@ export type WaterReport = {
   wet: number;
   /** Tiles of the map's rim fed from off the map. */
   springs: number;
+  /** Paved tiles carried over a channel on a span. @see Grid.deck */
+  bridge: number;
   /** Spine cells walked, across every river and side stream. */
   length: number;
 };
@@ -81,8 +93,9 @@ const terraceTo = (v: number, step: number) => Math.round(v / step) * step;
  */
 export function carveWater(
   g: Grid, p: GenParams, rng: () => number, dist: Int16Array, plan: RiverPlan,
+  roadHeight: number,
 ): WaterReport {
-  const out: WaterReport = { cut: 0, wet: 0, springs: 0, length: 0 };
+  const out: WaterReport = { cut: 0, wet: 0, springs: 0, length: 0, bridge: 0 };
   // THE LAND AS IT WAS, and every bed is measured against it.
   //
   // A meandering course comes back alongside itself, and a disc stamped at one
@@ -108,7 +121,7 @@ export function carveWater(
   const channel = new Uint8Array(g.w * g.h);
 
   for (const path of plan.paths) {
-    carveChannel(g, p, land, dist, path, channel, brim, out, 1);
+    carveChannel(g, p, land, roadHeight, dist, path, channel, brim, out, 1);
     out.length += path.length;
 
     // AND IT IS FED AT THE EDGE IT COMES IN BY, over the boundary rather than
@@ -121,16 +134,16 @@ export function carveWater(
     // the branches are where the ground reads as sloping TOWARDS something.
     // These DO read the land, because by now there is a valley to find.
     for (let t = 0; t < p.tributaries; t++) {
-      const join = joinField(g, dist, channel);
-      const th = pickHead(g, rng, dist, join);
+      const join = joinField(g, channel);
+      const th = pickHead(g, rng, join);
       if (th < 0 || channel[th]) continue;
-      const tp = walk(g, p, rng, th, join, dist, channel, land);
+      const tp = walk(g, p, rng, th, join, channel, land);
       // A SIDE STREAM THAT DID NOT REACH ITS RIVER IS NOT A SIDE STREAM. The
       // walk can be boxed in by the street or by ground it has already used,
       // and carving it anyway leaves an orphan watercourse starting nowhere
       // and ending nowhere.
       if (tp.length < 3 || !channel[tp[tp.length - 1]]) continue;
-      carveChannel(g, p, land, dist, tp, channel, brim, out, TRIBUTARY);
+      carveChannel(g, p, land, roadHeight, dist, tp, channel, brim, out, TRIBUTARY);
       out.length += tp.length;
     }
   }
@@ -229,7 +242,7 @@ export function reachAt(
  * do that, while a disc does not and leaves no notch on the inside of a bend.
  */
 function carveChannel(
-  g: Grid, p: GenParams, land: Int8Array, dist: Int16Array,
+  g: Grid, p: GenParams, land: Int8Array, roadHeight: number, dist: Int16Array,
   path: readonly number[], channel: Uint8Array, brim: Int16Array,
   out: WaterReport, scale: number,
 ): void {
@@ -265,6 +278,23 @@ function carveChannel(
     channel[i] = 1;
 
     floor = Math.min(floor, terraceTo(land[i], p.terrace));
+    // AND IT PASSES UNDER THE STREET, not level with it.
+    //
+    // The cone pins the land at a paved cell to the road's own height, so the
+    // valley floor there IS the road's height — and the floor is the line the
+    // channel fills to, which put the water exactly at the underside of the
+    // span. A bridge awash is not a bridge. Taken as a running minimum like
+    // everything else, so the river keeps descending past the crossing rather
+    // than stepping back up after it. @see HEADROOM
+    //
+    // ASKED OF THE WHOLE VALLEY, not just the spine: the cut is a disc and the
+    // paving it reaches is wider than the line down the middle, so a course
+    // passing BESIDE the road still fills to the road's level at its edge.
+    // The radius is the widest the valley can be. Costing nothing where the
+    // river is nowhere near a road, because `dist` is large there.
+    if (dist[i] <= p.riverWidth + BANK_MAX) {
+      floor = Math.min(floor, terraceTo(roadHeight - HEADROOM, p.terrace));
+    }
     const bed = terraceTo(floor - deep, p.terrace);
     // THE VALLEY FLARES WITH ITS OWN DEPTH, which is the difference between a
     // valley and a canyon. A fixed number of bank tiles climbs a fixed amount,
@@ -283,7 +313,7 @@ function carveChannel(
         // road at the clearance limit took its banks straight through it.
         // Nothing threw: the paving stayed, the ground under it dropped, and
         // the road graph came apart into fifteen pieces.
-        if (!free(g, dist, x, y)) continue;
+        if (!free(g, x, y)) continue;
         const d = Math.hypot(x - cx, y - cy);
         if (d > reach) continue;
         const j = idx(g, x, y);
@@ -291,6 +321,20 @@ function carveChannel(
         const grade = bank > 0 ? p.terrace / bank : 99;    // 0 banks: a slot
         const target = terraceTo(bed + Math.max(0, d - half) * grade, p.terrace);
         if (g.height[j] > target) { g.height[j] = Math.max(HEIGHT_MIN, target); out.cut++; }
+        // AND WHERE IT CROSSES THE STREET, THE STREET GOES OVER IT.
+        //
+        // This is what the clearance rule used to buy and what a deck buys
+        // instead. The ground under a paved cell has just been cut away, so
+        // the road is standing on nothing; carried on a span at its own level
+        // it is still a road, and the river runs underneath. `setDeck`
+        // refuses where the cut did not actually go below the road, which is
+        // the right answer there: the verge of a crossing is still ground.
+        // @see Grid.deck, free
+        if (g.paved[j] !== 0) {
+          const had = g.deck[j];
+          setDeck(g, x, y, g.paved[j], roadHeight);
+          if (!had && g.deck[j]) out.bridge++;
+        }
         // AND THE LEVEL THIS CELL FILLS TO. The whole cut, not just the bed:
         // the banks are the sides of the channel and the river fills against
         // them. What is above the line stays dry because the depth comes out
@@ -331,10 +375,10 @@ function carveChannel(
 /**
  * The cells a side stream may aim at: the river it is going to join.
  */
-function joinField(g: Grid, dist: Int16Array, channel: Uint8Array): Int32Array {
+function joinField(g: Grid, channel: Uint8Array): Int32Array {
   const seeds: number[] = [];
   for (let i = 0; i < channel.length; i++) if (channel[i]) seeds.push(i);
-  return spread(g, dist, seeds);
+  return spread(g, seeds);
 }
 
 /**
@@ -346,26 +390,24 @@ function joinField(g: Grid, dist: Int16Array, channel: Uint8Array): Int32Array {
  * an edge. The sources came out three tiles from their own outlets. A source
  * has to be high AND inland, so the run to the river is what is maximised.
  */
-function pickHead(
-  g: Grid, rng: () => number, dist: Int16Array, target: Int32Array,
-): number {
+function pickHead(g: Grid, rng: () => number, target: Int32Array): number {
   // INLAND IS A REQUIREMENT, NOT A PREFERENCE. Scored together, height wins —
   // the cone puts the top of every map hard against an edge — so the
   // requirement comes first and height only chooses between the cells that
   // already have a stream's worth of run in them. The fallback is for small
   // maps and for a side stream whose river is close by.
   const want = Math.round((g.w + g.h) / 6);
-  return highest(g, rng, dist, target, want) ?? highest(g, rng, dist, target, 4) ?? -1;
+  return highest(g, rng, target, want) ?? highest(g, rng, target, 4) ?? -1;
 }
 
 /** The highest sampled cell at least `want` from `target`, or null. */
 function highest(
-  g: Grid, rng: () => number, dist: Int16Array, target: Int32Array, want: number,
+  g: Grid, rng: () => number, target: Int32Array, want: number,
 ): number | null {
   let best: number | null = null, bestH = -Infinity;
   for (let n = 0; n < 400; n++) {
     const x = Math.floor(rng() * g.w), y = Math.floor(rng() * g.h);
-    if (!free(g, dist, x, y)) continue;
+    if (!free(g, x, y)) continue;
     const i = idx(g, x, y);
     if (target[i] === UNREACHED || target[i] < want) continue;
     if (g.height[i] <= bestH) continue;
@@ -570,7 +612,7 @@ function sinkLake(
 
   for (let y = Math.ceil(cy - r); y <= cy + r; y++) {
     for (let x = Math.ceil(cx - r); x <= cx + r; x++) {
-      if (!free(g, dist, x, y)) continue;
+      if (!clearOfRoad(g, dist, x, y)) continue;
       // A WOBBLY SHORE. A circle reads as a crater; the same slow noise that
       // moves the sand line moves the waterline.
       const wobble = 0.75 + valueNoise(3, phase + x / 5, phase + y / 5) * 0.5;
@@ -604,7 +646,7 @@ function lowGround(
   for (let n = 0; n < 200; n++) {
     const x = pad + Math.floor(rng() * Math.max(1, g.w - 2 * pad));
     const y = pad + Math.floor(rng() * Math.max(1, g.h - 2 * pad));
-    if (!free(g, dist, x, y)) continue;
+    if (!clearOfRoad(g, dist, x, y)) continue;
     const h = land[idx(g, x, y)];
     if (h >= bestH) continue;
     bestH = h;
