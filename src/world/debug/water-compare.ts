@@ -119,8 +119,8 @@ export function compareWaterPaths(
   const { grid, field } = scene(size);
   void grid;
   const bands = createBandLayer(size, size);
-  const cpu = createWaterLayer(field, bands, 1);
-  const gpu = createGpuWaterLayer(field, bands, 1);
+  const cpu = createWaterLayer(field.columns, bands, 1);
+  const gpu = createGpuWaterLayer(field.columns, bands, 1);
   frame(bands.root, size, px);
 
   // Both paths see the same columns because the solver is stepped once and
@@ -128,8 +128,8 @@ export function compareWaterPaths(
   // start identical and are stepped identically.
   for (let n = 0; n < Math.round(seconds * 60); n++) {
     stepWater(field, 1 / 60);
-    drawWater(cpu, field, bands, 1 / 60);
-    drawGpuWater(gpu, field, bands, 1 / 60);
+    drawWater(cpu, field.columns, bands, 1 / 60);
+    drawGpuWater(gpu, field.columns, bands, 1 / 60);
   }
 
   // What each path wanted to be visible, so that hiding one to draw the other

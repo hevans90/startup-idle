@@ -745,12 +745,12 @@ describe("the sheet leaves the lip in the SURFACE'S OWN colour", () => {
     for (let d = -2; d <= 2; d++) setSource(grid, 13, 16 + d, 8);
     const field = createWaterField(grid);
     const bands = createBandLayer(W, W);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let n = 0; n < 60 * 25; n++) {
       runSources(field, grid, 1 / 60);
       stepWater(field, 1 / 60);
     }
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     const c = field.columns, vw = c.nx + 1;
     let sum = 0, n = 0;

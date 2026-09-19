@@ -18,6 +18,8 @@ import {
   createWaterField, deckedAt, depthAt, pourAt, setWaterEdge, stepWater, totalVolume,
 } from "./water/field";
 import { totalWater } from "../fluid/columns";
+import { createBandLayer } from "./render/bands";
+import { createWaterLayer, drawWater } from "./render/water";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
 import { componentCount, createNetwork } from "./roads/network";
 import { derivedRamp, type SurfaceReader } from "./roads/ramp-derive";
@@ -282,5 +284,52 @@ describe("water on a deck", () => {
     for (let y = 5; y <= 6; y++) {
       for (let x = 5; x <= 6; x++) expect(depthAt(field, x, y)).toBe(0);
     }
+  });
+});
+
+/**
+ * AND IT IS DRAWN THERE, which is the other half of standing on a bridge.
+ *
+ * The water layer used to take the world's `WaterField` and reach into its
+ * `columns`, which meant exactly one storey could ever be drawn — so water on
+ * a deck was simulated, conserved, and invisible. It takes a `ColumnField`
+ * now, and the scene builds a second layer over `field.over` into the same
+ * bands, added after the one below because a span is nearer the camera than
+ * the bed it crosses.
+ */
+describe("the upper storey has a mesh of its own", () => {
+  const pan = () => {
+    const g = createGrid(12, 12);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) setHeight(g, x, y, -6);
+    for (let y = 4; y <= 7; y++) for (let x = 4; x <= 7; x++) setDeck(g, x, y, 1, 10);
+    const field = createWaterField(g);
+    setWaterEdge(field, false);
+    return { g, field, bands: createBandLayer(g.w, g.h) };
+  };
+
+  test("a dry deck draws nothing, and a wet one draws quads", () => {
+    const { field, bands } = pan();
+    const over = createWaterLayer(field.over!, bands, 1);
+    drawWater(over, field.over!, bands, 1 / 60);
+    expect(over.live.size).toBe(0);
+
+    pourAt(field, 5, 5, 6, 1);
+    drawWater(over, field.over!, bands, 1 / 60);
+    expect(over.live.size).toBeGreaterThan(0);
+  });
+
+  test("and the two storeys draw independently of one another", () => {
+    // The bug this replaced, stated: one layer over the world's field could
+    // only ever show the ground storey, so a bridge's water had nowhere to
+    // be drawn. Water upstairs must not light up the layer downstairs.
+    const { field, bands } = pan();
+    const under = createWaterLayer(field.columns, bands, 1);
+    const over = createWaterLayer(field.over!, bands, 1);
+    pourAt(field, 5, 5, 6, 1);
+    drawWater(under, field.columns, bands, 1 / 60);
+    drawWater(over, field.over!, bands, 1 / 60);
+    expect(over.live.size).toBeGreaterThan(0);
+    expect(under.live.size).toBe(0);
   });
 });

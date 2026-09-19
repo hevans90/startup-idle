@@ -20,7 +20,7 @@
 import {
   MATERIAL_SLOTS, activeBox, flowX, flowY, surfaceAt, velocityAt, type ColumnField,
 } from "../../fluid/columns";
-import { COLUMNS_PER_TILE, columnOf, tileOf, type WaterField } from "../water/field";
+import { COLUMNS_PER_TILE, columnOf, tileOf } from "../water/field";
 import { FALL_MIN } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -164,8 +164,8 @@ export type WaterLayer = {
   t: number;
 };
 
-export function createWaterLayer(field: WaterField, bands: BandLayer, scale = 1): WaterLayer {
-  const { columns } = field;
+/** `columns` and not a `WaterField`, so a second storey can have a layer. */
+export function createWaterLayer(columns: ColumnField, bands: BandLayer, scale = 1): WaterLayer {
   const strips: QuadBatch[] = [];
   for (let b = 0; b < bands.bands.length; b++) {
     strips.push(createQuadBatch(bands.structureOf[b]));
@@ -640,10 +640,9 @@ export function aerate(colour: number, t: number): number {
  * proportion to how much water there is rather than to how big the map is.
  */
 export function drawWater(
-  wl: WaterLayer, field: WaterField, bands: BandLayer, dt: number,
+  wl: WaterLayer, columns: ColumnField, bands: BandLayer, dt: number,
   faces = true, rim = RIM,
 ) {
-  const { columns } = field;
   wl.t += dt;
 
   // Rewind the batches that hold anything, so an empty map costs nothing. The
@@ -661,7 +660,7 @@ export function drawWater(
       stepFoam(wl.foam, columns, dt, region);
     }
     cornerValues(wl, columns, region, rim);
-    fillQuads(wl, field, bands, region, faces, rim);
+    fillQuads(wl, columns, bands, region, faces, rim);
   }
 
   for (const b of [...wl.live]) {
@@ -673,11 +672,10 @@ export function drawWater(
 
 /** Walk the wet columns and write a quad for each. */
 function fillQuads(
-  wl: WaterLayer, field: WaterField, bands: BandLayer,
+  wl: WaterLayer, columns: ColumnField, bands: BandLayer,
   region: { x0: number; y0: number; x1: number; y1: number },
   faces: boolean, rim: number,
 ) {
-  const { columns } = field;
   const { nx, depth } = columns;
   const s = wl.scale;
 

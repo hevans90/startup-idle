@@ -118,6 +118,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // the CPU builder. Only one of the two ever exists: they draw into the same
   // band containers, and both would draw the same water twice.
   const gpuRef = useRef<GpuWaterLayer | null>(null);
+  /**
+   * The SECOND STOREY's own pair, for water standing on a bridge.
+   *
+   * A deck is a surface with a gap under it, so its water is a field of its
+   * own — @see WaterField.over — and a field of its own needs a mesh of its
+   * own. Into the same bands as the storey below, added after it, which is
+   * the right order: a span is nearer the camera than the bed it crosses.
+   *
+   * Null on a map with no deck, which costs it nothing. Stepped on the HOST
+   * whatever the solver below is doing: what stands on a bridge is a puddle,
+   * and handing a second field to the device would double the state it owns
+   * to carry a few hundred columns of water.
+   */
+  const overFlRef = useRef<WaterLayer | null>(null);
+  const overGpuRef = useRef<GpuWaterLayer | null>(null);
   // Drops in the air, which are neither path's business: a drop is at a point
   // between two places rather than on a column, and both mesh builders are
   // functions of the columns.
@@ -171,8 +186,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const water = useWorldStore.getState().getWaterField();
       const onGpu = waterOnGpu();
       rendererRef.current = app?.renderer ?? null;
-      const fl = water && !onGpu ? createWaterLayer(water, bl, scale) : null;
-      gpuRef.current = water && onGpu ? createGpuWaterLayer(water, bl, scale) : null;
+      const fl = water && !onGpu ? createWaterLayer(water.columns, bl, scale) : null;
+      gpuRef.current = water && onGpu ? createGpuWaterLayer(water.columns, bl, scale) : null;
+      // AND THE STOREY ABOVE, if the map has one. Built here with everything
+      // else, so it is rebuilt with the scene when the grid changes — which
+      // is when a deck can appear, since only a generate or a load makes one.
+      const over = water?.over ?? null;
+      overFlRef.current = over && !onGpu ? createWaterLayer(over, bl, scale) : null;
+      overGpuRef.current = over && onGpu ? createGpuWaterLayer(over, bl, scale) : null;
       // Between the surface and the drips: a fall is drawn over the water
       // it is leaving and under the drops coming off it.
       faRef.current = water ? createFallLayer(bl, scale) : null;
@@ -415,8 +436,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const cpu = flRef.current, gpu = gpuRef.current;
           if (!field || !scene.bl || (!cpu && !gpu)) return null;
           const build = () => (cpu
-            ? drawWater(cpu, field, scene.bl!, 1 / 60)
-            : drawGpuWater(gpu!, field, scene.bl!, 1 / 60, true, onDevice));
+            ? drawWater(cpu, field.columns, scene.bl!, 1 / 60)
+            : drawGpuWater(gpu!, field.columns, scene.bl!, 1 / 60, true, onDevice));
           const device = (renderer as unknown as { gpu?: { device: GPUDevice } }).gpu?.device;
           // THE STAMPS GO ROUND TOO. They are resolved at the end of the
           // ticker's frame, and the bench does not use the ticker — so without
@@ -492,6 +513,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cursorRef.current = null;
       if (flRef.current) destroyWaterLayer(flRef.current);
       if (gpuRef.current) destroyGpuWaterLayer(gpuRef.current);
+      if (overFlRef.current) destroyWaterLayer(overFlRef.current);
+      if (overGpuRef.current) destroyGpuWaterLayer(overGpuRef.current);
       if (faRef.current) destroyFallLayer(faRef.current);
       if (drRef.current) destroyGpuDripLayer(drRef.current);
       if (slRef.current) clearStructureLayer(slRef.current);
@@ -499,6 +522,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       slRef.current = null;
       flRef.current = null;
       gpuRef.current = null;
+      overFlRef.current = null;
+      overGpuRef.current = null;
       drRef.current = null;
       blRef.current = null;
       tlRef.current = null;
@@ -1077,9 +1102,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (gpu?.gather && solver && dev) {
         gatherQuads(gpu.gather, dev, field.columns, grid.w, grid.h, overlays.faces);
       }
-      if (fl) drawWater(fl, field, bl, dt, overlays.faces);
+      if (fl) drawWater(fl, field.columns, bl, dt, overlays.faces);
       else if (gpu) {
-        drawGpuWater(gpu, field, bl, dt, overlays.faces, solver !== null);
+        drawGpuWater(gpu, field.columns, bl, dt, overlays.faces, solver !== null);
+      }
+      // AND THE WATER ON THE BRIDGES, after it — a span is nearer than the
+      // bed it crosses. Never `carried`: this storey is the host's own
+      // whatever is stepping the one below. @see WaterField.over
+      const overField = field.over;
+      if (overField) {
+        const oFl = overFlRef.current, oGpu = overGpuRef.current;
+        if (oFl) drawWater(oFl, overField, bl, dt, overlays.faces);
+        else if (oGpu) drawGpuWater(oGpu, overField, bl, dt, overlays.faces, false);
       }
       // The foam FIELD, not the solver's raw breaking: the surface is painted
       // from this, so the sheet has to be too or a white lip goes over a

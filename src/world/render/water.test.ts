@@ -45,7 +45,7 @@ function scene(w = 16, h = 16) {
   fillTerrain(grid, 1);
   const field = createWaterField(grid);
   const bands = createBandLayer(w, h);
-  const wl = createWaterLayer(field, bands, 1);
+  const wl = createWaterLayer(field.columns, bands, 1);
   return { grid, field, bands, wl };
 }
 
@@ -117,7 +117,7 @@ describe("the surface the mesh carries", () => {
     // collapsed onto a quarter of a tile: invisible, and very fast.
     const { field, bands, wl } = scene();
     pool(field, 4, 4, 4);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     const polys = allPolys(wl.strips);
     expect(polys.length).toBeGreaterThan(20);
@@ -128,7 +128,7 @@ describe("the surface the mesh carries", () => {
   test("the quads span the whole pool, not one tile of it", () => {
     const { field, bands, wl } = scene();
     pool(field, 4, 4, 4);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
     for (const p of allPolys(wl.strips)) {
@@ -151,7 +151,7 @@ describe("the surface the mesh carries", () => {
     // there is no pane here at all any more; `what the rim rule does to the
     // faces` is the same scene from the other side. Kept because the count
     // is what a face used to be, and the surface quads either way.
-    drawWater(wl, field, bands, 1 / 60, true, 0);
+    drawWater(wl, field.columns, bands, 1 / 60, true, 0);
     const polys = polysOf(wl.strips[10]);
     expect(polys.filter((p) => !isFace(p)).length).toBe(COLUMNS_PER_TILE * COLUMNS_PER_TILE);
     // Poured onto dry ground it stands proud of it, so the columns along its
@@ -174,7 +174,7 @@ describe("the surface the mesh carries", () => {
     // could see the tile through them.
     const { field, bands, wl } = scene();
     pourAt(field, 5, 5, 0.05, 1);      // damp, not wet
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const drawn = allPolys(wl.strips).filter((p) => !isFace(p));
     expect(drawn.length).toBe(COLUMNS_PER_TILE * COLUMNS_PER_TILE);
     for (const b of wl.strips) {
@@ -203,12 +203,12 @@ describe("the surface the mesh carries", () => {
       }
       const field = createWaterField(grid, { ...FLOW_DEFAULTS, wind: 0 });
       const bands = createBandLayer(32, 32);
-      const wl = createWaterLayer(field, bands, 1);
+      const wl = createWaterLayer(field.columns, bands, 1);
       for (let y = 3; y <= 28; y++) for (let x = 3; x <= 28; x++) pourAt(field, x, y, 6, 1);
       for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
       for (let y = 14; y <= 17; y++) for (let x = 14; x <= 17; x++) pourAt(field, x, y, jolt, 1);
       for (let n = 0; n < 40; n++) stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
 
       // Every surface quad back to the column that pushed it: coverage is one
       // to one, and `fillQuads` walks the columns in a known order.
@@ -266,10 +266,10 @@ describe("the surface the mesh carries", () => {
     }
     const field = createWaterField(grid);
     const bands = createBandLayer(32, 32);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 2; y <= 29; y++) for (let x = 2; x <= 29; x++) pourAt(field, x, y, 5, 1);
     for (let n = 0; n < 60 * 12; n++) stepWater(field, 1 / 60);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     let holding = 0;
     for (const d of field.columns.depth) if (d > field.columns.params.dryDepth) holding++;
     const surfaces = allPolys(wl.strips).filter((p) => !isFace(p)).length;
@@ -289,10 +289,10 @@ describe("the surface the mesh carries", () => {
     for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 10);
     const field = createWaterField(grid);
     const bands = createBandLayer(16, 16);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 4; y <= 8; y++) pourAt(field, 7, y, 3, 1);
     for (let n = 0; n < 30; n++) stepWater(field, 1 / 60);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     const faces = allPolys(wl.strips).filter(isFace);
     expect(faces.length).toBeGreaterThan(0);
@@ -315,10 +315,10 @@ describe("the surface the mesh carries", () => {
     for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 10);
     const field = createWaterField(grid);
     const bands = createBandLayer(16, 16);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 4; y <= 8; y++) pourAt(field, 7, y, 3, 1);
     for (let n = 0; n < 30; n++) stepWater(field, 1 / 60);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     let solidWall = 0;
     for (const b of wl.strips) {
@@ -356,9 +356,9 @@ describe("the surface the mesh carries", () => {
       for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 10);
       const field = createWaterField(grid);
       const bands = createBandLayer(16, 16);
-      const wl = createWaterLayer(field, bands, 1);
+      const wl = createWaterLayer(field.columns, bands, 1);
       for (let y = 4; y <= 8; y++) for (let x = 4; x <= 7; x++) pourAt(field, x, y, depth, 1);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
       let most = 0;
       for (const b of wl.strips) {
         for (let q = 0; q < b.n; q++) {
@@ -381,7 +381,7 @@ describe("the surface the mesh carries", () => {
     for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 10);
     const field = createWaterField(grid);
     const bands = createBandLayer(16, 16);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 3; y <= 9; y++) pourAt(field, 7, y, 4, 1);
     for (let n = 0; n < 30; n++) stepWater(field, 1 / 60);
     // Pinned at rim NOUGHT. These are the panes along a LIP, which the rim
@@ -389,7 +389,7 @@ describe("the surface the mesh carries", () => {
     // none here to abut. What it checks — that a run of faces is one sheet
     // and not a row of ribbons — still holds wherever faces ARE drawn, and
     // this is the scene the complaint came from.
-    drawWater(wl, field, bands, 1 / 60, true, 0);
+    drawWater(wl, field.columns, bands, 1 / 60, true, 0);
 
     // Every DISTINCT lip along the cliff, as a screen-x span, sorted and
     // walked. Distinct because one edge can carry both the side of the water
@@ -422,9 +422,9 @@ describe("the surface the mesh carries", () => {
     fillTerrain(grid, 1);
     const field = createWaterField(grid);
     const bands = createBandLayer(8, 8);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) pourAt(field, x, y, 4, 1);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     const faces = allPolys(wl.strips).filter(isFace);
     expect(faces.length).toBeGreaterThan(0);
@@ -445,11 +445,11 @@ describe("the surface the mesh carries", () => {
     for (let y = 0; y < 12; y++) for (let x = 6; x < 12; x++) setHeight(grid, x, y, 20);
     const field = createWaterField(grid);
     const bands = createBandLayer(12, 12);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     // A pool on the low ground, reaching the foot of the bank but nowhere near
     // its top, so the bank is dry and stands well above the water.
     for (let y = 3; y <= 8; y++) for (let x = 3; x <= 5; x++) pourAt(field, x, y, 5, 1);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     const tall = Math.max(
       ...allPolys(wl.strips).filter(isFace).map((p) => Math.abs(p[1] - p[7])),
@@ -474,14 +474,14 @@ describe("the surface the mesh carries", () => {
       }
       const field = createWaterField(grid);
       const bands = createBandLayer(20, 20);
-      const wl = createWaterLayer(field, bands, 1);
+      const wl = createWaterLayer(field.columns, bands, 1);
       for (let y = 6; y <= 12; y++) for (let x = 5; x <= 9; x++) pourAt(field, x, y, 4, 1);
       // Pinned at rim NOUGHT. A pool at a plateau's edge is at a LIP and
       // the rim hands its pane to the sheet, so at the default there is no
       // face here to measure. Kept at nought because this is where getting
       // the clamp wrong was WORST — the excess was the height of the cliff
       // — and `resolveSide` pins the rule itself directly.
-      drawWater(wl, field, bands, 1 / 60, true, 0);
+      drawWater(wl, field.columns, bands, 1 / 60, true, 0);
       // Corner 0 against corner 3 — the SAME end of the edge, top and bottom,
       // so the isometric offset between the two ends cancels and what is left
       // is the height. Corner 0 against corner 2 measures the diagonal.
@@ -513,12 +513,12 @@ describe("the surface the mesh carries", () => {
       setHeight(grid, 4, 4, bed);
       const field = createWaterField(grid);
       const bands = createBandLayer(9, 9);
-      const wl = createWaterLayer(field, bands, 1);
+      const wl = createWaterLayer(field.columns, bands, 1);
       for (let y = 2; y <= 6; y++) {
         for (let x = 2; x <= 6; x++) pourAt(field, x, y, x === 4 && y === 4 ? 1 : 1.5, 1);
       }
       for (let n = 0; n < 3; n++) stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
 
       // Band 8 holds the raised tile; its quads are the ones within half a
       // diamond of the centre line, the rest of the band being elsewhere.
@@ -553,10 +553,10 @@ describe("the surface the mesh carries", () => {
     fillTerrain(grid, 1);
     const field = createWaterField(grid);
     const bands = createBandLayer(24, 24);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 4; y <= 19; y++) for (let x = 4; x <= 19; x++) pourAt(field, x, y, 6, 1);
     for (let n = 0; n < 60 * 3; n++) stepWater(field, 1 / 60);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     const polys = allPolys(wl.strips);
     const faces = polys.filter(isFace).length;
@@ -576,11 +576,11 @@ describe("the surface the mesh carries", () => {
       setHeight(grid, 4, 4, 4);
       const field = createWaterField(grid);
       const bands = createBandLayer(9, 9);
-      const wl = createWaterLayer(field, bands, 1);
+      const wl = createWaterLayer(field.columns, bands, 1);
       pourAt(field, 4, 4, depth, 1);
       // Pinned at rim NOUGHT — a raised tile's edges are lips, and at the
       // default the sheet going over them is what bounds the water.
-      drawWater(wl, field, bands, 1 / 60, true, 0);
+      drawWater(wl, field.columns, bands, 1 / 60, true, 0);
       const n = allPolys(wl.strips).filter(isFace).length;
       destroyWaterLayer(wl);
       return n;
@@ -598,12 +598,12 @@ describe("the surface the mesh carries", () => {
     for (let y = 0; y < 12; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 14);
     const field = createWaterField(grid);
     const bands = createBandLayer(16, 12);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     // A slug right at the lip, so it goes over at once and then runs out.
     for (let y = 4; y <= 7; y++) pourAt(field, 7, y, 10, 1);
     const tick = () => {
       stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
     };
     for (let n = 0; n < 45; n++) tick();
 
@@ -630,10 +630,10 @@ describe("the surface the mesh carries", () => {
       for (let y = 0; y < 20; y++) for (let x = 0; x < 10; x++) setHeight(grid, x, y, 10);
       const field = createWaterField(grid);
       const bands = createBandLayer(20, 20);
-      const wl = createWaterLayer(field, bands, 1);
+      const wl = createWaterLayer(field.columns, bands, 1);
       for (let y = 6; y <= 12; y++) for (let x = 5; x <= 9; x++) pourAt(field, x, y, 4, 1);
       for (let n = 0; n < settle; n++) stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
       // A live fall is one whose front has got further down the wall than its
       // head — see `render/falls`.
       let falls = 0;
@@ -656,11 +656,11 @@ describe("the surface the mesh carries", () => {
     for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 8);
     const field = createWaterField(grid);
     const bands = createBandLayer(16, 16);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
 
     // Deep water right at the top of the step, so there is a real drop east.
     pourAt(field, 7, 6, 12, 1);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const polys = allPolys(wl.strips);
     expect(polys.filter(isFace).length).toBeGreaterThan(0);
     expect(polys.filter((p) => !isFace(p)).length).toBeGreaterThan(0);
@@ -682,13 +682,13 @@ describe("shading a sheet over uneven ground", () => {
     setHeight(grid, 6, 6, -4);                // a hollow under the middle
     const field = createWaterField(grid);
     const bands = createBandLayer(16, 16);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 4; y <= 8; y++) for (let x = 4; x <= 8; x++) pourAt(field, x, y, 6, 1);
     // Let it find its level: poured and drawn on the same frame every column
     // holds the same SIX, hollow or not, so there is no gradient to read and
     // never was. What this used to pass on was the sides.
     for (let n = 0; n < 60 * 3; n++) stepWater(field, 1 / 60);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     // SURFACE quads only, which is what this is about. Read across every quad
     // in the band it also passed on the sides, whose two ends used to carry
@@ -719,7 +719,7 @@ describe("shading a sheet over uneven ground", () => {
     // bed is flat there is nothing to see.
     const { field, bands, wl } = scene();
     pool(field, 4, 4, 4);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const inner = wl.strips[12];
     const mid = [...Array(inner.n).keys()]
       .map((q) => alphas(inner, q))
@@ -738,11 +738,11 @@ describe("shading a sheet over uneven ground", () => {
     }
     const field = createWaterField(grid);
     const bands = createBandLayer(16, 16);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     // Shallow enough either side that neither has run up against full opacity.
     for (let y = 2; y <= 12; y++) for (let x = 2; x <= 12; x++) pourAt(field, x, y, 1.5, 1);
     for (let n = 0; n < 240; n++) stepWater(field, 1 / 60);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     // Surface quads only: this is about how the sheet is shaded, and the
     // edges around it carry their own opacity for their own reasons.
@@ -794,7 +794,7 @@ describe("running water reads as running", () => {
     setSource(grid, 2, 6, 8);
     const field = createWaterField(grid);
     const bands = createBandLayer(24, 12);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let n = 0; n < 60 * 30; n++) {
       runSources(field, grid, 1 / 60);
       stepWater(field, 1 / 60);
@@ -804,7 +804,7 @@ describe("running water reads as running", () => {
 
   test("a current is drawn in bands of light; a dead calm pond is not", () => {
     const { field, bands, wl } = river();
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     expect(spread(shades(wl))).toBeGreaterThan(40);
     destroyWaterLayer(wl);
 
@@ -813,10 +813,10 @@ describe("running water reads as running", () => {
     fillTerrain(grid, 1);
     const still = createWaterField(grid, { ...FLOW_DEFAULTS, wind: 0 });
     const sb = createBandLayer(16, 16);
-    const swl = createWaterLayer(still, sb, 1);
+    const swl = createWaterLayer(still.columns, sb, 1);
     for (let y = 4; y <= 11; y++) for (let x = 4; x <= 11; x++) pourAt(still, x, y, 4, 1);
     for (let n = 0; n < 60 * 60; n++) stepWater(still, 1 / 60);
-    drawWater(swl, still, sb, 1 / 60);
+    drawWater(swl, still.columns, sb, 1 / 60);
     // Against better than 40 for the river. Not zero: a shoreline leans, and
     // the fringe fades out rather than stopping, so there is always some.
     expect(spread(shades(swl))).toBeLessThan(30);
@@ -831,7 +831,7 @@ describe("running water reads as running", () => {
     // river, one column's shade correlated with its neighbour's at 0.002,
     // which is to say television static, which is what it looked like.
     const { field, bands, wl } = river();
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     const vw = field.columns.nx + 1;
     const at = (lag: number) => {
@@ -863,12 +863,12 @@ describe("running water reads as running", () => {
 
   test("and the water carries it downstream", () => {
     const { grid, field, bands, wl } = river();
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const before = shades(wl);
     for (let n = 0; n < 30; n++) {
       runSources(field, grid, 1 / 60);
       stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
     }
     const after = shades(wl);
     let moved = 0;
@@ -894,12 +894,12 @@ describe("running water reads as running", () => {
     }
     const field = createWaterField(grid);
     const bands = createBandLayer(28, 28);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 4; y <= 23; y++) for (let x = 4; x <= 23; x++) pourAt(field, x, y, 6, 1);
     const run = (frames: number) => {
       for (let n = 0; n < frames; n++) {
         stepWater(field, 1 / 60);
-        drawWater(wl, field, bands, 1 / 60);
+        drawWater(wl, field.columns, bands, 1 / 60);
       }
     };
     run(60 * 15);                                   // settle, with the weather on
@@ -931,14 +931,14 @@ describe("running water reads as running", () => {
     fillTerrain(grid, 1);
     const field = createWaterField(grid, { ...FLOW_DEFAULTS, wind: 0 });
     const bands = createBandLayer(16, 16);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 4; y <= 11; y++) for (let x = 4; x <= 11; x++) pourAt(field, x, y, 4, 1);
     for (let n = 0; n < 60 * 60; n++) stepWater(field, 1 / 60);
     // Pinned at rim NOUGHT, which is what makes every corner alike: at the
     // default the fringe is deliberately a BEVEL and leans, so the flattest
     // pond in the world has a ring of corners that are not the middle. The
     // INTERIOR is what this is about and the interior is untouched.
-    drawWater(wl, field, bands, 1 / 60, true, 0);
+    drawWater(wl, field.columns, bands, 1 / 60, true, 0);
     const mid = shades(wl);
     expect(Math.min(...mid)).toBeGreaterThan(60);     // nothing pinned at the floor
     destroyWaterLayer(wl);
@@ -967,8 +967,8 @@ describe("what the rim rule does to the faces", () => {
     const field = createWaterField(grid);
     build(field, grid);
     const bands = createBandLayer(w, w);
-    const wl = createWaterLayer(field, bands, 1);
-    drawWater(wl, field, bands, 1 / 60, true, rim);
+    const wl = createWaterLayer(field.columns, bands, 1);
+    drawWater(wl, field.columns, bands, 1 / 60, true, rim);
     // Faces with HEIGHT in them. A quad whose two ends both sit on their own
     // floor makes no fragments, and `resolveSide` leaves those behind rather
     // than paying to blank them — counting one as a pane would be counting
@@ -991,8 +991,8 @@ describe("what the rim rule does to the faces", () => {
     const field = createWaterField(grid);
     build(field, grid);
     const bands = createBandLayer(w, w);
-    const wl = createWaterLayer(field, bands, 1);
-    drawWater(wl, field, bands, 1 / 60, true, rim);
+    const wl = createWaterLayer(field.columns, bands, 1);
+    drawWater(wl, field.columns, bands, 1 / 60, true, rim);
     const out = allPolys(wl.strips).filter(isFace)
       .map((p) => ({
         a: Math.abs(p[1] - p[7]) / HEIGHT_UNIT,
@@ -1133,11 +1133,11 @@ describe("a corner agrees with itself", () => {
     }
     const field = createWaterField(grid);
     const bands = createBandLayer(w, h);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) pourAt(field, x, y, 20, 1);
     for (let n = 0; n < 60 * 20; n++) {
       stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
     }
     const c = corners(wl);
     expect(c.meeting).toBeGreaterThan(100);      // the dips really do meet
@@ -1160,7 +1160,7 @@ describe("a corner agrees with itself", () => {
     for (let y = 6; y <= 13; y++) for (let x = 6; x <= 13; x++) setHeight(grid, x, y, 12);
     const field = createWaterField(grid);
     const bands = createBandLayer(w, h);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let y = 7; y <= 12; y++) for (let x = 7; x <= 12; x++) pourAt(field, x, y, 2, 1);
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
@@ -1169,7 +1169,7 @@ describe("a corner agrees with itself", () => {
     }
     for (let n = 0; n < 60 * 15; n++) {
       stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
     }
     const c = corners(wl);
     expect(c.meeting).toBeGreaterThan(50);
@@ -1209,7 +1209,7 @@ describe("a breaking wave goes white", () => {
     pool(field, 4, 4, 12, 6);
     for (let n = 0; n < 60 * 12; n++) {
       stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
     }
     const reds = corners(wl).map((c) => c.red);
     expect(reds.length).toBeGreaterThan(100);
@@ -1223,11 +1223,11 @@ describe("a breaking wave goes white", () => {
     for (let y = 0; y < 20; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 12);
     const field = createWaterField(grid);
     const bands = createBandLayer(20, 20);
-    const wl = createWaterLayer(field, bands, 1);
+    const wl = createWaterLayer(field.columns, bands, 1);
     for (let n = 0; n < 60 * 8; n++) {
       for (let y = 8; y <= 10; y++) pourAt(field, 3, y, 0.4, 1);
       stepWater(field, 1 / 60);
-      drawWater(wl, field, bands, 1 / 60);
+      drawWater(wl, field.columns, bands, 1 / 60);
     }
 
     const all = corners(wl);
@@ -1248,7 +1248,7 @@ describe("a breaking wave goes white", () => {
 describe("which bands get any of it", () => {
   test("an empty field draws nothing and touches no band", () => {
     const { field, bands, wl } = scene();
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     expect(allPolys(wl.strips).length).toBe(0);
     expect(wl.live.size).toBe(0);
     expect(wl.strips.some((b) => b.mesh.visible)).toBe(false);
@@ -1268,7 +1268,7 @@ describe("which bands get any of it", () => {
     for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) setHeight(grid, x, y, 6);
     syncGround(field, grid);
     pourAt(field, 7, 7, 3, 1);                    // the last tile before the drop
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     // Its surface is in band 14; the face on its east edge hangs over the lip
     // and is filed in 15, with the tile it hangs into.
@@ -1284,7 +1284,7 @@ describe("which bands get any of it", () => {
     for (let y = 0; y < 16; y++) for (let x = 8; x < 16; x++) setHeight(grid, x, y, 20);
     syncGround(field, grid);
     pourAt(field, 7, 7, 3, 1);                    // lapping against the wall
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     // The east face is against the wall, so it stays in its own band; the
     // south face is over open ground and goes forward.
@@ -1301,9 +1301,9 @@ describe("which bands get any of it", () => {
     // Band 12 holds the two far edges' PANES, so which bands come alive is
     // a question the rim rule answers: on a flat map a puddle is bounded by
     // a shore, has no panes, and never reaches the band in front of it.
-    drawWater(wl, field, bands, 1 / 60, true, 0);
+    drawWater(wl, field.columns, bands, 1 / 60, true, 0);
     expect([...wl.live].sort((a, b) => a - b)).toEqual([11, 12]);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     expect([...wl.live].sort((a, b) => a - b)).toEqual([11]);
     expect(wl.strips[11].mesh.visible).toBe(true);
     destroyWaterLayer(wl);
@@ -1312,13 +1312,13 @@ describe("which bands get any of it", () => {
   test("bands off screen are culled, and empty when they leave", () => {
     const { field, bands, wl } = scene();
     pool(field, 4, 4, 4);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const wide = wl.live.size;
     expect(polysOf(wl.strips[8]).length).toBeGreaterThan(0);
 
     bands.visibleLo = 12;
     bands.visibleHi = 13;
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     expect(wl.live.size).toBeLessThan(wide);
     for (const b of wl.live) expect(b).toBeGreaterThanOrEqual(12);
     for (const b of wl.live) expect(b).toBeLessThanOrEqual(13);
@@ -1335,14 +1335,14 @@ describe("what the GPU is left holding", () => {
     // the buffer keeps being drawn whether or not this frame wrote it.
     const { field, bands, wl } = scene();
     pool(field, 4, 4, 3);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const band = [...wl.live][0];
     const batch = wl.strips[band];
     const had = batch.n;
     expect(had).toBeGreaterThan(0);
 
     for (let y = 4; y < 7; y++) for (let x = 4; x < 7; x++) pourAt(field, x, y, -6, 0);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
 
     expect(batch.n).toBe(0);
     expect(batch.mesh.visible).toBe(false);
@@ -1354,10 +1354,10 @@ describe("what the GPU is left holding", () => {
   test("the buffer is grown, not reallocated per frame", () => {
     const { field, bands, wl } = scene();
     pool(field, 4, 4, 4);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const caps = wl.strips.map((b) => b.cap);
     const arrays = wl.strips.map((b) => b.f32);
-    for (let n = 0; n < 5; n++) drawWater(wl, field, bands, 1 / 60);
+    for (let n = 0; n < 5; n++) drawWater(wl, field.columns, bands, 1 / 60);
     expect(wl.strips.map((b) => b.cap)).toEqual(caps);
     wl.strips.forEach((b, i) => expect(b.f32).toBe(arrays[i]));
     destroyWaterLayer(wl);
@@ -1366,13 +1366,13 @@ describe("what the GPU is left holding", () => {
   test("a batch grows to fit a band that fills up", () => {
     const { field, bands, wl } = scene();
     pourAt(field, 5, 6, 6, 1);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const batch = wl.strips[11];
     const cap0 = batch.cap;
 
     // The whole band, which is far more quads than one tile needed.
     for (let x = 0; x < 12; x++) pourAt(field, x, 11 - x, 6, 1);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     expect(batch.n).toBeGreaterThan(cap0);
     expect(batch.cap).toBeGreaterThan(cap0);
     expect(batch.cap).toBeGreaterThanOrEqual(batch.n);
@@ -1385,11 +1385,11 @@ describe("what the GPU is left holding", () => {
   test("deeper water is more opaque, and the colour rides with the vertex", () => {
     const { field, bands, wl } = scene();
     pourAt(field, 5, 6, 1, 1);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const shallow = wl.strips[11].u32[2] >>> 24;
 
     pourAt(field, 5, 6, 8, 1);
-    drawWater(wl, field, bands, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
     const deep = wl.strips[11].u32[2] >>> 24;
 
     expect(deep).toBeGreaterThan(shallow);

@@ -65,7 +65,7 @@ import { quadRuleSource } from "./quad-rule";
 import { createQuadsPass, type QuadsPass } from "./quads-gpu";
 import { FALL_MIN } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
-import { COLUMNS_PER_TILE, type WaterField } from "../water/field";
+import { COLUMNS_PER_TILE } from "../water/field";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "./bands";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
@@ -1066,8 +1066,15 @@ const viewOf = (data: Float32Array, nx: number, ny: number) =>
     resource: data, width: nx, height: ny, format: "r32float", scaleMode: "nearest",
   });
 
-export function createGpuWaterLayer(field: WaterField, bands: BandLayer, scale = 1): GpuWaterLayer {
-  const { columns } = field;
+/**
+ * `columns` and not a `WaterField`, so a SECOND storey can have a layer too.
+ *
+ * Nothing here ever wanted the world's field — it reads the columns and
+ * nothing else — and a bridge's water is a column field like any other, over
+ * the same bands, drawn at the deck's own level because that is where its
+ * ground is. @see WaterField.over
+ */
+export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scale = 1): GpuWaterLayer {
   const { nx, ny } = columns;
   const { gpu, gl } = programs();
 
@@ -1455,11 +1462,10 @@ export function destroyGpuWaterLayer(wl: GpuWaterLayer) {
  * the simulation's own work and six calls to mark a texture dirty.
  */
 export function drawGpuWater(
-  wl: GpuWaterLayer, field: WaterField, bands: BandLayer, dt: number,
+  wl: GpuWaterLayer, columns: ColumnField, bands: BandLayer, dt: number,
   faces = true, carried = false,
 ) {
   const t0 = performance.now();
-  const { columns } = field;
   // The debug switch, into the spare slot of `uIso`. Written per band because
   // each one carries its own group, and only when it changes: a uniform
   // upload per band per frame to say the same thing again is not free.
