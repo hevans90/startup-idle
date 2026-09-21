@@ -64,8 +64,17 @@ import type { Stamps } from "./stamps";
 /** A number WGSL will read as an f32 — an integer needs its point. */
 const num = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
 
-/** Bytes in the uniform block. Twenty `vec4`s — see `writeConsts`. */
-const CONSTS_BYTES = 320;
+/**
+ * Bytes in the uniform block. Twenty-one `vec4`s — see `writeConsts`.
+ *
+ * GROWS WITH THE STRUCT, and forgetting that is a real failure rather than a
+ * tidy-up: the binding is made at exactly this size, so a `Consts` that has
+ * gained a `vec4` the number has not is a device rejecting every pass with
+ * "buffer bound with size 320 is too small, the pipeline requires 336". The
+ * compare harness is what caught it. @see CONSTS_STRIDE, which is a multiple
+ * of 256 and has plenty of room.
+ */
+const CONSTS_BYTES = 336;
 
 /**
  * How far apart one substep's constants sit from the next.
@@ -352,7 +361,7 @@ export const FIELDS = [
   // keeps every other reader (the save, the handover to the CPU solver) seeing
   // a field that is stale rather than one that is frozen. @see WANT_MAX
   "wantAt", "wantOut",
-  "rim",
+  "rim", "closed",
 ] as const;
 export type FieldName = (typeof FIELDS)[number];
 
@@ -445,6 +454,8 @@ export type PassUniforms = {
   rimMaterial: number;
   /** Whether any of the rim is held at a level. @see ColumnField.rim */
   rimHeld: boolean;
+  /** Whether any edge is an abutment. @see ColumnField.closed */
+  anyClosed: boolean;
 };
 
 export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
@@ -484,6 +495,8 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     wantAt: WANT_MAX, wantOut: WANT_MAX,
     // The PERIMETER, not the area: the rim is an edge. @see rimAt
     rim: rimLength(f.nx, f.ny),
+    // Two edges a column — the `+x` and the `+y`. @see ColumnField.closed
+    closed: cells * 2,
   };
   const offset = {} as Record<FieldName, number>;
   let at = 0;
@@ -768,6 +781,7 @@ export function upload(s: GpuState, f: ColumnField) {
     q.writeBuffer(s.field, s.offset[name] * 4, data);
   put("ground", f.ground);
   put("depth", f.depth);
+  if (f.closed) put("closed", Float32Array.from(f.closed));
   // ONLY WHEN THERE IS ONE. A map with no inflow leaves the slice untouched
   // and the shader never reads it, because `rimHeld` is false. @see spill
   if (f.rim) put("rim", f.rim);
@@ -897,6 +911,8 @@ export function writeConsts(
   i32[77] = o.rim;
   i32[78] = u.rimMaterial;
   i32[79] = u.rimHeld ? 1 : 0;
+  i32[80] = o.closed;
+  i32[81] = u.anyClosed ? 1 : 0;
   i32[68] = o.foamNow; i32[69] = o.foamNext;
   i32[70] = o.splashNow; i32[71] = o.splashIn;
   f32[51] = u.frameDt;
@@ -973,6 +989,7 @@ struct Consts {
   o11: vec4<i32>,        // offsets: foamNow, foamNext, splashNow, splashIn
   o12: vec4<i32>,        // offset: matByte, open edge, wantAt, wantOut
   o13: vec4<i32>,        // wantN, then the rim: offset, material, whether held
+  o14: vec4<i32>,        // closed: offset, whether any, 2 spare
 };
 
 @group(0) @binding(0) var<uniform> consts : Consts;
@@ -1027,6 +1044,12 @@ fn rimLevelAt(k: i32) -> f32 { return field[consts.o13.y + k]; }
 fn rimMaterial() -> f32 { return f32(consts.o13.z); }
 /** Whether any of the rim is held at a level at all. */
 fn rimHeld() -> bool { return consts.o13.w != 0; }
+
+/** Whether this edge carries nothing — an abutment. @see ColumnField.closed */
+fn edgeClosed(i: i32, axis: i32) -> bool {
+  if (consts.o14.y == 0) { return false; }
+  return field[consts.o14.x + i * 2 + axis] != 0.0;
+}
 /**
  * Whether this column is the rim water LEAVES by, rather than water.
  *

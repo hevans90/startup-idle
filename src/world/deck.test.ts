@@ -17,7 +17,7 @@ import { generateMap } from "./gen/generate-map";
 import {
   createWaterField, deckedAt, depthAt, pourAt, setWaterEdge, stepWater, totalVolume,
 } from "./water/field";
-import { STOREY, totalWater } from "../fluid/columns";
+import { STOREY, addWater, totalWater } from "../fluid/columns";
 import { createBandLayer } from "./render/bands";
 import { createWaterLayer, drawWater } from "./render/water";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
@@ -500,5 +500,99 @@ describe("water crosses between a bridge and the road it meets", () => {
       stepWater(field, 1 / 60);
       expect(totalVolume(field, g)).toBeCloseTo(put, 1);
     }
+  }, 30_000);
+});
+
+/**
+ * A BRIDGE HAS AN ABUTMENT, which is the one thing a heightfield cannot say.
+ *
+ * Where a road meets a span the channel is UNDER the deck, and the road does
+ * not pour into it — there is a wall. To the storey below, though, the road
+ * simply ends at a cliff into the river, and water goes over cliffs: of a
+ * hundred and sixty poured on an approach, eleven reached the deck and forty
+ * three fell in the ditch. Water was getting to a bridge by going THROUGH it.
+ *
+ * A vertical face between two cells is not something a height per cell can
+ * express, so the edge itself is closable. @see ColumnField.closed
+ */
+describe("the mouth of a bridge", () => {
+  /** A walled lane, a ditch across it, a span over the ditch. The span is
+   *  the only way from one side to the other, so anything that arrives on
+   *  the far side went OVER, and anything in the ditch went THROUGH. */
+  const lane = () => {
+    const g = createGrid(16, 16);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) {
+        const inLane = y >= 6 && y <= 9;
+        setHeight(g, x, y, !inLane ? 40 : x >= 7 && x <= 9 ? -20 : 0);
+      }
+    }
+    for (let y = 6; y <= 9; y++) for (let x = 7; x <= 9; x++) setDeck(g, x, y, 1, 0);
+    const field = createWaterField(g);
+    setWaterEdge(field, false);
+    return { g, field };
+  };
+
+  const inLane = (field: ReturnType<typeof createWaterField>, x0: number, x1: number) => {
+    let sum = 0;
+    for (let y = 6; y <= 9; y++) for (let x = x0; x <= x1; x++) sum += depthAt(field, x, y);
+    return sum;
+  };
+
+  test("does not let the road pour into the channel under it", () => {
+    const { field } = lane();
+    pourAt(field, 4, 7, 10, 1);
+    for (let n = 0; n < 60 * 30; n++) stepWater(field, 1 / 60);
+    // Float dust rather than nought, and the scale is the point: a ten
+    // millionth of a half step against the forty three that used to land
+    // there. @see ColumnField.closed
+    expect(inLane(field, 7, 9)).toBeLessThan(1e-4);
+  }, 40_000);
+
+  test("and the water gets across by going OVER the span", () => {
+    const { field } = lane();
+    pourAt(field, 4, 7, 10, 1);
+    for (let n = 0; n < 60 * 30; n++) stepWater(field, 1 / 60);
+    // On the far side of a ditch it cannot have crossed any other way.
+    expect(inLane(field, 10, 15)).toBeGreaterThan(0);
+  }, 40_000);
+
+  /**
+   * A channel that runs PAST the span at both ends, so the river has to
+   * cross the boundary between a decked cell and an open one. `lane` cannot
+   * ask this: its ditch is exactly the width of the deck, so every cell of
+   * it is decked and the edges in question never come up.
+   */
+  const culvert = () => {
+    const g = createGrid(20, 12);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) {
+        setHeight(g, x, y, y >= 5 && y <= 6 ? -20 : 40);
+      }
+    }
+    // A span across the middle of the channel, touching no road at all.
+    for (let y = 5; y <= 6; y++) for (let x = 9; x <= 10; x++) setDeck(g, x, y, 1, 0);
+    const field = createWaterField(g);
+    setWaterEdge(field, false);
+    return { g, field };
+  };
+
+  test("but the river still runs UNDER it, which the same edges must allow", () => {
+    // The abutment is only the edges between a deck and the ROAD. The edges
+    // from a deck to the channel either side are the river passing through,
+    // and closing those dams it — which is the whole point of a bridge.
+    const { field } = culvert();
+    for (let cy = 5 * 4; cy < 7 * 4; cy++) addWater(field.columns, 2 * 4, cy, 16, 1);
+    const beyond = () => {
+      let sum = 0;
+      for (let y = 5; y <= 6; y++) for (let x = 12; x < 20; x++) sum += depthAt(field, x, y);
+      return sum;
+    };
+    expect(beyond()).toBe(0);
+    for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
+    // It got past the span, which it can only have done by going under it.
+    expect(beyond()).toBeGreaterThan(0);
   }, 30_000);
 });

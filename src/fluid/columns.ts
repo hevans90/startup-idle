@@ -192,6 +192,20 @@ export type ColumnField = {
   /** Bumped whenever {@link rim} changes, so a device copy knows to re-read. */
   rimRev: number;
   /**
+   * Edges that carry NOTHING: the `+x` edge of each column, then the `+y`.
+   *
+   * An ABUTMENT, which is the one thing a heightfield cannot say. Where a
+   * road meets a bridge, the channel is UNDER the deck and the road does not
+   * pour into it — there is a wall between them. Two cells at different
+   * heights are just a cliff to a heightfield, and water goes over cliffs, so
+   * the road emptied into the river at the mouth of every span: of a hundred
+   * and sixty poured on the approach, eleven reached the deck and forty three
+   * fell in the ditch.
+   *
+   * Null on an ordinary field, and nothing pays for it there.
+   */
+  closed: Uint8Array | null;
+  /**
    * What each column IS, on a field that is an upper storey. @see STOREY
    *
    * A bridge's deck ends in two completely different ways and the first
@@ -548,6 +562,7 @@ export function createColumnField(
     rim: null,
     rimMaterial: 1,
     rimRev: 0,
+    closed: null,
     storey: null,
     hold: null,
     fell: null,
@@ -731,6 +746,15 @@ function bound(f: ColumnField) {
       if (hold[i] > f.deepest) f.deepest = hold[i];
     } else material[i] = 0;
   }
+}
+
+/**
+ * Close a field's edges, or open them all again with null.
+ *
+ * Two bytes a column: the `+x` edge, then the `+y`. @see ColumnField.closed
+ */
+export function setClosed(f: ColumnField, closed: Uint8Array | null) {
+  f.closed = closed;
 }
 
 /**
@@ -1538,6 +1562,7 @@ export type PassConsts = {
  */
 export function accelerate(f: ColumnField, c: PassConsts) {
   const { x0: X0, y0: Y0, x1: X1, y1: Y1, gain, bedGain, hMax, minHead, dt } = c;
+  const { closed } = f;
   const { nx, ny, ground, depth, fx, fy, windX, windY, wnx, wstride } = f;
   const keepOf = f.keepOf;
   const material = f.material;
@@ -1587,7 +1612,9 @@ export function accelerate(f: ColumnField, c: PassConsts) {
       }
       const i = y * nx + x;
       const si = ground[i] + depth[i];
-      if (x + 1 < nx) {
+      if (closed !== null && closed[i * 2] !== 0) {
+        fx[i] = 0;                            // an abutment: see `closed`
+      } else if (x + 1 < nx) {
         const j = i + 1;
         const sill = ground[i] > ground[j] ? ground[i] : ground[j];
         const hi = si - sill, hj = ground[j] + depth[j] - sill;
@@ -1607,7 +1634,9 @@ export function accelerate(f: ColumnField, c: PassConsts) {
       } else {
         fx[i] = 0;                            // the map edge is a wall
       }
-      if (y + 1 < ny) {
+      if (closed !== null && closed[i * 2 + 1] !== 0) {
+        fy[i] = 0;                            // an abutment: see `closed`
+      } else if (y + 1 < ny) {
         const j = i + nx;
         const sill = ground[i] > ground[j] ? ground[i] : ground[j];
         const hi = si - sill, hj = ground[j] + depth[j] - sill;

@@ -130,12 +130,20 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let wxv = windXAt(wrow + wc) * dt();
   let wyv = windYAt(wrow + wc) * dt();
 
-  if (x + 1 < nx()) {
+  // AN ABUTMENT CARRIES NOTHING, checked before the edge is accelerated and
+  // the twin of the same line on the host. Where a road meets a bridge the
+  // channel is under the deck and the road must not pour into it, and a
+  // height per cell cannot say so. @see ColumnField.closed
+  if (edgeClosed(i, 0)) {
+    setFx(i, 0.0);
+  } else if (x + 1 < nx()) {
     setFx(i, fluxAt(fxAt(i), edgeAt(i, i + 1, si), wxv));
   } else {
     setFx(i, 0.0);                            // the map edge is a wall
   }
-  if (y + 1 < ny()) {
+  if (edgeClosed(i, 1)) {
+    setFy(i, 0.0);
+  } else if (y + 1 < ny()) {
     setFy(i, fluxAt(fyAt(i), edgeAt(i, i + nx(), si), wyv));
   } else {
     setFy(i, 0.0);

@@ -16,7 +16,7 @@
  * as a row of flat plates, and it gives the flow room to turn.
  */
 import {
-  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, STOREY, setMaterialDrag, setOpenEdge, setRim, setStorey, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
+  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, STOREY, setClosed, setMaterialDrag, setOpenEdge, setRim, setStorey, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
 } from "../../fluid/columns";
 import { waterInDrips } from "../../fluid/drips";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
@@ -331,7 +331,7 @@ export function syncInflow(field: WaterField, grid: Grid) {
 export function syncDecks(field: WaterField, grid: Grid) {
   let any = false;
   for (let i = 0; i < grid.deck.length && !any; i++) if (grid.deck[i] !== 0) any = true;
-  if (!any) { field.over = null; return; }
+  if (!any) { field.over = null; setClosed(field.columns, null); return; }
 
   const { nx, ny } = field.columns;
   const over = field.over ?? createColumnField(nx, ny, field.columns.params, field.columns.cell);
@@ -392,6 +392,32 @@ export function syncDecks(field: WaterField, grid: Grid) {
   }
   over.groundRev++;
   setStorey(over, kinds);
+
+  // AND THE ABUTMENTS, on the storey BELOW.
+  //
+  // Where a road meets a span, the channel is under the deck and the road
+  // does not pour into it — a bridge has a wall there. The lower field knows
+  // nothing about the deck, so to it the road simply ends at a cliff into the
+  // river: measured on a ditch with a span over it, of a hundred and sixty
+  // poured on the approach, eleven reached the deck and FORTY THREE fell in
+  // the ditch. Water reaches a bridge by going over it.
+  //
+  // Exactly the edges between a deck and the road that meets it, which is the
+  // classification above read a second time: OWNED against GHOST. The edges
+  // from a deck to the CHANNEL either side of it stay open, because that is
+  // the river passing under, and it must. @see ColumnField.closed
+  const closed = new Uint8Array(nx * ny * 2);
+  const abutment = (a: number, b: number) =>
+    (kinds[a] === STOREY.OWNED && kinds[b] === STOREY.GHOST)
+    || (kinds[a] === STOREY.GHOST && kinds[b] === STOREY.OWNED);
+  for (let cy = 0; cy < ny; cy++) {
+    for (let cx = 0; cx < nx; cx++) {
+      const i = cy * nx + cx;
+      if (cx + 1 < nx && abutment(i, i + 1)) closed[i * 2] = 1;
+      if (cy + 1 < ny && abutment(i, i + nx)) closed[i * 2 + 1] = 1;
+    }
+  }
+  setClosed(field.columns, closed);
 }
 
 /**
