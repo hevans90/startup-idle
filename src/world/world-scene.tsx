@@ -65,7 +65,7 @@ import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
 import { footprintCells, surfaceSampler } from "./grid";
 import { HEIGHT_UNIT, HH, HW, pickCell, worldToCellF } from "./iso";
-import { runSources, stepWater } from "./water/field";
+import { runSources, stepUpper, stepWater } from "./water/field";
 import { runPipes } from "./water/pipes";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
 import {
@@ -1089,7 +1089,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // and the CPU solver does not run at all — see `gpu/solver`, and the
       // note there about the round trip this still pays for.
       const solver = solverRef.current;
+      // THE UPPER STOREY IS THE HOST'S EITHER WAY, so it is stepped either
+      // way. Folded into `stepWater` it was skipped entirely whenever the
+      // device solver was built — which is the default — so nothing ever
+      // flowed on or off a bridge on the path the game actually runs.
+      // @see stepUpper
       if (solver) {
+        stepUpper(field, dt);
         solver.step(field.columns, dt);
         gpuWaterSaw(solver.last());
       }

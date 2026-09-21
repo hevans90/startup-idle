@@ -17,7 +17,7 @@ import { generateMap } from "./gen/generate-map";
 import {
   createWaterField, deckedAt, depthAt, pourAt, setWaterEdge, stepWater, totalVolume,
 } from "./water/field";
-import { totalWater } from "../fluid/columns";
+import { STOREY, totalWater } from "../fluid/columns";
 import { createBandLayer } from "./render/bands";
 import { createWaterLayer, drawWater } from "./render/water";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
@@ -115,9 +115,18 @@ describe("a river does not know there is a bridge over it", () => {
   });
 
   test("and the river runs the same with it as without it", () => {
+    // NOT BIT FOR BIT ANY MORE, and losing that is the feature rather than a
+    // regression. The exact identity held while a deck was sealed off from
+    // everything — water could reach one only by being poured on it. A span
+    // is a piece of road now: where it meets land at its own level the two
+    // are one surface, so water on the bank can run onto the bridge and back.
+    // What is left is the claim that matters — a bridge does not dam, divert
+    // or drain the river under it. Measured at two hundredths of a per cent
+    // over twenty seconds, against a bound of one.
     const a = river(false), b = river(true);
     for (let n = 0; n < 60 * 20; n++) { stepWater(a.field, 1 / 60); stepWater(b.field, 1 / 60); }
-    expect(totalVolume(b.field, b.g)).toBeCloseTo(totalVolume(a.field, a.g), 3);
+    const bare = totalVolume(a.field, a.g);
+    expect(Math.abs(totalVolume(b.field, b.g) - bare)).toBeLessThan(bare * 0.01);
     // AND THERE IS WATER UNDER THE SPAN, which the identity above does not say
     // on its own: two dry maps are also identical.
     const spanned = [...b.g.deck].map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
@@ -366,14 +375,14 @@ describe("the edge of a deck", () => {
     for (let cy = 0; cy < over.ny; cy++) {
       for (let cx = 0; cx < nx; cx++) {
         const i = cy * nx + cx;
-        if (!over.through![i]) continue;                  // this one IS deck
+        if (over.storey![i] === STOREY.OWNED) continue;     // this one IS deck
         // Only the ring a deck's water can actually reach matters: it is the
         // only ground the renderer will draw a face against.
         const beside = [[1, 0], [-1, 0], [0, 1], [0, -1]]
           .some(([dx, dy]) => {
             const jx = cx + dx, jy = cy + dy;
             return jx >= 0 && jy >= 0 && jx < nx && jy < over.ny
-              && !over.through![jy * nx + jx];
+              && over.storey![jy * nx + jx] === STOREY.OWNED;
           });
         if (!beside) continue;
         checked++;
@@ -396,4 +405,86 @@ describe("the edge of a deck", () => {
     expect(totalWater(field.columns)).toBeGreaterThan(put * 0.5);
     expect(totalVolume(field, g)).toBeCloseTo(put, 1);
   }, 20_000);
+});
+
+/**
+ * A BRIDGE IS A PIECE OF ROAD, which is the whole of what the first two
+ * attempts at this got wrong.
+ *
+ * Modelled as a hole on every side, a deck could only be poured on directly
+ * and could only lose water by having it deleted — so water would not run
+ * onto a bridge from the road that meets it, nor off the far end onto the
+ * road beyond. At either END of a span the land is at the deck's own level
+ * and the surface is continuous; only at the SIDES has the ground fallen
+ * away. @see STOREY
+ */
+describe("water crosses between a bridge and the road it meets", () => {
+  /** A ditch with a deck laid over it, level with the land either side. */
+  const crossing = () => {
+    const g = createGrid(16, 16);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) setHeight(g, x, y, x >= 7 && x <= 9 ? -20 : 0);
+    }
+    // The span, at the level of the land either side of the ditch.
+    for (let y = 6; y <= 9; y++) for (let x = 7; x <= 9; x++) setDeck(g, x, y, 1, 0);
+    const field = createWaterField(g);
+    setWaterEdge(field, false);
+    return { g, field };
+  };
+
+  const onDeck = (field: ReturnType<typeof createWaterField>) => {
+    const o = field.over!;
+    let sum = 0;
+    for (let i = 0; i < o.depth.length; i++) {
+      if (o.storey![i] === STOREY.OWNED) sum += o.depth[i];
+    }
+    return sum;
+  };
+
+  test("the margin is a GHOST where the road carries on and a HOLE at the sides", () => {
+    const { field } = crossing();
+    const o = field.over!;
+    const kindAt = (x: number, y: number) => o.storey![(y * 4 + 1) * o.nx + (x * 4 + 1)];
+    expect(kindAt(8, 7)).toBe(STOREY.OWNED);            // on the span
+    expect(kindAt(6, 7)).toBe(STOREY.GHOST);            // the road, west end
+    expect(kindAt(10, 7)).toBe(STOREY.GHOST);           // the road, east end
+    expect(kindAt(8, 5)).toBe(STOREY.HOLE);             // off the side, over the ditch
+    expect(kindAt(8, 10)).toBe(STOREY.HOLE);
+  });
+
+  test("water poured on the ROAD runs onto the bridge", () => {
+    // The thing that could not happen at all before: nothing was poured on
+    // the deck, and the deck ends up wet.
+    const { field } = crossing();
+    pourAt(field, 5, 7, 8, 1);
+    expect(onDeck(field)).toBe(0);
+    for (let n = 0; n < 60 * 10; n++) stepWater(field, 1 / 60);
+    expect(onDeck(field)).toBeGreaterThan(0);
+  }, 20_000);
+
+  test("and water poured on the BRIDGE runs off onto the road beyond", () => {
+    const { g, field } = crossing();
+    pourAt(field, 8, 7, 8, 1);
+    for (let n = 0; n < 60 * 10; n++) stepWater(field, 1 / 60);
+    // It got to the far side of the ditch, which it can only have done
+    // across the span: the ditch itself is twenty half steps down.
+    let far = 0;
+    for (let y = 0; y < g.h; y++) far += depthAt(field, 12, y);
+    expect(far).toBeGreaterThan(0);
+  }, 20_000);
+
+  test("and nothing is made or lost trading across the edge", () => {
+    // A ghost is a window onto the storey below, so every drop that crosses
+    // is counted twice unless the settling is exact. A closed pan, checked
+    // every step.
+    const { g, field } = crossing();
+    pourAt(field, 8, 7, 8, 1);
+    pourAt(field, 5, 7, 8, 1);
+    const put = totalVolume(field, g);
+    for (let n = 0; n < 60 * 10; n++) {
+      stepWater(field, 1 / 60);
+      expect(totalVolume(field, g)).toBeCloseTo(put, 1);
+    }
+  }, 30_000);
 });

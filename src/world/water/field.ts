@@ -16,7 +16,7 @@
  * as a row of flat plates, and it gives the flow room to turn.
  */
 import {
-  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, setMaterialDrag, setOpenEdge, setRim, setStorey, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
+  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, STOREY, setMaterialDrag, setOpenEdge, setRim, setStorey, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
 } from "../../fluid/columns";
 import { waterInDrips } from "../../fluid/drips";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
@@ -341,15 +341,15 @@ export function syncDecks(field: WaterField, grid: Grid) {
   setOpenEdge(over, field.columns.openEdge);
   for (const { index, material } of fluidChoices()) setMaterialDrag(over, index, material.drag);
 
-  const solid = new Uint8Array(nx * ny);
+  const kinds = new Uint8Array(nx * ny);
   for (let cy = 0; cy < ny; cy++) {
     for (let cx = 0; cx < nx; cx++) {
       const tx = tileOf(cx), ty = tileOf(cy);
       const i = cy * nx + cx;
-      if (!inBounds(grid, tx, ty)) { over.ground[i] = 127; continue; }
+      if (!inBounds(grid, tx, ty)) { over.ground[i] = 127; kinds[i] = STOREY.HOLE; continue; }
       const t = idx(grid, tx, ty);
       if (grid.deck[t] !== 0) {
-        solid[i] = 1;
+        kinds[i] = STOREY.OWNED;
         over.ground[i] = grid.deckZ[t];
       } else {
         // NO FLOOR, AND A SHORT DROP TO IT. What goes here is on its way
@@ -364,20 +364,45 @@ export function syncDecks(field: WaterField, grid: Grid) {
         // bridge. It never went away either, because the film a flat surface
         // always keeps kept feeding it. A slab below the deck reads as water
         // sheeting over a lip, which is what it is. @see spillAt
+        //
+        // A GHOST WHERE THE ROAD CARRIES ON, a HOLE where it falls away, and
+        // getting that split wrong is what made the first version useless: a
+        // bridge modelled as a hole all round can only be poured on directly
+        // and can only lose water by having it deleted. At either END of a
+        // span the land is at the deck's own level and the surface is
+        // continuous, so those columns are a window onto the storey below.
         over.ground[i] = grid.height[t];
+        kinds[i] = STOREY.HOLE;
+        let lip = -Infinity;
         for (const [dx, dy] of EDGES) {
           const ax = tx + dx, ay = ty + dy;
           if (!inBounds(grid, ax, ay)) continue;
           const a = idx(grid, ax, ay);
           if (grid.deck[a] === 0) continue;
-          over.ground[i] = Math.max(over.ground[i], grid.deckZ[a] - DECK_LIP);
+          if (Math.abs(grid.height[t] - grid.deckZ[a]) <= LEVEL_WITH) {
+            kinds[i] = STOREY.GHOST;                    // the road carries on
+          }
+          lip = Math.max(lip, grid.deckZ[a] - DECK_LIP);
         }
+        // Off the SIDE, the drop shown is a lip and not the land far below.
+        // @see DECK_LIP
+        if (kinds[i] === STOREY.HOLE && lip > -Infinity) over.ground[i] = lip;
       }
     }
   }
   over.groundRev++;
-  setStorey(over, solid);
+  setStorey(over, kinds);
 }
+
+/**
+ * How near a deck's level the land beside it must be to count as the same
+ * surface, in half steps.
+ *
+ * One slab. The road either side of a span is carved to the deck's own level,
+ * so this is slack for terracing rather than a tolerance anybody tunes — at
+ * the side of a bridge the ground is the channel, which is nowhere near.
+ */
+const LEVEL_WITH = 2;
 
 /**
  * How far below a deck the ground just off it sits, in half steps.
@@ -395,9 +420,8 @@ const EDGES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 /** Whether a tile has a deck that water can stand on. @see syncDecks */
 export const deckedAt = (field: WaterField, x: number, y: number): boolean => {
   const over = field.over;
-  if (!over) return false;
-  const i = columnOf(y) * over.nx + columnOf(x);
-  return over.through ? over.through[i] === 0 : false;
+  if (!over || !over.storey) return false;
+  return over.storey[columnOf(y) * over.nx + columnOf(x)] === STOREY.OWNED;
 };
 
 /** The fluid an off-map inflow carries. @see fluidChoices */
@@ -415,22 +439,61 @@ export const waterEdgeIsOpen = (field: WaterField) => field.columns.openEdge;
 
 /** Advance the flow. */
 export function stepWater(field: WaterField, dt: number) {
+  stepUpper(field, dt);
+  stepFlow(field.columns, dt);
+}
+
+/**
+ * Step the storey standing on the map's bridges, and settle up with the one
+ * below it.
+ *
+ * SEPARATE FROM {@link stepWater} because the device path does not call
+ * that. With the GPU solver built, the frame's lower water is the device's
+ * and `stepWater` never runs — so an upper storey folded into it was never
+ * stepped at all on the path the game actually uses. Water poured on a bridge
+ * sat exactly where it landed and nothing ever flowed on or off one, which
+ * looked for all the world like the coupling being broken when the coupling
+ * had simply never run.
+ *
+ * BEFORE the storey below is stepped, whichever steps it: `traded` is
+ * measured against the depths that field still has.
+ */
+export function stepUpper(field: WaterField, dt: number) {
   const over = field.over;
-  if (over) {
-    stepFlow(over, dt);
-    // AND WHAT RAN OFF THE BRIDGE GOES DOWN. Handed over here rather than
-    // inside the solver, which is one field's physics and knows nothing about
-    // there being another one under it. @see ColumnField.fell
-    const fell = over.fell;
-    if (fell) {
-      for (let i = 0; i < fell.length; i++) {
-        if (fell[i] <= 0) continue;
-        addWater(field.columns, i % over.nx, (i / over.nx) | 0, fell[i], 1);
-        fell[i] = 0;
-      }
+  if (!over) return;
+  const { storey, hold, fell, traded } = over;
+  const below = field.columns;
+  // WHAT THE ROAD HAS, handed up as the ghosts' held depth, so the flow
+  // between a deck and the road it meets is worked out by the solver across
+  // an ordinary edge. @see ColumnField.hold
+  if (storey && hold) {
+    for (let i = 0; i < hold.length; i++) {
+      if (storey[i] !== STOREY.GHOST) continue;
+      hold[i] = below.depth[i];
+      over.ground[i] = below.ground[i];
     }
   }
-  stepFlow(field.columns, dt);
+  stepFlow(over, dt);
+  // THROUGH `addWater`, SIGNED, and not by writing a depth. It takes a
+  // negative amount, clamps at nothing, and records what actually moved into
+  // the arrivals list — which is the only way the host may change water the
+  // DEVICE owns. Written as a direct depth poke this settled up correctly on
+  // the host and silently not at all on the device. @see Arrivals
+  if (traded) {
+    for (let i = 0; i < traded.length; i++) {
+      const d = traded[i];
+      if (d === 0) continue;
+      traded[i] = 0;
+      addWater(below, i % over.nx, (i / over.nx) | 0, d, below.material[i] || 1);
+    }
+  }
+  if (fell) {
+    for (let i = 0; i < fell.length; i++) {
+      if (fell[i] <= 0) continue;
+      addWater(below, i % over.nx, (i / over.nx) | 0, fell[i], 1);
+      fell[i] = 0;
+    }
+  }
 }
 
 /**
