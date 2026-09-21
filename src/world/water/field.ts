@@ -16,7 +16,7 @@
  * as a row of flat plates, and it gives the flow room to turn.
  */
 import {
-  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, STOREY, setClosed, setMaterialDrag, setOpenEdge, setRim, setStorey, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
+  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, STOREY, include, setClosed, setMaterialDrag, setOpenEdge, setRim, setStorey, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
 } from "../../fluid/columns";
 import { waterInDrips } from "../../fluid/drips";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
@@ -504,10 +504,43 @@ export function stepUpper(field: WaterField, dt: number) {
     for (let i = 0; i < hold.length; i++) {
       if (storey[i] !== STOREY.GHOST) continue;
       hold[i] = below.depth[i];
+      // THE DEPTH TOO, not only the level it is held at. `bound` books the
+      // difference between the two at the top of every substep, so seeding
+      // one without the other tells it the ghost has just lost everything
+      // it holds — a whole frame's worth of spurious trade, every frame.
+      over.depth[i] = below.depth[i];
+      over.material[i] = below.material[i];
       over.ground[i] = below.ground[i];
+      if (below.depth[i] > 0) {
+        include(over, i % over.nx, (i / over.nx) | 0);
+        if (below.depth[i] > over.deepest) over.deepest = below.depth[i];
+      }
     }
   }
   stepFlow(over, dt);
+  // AND THE GHOSTS GO BACK TO NOTHING, which is what stops the seam.
+  //
+  // A ghost is a WINDOW onto the storey below, not water of this field's
+  // own — and the storey below already draws it. Left standing they were
+  // painted twice over: at the mouth of every bridge the road's water was
+  // drawn once by each mesh, at the same level, so the surface abruptly
+  // doubled in density where it met the span and the upper mesh ended in a
+  // hard edge a tile short of it. Cleared, each surface is drawn exactly
+  // once and the two meet at the same level, which is the whole of a clean
+  // transition from a road onto a bridge.
+  //
+  // THE LAST SUBSTEP'S DRIFT IS TAKEN FIRST. `bound` settles a ghost at the
+  // top of a substep, so what the final one moved is still sitting in the
+  // depth — zeroing without counting it would quietly lose a frame's worth
+  // of every crossing.
+  if (storey && hold && traded) {
+    for (let i = 0; i < storey.length; i++) {
+      if (storey[i] !== STOREY.GHOST) continue;
+      traded[i] += over.depth[i] - hold[i];
+      over.depth[i] = 0;
+      over.material[i] = 0;
+    }
+  }
   // THROUGH `addWater`, SIGNED, and not by writing a depth. It takes a
   // negative amount, clamps at nothing, and records what actually moved into
   // the arrivals list — which is the only way the host may change water the

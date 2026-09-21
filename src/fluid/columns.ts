@@ -1236,7 +1236,7 @@ export function splashInto(
 }
 
 /** Widen the active box to cover a column. */
-function include(f: ColumnField, x: number, y: number) {
+export function include(f: ColumnField, x: number, y: number) {
   const b = f.box;
   if (b.x1 < b.x0) { b.x0 = x; b.x1 = x; b.y0 = y; b.y1 = y; return; }
   if (x < b.x0) b.x0 = x;
