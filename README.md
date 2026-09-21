@@ -88,6 +88,9 @@ src/
                        #   pipe-flow.ts: Saint-Venant along a round bore
     render/            #   bands, terrain, columns, paved overlay, camera, overlays
                        #   water mesh + the fields it shades with (flow-wash, foam)
+                       #   bodies.ts: which water is one SHEET, so a bridge and
+                       #     the river under it are drawn as two and the road
+                       #     at its end as one — off the solver's own rules
                        #   drips-gpu.ts: drops in the air, as silhouettes
     edit/              #   brush + height tools, undo/redo, RTS build cursor
     io/serialize.ts    #   .json map format (base64 layers + palette)

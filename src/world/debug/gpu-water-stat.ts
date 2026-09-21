@@ -45,6 +45,26 @@ export const gpuWaterSaw = (f: GpuFrame | null) => {
 };
 export const gpuWaterRead = (): GpuFrame | null => last;
 
+/**
+ * WHY THE DEVICE IS NOT STEPPING THE WATER, when it is switched on and is not.
+ *
+ * The readout said "GPU compute" off the store's flag, which is a PREFERENCE
+ * and not a fact — so the moment anything declined to build a solver the
+ * badge went on claiming the device was running. It was accidentally true
+ * while the preference was always honoured, and stopped being true the first
+ * time a map fell back. A label that reports a setting rather than the path
+ * is a label that lies exactly when you need it.
+ *
+ * Null means nothing is holding it back. Set by the scene where the decision
+ * is made, because that is the only place that knows.
+ */
+let held: string | null = null;
+export const gpuWaterHeldBack = (why: string | null) => { held = why; };
+export const gpuWaterWhy = (): string | null => held;
+
+/** Whether a device frame actually came back. @see gpuWaterWhy */
+export const gpuWaterLive = (): boolean => last !== null;
+
 /** The readout's one line, or nothing while there is nothing to say. */
 export function gpuWaterNote(): string | null {
   if (!last) return null;

@@ -28,7 +28,9 @@ import {
   createQuadBatch, destroyQuadBatch, packAlpha, packRGB, pushQuad, resetQuads, rgba,
   uploadQuads, type QuadBatch,
 } from "./quads";
-import { RIM, atBrink, levelAt, resolveCorner, resolveSide, spillAt } from "./corner-rule";
+import { RIM, atBrink, resolveCorner, resolveSide, spillAt } from "./corner-rule";
+import { NO_BODY, createBodies, findBodies, type Bodies } from "./bodies";
+import { OPEN_SKY } from "../../fluid/slots";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
 import { createFoam, stepFoam, type FoamField } from "./foam";
 import type { BandLayer } from "./bands";
@@ -108,38 +110,66 @@ export const FULL_FALL_FLUX = 1.5;
 export type WaterLayer = {
   /** One quad batch per band, made once and rewritten every frame. */
   strips: QuadBatch[];
+  /**
+   * The same batches again, one tier lower: water that has something OVER it.
+   *
+   * A river under a bridge is in the same band as the bridge and drew after
+   * it, so a channel running full painted itself across the front of the
+   * span. Roofed water goes in here instead, which is drawn before the
+   * paving. @see BandLayer.underOf
+   */
+  under: QuadBatch[];
   scale: number;
   /**
-   * Vertex surfaces, one per column CORNER: (nx+1) x (ny+1), split by LEVEL.
+   * WHICH SHEET each corner's tiers hold, or {@link NO_BODY} for a free one.
    *
-   * Two values, because one corner can touch two bodies of water that have
-   * nothing to do with each other — a sheet on a plateau and a lake at the
-   * foot of its cliff — and no single height serves both. `vs` is the average
-   * over the contributors standing on the highest bed at that corner, `vsLow`
-   * the average over the rest, and a column takes whichever its own bed puts
-   * it in. A bed belongs to a whole tile, so neighbouring columns always land
-   * in the same group and always draw the corner at the same height: the mesh
-   * cannot come apart along a decision made this way.
+   * A corner is shared by four columns and, with storeys, by every slot of
+   * each — and those can belong to different bodies of water that have
+   * nothing to do with each other: a river and the bridge deck over it, a
+   * sheet on a plateau and the lake at the foot of its cliff. Each gets a
+   * TIER of its own, and a column reads back the tier holding ITS OWN sheet.
+   *
+   * This used to be two groups split by the BED the contributors stood on,
+   * which is a guess at identity rather than identity. It failed twice over
+   * once bridges existed — see `bodies.ts`, which is where the grouping now
+   * comes from.
+   *
+   * A small open table, scanned linearly: tier `t` of corner `v` is at
+   * `v * TIERS + t`, and a lookup is at most {@link TIERS} compares against a
+   * cache line. @see tierFor
    */
+  cBody: Int32Array;
+  /** Summed surface per tier, and how many contributed. */
   vs: Float32Array;
-  vsLow: Float32Array;
-  /** The highest bed any wet column at this corner stands on. */
-  vBed: Int8Array;
-  /** How many contributed to each group. */
-  vnLow: Uint8Array;
+  vn: Uint8Array;
   /**
-   * Vertex ALPHA, one byte per corner, from the water standing at it.
+   * The highest bed any of a tier's contributors stands on, and which SLOT
+   * that one was in.
+   *
+   * Both go to the rim rule, which asks what the ground does beside the
+   * corner — and on a map with bridges "the ground" is a question that needs
+   * a storey named before it can be answered. @see asideAt
+   */
+  vBed: Int8Array;
+  vSlot: Uint8Array;
+  /**
+   * Vertex ALPHA, one byte per TIER, from the water standing at it.
    *
    * Per corner rather than per column because opacity is the one thing that
    * varies across a still sheet: the surface is level but the bed under it is
    * not, so depth — and with it how much you see through — changes from one
    * column to the next. Flat-shaded, every cell boundary under a puddle became
    * a hard step in the shading, which is what a dipped bed looked like.
+   *
+   * PER TIER is the fix for the bridge: these all followed the high group
+   * alone, so the river under a span was drawn at its own height with the
+   * DECK's colour and opacity. Measured on a culvert, alpha 235 in the open
+   * channel and 23 under the span.
    */
   va: Uint8Array;
-  /** Scratch: summed depth at each corner, before it becomes `va`. */
+  /** Scratch: summed depth per tier, before it becomes `va`. */
   vd: Float32Array;
-  /** Scratch: summed flow at each corner, before it becomes `vl`. */
+  /** Scratch: summed flow per tier, before it becomes `vl`. */
   vvx: Float32Array;
   vvy: Float32Array;
   /** Vertex LIGHTNESS, as an index into `tint`: tilt and the flow bands. */
@@ -152,8 +182,15 @@ export type WaterLayer = {
   /** Where the water has gone white, and the corner averages of that. */
   foam: FoamField;
   vf: Float32Array;
-  /** How many wet columns contributed to each vertex. */
-  vn: Uint8Array;
+  /** Which sheet every wet slot belongs to, rebuilt each frame. @see findBodies */
+  bodies: Bodies;
+  /**
+   * How many contributors were dropped for want of a tier, last frame.
+   *
+   * A diagnostic and not a fallback: {@link TIERS} is set from this, and a
+   * number that is not nought on an ordinary map means it is set too low.
+   */
+  overflow: number;
   /**
    * Bands whose batch holds quads, or held some last frame.
    *
@@ -164,33 +201,92 @@ export type WaterLayer = {
   t: number;
 };
 
+/**
+ * How many distinct SHEETS one corner may carry.
+ *
+ * Three, and the number is measured rather than chosen. A corner is touched
+ * by four columns and every storey of each, so eight entries at two storeys —
+ * but they collapse: the four columns of one sheet are one tier, and it takes
+ * genuinely separate water to need another. Two is enough for a bridge (the
+ * deck and the channel) and enough for a cliff (the sheet and the lake); the
+ * third is for a cliff AT a bridge, which is where a span meets a bank.
+ *
+ * Contributors past the last tier are DROPPED, and `overflow` counts them so
+ * that "never happens" is a measurement and not a hope.
+ */
+export const TIERS = 3;
+
 /** `columns` and not a `WaterField`, so a second storey can have a layer. */
 export function createWaterLayer(columns: ColumnField, bands: BandLayer, scale = 1): WaterLayer {
   const strips: QuadBatch[] = [];
+  const under: QuadBatch[] = [];
   for (let b = 0; b < bands.bands.length; b++) {
     strips.push(createQuadBatch(bands.structureOf[b]));
+    under.push(createQuadBatch(bands.underOf[b]));
   }
+  const corners = (columns.nx + 1) * (columns.ny + 1);
+  const n = corners * TIERS;
   return {
     strips,
+    under,
     scale,
-    vs: new Float32Array((columns.nx + 1) * (columns.ny + 1)),
-    vsLow: new Float32Array((columns.nx + 1) * (columns.ny + 1)),
-    vBed: new Int8Array((columns.nx + 1) * (columns.ny + 1)),
-    vnLow: new Uint8Array((columns.nx + 1) * (columns.ny + 1)),
-    va: new Uint8Array((columns.nx + 1) * (columns.ny + 1)),
-    vd: new Float32Array((columns.nx + 1) * (columns.ny + 1)),
-    vvx: new Float32Array((columns.nx + 1) * (columns.ny + 1)),
-    vvy: new Float32Array((columns.nx + 1) * (columns.ny + 1)),
-    vl: new Uint8Array((columns.nx + 1) * (columns.ny + 1)),
-    vn: new Uint8Array((columns.nx + 1) * (columns.ny + 1)),
+    cBody: new Int32Array(n).fill(NO_BODY),
+    vs: new Float32Array(n),
+    vBed: new Int8Array(n),
+    vSlot: new Uint8Array(n),
+    va: new Uint8Array(n),
+    vd: new Float32Array(n),
+    vvx: new Float32Array(n),
+    vvy: new Float32Array(n),
+    vl: new Uint8Array(n),
+    vn: new Uint8Array(n),
     tint: buildTints(),
     wash: createFlowWash(columns),
-    vw: new Float32Array((columns.nx + 1) * (columns.ny + 1)),
+    vw: new Float32Array(n),
     foam: createFoam(columns),
-    vf: new Float32Array((columns.nx + 1) * (columns.ny + 1)),
+    vf: new Float32Array(n),
+    bodies: createBodies(columns),
+    overflow: 0,
     live: new Set(),
     t: 0,
   };
+}
+
+/**
+ * The tier corner `v` keeps sheet `b` in, claiming a free one if it has none.
+ *
+ * -1 when every tier is taken by another sheet, which is the overflow the
+ * layer counts. Dropping a contributor is the only honest thing to do with
+ * one: merging it into a tier that belongs to different water is exactly the
+ * fault this whole scheme exists to remove.
+ */
+function tierFor(wl: WaterLayer, v: number, b: number): number {
+  const base = v * TIERS;
+  for (let t = 0; t < TIERS; t++) {
+    const id = wl.cBody[base + t];
+    if (id === b) return base + t;
+    if (id === NO_BODY) {
+      wl.cBody[base + t] = b;
+      return base + t;
+    }
+  }
+  wl.overflow++;
+  return -1;
+}
+
+/**
+ * The tier corner `v` already holds sheet `b` in, or -1. Claims nothing.
+ *
+ * Exported because a corner's value is no longer at its own index — anything
+ * reading `vs`, `va` or `vl` has to say WHICH water it means, and the falls
+ * renderer and the tests both do.
+ */
+export function tierAt(wl: WaterLayer, v: number, b: number): number {
+  const base = v * TIERS;
+  for (let t = 0; t < TIERS; t++) {
+    if (wl.cBody[base + t] === b) return base + t;
+  }
+  return -1;
 }
 
 /** Lightest a surface gets, as a fraction of the way to white. */
@@ -279,7 +375,9 @@ function buildTints(): Uint32Array {
 
 export function destroyWaterLayer(wl: WaterLayer) {
   for (const b of wl.strips) destroyQuadBatch(b);
+  for (const b of wl.under) destroyQuadBatch(b);
   wl.strips.length = 0;
+  wl.under.length = 0;
   wl.live.clear();
 }
 
@@ -423,31 +521,34 @@ function cornerValues(
   const vw = nx + 1;
   // Only the region's own corners, cleared and rebuilt: filling the whole
   // vertex array cost more than the water did on a mostly dry map.
+  //
+  // TWO ARRAYS AND NOT ONE. `cBody` is what empties a tier, and `vn` is what
+  // says whether the first contributor to it has arrived — everything else is
+  // written by that first contributor, so nothing else needs clearing. Left
+  // out, `vn` carried last frame's count into this one: the sums went on
+  // accumulating for ever and a still scene drawn six times running gave six
+  // different answers, the corners sliding from 3.0 down through 2.5, 1.81,
+  // 1.38, 1.12 as the divisor ran away from the sum.
   for (let y = region.y0; y <= region.y1 + 1; y++) {
     const row = y * vw;
-    const from = row + region.x0, to = row + region.x1 + 2;
-    wl.vs.fill(0, from, to);
-    wl.vsLow.fill(0, from, to);
-    wl.vnLow.fill(0, from, to);
-    wl.vBed.fill(-128, from, to);
-    wl.vd.fill(0, from, to);
-    wl.vvx.fill(0, from, to);
-    wl.vvy.fill(0, from, to);
-    wl.vw.fill(0, from, to);
-    wl.vf.fill(0, from, to);
+    const from = (row + region.x0) * TIERS, to = (row + region.x1 + 2) * TIERS;
+    wl.cBody.fill(NO_BODY, from, to);
     wl.vn.fill(0, from, to);
   }
-  // EVERY STOREY INTO THE SAME CORNERS, which is the whole of why a bridge
-  // no longer reads as a second sheet of water laid over the first.
+  wl.overflow = 0;
+  // EVERY STOREY INTO THE SAME TABLE, keyed by the sheet it belongs to.
   //
-  // A corner already sorted its contributors into a high group and a low one
-  // by the bed they stand on — it had to, because a sheet on a plateau and
-  // the lake at the foot of its cliff meet at the same corner and no one
-  // height serves both. A slot is the same question asked of one column
-  // instead of two, so it needs no new machinery: the deck's water and the
-  // road's water beside it stand at the same level, land in the same group,
-  // and average into ONE corner. The mesh runs onto the bridge because the
-  // vertices either side of the join are the same vertices.
+  // What a corner holds is no longer a guess from bed heights. The fill in
+  // `bodies.ts` has already decided which water is one sheet, by the two
+  // rules the solver owns — nothing solid between them, and no fall between
+  // them — so a contributor's tier is a lookup and two columns of one sheet
+  // cannot land in different tiers.
+  //
+  // That is what joins a bridge to the road at its end: the road's slot zero
+  // and the deck's slot one are the same sheet, so they average into the same
+  // vertices and there is no join to line up. And it is what keeps the river
+  // under the span out of it: a deck is solid, so that is a second sheet with
+  // a tier and a colour of its own.
   for (let a = 0; a < columns.layers; a++) {
   const A = a * columns.cells;
   for (let y = region.y0; y <= region.y1; y++) {
@@ -456,6 +557,8 @@ function cornerValues(
       const i = A + ci;
       const d = depth[i];
       if (d <= params.dryDepth) continue;
+      const sheet = wl.bodies.at[i];
+      if (sheet === NO_BODY) continue;
       const bed = columns.ground[i];
       const shown = shownDepth(columns, i, d);
       // Leaned toward the lip — see `DRAWDOWN`. The height only; `shown` is
@@ -464,56 +567,34 @@ function cornerValues(
         columns.nx, columns.ny, ci, columns.ground, columns.depth,
         columns.params.dryDepth, FALL_MIN, A,
       );
-      const s = surfaceAt(columns, i) - sag;
+      const surface = surfaceAt(columns, i) - sag;
       const vx = flowX(columns, x, y, a), vy = flowY(columns, x, y, a);
       const wash = wl.wash.now, foam = wl.foam.now;
       for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
         const v = (y + dy) * vw + (x + dx);
-        // Sorted into the two groups as they arrive: anything standing lower
-        // than the highest bed seen so far goes below, and a bed higher than
-        // that demotes what was there and starts again.
-        //
-        // THE EXTRAS FOLLOW THE BED TOO. What height a corner is drawn at is
-        // split by the bed its contributors stand on, because a sheet on a
-        // plateau and a lake at the foot of its cliff are two bodies and no
-        // one height serves both. Everything else about that corner — how
-        // deep it is, how white, how fast, which way it leans — was averaged
-        // over BOTH of them regardless, so the last corner of a sheet before
-        // a lip took much of its colour from water twenty half steps below.
-        //
-        // What that looks like is the hard seam at the top of a waterfall.
-        // Measured at a brink with a foaming plunge pool under it: `shade` of
-        // the corner's own depth is 122 of 255 and the corner was drawn at
-        // 172, the extra fifty being the plunge pool's foam borrowed up the
-        // cliff. So the surface ended in a bright opaque lip while the sheet
-        // leaving it drew what the water on the lip actually is — 235 against
-        // 172 before, 111 against 172 after the sheet was put on the same
-        // curve, and a step either way is a seam.
-        //
-        // Only the high group contributes, and a bed that demotes what was
-        // there takes the extras with it.
-        if (bed > wl.vBed[v]) {
-          wl.vsLow[v] += wl.vs[v];
-          wl.vnLow[v] += wl.vn[v];
-          wl.vs[v] = s;
-          wl.vn[v] = 1;
-          wl.vBed[v] = bed;
-          wl.vd[v] = shown;
-          wl.vvx[v] = vx;
-          wl.vvy[v] = vy;
-          wl.vw[v] = wash[ci];
-          wl.vf[v] = foam[ci];
-        } else if (bed === wl.vBed[v]) {
-          wl.vs[v] += s;
-          wl.vn[v]++;
-          wl.vd[v] += shown;
-          wl.vvx[v] += vx;
-          wl.vvy[v] += vy;
-          wl.vw[v] += wash[ci];
-          wl.vf[v] += foam[ci];
+        const k = tierFor(wl, v, sheet);
+        if (k < 0) continue;                    // no room; counted, not merged
+        if (wl.vn[k] === 0) {
+          wl.vs[k] = surface;
+          wl.vn[k] = 1;
+          wl.vBed[k] = bed;
+          wl.vSlot[k] = a;
+          wl.vd[k] = shown;
+          wl.vvx[k] = vx;
+          wl.vvy[k] = vy;
+          wl.vw[k] = wash[ci];
+          wl.vf[k] = foam[ci];
         } else {
-          wl.vsLow[v] += s;
-          wl.vnLow[v]++;
+          wl.vs[k] += surface;
+          wl.vn[k]++;
+          // The highest bed of the sheet's own contributors, and the storey
+          // it was in — both for the rim rule alone. @see asideAt
+          if (bed > wl.vBed[k]) { wl.vBed[k] = bed; wl.vSlot[k] = a; }
+          wl.vd[k] += shown;
+          wl.vvx[k] += vx;
+          wl.vvy[k] += vy;
+          wl.vw[k] += wash[ci];
+          wl.vf[k] += foam[ci];
         }
       }
     }
@@ -528,107 +609,150 @@ function cornerValues(
   for (let y = region.y0; y <= region.y1 + 1; y++) {
     for (let x = region.x0; x <= region.x1 + 1; x++) {
       const v = y * vw + x;
-      const hi = wl.vn[v], lo = wl.vnLow[v], all = hi + lo;
-      if (!all) continue;
-      // What HEIGHT the corner is drawn at is not decided here — see
-      // `corner-rule.ts`, which the shader path is generated from too. It was
-      // written out three times once, and the third one was wrong.
-      //
-      // The rule needs to know WHAT IS BESIDE the corner as well as what is on
-      // it: only a corner beside ground at its own level is a shore, and only
-      // a shore ends in a waterline. A bank over it is a container and a drop
-      // under it is a lip, and neither wants feathering. Measured here where
-      // the neighbours are to hand — over all four, wet or dry, since a dry
-      // one at the same height is exactly the shore case.
-      const corner = resolveCorner(
-        wl.vs[v], hi, wl.vsLow[v], lo, wl.vBed[v],
-        asideAt(columns, x, y, wl.vBed[v]), rim,
-      );
-      wl.vs[v] = corner.high;
-      wl.vsLow[v] = corner.low;
-      // Over the HIGH group alone — see the note where they are gathered.
-      // On level ground every contributor is in it and this is `all`.
-      const n = hi || all;
-      wl.vd[v] /= n;
-      wl.vvx[v] /= n;
-      wl.vvy[v] /= n;
-      wl.vw[v] /= n;
-      wl.vf[v] /= n;
+      for (let t = 0; t < TIERS; t++) {
+        const k = v * TIERS + t;
+        if (wl.cBody[k] === NO_BODY) break;     // tiers fill in order
+        const n = wl.vn[k];
+        if (!n) continue;
+        // What HEIGHT the corner is drawn at is not decided here — see
+        // `corner-rule.ts`, which the shader path is generated from too. It
+        // was written out three times once, and the third one was wrong.
+        //
+        // WITH AN EMPTY LOW GROUP, always, and that is the whole of what the
+        // sheets bought. The rule's job was to split one corner's water into
+        // two bodies and then think better of it where the split was wrong;
+        // the split is now made by `findBodies`, once, off the geometry, so
+        // what arrives here is one body and the merge branch never runs.
+        //
+        // The rule still needs to know WHAT IS BESIDE the corner: only a
+        // corner beside ground at its own level is a shore, and only a shore
+        // ends in a waterline. A bank over it is a container and a drop under
+        // it is a lip, and neither wants feathering. Asked in the sheet's own
+        // STOREY, or a deck's rim would be measured against the riverbed
+        // twenty half steps under it and read as a cut through the world.
+        const corner = resolveCorner(
+          wl.vs[k], n, 0, 0, wl.vBed[k],
+          asideAt(columns, x, y, wl.vBed[k], wl.vSlot[k]), rim,
+        );
+        wl.vs[k] = corner.high;
+        wl.vd[k] /= n;
+        wl.vvx[k] /= n;
+        wl.vvy[k] /= n;
+        wl.vw[k] /= n;
+        wl.vf[k] /= n;
+      }
     }
   }
 
   for (let y = region.y0; y <= region.y1 + 1; y++) {
     for (let x = region.x0; x <= region.x1 + 1; x++) {
       const v = y * vw + x;
-      if (!wl.vn[v] && !wl.vnLow[v]) continue;
-      // Packed here, once per corner, rather than four times over in the quad
-      // loop: a corner is shared by four quads and its shade is the same for
-      // all of them.
-      //
-      // Foam closes the surface up as well as whitening it. Water is clear and
-      // foam is not — it is full of air — so a crest that went pale and stayed
-      // as see-through as the pond behind it looked like a highlight painted on
-      // the mesh. It can only close what the water is already covering: the
-      // fade that brings a thin sheet in gates it, or a spreading front would
-      // paint white over ground its own sheet is still invisible on.
-      const foam = wl.vf[v];
+      for (let t = 0; t < TIERS; t++) {
+        const k = v * TIERS + t;
+        const sheet = wl.cBody[k];
+        if (sheet === NO_BODY) break;
+        if (!wl.vn[k]) continue;
+        // Packed here, once per corner per sheet, rather than four times over
+        // in the quad loop: a corner is shared by four quads and its shade is
+        // the same for all of them.
+        //
+        // Foam closes the surface up as well as whitening it. Water is clear
+        // and foam is not — it is full of air — so a crest that went pale and
+        // stayed as see-through as the pond behind it looked like a highlight
+        // painted on the mesh. It can only close what the water is already
+        // covering: the fade that brings a thin sheet in gates it, or a
+        // spreading front would paint white over ground its own sheet is
+        // still invisible on.
+        const foam = wl.vf[k];
 
-      // How the surface leans, along BOTH axes rather than one: up-screen in
-      // this projection is up and left together, so a wave running the other
-      // way was unlit by a shading term that only looked one way.
-      const gx = nearby(wl, v, -1) - nearby(wl, v, 1);
-      const gy = nearby(wl, v, -vw) - nearby(wl, v, vw);
-      const lean = (gx + gy) * 0.5;
+        // How the surface leans, along BOTH axes rather than one: up-screen in
+        // this projection is up and left together, so a wave running the other
+        // way was unlit by a shading term that only looked one way. Along the
+        // SHEET, so a lean is a slope in the same water rather than the drop
+        // to whatever else happens to reach this corner.
+        const gx = nearby(wl, v, -1, sheet, k) - nearby(wl, v, 1, sheet, k);
+        const gy = nearby(wl, v, -vw, sheet, k) - nearby(wl, v, vw, sheet, k);
+        const lean = (gx + gy) * 0.5;
 
-      // The pattern the current carries, shown where the water is moving —
-      // and where it is LEANING. That second part is what stops the mottle
-      // reading as a texture stuck to the world: a wave passing over still
-      // water brings the pattern out on its own face and lets it go again
-      // behind, so what you see travels with the wave even though what it is
-      // made of stays where it is. Which is how water works, more or less:
-      // the swell moves, the water does not go with it.
-      const sp = Math.sqrt(wl.vvx[v] * wl.vvx[v] + wl.vvy[v] * wl.vvy[v]);
-      const rough = Math.min(1, (Math.abs(gx) + Math.abs(gy)) / (SLOPE_REF * 2));
-      const shown = Math.max(rough, Math.min(1, sp / STREAK_SPEED));
-      const lit = litAt(respond(lean), wl.vw[v], shown);
-      // And FOAM carries the shade on past anything water does, into the range
-      // above — as a MIX towards the white end, not as something added on.
-      // Added on, foam had to work from wherever the water's own shading had
-      // got to, which is halfway up a ramp of thirty-two: a fully broken crest
-      // landed at 40 of 55 and came out RGB(174,...) against water's own
-      // ceiling of 138. Barely paler than water, for the whitest thing the
-      // renderer can draw. Mixed, foam of one is the top of the ramp whatever
-      // was underneath it, and foam of nothing leaves the water alone.
-      // Both of them in one place, because the SHEET going over a lip has to
-      // arrive at the same answer — see `surfaceLook`.
-      const look = surfaceLook(wl.vd[v], foam, lit);
-      wl.va[v] = packAlpha(look.cover);
-      wl.vl[v] = Math.round(look.shade);
+        // The pattern the current carries, shown where the water is moving —
+        // and where it is LEANING. That second part is what stops the mottle
+        // reading as a texture stuck to the world: a wave passing over still
+        // water brings the pattern out on its own face and lets it go again
+        // behind, so what you see travels with the wave even though what it is
+        // made of stays where it is. Which is how water works, more or less:
+        // the swell moves, the water does not go with it.
+        const sp = Math.sqrt(wl.vvx[k] * wl.vvx[k] + wl.vvy[k] * wl.vvy[k]);
+        const rough = Math.min(1, (Math.abs(gx) + Math.abs(gy)) / (SLOPE_REF * 2));
+        const shown = Math.max(rough, Math.min(1, sp / STREAK_SPEED));
+        const lit = litAt(respond(lean), wl.vw[k], shown);
+        // And FOAM carries the shade on past anything water does, into the
+        // range above — as a MIX towards the white end, not as something added
+        // on. Added on, foam had to work from wherever the water's own shading
+        // had got to, which is halfway up a ramp of thirty-two: a fully broken
+        // crest landed at 40 of 55 and came out RGB(174,...) against water's
+        // own ceiling of 138. Barely paler than water, for the whitest thing
+        // the renderer can draw. Mixed, foam of one is the top of the ramp
+        // whatever was underneath it, and foam of nothing leaves the water
+        // alone. Both of them in one place, because the SHEET going over a lip
+        // has to arrive at the same answer — see `surfaceLook`.
+        const look = surfaceLook(wl.vd[k], foam, lit);
+        wl.va[k] = packAlpha(look.cover);
+        wl.vl[k] = Math.round(look.shade);
+      }
     }
   }
 }
 
 /**
- * A corner's surface as seen by a column standing on `bed`.
+ * A corner's surface as the sheet `b` draws it.
  *
- * The high group if that bed is the highest at the corner, the low one
- * otherwise. Every column on a tile shares its bed, so neighbours always pick
- * the same one and the mesh holds together; the two differ only where the
- * corner really does touch two bodies of water at different heights, and there
- * a cliff stands between them.
+ * A column asks for its OWN sheet and always finds it: the column itself
+ * contributed to this corner under that id, so the tier is there and holds a
+ * value it helped make. That is the property the bed split was chosen for and
+ * it is exact here rather than approximate — two columns of one sheet are not
+ * deciding anything, the fill decided once, for the edge between them.
+ *
+ * The fallback is for the caller that asks about somebody ELSE's sheet — the
+ * side faces do, end for end — and for the one corner in a million that ran
+ * out of tiers.
  */
-const level = (wl: WaterLayer, v: number, bed: number) =>
-  levelAt(wl.vs[v], wl.vsLow[v], wl.vBed[v], bed);
+const level = (wl: WaterLayer, v: number, b: number, fallback: number) => {
+  const k = tierAt(wl, v, b);
+  return k < 0 || !wl.vn[k] ? fallback : wl.vs[k];
+};
 
 /**
- * The surface one step away, or this corner's own where there is no water.
+ * The same sheet's surface one step away, or this corner's own where the
+ * sheet does not reach.
  *
- * The fallback reads as level. The alternative is a shoreline lit as though it
- * fell away to nothing, because an unwritten corner holds zero.
+ * The fallback reads as level. The alternative is a shoreline lit as though
+ * it fell away to nothing, because an unwritten corner holds zero — and, now
+ * that a corner holds several sheets, a shoreline lit by whatever unrelated
+ * water happens to be next to it.
  */
-function nearby(wl: WaterLayer, v: number, step: number): number {
+function nearby(wl: WaterLayer, v: number, step: number, b: number, k: number): number {
   const j = v + step;
-  return j >= 0 && j < wl.vs.length && (wl.vn[j] || wl.vnLow[j]) ? wl.vs[j] : wl.vs[v];
+  const here = wl.vs[k];
+  if (j < 0 || j * TIERS >= wl.vs.length) return here;
+  const jk = tierAt(wl, j, b);
+  if (jk >= 0 && wl.vn[jk]) return wl.vs[jk];
+  // NOT THIS SHEET, so it is only a gradient if it is BELOW. A lip is the
+  // case that matters: the surface really does tip over the edge, and the
+  // sheet leaving it is lit from exactly that — so a brink read as level
+  // stops agreeing with its own waterfall, which is measured in
+  // `falls-render.test`. Water ABOVE is a bridge, and a bridge is not a
+  // slope in the water under it: lit from one, a river changed brightness
+  // wherever it passed beneath a span.
+  //
+  // The lowest of them, so a drop is the drop to the floor of whatever is
+  // down there rather than to the nearest of several sheets.
+  let below = here;
+  for (let t = 0; t < TIERS; t++) {
+    const o = j * TIERS + t;
+    if (wl.cBody[o] === NO_BODY) break;
+    if (wl.vn[o] && wl.vs[o] < below) below = wl.vs[o];
+  }
+  return below;
 }
 
 /**
@@ -667,10 +791,24 @@ export function drawWater(
   // Rewind the batches that hold anything, so an empty map costs nothing. The
   // quads still sit in their buffers until they are overwritten or uploaded
   // over; `live` is what remembers that they need one or the other.
-  for (const b of wl.live) resetQuads(wl.strips[b]);
+  for (const b of wl.live) { resetQuads(wl.strips[b]); resetQuads(wl.under[b]); }
 
   const region = activeBox(columns);
   if (region) {
+    // WHICH WATER IS ONE SHEET, before anything is averaged into a corner.
+    // Everything below keys off this: the corners, their colours, and which
+    // neighbour a side face hangs down to. @see findBodies
+    //
+    // ONE COLUMN WIDER THAN THE BOX, because a side face asks what the
+    // NEIGHBOUR draws, and the neighbour of the last column in the box is
+    // outside it. Labelled only to the box, that neighbour answered with
+    // whatever label it happened to be carrying from an earlier, larger
+    // frame — so the faces came out differently on the second draw of an
+    // unchanged scene, which is how this was caught.
+    findBodies(columns, {
+      x0: region.x0 - 1, y0: region.y0 - 1,
+      x1: region.x1 + 1, y1: region.y1 + 1,
+    }, wl.bodies);
     // Carried one frame down the current before anything reads it. The falls
     // advance in the SOLVER now — where a fall has got to decides when its
     // water lands, so it is not a thing the renderer may have an opinion on.
@@ -683,9 +821,12 @@ export function drawWater(
   }
 
   for (const b of [...wl.live]) {
-    const batch = wl.strips[b];
-    uploadQuads(batch);
-    if (batch.n === 0) wl.live.delete(b);      // emptied, and now uploaded empty
+    uploadQuads(wl.strips[b]);
+    uploadQuads(wl.under[b]);
+    // Emptied, and now uploaded empty — but only once BOTH tiers are, or a
+    // band whose surface water has gone would stop uploading the roofed
+    // water still in it.
+    if (wl.strips[b].n === 0 && wl.under[b].n === 0) wl.live.delete(b);
   }
 }
 
@@ -726,9 +867,15 @@ function fillQuads(
       const i = a * columns.cells + ci;
       const d = depth[i];
       if (d <= columns.params.dryDepth) continue;
+      const sheet = wl.bodies.at[i];
+      if (sheet === NO_BODY) continue;
 
       const tx = tileOf(cx);
-      const batch = wl.strips[tx + ty];
+      // UNDER A ROOF GOES UNDER THE ROOF. Everything else is water in the
+      // open and draws where water has always drawn. @see BandLayer.underOf
+      const roofed = columns.roof[i] < OPEN_SKY;
+      const set = roofed ? wl.under : wl.strips;
+      const batch = set[tx + ty];
       if (!batch) continue;
 
       const mat = columns.material[i];
@@ -760,23 +907,30 @@ function fillQuads(
       // of ground showing through the water. The clamp alone does the job the
       // threshold was there for, and cannot disagree with itself.
       const bed = columns.ground[i];
+      const own = surfaceAt(columns, i);
       const v00 = cy * vw + cx, v10 = v00 + 1, v01 = v00 + vw, v11 = v01 + 1;
-      const h00 = Math.max(level(wl, v00, bed), bed);
-      const h10 = Math.max(level(wl, v10, bed), bed);
-      const h11 = Math.max(level(wl, v11, bed), bed);
-      const h01 = Math.max(level(wl, v01, bed), bed);
+      const k00 = tierAt(wl, v00, sheet), k10 = tierAt(wl, v10, sheet);
+      const k11 = tierAt(wl, v11, sheet), k01 = tierAt(wl, v01, sheet);
+      const h00 = Math.max(k00 < 0 ? own : wl.vs[k00], bed);
+      const h10 = Math.max(k10 < 0 ? own : wl.vs[k10], bed);
+      const h11 = Math.max(k11 < 0 ? own : wl.vs[k11], bed);
+      const h01 = Math.max(k01 < 0 ? own : wl.vs[k01], bed);
 
       // BOTH the shade and the opacity come from each CORNER, so the surface
       // runs smoothly instead of stepping at every column boundary — a step in
       // the opacity is what a dip in the bed under a puddle used to look like,
       // and a step in the shade is what turned a river into a row of facets.
-      // The column's own values stand in wherever the corner belongs to water
-      // at another level.
+      //
+      // FROM THIS SHEET'S OWN TIER. Before, the corner had one set of these
+      // and they came from whichever group won the bed split, so the river
+      // under a bridge was drawn with the opacity of whatever was standing on
+      // the deck above it. @see bodies.ts
       const tints = mat * SHADES;
-      const c00 = (wl.va[v00] << 24 | wl.tint[tints + wl.vl[v00]]) >>> 0;
-      const c10 = (wl.va[v10] << 24 | wl.tint[tints + wl.vl[v10]]) >>> 0;
-      const c11 = (wl.va[v11] << 24 | wl.tint[tints + wl.vl[v11]]) >>> 0;
-      const c01 = (wl.va[v01] << 24 | wl.tint[tints + wl.vl[v01]]) >>> 0;
+      const shadeOf = (k: number) => (k < 0
+        ? (packAlpha(1) << 24 | wl.tint[tints]) >>> 0
+        : (wl.va[k] << 24 | wl.tint[tints + wl.vl[k]]) >>> 0);
+      const c00 = shadeOf(k00), c10 = shadeOf(k10);
+      const c11 = shadeOf(k11), c01 = shadeOf(k01);
 
       pushQuad(
         batch,
@@ -817,13 +971,13 @@ function fillQuads(
       // Never past the cull: a band that is switched off draws nothing, and
       // the tile the face belongs to is still on screen.
       if (!faces) continue;                     // the debug switch
-      const ahead = tx + ty + 1 <= hi ? wl.strips[tx + ty + 1] : undefined;
+      const ahead = tx + ty + 1 <= hi ? set[tx + ty + 1] : undefined;
       const eastB = eastOn && ahead ? ahead : batch;
       const southB = southOn && ahead ? ahead : batch;
       if (eastB !== batch || southB !== batch) wl.live.add(tx + ty + 1);
-      sideFace(eastB, wl, columns, i, cx, cy, 1, 0, fx1v, fy0, fx1v, fy1,
+      sideFace(eastB, wl, columns, i, sheet, cx, cy, 1, 0, fx1v, fy0, fx1v, fy1,
         v10, v11, base, HWs, HHs, HUs, rim);
-      sideFace(southB, wl, columns, i, cx, cy, 0, 1, fx0v, fy1, fx1v, fy1,
+      sideFace(southB, wl, columns, i, sheet, cx, cy, 0, 1, fx0v, fy1, fx1v, fy1,
         v01, v11, base, HWs, HHs, HUs, rim);
       }
     }
@@ -847,7 +1001,7 @@ function speed(columns: ColumnField, cx: number, cy: number, a = 0): number {
  * water's own floor is rock.
  */
 function sideFace(
-  batch: QuadBatch, wl: WaterLayer, columns: ColumnField, i: number,
+  batch: QuadBatch, wl: WaterLayer, columns: ColumnField, i: number, sheet: number,
   cx: number, cy: number, dx: number, dy: number,
   ax: number, ay: number, bx: number, by: number,
   vA: number, vB: number,
@@ -876,12 +1030,25 @@ function sideFace(
   // step drop. Matched to the neighbour's corners there is nothing left to
   // leave showing.
   const wetJ = !offMap && columns.depth[j] > columns.params.dryDepth;
+  // BOTH SHEETS BY NAME. The face hangs from what THIS sheet draws at each
+  // corner down to what the NEIGHBOUR'S sheet draws there — which used to be
+  // two calls to `levelAt` with two different beds, a stand-in for exactly
+  // this question. Asked by sheet it is a lookup, and a neighbour that is a
+  // different body of water gives a different answer without anything having
+  // to infer that from heights.
+  const mine = surfaceAt(columns, i);
+  const theirs = wetJ ? wl.bodies.at[j] : NO_BODY;
+  // What the neighbour would draw if this corner did not know about it: its
+  // own surface, which is what it is standing at. Falling back to its BED
+  // instead makes the face taller than the water it is the side of, and puts
+  // a pane along every edge the rim rule had just taken away.
+  const theirTop = wetJ ? surfaceAt(columns, j) : bedJ;
   // Where the side starts and where it reaches is `corner-rule.ts`, which the
   // shader path is generated from too.
   const side = resolveSide(
     bed, bedJ, wetJ,
-    wl.vs[vA], wl.vsLow[vA], wl.vBed[vA],
-    wl.vs[vB], wl.vsLow[vB], wl.vBed[vB],
+    level(wl, vA, sheet, mine), level(wl, vA, theirs, theirTop),
+    level(wl, vB, sheet, mine), level(wl, vB, theirs, theirTop),
   );
   // Both ends flat against their own floor is a side that is not there. The
   // shader draws it anyway and makes no fragments; here it would be a quad to

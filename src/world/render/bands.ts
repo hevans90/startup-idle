@@ -43,6 +43,22 @@ export type BandLayer = {
   /** Unsorted static content per band. */
   staticOf: Container[];
   /**
+   * WATER WITH SOMETHING OVER IT, drawn before the thing that is over it.
+   *
+   * A band's sort key is `x + y` with height deliberately left out, which is
+   * sound while a cell holds one surface and stops being sound the moment it
+   * holds two. A bridge is the case: the river under a span and the deck over
+   * it are the same cell in the same band, and the water drew last — so a
+   * channel running full painted itself across the front of the bridge, the
+   * deck showing through in teeth where it stood proud of the flood.
+   *
+   * There is no sorting to do about it, only an order to state: what is under
+   * a roof is under the roof. Roofed water goes here, between the terrain and
+   * the paving; everything else stays in `structureOf` with the rest of the
+   * water. @see fluid/slots
+   */
+  underOf: Container[];
+  /**
    * Paved overlay per band, drawn over the terrain.
    *
    * A road tile is a full ground tile, so it covers the terrain beneath it
@@ -82,6 +98,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
   const bands: Container[] = [];
   const cliffOf: Container[] = [];
   const staticOf: Container[] = [];
+  const underOf: Container[] = [];
   const pavedOf: Container[] = [];
   const structureOf: Container[] = [];
   const dynamicOf: Container[] = [];
@@ -95,6 +112,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
     // LAST so each hides the next one's diamond; see render/cliffs.
     cliff.sortableChildren = true;
     const st = new Container();          // no sorting: order within a band is moot
+    const under = new Container();       // water beneath a deck. @see underOf
     const paved = new Container();   // one sprite per cell, so order is moot
     const structures = new Container();  // tall, so above the ground and roads
     const dyn = new Container();
@@ -102,6 +120,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
 
     band.addChild(cliff);                // columns, terrain, roads, builds, movers
     band.addChild(st);
+    band.addChild(under);
     band.addChild(paved);
     band.addChild(structures);
     band.addChild(dyn);
@@ -109,6 +128,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
     bands.push(band);
     cliffOf.push(cliff);
     staticOf.push(st);
+    underOf.push(under);
     pavedOf.push(paved);
     structureOf.push(structures);
     dynamicOf.push(dyn);
@@ -118,7 +138,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
   root.sortChildren();
 
   return {
-    root, bands, cliffOf, staticOf, pavedOf, structureOf, dynamicOf,
+    root, bands, cliffOf, staticOf, underOf, pavedOf, structureOf, dynamicOf,
     w, h, visibleLo: 0, visibleHi: n - 1, groundAlpha: 1,
   };
 }
@@ -181,6 +201,7 @@ export function destroyBandLayer(layer: BandLayer) {
   layer.bands.length = 0;
   layer.cliffOf.length = 0;
   layer.staticOf.length = 0;
+  layer.underOf.length = 0;
   layer.pavedOf.length = 0;
   layer.dynamicOf.length = 0;
 }

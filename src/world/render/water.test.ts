@@ -17,7 +17,7 @@ import { createGrid, fillTerrain, setHeight, setSource } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { createBandLayer } from "./bands";
 import { colourAt, quadAt, type QuadBatch } from "./quads";
-import { createWaterLayer, destroyWaterLayer, drawWater, asideAt } from "./water";
+import { TIERS, createWaterLayer, destroyWaterLayer, drawWater, asideAt } from "./water";
 
 /** Every quad a band's batch holds this frame, as flat point arrays. */
 function polysOf(b: QuadBatch): number[][] {
@@ -838,10 +838,12 @@ describe("running water reads as running", () => {
       const a: number[] = [], b: number[] = [];
       for (let y = 1; y < field.columns.ny - 1; y++) {
         for (let x = 1; x < vw - 1 - lag; x++) {
-          const v = y * vw + x;
-          if (!wl.vn[v] || !wl.vn[v + lag]) continue;
-          a.push(wl.vl[v]);
-          b.push(wl.vl[v + lag]);
+          // TIER ZERO of each corner. On a river there is one sheet, so
+          // the first tier is it. @see TIERS
+          const k = (y * vw + x) * TIERS, j = k + lag * TIERS;
+          if (!wl.vn[k] || !wl.vn[j]) continue;
+          a.push(wl.vl[k]);
+          b.push(wl.vl[j]);
         }
       }
       const mean = (z: number[]) => z.reduce((p, q) => p + q, 0) / z.length;
@@ -1097,31 +1099,49 @@ describe("what the rim rule does to the faces", () => {
 
 describe("a corner agrees with itself", () => {
   /**
-   * A corner carries two heights when two BEDS meet at it, so that a sheet on
-   * a plateau and a lake at the foot of its cliff are not averaged into one
-   * surface running through the rock between them. These are about when that
-   * split should and should not happen.
+   * A corner carries a TIER per sheet of water that reaches it, so that a
+   * sheet on a plateau and a lake at the foot of its cliff are not averaged
+   * into one surface running through the rock between them.
+   *
+   * These used to be about a split made HERE, on the beds the contributors
+   * stood on, and then thought better of where the split was wrong. The split
+   * is made in `bodies.ts` now, once, off the same two rules the solver uses
+   * — so the question is no longer "did the merge undo the split correctly"
+   * but the simpler "is this one sheet or two". @see findBodies
    */
-  const corners = (wl: ReturnType<typeof createWaterLayer>) => {
-    let meeting = 0, apart = 0, upsideDown = 0, worst = 0;
-    for (let v = 0; v < wl.vs.length; v++) {
-      if (!wl.vn[v] || !wl.vnLow[v]) continue;
-      meeting++;
-      const d = wl.vsLow[v] - wl.vs[v];
-      if (Math.abs(d) > 1e-6) apart++;
-      if (d > 1e-4) { upsideDown++; worst = Math.max(worst, d); }
+  /** Every distinct sheet a set of wet columns belongs to. @see findBodies */
+  const sheetsOver = (
+    field: ReturnType<typeof createWaterField>,
+    keep: (x: number, y: number) => boolean,
+    wl: ReturnType<typeof createWaterLayer>,
+  ) => {
+    const c = field.columns;
+    const ids = new Set<number>();
+    let wet = 0;
+    for (let cy = 0; cy < c.ny; cy++) {
+      for (let cx = 0; cx < c.nx; cx++) {
+        const i = cy * c.nx + cx;
+        if (c.depth[i] <= c.params.dryDepth) continue;
+        if (!keep(cx, cy)) continue;
+        wet++;
+        ids.add(wl.bodies.at[i]);
+      }
     }
-    return { meeting, apart, upsideDown, worst };
+    return { wet, ids };
   };
 
   test("a dip in the bed under one pool is not two bodies of water", () => {
     // The crack. Drown a dipped bed deep enough and it is one sheet at one
-    // level, but the split fired on the bed difference all the same and handed
-    // the columns either side of the dip two different heights for the same
-    // corner. They differ only by the surface's own ripple — up to 0.57 half
-    // steps, with the LOW group the higher one 39% of the time — but a corner
-    // that does not agree with itself is a crack, and that is nine pixels of
-    // grass showing through twenty half steps of water.
+    // level, but the old split fired on the bed difference all the same and
+    // handed the columns either side of the dip two different heights for the
+    // same corner. They differed only by the surface's own ripple — up to
+    // 0.57 half steps, with the LOW group the higher one 39% of the time —
+    // but a corner that does not agree with itself is a crack, and that is
+    // nine pixels of grass showing through twenty half steps of water.
+    //
+    // It cannot happen now, and the assertion is correspondingly blunt: this
+    // is ONE body of water, so no corner anywhere on it carries a second
+    // tier. There is nothing to merge back because nothing was split.
     const w = 20, h = 20;
     const grid = createGrid(w, h);
     fillTerrain(grid, 1);
@@ -1139,14 +1159,16 @@ describe("a corner agrees with itself", () => {
       stepWater(field, 1 / 60);
       drawWater(wl, field.columns, bands, 1 / 60);
     }
-    const c = corners(wl);
-    expect(c.meeting).toBeGreaterThan(100);      // the dips really do meet
-    // Not one corner may put the LOWER bed's water ABOVE the higher bed's,
-    // which is the crack: 198 of them did, by up to 0.57 half steps. And most
-    // of them should not be split at all — the ones that remain are at the
-    // rim, where a film on the wall really is a separate body from the pool.
-    expect(c.upsideDown).toBe(0);
-    expect(c.apart).toBeLessThan(c.meeting * 0.3);
+    // THE POOL ITSELF, and not the spray that has climbed the walls: water
+    // standing on a wall really is a separate sheet, a cliff above the pool,
+    // and it should be. The columns over the dipped bed are the claim.
+    const pool = sheetsOver(field, (cx, cy) => {
+      const tx = (cx / 4) | 0, ty = (cy / 4) | 0;
+      return tx >= 3 && ty >= 3 && tx < w - 3 && ty < h - 3;
+    }, wl);
+    expect(pool.wet).toBeGreaterThan(1000);      // there really is a pool here
+    expect(pool.ids.size).toBe(1);               // and every drop of it is one sheet
+    expect(wl.overflow).toBe(0);
     destroyWaterLayer(wl);
   });
 
@@ -1171,9 +1193,21 @@ describe("a corner agrees with itself", () => {
       stepWater(field, 1 / 60);
       drawWater(wl, field.columns, bands, 1 / 60);
     }
-    const c = corners(wl);
-    expect(c.meeting).toBeGreaterThan(50);
-    expect(c.apart).toBe(c.meeting);             // every one of them, kept apart
+    // TWO SHEETS, and the split is the case this exists for: there is AIR
+    // between them, and averaging them runs the plateau's edge down into the
+    // cliff. On top and at the foot are different water.
+    const top = sheetsOver(field, (cx, cy) => {
+      const tx = (cx / 4) | 0, ty = (cy / 4) | 0;
+      return tx >= 7 && ty >= 7 && tx <= 12 && ty <= 12;
+    }, wl);
+    const foot = sheetsOver(field, (cx, cy) => {
+      const tx = (cx / 4) | 0, ty = (cy / 4) | 0;
+      return tx >= 1 && ty >= 1 && (tx < 6 || tx > 13 || ty < 6 || ty > 13);
+    }, wl);
+    expect(top.wet).toBeGreaterThan(100);
+    expect(foot.wet).toBeGreaterThan(100);
+    for (const id of top.ids) expect(foot.ids.has(id)).toBe(false);
+    expect(wl.overflow).toBe(0);
     destroyWaterLayer(wl);
   });
 });

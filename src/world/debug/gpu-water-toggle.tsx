@@ -21,7 +21,7 @@ import { useEffect, useState } from "react";
 
 import { useWorldStore } from "../../state/world.store";
 import { heldDevice } from "./gpu-device";
-import { gpuWaterAlarm, gpuWaterNote } from "./gpu-water-stat";
+import { gpuWaterAlarm, gpuWaterNote, gpuWaterWhy } from "./gpu-water-stat";
 
 /** Four a second, like the rest of the readouts. */
 const EVERY = 250;
@@ -35,11 +35,14 @@ export function GpuWaterToggle() {
   const [note, setNote] = useState<string | null>(null);
   // THE LEAK ALARM, latched and on its own. @see gpuWaterAlarm
   const [alarm, setAlarm] = useState<string | null>(null);
+  /** What is holding the device back, if the switch is on and it is not. */
+  const [held, setHeld] = useState<string | null>(null);
   useEffect(() => {
     const t = setInterval(() => {
       setReady(heldDevice() !== null);
       setNote(gpuWaterNote());
       setAlarm(gpuWaterAlarm());
+      setHeld(gpuWaterWhy());
     }, EVERY);
     return () => clearInterval(t);
   }, []);
@@ -69,7 +72,14 @@ export function GpuWaterToggle() {
               : "bg-gray-700 text-gray-200 hover:bg-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
         }`}
       >
-        water: {!ready ? "cpu (no device)" : on ? "GPU compute" : "cpu"}
+        water: {!ready
+          ? "cpu (no device)"
+          : !on
+            ? "cpu"
+            : held
+              // THE PATH AND NOT THE PREFERENCE. @see gpuWaterWhy
+              ? `cpu (${held})`
+              : "GPU compute"}
       </button>
       {note && (
         <div className="mt-1 whitespace-pre text-[10px] text-gray-400 dark:text-gray-500">

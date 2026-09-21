@@ -30,8 +30,7 @@ import {
 } from "./nappe";
 import {
   LIGHTEST, SHADES, TINTS, createWaterLayer, destroyWaterLayer, drawWater,
-  paleAt, surfaceLook,
-} from "./water";
+  paleAt, surfaceLook, tierAt,} from "./water";
 
 describe("the parabola a fall follows", () => {
   test("it goes out as the ROOT of how far it has come down", () => {
@@ -761,13 +760,17 @@ describe("the sheet leaves the lip in the SURFACE'S OWN colour", () => {
         // An east edge runs from corner (cx+1, cy) to (cx+1, cy+1), and the A
         // end — the one `alongLip(-1)` pairs with — is the first of those.
         const v = cy * vw + (cx + 1);
-        if (!wl.vn[v]) continue;
+        // The corner as THIS sheet draws it. A cascade has several — the pool
+        // at the foot is not the water on the lip — and a corner holds one
+        // tier per sheet that reaches it. @see tierAt
+        const k = tierAt(wl, v, wl.bodies.at[i]);
+        if (k < 0 || !wl.vn[k]) continue;
         const j = alongLip(c, i, 0, -1);
         const look = sheetLook(
           sharedShown(c, i, j), sharedFoam(wl.foam.now, i, j),
           sharedLit(c, i, j, wl.wash.now), sharedBrink(c, i, j), 0,
         );
-        sum += Math.abs(look.pale - paleAt(wl.vl[v]));
+        sum += Math.abs(look.pale - paleAt(wl.vl[k]));
         n++;
       }
     }

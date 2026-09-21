@@ -79,7 +79,7 @@ import {
 import {
   SPRAY_BOUNDS, checkPour, checkPourLive, compareFrames, flat,
 } from "../fluid/gpu/compare-frames";
-import { gpuWaterSaw } from "./debug/gpu-water-stat";
+import { gpuWaterHeldBack, gpuWaterSaw } from "./debug/gpu-water-stat";
 import { flushStamps, holdStamps, stampsNow } from "./debug/gpu-stamps";
 import {
   createGpuFallLayer, destroyGpuFallLayer, drawGpuFalls, type GpuFallLayer,
@@ -931,6 +931,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // and every bridge on it would be dry. So a map with a deck runs on the
     // host until the device catches up. @see ColumnField.layers
     const storeyed = field ? field.columns.layers > 1 : false;
+    // SAY SO ON THE READOUT. A badge that reports the switch rather than the
+    // path claims the device is running whenever anything declines to build
+    // a solver. @see gpuWaterWhy
+    gpuWaterHeldBack(
+      !gpuWater ? null
+        : !device || deviceLost() !== null ? "no device"
+          : storeyed ? "storeys"
+            : null,
+    );
     if (!gpuWater || !field || !device || deviceLost() !== null || storeyed) {
       solverRef.current?.destroy();
       solverRef.current = null;

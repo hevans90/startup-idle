@@ -194,22 +194,32 @@ export type Side = { topA: number; topB: number; floorA: number; floorB: number 
  */
 export function resolveSide(
   bed: number, bedJ: number, wetJ: boolean,
-  aHigh: number, aLow: number, aBed: number,
-  bHigh: number, bLow: number, bBed: number,
+  aMine: number, aTheirs: number,
+  bMine: number, bTheirs: number,
 ): Side {
+  // FOUR HEIGHTS, ALREADY RESOLVED, and the caller says how it got them.
+  //
+  // This used to take both of a corner's groups and pick between them twice,
+  // with `levelAt` and two different beds — once for "what do I draw here"
+  // and once for "what does the neighbour draw here". That pick is an
+  // identity question, and a bed is only a stand-in for identity. The CPU
+  // path asks by SHEET now (see `render/bodies`) and the shader still asks by
+  // bed; what a side IS, given the two answers, is this, and it is one rule
+  // either way.
+  //
   // Down to our own bed by default. Only WATER next door raises that: a face
   // against the neighbour's own water is a face with nothing on either side of
   // it, and drawing one darkens the seam between two halves of one body.
   let floorA = bed;
   let floorB = bed;
   if (wetJ) {
-    floorA = Math.max(levelAt(aHigh, aLow, aBed, bedJ), bedJ);
-    floorB = Math.max(levelAt(bHigh, bLow, bBed, bedJ), bedJ);
+    floorA = Math.max(aTheirs, bedJ);
+    floorB = Math.max(bTheirs, bedJ);
   }
   floorA = Math.max(bed, floorA);
   floorB = Math.max(bed, floorB);
-  const topA = Math.max(Math.max(levelAt(aHigh, aLow, aBed, bed), bed), floorA);
-  const topB = Math.max(Math.max(levelAt(bHigh, bLow, bBed, bed), bed), floorB);
+  const topA = Math.max(Math.max(aMine, bed), floorA);
+  const topB = Math.max(Math.max(bMine, bed), floorB);
   return { topA, topB, floorA, floorB };
 }
 

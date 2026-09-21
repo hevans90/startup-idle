@@ -6,17 +6,23 @@ import {
 } from "./bands";
 
 describe("createBandLayer", () => {
-  test("one band per diagonal, each with a cliff, static, paved, structure and dynamic child", () => {
+  test("one band per diagonal, and its tiers are in the one order that works", () => {
+    // AND UNDER COMES BEFORE PAVED, which is the whole of what a band can say
+    // about height: its sort key is `x + y` and leaves height out, so the one
+    // cell that holds two surfaces — a bridge — needs the order stated. Put
+    // the other way round, a channel running full paints itself across the
+    // front of the span above it. @see BandLayer.underOf
     const L = createBandLayer(8, 5);
     expect(L.bands.length).toBe(bandCount(8, 5)); // 12
     for (let b = 0; b < L.bands.length; b++) {
       expect(L.bands[b].zIndex).toBe(b);
-      expect(L.bands[b].children.length).toBe(5);
+      expect(L.bands[b].children.length).toBe(6);
       expect(L.bands[b].children[0]).toBe(L.cliffOf[b]);
       expect(L.bands[b].children[1]).toBe(L.staticOf[b]);
-      expect(L.bands[b].children[2]).toBe(L.pavedOf[b]);
-      expect(L.bands[b].children[3]).toBe(L.structureOf[b]);
-      expect(L.bands[b].children[4]).toBe(L.dynamicOf[b]);
+      expect(L.bands[b].children[2]).toBe(L.underOf[b]);
+      expect(L.bands[b].children[3]).toBe(L.pavedOf[b]);
+      expect(L.bands[b].children[4]).toBe(L.structureOf[b]);
+      expect(L.bands[b].children[5]).toBe(L.dynamicOf[b]);
     }
   });
 

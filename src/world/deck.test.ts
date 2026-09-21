@@ -44,7 +44,7 @@ const onGround = (field: { columns: { depth: Float32Array; cells: number } }) =>
   return sum;
 };
 import { createBandLayer } from "./render/bands";
-import { createWaterLayer, drawWater } from "./render/water";
+import { TIERS, createWaterLayer, drawWater, tierAt } from "./render/water";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
 import { componentCount, createNetwork } from "./roads/network";
 import { derivedRamp, type SurfaceReader } from "./roads/ramp-derive";
@@ -433,6 +433,37 @@ describe("a bridge and the road it meets are one surface", () => {
     expect(withBoth).toBeGreaterThan(alone);
   });
 
+  test("the river under a span is drawn BENEATH the span, not over it", () => {
+    // A band's sort key is `x + y` and leaves height out — sound while a cell
+    // holds one surface, and a bridge is the cell that holds two. The water
+    // drew last, so a channel running full painted itself across the front of
+    // the deck above it, the span showing through in teeth where it stood
+    // proud of the flood. Roofed water goes in a tier of its own, drawn
+    // before the paving. @see BandLayer.underOf
+    const { field, bands } = crossing();
+    const wl = createWaterLayer(field.columns, bands, 1);
+    const c = field.columns;
+    // Fill the channel under the span right up to its soffit, and put a
+    // puddle on the deck over it.
+    for (let cy = 6 * COLUMNS_PER_TILE; cy < 10 * COLUMNS_PER_TILE; cy++) {
+      for (let cx = 7 * COLUMNS_PER_TILE; cx < 10 * COLUMNS_PER_TILE; cx++) {
+        const i = cy * c.nx + cx;
+        addWater(c, cx, cy, c.roof[i] - c.ground[i] - 0.3, 1);
+      }
+    }
+    pourAt(field, 8, 7, 2, 1);
+    drawWater(wl, field.columns, bands, 1 / 60);
+    let over = 0, under = 0;
+    for (const b of wl.live) { over += wl.strips[b].n; under += wl.under[b].n; }
+    // Both tiers carry water: the river below and the puddle on the deck.
+    expect(under).toBeGreaterThan(0);
+    expect(over).toBeGreaterThan(0);
+    // And the roofed tier is the parent that draws before the paving.
+    const b = wl.under.findIndex((q) => q.n > 0);
+    expect(wl.under[b].mesh.parent).toBe(bands.underOf[b]);
+    expect(wl.strips[b].mesh.parent).toBe(bands.structureOf[b]);
+  });
+
   test("and the corner where they meet is ONE vertex at ONE height", () => {
     // THE SEAM, pinned. The last column of road and the first column of deck
     // share a corner. If the two were still separate surfaces they would
@@ -444,14 +475,24 @@ describe("a bridge and the road it meets are one surface", () => {
     pourAt(field, 7, 7, 6, 1);               // the first tile of the span
     drawWater(wl, field.columns, bands, 1 / 60);
     // The column boundary between tile 6 and tile 7, halfway down the lane.
+    const c = field.columns;
     const cx = COLUMNS_PER_TILE * 7, cy = COLUMNS_PER_TILE * 7 + 1;
-    const v = cy * (field.columns.nx + 1) + cx;
-    // Four columns meet there — two of road, two of deck — and every one of
-    // them is standing at the same level, so all four are in the HIGH group.
-    expect(wl.vn[v]).toBe(4);
-    expect(wl.vnLow[v]).toBe(0);
+    const v = cy * (c.nx + 1) + cx;
+    // The road is slot ZERO and the deck is slot ONE, so nothing about a slot
+    // index can join them. They are one SHEET — overlapping intervals, no
+    // fall between — and the corner holds one tier for it, with all four of
+    // the columns that meet there in it. @see findBodies
+    const road = wl.bodies.at[(cy) * c.nx + (cx - 1)];
+    const deck = wl.bodies.at[c.cells + cy * c.nx + cx];
+    expect(road).toBeGreaterThanOrEqual(0);
+    expect(deck).toBe(road);
+    const k = tierAt(wl, v, road);
+    expect(k).toBeGreaterThanOrEqual(0);
+    expect(wl.vn[k]).toBe(4);
+    // And nothing else reaches this corner: one sheet, one tier.
+    expect(wl.cBody[v * TIERS + 1]).toBe(-1);
     // And the height it is drawn at is the water's, not the ditch's.
-    expect(wl.vs[v] / wl.vn[v]).toBeGreaterThan(0);
+    expect(wl.vs[k]).toBeGreaterThan(0);
   });
 });
 
