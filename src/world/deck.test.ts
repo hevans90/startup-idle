@@ -255,16 +255,29 @@ describe("water on a deck", () => {
     expect(totalWater(field.columns)).toBe(0);
   });
 
-  test("and it runs off the end and falls to the ground below", () => {
-    const { g, field } = pan(10);
+  test("a puddle STAYS on it, because a bridge has parapets", () => {
+    // What the sides used to be: a slab BELOW the deck, which is a permanent
+    // downhill into a bottomless drain — the columns off the side are
+    // emptied every substep. Water poured on a bridge ran off both edges
+    // inside half a second and could never accumulate on one, and the drop
+    // at the lip had the solver running both sides as waterfalls the whole
+    // time. Measured on this pan: 91% of a tile's worth still there after
+    // twenty seconds. @see DECK_KERB
+    const { field } = pan(10);
     pourAt(field, 5, 5, 6, 1);
-    const put = totalVolume(field, g);
+    const put = totalWater(field.over!);
     for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
-    // Off the deck and down: most of it leaves, and what stays is the film a
-    // FLAT surface always keeps — below `minSlope` nothing moves, which is
-    // the same rule that lets a puddle sit on a plain instead of creeping
-    // across it for ever. A deck is a plain four tiles wide.
-    expect(totalWater(field.over!)).toBeLessThan(put * 0.25);
+    expect(totalWater(field.over!)).toBeGreaterThan(put * 0.7);
+  }, 20_000);
+
+  test("and enough of it goes over the side and falls to the ground below", () => {
+    // A parapet is not a wall. Measured: three times the water and three
+    // quarters of it leaves, which is the same handover the hole always did.
+    const { field } = pan(10);
+    pourAt(field, 5, 5, 20, 1);
+    const put = totalWater(field.over!);
+    for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
+    expect(totalWater(field.over!)).toBeLessThan(put * 0.4);
     expect(totalWater(field.columns)).toBeGreaterThan(put * 0.5);
   }, 20_000);
 
@@ -367,7 +380,7 @@ describe("the edge of a deck", () => {
     return { g, field: createWaterField(g) };
   };
 
-  test("is a short step down, not a drop to the land below", () => {
+  test("stands ABOVE the deck, so it is a parapet and not a drop", () => {
     const { g, field } = spanned();
     const over = field.over!;
     const { nx } = over;
@@ -375,9 +388,10 @@ describe("the edge of a deck", () => {
     for (let cy = 0; cy < over.ny; cy++) {
       for (let cx = 0; cx < nx; cx++) {
         const i = cy * nx + cx;
-        if (over.storey![i] === STOREY.OWNED) continue;     // this one IS deck
+        if (over.storey![i] !== STOREY.HOLE) continue;
         // Only the ring a deck's water can actually reach matters: it is the
-        // only ground the renderer will draw a face against.
+        // only ground the renderer will draw a face against, and the only
+        // edge the flow ever crosses.
         const beside = [[1, 0], [-1, 0], [0, 1], [0, -1]]
           .some(([dx, dy]) => {
             const jx = cx + dx, jy = cy + dy;
@@ -386,23 +400,23 @@ describe("the edge of a deck", () => {
           });
         if (!beside) continue;
         checked++;
-        // Within a slab of the deck it adjoins, and nowhere near the ground.
-        expect(over.ground[i]).toBeGreaterThan(12 - 4);
-        expect(over.ground[i]).toBeLessThan(12);
+        expect(over.ground[i]).toBeGreaterThan(12);
+        expect(over.ground[i]).toBeLessThanOrEqual(12 + 4);
       }
     }
     expect(checked).toBeGreaterThan(8);
-    // And the land really is a long way down, or this proves nothing.
+    // And the land really is a long way down, or this proves nothing: the
+    // point is that the edge is NOT drawn or flowed against the riverbed.
     expect(g.height[idx(g, 5, 5)]).toBe(-20);
   });
 
-  test("and water still runs off it, so the lip is not a wall", () => {
+  test("and a flood still goes over it, so the parapet is not a lid", () => {
     const { g, field } = spanned();
     setWaterEdge(field, false);
-    pourAt(field, 5, 5, 8, 1);
+    pourAt(field, 5, 5, 24, 1);
     const put = totalVolume(field, g);
     for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
-    expect(totalWater(field.columns)).toBeGreaterThan(put * 0.5);
+    expect(totalWater(field.columns)).toBeGreaterThan(put * 0.4);
     expect(totalVolume(field, g)).toBeCloseTo(put, 1);
   }, 20_000);
 });

@@ -373,7 +373,7 @@ export function syncDecks(field: WaterField, grid: Grid) {
         // continuous, so those columns are a window onto the storey below.
         over.ground[i] = grid.height[t];
         kinds[i] = STOREY.HOLE;
-        let lip = -Infinity;
+        let kerb = -Infinity;
         for (const [dx, dy] of EDGES) {
           const ax = tx + dx, ay = ty + dy;
           if (!inBounds(grid, ax, ay)) continue;
@@ -382,11 +382,11 @@ export function syncDecks(field: WaterField, grid: Grid) {
           if (Math.abs(grid.height[t] - grid.deckZ[a]) <= LEVEL_WITH) {
             kinds[i] = STOREY.GHOST;                    // the road carries on
           }
-          lip = Math.max(lip, grid.deckZ[a] - DECK_LIP);
+          kerb = Math.max(kerb, grid.deckZ[a] + DECK_KERB);
         }
-        // Off the SIDE, the drop shown is a lip and not the land far below.
-        // @see DECK_LIP
-        if (kinds[i] === STOREY.HOLE && lip > -Infinity) over.ground[i] = lip;
+        // Off the SIDE, a parapet: water stays on the bridge until it is
+        // deep enough to go over. @see DECK_KERB
+        if (kinds[i] === STOREY.HOLE && kerb > -Infinity) over.ground[i] = kerb;
       }
     }
   }
@@ -405,14 +405,22 @@ export function syncDecks(field: WaterField, grid: Grid) {
 const LEVEL_WITH = 2;
 
 /**
- * How far below a deck the ground just off it sits, in half steps.
+ * How far ABOVE a deck its own sides stand, in half steps: a parapet.
  *
- * One slab, which is a lip and not a cliff. It is a RENDERING number: the
- * water leaving a deck is deleted and handed downstairs, so nothing in the
- * physics turns on how far the drop is — but the surface is drawn down to
- * the ground beside it, and the ground beside a bridge is a long way down.
+ * It was a drop, and that was wrong twice over. A flat plate with its edges
+ * a slab BELOW it is a permanent downhill into a bottomless drain — the
+ * columns off the side are emptied every substep — so water poured on a
+ * bridge ran straight off both edges within half a second and could never
+ * accumulate on one, which is the thing a bridge was asked to do. And a drop
+ * at a lip is what the solver spawns FALLS from, so both sides of every span
+ * ran as waterfalls for as long as anything was on it.
+ *
+ * A bridge has parapets. Below the kerb the water stays where it is put;
+ * above it, it goes over the side and falls, which is both correct and still
+ * possible. It also settles the rendering question the drop was introduced
+ * for: ground higher than the water means no side face to draw at all.
  */
-const DECK_LIP = 2;
+const DECK_KERB = 2;
 
 /** The four neighbours a deck's edge can be found across. */
 const EDGES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
