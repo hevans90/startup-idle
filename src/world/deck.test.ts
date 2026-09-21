@@ -333,3 +333,67 @@ describe("the upper storey has a mesh of its own", () => {
     expect(under.live.size).toBe(0);
   });
 });
+
+/**
+ * THE EDGE OF A DECK IS A LIP, NOT A CLIFF.
+ *
+ * The surface renderer draws a side face from the water down to the ground
+ * BESIDE it, so what the upper storey calls the ground just off a deck is
+ * what the edge of a bridge's water looks like. The first version said "the
+ * land below", which is true and useless: a deck thirteen half steps up over
+ * a riverbed at minus three drew a translucent pane sixteen half steps tall
+ * along every edge of every bridge, and it never went away, because the film
+ * a flat surface always keeps kept feeding it.
+ *
+ * Nothing in the physics turns on the number — water reaching an off-deck
+ * column is taken off this field and handed downstairs whatever its ground
+ * says — so this is a rendering rule, and it is tested as one.
+ */
+describe("the edge of a deck", () => {
+  const spanned = () => {
+    const g = createGrid(12, 12);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) setHeight(g, x, y, -20);
+    for (let y = 4; y <= 7; y++) for (let x = 4; x <= 7; x++) setDeck(g, x, y, 1, 12);
+    return { g, field: createWaterField(g) };
+  };
+
+  test("is a short step down, not a drop to the land below", () => {
+    const { g, field } = spanned();
+    const over = field.over!;
+    const { nx } = over;
+    let checked = 0;
+    for (let cy = 0; cy < over.ny; cy++) {
+      for (let cx = 0; cx < nx; cx++) {
+        const i = cy * nx + cx;
+        if (!over.through![i]) continue;                  // this one IS deck
+        // Only the ring a deck's water can actually reach matters: it is the
+        // only ground the renderer will draw a face against.
+        const beside = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+          .some(([dx, dy]) => {
+            const jx = cx + dx, jy = cy + dy;
+            return jx >= 0 && jy >= 0 && jx < nx && jy < over.ny
+              && !over.through![jy * nx + jx];
+          });
+        if (!beside) continue;
+        checked++;
+        // Within a slab of the deck it adjoins, and nowhere near the ground.
+        expect(over.ground[i]).toBeGreaterThan(12 - 4);
+        expect(over.ground[i]).toBeLessThan(12);
+      }
+    }
+    expect(checked).toBeGreaterThan(8);
+    // And the land really is a long way down, or this proves nothing.
+    expect(g.height[idx(g, 5, 5)]).toBe(-20);
+  });
+
+  test("and water still runs off it, so the lip is not a wall", () => {
+    const { g, field } = spanned();
+    setWaterEdge(field, false);
+    pourAt(field, 5, 5, 8, 1);
+    const put = totalVolume(field, g);
+    for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
+    expect(totalWater(field.columns)).toBeGreaterThan(put * 0.5);
+    expect(totalVolume(field, g)).toBeCloseTo(put, 1);
+  }, 20_000);
+});

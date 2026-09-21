@@ -352,15 +352,45 @@ export function syncDecks(field: WaterField, grid: Grid) {
         solid[i] = 1;
         over.ground[i] = grid.deckZ[t];
       } else {
-        // No floor: whatever reaches here is on its way down. The ground is
-        // the real land, so the fall starts from somewhere true.
+        // NO FLOOR, AND A SHORT DROP TO IT. What goes here is on its way
+        // down and this field never simulates the fall — the water is taken
+        // off and handed to the storey below — so the only thing this number
+        // decides is what the EDGE of the deck's water looks like.
+        //
+        // The land below is the wrong answer, and it was the first one: the
+        // surface renderer draws a side face from the water down to the
+        // ground beside it, so a deck at 13 over a riverbed at −3 drew a
+        // translucent pane sixteen half steps tall along every edge of every
+        // bridge. It never went away either, because the film a flat surface
+        // always keeps kept feeding it. A slab below the deck reads as water
+        // sheeting over a lip, which is what it is. @see spillAt
         over.ground[i] = grid.height[t];
+        for (const [dx, dy] of EDGES) {
+          const ax = tx + dx, ay = ty + dy;
+          if (!inBounds(grid, ax, ay)) continue;
+          const a = idx(grid, ax, ay);
+          if (grid.deck[a] === 0) continue;
+          over.ground[i] = Math.max(over.ground[i], grid.deckZ[a] - DECK_LIP);
+        }
       }
     }
   }
   over.groundRev++;
   setStorey(over, solid);
 }
+
+/**
+ * How far below a deck the ground just off it sits, in half steps.
+ *
+ * One slab, which is a lip and not a cliff. It is a RENDERING number: the
+ * water leaving a deck is deleted and handed downstairs, so nothing in the
+ * physics turns on how far the drop is — but the surface is drawn down to
+ * the ground beside it, and the ground beside a bridge is a long way down.
+ */
+const DECK_LIP = 2;
+
+/** The four neighbours a deck's edge can be found across. */
+const EDGES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
 /** Whether a tile has a deck that water can stand on. @see syncDecks */
 export const deckedAt = (field: WaterField, x: number, y: number): boolean => {
