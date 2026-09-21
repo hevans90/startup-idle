@@ -16,7 +16,7 @@ import {
 export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
-  | "river" | "inlet" | "bridge" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
+  | "river" | "inlet" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
   | "firstRoad";
 
@@ -416,6 +416,61 @@ export function buildBridge(g: Grid, material: number) {
 const PAVED = 1;
 
 /**
+ * A ROAD OVER A RIVER: both halves of a bridge running at once.
+ *
+ * Everything the two storeys are for, in one scene you can watch. A road runs
+ * east to west and a channel runs north to south; where they meet the road is
+ * carried over on a deck. Both are fed, so at any moment there is water
+ * running ALONG the road, over the span and off the far end, and water
+ * running DOWN the channel, under the span and out of the map — and the two
+ * never meet.
+ *
+ * It is the scene every fix to this took, because each failure shows up in it
+ * plainly: water pouring off the road into the channel at the mouth of the
+ * span (no abutment), water running off the sides as waterfalls instead of
+ * standing (no parapet), the surface doubling in density where the road meets
+ * the deck (ghosts drawn twice), or simply nothing crossing at all.
+ *
+ * Small on purpose — @see FIXTURE_SIZE — because all of that is a few tiles
+ * across and a 64² map puts it under a thumbnail.
+ */
+export function buildCrossing(g: Grid, material: number) {
+  clear(g, material);
+  const mid = Math.round(g.h / 2);
+  const lane = { y0: mid - 1, y1: mid + 1 };            // the road, west to east
+  const bed = { x0: Math.round(g.w / 2) - 1, x1: Math.round(g.w / 2) + 1 };
+
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const onLane = y >= lane.y0 && y <= lane.y1;
+      const inBed = x >= bed.x0 && x <= bed.x1;
+      // The channel is cut everywhere; the lane is level with the country
+      // either side of it, so the only thing standing proud is the verge.
+      set(g, x, y, inBed ? CROSSING_BED : onLane ? 0 : CROSSING_VERGE);
+    }
+  }
+  // The road, and the span that carries it over the water.
+  for (let y = lane.y0; y <= lane.y1; y++) {
+    for (let x = 0; x < g.w; x++) {
+      if (x >= bed.x0 && x <= bed.x1) setDeck(g, x, y, PAVED, 0);
+      else g.paved[idx(g, x, y)] = PAVED;
+    }
+  }
+  edited(g);
+  // FED FROM BOTH, so the two flows are running at the same time and can be
+  // seen not to mix: rain on the road at its west end, and the river arriving
+  // at the top of the channel.
+  for (let y = lane.y0; y <= lane.y1; y++) tap(g, 1, y, SPRING * 4);
+  for (let x = bed.x0; x <= bed.x1; x++) tap(g, x, 1, SPRING * 6);
+}
+
+/** How far the channel is cut below the road that crosses it. */
+const CROSSING_BED = -14;
+
+/** The verge either side of the road, so the water on it stays on it. */
+const CROSSING_VERGE = 4;
+
+/**
  * Terraces, each a full step down from the last, with a spring at the top.
  *
  * Falls, and what they do to a ledge they land on. The treads are wide enough
@@ -757,7 +812,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 24 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -767,7 +822,7 @@ export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5 };
  */
 export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
-  "splitTrap", "river", "inlet", "bridge", "cascade", "lake", "islands", "pipes", "culvert",
+  "splitTrap", "river", "inlet", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
   "firstRoad",
 ];
@@ -787,6 +842,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "river": buildRiver(g, material); recomputeHeightRange(g); return;
     case "inlet": buildInlet(g, material); recomputeHeightRange(g); return;
     case "bridge": buildBridge(g, material); recomputeHeightRange(g); return;
+    case "crossing": buildCrossing(g, material); recomputeHeightRange(g); return;
     case "cascade": buildCascade(g, material); recomputeHeightRange(g); return;
     case "lake": buildLake(g, material); recomputeHeightRange(g); return;
     case "islands": buildIslands(g, material); recomputeHeightRange(g); return;

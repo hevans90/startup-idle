@@ -50,6 +50,8 @@ const FIXTURES: [FixtureId, string][] = [
   // `river` is still there for `?fixture=river` and still has its own tests.
   // @see buildInlet
   ["inlet", "inlet"],
+  // Both storeys running at once: a road over a river. @see buildCrossing
+  ["crossing", "crossing"],
   ["cascade", "cascade"],
   ["lake", "lake"],
   ["islands", "islands"],
