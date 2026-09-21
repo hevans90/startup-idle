@@ -432,7 +432,12 @@ const PAVED = 1;
  * the deck (ghosts drawn twice), or simply nothing crossing at all.
  *
  * Small on purpose — @see FIXTURE_SIZE — because all of that is a few tiles
- * across and a 64² map puts it under a thumbnail.
+ * across and a 64² map puts it under a thumbnail. THIRTY-TWO and not some
+ * rounder-looking number: the device can only copy a layer back when a row is
+ * a multiple of 256 bytes, so a map's width in COLUMNS has to be a multiple of
+ * sixty-four, which is every sixteenth tile. At 24² the readback silently
+ * stopped and the water froze on screen while the solver ran on perfectly
+ * behind it. @see canCopyOut
  */
 export function buildCrossing(g: Grid, material: number) {
   clear(g, material);
@@ -812,7 +817,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 24 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.

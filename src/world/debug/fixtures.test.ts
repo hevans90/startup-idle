@@ -12,12 +12,13 @@ import { buildRoadTable, roadSpriteFor } from "../roads/table";
 import { componentCount, createNetwork, netIdAt } from "../roads/network";
 import { HEIGHT_UNIT, HH, HW, RAMP, cellToWorld, faceCoords, pickCell, rampDir, rampRise, surfaceHeight } from "../iso";
 import {
-  FIXTURE_IDS, OCCLUDER_GAP, OCCLUDER_HEIGHT, applyFixture, buildOccluder, buildRampFan,
+  FIXTURE_IDS, FIXTURE_SIZE, OCCLUDER_GAP, OCCLUDER_HEIGHT, applyFixture, buildOccluder, buildRampFan,
   buildZiggurat, type FixtureId,
 } from "./fixtures";
 import {
-  SOURCE_RATE, createWaterField, depthAt, runSources, stepWater, totalVolume, waterInPipes, wetTiles,
+  COLUMNS_PER_TILE, SOURCE_RATE, createWaterField, depthAt, runSources, stepWater, totalVolume, waterInPipes, wetTiles,
 } from "../water/field";
+import { canCopyOut } from "../../fluid/gpu/state";
 import { PIPE_D, pipeLevelAt, runPipes } from "../water/pipes";
 
 /** The presets that come with their own water. */
@@ -656,5 +657,47 @@ describe("fixtures can be asked for by name in the URL", () => {
     expect(handled.length).toBeGreaterThan(0);
     for (const id of handled) expect(FIXTURE_IDS).toContain(id as FixtureId);
     expect(new Set(FIXTURE_IDS).size).toBe(FIXTURE_IDS.length);
+  });
+});
+
+/**
+ * A FIXTURE'S SIZE HAS TO BE ONE THE DEVICE CAN READ BACK.
+ *
+ * The 256-byte row rule: a layer can only be copied off the device when a row
+ * is a multiple of 256 bytes, so a map's width in COLUMNS must be a multiple
+ * of sixty-four — every sixteenth tile. Miss it and nothing throws, nothing
+ * logs, and the solver runs on perfectly while the picture stops: the water
+ * freezes on screen and pouring appears to do nothing.
+ *
+ * I shipped a fixture at 24² and that is exactly what happened. It is the one
+ * size in this file that was picked by eye rather than off the editor's own
+ * buttons, all of which are multiples of sixteen. @see canCopyOut
+ */
+describe("every fixture is a size the water can be drawn at", () => {
+  /**
+   * `brink` is five tiles square ON PURPOSE and knows what that costs.
+   *
+   * It is a measuring rig rather than a scene — small enough that one lip
+   * fills the screen and every column of it prints on one line — and its own
+   * note says so. It is read off the NUMBERS. Named here rather than dropped
+   * from the rule, because the cost is real: its water does not animate on
+   * the device path, and anybody using it to look at a screenshot rather than
+   * at a column dump should know that before they trust what they see.
+   */
+  const READ_OFF_THE_NUMBERS: readonly FixtureId[] = ["brink"];
+
+  test("or it has no water in it to draw", () => {
+    for (const [id, size] of Object.entries(FIXTURE_SIZE) as [FixtureId, number][]) {
+      if (READ_OFF_THE_NUMBERS.includes(id)) continue;
+      const g = createGrid(size, size);
+      applyFixture(g, id, 1);
+      const wet = [...g.source].some((v) => v !== 0)
+        || [...g.inflow].some((v) => v !== 0)
+        || [...g.pool].some((v) => v !== 0);
+      if (!wet) continue;
+      expect(
+        { id, size, ok: canCopyOut(size * COLUMNS_PER_TILE, 4) },
+      ).toEqual({ id, size, ok: true });
+    }
   });
 });
