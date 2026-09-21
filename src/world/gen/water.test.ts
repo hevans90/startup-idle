@@ -229,7 +229,12 @@ describe("a map opens settled", () => {
    * minute. @see SPRING_RATE
    */
   // Its own timeout: three minutes of solver on two maps is real work, and the
-  // default five seconds is not a statement about this test.
+  // default five seconds is not a statement about this test. Doubled when
+  // bridges became slots in the same field rather than a second one nothing
+  // stepped: a generated map has spans along its river, water now genuinely
+  // crosses them, and the solver is about a tenth slower for carrying the
+  // storey — measured on seed 7 at 48 tiles, 2.91s of wall clock for thirty
+  // seconds of flow before and 3.25 after. @see ColumnField.layers
   test("and a fed one does not drown, even on the seed that used to", () => {
     for (const seed of [11, 4242]) {
       const r = run(seed, 180, { springs: 1 });
@@ -250,7 +255,7 @@ describe("a map opens settled", () => {
       const late = r.at[179] - r.at[119];
       expect(late).toBeLessThan(early * 1.5 + 50);
     }
-  }, 30_000);
+  }, 60_000);
 });
 
 /**
@@ -381,7 +386,11 @@ describe("and a minute later there is still a river on the map", () => {
       n++;
     }
     expect(sum / n).toBeGreaterThan(0.85);
-  }, 120_000);
+    // Six maps at sixty-four tiles, a minute of flow each, and the budget
+    // raised with the solver's own cost when bridges became slots — see the
+    // note on the drowning test above. It sat close enough to two minutes
+    // that a contended run of the whole suite was what tipped it over.
+  }, 180_000);
 });
 
 /**

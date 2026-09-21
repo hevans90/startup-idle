@@ -36,6 +36,7 @@ import {
   ACROSS, createDrips, crown, fadeSplashes, markSplash, stepDrips, waterInDrips,
   type DripState,
 } from "./drips";
+import { OPEN_SKY, PRESSURE_SLOT, wetTop } from "./slots";
 
 /**
  * Tuning. Depths and heights are in HALF STEPS, the engine's height unit.
@@ -160,6 +161,45 @@ export const FLOW_DEFAULTS: FlowParams = {
 export type ColumnField = {
   readonly nx: number;
   readonly ny: number;
+  /**
+   * How many SLOTS each column is divided into. @see fluid/slots
+   *
+   * One is a heightfield and is what almost every field is: a column with
+   * ground under it and sky over it, which is the world the solver was
+   * written for and the world most of it still is. Two is a world with decks
+   * in it — a bridge has a channel under it and a road over it, and those are
+   * two places water can be in the same column.
+   *
+   * IT IS A DIMENSION AND NOT A MODE. Every per-column array is `cells *
+   * layers` long and slot `a` of column `i` lives at `a * cells + i`, so slot
+   * zero is the array the field has always had, in the same order, at the same
+   * indices. A field with one layer is bit-for-bit the field from before this
+   * existed, which is not a hope — it is what `columns.test` and the compare
+   * suite go on measuring.
+   */
+  readonly layers: number;
+  /** `nx * ny`: the stride between one slot's plane and the next. */
+  readonly cells: number;
+  /**
+   * WHERE EACH SLOT EXISTS AT ALL, as a box per slot. @see rebuildSlots
+   *
+   * A second storey is a BRIDGE, and a bridge is a few tiles on a map of
+   * four thousand. Walked everywhere, a field with one deck on it pays four
+   * planes of every pass over the whole map to carry three planes of
+   * nothing: measured on a generated map, a minute of river took 21 seconds
+   * to simulate before slots and 65 after, and all of the difference was
+   * empty air being stepped.
+   *
+   * So every pass clips its plane to this. Slot zero is the ground and its
+   * box is the map, which is why nothing about a map with no decks moves.
+   * An empty slot has `x1 < x0`, the same empty box `ColumnField.box` uses.
+   *
+   * FLAT, four numbers a slot, rather than an array of little objects. Read
+   * per column per slot inside `applyDepths` the objects were a property
+   * load and a field load in the innermost loop on the map, and that measured
+   * as a third of the pass on its own.
+   */
+  readonly slotBox: Int32Array;
   /** Seconds simulated, which is the clock the wind gusts on. */
   t: number;
   /**
@@ -270,8 +310,22 @@ export type ColumnField = {
    */
   readonly cell: number;
   readonly params: FlowParams;
-  /** Ground height per column. Callers keep this in step with the terrain. */
+  /**
+   * The FLOOR of every slot: the top of the solid underneath it.
+   *
+   * Still called `ground` because for slot zero that is exactly what it is,
+   * and because every caller that treats this as a heightfield is right to.
+   * Callers keep it in step with the terrain.
+   */
   readonly ground: Float32Array;
+  /**
+   * The ROOF of every slot: the underside of the solid over it, or the sky.
+   *
+   * {@link OPEN_SKY} where there is nothing above, which is every slot on
+   * every field with one layer — so this array exists, costs its memory, and
+   * changes no answer at all until something builds a deck. @see fluid/slots
+   */
+  readonly roof: Float32Array;
   /**
    * BUMPED WHENEVER THE TERRAIN UNDER THE WATER CHANGES.
    *
@@ -292,7 +346,23 @@ export type ColumnField = {
   groundRev: number;
   /** Water depth per column, never negative. */
   readonly depth: Float32Array;
-  /** Flux on the +x edge of each column, and on the +y edge. */
+  /**
+   * Flux on the +x edge of each column, and on the +y edge — per slot PAIR.
+   *
+   * An edge between two columns is not one channel once the columns have
+   * slots in them. A road running alongside a bridge meets BOTH of that
+   * bridge's slots: its water is level with the deck, and the channel beneath
+   * is a separate thing it does not touch. Each of those is its own edge with
+   * its own momentum on it, and merging them is how a deck comes to leak.
+   *
+   * So there are `layers * layers` planes of edges, and the flux from slot `a`
+   * on this side to slot `b` on the far one is at `(a * layers + b) * cells +
+   * i`. Plane zero is the `fx` that has always been here.
+   *
+   * Most planes are empty on most maps and cost only the test that skips
+   * them — see {@link connected}, which answers no for a pair that does not
+   * overlap and no for a slot that is not there.
+   */
   readonly fx: Float32Array;
   readonly fy: Float32Array;
   /** Scratch for one step's depth change, so a step allocates nothing. */
@@ -494,6 +564,14 @@ export type ColumnField = {
   wanted: { at: Int32Array; n: number } | null;
 };
 
+/** Slot zero is the whole map; every other slot starts out empty. */
+function slotBoxes(nx: number, ny: number, layers: number): Int32Array {
+  const b = new Int32Array(layers * 4);
+  b[2] = nx - 1; b[3] = ny - 1;
+  for (let a = 1; a < layers; a++) b[a * 4 + 3] = -1;
+  return b;
+}
+
 /** How many TILES across one wind cell is. Gusts are weather, not ripples. */
 const WIND_TILES = 4;
 
@@ -551,12 +629,18 @@ export function createColumnField(
   ny: number,
   params: FlowParams = FLOW_DEFAULTS,
   cell = 1,
+  layers = 1,
 ): ColumnField {
-  const n = nx * ny;
+  const cells = nx * ny;
+  // Per SLOT, and per slot PAIR. At one layer both are `nx * ny` and every
+  // index below is the index it always was. @see ColumnField.layers
+  const n = cells * layers;
+  const e = cells * layers * layers;
   const stride = Math.max(1, Math.round(WIND_TILES / cell));
   const wnx = Math.ceil(nx / stride), wny = Math.ceil(ny / stride);
   return {
-    nx, ny, cell, params,
+    nx, ny, cell, params, layers, cells,
+    slotBox: slotBoxes(nx, ny, layers),
     t: 0,
     openEdge: false,
     rim: null,
@@ -571,20 +655,23 @@ export function createColumnField(
     windY: new Float32Array(wnx * wny),
     wnx, wny, wstride: stride,
     ground: new Float32Array(n),
+    // NOTHING OVERHEAD until something says otherwise, which is the whole of
+    // what makes a one-layer field the field it was. @see OPEN_SKY
+    roof: new Float32Array(n).fill(OPEN_SKY),
     groundRev: 0,
     depth: new Float32Array(n),
-    fx: new Float32Array(n),
-    fy: new Float32Array(n),
+    fx: new Float32Array(e),
+    fy: new Float32Array(e),
     delta: new Float32Array(n),
     room: 1,
     landing: new Float64Array(n),
     impulse: new Float64Array(n),
     landMat: new Float32Array(n),
     landBest: new Float64Array(n),
-    kickX: new Float64Array(n),
-    kickY: new Float64Array(n),
-    capX: new Float64Array(n),
-    capY: new Float64Array(n),
+    kickX: new Float64Array(e),
+    kickY: new Float64Array(e),
+    capX: new Float64Array(e),
+    capY: new Float64Array(e),
     rate: new Float32Array(n),
     breakAge: new Float32Array(n).fill(-1),
     broke: new Float32Array(n),
@@ -599,7 +686,7 @@ export function createColumnField(
     keepOf: new Float32Array(MATERIAL_SLOTS),
     box: { x0: 0, y0: 0, x1: -1, y1: -1 },      // empty
     deepest: 0,
-    falls: createFalls(nx, ny),
+    falls: createFalls(nx, ny, layers),
     drips: createDrips(nx, ny),
     arrivals: null,
     wanted: null,
@@ -624,27 +711,36 @@ export function setOpenEdge(f: ColumnField, open: boolean) {
  * would have to go looking for.
  */
 function spill(f: ColumnField) {
-  const { nx, ny, depth, material, ground, rim, rimMaterial } = f;
+  const { nx, ny, cells, layers, depth, material, ground, roof, rim, rimMaterial } = f;
   const n = rimLength(nx, ny);
   for (let k = 0; k < n; k++) {
     const i = rimAt(nx, ny, k);
-    // HELD, OR EMPTIED, and the two are one expression rather than two cases:
-    // an absorbing edge is an inflow whose level is below the ground, so there
-    // is no branch here that a map without an inflow takes and a map with one
-    // does not. @see NO_INFLOW
-    const held = rim ? rim[k] - ground[i] : 0;
-    if (held > 0) {
-      depth[i] = held;
-      material[i] = rimMaterial;
-      // WATER THE FIELD DOES NOT OTHERWISE KNOW ABOUT. Everything else that
-      // puts water down goes through `addWater`, which widens the active box
-      // and raises the deepest column; this writes the depth itself, so it
-      // owes both. Without the box the solver looks at an empty region and
-      // does nothing at all — a rim held at its level, and a map still dry
-      // half a minute later. @see include, ColumnField.deepest
-      include(f, i % nx, (i / nx) | 0);
-      if (held > f.deepest) f.deepest = held;
-    } else { depth[i] = 0; material[i] = 0; }
+    const level = rim ? rim[k] : NO_INFLOW;
+    for (let a = 0; a < layers; a++) {
+      const ia = a * cells + i;
+      // HELD, OR EMPTIED, and the two are one expression rather than two
+      // cases: an absorbing edge is an inflow whose level is below the
+      // ground, so there is no branch here that a map without an inflow
+      // takes and a map with one does not. @see NO_INFLOW
+      //
+      // THE SLOT THE LEVEL IS IN, and only that one. A river arriving at the
+      // edge of the map arrives in the channel; if there happens to be a
+      // deck over that channel the deck is not also full of river. Every
+      // other slot on the rim is emptied, which is what an open edge does.
+      const held = level - ground[ia];
+      if (held > 0 && ground[ia] + held <= roof[ia]) {
+        depth[ia] = held;
+        material[ia] = rimMaterial;
+        // WATER THE FIELD DOES NOT OTHERWISE KNOW ABOUT. Everything else that
+        // puts water down goes through `addWater`, which widens the active box
+        // and raises the deepest column; this writes the depth itself, so it
+        // owes both. Without the box the solver looks at an empty region and
+        // does nothing at all — a rim held at its level, and a map still dry
+        // half a minute later. @see include, ColumnField.deepest
+        include(f, i % nx, (i / nx) | 0);
+        if (held > f.deepest) f.deepest = held;
+      } else { depth[ia] = 0; material[ia] = 0; }
+    }
   }
 }
 
@@ -781,8 +877,169 @@ export function setMaterialDrag(f: ColumnField, material: number, drag: number) 
 
 export const at = (f: ColumnField, x: number, y: number) => y * f.nx + x;
 
-/** Surface height of a column: the ground plus whatever stands on it. */
-export const surfaceAt = (f: ColumnField, i: number) => f.ground[i] + f.depth[i];
+/**
+ * Surface height of a SLOT: its floor plus whatever stands on it.
+ *
+ * `i` is a slot index — `a * cells + column` — and at one layer that is a
+ * column index, which is what every caller written before slots existed
+ * passes and is right to.
+ *
+ * The WATER's top rather than its hydraulic surface: this is what the thing
+ * is seen at, landed on and picked with, and a slot running full under a deck
+ * is all of those at the soffit. The pressure head is the solver's business
+ * and stays inside it. @see wetTop, head
+ */
+export const surfaceAt = (f: ColumnField, i: number) =>
+  wetTop(f.ground[i], f.roof[i], f.depth[i]);
+
+/**
+ * The plane a RAW push should be written to, or -1 if there is nowhere to go.
+ *
+ * A head-driven flux works itself out: `accelerate` visits every plane and
+ * the ones that are not connected come out zero. A plunge and a crater do
+ * not — they are momentum written straight onto an edge, and an edge has to
+ * be chosen. So: the connected plane with the most gap in it, which on a map
+ * with no decks is the only plane there is.
+ *
+ * THE LARGEST AND NOT THE FIRST, so the answer does not depend on the order
+ * the slots happen to be numbered in. A splash at the mouth of a bridge can
+ * reach the deck and the channel both; it goes through the bigger opening.
+ */
+export function pushPlane(
+  f: ColumnField, i: number, axis: number, a: number, back: boolean, surface: number,
+): number {
+  const { nx, ny, cells, layers, ground, roof } = f;
+  const x = i % nx, y = (i / nx) | 0;
+  const step = axis === 0 ? 1 : nx;
+  const jx = axis === 0 ? (back ? x - 1 : x + 1) : x;
+  const jy = axis === 1 ? (back ? y - 1 : y + 1) : y;
+  if (jx < 0 || jy < 0 || jx >= nx || jy >= ny) return -1;
+  const j = back ? i - step : i + step;
+  const ia = a * cells + i;
+  const fa = ground[ia], ra = roof[ia];
+  let best = -1, most = 0;
+  for (let b = 0; b < layers; b++) {
+    const jb = b * cells + j;
+    // AND ONLY ONTO GROUND THE WATER COULD GET TO, which is the test this
+    // has always made and is why it takes a surface. A crater is a raw flux
+    // rather than something a head drove, so it is the one thing on the map
+    // not subject to the sill — and at the foot of a cliff that means a drop
+    // landing in the plunge pool shoves water UP the rock face. Measured on a
+    // twenty half step shelf over a flooded plain, drops landing at the
+    // bottom put four hundredths of a unit on top of the shelf.
+    if (ground[jb] >= surface) continue;
+    const lo = fa > ground[jb] ? fa : ground[jb];
+    const hi = ra < roof[jb] ? ra : roof[jb];
+    const gap = hi - lo;
+    if (gap > most) { most = gap; best = b; }
+  }
+  if (best < 0) return -1;
+  // On the way BACK the edge belongs to the neighbour, so the near side of it
+  // is the neighbour's slot and this one is the far side.
+  return back ? (best * layers + a) * cells + j : (a * layers + best) * cells + i;
+}
+
+/**
+ * The slot a thing at height `z` would come down on, as a slot index.
+ *
+ * THE HIGHEST SURFACE AT OR BELOW IT, which is what falling means. A drop
+ * over a bridge lands on the bridge; the same drop a storey lower, having
+ * come out of a pipe under the span, lands in the river — and a column that
+ * cannot tell those apart puts both of them on the deck.
+ *
+ * Nothing below it at all — a drop under the lowest floor there is, which is
+ * a drop inside the world — falls back to slot zero, the ground, because
+ * landing it somewhere is better than losing it.
+ */
+export function slotUnder(f: ColumnField, i: number, z: number): number {
+  let best = i, top = -Infinity;
+  for (let a = 0; a < f.layers; a++) {
+    const ia = a * f.cells + i;
+    if (f.roof[ia] <= f.ground[ia]) continue;   // not a slot at all
+    const s = surfaceAt(f, ia);
+    if (s <= z && s > top) { top = s; best = ia; }
+  }
+  return best;
+}
+
+/**
+ * Work out where each slot exists, and clear anything left over.
+ *
+ * Once a frame, off the geometry, exactly as `markCliffs` is and for the same
+ * reason: `ground` and `roof` are public arrays that fixtures and tests write
+ * to directly, so a derived index with an invalidation protocol is a rule
+ * somebody has to remember. Rebuilt from scratch, there is no protocol to get
+ * wrong. It costs one pass of two comparisons per slot.
+ *
+ * CLEARING IS THE PART THAT IS NOT OBVIOUS. A plane the passes have stopped
+ * visiting keeps whatever flux it last had, for ever — so a bridge taken down
+ * would leave momentum standing in the air where its deck used to be, and a
+ * bridge put back would start with it. Whenever a box moves, every plane
+ * above the ground's is emptied; the ground's is the whole map and never
+ * moves.
+ */
+export function rebuildSlots(f: ColumnField): void {
+  const { nx, ny, cells, layers, ground, roof, slotBox } = f;
+  if (layers < 2) return;                       // slot zero is the map
+  let moved = false;
+  for (let a = 1; a < layers; a++) {
+    const A = a * cells;
+    let x0 = nx, y0 = ny, x1 = -1, y1 = -1;
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) {
+        const ia = A + y * nx + x;
+        if (roof[ia] <= ground[ia]) continue;   // absent
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    if (x1 < x0) { x0 = 0; y0 = 0; y1 = -1; }   // the empty box
+    const k = a * 4;
+    if (slotBox[k] !== x0 || slotBox[k + 1] !== y0
+      || slotBox[k + 2] !== x1 || slotBox[k + 3] !== y1) {
+      moved = true;
+      slotBox[k] = x0; slotBox[k + 1] = y0; slotBox[k + 2] = x1; slotBox[k + 3] = y1;
+    }
+  }
+  if (!moved) return;
+  f.fx.fill(0, cells);
+  f.fy.fill(0, cells);
+}
+
+/**
+ * A slot pair's region: where the near slot is and the far one is beside it.
+ *
+ * The far box is grown by one because the edge reaches into the next column,
+ * and the whole thing is clipped to the water's own active box. Written into
+ * a caller's scratch rather than returned, so a pass that asks for it once
+ * per plane allocates nothing.
+ */
+export function planeRegion(
+  f: ColumnField, a: number, b: number,
+  X0: number, Y0: number, X1: number, Y1: number,
+  out: { x0: number; y0: number; x1: number; y1: number },
+): boolean {
+  const s = f.slotBox, p = a * 4, q = b * 4;
+  out.x0 = Math.max(X0, s[p], s[q] - 1);
+  out.y0 = Math.max(Y0, s[p + 1], s[q + 1] - 1);
+  out.x1 = Math.min(X1, s[p + 2], s[q + 2] + 1);
+  out.y1 = Math.min(Y1, s[p + 3], s[q + 3] + 1);
+  return out.x1 >= out.x0 && out.y1 >= out.y0;
+}
+
+/** The slot index of slot `a` in the column at `i`. */
+export const slotAt = (f: ColumnField, i: number, a: number) => a * f.cells + i;
+
+/**
+ * The plane a slot PAIR's edges live on. @see ColumnField.fx
+ *
+ * `a` is the slot on the near side of the edge and `b` the one on the far
+ * side, so the same physical connection is `pair(a, b)` looked at from one
+ * column and `pair(b, a)` from the other.
+ */
+export const pairOf = (f: ColumnField, a: number, b: number) => a * f.layers + b;
 
 /**
  * Total water in the field. Constant across any number of steps.
@@ -806,10 +1063,11 @@ export function totalWater(f: ColumnField): number {
  * what it is draining.
  */
 export function addWater(
-  f: ColumnField, x: number, y: number, amount: number, material = 0,
+  f: ColumnField, x: number, y: number, amount: number, material = 0, a = 0,
 ) {
   if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return;
-  const i = at(f, x, y);
+  if (a < 0 || a >= f.layers) return;
+  const i = a * f.cells + at(f, x, y);
   const next = Math.max(0, f.depth[i] + amount);
   if (material && amount > 0) f.material[i] = material;
   // WHAT ACTUALLY WENT IN, which is not always what was asked for: a drain
@@ -1036,9 +1294,10 @@ export const PLUNGE_WHITE = 9;
  */
 export function plungeInto(
   f: ColumnField, x: number, y: number, amount: number, material: number, speed: number,
+  a = 0,
 ): void {
   if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return;
-  const i = at(f, x, y);
+  const i = a * f.cells + at(f, x, y);
   // Some of it never joins the pool: a sheet coming in hard throws a plume
   // straight back up, which is the loudest thing about a waterfall — if there
   // are drops to spare for one. A crown is at least one drop however little is
@@ -1062,11 +1321,11 @@ export function plungeInto(
     f.landMat[i] = material;
   }
 
-  if (spray > 0) crown(f.drips, x, y, f.ground[i] + f.depth[i], spray, material, speed);
+  if (spray > 0) crown(f.drips, x, y, surfaceAt(f, i), spray, material, speed);
   // And it is WHITE, which the solver's own breaking test cannot tell: that
   // reads the rate the surface is changing, and a sheet delivered straight
   // into the depth never touches it. A max, so it does not care about order.
-  markSplash(f.drips, i, (amount * PLUNGE_WHITE * speed) / IMPACT_REF);
+  markSplash(f.drips, i % f.cells, (amount * PLUNGE_WHITE * speed) / IMPACT_REF);
   include(f, x, y);
 }
 
@@ -1089,7 +1348,7 @@ export function plungeInto(
  */
 export function applyLandings(f: ColumnField) {
   const {
-    nx, ny, depth, ground, fx, fy, material, params,
+    depth, ground, fx, fy, material, params,
     landing, impulse, landMat, landBest, kickX, kickY, capX, capY,
   } = f;
   const b = f.box;
@@ -1102,11 +1361,11 @@ export function applyLandings(f: ColumnField) {
     depth[i] += landing[i];
   }
   // 3. THE PUSH, from the depth as it now stands.
-  for (let i = 0; i < impulse.length; i++) {
-    if (impulse[i] <= 0) continue;
-    const h = depth[i];
+  for (let ia = 0; ia < impulse.length; ia++) {
+    if (impulse[ia] <= 0) continue;
+    const h = depth[ia];
     if (h <= params.dryDepth) continue;
-    const x = i % nx, y = (i / nx) | 0;
+    const i = ia % f.cells, a = (ia / f.cells) | 0;
     // Turned at the bed and sent out four ways. Only onto ground the water
     // could reach — the cliff it just came off is RIGHT THERE, and a plunge
     // that pushes back up its own wall is a waterfall feeding itself.
@@ -1117,24 +1376,20 @@ export function applyLandings(f: ColumnField) {
     // COLUMN, so `ACROSS` converts to columns and `cell` from columns to
     // tiles.
     const cap = h * PLUNGE_CAP * Math.sqrt(params.gravity * h);
-    const q = impulse[i] * (ACROSS * f.cell) * PLUNGE_PUSH * 0.25;
-    const surface = ground[i] + h;
-    if (x + 1 < nx && ground[i + 1] < surface) {
-      kickX[i] += q;
-      if (cap > capX[i]) capX[i] = cap;
-    }
-    if (x > 0 && ground[i - 1] < surface) {
-      kickX[i - 1] -= q;
-      if (cap > capX[i - 1]) capX[i - 1] = cap;
-    }
-    if (y + 1 < ny && ground[i + nx] < surface) {
-      kickY[i] += q;
-      if (cap > capY[i]) capY[i] = cap;
-    }
-    if (y > 0 && ground[i - nx] < surface) {
-      kickY[i - nx] -= q;
-      if (cap > capY[i - nx]) capY[i - nx] = cap;
-    }
+    const q = impulse[ia] * (ACROSS * f.cell) * PLUNGE_PUSH * 0.25;
+    const surface = ground[ia] + h;
+    // ONTO THE EDGE THE WATER CAN ACTUALLY USE — see `pushPlane`. The old
+    // test was "is the ground over there lower than my surface", which is
+    // the same question a heightfield can ask; with slots the answer has to
+    // say WHICH opening, and a plane of -1 is no opening at all.
+    const e = pushPlane(f, i, 0, a, false, surface);
+    if (e >= 0) { kickX[e] += q; if (cap > capX[e]) capX[e] = cap; }
+    const w = pushPlane(f, i, 0, a, true, surface);
+    if (w >= 0) { kickX[w] -= q; if (cap > capX[w]) capX[w] = cap; }
+    const so = pushPlane(f, i, 1, a, false, surface);
+    if (so >= 0) { kickY[so] += q; if (cap > capY[so]) capY[so] = cap; }
+    const no = pushPlane(f, i, 1, a, true, surface);
+    if (no >= 0) { kickY[no] -= q; if (cap > capY[no]) capY[no] = cap; }
   }
   // 4. AND THE CLAMP, once per edge. A push can only ever move a flux AWAY
   //    from nought and never past the cap, which is what `room` said one
@@ -1183,9 +1438,11 @@ export function applyLandings(f: ColumnField) {
  */
 export function splashInto(
   f: ColumnField, x: number, y: number, volume: number, material: number, speed: number,
+  a = 0,
 ): number {
   if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return 0;
-  const i = at(f, x, y);
+  const col = at(f, x, y);
+  const i = a * f.cells + col;
   const h = f.depth[i];
   // How much room the water under it has: a crater needs somewhere to go.
   const room = Math.min(1, h / Math.max(1e-6, volume * CRATER_ROOM));
@@ -1209,29 +1466,24 @@ export function splashInto(
     // water climbing twelve half steps with nothing pushing it.
     const surface = f.ground[i] + h;
     const q = h * out * 0.25;
-    const a = f.arrivals;
-    if (x + 1 < f.nx && f.ground[i + 1] < surface) {
-      f.fx[i] += q;
-      if (a) noteFlux(a, i, q, 0);
-    }
-    if (x > 0 && f.ground[i - 1] < surface) {
-      f.fx[i - 1] -= q;
-      if (a) noteFlux(a, i - 1, -q, 0);
-    }
-    if (y + 1 < f.ny && f.ground[i + f.nx] < surface) {
-      f.fy[i] += q;
-      if (a) noteFlux(a, i, 0, q);
-    }
-    if (y > 0 && f.ground[i - f.nx] < surface) {
-      f.fy[i - f.nx] -= q;
-      if (a) noteFlux(a, i - f.nx, 0, -q);
-    }
+    const arr = f.arrivals;
+    // Split four ways, and only onto edges that exist and that the water
+    // could get through — see `pushPlane`, which is the same rule the plunge
+    // uses and the reason it is one function.
+    const e = pushPlane(f, col, 0, a, false, surface);
+    if (e >= 0) { f.fx[e] += q; if (arr) noteFlux(arr, e, q, 0); }
+    const w = pushPlane(f, col, 0, a, true, surface);
+    if (w >= 0) { f.fx[w] -= q; if (arr) noteFlux(arr, w, -q, 0); }
+    const so = pushPlane(f, col, 1, a, false, surface);
+    if (so >= 0) { f.fy[so] += q; if (arr) noteFlux(arr, so, 0, q); }
+    const no = pushPlane(f, col, 1, a, true, surface);
+    if (no >= 0) { f.fy[no] -= q; if (arr) noteFlux(arr, no, 0, -q); }
   }
 
   const spray = speed > CROWN_SPEED && room >= 1
     ? volume * CROWN_SHARE * Math.min(1, (speed - CROWN_SPEED) / CROWN_SPEED)
     : 0;
-  addWater(f, x, y, volume - spray, material);
+  addWater(f, x, y, volume - spray, material, a);
   return spray;
 }
 
@@ -1383,6 +1635,8 @@ export function stepFlow(f: ColumnField, dt: number) {
   //
   // It costs one pass of two comparisons per column. What it saves is
   // `stepFalls` walking the whole box every SUBSTEP doing much more than that.
+  // WHERE THE SLOTS ARE, on the same terms and for the same reasons.
+  rebuildSlots(f);
   markCliffs(f);
   for (const h of substepsFor(f, dt)) substep(f, h);
 }
@@ -1562,8 +1816,8 @@ export type PassConsts = {
  */
 export function accelerate(f: ColumnField, c: PassConsts) {
   const { x0: X0, y0: Y0, x1: X1, y1: Y1, gain, bedGain, hMax, minHead, dt } = c;
-  const { closed } = f;
-  const { nx, ny, ground, depth, fx, fy, windX, windY, wnx, wstride } = f;
+  const { nx, ny, cells, layers, ground, roof, depth, fx, fy } = f;
+  const { windX, windY, wnx, wstride } = f;
   const keepOf = f.keepOf;
   const material = f.material;
   // Accelerate every edge by the head across it and the water able to CARRY
@@ -1579,6 +1833,14 @@ export function accelerate(f: ColumnField, c: PassConsts) {
   // cliff. Measured from the sill, the same edge is driven by the half step
   // actually standing above it.
   //
+  // AND FROM THE LID DOWNWARDS, which is the same argument stood on its head
+  // and is what a slot adds. An edge is a GAP, and a gap has a top as well as
+  // a bottom: water four steps deep against a hole one step tall pushes
+  // through one step of hole. Without the lid a flooded channel under a
+  // bridge drives its whole depth against an opening it cannot get through.
+  // On an uncovered slot the lid is the sky and the term never binds, which
+  // is every edge on a map with no decks on it.
+  //
   // `carry` is that depth on whichever side is uphill: the water with a path
   // across the edge. It is the thing that makes the BED shape the flow rather
   // than only steer it. Without it every edge accelerated as hard as every
@@ -1593,68 +1855,134 @@ export function accelerate(f: ColumnField, c: PassConsts) {
   // a dry cell downhill of another dry cell would develop a flux out of water
   // it does not have and the limiter below would spend its whole time undoing
   // the acceleration.
-  for (let y = Y0; y <= Y1; y++) {
-    // The wind is held in two plain numbers across a whole run of columns, and
-    // refreshed when the run ends. Read per column out of its own array it cost
-    // more than three times what the rest of this loop does: a wind cell is
-    // sixteen columns wide, so that was the same two floats fetched sixteen
-    // times over, in a loop the engine cannot prove is not writing to them.
-    const wrow = ((y / wstride) | 0) * wnx;
-    let wc = (X0 / wstride) | 0;
-    let nextRun = (wc + 1) * wstride;
-    let wxv = windX[wrow + wc] * dt, wyv = windY[wrow + wc] * dt;
-    for (let x = X0; x <= X1; x++) {
-      if (x === nextRun) {
-        wc++;
-        nextRun += wstride;
-        wxv = windX[wrow + wc] * dt;
-        wyv = windY[wrow + wc] * dt;
-      }
-      const i = y * nx + x;
-      const si = ground[i] + depth[i];
-      if (closed !== null && closed[i * 2] !== 0) {
-        fx[i] = 0;                            // an abutment: see `closed`
-      } else if (x + 1 < nx) {
-        const j = i + 1;
-        const sill = ground[i] > ground[j] ? ground[i] : ground[j];
-        const hi = si - sill, hj = ground[j] + depth[j] - sill;
-        const head = (hi > 0 ? hi : 0) - (hj > 0 ? hj : 0);
-        const carry = Math.min(hMax, head > 0 ? hi : hj);
-        const k = keepOf[material[head > 0 ? i : j]];
-        const push = carry > 0 && Math.abs(head) > minHead;
-        const q = push ? (fx[i] + gain * carry * head) * k : fx[i] * k;
-        // The wind is added AFTER the drag, so it is this step's push rather
-        // than something the drag has already taken a bite out of, and only
-        // where there is water to push: on a dry edge the limiter would stop
-        // anything moving anyway, but the flux itself would wind up.
-        fx[i] = floored(carry > 0
-          ? q / (1 + bedGain * Math.abs(q) / (carry * carry))
-            + wxv * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1)
-          : q);
-      } else {
-        fx[i] = 0;                            // the map edge is a wall
-      }
-      if (closed !== null && closed[i * 2 + 1] !== 0) {
-        fy[i] = 0;                            // an abutment: see `closed`
-      } else if (y + 1 < ny) {
-        const j = i + nx;
-        const sill = ground[i] > ground[j] ? ground[i] : ground[j];
-        const hi = si - sill, hj = ground[j] + depth[j] - sill;
-        const head = (hi > 0 ? hi : 0) - (hj > 0 ? hj : 0);
-        const carry = Math.min(hMax, head > 0 ? hi : hj);
-        const k = keepOf[material[head > 0 ? i : j]];
-        const push = carry > 0 && Math.abs(head) > minHead;
-        const q = push ? (fy[i] + gain * carry * head) * k : fy[i] * k;
-        fy[i] = floored(carry > 0
-          ? q / (1 + bedGain * Math.abs(q) / (carry * carry))
-            + wyv * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1)
-          : q);
-      } else {
-        fy[i] = 0;
+  //
+  // THE SLOT PAIR IS THE OUTER LOOP AND NOT THE INNER ONE, which is a
+  // performance decision and was measured. Walked innermost, the plane's base
+  // index is a multiply per edge, `layers` is a value the engine cannot see
+  // is one, and a map with no decks on it pays for the machinery of decks
+  // everywhere: 0.855ms a frame became 1.19, a THIRD more, on a field that
+  // has exactly one plane. Walked outermost, the base is hoisted, the inner
+  // loop is the loop it always was — and a one-layer field makes exactly one
+  // pass, which is the pass it used to make.
+  //
+  // What it costs is locality: two planes is two sweeps of the same depths.
+  // That is the right way round. The common case pays nothing and the case
+  // with bridges in it pays for its bridges.
+  const R = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  for (let a = 0; a < layers; a++) {
+    const A = a * cells;
+    for (let b = 0; b < layers; b++) {
+      // ONLY WHERE THE PAIR EXISTS. A bridge is a few tiles; the three
+      // planes that mention its deck have no business anywhere else.
+      if (!planeRegion(f, a, b, X0, Y0, X1, Y1, R)) continue;
+      const B = b * cells;
+      const P = (a * layers + b) * cells;
+      for (let y = R.y0; y <= R.y1; y++) {
+        // The wind is held in two plain numbers across a whole run of columns,
+        // and refreshed when the run ends. Read per column out of its own
+        // array it cost more than three times what the rest of this loop does:
+        // a wind cell is sixteen columns wide, so that was the same two floats
+        // fetched sixteen times over, in a loop the engine cannot prove is not
+        // writing to them.
+        const wrow = ((y / wstride) | 0) * wnx;
+        let wc = (R.x0 / wstride) | 0;
+        let nextRun = (wc + 1) * wstride;
+        let wxv = windX[wrow + wc] * dt, wyv = windY[wrow + wc] * dt;
+        for (let x = R.x0; x <= R.x1; x++) {
+          if (x === nextRun) {
+            wc++;
+            nextRun += wstride;
+            wxv = windX[wrow + wc] * dt;
+            wyv = windY[wrow + wc] * dt;
+          }
+          const i = y * nx + x;
+          const ia = A + i, p = P + i;
+          const fa = ground[ia], ra = roof[ia];
+          // A SLOT THAT IS NOT THERE, out before anything is worked out for
+          // it. The overlap test below would answer the same — an absent
+          // slot overlaps nothing — but it answers it after four loads and a
+          // dozen operations, and a bridge's own plane is absent over almost
+          // the whole of any map that has one. A box round the decks is not
+          // enough on its own: two bridges at opposite corners make a box
+          // the size of the world. @see slotBox
+          if (ra <= fa) { fx[p] = 0; fy[p] = 0; continue; }
+          const da = depth[ia];
+          // The HYDRAULIC surface, written out rather than called: past the
+          // roof the extra depth is in a narrow slot and buys little height,
+          // which is what lets a full conduit go on flowing. @see head
+          const rma = ra - fa;
+          const sa = da <= rma ? fa + da : ra + (da - rma) * PRESSURE_SLOT;
+          // SHELTERED SLOTS GET NO WEATHER. A gust is a thing that happens to
+          // a surface open to the sky; the water under a bridge is not open
+          // to the sky. On a map with no decks every slot is, so both of
+          // these are the wind the field always had.
+          const wxs = ra >= OPEN_SKY ? wxv : 0;
+          const wys = ra >= OPEN_SKY ? wyv : 0;
+          if (x + 1 < nx) {
+            const jb = B + i + 1;
+            const fb = ground[jb], rb = roof[jb];
+            const sill = fa > fb ? fa : fb;
+            const lid = ra < rb ? ra : rb;
+            // THE ONE RULE. Two slots that do not overlap are not joined, and
+            // an absent slot overlaps nothing — so a deck and the channel
+            // under it, and a road and the channel under the deck beside it,
+            // are both simply edges that are not there. @see fluid/slots
+            if (lid <= sill) {
+              fx[p] = 0;
+            } else {
+              const gap = lid - sill;
+              const db = depth[jb], rmb = rb - fb;
+              const sb = db <= rmb ? fb + db : rb + (db - rmb) * PRESSURE_SLOT;
+              let hi = sa - sill; if (hi < 0) hi = 0; else if (hi > gap) hi = gap;
+              let hj = sb - sill; if (hj < 0) hj = 0; else if (hj > gap) hj = gap;
+              const head = hi - hj;
+              const carry = Math.min(hMax, head > 0 ? hi : hj);
+              const k = keepOf[material[head > 0 ? ia : jb]];
+              const push = carry > 0 && Math.abs(head) > minHead;
+              const q = push ? (fx[p] + gain * carry * head) * k : fx[p] * k;
+              // The wind is added AFTER the drag, so it is this step's push
+              // rather than something the drag has already taken a bite out
+              // of, and only where there is water to push: on a dry edge the
+              // limiter would stop anything moving anyway, but the flux
+              // itself would wind up.
+              fx[p] = floored(carry > 0
+                ? q / (1 + bedGain * Math.abs(q) / (carry * carry))
+                  + wxs * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1)
+                : q);
+            }
+          } else {
+            fx[p] = 0;                          // the map edge is a wall
+          }
+          if (y + 1 < ny) {
+            const jb = B + i + nx;
+            const fb = ground[jb], rb = roof[jb];
+            const sill = fa > fb ? fa : fb;
+            const lid = ra < rb ? ra : rb;
+            if (lid <= sill) {
+              fy[p] = 0;
+            } else {
+              const gap = lid - sill;
+              const db = depth[jb], rmb = rb - fb;
+              const sb = db <= rmb ? fb + db : rb + (db - rmb) * PRESSURE_SLOT;
+              let hi = sa - sill; if (hi < 0) hi = 0; else if (hi > gap) hi = gap;
+              let hj = sb - sill; if (hj < 0) hj = 0; else if (hj > gap) hj = gap;
+              const head = hi - hj;
+              const carry = Math.min(hMax, head > 0 ? hi : hj);
+              const k = keepOf[material[head > 0 ? ia : jb]];
+              const push = carry > 0 && Math.abs(head) > minHead;
+              const q = push ? (fy[p] + gain * carry * head) * k : fy[p] * k;
+              fy[p] = floored(carry > 0
+                ? q / (1 + bedGain * Math.abs(q) / (carry * carry))
+                  + wys * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1)
+                : q);
+            }
+          } else {
+            fy[p] = 0;
+          }
+        }
       }
     }
   }
-
 }
 
 /**
@@ -1675,26 +2003,58 @@ export function accelerate(f: ColumnField, c: PassConsts) {
  */
 export function limit(f: ColumnField, c: PassConsts) {
   const { x0: X0, y0: Y0, x1: X1, y1: Y1, spread } = c;
-  const { nx, depth, fx, fy } = f;
-  for (let y = Y0; y <= Y1; y++) {
-    for (let x = X0; x <= X1; x++) {
-      const i = y * nx + x;
-      const d = depth[i];
-      let out = 0;
-      if (fx[i] > 0) out += fx[i];
-      if (x > 0 && fx[i - 1] < 0) out -= fx[i - 1];
-      if (fy[i] > 0) out += fy[i];
-      if (y > 0 && fy[i - nx] < 0) out -= fy[i - nx];
-      const want = out * spread;
-      if (want <= d || want <= 0) continue;
-      const scale = d / want;
-      if (fx[i] > 0) fx[i] *= scale;
-      if (x > 0 && fx[i - 1] < 0) fx[i - 1] *= scale;
-      if (fy[i] > 0) fy[i] *= scale;
-      if (y > 0 && fy[i - nx] < 0) fy[i - nx] *= scale;
+  const { nx, cells, layers, depth, fx, fy } = f;
+  // THIS ONE CANNOT PUT THE PLANE OUTSIDE, and it is worth saying why the
+  // other passes can. A limit is a statement about one slot's WHOLE outflow:
+  // water leaving a deck may be going onto the road at the end of the span
+  // and over the parapet at the side of it, and it is one body of water
+  // paying for both. Scaled a plane at a time, each of them could take all of
+  // it. So the planes are walked inside — with their bases worked out once
+  // per slot rather than once per edge, which is what the outer loop buys
+  // everywhere else.
+  const out0 = new Int32Array(layers);      // this slot's own edges, per far slot
+  const in0 = new Int32Array(layers);       // the far slot's edges into this one
+  for (let a = 0; a < layers; a++) {
+    const A = a * cells;
+    const k = a * 4, sb = f.slotBox;
+    // Grown by one: a slot limits the edges ARRIVING at it too, and those
+    // belong to the column before.
+    const lx0 = Math.max(X0, sb[k] - 1), lx1 = Math.min(X1, sb[k + 2] + 1);
+    const ly0 = Math.max(Y0, sb[k + 1] - 1), ly1 = Math.min(Y1, sb[k + 3] + 1);
+    if (lx1 < lx0 || ly1 < ly0) continue;
+    for (let b = 0; b < layers; b++) {
+      out0[b] = (a * layers + b) * cells;
+      in0[b] = (b * layers + a) * cells;
+    }
+    for (let y = ly0; y <= ly1; y++) {
+      for (let x = lx0; x <= lx1; x++) {
+        const i = y * nx + x;
+        const d = depth[A + i];
+        let outflow = 0;
+        for (let b = 0; b < layers; b++) {
+          const e = out0[b] + i;
+          if (fx[e] > 0) outflow += fx[e];
+          if (fy[e] > 0) outflow += fy[e];
+          const w = in0[b] + i - 1;
+          if (x > 0 && fx[w] < 0) outflow -= fx[w];
+          const n = in0[b] + i - nx;
+          if (y > 0 && fy[n] < 0) outflow -= fy[n];
+        }
+        const want = outflow * spread;
+        if (want <= d || want <= 0) continue;
+        const scale = d / want;
+        for (let b = 0; b < layers; b++) {
+          const e = out0[b] + i;
+          if (fx[e] > 0) fx[e] *= scale;
+          if (fy[e] > 0) fy[e] *= scale;
+          const w = in0[b] + i - 1;
+          if (x > 0 && fx[w] < 0) fx[w] *= scale;
+          const n = in0[b] + i - nx;
+          if (y > 0 && fy[n] < 0) fy[n] *= scale;
+        }
+      }
     }
   }
-
 }
 
 /**
@@ -1721,12 +2081,19 @@ export function limit(f: ColumnField, c: PassConsts) {
  */
 export function divergence(f: ColumnField, c: PassConsts) {
   const { x0: X0, y0: Y0, x1: X1, y1: Y1, spread } = c;
-  const { nx, ny, fx, fy, delta, material } = f;
+  const { nx, ny, cells, layers, fx, fy, delta, material } = f;
   const { bestIn, bestMat } = f;
-  for (let y = Y0; y <= Y1; y++) {
-    const row = y * nx;
-    delta.fill(0, row + X0, row + X1 + 1);
-    bestIn.fill(0, row + X0, row + X1 + 1);
+  for (let a = 0; a < layers; a++) {
+    const base = a * cells;
+    const k = a * 4, sb = f.slotBox;
+    const cx0 = Math.max(X0, sb[k]), cx1 = Math.min(X1, sb[k + 2]);
+    const cy0 = Math.max(Y0, sb[k + 1]), cy1 = Math.min(Y1, sb[k + 3]);
+    if (cx1 < cx0) continue;
+    for (let y = cy0; y <= cy1; y++) {
+      const row = base + y * nx;
+      delta.fill(0, row + cx0, row + cx1 + 1);
+      bestIn.fill(0, row + cx0, row + cx1 + 1);
+    }
   }
   // Note the biggest contributor to each cell as we go, so a cell that fills
   // this step knows what filled it.
@@ -1736,41 +2103,65 @@ export function divergence(f: ColumnField, c: PassConsts) {
   // 0.25ms on still water to 1.0ms the moment anything moved, on arithmetic
   // that is four array accesses. Four copies of two lines is the price, and
   // the shape of each is identical so they read as one thing.
-  for (let y = Y0; y <= Y1; y++) {
-    for (let x = X0; x <= X1; x++) {
-      const i = y * nx + x;
-      if (x + 1 < nx) {
-        const move = fx[i] * spread;
-        delta[i] -= move;
-        // OVER A LIP it goes into the air instead, and stays there until it
-        // has fallen the distance — see `falls`. Only downhill: water climbing
-        // the other way is not going over anything.
-        if (move > 0 && dropAt(f, i, 0) > 0) {
-          intoAir(f, i, 0, move);
-        } else {
-          const j = i + 1;
-          delta[j] += move;
-          if (move > 0) {
-            if (move > bestIn[j]) { bestIn[j] = move; bestMat[j] = material[i]; }
-          } else if (move < 0) {
-            const up = -move;
-            if (up > bestIn[i]) { bestIn[i] = up; bestMat[i] = material[j]; }
+  //
+  // THE PLANE IS THE OUTER LOOP, for the reason `accelerate` gives at length:
+  // walked innermost it is a multiply per edge and a loop the engine cannot
+  // see the bound of, and a field with one plane made it 0.090ms into 0.156.
+  // Accumulating into `delta` across planes is a `+=` either way round, so
+  // nothing about the answer turns on the order.
+  const R = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  for (let a = 0; a < layers; a++) {
+    const A = a * cells;
+    for (let b = 0; b < layers; b++) {
+      if (!planeRegion(f, a, b, X0, Y0, X1, Y1, R)) continue;
+      const B = b * cells;
+      const pl = a * layers + b;
+      const P = pl * cells;
+      for (let y = R.y0; y <= R.y1; y++) {
+        for (let x = R.x0; x <= R.x1; x++) {
+          const i = y * nx + x;
+          const ia = A + i, p = P + i;
+          if (x + 1 < nx) {
+            const move = fx[p] * spread;
+            if (move !== 0) {
+              delta[ia] -= move;
+              // OVER A LIP it goes into the air instead, and stays there
+              // until it has fallen the distance — see `falls`. Only
+              // downhill: water climbing the other way is not going over
+              // anything. A drop is measured from the slot it LEAVES to the
+              // slot it is aimed at, so coming off the side of a deck is a
+              // fall and running onto the road at the end of one is not.
+              if (move > 0 && dropAt(f, i, 0, a, b) > 0) {
+                intoAir(f, i, 0, move, pl);
+              } else {
+                const jb = B + i + 1;
+                delta[jb] += move;
+                if (move > 0) {
+                  if (move > bestIn[jb]) { bestIn[jb] = move; bestMat[jb] = material[ia]; }
+                } else {
+                  const up = -move;
+                  if (up > bestIn[ia]) { bestIn[ia] = up; bestMat[ia] = material[jb]; }
+                }
+              }
+            }
           }
-        }
-      }
-      if (y + 1 < ny) {
-        const move = fy[i] * spread;
-        delta[i] -= move;
-        if (move > 0 && dropAt(f, i, 1) > 0) {
-          intoAir(f, i, 1, move);
-        } else {
-          const j = i + nx;
-          delta[j] += move;
-          if (move > 0) {
-            if (move > bestIn[j]) { bestIn[j] = move; bestMat[j] = material[i]; }
-          } else if (move < 0) {
-            const up = -move;
-            if (up > bestIn[i]) { bestIn[i] = up; bestMat[i] = material[j]; }
+          if (y + 1 < ny) {
+            const move = fy[p] * spread;
+            if (move !== 0) {
+              delta[ia] -= move;
+              if (move > 0 && dropAt(f, i, 1, a, b) > 0) {
+                intoAir(f, i, 1, move, pl);
+              } else {
+                const jb = B + i + nx;
+                delta[jb] += move;
+                if (move > 0) {
+                  if (move > bestIn[jb]) { bestIn[jb] = move; bestMat[jb] = material[ia]; }
+                } else {
+                  const up = -move;
+                  if (up > bestIn[ia]) { bestIn[ia] = up; bestMat[ia] = material[jb]; }
+                }
+              }
+            }
           }
         }
       }
@@ -1791,51 +2182,71 @@ export function divergence(f: ColumnField, c: PassConsts) {
  */
 export function applyDepths(f: ColumnField, c: PassConsts) {
   const { x0: X0, y0: Y0, x1: X1, y1: Y1, dt } = c;
-  const { nx, ny, depth, delta, params, material } = f;
+  const { nx, ny, cells, layers, depth, delta, params, material } = f;
   const bestMat = f.bestMat;
   const b = f.box;
   b.x0 = f.nx; b.y0 = f.ny; b.x1 = -1; b.y1 = -1;
   let deepest = 0;
   f.breaking = false;
+  const sbox = f.slotBox;
   for (let y = Y0; y <= Y1; y++) {
     for (let x = X0; x <= X1; x++) {
       const i = y * nx + x;
-      const wasDry = depth[i] <= params.dryDepth;
-      // The limiter guarantees this is already non-negative; the max only
-      // guards against a rounding residue leaving a tiny negative behind.
-      depth[i] = Math.max(0, depth[i] + delta[i]);
-      if (depth[i] > deepest) deepest = depth[i];
-      // How fast the surface moved, which is what says whether it is breaking.
-      // Free here: the divergence has just worked it out.
-      f.rate[i] = Math.abs(delta[i]) / dt;
-      // THE RIM IS NOT BREAKING, IT IS LEAVING. With an open edge `spill`
-      // empties the outermost ring every substep and the flow refills it from
-      // inside, so the rate there is a whole column arriving and going again —
-      // the largest there is, and nothing to do with a wave coming apart.
-      //
-      // Read as breaking it painted the rim with SATURATED foam: measured on a
-      // flooded map, `broke` pinned at 1 on ninety-two of the ring's columns
-      // and the foam with it, against 0.02 and no breaking anywhere with the
-      // edge closed. And it pulsed, because the refill does — which is the
-      // flicker somebody reported at the edge of the map, half a cell wide.
-      const rim = f.openEdge
-        && (x === 0 || y === 0 || x === nx - 1 || y === ny - 1);
-      if (!rim && depth[i] > params.dryDepth && params.breaking > 0) {
-        stepBreaking(f, dt, i, depth[i]);
-      } else {
-        f.breakAge[i] = -1;
-        f.broke[i] = 0;
+      // THE BOX IS A COLUMN'S, NOT A SLOT'S. It bounds a walk over x and y
+      // and every pass walks every slot of what it reaches, so a column with
+      // water in either storey has to be in it. `keep` is that: any slot
+      // still worth stepping puts the whole column back in the box.
+      let keep = false;
+      for (let a = 0; a < layers; a++) {
+        const k = a * 4;
+        if (x < sbox[k] || x > sbox[k + 2] || y < sbox[k + 1] || y > sbox[k + 3]) continue;
+        const ia = a * cells + i;
+        const wasDry = depth[ia] <= params.dryDepth;
+        // The limiter guarantees this is already non-negative; the max only
+        // guards against a rounding residue leaving a tiny negative behind.
+        depth[ia] = Math.max(0, depth[ia] + delta[ia]);
+        if (depth[ia] > deepest) deepest = depth[ia];
+        // How fast the surface moved, which is what says whether it is
+        // breaking. Free here: the divergence has just worked it out.
+        f.rate[ia] = Math.abs(delta[ia]) / dt;
+        // THE RIM IS NOT BREAKING, IT IS LEAVING. With an open edge `spill`
+        // empties the outermost ring every substep and the flow refills it
+        // from inside, so the rate there is a whole column arriving and going
+        // again — the largest there is, and nothing to do with a wave coming
+        // apart.
+        //
+        // Read as breaking it painted the rim with SATURATED foam: measured
+        // on a flooded map, `broke` pinned at 1 on ninety-two of the ring's
+        // columns and the foam with it, against 0.02 and no breaking anywhere
+        // with the edge closed. And it pulsed, because the refill does —
+        // which is the flicker somebody reported at the edge of the map, half
+        // a cell wide.
+        const rim = f.openEdge
+          && (x === 0 || y === 0 || x === nx - 1 || y === ny - 1);
+        if (!rim && depth[ia] > params.dryDepth && params.breaking > 0) {
+          stepBreaking(f, dt, ia, depth[ia]);
+        } else {
+          f.breakAge[ia] = -1;
+          f.broke[ia] = 0;
+        }
+        if (depth[ia] <= 0) {
+          material[ia] = 0;
+          // A column with water in the AIR off one of its edges stays in the
+          // box even when nothing is standing on it. Dropped out, the fall
+          // stops being stepped and whatever is falling hangs there for ever
+          // — which is what happened to a waterfall the moment its shelf ran
+          // dry. Every plane of every edge it owns, because a deck's fall and
+          // the channel's are different planes of the same two columns.
+          for (let q = 0; q < layers; q++) {
+            const k = ((a * layers + q) * cells + i) * 2;
+            if (f.falls.air[k] > 0 || f.falls.air[k + 1] > 0) { keep = true; break; }
+          }
+        } else {
+          keep = true;
+          if (wasDry && bestMat[ia]) material[ia] = bestMat[ia];
+        }
       }
-      if (depth[i] <= 0) {
-        material[i] = 0;
-        // A column with water in the AIR off one of its edges stays in the
-        // box even when nothing is standing on it. Dropped out, the fall stops
-        // being stepped and whatever is falling hangs there for ever — which
-        // is what happened to a waterfall the moment its shelf ran dry.
-        if (f.falls.air[i * 2] <= 0 && f.falls.air[i * 2 + 1] <= 0) continue;
-      } else if (wasDry && bestMat[i]) {
-        material[i] = bestMat[i];
-      }
+      if (!keep) continue;
       if (x < b.x0) b.x0 = x;
       if (x > b.x1) b.x1 = x;
       if (y < b.y0) b.y0 = y;
@@ -1865,51 +2276,69 @@ export function applyDepths(f: ColumnField, c: PassConsts) {
  * flow down against, and a river is nearly all bank.
  */
 export function diffuseBreaking(f: ColumnField, c: PassConsts) {
-  const { nx, fx, fy, depth, broke, rate, velo, iterA, iterB, params } = f;
+  const { nx, cells, layers, fx, fy, depth, broke, rate, velo, iterA, iterB, params } = f;
   const { x0, y0, x1, y1, diffScale: scale } = c;
   const floor = params.dryDepth * 8;
   const dry = params.dryDepth;
 
-  for (let axis = 0; axis < 2; axis++) {
-    const q = axis === 0 ? fx : fy;
-    const step = axis === 0 ? 1 : nx;
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const i = y * nx + x;
-        const far = i + step;
-        const h = Math.max((depth[i] + (far < depth.length ? depth[far] : depth[i])) * 0.5, floor);
-        velo[i] = q[i] / h;
-        iterA[i] = velo[i];
-      }
-    }
-    // (I - dt nu grad^2) u_new = u_old, by Jacobi: each cell is its own old
-    // value plus its neighbours' new ones, in the ratio the viscosity sets.
-    let from = iterA, into = iterB;
-    for (let sweep = 0; sweep < SWEEPS; sweep++) {
-      for (let y = y0; y <= y1; y++) {
-        for (let x = x0; x <= x1; x++) {
-          const i = y * nx + x;
-          // The viscosity, from the intensity: a mixing length squared over
-          // a time, the length being the depth.
-          const d = scale * broke[i] * MIXING * depth[i] * rate[i] * params.breaking;
-          if (d <= 0) { into[i] = velo[i]; continue; }
-          const here = from[i];
-          const w = x > x0 && depth[i - 1] > dry ? from[i - 1] : here;
-          const e = x < x1 && depth[i + 1] > dry ? from[i + 1] : here;
-          const n = y > y0 && depth[i - nx] > dry ? from[i - nx] : here;
-          const s = y < y1 && depth[i + nx] > dry ? from[i + nx] : here;
-          into[i] = (velo[i] + d * (w + e + n + s)) / (1 + 4 * d);
+  // ONE PLANE AT A TIME. The scratch is a column's worth and the planes are
+  // walked in turn, so `velo` and the two iterates are reused rather than
+  // multiplied — a diffusion of the deck's momentum has nothing to say to the
+  // channel's, and they never overlap in time.
+  const R = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  for (let a = 0; a < layers; a++) {
+    for (let b = 0; b < layers; b++) {
+      if (!planeRegion(f, a, b, x0, y0, x1, y1, R)) continue;
+      const plane = (a * layers + b) * cells;
+      const near = a * cells;
+      for (let axis = 0; axis < 2; axis++) {
+        const q = axis === 0 ? fx : fy;
+        const step = axis === 0 ? 1 : nx;
+        for (let y = R.y0; y <= R.y1; y++) {
+          for (let x = R.x0; x <= R.x1; x++) {
+            const i = y * nx + x;
+            const far = i + step;
+            const dn = depth[near + i];
+            const df = far < cells ? depth[b * cells + far] : dn;
+            const h = Math.max((dn + df) * 0.5, floor);
+            velo[i] = q[plane + i] / h;
+            iterA[i] = velo[i];
+          }
         }
-      }
-      const swap = from; from = into; into = swap;
-    }
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const i = y * nx + x;
-        if (broke[i] <= 0) continue;
-        const far = i + step;
-        const h = Math.max((depth[i] + (far < depth.length ? depth[far] : depth[i])) * 0.5, floor);
-        q[i] = from[i] * h;
+        // (I - dt nu grad^2) u_new = u_old, by Jacobi: each cell is its own
+        // old value plus its neighbours' new ones, in the ratio the viscosity
+        // sets.
+        let from = iterA, into = iterB;
+        for (let sweep = 0; sweep < SWEEPS; sweep++) {
+          for (let y = R.y0; y <= R.y1; y++) {
+            for (let x = R.x0; x <= R.x1; x++) {
+              const i = y * nx + x;
+              // The viscosity, from the intensity: a mixing length squared
+              // over a time, the length being the depth.
+              const d = scale * broke[near + i] * MIXING
+                * depth[near + i] * rate[near + i] * params.breaking;
+              if (d <= 0) { into[i] = velo[i]; continue; }
+              const here = from[i];
+              const w = x > R.x0 && depth[near + i - 1] > dry ? from[i - 1] : here;
+              const e = x < R.x1 && depth[near + i + 1] > dry ? from[i + 1] : here;
+              const n = y > R.y0 && depth[near + i - nx] > dry ? from[i - nx] : here;
+              const so = y < R.y1 && depth[near + i + nx] > dry ? from[i + nx] : here;
+              into[i] = (velo[i] + d * (w + e + n + so)) / (1 + 4 * d);
+            }
+          }
+          const swap = from; from = into; into = swap;
+        }
+        for (let y = R.y0; y <= R.y1; y++) {
+          for (let x = R.x0; x <= R.x1; x++) {
+            const i = y * nx + x;
+            if (broke[near + i] <= 0) continue;
+            const far = i + step;
+            const dn = depth[near + i];
+            const df = far < cells ? depth[b * cells + far] : dn;
+            const h = Math.max((dn + df) * 0.5, floor);
+            q[plane + i] = from[i] * h;
+          }
+        }
       }
     }
   }
@@ -2026,13 +2455,17 @@ export function stepAir(f: ColumnField, dt: number) {
   fadeSplashes(f.drips, dt);
   stepDrips(
     f.drips, dt,
-    (cx, cy) => {
+    (cx, cy, z) => {
       const x = Math.round(cx), y = Math.round(cy);
       if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return -1e9;
-      return surfaceAt(f, y * f.nx + x);
+      return surfaceAt(f, slotUnder(f, y * f.nx + x, z));
     },
-    (cx, cy, volume, material, speed) =>
-      splashInto(f, Math.round(cx), Math.round(cy), volume, material, speed),
+    (cx, cy, volume, material, speed, z) => {
+      const x = Math.round(cx), y = Math.round(cy);
+      if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return 0;
+      const s = slotUnder(f, y * f.nx + x, z);
+      return splashInto(f, x, y, volume, material, speed, (s / f.cells) | 0);
+    },
   );
 }
 
@@ -2056,38 +2489,84 @@ export const MAX_FLOW_SPEED = 3;
  * sixty-five thousand of them a frame on a flooded map, and it measured as
  * more than doubling the cost of the draw.
  */
-export function flowX(f: ColumnField, x: number, y: number): number {
+/**
+ * The discharge out of a slot across one of its two forward edges, summed
+ * over everywhere it can go.
+ *
+ * A slot's water leaves eastward through as many planes as there are slots to
+ * receive it — off the end of a bridge onto the road AND over the parapet
+ * into the ditch beside it, at the same time, from the same water. What moves
+ * whatever is drawn on that water is all of it together, which is this sum.
+ *
+ * At one layer it is one plane and one array read. @see ColumnField.fx
+ */
+function outX(f: ColumnField, i: number, a: number): number {
+  const { cells, layers, fx } = f;
+  let q = 0;
+  for (let b = 0; b < layers; b++) q += fx[(a * layers + b) * cells + i];
+  return q;
+}
+
+/** The same across the +y edge. @see outX */
+function outY(f: ColumnField, i: number, a: number): number {
+  const { cells, layers, fy } = f;
+  let q = 0;
+  for (let b = 0; b < layers; b++) q += fy[(a * layers + b) * cells + i];
+  return q;
+}
+
+/** What arrives from the west, which is the planes the other way round. */
+function inX(f: ColumnField, i: number, a: number): number {
+  const { cells, layers, fx } = f;
+  let q = 0;
+  for (let b = 0; b < layers; b++) q += fx[(b * layers + a) * cells + i];
+  return q;
+}
+
+/** The same from the north. @see inX */
+function inY(f: ColumnField, i: number, a: number): number {
+  const { cells, layers, fy } = f;
+  let q = 0;
+  for (let b = 0; b < layers; b++) q += fy[(b * layers + a) * cells + i];
+  return q;
+}
+
+export function flowX(f: ColumnField, x: number, y: number, a = 0): number {
   const i = y * f.nx + x;
-  const d = f.depth[i];
+  const ia = a * f.cells + i;
+  const d = f.depth[ia];
   if (d <= 0) return 0;
   const by = Math.max(d, f.params.dryDepth * 8);
-  const west = x > 0 ? f.fx[i - 1] : 0;
-  const v = (west + f.fx[i]) * 0.5 / by;
+  const west = x > 0 ? inX(f, i - 1, a) : 0;
+  const v = (west + outX(f, i, a)) * 0.5 / by;
   return v > MAX_FLOW_SPEED ? MAX_FLOW_SPEED : v < -MAX_FLOW_SPEED ? -MAX_FLOW_SPEED : v;
 }
 
-export function flowY(f: ColumnField, x: number, y: number): number {
+export function flowY(f: ColumnField, x: number, y: number, a = 0): number {
   const i = y * f.nx + x;
-  const d = f.depth[i];
+  const ia = a * f.cells + i;
+  const d = f.depth[ia];
   if (d <= 0) return 0;
   const by = Math.max(d, f.params.dryDepth * 8);
-  const north = y > 0 ? f.fy[i - f.nx] : 0;
-  const v = (north + f.fy[i]) * 0.5 / by;
+  const north = y > 0 ? inY(f, i - f.nx, a) : 0;
+  const v = (north + outY(f, i, a)) * 0.5 / by;
   return v > MAX_FLOW_SPEED ? MAX_FLOW_SPEED : v < -MAX_FLOW_SPEED ? -MAX_FLOW_SPEED : v;
 }
 
-export function velocityAt(f: ColumnField, x: number, y: number): { vx: number; vy: number } {
+export function velocityAt(
+  f: ColumnField, x: number, y: number, a = 0,
+): { vx: number; vy: number } {
   if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return { vx: 0, vy: 0 };
   const i = at(f, x, y);
-  const d = f.depth[i];
+  const d = f.depth[a * f.cells + i];
   if (d <= 0) return { vx: 0, vy: 0 };
   const by = Math.max(d, f.params.dryDepth * 8);
-  const west = x > 0 ? f.fx[i - 1] : 0;
-  const north = y > 0 ? f.fy[i - f.nx] : 0;
+  const west = x > 0 ? inX(f, i - 1, a) : 0;
+  const north = y > 0 ? inY(f, i - f.nx, a) : 0;
   const clamp = (v: number) => Math.max(-MAX_FLOW_SPEED, Math.min(MAX_FLOW_SPEED, v));
   return {
-    vx: clamp((west + f.fx[i]) * 0.5 / by),
-    vy: clamp((north + f.fy[i]) * 0.5 / by),
+    vx: clamp((west + outX(f, i, a)) * 0.5 / by),
+    vy: clamp((north + outY(f, i, a)) * 0.5 / by),
   };
 }
 

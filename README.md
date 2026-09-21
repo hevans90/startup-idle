@@ -96,6 +96,8 @@ src/
     debug/             #   editor chrome: tile browser, minimap, fixtures
   fluid/               # Fluid simulation, shared
     columns.ts         #   column/virtual-pipe flow over arbitrary terrain (v2)
+    slots.ts           #   a column is a STACK of gaps, not one surface: what
+                       #   lets water run under a bridge and over it at once
     drips.ts           #   water falling in drops: Tate's law, ringing, crowns
     falls.ts           #   a sheet going over a lip, which takes time to arrive
     shallow-water.ts   #   wave sim on a flat plane, used by v1's slop pit

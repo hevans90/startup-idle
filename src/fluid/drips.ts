@@ -370,8 +370,19 @@ export function dripFrom(
  */
 export function stepDrips(
   d: DripState, dt: number,
-  surfaceAt: (cx: number, cy: number) => number,
-  land: (cx: number, cy: number, volume: number, material: number, speed: number) => number,
+  /**
+   * The highest thing at `cx, cy` that is at or below `z`.
+   *
+   * THE HEIGHT IS AN ARGUMENT because a column is not one surface any more:
+   * under a bridge there is a riverbed and over it there is a deck, and which
+   * of those a drop hits depends on which side of the deck the drop is. A
+   * sampler that could only answer "the surface here" would land everything
+   * on the deck, including rain that is already beneath it.
+   */
+  surfaceAt: (cx: number, cy: number, z: number) => number,
+  land: (
+    cx: number, cy: number, volume: number, material: number, speed: number, z: number,
+  ) => number,
 ): void {
   let k = 0;
   while (k < d.live) {
@@ -389,7 +400,7 @@ export function stepDrips(
     // A drop that hits a wall has hit a wall: it loses what it was carrying
     // sideways and runs down the face, which is also what one does.
     const ax = d.cx[k] + d.vx[k] * dt, ay = d.cy[k] + d.vy[k] * dt;
-    if (surfaceAt(ax, ay) > d.z[k]) {
+    if (surfaceAt(ax, ay, d.z[k]) > d.z[k]) {
       d.vx[k] = 0;
       d.vy[k] = 0;
     } else {
@@ -418,8 +429,8 @@ export function stepDrips(
     d.shaken[k] -= (w * w * d.shape[k] + 2 * WOBBLE_DAMP * w * d.shaken[k]) * dt;
     d.shape[k] += d.shaken[k] * dt;
 
-    const cx = d.cx[k], cy = d.cy[k];
-    if (d.z[k] > surfaceAt(cx, cy)) { k++; continue; }
+    const cx = d.cx[k], cy = d.cy[k], z = d.z[k];
+    if (z > surfaceAt(cx, cy, z)) { k++; continue; }
 
     // Arrived. The water goes in, and the fact that it arrived is left for the
     // foam — it came through the side door and the surface rate never saw it.
@@ -429,7 +440,7 @@ export function stepDrips(
     // or throw some of it back, and nothing else: a surface that returned more
     // than it was handed would be making water, and the caller is the only one
     // who could notice.
-    const spray = Math.min(volume, Math.max(0, land(cx, cy, volume, mat, hit)));
+    const spray = Math.min(volume, Math.max(0, land(cx, cy, volume, mat, hit, z)));
     // A drop's arrival, left for the foam to pick up. Bigger drops splash
     // harder, up to as white as anything gets.
     markSplash(d, Math.round(cy) * d.nx + Math.round(cx), volume * SPLASH);
@@ -451,7 +462,7 @@ export function stepDrips(
     }
     // And the crown, AFTER the slot has been closed up, so the flecks go on
     // the end of the list and this loop does not have to walk them again.
-    if (spray > 0) crown(d, cx, cy, surfaceAt(cx, cy), spray, mat, hit);
+    if (spray > 0) crown(d, cx, cy, surfaceAt(cx, cy, z), spray, mat, hit);
   }
 }
 

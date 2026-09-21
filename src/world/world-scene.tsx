@@ -65,7 +65,7 @@ import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
 import { footprintCells, surfaceSampler } from "./grid";
 import { HEIGHT_UNIT, HH, HW, pickCell, worldToCellF } from "./iso";
-import { runSources, stepUpper, stepWater } from "./water/field";
+import { runSources, stepWater } from "./water/field";
 import { runPipes } from "./water/pipes";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
 import {
@@ -118,21 +118,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // the CPU builder. Only one of the two ever exists: they draw into the same
   // band containers, and both would draw the same water twice.
   const gpuRef = useRef<GpuWaterLayer | null>(null);
-  /**
-   * The SECOND STOREY's own pair, for water standing on a bridge.
-   *
-   * A deck is a surface with a gap under it, so its water is a field of its
-   * own — @see WaterField.over — and a field of its own needs a mesh of its
-   * own. Into the same bands as the storey below, added after it, which is
-   * the right order: a span is nearer the camera than the bed it crosses.
-   *
-   * Null on a map with no deck, which costs it nothing. Stepped on the HOST
-   * whatever the solver below is doing: what stands on a bridge is a puddle,
-   * and handing a second field to the device would double the state it owns
-   * to carry a few hundred columns of water.
-   */
-  const overFlRef = useRef<WaterLayer | null>(null);
-  const overGpuRef = useRef<GpuWaterLayer | null>(null);
+  // THERE IS NO SECOND MESH ANY MORE, and that is the whole of the bridge
+  // work. A deck used to be a field of its own with a layer of its own
+  // drawn over the first, and two meshes is two meshes however carefully
+  // they are levelled — the join at the mouth of a span was visible because
+  // it WAS a join. A column has slots in it now and one mesh spans all of
+  // them: the road's water and the deck's water average into the same
+  // corner vertices, so there is nothing to line up. @see cornerValues
+
   // Drops in the air, which are neither path's business: a drop is at a point
   // between two places rather than on a column, and both mesh builders are
   // functions of the columns.
@@ -184,16 +177,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const pl = createPavedLayer(grid, ROAD_TABLE, scale);
       const sl = createStructureLayer();
       const water = useWorldStore.getState().getWaterField();
-      const onGpu = waterOnGpu();
+      // THE SAME RESTRICTION FOR THE MESH. The device builds the surface in a
+      // vertex shader from the column textures, one storey's worth, so a map
+      // with bridges on it draws through the CPU builder until that shader
+      // learns about slots too. @see createWaterLayer
+      const onGpu = waterOnGpu() && (water?.columns.layers ?? 1) === 1;
       rendererRef.current = app?.renderer ?? null;
       const fl = water && !onGpu ? createWaterLayer(water.columns, bl, scale) : null;
       gpuRef.current = water && onGpu ? createGpuWaterLayer(water.columns, bl, scale) : null;
-      // AND THE STOREY ABOVE, if the map has one. Built here with everything
-      // else, so it is rebuilt with the scene when the grid changes — which
-      // is when a deck can appear, since only a generate or a load makes one.
-      const over = water?.over ?? null;
-      overFlRef.current = over && !onGpu ? createWaterLayer(over, bl, scale) : null;
-      overGpuRef.current = over && onGpu ? createGpuWaterLayer(over, bl, scale) : null;
       // Between the surface and the drips: a fall is drawn over the water
       // it is leaving and under the drops coming off it.
       faRef.current = water ? createFallLayer(bl, scale) : null;
@@ -513,8 +504,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cursorRef.current = null;
       if (flRef.current) destroyWaterLayer(flRef.current);
       if (gpuRef.current) destroyGpuWaterLayer(gpuRef.current);
-      if (overFlRef.current) destroyWaterLayer(overFlRef.current);
-      if (overGpuRef.current) destroyGpuWaterLayer(overGpuRef.current);
       if (faRef.current) destroyFallLayer(faRef.current);
       if (drRef.current) destroyGpuDripLayer(drRef.current);
       if (slRef.current) clearStructureLayer(slRef.current);
@@ -522,8 +511,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       slRef.current = null;
       flRef.current = null;
       gpuRef.current = null;
-      overFlRef.current = null;
-      overGpuRef.current = null;
       drRef.current = null;
       blRef.current = null;
       tlRef.current = null;
@@ -937,7 +924,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // listener above, because a scene can be rebuilt after the loss — and
     // building a solver on a dead device is a set of buffers that will never
     // answer.
-    if (!gpuWater || !field || !device || deviceLost() !== null) {
+    // AND NOT A FIELD WITH STOREYS IN IT, yet. The device solver is a twin of
+    // the host's and the host's now walks slot pairs — see `fluid/slots`. The
+    // WGSL has not been carried across, and a twin that quietly simulates
+    // slot zero alone is worse than no twin at all: the map would look right
+    // and every bridge on it would be dry. So a map with a deck runs on the
+    // host until the device catches up. @see ColumnField.layers
+    const storeyed = field ? field.columns.layers > 1 : false;
+    if (!gpuWater || !field || !device || deviceLost() !== null || storeyed) {
       solverRef.current?.destroy();
       solverRef.current = null;
       gpuWaterSaw(null);
@@ -1089,13 +1083,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // and the CPU solver does not run at all — see `gpu/solver`, and the
       // note there about the round trip this still pays for.
       const solver = solverRef.current;
-      // THE UPPER STOREY IS THE HOST'S EITHER WAY, so it is stepped either
-      // way. Folded into `stepWater` it was skipped entirely whenever the
-      // device solver was built — which is the default — so nothing ever
-      // flowed on or off a bridge on the path the game actually runs.
-      // @see stepUpper
+      // ONE FIELD, WHOEVER STEPS IT. A bridge is slots in the same columns
+      // rather than a storey of its own, so there is no second thing here
+      // for the device path to forget about. @see syncSlots
       if (solver) {
-        stepUpper(field, dt);
         solver.step(field.columns, dt);
         gpuWaterSaw(solver.last());
       }
@@ -1111,15 +1102,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (fl) drawWater(fl, field.columns, bl, dt, overlays.faces);
       else if (gpu) {
         drawGpuWater(gpu, field.columns, bl, dt, overlays.faces, solver !== null);
-      }
-      // AND THE WATER ON THE BRIDGES, after it — a span is nearer than the
-      // bed it crosses. Never `carried`: this storey is the host's own
-      // whatever is stepping the one below. @see WaterField.over
-      const overField = field.over;
-      if (overField) {
-        const oFl = overFlRef.current, oGpu = overGpuRef.current;
-        if (oFl) drawWater(oFl, overField, bl, dt, overlays.faces);
-        else if (oGpu) drawGpuWater(oGpu, overField, bl, dt, overlays.faces, false);
       }
       // The foam FIELD, not the solver's raw breaking: the surface is painted
       // from this, so the sheet has to be too or a white lip goes over a

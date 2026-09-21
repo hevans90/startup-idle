@@ -15,9 +15,34 @@ import {
 import { applyFixture } from "./debug/fixtures";
 import { generateMap } from "./gen/generate-map";
 import {
-  createWaterField, deckedAt, depthAt, pourAt, setWaterEdge, stepWater, totalVolume,
+  COLUMNS_PER_TILE, createWaterField, deckedAt, depthAt, pourAt, setWaterEdge,
+  stepWater, syncGround, totalVolume,
 } from "./water/field";
-import { STOREY, addWater, totalWater } from "../fluid/columns";
+import { addWater, totalWater } from "../fluid/columns";
+import { OPEN_SKY, connected } from "../fluid/slots";
+
+/**
+ * Water standing on the DECKS, which is slot one everywhere it exists.
+ *
+ * There is no second field to total any more: a column's storeys are planes
+ * of one depth array, and the upper one is the second `cells` of it.
+ * @see syncSlots
+ */
+const onDeck = (field: { columns: { depth: Float32Array; cells: number; layers: number } }) => {
+  const c = field.columns;
+  if (c.layers < 2) return 0;
+  let sum = 0;
+  for (let i = c.cells; i < c.cells * c.layers; i++) sum += c.depth[i];
+  return sum;
+};
+
+/** And water on the GROUND, which is slot zero: the river, under the span. */
+const onGround = (field: { columns: { depth: Float32Array; cells: number } }) => {
+  const c = field.columns;
+  let sum = 0;
+  for (let i = 0; i < c.cells; i++) sum += c.depth[i];
+  return sum;
+};
 import { createBandLayer } from "./render/bands";
 import { createWaterLayer, drawWater } from "./render/water";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
@@ -110,8 +135,15 @@ describe("a river does not know there is a bridge over it", () => {
   });
 
   test("and so are the column grounds the solver actually reads", () => {
+    // SLOT ZERO of the spanned map against the only slot of the bare one.
+    // A bridge adds a storey; what it must not do is move the riverbed.
     const bare = river(false).field, spanned = river(true).field;
-    expect([...spanned.columns.ground]).toEqual([...bare.columns.ground]);
+    const n = bare.columns.cells;
+    expect([...spanned.columns.ground.subarray(0, n)])
+      .toEqual([...bare.columns.ground.subarray(0, n)]);
+    // And it really did add one, or this compares a map with itself.
+    expect(spanned.columns.layers).toBe(2);
+    expect(bare.columns.layers).toBe(1);
   });
 
   test("and the river runs the same with it as without it", () => {
@@ -238,11 +270,34 @@ describe("water on a deck", () => {
   };
 
   test("a map with no deck on it has no upper storey at all", () => {
-    // It is a second field's worth of memory and of solver time, and a map
-    // with no bridge should pay neither.
+    // A slot costs its memory whether anything stands in it or not — at a
+    // hundred and twenty eight tiles a spare storey is about a hundred
+    // megabytes — so a map with no bridge should not have one.
     const g = createGrid(8, 8);
     fillTerrain(g, 1);
-    expect(createWaterField(g).over).toBeNull();
+    expect(createWaterField(g).columns.layers).toBe(1);
+    // And one that does have a bridge does have one.
+    expect(pan(10).field.columns.layers).toBe(2);
+  });
+
+  test("and a deck laid on a map that had none grows the field for it", () => {
+    // A field's slot count is fixed when it is made, so this is the one
+    // place the field itself has to be replaced — and the water in the
+    // river has to survive that. @see growStoreys
+    const g = createGrid(12, 12);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) setHeight(g, x, y, -6);
+    const field = createWaterField(g);
+    setWaterEdge(field, false);
+    pourAt(field, 1, 1, 6, 1);
+    const put = totalWater(field.columns);
+    expect(field.columns.layers).toBe(1);
+    const was = field.fieldRev;
+    for (let y = 4; y <= 7; y++) for (let x = 4; x <= 7; x++) setDeck(g, x, y, 1, 10);
+    syncGround(field, g);
+    expect(field.columns.layers).toBe(2);
+    expect(field.fieldRev).toBeGreaterThan(was);
+    expect(totalWater(field.columns)).toBeCloseTo(put, 6);
   });
 
   test("pouring on a span puts the water ON it, not on the ground beneath", () => {
@@ -251,8 +306,8 @@ describe("water on a deck", () => {
     expect(deckedAt(field, 1, 1)).toBe(false);
     pourAt(field, 5, 5, 6, 1);
     // All of it upstairs, none of it on the bed — which is the whole bug.
-    expect(totalWater(field.over!)).toBeGreaterThan(0);
-    expect(totalWater(field.columns)).toBe(0);
+    expect(onDeck(field)).toBeGreaterThan(0);
+    expect(onGround(field)).toBe(0);
   });
 
   test("a puddle STAYS on it, because a bridge has parapets", () => {
@@ -265,21 +320,42 @@ describe("water on a deck", () => {
     // twenty seconds. @see DECK_KERB
     const { field } = pan(10);
     pourAt(field, 5, 5, 6, 1);
-    const put = totalWater(field.over!);
+    const put = onDeck(field);
     for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
-    expect(totalWater(field.over!)).toBeGreaterThan(put * 0.7);
+    expect(onDeck(field)).toBeGreaterThan(put * 0.7);
   }, 20_000);
 
   test("and enough of it goes over the side and falls to the ground below", () => {
-    // A parapet is not a wall. Measured: three times the water and three
-    // quarters of it leaves, which is the same handover the hole always did.
+    // A parapet is not a lid. What a deck can hold is its own area times the
+    // height of its kerb and not a drop more, so the puddle SATURATES: this
+    // pan keeps about 168 whatever it is given. Measured over twenty seconds
+    // — 96 poured and 91% stays, 320 and half of it goes, 640 and three
+    // quarters go, 960 and five sixths go — which is a bridge with a kerb on
+    // it rather than a bridge with a hole in it. @see DECK_KERB
     const { field } = pan(10);
-    pourAt(field, 5, 5, 20, 1);
-    const put = totalWater(field.over!);
+    pourAt(field, 5, 5, 40, 1);
+    const put = onDeck(field);
     for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
-    expect(totalWater(field.over!)).toBeLessThan(put * 0.4);
-    expect(totalWater(field.columns)).toBeGreaterThan(put * 0.5);
+    expect(onDeck(field)).toBeLessThan(put * 0.4);
+    expect(onGround(field)).toBeGreaterThan(put * 0.5);
   }, 20_000);
+
+  test("and what it holds is bounded by the kerb, however much is poured", () => {
+    // The saturation itself, because it is the thing that says the parapet
+    // is geometry and not a fraction somebody tuned: twice the water over
+    // the same deck leaves the same puddle behind.
+    const held = (amount: number) => {
+      const { field } = pan(10);
+      pourAt(field, 5, 5, amount, 1);
+      for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
+      return onDeck(field);
+    };
+    // Within a couple of percent of each other, and both a long way under
+    // what was put on: the number is the deck's capacity, not the pour's.
+    const a = held(40), b = held(60);
+    expect(Math.abs(b - a) / a).toBeLessThan(0.05);
+    expect(b).toBeLessThan(640 * 0.4);
+  }, 40_000);
 
   test("and NOTHING IS LOST ON THE WAY DOWN", () => {
     // The handover is the part that can leak: the solver takes the water off
@@ -310,67 +386,75 @@ describe("water on a deck", () => {
 });
 
 /**
- * AND IT IS DRAWN THERE, which is the other half of standing on a bridge.
+ * AND IT IS DRAWN THERE, in the SAME MESH as everything else.
  *
- * The water layer used to take the world's `WaterField` and reach into its
- * `columns`, which meant exactly one storey could ever be drawn — so water on
- * a deck was simulated, conserved, and invisible. It takes a `ColumnField`
- * now, and the scene builds a second layer over `field.over` into the same
- * bands, added after the one below because a span is nearer the camera than
- * the bed it crosses.
+ * This is what the whole slot model is for. A deck used to be a field of its
+ * own with a water layer of its own drawn over the first, and two meshes is
+ * two meshes however carefully they are levelled: the sheet arrived at the
+ * mouth of a span, stopped, and a second sheet started. What was reported was
+ * "it's clearly 2 meshes", and it was.
+ *
+ * One mesh now, because a corner vertex is shared by every slot that reaches
+ * it — the road's water and the deck's water beside it stand at the same
+ * level, average into the same corner, and there is nothing left to line up.
+ * @see cornerValues
  */
-describe("the upper storey has a mesh of its own", () => {
-  const pan = () => {
-    const g = createGrid(12, 12);
+describe("a bridge and the road it meets are one surface", () => {
+  /** A ditch with a span over it, level with the road either side. */
+  const crossing = () => {
+    const g = createGrid(16, 16);
     fillTerrain(g, 1);
-    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) setHeight(g, x, y, -6);
-    for (let y = 4; y <= 7; y++) for (let x = 4; x <= 7; x++) setDeck(g, x, y, 1, 10);
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) setHeight(g, x, y, x >= 7 && x <= 9 ? -20 : 0);
+    }
+    for (let y = 6; y <= 9; y++) for (let x = 7; x <= 9; x++) setDeck(g, x, y, 1, 0);
     const field = createWaterField(g);
     setWaterEdge(field, false);
     return { g, field, bands: createBandLayer(g.w, g.h) };
   };
 
-  test("a dry deck draws nothing, and a wet one draws quads", () => {
-    const { field, bands } = pan();
-    const over = createWaterLayer(field.over!, bands, 1);
-    drawWater(over, field.over!, bands, 1 / 60);
-    expect(over.live.size).toBe(0);
-
-    pourAt(field, 5, 5, 6, 1);
-    drawWater(over, field.over!, bands, 1 / 60);
-    expect(over.live.size).toBeGreaterThan(0);
+  test("there is ONE water layer, and it draws both storeys", () => {
+    const { field, bands } = crossing();
+    const wl = createWaterLayer(field.columns, bands, 1);
+    pourAt(field, 8, 7, 6, 1);               // on the span
+    pourAt(field, 4, 7, 6, 1);               // on the road
+    drawWater(wl, field.columns, bands, 1 / 60);
+    let quads = 0;
+    for (const b of wl.live) quads += wl.strips[b].n;
+    expect(quads).toBeGreaterThan(0);
+    // Both of them are in it: take the deck's water away and the count drops.
+    const withBoth = quads;
+    const { field: f2, bands: b2 } = crossing();
+    const wl2 = createWaterLayer(f2.columns, b2, 1);
+    pourAt(f2, 4, 7, 6, 1);                  // the road alone
+    drawWater(wl2, f2.columns, b2, 1 / 60);
+    let alone = 0;
+    for (const b of wl2.live) alone += wl2.strips[b].n;
+    expect(withBoth).toBeGreaterThan(alone);
   });
 
-  test("and the two storeys draw independently of one another", () => {
-    // The bug this replaced, stated: one layer over the world's field could
-    // only ever show the ground storey, so a bridge's water had nowhere to
-    // be drawn. Water upstairs must not light up the layer downstairs.
-    const { field, bands } = pan();
-    const under = createWaterLayer(field.columns, bands, 1);
-    const over = createWaterLayer(field.over!, bands, 1);
-    pourAt(field, 5, 5, 6, 1);
-    drawWater(under, field.columns, bands, 1 / 60);
-    drawWater(over, field.over!, bands, 1 / 60);
-    expect(over.live.size).toBeGreaterThan(0);
-    expect(under.live.size).toBe(0);
+  test("and the corner where they meet is ONE vertex at ONE height", () => {
+    // THE SEAM, pinned. The last column of road and the first column of deck
+    // share a corner. If the two were still separate surfaces they would
+    // write that corner from separate passes and it would hold one height or
+    // the other; sharing it, the corner is the average and BOTH contribute.
+    const { field, bands } = crossing();
+    const wl = createWaterLayer(field.columns, bands, 1);
+    pourAt(field, 6, 7, 6, 1);               // the road, right up to the ditch
+    pourAt(field, 7, 7, 6, 1);               // the first tile of the span
+    drawWater(wl, field.columns, bands, 1 / 60);
+    // The column boundary between tile 6 and tile 7, halfway down the lane.
+    const cx = COLUMNS_PER_TILE * 7, cy = COLUMNS_PER_TILE * 7 + 1;
+    const v = cy * (field.columns.nx + 1) + cx;
+    // Four columns meet there — two of road, two of deck — and every one of
+    // them is standing at the same level, so all four are in the HIGH group.
+    expect(wl.vn[v]).toBe(4);
+    expect(wl.vnLow[v]).toBe(0);
+    // And the height it is drawn at is the water's, not the ditch's.
+    expect(wl.vs[v] / wl.vn[v]).toBeGreaterThan(0);
   });
 });
 
-/**
- * THE EDGE OF A DECK IS A LIP, NOT A CLIFF.
- *
- * The surface renderer draws a side face from the water down to the ground
- * BESIDE it, so what the upper storey calls the ground just off a deck is
- * what the edge of a bridge's water looks like. The first version said "the
- * land below", which is true and useless: a deck thirteen half steps up over
- * a riverbed at minus three drew a translucent pane sixteen half steps tall
- * along every edge of every bridge, and it never went away, because the film
- * a flat surface always keeps kept feeding it.
- *
- * Nothing in the physics turns on the number — water reaching an off-deck
- * column is taken off this field and handed downstairs whatever its ground
- * says — so this is a rendering rule, and it is tested as one.
- */
 describe("the edge of a deck", () => {
   const spanned = () => {
     const g = createGrid(12, 12);
@@ -382,32 +466,44 @@ describe("the edge of a deck", () => {
 
   test("stands ABOVE the deck, so it is a parapet and not a drop", () => {
     const { g, field } = spanned();
-    const over = field.over!;
-    const { nx } = over;
-    let checked = 0;
-    for (let cy = 0; cy < over.ny; cy++) {
+    const c = field.columns;
+    const { nx, cells } = c;
+    const decked = (i: number) => c.roof[cells + i] > c.ground[cells + i];
+    let kerbs = 0, middles = 0;
+    for (let cy = 0; cy < c.ny; cy++) {
       for (let cx = 0; cx < nx; cx++) {
         const i = cy * nx + cx;
-        if (over.storey![i] !== STOREY.HOLE) continue;
-        // Only the ring a deck's water can actually reach matters: it is the
-        // only ground the renderer will draw a face against, and the only
-        // edge the flow ever crosses.
-        const beside = [[1, 0], [-1, 0], [0, 1], [0, -1]]
-          .some(([dx, dy]) => {
-            const jx = cx + dx, jy = cy + dy;
-            return jx >= 0 && jy >= 0 && jx < nx && jy < over.ny
-              && over.storey![jy * nx + jx] === STOREY.OWNED;
-          });
-        if (!beside) continue;
-        checked++;
-        expect(over.ground[i]).toBeGreaterThan(12);
-        expect(over.ground[i]).toBeLessThanOrEqual(12 + 4);
+        if (!decked(i)) continue;
+        // The ring of the deck against open air, against its middle.
+        const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+          const jx = cx + dx, jy = cy + dy;
+          return jx < 0 || jy < 0 || jx >= nx || jy >= c.ny
+            || !decked(jy * nx + jx);
+        });
+        const floor = c.ground[cells + i];
+        if (edge) { kerbs++; expect(floor).toBeGreaterThan(12); }
+        else { middles++; expect(floor).toBe(12); }
       }
     }
-    expect(checked).toBeGreaterThan(8);
+    expect(kerbs).toBeGreaterThan(8);
+    expect(middles).toBeGreaterThan(8);
     // And the land really is a long way down, or this proves nothing: the
     // point is that the edge is NOT drawn or flowed against the riverbed.
     expect(g.height[idx(g, 5, 5)]).toBe(-20);
+  });
+
+  test("and the channel under the span is roofed by it", () => {
+    // THE ABUTMENT, as geometry rather than as a rule. Slot zero under a
+    // deck has a ceiling one slab below the road surface, which is what
+    // stops anything at road level pouring into the river.
+    const { field } = spanned();
+    const c = field.columns;
+    const i = (4 * 5 + 1) * c.nx + (4 * 5 + 1);       // the middle of the span
+    expect(c.roof[i]).toBe(12 - 2);
+    expect(c.ground[i]).toBe(-20);
+    // And away from the span there is nothing overhead at all.
+    const open = (4 * 1 + 1) * c.nx + (4 * 1 + 1);
+    expect(c.roof[open]).toBe(OPEN_SKY);
   });
 
   test("and a flood still goes over it, so the parapet is not a lid", () => {
@@ -447,24 +543,26 @@ describe("water crosses between a bridge and the road it meets", () => {
     return { g, field };
   };
 
-  const onDeck = (field: ReturnType<typeof createWaterField>) => {
-    const o = field.over!;
-    let sum = 0;
-    for (let i = 0; i < o.depth.length; i++) {
-      if (o.storey![i] === STOREY.OWNED) sum += o.depth[i];
-    }
-    return sum;
-  };
-
-  test("the margin is a GHOST where the road carries on and a HOLE at the sides", () => {
+  test("the road's slot reaches the deck's, and never the channel's", () => {
+    // WHAT THE FOUR RULES USED TO SAY, asked of the geometry instead. None of
+    // ghost, hole, abutment or parapet is named anywhere any more; each of
+    // them is this intersection with different numbers in it.
     const { field } = crossing();
-    const o = field.over!;
-    const kindAt = (x: number, y: number) => o.storey![(y * 4 + 1) * o.nx + (x * 4 + 1)];
-    expect(kindAt(8, 7)).toBe(STOREY.OWNED);            // on the span
-    expect(kindAt(6, 7)).toBe(STOREY.GHOST);            // the road, west end
-    expect(kindAt(10, 7)).toBe(STOREY.GHOST);           // the road, east end
-    expect(kindAt(8, 5)).toBe(STOREY.HOLE);             // off the side, over the ditch
-    expect(kindAt(8, 10)).toBe(STOREY.HOLE);
+    const c = field.columns;
+    const at = (x: number, y: number) => (y * 4 + 1) * c.nx + (x * 4 + 1);
+    const slot = (i: number, a: number) =>
+      ({ floor: c.ground[a * c.cells + i], roof: c.roof[a * c.cells + i] });
+    const road = slot(at(6, 7), 0);                  // the road, west end
+    const deck = slot(at(8, 7), 1);                  // on the span
+    const channel = slot(at(8, 7), 0);               // the river, under it
+    expect(connected(road.floor, road.roof, deck.floor, deck.roof)).toBe(true);
+    expect(connected(road.floor, road.roof, channel.floor, channel.roof)).toBe(false);
+    expect(connected(deck.floor, deck.roof, channel.floor, channel.roof)).toBe(false);
+    // And off the SIDE of the span, where the ground falls into the ditch,
+    // the deck is joined to it — over a drop, which is a fall.
+    const beside = slot(at(8, 5), 0);
+    expect(connected(deck.floor, deck.roof, beside.floor, beside.roof)).toBe(true);
+    expect(beside.floor).toBeLessThan(deck.floor - 4);
   });
 
   test("water poured on the ROAD runs onto the bridge", () => {

@@ -19,8 +19,9 @@
  * drops away. Nothing lands until the front reaches the bottom, and after that
  * water leaves the air at the rate it is arriving.
  */
-import { flowX, flowY, plungeInto, type ColumnField } from "./columns";
+import { flowX, flowY, planeRegion, plungeInto, type ColumnField } from "./columns";
 import { DROP, dripFrom, dripRoom } from "./drips";
+import { wetTop } from "./slots";
 
 /**
  * Gravity for a falling sheet, in half steps per second squared.
@@ -253,6 +254,27 @@ export type FallState = {
   cliffN: number;
   /** Which COLUMNS own one, so the smoothed throw is followed once each. */
   readonly cliffCol: Uint8Array;
+  /**
+   * Scratch for the rebuild: which slots own a cliff, before it is compared
+   * with which ones did. @see markCliffs
+   */
+  readonly cliffNow: Uint8Array;
+  /**
+   * WHICH SUBSTEP EACH SLOT LAST EASED ITS THROW ON, and the number of the
+   * one running.
+   *
+   * The launch is followed once per SLOT per substep, and it used to be kept
+   * to that by walking the cliff set in column order and noticing when the
+   * column changed. The set is not in column order any more — it is grouped
+   * by slot PAIR, because that is what makes a field with no decks on it cost
+   * what it did — so a slot's edges are no longer adjacent in it and the
+   * cheap test would ease some of them several times over.
+   *
+   * A stamp does not care about order. It costs one compare and one store per
+   * cliff edge, against an integer that never has to be cleared.
+   */
+  readonly eased: Int32Array;
+  easedRun: number;
 };
 
 /**
@@ -265,8 +287,22 @@ export type FallState = {
  */
 export const THROW_EASE = 0.5;
 
-export function createFalls(nx: number, ny: number): FallState {
-  const n = nx * ny * 2;
+/**
+ * @param layers how many SLOTS a column has — see `ColumnField.layers`.
+ *
+ * A fall belongs to an edge between two SLOTS, not between two columns. At
+ * the mouth of a bridge the same pair of columns carries two of them at once:
+ * the river going under the span, and whatever comes off the deck over it. Run
+ * through one accumulator those are one waterfall made of two unrelated
+ * sheets, and it lands in one place.
+ *
+ * So there is a plane of edges per slot pair, exactly as the flux has, and the
+ * fall on pair `p` of edge `k` is at `p * cells * 2 + k`. At one layer there
+ * is one plane and every index is the index it was.
+ */
+export function createFalls(nx: number, ny: number, layers = 1): FallState {
+  const n = nx * ny * 2 * layers * layers;
+  const cols = nx * ny * layers;
   return {
     air: new Float32Array(n),
     front: new Float32Array(n),
@@ -277,11 +313,14 @@ export function createFalls(nx: number, ny: number): FallState {
     // at zero put one on every cliff in the world on the first frame.
     since: new Float32Array(n).fill(CLING),
     shed: new Float32Array(n),
-    throwX: new Float32Array(nx * ny),
-    throwY: new Float32Array(nx * ny),
+    throwX: new Float32Array(cols),
+    throwY: new Float32Array(cols),
     cliff: new Int32Array(n),
     cliffN: 0,
-    cliffCol: new Uint8Array(nx * ny),
+    cliffCol: new Uint8Array(cols),
+    cliffNow: new Uint8Array(cols),
+    eased: new Int32Array(cols).fill(-1),
+    easedRun: 0,
   };
 }
 
@@ -299,44 +338,98 @@ export function createFalls(nx: number, ny: number): FallState {
  * nothing, and it is the one place this optimisation could have been seen.
  */
 export function markCliffs(f: ColumnField) {
-  const { nx, ny, ground } = f;
+  const { nx, ny, cells, layers, ground, roof } = f;
   const s = f.falls;
-  const { air, front } = s;
+  const { air, front, cliffCol, cliffNow } = s;
   let n = 0;
-  for (let y = 0; y < ny; y++) {
-    for (let x = 0; x < nx; x++) {
-      const i = y * nx + x;
-      const k = i * 2;
-      const was = s.cliffCol[i];
-      let own = 0;
-      if (x + 1 < nx
-        && (ground[i] - ground[i + 1] >= FALL_MIN || air[k] > 0 || front[k] > 0)) {
-        s.cliff[n++] = k;
-        own = 1;
-      }
-      if (y + 1 < ny
-        && (ground[i] - ground[i + nx] >= FALL_MIN
-          || air[k + 1] > 0 || front[k + 1] > 0)) {
-        s.cliff[n++] = k + 1;
-        own = 1;
-      }
-      s.cliffCol[i] = own;
-      if (own && !was) {
-        s.throwX[i] = throwOf(flowX(f, x, y));
-        s.throwY[i] = throwOf(flowY(f, x, y));
+  cliffNow.fill(0);
+  // THE SLOT PAIR OUTSIDE, for the reason `accelerate` sets out: walked
+  // inside, the plane's base is two multiplies an edge and the bound is a
+  // number the engine cannot see is one, and this pass walks the WHOLE grid
+  // every frame rather than the active box. Measured on a field with one
+  // plane, 0.066ms a frame became 0.185 with the loop inside it.
+  // CLIPPED TO WHERE THE PAIR EXISTS, like every other pass — and it matters
+  // more here than anywhere, because this one walks the whole map rather
+  // than the active box. @see planeRegion
+  const R = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  for (let a = 0; a < layers; a++) {
+    const A = a * cells;
+    for (let b = 0; b < layers; b++) {
+      if (!planeRegion(f, a, b, 0, 0, nx - 1, ny - 1, R)) continue;
+      const B = b * cells;
+      const P = (a * layers + b) * cells;
+      for (let y = R.y0; y <= R.y1; y++) {
+        for (let x = R.x0; x <= R.x1; x++) {
+          const i = y * nx + x;
+          const ia = A + i;
+          const fa = ground[ia], ra = roof[ia];
+          if (ra <= fa) continue;               // no slot, so no lip
+          const k = (P + i) * 2;
+          if (x + 1 < nx) {
+            const jb = B + i + 1;
+            // A PAIR THAT IS NOT JOINED HAS NO LIP. The deck of a bridge
+            // stands a long way over the channel under it and that is not a
+            // waterfall, it is a bridge — the two slots do not overlap, so
+            // nothing crosses and nothing falls. @see fluid/slots
+            const joined = (ra < roof[jb] ? ra : roof[jb])
+              > (fa > ground[jb] ? fa : ground[jb]);
+            if ((joined && fa - ground[jb] >= FALL_MIN) || air[k] > 0 || front[k] > 0) {
+              s.cliff[n++] = k;
+              cliffNow[ia] = 1;
+            }
+          }
+          if (y + 1 < ny) {
+            const jb = B + i + nx;
+            const joined = (ra < roof[jb] ? ra : roof[jb])
+              > (fa > ground[jb] ? fa : ground[jb]);
+            if ((joined && fa - ground[jb] >= FALL_MIN)
+              || air[k + 1] > 0 || front[k + 1] > 0) {
+              s.cliff[n++] = k + 1;
+              cliffNow[ia] = 1;
+            }
+          }
+        }
       }
     }
   }
   s.cliffN = n;
+  // A slot that has just BECOME a cliff has its smoothed throw snapped to the
+  // flow rather than eased onto it. While it was not a cliff nothing followed
+  // it, so what it holds is whatever it held the last time it was one, which
+  // may be from another shape of terrain entirely.
+  //
+  // Its own pass, because whether a slot owns a cliff is only settled once
+  // every plane has been looked at.
+  for (let ia = 0; ia < cliffNow.length; ia++) {
+    const own = cliffNow[ia];
+    if (!own && !cliffCol[ia]) continue;
+    if (own && !cliffCol[ia]) {
+      const i = ia % cells, a = (ia / cells) | 0;
+      s.throwX[ia] = throwOf(flowX(f, i % nx, (i / nx) | 0, a));
+      s.throwY[ia] = throwOf(flowY(f, i % nx, (i / nx) | 0, a));
+    }
+    cliffCol[ia] = own;
+  }
 }
 
 /** The smoothed launch at a column, as a pair. @see FallState.throwX */
 export const throwAt = (f: ColumnField, i: number) =>
   ({ x: f.falls.throwX[i], y: f.falls.throwY[i] });
 
-/** Where a neighbour's water, or failing that its ground, stands. */
+/**
+ * Where a neighbour's water, or failing that its ground, stands.
+ *
+ * `j` is a SLOT index — `b * cells + column` — so a fall onto the deck of a
+ * bridge measures to the deck and a fall past the side of one measures to
+ * whatever is down there. At one layer a slot index and a column index are
+ * the same number and this is the function it was.
+ *
+ * The water's own top and not its hydraulic surface, because this is asking
+ * what a falling sheet will hit: a full culvert is hit at its soffit, not at
+ * the level its pressure would imply. @see wetTop
+ */
 export const besideAt = (f: ColumnField, j: number) =>
-  f.depth[j] > f.params.dryDepth ? f.ground[j] + f.depth[j] : f.ground[j];
+  f.depth[j] > f.params.dryDepth ? wetTop(f.ground[j], f.roof[j], f.depth[j]) : f.ground[j];
 
 /**
  * How far water leaving column `i` over one of its edges would fall, or 0
@@ -345,17 +438,31 @@ export const besideAt = (f: ColumnField, j: number) =>
  * Read off the GROUND on the far side, not its surface: a pool at the foot of
  * a cliff shortens the fall, and once it is deep enough there is no fall left.
  */
-export function dropAt(f: ColumnField, i: number, axis: number): number {
+export function dropAt(
+  f: ColumnField, i: number, axis: number, a = 0, b = 0,
+): number {
   const x = i % f.nx, y = (i / f.nx) | 0;
   const jx = axis === 0 ? x + 1 : x, jy = axis === 0 ? y : y + 1;
   if (jx >= f.nx || jy >= f.ny) return 0;
-  const drop = f.ground[i] - besideAt(f, jy * f.nx + jx);
+  const cells = f.cells;
+  const drop = f.ground[a * cells + i] - besideAt(f, b * cells + jy * f.nx + jx);
   return drop >= FALL_MIN ? drop : 0;
 }
 
+/**
+ * The edge a fall lives on: a slot pair, an axis and a column. @see createFalls
+ *
+ * The pair comes FIRST so that pair zero is the `i * 2 + axis` this was, which
+ * is what lets a one-layer field keep the indices it had.
+ */
+export const fallEdge = (f: ColumnField, i: number, axis: number, p = 0) =>
+  p * f.cells * 2 + i * 2 + axis;
+
 /** Hold `amount` in the air on an edge rather than landing it. */
-export function intoAir(f: ColumnField, i: number, axis: number, amount: number) {
-  f.falls.air[i * 2 + axis] += amount;
+export function intoAir(
+  f: ColumnField, i: number, axis: number, amount: number, p = 0,
+) {
+  f.falls.air[fallEdge(f, i, axis, p)] += amount;
 }
 
 /**
@@ -368,7 +475,7 @@ export function stepFalls(
   f: ColumnField, dt: number,
   region: { x0: number; y0: number; x1: number; y1: number },
 ) {
-  const { nx, depth, params } = f;
+  const { nx, cells, layers, depth, params } = f;
   const s = f.falls;
   // Hoisted because it is a function of `dt` alone. Measured as worth nothing
   // — both engines already lift a pure `Math.exp` of loop invariants out — but
@@ -385,10 +492,17 @@ export function stepFalls(
   // the air on one: `dropAt` answers nought past the last column, so `intoAir`
   // is never called there. The drain that used to run for every edge of the
   // last row and column, every substep, was draining nothing.
-  let lastCol = -1;
+  const run = ++s.easedRun;
   for (let n = 0; n < s.cliffN; n++) {
       const k = s.cliff[n];
-      const i = k >> 1, axis = k & 1;
+      // A FALL'S EDGE IS A SLOT PAIR, an axis and a column, packed in that
+      // order — see `fallEdge`. At one layer the plane is zero and every one
+      // of these is the `k >> 1` and `k & 1` it was.
+      const pl = (k / (cells * 2)) | 0;
+      const rest = k - pl * cells * 2;
+      const i = rest >> 1, axis = rest & 1;
+      const a = (pl / layers) | 0, b = pl - a * layers;
+      const ia = a * cells + i;
       const x = i % nx, y = (i / nx) | 0;
       // The box still decides, exactly as it did: a cliff outside it is one
       // the solver is not looking at this step.
@@ -397,15 +511,15 @@ export function stepFalls(
       // Every edge of it, the renderer and the spray all read this, so there
       // is one arc and it does not chatter. Once per column and not once per
       // edge: the set is in column order, so a column's two edges are adjacent.
-      if (i !== lastCol) {
-        s.throwX[i] += (throwOf(flowX(f, x, y)) - s.throwX[i]) * ease;
-        s.throwY[i] += (throwOf(flowY(f, x, y)) - s.throwY[i]) * ease;
-        lastCol = i;
+      if (s.eased[ia] !== run) {
+        s.throwX[ia] += (throwOf(flowX(f, x, y, a)) - s.throwX[ia]) * ease;
+        s.throwY[ia] += (throwOf(flowY(f, x, y, a)) - s.throwY[ia]) * ease;
+        s.eased[ia] = run;
       }
       {
         const jx = axis === 0 ? x + 1 : x, jy = axis === 0 ? y : y + 1;
-        const j = jy * nx + jx;
-        const drop = f.ground[i] - besideAt(f, j);
+        const j = b * cells + jy * nx + jx;
+        const drop = f.ground[ia] - besideAt(f, j);
         // AND THE SAME NUMBER AS AN F32, because `front` and `head` are f32
         // arrays and a sheet arriving is a sheet that has SATURATED at the
         // bottom. Clamp with `Math.min(drop, ...)` and store, and what comes
@@ -427,13 +541,13 @@ export function stepFalls(
           //
           // `reset` leaves the air alone, so what is left drains through here
           // again next step. The sheet stops being drawn either way.
-          land(f, k, j, i, Math.min(1, dt / DROWN));
+          land(f, k, j, ia, Math.min(1, dt / DROWN));
           reset(s, k);
           continue;
         }
 
-        const flux = axis === 0 ? f.fx[i] : f.fy[i];
-        s.since[k] = flux > 0 && depth[i] > params.dryDepth ? 0 : s.since[k] + dt;
+        const flux = axis === 0 ? f.fx[pl * cells + i] : f.fy[pl * cells + i];
+        s.since[k] = flux > 0 && depth[ia] > params.dryDepth ? 0 : s.since[k] + dt;
 
         if (s.since[k] < CLING) {
           s.head[k] = 0;                        // more is coming over behind it
@@ -451,7 +565,7 @@ export function stepFalls(
         // what it throws is DROPS — real ones, out of its own mass, so the
         // sheet is lighter for it and what lands at the bottom lands twice:
         // most of it through the sheet, some of it a drop at a time.
-        if (s.front[k] > BREAK && s.air[k] > 0) shedSpray(f, k, i, axis, dt, drop);
+        if (s.front[k] > BREAK && s.air[k] > 0) shedSpray(f, k, ia, axis, dt, drop);
 
         // NOTHING lands until the front gets there. After that it leaves the
         // air at the rate it is arriving, which in a steady fall is the rate
@@ -459,12 +573,12 @@ export function stepFalls(
         if (s.front[k] >= reach && s.air[k] > 0) {
           const fall = Math.sqrt((2 * drop) / FALL_GRAVITY);
           // Where the SHEET gets to, not the column over the edge.
-          land(f, k, landsAt(f, i, j, drop), i, Math.min(1, dt / fall), drop);
+          land(f, k, landsAt(f, ia, j, drop), ia, Math.min(1, dt / fall), drop);
         }
         // Caught its own front, or fallen past the bottom: nothing is left of
         // it, and anything still in the air has landed by now.
         if (s.head[k] >= s.front[k] || s.head[k] >= reach) {
-          land(f, k, j, i, 1);
+          land(f, k, j, ia, 1);
           reset(s, k);
         }
       }
@@ -493,12 +607,17 @@ function land(
   // let a trickle recolour a lake.
   const mat = f.depth[to] <= f.params.dryDepth ? f.material[from] : 0;
 
+  // `to` is a SLOT and not a column, so the column has to come out of it
+  // before anything that thinks in x and y is handed it.
+  const col = to % f.cells, slot = (to / f.cells) | 0;
+  const tx = col % f.nx, ty = (col / f.nx) | 0;
+
   if (drop > 0) {
     // It arrives at the speed a thing that fell that far arrives at, and what
     // it does with that is `plungeInto`. This is the whole difference between
     // a waterfall and a tap over a bowl.
     plungeInto(
-      f, to % f.nx, (to / f.nx) | 0, amount, mat, Math.sqrt(2 * FALL_GRAVITY * drop),
+      f, tx, ty, amount, mat, Math.sqrt(2 * FALL_GRAVITY * drop), slot,
     );
     return;
   }
@@ -513,7 +632,7 @@ function land(
     f.landBest[to] = amount;
     f.landMat[to] = mat;
   }
-  include(f, to % f.nx, (to / f.nx) | 0);
+  include(f, tx, ty);
 }
 
 /**
@@ -539,9 +658,16 @@ export function landsAt(
   const ox = Math.round(driftAt(f.falls.throwX[i], drop) / f.cell);
   const oy = Math.round(driftAt(f.falls.throwY[i], drop) / f.cell);
   if (ox === 0 && oy === 0) return j;
-  const jx = (j % f.nx) + ox, jy = ((j / f.nx) | 0) + oy;
+  // WITHIN THE SLOT IT WAS AIMED AT. A sheet drifting a column further out is
+  // still falling into the same storey of the world, and a drift that changed
+  // storey would be a sheet passing through a deck.
+  const b = (j / f.cells) | 0, jc = j % f.cells;
+  const jx = (jc % f.nx) + ox, jy = ((jc / f.nx) | 0) + oy;
   if (jx < 0 || jy < 0 || jx >= f.nx || jy >= f.ny) return j;
-  const to = jy * f.nx + jx;
+  const to = b * f.cells + jy * f.nx + jx;
+  // Nor onto a slot that is not there: past the end of a span there is no
+  // upper storey, and water aimed at one would arrive inside the hillside.
+  if (f.roof[to] <= f.ground[to]) return j;
   return f.ground[to] < f.ground[i] ? to : j;
 }
 
@@ -667,7 +793,12 @@ export function dropFrom(
   f: ColumnField, k: number, take: number, below: number, u: number,
   lip: number, material: number,
 ) {
-  const i = k >> 1, axis = k & 1;
+  // The plane, then the edge inside it — see `fallEdge`. The drop comes off
+  // the slot the sheet LEFT, so the height it starts at is that slot's floor.
+  const pl = (k / (f.cells * 2)) | 0;
+  const rest = k - pl * f.cells * 2;
+  const i = rest >> 1, axis = rest & 1;
+  const ia = ((pl / f.layers) | 0) * f.cells + i;
   const x = i % f.nx, y = (i / f.nx) | 0;
   const out = driftAt(lip, below);
   const side = (u - 0.5) * FAN;
@@ -675,7 +806,7 @@ export function dropFrom(
     f.drips,
     axis === 0 ? x + 0.5 + out : x + side,
     axis === 0 ? y + side : y + 0.5 + out,
-    f.ground[i] - below,
+    f.ground[ia] - below,
     take, material,
     axis === 0 ? lip : side * FAN,
     axis === 0 ? side * FAN : lip,

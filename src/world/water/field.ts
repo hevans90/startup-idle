@@ -16,8 +16,11 @@
  * as a row of flat plates, and it gives the flow room to turn.
  */
 import {
-  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength, STOREY, include, setClosed, setMaterialDrag, setOpenEdge, setRim, setStorey, stepFlow, surfaceAt, totalWater, wantDepth, type ColumnField, type FlowParams,
+  FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, rimAt, rimLength,
+  setMaterialDrag, setOpenEdge, setRim, stepFlow, surfaceAt, totalWater,
+  wantDepth, type ColumnField, type FlowParams,
 } from "../../fluid/columns";
+import { OPEN_SKY } from "../../fluid/slots";
 import { waterInDrips } from "../../fluid/drips";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
 import { fluidChoices } from "./materials";
@@ -53,20 +56,30 @@ export const POUR_AMOUNT = 6;
 export type WaterField = {
   columns: ColumnField;
   /**
-   * The UPPER STOREY: water standing on decks, with nothing under it.
+   * Whether the field was built with room for a second storey. @see STOREYS
    *
-   * A second field over the same map whose ground is the deck where there is
-   * one and which has no floor anywhere else, so water running off the end of
-   * a bridge falls out of it and is handed to `columns` below. Null until the
-   * map has a deck on it, and it costs nothing until then.
+   * There is no second FIELD any more — see `fluid/slots`. A column has
+   * slots in it and a deck is the roof of one and the floor of the next,
+   * which is the whole of what makes water cross onto a bridge instead of
+   * being handed between two simulations by four rules somebody wrote down.
    *
-   * ONE SOLVER, TWICE, rather than a second water model. A deck is flat and a
-   * puddle on one has little to do, so a cheaper bespoke thing was tempting —
-   * and a bespoke thing is a second set of rules about how water behaves, in a
-   * codebase whose seams have all come from one rule written twice.
-   * @see setStorey, Grid.deck
+   * What is left is a size: a slot costs memory whether anything stands in
+   * it or not, and at a hundred and twenty eight tiles a spare storey is
+   * about a hundred megabytes. So a map with no decks on it is built with
+   * one, and one is the field the solver has always been.
    */
-  over: ColumnField | null;
+  storeys: number;
+  /**
+   * BUMPED WHEN THE COLUMN FIELD ITSELF IS REPLACED, which is rare and is
+   * not the same thing as the ground moving.
+   *
+   * A field's slot count is fixed when it is made, so putting the first deck
+   * on a map that had none needs a new one. Anything holding the old field —
+   * the device solver above all — has to be told, and `groundRev` cannot say
+   * it: that means "the terrain moved", and everything reading it would
+   * re-upload a ground array into a solver that is the wrong shape.
+   */
+  fieldRev: number;
   /** Map size in TILES, so a resize can be detected. */
   w: number;
   h: number;
@@ -126,17 +139,38 @@ export const emptyCellList = (n: number): CellList =>
  */
 export const OPEN_EDGE_DEFAULT = true;
 
+/**
+ * How many slots a column gets on a map that has bridges on it.
+ *
+ * Two: the ground, and the deck over it. A deck over a deck would be three
+ * and nothing here would have to change but this number — the solver takes
+ * the count off the field and the geometry below is written per storey — but
+ * nothing builds one, and a storey nothing uses is a storey everybody pays
+ * for. @see ColumnField.layers
+ */
+export const STOREYS = 2;
+
+/** Whether any tile on the map carries a deck. @see syncSlots */
+export function anyDeck(grid: Grid): boolean {
+  for (let i = 0; i < grid.deck.length; i++) if (grid.deck[i] !== 0) return true;
+  return false;
+}
+
 export function createWaterField(
   grid: Grid,
   params: FlowParams = FLOW_DEFAULTS,
 ): WaterField {
+  const storeys = anyDeck(grid) ? STOREYS : 1;
   const field: WaterField = {
     columns: createColumnField(
       grid.w * COLUMNS_PER_TILE,
       grid.h * COLUMNS_PER_TILE,
       params,
       1 / COLUMNS_PER_TILE,
+      storeys,
     ),
+    storeys,
+    fieldRev: 0,
     w: grid.w,
     h: grid.h,
     held: new Float32Array(grid.w * grid.h),
@@ -145,7 +179,6 @@ export function createWaterField(
     nets: createPipeNets(grid.w, grid.h),
     spilled: -1,
     taps: emptyCellList(grid.w * grid.h),
-    over: null,
   };
   // Each fluid keeps its own momentum differently — the only thing that makes
   // one behave unlike another now that depth and levels are gone.
@@ -260,8 +293,10 @@ export function poolSnapshot(field: WaterField, grid: Grid): Uint8Array {
 }
 
 export function syncGround(field: WaterField, grid: Grid) {
+  // A DECK ON A MAP THAT HAD NONE NEEDS A BIGGER FIELD, and a field's slot
+  // count is fixed when it is made. @see WaterField.fieldRev
+  if (field.columns.layers < STOREYS && anyDeck(grid)) growStoreys(field);
   const { columns } = field;
-  syncDecks(field, grid);
   // THE RIM'S LEVEL IS A FUNCTION OF THE GROUND UNDER IT, so it is rebuilt
   // here rather than at a call site that would have to remember. Raising the
   // land at a river's mouth raises the water the map is fed at, which is what
@@ -270,22 +305,139 @@ export function syncGround(field: WaterField, grid: Grid) {
   // SAID ONCE, HERE, so the device does not have to be told every frame just
   // in case. @see ColumnField.groundRev
   columns.groundRev++;
-  for (let cy = 0; cy < columns.ny; cy++) {
+  syncSlots(field, grid);
+}
+
+/**
+ * Give every column its floors and its roofs, from the terrain and the decks.
+ *
+ * THIS IS THE WHOLE OF WHAT THE WORLD TELLS THE SOLVER ABOUT BRIDGES. There
+ * is no second field, no classification of a column into one of four kinds,
+ * and no rule anywhere about how a road trades water with a span. There is a
+ * stack of gaps per column, and `fluid/slots` intersects them.
+ *
+ * Slot zero is the ground, roofed by the underside of a deck where there is
+ * one and open to the sky where there is not. Slot one is the deck itself,
+ * present only over a decked tile and absent — floor and roof equal, which
+ * no water can be in — everywhere else.
+ *
+ * Every behaviour the four rules used to name comes back out of that:
+ *
+ *   - the road at the end of a span is an ordinary column whose only slot is
+ *     level with the deck, so the two overlap and water crosses;
+ *   - that same road against the CHANNEL is a slot roofed below its own
+ *     floor, so nothing pours in — which is what an abutment was;
+ *   - off the side of a span the neighbour is the riverbed with no roof, so
+ *     the overlap starts at the deck's own floor and the water goes over and
+ *     falls, which is what the falls have always done with a lip.
+ */
+export function syncSlots(field: WaterField, grid: Grid) {
+  const { columns } = field;
+  const { nx, ny, cells, layers, ground, roof } = columns;
+  for (let cy = 0; cy < ny; cy++) {
     const ty = tileOf(cy);
-    for (let cx = 0; cx < columns.nx; cx++) {
+    for (let cx = 0; cx < nx; cx++) {
       const tx = tileOf(cx);
-      const i = cy * columns.nx + cx;
+      const i = cy * nx + cx;
       if (!inBounds(grid, tx, ty)) {
-        columns.ground[i] = 127;
+        ground[i] = 127;
+        roof[i] = OPEN_SKY;
+        for (let a = 1; a < layers; a++) {
+          ground[a * cells + i] = 127;
+          roof[a * cells + i] = 127;            // absent
+        }
         continue;
       }
       const t = idx(grid, tx, ty);
-      columns.ground[i] =
-        structureAt(grid, tx, ty) >= 0
-          ? grid.height[t] + SOLID_LIFT
-          : grid.height[t];
+      // A DECK IS NOT GROUND, and its absence from slot zero is the whole
+      // feature rather than an oversight. {@link Grid.deck} is a surface in
+      // the AIR with a gap under it; the ground below is untouched, so the
+      // river runs under a bridge without anything having to say so.
+      const floor = structureAt(grid, tx, ty) >= 0
+        ? grid.height[t] + SOLID_LIFT
+        : grid.height[t];
+      ground[i] = floor;
+      const decked = layers > 1 && grid.deck[t] !== 0;
+      roof[i] = decked ? grid.deckZ[t] - DECK_DEPTH : OPEN_SKY;
+      for (let a = 1; a < layers; a++) {
+        const ia = a * cells + i;
+        if (a === 1 && decked) {
+          ground[ia] = grid.deckZ[t] + parapetAt(grid, columns, cx, cy, tx, ty);
+          roof[ia] = OPEN_SKY;
+        } else {
+          // ABSENT: no room at all, which is a slot nothing can be in and
+          // nothing can flow through. It needs no flag saying so.
+          ground[ia] = floor;
+          roof[ia] = floor;
+        }
+      }
     }
   }
+}
+
+/**
+ * How far a decked column's own floor stands above the deck: a parapet.
+ *
+ * A bridge has parapets, and without them water poured on one runs off both
+ * sides within half a second and can never stand on a span — which is the
+ * thing a bridge was asked to do. It used to be a number written into a
+ * second field's ground by a rule that had to work out which columns were
+ * "the side" of a deck. Here it is what it is on a real bridge: the edge of
+ * the deck is RAISED, and water deep enough to reach the top of it goes over
+ * and falls, which needs no rule at all.
+ *
+ * A quarter of a tile wide, because that is what one column is. Only against
+ * open air — where the road carries on at the deck's own level the surface
+ * is continuous and a kerb across it would dam the crossing.
+ */
+function parapetAt(
+  grid: Grid, columns: ColumnField, cx: number, cy: number, tx: number, ty: number,
+): number {
+  const z = grid.deckZ[idx(grid, tx, ty)];
+  for (const [dx, dy] of EDGES) {
+    const ax = cx + dx, ay = cy + dy;
+    if (ax < 0 || ay < 0 || ax >= columns.nx || ay >= columns.ny) continue;
+    const atx = tileOf(ax), aty = tileOf(ay);
+    if (!inBounds(grid, atx, aty)) continue;
+    const a = idx(grid, atx, aty);
+    if (grid.deck[a] !== 0) continue;           // still the span
+    // The road carrying on at the same level is not a side. Slack for
+    // terracing rather than a tolerance anybody tunes: the approach either
+    // end of a span is carved to the deck's own level, and at the SIDE of a
+    // bridge the ground is the channel, which is nowhere near.
+    if (Math.abs(grid.height[a] - z) <= LEVEL_WITH) continue;
+    return DECK_KERB;
+  }
+  return 0;
+}
+
+/**
+ * Rebuild the column field with room for a deck, keeping the water.
+ *
+ * Slot zero of the new field is slot zero of the old one, copied across, so
+ * putting a bridge on a map does not empty its river. Everything else starts
+ * where a new field starts.
+ *
+ * WHAT IT CANNOT KEEP is anything a DEVICE solver is holding: the device owns
+ * the water while it is attached and its buffers are the old shape. That is
+ * what `fieldRev` is for — the scene tears the solver down and builds it
+ * again from the field as it now stands.
+ */
+function growStoreys(field: WaterField) {
+  const old = field.columns;
+  const next = createColumnField(old.nx, old.ny, old.params, old.cell, STOREYS);
+  next.ground.set(old.ground.subarray(0, old.cells));
+  next.depth.set(old.depth.subarray(0, old.cells));
+  next.material.set(old.material.subarray(0, old.cells));
+  next.t = old.t;
+  next.deepest = old.deepest;
+  next.box = { ...old.box };
+  setOpenEdge(next, old.openEdge);
+  setRim(next, old.rim, old.rimMaterial);
+  for (let m = 0; m < old.dragOf.length; m++) next.dragOf[m] = old.dragOf[m];
+  field.columns = next;
+  field.storeys = STOREYS;
+  field.fieldRev++;
 }
 
 /**
@@ -318,109 +470,6 @@ export function syncInflow(field: WaterField, grid: Grid) {
 }
 
 /**
- * Build, rebuild or drop the upper storey to match the map's decks.
- *
- * Here rather than at a call site because a deck's LEVEL is part of it and the
- * ground moving is what changes levels — the same argument `syncInflow` makes
- * next door.
- *
- * NOTHING AT ALL WHERE THERE ARE NO DECKS, which is most maps: a second field
- * is a second field's worth of memory and of solver time, and a map with no
- * bridge on it should pay neither.
- */
-export function syncDecks(field: WaterField, grid: Grid) {
-  let any = false;
-  for (let i = 0; i < grid.deck.length && !any; i++) if (grid.deck[i] !== 0) any = true;
-  if (!any) { field.over = null; setClosed(field.columns, null); return; }
-
-  const { nx, ny } = field.columns;
-  const over = field.over ?? createColumnField(nx, ny, field.columns.params, field.columns.cell);
-  field.over = over;
-  // OPEN AT THE MAP'S RIM like the storey below, so a span that reaches the
-  // edge of the world drains off it rather than damming against nothing.
-  setOpenEdge(over, field.columns.openEdge);
-  for (const { index, material } of fluidChoices()) setMaterialDrag(over, index, material.drag);
-
-  const kinds = new Uint8Array(nx * ny);
-  for (let cy = 0; cy < ny; cy++) {
-    for (let cx = 0; cx < nx; cx++) {
-      const tx = tileOf(cx), ty = tileOf(cy);
-      const i = cy * nx + cx;
-      if (!inBounds(grid, tx, ty)) { over.ground[i] = 127; kinds[i] = STOREY.HOLE; continue; }
-      const t = idx(grid, tx, ty);
-      if (grid.deck[t] !== 0) {
-        kinds[i] = STOREY.OWNED;
-        over.ground[i] = grid.deckZ[t];
-      } else {
-        // NO FLOOR, AND A SHORT DROP TO IT. What goes here is on its way
-        // down and this field never simulates the fall — the water is taken
-        // off and handed to the storey below — so the only thing this number
-        // decides is what the EDGE of the deck's water looks like.
-        //
-        // The land below is the wrong answer, and it was the first one: the
-        // surface renderer draws a side face from the water down to the
-        // ground beside it, so a deck at 13 over a riverbed at −3 drew a
-        // translucent pane sixteen half steps tall along every edge of every
-        // bridge. It never went away either, because the film a flat surface
-        // always keeps kept feeding it. A slab below the deck reads as water
-        // sheeting over a lip, which is what it is. @see spillAt
-        //
-        // A GHOST WHERE THE ROAD CARRIES ON, a HOLE where it falls away, and
-        // getting that split wrong is what made the first version useless: a
-        // bridge modelled as a hole all round can only be poured on directly
-        // and can only lose water by having it deleted. At either END of a
-        // span the land is at the deck's own level and the surface is
-        // continuous, so those columns are a window onto the storey below.
-        over.ground[i] = grid.height[t];
-        kinds[i] = STOREY.HOLE;
-        let kerb = -Infinity;
-        for (const [dx, dy] of EDGES) {
-          const ax = tx + dx, ay = ty + dy;
-          if (!inBounds(grid, ax, ay)) continue;
-          const a = idx(grid, ax, ay);
-          if (grid.deck[a] === 0) continue;
-          if (Math.abs(grid.height[t] - grid.deckZ[a]) <= LEVEL_WITH) {
-            kinds[i] = STOREY.GHOST;                    // the road carries on
-          }
-          kerb = Math.max(kerb, grid.deckZ[a] + DECK_KERB);
-        }
-        // Off the SIDE, a parapet: water stays on the bridge until it is
-        // deep enough to go over. @see DECK_KERB
-        if (kinds[i] === STOREY.HOLE && kerb > -Infinity) over.ground[i] = kerb;
-      }
-    }
-  }
-  over.groundRev++;
-  setStorey(over, kinds);
-
-  // AND THE ABUTMENTS, on the storey BELOW.
-  //
-  // Where a road meets a span, the channel is under the deck and the road
-  // does not pour into it — a bridge has a wall there. The lower field knows
-  // nothing about the deck, so to it the road simply ends at a cliff into the
-  // river: measured on a ditch with a span over it, of a hundred and sixty
-  // poured on the approach, eleven reached the deck and FORTY THREE fell in
-  // the ditch. Water reaches a bridge by going over it.
-  //
-  // Exactly the edges between a deck and the road that meets it, which is the
-  // classification above read a second time: OWNED against GHOST. The edges
-  // from a deck to the CHANNEL either side of it stay open, because that is
-  // the river passing under, and it must. @see ColumnField.closed
-  const closed = new Uint8Array(nx * ny * 2);
-  const abutment = (a: number, b: number) =>
-    (kinds[a] === STOREY.OWNED && kinds[b] === STOREY.GHOST)
-    || (kinds[a] === STOREY.GHOST && kinds[b] === STOREY.OWNED);
-  for (let cy = 0; cy < ny; cy++) {
-    for (let cx = 0; cx < nx; cx++) {
-      const i = cy * nx + cx;
-      if (cx + 1 < nx && abutment(i, i + 1)) closed[i * 2] = 1;
-      if (cy + 1 < ny && abutment(i, i + nx)) closed[i * 2 + 1] = 1;
-    }
-  }
-  setClosed(field.columns, closed);
-}
-
-/**
  * How near a deck's level the land beside it must be to count as the same
  * surface, in half steps.
  *
@@ -431,31 +480,50 @@ export function syncDecks(field: WaterField, grid: Grid) {
 const LEVEL_WITH = 2;
 
 /**
- * How far ABOVE a deck its own sides stand, in half steps: a parapet.
+ * How far ABOVE a deck its own edge stands, in half steps: a parapet.
  *
- * It was a drop, and that was wrong twice over. A flat plate with its edges
- * a slab BELOW it is a permanent downhill into a bottomless drain — the
- * columns off the side are emptied every substep — so water poured on a
- * bridge ran straight off both edges within half a second and could never
- * accumulate on one, which is the thing a bridge was asked to do. And a drop
- * at a lip is what the solver spawns FALLS from, so both sides of every span
- * ran as waterfalls for as long as anything was on it.
+ * It was a DROP once, and that was wrong twice over. A flat plate with its
+ * edges a slab below it is a permanent downhill into a bottomless drain, so
+ * water poured on a bridge ran off both sides within half a second and could
+ * never accumulate on one. And a drop at a lip is what the solver spawns
+ * FALLS from, so both sides of every span ran as waterfalls for as long as
+ * anything was on them.
  *
  * A bridge has parapets. Below the kerb the water stays where it is put;
  * above it, it goes over the side and falls, which is both correct and still
- * possible. It also settles the rendering question the drop was introduced
- * for: ground higher than the water means no side face to draw at all.
+ * possible. @see parapetAt
  */
 const DECK_KERB = 2;
+
+/**
+ * How deep a deck is, in half steps: the distance from the road surface down
+ * to the soffit.
+ *
+ * One slab, which is what a span looks like. It is the only number in the
+ * world that says a bridge has a THICKNESS, and it is load bearing: the
+ * underside is the roof of the channel, and the roof is what tells the
+ * solver that a road at deck level does not pour into the river twenty half
+ * steps below it. At nought the two would meet exactly and, by the strictly
+ * greater test in `connected`, still not join — but a deck with no depth is
+ * a sheet of paper, and the eye can see the span.
+ */
+const DECK_DEPTH = 2;
 
 /** The four neighbours a deck's edge can be found across. */
 const EDGES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
-/** Whether a tile has a deck that water can stand on. @see syncDecks */
+/**
+ * Whether a tile has a deck that water can stand on. @see syncSlots
+ *
+ * ASKED OF THE FIELD AND NOT THE GRID, because the field is what the water
+ * is in: a map may carry decks the field has no room for, in the instant
+ * between a deck being placed and `syncGround` growing the field for it.
+ */
 export const deckedAt = (field: WaterField, x: number, y: number): boolean => {
-  const over = field.over;
-  if (!over || !over.storey) return false;
-  return over.storey[columnOf(y) * over.nx + columnOf(x)] === STOREY.OWNED;
+  const { columns } = field;
+  if (columns.layers < 2) return false;
+  const i = columns.cells + columnOf(y) * columns.nx + columnOf(x);
+  return columns.roof[i] > columns.ground[i];
 };
 
 /** The fluid an off-map inflow carries. @see fluidChoices */
@@ -473,94 +541,7 @@ export const waterEdgeIsOpen = (field: WaterField) => field.columns.openEdge;
 
 /** Advance the flow. */
 export function stepWater(field: WaterField, dt: number) {
-  stepUpper(field, dt);
   stepFlow(field.columns, dt);
-}
-
-/**
- * Step the storey standing on the map's bridges, and settle up with the one
- * below it.
- *
- * SEPARATE FROM {@link stepWater} because the device path does not call
- * that. With the GPU solver built, the frame's lower water is the device's
- * and `stepWater` never runs — so an upper storey folded into it was never
- * stepped at all on the path the game actually uses. Water poured on a bridge
- * sat exactly where it landed and nothing ever flowed on or off one, which
- * looked for all the world like the coupling being broken when the coupling
- * had simply never run.
- *
- * BEFORE the storey below is stepped, whichever steps it: `traded` is
- * measured against the depths that field still has.
- */
-export function stepUpper(field: WaterField, dt: number) {
-  const over = field.over;
-  if (!over) return;
-  const { storey, hold, fell, traded } = over;
-  const below = field.columns;
-  // WHAT THE ROAD HAS, handed up as the ghosts' held depth, so the flow
-  // between a deck and the road it meets is worked out by the solver across
-  // an ordinary edge. @see ColumnField.hold
-  if (storey && hold) {
-    for (let i = 0; i < hold.length; i++) {
-      if (storey[i] !== STOREY.GHOST) continue;
-      hold[i] = below.depth[i];
-      // THE DEPTH TOO, not only the level it is held at. `bound` books the
-      // difference between the two at the top of every substep, so seeding
-      // one without the other tells it the ghost has just lost everything
-      // it holds — a whole frame's worth of spurious trade, every frame.
-      over.depth[i] = below.depth[i];
-      over.material[i] = below.material[i];
-      over.ground[i] = below.ground[i];
-      if (below.depth[i] > 0) {
-        include(over, i % over.nx, (i / over.nx) | 0);
-        if (below.depth[i] > over.deepest) over.deepest = below.depth[i];
-      }
-    }
-  }
-  stepFlow(over, dt);
-  // AND THE GHOSTS GO BACK TO NOTHING, which is what stops the seam.
-  //
-  // A ghost is a WINDOW onto the storey below, not water of this field's
-  // own — and the storey below already draws it. Left standing they were
-  // painted twice over: at the mouth of every bridge the road's water was
-  // drawn once by each mesh, at the same level, so the surface abruptly
-  // doubled in density where it met the span and the upper mesh ended in a
-  // hard edge a tile short of it. Cleared, each surface is drawn exactly
-  // once and the two meet at the same level, which is the whole of a clean
-  // transition from a road onto a bridge.
-  //
-  // THE LAST SUBSTEP'S DRIFT IS TAKEN FIRST. `bound` settles a ghost at the
-  // top of a substep, so what the final one moved is still sitting in the
-  // depth — zeroing without counting it would quietly lose a frame's worth
-  // of every crossing.
-  if (storey && hold && traded) {
-    for (let i = 0; i < storey.length; i++) {
-      if (storey[i] !== STOREY.GHOST) continue;
-      traded[i] += over.depth[i] - hold[i];
-      over.depth[i] = 0;
-      over.material[i] = 0;
-    }
-  }
-  // THROUGH `addWater`, SIGNED, and not by writing a depth. It takes a
-  // negative amount, clamps at nothing, and records what actually moved into
-  // the arrivals list — which is the only way the host may change water the
-  // DEVICE owns. Written as a direct depth poke this settled up correctly on
-  // the host and silently not at all on the device. @see Arrivals
-  if (traded) {
-    for (let i = 0; i < traded.length; i++) {
-      const d = traded[i];
-      if (d === 0) continue;
-      traded[i] = 0;
-      addWater(below, i % over.nx, (i / over.nx) | 0, d, below.material[i] || 1);
-    }
-  }
-  if (fell) {
-    for (let i = 0; i < fell.length; i++) {
-      if (fell[i] <= 0) continue;
-      addWater(below, i % over.nx, (i / over.nx) | 0, fell[i], 1);
-      fell[i] = 0;
-    }
-  }
 }
 
 /**
@@ -624,12 +605,13 @@ export function pourAt(
   // to act on the surface the pick named. It did not: every tool wrote the
   // terrain, so a pour aimed at a bridge landed on the riverbed twenty half
   // steps below it, out of sight under its own span. @see deckedAt
-  const columns = deckedAt(field, x, y) ? field.over! : field.columns;
+  const { columns } = field;
+  const slot = deckedAt(field, x, y) ? 1 : 0;
   const cx0 = columnOf(x),
     cy0 = columnOf(y);
   for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
     for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
-      addWater(columns, cx0 + dx, cy0 + dy, amount, material);
+      addWater(columns, cx0 + dx, cy0 + dy, amount, material, slot);
     }
   }
 }
@@ -727,11 +709,11 @@ export function wetTiles(field: WaterField): number {
  * report a leak every time a drain worked.
  */
 export const totalVolume = (field: WaterField, grid: Grid, onTheMap?: number) =>
-  // BOTH STOREYS. Water standing on a bridge is water on the map, and a total
-  // that stopped counting it would report a leak the moment anybody poured on
-  // one — the same argument the pipes make below.
-  (field.over ? totalWater(field.over) : 0)
-  + (onTheMap === undefined
+  // EVERY STOREY, which `totalWater` does on its own now: a depth array is
+  // as long as the field has slots, and water standing on a bridge is at an
+  // index further down the same array. It used to be a second field and a
+  // second term here.
+  (onTheMap === undefined
     ? totalWater(field.columns)
     // THE MAP'S SHARE, COUNTED ELSEWHERE. When the device solver is running it
     // has already summed both the depths and what is in the air — see

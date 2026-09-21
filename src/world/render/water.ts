@@ -365,9 +365,10 @@ export const DRAWDOWN = 0.55;
  */
 export function shownDepth(columns: ColumnField, i: number, d: number): number {
   if (d >= SHOW_DEPTH) return d;
+  const a = (i / columns.cells) | 0;
   const brink = atBrink(
-    columns.nx, columns.ny, i, columns.ground, columns.depth,
-    columns.params.dryDepth, FALL_MIN,
+    columns.nx, columns.ny, i % columns.cells, columns.ground, columns.depth,
+    columns.params.dryDepth, FALL_MIN, a * columns.cells,
   );
   const floor = SHOW_DEPTH * brink;
   return d > floor ? d : floor;
@@ -387,13 +388,16 @@ export function shownDepth(columns: ColumnField, i: number, d: number): number {
  * not a shore either: the terrain shows its skirt there and the water should
  * show a cross-section to match.
  */
-export function asideAt(columns: ColumnField, vx: number, vy: number, bed: number) {
+export function asideAt(
+  columns: ColumnField, vx: number, vy: number, bed: number, a = 0,
+) {
   const { nx, ny, ground } = columns;
+  const base = a * columns.cells;
   let lowest = bed, highest = bed;
   for (let k = 0; k < 4; k++) {
     const cx = vx - 1 + (k & 1), cy = vy - 1 + (k >> 1);
     if (cx < 0 || cy < 0 || cx >= nx || cy >= ny) return Infinity;
-    const g = ground[cy * nx + cx];
+    const g = ground[base + cy * nx + cx];
     if (g < lowest) lowest = g;
     if (g > highest) highest = g;
   }
@@ -433,9 +437,23 @@ function cornerValues(
     wl.vf.fill(0, from, to);
     wl.vn.fill(0, from, to);
   }
+  // EVERY STOREY INTO THE SAME CORNERS, which is the whole of why a bridge
+  // no longer reads as a second sheet of water laid over the first.
+  //
+  // A corner already sorted its contributors into a high group and a low one
+  // by the bed they stand on — it had to, because a sheet on a plateau and
+  // the lake at the foot of its cliff meet at the same corner and no one
+  // height serves both. A slot is the same question asked of one column
+  // instead of two, so it needs no new machinery: the deck's water and the
+  // road's water beside it stand at the same level, land in the same group,
+  // and average into ONE corner. The mesh runs onto the bridge because the
+  // vertices either side of the join are the same vertices.
+  for (let a = 0; a < columns.layers; a++) {
+  const A = a * columns.cells;
   for (let y = region.y0; y <= region.y1; y++) {
     for (let x = region.x0; x <= region.x1; x++) {
-      const i = y * nx + x;
+      const ci = y * nx + x;
+      const i = A + ci;
       const d = depth[i];
       if (d <= params.dryDepth) continue;
       const bed = columns.ground[i];
@@ -443,11 +461,11 @@ function cornerValues(
       // Leaned toward the lip — see `DRAWDOWN`. The height only; `shown` is
       // what decides how solid it looks and stays the water's own.
       const sag = d * DRAWDOWN * atBrink(
-        columns.nx, columns.ny, i, columns.ground, columns.depth,
-        columns.params.dryDepth, FALL_MIN,
+        columns.nx, columns.ny, ci, columns.ground, columns.depth,
+        columns.params.dryDepth, FALL_MIN, A,
       );
       const s = surfaceAt(columns, i) - sag;
-      const vx = flowX(columns, x, y), vy = flowY(columns, x, y);
+      const vx = flowX(columns, x, y, a), vy = flowY(columns, x, y, a);
       const wash = wl.wash.now, foam = wl.foam.now;
       for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
         const v = (y + dy) * vw + (x + dx);
@@ -483,22 +501,23 @@ function cornerValues(
           wl.vd[v] = shown;
           wl.vvx[v] = vx;
           wl.vvy[v] = vy;
-          wl.vw[v] = wash[i];
-          wl.vf[v] = foam[i];
+          wl.vw[v] = wash[ci];
+          wl.vf[v] = foam[ci];
         } else if (bed === wl.vBed[v]) {
           wl.vs[v] += s;
           wl.vn[v]++;
           wl.vd[v] += shown;
           wl.vvx[v] += vx;
           wl.vvy[v] += vy;
-          wl.vw[v] += wash[i];
-          wl.vf[v] += foam[i];
+          wl.vw[v] += wash[ci];
+          wl.vf[v] += foam[ci];
         } else {
           wl.vsLow[v] += s;
           wl.vnLow[v]++;
         }
       }
     }
+  }
   }
   // Averaged FIRST, all of them, and only then shaded. Doing both in one pass
   // left `tiltAt` reading the next row's corners while they still held the SUM
@@ -699,7 +718,12 @@ function fillQuads(
     const rx0 = Math.max(region.x0, columnOf(Math.max(0, lo - ty)));
     const rx1 = Math.min(region.x1, columnOf(hi - ty) + COLUMNS_PER_TILE - 1);
     for (let cx = rx0; cx <= rx1; cx++) {
-      const i = cy * nx + cx;
+      const ci = cy * nx + cx;
+      // A QUAD PER SLOT, not per column. A bridge column carries the river
+      // under the span and whatever is standing on the deck, and both of them
+      // are water somebody can see. @see cornerValues
+      for (let a = 0; a < columns.layers; a++) {
+      const i = a * columns.cells + ci;
       const d = depth[i];
       if (d <= columns.params.dryDepth) continue;
 
@@ -784,6 +808,8 @@ function fillQuads(
       // would be a lie about where it is for no gain.
       const surface = columns.ground[i] + d;
       const last = COLUMNS_PER_TILE - 1;
+      // Within the slot's own plane: whether the water's edge pokes forward
+      // is a question about what is under it in the same storey.
       const eastOn = cx % COLUMNS_PER_TILE === last
         && cx + 1 < nx && columns.ground[i + 1] < surface;
       const southOn = cy % COLUMNS_PER_TILE === last
@@ -799,13 +825,14 @@ function fillQuads(
         v10, v11, base, HWs, HHs, HUs, rim);
       sideFace(southB, wl, columns, i, cx, cy, 0, 1, fx0v, fy1, fx1v, fy1,
         v01, v11, base, HWs, HHs, HUs, rim);
+      }
     }
   }
 }
 
 /** How fast a column is going, 0 to 1. */
-function speed(columns: ColumnField, cx: number, cy: number): number {
-  const { vx, vy } = velocityAt(columns, cx, cy);
+function speed(columns: ColumnField, cx: number, cy: number, a = 0): number {
+  const { vx, vy } = velocityAt(columns, cx, cy, a);
   return Math.min(1, (Math.abs(vx) + Math.abs(vy)) * 0.5);
 }
 
@@ -922,7 +949,7 @@ function sideFace(
 
   face(batch, ax, ay, bx, by,
     side.topA, side.topB, side.floorA, side.floorB,
-    aerate(base, 0.08 + speed(columns, cx, cy) * 0.14),
+    aerate(base, 0.08 + speed(columns, cx, cy, (i / columns.cells) | 0) * 0.14),
     body, body, HWs, HHs, HUs);
 }
 

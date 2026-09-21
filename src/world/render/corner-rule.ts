@@ -266,9 +266,13 @@ export function spillAt(bed: number, beside: number, fallMin: number): number {
 export function atBrink(
   nx: number, ny: number, i: number,
   ground: Float32Array, depth: Float32Array, dryDepth: number, fallMin: number,
+  base = 0,
 ): number {
+  // `i` is a COLUMN and `base` is the start of the slot's own plane, so a
+  // deck looks along the deck and the channel under it looks along the
+  // channel. At one layer the base is nought and this is what it was.
   const cx = i % nx, cy = (i / nx) | 0;
-  const bed = ground[i];
+  const bed = ground[base + i];
   let most = 0;
   for (let k = 0; k < 4; k++) {
     const dx = k === 0 ? 1 : k === 1 ? -1 : 0;
@@ -281,7 +285,7 @@ export function atBrink(
     for (let r = 1; r <= BRINK_REACH; r++) {
       const jx = cx + dx * r, jy = cy + dy * r;
       if (jx < 0 || jy < 0 || jx >= nx || jy >= ny) break;
-      const j = jy * nx + jx;
+      const j = base + jy * nx + jx;
       if (ground[j] > bed) break;
       const beside = depth[j] > dryDepth ? ground[j] + depth[j] : ground[j];
       const how = spillAt(bed, beside, fallMin);
