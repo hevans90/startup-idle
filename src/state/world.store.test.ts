@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { deserializeWorld, serializeWorld, toJSON } from "../world/io/serialize";
 import {
-  DIRT, GRASS, INITIAL_TERRAIN_PALETTE, drainDirty, getNetwork, useWorldStore,
+  DIRT, GRASS, INITIAL_TERRAIN_PALETTE, drainDirty, getNetwork, readoutFromUrl, useWorldStore,
 } from "./world.store";
 import { componentCount } from "../world/roads/network";
 import { DEFAULT_GEN, GEN_SLIDERS } from "../world/gen/params";
@@ -442,5 +442,37 @@ describe("the map is generated at the size the settings ask for", () => {
     s().setGenParam("size", 16);
     s().resetGenParams();
     expect(s().gen.size).toBe(DEFAULT_GEN.size);
+  });
+});
+
+/**
+ * `?readout=0`, which is the one query flag here that turns something OFF.
+ *
+ * The others are bare presence flags — `?gpucheck`, `?fixture=` — because
+ * what they name is off by default. The cell readout is on by default, so
+ * the interesting request is to take it away, and a presence flag cannot
+ * express that.
+ */
+describe("the cell readout's query flag", () => {
+  test("is on when nothing asks otherwise", () => {
+    expect(readoutFromUrl("")).toBe(true);
+    expect(readoutFromUrl("?world=1")).toBe(true);
+  });
+
+  test("and off when something does", () => {
+    expect(readoutFromUrl("?readout=0")).toBe(false);
+    expect(readoutFromUrl("?readout=false")).toBe(false);
+    expect(readoutFromUrl("?readout=off")).toBe(false);
+    expect(readoutFromUrl("?world=1&readout=0")).toBe(false);
+  });
+
+  test("and a typo leaves it ON rather than quietly taking it away", () => {
+    // The failure modes are not symmetric. A readout that will not go away
+    // is a nuisance you can see; one that silently never appears looks like
+    // the editor being broken, and you would go looking in the renderer.
+    expect(readoutFromUrl("?readout=nope")).toBe(true);
+    expect(readoutFromUrl("?readout=")).toBe(true);
+    expect(readoutFromUrl("?readout")).toBe(true);
+    expect(readoutFromUrl("?reedout=0")).toBe(true);
   });
 });

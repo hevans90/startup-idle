@@ -159,7 +159,10 @@ export function WorldEditor() {
         {/* Which compute passes agree with the CPU, on THIS map — behind
             `?gpucheck`. Not a CPU/GPU switch; see `gpu-check-hud`. */}
         {import.meta.env.DEV && GPU_CHECK && <GpuCheckHud />}
-        <CellReadout />
+        {/* Hidden with the `readout` overlay or `?readout=0`: it follows the
+            cursor, so it sits on top of the tiles you are hovering to look
+            at. @see Overlays.readout */}
+        {overlays.readout && <CellReadout />}
       </div>
 
       {/* chrome — sibling of the wrapper, so wheel events are its own */}
@@ -211,6 +214,7 @@ export function WorldEditor() {
               "gaps",
               "xray",
               "faces",
+              "readout",
             ] as (keyof Overlays)[]
           ).map((k) => (
             <button

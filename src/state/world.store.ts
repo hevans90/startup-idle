@@ -83,6 +83,15 @@ export type Overlays = {
    * to take them away and see what is left is how that argument gets settled.
    */
   faces: boolean;
+  /**
+   * The cursor-tracking CELL READOUT — what is actually under the pointer.
+   *
+   * On by default, because it is the thing you want nine times out of ten in
+   * an editor. It is here so it can be turned OFF: it follows the cursor, so
+   * it covers whatever you are trying to look at, which is precisely the
+   * tiles you are hovering to inspect. @see CellReadout
+   */
+  readout: boolean;
 };
 
 /**
@@ -447,6 +456,26 @@ function fixtureFromUrl(): FixtureId | null {
   return want && FIXTURE_IDS.includes(want as FixtureId) ? (want as FixtureId) : null;
 }
 
+/**
+ * Whether the cell readout starts on: `?readout=0` to hide it, `1` to show.
+ *
+ * WRITTEN AS A VALUE rather than as a bare presence flag like `?gpucheck`,
+ * because unlike those this one is ON by default — a flag whose presence
+ * turns something on says nothing about turning it off, and off is the
+ * interesting request here. Absent leaves it on, and anything unparseable
+ * leaves it on too: a typo in a query string should not quietly take a
+ * readout away. @see Overlays.readout
+ */
+export function readoutFromUrl(search?: string): boolean {
+  const from = search ?? (typeof location === "undefined" ? null : location.search);
+  if (from === null) return true;
+  const want = new URLSearchParams(from).get("readout");
+  if (want === null) return true;
+  return want !== "0" && want !== "false" && want !== "off";
+}
+
+const START_READOUT = readoutFromUrl();
+
 const START_FIXTURE = fixtureFromUrl();
 /**
  * The generator's settings as they were left. @see loadGenParams
@@ -475,6 +504,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   overlays: {
     grid: true, bands: false, height: false, origin: true, faces: true,
     net: false, mask: false, gaps: false, xray: false,
+    readout: START_READOUT,
   },
   seed: null,
   gen: START_GEN,
