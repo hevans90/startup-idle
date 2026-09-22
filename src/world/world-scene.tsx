@@ -177,11 +177,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const pl = createPavedLayer(grid, ROAD_TABLE, scale);
       const sl = createStructureLayer();
       const water = useWorldStore.getState().getWaterField();
-      // THE SAME RESTRICTION FOR THE MESH. The device builds the surface in a
-      // vertex shader from the column textures, one storey's worth, so a map
-      // with bridges on it draws through the CPU builder until that shader
-      // learns about slots too. @see createWaterLayer
-      const onGpu = waterOnGpu() && (water?.columns.layers ?? 1) === 1;
+      // THE MESH KNOWS ABOUT STOREYS, so a map with bridges on it draws on
+      // the device like any other. The SOLVER still does not — see the effect
+      // that builds it — which is the one thing left holding a bridged map on
+      // the host. @see createGpuWaterLayer
+      const onGpu = waterOnGpu();
       rendererRef.current = app?.renderer ?? null;
       const fl = water && !onGpu ? createWaterLayer(water.columns, bl, scale) : null;
       gpuRef.current = water && onGpu ? createGpuWaterLayer(water.columns, bl, scale) : null;
@@ -944,6 +944,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       solverRef.current?.destroy();
       solverRef.current = null;
       gpuWaterSaw(null);
+      // THE GATHERING IS NOT THE SOLVER'S, and it used to be built with it.
+      // It only reads the depth and ground textures, and on this path the
+      // HOST fills those — a frame before the gather reads them rather than
+      // in the same command buffer, so its counts lag by one. `roomFor` is
+      // the headroom that absorbs exactly that.
+      //
+      // Without it every band draws every quad it could ever hold, which on
+      // a map with storeys is twice as many again: measured on a bridged map
+      // at 48 tiles, 22ms of GPU against 1.2 with the gathering on. Tying it
+      // to the solver made a mesh that was meant to save host time cost
+      // twenty times its saving somewhere else.
+      if (gpuWater && field && device && deviceLost() === null && gpuRef.current) {
+        const g0 = useWorldStore.getState().grid;
+        gpuRef.current.gather = attachQuadGather(
+          gpuRef.current, rendererRef.current, device, g0.w, g0.h,
+        );
+      }
       return;
     }
     // The water layer's own carried fields go with it: the device advects
@@ -1102,10 +1119,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       else stepWater(field, dt);
       const t1 = performance.now();
       // THE QUADS THIS FRAME IS WORTH DRAWING, gathered before the mesh is
-      // told how many to draw and after the solver has filled the textures it
-      // reads. @see gatherQuads
+      // told how many to draw. On the device's own path that is after the
+      // solver has filled the textures it reads; on the host's it is a frame
+      // behind them, which `roomFor` has the headroom for. @see gatherQuads
       const dev = heldDevice();
-      if (gpu?.gather && solver && dev) {
+      if (gpu?.gather && dev) {
         gatherQuads(gpu.gather, dev, field.columns, grid.w, grid.h, overlays.faces);
       }
       if (fl) drawWater(fl, field.columns, bl, dt, overlays.faces);

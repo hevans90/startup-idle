@@ -302,8 +302,10 @@ export type Dialect = "wgsl" | "glsl";
  * The same rule as shader source.
  *
  * The host shader has to supply the parts that differ between the two paths
- * and are none of this rule's business: `inside(x, y)`, `depthAt(x, y)`,
- * `groundAt(x, y)`, `sheetAt(x, y)`, `dryDepth()` and `fallMin()`. GLSL must
+ * and are none of this rule's business: `inside(x, y)`, `slots()`,
+ * `depthAt(x, y, a)`, `groundAt(x, y, a)`, `roofAt(x, y, a)`,
+ * `sheetAt(x, y, a)`, `dryDepth()` and `fallMin()`. The `a` is which STOREY — a column is a stack of slots and
+ * a bridge puts water in two of them. GLSL must
  * also supply a `select(a, b, cond)` — WGSL has it built in, and one
  * three-line helper is cheaper than teaching this template about ternaries.
  *
@@ -348,9 +350,12 @@ ${wgsl
 }
 
 ${wgsl
-  ? "fn atBrink(cx: i32, cy: i32) -> f32 {"
-  : "float atBrink(int cx, int cy) {"}
-  ${NUM} bed = groundAt(cx, cy);
+  ? "fn atBrink(cx: i32, cy: i32, a: i32) -> f32 {"
+  : "float atBrink(int cx, int cy, int a) {"}
+  // ALONG THE SLOT'S OWN STOREY. A deck looks along the deck for its lip and
+  // the channel under it looks along the channel; asked of storey nought, a
+  // bridge would take its drawdown from the riverbed.
+  ${NUM} bed = groundAt(cx, cy, a);
   ${MUT} most = 0.0;
   for (${LOOP} k = 0; k < 4; k = k + 1) {
     ${INT} dx = select(0, select(-1, 1, k == 0), k < 2);
@@ -361,9 +366,9 @@ ${wgsl
       ${INT} jx = cx + dx * r;
       ${INT} jy = cy + dy * r;
       if (!inside(jx, jy)) { break; }
-      if (groundAt(jx, jy) > bed) { break; }
-      ${NUM} dj = depthAt(jx, jy);
-      ${NUM} beside = select(groundAt(jx, jy), groundAt(jx, jy) + dj, dj > dryDepth());
+      if (groundAt(jx, jy, a) > bed) { break; }
+      ${NUM} dj = depthAt(jx, jy, a);
+      ${NUM} beside = select(groundAt(jx, jy, a), groundAt(jx, jy, a) + dj, dj > dryDepth());
       ${NUM} how = spillAt(bed, beside);
       most = max(most, how * (1.0 - ${FLT}(r - 1) / ${BRINK_REACH}.0));
       if (how > 0.0) { break; }
@@ -390,20 +395,32 @@ ${head}
     ${INT} cx = vx - 1 + (k & 1);
     ${INT} cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { edge = 1.0; continue; }
-    lowest = min(lowest, groundAt(cx, cy));
-    highest = max(highest, groundAt(cx, cy));
-    ${NUM} d = depthAt(cx, cy);
-    if (d <= dryDepth()) { continue; }
-    if (sheetAt(cx, cy) != sheet) { continue; }
-    ${NUM} g = groundAt(cx, cy);
-    // Leaned toward the lip — see water.ts's DRAWDOWN, which is this. The
-    // HEIGHT only: how solid it looks is gathered separately and untouched.
-    ${NUM} surface = g + d - d * ${drawdown} * atBrink(cx, cy);
-    sum = sum + surface;
-    n = n + 1.0;
-    // The highest bed of this sheet's OWN contributors, which is what the rim
-    // rule is measured from.
-    bed = max(bed, g);
+    // THE GROUND BESIDE IT is storey nought's, always: the rim rule asks what
+    // the land does around the corner, and the land is the land whatever is
+    // built over it.
+    lowest = min(lowest, groundAt(cx, cy, 0));
+    highest = max(highest, groundAt(cx, cy, 0));
+    // AND EVERY STOREY OF IT, because a bridge's deck and the channel under
+    // it both meet this corner and only one of them is on this sheet.
+    for (${LOOP} a = 0; a < slots(); a = a + 1) {
+      ${NUM} d = depthAt(cx, cy, a);
+      if (d <= dryDepth()) { continue; }
+      if (sheetAt(cx, cy, a) != sheet) { continue; }
+      ${NUM} g = groundAt(cx, cy, a);
+      // UNDER A ROOF THE WATER STOPS AT THE ROOF. A slot running full is
+      // against a soffit and there is nothing above it to see; drawn at
+      // floor plus depth it is a sheet inside the bridge. The twin of
+      // wetTop in fluid/slots, which is what surfaceAt gives the builder.
+      ${NUM} wet = min(g + d, roofAt(cx, cy, a));
+      // Leaned toward the lip — see water.ts's DRAWDOWN, which is this. The
+      // HEIGHT only: how solid it looks is gathered separately and untouched.
+      ${NUM} surface = wet - d * ${drawdown} * atBrink(cx, cy, a);
+      sum = sum + surface;
+      n = n + 1.0;
+      // The highest bed of this sheet's OWN contributors, which is what the
+      // rim rule is measured from.
+      bed = max(bed, g);
+    }
   }
   if (n == 0.0) { return ${VEC4}(0.0, 0.0, -1000.0, 0.0); }
   ${NUM} mean = sum / n;

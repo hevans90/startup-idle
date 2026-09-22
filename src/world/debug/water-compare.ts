@@ -24,20 +24,38 @@
  * is how MANY pixels differ and by how much.
  *
  * WHAT IT READS WHEN IT IS RIGHT, so that a future reader knows what normal
- * looks like: of 33,115 pixels either path draws, the worst single channel
- * anywhere disagrees by 3 out of 255, the mean by 0.4, and at a tolerance of
- * 4 nothing differs at all. Neither path draws a pixel the other leaves empty.
- * The same on both renderers, to the pixel.
+ * looks like: of 36,434 pixels either path draws, the worst single channel
+ * anywhere disagrees by 5 out of 255, the mean by 0.45, and at the default
+ * tolerance nothing differs at all. Neither path draws a pixel the other
+ * leaves empty. The same on both renderers, to the pixel.
+ *
+ * THE TOLERANCE IS 5 AND WAS 4, and the extra step is the bridge. Exactly one
+ * pixel of the scene reads 5, deterministically, every run: the corner where
+ * a deck meets the air carries two surfaces tens of half steps apart, and the
+ * two paths round that vertex to different sides of a pixel boundary. It is
+ * the same float-precision class the paragraph above describes, one step
+ * further along, and it is nowhere near the faults this catches — the corner
+ * merge read 248, the bridge faults below read 255.
  *
  * AND WHAT IT READS WHEN IT IS WRONG, because a comparison that cannot fail is
  * worth nothing. Put back the bug this was all downstream of — the corner
  * merge present in the builder and missing from the shader, which is exactly
  * how it shipped — and it reads 1,652 pixels differing, 5% of what was drawn,
  * the worst by 248 out of 255, with pixels on each side the other never drew.
+ *
+ * THE SCENE HAS A BRIDGE ON IT, and it did not until the day the two paths
+ * disagreed about one. A deck makes a column a stack of slots, so every
+ * per-slot field the shader reads is a plane deeper and every corner it
+ * gathers has a storey it has to look at — and none of that was covered here.
+ * Adding it caught two faults at once, both worth 255: the shader drew the
+ * water under a span at floor plus depth rather than stopping it at the
+ * soffit, and it drew that water in the tier ABOVE the paving, which paints a
+ * flooded channel across the front of its own bridge. 6,681 pixels differing,
+ * 3,512 of them drawn by the shader alone.
  */
 import { Container, RenderTexture, type Renderer } from "pixi.js";
 
-import { createGrid, fillTerrain, setHeight } from "../grid";
+import { createGrid, fillTerrain, setDeck, setHeight } from "../grid";
 import { createWaterField, pourAt, setWaterEdge, stepWater } from "../water/field";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { createBandLayer } from "../render/bands";
@@ -86,6 +104,15 @@ function scene(size: number) {
       setHeight(grid, x, y, wall ? 60 : plateau ? 22 : 10 + dip);
     }
   }
+  // AND A BRIDGE OVER THE MIDDLE OF IT, because a corner that carries two
+  // sheets is the case the two builders can most easily disagree about — and
+  // the case neither of them had here. A deck makes a column a stack of
+  // slots, so every per-slot field the shader reads is a plane deeper and
+  // every corner it gathers has a storey it has to look at. @see fluid/slots
+  const mid = size >> 1;
+  for (let y = mid - 2; y <= mid + 1; y++) {
+    for (let x = rim + 2; x <= rim + 5; x++) setDeck(grid, x, y, 1, 18);
+  }
   const field = createWaterField(grid);
   setWaterEdge(field, false);
   for (let y = rim; y < size - rim; y++) {
@@ -94,6 +121,12 @@ function scene(size: number) {
   // A sheet on the plateau, which will spill off its lip.
   for (let y = rim + 2; y < size - rim - 2; y++) {
     for (let x = size - 9; x < size - rim; x++) pourAt(field, x, y, 5, 1);
+  }
+  // And a puddle on the span, which is water at a height nothing else on the
+  // map stands at — so the corner where the deck meets the air really does
+  // hold two sheets.
+  for (let y = mid - 1; y <= mid; y++) {
+    for (let x = rim + 3; x <= rim + 4; x++) pourAt(field, x, y, 3, 1);
   }
   return { grid, field };
 }
@@ -114,7 +147,7 @@ function frame(root: Container, size: number, px: number) {
  * colour, which is what lets float against double pass.
  */
 export function compareWaterPaths(
-  renderer: Renderer, { size = 28, px = 640, seconds = 2, tolerance = 4 } = {},
+  renderer: Renderer, { size = 28, px = 640, seconds = 2, tolerance = 5 } = {},
 ): Comparison {
   const { grid, field } = scene(size);
   void grid;

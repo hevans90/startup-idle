@@ -33,8 +33,8 @@ export function quadRuleSource(dialect: Dialect): string {
   const V4 = wgsl ? "let" : "vec4";
   return `
 ${wgsl
-    ? "fn forward(cx: i32, cy: i32, axis: i32, cpt: i32) -> bool {"
-    : "bool forward(int cx, int cy, int axis, int cpt) {"}
+    ? "fn forward(cx: i32, cy: i32, axis: i32, cpt: i32, a: i32) -> bool {"
+    : "bool forward(int cx, int cy, int axis, int cpt, int a) {"}
   // Only on a tile's own far edge — an interior face never crosses a band
   // boundary — and only where the ground in front is BELOW this water, because
   // a tile in front that stands higher is genuinely in front and its terrain
@@ -44,30 +44,30 @@ ${wgsl
   ${INT} jx = cx + select(0, 1, axis == 0);
   ${INT} jy = cy + select(1, 0, axis == 0);
   if (!inside(jx, jy)) { return false; }
-  return groundAt(jx, jy) < groundAt(cx, cy) + depthAt(cx, cy);
+  return groundAt(jx, jy, a) < groundAt(cx, cy, a) + depthAt(cx, cy, a);
 }
 
 ${wgsl
-    ? "fn sideShows(cx: i32, cy: i32, axis: i32) -> bool {"
-    : "bool sideShows(int cx, int cy, int axis) {"}
+    ? "fn sideShows(cx: i32, cy: i32, axis: i32, a: i32) -> bool {"
+    : "bool sideShows(int cx, int cy, int axis, int a) {"}
   // The same four numbers sidePart hangs the quad from. If both ends have
   // come down to their own floor the quad is a line and draws nothing.
   ${INT} jx = cx + select(0, 1, axis == 0);
   ${INT} jy = cy + select(1, 0, axis == 0);
   ${BOOL} rim = !inside(jx, jy);
-  ${NUM} bed = groundAt(cx, cy);
-  ${NUM} bedJ = select(groundAt(jx, jy), bed, rim);
-  ${BOOL} wetJ = !rim && depthAt(jx, jy) > dryDepth();
+  ${NUM} bed = groundAt(cx, cy, a);
+  ${NUM} bedJ = select(groundAt(jx, jy, a), bed, rim);
+  ${BOOL} wetJ = !rim && depthAt(jx, jy, a) > dryDepth();
   ${INT} vax = cx + select(0, 1, axis == 0);
   ${INT} vay = cy + select(1, 0, axis == 0);
   // BY SHEET, exactly as the vertex shader asks it — see water-gpu's sidePart
   // and water.ts's sideFace, which are the same four heights. This pass only
   // decides WHETHER a quad is worth drawing, so an answer that disagreed with
   // the one that draws it would either lose a face or keep an empty one.
-  ${NUM} mine = sheetAt(cx, cy);
-  ${NUM} theirs = select(-1.0, sheetAt(jx, jy), wetJ);
-  ${NUM} ownTop = bed + depthAt(cx, cy);
-  ${NUM} theirTop = select(bedJ, bedJ + depthAt(jx, jy), wetJ);
+  ${NUM} mine = sheetAt(cx, cy, a);
+  ${NUM} theirs = select(-1.0, sheetAt(jx, jy, a), wetJ);
+  ${NUM} ownTop = min(bed + depthAt(cx, cy, a), roofAt(cx, cy, a));
+  ${NUM} theirTop = select(bedJ, min(bedJ + depthAt(jx, jy, a), roofAt(jx, jy, a)), wetJ);
   ${V4} cA = cornerOf(vax, vay, mine);
   ${V4} cB = cornerOf(cx + 1, cy + 1, mine);
   ${V4} oA = cornerOf(vax, vay, theirs);
@@ -81,26 +81,26 @@ ${wgsl
 }
 
 ${wgsl
-    ? "fn quadDraws(cx: i32, cy: i32, part: i32, cpt: i32, faces: bool) -> bool {"
-    : "bool quadDraws(int cx, int cy, int part, int cpt, bool faces) {"}
+    ? "fn quadDraws(cx: i32, cy: i32, part: i32, cpt: i32, faces: bool, a: i32) -> bool {"
+    : "bool quadDraws(int cx, int cy, int part, int cpt, bool faces, int a) {"}
   if (!inside(cx, cy)) { return false; }
-  if (part == 0) { return depthAt(cx, cy) > dryDepth(); }
+  if (part == 0) { return depthAt(cx, cy, a) > dryDepth(); }
   if (!faces) { return false; }
   if (part <= 2) {
     // A SIDE OF THIS COLUMN, unless it is filed forward into the band in front.
-    if (depthAt(cx, cy) <= dryDepth()) { return false; }
+    if (depthAt(cx, cy, a) <= dryDepth()) { return false; }
     ${INT} axis = part - 1;
-    if (forward(cx, cy, axis, cpt)) { return false; }
-    return sideShows(cx, cy, axis);
+    if (forward(cx, cy, axis, cpt, a)) { return false; }
+    return sideShows(cx, cy, axis, a);
   }
   // The far-edge face of the column BEHIND this one, filed into this band.
   ${INT} axis2 = part - 3;
   ${INT} bx = cx - select(0, 1, axis2 == 0);
   ${INT} by = cy - select(1, 0, axis2 == 0);
   if (!inside(bx, by)) { return false; }
-  if (depthAt(bx, by) <= dryDepth()) { return false; }
-  if (!forward(bx, by, axis2, cpt)) { return false; }
-  return sideShows(bx, by, axis2);
+  if (depthAt(bx, by, a) <= dryDepth()) { return false; }
+  if (!forward(bx, by, axis2, cpt, a)) { return false; }
+  return sideShows(bx, by, axis2, a);
 }
 `;
 }

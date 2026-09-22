@@ -235,3 +235,28 @@ describe("the GLSL twin speaks GLSL", () => {
     }
   });
 });
+
+/**
+ * NO BACKTICKS IN SHADER SOURCE, not even in a comment.
+ *
+ * Every one of these is built with a template literal, so a backtick inside
+ * one ends it — and what follows is parsed as TypeScript, which it is not.
+ * `quads-gpu.ts` carries a comment saying so, in the file where somebody
+ * learned it. That comment is advice; this is the rule, and it covers the
+ * files that do not carry the comment. It has been broken twice in one
+ * afternoon by prose about the very functions the shader declares.
+ */
+describe("shader source is not TypeScript", () => {
+  const all: [string, () => string][] = [
+    ...WGSL,
+    ["water shader (wgsl)", () => waterShaderSource().wgsl],
+    ["water shader (glsl)", () => waterShaderSource().glsl],
+    ["corner rule (glsl)", () => cornerRuleSource("glsl")],
+    ["quad rule (glsl)", () => quadRuleSource("glsl")],
+  ];
+  for (const [name, build] of all) {
+    test(`${name} has no backtick in it`, () => {
+      expect(build()).not.toContain("`");
+    });
+  }
+});

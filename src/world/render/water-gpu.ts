@@ -62,6 +62,7 @@ import {
 } from "../../fluid/columns";
 import { RIM, cornerRuleSource } from "./corner-rule";
 import { NO_BODY, createBodies, findBodies, type Bodies } from "./bodies";
+import { OPEN_SKY } from "../../fluid/slots";
 import { quadRuleSource } from "./quad-rule";
 import { createQuadsPass, type QuadsPass } from "./quads-gpu";
 import { FALL_MIN } from "../../fluid/falls";
@@ -213,14 +214,17 @@ export type QuadList = {
   rows: number;
 };
 
-export function quadList(w: number, h: number): QuadList {
+export function quadList(w: number, h: number, layers = 1): QuadList {
   const bands = w + h - 1;
   const caps = new Uint32Array(bands);
   const offsets = new Uint32Array(bands);
   let at = 0;
   for (let b = 0; b < bands; b++) {
     offsets[b] = at;
-    caps[b] = bandTiles(w, h, b) * PER_TILE * PARTS;
+    // TIMES THE STOREYS. A bridge column draws the river under the span and
+    // whatever stands on the deck, and a list too short for both silently
+    // drops whichever the gather reached second. @see ColumnField.layers
+    caps[b] = bandTiles(w, h, b) * PER_TILE * PARTS * layers;
     at += caps[b];
   }
   return { caps, offsets, total: at, rows: Math.max(1, Math.ceil(at / LIST_W)) };
@@ -320,6 +324,7 @@ struct Water {
   uIso: vec4<f32>,        // HW, HH, HEIGHT_UNIT (all scaled), faces on
   uBand: vec4<f32>,       // band, first tile x, dry depth, tiles in this band
   uList: vec4<f32>,       // this band's offset into the quad list, list width
+  uSlots: vec4<f32>,      // storeys, and which band tier this mesh draws
 };
 @group(2) @binding(0) var<uniform> water : Water;
 @group(2) @binding(1) var uDepth : texture_2d<f32>;
@@ -329,19 +334,50 @@ struct Water {
 @group(2) @binding(5) var uFx : texture_2d<f32>;
 @group(2) @binding(6) var uFy : texture_2d<f32>;
 @group(2) @binding(7) var uBody : texture_2d<f32>;
-@group(2) @binding(8) var uTint : texture_2d<f32>;
-@group(2) @binding(9) var uMaterial : texture_2d<f32>;
-@group(2) @binding(10) var uQuads : texture_2d<u32>;
+@group(2) @binding(8) var uRoof : texture_2d<f32>;
+@group(2) @binding(9) var uTint : texture_2d<f32>;
+@group(2) @binding(10) var uMaterial : texture_2d<f32>;
+@group(2) @binding(11) var uQuads : texture_2d<u32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) vColor: vec4<f32>,
 };
 
-fn depthAt(x: i32, y: i32) -> f32 { return textureLoad(uDepth, vec2<i32>(x, y), 0).r; }
-fn groundAt(x: i32, y: i32) -> f32 { return textureLoad(uGround, vec2<i32>(x, y), 0).r; }
-/** WHICH SHEET stands on a column, or -1 where it is dry. @see render/bodies */
-fn sheetAt(x: i32, y: i32) -> f32 { return textureLoad(uBody, vec2<i32>(x, y), 0).r; }
+/** How many STOREYS a column has. @see ColumnField.layers */
+fn slots() -> i32 { return i32(water.uSlots.x); }
+/**
+ * WHETHER THIS MESH IS THE ONE UNDER THE PAVING.
+ *
+ * A band sorts on x + y with height left out, which is sound while a cell
+ * holds one surface. A bridge is the cell that holds two, and water under a
+ * span drew after the span — so a channel running full painted itself across
+ * the front of the bridge. There are two meshes per band now: one in the tier
+ * before the paving for water with something over it, one after for the rest,
+ * and each skips the quads that are not its own. See BandLayer.underOf.
+ */
+fn roofedTier() -> bool { return water.uSlots.y > 0.5; }
+/**
+ * A SLOT'S ROW. Every per-slot field is a stack of planes, one per storey,
+ * because that is what the arrays already are: slot a of column i sits at
+ * a * cells + i, and cells is nx * ny, so the plane begins at row a * ny and
+ * nothing had to be re-packed to get it here.
+ */
+fn slotRow(y: i32, a: i32) -> i32 { return a * i32(water.uGrid.y) + y; }
+fn depthAt(x: i32, y: i32, a: i32) -> f32 {
+  return textureLoad(uDepth, vec2<i32>(x, slotRow(y, a)), 0).r;
+}
+fn groundAt(x: i32, y: i32, a: i32) -> f32 {
+  return textureLoad(uGround, vec2<i32>(x, slotRow(y, a)), 0).r;
+}
+/** WHICH SHEET stands in a slot, or -1 where it is dry. @see render/bodies */
+fn sheetAt(x: i32, y: i32, a: i32) -> f32 {
+  return textureLoad(uBody, vec2<i32>(x, slotRow(y, a)), 0).r;
+}
+/** The underside of whatever is over a slot, or the open sky. @see fluid/slots */
+fn roofAt(x: i32, y: i32, a: i32) -> f32 {
+  return textureLoad(uRoof, vec2<i32>(x, slotRow(y, a)), 0).r;
+}
 /** The four things the shared corner rule asks its host for. */
 fn dryDepth() -> f32 { return water.uBand.z; }
 fn fallMin() -> f32 { return ${FALL_MIN}.0; }
@@ -356,14 +392,25 @@ ${cornerRuleSource("wgsl", DRAWDOWN)}
 ${quadRuleSource("wgsl")}
 
 /** Flux over a depth FLOOR, clamped — flowX and flowY, in the shader. */
-fn flowAt(cx: i32, cy: i32, d: f32) -> vec2<f32> {
+fn flowAt(cx: i32, cy: i32, d: f32, a: i32) -> vec2<f32> {
   let by = max(d, water.uBand.z * 8.0);
-  var west = 0.0;
-  if (cx > 0) { west = textureLoad(uFx, vec2<i32>(cx - 1, cy), 0).r; }
-  var north = 0.0;
-  if (cy > 0) { north = textureLoad(uFy, vec2<i32>(cx, cy - 1), 0).r; }
-  let vx = (west + textureLoad(uFx, vec2<i32>(cx, cy), 0).r) * 0.5 / by;
-  let vy = (north + textureLoad(uFy, vec2<i32>(cx, cy), 0).r) * 0.5 / by;
+  let L = slots();
+  let ny = i32(water.uGrid.y);
+  // SUMMED OVER EVERYWHERE THIS SLOT'S WATER CAN GO, which is a plane per
+  // slot on the far side of the edge — off the end of a bridge onto the road
+  // AND over the parapet beside it, from the same water. The twin of outX and
+  // inX in fluid/columns.
+  var west = 0.0; var north = 0.0; var east = 0.0; var south = 0.0;
+  for (var b = 0; b < L; b = b + 1) {
+    let out = (a * L + b) * ny;
+    let back = (b * L + a) * ny;
+    east = east + textureLoad(uFx, vec2<i32>(cx, out + cy), 0).r;
+    south = south + textureLoad(uFy, vec2<i32>(cx, out + cy), 0).r;
+    if (cx > 0) { west = west + textureLoad(uFx, vec2<i32>(cx - 1, back + cy), 0).r; }
+    if (cy > 0) { north = north + textureLoad(uFy, vec2<i32>(cx, back + cy - 1), 0).r; }
+  }
+  let vx = (west + east) * 0.5 / by;
+  let vy = (north + south) * 0.5 / by;
   return clamp(vec2<f32>(vx, vy), vec2<f32>(-${MAX_FLOW_SPEED}.0), vec2<f32>(${MAX_FLOW_SPEED}.0));
 }
 
@@ -375,21 +422,25 @@ fn cornerExtras(vx: i32, vy: i32, sheet: f32) -> vec4<f32> {
     let cx = vx - 1 + (k & 1);
     let cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
-    let dd = depthAt(cx, cy);
-    if (dd <= water.uBand.z) { continue; }
     // THE EXTRAS FOLLOW THE SHEET, exactly as the corner's height does — see
     // water.ts's cornerValues, which is this. Grouped by the BED instead,
     // the last corner before a lip took much of its colour from the water at
     // the foot of the cliff, and the river under a bridge took all of its
     // colour from whatever stood on the deck. @see render/bodies
-    if (sheetAt(cx, cy) != sheet) { continue; }
-    // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
-    // shownDepth, which is this.
-    d = d + max(dd, ${SHOW_DEPTH} * atBrink(cx, cy));
-    wash = wash + textureLoad(uWash, vec2<i32>(cx, cy), 0).r;
-    foam = foam + textureLoad(uFoam, vec2<i32>(cx, cy), 0).r;
-    vel = vel + flowAt(cx, cy, dd);
-    n = n + 1.0;
+    for (var a = 0; a < slots(); a = a + 1) {
+      let dd = depthAt(cx, cy, a);
+      if (dd <= water.uBand.z) { continue; }
+      if (sheetAt(cx, cy, a) != sheet) { continue; }
+      // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
+      // shownDepth, which is this.
+      d = d + max(dd, ${SHOW_DEPTH} * atBrink(cx, cy, a));
+      // The wash and the foam are the WORLD'S, one per column: a tile carries
+      // one current pattern whatever is built over it.
+      wash = wash + textureLoad(uWash, vec2<i32>(cx, cy), 0).r;
+      foam = foam + textureLoad(uFoam, vec2<i32>(cx, cy), 0).r;
+      vel = vel + flowAt(cx, cy, dd, a);
+      n = n + 1.0;
+    }
   }
   if (n == 0.0) { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
   return vec4<f32>(d / n, wash / n, foam / n, length(vel / n));
@@ -412,9 +463,11 @@ fn nearby(vx: i32, vy: i32, sheet: f32, here: f32) -> f32 {
     let cx = vx - 1 + (k & 1);
     let cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
-    if (depthAt(cx, cy) <= water.uBand.z) { continue; }
-    let o = cornerOf(vx, vy, sheetAt(cx, cy));
-    if (o.w > 0.0 && o.x < below) { below = o.x; }
+    for (var a = 0; a < slots(); a = a + 1) {
+      if (depthAt(cx, cy, a) <= water.uBand.z) { continue; }
+      let o = cornerOf(vx, vy, sheetAt(cx, cy, a));
+      if (o.w > 0.0 && o.x < below) { below = o.x; }
+    }
   }
   return below;
 }
@@ -426,8 +479,8 @@ fn aerated(mat: i32, t: f32) -> vec3<f32> {
 }
 
 /** How fast this column is going, nought to one. */
-fn pace(cx: i32, cy: i32, d: f32) -> f32 {
-  let v = flowAt(cx, cy, d);
+fn pace(cx: i32, cy: i32, d: f32, a: i32) -> f32 {
+  let v = flowAt(cx, cy, d, a);
   return min(1.0, (abs(v.x) + abs(v.y)) * 0.5);
 }
 
@@ -450,7 +503,7 @@ struct Part {
  * a gap — see the long note the CPU builder carries.
  */
 
-fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: f32, d: f32) -> Part {
+fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: f32, d: f32, a: i32) -> Part {
   var p: Part;
   p.ok = false;
   let jx = cx + select(0, 1, axis == 0);
@@ -460,9 +513,9 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   // treated as dry ground at this column's own level, which is what takes the
   // body all the way down to the bed it stands on.
   let rim = !inside(jx, jy);
-  let bed = groundAt(cx, cy);
-  let bedJ = select(groundAt(jx, jy), bed, rim);
-  let wetJ = !rim && depthAt(jx, jy) > dryDepth();
+  let bed = groundAt(cx, cy, a);
+  let bedJ = select(groundAt(jx, jy, a), bed, rim);
+  let wetJ = !rim && depthAt(jx, jy, a) > dryDepth();
 
   // The edge: east runs (fx1,fy0)-(fx1,fy1), south runs (fx0,fy1)-(fx1,fy1).
   let ax = select(fx0, fx0 + step, axis == 0);
@@ -476,10 +529,10 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   // question. Asked by sheet it is a lookup, and a neighbour that is a
   // different body of water answers differently without anything having to
   // infer that from heights. The twin of water.ts's sideFace.
-  let mine = sheetAt(cx, cy);
-  let theirs = select(-1.0, sheetAt(jx, jy), wetJ);
-  let ownTop = bed + d;
-  let theirTop = select(bedJ, bedJ + depthAt(jx, jy), wetJ);
+  let mine = sheetAt(cx, cy, a);
+  let theirs = select(-1.0, sheetAt(jx, jy, a), wetJ);
+  let ownTop = min(bed + d, roofAt(cx, cy, a));
+  let theirTop = select(bedJ, min(bedJ + depthAt(jx, jy, a), roofAt(jx, jy, a)), wetJ);
   let cA = cornerOf(vax, vay, mine);
   let cB = cornerOf(cx + 1, cy + 1, mine);
   let oA = cornerOf(vax, vay, theirs);
@@ -502,8 +555,8 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   // Barely lightened: this is the side of a body of water seen edge on, not
   // spray. Whitened as hard as a fall it came out near white, and a ring of
   // near-white round every pool on a plateau read as a panel stuck to the rock.
-  let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, cy), 0).r * 255.0 + 0.5);
-  p.colour = aerated(mat, 0.08 + pace(cx, cy, d) * 0.14);
+  let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
+  p.colour = aerated(mat, 0.08 + pace(cx, cy, d, a) * 0.14);
   // The same ramp the surface uses, on the water standing at this edge: you
   // see through the side of a puddle and not through the side of a lake. Flat
   // at a third of an alpha, a deep body read as a sheet over a void — the
@@ -512,13 +565,13 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   // and reads worse, because it puts the ground's colour through the top half
   // of every edge.
   // Floored at a brink, the same as the surface — see corner-rule's atBrink.
-  let sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy));
+  let sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy, a));
   let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
   // HANDED OVER TO THE SHEET AT A LIP — see water.ts's sideFace, which is
   // this. A face is a pane of water, and a pane is only one of the three ways
   // water is bounded: a shore's corner has already come down to its bed, the
   // map's edge is an honest cut, and a LIP is bounded by the sheet leaving it.
-  let beside = select(bedJ, bedJ + depthAt(jx, jy), wetJ);
+  let beside = select(bedJ, bedJ + depthAt(jx, jy, a), wetJ);
   p.alpha = body * (1.0 - ${RIM}.0 * spillAt(bed, beside));
   p.ok = true;
   return p;
@@ -550,8 +603,14 @@ fn mainVertex(
     uQuads, vec2<i32>(at % lw, at / lw), 0,
   ).r) - 1;
   if (quad < 0) { return out; }
+  // A QUAD IS A PART, A STOREY AND A COLUMN. A bridge column draws the river
+  // under the span and whatever stands on the deck, so the storey is as much
+  // a part of a quad's identity as which of the five pieces it is.
+  let L = slots();
   let part = quad % ${PARTS};
-  let slot = quad / ${PARTS};
+  let cell = quad / ${PARTS};
+  let a = cell % L;
+  let slot = cell / L;
   let tileIdx = slot / per;
   let sub = slot % per;
 
@@ -565,7 +624,10 @@ fn mainVertex(
   let cy = ty * cpt + sy;
   if (!inside(cx, cy)) { return out; }
 
-  let d = depthAt(cx, cy);
+  let d = depthAt(cx, cy, a);
+  // Whichever column this quad hangs off decides its tier — the far-edge
+  // faces below use the column BEHIND, and ask again with that one.
+  if ((roofAt(cx, cy, a) < ${OPEN_SKY}) != roofedTier()) { return out; }
   let step = water.uGrid.w;
   let fx0 = f32(tx) - 0.5 + f32(sx) * step;
   let fy0 = f32(ty) - 0.5 + f32(sy) * step;
@@ -584,9 +646,9 @@ fn mainVertex(
     // THIS COLUMN'S OWN SHEET, which is what every corner it reads is keyed
     // on. A column contributed to its corners under this id, so the tier is
     // always there and always the one it helped make. @see render/bodies
-    let sheet = sheetAt(cx, cy);
+    let sheet = sheetAt(cx, cy, a);
     let c = cornerOf(cx + ox, cy + oy, sheet);
-    let bed = groundAt(cx, cy);
+    let bed = groundAt(cx, cy, a);
     h = max(c.x, bed);
     fx = fx0 + f32(ox) * step;
     fy = fy0 + f32(oy) * step;
@@ -607,7 +669,7 @@ fn mainVertex(
     let fade = min(1.0, cd / ${SHOW_DEPTH});
     let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
     alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
-    let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, cy), 0).r * 255.0 + 0.5);
+    let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
     rgb = textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb;
   } else if (part <= 2) {
     // A SIDE of this column. Hung from the very corners the surface quad
@@ -616,8 +678,8 @@ fn mainVertex(
     if (d <= water.uBand.z) { return out; }
     if (!facesOn()) { return out; }
     let axis = part - 1;
-    if (forward(cx, cy, axis, cpt)) { return out; }
-    let p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d);
+    if (forward(cx, cy, axis, cpt, a)) { return out; }
+    let p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d, a);
     if (!p.ok) { return out; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   } else {
@@ -628,11 +690,12 @@ fn mainVertex(
     let bx = cx - select(0, 1, axis == 0);
     let by = cy - select(1, 0, axis == 0);
     if (!inside(bx, by)) { return out; }
-    let bd = depthAt(bx, by);
+    let bd = depthAt(bx, by, a);
     if (bd <= water.uBand.z) { return out; }
-    if (!forward(bx, by, axis, cpt)) { return out; }
+    if ((roofAt(bx, by, a) < ${OPEN_SKY}) != roofedTier()) { return out; }
+    if (!forward(bx, by, axis, cpt, a)) { return out; }
     let p = sidePart(bx, by, axis, corner,
-      fx0 - select(0.0, step, axis == 0), fy0 - select(step, 0.0, axis == 0), step, bd);
+      fx0 - select(0.0, step, axis == 0), fy0 - select(step, 0.0, axis == 0), step, bd, a);
     if (!p.ok) { return out; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   }
@@ -699,6 +762,7 @@ uniform vec4 uGrid;
 uniform vec4 uIso;
 uniform vec4 uBand;
 uniform vec4 uList;
+uniform vec4 uSlots;
 
 uniform sampler2D uDepth;
 uniform sampler2D uGround;
@@ -707,14 +771,22 @@ uniform sampler2D uFoam;
 uniform sampler2D uFx;
 uniform sampler2D uFy;
 uniform sampler2D uBody;
+uniform sampler2D uRoof;
 uniform sampler2D uTint;
 uniform sampler2D uMaterial;
 uniform highp usampler2D uQuads;
 
-float depthAt(int x, int y) { return texelFetch(uDepth, ivec2(x, y), 0).r; }
-float groundAt(int x, int y) { return texelFetch(uGround, ivec2(x, y), 0).r; }
-// WHICH SHEET stands on a column, or -1 where it is dry. @see render/bodies
-float sheetAt(int x, int y) { return texelFetch(uBody, ivec2(x, y), 0).r; }
+// How many STOREYS a column has, and where a storey's plane of rows begins —
+// see the WGSL twin, where the layout is argued.
+int slots() { return int(uSlots.x); }
+// Whether this mesh is the one under the paving — see the WGSL twin.
+bool roofedTier() { return uSlots.y > 0.5; }
+int slotRow(int y, int a) { return a * int(uGrid.y) + y; }
+float depthAt(int x, int y, int a) { return texelFetch(uDepth, ivec2(x, slotRow(y, a)), 0).r; }
+float groundAt(int x, int y, int a) { return texelFetch(uGround, ivec2(x, slotRow(y, a)), 0).r; }
+// WHICH SHEET stands in a slot, or -1 where it is dry. @see render/bodies
+float sheetAt(int x, int y, int a) { return texelFetch(uBody, ivec2(x, slotRow(y, a)), 0).r; }
+float roofAt(int x, int y, int a) { return texelFetch(uRoof, ivec2(x, slotRow(y, a)), 0).r; }
 float dryDepth() { return uBand.z; }
 float fallMin() { return ${FALL_MIN}.0; }
 bool facesOn() { return uIso.w > 0.5; }
@@ -741,12 +813,22 @@ bool inside(int x, int y) {
 ${cornerRuleSource("glsl", DRAWDOWN)}
 ${quadRuleSource("glsl")}
 
-vec2 flowAt(int cx, int cy, float d) {
+vec2 flowAt(int cx, int cy, float d, int a) {
   float by = max(d, uBand.z * 8.0);
-  float west = cx > 0 ? texelFetch(uFx, ivec2(cx - 1, cy), 0).r : 0.0;
-  float north = cy > 0 ? texelFetch(uFy, ivec2(cx, cy - 1), 0).r : 0.0;
-  float vx = (west + texelFetch(uFx, ivec2(cx, cy), 0).r) * 0.5 / by;
-  float vy = (north + texelFetch(uFy, ivec2(cx, cy), 0).r) * 0.5 / by;
+  int L = slots();
+  int ny = int(uGrid.y);
+  // Summed over every plane this slot's water can leave by — see the WGSL twin.
+  float west = 0.0; float north = 0.0; float east = 0.0; float south = 0.0;
+  for (int b = 0; b < L; ++b) {
+    int out_ = (a * L + b) * ny;
+    int back = (b * L + a) * ny;
+    east += texelFetch(uFx, ivec2(cx, out_ + cy), 0).r;
+    south += texelFetch(uFy, ivec2(cx, out_ + cy), 0).r;
+    if (cx > 0) { west += texelFetch(uFx, ivec2(cx - 1, back + cy), 0).r; }
+    if (cy > 0) { north += texelFetch(uFy, ivec2(cx, back + cy - 1), 0).r; }
+  }
+  float vx = (west + east) * 0.5 / by;
+  float vy = (north + south) * 0.5 / by;
   return clamp(vec2(vx, vy), vec2(-${MAX_FLOW_SPEED}.0), vec2(${MAX_FLOW_SPEED}.0));
 }
 
@@ -757,17 +839,20 @@ vec4 cornerExtras(int vx, int vy, float sheet) {
     int cx = vx - 1 + (k & 1);
     int cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
-    float dd = depthAt(cx, cy);
-    if (dd <= uBand.z) { continue; }
-    // The extras follow the SHEET — see the WGSL twin.
-    if (sheetAt(cx, cy) != sheet) { continue; }
-    // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
-    // shownDepth, which is this.
-    d += max(dd, ${SHOW_DEPTH} * atBrink(cx, cy));
-    wash += texelFetch(uWash, ivec2(cx, cy), 0).r;
-    foam += texelFetch(uFoam, ivec2(cx, cy), 0).r;
-    vel += flowAt(cx, cy, dd);
-    n += 1.0;
+    // The extras follow the SHEET, and every storey meets this corner — see
+    // the WGSL twin.
+    for (int a = 0; a < slots(); ++a) {
+      float dd = depthAt(cx, cy, a);
+      if (dd <= uBand.z) { continue; }
+      if (sheetAt(cx, cy, a) != sheet) { continue; }
+      // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
+      // shownDepth, which is this.
+      d += max(dd, ${SHOW_DEPTH} * atBrink(cx, cy, a));
+      wash += texelFetch(uWash, ivec2(cx, cy), 0).r;
+      foam += texelFetch(uFoam, ivec2(cx, cy), 0).r;
+      vel += flowAt(cx, cy, dd, a);
+      n += 1.0;
+    }
   }
   if (n == 0.0) { return vec4(0.0); }
   return vec4(d / n, wash / n, foam / n, length(vel / n));
@@ -783,9 +868,11 @@ float nearby(int vx, int vy, float sheet, float here) {
     int cx = vx - 1 + (k & 1);
     int cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
-    if (depthAt(cx, cy) <= uBand.z) { continue; }
-    vec4 o = cornerOf(vx, vy, sheetAt(cx, cy));
-    if (o.w > 0.0 && o.x < below) { below = o.x; }
+    for (int a = 0; a < slots(); ++a) {
+      if (depthAt(cx, cy, a) <= uBand.z) { continue; }
+      vec4 o = cornerOf(vx, vy, sheetAt(cx, cy, a));
+      if (o.w > 0.0 && o.x < below) { below = o.x; }
+    }
   }
   return below;
 }
@@ -795,8 +882,8 @@ vec3 aerated(int mat, float t) {
   return texelFetch(uTint, ivec2(int(k + 0.5), mat), 0).rgb;
 }
 
-float pace(int cx, int cy, float d) {
-  vec2 v = flowAt(cx, cy, d);
+float pace(int cx, int cy, float d, int a) {
+  vec2 v = flowAt(cx, cy, d, a);
   return min(1.0, (abs(v.x) + abs(v.y)) * 0.5);
 }
 
@@ -811,7 +898,7 @@ struct Part {
 
 // The same rule as the WGSL forward().
 
-Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float step, float d) {
+Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float step, float d, int a) {
   Part p;
   p.ok = false;
   p.fx = 0.0; p.fy = 0.0; p.h = 0.0; p.colour = vec3(0.0); p.alpha = 0.0;
@@ -819,9 +906,9 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
   int jy = cy + (axis == 0 ? 0 : 1);
   // THE RIM OF THE MAP IS NOT A NEIGHBOUR — see the WGSL twin.
   bool rim = !inside(jx, jy);
-  float bed = groundAt(cx, cy);
-  float bedJ = rim ? bed : groundAt(jx, jy);
-  bool wetJ = !rim && depthAt(jx, jy) > dryDepth();
+  float bed = groundAt(cx, cy, a);
+  float bedJ = rim ? bed : groundAt(jx, jy, a);
+  bool wetJ = !rim && depthAt(jx, jy, a) > dryDepth();
 
   float ax = axis == 0 ? fx0 + step : fx0;
   float ay = axis == 0 ? fy0 : fy0 + step;
@@ -829,10 +916,10 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
   int vay = cy + (axis == 0 ? 0 : 1);
 
   // BOTH SHEETS BY NAME — see the WGSL twin, and water.ts's sideFace.
-  float mine = sheetAt(cx, cy);
-  float theirs = wetJ ? sheetAt(jx, jy) : -1.0;
-  float ownTop = bed + d;
-  float theirTop = wetJ ? bedJ + depthAt(jx, jy) : bedJ;
+  float mine = sheetAt(cx, cy, a);
+  float theirs = wetJ ? sheetAt(jx, jy, a) : -1.0;
+  float ownTop = min(bed + d, roofAt(cx, cy, a));
+  float theirTop = wetJ ? min(bedJ + depthAt(jx, jy, a), roofAt(jx, jy, a)) : bedJ;
   vec4 cA = cornerOf(vax, vay, mine);
   vec4 cB = cornerOf(cx + 1, cy + 1, mine);
   vec4 oA = cornerOf(vax, vay, theirs);
@@ -851,14 +938,14 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
   float foot = onA ? s.z : s.w;
   p.h = onTop ? top : foot;
 
-  int mat = int(texelFetch(uMaterial, ivec2(cx, cy), 0).r * 255.0 + 0.5);
-  p.colour = aerated(mat, 0.08 + pace(cx, cy, d) * 0.14);
+  int mat = int(texelFetch(uMaterial, ivec2(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
+  p.colour = aerated(mat, 0.08 + pace(cx, cy, d, a) * 0.14);
   // The same ramp the surface uses — see the WGSL twin.
   // Floored at a brink, the same as the surface — see the WGSL twin.
-  float sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy));
+  float sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy, a));
   float body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
   // HANDED OVER TO THE SHEET AT A LIP — see the WGSL twin.
-  float beside = wetJ ? bedJ + depthAt(jx, jy) : bedJ;
+  float beside = wetJ ? bedJ + depthAt(jx, jy, a) : bedJ;
   p.alpha = body * (1.0 - ${RIM}.0 * spillAt(bed, beside));
   p.ok = true;
   return p;
@@ -882,8 +969,12 @@ void main() {
   // could not do — an r32uint texture sampled through a usampler2D, which is
   // where the water stopped drawing on WebGL even after the shader compiled.
   int quad = gl_InstanceID;
+  // A part, a STOREY and a column — see the WGSL twin.
+  int L = slots();
   int part = quad % ${PARTS};
-  int slot = quad / ${PARTS};
+  int cell = quad / ${PARTS};
+  int a = cell % L;
+  int slot = cell / L;
   int tileIdx = slot / per;
   int sub = slot % per;
 
@@ -897,7 +988,8 @@ void main() {
   int cy = ty * cpt + sy;
   if (!inside(cx, cy)) { return; }
 
-  float d = depthAt(cx, cy);
+  float d = depthAt(cx, cy, a);
+  if ((roofAt(cx, cy, a) < ${OPEN_SKY}) != roofedTier()) { return; }
   float step = uGrid.w;
   float fx0 = float(tx) - 0.5 + float(sx) * step;
   float fy0 = float(ty) - 0.5 + float(sy) * step;
@@ -913,9 +1005,9 @@ void main() {
     int ox = ((corner + 1) >> 1) & 1;
     int oy = corner >> 1;
     // THIS COLUMN'S OWN SHEET — see the WGSL twin.
-    float sheet = sheetAt(cx, cy);
+    float sheet = sheetAt(cx, cy, a);
     vec4 c = cornerOf(cx + ox, cy + oy, sheet);
-    float bed = groundAt(cx, cy);
+    float bed = groundAt(cx, cy, a);
     h = max(c.x, bed);
     fx = fx0 + float(ox) * step;
     fy = fy0 + float(oy) * step;
@@ -936,14 +1028,14 @@ void main() {
     float fade = min(1.0, cd / ${SHOW_DEPTH});
     float body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
     alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
-    int mat = int(texelFetch(uMaterial, ivec2(cx, cy), 0).r * 255.0 + 0.5);
+    int mat = int(texelFetch(uMaterial, ivec2(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
     rgb = texelFetch(uTint, ivec2(int(shade + 0.5), mat), 0).rgb;
   } else if (part <= 2) {
     if (d <= uBand.z) { return; }
     if (!facesOn()) { return; }
     int axis = part - 1;
-    if (forward(cx, cy, axis, cpt)) { return; }
-    Part p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d);
+    if (forward(cx, cy, axis, cpt, a)) { return; }
+    Part p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d, a);
     if (!p.ok) { return; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   } else {
@@ -952,11 +1044,12 @@ void main() {
     int bx = cx - (axis == 0 ? 1 : 0);
     int by = cy - (axis == 0 ? 0 : 1);
     if (!inside(bx, by)) { return; }
-    float bd = depthAt(bx, by);
+    float bd = depthAt(bx, by, a);
     if (bd <= uBand.z) { return; }
-    if (!forward(bx, by, axis, cpt)) { return; }
+    if ((roofAt(bx, by, a) < ${OPEN_SKY}) != roofedTier()) { return; }
+    if (!forward(bx, by, axis, cpt, a)) { return; }
     Part p = sidePart(bx, by, axis, corner,
-      fx0 - (axis == 0 ? step : 0.0), fy0 - (axis == 0 ? 0.0 : step), step, bd);
+      fx0 - (axis == 0 ? step : 0.0), fy0 - (axis == 0 ? 0.0 : step), step, bd, a);
     if (!p.ok) { return; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   }
@@ -993,6 +1086,11 @@ export const waterShaderSource = () => ({
 
 export type GpuWaterLayer = {
   meshes: Mesh<Geometry, Shader>[];
+  /**
+   * The same bands again, drawn BEFORE the paving, for water with something
+   * over it. @see BandLayer.underOf
+   */
+  under: Mesh<Geometry, Shader>[];
   /** Whether the sides of the water are drawn — a debug switch. @see drawGpuWater */
   faces: number;
   /** The textures, each a view straight onto an array the solver owns. */
@@ -1036,6 +1134,8 @@ export type GpuWaterLayer = {
    */
   bodies: Bodies;
   bodyF32: Float32Array;
+  /** How many storeys the field has. @see ColumnField.layers */
+  layers: number;
   /** Whether the meshes draw at all. A measurement switch. @see showGpuWater */
   drawing: boolean;
   /** Milliseconds of CPU the last frame's build took, for measuring. */
@@ -1067,7 +1167,7 @@ const FRAGMENT_STAGE = 2;
  * Nothing is filtered here in any case — every read is a `textureLoad` at an
  * integer coordinate, which is a fetch and not a sample, and needs no sampler.
  */
-const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uBody"];
+const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uBody", "uRoof"];
 const BYTE_FIELDS = ["uTint", "uMaterial"];
 /** The quad list, which is `r32uint` and so neither of the above. @see QUAD_CAP */
 const UINT_FIELDS = ["uQuads"];
@@ -1180,29 +1280,40 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     usage: BufferUsage.INDEX | BufferUsage.COPY_DST,
   });
 
-  const depth = viewOf(columns.depth, nx, ny);
-  const ground = viewOf(columns.ground, nx, ny);
-  const fx = viewOf(columns.fx, nx, ny);
-  const fy = viewOf(columns.fy, nx, ny);
+  // A SLOT'S PLANE IS A BLOCK OF ROWS, which is what the arrays already are:
+  // slot `a` of column `i` lives at `a * cells + i`, and `cells` is `nx * ny`,
+  // so the plane starts at row `a * ny` and nothing has to be re-packed. The
+  // flux has a plane per slot PAIR and so is taller again.
+  //
+  // `wash` and `foam` stay one plane. They are fields of the WORLD — what the
+  // current is carrying over a tile — and a bridge does not give a tile two
+  // of them.
+  const { layers } = columns;
+  const depth = viewOf(columns.depth, nx, ny * layers);
+  const ground = viewOf(columns.ground, nx, ny * layers);
+  const roof = viewOf(columns.roof, nx, ny * layers);
+  const fx = viewOf(columns.fx, nx, ny * layers * layers);
+  const fy = viewOf(columns.fy, nx, ny * layers * layers);
   const wash = createFlowWash(columns);
   const foam = createFoam(columns);
   const washTex = viewOf(wash.now, nx, ny);
   const foamTex = viewOf(foam.now, nx, ny);
   const material = new BufferImageSource({
-    resource: columns.material, width: nx, height: ny, format: "r8unorm",
+    resource: columns.material, width: nx, height: ny * layers, format: "r8unorm",
     scaleMode: "nearest",
   });
   // WHICH SHEET each column is part of. @see GpuWaterLayer.bodies
   const bodies = createBodies(columns);
-  const bodyF32 = new Float32Array(nx * ny).fill(NO_BODY);
-  const body = viewOf(bodyF32, nx, ny);
+  const bodyF32 = new Float32Array(nx * ny * layers).fill(NO_BODY);
+  const body = viewOf(bodyF32, nx, ny * layers);
   const tint = tintSource();
   // WHICH QUADS EACH BAND DRAWS. The identity until something gathers it.
   // @see quadList
-  const list = quadList(bands.w, bands.h);
+  const list = quadList(bands.w, bands.h, layers);
   const quads = quadListSource(list);
 
   const meshes: Mesh<Geometry, Shader>[] = [];
+  const under: Mesh<Geometry, Shader>[] = [];
   for (let b = 0; b < bands.bands.length; b++) {
     // The tiles on this diagonal, and where they start.
     const tx0 = Math.max(0, b - (bands.h - 1));
@@ -1218,6 +1329,15 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       // shader — the offset is as much a property of the band as its first
       // tile is. @see quadList
       uList: { value: new Float32Array([list.offsets[b], LIST_W, 0, 0]), type: "vec4<f32>" },
+      // HOW MANY STOREYS a column has, and the spare. @see ColumnField.layers
+      //
+      // LAST, because the struct it fills says last. Pixi lays a uniform group
+      // out in the order the fields are written here and the shader reads it
+      // by offset, so a field inserted in the middle of one and appended to
+      // the other is every field after it reading its neighbour's numbers.
+      // What that looked like was a storey count of 66 — the scaled half-width
+      // out of uIso — and a map with no water drawn on it at all.
+      uSlots: { value: new Float32Array([layers, 0, 0, 0]), type: "vec4<f32>" },
     });
 
     // Its own index buffer, exactly as long as the band is: the vertex buffer
@@ -1228,36 +1348,72 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       indexBuffer: idxBuffer,
       // EVERY QUAD THIS BAND COULD HOLD, until something gathers the list and
       // says how many of them are worth drawing. @see drawGpuWater
-      instanceCount: tiles * PER_TILE * PARTS,
+      instanceCount: tiles * PER_TILE * PARTS * layers,
     });
     const shader = new Shader({
       gpuProgram: gpu, glProgram: gl,
       resources: {
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
-        uFx: fx, uFy: fy,
-        uTint: tint, uMaterial: material, uQuads: quads, uBody: body,
+        uFx: fx, uFy: fy, uBody: body, uRoof: roof,
+        uTint: tint, uMaterial: material, uQuads: quads,
       },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
     mesh.eventMode = "none";
     bands.structureOf[b].addChild(mesh);
     meshes.push(mesh);
+
+    // AND THE SAME BAND AGAIN, one tier lower, for the water that has
+    // something over it. Its own uniform group because the tier is a uniform,
+    // its own geometry because the instance count is its own — but the same
+    // textures and the same program. @see BandLayer.underOf
+    //
+    // ONLY WHERE THERE CAN BE ANY. A map with no decks on it has no roofed
+    // water and never will, so a second mesh per band there is a second pass
+    // over every quad to throw all of them away.
+    if (layers < 2) continue;
+    const underWater = new UniformGroup({
+      uGrid: { value: new Float32Array([nx, ny, COLUMNS_PER_TILE, 1 / COLUMNS_PER_TILE]), type: "vec4<f32>" },
+      uIso: { value: new Float32Array([HW * scale, HH * scale, HEIGHT_UNIT * scale, 1]), type: "vec4<f32>" },
+      uBand: { value: new Float32Array([b, tx0, columns.params.dryDepth, tiles]), type: "vec4<f32>" },
+      uList: { value: new Float32Array([list.offsets[b], LIST_W, 0, 0]), type: "vec4<f32>" },
+      uSlots: { value: new Float32Array([layers, 1, 0, 0]), type: "vec4<f32>" },
+    });
+    const underGeom = new Geometry({
+      attributes: { aVertexId: { buffer: idBuffer, format: "float32", stride: 4, offset: 0 } },
+      indexBuffer: idxBuffer,
+      instanceCount: tiles * PER_TILE * PARTS * layers,
+    });
+    const underShader = new Shader({
+      gpuProgram: gpu, glProgram: gl,
+      resources: {
+        water: underWater,
+        uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
+        uFx: fx, uFy: fy, uBody: body, uRoof: roof,
+        uTint: tint, uMaterial: material, uQuads: quads,
+      },
+    });
+    const underMesh = new Mesh<Geometry, Shader>({ geometry: underGeom, shader: underShader });
+    underMesh.eventMode = "none";
+    bands.underOf[b].addChild(underMesh);
+    under.push(underMesh);
   }
 
   return {
     meshes,
+    under,
     faces: 1,
     // `body` LAST, and deliberately past the end of what the device fills —
     // see FED, which is by index. The host owns this one whichever solver is
     // running, because the fill is the host's. @see GpuWaterLayer.bodies
-    sources: [depth, ground, washTex, foamTex, fx, fy, material, body],
+    sources: [depth, ground, washTex, foamTex, fx, fy, material, body, roof],
     // THE SHADE RAMP, kept on the layer because the falls colour from it too:
     // a sheet and the surface it leaves are the same water, so they read the
     // same table. @see createSheet
     tint,
     quads,
-    wash, foam, bodies, bodyF32, gather: null, groundSent: -1,
+    wash, foam, bodies, bodyF32, layers, gather: null, groundSent: -1,
     most: meshes.map((m) => m.geometry.instanceCount),
     drawing: true, cpuMs: 0, advectMs: 0, uploadMs: 0,
   };
@@ -1288,6 +1444,8 @@ const FED_AT = new Set(FED.map(([k]) => k));
 const GROUND_AT = 1;
 /** And the sheet ids, which the host fills whichever solver is running. */
 const BODY_AT = 7;
+/** And the roofs, which are geometry and move only when the map does. */
+const ROOF_AT = 8;
 
 /** Just enough of the renderer to ask what stands behind a texture source. */
 type GpuTextureSystem = {
@@ -1347,7 +1505,7 @@ export function deviceSinks(
  */
 export function showGpuWater(wl: GpuWaterLayer, show: boolean) {
   wl.drawing = show;
-  for (const m of wl.meshes) m.visible = show && m.visible;
+  for (const m of [...wl.meshes, ...wl.under]) m.visible = show && m.visible;
 }
 
 /**
@@ -1400,7 +1558,7 @@ export function attachQuadGather(
   const sys = renderer as Partial<GetGpu>;
   if (!device || typeof sys?.texture?.getGpuSource !== "function") return null;
   const get = sys.texture.getGpuSource.bind(sys.texture);
-  const list = quadList(w, h);
+  const list = quadList(w, h, wl.layers);
   const bands = wl.meshes.length;
   // THE ROW RULE IS NOW SATISFIED BY CONSTRUCTION. A buffer-to-texture row has
   // to be a multiple of 256 bytes, and it used to be a band's STRIDE — so a map
@@ -1415,6 +1573,7 @@ export function attachQuadGather(
     // The sheet ids, which this pass shares the corner rule with and so needs
     // the same answer from. @see GpuWaterLayer.bodies
     get(wl.sources[BODY_AT]).createView(),
+    get(wl.sources[ROOF_AT]).createView(),
   );
   return {
     pass,
@@ -1448,10 +1607,11 @@ export function gatherQuads(
 ) {
   g.pass.say(
     columns.nx, columns.ny, COLUMNS_PER_TILE, h,
-    columns.params.dryDepth, FALL_MIN, faces,
+    columns.params.dryDepth, FALL_MIN, faces, columns.layers,
   );
   const enc = device.createCommandEncoder({ label: "quads" });
-  g.pass.encode(enc, columns.nx * columns.ny);
+  // A THREAD PER QUAD, and a column has a storey's worth of them.
+  g.pass.encode(enc, columns.nx * columns.ny * columns.layers);
   enc.copyBufferToTexture(
     { buffer: g.pass.list, bytesPerRow: LIST_W * 4, rowsPerImage: g.list.rows },
     { texture: g.into },
@@ -1545,11 +1705,12 @@ export function destroyQuadGather(g: QuadGather | null) {
 }
 
 export function destroyGpuWaterLayer(wl: GpuWaterLayer) {
-  for (const m of wl.meshes) {
+  for (const m of [...wl.meshes, ...wl.under]) {
     m.parent?.removeChild(m);
     m.destroy({ children: true });
   }
   wl.meshes.length = 0;
+  wl.under.length = 0;
 }
 
 /**
@@ -1570,7 +1731,7 @@ export function drawGpuWater(
   const want = faces ? 1 : 0;
   if (wl.faces !== want) {
     wl.faces = want;
-    for (const m of wl.meshes) {
+    for (const m of [...wl.meshes, ...wl.under]) {
       const grp = m.shader?.resources.water as UniformGroup | undefined;
       if (!grp) continue;
       (grp.uniforms.uIso as Float32Array)[3] = want;
@@ -1651,12 +1812,21 @@ export function drawGpuWater(
     //
     // `wl.most` EITHER WAY, so losing the gather falls back to identity rather
     // than to whatever the last gathering happened to leave behind. @see most
-    wl.meshes[b].geometry.instanceCount = g && g.gathered
+    // BOTH TIERS THE SAME. The gather counts quads and not which mesh will
+    // keep them, so each tier is asked to consider the same complement and
+    // each throws away what is not its own. @see roofedTier
+    const n = g && g.gathered
       ? roomFor(g.count[b], g.grew[b], wl.most[b])
       : wl.most[b];
+    wl.meshes[b].geometry.instanceCount = n;
     // Only on a change: visibility is structural, and flipping it every frame
     // makes the renderer rebuild the scene's instruction list every frame.
     if (wl.meshes[b].visible !== show) wl.meshes[b].visible = show;
+    const u = wl.under[b];
+    if (u) {
+      u.geometry.instanceCount = n;
+      if (u.visible !== show) u.visible = show;
+    }
   }
   wl.cpuMs = performance.now() - t0;
 }

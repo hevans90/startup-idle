@@ -243,7 +243,7 @@ describe("the two shader dialects are the same program", () => {
     // grouping the merge existed to repair.
     for (const d of ["wgsl", "glsl"] as const) {
       const src = cornerRuleSource(d);
-      expect(src).toContain("sheetAt(cx, cy) != sheet");
+      expect(src).toContain("sheetAt(cx, cy, a) != sheet");
       expect(src).not.toContain("nHi");
       expect(src).not.toContain("nLo");
     }

@@ -51,6 +51,8 @@ struct Say {
 // water rather than by bed, and this pass shares that rule, so it needs the
 // same answer the vertex shader gets. See render/bodies.
 @group(0) @binding(6) var uBody : texture_2d<f32>;
+// The underside of whatever is over a slot, or the open sky. See fluid/slots.
+@group(0) @binding(7) var uRoof : texture_2d<f32>;
 
 // NO BACKTICKS IN HERE — a backtick in a comment ends the template literal.
 
@@ -58,17 +60,24 @@ fn nx() -> i32 { return say.dims.x; }
 fn ny() -> i32 { return say.dims.y; }
 fn dryDepth() -> f32 { return say.a.x; }
 fn fallMin() -> f32 { return say.a.y; }
+// How many STOREYS a column has, and where a storey's plane of rows begins.
+// See water-gpu, where the layout is argued.
+fn slots() -> i32 { return i32(say.a.w); }
+fn slotRow(y: i32, a: i32) -> i32 { return a * ny() + y; }
 fn inside(x: i32, y: i32) -> bool {
   return x >= 0 && y >= 0 && x < nx() && y < ny();
 }
-fn depthAt(x: i32, y: i32) -> f32 {
-  return textureLoad(uDepth, vec2<i32>(x, y), 0).r;
+fn depthAt(x: i32, y: i32, a: i32) -> f32 {
+  return textureLoad(uDepth, vec2<i32>(x, slotRow(y, a)), 0).r;
 }
-fn groundAt(x: i32, y: i32) -> f32 {
-  return textureLoad(uGround, vec2<i32>(x, y), 0).r;
+fn groundAt(x: i32, y: i32, a: i32) -> f32 {
+  return textureLoad(uGround, vec2<i32>(x, slotRow(y, a)), 0).r;
 }
-fn sheetAt(x: i32, y: i32) -> f32 {
-  return textureLoad(uBody, vec2<i32>(x, y), 0).r;
+fn sheetAt(x: i32, y: i32, a: i32) -> f32 {
+  return textureLoad(uBody, vec2<i32>(x, slotRow(y, a)), 0).r;
+}
+fn roofAt(x: i32, y: i32, a: i32) -> f32 {
+  return textureLoad(uRoof, vec2<i32>(x, slotRow(y, a)), 0).r;
 }
 
 ${cornerRuleSource("wgsl", drawdown)}
@@ -77,13 +86,19 @@ ${quadRuleSource("wgsl")}
 @compute @workgroup_size(${WORKGROUP})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let n = i32(gid.x);
+  let L = slots();
   let cells = nx() * ny();
-  if (n >= cells * ${PARTS}) { return; }
+  if (n >= cells * ${PARTS} * L) { return; }
+  // A PART, A STOREY AND A COLUMN, unpacked exactly as the vertex shader
+  // packs it — see water-gpu's mainVertex. The two have to agree to the
+  // number or this pass hands the mesh the id of a different quad.
   let part = n % ${PARTS};
-  let i = n / ${PARTS};
+  let cell = n / ${PARTS};
+  let a = cell % L;
+  let i = cell / L;
   let cx = i % nx();
   let cy = i / nx();
-  if (!quadDraws(cx, cy, part, say.dims.z, say.a.z > 0.5)) { return; }
+  if (!quadDraws(cx, cy, part, say.dims.z, say.a.z > 0.5, a)) { return; }
 
   // WHICH BAND, AND WHICH QUAD OF IT. Both are the vertex shader's own
   // arithmetic run backwards: a band is the diagonal the tile sits on, and a
@@ -96,7 +111,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let tx0 = max(0, band - (say.dims.w - 1));
   let tileIdx = tx - tx0;
   let sub = (cy % cpt) * cpt + (cx % cpt);
-  let quad = (tileIdx * cpt * cpt + sub) * ${PARTS} + part;
+  let quad = ((tileIdx * cpt * cpt + sub) * L + a) * ${PARTS} + part;
 
   let here = slice[band];
   let at = atomicAdd(&counts[band], 1u);
@@ -113,13 +128,14 @@ export type QuadsPass = {
   layout: GPUBindGroupLayout;
   bind: (
     depth: GPUTextureView, ground: GPUTextureView, body: GPUTextureView,
+    roof: GPUTextureView,
   ) => void;
   /** Where the ids go, for the copy into the shader's texture. */
   list: GPUBuffer;
   counts: GPUBuffer;
   say: (
     nx: number, ny: number, cpt: number, tilesHigh: number,
-    dryDepth: number, fallMin: number, faces: boolean,
+    dryDepth: number, fallMin: number, faces: boolean, slots: number,
   ) => void;
   destroy: () => void;
 };
@@ -156,6 +172,10 @@ export function createQuadsPass(
       },
       {
         binding: 6, visibility: GPUShaderStage.COMPUTE,
+        texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
+      },
+      {
+        binding: 7, visibility: GPUShaderStage.COMPUTE,
         texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
       },
     ],
@@ -223,7 +243,7 @@ export function createQuadsPass(
 
   return {
     layout, list, counts,
-    bind: (depth, ground, body) => {
+    bind: (depth, ground, body, roof) => {
       // ONCE PER TEXTURE PAIR, not once per dispatch. The pair only changes
       // when the scene is rebuilt.
       group = device.createBindGroup({
@@ -236,14 +256,15 @@ export function createQuadsPass(
           { binding: 4, resource: { buffer: counts } },
           { binding: 5, resource: { buffer: slice } },
           { binding: 6, resource: body },
+          { binding: 7, resource: roof },
         ],
       });
     },
-    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces) => {
+    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots) => {
       const buf = new ArrayBuffer(32);
       new Int32Array(buf, 0, 4).set([nx, ny, cpt, tilesHigh]);
       // The fourth was the cap, which is per band now and comes from `slice`.
-      new Float32Array(buf, 16, 4).set([dryDepth, fallMin, faces ? 1 : 0, 0]);
+      new Float32Array(buf, 16, 4).set([dryDepth, fallMin, faces ? 1 : 0, slots]);
       device.queue.writeBuffer(uniform, 0, buf);
     },
     encode: (enc, cells) => {
