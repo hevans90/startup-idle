@@ -48,15 +48,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let n = i32(gid.x);
   if (n >= cliffCount() || n >= ${FALL_OUT_MAX}) { return; }
   let k = cliffAt(n);
-  // The COLUMN the edge belongs to: an edge is i * 2 + axis, so this is the
-  // same integer division the host does to get back from one to the other.
-  let i = k / 2;
+  // THE SLOT PAIR, THEN THE EDGE, which is how a fall's edge is packed — see
+  // fallEdge in fluid/falls. The column is what is left after the plane is
+  // taken off, and the slot the sheet LEAVES is the pair's near one: a lip on
+  // a bridge's deck wears what is on the deck, not what is in the river.
+  let cellsHere = nx() * ny();
+  let pl = k / (cellsHere * 2);
+  let rest = k - pl * cellsHere * 2;
+  let i = rest / 2;
+  let ia = slotBase(pl / slots()) + i;
   setFallOut(n, 0, f32(k));
   setFallOut(n, 1, airAt(k));
   setFallOut(n, 2, frontAt(k));
   setFallOut(n, 3, headAt(k));
-  setFallOut(n, 4, throwXAt(i));
-  setFallOut(n, 5, throwYAt(i));
+  setFallOut(n, 4, throwXAt(ia));
+  setFallOut(n, 5, throwYAt(ia));
   // And what the surface above the lip is WEARING, so the sheet leaves in the
   // colour the water it is made of already had. The renderer samples these two
   // at the lips and nowhere else, which is why they can ride here instead of
@@ -66,9 +72,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // HOW HARD IT IS POURING over THIS edge, which is the only flux the host
   // reads: pourOf asks for fx on an east lip and fy on a south one, never
   // both. One float here for two whole maps of flux there.
-  setFallOut(n, 8, select(fyAt(i), fxAt(i), (k & 1) == 0));
+  let e = pl * cellsHere + i;
+  setFallOut(n, 8, select(fyAt(e), fxAt(e), (rest & 1) == 0));
   // And what the water is made of, for the sheet's colour.
-  setFallOut(n, 9, f32(materialAt(i)));
+  setFallOut(n, 9, f32(materialAt(ia)));
   // AND WHAT IS IN THE AIR OFF THIS LIP, into the readout's running total.
   //
   // Air lives on lips and nowhere else, so this walk is the whole of it — and

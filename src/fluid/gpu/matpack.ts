@@ -43,7 +43,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // COLUMNS_PER_TILE, so it is a multiple of four before it is anything else.
   // The host asserts it rather than leaving this comparison to decide it
   // quietly. @see createMatpack
-  if (i + 3 >= nx() * ny()) { return; }
+  if (i + 3 >= nx() * ny() * slots()) { return; }
   // materialAt returns the index as a u32 already; masked because a texel is a
   // byte and a material out of range would spill into its neighbour rather
   // than merely being wrong about itself.
@@ -89,7 +89,7 @@ export function createMatpack(device: GPUDevice): MatpackPass {
           + " word, and the tail would keep the material it last held",
         );
       }
-      const words = Math.ceil((s.nx * s.ny) / 4);
+      const words = Math.ceil((s.nx * s.ny * s.layers) / 4);
       const pass = beginPass(enc, s, "matpack");
       pass.setPipeline(pipeline);
       bindState(pass, s, layout);

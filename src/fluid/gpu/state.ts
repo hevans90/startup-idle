@@ -368,6 +368,8 @@ export type FieldName = (typeof FIELDS)[number];
 export type GpuState = {
   device: GPUDevice;
   nx: number;
+  /** How many STOREYS a column has. @see ColumnField.layers */
+  layers: number;
   ny: number;
   /** Cells, which is also the length of each per-cell array. */
   cells: number;
@@ -488,7 +490,11 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     // `air` is per EDGE of a slot PAIR — the CPU's own index, plane first.
     delta: slotCells, air: pairCells * 2, bestMat: slotCells,
     rate: slotCells, breakAge: slotCells, broke: slotCells,
-    velo: cells, iterA: cells, iterB: cells,
+    // THE DIFFUSION'S SCRATCH, per slot PAIR: it runs on one plane's fluxes
+    // at a time and the host walks the planes one at a time reusing a
+    // column's worth. On the device every plane is in flight at once, so each
+    // needs its own. @see diffuse
+    velo: pairCells, iterA: pairCells, iterB: pairCells,
     front: pairCells * 2, head: pairCells * 2, frontSpeed: pairCells * 2,
     headSpeed: pairCells * 2, since: pairCells * 2, shed: pairCells * 2,
     throwX: slotCells, throwY: slotCells,
@@ -539,7 +545,7 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
   });
 
   return {
-    device, nx: f.nx, ny: f.ny, cells, field, reduce, acc, consts, constsAt: 0,
+    device, nx: f.nx, ny: f.ny, cells, layers, field, reduce, acc, consts, constsAt: 0,
     bound: null,
     // Off unless the solver turns it on, so a harness that only wants an
     // answer does not pay for a query set it never reads. @see createStamps
@@ -1071,6 +1077,7 @@ fn slotBase(a: i32) -> i32 { return a * nx() * ny(); }
  * ColumnField.fx, plane for plane.
  */
 fn pairBase(a: i32, b: i32) -> i32 { return (a * slots() + b) * nx() * ny(); }
+
 /**
  * Whether this column is the rim water LEAVES by, rather than water.
  *

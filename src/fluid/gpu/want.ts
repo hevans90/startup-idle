@@ -44,7 +44,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // A CELL OFF THE MAP ANSWERS DRY rather than reading past the end. The host
   // clamps what it asks for, and a thread that trusted it would be one bad
   // index away from reading another field's memory as a depth.
-  if (i < 0 || i >= nx() * ny()) { setWantOut(k, 0.0); return; }
+  // A SLOT INDEX, like everything else the host asks about: the cursor over a
+  // bridge is asking about the deck. @see ColumnField.layers
+  if (i < 0 || i >= nx() * ny() * slots()) { setWantOut(k, 0.0); return; }
   setWantOut(k, depthAt(i));
 }
 `;

@@ -25,6 +25,7 @@ import {
 import { markCliffs, stepFalls } from "../falls";
 import { FALL_MIN } from "../falls";
 import { dripRoom } from "../drips";
+import { OPEN_SKY } from "../slots";
 import { createAccelerate } from "./accelerate";
 import { createApply, readReduce, reduceSeed } from "./apply";
 import { createDiffuse } from "./diffuse";
@@ -90,6 +91,47 @@ export function scene(wind = FLOW_DEFAULTS.wind): ColumnField {
   }
   for (let y = 6; y < 58; y++) {
     for (let x = 6; x < 66; x++) addWater(f, x, y, 6, 1);
+  }
+  return f;
+}
+
+/**
+ * THE SAME SHEET WITH A BRIDGE THROUGH IT, which is the one thing the scenes
+ * above cannot ask.
+ *
+ * Every pass walks slot PAIRS now, and at one storey every one of those loops
+ * runs once and the pair is (0,0) — so a scene with no deck on it exercises
+ * exactly the arithmetic that was there before and says nothing at all about
+ * the arithmetic that is new. This one has a channel roofed over its middle
+ * and a deck above that, so the lid caps a head, an absent slot refuses an
+ * edge, a road meets a deck across a pair that is not (0,0), and the rim,
+ * the cliffs and the landings all have two storeys to sort out.
+ */
+export function spanned(): ColumnField {
+  const f = createColumnField(96, 64, { ...FLOW_DEFAULTS }, 0.5, 2);
+  const cells = f.cells;
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 96; x++) {
+      const i = y * 96 + x;
+      // A channel along the middle, banks either side, and a span over part
+      // of it — the same shape the world's own generator makes.
+      const inChannel = y >= 28 && y <= 35;
+      const decked = inChannel && x >= 40 && x <= 55;
+      f.ground[i] = inChannel ? -8 : 2;
+      f.roof[i] = decked ? 0 : OPEN_SKY;
+      // The deck itself, two above the soffit, and absent everywhere else.
+      f.ground[cells + i] = decked ? 2 : f.ground[i];
+      f.roof[cells + i] = decked ? OPEN_SKY : f.ground[i];
+    }
+  }
+  // A river in the channel, running under the span...
+  for (let y = 28; y <= 35; y++) {
+    for (let x = 4; x < 92; x++) addWater(f, x, y, 5, 1, 0);
+  }
+  // ...and a puddle on the span, which is water at a height nothing else on
+  // the map stands at.
+  for (let y = 29; y <= 34; y++) {
+    for (let x = 42; x <= 53; x++) addWater(f, x, y, 1.5, 1, 1);
   }
   return f;
 }

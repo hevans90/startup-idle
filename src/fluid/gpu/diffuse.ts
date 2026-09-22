@@ -58,22 +58,23 @@ ${STATE_WGSL}
 const AXIS: i32 = ${axis};
 
 /** The flux on this cell's edge along the axis being diffused. */
-fn qAt(i: i32) -> f32 {
-  return select(fyAt(i), fxAt(i), AXIS == 0);
+fn qAt(e: i32) -> f32 {
+  return select(fyAt(e), fxAt(e), AXIS == 0);
 }
-fn setQ(i: i32, v: f32) {
-  if (AXIS == 0) { setFx(i, v); } else { setFy(i, v); }
+fn setQ(e: i32, v: f32) {
+  if (AXIS == 0) { setFx(e, v); } else { setFy(e, v); }
 }
 
 /**
  * The depth under an edge: the mean of the two cells it lies between, floored
  * so that dividing a flux by it cannot explode where the water is a film.
  */
-fn headUnder(i: i32) -> f32 {
+fn headUnder(i: i32, a: i32, b: i32) -> f32 {
   let step = select(nx(), 1, AXIS == 0);
   let far = i + step;
-  let beyond = select(depthAt(i), depthAt(far), far < nx() * ny());
-  return max((depthAt(i) + beyond) * 0.5, dryDepth() * 8.0);
+  let here = depthAt(slotBase(a) + i);
+  let beyond = select(here, depthAt(slotBase(b) + far), far < nx() * ny());
+  return max((here + beyond) * 0.5, dryDepth() * 8.0);
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
@@ -82,9 +83,15 @@ fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = consts.box.y + i32(gid.y);
   if (x > consts.box.z || y > consts.box.w) { return; }
   let i = y * nx() + x;
-  let v = qAt(i) / headUnder(i);
-  setVelo(i, v);
-  setIterA(i, v);
+  let L = slots();
+  for (var a = 0; a < L; a = a + 1) {
+    for (var b = 0; b < L; b = b + 1) {
+      let e = pairBase(a, b) + i;
+      let v = qAt(e) / headUnder(i, a, b);
+      setVelo(e, v);
+      setIterA(e, v);
+    }
+  }
 }
 
 /**
@@ -96,25 +103,34 @@ fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
  * nought and the cell keeps the velocity it came in with.
  *
  * A neighbour outside the box, or dry, is not a neighbour: the cell stands in
- * for it, which is a zero-gradient wall rather than a hole.
+ * for it, which is a zero-gradient wall rather than a hole. IN THIS PLANE,
+ * because a deck's momentum has nothing to say to the channel's.
  */
 fn sweep(i: i32, x: i32, y: i32, readA: bool) {
-  let d = diffScale() * brokeAt(i) * ${f(MIXING)} * depthAt(i) * rateAt(i) * breakingOn();
-  if (d <= 0.0) {
-    if (readA) { setIterB(i, veloAt(i)); } else { setIterA(i, veloAt(i)); }
-    return;
+  let L = slots();
+  for (var a = 0; a < L; a = a + 1) {
+    let ia = slotBase(a) + i;
+    let d = diffScale() * brokeAt(ia) * ${f(MIXING)} * depthAt(ia) * rateAt(ia) * breakingOn();
+    for (var b = 0; b < L; b = b + 1) {
+      let P = pairBase(a, b);
+      let e = P + i;
+      if (d <= 0.0) {
+        if (readA) { setIterB(e, veloAt(e)); } else { setIterA(e, veloAt(e)); }
+        continue;
+      }
+      let here = select(iterBAt(e), iterAAt(e), readA);
+      let w = select(here, select(iterBAt(e - 1), iterAAt(e - 1), readA),
+        x > consts.box.x && depthAt(ia - 1) > dryDepth());
+      let ea = select(here, select(iterBAt(e + 1), iterAAt(e + 1), readA),
+        x < consts.box.z && depthAt(ia + 1) > dryDepth());
+      let n = select(here, select(iterBAt(e - nx()), iterAAt(e - nx()), readA),
+        y > consts.box.y && depthAt(ia - nx()) > dryDepth());
+      let so = select(here, select(iterBAt(e + nx()), iterAAt(e + nx()), readA),
+        y < consts.box.w && depthAt(ia + nx()) > dryDepth());
+      let out = (veloAt(e) + d * (w + ea + n + so)) / (1.0 + 4.0 * d);
+      if (readA) { setIterB(e, out); } else { setIterA(e, out); }
+    }
   }
-  let here = select(iterBAt(i), iterAAt(i), readA);
-  let w = select(here, select(iterBAt(i - 1), iterAAt(i - 1), readA),
-    x > consts.box.x && depthAt(i - 1) > dryDepth());
-  let e = select(here, select(iterBAt(i + 1), iterAAt(i + 1), readA),
-    x < consts.box.z && depthAt(i + 1) > dryDepth());
-  let n = select(here, select(iterBAt(i - nx()), iterAAt(i - nx()), readA),
-    y > consts.box.y && depthAt(i - nx()) > dryDepth());
-  let s = select(here, select(iterBAt(i + nx()), iterAAt(i + nx()), readA),
-    y < consts.box.w && depthAt(i + nx()) > dryDepth());
-  let out = (veloAt(i) + d * (w + e + n + s)) / (1.0 + 4.0 * d);
-  if (readA) { setIterB(i, out); } else { setIterA(i, out); }
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
@@ -139,11 +155,17 @@ fn writeBack(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = consts.box.y + i32(gid.y);
   if (x > consts.box.z || y > consts.box.w) { return; }
   let i = y * nx() + x;
-  // Only where something broke. Elsewhere the flux is left exactly as it was,
-  // rather than round-tripped through a division and a multiplication that
-  // would not give it back unchanged.
-  if (brokeAt(i) <= 0.0) { return; }
-  setQ(i, iterAAt(i) * headUnder(i));
+  let L = slots();
+  for (var a = 0; a < L; a = a + 1) {
+    // Only where something broke. Elsewhere the flux is left exactly as it
+    // was, rather than round-tripped through a division and a multiplication
+    // that would not give it back unchanged.
+    if (brokeAt(slotBase(a) + i) <= 0.0) { continue; }
+    for (var b = 0; b < L; b = b + 1) {
+      let e = pairBase(a, b) + i;
+      setQ(e, iterAAt(e) * headUnder(i, a, b));
+    }
+  }
 }
 `;
 

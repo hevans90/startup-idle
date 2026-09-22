@@ -1329,7 +1329,13 @@ export function createGpuWater(
       if (on("limit")) passes.limit.encode(sub, state, region);
       if (on("divergence")) passes.divergence.encode(sub, state, region);
       if (on("apply")) passes.apply.encode(sub, state, region);
-      if (on("falls")) passes.falls.encode(sub, state, field.nx * field.ny * 2);
+      // A THREAD PER CLIFF EDGE, and a column has a slot pair's worth of
+      // them. @see fallEdge
+      if (on("falls")) {
+        passes.falls.encode(
+          sub, state, field.nx * field.ny * 2 * field.layers * field.layers,
+        );
+      }
       if (on("landings")) passes.landings.encode(sub, state);
     }
     // THE CARRIED FIELDS, once, after the water has finished moving — they

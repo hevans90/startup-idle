@@ -128,7 +128,7 @@ declare global {
     /** Where `__pourLive` leaves its answer. @see checkPourLive */
     __pourLiveResult?: unknown;
     /** Whole frames, both solvers. @see compareFrames */
-    __frameCompare?: (frames?: number, spray?: boolean) => Promise<unknown>;
+    __frameCompare?: (frames?: number, spray?: boolean, bridged?: boolean) => Promise<unknown>;
     /** The cliff index, both ways. @see compareCliffs */
     __cliffCompare?: (
       settle?: number, spray?: boolean, fresh?: boolean,

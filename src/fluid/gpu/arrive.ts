@@ -35,17 +35,25 @@ ${STATE_WGSL}
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let n = i32(gid.x);
   if (n >= arriveCount()) { return; }
+  // A SLOT INDEX, NOT A COLUMN ONE. The host writes water into the storey it
+  // is pouring on — a bridge takes it on the deck — and the bound here was
+  // one map of columns, so everything aimed at an upper storey was dropped
+  // silently. What that looked like: the solver ran, the picture was right,
+  // and water poured on a span vanished on the frame the device answered.
   let i = i32(arriveAt(n, 0));
-  if (i < 0 || i >= nx() * ny()) { return; }
-  let x = i % nx();
-  let y = i / nx();
+  if (i < 0 || i >= nx() * ny() * slots()) { return; }
+  let cell = i % (nx() * ny());
+  let x = cell % nx();
+  let y = cell / nx();
 
   // The fluxes first, because a crater is a flux and it arrives with its
-  // water rather than after it.
+  // water rather than after it. On the plane the host wrote them to, which
+  // for a slot is that slot's own plane against itself.
+  let e = pairBase(i / (nx() * ny()), i / (nx() * ny())) + cell;
   let ax = arriveAt(n, 2);
   let ay = arriveAt(n, 3);
-  if (ax != 0.0) { setFx(i, fxAt(i) + ax); }
-  if (ay != 0.0) { setFy(i, fyAt(i) + ay); }
+  if (ax != 0.0) { setFx(e, fxAt(e) + ax); }
+  if (ay != 0.0) { setFy(e, fyAt(e) + ay); }
 
   let d = arriveAt(n, 1);
   if (d == 0.0) { return; }

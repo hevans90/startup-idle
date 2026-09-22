@@ -90,7 +90,7 @@ import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, onDeviceLost } from "./render/device";
 import {
   compareAccelerate, compareCliffs, pour as pourScene,
-  scene as accelScene, spray,
+  scene as accelScene, spanned, spray,
 } from "../fluid/gpu/compare-pass";
 import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
@@ -288,13 +288,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         };
         // WHOLE FRAMES, both solvers, from one scene — the only question a
         // person watching the water would ask. @see compareFrames
-        window.__frameCompare = async (frames = 60, sprayScene = false) => {
+        window.__frameCompare = async (frames = 60, sprayScene = false, bridged = false) => {
           const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
             .gpu?.device;
           if (!device) return { ok: false, why: "no WebGPU device" };
           // THE SPRAY SCENE CARRIES AN ACCEPTED DIVERGENCE and its own bounds
           // say so, rather than every scene being loosened to let it pass.
           // @see SPRAY_BOUNDS
+          // AND A SCENE WITH A BRIDGE IN IT, which is the only one that
+          // exercises a slot pair that is not (0,0). @see spanned
+          if (bridged) return compareFrames(device, frames, spanned);
           return sprayScene
             ? compareFrames(device, frames, spray, undefined, SPRAY_BOUNDS)
             : compareFrames(device, frames);
@@ -924,12 +927,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // listener above, because a scene can be rebuilt after the loss — and
     // building a solver on a dead device is a set of buffers that will never
     // answer.
-    // AND NOT A FIELD WITH STOREYS IN IT, yet. The device solver is a twin of
-    // the host's and the host's now walks slot pairs — see `fluid/slots`. The
-    // WGSL has not been carried across, and a twin that quietly simulates
-    // slot zero alone is worse than no twin at all: the map would look right
-    // and every bridge on it would be dry. So a map with a deck runs on the
-    // host until the device catches up. @see ColumnField.layers
+    // AND NOT A FIELD WITH STOREYS IN IT, yet. Every pass under this now
+    // walks slot pairs — see `fluid/slots` — and the one-layer path is held
+    // exactly where it was, but a bridged scene does NOT yet agree with the
+    // host: `__frameCompare(40, false, true)` has the device gaining water on
+    // the deck, 0.6 of 3628 on the first frame and compounding. A twin that
+    // is nearly right about a bridge is worse than no twin, because the
+    // picture looks right while the water is wrong.
+    // @see spanned, which is the scene that says so
     const storeyed = field ? field.columns.layers > 1 : false;
     // SAY SO ON THE READOUT. A badge that reports the switch rather than the
     // path claims the device is running whenever anything declines to build
@@ -1000,7 +1005,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         buffer?: { getGPUBuffer: (b: unknown) => GPUBuffer };
         texture?: { getGpuSource: (s: unknown) => GPUTexture };
       };
-      if (bl && sr && rend?.buffer && rend?.texture) {
+      // THE DEVICE'S SHEETS ARE STILL ONE STOREY. Everything else in the
+      // solver walks slot pairs now; the sheet builder decodes a fall's edge
+      // the old way, so on a map with bridges the HOST draws the falls — it
+      // is plane-aware and costs a few hundred quads. @see drawFalls
+      if (bl && sr && !storeyed && rend?.buffer && rend?.texture) {
         const gfl = createGpuFallLayer(bl);
         gfRef.current = gfl;
         sr.sheetTo({

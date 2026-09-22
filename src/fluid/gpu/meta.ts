@@ -61,7 +61,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       // evenly into tiles has a short tile at the edge, and its mean is over
       // what is actually there.
       if (x >= nx() || y >= ny()) { continue; }
-      sum = sum + depthAt(y * nx() + x);
+      // EVERY STOREY OF THE TILE. Water standing on a bridge is water on the
+      // map, and a wet count that stopped at storey nought would report a
+      // span with a puddle on it as dry.
+      for (var a = 0; a < slots(); a = a + 1) {
+        sum = sum + depthAt(slotBase(a) + y * nx() + x);
+      }
       n = n + 1;
     }
   }
