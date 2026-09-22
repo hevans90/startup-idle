@@ -61,6 +61,7 @@ import {
   activeBox, MATERIAL_SLOTS, MAX_FLOW_SPEED, type ColumnField,
 } from "../../fluid/columns";
 import { RIM, cornerRuleSource } from "./corner-rule";
+import { NO_BODY, createBodies, findBodies, type Bodies } from "./bodies";
 import { quadRuleSource } from "./quad-rule";
 import { createQuadsPass, type QuadsPass } from "./quads-gpu";
 import { FALL_MIN } from "../../fluid/falls";
@@ -327,9 +328,10 @@ struct Water {
 @group(2) @binding(4) var uFoam : texture_2d<f32>;
 @group(2) @binding(5) var uFx : texture_2d<f32>;
 @group(2) @binding(6) var uFy : texture_2d<f32>;
-@group(2) @binding(7) var uTint : texture_2d<f32>;
-@group(2) @binding(8) var uMaterial : texture_2d<f32>;
-@group(2) @binding(9) var uQuads : texture_2d<u32>;
+@group(2) @binding(7) var uBody : texture_2d<f32>;
+@group(2) @binding(8) var uTint : texture_2d<f32>;
+@group(2) @binding(9) var uMaterial : texture_2d<f32>;
+@group(2) @binding(10) var uQuads : texture_2d<u32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -338,6 +340,8 @@ struct VSOutput {
 
 fn depthAt(x: i32, y: i32) -> f32 { return textureLoad(uDepth, vec2<i32>(x, y), 0).r; }
 fn groundAt(x: i32, y: i32) -> f32 { return textureLoad(uGround, vec2<i32>(x, y), 0).r; }
+/** WHICH SHEET stands on a column, or -1 where it is dry. @see render/bodies */
+fn sheetAt(x: i32, y: i32) -> f32 { return textureLoad(uBody, vec2<i32>(x, y), 0).r; }
 /** The four things the shared corner rule asks its host for. */
 fn dryDepth() -> f32 { return water.uBand.z; }
 fn fallMin() -> f32 { return ${FALL_MIN}.0; }
@@ -364,24 +368,21 @@ fn flowAt(cx: i32, cy: i32, d: f32) -> vec2<f32> {
 }
 
 /** Depth, wash, foam and flow speed, averaged over the same contributors. */
-fn cornerExtras(vx: i32, vy: i32) -> vec4<f32> {
+fn cornerExtras(vx: i32, vy: i32, sheet: f32) -> vec4<f32> {
   var d = 0.0; var wash = 0.0; var foam = 0.0; var n = 0.0;
   var vel = vec2<f32>(0.0, 0.0);
-  var bed = -1000.0;
   for (var k = 0; k < 4; k = k + 1) {
     let cx = vx - 1 + (k & 1);
     let cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
     let dd = depthAt(cx, cy);
     if (dd <= water.uBand.z) { continue; }
-    // THE EXTRAS FOLLOW THE BED, the same way the corner's height does — see
-    // water.ts's cornerValues, which is this. Averaged over both groups, the
-    // last corner before a lip took much of its colour from the water at the
-    // foot of the cliff, and that is the hard seam at the top of a fall.
-    let g = groundAt(cx, cy);
-    if (g < bed) { continue; }
-    if (g > bed) { d = 0.0; wash = 0.0; foam = 0.0; n = 0.0;
-      vel = vec2<f32>(0.0, 0.0); bed = g; }
+    // THE EXTRAS FOLLOW THE SHEET, exactly as the corner's height does — see
+    // water.ts's cornerValues, which is this. Grouped by the BED instead,
+    // the last corner before a lip took much of its colour from the water at
+    // the foot of the cliff, and the river under a bridge took all of its
+    // colour from whatever stood on the deck. @see render/bodies
+    if (sheetAt(cx, cy) != sheet) { continue; }
     // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
     // shownDepth, which is this.
     d = d + max(dd, ${SHOW_DEPTH} * atBrink(cx, cy));
@@ -394,10 +395,28 @@ fn cornerExtras(vx: i32, vy: i32) -> vec4<f32> {
   return vec4<f32>(d / n, wash / n, foam / n, length(vel / n));
 }
 
-/** A neighbouring corner's surface, or this one's where there is no water. */
-fn nearby(vx: i32, vy: i32, fallback: f32) -> f32 {
-  let c = cornerOf(vx, vy);
-  return select(fallback, c.x, c.w > 0.0);
+/**
+ * The same sheet's surface one corner away, or this one's where it does not
+ * reach — unless what is over there is BELOW, which is a lip.
+ *
+ * The twin of water.ts's nearby, and the asymmetry is the point: a surface
+ * really does tip over an edge, and the sheet leaving one is lit from exactly
+ * that, so a brink read as level stops agreeing with its own waterfall. Water
+ * ABOVE is a bridge, and a bridge is not a slope in the water under it.
+ */
+fn nearby(vx: i32, vy: i32, sheet: f32, here: f32) -> f32 {
+  let c = cornerOf(vx, vy, sheet);
+  if (c.w > 0.0) { return c.x; }
+  var below = here;
+  for (var k = 0; k < 4; k = k + 1) {
+    let cx = vx - 1 + (k & 1);
+    let cy = vy - 1 + (k >> 1);
+    if (!inside(cx, cy)) { continue; }
+    if (depthAt(cx, cy) <= water.uBand.z) { continue; }
+    let o = cornerOf(vx, vy, sheetAt(cx, cy));
+    if (o.w > 0.0 && o.x < below) { below = o.x; }
+  }
+  return below;
 }
 
 /** A shade off the fluid's own ramp, the way the CPU builder lightens one. */
@@ -451,8 +470,25 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   let vax = cx + select(0, 1, axis == 0);
   let vay = cy + select(1, 0, axis == 0);
 
-  // Where it starts and where it reaches down to — the shared rule.
-  let s = resolveSide(bed, bedJ, wetJ, cornerOf(vax, vay), cornerOf(cx + 1, cy + 1));
+  // BOTH SHEETS BY NAME. The face hangs from what THIS sheet draws at each
+  // corner down to what the NEIGHBOUR'S sheet draws there — which used to be
+  // two picks between a corner's two groups, a stand-in for exactly this
+  // question. Asked by sheet it is a lookup, and a neighbour that is a
+  // different body of water answers differently without anything having to
+  // infer that from heights. The twin of water.ts's sideFace.
+  let mine = sheetAt(cx, cy);
+  let theirs = select(-1.0, sheetAt(jx, jy), wetJ);
+  let ownTop = bed + d;
+  let theirTop = select(bedJ, bedJ + depthAt(jx, jy), wetJ);
+  let cA = cornerOf(vax, vay, mine);
+  let cB = cornerOf(cx + 1, cy + 1, mine);
+  let oA = cornerOf(vax, vay, theirs);
+  let oB = cornerOf(cx + 1, cy + 1, theirs);
+  let s = resolveSide(
+    bed, bedJ, wetJ,
+    select(ownTop, cA.x, cA.w > 0.0), select(theirTop, oA.x, oA.w > 0.0),
+    select(ownTop, cB.x, cB.w > 0.0), select(theirTop, oB.x, oB.w > 0.0),
+  );
 
   // Corners run round the face: top A, top B, foot B, foot A.
   let onA = corner == 0 || corner == 3;
@@ -545,16 +581,22 @@ fn mainVertex(
     if (d <= water.uBand.z) { return out; }
     let ox = ((corner + 1) >> 1) & 1;
     let oy = corner >> 1;
-    let c = cornerOf(cx + ox, cy + oy);
+    // THIS COLUMN'S OWN SHEET, which is what every corner it reads is keyed
+    // on. A column contributed to its corners under this id, so the tier is
+    // always there and always the one it helped make. @see render/bodies
+    let sheet = sheetAt(cx, cy);
+    let c = cornerOf(cx + ox, cy + oy, sheet);
     let bed = groundAt(cx, cy);
-    h = max(levelAt(c, bed), bed);
+    h = max(c.x, bed);
     fx = fx0 + f32(ox) * step;
     fy = fy0 + f32(oy) * step;
 
-    let e = cornerExtras(cx + ox, cy + oy);
+    let e = cornerExtras(cx + ox, cy + oy, sheet);
     let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
-    let gx = nearby(cx + ox - 1, cy + oy, c.x) - nearby(cx + ox + 1, cy + oy, c.x);
-    let gy = nearby(cx + ox, cy + oy - 1, c.x) - nearby(cx + ox, cy + oy + 1, c.x);
+    let gx = nearby(cx + ox - 1, cy + oy, sheet, c.x)
+           - nearby(cx + ox + 1, cy + oy, sheet, c.x);
+    let gy = nearby(cx + ox, cy + oy - 1, sheet, c.x)
+           - nearby(cx + ox, cy + oy + 1, sheet, c.x);
     let lean = (gx + gy) * 0.5;
     let respond = lean / (abs(lean) + ${SLOPE_REF});
     let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
@@ -664,12 +706,15 @@ uniform sampler2D uWash;
 uniform sampler2D uFoam;
 uniform sampler2D uFx;
 uniform sampler2D uFy;
+uniform sampler2D uBody;
 uniform sampler2D uTint;
 uniform sampler2D uMaterial;
 uniform highp usampler2D uQuads;
 
 float depthAt(int x, int y) { return texelFetch(uDepth, ivec2(x, y), 0).r; }
 float groundAt(int x, int y) { return texelFetch(uGround, ivec2(x, y), 0).r; }
+// WHICH SHEET stands on a column, or -1 where it is dry. @see render/bodies
+float sheetAt(int x, int y) { return texelFetch(uBody, ivec2(x, y), 0).r; }
 float dryDepth() { return uBand.z; }
 float fallMin() { return ${FALL_MIN}.0; }
 bool facesOn() { return uIso.w > 0.5; }
@@ -705,21 +750,17 @@ vec2 flowAt(int cx, int cy, float d) {
   return clamp(vec2(vx, vy), vec2(-${MAX_FLOW_SPEED}.0), vec2(${MAX_FLOW_SPEED}.0));
 }
 
-vec4 cornerExtras(int vx, int vy) {
+vec4 cornerExtras(int vx, int vy, float sheet) {
   float d = 0.0; float wash = 0.0; float foam = 0.0; float n = 0.0;
   vec2 vel = vec2(0.0);
-  float bed = -1000.0;
   for (int k = 0; k < 4; ++k) {
     int cx = vx - 1 + (k & 1);
     int cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
     float dd = depthAt(cx, cy);
     if (dd <= uBand.z) { continue; }
-    // The extras follow the BED — see the WGSL twin.
-    float g = groundAt(cx, cy);
-    if (g < bed) { continue; }
-    if (g > bed) { d = 0.0; wash = 0.0; foam = 0.0; n = 0.0;
-      vel = vec2(0.0); bed = g; }
+    // The extras follow the SHEET — see the WGSL twin.
+    if (sheetAt(cx, cy) != sheet) { continue; }
     // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
     // shownDepth, which is this.
     d += max(dd, ${SHOW_DEPTH} * atBrink(cx, cy));
@@ -732,9 +773,21 @@ vec4 cornerExtras(int vx, int vy) {
   return vec4(d / n, wash / n, foam / n, length(vel / n));
 }
 
-float nearby(int vx, int vy, float fallback) {
-  vec4 c = cornerOf(vx, vy);
-  return c.w > 0.0 ? c.x : fallback;
+// The same sheet one corner away, and otherwise only what is BELOW — see the
+// WGSL twin, where the asymmetry is argued.
+float nearby(int vx, int vy, float sheet, float here) {
+  vec4 c = cornerOf(vx, vy, sheet);
+  if (c.w > 0.0) { return c.x; }
+  float below = here;
+  for (int k = 0; k < 4; ++k) {
+    int cx = vx - 1 + (k & 1);
+    int cy = vy - 1 + (k >> 1);
+    if (!inside(cx, cy)) { continue; }
+    if (depthAt(cx, cy) <= uBand.z) { continue; }
+    vec4 o = cornerOf(vx, vy, sheetAt(cx, cy));
+    if (o.w > 0.0 && o.x < below) { below = o.x; }
+  }
+  return below;
 }
 
 vec3 aerated(int mat, float t) {
@@ -775,8 +828,20 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
   int vax = cx + (axis == 0 ? 1 : 0);
   int vay = cy + (axis == 0 ? 0 : 1);
 
-  // Where it starts and where it reaches down to — the shared rule.
-  vec4 s = resolveSide(bed, bedJ, wetJ, cornerOf(vax, vay), cornerOf(cx + 1, cy + 1));
+  // BOTH SHEETS BY NAME — see the WGSL twin, and water.ts's sideFace.
+  float mine = sheetAt(cx, cy);
+  float theirs = wetJ ? sheetAt(jx, jy) : -1.0;
+  float ownTop = bed + d;
+  float theirTop = wetJ ? bedJ + depthAt(jx, jy) : bedJ;
+  vec4 cA = cornerOf(vax, vay, mine);
+  vec4 cB = cornerOf(cx + 1, cy + 1, mine);
+  vec4 oA = cornerOf(vax, vay, theirs);
+  vec4 oB = cornerOf(cx + 1, cy + 1, theirs);
+  vec4 s = resolveSide(
+    bed, bedJ, wetJ,
+    cA.w > 0.0 ? cA.x : ownTop, oA.w > 0.0 ? oA.x : theirTop,
+    cB.w > 0.0 ? cB.x : ownTop, oB.w > 0.0 ? oB.x : theirTop
+  );
 
   bool onA = corner == 0 || corner == 3;
   bool onTop = corner == 0 || corner == 1;
@@ -847,16 +912,20 @@ void main() {
     if (d <= uBand.z) { return; }
     int ox = ((corner + 1) >> 1) & 1;
     int oy = corner >> 1;
-    vec4 c = cornerOf(cx + ox, cy + oy);
+    // THIS COLUMN'S OWN SHEET — see the WGSL twin.
+    float sheet = sheetAt(cx, cy);
+    vec4 c = cornerOf(cx + ox, cy + oy, sheet);
     float bed = groundAt(cx, cy);
-    h = max(levelAt(c, bed), bed);
+    h = max(c.x, bed);
     fx = fx0 + float(ox) * step;
     fy = fy0 + float(oy) * step;
 
-    vec4 e = cornerExtras(cx + ox, cy + oy);
+    vec4 e = cornerExtras(cx + ox, cy + oy, sheet);
     float cd = e.x; float wash = e.y; float foam = e.z; float speed = e.w;
-    float gx = nearby(cx + ox - 1, cy + oy, c.x) - nearby(cx + ox + 1, cy + oy, c.x);
-    float gy = nearby(cx + ox, cy + oy - 1, c.x) - nearby(cx + ox, cy + oy + 1, c.x);
+    float gx = nearby(cx + ox - 1, cy + oy, sheet, c.x)
+             - nearby(cx + ox + 1, cy + oy, sheet, c.x);
+    float gy = nearby(cx + ox, cy + oy - 1, sheet, c.x)
+             - nearby(cx + ox, cy + oy + 1, sheet, c.x);
     float lean = (gx + gy) * 0.5;
     float respond = lean / (abs(lean) + ${SLOPE_REF});
     float rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
@@ -950,6 +1019,23 @@ export type GpuWaterLayer = {
   groundSent: number;
   wash: FlowWash;
   foam: FoamField;
+  /**
+   * WHICH SHEET each column's water belongs to, and the float mirror of it
+   * the shader reads.
+   *
+   * The corner rule groups by body of water, not by bed — see
+   * `render/bodies`, which is where the grouping is decided and why. That is
+   * a FLOOD FILL, which is global, and a vertex shader has no global
+   * anything: it sees four columns round a corner and nothing else. So the
+   * fill runs here, on the host, where it already ran for the other builder,
+   * and goes up as one more texture.
+   *
+   * Ids are small integers and exact in an f32 well past any number of
+   * sheets a map can have, so this rides the same `r32float` machinery as
+   * every other field rather than earning a format of its own.
+   */
+  bodies: Bodies;
+  bodyF32: Float32Array;
   /** Whether the meshes draw at all. A measurement switch. @see showGpuWater */
   drawing: boolean;
   /** Milliseconds of CPU the last frame's build took, for measuring. */
@@ -981,7 +1067,7 @@ const FRAGMENT_STAGE = 2;
  * Nothing is filtered here in any case — every read is a `textureLoad` at an
  * integer coordinate, which is a fetch and not a sample, and needs no sampler.
  */
-const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy"];
+const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uBody"];
 const BYTE_FIELDS = ["uTint", "uMaterial"];
 /** The quad list, which is `r32uint` and so neither of the above. @see QUAD_CAP */
 const UINT_FIELDS = ["uQuads"];
@@ -1106,6 +1192,10 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     resource: columns.material, width: nx, height: ny, format: "r8unorm",
     scaleMode: "nearest",
   });
+  // WHICH SHEET each column is part of. @see GpuWaterLayer.bodies
+  const bodies = createBodies(columns);
+  const bodyF32 = new Float32Array(nx * ny).fill(NO_BODY);
+  const body = viewOf(bodyF32, nx, ny);
   const tint = tintSource();
   // WHICH QUADS EACH BAND DRAWS. The identity until something gathers it.
   // @see quadList
@@ -1146,7 +1236,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy,
-        uTint: tint, uMaterial: material, uQuads: quads,
+        uTint: tint, uMaterial: material, uQuads: quads, uBody: body,
       },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
@@ -1158,13 +1248,16 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
   return {
     meshes,
     faces: 1,
-    sources: [depth, ground, washTex, foamTex, fx, fy, material],
+    // `body` LAST, and deliberately past the end of what the device fills —
+    // see FED, which is by index. The host owns this one whichever solver is
+    // running, because the fill is the host's. @see GpuWaterLayer.bodies
+    sources: [depth, ground, washTex, foamTex, fx, fy, material, body],
     // THE SHADE RAMP, kept on the layer because the falls colour from it too:
     // a sheet and the surface it leaves are the same water, so they read the
     // same table. @see createSheet
     tint,
     quads,
-    wash, foam, gather: null, groundSent: -1,
+    wash, foam, bodies, bodyF32, gather: null, groundSent: -1,
     most: meshes.map((m) => m.geometry.instanceCount),
     drawing: true, cpuMs: 0, advectMs: 0, uploadMs: 0,
   };
@@ -1193,6 +1286,8 @@ const FED: readonly (readonly [number, FieldName, 1 | 4])[] = [
 const FED_AT = new Set(FED.map(([k]) => k));
 /** Where the ground sits in `sources`. The one the device never writes. */
 const GROUND_AT = 1;
+/** And the sheet ids, which the host fills whichever solver is running. */
+const BODY_AT = 7;
 
 /** Just enough of the renderer to ask what stands behind a texture source. */
 type GpuTextureSystem = {
@@ -1317,6 +1412,9 @@ export function attachQuadGather(
   pass.bind(
     get(wl.sources[0]).createView(),
     get(wl.sources[1]).createView(),
+    // The sheet ids, which this pass shares the corner rule with and so needs
+    // the same answer from. @see GpuWaterLayer.bodies
+    get(wl.sources[BODY_AT]).createView(),
   );
   return {
     pass,
@@ -1481,6 +1579,21 @@ export function drawGpuWater(
   }
   const region = activeBox(columns);
   const tA = performance.now();
+  if (region) {
+    // WHICH WATER IS ONE SHEET, before anything is drawn from it. One column
+    // wider than the box for the same reason the CPU builder needs it: a side
+    // face asks what the NEIGHBOUR draws, and the neighbour of the last
+    // column in the box is outside it. @see findBodies
+    findBodies(columns, {
+      x0: region.x0 - 1, y0: region.y0 - 1,
+      x1: region.x1 + 1, y1: region.y1 + 1,
+    }, wl.bodies);
+    // Into the float mirror the texture is a view over. The whole array,
+    // because `findBodies` now clears what it labelled last time and the
+    // two have to agree everywhere, not only where the water is.
+    const at = wl.bodies.at;
+    for (let i = 0; i < wl.bodyF32.length; i++) wl.bodyF32[i] = at[i];
+  }
   if (region && dt > 0) {
     // `carried` says the device has already advected the wash and filled
     // `wash.now` from its own readback. Stepping it again here would not just

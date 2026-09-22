@@ -69,6 +69,33 @@ describe("one sheet", () => {
   });
 });
 
+describe("a box that moves", () => {
+  test("leaves no id behind it when it shrinks", () => {
+    // A rebuild walks the water's own active box, so a box that shrinks
+    // leaves last frame's labels standing outside the new one — and a stale
+    // id is a number that can equal a live sheet's, which joins two puddles
+    // that have never met. It did not matter while the only reader wrote
+    // exactly where it read; it matters the moment the array goes to a
+    // device whole.
+    const f = field(10);
+    for (let y = 1; y <= 8; y++) for (let x = 1; x <= 8; x++) addWater(f, x, y, 3, 1);
+    const b = createBodies(f);
+    findBodies(f, WHOLE, b);
+    expect(at(f, b, 7, 7)).toBe(0);
+    // The water goes, and the box with it.
+    for (let y = 1; y <= 8; y++) for (let x = 1; x <= 8; x++) f.depth[y * f.nx + x] = 0;
+    for (let y = 1; y <= 2; y++) for (let x = 1; x <= 2; x++) addWater(f, x, y, 3, 1);
+    findBodies(f, { x0: 0, y0: 0, x1: 3, y1: 3 }, b);
+    expect(at(f, b, 1, 1)).toBe(0);
+    // And nothing out where the water used to be still claims to be a sheet.
+    for (let i = 0; i < b.at.length; i++) {
+      const x = i % f.nx, y = (i / f.nx) | 0;
+      if (x <= 3 && y <= 3) continue;
+      expect(b.at[i]).toBe(NO_BODY);
+    }
+  });
+});
+
 describe("a cliff, which is what the bed rule was for", () => {
   /** A plateau at 12 with a film on it, a lake at -20 below the drop. */
   const cliff = () => {

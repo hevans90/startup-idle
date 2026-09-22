@@ -60,7 +60,23 @@ ${wgsl
   ${BOOL} wetJ = !rim && depthAt(jx, jy) > dryDepth();
   ${INT} vax = cx + select(0, 1, axis == 0);
   ${INT} vay = cy + select(1, 0, axis == 0);
-  ${V4} s = resolveSide(bed, bedJ, wetJ, cornerOf(vax, vay), cornerOf(cx + 1, cy + 1));
+  // BY SHEET, exactly as the vertex shader asks it — see water-gpu's sidePart
+  // and water.ts's sideFace, which are the same four heights. This pass only
+  // decides WHETHER a quad is worth drawing, so an answer that disagreed with
+  // the one that draws it would either lose a face or keep an empty one.
+  ${NUM} mine = sheetAt(cx, cy);
+  ${NUM} theirs = select(-1.0, sheetAt(jx, jy), wetJ);
+  ${NUM} ownTop = bed + depthAt(cx, cy);
+  ${NUM} theirTop = select(bedJ, bedJ + depthAt(jx, jy), wetJ);
+  ${V4} cA = cornerOf(vax, vay, mine);
+  ${V4} cB = cornerOf(cx + 1, cy + 1, mine);
+  ${V4} oA = cornerOf(vax, vay, theirs);
+  ${V4} oB = cornerOf(cx + 1, cy + 1, theirs);
+  ${V4} s = resolveSide(
+    bed, bedJ, wetJ,
+    select(ownTop, cA.x, cA.w > 0.0), select(theirTop, oA.x, oA.w > 0.0),
+    select(ownTop, cB.x, cB.w > 0.0), select(theirTop, oB.x, oB.w > 0.0)
+  );
   return s.x > s.z || s.y > s.w;
 }
 

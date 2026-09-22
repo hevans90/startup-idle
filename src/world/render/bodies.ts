@@ -67,11 +67,30 @@ export type Bodies = {
   readonly parent: Int32Array;
   /** How many sheets the last rebuild found. */
   n: number;
+  /**
+   * THE REGION THE LAST REBUILD COVERED, so this one can clear it.
+   *
+   * A rebuild only walks the water's own active box, which is the whole point
+   * — a dry map should cost nothing. But a box that SHRINKS leaves last
+   * frame's ids standing outside the new one, and a stale id is worse than no
+   * id: it is a number that can equal a live sheet's, so two puddles that
+   * have nothing to do with each other come out as one.
+   *
+   * It never mattered while the only reader was the mesh builder, which reads
+   * exactly where it writes. It matters the moment the whole array is handed
+   * to a device. @see findBodies
+   */
+  readonly was: { x0: number; y0: number; x1: number; y1: number };
 };
 
 export function createBodies(f: ColumnField): Bodies {
   const n = f.cells * f.layers;
-  return { at: new Int32Array(n).fill(NO_BODY), parent: new Int32Array(n), n: 0 };
+  return {
+    at: new Int32Array(n).fill(NO_BODY),
+    parent: new Int32Array(n),
+    n: 0,
+    was: { x0: 0, y0: 0, x1: -1, y1: -1 },
+  };
 }
 
 /** Union-find root, with path halving — flat enough, and no recursion. */
@@ -130,10 +149,21 @@ export function findBodies(
   out: Bodies,
 ): void {
   const { nx, cells, layers, depth, params } = f;
-  const { at, parent } = out;
+  const { at, parent, was } = out;
   const dry = params.dryDepth;
   const x0 = Math.max(0, region.x0), x1 = Math.min(nx - 1, region.x1);
   const y0 = Math.max(0, region.y0), y1 = Math.min(f.ny - 1, region.y1);
+
+  // 0. WHATEVER THE LAST REBUILD LABELLED, wiped before this one starts. The
+  //    box moves and shrinks as the water does, and an id left outside the
+  //    new one is a number that can collide with a live sheet's. @see was
+  for (let a = 0; a < layers; a++) {
+    const A = a * cells;
+    for (let y = was.y0; y <= was.y1; y++) {
+      at.fill(NO_BODY, A + y * nx + was.x0, A + y * nx + was.x1 + 1);
+    }
+  }
+  was.x0 = x0; was.y0 = y0; was.x1 = x1; was.y1 = y1;
 
   // 1. EVERY WET SLOT ITS OWN SHEET, and every dry one cleared. The clear is
   //    what stops last frame's labels being read where the water has gone.

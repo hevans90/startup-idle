@@ -138,18 +138,6 @@ export function resolveCorner(
   return { high: high + (bed - high) * r, low };
 }
 
-/**
- * Which of a corner's two heights a column standing on `bed` draws it at.
- *
- * The high group if that bed is the highest at the corner, the low one
- * otherwise. Every column on a tile shares its bed, so neighbours always pick
- * the same one and the mesh holds together; the two differ only where the
- * corner really does touch two bodies of water, and there a cliff stands
- * between them.
- */
-export const levelAt = (high: number, low: number, cornerBed: number, bed: number) =>
-  (bed >= cornerBed ? high : low);
-
 /** Where the side of a body of water starts and where it reaches down to. */
 export type Side = { topA: number; topB: number; floorA: number; floorB: number };
 
@@ -313,12 +301,18 @@ export type Dialect = "wgsl" | "glsl";
 /**
  * The same rule as shader source.
  *
- * The host shader has to supply four things, because they are the only parts
- * that differ between the two paths and neither is this rule's business:
- * `inside(x, y)`, `depthAt(x, y)`, `groundAt(x, y)`, `dryDepth()` and
- * `fallMin()`. GLSL
- * must also supply a `select(a, b, cond)` — WGSL has it built in, and one
+ * The host shader has to supply the parts that differ between the two paths
+ * and are none of this rule's business: `inside(x, y)`, `depthAt(x, y)`,
+ * `groundAt(x, y)`, `sheetAt(x, y)`, `dryDepth()` and `fallMin()`. GLSL must
+ * also supply a `select(a, b, cond)` — WGSL has it built in, and one
  * three-line helper is cheaper than teaching this template about ternaries.
+ *
+ * `sheetAt` is which BODY OF WATER stands on a column, and it is why this
+ * rule can be one rule again. The corner used to split its contributors by
+ * the BED they stood on and merge them back where that guess was wrong; the
+ * split is made once now, off the geometry, by `render/bodies` — so what
+ * arrives here is a corner and a sheet, and the answer is the average over
+ * the contributors that belong to it.
  *
  * Written against the smallest vocabulary the two languages share, so what
  * varies is a handful of keywords rather than the shape of the code.
@@ -336,8 +330,8 @@ export function cornerRuleSource(dialect: Dialect, drawdown = 0, rim = RIM): str
    */
   const f = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
   const head = wgsl
-    ? "fn cornerOf(vx: i32, vy: i32) -> vec4<f32> {"
-    : "vec4 cornerOf(int vx, int vy) {";
+    ? "fn cornerOf(vx: i32, vy: i32, sheet: f32) -> vec4<f32> {"
+    : "vec4 cornerOf(int vx, int vy, float sheet) {";
   const VEC4 = wgsl ? "vec4<f32>" : "vec4";
   const MUT = wgsl ? "var" : "float";          // a float that is written again
   const NUM = wgsl ? "let" : "float";          // a float that is not
@@ -380,19 +374,18 @@ ${wgsl
 
 ${head}
   ${MUT} bed = -1000.0;
-  ${MUT} hi = 0.0;
-  ${MUT} nHi = 0.0;
-  ${MUT} lo = 0.0;
-  ${MUT} nLo = 0.0;
+  ${MUT} sum = 0.0;
+  ${MUT} n = 0.0;
   // The STEP the ground makes beside the corner, over all four columns whether
   // they are wet or not, either way up, and unbounded off the edge of the map
   // — see rimAt, which is what it is for.
   ${MUT} lowest = 1000.0;
   ${MUT} highest = -1000.0;
   ${MUT} edge = 0.0;
-  // The up-to-four columns that meet here, sorted into the two groups as they
-  // arrive: anything standing lower than the highest bed seen so far goes
-  // below, and a bed higher than that demotes what was there and starts again.
+  // THE UP-TO-FOUR COLUMNS THAT MEET HERE, and only the ones on this SHEET.
+  // Which water is one sheet was decided once, off the geometry — nothing
+  // solid between it and no fall between it — so there is no grouping to do
+  // and nothing to think better of afterwards. @see render/bodies
   for (${LOOP} k = 0; k < 4; k = k + 1) {
     ${INT} cx = vx - 1 + (k & 1);
     ${INT} cy = vy - 1 + (k >> 1);
@@ -401,65 +394,48 @@ ${head}
     highest = max(highest, groundAt(cx, cy));
     ${NUM} d = depthAt(cx, cy);
     if (d <= dryDepth()) { continue; }
+    if (sheetAt(cx, cy) != sheet) { continue; }
     ${NUM} g = groundAt(cx, cy);
     // Leaned toward the lip — see water.ts's DRAWDOWN, which is this. The
     // HEIGHT only: how solid it looks is gathered separately and untouched.
     ${NUM} surface = g + d - d * ${drawdown} * atBrink(cx, cy);
-    if (g > bed) {
-      lo = lo + hi;
-      nLo = nLo + nHi;
-      hi = surface;
-      nHi = 1.0;
-      bed = g;
-    } else if (g == bed) {
-      hi = hi + surface;
-      nHi = nHi + 1.0;
-    } else {
-      lo = lo + surface;
-      nLo = nLo + 1.0;
-    }
+    sum = sum + surface;
+    n = n + 1.0;
+    // The highest bed of this sheet's OWN contributors, which is what the rim
+    // rule is measured from.
+    bed = max(bed, g);
   }
-  if (nHi + nLo == 0.0) { return ${VEC4}(0.0, 0.0, -1000.0, 0.0); }
-  ${NUM} mHi = select(0.0, hi / max(nHi, 1.0), nHi > 0.0);
-  ${MUT} mLo = select(mHi, lo / max(nLo, 1.0), nLo > 0.0);
+  if (n == 0.0) { return ${VEC4}(0.0, 0.0, -1000.0, 0.0); }
+  ${NUM} mean = sum / n;
   // THE RIM — see corner-rule.ts's RIM and rimAt, which this is. Fewer than
-  // four wet columns on this bed means the corner is on the outside of the
-  // water, and how much of the rule applies depends on which kind of outside.
+  // four wet columns of this sheet means the corner is on the outside of it,
+  // and how much of the rule applies depends on which kind of outside.
   ${NUM} aside = select(max(bed - lowest, highest - bed), 1000.0, edge > 0.0);
   ${NUM} rimHere = ${f(rim)} * (1.0 - clamp(aside / fallMin(), 0.0, 1.0));
-  ${MUT} top = select(mHi, mHi + (bed - mHi) * rimHere, nHi < 4.0);
-  // One again wherever the lower water reaches the higher bed — see the note
-  // at the top of corner-rule.ts, and resolveCorner, which is this.
-  if (nHi > 0.0 && nLo > 0.0 && mLo >= bed) {
-    ${NUM} one = (mHi * nHi + mLo * nLo) / (nHi + nLo);
-    ${NUM} v = select(one, one + (bed - one) * rimHere, nHi + nLo < 4.0);
-    top = v;
-    mLo = v;
-  }
-  return ${VEC4}(top, mLo, bed, nHi + nLo);
+  ${NUM} top = select(mean, mean + (bed - mean) * rimHere, n < 4.0);
+  return ${VEC4}(top, top, bed, n);
 }
 
 ${wgsl
-  ? "fn levelAt(c: vec4<f32>, bed: f32) -> f32 {"
-  : "float levelAt(vec4 c, float bed) {"}
-  return select(c.y, c.x, bed >= c.z);
-}
-
-${wgsl
-  ? "fn resolveSide(bed: f32, bedJ: f32, wetJ: bool, a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {"
-  : "vec4 resolveSide(float bed, float bedJ, bool wetJ, vec4 a, vec4 b) {"}
+  ? "fn resolveSide(bed: f32, bedJ: f32, wetJ: bool, aMine: f32, aTheirs: f32, bMine: f32, bTheirs: f32) -> vec4<f32> {"
+  : "vec4 resolveSide(float bed, float bedJ, bool wetJ, float aMine, float aTheirs, float bMine, float bTheirs) {"}
+  // FOUR HEIGHTS, ALREADY RESOLVED, and the caller says how it got them —
+  // the twin of the one in this file's TypeScript, argument for argument.
+  // It used to pick between a corner's two groups by BED and then use the
+  // answer as a height, which is an identity question answered with a
+  // measurement; both callers ask by SHEET now.
   ${MUT} floorA = bed;
   ${MUT} floorB = bed;
   if (wetJ) {
-    floorA = max(levelAt(a, bedJ), bedJ);
-    floorB = max(levelAt(b, bedJ), bedJ);
+    floorA = max(aTheirs, bedJ);
+    floorB = max(bTheirs, bedJ);
   }
   floorA = max(bed, floorA);
   floorB = max(bed, floorB);
   // Clamped to their own floors, so a side that should not be drawn is one
   // whose two ends are both zero height and makes no fragments.
-  ${NUM} topA = max(max(levelAt(a, bed), bed), floorA);
-  ${NUM} topB = max(max(levelAt(b, bed), bed), floorB);
+  ${NUM} topA = max(max(aMine, bed), floorA);
+  ${NUM} topB = max(max(bMine, bed), floorB);
   return ${VEC4}(topA, topB, floorA, floorB);
 }
 
