@@ -169,42 +169,55 @@ fn handUp() {
 
 fn cell(x: i32, y: i32, li: u32) {
   let i = y * nx() + x;
+  let L = slots();
+  // THE BOX IS A COLUMN'S, NOT A SLOT'S. It bounds a walk over x and y and
+  // every pass walks every slot of what it reaches, so a column with water in
+  // either storey has to be in it.
+  var keep = false;
 
-  let wasDry = depthAt(i) <= dryDepth();
-  // The limiter guarantees this is already non-negative; the max only guards
-  // against a rounding residue leaving a tiny negative behind. It is also what
-  // makes the atomicMax on the bits below safe.
-  // AND IT COUNTS WHAT IT EATS, because if that guarantee fails the water goes
-  // without a word. @see CLAMP_SLOT
-  // EVERY DELTA, ADDED UP, because the divergence's conservation is a claim
-  // about telescoping and this is what holds it to account. @see DELTA_SLOT
-  partDelta[li] = deltaAt(i);
-  let raw = depthAt(i) + deltaAt(i);
-  if (raw < 0.0) { partClamp[li] = -raw; }
-  let d = max(0.0, raw);
-  setDepth(i, d);
-  partDeep[li] = d;
-  setRate(i, abs(deltaAt(i)) / dt());
+  for (var a = 0; a < L; a = a + 1) {
+    let ia = slotBase(a) + i;
+    let wasDry = depthAt(ia) <= dryDepth();
+    // The limiter guarantees this is already non-negative; the max only
+    // guards against a rounding residue leaving a tiny negative behind. It is
+    // also what makes the atomicMax on the bits below safe.
+    // AND IT COUNTS WHAT IT EATS, because if that guarantee fails the water
+    // goes without a word. @see CLAMP_SLOT
+    // EVERY DELTA, ADDED UP, because the divergence's conservation is a claim
+    // about telescoping and this is what holds it to account. @see DELTA_SLOT
+    partDelta[li] = partDelta[li] + deltaAt(ia);
+    let raw = depthAt(ia) + deltaAt(ia);
+    if (raw < 0.0) { partClamp[li] = partClamp[li] - raw; }
+    let d = max(0.0, raw);
+    setDepth(ia, d);
+    partDeep[li] = max(partDeep[li], d);
+    setRate(ia, abs(deltaAt(ia)) / dt());
 
-  if (d > dryDepth() && breakingOn() > 0.0 && !openEdgeRim(i)) {
-    stepBreaking(i, d);
-  } else {
-    setBreakAge(i, -1.0);
-    setBroke(i, 0.0);
+    if (d > dryDepth() && breakingOn() > 0.0 && !openEdgeRim(i)) {
+      stepBreaking(ia, d);
+    } else {
+      setBreakAge(ia, -1.0);
+      setBroke(ia, 0.0);
+    }
+
+    if (d <= 0.0) {
+      setMaterial(ia, 0.0);
+      // A COLUMN WITH WATER IN THE AIR off one of its edges stays in the box
+      // even when nothing is standing on it. Dropped out, the fall stops
+      // being stepped and whatever is falling hangs there for ever. Every
+      // plane of every edge it owns, because a deck's fall and the channel's
+      // are different planes of the same two columns.
+      for (var b = 0; b < L; b = b + 1) {
+        let k = (pairBase(a, b) + i) * 2;
+        if (airAt(k) > 0.0 || airAt(k + 1) > 0.0) { keep = true; }
+      }
+    } else {
+      keep = true;
+      if (wasDry && bestMatAt(ia) != 0.0) { setMaterial(ia, bestMatAt(ia)); }
+    }
   }
 
-  var inBox = true;
-  if (d <= 0.0) {
-    setMaterial(i, 0.0);
-    // A COLUMN WITH WATER IN THE AIR off one of its edges stays in the box even
-    // when nothing is standing on it. Dropped out, the fall stops being stepped
-    // and whatever is falling hangs there for ever.
-    inBox = airAt(i * 2) > 0.0 || airAt(i * 2 + 1) > 0.0;
-  } else if (wasDry && bestMatAt(i) != 0.0) {
-    setMaterial(i, bestMatAt(i));
-  }
-
-  if (inBox) {
+  if (keep) {
     partX0[li] = x;
     partY0[li] = y;
     partX1[li] = x;

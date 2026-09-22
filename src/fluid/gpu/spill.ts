@@ -47,14 +47,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // as the host writes it, because a boundary the two solvers disagree about
   // is a seam along one edge of every map. An absorbing edge is an inflow
   // whose level is under the ground. @see spill in columns.ts
-  var held = 0.0;
-  if (rimHeld()) { held = rimLevelAt(n) - groundAt(i); }
-  if (held > 0.0) {
-    setDepth(i, held);
-    setMaterial(i, rimMaterial());
-  } else {
-    setDepth(i, 0.0);
-    setMaterial(i, 0.0);
+  var level = -1000000000.0;
+  if (rimHeld()) { level = rimLevelAt(n); }
+  // THE SLOT THE LEVEL IS IN, and only that one. A river arriving at the edge
+  // of the map arrives in the channel; if a deck happens to be over that
+  // channel the deck is not also full of river. Every other slot on the rim is
+  // emptied, which is what an open edge does.
+  for (var a = 0; a < slots(); a = a + 1) {
+    let ia = slotBase(a) + i;
+    let held = level - groundAt(ia);
+    if (held > 0.0 && groundAt(ia) + held <= roofAt(ia)) {
+      setDepth(ia, held);
+      setMaterial(ia, rimMaterial());
+    } else {
+      setDepth(ia, 0.0);
+      setMaterial(ia, 0.0);
+    }
   }
 }
 `;

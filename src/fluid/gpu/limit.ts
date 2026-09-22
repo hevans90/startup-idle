@@ -51,12 +51,27 @@ ${STATE_WGSL}
  * limit; counting it here would let a cell with a big inflow send out water it
  * has not received yet, which is the whole failure this pass exists to stop.
  */
-fn outflowAt(i: i32, x: i32, y: i32) -> f32 {
+fn outflowAt(a: i32, i: i32, x: i32, y: i32) -> f32 {
   var out = 0.0;
-  if (fxAt(i) > 0.0) { out = out + fxAt(i); }
-  if (x > 0 && fxAt(i - 1) < 0.0) { out = out - fxAt(i - 1); }
-  if (fyAt(i) > 0.0) { out = out + fyAt(i); }
-  if (y > 0 && fyAt(i - nx()) < 0.0) { out = out - fyAt(i - nx()); }
+  let L = slots();
+  // A SLOT'S OUTFLOWS, WHICHEVER SLOT THEY GO TO. Water leaving slot a
+  // eastward may be going onto the deck of the column beside it or into the
+  // channel under that deck, and those are different planes of the same edge
+  // — but it is one slot's water paying for both, so one limit covers the lot.
+  // Scaled per plane, the deck and the channel could each take all of it.
+  //
+  // The planes are walked the OTHER WAY ROUND on the edges arriving from the
+  // west and the north: on this column's own edge a is the near side, and on
+  // those it is the far one.
+  for (var b = 0; b < L; b = b + 1) {
+    let e = pairBase(a, b) + i;
+    if (fxAt(e) > 0.0) { out = out + fxAt(e); }
+    if (fyAt(e) > 0.0) { out = out + fyAt(e); }
+    let w = pairBase(b, a) + i - 1;
+    if (x > 0 && fxAt(w) < 0.0) { out = out - fxAt(w); }
+    let n = pairBase(b, a) + i - nx();
+    if (y > 0 && fyAt(n) < 0.0) { out = out - fyAt(n); }
+  }
   return out;
 }
 
@@ -66,12 +81,14 @@ fn scales(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = consts.box.y + i32(gid.y);
   if (x > consts.box.z || y > consts.box.w) { return; }
   let i = y * nx() + x;
-
-  let want = outflowAt(i, x, y) * spread();
-  // ONE where the cell is within its means, which is the CPU's early exit
-  // written as a number: it leaves those edges alone, and multiplying by one
-  // is leaving them alone.
-  setScale(i, select(1.0, depthAt(i) / want, want > depthAt(i) && want > 0.0));
+  for (var a = 0; a < slots(); a = a + 1) {
+    let ia = slotBase(a) + i;
+    let want = outflowAt(a, i, x, y) * spread();
+    // ONE where the slot is within its means, which is the CPU's early exit
+    // written as a number: it leaves those edges alone, and multiplying by
+    // one is leaving them alone.
+    setScale(ia, select(1.0, depthAt(ia) / want, want > depthAt(ia) && want > 0.0));
+  }
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
@@ -80,17 +97,25 @@ fn apply(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = consts.box.y + i32(gid.y);
   if (x > consts.box.z || y > consts.box.w) { return; }
   let i = y * nx() + x;
-  let s = scaleAt(i);
-  if (s >= 1.0) { return; }
-
-  // ITS OWN SCALE ON ALL FOUR, including the two edges that belong to the
-  // neighbours: an edge running west out of this cell is this cell's outflow
-  // and is limited by this cell's water, wherever the array happens to keep
-  // it. The CPU does exactly this and it is where the shape comes from.
-  if (fxAt(i) > 0.0) { setFx(i, fxAt(i) * s); }
-  if (x > 0 && fxAt(i - 1) < 0.0) { setFx(i - 1, fxAt(i - 1) * s); }
-  if (fyAt(i) > 0.0) { setFy(i, fyAt(i) * s); }
-  if (y > 0 && fyAt(i - nx()) < 0.0) { setFy(i - nx(), fyAt(i - nx()) * s); }
+  let L = slots();
+  for (var a = 0; a < L; a = a + 1) {
+    let s = scaleAt(slotBase(a) + i);
+    if (s >= 1.0) { continue; }
+    // ITS OWN SCALE ON ALL OF THEM, including the edges that belong to the
+    // neighbours: an edge running west out of this slot is this slot's
+    // outflow and is limited by this slot's water, wherever the array happens
+    // to keep it. The CPU does exactly this and it is where the shape comes
+    // from.
+    for (var b = 0; b < L; b = b + 1) {
+      let e = pairBase(a, b) + i;
+      if (fxAt(e) > 0.0) { setFx(e, fxAt(e) * s); }
+      if (fyAt(e) > 0.0) { setFy(e, fyAt(e) * s); }
+      let w = pairBase(b, a) + i - 1;
+      if (x > 0 && fxAt(w) < 0.0) { setFx(w, fxAt(w) * s); }
+      let n = pairBase(b, a) + i - nx();
+      if (y > 0 && fyAt(n) < 0.0) { setFy(n, fyAt(n) * s); }
+    }
+  }
 }
 `;
 

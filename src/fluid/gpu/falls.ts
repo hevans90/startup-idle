@@ -79,7 +79,7 @@ ${STATE_WGSL}
 
 const LAND_SCALE: f32 = ${f(LAND_SCALE)};
 
-fn accAt(region: i32, i: i32) -> i32 { return region * (nx() * ny()) + i; }
+fn accAt(region: i32, i: i32) -> i32 { return region * (nx() * ny() * slots()) + i; }
 
 /**
  * Bank a landing: the water, its momentum, and what it is made of.
@@ -111,10 +111,16 @@ fn bankLanding(to: i32, amount: f32, material: u32, speed: f32) {
   }
 }
 
-/** Where a neighbour's water, or failing that its ground, stands. */
+/**
+ * Where a neighbour's water, or failing that its ground, stands.
+ *
+ * The water's own TOP and not its hydraulic surface: this asks what a falling
+ * sheet will hit, and a full culvert is hit at its soffit.
+ */
 fn besideAt2(j: i32) -> f32 {
   let dj = depthAt(j);
-  return select(groundAt(j), groundAt(j) + dj, dj > dryDepth());
+  let top = min(groundAt(j) + dj, roofAt(j));
+  return select(groundAt(j), top, dj > dryDepth());
 }
 
 /** How far a sheet has drifted after falling this far. @see driftAt */
@@ -128,15 +134,24 @@ fn driftAt(v: f32, below: f32) -> f32 {
  * The lip's smoothed throw carries it forward as it falls. Only onto ground
  * LOWER than the lip — thrown at a wall it lands at the foot of the wall.
  */
-fn landsAt(i: i32, j: i32, drop: f32) -> i32 {
-  let ox = i32(round(driftAt(throwXAt(i), drop) / cellSize()));
-  let oy = i32(round(driftAt(throwYAt(i), drop) / cellSize()));
+fn landsAt(ia: i32, j: i32, drop: f32) -> i32 {
+  let ox = i32(round(driftAt(throwXAt(ia), drop) / cellSize()));
+  let oy = i32(round(driftAt(throwYAt(ia), drop) / cellSize()));
   if (ox == 0 && oy == 0) { return j; }
-  let jx = (j % nx()) + ox;
-  let jy = (j / nx()) + oy;
+  // WITHIN THE SLOT IT WAS AIMED AT. A sheet drifting a column further out is
+  // still falling into the same storey, and a drift that changed storey would
+  // be a sheet passing through a deck.
+  let cells = nx() * ny();
+  let b = j / cells;
+  let jc = j % cells;
+  let jx = (jc % nx()) + ox;
+  let jy = (jc / nx()) + oy;
   if (jx < 0 || jy < 0 || jx >= nx() || jy >= ny()) { return j; }
-  let to = jy * nx() + jx;
-  return select(j, to, groundAt(to) < groundAt(i));
+  let to = slotBase(b) + jy * nx() + jx;
+  // Nor onto a slot that is not there: past the end of a span there is no
+  // upper storey, and water aimed at one would arrive inside the hillside.
+  if (roofAt(to) <= groundAt(to)) { return j; }
+  return select(j, to, groundAt(to) < groundAt(ia));
 }
 
 /** Take a share of what is in the air on this edge, and bank it. */
@@ -196,8 +211,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (n >= cliffCount()) { return; }
   let k = cliffAt(n);
   if (k < 0) { return; }
-  let i = k >> 1;
-  let axis = k & 1;
+  // A FALL'S EDGE IS A SLOT PAIR, an axis and a column, packed in that order
+  // — the twin of fallEdge in fluid/falls. At one storey the plane is nought
+  // and every index here is the k >> 1 and k & 1 it was.
+  let cells = nx() * ny();
+  let pl = k / (cells * 2);
+  let rest = k - pl * cells * 2;
+  let i = rest >> 1;
+  let axis = rest & 1;
+  let sa = pl / slots();
+  let sb = pl - sa * slots();
+  let ia = slotBase(sa) + i;
   let x = i % nx();
   let y = i / nx();
   // The box still decides, exactly as it does on the CPU.
@@ -216,21 +240,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let jx = select(x, x + 1, axis == 0);
   let jy = select(y + 1, y, axis == 0);
-  let j = jy * nx() + jx;
-  let drop = groundAt(i) - besideAt2(j);
+  let j = slotBase(sb) + jy * nx() + jx;
+  let drop = groundAt(ia) - besideAt2(j);
 
   if (drop < fallMin()) {
     // The cliff has gone — filled in from below, or the ground moved. What is
     // in the air belongs to the cell below, but it arrives over DROWN rather
     // than all at once: dumped, it puts the pool up over the cliff and kills
     // the next fall too, which is a flicker and not a waterfall.
-    land(k, j, i, min(1.0, dt() / ${f(DROWN)}), 0.0);
+    land(k, j, ia, min(1.0, dt() / ${f(DROWN)}), 0.0);
     resetFall(k);
     return;
   }
 
-  let flux = select(fyAt(i), fxAt(i), axis == 0);
-  setSince(k, select(sinceAt(k) + dt(), 0.0, flux > 0.0 && depthAt(i) > dryDepth()));
+  let e = pairBase(sa, sb) + i;
+  let flux = select(fyAt(e), fxAt(e), axis == 0);
+  setSince(k, select(sinceAt(k) + dt(), 0.0, flux > 0.0 && depthAt(ia) > dryDepth()));
 
   if (sinceAt(k) < ${f(CLING)}) {
     setHead(k, 0.0);                            // more is coming over behind it
@@ -266,13 +291,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let below = min(drop, headAt(k) + (frontAt(k) - headAt(k)) * (0.5 + 0.5 * v));
         // Tiles a second into columns a second. The SMOOTHED launch, the same
         // one the sheet is drawn on, so a drop leaves from where the sheet is.
-        let lip = select(throwYAt(i), throwXAt(i), axis == 0) / cellSize();
+        let lip = select(throwYAt(ia), throwXAt(ia), axis == 0) / cellSize();
         // POSTED BEFORE THE WATER MOVES. If the outbox is full the request
         // cannot be recorded, and then the shed must not happen either — the
         // alternative is a sheet that loses water no drop ever carries, which
         // is a leak, and a leaking sim is one nobody can reason about.
         if (postSpawn(
-          k, ${SPAWN_SHED}, i, take, below, u, lip, f32(materialAt(i))
+          k, ${SPAWN_SHED}, ia, take, below, u, lip, f32(materialAt(ia))
         )) {
           setShed(k, shedAt(k) - take);
           setAir(k, airAt(k) - take);
@@ -285,11 +310,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // the rate it is arriving, which in a steady fall is the rate it went over.
   if (frontAt(k) >= drop && airAt(k) > 0.0) {
     let fall = sqrt((2.0 * drop) / ${f(FALL_GRAVITY)});
-    land(k, landsAt(i, j, drop), i, min(1.0, dt() / fall), drop);
+    land(k, landsAt(ia, j, drop), ia, min(1.0, dt() / fall), drop);
   }
   // Caught its own front, or fallen past the bottom: nothing is left of it.
   if (headAt(k) >= frontAt(k) || headAt(k) >= drop) {
-    land(k, j, i, 1.0, 0.0);
+    land(k, j, ia, 1.0, 0.0);
     resetFall(k);
   }
 }

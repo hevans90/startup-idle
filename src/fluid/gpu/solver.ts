@@ -476,7 +476,7 @@ export function createGpuWater(
   /** The rim revision the device is holding. @see ColumnField.rimRev */
   let sentRim = f.rimRev;
   /** The ground revision the abutments were sent at. @see ColumnField.closed */
-  let sentClosed = -1;
+  let sentRoof = -1;
   /** Whether the last splash sent up had anything alive in it. */
   let sentSplash = false;
   /** Seconds a tick could not submit and the next one has to make up. */
@@ -1124,14 +1124,12 @@ export function createGpuWater(
         sentRim = field.rimRev;
         device.queue.writeBuffer(state.field, state.offset.rim * 4, field.rim);
       }
-      // THE ABUTMENTS, which move only when a deck does — a generate or a
-      // load — so they ride the ground's own revision rather than carrying a
-      // counter of their own. @see ColumnField.closed
-      if (field.closed && field.groundRev !== sentClosed) {
-        sentClosed = field.groundRev;
-        device.queue.writeBuffer(
-          state.field, state.offset.closed * 4, Float32Array.from(field.closed),
-        );
+      // THE ROOFS, which move only when a deck does — a generate, a load or
+      // an edit — so they ride the ground's own revision rather than carrying
+      // a counter of their own. @see ColumnField.roof
+      if (field.groundRev !== sentRoof) {
+        sentRoof = field.groundRev;
+        device.queue.writeBuffer(state.field, state.offset.roof * 4, field.roof);
       }
       // ONE FRAME PAST THE LAST MARK. `splashed` goes false on the frame the
       // last one fades out, and the device is still holding whatever was sent
@@ -1300,7 +1298,7 @@ export function createGpuWater(
         ...consts, windDepth: 2.5, dryDepth: p.dryDepth, fallMin: FALL_MIN,
         openEdge: field.openEdge,
         rimMaterial: field.rimMaterial, rimHeld: field.rim !== null,
-        anyClosed: field.closed !== null,
+        slots: field.layers,
         gravity: p.gravity, breaking: p.breaking,
         room: dripRoom(field.drips), cell: field.cell, frameDt: whole,
         arriveN, wantN,

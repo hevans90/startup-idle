@@ -57,8 +57,8 @@ ${STATE_WGSL}
  * WGSL, as from is. The error scopes in compare-pass are what turn either into
  * a message instead of a pass that silently does nothing.
  */
-fn divertedAt(i: i32, axis: i32, moved: f32) -> bool {
-  return moved > 0.0 && dropAt(i, axis) > 0.0;
+fn divertedAt(i: i32, axis: i32, a: i32, b: i32, moved: f32) -> bool {
+  return moved > 0.0 && dropAt(i, axis, a, b) > 0.0;
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
@@ -68,57 +68,82 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (x > consts.box.z || y > consts.box.w) { return; }
   let i = y * nx() + x;
   let sp = spread();
+  let L = slots();
 
-  var d = 0.0;
-  // The biggest thing arriving, and what it is made of, so a cell that fills
-  // this step knows what filled it. Strictly greater, so on a tie the first
-  // contributor wins — which is the order below, and the CPU's.
-  var bestIn = 0.0;
-  var bestMat = 0.0;
+  // ONE SLOT AT A TIME, and every plane that reaches it. At one storey this
+  // is the four incident edges it always was.
+  for (var a = 0; a < L; a = a + 1) {
+    let ia = slotBase(a) + i;
+    var d = 0.0;
+    // The biggest thing arriving, and what it is made of, so a cell that fills
+    // this step knows what filled it. Strictly greater, so on a tie the first
+    // contributor wins — which is the order below, and the CPU's.
+    var bestIn = 0.0;
+    var bestMat = 0.0;
 
-  // 1. The row above's southward move. Only if that row was walked at all:
-  //    outside the box the CPU never pushed anything here.
-  if (y - 1 >= consts.box.y) {
-    let moved = fyAt(i - nx()) * sp;
-    if (!divertedAt(i - nx(), 1, moved)) {
-      d = d + moved;
-      if (moved > bestIn) { bestIn = moved; bestMat = field[consts.o0.z + i - nx()]; }
+    for (var b = 0; b < L; b = b + 1) {
+      // 1. The row above's southward move into this slot. Only if that row
+      //    was walked at all: outside the box the CPU never pushed here.
+      if (y - 1 >= consts.box.y) {
+        let e = pairBase(b, a) + i - nx();
+        let moved = fyAt(e) * sp;
+        if (!divertedAt(i - nx(), 1, b, a, moved)) {
+          d = d + moved;
+          if (moved > bestIn) {
+            bestIn = moved;
+            bestMat = field[consts.o0.z + slotBase(b) + i - nx()];
+          }
+        }
+      }
+      // 2. The cell before's eastward one.
+      if (x - 1 >= consts.box.x) {
+        let e = pairBase(b, a) + i - 1;
+        let moved = fxAt(e) * sp;
+        if (!divertedAt(i - 1, 0, b, a, moved)) {
+          d = d + moved;
+          if (moved > bestIn) {
+            bestIn = moved;
+            bestMat = field[consts.o0.z + slotBase(b) + i - 1];
+          }
+        }
+      }
+      // 3. Its own two, which LEAVE whether or not they go into the air —
+      //    that is what falling off a lip is. A move the other way is water
+      //    arriving from the slot beyond, and is credited like the two above.
+      if (x + 1 < nx()) {
+        let moved = fxAt(pairBase(a, b) + i) * sp;
+        d = d - moved;
+        if (moved < 0.0 && -moved > bestIn) {
+          bestIn = -moved;
+          bestMat = field[consts.o0.z + slotBase(b) + i + 1];
+        }
+      }
+      if (y + 1 < ny()) {
+        let moved = fyAt(pairBase(a, b) + i) * sp;
+        d = d - moved;
+        if (moved < 0.0 && -moved > bestIn) {
+          bestIn = -moved;
+          bestMat = field[consts.o0.z + slotBase(b) + i + nx()];
+        }
+      }
     }
-  }
-  // 2. The cell before's eastward one.
-  if (x - 1 >= consts.box.x) {
-    let moved = fxAt(i - 1) * sp;
-    if (!divertedAt(i - 1, 0, moved)) {
-      d = d + moved;
-      if (moved > bestIn) { bestIn = moved; bestMat = field[consts.o0.z + i - 1]; }
+
+    setDelta(ia, d);
+    setBestMat(ia, bestMat);
+
+    // And what went over a lip is held in the air on the edge it left by. One
+    // writer per edge, so this is the same write the scatter makes.
+    for (var b = 0; b < L; b = b + 1) {
+      let p = pairBase(a, b) + i;
+      if (x + 1 < nx()) {
+        let moved = fxAt(p) * sp;
+        if (divertedAt(i, 0, a, b, moved)) { addAir(p * 2, moved); }
+      }
+      if (y + 1 < ny()) {
+        let moved = fyAt(p) * sp;
+        if (divertedAt(i, 1, a, b, moved)) { addAir(p * 2 + 1, moved); }
+      }
     }
-  }
-  // 3. Its own two, which LEAVE whether or not they go into the air — that is
-  //    what falling off a lip is. A move the other way is water arriving from
-  //    the cell beyond, and is credited like the two above.
-  if (x + 1 < nx()) {
-    let moved = fxAt(i) * sp;
-    d = d - moved;
-    if (moved < 0.0 && -moved > bestIn) { bestIn = -moved; bestMat = field[consts.o0.z + i + 1]; }
-  }
-  if (y + 1 < ny()) {
-    let moved = fyAt(i) * sp;
-    d = d - moved;
-    if (moved < 0.0 && -moved > bestIn) { bestIn = -moved; bestMat = field[consts.o0.z + i + nx()]; }
-  }
-
-  setDelta(i, d);
-  setBestMat(i, bestMat);
-
-  // And what went over a lip is held in the air on the edge it left by. One
-  // writer per edge, so this is the same write the scatter makes.
-  if (x + 1 < nx()) {
-    let moved = fxAt(i) * sp;
-    if (divertedAt(i, 0, moved)) { addAir(i * 2, moved); }
-  }
-  if (y + 1 < ny()) {
-    let moved = fyAt(i) * sp;
-    if (divertedAt(i, 1, moved)) { addAir(i * 2 + 1, moved); }
   }
 }
 `;

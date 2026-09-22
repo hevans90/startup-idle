@@ -53,7 +53,7 @@ ${STATE_WGSL}
 
 const LAND_SCALE: f32 = ${f(LAND_SCALE)};
 
-fn accAt(region: i32, i: i32) -> i32 { return region * (nx() * ny()) + i; }
+fn accAt(region: i32, i: i32) -> i32 { return region * (nx() * ny() * slots()) + i; }
 
 /** What was banked there, back in half steps. */
 fn landingAt(i: i32) -> f32 {
@@ -80,15 +80,18 @@ fn water(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = i32(gid.y);
   if (x >= nx() || y >= ny()) { return; }
   let i = y * nx() + x;
-  let came = landingAt(i);
-  if (came <= 0.0) { return; }
-  let mat = landMatAt(i);
-  if (mat != 0u && depthAt(i) <= dryDepth()) { setMaterial(i, f32(mat)); }
-  setDepth(i, depthAt(i) + came);
+  for (var a = 0; a < slots(); a = a + 1) {
+    let ia = slotBase(a) + i;
+    let came = landingAt(ia);
+    if (came <= 0.0) { continue; }
+    let mat = landMatAt(ia);
+    if (mat != 0u && depthAt(ia) <= dryDepth()) { setMaterial(ia, f32(mat)); }
+    setDepth(ia, depthAt(ia) + came);
+  }
 }
 
 /**
- * How hard cell i pushes, and the most it may push an edge to.
+ * How hard slot i pushes, and the most it may push an edge to.
  *
  * Beware the units — this is what got it wrong the first time. The sheet
  * arrives in HALF STEPS a second and the solver moves water in TILES a
@@ -102,44 +105,84 @@ fn capOf(i: i32) -> f32 {
   let h = depthAt(i);
   return h * ${f(PLUNGE_CAP)} * sqrt(gravity() * h);
 }
-/** Does this cell push at all? Nothing standing dry turns anything at a bed. */
+/** Does this slot push at all? Nothing standing dry turns anything at a bed. */
 fn pushes(i: i32) -> bool {
   return impulseAt(i) > 0.0 && depthAt(i) > dryDepth();
 }
-/** Only onto ground the water could reach. A plunge that pushes back up its
- *  own wall is a waterfall feeding itself. */
-fn spillsTo(src: i32, to: i32) -> bool {
-  return groundAt(to) < groundAt(src) + depthAt(src);
+
+/**
+ * WHICH PLANE a raw push should be written to, or -1 for nowhere.
+ *
+ * A head-driven flux works itself out: accelerate visits every plane and the
+ * ones that are not joined come out nought. A plunge does not — it is
+ * momentum written straight onto an edge, and an edge has to be chosen. So:
+ * the joined plane with the most gap in it, which on a map with no decks is
+ * the only plane there is. THE LARGEST AND NOT THE FIRST, so the answer does
+ * not depend on the order the slots happen to be numbered in. The twin of
+ * pushPlane in fluid/columns.
+ */
+fn pushPlaneOf(i: i32, axis: i32, a: i32, back: bool, surface: f32) -> i32 {
+  let x = i % nx();
+  let y = i / nx();
+  let step = select(nx(), 1, axis == 0);
+  let jx = select(x, select(x + 1, x - 1, back), axis == 0);
+  let jy = select(select(y + 1, y - 1, back), y, axis == 0);
+  if (jx < 0 || jy < 0 || jx >= nx() || jy >= ny()) { return -1; }
+  let j = select(i + step, i - step, back);
+  let ia = slotBase(a) + i;
+  var best = -1;
+  var most = 0.0;
+  for (var b = 0; b < slots(); b = b + 1) {
+    let jb = slotBase(b) + j;
+    // AND ONLY ONTO GROUND THE WATER COULD GET TO, which is the test this has
+    // always made: a crater is a raw flux rather than something a head drove,
+    // so at the foot of a cliff it would otherwise shove water UP the face.
+    if (groundAt(jb) >= surface) { continue; }
+    let lo = max(groundAt(ia), groundAt(jb));
+    let hi = min(roofAt(ia), roofAt(jb));
+    if (hi - lo > most) { most = hi - lo; best = b; }
+  }
+  if (best < 0) { return -1; }
+  // On the way BACK the edge belongs to the neighbour, so the near side of it
+  // is the neighbour's slot and this one is the far side.
+  return select(pairBase(a, best) + i, pairBase(best, a) + j, back);
 }
 
-/** The push, per edge, asked of the two cells that can give it. */
+/** The push, per edge, asked of the two slots that can give it. */
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
 fn push(@builtin(global_invocation_id) gid: vec3<u32>) {
   let x = i32(gid.x);
   let y = i32(gid.y);
   if (x >= nx() || y >= ny()) { return; }
   let i = y * nx() + x;
+  let L = slots();
 
-  var kx = 0.0;
-  var cx = 0.0;
-  if (x + 1 < nx()) {
-    let j = i + 1;
-    // In the CPU order: the near cell adds, then the far cell subtracts.
-    if (pushes(i) && spillsTo(i, j)) { kx = kx + pushOf(i); cx = max(cx, capOf(i)); }
-    if (pushes(j) && spillsTo(j, i)) { kx = kx - pushOf(j); cx = max(cx, capOf(j)); }
+  // EVERY PLANE OF THIS COLUMN'S TWO EDGES, cleared then filled: a plane
+  // nobody pushes has to end at nought or it keeps last step's kick.
+  for (var a = 0; a < L; a = a + 1) {
+    for (var b = 0; b < L; b = b + 1) {
+      let e = pairBase(a, b) + i;
+      setKickX(e, 0.0);
+      setCapX(e, 0.0);
+      setKickY(e, 0.0);
+      setCapY(e, 0.0);
+    }
   }
-  setKickX(i, kx);
-  setCapX(i, cx);
-
-  var ky = 0.0;
-  var cy = 0.0;
-  if (y + 1 < ny()) {
-    let j = i + nx();
-    if (pushes(i) && spillsTo(i, j)) { ky = ky + pushOf(i); cy = max(cy, capOf(i)); }
-    if (pushes(j) && spillsTo(j, i)) { ky = ky - pushOf(j); cy = max(cy, capOf(j)); }
+  for (var a = 0; a < L; a = a + 1) {
+    let ia = slotBase(a) + i;
+    // In the CPU order: the near slot adds, then the far one subtracts.
+    if (pushes(ia)) {
+      let surface = groundAt(ia) + depthAt(ia);
+      let e = pushPlaneOf(i, 0, a, false, surface);
+      if (e >= 0) { setKickX(e, kickXAt(e) + pushOf(ia)); setCapX(e, max(capXAt(e), capOf(ia))); }
+      let w = pushPlaneOf(i, 0, a, true, surface);
+      if (w >= 0) { setKickX(w, kickXAt(w) - pushOf(ia)); setCapX(w, max(capXAt(w), capOf(ia))); }
+      let so = pushPlaneOf(i, 1, a, false, surface);
+      if (so >= 0) { setKickY(so, kickYAt(so) + pushOf(ia)); setCapY(so, max(capYAt(so), capOf(ia))); }
+      let no = pushPlaneOf(i, 1, a, true, surface);
+      if (no >= 0) { setKickY(no, kickYAt(no) - pushOf(ia)); setCapY(no, max(capYAt(no), capOf(ia))); }
+    }
   }
-  setKickY(i, ky);
-  setCapY(i, cy);
 }
 
 /**
@@ -154,12 +197,18 @@ fn clampFlux(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = i32(gid.y);
   if (x >= nx() || y >= ny()) { return; }
   let i = y * nx() + x;
-  let kx = kickXAt(i);
-  if (kx > 0.0) { setFx(i, max(fxAt(i), min(fxAt(i) + kx, capXAt(i)))); }
-  else if (kx < 0.0) { setFx(i, min(fxAt(i), max(fxAt(i) + kx, -capXAt(i)))); }
-  let ky = kickYAt(i);
-  if (ky > 0.0) { setFy(i, max(fyAt(i), min(fyAt(i) + ky, capYAt(i)))); }
-  else if (ky < 0.0) { setFy(i, min(fyAt(i), max(fyAt(i) + ky, -capYAt(i)))); }
+  let L = slots();
+  for (var a = 0; a < L; a = a + 1) {
+    for (var b = 0; b < L; b = b + 1) {
+      let e = pairBase(a, b) + i;
+      let kx = kickXAt(e);
+      if (kx > 0.0) { setFx(e, max(fxAt(e), min(fxAt(e) + kx, capXAt(e)))); }
+      else if (kx < 0.0) { setFx(e, min(fxAt(e), max(fxAt(e) + kx, -capXAt(e)))); }
+      let ky = kickYAt(e);
+      if (ky > 0.0) { setFy(e, max(fyAt(e), min(fyAt(e) + ky, capYAt(e)))); }
+      else if (ky < 0.0) { setFy(e, min(fyAt(e), max(fyAt(e) + ky, -capYAt(e)))); }
+    }
+  }
 }
 `;
 

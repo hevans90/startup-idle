@@ -409,7 +409,7 @@ export async function compareAccelerate(
     ...consts, windDepth: 2.5, dryDepth: p.dryDepth, fallMin: FALL_MIN,
     openEdge: gpuSide.openEdge,
     rimMaterial: gpuSide.rimMaterial, rimHeld: gpuSide.rim !== null,
-    anyClosed: gpuSide.closed !== null,
+    slots: gpuSide.layers,
     gravity: p.gravity, breaking: p.breaking, diffScale: consts.diffScale,
     room: dripRoom(gpuSide.drips), cell: gpuSide.cell,
     cliffN: gpuSide.falls.cliffN, frameDt: consts.dt, arriveN: 0, wantN: 0,
@@ -914,7 +914,7 @@ export async function compareCliffs(
     windDepth: 2.5, dryDepth: p.dryDepth, fallMin: FALL_MIN,
     openEdge: gpuSide.openEdge,
     rimMaterial: gpuSide.rimMaterial, rimHeld: gpuSide.rim !== null,
-    anyClosed: gpuSide.closed !== null,
+    slots: gpuSide.layers,
     gravity: p.gravity, breaking: p.breaking, diffScale: 0,
     room: dripRoom(gpuSide.drips), cell: gpuSide.cell, cliffN: 0, frameDt: 1 / 60, arriveN: 0, wantN: 0,
   }, gpuSide.wnx, gpuSide.wstride);

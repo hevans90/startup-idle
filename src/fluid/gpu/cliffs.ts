@@ -50,34 +50,11 @@ ${STATE_WGSL}
 /** Claim a slot in the index. Past the end, the edge is dropped. */
 fn claim(k: i32) {
   let n = atomicAdd(&reduce[${CLIFFN_SLOT}], 1);
-  if (n < nx() * ny() * 2) { setCliff(n, f32(k)); }
+  if (n < nx() * ny() * 2 * slots() * slots()) { setCliff(n, f32(k)); }
 }
 
-@compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = i32(gid.x);
-  let y = i32(gid.y);
-  if (x >= nx() || y >= ny()) { return; }
-  let i = y * nx() + x;
-  let k = i * 2;
-
-  // An edge is a cliff if the ground steps down far enough across it, OR if
-  // there is already something in the air off it. The second half is what
-  // keeps a fall alive after the pool below has risen and swallowed its own
-  // lip: the drop is gone, but the sheet still has to finish arriving.
-  var own = 0.0;
-  if (x + 1 < nx()
-    && (groundAt(i) - groundAt(i + 1) >= ${f(FALL_MIN)}
-      || airAt(k) > 0.0 || frontAt(k) > 0.0)) {
-    claim(k);
-    own = 1.0;
-  }
-  if (y + 1 < ny()
-    && (groundAt(i) - groundAt(i + nx()) >= ${f(FALL_MIN)}
-      || airAt(k + 1) > 0.0 || frontAt(k + 1) > 0.0)) {
-    claim(k + 1);
-    own = 1.0;
-  }
+/** The smoothed launch for one slot — see the long note this carries. */
+fn seedThrow(ia: i32, x: i32, y: i32, own: f32) {
 
   // THE LAUNCH IS SEEDED ONLY WHERE A COLUMN HAS JUST BECOME A LIP, not every
   // frame. Re-seeding it every frame would overwrite the smoothing below with
@@ -103,19 +80,65 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // THE BOX STILL DECIDES, because it did before: the falls pass returns early
   // on an edge outside it, so a lip the solver is not looking at keeps the
   // throw it had rather than easing towards a flow nobody is computing.
-  let was = cliffColAt(i);
+  let was = cliffColAt(ia);
   if (own > 0.0 && was == 0.0) {
-    setThrowX(i, throwOf(flowXAt(i)));
-    setThrowY(i, throwOf(flowYAt(i)));
+    setThrowX(ia, throwOf(flowXAt(ia)));
+    setThrowY(ia, throwOf(flowYAt(ia)));
   } else if (own > 0.0
       && x >= consts.box.x && x <= consts.box.z
       && y >= consts.box.y && y <= consts.box.w) {
     let ease = 1.0 - exp(-frameDt() / ${f(THROW_EASE)});
-    setThrowX(i, throwXAt(i) + (throwOf(flowXAt(i)) - throwXAt(i)) * ease);
-    setThrowY(i, throwYAt(i) + (throwOf(flowYAt(i)) - throwYAt(i)) * ease);
+    setThrowX(ia, throwXAt(ia) + (throwOf(flowXAt(ia)) - throwXAt(ia)) * ease);
+    setThrowY(ia, throwYAt(ia) + (throwOf(flowYAt(ia)) - throwYAt(ia)) * ease);
   }
-  setCliffCol(i, own);
+  setCliffCol(ia, own);
 }
+
+@compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= nx() || y >= ny()) { return; }
+  let i = y * nx() + x;
+  let L = slots();
+
+  // An edge is a cliff if the ground steps down far enough across it, OR if
+  // there is already something in the air off it. The second half is what
+  // keeps a fall alive after the pool below has risen and swallowed its own
+  // lip: the drop is gone, but the sheet still has to finish arriving.
+  //
+  // PER SLOT PAIR. A PAIR THAT IS NOT JOINED HAS NO LIP: the deck of a bridge
+  // stands a long way over the channel under it and that is not a waterfall,
+  // it is a bridge — the two slots do not overlap, so nothing crosses and
+  // nothing falls. See fluid/slots.
+  for (var a = 0; a < L; a = a + 1) {
+    let ia = slotBase(a) + i;
+    var own = 0.0;
+    for (var b = 0; b < L; b = b + 1) {
+      let k = (pairBase(a, b) + i) * 2;
+      if (x + 1 < nx()) {
+        let jb = slotBase(b) + i + 1;
+        let joined = min(roofAt(ia), roofAt(jb)) > max(groundAt(ia), groundAt(jb));
+        if ((joined && groundAt(ia) - groundAt(jb) >= ${f(FALL_MIN)})
+          || airAt(k) > 0.0 || frontAt(k) > 0.0) {
+          claim(k);
+          own = 1.0;
+        }
+      }
+      if (y + 1 < ny()) {
+        let jb = slotBase(b) + i + nx();
+        let joined = min(roofAt(ia), roofAt(jb)) > max(groundAt(ia), groundAt(jb));
+        if ((joined && groundAt(ia) - groundAt(jb) >= ${f(FALL_MIN)})
+          || airAt(k + 1) > 0.0 || frontAt(k + 1) > 0.0) {
+          claim(k + 1);
+          own = 1.0;
+        }
+      }
+    }
+    seedThrow(ia, x, y, own);
+  }
+}
+
 `;
 
 export type CliffsPass = {

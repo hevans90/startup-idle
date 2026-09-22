@@ -18,6 +18,7 @@
  * is about a second, and one pass run once is far inside it.
  */
 import { FLUX_FLOOR, type ColumnField } from "../columns";
+import { OPEN_SKY, PRESSURE_SLOT } from "../slots";
 import {
   STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
 } from "./state";
@@ -44,15 +45,44 @@ ${STATE_WGSL}
  * for what it looks like without this: water on a plateau driven by a head as
  * tall as the cliff, evacuating its cell in a tenth of a second.
  */
-struct Edge { head: f32, carry: f32, drag: f32 };
+struct Edge { head: f32, carry: f32, drag: f32, joined: bool };
+
+/**
+ * The HYDRAULIC surface of a slot: what the head is measured to.
+ *
+ * Below the roof this is the plain floor plus depth it has always been. Above
+ * it the extra depth is in a narrow slot and buys little height, so a conduit
+ * running full goes on flowing under pressure instead of quietly stopping —
+ * Preissmann. The twin of head in fluid/slots.
+ */
+fn headOf(i: i32) -> f32 {
+  let floor = groundAt(i);
+  let room = roofAt(i) - floor;
+  let d = depthAt(i);
+  return select(roofAt(i) + (d - room) * ${PRESSURE_SLOT}, floor + d, d <= room);
+}
 
 fn edgeAt(i: i32, j: i32, si: f32) -> Edge {
+  var e: Edge;
   let gi = groundAt(i);
   let gj = groundAt(j);
   let sill = max(gi, gj);
-  let hi = si - sill;
-  let hj = gj + depthAt(j) - sill;
-  let head = max(hi, 0.0) - max(hj, 0.0);
+  // THE ONE RULE. Two slots that do not overlap are not joined, and an absent
+  // slot overlaps nothing — so a deck and the channel under it, and a road
+  // and the channel under the deck beside it, are both simply edges that are
+  // not there. It is what an abutment used to be, derived rather than
+  // classified. See fluid/slots.
+  let lid = min(roofAt(i), roofAt(j));
+  e.joined = lid > sill;
+  if (!e.joined) { return e; }
+  // AND FROM THE LID DOWNWARDS, which is the same argument stood on its head:
+  // an edge is a GAP and a gap has a top. Water four steps deep against an
+  // opening one step tall pushes through one step of opening. On an uncovered
+  // slot the lid is the sky and this never binds.
+  let gap = lid - sill;
+  let hi = clamp(si - sill, 0.0, gap);
+  let hj = clamp(headOf(j) - sill, 0.0, gap);
+  let head = hi - hj;
   // carry is the depth on whichever side is UPHILL: the water with a path
   // across the edge. It doubles as the dry gate, and on level ground it is the
   // upstream depth. NO BACKTICKS ANYWHERE BELOW: this is a template literal,
@@ -63,7 +93,6 @@ fn edgeAt(i: i32, j: i32, si: f32) -> Edge {
   // the readback shows the input unchanged, which reads exactly like a physics
   // bug. See the error scopes in compare-pass, which is what caught it.
   let upstream = select(j, i, head > 0.0);
-  var e: Edge;
   e.head = head;
   e.carry = carry;
   e.drag = keepOfAt(materialAt(upstream));
@@ -120,7 +149,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (x > consts.box.z || y > consts.box.w) { return; }
 
   let i = y * nx() + x;
-  let si = groundAt(i) + depthAt(i);
 
   // The wind grid is coarser than the columns — one cell every wstride — and
   // both indices truncate, which for non-negative x and y is what the CPU's
@@ -130,23 +158,34 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let wxv = windXAt(wrow + wc) * dt();
   let wyv = windYAt(wrow + wc) * dt();
 
-  // AN ABUTMENT CARRIES NOTHING, checked before the edge is accelerated and
-  // the twin of the same line on the host. Where a road meets a bridge the
-  // channel is under the deck and the road must not pour into it, and a
-  // height per cell cannot say so. @see ColumnField.closed
-  if (edgeClosed(i, 0)) {
-    setFx(i, 0.0);
-  } else if (x + 1 < nx()) {
-    setFx(i, fluxAt(fxAt(i), edgeAt(i, i + 1, si), wxv));
-  } else {
-    setFx(i, 0.0);                            // the map edge is a wall
-  }
-  if (edgeClosed(i, 1)) {
-    setFy(i, 0.0);
-  } else if (y + 1 < ny()) {
-    setFy(i, fluxAt(fyAt(i), edgeAt(i, i + nx(), si), wyv));
-  } else {
-    setFy(i, 0.0);
+  let L = slots();
+  // EVERY SLOT OF THIS COLUMN AGAINST EVERY SLOT OF THE NEXT. A road beside a
+  // bridge meets both the deck and the channel under it, and those are two
+  // edges with two momenta. At one storey this is the single edge it was.
+  for (var a = 0; a < L; a = a + 1) {
+    let ia = slotBase(a) + i;
+    let si = headOf(ia);
+    // SHELTERED SLOTS GET NO WEATHER: a gust happens to a surface open to the
+    // sky, and the water under a bridge is not. On a map with no decks every
+    // slot is, so this is the wind the field always had.
+    let open = roofAt(ia) >= ${OPEN_SKY}.0;
+    let wx = select(0.0, wxv, open);
+    let wy = select(0.0, wyv, open);
+    for (var b = 0; b < L; b = b + 1) {
+      let p = pairBase(a, b) + i;
+      if (x + 1 < nx()) {
+        let e = edgeAt(ia, slotBase(b) + i + 1, si);
+        setFx(p, select(0.0, fluxAt(fxAt(p), e, wx), e.joined));
+      } else {
+        setFx(p, 0.0);                          // the map edge is a wall
+      }
+      if (y + 1 < ny()) {
+        let e = edgeAt(ia, slotBase(b) + i + nx(), si);
+        setFy(p, select(0.0, fluxAt(fyAt(p), e, wy), e.joined));
+      } else {
+        setFy(p, 0.0);
+      }
+    }
   }
 }
 `;

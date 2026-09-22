@@ -232,61 +232,6 @@ export type ColumnField = {
   /** Bumped whenever {@link rim} changes, so a device copy knows to re-read. */
   rimRev: number;
   /**
-   * Edges that carry NOTHING: the `+x` edge of each column, then the `+y`.
-   *
-   * An ABUTMENT, which is the one thing a heightfield cannot say. Where a
-   * road meets a bridge, the channel is UNDER the deck and the road does not
-   * pour into it — there is a wall between them. Two cells at different
-   * heights are just a cliff to a heightfield, and water goes over cliffs, so
-   * the road emptied into the river at the mouth of every span: of a hundred
-   * and sixty poured on the approach, eleven reached the deck and forty three
-   * fell in the ditch.
-   *
-   * Null on an ordinary field, and nothing pays for it there.
-   */
-  closed: Uint8Array | null;
-  /**
-   * What each column IS, on a field that is an upper storey. @see STOREY
-   *
-   * A bridge's deck ends in two completely different ways and the first
-   * version of this had only one of them. Off the SIDE of a span the ground
-   * falls away and water leaves downwards — a hole. But a bridge is a piece
-   * of ROAD, and at either END the road carries on at the same level: the
-   * surface is continuous there, and a hole cuts it. Modelled as holes all
-   * round, water could only ever get onto a deck by being poured on it and
-   * could only leave by being deleted, which is neither of the things a
-   * bridge is for.
-   *
-   * Null on an ordinary field, which is every field that is not an upper
-   * storey, and costs it nothing.
-   */
-  storey: Uint8Array | null;
-  /**
-   * The depth a GHOST column is held at, copied in from the field below.
-   *
-   * A ghost is not this field's water. It is a window onto the storey below,
-   * held at what that storey has, so the flow between a deck and the road it
-   * meets is computed by the solver's own rule across an ordinary edge rather
-   * than by a second rule written here about how two fields trade.
-   */
-  hold: Float32Array | null;
-  /**
-   * What fell through a HOLE, per column, waiting to be handed down.
-   *
-   * Accumulated rather than transferred here, because this file knows nothing
-   * about a world with two storeys in it — it is one field's physics. The
-   * world reads this, pours it into the field below, and clears it.
-   */
-  fell: Float32Array | null;
-  /**
-   * What a GHOST traded with the storey below, per column, signed.
-   *
-   * Positive where the ghost ended deeper than it was held at — water came
-   * off the deck and belongs to the field below now — and negative where the
-   * deck took some. The world applies it and clears it. @see fell
-   */
-  traded: Float32Array | null;
-  /**
    * The wind, on a grid far coarser than the water.
    *
    * A gust is a weather-sized thing — `WIND_TILES` across — so sampling it per
@@ -646,11 +591,6 @@ export function createColumnField(
     rim: null,
     rimMaterial: 1,
     rimRev: 0,
-    closed: null,
-    storey: null,
-    hold: null,
-    fell: null,
-    traded: null,
     windX: new Float32Array(wnx * wny),
     windY: new Float32Array(wnx * wny),
     wnx, wny, wstride: stride,
@@ -790,81 +730,6 @@ export function setRim(f: ColumnField, rim: Float32Array | null, material = 1) {
   f.rim = rim;
   f.rimMaterial = material;
   f.rimRev++;
-}
-
-/**
- * What a column of an upper storey is.
- *
- * OWNED is the deck itself. HOLE is off the side of it, where the ground has
- * fallen away: water there is leaving downwards. GHOST is off the END of it,
- * where the road carries on at the same level and the surface is continuous —
- * a window onto the storey below rather than water of this field's own.
- */
-export const STOREY = { OWNED: 0, HOLE: 1, GHOST: 2 } as const;
-
-/**
- * Put the boundary of an upper storey back, and record what crossed it.
- *
- * At the top of a substep beside {@link spill} and for the same reason: the
- * columns that bound a body of water have to hold what they are supposed to
- * hold when the heads are taken, or the body is standing on something that is
- * not there.
- *
- * A HOLE is emptied, and what it held is water on its way down. A GHOST is
- * put back to the depth the storey below has, and how far it had drifted from
- * that is exactly what crossed the edge between the two — which is why this
- * needs no arithmetic about fluxes and no second account of how water moves.
- * The solver moved it across an ordinary edge; this reads the difference.
- *
- * It does NOT put anything anywhere. This field is one storey and knows
- * nothing about what is under it; the world reads {@link ColumnField.fell}
- * and {@link ColumnField.traded} and settles up. @see storey
- */
-function bound(f: ColumnField) {
-  const { depth, material, storey, hold, fell, traded, nx } = f;
-  if (!storey || !hold || !fell || !traded) return;
-  for (let i = 0; i < depth.length; i++) {
-    const kind = storey[i];
-    if (kind === STOREY.OWNED) continue;
-    if (kind === STOREY.HOLE) {
-      if (depth[i] <= 0) continue;
-      fell[i] += depth[i];
-      depth[i] = 0;
-      material[i] = 0;
-      continue;
-    }
-    // GHOST: back to what the storey below has, and remember the difference.
-    traded[i] += depth[i] - hold[i];
-    depth[i] = hold[i];
-    if (hold[i] > 0) {
-      if (material[i] === 0) material[i] = 1;
-      include(f, i % nx, (i / nx) | 0);
-      if (hold[i] > f.deepest) f.deepest = hold[i];
-    } else material[i] = 0;
-  }
-}
-
-/**
- * Close a field's edges, or open them all again with null.
- *
- * Two bytes a column: the `+x` edge, then the `+y`. @see ColumnField.closed
- */
-export function setClosed(f: ColumnField, closed: Uint8Array | null) {
-  f.closed = closed;
-}
-
-/**
- * Make this field an upper storey, or an ordinary one again with null.
- *
- * @see STOREY for what the bytes mean.
- */
-export function setStorey(f: ColumnField, kinds: Uint8Array | null) {
-  if (!kinds) { f.storey = null; f.hold = null; f.fell = null; f.traded = null; return; }
-  f.storey = kinds;
-  const n = f.depth.length;
-  f.hold = f.hold ?? new Float32Array(n);
-  f.fell = f.fell ?? new Float32Array(n);
-  f.traded = f.traded ?? new Float32Array(n);
 }
 
 /** Material indices the per-material drag table covers. */
@@ -2347,7 +2212,6 @@ export function diffuseBreaking(f: ColumnField, c: PassConsts) {
 function substep(f: ColumnField, dt: number) {
   f.t += dt;
   if (f.openEdge) spill(f);
-  if (f.storey) bound(f);
   const region = activeBox(f);
   if (!region) { stepAir(f, dt); return; }      // nothing wet, but drops still fall
   stirWind(f);

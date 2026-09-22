@@ -361,7 +361,7 @@ export const FIELDS = [
   // keeps every other reader (the save, the handover to the CPU solver) seeing
   // a field that is stale rather than one that is frozen. @see WANT_MAX
   "wantAt", "wantOut",
-  "rim", "closed",
+  "rim", "roof",
 ] as const;
 export type FieldName = (typeof FIELDS)[number];
 
@@ -454,12 +454,18 @@ export type PassUniforms = {
   rimMaterial: number;
   /** Whether any of the rim is held at a level. @see ColumnField.rim */
   rimHeld: boolean;
-  /** Whether any edge is an abutment. @see ColumnField.closed */
-  anyClosed: boolean;
+  /** How many STOREYS a column has. @see ColumnField.layers */
+  slots: number;
 };
 
 export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
   const cells = f.nx * f.ny;
+  // PER SLOT, and per slot PAIR. At one storey both are `cells` and every
+  // index below is the index it always was — the same dimension-not-a-mode
+  // the host solver took. @see ColumnField.layers
+  const { layers } = f;
+  const slotCells = cells * layers;
+  const pairCells = cells * layers * layers;
   // A SUBSTEP'S WORTH EACH, for the three that change BETWEEN substeps.
   //
   // The wind gusts on the clock and the drag is raised to the substep's own
@@ -473,21 +479,24 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
   // changes at all. @see CONSTS_SLOTS
   const wind = f.windX.length;
   const sizes: Record<FieldName, number> = {
-    ground: cells, depth: cells, material: cells, fx: cells, fy: cells,
-    scale: cells,
+    ground: slotCells, depth: slotCells, material: slotCells,
+    fx: pairCells, fy: pairCells,
+    // A SCALE PER SLOT: it is one slot's water paying for its own outflows.
+    scale: slotCells,
     windX: wind * CONSTS_SLOTS, windY: wind * CONSTS_SLOTS,
     keepOf: MATERIAL_SLOTS * CONSTS_SLOTS,
-    // `air` is per EDGE — two to a cell, `i * 2 + axis`, the CPU's own index.
-    delta: cells, air: cells * 2, bestMat: cells,
-    rate: cells, breakAge: cells, broke: cells,
+    // `air` is per EDGE of a slot PAIR — the CPU's own index, plane first.
+    delta: slotCells, air: pairCells * 2, bestMat: slotCells,
+    rate: slotCells, breakAge: slotCells, broke: slotCells,
     velo: cells, iterA: cells, iterB: cells,
-    front: cells * 2, head: cells * 2, frontSpeed: cells * 2,
-    headSpeed: cells * 2, since: cells * 2, shed: cells * 2,
-    throwX: cells, throwY: cells, cliff: cells * 2, cliffCol: cells,
+    front: pairCells * 2, head: pairCells * 2, frontSpeed: pairCells * 2,
+    headSpeed: pairCells * 2, since: pairCells * 2, shed: pairCells * 2,
+    throwX: slotCells, throwY: slotCells,
+    cliff: pairCells * 2, cliffCol: slotCells,
     fallOut: FALL_OUT_MAX * FALL_OUT_STRIDE,
     // A word to four columns, and the map's width is a multiple of four.
-    matByte: Math.ceil(cells / 4),
-    kickX: cells, kickY: cells, capX: cells, capY: cells,
+    matByte: Math.ceil(slotCells / 4),
+    kickX: pairCells, kickY: pairCells, capX: pairCells, capY: pairCells,
     arrive: cells * ARRIVE_STRIDE,
     washNow: cells, washNext: cells, washSeed: cells,
     foamNow: cells, foamNext: cells, splashNow: cells, splashIn: cells,
@@ -495,8 +504,9 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     wantAt: WANT_MAX, wantOut: WANT_MAX,
     // The PERIMETER, not the area: the rim is an edge. @see rimAt
     rim: rimLength(f.nx, f.ny),
-    // Two edges a column — the `+x` and the `+y`. @see ColumnField.closed
-    closed: cells * 2,
+    // THE UNDERSIDE OF WHATEVER IS OVER A SLOT, one per slot, like the
+    // ground it is the ceiling of. @see ColumnField.roof
+    roof: slotCells,
   };
   const offset = {} as Record<FieldName, number>;
   let at = 0;
@@ -511,7 +521,9 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     label: "solver state",
   });
   const acc = device.createBuffer({
-    size: cells * 4 * 4,
+    // FOUR REGIONS, each a SLOT's worth: a landing is banked against the slot
+    // it arrives in, and a bridge has two. @see ACC
+    size: slotCells * 4 * 4,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     label: "landings",
   });
@@ -781,7 +793,7 @@ export function upload(s: GpuState, f: ColumnField) {
     q.writeBuffer(s.field, s.offset[name] * 4, data);
   put("ground", f.ground);
   put("depth", f.depth);
-  if (f.closed) put("closed", Float32Array.from(f.closed));
+  put("roof", f.roof);
   // ONLY WHEN THERE IS ONE. A map with no inflow leaves the slice untouched
   // and the shader never reads it, because `rimHeld` is false. @see spill
   if (f.rim) put("rim", f.rim);
@@ -911,8 +923,7 @@ export function writeConsts(
   i32[77] = o.rim;
   i32[78] = u.rimMaterial;
   i32[79] = u.rimHeld ? 1 : 0;
-  i32[80] = o.closed;
-  i32[81] = u.anyClosed ? 1 : 0;
+  i32[80] = o.roof; i32[81] = u.slots;
   i32[68] = o.foamNow; i32[69] = o.foamNext;
   i32[70] = o.splashNow; i32[71] = o.splashIn;
   f32[51] = u.frameDt;
@@ -989,7 +1000,7 @@ struct Consts {
   o11: vec4<i32>,        // offsets: foamNow, foamNext, splashNow, splashIn
   o12: vec4<i32>,        // offset: matByte, open edge, wantAt, wantOut
   o13: vec4<i32>,        // wantN, then the rim: offset, material, whether held
-  o14: vec4<i32>,        // closed: offset, whether any, 2 spare
+  o14: vec4<i32>,        // roof: offset, how many storeys, 2 spare
 };
 
 @group(0) @binding(0) var<uniform> consts : Consts;
@@ -1045,11 +1056,21 @@ fn rimMaterial() -> f32 { return f32(consts.o13.z); }
 /** Whether any of the rim is held at a level at all. */
 fn rimHeld() -> bool { return consts.o13.w != 0; }
 
-/** Whether this edge carries nothing — an abutment. @see ColumnField.closed */
-fn edgeClosed(i: i32, axis: i32) -> bool {
-  if (consts.o14.y == 0) { return false; }
-  return field[consts.o14.x + i * 2 + axis] != 0.0;
-}
+/** The underside of whatever is over a slot, or the open sky. @see fluid/slots */
+fn roofAt(i: i32) -> f32 { return field[consts.o14.x + i]; }
+/** How many STOREYS a column has. @see ColumnField.layers */
+fn slots() -> i32 { return consts.o14.y; }
+/** The start of slot a's plane, which is a whole map of columns. */
+fn slotBase(a: i32) -> i32 { return a * nx() * ny(); }
+/**
+ * THE FLUX PLANE from slot a to slot b, as a base index.
+ *
+ * An edge between two columns is not one channel once the columns have slots
+ * in them: a road alongside a bridge meets both the deck and the channel
+ * under it, and each is its own edge with its own momentum. The twin of
+ * ColumnField.fx, plane for plane.
+ */
+fn pairBase(a: i32, b: i32) -> i32 { return (a * slots() + b) * nx() * ny(); }
 /**
  * Whether this column is the rim water LEAVES by, rather than water.
  *
@@ -1087,21 +1108,43 @@ fn cellSize() -> f32 { return consts.d.z; }
  * side of a column over a FLOORED depth, so a film does not divide its way to
  * an enormous speed.
  */
-fn flowXAt(i: i32) -> f32 {
-  let d = depthAt(i);
+fn flowXAt(ia: i32) -> f32 {
+  let d = depthAt(ia);
   if (d <= 0.0) { return 0.0; }
   let by = max(d, dryDepth() * 8.0);
-  let west = select(0.0, fxAt(i - 1), (i % nx()) > 0);
-  let v = (west + fxAt(i)) * 0.5 / by;
+  let L = slots();
+  let cells = nx() * ny();
+  let a = ia / cells;
+  let i = ia % cells;
+  // SUMMED OVER EVERYWHERE THIS SLOT'S WATER CAN GO, which is a plane per
+  // slot on the far side of the edge — off the end of a bridge onto the road
+  // and over the parapet beside it, from the same water. The twin of outX and
+  // inX in fluid/columns.
+  var west = 0.0;
+  var east = 0.0;
+  for (var b = 0; b < L; b = b + 1) {
+    east = east + fxAt(pairBase(a, b) + i);
+    if ((i % nx()) > 0) { west = west + fxAt(pairBase(b, a) + i - 1); }
+  }
+  let v = (west + east) * 0.5 / by;
   return clamp(v, -${num(MAX_FLOW_SPEED)}, ${num(MAX_FLOW_SPEED)});
 }
 
-fn flowYAt(i: i32) -> f32 {
-  let d = depthAt(i);
+fn flowYAt(ia: i32) -> f32 {
+  let d = depthAt(ia);
   if (d <= 0.0) { return 0.0; }
   let by = max(d, dryDepth() * 8.0);
-  let north = select(0.0, fyAt(i - nx()), (i / nx()) > 0);
-  let v = (north + fyAt(i)) * 0.5 / by;
+  let L = slots();
+  let cells = nx() * ny();
+  let a = ia / cells;
+  let i = ia % cells;
+  var north = 0.0;
+  var south = 0.0;
+  for (var b = 0; b < L; b = b + 1) {
+    south = south + fyAt(pairBase(a, b) + i);
+    if ((i / nx()) > 0) { north = north + fyAt(pairBase(b, a) + i - nx()); }
+  }
+  let v = (north + south) * 0.5 / by;
   return clamp(v, -${num(MAX_FLOW_SPEED)}, ${num(MAX_FLOW_SPEED)});
 }
 
@@ -1252,16 +1295,27 @@ fn setBestMat(i: i32, v: f32) { field[consts.o2.w + i] = v; }
  */
 fn besideAt(j: i32) -> f32 {
   let dj = depthAt(j);
-  return select(groundAt(j), groundAt(j) + dj, dj > dryDepth());
+  // The water's own TOP and not its hydraulic surface: this asks what a
+  // falling sheet will hit, and a full culvert is hit at its soffit. The twin
+  // of wetTop in fluid/slots.
+  let top = min(groundAt(j) + dj, roofAt(j));
+  return select(groundAt(j), top, dj > dryDepth());
 }
 
-fn dropAt(i: i32, axis: i32) -> f32 {
+/**
+ * How far water leaving slot a over one edge would fall to slot b.
+ *
+ * i is a COLUMN and a, b are storeys: a drop is measured from the slot the
+ * water LEAVES to the slot it is aimed at, so coming off the side of a deck
+ * is a fall and running onto the road at the end of one is not.
+ */
+fn dropAt(i: i32, axis: i32, a: i32, b: i32) -> f32 {
   let x = i % nx();
   let y = i / nx();
   let jx = select(x, x + 1, axis == 0);
   let jy = select(y + 1, y, axis == 0);
   if (jx >= nx() || jy >= ny()) { return 0.0; }
-  let drop = groundAt(i) - besideAt(jy * nx() + jx);
+  let drop = groundAt(slotBase(a) + i) - besideAt(slotBase(b) + jy * nx() + jx);
   return select(0.0, drop, drop >= fallMin());
 }
 `;
