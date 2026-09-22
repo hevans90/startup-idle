@@ -18,7 +18,9 @@ import {
   COLUMNS_PER_TILE, createWaterField, deckedAt, depthAt, pourAt, setWaterEdge,
   stepWater, syncGround, totalVolume,
 } from "./water/field";
-import { addWater, totalWater } from "../fluid/columns";
+import { addWater, createColumnField, totalWater } from "../fluid/columns";
+import { DROP } from "../fluid/drips";
+import { dropFrom, fallEdge } from "../fluid/falls";
 import { OPEN_SKY, connected } from "../fluid/slots";
 
 /**
@@ -44,6 +46,8 @@ const onGround = (field: { columns: { depth: Float32Array; cells: number } }) =>
   return sum;
 };
 import { createBandLayer } from "./render/bands";
+import { createFallLayer, destroyFallLayer, drawFalls } from "./render/falls-render";
+import { activeBox } from "../fluid/columns";
 import { TIERS, createWaterLayer, drawWater, tierAt } from "./render/water";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
 import { componentCount, createNetwork } from "./roads/network";
@@ -493,6 +497,108 @@ describe("a bridge and the road it meets are one surface", () => {
     expect(wl.cBody[v * TIERS + 1]).toBe(-1);
     // And the height it is drawn at is the water's, not the ditch's.
     expect(wl.vs[k]).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * AND WHAT GOES OVER THE SIDE FALLS, where you can see it.
+ *
+ * The water was always simulated: a deck's parapet is a lip, the solver
+ * spawns a fall on it, banks the water in the air and lands it below. What
+ * did not happen was the DRAWING. A fall's edge is packed slot pair first
+ * — `p * cells * 2 + i * 2 + axis` — and the renderer still decoded it as
+ * `k >> 1`, which for a bridge's plane is a column index a whole plane past
+ * the end of the map. Every one of them failed the bounds test and was
+ * skipped, so water poured off a span vanished at the parapet and
+ * reappeared in the river with nothing in between.
+ */
+describe("water going off a bridge is drawn falling", () => {
+  /** A deck standing well clear of the ground, and a pour big enough to
+   *  overtop its kerb. */
+  const span = () => {
+    const g = createGrid(12, 12);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) setHeight(g, x, y, -20);
+    for (let y = 4; y <= 7; y++) for (let x = 4; x <= 7; x++) setDeck(g, x, y, 1, 12);
+    const field = createWaterField(g);
+    setWaterEdge(field, false);
+    const bands = createBandLayer(g.w, g.h);
+    bands.visibleLo = 0;
+    bands.visibleHi = g.w + g.h;
+    return { g, field, bands };
+  };
+
+  test("the lips are on the DECK's plane, and the sheet is drawn from them", () => {
+    const { field, bands } = span();
+    const c = field.columns;
+    const fl = createFallLayer(bands, 1);
+    pourAt(field, 5, 5, 40, 1);
+    let quads = 0, air = 0, lips = 0;
+    for (let n = 0; n < 60 * 4; n++) {
+      stepWater(field, 1 / 60);
+      drawFalls(fl, c, activeBox(c), null, null);
+      let q = 0;
+      for (const b of fl.live) q += fl.strips[b].n;
+      quads = Math.max(quads, q);
+      let a = 0;
+      for (let k = 0; k < c.falls.air.length; k++) a += c.falls.air[k];
+      air = Math.max(air, a);
+    }
+    // Every lip is on a plane of its own: the deck against the ground beside
+    // it, which is pair one-nought and never pair nought-nought.
+    const planes = new Set<number>();
+    for (let n = 0; n < c.falls.cliffN; n++) {
+      planes.add((c.falls.cliff[n] / (c.cells * 2)) | 0);
+      lips++;
+    }
+    expect(lips).toBeGreaterThan(8);
+    expect(planes.has(0)).toBe(false);
+    // Water really does leave the deck through the air...
+    expect(air).toBeGreaterThan(1);
+    // ...and it is drawn on its way down. Nought was the bug.
+    expect(quads).toBeGreaterThan(0);
+    destroyFallLayer(fl);
+  });
+
+  test("a drop shed off a deck starts AT the deck", () => {
+    // The same decode, one level down. A drop comes off the sheet at a
+    // height read from the slot the sheet LEFT — read from plane zero it
+    // would be launched from the riverbed under the span, which is below
+    // the water it is supposed to be falling into.
+    const f = createColumnField(8, 8, undefined, 1, 2);
+    for (let i = 0; i < f.cells; i++) {
+      f.ground[i] = -20;
+      f.roof[i] = 10;
+      f.ground[f.cells + i] = 12;
+      f.roof[f.cells + i] = OPEN_SKY;
+    }
+    const i = 3 * f.nx + 3;
+    // Pair one-nought: off the deck, onto the ground beside it.
+    const k = fallEdge(f, i, 0, 1 * f.layers + 0);
+    dropFrom(f, k, DROP, 3, 0.5, 0, 1);
+    expect(f.drips.live).toBe(1);
+    expect(f.drips.z[0]).toBeCloseTo(12 - 3, 6);
+  });
+
+  test("and it sheds drops off the sheet as it comes apart", () => {
+    const { field } = span();
+    const c = field.columns;
+    pourAt(field, 5, 5, 40, 1);
+    // SAMPLED AS IT GOES, because a drop off a twenty half step span is in
+    // the air for about half a second and every one of them has landed long
+    // before the run ends.
+    let live = 0, high = -Infinity;
+    for (let n = 0; n < 60 * 4; n++) {
+      stepWater(field, 1 / 60);
+      live = Math.max(live, c.drips.live);
+      for (let k = 0; k < c.drips.live; k++) high = Math.max(high, c.drips.z[k]);
+    }
+    expect(live).toBeGreaterThan(0);
+    // Above the riverbed, which is twenty half steps down: these are drops
+    // in the air over the channel, not water lying in it. Where each one
+    // STARTS is the test above, which does not depend on what the budget
+    // happened to let through.
+    expect(high).toBeGreaterThan(-20);
   });
 });
 

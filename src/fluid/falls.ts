@@ -848,12 +848,20 @@ export function waterInAir(f: ColumnField): number {
  * the two of them share along the lip between them — and that asks twice per
  * fall per frame for an answer that is a comparison.
  */
-export const falling = (f: ColumnField, i: number, axis: number) =>
-  f.falls.front[i * 2 + axis] > f.falls.head[i * 2 + axis];
+export const falling = (f: ColumnField, i: number, axis: number, p = 0) => {
+  const k = fallEdge(f, i, axis, p);
+  return f.falls.front[k] > f.falls.head[k];
+};
 
-/** How far down its wall a fall has got, or null where there is no fall. */
-export function fallExtent(f: ColumnField, i: number, axis: number) {
-  const k = i * 2 + axis;
+/**
+ * How far down its wall a fall has got, or null where there is no fall.
+ *
+ * `p` is the slot PAIR — see `fallEdge`. A fall off the side of a bridge is
+ * on the plane from the deck to the ground beside it, and asking plane zero
+ * about it answers about the river underneath instead.
+ */
+export function fallExtent(f: ColumnField, i: number, axis: number, p = 0) {
+  const k = fallEdge(f, i, axis, p);
   const head = f.falls.head[k], front = f.falls.front[k];
   return front > head ? { head, front } : null;
 }

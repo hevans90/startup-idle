@@ -81,8 +81,9 @@ const LOOK: SheetLook[] = [
 ];
 
 /** How hard a column is pouring over its `axis` edge, nought to one. */
-export function pourOf(c: ColumnField, i: number, axis: number) {
-  const flux = axis === 0 ? c.fx[i] : c.fy[i];
+export function pourOf(c: ColumnField, i: number, axis: number, pl = 0) {
+  const e = pl * c.cells + (i % c.cells);
+  const flux = axis === 0 ? c.fx[e] : c.fy[e];
   return Math.min(1, Math.max(flux, 0) / FULL_FALL_FLUX);
 }
 
@@ -119,13 +120,19 @@ const throwY = (c: ColumnField, i: number) => c.falls.throwY[i];
  * lip of a south edge along x, so the neighbour that shares a lip with this
  * one is across the OTHER axis from the one the water went over.
  */
-function alongLip(c: ColumnField, i: number, axis: number, d: number) {
-  const cx = i % c.nx, cy = (i / c.nx) | 0;
+function alongLip(c: ColumnField, i: number, axis: number, d: number, pl = 0) {
+  // `i` is a SLOT index and so is the answer: a lip on a bridge's deck runs
+  // along the deck, and the column beside it is only its neighbour if it is
+  // falling on the same PLANE. Asked of plane zero, the lip along a parapet
+  // would pair with whatever the river under it happens to be doing.
+  const base = i - (i % c.cells);
+  const ci = i % c.cells;
+  const cx = ci % c.nx, cy = (ci / c.nx) | 0;
   const jx = axis === 0 ? cx : cx + d;
   const jy = axis === 0 ? cy + d : cy;
   if (jx < 0 || jy < 0 || jx >= c.nx || jy >= c.ny) return -1;
   const j = jy * c.nx + jx;
-  return falling(c, j, axis) ? j : -1;
+  return falling(c, j, axis, pl) ? base + j : -1;
 }
 
 /**
@@ -150,8 +157,9 @@ function alongLip(c: ColumnField, i: number, axis: number, d: number) {
  * column into nothing is the same mistake as insetting every one of them,
  * which is what put the rock back between the ribbons.
  */
-export const sharedPour = (c: ColumnField, i: number, j: number, axis: number) =>
-  j < 0 ? pourOf(c, i, axis) : (pourOf(c, i, axis) + pourOf(c, j, axis)) * 0.5;
+export const sharedPour = (c: ColumnField, i: number, j: number, axis: number, pl = 0) =>
+  (j < 0 ? pourOf(c, i, axis, pl)
+    : (pourOf(c, i, axis, pl) + pourOf(c, j, axis, pl)) * 0.5);
 
 /**
  * @see sharedPour — the same rule, on what the lip throws.
@@ -176,8 +184,7 @@ export const sharedThrow = (c: ColumnField, i: number, j: number, along: number)
  * same end from the other.
  */
 const drawnAt = (c: ColumnField, i: number) =>
-  c.depth[i] * (1 - DRAWDOWN * atBrink(
-    c.nx, c.ny, i, c.ground, c.depth, c.params.dryDepth, FALL_MIN));
+  c.depth[i] * (1 - DRAWDOWN * brinkAt(c, i));
 
 export const sharedBrink = (c: ColumnField, i: number, j: number) =>
   j < 0 ? drawnAt(c, i) : (drawnAt(c, i) + drawnAt(c, j)) * 0.5;
@@ -214,6 +221,15 @@ export const sharedFoam = (foam: Float32Array, i: number, j: number) =>
   j < 0 ? foam[i] : (foam[i] + foam[j]) * 0.5;
 
 /**
+ * The column a slot index is in. @see ColumnField.layers
+ *
+ * `foam` and `wash` are fields of the WORLD rather than of the water — one
+ * value per column, whatever is standing there — so anything reading them
+ * from a slot has to come back down to the column first.
+ */
+export const columnOfSlot = (c: ColumnField, i: number) => i % c.cells;
+
+/**
  * @see sharedPour — the same rule, on how DEEP the lip reads as being.
  *
  * The surface's own measure and not the raw depth: a lip is thin because it is
@@ -246,11 +262,19 @@ export const sharedWash = (wash: Float32Array, i: number, j: number) =>
 export const sharedLit = (
   c: ColumnField, i: number, j: number, wash: Float32Array | null,
 ) => litAt(
-  brinkOf(c, i, j), wash ? sharedWash(wash, i, j) : 0, 1,
+  brinkOf(c, i, j),
+  // Down to the COLUMN for the wash, which is a field of the world and not
+  // of the water: one value per column, whatever is standing on it.
+  wash ? sharedWash(
+    wash, columnOfSlot(c, i), j < 0 ? -1 : columnOfSlot(c, j),
+  ) : 0,
+  1,
 );
 
+/** `i` is a SLOT index: a deck looks along the deck, not along the riverbed. */
 const brinkAt = (c: ColumnField, i: number) => atBrink(
-  c.nx, c.ny, i, c.ground, c.depth, c.params.dryDepth, FALL_MIN,
+  c.nx, c.ny, i % c.cells, c.ground, c.depth, c.params.dryDepth, FALL_MIN,
+  i - (i % c.cells),
 );
 const brinkOf = (c: ColumnField, i: number, j: number) =>
   (j < 0 ? brinkAt(c, i) : (brinkAt(c, i) + brinkAt(c, j)) * 0.5);
@@ -295,11 +319,21 @@ export function drawFalls(
   const cliff = columns.falls.cliff;
   for (let n = 0; n < lips; n++) {
     const k = cliff[n];
-    const i = k >> 1, axis = k & 1;
-    const cx = i % nx, cy = (i / nx) | 0;
+    // THE SLOT PAIR, THEN THE EDGE, which is how a fall's edge has been
+    // packed since a column became a stack of slots — see `fallEdge`. Read
+    // as `k >> 1` it comes out as a column index a whole plane too large, so
+    // every fall off a bridge was simulated, banked, landed, and never
+    // DRAWN: measured on a deck with water going over its parapet, 32 lips
+    // on the deck's plane and 136 of water in the air, and nought quads.
+    const pl = (k / (columns.cells * 2)) | 0;
+    const rest = k - pl * columns.cells * 2;
+    const ci = rest >> 1, axis = rest & 1;
+    const a = (pl / columns.layers) | 0;
+    const i = a * columns.cells + ci;           // the slot the water leaves
+    const cx = ci % nx, cy = (ci / nx) | 0;
     const jx = axis === 0 ? cx + 1 : cx, jy = axis === 0 ? cy : cy + 1;
     if (jx >= columns.nx || jy >= columns.ny) continue;
-    const reach = fallExtent(columns, i, axis);
+    const reach = fallExtent(columns, ci, axis, pl);
     if (!reach) continue;
 
     // The edge it goes over, in tiles: the east edge runs along y, the
@@ -317,8 +351,8 @@ export function drawFalls(
     // The lip's two ENDS, each shared with whatever is beside it — see
     // `sharedPour`. `a` is the end towards −y on an east edge and −x on a
     // south edge, which is the same side `alongLip` calls −1.
-    const back = alongLip(columns, i, axis, -1);
-    const fwd = alongLip(columns, i, axis, 1);
+    const back = alongLip(columns, i, axis, -1, pl);
+    const fwd = alongLip(columns, i, axis, 1, pl);
     // The throw at each end, as a VECTOR — see `throwX`. Both components,
     // because a sheet goes the way the water was going and not the way the
     // rock happens to face.
@@ -328,8 +362,10 @@ export function drawFalls(
     const byThrow = sharedThrow(columns, i, fwd, 1);
     // What the lip is carrying, so the fall is not the one clean stretch
     // between two white pools — see `sharedFoam`.
-    const foamA = foam ? sharedFoam(foam, i, back) : 0;
-    const foamB = foam ? sharedFoam(foam, i, fwd) : 0;
+    const foamA = foam
+      ? sharedFoam(foam, ci, back < 0 ? -1 : columnOfSlot(columns, back)) : 0;
+    const foamB = foam
+      ? sharedFoam(foam, ci, fwd < 0 ? -1 : columnOfSlot(columns, fwd)) : 0;
     // AND EVERYTHING ELSE THE SURFACE KNOWS ABOUT THIS WATER. The sheet
     // used to mix its own colour from a flat 0.20, how hard the lip was
     // pouring and a third of the foam — a recipe that agreed with the
