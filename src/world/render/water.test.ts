@@ -1430,3 +1430,67 @@ describe("what the GPU is left holding", () => {
     destroyWaterLayer(wl);
   });
 });
+
+/**
+ * A SHEET WITH A COLUMN MISSING OUT OF THE MIDDLE OF IT.
+ *
+ * `dryDepth` is the solver's "there is nothing here". Used as the MESH's
+ * cutoff as well it punches holes wherever the water happens to sit on it —
+ * the same fault {@link SHOW_DEPTH} carries the story of one threshold up,
+ * and a bridge's parapet is the worst case of it: a kerb one column wide
+ * holding the film that went over. Measured on the `crossing` fixture,
+ * parapet columns at 0.019, 0.017 and 0.009 against a dryDepth of 0.02, so
+ * the ones a hair under lost their quad and the span's sheet had a hole a
+ * quarter of a tile across — which is exactly how it was reported.
+ */
+describe("a span's sheet has no column missing out of the middle of it", () => {
+  test("no decked column is skipped with drawn neighbours either side", async () => {
+    const { applyFixture } = await import("../debug/fixtures");
+    const { runSources } = await import("../water/field");
+    const { showsWater } = await import("./corner-rule");
+    const { FALL_MIN } = await import("../../fluid/falls");
+
+    const W = 32;
+    const grid = createGrid(W, W);
+    applyFixture(grid, "crossing", 1);
+    const field = createWaterField(grid);
+    const f = field.columns;
+    const cells = f.cells;
+    const dry = f.params.dryDepth;
+    const deckAt = (i: number) => f.roof[cells + i] > f.ground[cells + i];
+    const drawn = (i: number) => showsWater(
+      f.nx, f.ny, i, f.ground, f.depth, dry, FALL_MIN, cells, f.roof,
+    );
+
+    const holes = () => {
+      let n = 0;
+      for (let cy = 1; cy < f.ny - 1; cy++) {
+        for (let cx = 1; cx < f.nx - 1; cx++) {
+          const i = cy * f.nx + cx;
+          if (!deckAt(i) || drawn(i)) continue;
+          const across = deckAt(i - 1) && drawn(i - 1) && deckAt(i + 1) && drawn(i + 1);
+          const along = deckAt(i - f.nx) && drawn(i - f.nx)
+            && deckAt(i + f.nx) && drawn(i + f.nx);
+          if (across || along) n++;
+        }
+      }
+      return n;
+    };
+
+    // Fed until the span is running over, then watched while it drains —
+    // the film on a parapet passes through dryDepth on the way down, which
+    // is when this was reported.
+    for (let n = 0; n < 600; n++) { runSources(field, grid, 1 / 60); stepWater(field, 1 / 60); }
+    let worst = 0;
+    for (let n = 0; n < 200; n++) {
+      runSources(field, grid, 1 / 60);
+      stepWater(field, 1 / 60);
+      worst = Math.max(worst, holes());
+    }
+    for (let n = 0; n < 300; n++) {
+      stepWater(field, 1 / 60);
+      worst = Math.max(worst, holes());
+    }
+    expect(worst).toBe(0);
+  });
+});

@@ -327,6 +327,41 @@ export function atBrink(
   return most;
 }
 
+/**
+ * WHETHER A COLUMN HAS WATER THE MESH SHOULD DRAW AT ALL.
+ *
+ * `dryDepth` is the solver's "there is nothing here", and using it as the
+ * mesh's cutoff too punches holes in a sheet wherever the water happens to
+ * sit on it. That is not hypothetical and it is not new: {@link SHOW_DEPTH}
+ * carries the same story one threshold up — "a sheet lying on a raised tile
+ * sits at exactly this depth all over, so a cutoff punched holes in it and
+ * you could see the tile through them", 164 columns of it, every one on
+ * raised ground. The fix there was to fade instead of cut. This is the same
+ * fault at the remaining cutoff, and a BRIDGE'S PARAPET is the most raised
+ * tile there is: a kerb one column wide holding the film that went over it.
+ * Measured on the crossing fixture, parapet columns sitting at 0.019, 0.017,
+ * 0.009 against a dryDepth of 0.02 — so the ones a hair under lost their quad
+ * and the sheet had a hole a quarter of a tile wide.
+ *
+ * AT A BRINK ANY WATER AT ALL DRAWS, which is the same sentence the opacity
+ * floor is built on: water at a lip is thin BECAUSE it is at a lip, and
+ * hiding it for being thin is hiding the thing itself. Everywhere else the
+ * cutoff stands — a shoreline's fringe is invisible either way and there are
+ * a thousand columns of it. Measured on that fixture: 4,659 columns wet,
+ * 968 damp, and 214 of the damp ones at a brink. Five per cent more mesh,
+ * spent where the holes are.
+ */
+export function showsWater(
+  nx: number, ny: number, i: number,
+  ground: Float32Array, depth: Float32Array, dryDepth: number, fallMin: number,
+  base = 0, roof: Float32Array | null = null,
+): boolean {
+  const d = depth[base + i];
+  if (d > dryDepth) return true;
+  if (d <= 0) return false;
+  return atBrink(nx, ny, i, ground, depth, dryDepth, fallMin, base, roof) > 0;
+}
+
 /** Which shading language the caller wants the rule written in. */
 export type Dialect = "wgsl" | "glsl";
 
@@ -427,6 +462,18 @@ ${wgsl
     }
   }
   return most;
+}
+
+${wgsl
+  ? "fn showsWater(cx: i32, cy: i32, a: i32) -> bool {"
+  : "bool showsWater(int cx, int cy, int a) {"}
+  // The twin of showsWater in corner-rule, and the note on it: a lip's film
+  // is thin because it is a lip, and cutting it at dryDepth puts a hole a
+  // quarter of a tile wide in the sheet along a bridge's parapet.
+  ${NUM} d = depthAt(cx, cy, a);
+  if (d > dryDepth()) { return true; }
+  if (d <= 0.0) { return false; }
+  return atBrink(cx, cy, a) > 0.0;
 }
 
 ${head}
