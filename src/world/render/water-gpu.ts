@@ -1136,6 +1136,15 @@ export type GpuWaterLayer = {
   bodyF32: Float32Array;
   /** How many storeys the field has. @see ColumnField.layers */
   layers: number;
+  /**
+   * Which of `sources` the DEVICE is filling, as indices.
+   *
+   * Empty until `deviceSinks` says otherwise, so a layer with no solver on it
+   * uploads everything — which is what the host path wants. What must never
+   * happen is skipping an upload for a texture the device turned down.
+   * @see deviceSinks, FED_AT
+   */
+  fed: Set<number>;
   /** Whether the meshes draw at all. A measurement switch. @see showGpuWater */
   drawing: boolean;
   /** Milliseconds of CPU the last frame's build took, for measuring. */
@@ -1413,7 +1422,8 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     // same table. @see createSheet
     tint,
     quads,
-    wash, foam, bodies, bodyF32, layers, gather: null, groundSent: -1,
+    wash, foam, bodies, bodyF32, layers, gather: null, fed: new Set(),
+    groundSent: -1,
     most: meshes.map((m) => m.geometry.instanceCount),
     drawing: true, cpuMs: 0, advectMs: 0, uploadMs: 0,
   };
@@ -1439,6 +1449,11 @@ const FED: readonly (readonly [number, FieldName, 1 | 4])[] = [
   [0, "depth", 4], [2, "washNow", 4], [3, "foamNow", 4],
   [4, "fx", 4], [5, "fy", 4], [6, "matByte", 1],
 ];
+/**
+ * The ones the device COULD fill. Which it actually does is per map — see
+ * {@link deviceSinks} — and the difference between those two is a texture
+ * nobody writes at all. @see GpuWaterLayer.fed
+ */
 const FED_AT = new Set(FED.map(([k]) => k));
 /** Where the ground sits in `sources`. The one the device never writes. */
 const GROUND_AT = 1;
@@ -1486,6 +1501,18 @@ export function deviceSinks(
       + " bytes: 64 columns for a float texture, 256 for the material's byte one.",
     );
   }
+  // AND REMEMBER WHICH, because the layer has to stop uploading exactly the
+  // textures the device is really filling and no others. Told the static list
+  // instead, a texture this refused was skipped by the host AND never written
+  // by the device: nobody wrote it, and it kept whatever it held when the
+  // layer was built. That is water from the moment the map loaded, standing
+  // still underneath the water that is actually there — which is what "old
+  // water persists and the two surfaces flicker" was.
+  //
+  // It only began to bite on maps with DECKS on them, and not because decks
+  // are special: `carried` is only true while the device owns the water, and
+  // a decked map only started running on the device recently.
+  wl.fed = new Set(fed.map(([k]) => k));
   return fed.map(([k, name, texel]) => ({ name, texture: get(wl.sources[k]), texel }));
 }
 
@@ -1771,7 +1798,7 @@ export function drawGpuWater(
   // the same numbers straight back up — a megabyte and a quarter a frame to
   // overwrite the answer with itself. @see deviceSinks
   for (let k = 0; k < wl.sources.length; k++) {
-    if (carried && FED_AT.has(k)) continue;
+    if (carried && wl.fed.has(k)) continue;
     // THE GROUND ONLY WHEN IT MOVES. With the device filling the rest, this
     // loop was uploading the terrain and nothing else — a quarter of a
     // megabyte a frame to say what it said last frame. The CPU path still

@@ -232,3 +232,31 @@ describe("the reduction, seeded and read back", () => {
     expect(r.wet).toBe(37);                      // a count, not fixed point
   });
 });
+
+/**
+ * A TEXTURE THE DEVICE TURNED DOWN MUST STILL BE UPLOADED.
+ *
+ * `deviceSinks` decides per texture and per map whether the solver can fill
+ * it — the 256-byte row rule is about BYTES, so a map can take the float
+ * copies and refuse the material's single-byte one. The layer then has to go
+ * on uploading exactly the ones it refused.
+ *
+ * Told a static list of the textures the device COULD fill, it skipped one
+ * the device had turned down: nobody wrote it, and it kept whatever it held
+ * when the layer was built — the map's water at the moment it loaded, sitting
+ * under the water that is really there.
+ */
+describe("which textures the layer stops uploading", () => {
+  test("is what the device took, not what it might have taken", async () => {
+    const { canCopyOut } = await import("../../fluid/gpu/state");
+    // 128 columns: 512 bytes a row for a float and 128 for a byte, so the
+    // floats copy and the material cannot. This is a 32-tile map.
+    expect(canCopyOut(128, 4)).toBe(true);
+    expect(canCopyOut(128, 1)).toBe(false);
+    // 96 columns — a 24-tile map — refuses both.
+    expect(canCopyOut(96, 4)).toBe(false);
+    // 256 columns, a 64-tile map, takes everything.
+    expect(canCopyOut(256, 4)).toBe(true);
+    expect(canCopyOut(256, 1)).toBe(true);
+  });
+});
