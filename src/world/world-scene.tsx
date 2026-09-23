@@ -33,7 +33,8 @@ import {
 } from "./render/water-gpu";
 import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
 import { NO_BODY } from "./render/bodies";
-import { waterInAir } from "../fluid/falls";
+import { atBrink, showsWater } from "./render/corner-rule";
+import { FALL_MIN, waterInAir } from "../fluid/falls";
 import { crossingPoured } from "./debug/world-scenes";
 import {
   clearStructureLayer, createStructureLayer, hasAnimated, refreshStructuresAt,
@@ -678,6 +679,66 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           };
           requestAnimationFrame(tick);
         });
+        /**
+         * DECKED COLUMNS THE MESH IS NOT DRAWING, with drawn ones either side.
+         *
+         * Asked of `showsWater` itself, which is the rule the builder, the
+         * gathering and the vertex shader all decide by — so this cannot
+         * disagree with what is on the screen about which columns are in the
+         * sheet. A column missing with its neighbours present IS the hole,
+         * and its depth and its brink say why it was left out.
+         */
+        window.__deckHolesNow = () => {
+          const fld = useWorldStore.getState().getWaterField();
+          if (!fld) return { ok: false, why: "no water field" };
+          const f = fld.columns, cells = f.cells, dry = f.params.dryDepth;
+          const deckAt = (i: number) => f.roof[cells + i] > f.ground[cells + i];
+          const drawn = (i: number) => showsWater(
+            f.nx, f.ny, i, f.ground, f.depth, dry, FALL_MIN, cells, f.roof,
+          );
+          const holes: unknown[] = [];
+          for (let cy = 1; cy < f.ny - 1; cy++) {
+            for (let cx = 1; cx < f.nx - 1; cx++) {
+              const i = cy * f.nx + cx;
+              if (!deckAt(i) || drawn(i)) continue;
+              const across = deckAt(i - 1) && drawn(i - 1)
+                && deckAt(i + 1) && drawn(i + 1);
+              const along = deckAt(i - f.nx) && drawn(i - f.nx)
+                && deckAt(i + f.nx) && drawn(i + f.nx);
+              if (!across && !along) continue;
+              if (holes.length < 12) {
+                holes.push({
+                  cx, cy, depth: +f.depth[cells + i].toFixed(6),
+                  floor: f.ground[cells + i],
+                  brink: +atBrink(
+                    f.nx, f.ny, i, f.ground, f.depth, dry, FALL_MIN, cells, f.roof,
+                  ).toFixed(3),
+                  neighbourDepths: [
+                    +f.depth[cells + i - 1].toFixed(4),
+                    +f.depth[cells + i + 1].toFixed(4),
+                    +f.depth[cells + i - f.nx].toFixed(4),
+                    +f.depth[cells + i + f.nx].toFixed(4),
+                  ],
+                });
+              }
+            }
+          }
+          let wet = 0, damp = 0, zero = 0;
+          for (let i = 0; i < cells; i++) {
+            if (!deckAt(i)) continue;
+            const d = f.depth[cells + i];
+            if (d > dry) wet++; else if (d > 0) damp++; else zero++;
+          }
+          return {
+            dryDepth: dry, deckWet: wet, deckDamp: damp, deckZero: zero,
+            holes: holes.length, examples: holes,
+            ok: holes.length === 0,
+            why: holes.length
+              ? `${holes.length} decked columns are not drawn with drawn`
+                + " neighbours either side"
+              : "no decked column is skipped between drawn ones",
+          };
+        };
         window.__deckBodies = () => {
           const f = useWorldStore.getState().getWaterField();
           const wl = gpuRef.current;

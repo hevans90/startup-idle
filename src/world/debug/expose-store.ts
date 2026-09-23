@@ -92,6 +92,8 @@ declare global {
     __watchDeckPixels?: (frames?: number) => Promise<unknown>;
     /** Does a band ever need more quads than it was allowed to draw? */
     __watchQuadRoom?: (frames?: number) => Promise<unknown>;
+    /** Decked columns the mesh is not drawing, with drawn ones either side. */
+    __deckHolesNow?: () => unknown;
     /** Watch a span for holes, frame by frame. @see __deckBodies */
     __watchDeckHoles?: (frames?: number) => Promise<unknown>;
     /** Do the mesh's depth and its sheet ids agree about the decks? */
