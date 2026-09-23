@@ -90,7 +90,7 @@ import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, onDeviceLost } from "./render/device";
 import {
   compareAccelerate, compareCliffs, pour as pourScene,
-  scene as accelScene, spanned, spray,
+  scene as accelScene, spanned, spannedDry, spray,
 } from "../fluid/gpu/compare-pass";
 import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
@@ -288,7 +288,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         };
         // WHOLE FRAMES, both solvers, from one scene — the only question a
         // person watching the water would ask. @see compareFrames
-        window.__frameCompare = async (frames = 60, sprayScene = false, bridged = false) => {
+        window.__frameCompare = async (
+          frames = 60, sprayScene = false,
+          bridged: boolean | "dry" = false,
+        ) => {
           const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
             .gpu?.device;
           if (!device) return { ok: false, why: "no WebGPU device" };
@@ -297,7 +300,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // @see SPRAY_BOUNDS
           // AND A SCENE WITH A BRIDGE IN IT, which is the only one that
           // exercises a slot pair that is not (0,0). @see spanned
-          if (bridged) return compareFrames(device, frames, spanned);
+          if (bridged) {
+            return compareFrames(
+              device, frames, bridged === "dry" ? spannedDry : spanned,
+              undefined, bridged === "dry" ? undefined : SPRAY_BOUNDS,
+            );
+          }
           return sprayScene
             ? compareFrames(device, frames, spray, undefined, SPRAY_BOUNDS)
             : compareFrames(device, frames);
@@ -353,14 +361,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // frame and produces the set the falls are dispatched over, so it is
         // compared on its own rather than through its effect on water.
         window.__cliffCompare = async (
-          settle = 90, sprayScene = false, fresh = false,
+          settle = 90, sprayScene: boolean | "span" | "dry" = false,
+          fresh = false,
         ) => {
           const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
             .gpu?.device;
           if (!device) return { ok: false, why: "no WebGPU device" };
-          return compareCliffs(
-            device, settle, sprayScene ? spray : undefined, fresh,
-          );
+          // THE BRIDGED SCENES TOO. A lip is an edge between two SLOTS now,
+          // and on a map with one storey every one of them is (0,0).
+          const build = sprayScene === "span" ? spanned
+            : sprayScene === "dry" ? spannedDry
+              : sprayScene ? spray : undefined;
+          return compareCliffs(device, settle, build, fresh);
         };
         // THE SPRAY, which the scene above deliberately never reaches — its
         // drop is kept under `BREAK` so the five passes before the falls are
@@ -387,6 +399,25 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           return compareAccelerate(
             device, settle, pourScene,
             through as "limit" | "divergence" | "apply", solo,
+          );
+        };
+        // ONE PASS, ON A MAP WITH A BRIDGE ON IT — the only scene where a
+        // slot pair that is not (0,0) carries anything. Every other scene here
+        // runs each of these loops exactly once, on the ground, so the whole
+        // of the slot arithmetic is unexercised by them and a pass could be
+        // wrong about a roof in any way at all and still come back clean.
+        // @see spanned
+        window.__spanPass = async (
+          settle = 30, through = "limit", solo = true, dry = false,
+        ) => {
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device;
+          if (!device) return { ok: false, why: "no WebGPU device" };
+          return compareAccelerate(
+            device, settle, dry ? spannedDry : spanned,
+            through as "diffuse" | "accelerate" | "limit" | "divergence"
+              | "apply" | "falls" | "landings",
+            solo,
           );
         };
         window.__sprayCompare = async (settle = 155, through = "landings") => {

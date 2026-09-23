@@ -200,6 +200,18 @@ export async function compareFrames(
     }
     trace.push({
       n, gpu: +totalWater(gpu).toFixed(4), cpu: +totalWater(cpu).toFixed(4),
+      // WHAT THE DEVICE SAYS IT IS HOLDING, beside what came back.
+      //
+      // `gpu` above is the HOST'S MIRROR — whatever the readback has put into
+      // it — and `dev` is the device's own reduction over every slot. They
+      // answer different questions and the difference between them is the
+      // whole of one class of bug: a solver that is right and a readback that
+      // does not cover what it solved reads exactly like a solver that leaks.
+      // @see GpuFrame.deviceWater
+      dev: +water.last().deviceWater.toFixed(4),
+      // And the same for the air, which the host holds only as whatever the
+      // lip list brought it. @see GpuFrame.deviceAir
+      devAir: +water.last().deviceAir.toFixed(4),
       air: +waterInAir(gpu).toFixed(4), lips: gpu.falls.cliffN,
       subs: water.last().substeps,
     });

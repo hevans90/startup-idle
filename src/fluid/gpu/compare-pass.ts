@@ -107,26 +107,29 @@ export function scene(wind = FLOW_DEFAULTS.wind): ColumnField {
  * edge, a road meets a deck across a pair that is not (0,0), and the rim,
  * the cliffs and the landings all have two storeys to sort out.
  */
-export function spanned(): ColumnField {
+export function spanned(
+  bed = -8, soffit = 0, deck = 2, river = 5,
+): ColumnField {
   const f = createColumnField(96, 64, { ...FLOW_DEFAULTS }, 0.5, 2);
   const cells = f.cells;
   for (let y = 0; y < 64; y++) {
     for (let x = 0; x < 96; x++) {
       const i = y * 96 + x;
       // A channel along the middle, banks either side, and a span over part
-      // of it — the same shape the world's own generator makes.
+      // of it — the same shape the world's own generator makes. The banks
+      // stand at the deck, so the road runs on and off the span on the level.
       const inChannel = y >= 28 && y <= 35;
       const decked = inChannel && x >= 40 && x <= 55;
-      f.ground[i] = inChannel ? -8 : 2;
-      f.roof[i] = decked ? 0 : OPEN_SKY;
-      // The deck itself, two above the soffit, and absent everywhere else.
-      f.ground[cells + i] = decked ? 2 : f.ground[i];
+      f.ground[i] = inChannel ? bed : deck;
+      f.roof[i] = decked ? soffit : OPEN_SKY;
+      // The deck itself, and absent everywhere else.
+      f.ground[cells + i] = decked ? deck : f.ground[i];
       f.roof[cells + i] = decked ? OPEN_SKY : f.ground[i];
     }
   }
   // A river in the channel, running under the span...
   for (let y = 28; y <= 35; y++) {
-    for (let x = 4; x < 92; x++) addWater(f, x, y, 5, 1, 0);
+    for (let x = 4; x < 92; x++) addWater(f, x, y, river, 1, 0);
   }
   // ...and a puddle on the span, which is water at a height nothing else on
   // the map stands at.
@@ -135,6 +138,33 @@ export function spanned(): ColumnField {
   }
   return f;
 }
+
+/**
+ * THE SAME BRIDGE, LOW ENOUGH THAT NOTHING OFF IT SPRAYS.
+ *
+ * The scene above stands its deck ten above the bed, which is over `BREAK`:
+ * the sheet coming off the parapet comes apart into drops, and spray carries a
+ * divergence that is known, accepted and nothing to do with slots — the device
+ * hands a frame's drops out by atomic claim and the host in lip order, and it
+ * shows up here as 445 drips against 417. A scene that sprays can only ever be
+ * judged by the loose bounds, so a slot fault of a tenth would sit inside them
+ * unnoticed. @see SPRAY_BOUNDS
+ *
+ * So there are two, and what they cover is split rather than doubled. This one
+ * keeps the pairs, the roof, the deck a road could drive onto and the puddle
+ * on it, and stands the deck four over the water — far enough that the parapet
+ * is a CLIFF and the puddle leaves as a sheet, near enough that the sheet
+ * arrives whole. Anything it disagrees about is the slot arithmetic, and it is
+ * judged tight over whole frames.
+ *
+ * The pressure slot is what it gives up: a culvert only runs full when the
+ * channel either side of it does, and a full channel leaves nothing for the
+ * deck to fall into. That case is held by the per-pass comparisons instead,
+ * which run on `spanned` — where the culvert IS pressurised — and agree to a
+ * part in ten million at every settle from thirty frames to two hundred and
+ * fifty. @see compareAccelerate
+ */
+export const spannedDry = () => spanned(0, 4, 6, 2);
 
 /**
  * A COLLAPSING POUR, which is the scene the other two never are.
@@ -248,7 +278,12 @@ export type PassDiff = {
   /** Largest absolute difference, and where. */
   fx: number;
   fy: number;
-  at: { x: number; y: number } | null;
+  /** Where the worst `fx` is, and WHICH PAIR EDGE it sits on. @see pairOf */
+  at: { x: number; y: number; a: number; b: number } | null;
+  /** And the same for `fy`, which is a different edge and often a different
+   * plane — one number for both said "56,31" for a fault that was entirely in
+   * the pair between a deck and the open channel beside it. */
+  atY: { x: number; y: number; a: number; b: number } | null;
   /** The largest flux either side produced, so the difference has a scale. */
   scale: number;
   /** `fx` difference as a fraction of that scale. */
@@ -562,7 +597,7 @@ export async function compareAccelerate(
   const complaint = validation?.message ?? internal?.message ?? null;
   if (complaint) {
     return {
-      pass: through, cells: cpu.fx.length, fx: NaN, fy: NaN, at: null,
+      pass: through, cells: cpu.fx.length, fx: NaN, fy: NaN, at: null, atY: null,
       scale: 0, relative: NaN, beyondRounding: cpu.fx.length, ok: false,
       deviceSaid: complaint,
     };
@@ -574,14 +609,26 @@ export async function compareAccelerate(
     scene = Math.max(scene, Math.abs(cpu.fx[i]), Math.abs(cpu.fy[i]));
   }
 
-  let worstX = 0, worstY = 0, at: { x: number; y: number } | null = null;
+  let worstX = 0, worstY = 0;
+  let at: { x: number; y: number; a: number; b: number } | null = null;
+  let atY: { x: number; y: number; a: number; b: number } | null = null;
+  // WHICH EDGE, AND BETWEEN WHICH TWO SLOTS. A flux array is `cells` per PAIR
+  // of slots, so a plain `i % nx` names a column and says nothing about the
+  // pair — and the pairs are where everything new can go wrong.
+  const edgeAt = (i: number) => {
+    const p = (i / cpu.cells) | 0, c = i % cpu.cells;
+    return {
+      x: c % cpu.nx, y: (c / cpu.nx) | 0,
+      a: (p / cpu.layers) | 0, b: p % cpu.layers,
+    };
+  };
   const scale = scene;
   let beyond = 0, worstUlps = 0;
   for (let i = 0; i < cpu.fx.length; i++) {
     const dx = Math.abs(cpu.fx[i] - gx[i]);
     const dy = Math.abs(cpu.fy[i] - gy[i]);
-    if (dx > worstX) { worstX = dx; at = { x: i % cpu.nx, y: (i / cpu.nx) | 0 }; }
-    if (dy > worstY) worstY = dy;
+    if (dx > worstX) { worstX = dx; at = edgeAt(i); }
+    if (dy > worstY) { worstY = dy; atY = edgeAt(i); }
     // AGAINST THE OPERANDS, not against the answer. The head is a DIFFERENCE
     // of two surfaces, so it cancels: a cell where the two sides are nearly
     // level produces a tiny head out of two large numbers, and an error of one
@@ -849,6 +896,7 @@ export async function compareAccelerate(
     cells: cpu.fx.length,
     fx: worstX,
     fy: worstY,
+    atY,
     at,
     scale,
     relative: scale > 0 ? worstX / scale : 0,
@@ -934,6 +982,8 @@ export async function compareCliffs(
 ): Promise<{
   ok: boolean; cpuN: number; gpuN: number; missing: number[]; extra: number[];
   colDiff: number; throwDiff: number; worstThrow: number; seeded: number;
+  /** Which slots the throw differs at, and what each side holds there. */
+  throwSaid: unknown[];
   deviceSaid: string | null;
 }> {
   const cpu = build(), gpuSide = build();
@@ -990,12 +1040,27 @@ export async function compareCliffs(
   const extra = [...theirs].filter((k) => !mine.has(k)).slice(0, 8);
 
   let colDiff = 0, throwDiff = 0, worstThrow = 0;
+  // AND WHICH SLOTS THEY ARE. A count says the two disagree and a list says
+  // what about: eight of eighty-eight is a subset with something in common,
+  // and the common thing is the answer. @see throwSaid
+  const throwSaid: unknown[] = [];
   for (let i = 0; i < gCol.length; i++) {
     if (cpu.falls.cliffCol[i] !== gCol[i]) colDiff++;
     const dx = Math.abs(cpu.falls.throwX[i] - gThrowX[i]);
     const dy = Math.abs(cpu.falls.throwY[i] - gThrowY[i]);
     worstThrow = Math.max(worstThrow, dx, dy);
-    if (dx > 1e-5 || dy > 1e-5) throwDiff++;
+    if (dx > 1e-5 || dy > 1e-5) {
+      throwDiff++;
+      if (throwSaid.length < 10) {
+        const c = i % cpu.cells;
+        throwSaid.push({
+          at: `${c % cpu.nx},${(c / cpu.nx) | 0}`, slot: (i / cpu.cells) | 0,
+          own: [cpu.falls.cliffCol[i], gCol[i]],
+          x: [+cpu.falls.throwX[i].toFixed(5), +gThrowX[i].toFixed(5)],
+          y: [+cpu.falls.throwY[i].toFixed(5), +gThrowY[i].toFixed(5)],
+        });
+      }
+    }
   }
 
   const said = (await device.popErrorScope())?.message
@@ -1005,6 +1070,6 @@ export async function compareCliffs(
     ok: said === null && gpuN === cpu.falls.cliffN && !missing.length
       && !extra.length && colDiff === 0 && throwDiff === 0,
     cpuN: cpu.falls.cliffN, gpuN, missing, extra, colDiff, throwDiff,
-    worstThrow, seeded, deviceSaid: said,
+    throwSaid, worstThrow, seeded, deviceSaid: said,
   };
 }

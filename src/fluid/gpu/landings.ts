@@ -148,7 +148,31 @@ fn pushPlaneOf(i: i32, axis: i32, a: i32, back: bool, surface: f32) -> i32 {
   return select(pairBase(a, best) + i, pairBase(best, a) + j, back);
 }
 
-/** The push, per edge, asked of the two slots that can give it. */
+/**
+ * The push, per edge — AND EVERY INVOCATION WRITES ONLY ITS OWN EDGES.
+ *
+ * The CPU walks slots and writes four edges from each: two of its own and two
+ * belonging to the neighbour it pushed back against. Transcribed straight onto
+ * the device that is a data race, and a bad one, because it is two races at
+ * once. Each invocation cleared its own edges in the same dispatch it wrote
+ * the neighbour's, so a clear could land after a write and erase it; and an
+ * edge has TWO authors — the column on its near side pushing forward and the
+ * column on its far side pushing back — doing an unsynchronised read-add-write
+ * on the same float. Whichever lost, lost silently.
+ *
+ * It had been there since the pass was written and no scene had asked: a lip
+ * has to land water in two columns that share an edge before either race can
+ * fire at all. The spanned scene does, at the mouth of the bridge, and the y flux came
+ * out 0.174 different against a rounding floor of 1e-7 — stably, run after
+ * run, because a GPU schedules a fixed dispatch the same way every time and a
+ * race that always loses the same way looks exactly like a rule that is wrong.
+ *
+ * So the backward half is GATHERED instead of scattered. An edge on my column
+ * takes the forward push from my own slot and the backward push from the
+ * column beyond it, and I read that neighbour rather than letting it write me.
+ * Nothing crosses an invocation, so there is nothing to synchronise, and the
+ * sum is the same two terms in the same order. @see applyLandings
+ */
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
 fn push(@builtin(global_invocation_id) gid: vec3<u32>) {
   let x = i32(gid.x);
@@ -168,19 +192,37 @@ fn push(@builtin(global_invocation_id) gid: vec3<u32>) {
       setCapY(e, 0.0);
     }
   }
+  // MY OWN SLOTS, PUSHING FORWARD, which land on my own edges.
   for (var a = 0; a < L; a = a + 1) {
     let ia = slotBase(a) + i;
-    // In the CPU order: the near slot adds, then the far one subtracts.
     if (pushes(ia)) {
       let surface = groundAt(ia) + depthAt(ia);
       let e = pushPlaneOf(i, 0, a, false, surface);
       if (e >= 0) { setKickX(e, kickXAt(e) + pushOf(ia)); setCapX(e, max(capXAt(e), capOf(ia))); }
-      let w = pushPlaneOf(i, 0, a, true, surface);
-      if (w >= 0) { setKickX(w, kickXAt(w) - pushOf(ia)); setCapX(w, max(capXAt(w), capOf(ia))); }
       let so = pushPlaneOf(i, 1, a, false, surface);
       if (so >= 0) { setKickY(so, kickYAt(so) + pushOf(ia)); setCapY(so, max(capYAt(so), capOf(ia))); }
-      let no = pushPlaneOf(i, 1, a, true, surface);
-      if (no >= 0) { setKickY(no, kickYAt(no) - pushOf(ia)); setCapY(no, max(capYAt(no), capOf(ia))); }
+    }
+  }
+  // AND THE COLUMN BEYOND EACH EDGE, PUSHING BACK ONTO IT. pushPlaneOf with
+  // back set returns an edge on the NEAR column, which is this one — so asking
+  // the neighbour's question here writes the same float the neighbour would
+  // have written, without the neighbour reaching across to do it.
+  for (var b = 0; b < L; b = b + 1) {
+    if (x + 1 < nx()) {
+      let jb = slotBase(b) + i + 1;
+      if (pushes(jb)) {
+        let surface = groundAt(jb) + depthAt(jb);
+        let w = pushPlaneOf(i + 1, 0, b, true, surface);
+        if (w >= 0) { setKickX(w, kickXAt(w) - pushOf(jb)); setCapX(w, max(capXAt(w), capOf(jb))); }
+      }
+    }
+    if (y + 1 < ny()) {
+      let jb = slotBase(b) + i + nx();
+      if (pushes(jb)) {
+        let surface = groundAt(jb) + depthAt(jb);
+        let no = pushPlaneOf(i + nx(), 1, b, true, surface);
+        if (no >= 0) { setKickY(no, kickYAt(no) - pushOf(jb)); setCapY(no, max(capYAt(no), capOf(jb))); }
+      }
     }
   }
 }

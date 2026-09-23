@@ -128,13 +128,19 @@ declare global {
     /** Where `__pourLive` leaves its answer. @see checkPourLive */
     __pourLiveResult?: unknown;
     /** Whole frames, both solvers. @see compareFrames */
-    __frameCompare?: (frames?: number, spray?: boolean, bridged?: boolean) => Promise<unknown>;
+    __frameCompare?: (
+      frames?: number, spray?: boolean, bridged?: boolean | "dry",
+    ) => Promise<unknown>;
     /** The cliff index, both ways. @see compareCliffs */
     __cliffCompare?: (
-      settle?: number, spray?: boolean, fresh?: boolean,
+      settle?: number, spray?: boolean | "span" | "dry", fresh?: boolean,
     ) => Promise<unknown>;
     /** The falls pass on a scene that actually SPRAYS. @see spray */
     __sprayCompare?: (settle?: number, through?: string) => Promise<unknown>;
+    /** One pass, on the scene with a bridge on it. @see spanned */
+    __spanPass?: (
+      settle?: number, through?: string, solo?: boolean, dry?: boolean,
+    ) => Promise<unknown>;
     /**
      * The band layer, so a console session can move the camera.
      *

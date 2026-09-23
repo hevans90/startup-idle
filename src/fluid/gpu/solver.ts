@@ -202,6 +202,14 @@ export type GpuFrame = {
    * whole of the water and is not meant to be.
    */
   deviceWater: number;
+  /**
+   * And what it is holding IN THE AIR, off its own reduction.
+   *
+   * The twin of `deviceWater` and for the same reason: the host's copy of the
+   * air is scattered out of the lip list, so a lip the list does not carry
+   * reads as air the device never had. @see AIR_SLOT
+   */
+  deviceAir: number;
 };
 
 /**
@@ -409,7 +417,9 @@ export function createGpuWater(
   const stagingFloats =
     lenOf(everyFrame)
     + SPAWN_MAX * SPAWN_STRIDE
-    + state.nx * state.ny                       // the depth band, at its widest
+    // The depth band at its widest, ON EVERY STOREY: a band is rows and a
+    // column is a stack of them, so what comes back is one run per slot.
+    + state.nx * state.ny * state.layers
     + Math.max(
       FALL_OUT_MAX * FALL_OUT_STRIDE + lenOf(carriedRuns),
       lenOf(wholeRuns),
@@ -467,7 +477,11 @@ export function createGpuWater(
    * overwrote — or the pour is lost, silently, at exactly the cells something
    * on the host was watching.
    */
-  const wroteDepth = new Uint8Array(state.cells);
+  // ONE FLAG PER SLOT and not per column. A `Uint8Array` shrugs off a write
+  // past its end, so sized by the column count this was not a crash on a map
+  // with storeys — it was every upper-storey pour quietly failing the test
+  // below and being dropped. @see slots
+  const wroteDepth = new Uint8Array(state.cells * state.layers);
   const redSeen = new Int32Array(REDUCE_SLOTS);
   let turn = 0;
   let primed = false;
@@ -585,7 +599,7 @@ export function createGpuWater(
   const frame: GpuFrame = {
     substeps: 0, hostMs: 0, readMs: 0, cliffN: 0, drops: 0, inFlight: 0,
     region: null, owed: 0, scatterMs: 0, uploadMs: 0, encodeMs: 0,
-    readMb: 0, carried: false, reduce: null, deviceWater: 0,
+    readMb: 0, carried: false, reduce: null, deviceWater: 0, deviceAir: 0,
     gpu: () => state.stamps?.says() ?? null,
   };
 
@@ -634,6 +648,10 @@ export function createGpuWater(
     // host's copy may hold a pour that has not been acknowledged yet, which
     // overwriting would either lose or — put back on top — count twice.
     // @see setDepthBand
+    // THE BAND IS ROWS, and it is the same rows on every storey — so these two
+    // are offsets WITHIN a plane, and everything that tests them takes the
+    // slot index modulo the column count first. @see cells
+    const cells = into.nx * into.ny;
     const from = sparse ? 0 : band.y0 * into.nx;
     const upto = sparse ? 0 : (band.y1 + 1) * into.nx;
     if (sparse) {
@@ -646,12 +664,26 @@ export function createGpuWater(
         wroteDepth[i] = 1;
       }
     } else {
-      into.depth.set(
-        raw.subarray(state.offset.depth + from, state.offset.depth + upto), from,
-      );
+      // ONE PLANE AT A TIME, because the device's depth is `cells * layers`
+      // and this used to copy back the first `cells` of it and call the job
+      // done. Everything a bridge was holding stayed at whatever the host had
+      // put there before the device ever ran, which reads exactly like the
+      // device inventing water: `__frameCompare(12, false, true)` had the
+      // mirror climbing 3628.6 to 3634.1 while the device's OWN tally sat flat
+      // at 3627.99 for all twelve frames. @see trace, which now prints both.
+      for (let a = 0; a < into.layers; a++) {
+        const base = a * cells;
+        into.depth.set(
+          raw.subarray(
+            state.offset.depth + base + from, state.offset.depth + base + upto,
+          ),
+          base + from,
+        );
+      }
     }
     // OFF THE DEVICE'S OWN TALLY. @see GpuFrame.deviceWater
     frame.deviceWater = r0.depth;
+    frame.deviceAir = r0.air;
     // ONLY WHEN THEY ACTUALLY CAME BACK. Their offsets always hold something —
     // the last whole copy — and writing that over the host's arrays every
     // frame would undo the lips the list has just put into them, which is
@@ -677,6 +709,20 @@ export function createGpuWater(
     // entries are the ones it just wrote, so clearing exactly those leaves the
     // arrays blank for the next one.
     //
+    // WHICH SLOT A LIP EDGE BELONGS TO, which is three different numbers.
+    //
+    // A fall edge packs a slot PAIR, a column and an axis — see `fallEdge` —
+    // so halving it gives the PAIR EDGE, which is what `fx` and `fy` are
+    // indexed by and nothing else. The throw, the material and the sheets are
+    // the near SLOT's; the wash and the foam are the COLUMN's. At one storey
+    // all three are the same number, which is why one served for all of them
+    // and why nothing caught it: above the ground the throw landed in the
+    // wrong slot, and the wash and the material ran off the end of their
+    // arrays, where a typed array drops a write without a word.
+    const slotOfEdge = (k: number) => {
+      const e = (k / 2) | 0, pair = (e / into.cells) | 0;
+      return ((pair / into.layers) | 0) * into.cells + (e % into.cells);
+    };
     // ITS OWN RECORD AND NOT `cliff`, even though the two hold the same edges
     // today. `cliff` is a rendering list with two producers — `markCliffs`
     // fills it on the CPU path, by a rule of its own that keeps an edge listed
@@ -701,8 +747,8 @@ export function createGpuWater(
       for (let n = 0; n < wroteN; n++) {
         const k = wrote[n];
         s2.air[k] = 0; s2.front[k] = 0; s2.head[k] = 0;
-        const i = k >> 1;
-        s2.throwX[i] = 0; s2.throwY[i] = 0;
+        const ia = slotOfEdge(k);
+        s2.throwX[ia] = 0; s2.throwY[ia] = 0;
       }
     } else {
       // THE FIRST ONE SWEEPS EVERYTHING, because what is in the arrays before
@@ -739,23 +785,23 @@ export function createGpuWater(
       s2.air[k] = raw[at + 1];
       s2.front[k] = raw[at + 2];
       s2.head[k] = raw[at + 3];
-      // The throw is the COLUMN's, and two edges of a column can both be lips,
-      // so this is written twice with the same number rather than once.
-      const i = (k / 2) | 0;
-      s2.throwX[i] = raw[at + 4];
-      s2.throwY[i] = raw[at + 5];
+      // The throw is the SLOT's, and two edges of a slot can both be lips, so
+      // this is written twice with the same number rather than once.
+      const e = (k / 2) | 0, ia = slotOfEdge(k), c = e % into.cells;
+      s2.throwX[ia] = raw[at + 4];
+      s2.throwY[ia] = raw[at + 5];
       // THE WASH AND THE FOAM AT THE LIP, and NOT cleared first the way the
       // five above are. A stale value in a column that is not a lip is read by
       // nothing — `drawFalls` only ever asks about lips — while clearing would
       // leave the host holding a blank pattern for the handover to advect,
       // which is the one thing these are still kept for. @see CARRIED_BACK
-      if (carried) { carried.now[i] = raw[at + 6]; carried.foam[i] = raw[at + 7]; }
+      if (carried) { carried.now[c] = raw[at + 6]; carried.foam[c] = raw[at + 7]; }
       // The pour on THIS edge, into whichever flux holds it, and the material.
       // Not cleared either, for the same reason the wash is not: a flux in a
       // column that is not a lip is read by nothing here, and a cleared one
       // would hand the CPU solver a dead field to take over. @see pourOf
-      if (k & 1) into.fy[i] = raw[at + 8]; else into.fx[i] = raw[at + 8];
-      into.material[i] = raw[at + 9];
+      if (k & 1) into.fy[e] = raw[at + 8]; else into.fx[e] = raw[at + 8];
+      into.material[ia] = raw[at + 9];
     }
     // WHAT THE NEXT SWEEP HAS TO UNDO, and what the renderer may read.
     wroteN = put2;
@@ -817,7 +863,9 @@ export function createGpuWater(
         // TWO SHAPES NOW: a contiguous band of rows, or the scattered set the
         // device was asked for by name. A range test answered the first and
         // cannot answer the second. @see wroteDepth
-        if (sparse ? !wroteDepth[i] : (i < from || i >= upto)) continue;
+        // WITHIN ITS OWN PLANE, since the band covers the same rows on each.
+        const c = i % cells;
+        if (sparse ? !wroteDepth[i] : (c < from || c >= upto)) continue;
         const next = Math.max(0, into.depth[i] + b.depth[k]);
         if (b.mat[k] && b.depth[k] > 0) into.material[i] = b.mat[k];
         into.depth[i] = next;
@@ -838,7 +886,10 @@ export function createGpuWater(
           into.fy[i] += b.fy[k];
         }
         if (next <= 0) continue;
-        const x = i % into.nx, y = (i / into.nx) | 0;
+        // THE COLUMN IT STANDS IN. The box is column space — a slot index
+        // divided by the width lands past the bottom of the map on any storey
+        // above the ground, and stretches the box over rows that do not exist.
+        const x = c % into.nx, y = (c / into.nx) | 0;
         if (into.box.x1 < into.box.x0) {
           into.box.x0 = x; into.box.x1 = x; into.box.y0 = y; into.box.y1 = y;
         } else {
@@ -920,12 +971,16 @@ export function createGpuWater(
     flightWant.set(lastWant.subarray(0, lastWantN));
     flightWantN = lastWantN;
     const sparse = fallList && !carryNow && flightWantN > 0;
-    const depthRun = sparse
-      ? { at: state.offset.wantOut, len: flightWantN }
-      : {
-        at: state.offset.depth + band.y0 * state.nx,
-        len: (band.y1 - band.y0 + 1) * state.nx,
-      };
+    // AND ONE RUN PER STOREY, because a band is rows and a column is a stack
+    // of them. The named cells are already slot indices and need no such
+    // thing. @see slots, scatter
+    const bandRows = (band.y1 - band.y0 + 1) * state.nx;
+    const depthRuns = sparse
+      ? [{ at: state.offset.wantOut, len: flightWantN }]
+      : Array.from({ length: state.layers }, (_, a) => ({
+        at: state.offset.depth + a * state.cells + band.y0 * state.nx,
+        len: bandRows,
+      }));
     // THE LIPS, AND WHETHER ANYONE IS STILL READING THEM.
     //
     // The row exists to feed `drawFalls`: the air, the front, the head, the
@@ -947,10 +1002,10 @@ export function createGpuWater(
       len: Math.min(lipCap, FALL_OUT_MAX) * FALL_OUT_STRIDE,
     };
     const asked = fallList
-      ? [...everyFrame, spawnRun, depthRun,
+      ? [...everyFrame, spawnRun, ...depthRuns,
         ...(lipsNow ? [lipRun] : []),
         ...(carryNow ? carriedRuns : [])]
-      : [...everyFrame, spawnRun, depthRun, ...wholeRuns];
+      : [...everyFrame, spawnRun, ...depthRuns, ...wholeRuns];
     // PACKED, NOT AT THEIR OWN OFFSETS. `off` is where each run lands in the
     // staging buffer; the host unpacks by it below. @see stagingFloats
     let off = 0;
