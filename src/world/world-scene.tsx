@@ -428,6 +428,66 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           };
           requestAnimationFrame(tick);
         });
+        /**
+         * DOES A BAND EVER NEED MORE QUADS THAN IT WAS ALLOWED TO DRAW?
+         *
+         * The gathering counts the quads worth drawing on the GPU and the
+         * count comes back by an ASYNC mapping, so the number a frame draws by
+         * is an earlier frame's count plus `SPARE` of headroom. Ask for more
+         * than that in one frame and the extra quads are simply not drawn —
+         * and the next frame, when the count has caught up, they are. A hole
+         * that opens and heals.
+         *
+         * Which is what a fall ending looks like from the mesh's side: while
+         * the sheet is going over, the lip's side faces are not drawn; when it
+         * stops they all come back at once, in the handful of bands the span
+         * lies on. @see roomFor, quadDraws
+         */
+        window.__watchQuadRoom = (frames = 240) => new Promise((done) => {
+          const wl = gpuRef.current;
+          const g0 = useWorldStore.getState().grid;
+          if (!wl?.gather) {
+            done({ ok: false, why: "no gathering attached — nothing to be short of" });
+            return;
+          }
+          const deckBands = new Set<number>();
+          for (let y = 0; y < g0.h; y++) {
+            for (let x = 0; x < g0.w; x++) if (g0.deck[y * g0.w + x] !== 0) deckBands.add(x + y);
+          }
+          const short: unknown[] = [];
+          let worst = 0, n = 0;
+          const tick = () => {
+            const g = wl.gather;
+            if (g) {
+              for (let b = 0; b < wl.meshes.length; b++) {
+                const drew = wl.meshes[b].geometry.instanceCount;
+                const wanted = g.count[b];
+                if (wanted > drew) {
+                  const by = wanted - drew;
+                  if (by > worst) worst = by;
+                  if (short.length < 30) {
+                    short.push({
+                      n, band: b, wanted, drew, by,
+                      onASpan: deckBands.has(b), grew: g.grew[b],
+                    });
+                  }
+                }
+              }
+            }
+            if (++n < frames) requestAnimationFrame(tick);
+            else {
+              done({
+                frames: n, spanBands: [...deckBands].sort((a, b) => a - b),
+                worstShortfall: worst, shortfalls: short.length, short,
+                ok: worst === 0,
+                why: worst > 0
+                  ? `a band wanted ${worst} more quads than it was drawing`
+                  : "no band ever wanted more than it drew",
+              });
+            }
+          };
+          requestAnimationFrame(tick);
+        });
         window.__deckBodies = () => {
           const f = useWorldStore.getState().getWaterField();
           const wl = gpuRef.current;
