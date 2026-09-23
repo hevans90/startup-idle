@@ -31,6 +31,7 @@ import {
   type GpuWaterLayer,
 } from "./render/water-gpu";
 import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
+import { NO_BODY } from "./render/bodies";
 import { crossingPoured } from "./debug/world-scenes";
 import {
   clearStructureLayer, createStructureLayer, hasAnimated, refreshStructuresAt,
@@ -245,6 +246,48 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // Does the vertex shader draw the same water as the mesh builder? It
         // builds its own scene and answers in pixels — see water-compare.
         window.__waterCompare = (o) => compareWaterPaths(app.renderer, o);
+        // WHETHER THE MESH'S TWO SOURCES AGREE ABOUT THE MAP IN FRONT OF YOU.
+        //
+        // On the device path the depth the mesh draws comes off the DEVICE's
+        // texture and the sheet id that decides whether to draw it at all is
+        // worked out on the HOST, from the host's copy of the depths. A column
+        // that is wet on one and NO_BODY on the other is water that is there,
+        // correctly solved, and drawn by nothing — which is what a bridge with
+        // no water on it looks like. This counts them. @see findBodies
+        window.__deckBodies = () => {
+          const f = useWorldStore.getState().getWaterField();
+          const wl = gpuRef.current;
+          if (!f) return { ok: false, why: "no water field" };
+          const c = f.columns, cells = c.cells;
+          let deck = 0, wet = 0, labelled = 0, noBody = 0, held = 0;
+          for (let i = 0; i < cells; i++) {
+            for (let a = 1; a < c.layers; a++) {
+              const ia = a * cells + i;
+              if (!(c.roof[ia] > c.ground[ia])) continue;
+              deck++;
+              held += c.depth[ia];
+              if (c.depth[ia] <= c.params.dryDepth) continue;
+              wet++;
+              if (!wl) continue;
+              if (wl.bodies.at[ia] === NO_BODY) noBody++; else labelled++;
+            }
+          }
+          const last = solverRef.current?.last();
+          return {
+            deckColumns: deck, wetInHostCopy: wet,
+            heldInHostCopy: +held.toFixed(2),
+            labelled, noBody,
+            solver: solverRef.current ? "device" : "host",
+            // What the DEVICE says the whole map holds, for contrast: a host
+            // copy at nought with this in the thousands is the readback, not
+            // the solver. @see GpuFrame.deviceWater
+            deviceWater: last ? +last.deviceWater.toFixed(1) : null,
+            ok: noBody === 0,
+            why: noBody > 0
+              ? `${noBody} wet deck columns have no sheet id: they draw as nothing`
+              : null,
+          };
+        };
         // AND WHETHER THE WATER ON A BRIDGE REACHES THE SCREEN AT ALL, which
         // the comparison above cannot answer: it renders the two water
         // builders against each other and nothing else, so a ROAD painted over

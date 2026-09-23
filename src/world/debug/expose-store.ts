@@ -86,6 +86,8 @@ declare global {
     /** Drives frames by hand, past the rAF throttle. See world-scene. */
     __waterBench?: (n?: number, sync?: boolean) => Promise<unknown>;
     /** Draws one scene both ways and compares the pixels. See water-compare. */
+    /** Do the mesh's depth and its sheet ids agree about the decks? */
+    __deckBodies?: () => unknown;
     /** Does water on a bridge reach the screen? @see checkWaterOverPaving */
     __pavingCheck?: (o?: {
       mesh?: "cpu" | "gpu"; px?: number; depth?: number; size?: number;

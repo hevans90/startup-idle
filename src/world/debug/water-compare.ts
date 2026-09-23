@@ -361,6 +361,23 @@ export async function checkWaterOverPaving(
     gpu.gather = attachQuadGather(gpu, renderer, device, w, h);
   }
   const fl = falls ? createFallLayer(bands, 1) : null;
+  // `carried` — the live tick's way of saying the device has already filled
+  // the textures — is deliberately OFF here, and the reason is a limit of the
+  // method rather than an oversight. This check works by taking the water off
+  // the deck and rendering again, and it takes it off the HOST's copy. With
+  // the textures device-fed that write never reaches them, so the control
+  // patch draws nothing at all and the verdict means nothing.
+  //
+  // What that leaves uncovered is worth saying plainly: the device's own
+  // writes to the depth texture. This covers the BUILDER — the sheet ids, the
+  // corners, the tiers, the gathering — on depths it uploads itself.
+  //
+  // It did show one thing on the way past, and it is the thing to chase next.
+  // Run with `carried` on, zeroing the host's copy while the device's depth
+  // texture still held the water made the deck's water VANISH — 152 pixels a
+  // column to 23. The mesh reads its depths from the device and its sheet ids
+  // from the host, and where those two disagree a wet column is NO_BODY and
+  // is drawn by nothing. @see __deckBodies, findBodies
   const draw = () => {
     if (cpu) drawWater(cpu, columns, bands, 1 / 60);
     if (gpu) drawGpuWater(gpu, columns, bands, 1 / 60);
@@ -444,7 +461,15 @@ export async function checkWaterOverPaving(
   let water: Awaited<ReturnType<typeof createGpuWater>> | null = null;
   if (steps > 0) {
     if (solver === "device" && device) {
-      water = createGpuWater(device, columns);
+      // WITH THE CARRIED FIELDS, which is what makes the device FILL the
+      // textures rather than the host re-uploading them. Without it
+      // `drawGpuWater` sends the host's copy of the depths up every frame and
+      // the device's own writes are never the thing being drawn — so this arm
+      // would mask precisely the path it exists to cover. @see deviceSinks
+      water = createGpuWater(
+        device, columns,
+        gpu ? { seed: gpu.wash.seed, now: gpu.wash.now, foam: gpu.foam.now } : undefined,
+      );
       for (let n = 0; n < steps; n++) {
         runSources(field, grid, 1 / 60);
         water.sync(columns);
