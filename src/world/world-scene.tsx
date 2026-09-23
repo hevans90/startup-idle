@@ -527,7 +527,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             }
             let wet = 0;
             for (const ia of deck) if (c.depth[ia] > c.params.dryDepth) wet++;
-            series.push({ n, px, air: +waterInAir(c).toFixed(3), wet });
+            // THE AIR OFF THE DECK'S OWN LIPS, not the map's. A map with a
+            // river in it always has something falling somewhere, so watching
+            // `waterInAir` for "a fall ended" waits for a moment that never
+            // comes — twice it sampled a hundred and fifty frames and told me
+            // nothing had finished. What has to go to nought is the water in
+            // the air off THIS span. @see fallEdge
+            let deckAir = 0;
+            const air = c.falls.air;
+            for (let p = 0; p < c.layers * c.layers; p++) {
+              if (((p / c.layers) | 0) < 1) continue;   // the near slot is the deck's
+              const base = p * cells * 2;
+              for (let k = 0; k < cells * 2; k++) deckAir += air[base + k];
+            }
+            series.push({ n, px, air: +deckAir.toFixed(4), wet });
             if (++n < frames) requestAnimationFrame(tick);
             else {
               const live = series.slice(SETTLE);
@@ -540,10 +553,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               // ended here and nothing happened" is an answer too.
               let ended = -1;
               for (let k = 10; k < live.length; k++) {
-                if (live[k].air > 1e-3) continue;
+                if (live[k].air > 1e-4) continue;
                 let had = false;
-                for (let j = k - 10; j < k; j++) if (live[j].air > 0.05) had = true;
+                for (let j = k - 10; j < k; j++) if (live[j].air > 1e-3) had = true;
                 if (had) { ended = k; break; }
+              }
+              // AND THE WORST FRAME EITHER WAY, so this always hands back the
+              // most suspicious window it saw rather than nothing at all.
+              let low = 0;
+              for (let k = 1; k < live.length; k++) if (live[k].px < live[low].px) low = k;
+              // The steepest fall in the air off the span, which is the moment
+              // a sheet stopped whether or not it reached exactly nought.
+              let drop = 0, dropAt = -1;
+              for (let k = 1; k < live.length; k++) {
+                const by = live[k - 1].air - live[k].air;
+                if (by > drop) { drop = by; dropAt = k; }
               }
               done({
                 frames: n, settleSkipped: SETTLE,
@@ -551,6 +575,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 sawAFallEnd: ended >= 0,
                 aroundTheEnding: ended >= 0
                   ? live.slice(Math.max(0, ended - 6), ended + 10) : null,
+                // The biggest drop in the air off the span, and the emptiest
+                // frame, with their windows — always, so a run that catches no
+                // clean ending still says where it came closest.
+                biggestDropInDeckAir: dropAt >= 0
+                  ? { at: live[dropAt].n, by: +drop.toFixed(4),
+                    window: live.slice(Math.max(0, dropAt - 6), dropAt + 10) }
+                  : null,
+                emptiestFrame: { at: live[low]?.n, px: live[low]?.px,
+                  window: live.slice(Math.max(0, low - 6), low + 10) },
                 dipFrames: dips.length, dips: dips.slice(0, 20),
                 ok: dips.length === 0,
                 why: dips.length === 0
