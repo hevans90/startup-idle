@@ -312,23 +312,65 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           showGpuWater(wl, false);
           const off = shoot();
           showGpuWater(wl, was);
-          let all = 0, span = 0;
+
+          // AND THE DECK'S OWN SHARE OF IT, which the box above cannot give:
+          // that box holds the channel under the span as well, and a river
+          // seen beside a bridge counts the same as water standing on it.
+          //
+          // Taken by the SHEET IDS rather than by the depths. They are worked
+          // out on the host every frame and uploaded, so emptying the host's
+          // upper storeys makes the deck's columns NO_BODY and the builder
+          // drops them — while the device's depth texture, which this path
+          // does not write, is left alone. Whatever changes is what the deck's
+          // water was putting on the screen. @see findBodies
+          const c = field.columns, cells = c.cells;
+          const kept = new Float32Array(cells * (c.layers - 1));
+          for (let a = 1; a < c.layers; a++) {
+            for (let i = 0; i < cells; i++) {
+              kept[(a - 1) * cells + i] = c.depth[a * cells + i];
+              c.depth[a * cells + i] = 0;
+            }
+          }
+          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+          const noDeck = shoot();
+          for (let a = 1; a < c.layers; a++) {
+            for (let i = 0; i < cells; i++) {
+              c.depth[a * cells + i] = kept[(a - 1) * cells + i];
+            }
+          }
+          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+          let all = 0, span = 0, deckAll = 0, deckSpan = 0;
           const w = W;
           for (let i = 0; i < on.length; i += 4) {
-            let d = 0;
-            for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(on[i + c] - off[i + c]));
-            if (d <= 5) continue;
-            all++;
+            let d = 0, dd = 0;
+            for (let k = 0; k < 4; k++) {
+              d = Math.max(d, Math.abs(on[i + k] - off[i + k]));
+              dd = Math.max(dd, Math.abs(on[i + k] - noDeck[i + k]));
+            }
             const p = i / 4, sxp = p % w, syp = (p / w) | 0;
-            if (sxp >= x0 && sxp <= x1 && syp >= y0 && syp <= y1) span++;
+            const inSpan = sxp >= x0 && sxp <= x1 && syp >= y0 && syp <= y1;
+            if (d > 5) { all++; if (inSpan) span++; }
+            if (dd > 5) { deckAll++; if (inSpan) deckSpan++; }
           }
           return {
             waterPixelsWholeFrame: all, waterPixelsOverTheSpan: span,
+            // The deck's water alone, which is the number in question.
+            deckWaterPixels: deckAll, deckWaterPixelsOverTheSpan: deckSpan,
+            deckHeldInHostCopy: +(() => {
+              let h = 0;
+              for (let a = 1; a < field.columns.layers; a++) {
+                for (let i = 0; i < field.columns.cells; i++) {
+                  h += field.columns.depth[a * field.columns.cells + i];
+                }
+              }
+              return h;
+            })().toFixed(2),
             spanBox: x0 === Infinity ? null
               : { x0: Math.round(x0), y0: Math.round(y0), x1: Math.round(x1), y1: Math.round(y1) },
             frame: { w: W, h: H },
             why: all === 0 ? "the water mesh reaches no pixel at all"
-              : span === 0 ? "the water draws, but nothing of it lands on the span"
+              : deckAll === 0
+                ? "the deck's own water reaches no pixel: it is not being drawn"
                 : null,
           };
         };
