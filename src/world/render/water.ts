@@ -466,7 +466,7 @@ export function shownDepth(columns: ColumnField, i: number, d: number): number {
   const a = (i / columns.cells) | 0;
   const brink = atBrink(
     columns.nx, columns.ny, i % columns.cells, columns.ground, columns.depth,
-    columns.params.dryDepth, FALL_MIN, a * columns.cells,
+    columns.params.dryDepth, FALL_MIN, a * columns.cells, columns.roof,
   );
   const floor = SHOW_DEPTH * brink;
   return d > floor ? d : floor;
@@ -565,7 +565,7 @@ function cornerValues(
       // what decides how solid it looks and stays the water's own.
       const sag = d * DRAWDOWN * atBrink(
         columns.nx, columns.ny, ci, columns.ground, columns.depth,
-        columns.params.dryDepth, FALL_MIN, A,
+        columns.params.dryDepth, FALL_MIN, A, columns.roof,
       );
       const surface = surfaceAt(columns, i) - sag;
       const vx = flowX(columns, x, y, a), vy = flowY(columns, x, y, a);

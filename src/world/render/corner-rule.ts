@@ -32,6 +32,7 @@
  */
 
 import { FALL_MIN } from "../../fluid/falls";
+import { OPEN_SKY, connected } from "../../fluid/slots";
 
 /**
  * How far a rim corner is brought down to the ground it stands on.
@@ -264,13 +265,14 @@ export function spillAt(bed: number, beside: number, fallMin: number): number {
 export function atBrink(
   nx: number, ny: number, i: number,
   ground: Float32Array, depth: Float32Array, dryDepth: number, fallMin: number,
-  base = 0,
+  base = 0, roof: Float32Array | null = null,
 ): number {
   // `i` is a COLUMN and `base` is the start of the slot's own plane, so a
   // deck looks along the deck and the channel under it looks along the
   // channel. At one layer the base is nought and this is what it was.
   const cx = i % nx, cy = (i / nx) | 0;
   const bed = ground[base + i];
+  const lid = roof ? roof[base + i] : OPEN_SKY;
   let most = 0;
   for (let k = 0; k < 4; k++) {
     const dx = k === 0 ? 1 : k === 1 ? -1 : 0;
@@ -285,6 +287,18 @@ export function atBrink(
       if (jx < 0 || jy < 0 || jx >= nx || jy >= ny) break;
       const j = base + jy * nx + jx;
       if (ground[j] > bed) break;
+      // AND ONLY WHERE THE WATER COULD ACTUALLY GO, which is the solver's own
+      // test and not a second opinion about heights. @see fluid/slots
+      //
+      // At the mouth of a bridge the road stands level with the deck and the
+      // CHANNEL runs fourteen below it. Asked of the ground alone this reads
+      // as a lip — the water must be about to pour in — so the surface was
+      // leaned into a hole it cannot reach, and the road's corner dived from
+      // 2.50 to 1.36 over four columns while the deck beside it sat at 2.2.
+      // That trough is the gap somebody sees where a road meets a span. The
+      // abutment is closed: the two slots do not overlap, no water goes that
+      // way, and there is no lip to lean towards.
+      if (!connected(ground[base + i], lid, ground[j], roof ? roof[j] : OPEN_SKY)) break;
       const beside = depth[j] > dryDepth ? ground[j] + depth[j] : ground[j];
       const how = spillAt(bed, beside, fallMin);
       const near = how * (1 - (r - 1) / BRINK_REACH);
@@ -367,6 +381,13 @@ ${wgsl
       ${INT} jy = cy + dy * r;
       if (!inside(jx, jy)) { break; }
       if (groundAt(jx, jy, a) > bed) { break; }
+      // AND ONLY WHERE THE WATER COULD ACTUALLY GO — the solver's own test,
+      // see the twin in corner-rule.ts and the note on it. A road at the
+      // mouth of a span is level with the deck and fourteen above the channel,
+      // and asked of the ground alone that reads as a lip it is about to pour
+      // over. The abutment is closed: the two slots do not overlap.
+      if (min(roofAt(cx, cy, a), roofAt(jx, jy, a))
+          <= max(groundAt(cx, cy, a), groundAt(jx, jy, a))) { break; }
       ${NUM} dj = depthAt(jx, jy, a);
       ${NUM} beside = select(groundAt(jx, jy, a), groundAt(jx, jy, a) + dj, dj > dryDepth());
       ${NUM} how = spillAt(bed, beside);

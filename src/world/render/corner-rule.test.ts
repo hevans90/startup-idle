@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { FALL_MIN } from "../../fluid/falls";
+import { OPEN_SKY } from "../../fluid/slots";
 import { atBrink, cornerRuleSource, resolveCorner, resolveSide } from "./corner-rule";
 
 describe("what height a corner is drawn at", () => {
@@ -321,6 +322,57 @@ describe("a lip is not a shoreline", () => {
     expect(ask(7, 0)).toBeCloseTo(0.5, 6);      // three down, half way
     expect(ask(7.5, 0)).toBeCloseTo(0.25, 6);
     expect(ask(6.5, 0)).toBeCloseTo(0.75, 6);
+  });
+
+  /**
+   * THE ONE PLACE THE GROUND LIES ABOUT WHERE THE WATER CAN GO.
+   *
+   * At the mouth of a bridge the road stands level with the deck and the
+   * channel runs far below it — so asked of the ground alone the road is at a
+   * brink and the surface gets leaned into the hole. It cannot go there: the
+   * abutment is a slot roofed below the road's own floor, which is what an
+   * abutment IS, and the solver has always known it. The renderer did not, and
+   * drew a trough where a road meets a span: measured along the `crossing`
+   * fixture the corner dived 2.50 to 1.36 over four columns while the deck
+   * beside it sat at 2.2, which is the gap in the surface somebody sees.
+   *
+   * @see fluid/slots, which is the rule both sides ask now
+   */
+  describe("a bridge's abutment is not a brink", () => {
+    // The subject stands on the road at 10, open to the sky. Its east
+    // neighbour is the CHANNEL — bed at 0 — and the question is whether the
+    // channel is roofed below the road's floor, which is what a span does.
+    const abut = (roofE: number) => {
+      const nx = 3, ny = 3;
+      const ground = new Float32Array(nx * ny).fill(10);
+      const depth = new Float32Array(nx * ny).fill(1);
+      const roof = new Float32Array(nx * ny).fill(OPEN_SKY);
+      ground[5] = 0;                            // the channel, ten below
+      depth[5] = 0;
+      roof[5] = roofE;
+      return atBrink(nx, ny, 4, ground, depth, 0.02, 4, 0, roof);
+    };
+
+    test("roofed under the road, the water has nowhere to go", () => {
+      // A soffit at 8 is below the road's floor of 10: the two slots do not
+      // overlap, so nothing crosses and there is no lip to lean towards.
+      expect(abut(8)).toBe(0);
+    });
+
+    test("but open to the sky beside it, it is a brink as it always was", () => {
+      // The same drop with nothing over it — off the SIDE of a span — still
+      // draws down, or the fix would have been to delete the rule.
+      expect(abut(OPEN_SKY)).toBe(1);
+    });
+
+    test("and with no roofs at all it answers exactly what it used to", () => {
+      const nx = 3, ny = 3;
+      const ground = new Float32Array(nx * ny).fill(10);
+      const depth = new Float32Array(nx * ny).fill(1);
+      ground[5] = 0;
+      depth[5] = 0;
+      expect(atBrink(nx, ny, 4, ground, depth, 0.02, 4)).toBe(1);
+    });
   });
 
   test("and a pool deep enough below REACHES UP and drowns it", () => {

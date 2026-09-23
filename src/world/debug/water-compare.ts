@@ -491,19 +491,24 @@ export function checkWaterOverPaving(
   // its own tile — which its own band draws first anyway.
   const deckPer = deckColumns ? deckPixels / deckColumns : 0;
   const barePer = bare.length ? barePixels / bare.length : 0;
-  const why = barePixels === 0
-    ? "the control drew nothing either — the harness is not rendering"
-    : deckPixels === 0
-      ? "water on the deck reaches no pixel: something is drawn over it"
-      : deckPer < barePer * 0.85
-        ? `the deck's water reaches ${deckPer.toFixed(2)} pixels a column `
-          + `against bare ground's ${barePer.toFixed(2)}: something is over it`
-        : null;
+  const why = deckColumns === 0
+    ? "no deck column is wet: nothing to look at, not a fault"
+    : barePixels === 0
+      ? "the control drew nothing either — the harness is not rendering"
+      : deckPixels === 0
+        ? "water on the deck reaches no pixel: something is drawn over it"
+        : deckPer < barePer * 0.85
+          ? `the deck's water reaches ${deckPer.toFixed(2)} pixels a column `
+            + `against bare ground's ${barePer.toFixed(2)}: something is over it`
+          : null;
   return {
     mesh, gathered: !!gpu?.gather, falls,
     deckColumns, bareColumns: bare.length,
     deckPixels, barePixels,
     deckPer: +deckPer.toFixed(3), barePer: +barePer.toFixed(3),
+    // NOTHING TO LOOK AT IS NOT A PASS AND NOT A FAILURE. A dry bridge says
+    // nothing either way, and reporting it as either is how a check gets
+    // believed when it has not run.
     drawn, ok: why === null, why,
   };
 }
