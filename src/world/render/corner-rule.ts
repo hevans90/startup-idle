@@ -273,6 +273,8 @@ export function atBrink(
   const cx = i % nx, cy = (i / nx) | 0;
   const bed = ground[base + i];
   const lid = roof ? roof[base + i] : OPEN_SKY;
+  const cells = nx * ny;
+  const layers = roof ? Math.max(1, Math.round(ground.length / cells)) : 1;
   let most = 0;
   for (let k = 0; k < 4; k++) {
     const dx = k === 0 ? 1 : k === 1 ? -1 : 0;
@@ -285,21 +287,37 @@ export function atBrink(
     for (let r = 1; r <= BRINK_REACH; r++) {
       const jx = cx + dx * r, jy = cy + dy * r;
       if (jx < 0 || jy < 0 || jx >= nx || jy >= ny) break;
-      const j = base + jy * nx + jx;
-      if (ground[j] > bed) break;
-      // AND ONLY WHERE THE WATER COULD ACTUALLY GO, which is the solver's own
-      // test and not a second opinion about heights. @see fluid/slots
+      // WHICH SLOT OVER THERE THE WATER WOULD ACTUALLY REACH, which is the
+      // solver's own question and not a second opinion about heights.
+      // @see fluid/slots
       //
       // At the mouth of a bridge the road stands level with the deck and the
-      // CHANNEL runs fourteen below it. Asked of the ground alone this reads
-      // as a lip — the water must be about to pour in — so the surface was
-      // leaned into a hole it cannot reach, and the road's corner dived from
-      // 2.50 to 1.36 over four columns while the deck beside it sat at 2.2.
-      // That trough is the gap somebody sees where a road meets a span. The
-      // abutment is closed: the two slots do not overlap, no water goes that
-      // way, and there is no lip to lean towards.
-      if (!connected(ground[base + i], lid, ground[j], roof ? roof[j] : OPEN_SKY)) break;
-      const beside = depth[j] > dryDepth ? ground[j] + depth[j] : ground[j];
+      // CHANNEL runs fourteen below it. Asked of the ground alone that reads
+      // as a lip the water is about to pour over, so the surface was leaned
+      // into a hole it cannot get to and the road's corner dived from 2.50 to
+      // 1.36 over four columns. The abutment is CLOSED — the road's slot is
+      // roofed below its own floor by the soffit — and nothing crosses.
+      //
+      // BUT IT IS EVERY SLOT OVER THERE AND NOT THE SAME-NUMBERED ONE, which
+      // is the half of this I got wrong first and which tore the parapet. A
+      // deck's water leaves over the side into the CHANNEL — slot zero of the
+      // column beside it — while slot one over there is absent. Matching
+      // plane against plane, that read as a wall, the drawdown never fired,
+      // and the surface stood 0.2 to 0.28 above the nappe along the whole
+      // length of every parapet: the sheet and the fall leaving it drawn at
+      // two different heights.
+      //
+      // The LOWEST it can reach, because that is the drop it is leaning into.
+      const jc = jy * nx + jx;
+      let beside = 0, floor = 0, found = false;
+      for (let b = 0; b < layers; b++) {
+        const jb = b * cells + jc;
+        if (!connected(bed, lid, ground[jb], roof ? roof[jb] : OPEN_SKY)) continue;
+        const s = depth[jb] > dryDepth ? ground[jb] + depth[jb] : ground[jb];
+        if (!found || s < beside) { beside = s; floor = ground[jb]; found = true; }
+      }
+      if (!found) break;                        // a wall, and no way over it
+      if (floor > bed) break;                   // higher ground, not a way down
       const how = spillAt(bed, beside, fallMin);
       const near = how * (1 - (r - 1) / BRINK_REACH);
       if (near > most) most = near;
@@ -380,16 +398,29 @@ ${wgsl
       ${INT} jx = cx + dx * r;
       ${INT} jy = cy + dy * r;
       if (!inside(jx, jy)) { break; }
-      if (groundAt(jx, jy, a) > bed) { break; }
-      // AND ONLY WHERE THE WATER COULD ACTUALLY GO — the solver's own test,
-      // see the twin in corner-rule.ts and the note on it. A road at the
-      // mouth of a span is level with the deck and fourteen above the channel,
-      // and asked of the ground alone that reads as a lip it is about to pour
-      // over. The abutment is closed: the two slots do not overlap.
-      if (min(roofAt(cx, cy, a), roofAt(jx, jy, a))
-          <= max(groundAt(cx, cy, a), groundAt(jx, jy, a))) { break; }
-      ${NUM} dj = depthAt(jx, jy, a);
-      ${NUM} beside = select(groundAt(jx, jy, a), groundAt(jx, jy, a) + dj, dj > dryDepth());
+      // WHICH SLOT OVER THERE THE WATER WOULD ACTUALLY REACH — the solver's
+      // own question. See the twin in corner-rule.ts and the note on it: a
+      // road at the mouth of a span is level with the deck and fourteen above
+      // the channel, and the abutment is closed, so nothing crosses. And it is
+      // EVERY slot over there, not the same-numbered one — a deck's water
+      // leaves over the side into the channel, which is slot zero, while slot
+      // one beside it is absent. The LOWEST it can reach, because that is the
+      // drop it is leaning into.
+      // A FLOAT FLAG AND NOT A BOOL, because the two dialects are held to
+      // differing in nothing but their keywords, and a GLSL bool is not one
+      // of the words that rule knows about.
+      ${MUT} beside = 0.0;
+      ${MUT} floorJ = 0.0;
+      ${MUT} found = 0.0;
+      for (${LOOP} b = 0; b < slots(); b = b + 1) {
+        ${NUM} gj = groundAt(jx, jy, b);
+        if (min(roofAt(cx, cy, a), roofAt(jx, jy, b)) <= max(bed, gj)) { continue; }
+        ${NUM} dj2 = depthAt(jx, jy, b);
+        ${NUM} s = select(gj, gj + dj2, dj2 > dryDepth());
+        if (found == 0.0 || s < beside) { beside = s; floorJ = gj; found = 1.0; }
+      }
+      if (found == 0.0) { break; }
+      if (floorJ > bed) { break; }
       ${NUM} how = spillAt(bed, beside);
       most = max(most, how * (1.0 - ${FLT}(r - 1) / ${BRINK_REACH}.0));
       if (how > 0.0) { break; }

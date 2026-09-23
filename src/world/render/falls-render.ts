@@ -275,6 +275,12 @@ export const sharedLit = (
 const brinkAt = (c: ColumnField, i: number) => atBrink(
   c.nx, c.ny, i % c.cells, c.ground, c.depth, c.params.dryDepth, FALL_MIN,
   i - (i % c.cells),
+  // THE ROOFS TOO, or this asks a different question from the one the SURFACE
+  // asks and the two draw the same lip at two heights. Left off here while
+  // `water.ts` passed them, the nappe leaned into the drop and the sheet did
+  // not: 0.2 to 0.28 of daylight along the whole length of every parapet.
+  // @see atBrink
+  c.roof,
 );
 const brinkOf = (c: ColumnField, i: number, j: number) =>
   (j < 0 ? brinkAt(c, i) : (brinkAt(c, i) + brinkAt(c, j)) * 0.5);

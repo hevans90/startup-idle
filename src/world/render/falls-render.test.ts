@@ -817,3 +817,72 @@ describe("a fall takes time to get down", () => {
     destroyFallLayer(layer);
   }, 20000);
 });
+
+/**
+ * A SPAN'S PARAPET, WHERE THE SHEET BECOMES THE FALL.
+ *
+ * Two pieces of geometry meet on that line and they are built by different
+ * code: the water SURFACE ends there, at a corner height out of the mesh
+ * builder, and the NAPPE begins there, at a top edge out of this file. Both
+ * are `ground + depth * (1 - DRAWDOWN * brink)` — the same formula written
+ * twice — so the only way they can disagree is by disagreeing about `brink`,
+ * and then the sheet and the fall leaving it are drawn at two heights and
+ * there is daylight between them along the whole parapet.
+ *
+ * Which is exactly what happened. `atBrink` learned to ask whether the water
+ * could reach the slot it was leaning towards, `water.ts` passed it the roofs
+ * and this file did not, and the tear measured 0.2 to 0.28 at every lip.
+ */
+describe("the sheet and the fall leaving it are drawn at one height", () => {
+  test("along a span's parapet, every lip agrees to a thousandth", async () => {
+    const { applyFixture } = await import("../debug/fixtures");
+    const { createWaterField, runSources, stepWater } = await import("../water/field");
+    const { createBandLayer } = await import("./bands");
+    const { createWaterLayer, drawWater, tierAt } = await import("./water");
+
+    const W = 32;
+    const g = createGrid(W, W);
+    applyFixture(g, "crossing", 1);
+    const field = createWaterField(g);
+    const f = field.columns;
+    const cells = f.cells;
+    // Long enough for the road's spring to fill the span and go over it.
+    for (let n = 0; n < 900; n++) {
+      runSources(field, g, 1 / 60);
+      stepWater(field, 1 / 60);
+    }
+    const bands = createBandLayer(W, W);
+    const wl = createWaterLayer(f, bands, 1);
+    drawWater(wl, f, bands, 1 / 60);
+    const vw = f.nx + 1;
+
+    let checked = 0, worst = 0;
+    for (let k = 0; k < f.falls.cliffN; k++) {
+      const e = f.falls.cliff[k];
+      const pair = (e / (cells * 2)) | 0;
+      const rest = e - pair * cells * 2;
+      const ci = rest >> 1, axis = rest & 1;
+      const a = (pair / f.layers) | 0;
+      if (a !== 1) continue;                    // the deck's own lips
+      const ia = a * cells + ci;
+      const cx = ci % f.nx, cy = (ci / f.nx) | 0;
+      // The END of a lip run is its own case — the corner there gathers
+      // columns that are not on this lip at all — so this is about the
+      // RUN, which is where a tear is visible as a line.
+      const back = alongLip(f, ia, axis, -1, pair);
+      const fwd = alongLip(f, ia, axis, 1, pair);
+      if (back < 0 || fwd < 0) continue;
+      const sheet = wl.bodies.at[ia];
+      if (sheet < 0) continue;
+      const vax = cx + (axis === 0 ? 1 : 0), vay = cy + (axis === 0 ? 0 : 1);
+      const kA = tierAt(wl, vay * vw + vax, sheet);
+      if (kA < 0) continue;
+      const nappe = sharedLip(f, ia, back) + sharedBrink(f, ia, back);
+      worst = Math.max(worst, Math.abs(nappe - wl.vs[kA]));
+      checked++;
+    }
+    // The fixture has parapets both sides of a three-tile span: plenty.
+    expect(checked).toBeGreaterThan(8);
+    expect(worst).toBeLessThan(1e-3);
+  });
+});
