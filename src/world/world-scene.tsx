@@ -492,13 +492,26 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             }
           }
           // THE REFERENCE: the same picture with the deck's water not drawn.
+          //
+          // SETTLED FIRST, and the first frames after it thrown away. Taken
+          // cold, the count climbed 771 to 2624 over eleven frames with the
+          // wet column count dead still at 133 — the picture catching up with
+          // having had the deck emptied and put back, reported as eleven
+          // frames of holes. That is this tool's own wake, not the map's.
           const kept = deck.map((i) => c.depth[i]);
           for (const i of deck) c.depth[i] = 0;
-          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+          for (let k = 0; k < 3; k++) {
+            drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+            shoot();
+          }
           const bare = shoot();
           deck.forEach((i, k) => { c.depth[i] = kept[k]; });
-          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+          for (let k = 0; k < 3; k++) {
+            drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+            shoot();
+          }
 
+          const SETTLE = 20;
           const series: { n: number; px: number; air: number; wet: number }[] = [];
           let n = 0;
           const tick = () => {
@@ -517,20 +530,37 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             series.push({ n, px, air: +waterInAir(c).toFixed(3), wet });
             if (++n < frames) requestAnimationFrame(tick);
             else {
-              const all = series.map((s) => s.px).sort((a, b) => a - b);
+              const live = series.slice(SETTLE);
+              const all = live.map((s) => s.px).sort((a, b) => a - b);
               const med = all[all.length >> 1] || 0;
-              const dips = series.filter((s) => s.px < med * 0.6);
+              const dips = live.filter((s) => s.px < med * 0.6);
+              // WHERE A FALL ENDED: the air was carrying something and then
+              // was not. The window round that is the thing to look at, and
+              // it is reported whether or not anything dipped — "the fall
+              // ended here and nothing happened" is an answer too.
+              let ended = -1;
+              for (let k = 10; k < live.length; k++) {
+                if (live[k].air > 1e-3) continue;
+                let had = false;
+                for (let j = k - 10; j < k; j++) if (live[j].air > 0.05) had = true;
+                if (had) { ended = k; break; }
+              }
               done({
-                frames: n, median: med, min: all[0], max: all[all.length - 1],
+                frames: n, settleSkipped: SETTLE,
+                median: med, min: all[0], max: all[all.length - 1],
+                sawAFallEnd: ended >= 0,
+                aroundTheEnding: ended >= 0
+                  ? live.slice(Math.max(0, ended - 6), ended + 10) : null,
                 dipFrames: dips.length, dips: dips.slice(0, 20),
-                around: series.slice(
-                  Math.max(0, (dips[0]?.n ?? 0) - 4), (dips[0]?.n ?? 0) + 6,
-                ),
                 ok: dips.length === 0,
-                why: dips.length
-                  ? `the deck's drawn water fell below 60% of its usual ${med} on `
-                    + `${dips.length} of ${n} frames`
-                  : "the deck's drawn water never dipped",
+                why: dips.length === 0
+                  ? "the deck's drawn water never dipped"
+                  : `the deck's drawn water fell below 60% of its usual ${med} on `
+                    + `${dips.length} of ${live.length} frames`,
+                note: ended >= 0 ? null
+                  : "no fall ENDED while this was watching — the air never went"
+                    + " from carrying something to carrying nothing. Run it again"
+                    + " so that a sheet finishes during the sample.",
               });
             }
           };
