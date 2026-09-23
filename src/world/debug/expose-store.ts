@@ -86,6 +86,11 @@ declare global {
     /** Drives frames by hand, past the rAF throttle. See world-scene. */
     __waterBench?: (n?: number, sync?: boolean) => Promise<unknown>;
     /** Draws one scene both ways and compares the pixels. See water-compare. */
+    /** Does water on a bridge reach the screen? @see checkWaterOverPaving */
+    __pavingCheck?: (o?: {
+      mesh?: "cpu" | "gpu"; px?: number; depth?: number; size?: number;
+      live?: boolean; film?: boolean; gather?: boolean; falls?: boolean;
+    }) => unknown;
     __waterCompare?: (o?: Record<string, number>) => unknown;
     /**
      * Runs the compute spike and says whether the round trip held.

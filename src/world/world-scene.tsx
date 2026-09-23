@@ -30,7 +30,7 @@ import {
   destroyQuadGather, drawGpuWater, gatherQuads, showGpuWater, waterOnGpu,
   type GpuWaterLayer,
 } from "./render/water-gpu";
-import { compareWaterPaths } from "./debug/water-compare";
+import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
 import { crossingPoured } from "./debug/world-scenes";
 import {
   clearStructureLayer, createStructureLayer, hasAnimated, refreshStructuresAt,
@@ -245,6 +245,30 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // Does the vertex shader draw the same water as the mesh builder? It
         // builds its own scene and answers in pixels — see water-compare.
         window.__waterCompare = (o) => compareWaterPaths(app.renderer, o);
+        // AND WHETHER THE WATER ON A BRIDGE REACHES THE SCREEN AT ALL, which
+        // the comparison above cannot answer: it renders the two water
+        // builders against each other and nothing else, so a ROAD painted over
+        // both of them is invisible to it. @see checkWaterOverPaving
+        window.__pavingCheck = (o) => {
+          const tex = texRef.current;
+          if (!tex) return { ok: false, why: "atlas not loaded yet" };
+          // POINTED AT THE LIVE MAP by default, because the `crossing`
+          // fixture draws its deck water perfectly well and a generated map
+          // does not — a check that only ever runs on the fixture would have
+          // passed the whole time. Pass `{live: false}` for the fixture.
+          const st = useWorldStore.getState();
+          const live = o?.live ?? true;
+          const wf = live ? st.getWaterField() : null;
+          const dev = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device ?? null;
+          return checkWaterOverPaving(app.renderer, tex, st.palette, {
+            ...o,
+            grid: live ? st.grid : null,
+            // THE WATER THAT IS ACTUALLY THERE, unless asked for a film.
+            water: live && o?.film !== true ? wf?.columns ?? null : null,
+            device: dev,
+          });
+        };
         // THE SPIKE for the compute port — see `render/compute-spike`. Behind
         // `?spike` because it draws a bar chart over the map and exists to
         // answer one question before three weeks of work rest on the answer.

@@ -17,9 +17,9 @@
  */
 import type { ColumnField } from "../../fluid/columns";
 import { addWater } from "../../fluid/columns";
-import { createGrid } from "../grid";
+import { createGrid, type Grid } from "../grid";
 import { applyFixture } from "./fixtures";
-import { COLUMNS_PER_TILE, createWaterField } from "../water/field";
+import { COLUMNS_PER_TILE, createWaterField, type WaterField } from "../water/field";
 
 /** Every column of a tile, as field indices. */
 function columnsOf(f: ColumnField, tx: number, ty: number): number[] {
@@ -48,8 +48,8 @@ function columnsOf(f: ColumnField, tx: number, ty: number): number[] {
  * written by hand had, because nobody writing a bridge by hand thinks to end
  * it on the ground.
  */
-export function crossingPoured(): ColumnField {
-  const g = createGrid(24, 24);
+export function crossingScene(size = 24): { grid: Grid; field: WaterField } {
+  const g = createGrid(size, size);
   applyFixture(g, "crossing", 1);
   const field = createWaterField(g);
   const f = field.columns;
@@ -63,14 +63,59 @@ export function crossingPoured(): ColumnField {
   // `buildCrossing` lays the lane at y mid-1..mid+1 and cuts the channel at
   // x mid-1..mid+1, so the span is the square where they meet and the
   // approaches are the tiles immediately outside it.
-  const mid = Math.round(24 / 2);
+  const mid = Math.round(size / 2);
   for (let ty = mid - 1; ty <= mid + 1; ty++) {
     for (const tx of [mid - 4, mid - 3, mid - 2, mid + 2, mid + 3, mid + 4]) {
-      if (tx < 0 || tx >= 24 || ty < 0 || ty >= 24) continue;
+      if (tx < 0 || tx >= size || ty < 0 || ty >= size) continue;
       for (const i of columnsOf(f, tx, ty)) {
         addWater(f, i % f.nx, (i / f.nx) | 0, 3, 1, 0);
       }
     }
   }
-  return f;
+  return { grid: g, field };
+}
+
+/** Just the columns, for the solver comparisons. @see crossingScene */
+export const crossingPoured = (): ColumnField => crossingScene().field.columns;
+
+/**
+ * Put a film on every column that has a DECK over it, and dry everything else.
+ *
+ * What the render check needs and the solver check does not: a state that is
+ * unambiguous about where the water is, so "did the deck's water reach the
+ * screen" has one answer. Returns how many columns were wetted, because a
+ * check that renders nothing and a check that renders the wrong thing look the
+ * same from the pixels alone.
+ */
+export function wetTheDecks(f: ColumnField, depth = 1.5): number {
+  const { cells } = f;
+  let n = 0;
+  for (let i = 0; i < cells; i++) {
+    f.depth[i] = 0;
+    const decked = f.roof[cells + i] > f.ground[cells + i];
+    f.depth[cells + i] = decked ? depth : 0;
+    if (decked) n++;
+  }
+  // The box is what every builder walks; set by hand because nothing stepped.
+  f.box.x0 = 0; f.box.y0 = 0; f.box.x1 = f.nx - 1; f.box.y1 = f.ny - 1;
+  return n;
+}
+
+/**
+ * Copy one field's water onto another that was built from the same grid.
+ *
+ * The render check builds its own field so that nothing it does reaches the
+ * screen — which also means it renders water it invented rather than the water
+ * somebody is complaining about. This carries the live one across: the depths,
+ * what each column is made of, and the fluxes the surface is shaded from.
+ */
+export function copyWater(from: ColumnField, to: ColumnField): boolean {
+  if (from.cells !== to.cells || from.layers !== to.layers) return false;
+  to.depth.set(from.depth);
+  to.material.set(from.material);
+  to.fx.set(from.fx);
+  to.fy.set(from.fy);
+  to.box.x0 = from.box.x0; to.box.y0 = from.box.y0;
+  to.box.x1 = from.box.x1; to.box.y1 = from.box.y1;
+  return true;
 }
