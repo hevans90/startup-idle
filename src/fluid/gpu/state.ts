@@ -716,15 +716,39 @@ export type Sink = {
 export function copyOut(enc: GPUCommandEncoder, s: GpuState, sinks: readonly Sink[]) {
   for (const sink of sinks) {
     const texel = sink.texel ?? 4;
+    // AS MANY ROWS AS THE FIELD HAS, which is not `ny` on a map with storeys.
+    //
+    // Every per-slot field is a stack of planes — depth and the material are
+    // `cells * layers`, the fluxes are `cells * layers * layers` — and the
+    // textures are built that tall, a plane per storey. This copied `ny` rows
+    // of them: plane nought and nothing else. So on a bridged map the deck's
+    // plane of the depth texture was never written by the device at all. It
+    // held the zeros it was created with, the shader read every column on
+    // every span as dry, and dropped the quad.
+    //
+    // Which is water that is correctly solved, correctly read back, correctly
+    // labelled into a sheet — and drawn by nothing. It cost four rounds of
+    // looking in the wrong place, because every check that uploads the depths
+    // from the host's copy draws it perfectly.
+    //
+    // Taken off the field's own length rather than a table of which field is
+    // which shape, so nothing has to be kept in step with `LENGTHS`: the field
+    // is `length` floats, a row is `nx` texels, and the rest is division. At
+    // one layer every one of these is the `ny` it used to be.
+    const rows = Math.min(
+      Math.floor((s.length[sink.name] * 4) / (s.nx * texel)),
+      sink.texture.height,
+    );
+    if (rows <= 0) continue;
     enc.copyBufferToTexture(
       {
         buffer: s.field,
         offset: s.offset[sink.name] * 4,
         bytesPerRow: s.nx * texel,
-        rowsPerImage: s.ny,
+        rowsPerImage: rows,
       },
       { texture: sink.texture },
-      { width: s.nx, height: s.ny, depthOrArrayLayers: 1 },
+      { width: s.nx, height: rows, depthOrArrayLayers: 1 },
     );
   }
 }

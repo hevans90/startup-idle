@@ -75,7 +75,8 @@ import {
   createFallLayer, destroyFallLayer, drawFalls,
 } from "../render/falls-render";
 import {
-  attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, drawGpuWater,
+  attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
+  drawGpuWater,
 } from "../render/water-gpu";
 
 export type Comparison = {
@@ -362,22 +363,27 @@ export async function checkWaterOverPaving(
   }
   const fl = falls ? createFallLayer(bands, 1) : null;
   // `carried` — the live tick's way of saying the device has already filled
-  // the textures — is deliberately OFF here, and the reason is a limit of the
-  // method rather than an oversight. This check works by taking the water off
-  // the deck and rendering again, and it takes it off the HOST's copy. With
-  // the textures device-fed that write never reaches them, so the control
-  // patch draws nothing at all and the verdict means nothing.
+  // the textures — is off here, and that is a hole this check still has.
   //
-  // What that leaves uncovered is worth saying plainly: the device's own
-  // writes to the depth texture. This covers the BUILDER — the sheet ids, the
-  // corners, the tiers, the gathering — on depths it uploads itself.
+  // The method works by taking water off the deck and rendering again, and it
+  // takes it off the HOST's copy; with the textures device-fed that write
+  // never reaches them, so the control draws nothing and the verdict is
+  // worthless. Which meant this covered the BUILDER on depths it uploads
+  // ITSELF, and never the device's own writes — so it passed at 180 pixels a
+  // column on the very map where the live screen showed a dry bridge, because
+  // `copyOut` was filling one plane of the depth texture and the host's copy
+  // was filling all of them. @see copyOut, which is what was wrong
   //
-  // It did show one thing on the way past, and it is the thing to chase next.
-  // Run with `carried` on, zeroing the host's copy while the device's depth
-  // texture still held the water made the deck's water VANISH — 152 pixels a
-  // column to 23. The mesh reads its depths from the device and its sheet ids
-  // from the host, and where those two disagree a wet column is NO_BODY and
-  // is drawn by nothing. @see __deckBodies, findBodies
+  // I tried to close it from in here and could not. Every way of asking
+  // "what did the DEVICE put in that texture" ends up measuring something
+  // else: the sheet ids are rebuilt from the host's copy by the very draw
+  // that was meant to read them, and any earlier draw has already pushed the
+  // host's depths into the same texture, so both shots see the same thing and
+  // the answer is nought however the solver behaves. It reported nought on a
+  // map that draws perfectly, which is a worse instrument than none.
+  //
+  // What found the fault instead was `__liveWaterPixels`, in the running app,
+  // where the real path is the only path. @see copyOut
   const draw = () => {
     if (cpu) drawWater(cpu, columns, bands, 1 / 60);
     if (gpu) drawGpuWater(gpu, columns, bands, 1 / 60);
@@ -469,6 +475,11 @@ export async function checkWaterOverPaving(
       water = createGpuWater(
         device, columns,
         gpu ? { seed: gpu.wash.seed, now: gpu.wash.now, foam: gpu.foam.now } : undefined,
+        // AND THE LAYER'S TEXTURES FOR THE DEVICE TO FILL, which is the whole
+        // point of the device arm. Left out, the solver writes none of them
+        // and `deckTexture` below reads nought whatever `copyOut` does —
+        // measuring a wire that was never connected. @see deviceSinks
+        gpu ? deviceSinks(gpu, renderer, columns.nx) : [],
       );
       for (let n = 0; n < steps; n++) {
         runSources(field, grid, 1 / 60);
