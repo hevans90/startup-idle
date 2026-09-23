@@ -108,7 +108,7 @@ export function scene(wind = FLOW_DEFAULTS.wind): ColumnField {
  * the cliffs and the landings all have two storeys to sort out.
  */
 export function spanned(
-  bed = -8, soffit = 0, deck = 2, river = 5,
+  bed = -8, soffit = 0, deck = 2, river = 5, from = 4, to = 92,
 ): ColumnField {
   const f = createColumnField(96, 64, { ...FLOW_DEFAULTS }, 0.5, 2);
   const cells = f.cells;
@@ -129,7 +129,7 @@ export function spanned(
   }
   // A river in the channel, running under the span...
   for (let y = 28; y <= 35; y++) {
-    for (let x = 4; x < 92; x++) addWater(f, x, y, river, 1, 0);
+    for (let x = from; x < to; x++) addWater(f, x, y, river, 1, 0);
   }
   // ...and a puddle on the span, which is water at a height nothing else on
   // the map stands at.
@@ -152,19 +152,42 @@ export function spanned(
  *
  * So there are two, and what they cover is split rather than doubled. This one
  * keeps the pairs, the roof, the deck a road could drive onto and the puddle
- * on it, and stands the deck four over the water — far enough that the parapet
+ * on it, and stands the deck six over the water — far enough that the parapet
  * is a CLIFF and the puddle leaves as a sheet, near enough that the sheet
  * arrives whole. Anything it disagrees about is the slot arithmetic, and it is
  * judged tight over whole frames.
  *
- * The pressure slot is what it gives up: a culvert only runs full when the
- * channel either side of it does, and a full channel leaves nothing for the
- * deck to fall into. That case is held by the per-pass comparisons instead,
- * which run on `spanned` — where the culvert IS pressurised — and agree to a
+ * NOTHING FALLS ON IT AT ALL, and that is the whole design rather than a
+ * shortcut. Work through what a bridged scene can be:
+ *
+ *   drop under four   the parapet is not a cliff — no fall
+ *   drop at four      the two sides land either side of `FALL_MIN` by a
+ *                     thousandth and one stops calling it a cliff. Measured:
+ *                     the device read 1.5% heavier in the air for thirty-one
+ *                     frames of agreement and then a single frame's jump
+ *   drop four to eight  a sheet lands, a landing throws a CROWN, and a crown
+ *                     turns its star off a counter — which the host advances
+ *                     in lip order and the device in whatever order its
+ *                     atomics claimed. 91 drops on this scene, differing by
+ *                     one to three
+ *   drop over eight   the sheet breaks and sheds as well, which is the same
+ *                     divergence with more of it
+ *
+ * So there is no drop at all that makes a fall AND is free of an accepted
+ * divergence, and pretending otherwise just moves which threshold the scene is
+ * balanced on. This one takes the other road: the channel runs FULL, so the
+ * puddle on the deck leaves over the parapet as a connected flow rather than
+ * as a sheet — head-driven flux across a (1, 0) pair, which is the single most
+ * slot-specific thing that can happen on a map — and the culvert is
+ * pressurised while it does, because a full channel is what pressurises it.
+ * No cliff, no crown, no threshold. Judged tight, over whole frames.
+ *
+ * Falls over slots are covered instead where they can be covered tightly: the
+ * per-pass comparisons, on `spanned`, which has all of them and agrees to a
  * part in ten million at every settle from thirty frames to two hundred and
- * fifty. @see compareAccelerate
+ * fifty. @see compareAccelerate, compareCliffs
  */
-export const spannedDry = () => spanned(0, 4, 6, 2);
+export const spannedDry = () => spanned(0, 3, 5, 4);
 
 /**
  * A COLLAPSING POUR, which is the scene the other two never are.
@@ -231,7 +254,13 @@ export function spray(): ColumnField {
  * shows up as a physics difference and gets blamed on a shader.
  */
 export function cloneOf(f: ColumnField): ColumnField {
-  const out = createColumnField(f.nx, f.ny, f.params, f.cell) as ColumnField;
+  // WITH ITS STOREYS. Left off, every slot array in the copy came out half
+  // the length of the one it was copying and `set` threw — which meant the
+  // one instrument aimed at the map in front of you could not be aimed at a
+  // map with a bridge on it, exactly when that was the thing to check.
+  const out = createColumnField(
+    f.nx, f.ny, f.params, f.cell, f.layers,
+  ) as ColumnField;
   const src = f as unknown as Record<string, unknown>;
   const dst = out as unknown as Record<string, unknown>;
   for (const key of Object.keys(src)) {

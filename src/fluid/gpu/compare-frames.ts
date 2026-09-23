@@ -26,7 +26,7 @@ import {
   type ColumnField,
 } from "../columns";
 import { stepFlow } from "../columns";
-import { waterInAir } from "../falls";
+import { besideAt, waterInAir } from "../falls";
 import { createFlowWash, stepFlowWash } from "../../world/render/flow-wash";
 import { createFoam, stepFoam } from "../../world/render/foam";
 import { createGpuWater } from "./solver";
@@ -88,6 +88,10 @@ export type FrameDiff = {
   where: unknown;
   /** How much water each side is holding in the AIR rather than in a column. */
   air: { cpu: number; gpu: number };
+  /** And on which lips, decoded to a pair, a column and an axis. */
+  airSaid: unknown[];
+  /** The first frame a fall parted, and what each side held going in. */
+  parted: unknown;
   ok: boolean;
 };
 
@@ -178,7 +182,78 @@ export async function compareFrames(
     seed: gpuWash.seed, now: gpuWash.now, foam: gpuFoam.now,
   });
   let cpuMs = 0, gpuMs = 0;
+  /**
+   * THE FIRST FRAME THE TWO FALLS PART, and what each held going into it.
+   *
+   * A total at the end of a run says the air differs. It cannot say whether it
+   * drifted apart over sixty frames or jumped in one — and those are different
+   * faults, with different causes and different fixes. This watches every lip
+   * every frame, keeps the state from BEFORE the step that first moved them
+   * apart, and stops looking. What it cannot show is `since` or either speed:
+   * the host's mirror of a fall carries the air, the front and the head and
+   * nothing else, because that is all the lip list brings back.
+   */
+  let parted: unknown = null;
+  const lipState = (f: ColumnField, k: number) => {
+    // THE DROP EACH SIDE SEES, recomputed from that side's own field by the
+    // rule `stepFalls` uses. It is not carried back from the device, and it is
+    // the threshold both reset branches turn on — so without it the trace
+    // shows a fall vanishing on one side and gives no reason.
+    const pair = (k / (f.cells * 2)) | 0;
+    const rest = k - pair * f.cells * 2;
+    const c = rest >> 1;
+    const ia = ((pair / f.layers) | 0) * f.cells + c;
+    const j = (pair % f.layers) * f.cells + c + (rest & 1 ? f.nx : 1);
+    return {
+      air: +f.falls.air[k].toFixed(6),
+      front: +f.falls.front[k].toFixed(4),
+      head: +f.falls.head[k].toFixed(4),
+      drop: +(f.ground[ia] - besideAt(f, j)).toFixed(4),
+    };
+  };
+  const watchLips = (n: number, before: Map<number, unknown>) => {
+    if (parted) return;
+    for (let k = 0; k < cpu.falls.air.length; k++) {
+      const da = Math.abs(cpu.falls.air[k] - gpu.falls.air[k]);
+      const df = Math.abs(cpu.falls.front[k] - gpu.falls.front[k]);
+      const dh = Math.abs(cpu.falls.head[k] - gpu.falls.head[k]);
+      // ON THE AIR ALONE, and generously. The front is pinned at the drop,
+      // which is measured to the SURFACE of the pool underneath — so it
+      // tracks that pool's depth, and two solvers a ten-thousandth apart in
+      // depth are a ten-thousandth apart in the front by arithmetic and not
+      // by fault. Watching it caught that on frame ten and said nothing worth
+      // hearing. What is worth hearing is water in the air that one side has
+      // and the other does not.
+      void df; void dh;
+      if (da < 5e-3) continue;
+      const pair = (k / (cpu.cells * 2)) | 0;
+      const rest = k - pair * cpu.cells * 2;
+      const c = rest >> 1;
+      parted = {
+        frame: n, edge: k,
+        at: `${c % cpu.nx},${(c / cpu.nx) | 0}`,
+        from: (pair / cpu.layers) | 0, to: pair % cpu.layers,
+        axis: rest & 1 ? "y" : "x",
+        // What the drop across this edge is, which is the threshold both
+        // `front >= drop` and `head >= drop` are tested against.
+        drop: +(cpu.ground[(((pair / cpu.layers) | 0) * cpu.cells) + c]
+          - cpu.ground[(pair % cpu.layers) * cpu.cells + c
+            + (rest & 1 ? cpu.nx : 1)]).toFixed(4),
+        before: before.get(k) ?? null,
+        after: { cpu: lipState(cpu, k), gpu: lipState(gpu, k) },
+      };
+      return;
+    }
+  };
   for (let n = 0; n < frames; n++) {
+    const before = new Map<number, unknown>();
+    if (!parted) {
+      for (let k = 0; k < cpu.falls.air.length; k++) {
+        if (cpu.falls.air[k] > 0 || gpu.falls.air[k] > 0) {
+          before.set(k, { cpu: lipState(cpu, k), gpu: lipState(gpu, k) });
+        }
+      }
+    }
     const a = performance.now();
     stepFlow(cpu, 1 / 60);
     const box = activeBox(cpu);
@@ -198,6 +273,7 @@ export async function compareFrames(
     for (let k = 0; k < cpu.drips.splash.length; k++) {
       if (cpu.drips.splash[k] > splashSeen) splashSeen = cpu.drips.splash[k];
     }
+    watchLips(n, before);
     trace.push({
       n, gpu: +totalWater(gpu).toFixed(4), cpu: +totalWater(cpu).toFixed(4),
       // WHAT THE DEVICE SAYS IT IS HOLDING, beside what came back.
@@ -212,7 +288,12 @@ export async function compareFrames(
       // And the same for the air, which the host holds only as whatever the
       // lip list brought it. @see GpuFrame.deviceAir
       devAir: +water.last().deviceAir.toFixed(4),
-      air: +waterInAir(gpu).toFixed(4), lips: gpu.falls.cliffN,
+      air: +waterInAir(gpu).toFixed(4),
+      // BOTH SIDES' AIR, every frame. A total at the end says they differ;
+      // this says on which frame they started to, which is the difference
+      // between reading a pass and reading all of them.
+      airCpu: +waterInAir(cpu).toFixed(4),
+      lips: gpu.falls.cliffN,
       subs: water.last().substeps,
     });
   }
@@ -322,6 +403,36 @@ export async function compareFrames(
   // READ BEFORE THE VERDICT, because the verdict is one of the things that
   // reads them now. @see AIR
   const airCpu = waterInAir(cpu), airGpu = waterInAir(gpu);
+  // AND WHICH LIPS IT IS ON. The air is a total over every fall edge on the
+  // map; a total that is out by a per cent says nothing about whether one lip
+  // is holding all of it or a hundred are holding a little, and those are
+  // different faults. Decoded the way `fallEdge` packs it — slot pair, then
+  // column, then axis — because on a map with storeys the pair is the thing
+  // most likely to be wrong.
+  const airSaid: unknown[] = [];
+  {
+    const worstOf: { k: number; d: number }[] = [];
+    for (let k = 0; k < cpu.falls.air.length; k++) {
+      const d = gpu.falls.air[k] - cpu.falls.air[k];
+      if (Math.abs(d) > 1e-6) worstOf.push({ k, d });
+    }
+    worstOf.sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+    for (const { k, d } of worstOf.slice(0, 8)) {
+      const pair = (k / (cpu.cells * 2)) | 0;
+      const rest = k - pair * cpu.cells * 2;
+      const c = rest >> 1;
+      airSaid.push({
+        at: `${c % cpu.nx},${(c / cpu.nx) | 0}`,
+        from: (pair / cpu.layers) | 0, to: pair % cpu.layers,
+        axis: rest & 1 ? "y" : "x",
+        air: [+cpu.falls.air[k].toFixed(5), +gpu.falls.air[k].toFixed(5)],
+        front: [+cpu.falls.front[k].toFixed(3), +gpu.falls.front[k].toFixed(3)],
+        head: [+cpu.falls.head[k].toFixed(3), +gpu.falls.head[k].toFixed(3)],
+        d: +d.toFixed(5),
+      });
+    }
+    airSaid.push({ edges: worstOf.length });
+  }
   return {
     /**
      * WHETHER THE CARRIED FIELDS WERE FRESH when they were read.
@@ -353,13 +464,14 @@ export async function compareFrames(
       top: worstCells.slice(0, 8),
       beyondMilli: worstCells.length,
     },
-    trace: trace.slice(0, 12),
+    trace,
     patch,
     region: lastFrame.region,
     boxSaid,
     worstAt,
     box: { cpu: activeBox(cpu), gpu: activeBox(gpu) },
     air: { cpu: +airCpu.toFixed(3), gpu: +airGpu.toFixed(3) },
+    airSaid, parted,
     frames,
     volume: {
       cpu: +vCpu.toFixed(3), gpu: +vGpu.toFixed(3), drift,

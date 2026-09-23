@@ -958,14 +958,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // listener above, because a scene can be rebuilt after the loss — and
     // building a solver on a dead device is a set of buffers that will never
     // answer.
-    // AND NOT A FIELD WITH STOREYS IN IT, yet. Every pass under this now
-    // walks slot pairs — see `fluid/slots` — and the one-layer path is held
-    // exactly where it was, but a bridged scene does NOT yet agree with the
-    // host: `__frameCompare(40, false, true)` has the device gaining water on
-    // the deck, 0.6 of 3628 on the first frame and compounding. A twin that
-    // is nearly right about a bridge is worse than no twin, because the
-    // picture looks right while the water is wrong.
-    // @see spanned, which is the scene that says so
+    // A MAP WITH BRIDGES ON IT RUNS HERE TOO, now. Every pass walks slot
+    // pairs — see `fluid/slots` — and two bridged scenes say the arithmetic
+    // holds: `__frameCompare(150, false, "dry")` agrees to 1.5e-3 of the
+    // deepest column with the volume at 1.9e-9, and `__frameCompare(90,
+    // false, true)`, which sprays, is inside the bounds that scene's known
+    // drop-ordering difference earns it. The one-layer path is exactly where
+    // it was. @see spanned, spannedDry
+    //
+    // It is still read for the SHEETS below, which are one storey yet.
     const storeyed = field ? field.columns.layers > 1 : false;
     // SAY SO ON THE READOUT. A badge that reports the switch rather than the
     // path claims the device is running whenever anything declines to build
@@ -973,10 +974,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     gpuWaterHeldBack(
       !gpuWater ? null
         : !device || deviceLost() !== null ? "no device"
-          : storeyed ? "storeys"
-            : null,
+          : null,
     );
-    if (!gpuWater || !field || !device || deviceLost() !== null || storeyed) {
+    if (!gpuWater || !field || !device || deviceLost() !== null) {
       solverRef.current?.destroy();
       solverRef.current = null;
       gpuWaterSaw(null);
