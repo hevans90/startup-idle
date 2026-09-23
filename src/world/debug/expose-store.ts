@@ -129,7 +129,7 @@ declare global {
     __pourLiveResult?: unknown;
     /** Whole frames, both solvers. @see compareFrames */
     __frameCompare?: (
-      frames?: number, spray?: boolean, bridged?: boolean | "dry",
+      frames?: number, spray?: boolean, bridged?: boolean | "dry" | "road",
     ) => Promise<unknown>;
     /** The cliff index, both ways. @see compareCliffs */
     __cliffCompare?: (

@@ -31,6 +31,7 @@ import {
   type GpuWaterLayer,
 } from "./render/water-gpu";
 import { compareWaterPaths } from "./debug/water-compare";
+import { crossingPoured } from "./debug/world-scenes";
 import {
   clearStructureLayer, createStructureLayer, hasAnimated, refreshStructuresAt,
   syncStructures, tickStructures, type StructureLayer,
@@ -290,7 +291,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // person watching the water would ask. @see compareFrames
         window.__frameCompare = async (
           frames = 60, sprayScene = false,
-          bridged: boolean | "dry" = false,
+          bridged: boolean | "dry" | "road" = false,
         ) => {
           const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
             .gpu?.device;
@@ -300,6 +301,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // @see SPRAY_BOUNDS
           // AND A SCENE WITH A BRIDGE IN IT, which is the only one that
           // exercises a slot pair that is not (0,0). @see spanned
+          // AND THE WORLD'S OWN CROSSING, which is the only one of the three
+          // whose geometry somebody could actually build. @see crossingPoured
+          if (bridged === "road") {
+            return compareFrames(device, frames, crossingPoured, undefined, SPRAY_BOUNDS);
+          }
           if (bridged) {
             return compareFrames(
               device, frames, bridged === "dry" ? spannedDry : spanned,

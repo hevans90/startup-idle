@@ -136,6 +136,18 @@ export function spanned(
   for (let y = 29; y <= 34; y++) {
     for (let x = 42; x <= 53; x++) addWater(f, x, y, 1.5, 1, 1);
   }
+  // AND A PUDDLE ON THE ROAD, aimed at the span — which is the one edge a
+  // bridge exists for and the one this scene had no water anywhere near.
+  //
+  // The road stands on the GROUND and the deck is a storey up, so the water
+  // crossing from one to the other crosses a pair that is not (a, a): slot 0
+  // of the bank at y 27 to slot 1 of the deck at y 28, level with each other
+  // and a storey apart in the index. Every other drop of water in this scene
+  // stays in the slot it started in, so that pair carried nothing at all and
+  // a solver could refuse it outright and still come back clean.
+  for (let y = 22; y <= 27; y++) {
+    for (let x = 44; x <= 51; x++) addWater(f, x, y, 3, 1, 0);
+  }
   return f;
 }
 
