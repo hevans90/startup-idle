@@ -443,6 +443,99 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
          * stops they all come back at once, in the handful of bands the span
          * lies on. @see roomFor, quadDraws
          */
+        /**
+         * THE DECK'S DRAWN WATER, FRAME BY FRAME. A hole is a dip.
+         *
+         * Everything upstream of the picture has been cleared: the ids never
+         * drop a wet column, no band is ever short of quads, the depths are
+         * on the device and the sheet is labelled. So this stops asking why
+         * and measures the symptom — how many pixels of the span are the
+         * deck's water, every frame — and keeps the frames where that falls
+         * off a cliff and comes back.
+         *
+         * The reference is one frame with the deck's ids emptied, so "the
+         * deck's water" means the pixels that exist only because it is there.
+         * Kept for the whole run: the camera does not move during it.
+         */
+        window.__watchDeckPixels = (frames = 150) => new Promise((done) => {
+          const bl = blRef.current, wl = gpuRef.current;
+          const field = useWorldStore.getState().getWaterField();
+          const g = useWorldStore.getState().grid;
+          if (!bl || !wl || !field) { done({ ok: false, why: "no live water mesh" }); return; }
+          const W = Math.round(app.renderer.width), H = Math.round(app.renderer.height);
+          const shoot = () => {
+            const target = RenderTexture.create({ width: W, height: H, antialias: false });
+            app.renderer.render({ container: app.stage, target, clear: true });
+            const out = app.renderer.extract.pixels(target);
+            target.destroy(true);
+            return out.pixels;
+          };
+          const camScale = useWorldStore.getState().scale;
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+          for (let ty = 0; ty < g.h; ty++) {
+            for (let tx = 0; tx < g.w; tx++) {
+              if (g.deck[ty * g.w + tx] === 0) continue;
+              const w = cellToWorld(tx, ty, g.deckZ[ty * g.w + tx], camScale);
+              const p = bl.root.toGlobal({ x: w.wx, y: w.wy });
+              const rx = HW * camScale * bl.root.worldTransform.a;
+              const ry = HH * camScale * bl.root.worldTransform.d;
+              x0 = Math.min(x0, p.x - rx); x1 = Math.max(x1, p.x + rx);
+              y0 = Math.min(y0, p.y - ry * 3); y1 = Math.max(y1, p.y + ry);
+            }
+          }
+          const c = field.columns, cells = c.cells;
+          const deck: number[] = [];
+          for (let i = 0; i < cells; i++) {
+            for (let a = 1; a < c.layers; a++) {
+              const ia = a * cells + i;
+              if (c.roof[ia] > c.ground[ia]) deck.push(ia);
+            }
+          }
+          // THE REFERENCE: the same picture with the deck's water not drawn.
+          const kept = deck.map((i) => c.depth[i]);
+          for (const i of deck) c.depth[i] = 0;
+          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+          const bare = shoot();
+          deck.forEach((i, k) => { c.depth[i] = kept[k]; });
+          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+
+          const series: { n: number; px: number; air: number; wet: number }[] = [];
+          let n = 0;
+          const tick = () => {
+            const now = shoot();
+            let px = 0;
+            for (let sy = Math.max(0, Math.floor(y0)); sy <= Math.min(H - 1, Math.ceil(y1)); sy++) {
+              for (let sx = Math.max(0, Math.floor(x0)); sx <= Math.min(W - 1, Math.ceil(x1)); sx++) {
+                const i = (sy * W + sx) * 4;
+                let d = 0;
+                for (let k = 0; k < 4; k++) d = Math.max(d, Math.abs(now[i + k] - bare[i + k]));
+                if (d > 5) px++;
+              }
+            }
+            let wet = 0;
+            for (const ia of deck) if (c.depth[ia] > c.params.dryDepth) wet++;
+            series.push({ n, px, air: +waterInAir(c).toFixed(3), wet });
+            if (++n < frames) requestAnimationFrame(tick);
+            else {
+              const all = series.map((s) => s.px).sort((a, b) => a - b);
+              const med = all[all.length >> 1] || 0;
+              const dips = series.filter((s) => s.px < med * 0.6);
+              done({
+                frames: n, median: med, min: all[0], max: all[all.length - 1],
+                dipFrames: dips.length, dips: dips.slice(0, 20),
+                around: series.slice(
+                  Math.max(0, (dips[0]?.n ?? 0) - 4), (dips[0]?.n ?? 0) + 6,
+                ),
+                ok: dips.length === 0,
+                why: dips.length
+                  ? `the deck's drawn water fell below 60% of its usual ${med} on `
+                    + `${dips.length} of ${n} frames`
+                  : "the deck's drawn water never dipped",
+              });
+            }
+          };
+          requestAnimationFrame(tick);
+        });
         window.__watchQuadRoom = (frames = 240) => new Promise((done) => {
           const wl = gpuRef.current;
           const g0 = useWorldStore.getState().grid;

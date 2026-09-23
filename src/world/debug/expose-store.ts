@@ -88,6 +88,8 @@ declare global {
     /** Draws one scene both ways and compares the pixels. See water-compare. */
     /** What the water mesh puts on the screen you are looking at. */
     __liveWaterPixels?: () => unknown;
+    /** The deck's drawn water, frame by frame. A hole is a dip. */
+    __watchDeckPixels?: (frames?: number) => Promise<unknown>;
     /** Does a band ever need more quads than it was allowed to draw? */
     __watchQuadRoom?: (frames?: number) => Promise<unknown>;
     /** Watch a span for holes, frame by frame. @see __deckBodies */
