@@ -270,10 +270,21 @@ describe("the surface the mesh carries", () => {
     for (let y = 2; y <= 29; y++) for (let x = 2; x <= 29; x++) pourAt(field, x, y, 5, 1);
     for (let n = 0; n < 60 * 12; n++) stepWater(field, 1 / 60);
     drawWater(wl, field.columns, bands, 1 / 60);
-    let holding = 0;
-    for (const d of field.columns.depth) if (d > field.columns.params.dryDepth) holding++;
+    // HOLDING ANY WATER AT ALL, which is not the same as holding `dryDepth`
+    // of it and is the whole of what this test is named for. Counted at the
+    // solver's own cutoff it passed while the sheet had holes in it — every
+    // column between nought and `dryDepth` was one, and a lip's film lives
+    // exactly there. @see showsWater
+    let holding = 0, overCutoff = 0;
+    for (const d of field.columns.depth) {
+      if (d > 0) holding++;
+      if (d > field.columns.params.dryDepth) overCutoff++;
+    }
     const surfaces = allPolys(wl.strips).filter((p) => !isFace(p)).length;
-    expect(holding).toBeGreaterThan(4000);
+    expect(overCutoff).toBeGreaterThan(4000);
+    // And the two really are different numbers here, or this is testing
+    // nothing that the old bound did not.
+    expect(holding).toBeGreaterThan(overCutoff);
     expect(surfaces).toBe(holding);
     destroyWaterLayer(wl);
   });

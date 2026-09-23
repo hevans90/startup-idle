@@ -343,23 +343,31 @@ export function atBrink(
  * 0.009 against a dryDepth of 0.02 — so the ones a hair under lost their quad
  * and the sheet had a hole a quarter of a tile wide.
  *
- * AT A BRINK ANY WATER AT ALL DRAWS, which is the same sentence the opacity
- * floor is built on: water at a lip is thin BECAUSE it is at a lip, and
- * hiding it for being thin is hiding the thing itself. Everywhere else the
- * cutoff stands — a shoreline's fringe is invisible either way and there are
- * a thousand columns of it. Measured on that fixture: 4,659 columns wet,
- * 968 damp, and 214 of the damp ones at a brink. Five per cent more mesh,
- * spent where the holes are.
+ * SO THERE IS NO CUTOFF. Any water at all draws, and the opacity ramp fades
+ * it: at a hundredth of a step that is an alpha of seven thousandths, which
+ * is nothing to look at and nothing to see a hole through either.
+ *
+ * GATING IT ON A BRINK WAS NOT ENOUGH, and the way it failed is worth
+ * keeping. A lip's film drew while `atBrink` was positive — and a fall ends
+ * when the pool underneath rises far enough to drown its lip, which is the
+ * same rise that takes `atBrink` to nought. So the gate let go at the exact
+ * moment it was needed: the sheet stopped going over, the brink died with
+ * it, and the column that had been pouring vanished out of the middle of the
+ * surface. A threshold that is only wrong sometimes is worse than one that
+ * is always wrong, because it is the sometimes that gets shipped.
+ *
+ * It costs about a fifth more surface quads — measured on the crossing
+ * fixture, 4,659 columns over `dryDepth` against 968 holding less than that
+ * and more than nothing. That is the price of the class of bug going away
+ * rather than moving, and the gathering is what makes it affordable.
  */
 export function showsWater(
   nx: number, ny: number, i: number,
   ground: Float32Array, depth: Float32Array, dryDepth: number, fallMin: number,
   base = 0, roof: Float32Array | null = null,
 ): boolean {
-  const d = depth[base + i];
-  if (d > dryDepth) return true;
-  if (d <= 0) return false;
-  return atBrink(nx, ny, i, ground, depth, dryDepth, fallMin, base, roof) > 0;
+  void nx; void ny; void ground; void dryDepth; void fallMin; void roof;
+  return depth[base + i] > 0;
 }
 
 /** Which shading language the caller wants the rule written in. */
@@ -467,13 +475,10 @@ ${wgsl
 ${wgsl
   ? "fn showsWater(cx: i32, cy: i32, a: i32) -> bool {"
   : "bool showsWater(int cx, int cy, int a) {"}
-  // The twin of showsWater in corner-rule, and the note on it: a lip's film
-  // is thin because it is a lip, and cutting it at dryDepth puts a hole a
-  // quarter of a tile wide in the sheet along a bridge's parapet.
-  ${NUM} d = depthAt(cx, cy, a);
-  if (d > dryDepth()) { return true; }
-  if (d <= 0.0) { return false; }
-  return atBrink(cx, cy, a) > 0.0;
+  // The twin of showsWater in corner-rule, and the note on it: there is no
+  // cutoff, because every cutoff tried so far punched a hole somewhere. The
+  // opacity ramp fades what is too thin to be worth seeing.
+  return depthAt(cx, cy, a) > 0.0;
 }
 
 ${head}
@@ -503,7 +508,11 @@ ${head}
     // it both meet this corner and only one of them is on this sheet.
     for (${LOOP} a = 0; a < slots(); a = a + 1) {
       ${NUM} d = depthAt(cx, cy, a);
-      if (d <= dryDepth()) { continue; }
+      // ANY WATER CONTRIBUTES — see showsWater and the sheet membership it
+      // has to agree with. A column that draws but gathers no corner of its
+      // own comes out at an alpha of nought, which is a hole with extra
+      // steps, and it is the corner rule that decides that.
+      if (d <= 0.0) { continue; }
       if (sheetAt(cx, cy, a) != sheet) { continue; }
       ${NUM} g = groundAt(cx, cy, a);
       // UNDER A ROOF THE WATER STOPS AT THE ROOF. A slot running full is

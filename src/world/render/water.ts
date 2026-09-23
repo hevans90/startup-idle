@@ -558,7 +558,11 @@ function cornerValues(
       const ci = y * nx + x;
       const i = A + ci;
       const d = depth[i];
-      if (d <= params.dryDepth) continue;
+      // ANY WATER CONTRIBUTES — the same rule as `showsWater` and as sheet
+      // membership. Left at `dryDepth` here while the other two had it
+      // removed, a column that is drawn gathers no corner of its own and
+      // comes out at an alpha of nought, which is a hole with extra steps.
+      if (d <= 0) continue;
       const sheet = wl.bodies.at[i];
       if (sheet === NO_BODY) continue;
       const bed = columns.ground[i];

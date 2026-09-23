@@ -148,9 +148,8 @@ export function findBodies(
   region: { x0: number; y0: number; x1: number; y1: number },
   out: Bodies,
 ): void {
-  const { nx, cells, layers, depth, params } = f;
+  const { nx, cells, layers, depth } = f;
   const { at, parent, was } = out;
-  const dry = params.dryDepth;
   const x0 = Math.max(0, region.x0), x1 = Math.min(nx - 1, region.x1);
   const y0 = Math.max(0, region.y0), y1 = Math.min(f.ny - 1, region.y1);
 
@@ -165,15 +164,24 @@ export function findBodies(
   }
   was.x0 = x0; was.y0 = y0; was.x1 = x1; was.y1 = y1;
 
-  // 1. EVERY WET SLOT ITS OWN SHEET, and every dry one cleared. The clear is
-  //    what stops last frame's labels being read where the water has gone.
+  // 1. EVERY SLOT WITH ANY WATER IN IT ITS OWN SHEET, and every dry one
+  //    cleared. The clear is what stops last frame's labels being read where
+  //    the water has gone.
+  //
+  //    ANY WATER, not `dryDepth` of it, and that is load-bearing. A sheet id
+  //    is what lets a column read the corners it helped make: without one the
+  //    builder skips it outright and the shader gathers no contributor for
+  //    it, which is an alpha of nought. So membership decides what is drawn
+  //    just as much as `showsWater` does, and if the two disagree the looser
+  //    of them achieves nothing — which is exactly what happened when the
+  //    cutoff came off the one and stayed on the other.
   for (let a = 0; a < layers; a++) {
     const A = a * cells;
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         const ia = A + y * nx + x;
         at[ia] = NO_BODY;
-        parent[ia] = depth[ia] > dry ? ia : NO_BODY;
+        parent[ia] = depth[ia] > 0 ? ia : NO_BODY;
       }
     }
   }
