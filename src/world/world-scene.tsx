@@ -33,6 +33,7 @@ import {
 } from "./render/water-gpu";
 import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
 import { NO_BODY } from "./render/bodies";
+import { waterInAir } from "../fluid/falls";
 import { crossingPoured } from "./debug/world-scenes";
 import {
   clearStructureLayer, createStructureLayer, hasAnimated, refreshStructuresAt,
@@ -374,6 +375,59 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 : null,
           };
         };
+        /**
+         * WATCH A SPAN FOR HOLES, frame by frame.
+         *
+         * `__deckBodies` is a snapshot and a hole that lasts a moment is not
+         * in it. This samples every frame for a while and keeps the worst: a
+         * column that is WET and has no sheet id is a column the builder
+         * skips, which is a hole you can see the deck through.
+         *
+         * It also keeps the AIR, because the thing being chased is what
+         * happens as a fall ENDS — so the frame a hole opens can be lined up
+         * against the frame the last of the water left the lip.
+         */
+        window.__watchDeckHoles = (frames = 240) => new Promise((done) => {
+          const f = useWorldStore.getState().getWaterField();
+          if (!f) { done({ ok: false, why: "no water field" }); return; }
+          const c = f.columns, cells = c.cells;
+          const deck: number[] = [];
+          for (let i = 0; i < cells; i++) {
+            for (let a = 1; a < c.layers; a++) {
+              const ia = a * cells + i;
+              if (c.roof[ia] > c.ground[ia]) deck.push(ia);
+            }
+          }
+          const log: unknown[] = [];
+          let worst = 0, worstFrame = -1, n = 0;
+          const tick = () => {
+            const wl = gpuRef.current;
+            let wet = 0, holes = 0;
+            for (const ia of deck) {
+              if (c.depth[ia] <= c.params.dryDepth) continue;
+              wet++;
+              if (wl && wl.bodies.at[ia] === NO_BODY) holes++;
+            }
+            const air = waterInAir(c);
+            if (holes > worst) { worst = holes; worstFrame = n; }
+            if (holes > 0 || n % 30 === 0) {
+              log.push({ n, wet, holes, air: +air.toFixed(4), lips: c.falls.cliffN });
+            }
+            if (++n < frames) requestAnimationFrame(tick);
+            else {
+              done({
+                deckColumns: deck.length, frames: n,
+                worstHoles: worst, atFrame: worstFrame,
+                log: log.slice(0, 40),
+                ok: worst === 0,
+                why: worst > 0
+                  ? `${worst} wet deck columns lost their sheet id at frame ${worstFrame}`
+                  : "no column was ever wet without an id — the hole is not the labelling",
+              });
+            }
+          };
+          requestAnimationFrame(tick);
+        });
         window.__deckBodies = () => {
           const f = useWorldStore.getState().getWaterField();
           const wl = gpuRef.current;

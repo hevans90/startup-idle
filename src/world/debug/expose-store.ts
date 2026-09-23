@@ -88,6 +88,8 @@ declare global {
     /** Draws one scene both ways and compares the pixels. See water-compare. */
     /** What the water mesh puts on the screen you are looking at. */
     __liveWaterPixels?: () => unknown;
+    /** Watch a span for holes, frame by frame. @see __deckBodies */
+    __watchDeckHoles?: (frames?: number) => Promise<unknown>;
     /** Do the mesh's depth and its sheet ids agree about the decks? */
     __deckBodies?: () => unknown;
     /** Does water on a bridge reach the screen? @see checkWaterOverPaving */
