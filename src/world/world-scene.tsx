@@ -447,6 +447,22 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         };
         const scene = { water, bl, grid };
         const renderer = app.renderer, stage = app.stage;
+        /**
+         * SYNC OFF MISMEASURES THE DEVICE PATH, and it does it convincingly.
+         *
+         * The loop below is wholly synchronous, so nothing yields to the event
+         * loop inside it and no `mapAsync` promise can resolve while it runs.
+         * On the device path that means the solver never gets its readback
+         * back: it stalls on its own mapping, and the cost surfaces in the
+         * render call, where it reads as the RENDERER having got slower. On a
+         * bridged map at 64 tiles it reported the device path 10% worse than
+         * the host's. With `sync` on, the same pair is 100.6ms against 16.8,
+         * and real rAF says 18.2 against 8.3.
+         *
+         * So: `sync` on is the honest reading for anything with a readback in
+         * it, and a device number taken with it off is worth nothing until it
+         * has been taken again with it on. @see hidden tab, same genre
+         */
         window.__waterBench = async (n = 200, sync = false) => {
           const field = useWorldStore.getState().getWaterField();
           // THE SOLVER AND THE MESH ARE TWO CHOICES, and this reported one
