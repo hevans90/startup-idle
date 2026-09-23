@@ -276,26 +276,34 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const field = useWorldStore.getState().getWaterField();
           const g = useWorldStore.getState().grid;
           if (!bl || !wl || !field) return { ok: false, why: "no live water mesh" };
-          const px = 900;
+          // THE SCREEN, NOT THE BAND ROOT. The camera is a viewport ABOVE
+          // `bl.root`, so rendering the root renders the map with no camera on
+          // it at all — in world coordinates, into a square that has nothing to
+          // do with what is on the monitor. The first reading off this put the
+          // span at x -198..198 of a 900 frame and counted 951 water pixels for
+          // a whole river, which is a crop and not a measurement.
+          const W = Math.round(app.renderer.width);
+          const H = Math.round(app.renderer.height);
           const shoot = () => {
-            const target = RenderTexture.create({ width: px, height: px, antialias: false });
-            app.renderer.render({ container: bl.root, target, clear: true });
+            const target = RenderTexture.create({ width: W, height: H, antialias: false });
+            app.renderer.render({ container: app.stage, target, clear: true });
             const out = app.renderer.extract.pixels(target);
             target.destroy(true);
             return out.pixels;
           };
-          // WHERE THE SPAN IS ON SCREEN, through the root's own transform, so
-          // the box follows the camera rather than assuming one.
-          const sx = bl.root.scale.x, sy = bl.root.scale.y;
-          const ox = bl.root.position.x, oy = bl.root.position.y;
+          // AND THE SPAN THROUGH PIXI'S OWN TRANSFORM, so it lands where the
+          // camera actually put it, at the scale the layers were built at.
+          const camScale = useWorldStore.getState().scale;
           let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
           for (let ty = 0; ty < g.h; ty++) {
             for (let tx = 0; tx < g.w; tx++) {
               if (g.deck[ty * g.w + tx] === 0) continue;
-              const w = cellToWorld(tx, ty, g.deckZ[ty * g.w + tx], 1);
-              const px0 = ox + w.wx * sx, py0 = oy + w.wy * sy;
-              x0 = Math.min(x0, px0 - HW * sx); x1 = Math.max(x1, px0 + HW * sx);
-              y0 = Math.min(y0, py0 - HH * sy * 4); y1 = Math.max(y1, py0 + HH * sy);
+              const w = cellToWorld(tx, ty, g.deckZ[ty * g.w + tx], camScale);
+              const p = bl.root.toGlobal({ x: w.wx, y: w.wy });
+              const rx = HW * camScale * bl.root.worldTransform.a;
+              const ry = HH * camScale * bl.root.worldTransform.d;
+              x0 = Math.min(x0, p.x - rx); x1 = Math.max(x1, p.x + rx);
+              y0 = Math.min(y0, p.y - ry * 3); y1 = Math.max(y1, p.y + ry);
             }
           }
           const was = wl.drawing;
@@ -305,7 +313,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const off = shoot();
           showGpuWater(wl, was);
           let all = 0, span = 0;
-          const w = Math.round(Math.sqrt(on.length / 4));
+          const w = W;
           for (let i = 0; i < on.length; i += 4) {
             let d = 0;
             for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(on[i + c] - off[i + c]));
@@ -318,7 +326,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             waterPixelsWholeFrame: all, waterPixelsOverTheSpan: span,
             spanBox: x0 === Infinity ? null
               : { x0: Math.round(x0), y0: Math.round(y0), x1: Math.round(x1), y1: Math.round(y1) },
-            frame: px,
+            frame: { w: W, h: H },
             why: all === 0 ? "the water mesh reaches no pixel at all"
               : span === 0 ? "the water draws, but nothing of it lands on the span"
                 : null,
