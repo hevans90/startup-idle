@@ -61,9 +61,12 @@ import { createTerrainLayer, buildTerrain } from "../render/terrain";
 import { createCliffLayer, buildCliffs } from "../render/cliffs";
 import { buildPaved, createPavedLayer } from "../render/paved";
 import { copyWater, crossingScene, wetTheDecks } from "./world-scenes";
+import { createGpuWater } from "../../fluid/gpu/solver";
 import { COLUMNS_PER_TILE } from "../water/field";
 import type { Palette } from "../palette";
-import { createWaterField, pourAt, setWaterEdge, stepWater } from "../water/field";
+import {
+  createWaterField, pourAt, runSources, setWaterEdge, stepWater,
+} from "../water/field";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { createBandLayer } from "../render/bands";
 import { createWaterLayer, destroyWaterLayer, drawWater } from "../render/water";
@@ -257,6 +260,14 @@ export type PavingCheck = {
   gathered: boolean;
   /** Whether the falls were drawn over the water, as the live path does. */
   falls: boolean;
+  /** How many frames the map was run for before it was looked at. */
+  steps: number;
+  /** And which solver ran them. The sheet ids come off the host's copy. */
+  solver: "host" | "device";
+  /** The device's own tally, and what reached the host's copy of each storey. */
+  deviceWater: number | null;
+  hostGround: number;
+  hostDeck: number;
   deckColumns: number;
   bareColumns: number;
   /** Pixels the deck's water changes. Nought means a road is over it. */
@@ -271,7 +282,7 @@ export type PavingCheck = {
   why: string | null;
 };
 
-export function checkWaterOverPaving(
+export async function checkWaterOverPaving(
   renderer: Renderer,
   textures: Record<string, Texture>,
   palette: Palette,
@@ -309,8 +320,24 @@ export function checkWaterOverPaving(
     // deciding what "the same state twice" is once water is moving. Until
     // then a pass here says nothing about the falls.
     falls = true,
+    // AND RUN THE MAP FIRST, which is the difference between a state somebody
+    // wrote down and a state somebody PLAYED. The fixture feeds itself — a
+    // spring on the road and another at the head of the channel — so stepping
+    // it puts the water where the solver puts it, over the parapets it really
+    // clears and around the kerbs it really does not, and it builds the cliff
+    // index so the falls have lips to draw from. A film laid on every decked
+    // column is none of those things.
+    steps = 0,
+    // AND ON WHICH SOLVER, because that is the last thing this does not cover
+    // and it is the one the game runs. The sheet ids the mesh reads are worked
+    // out on the HOST, from the host's copy of the depths — and with the
+    // device solving, that copy is whatever the readback last put there. If it
+    // does not carry the upper storey, every column on a deck is NO_BODY and
+    // the builder skips it: water that is there, solved correctly, and drawn
+    // by nothing. @see findBodies, scatter
+    solver = "host" as "host" | "device",
   } = {},
-): PavingCheck {
+): Promise<PavingCheck> {
   const built = given
     ? { grid: given, field: createWaterField(given) }
     : crossingScene(size);
@@ -414,14 +441,61 @@ export function checkWaterOverPaving(
     }
   }
 
+  let water: Awaited<ReturnType<typeof createGpuWater>> | null = null;
+  if (steps > 0) {
+    if (solver === "device" && device) {
+      water = createGpuWater(device, columns);
+      for (let n = 0; n < steps; n++) {
+        runSources(field, grid, 1 / 60);
+        water.sync(columns);
+        // AWAITED, AND THAT IS THE WHOLE POINT. A loop that never yields lets
+        // no readback resolve, so the scatter never runs and the host's copy
+        // is never written by the device at all — the pours simply pile up
+        // unsolved. Run that way this check reported 39,263 on the ground
+        // against the host solver's 5,143 and called the bridge dry, which
+        // says nothing about the bridge. The same trap as `__waterBench` with
+        // `sync` off. @see stepAwaited
+        await water.stepAwaited(columns, 1 / 60);
+      }
+    } else {
+      for (let n = 0; n < steps; n++) {
+        runSources(field, grid, 1 / 60);
+        stepWater(field, 1 / 60);
+      }
+    }
+  }
+  // WHAT EACH SIDE SAYS IT IS HOLDING, READ THE MOMENT THE RUN ENDS. Measured
+  // at the end of this function instead, it read the CONTROL's water — 216,
+  // which is the bare patch — and called the deck empty on both solvers. The
+  // device keeps its own tally over every slot; the host's copy is whatever
+  // the readback last put there, and nought there with the device holding
+  // thousands is not a solver that lost the water. It is water that never came
+  // back to the one place the sheet ids are worked out. @see findBodies
   const cells = columns.cells;
+  const deviceWater = water ? +water.last().deviceWater.toFixed(1) : null;
+  let hostGround = 0, hostDeck = 0;
+  for (let i = 0; i < cells; i++) {
+    hostGround += columns.depth[i];
+    for (let a = 1; a < columns.layers; a++) hostDeck += columns.depth[a * cells + i];
+  }
   const deckOf: number[] = [];
   for (let i = 0; i < cells; i++) {
     if (columns.roof[cells + i] > columns.ground[cells + i]) deckOf.push(cells + i);
   }
 
   let dry: ArrayLike<number>, deckWet: ArrayLike<number>, deckColumns: number;
-  if (liveWater && copyWater(liveWater, columns)) {
+  if (steps > 0) {
+    // WHAT THE MAP MADE FOR ITSELF, against the same map with the span's
+    // water taken off it.
+    deckColumns = deckOf.reduce((n, i) => n + (columns.depth[i] > 0 ? 1 : 0), 0);
+    draw();
+    deckWet = shoot();
+    const kept = deckOf.map((i) => columns.depth[i]);
+    for (const i of deckOf) columns.depth[i] = 0;
+    draw();
+    dry = shoot();
+    deckOf.forEach((i, k) => { columns.depth[i] = kept[k]; });
+  } else if (liveWater && copyWater(liveWater, columns)) {
     // THE MAP AS IT STANDS, against the same map with the span's water taken
     // off it. Whatever is between the two images is the span's water.
     deckColumns = deckOf.reduce((n, i) => n + (columns.depth[i] > 0 ? 1 : 0), 0);
@@ -468,6 +542,7 @@ export function checkWaterOverPaving(
     if (bd > 5) barePixels++;
   }
 
+  water?.destroy();
   if (fl) destroyFallLayer(fl);
   if (cpu) destroyWaterLayer(cpu);
   if (gpu) destroyGpuWaterLayer(gpu);
@@ -502,7 +577,8 @@ export function checkWaterOverPaving(
             + `against bare ground's ${barePer.toFixed(2)}: something is over it`
           : null;
   return {
-    mesh, gathered: !!gpu?.gather, falls,
+    mesh, gathered: !!gpu?.gather, falls, steps, solver,
+    deviceWater, hostGround: +hostGround.toFixed(1), hostDeck: +hostDeck.toFixed(1),
     deckColumns, bareColumns: bare.length,
     deckPixels, barePixels,
     deckPer: +deckPer.toFixed(3), barePer: +barePer.toFixed(3),

@@ -249,7 +249,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // the comparison above cannot answer: it renders the two water
         // builders against each other and nothing else, so a ROAD painted over
         // both of them is invisible to it. @see checkWaterOverPaving
-        window.__pavingCheck = (o) => {
+        window.__pavingCheck = async (o) => {
           const tex = texRef.current;
           if (!tex) return { ok: false, why: "atlas not loaded yet" };
           // POINTED AT THE LIVE MAP by default, because the `crossing`

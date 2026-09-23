@@ -90,6 +90,7 @@ declare global {
     __pavingCheck?: (o?: {
       mesh?: "cpu" | "gpu"; px?: number; depth?: number; size?: number;
       live?: boolean; film?: boolean; gather?: boolean; falls?: boolean;
+      steps?: number; solver?: "host" | "device";
     }) => unknown;
     __waterCompare?: (o?: Record<string, number>) => unknown;
     /**
