@@ -512,17 +512,38 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
 
           const SETTLE = 20;
-          const series: { n: number; px: number; air: number; wet: number }[] = [];
+          // A MASK OF WHAT IS USUALLY THE DECK'S WATER, and then the pixels
+          // inside it that have gone back to looking like bare deck.
+          //
+          // The total was the wrong measurement. Summed over the whole span it
+          // swings 78,000 to 114,000 as the water moves, so a hole of a few
+          // thousand pixels — which is what somebody SEES — is inside the
+          // noise and the run came back "never dipped" on a frame the fault
+          // was on the screen. A hole is local, so it has to be counted
+          // locally: a pixel that has been this deck's water and is now the
+          // reference again is a pixel you can see the deck through.
+          const bx0 = Math.max(0, Math.floor(x0)), bx1 = Math.min(W - 1, Math.ceil(x1));
+          const by0 = Math.max(0, Math.floor(y0)), by1 = Math.min(H - 1, Math.ceil(y1));
+          const bw = Math.max(0, bx1 - bx0 + 1);
+          const mask = new Uint8Array(bw * Math.max(0, by1 - by0 + 1));
+          const LEARN = SETTLE + 30;
+          const series: {
+            n: number; px: number; holes: number; air: number; wet: number;
+          }[] = [];
           let n = 0;
           const tick = () => {
             const now = shoot();
-            let px = 0;
-            for (let sy = Math.max(0, Math.floor(y0)); sy <= Math.min(H - 1, Math.ceil(y1)); sy++) {
-              for (let sx = Math.max(0, Math.floor(x0)); sx <= Math.min(W - 1, Math.ceil(x1)); sx++) {
+            let px = 0, holes = 0;
+            for (let sy = by0; sy <= by1; sy++) {
+              for (let sx = bx0; sx <= bx1; sx++) {
                 const i = (sy * W + sx) * 4;
                 let d = 0;
                 for (let k = 0; k < 4; k++) d = Math.max(d, Math.abs(now[i + k] - bare[i + k]));
-                if (d > 5) px++;
+                const m = (sy - by0) * bw + (sx - bx0);
+                if (d > 5) {
+                  px++;
+                  if (n < LEARN) mask[m] = 1;
+                } else if (mask[m]) holes++;
               }
             }
             let wet = 0;
@@ -540,7 +561,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               const base = p * cells * 2;
               for (let k = 0; k < cells * 2; k++) deckAir += air[base + k];
             }
-            series.push({ n, px, air: +deckAir.toFixed(4), wet });
+            series.push({ n, px, holes, air: +deckAir.toFixed(4), wet });
             if (++n < frames) requestAnimationFrame(tick);
             else {
               const live = series.slice(SETTLE);
@@ -562,6 +583,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               // most suspicious window it saw rather than nothing at all.
               let low = 0;
               for (let k = 1; k < live.length; k++) if (live[k].px < live[low].px) low = k;
+              // THE MOST HOLE, which is the measurement that matters now.
+              const after = series.slice(LEARN);
+              let worst = 0;
+              for (let k = 1; k < after.length; k++) {
+                if (after[k].holes > after[worst].holes) worst = k;
+              }
               // The steepest fall in the air off the span, which is the moment
               // a sheet stopped whether or not it reached exactly nought.
               let drop = 0, dropAt = -1;
@@ -584,12 +611,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                   : null,
                 emptiestFrame: { at: live[low]?.n, px: live[low]?.px,
                   window: live.slice(Math.max(0, low - 6), low + 10) },
+                // THE HOLE ITSELF: how many pixels that had been this deck's
+                // water went back to bare, and when. @see mask
+                maskLearnedOver: LEARN - SETTLE,
+                maskPixels: mask.reduce((t, v) => t + v, 0),
+                worstHolePixels: after[worst]?.holes ?? 0,
+                aroundTheHole: after.length
+                  ? after.slice(Math.max(0, worst - 6), worst + 10) : null,
                 dipFrames: dips.length, dips: dips.slice(0, 20),
-                ok: dips.length === 0,
-                why: dips.length === 0
-                  ? "the deck's drawn water never dipped"
-                  : `the deck's drawn water fell below 60% of its usual ${med} on `
-                    + `${dips.length} of ${live.length} frames`,
+                ok: (after[worst]?.holes ?? 0) < 200,
+                why: (after[worst]?.holes ?? 0) >= 200
+                  ? `${after[worst].holes} pixels that had been this deck's water`
+                    + ` went back to bare at frame ${after[worst].n}`
+                  : "nothing that had been the deck's water ever went back to bare",
                 note: ended >= 0 ? null
                   : "no fall ENDED while this was watching — the air never went"
                     + " from carrying something to carrying nothing. Run it again"
