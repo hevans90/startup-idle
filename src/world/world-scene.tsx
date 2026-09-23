@@ -7,7 +7,8 @@
  */
 import { extend, useApplication, useTick } from "@pixi/react";
 import {
-  Container, Graphics, UPDATE_PRIORITY, type FederatedPointerEvent,
+  Container, Graphics, RenderTexture, UPDATE_PRIORITY,
+  type FederatedPointerEvent,
 } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -66,7 +67,7 @@ import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
 import { footprintCells, surfaceSampler } from "./grid";
-import { HEIGHT_UNIT, HH, HW, pickCell, worldToCellF } from "./iso";
+import { HEIGHT_UNIT, HH, HW, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { runSources, stepWater } from "./water/field";
 import { runPipes } from "./water/pipes";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
@@ -254,6 +255,75 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // that is wet on one and NO_BODY on the other is water that is there,
         // correctly solved, and drawn by nothing — which is what a bridge with
         // no water on it looks like. This counts them. @see findBodies
+        /**
+         * WHAT THE WATER MESH PUTS ON THE SCREEN YOU ARE LOOKING AT.
+         *
+         * `__pavingCheck` builds its own band layer and renders that, which is
+         * the right way to test the BUILDER and the wrong way to find out why
+         * the live picture differs from it — on a map where that check reports
+         * the deck's water at 180 pixels a column, the screen can still show a
+         * dry bridge, and then the difference is the live scene and nothing
+         * else. This renders the LIVE root twice, once with the water meshes
+         * drawing and once without, and counts what changed: over the whole
+         * frame, and over the span alone.
+         *
+         * Nought over the span with thousands over the frame is water that is
+         * being drawn and then painted over. Nought in both is a mesh that is
+         * not reaching the frame at all. @see showGpuWater
+         */
+        window.__liveWaterPixels = () => {
+          const bl = blRef.current, wl = gpuRef.current;
+          const field = useWorldStore.getState().getWaterField();
+          const g = useWorldStore.getState().grid;
+          if (!bl || !wl || !field) return { ok: false, why: "no live water mesh" };
+          const px = 900;
+          const shoot = () => {
+            const target = RenderTexture.create({ width: px, height: px, antialias: false });
+            app.renderer.render({ container: bl.root, target, clear: true });
+            const out = app.renderer.extract.pixels(target);
+            target.destroy(true);
+            return out.pixels;
+          };
+          // WHERE THE SPAN IS ON SCREEN, through the root's own transform, so
+          // the box follows the camera rather than assuming one.
+          const sx = bl.root.scale.x, sy = bl.root.scale.y;
+          const ox = bl.root.position.x, oy = bl.root.position.y;
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+          for (let ty = 0; ty < g.h; ty++) {
+            for (let tx = 0; tx < g.w; tx++) {
+              if (g.deck[ty * g.w + tx] === 0) continue;
+              const w = cellToWorld(tx, ty, g.deckZ[ty * g.w + tx], 1);
+              const px0 = ox + w.wx * sx, py0 = oy + w.wy * sy;
+              x0 = Math.min(x0, px0 - HW * sx); x1 = Math.max(x1, px0 + HW * sx);
+              y0 = Math.min(y0, py0 - HH * sy * 4); y1 = Math.max(y1, py0 + HH * sy);
+            }
+          }
+          const was = wl.drawing;
+          showGpuWater(wl, true);
+          const on = shoot();
+          showGpuWater(wl, false);
+          const off = shoot();
+          showGpuWater(wl, was);
+          let all = 0, span = 0;
+          const w = Math.round(Math.sqrt(on.length / 4));
+          for (let i = 0; i < on.length; i += 4) {
+            let d = 0;
+            for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(on[i + c] - off[i + c]));
+            if (d <= 5) continue;
+            all++;
+            const p = i / 4, sxp = p % w, syp = (p / w) | 0;
+            if (sxp >= x0 && sxp <= x1 && syp >= y0 && syp <= y1) span++;
+          }
+          return {
+            waterPixelsWholeFrame: all, waterPixelsOverTheSpan: span,
+            spanBox: x0 === Infinity ? null
+              : { x0: Math.round(x0), y0: Math.round(y0), x1: Math.round(x1), y1: Math.round(y1) },
+            frame: px,
+            why: all === 0 ? "the water mesh reaches no pixel at all"
+              : span === 0 ? "the water draws, but nothing of it lands on the span"
+                : null,
+          };
+        };
         window.__deckBodies = () => {
           const f = useWorldStore.getState().getWaterField();
           const wl = gpuRef.current;
