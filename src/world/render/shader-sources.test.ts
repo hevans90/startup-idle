@@ -34,6 +34,7 @@ import { dripShaderSource } from "./drips-gpu";
 import { foamSource } from "./foam-gpu";
 import { sheetRuleSource } from "./nappe";
 import { quadRuleSource } from "./quad-rule";
+import { sheetGroupSource } from "./sheet-group";
 import { quadsSource } from "./quads-gpu";
 import { washSource } from "./wash-gpu";
 import { waterShaderSource } from "./water-gpu";
@@ -61,6 +62,7 @@ const WGSL: [string, () => string][] = [
   ["sheet rule", sheetRuleSource],
   ["corner rule", () => cornerRuleSource("wgsl")],
   ["quad rule", () => quadRuleSource("wgsl")],
+  ["sheet group", () => sheetGroupSource("wgsl")],
 ];
 
 describe("every shader source", () => {
@@ -160,9 +162,15 @@ describe("the rules written in both languages", () => {
     expect(skeleton(quadRuleSource("glsl"))).toBe(skeleton(quadRuleSource("wgsl")));
   });
 
+  test("and so does the sheet grouping", () => {
+    expect(skeleton(sheetGroupSource("glsl"))).toBe(skeleton(sheetGroupSource("wgsl")));
+  });
+
   test("and each is written in its own language", () => {
     expect(quadRuleSource("wgsl")).not.toContain("float ");
     expect(quadRuleSource("glsl")).not.toContain("<f32>");
+    expect(sheetGroupSource("wgsl")).not.toContain("float ");
+    expect(sheetGroupSource("glsl")).not.toContain("i32");
   });
 
   test("the surface shader builds in both", () => {
