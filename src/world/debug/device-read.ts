@@ -1,20 +1,23 @@
 /**
  * WHAT THE DEVICE HOLDS, read back from the textures the shader samples.
  *
- * Every probe written for the multi-storey water so far reads the HOST's copy
- * of the depths, and then asks whether the sheet ids agree with it. They always
- * do: the ids are computed from that copy, every frame, by `findBodies`. The
- * disagreement that puts a hole on a bridge is between the ids and the DEVICE's
- * depth — the texture the vertex shader actually samples — and no instrument
- * in this repository could see it, because nothing read that texture back.
+ * HOW FAR BEHIND THE HOST'S COPY IS, measured rather than reasoned about.
  *
- * On the device path the host's copy is a band or a sparse list three to five
- * frames behind, and on a sparse frame up to `CARRY_EVERY` readbacks behind. At
- * a front moving onto or off a deck the two are simply different water: the
- * column is wet on the device and `NO_BODY` on the host, or labelled on the
- * host and empty on the device. The shader has no skip for `NO_BODY` — it draws
- * such a column as pseudo-sheet `-1` and `cornerOf(-1)` gathers every other
- * unlabelled column at that corner, at the wrong height, colour and alpha.
+ * On the device path the host's copy of the depths is a band or a sparse list
+ * three to five frames behind, and on a sparse frame up to `CARRY_EVERY`
+ * readbacks behind. That gap is what this reads: the depth texture the vertex
+ * shader samples, copied straight back off the device, against the array the
+ * host holds.
+ *
+ * It was built to catch a worse consequence of the same gap — sheet ids
+ * computed on the host from that stale copy and read by the shader against
+ * fresh depths, which put unlabelled wet columns on a bridge and drew them as
+ * pseudo-sheet -1. That cause is gone: the grouping is decided at the corner
+ * now, from the device's own data. @see render/sheet-group
+ *
+ * What is left still matters. The falls are drawn on the host from this copy
+ * on any bridged map, while the surface they have to meet is the device's, so
+ * the gap here is the gap at every lip.
  *
  * ITS OWN STAGING BUFFER, AND SO ITS OWN ROW STRIDE. `copyOut` copies straight
  * out of the solver's field buffer and therefore inherits the 256-byte row
@@ -26,7 +29,6 @@
  */
 import type { TextureSource } from "pixi.js";
 import type { ColumnField } from "../../fluid/columns";
-import { NO_BODY } from "../render/bodies";
 
 /** A texture copy's rows must start on this many bytes. @see canCopyOut */
 const ROW = 256;
@@ -128,15 +130,13 @@ export function writeFloatRows(
   );
 }
 
-/** One column the two sources disagree about. @see accountDecks */
+/** One column the two copies disagree about. @see accountDecks */
 export type Disagreement = {
   cx: number; cy: number; a: number;
   /** The device's depth, which is what the shader draws from. */
   dev: number;
-  /** The host's copy of it, which is what the id was decided from. */
+  /** The host's copy of it, which is what the falls are drawn from. */
   host: number;
-  /** The sheet id, or {@link NO_BODY}. */
-  id: number;
 };
 
 /** @see accountDecks */
@@ -144,48 +144,34 @@ export type DeckAccount = {
   deckColumns: number;
   deviceWet: number; hostWet: number;
   deviceHeld: number; hostHeld: number;
-  /**
-   * WET ON THE DEVICE, WITH NO SHEET ID. The number the whole instrument is
-   * for: these columns hold water, the shader will sample it, and it is drawn
-   * as pseudo-sheet `-1` alongside every other unlabelled column at the corner.
-   */
-  deviceWetNoId: number;
-  /** Labelled, and the device has nothing there: an id for water that has gone. */
-  idNoDeviceWater: number;
-  /** The same two asked of the host mirror — what every other probe can see. */
-  hostWetNoId: number; idNoHostWater: number;
-  /** Where the two depths simply part company. */
+  /** Where the two copies do not even agree that there is water. */
   deviceWetHostDry: number; hostWetDeviceDry: number;
+  /** And how far apart they are at their worst. */
   worstGap: number; worstAt: Disagreement | null;
-  /**
-   * Columns whose id ON THE DEVICE is not the one the host last computed.
-   * Expected to be nought — the body texture is uploaded whole every frame —
-   * and worth asking once rather than assuming. Null when the ids were not
-   * read back.
-   */
-  idsAdrift: number | null;
   examples: Disagreement[];
   ok: boolean;
   why: string | null;
 };
 
 /**
- * THE THREE COUNTS, over every decked column.
+ * THE GAP, over every decked column.
  *
  * Pure, and separate from the readback, so the arithmetic can be tested
- * without a device. `device` and `ids` are the full `cells * layers` planes as
- * they came off the textures; `f` is the host mirror.
+ * without a device. `device` is the full `cells * layers` plane stack as it
+ * came off the texture; `f` is the host mirror.
+ *
+ * `ok` is about whether the two agree that a column HOLDS water, not about
+ * how much: the depths will never match to the digit on a moving map, and a
+ * readback that is a few frames behind is the design rather than a fault.
  */
 export function accountDecks(
-  f: ColumnField, device: Float32Array, ids: Int32Array,
-  deviceIds: Float32Array | null,
+  f: ColumnField, device: Float32Array,
 ): DeckAccount {
   const cells = f.cells, dry = f.params.dryDepth;
   const out: DeckAccount = {
     deckColumns: 0, deviceWet: 0, hostWet: 0, deviceHeld: 0, hostHeld: 0,
-    deviceWetNoId: 0, idNoDeviceWater: 0, hostWetNoId: 0, idNoHostWater: 0,
     deviceWetHostDry: 0, hostWetDeviceDry: 0, worstGap: 0, worstAt: null,
-    idsAdrift: deviceIds ? 0 : null, examples: [], ok: true, why: null,
+    examples: [], ok: true, why: null,
   };
   for (let a = 1; a < f.layers; a++) {
     for (let i = 0; i < cells; i++) {
@@ -197,35 +183,27 @@ export function accountDecks(
       // over it; the channel it spans is slot zero, roofed by the soffit.
       if (!(f.roof[ia] > f.ground[ia])) continue;
       out.deckColumns++;
-      const dev = device[ia], host = f.depth[ia], id = ids[ia];
+      const dev = device[ia], host = f.depth[ia];
       out.deviceHeld += dev; out.hostHeld += host;
-      const devWet = dev > dry, hostWet = host > dry, has = id !== NO_BODY;
+      const devWet = dev > dry, hostWet = host > dry;
       if (devWet) out.deviceWet++;
       if (hostWet) out.hostWet++;
-      if (devWet && !has) out.deviceWetNoId++;
-      if (has && !devWet) out.idNoDeviceWater++;
-      if (hostWet && !has) out.hostWetNoId++;
-      if (has && !hostWet) out.idNoHostWater++;
       if (devWet && !hostWet) out.deviceWetHostDry++;
       if (hostWet && !devWet) out.hostWetDeviceDry++;
-      if (deviceIds && deviceIds[ia] !== id) out.idsAdrift!++;
       const gap = Math.abs(dev - host);
-      const at = { cx: i % f.nx, cy: (i / f.nx) | 0, a, dev, host, id };
+      const at = { cx: i % f.nx, cy: (i / f.nx) | 0, a, dev, host };
       if (gap > out.worstGap) { out.worstGap = gap; out.worstAt = at; }
-      if (devWet && !has && out.examples.length < 12) out.examples.push(at);
+      if (devWet !== hostWet && out.examples.length < 12) out.examples.push(at);
     }
   }
   out.deviceHeld = +out.deviceHeld.toFixed(3);
   out.hostHeld = +out.hostHeld.toFixed(3);
   out.worstGap = +out.worstGap.toFixed(4);
-  out.ok = out.deviceWetNoId === 0 && out.idNoDeviceWater === 0;
-  out.why = out.deviceWetNoId > 0
-    ? `${out.deviceWetNoId} decked columns hold water on the device and have no`
-      + " sheet id: the shader draws them as sheet -1"
-    : out.idNoDeviceWater > 0
-      ? `${out.idNoDeviceWater} decked columns are labelled and empty on the`
-        + " device: a sheet is being drawn for water that has gone"
-      : null;
+  const apart = out.deviceWetHostDry + out.hostWetDeviceDry;
+  out.ok = apart === 0;
+  out.why = apart > 0
+    ? `${apart} decked columns are wet on one copy and dry on the other`
+    : null;
   return out;
 }
 
@@ -234,18 +212,17 @@ export function accountDecks(
  *
  * The reference frame every pixel probe here is measured against — the same
  * picture with the deck's water not drawn — was built by emptying the host's
- * upper storeys and redrawing, on the theory that `findBodies` would then
- * label those columns `NO_BODY` and the builder would drop them. It does label
- * them, and the builder does not drop them: the GPU has no skip for `NO_BODY`
- * and draws such a column as pseudo-sheet `-1`. And on a carried frame nothing
- * uploads the host's depths at all, so the texture the shader samples still
- * holds every drop. The reference still contained the thing it was the
- * reference for, and a probe whose baseline includes its own subject reports
- * a smaller difference than there is — which is how "the deck draws fine"
+ * upper storeys and redrawing, on the theory that the builder would then drop
+ * those columns for want of a sheet id. It did not drop them, and there are no
+ * ids any more in any case — but the deeper reason still stands: on a carried
+ * frame nothing uploads the host's depths at all, so the texture the shader
+ * samples still held every drop. The reference contained the thing it was the
+ * reference for, and a probe whose baseline includes its own subject reports a
+ * smaller difference than there is, which is how "the deck draws fine"
  * survived several sittings.
  *
  * So zero the DEVICE's plane, which is what is drawn, and the host's, which is
- * what the ids are decided from. Both, because a bare frame has to be bare on
+ * what the falls are drawn from. Both, because a bare frame has to be bare on
  * every source the picture is assembled out of.
  *
  * THE CALLER MUST NOT YIELD between this resolving and its restore: the zeros

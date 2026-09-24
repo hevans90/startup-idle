@@ -29,6 +29,29 @@
  * tolerance nothing differs at all. Neither path draws a pixel the other
  * leaves empty. The same on both renderers, to the pixel.
  *
+ * WHAT IT READS TODAY, AND IT IS NOT THAT. Since the sheet grouping moved from
+ * a flood fill on the host to a partition each corner makes for itself
+ * (`render/sheet-group`), this reads **80 pixels of 36,365 differing, worst 38
+ * of 255, mean 0.50**, with neither path drawing a pixel the other leaves
+ * empty. Every one of them is in one box, x 513-585 by y 245-277, which is the
+ * PLATEAU'S LIP; the count is nought at `seconds: 0.2`, 47 at 1 and 80 at 2,
+ * so it grows as the scene settles. It is not the side faces — `faces: false`
+ * leaves 78 of them — and it is the corner's contributor COUNT that differs,
+ * measured by painting the count instead of the water: 4 on the host where the
+ * device has 3.
+ *
+ * WHAT HAS BEEN RULED OUT, so nobody pays for it twice: the builder's tiers
+ * are exactly the rule's components, corner for corner, on this very scene;
+ * the batch union-find and the flood agree on it too; no corner overflows its
+ * tiers; the 45 neighbour pairs that sit on the fall threshold sit on it
+ * EXACTLY, so it is not a tie being broken two ways; and aligning the host's
+ * arithmetic to the device's precision, for both the fall test and `dryDepth`,
+ * changes nothing. The remaining suspect is the shader's own evaluation of the
+ * partition, which nothing here can read back.
+ *
+ * SO THIS IS A KNOWN FAILING CONTROL, not a passing one. It was clean before
+ * that change and it has to be clean again.
+ *
  * THE TOLERANCE IS 5 AND WAS 4, and the extra step is the bridge. Exactly one
  * pixel of the scene reads 5, deterministically, every run: the corner where
  * a deck meets the air carries two surfaces tens of half steps apart, and the
@@ -95,6 +118,17 @@ export type Comparison = {
   /** Pixels one path drew and the other left empty — the serious kind. */
   onlyCpu: number;
   onlyGpu: number;
+  /** Contributors the builder dropped for want of a tier. @see TIERS */
+  overflow: number;
+  /** Where the disagreements are, and what they look like. Null when clean. */
+  where: null | {
+    x0: number; y0: number; x1: number; y1: number;
+    samples: {
+      x: number; y: number; by: number;
+      cpu: [number, number, number, number];
+      gpu: [number, number, number, number];
+    }[];
+  };
   /** Nothing disagreed by more than the tolerance, and nothing is missing. */
   ok: boolean;
 };
@@ -167,7 +201,8 @@ function frame(root: Container, size: number, px: number) {
 const ROAD_TABLE = buildRoadTable("landscape");
 
 export function compareWaterPaths(
-  renderer: Renderer, { size = 28, px = 640, seconds = 2, tolerance = 5 } = {},
+  renderer: Renderer,
+  { size = 28, px = 640, seconds = 2, tolerance = 5, faces = true } = {},
 ): Comparison {
   const { grid, field } = scene(size);
   void grid;
@@ -181,8 +216,8 @@ export function compareWaterPaths(
   // start identical and are stepped identically.
   for (let n = 0; n < Math.round(seconds * 60); n++) {
     stepWater(field, 1 / 60);
-    drawWater(cpu, field.columns, bands, 1 / 60);
-    drawGpuWater(gpu, field.columns, bands, 1 / 60);
+    drawWater(cpu, field.columns, bands, 1 / 60, faces);
+    drawGpuWater(gpu, field.columns, bands, 1 / 60, faces);
   }
 
   // What each path wanted to be visible, so that hiding one to draw the other
@@ -207,6 +242,16 @@ export function compareWaterPaths(
   const b = shot("gpu");
 
   let drawn = 0, differing = 0, worst = 0, total = 0, onlyCpu = 0, onlyGpu = 0;
+  // AND WHERE, which this could not say until a change made 80 pixels of it
+  // disagree and the number alone gave nowhere to look. A count tells you
+  // there is a fault; a box and a handful of samples tell you which part of
+  // the scene has it, and which CHANNEL parted — an alpha that differs is a
+  // different fault from a shade that does.
+  let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+  const samples: {
+    x: number; y: number; by: number;
+    cpu: [number, number, number, number]; gpu: [number, number, number, number];
+  }[] = [];
   for (let i = 0; i < a.length; i += 4) {
     const aOn = a[i + 3] > 2, bOn = b[i + 3] > 2;
     if (!aOn && !bOn) continue;
@@ -217,7 +262,19 @@ export function compareWaterPaths(
     for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(a[i + c] - b[i + c]));
     total += d;
     if (d > worst) worst = d;
-    if (d > tolerance) differing++;
+    if (d > tolerance) {
+      differing++;
+      const p = i / 4, x = p % px, y = (p / px) | 0;
+      bx0 = Math.min(bx0, x); bx1 = Math.max(bx1, x);
+      by0 = Math.min(by0, y); by1 = Math.max(by1, y);
+      if (samples.length < 8) {
+        samples.push({
+          x, y, by: d,
+          cpu: [a[i], a[i + 1], a[i + 2], a[i + 3]],
+          gpu: [b[i], b[i + 1], b[i + 2], b[i + 3]],
+        });
+      }
+    }
   }
 
   destroyWaterLayer(cpu);
@@ -228,6 +285,13 @@ export function compareWaterPaths(
     width: px, height: px, drawn, differing,
     share: drawn ? differing / drawn : 0,
     worst, mean: drawn ? total / drawn : 0, onlyCpu, onlyGpu,
+    where: differing
+      ? { x0: bx0, y0: by0, x1: bx1, y1: by1, samples }
+      : null,
+    // Contributors the BUILDER dropped for want of a tier. The shader has no
+    // such limit, so any number here is a difference between the two that is
+    // nothing to do with the rule they share. @see TIERS
+    overflow: cpu.overflow,
     ok: differing === 0 && onlyCpu === 0 && onlyGpu === 0,
   };
 }

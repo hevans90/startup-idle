@@ -27,6 +27,7 @@
  */
 import { cornerRuleSource } from "./corner-rule";
 import { quadRuleSource } from "./quad-rule";
+import { sheetGroupSource } from "./sheet-group";
 
 const WORKGROUP = 64;
 
@@ -47,12 +48,8 @@ struct Say {
 // rectangle with the widest band's stride, which is two copies of the map in a
 // texture that can only address one. @see quadList
 @group(0) @binding(5) var<storage, read> slice : array<vec2<u32>>;
-// WHICH SHEET a column's water belongs to. The corner rule groups by body of
-// water rather than by bed, and this pass shares that rule, so it needs the
-// same answer the vertex shader gets. See render/bodies.
-@group(0) @binding(6) var uBody : texture_2d<f32>;
 // The underside of whatever is over a slot, or the open sky. See fluid/slots.
-@group(0) @binding(7) var uRoof : texture_2d<f32>;
+@group(0) @binding(6) var uRoof : texture_2d<f32>;
 
 // NO BACKTICKS IN HERE — a backtick in a comment ends the template literal.
 
@@ -73,13 +70,16 @@ fn depthAt(x: i32, y: i32, a: i32) -> f32 {
 fn groundAt(x: i32, y: i32, a: i32) -> f32 {
   return textureLoad(uGround, vec2<i32>(x, slotRow(y, a)), 0).r;
 }
-fn sheetAt(x: i32, y: i32, a: i32) -> f32 {
-  return textureLoad(uBody, vec2<i32>(x, slotRow(y, a)), 0).r;
-}
 fn roofAt(x: i32, y: i32, a: i32) -> f32 {
   return textureLoad(uRoof, vec2<i32>(x, slotRow(y, a)), 0).r;
 }
+// A corner's contributors as a bitmask — see water-gpu's twin, where the two
+// spellings are argued. This pass shares the corner rule with the vertex
+// shader and so has to group water exactly as it does. @see render/sheet-group
+fn bitOf(k: i32) -> i32 { return 1i << u32(k); }
+fn bitAt(m: i32, k: i32) -> i32 { return (m >> u32(k)) & 1; }
 
+${sheetGroupSource("wgsl")}
 ${cornerRuleSource("wgsl", drawdown)}
 ${quadRuleSource("wgsl")}
 
@@ -127,8 +127,7 @@ export type QuadsPass = {
   encode: (enc: GPUCommandEncoder, cells: number) => void;
   layout: GPUBindGroupLayout;
   bind: (
-    depth: GPUTextureView, ground: GPUTextureView, body: GPUTextureView,
-    roof: GPUTextureView,
+    depth: GPUTextureView, ground: GPUTextureView, roof: GPUTextureView,
   ) => void;
   /** Where the ids go, for the copy into the shader's texture. */
   list: GPUBuffer;
@@ -172,10 +171,6 @@ export function createQuadsPass(
       },
       {
         binding: 6, visibility: GPUShaderStage.COMPUTE,
-        texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
-      },
-      {
-        binding: 7, visibility: GPUShaderStage.COMPUTE,
         texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
       },
     ],
@@ -243,7 +238,7 @@ export function createQuadsPass(
 
   return {
     layout, list, counts,
-    bind: (depth, ground, body, roof) => {
+    bind: (depth, ground, roof) => {
       // ONCE PER TEXTURE PAIR, not once per dispatch. The pair only changes
       // when the scene is rebuilt.
       group = device.createBindGroup({
@@ -255,8 +250,7 @@ export function createQuadsPass(
           { binding: 3, resource: { buffer: list } },
           { binding: 4, resource: { buffer: counts } },
           { binding: 5, resource: { buffer: slice } },
-          { binding: 6, resource: body },
-          { binding: 7, resource: roof },
+          { binding: 6, resource: roof },
         ],
       });
     },

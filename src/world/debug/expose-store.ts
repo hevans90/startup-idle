@@ -94,21 +94,15 @@ declare global {
     __watchQuadRoom?: (frames?: number) => Promise<unknown>;
     /** Decked columns the mesh is not drawing, with drawn ones either side. */
     __deckHolesNow?: () => unknown;
-    /** Watch a span for holes, frame by frame. @see __deckBodies */
-    __watchDeckHoles?: (frames?: number) => Promise<unknown>;
-    /** Do the mesh's depth and its sheet ids agree about the decks? */
-    __deckBodies?: () => unknown;
     /**
-     * The DEVICE's depth against the sheet ids — the pair nothing else reads.
+     * How far behind the host's copy of the depths is, on the decks.
      *
-     * `__deckBodies` compares the host's copy of the depths with ids computed
-     * from that same copy, so it cannot report a disagreement. This reads the
-     * depth texture the shader samples straight back off the device.
-     * @see accountDecks
+     * The depth texture the shader samples, read straight back off the device
+     * and held against the array the host holds. @see accountDecks
      */
-    __deviceIds?: () => Promise<unknown>;
-    /** The same frame by frame, keeping the worst. @see __deviceIds */
-    __watchDeviceIds?: (frames?: number) => Promise<unknown>;
+    __deviceDepth?: () => Promise<unknown>;
+    /** The same frame by frame, keeping the worst. @see __deviceDepth */
+    __watchDeviceDepth?: (frames?: number) => Promise<unknown>;
     /** Does water on a bridge reach the screen? @see checkWaterOverPaving */
     __pavingCheck?: (o?: {
       mesh?: "cpu" | "gpu"; px?: number; depth?: number; size?: number;

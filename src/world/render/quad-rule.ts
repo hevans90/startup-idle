@@ -10,8 +10,8 @@
  * that flickers where the two happen to differ.
  *
  * Written against the same small vocabulary `cornerRuleSource` needs and
- * nothing else — `inside`, `depthAt`, `groundAt`, `dryDepth`, `fallMin`, plus
- * `resolveSide` and `cornerOf` from the rule itself. That is what lets the
+ * nothing else — `inside`, `depthAt`, `groundAt`, `roofAt`, `dryDepth`,
+ * `fallMin`, plus `resolveSide` and `cornerOf` from the rule itself. That is what lets the
  * vertex shader answer it from its textures and a compute pass answer it from
  * the same textures without either knowing about the other.
  *
@@ -60,18 +60,18 @@ ${wgsl
   ${BOOL} wetJ = !rim && depthAt(jx, jy, a) > dryDepth();
   ${INT} vax = cx + select(0, 1, axis == 0);
   ${INT} vay = cy + select(1, 0, axis == 0);
-  // BY SHEET, exactly as the vertex shader asks it — see water-gpu's sidePart
-  // and water.ts's sideFace, which are the same four heights. This pass only
-  // decides WHETHER a quad is worth drawing, so an answer that disagreed with
-  // the one that draws it would either lose a face or keep an empty one.
-  ${NUM} mine = sheetAt(cx, cy, a);
-  ${NUM} theirs = select(-1.0, sheetAt(jx, jy, a), wetJ);
+  // BY CONTRIBUTOR, exactly as the vertex shader asks it — see water-gpu's
+  // sidePart and water.ts's sideFace, which are the same four heights. This
+  // pass only decides WHETHER a quad is worth drawing, so an answer that
+  // disagreed with the one that draws it would either lose a face or keep an
+  // empty one. A neighbour off the map or dry contributes to nothing and comes
+  // back with a count of nought, which is what picks its own top below.
   ${NUM} ownTop = min(bed + depthAt(cx, cy, a), roofAt(cx, cy, a));
   ${NUM} theirTop = select(bedJ, min(bedJ + depthAt(jx, jy, a), roofAt(jx, jy, a)), wetJ);
-  ${V4} cA = cornerOf(vax, vay, mine);
-  ${V4} cB = cornerOf(cx + 1, cy + 1, mine);
-  ${V4} oA = cornerOf(vax, vay, theirs);
-  ${V4} oB = cornerOf(cx + 1, cy + 1, theirs);
+  ${V4} cA = cornerOf(vax, vay, cx, cy, a);
+  ${V4} cB = cornerOf(cx + 1, cy + 1, cx, cy, a);
+  ${V4} oA = cornerOf(vax, vay, jx, jy, a);
+  ${V4} oB = cornerOf(cx + 1, cy + 1, jx, jy, a);
   ${V4} s = resolveSide(
     bed, bedJ, wetJ,
     select(ownTop, cA.x, cA.w > 0.0), select(theirTop, oA.x, oA.w > 0.0),

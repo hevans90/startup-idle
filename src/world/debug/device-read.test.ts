@@ -15,7 +15,6 @@
 import { describe, expect, test } from "bun:test";
 
 import { createColumnField } from "../../fluid/columns";
-import { NO_BODY } from "../render/bodies";
 import { accountDecks, padded, strideFor, unpad } from "./device-read";
 
 describe("the row padding", () => {
@@ -83,45 +82,36 @@ function decked(nx = 4, ny = 4) {
 }
 
 describe("the deck account", () => {
-  test("the three counts separate the device from the host", () => {
+  test("counts the columns the two copies do not agree are wet", () => {
     const f = decked();
     const cells = f.cells, dry = f.params.dryDepth;
     const dev = new Float32Array(cells * f.layers);
-    const ids = new Int32Array(cells * f.layers).fill(NO_BODY);
-    // Column 0: wet on the device, dry and unlabelled on the host — a front
-    // moving ONTO the deck. This is the hole.
+    // Column 0: wet on the device, dry in the host's copy — a front moving
+    // ONTO the deck that the readback has not caught up with.
     dev[cells + 0] = dry * 10;
-    // Column 1: labelled from a host copy that still has water, and the device
-    // has already emptied it — a front moving OFF.
+    // Column 1: the host's copy still has water the device has let go — a
+    // front moving OFF.
     f.depth[cells + 1] = dry * 10;
-    ids[cells + 1] = 1;
-    // Column 2: agreed, wet, labelled. Nothing to report.
+    // Column 2: agreed. Nothing to report.
     dev[cells + 2] = dry * 10;
     f.depth[cells + 2] = dry * 10;
-    ids[cells + 2] = 1;
 
-    const a = accountDecks(f, dev, ids, null);
+    const a = accountDecks(f, dev);
     expect(a.deckColumns).toBe(cells);
-    expect(a.deviceWetNoId).toBe(1);
-    expect(a.idNoDeviceWater).toBe(1);
-    // AND WHAT THE OTHER PROBES SEE, which is neither of those: asked of the
-    // host copy alone the map is consistent, because the ids came from it.
-    expect(a.hostWetNoId).toBe(0);
-    expect(a.idNoHostWater).toBe(0);
+    expect(a.deviceWetHostDry).toBe(1);
+    expect(a.hostWetDeviceDry).toBe(1);
     expect(a.ok).toBe(false);
     expect(a.examples[0]).toMatchObject({ cx: 0, cy: 0, a: 1 });
   });
 
-  test("a map the two sources agree about is clean", () => {
+  test("a map the two copies agree about is clean", () => {
     const f = decked();
     const dev = new Float32Array(f.cells * f.layers);
-    const ids = new Int32Array(f.cells * f.layers).fill(NO_BODY);
     for (let i = 0; i < f.cells; i++) {
       dev[f.cells + i] = 1;
       f.depth[f.cells + i] = 1;
-      ids[f.cells + i] = 3;
     }
-    const a = accountDecks(f, dev, ids, null);
+    const a = accountDecks(f, dev);
     expect(a.ok).toBe(true);
     expect(a.why).toBe(null);
     expect(a.deviceWet).toBe(f.cells);
@@ -134,28 +124,19 @@ describe("the deck account", () => {
     const f = decked();
     for (let i = 0; i < f.cells; i++) f.roof[f.cells + i] = f.ground[f.cells + i];
     const dev = new Float32Array(f.cells * f.layers).fill(1);
-    const ids = new Int32Array(f.cells * f.layers).fill(NO_BODY);
-    expect(accountDecks(f, dev, ids, null).deckColumns).toBe(0);
+    expect(accountDecks(f, dev).deckColumns).toBe(0);
   });
 
-  test("the widest gap between the two depths is kept, with its column", () => {
+  test("the widest gap between the two copies is kept, with its column", () => {
+    // A HEIGHT AND NOT A VERDICT: the depths will never match to the digit on
+    // a moving map, and a readback a few frames behind is the design. This is
+    // how far behind it got, which is what the falls are drawn from.
     const f = decked();
     const dev = new Float32Array(f.cells * f.layers);
-    const ids = new Int32Array(f.cells * f.layers).fill(NO_BODY);
     dev[f.cells + 5] = 2.5;
     f.depth[f.cells + 5] = 0.25;
-    const a = accountDecks(f, dev, ids, null);
+    const a = accountDecks(f, dev);
     expect(a.worstGap).toBeCloseTo(2.25, 4);
     expect(a.worstAt).toMatchObject({ cx: 1, cy: 1, a: 1 });
-  });
-
-  test("ids that did not reach the device are counted when they are read back", () => {
-    const f = decked();
-    const dev = new Float32Array(f.cells * f.layers);
-    const ids = new Int32Array(f.cells * f.layers).fill(NO_BODY);
-    const onDevice = new Float32Array(f.cells * f.layers).fill(NO_BODY);
-    ids[f.cells + 7] = 2;
-    expect(accountDecks(f, dev, ids, onDevice).idsAdrift).toBe(1);
-    expect(accountDecks(f, dev, ids, null).idsAdrift).toBe(null);
   });
 });

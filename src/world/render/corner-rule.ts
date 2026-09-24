@@ -335,18 +335,20 @@ export type Dialect = "wgsl" | "glsl";
  *
  * The host shader has to supply the parts that differ between the two paths
  * and are none of this rule's business: `inside(x, y)`, `slots()`,
- * `depthAt(x, y, a)`, `groundAt(x, y, a)`, `roofAt(x, y, a)`,
- * `sheetAt(x, y, a)`, `dryDepth()` and `fallMin()`. The `a` is which STOREY — a column is a stack of slots and
- * a bridge puts water in two of them. GLSL must
+ * `depthAt(x, y, a)`, `groundAt(x, y, a)`, `roofAt(x, y, a)`, `dryDepth()`,
+ * `fallMin()`, `bitOf(k)` and `bitAt(m, k)`. The `a` is which STOREY — a
+ * column is a stack of slots and a bridge puts water in two of them. GLSL must
  * also supply a `select(a, b, cond)` — WGSL has it built in, and one
  * three-line helper is cheaper than teaching this template about ternaries.
  *
- * `sheetAt` is which BODY OF WATER stands on a column, and it is why this
- * rule can be one rule again. The corner used to split its contributors by
- * the BED they stood on and merge them back where that guess was wrong; the
- * split is made once now, off the geometry, by `render/bodies` — so what
- * arrives here is a corner and a sheet, and the answer is the average over
- * the contributors that belong to it.
+ * It must also carry {@link sheetGroupSource} ahead of this, which is where
+ * `cornerMask` and `contribOf` come from and why this rule can be one rule
+ * again. The corner used to split its contributors by the BED they stood on
+ * and merge them back where that guess was wrong; then it split them by an id
+ * computed on the host and uploaded, which was fresh on one path and stale on
+ * the other. It splits them HERE now, off the corner's own geometry — so what
+ * arrives is a corner and the contributor asking, and the answer is the
+ * average over the ones in its component.
  *
  * Written against the smallest vocabulary the two languages share, so what
  * varies is a handful of keywords rather than the shape of the code.
@@ -364,8 +366,8 @@ export function cornerRuleSource(dialect: Dialect, drawdown = 0, rim = RIM): str
    */
   const f = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
   const head = wgsl
-    ? "fn cornerOf(vx: i32, vy: i32, sheet: f32) -> vec4<f32> {"
-    : "vec4 cornerOf(int vx, int vy, float sheet) {";
+    ? "fn cornerOf(vx: i32, vy: i32, ax: i32, ay: i32, aa: i32) -> vec4<f32> {"
+    : "vec4 cornerOf(int vx, int vy, int ax, int ay, int aa) {";
   const VEC4 = wgsl ? "vec4<f32>" : "vec4";
   const MUT = wgsl ? "var" : "float";          // a float that is written again
   const NUM = wgsl ? "let" : "float";          // a float that is not
@@ -439,10 +441,14 @@ ${head}
   ${MUT} lowest = 1000.0;
   ${MUT} highest = -1000.0;
   ${MUT} edge = 0.0;
-  // THE UP-TO-FOUR COLUMNS THAT MEET HERE, and only the ones on this SHEET.
-  // Which water is one sheet was decided once, off the geometry — nothing
-  // solid between it and no fall between it — so there is no grouping to do
-  // and nothing to think better of afterwards. @see render/bodies
+  // WHICH OF THIS CORNER'S CONTRIBUTORS ARE THE ASKER'S OWN WATER, worked out
+  // here and now from depth, ground and roof — nothing solid between them and
+  // no fall between them. A pure function of the corner, so every column
+  // asking gets the same partition and none of them can disagree about the
+  // height they share. @see render/sheet-group
+  ${INT} mine = cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa));
+  // THE UP-TO-FOUR COLUMNS THAT MEET HERE, and only the ones in that
+  // component.
   for (${LOOP} k = 0; k < 4; k = k + 1) {
     ${INT} cx = vx - 1 + (k & 1);
     ${INT} cy = vy - 1 + (k >> 1);
@@ -457,7 +463,7 @@ ${head}
     for (${LOOP} a = 0; a < slots(); a = a + 1) {
       ${NUM} d = depthAt(cx, cy, a);
       if (d <= dryDepth()) { continue; }
-      if (sheetAt(cx, cy, a) != sheet) { continue; }
+      if (bitAt(mine, k * slots() + a) == 0) { continue; }
       ${NUM} g = groundAt(cx, cy, a);
       // UNDER A ROOF THE WATER STOPS AT THE ROOF. A slot running full is
       // against a soffit and there is nothing above it to see; drawn at

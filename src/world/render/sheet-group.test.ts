@@ -16,7 +16,9 @@ import { describe, expect, test } from "bun:test";
 import { addWater, createColumnField, surfaceAt, type ColumnField } from "../../fluid/columns";
 import { FALL_MIN } from "../../fluid/falls";
 import { OPEN_SKY } from "../../fluid/slots";
-import { CORNER_COLUMNS, contribOf, cornerMask, sameSheet } from "./sheet-group";
+import {
+  CORNER_COLUMNS, contribOf, cornerMask, cornerMasksInto, sameSheet,
+} from "./sheet-group";
 
 const field = (n: number, layers = 1) => createColumnField(n, n, undefined, 1, layers);
 
@@ -269,5 +271,58 @@ describe("no member of a component disagrees about the component", () => {
     // singletons everywhere.
     expect(components).toBeGreaterThan(250);
     expect(checked).toBeGreaterThan(2000);
+  });
+});
+
+/**
+ * THE FAST PATH MUST BE THE RULE.
+ *
+ * The mesh builder does not flood once per contributor — it comes back to the
+ * same corner a dozen times per column, so it partitions the corner once with
+ * a union-find and reads the answer. That is a second implementation of the
+ * same thing, which is exactly the arrangement this whole file exists to stop
+ * being silent about. So it is held to the rule, corner for corner and
+ * contributor for contributor, on a map with a span, a cliff and a shore.
+ */
+describe("the batch partition is the rule", () => {
+  const busy = () => {
+    const f = field(12, 2);
+    for (let y = 0; y < 12; y++) {
+      for (let x = 0; x < 12; x++) {
+        const i = y * f.nx + x;
+        const gorge = x >= 5 && x <= 6;
+        const cliff = y >= 8;
+        f.ground[i] = gorge ? -20 : cliff ? -9 : 0;
+        f.roof[i] = gorge && y < 8 ? -2 : OPEN_SKY;
+        const decked = gorge && y < 8;
+        f.ground[f.cells + i] = decked ? (y === 2 ? 2 : 0) : f.ground[i];
+        f.roof[f.cells + i] = decked ? OPEN_SKY : f.ground[i];
+      }
+    }
+    for (let y = 1; y <= 10; y++) {
+      for (let x = 1; x <= 10; x++) {
+        if (x >= 5 && x <= 6 && y < 8) addWater(f, x, y, 2, 1, 1);
+        else if (x < 9) addWater(f, x, y, 3, 1, 0);
+      }
+    }
+    return f;
+  };
+
+  test("agrees with cornerMask on every contributor of every corner", () => {
+    const f = busy();
+    const n = CORNER_COLUMNS * f.layers;
+    const out = new Int32Array(n);
+    let grouped = 0;
+    for (let vy = 0; vy <= f.ny; vy++) {
+      for (let vx = 0; vx <= f.nx; vx++) {
+        cornerMasksInto(f, vx, vy, out, 0);
+        for (let k = 0; k < n; k++) {
+          const want = cornerMask(f, vx, vy, k);
+          expect(out[k], `corner ${vx},${vy} k=${k}`).toBe(want);
+          if (want !== 1 << k) grouped++;
+        }
+      }
+    }
+    expect(grouped).toBeGreaterThan(250);
   });
 });

@@ -48,7 +48,7 @@ const onGround = (field: { columns: { depth: Float32Array; cells: number } }) =>
 import { createBandLayer } from "./render/bands";
 import { createFallLayer, destroyFallLayer, drawFalls } from "./render/falls-render";
 import { activeBox } from "../fluid/columns";
-import { TIERS, createWaterLayer, drawWater, tierAt } from "./render/water";
+import { TIERS, createWaterLayer, drawWater, tierOf } from "./render/water";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
 import { componentCount, createNetwork } from "./roads/network";
 import { derivedRamp, type SurfaceReader } from "./roads/ramp-derive";
@@ -485,16 +485,19 @@ describe("a bridge and the road it meets are one surface", () => {
     // The road is slot ZERO and the deck is slot ONE, so nothing about a slot
     // index can join them. They are one SHEET — overlapping intervals, no
     // fall between — and the corner holds one tier for it, with all four of
-    // the columns that meet there in it. @see findBodies
-    const road = wl.bodies.at[(cy) * c.nx + (cx - 1)];
-    const deck = wl.bodies.at[c.cells + cy * c.nx + cx];
+    // the columns that meet there in it. @see render/sheet-group
+    //
+    // ASKED FROM BOTH SIDES, which is the property that matters: the road's
+    // slot zero and the deck's slot one have to land in the SAME tier, or the
+    // corner they share is drawn at two heights.
+    const road = tierOf(wl, c, v, cx, cy, cx - 1, cy, 0);
+    const deck = tierOf(wl, c, v, cx, cy, cx, cy, 1);
     expect(road).toBeGreaterThanOrEqual(0);
     expect(deck).toBe(road);
-    const k = tierAt(wl, v, road);
-    expect(k).toBeGreaterThanOrEqual(0);
+    const k = road;
     expect(wl.vn[k]).toBe(4);
     // And nothing else reaches this corner: one sheet, one tier.
-    expect(wl.cBody[v * TIERS + 1]).toBe(-1);
+    expect(wl.cSheet[v * TIERS + 1]).toBe(0);
     // And the height it is drawn at is the water's, not the ditch's.
     expect(wl.vs[k]).toBeGreaterThan(0);
   });

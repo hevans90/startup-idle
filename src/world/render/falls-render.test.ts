@@ -30,7 +30,7 @@ import {
 } from "./nappe";
 import {
   LIGHTEST, SHADES, TINTS, createWaterLayer, destroyWaterLayer, drawWater,
-  paleAt, surfaceLook, tierAt,} from "./water";
+  paleAt, surfaceLook, tierOf,} from "./water";
 
 describe("the parabola a fall follows", () => {
   test("it goes out as the ROOT of how far it has come down", () => {
@@ -763,7 +763,7 @@ describe("the sheet leaves the lip in the SURFACE'S OWN colour", () => {
         // The corner as THIS sheet draws it. A cascade has several — the pool
         // at the foot is not the water on the lip — and a corner holds one
         // tier per sheet that reaches it. @see tierAt
-        const k = tierAt(wl, v, wl.bodies.at[i]);
+        const k = tierOf(wl, c, v, cx + 1, cy, cx, cy, 0);
         if (k < 0 || !wl.vn[k]) continue;
         const j = alongLip(c, i, 0, -1);
         const look = sheetLook(
@@ -838,7 +838,7 @@ describe("the sheet and the fall leaving it are drawn at one height", () => {
     const { applyFixture } = await import("../debug/fixtures");
     const { createWaterField, runSources, stepWater } = await import("../water/field");
     const { createBandLayer } = await import("./bands");
-    const { createWaterLayer, drawWater, tierAt } = await import("./water");
+    const { createWaterLayer, drawWater, tierOf } = await import("./water");
 
     const W = 32;
     const g = createGrid(W, W);
@@ -872,10 +872,8 @@ describe("the sheet and the fall leaving it are drawn at one height", () => {
       const back = alongLip(f, ia, axis, -1, pair);
       const fwd = alongLip(f, ia, axis, 1, pair);
       if (back < 0 || fwd < 0) continue;
-      const sheet = wl.bodies.at[ia];
-      if (sheet < 0) continue;
       const vax = cx + (axis === 0 ? 1 : 0), vay = cy + (axis === 0 ? 0 : 1);
-      const kA = tierAt(wl, vay * vw + vax, sheet);
+      const kA = tierOf(wl, f, vay * vw + vax, vax, vay, cx, cy, a);
       if (kA < 0) continue;
       const nappe = sharedLip(f, ia, back) + sharedBrink(f, ia, back);
       worst = Math.max(worst, Math.abs(nappe - wl.vs[kA]));

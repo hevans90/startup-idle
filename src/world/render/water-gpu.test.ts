@@ -48,13 +48,15 @@ const BOTH_MUST_HAVE = [
   "forward",        // which band a far-edge face is filed in
   "atBrink",        // a lip is not a shoreline, so it does not fade like one
   "fallMin",
-  // WHICH SHEET a column's water belongs to, which is what replaced picking
-  // between a corner's two groups by bed. `levelAt` stood here until the
-  // split moved upstream into `render/bodies` — and it went on PASSING for a
-  // commit after the function was deleted, because the word survived in a
-  // comment explaining its removal. A presence test is only as good as the
-  // word being rare.
-  "sheetAt",
+  // WHICH OF A CORNER'S CONTRIBUTORS ARE ONE SHEET, which is what replaced
+  // picking between a corner's two groups by bed. `levelAt` stood here until
+  // the split moved upstream, and `sheetAt` after it — and each went on
+  // PASSING for a commit after the function was deleted, because the word
+  // survived in a comment explaining its removal. A presence test is only as
+  // good as the word being rare.
+  "cornerMask",
+  "contribOf",
+  "sharedOf",
   "flowAt",
   "sidePart",
   "cornerExtras",

@@ -17,7 +17,9 @@ import { createGrid, fillTerrain, setHeight, setSource } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { createBandLayer } from "./bands";
 import { colourAt, quadAt, type QuadBatch } from "./quads";
-import { TIERS, createWaterLayer, destroyWaterLayer, drawWater, asideAt } from "./water";
+import {
+  NO_SHEET, TIERS, asideAt, createWaterLayer, destroyWaterLayer, drawWater, tierOf,
+} from "./water";
 
 /** Every quad a band's batch holds this frame, as flat point arrays. */
 function polysOf(b: QuadBatch): number[][] {
@@ -1104,18 +1106,20 @@ describe("a corner agrees with itself", () => {
    * into one surface running through the rock between them.
    *
    * These used to be about a split made HERE, on the beds the contributors
-   * stood on, and then thought better of where the split was wrong. The split
-   * is made in `bodies.ts` now, once, off the same two rules the solver uses
-   * — so the question is no longer "did the merge undo the split correctly"
-   * but the simpler "is this one sheet or two". @see findBodies
+   * stood on, and then thought better of where the split was wrong; then
+   * about a global id from a flood fill. The corner partitions its own
+   * contributors now, so the question is asked of the TIERS it filed them
+   * under — two columns averaged together are two columns in one tier, and
+   * that is the only thing a tear or a bad merge can be. @see sheet-group
    */
-  /** Every distinct sheet a set of wet columns belongs to. @see findBodies */
+  /** Every corner TIER a set of wet columns was averaged into. */
   const sheetsOver = (
     field: ReturnType<typeof createWaterField>,
     keep: (x: number, y: number) => boolean,
     wl: ReturnType<typeof createWaterLayer>,
   ) => {
     const c = field.columns;
+    const vw = c.nx + 1;
     const ids = new Set<number>();
     let wet = 0;
     for (let cy = 0; cy < c.ny; cy++) {
@@ -1124,10 +1128,31 @@ describe("a corner agrees with itself", () => {
         if (c.depth[i] <= c.params.dryDepth) continue;
         if (!keep(cx, cy)) continue;
         wet++;
-        ids.add(wl.bodies.at[i]);
+        for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
+          const k = tierOf(wl, c, (cy + dy) * vw + cx + dx, cx + dx, cy + dy, cx, cy, 0);
+          if (k >= 0) ids.add(k);
+        }
       }
     }
     return { wet, ids };
+  };
+
+  /** Corners inside `keep` that were handed more than one sheet. */
+  const splitCorners = (
+    field: ReturnType<typeof createWaterField>,
+    keep: (x: number, y: number) => boolean,
+    wl: ReturnType<typeof createWaterLayer>,
+  ) => {
+    const c = field.columns;
+    const vw = c.nx + 1;
+    let split = 0;
+    for (let vy = 0; vy <= c.ny; vy++) {
+      for (let vx = 0; vx <= c.nx; vx++) {
+        if (!keep(vx, vy)) continue;
+        if (wl.cSheet[(vy * vw + vx) * TIERS + 1] !== NO_SHEET) split++;
+      }
+    }
+    return split;
   };
 
   test("a dip in the bed under one pool is not two bodies of water", () => {
@@ -1167,7 +1192,12 @@ describe("a corner agrees with itself", () => {
       return tx >= 3 && ty >= 3 && tx < w - 3 && ty < h - 3;
     }, wl);
     expect(pool.wet).toBeGreaterThan(1000);      // there really is a pool here
-    expect(pool.ids.size).toBe(1);               // and every drop of it is one sheet
+    // AND NO CORNER ON IT CARRIES A SECOND TIER: nothing was split, so there
+    // is nothing to have merged back.
+    expect(splitCorners(field, (vx, vy) => {
+      const tx = (vx / 4) | 0, ty = (vy / 4) | 0;
+      return tx >= 3 && ty >= 3 && tx < w - 3 && ty < h - 3;
+    }, wl)).toBe(0);
     expect(wl.overflow).toBe(0);
     destroyWaterLayer(wl);
   });

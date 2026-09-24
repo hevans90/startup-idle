@@ -29,7 +29,9 @@ import {
   uploadQuads, type QuadBatch,
 } from "./quads";
 import { RIM, atBrink, resolveCorner, resolveSide, spillAt } from "./corner-rule";
-import { NO_BODY, createBodies, findBodies, type Bodies } from "./bodies";
+import {
+  CORNER_COLUMNS, contribOf, cornerMasksInto, sharedContrib,
+} from "./sheet-group";
 import { OPEN_SKY } from "../../fluid/slots";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
 import { createFoam, stepFoam, type FoamField } from "./foam";
@@ -121,7 +123,8 @@ export type WaterLayer = {
   under: QuadBatch[];
   scale: number;
   /**
-   * WHICH SHEET each corner's tiers hold, or {@link NO_BODY} for a free one.
+   * WHICH SHEET each corner's tiers hold, as a membership mask, or
+   * {@link NO_SHEET} for a free one.
    *
    * A corner is shared by four columns and, with storeys, by every slot of
    * each — and those can belong to different bodies of water that have
@@ -130,15 +133,35 @@ export type WaterLayer = {
    * TIER of its own, and a column reads back the tier holding ITS OWN sheet.
    *
    * This used to be two groups split by the BED the contributors stood on,
-   * which is a guess at identity rather than identity. It failed twice over
-   * once bridges existed — see `bodies.ts`, which is where the grouping now
-   * comes from.
+   * which is a guess at identity rather than identity; then a global id from
+   * a flood fill over the whole map, which was a fourth source of truth and
+   * stale on the path that ships. It is the corner's own partition now, named
+   * by WHICH of its at most twelve contributors are in it — canonical, so
+   * every one of them files under the same key. @see render/sheet-group
    *
    * A small open table, scanned linearly: tier `t` of corner `v` is at
    * `v * TIERS + t`, and a lookup is at most {@link TIERS} compares against a
    * cache line. @see tierFor
    */
-  cBody: Int32Array;
+  cSheet: Int32Array;
+  /**
+   * EVERY CORNER'S PARTITION, worked out once each frame it is wanted.
+   *
+   * The rule is cheap and the builder is not shy about asking: the scatter,
+   * the quad and both side faces all come back to the same corner, a dozen
+   * times over per column. Held per corner instead, a corner is partitioned
+   * once — a union-find over at most twelve nodes — and everything after that
+   * is a read. Measured on the pond tests, which run twelve hundred frames:
+   * without this the CPU builder went from about two seconds to nine.
+   *
+   * `maskStamp` is which frame a corner's entry belongs to, against `stamp`.
+   * A stamp rather than a clear because the whole array is the map and the
+   * water is a corner of it. @see cornerMasksInto
+   */
+  masks: Int32Array;
+  maskStamp: Int32Array;
+  /** Bumped once per draw, which is what makes `maskStamp` mean anything. */
+  stamp: number;
   /** Summed surface per tier, and how many contributed. */
   vs: Float32Array;
   vn: Uint8Array;
@@ -182,8 +205,6 @@ export type WaterLayer = {
   /** Where the water has gone white, and the corner averages of that. */
   foam: FoamField;
   vf: Float32Array;
-  /** Which sheet every wet slot belongs to, rebuilt each frame. @see findBodies */
-  bodies: Bodies;
   /**
    * How many contributors were dropped for want of a tier, last frame.
    *
@@ -216,6 +237,16 @@ export type WaterLayer = {
  */
 export const TIERS = 3;
 
+/**
+ * A tier nobody has claimed.
+ *
+ * Nought, and it can be: a component always holds at least the contributor
+ * that asked for it, so a real mask is never nought. That is one fewer
+ * sentinel to import now that the global ids are gone.
+ * @see render/sheet-group
+ */
+export const NO_SHEET = 0;
+
 /** `columns` and not a `WaterField`, so a second storey can have a layer. */
 export function createWaterLayer(columns: ColumnField, bands: BandLayer, scale = 1): WaterLayer {
   const strips: QuadBatch[] = [];
@@ -230,7 +261,10 @@ export function createWaterLayer(columns: ColumnField, bands: BandLayer, scale =
     strips,
     under,
     scale,
-    cBody: new Int32Array(n).fill(NO_BODY),
+    cSheet: new Int32Array(n),
+    masks: new Int32Array(corners * CORNER_COLUMNS * columns.layers),
+    maskStamp: new Int32Array(corners),
+    stamp: 0,
     vs: new Float32Array(n),
     vBed: new Int8Array(n),
     vSlot: new Uint8Array(n),
@@ -245,7 +279,6 @@ export function createWaterLayer(columns: ColumnField, bands: BandLayer, scale =
     vw: new Float32Array(n),
     foam: createFoam(columns),
     vf: new Float32Array(n),
-    bodies: createBodies(columns),
     overflow: 0,
     live: new Set(),
     t: 0,
@@ -263,10 +296,10 @@ export function createWaterLayer(columns: ColumnField, bands: BandLayer, scale =
 function tierFor(wl: WaterLayer, v: number, b: number): number {
   const base = v * TIERS;
   for (let t = 0; t < TIERS; t++) {
-    const id = wl.cBody[base + t];
+    const id = wl.cSheet[base + t];
     if (id === b) return base + t;
-    if (id === NO_BODY) {
-      wl.cBody[base + t] = b;
+    if (id === NO_SHEET) {
+      wl.cSheet[base + t] = b;
       return base + t;
     }
   }
@@ -284,9 +317,44 @@ function tierFor(wl: WaterLayer, v: number, b: number): number {
 export function tierAt(wl: WaterLayer, v: number, b: number): number {
   const base = v * TIERS;
   for (let t = 0; t < TIERS; t++) {
-    if (wl.cBody[base + t] === b) return base + t;
+    if (wl.cSheet[base + t] === b) return base + t;
   }
   return -1;
+}
+
+/**
+ * The tier corner `v` holds the water of slot `a` of column `(cx, cy)` in.
+ *
+ * The lookup every caller outside this file actually wants: it partitions the
+ * corner and then finds the tier. `(vx, vy)` is the corner's own coordinate
+ * and `v` its index, which are two spellings of one thing and both wanted —
+ * the caller has the index already and the rule needs the coordinate.
+ */
+export function tierOf(
+  wl: WaterLayer, columns: ColumnField, v: number,
+  vx: number, vy: number, cx: number, cy: number, a: number,
+): number {
+  return tierAt(wl, v, maskOf(wl, columns, v, vx, vy, cx, cy, a));
+}
+
+/**
+ * The component slot `a` of column `(cx, cy)` is in at corner `v`.
+ *
+ * The memo in front of {@link cornerMasksInto}, and the only thing that reads
+ * `masks` — so a stale stamp can only ever cost a recompute, never a wrong
+ * answer. @see WaterLayer.masks
+ */
+function maskOf(
+  wl: WaterLayer, columns: ColumnField, v: number,
+  vx: number, vy: number, cx: number, cy: number, a: number,
+): number {
+  const n = CORNER_COLUMNS * columns.layers;
+  const at = v * n;
+  if (wl.maskStamp[v] !== wl.stamp) {
+    cornerMasksInto(columns, vx, vy, wl.masks, at);
+    wl.maskStamp[v] = wl.stamp;
+  }
+  return wl.masks[at + contribOf(vx, vy, cx, cy, a, columns.layers)];
 }
 
 /** Lightest a surface gets, as a fraction of the way to white. */
@@ -522,7 +590,7 @@ function cornerValues(
   // Only the region's own corners, cleared and rebuilt: filling the whole
   // vertex array cost more than the water did on a mostly dry map.
   //
-  // TWO ARRAYS AND NOT ONE. `cBody` is what empties a tier, and `vn` is what
+  // TWO ARRAYS AND NOT ONE. `cSheet` is what empties a tier, and `vn` is what
   // says whether the first contributor to it has arrived — everything else is
   // written by that first contributor, so nothing else needs clearing. Left
   // out, `vn` carried last frame's count into this one: the sums went on
@@ -532,17 +600,18 @@ function cornerValues(
   for (let y = region.y0; y <= region.y1 + 1; y++) {
     const row = y * vw;
     const from = (row + region.x0) * TIERS, to = (row + region.x1 + 2) * TIERS;
-    wl.cBody.fill(NO_BODY, from, to);
+    wl.cSheet.fill(NO_SHEET, from, to);
     wl.vn.fill(0, from, to);
   }
   wl.overflow = 0;
   // EVERY STOREY INTO THE SAME TABLE, keyed by the sheet it belongs to.
   //
-  // What a corner holds is no longer a guess from bed heights. The fill in
-  // `bodies.ts` has already decided which water is one sheet, by the two
-  // rules the solver owns — nothing solid between them, and no fall between
-  // them — so a contributor's tier is a lookup and two columns of one sheet
-  // cannot land in different tiers.
+  // What a corner holds is no longer a guess from bed heights, and no longer
+  // an id from a flood fill over the whole map either. Each corner partitions
+  // its own at most twelve contributors by the two rules the solver owns —
+  // nothing solid between them, and no fall between them — and the key is
+  // WHICH of them are in the component. That key is canonical, so two columns
+  // of one sheet cannot land in different tiers. @see render/sheet-group
   //
   // That is what joins a bridge to the road at its end: the road's slot zero
   // and the deck's slot one are the same sheet, so they average into the same
@@ -557,8 +626,6 @@ function cornerValues(
       const i = A + ci;
       const d = depth[i];
       if (d <= params.dryDepth) continue;
-      const sheet = wl.bodies.at[i];
-      if (sheet === NO_BODY) continue;
       const bed = columns.ground[i];
       const shown = shownDepth(columns, i, d);
       // Leaned toward the lip — see `DRAWDOWN`. The height only; `shown` is
@@ -572,7 +639,10 @@ function cornerValues(
       const wash = wl.wash.now, foam = wl.foam.now;
       for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
         const v = (y + dy) * vw + (x + dx);
-        const k = tierFor(wl, v, sheet);
+        // THIS CORNER'S OWN PARTITION, asked with this column as the one
+        // doing the asking. A column is always one of its corners' four, so
+        // what comes back is always the component it is in.
+        const k = tierFor(wl, v, maskOf(wl, columns, v, x + dx, y + dy, x, y, a));
         if (k < 0) continue;                    // no room; counted, not merged
         if (wl.vn[k] === 0) {
           wl.vs[k] = surface;
@@ -611,7 +681,7 @@ function cornerValues(
       const v = y * vw + x;
       for (let t = 0; t < TIERS; t++) {
         const k = v * TIERS + t;
-        if (wl.cBody[k] === NO_BODY) break;     // tiers fill in order
+        if (wl.cSheet[k] === NO_SHEET) break;    // tiers fill in order
         const n = wl.vn[k];
         if (!n) continue;
         // What HEIGHT the corner is drawn at is not decided here — see
@@ -649,8 +719,8 @@ function cornerValues(
       const v = y * vw + x;
       for (let t = 0; t < TIERS; t++) {
         const k = v * TIERS + t;
-        const sheet = wl.cBody[k];
-        if (sheet === NO_BODY) break;
+        const sheet = wl.cSheet[k];
+        if (sheet === NO_SHEET) break;
         if (!wl.vn[k]) continue;
         // Packed here, once per corner per sheet, rather than four times over
         // in the quad loop: a corner is shared by four quads and its shade is
@@ -670,8 +740,8 @@ function cornerValues(
         // way was unlit by a shading term that only looked one way. Along the
         // SHEET, so a lean is a slope in the same water rather than the drop
         // to whatever else happens to reach this corner.
-        const gx = nearby(wl, v, -1, sheet, k) - nearby(wl, v, 1, sheet, k);
-        const gy = nearby(wl, v, -vw, sheet, k) - nearby(wl, v, vw, sheet, k);
+        const gx = nearby(wl, columns, v, -1, 0, k) - nearby(wl, columns, v, 1, 0, k);
+        const gy = nearby(wl, columns, v, 0, -1, k) - nearby(wl, columns, v, 0, 1, k);
         const lean = (gx + gy) * 0.5;
 
         // The pattern the current carries, shown where the water is moving —
@@ -716,10 +786,8 @@ function cornerValues(
  * side faces do, end for end — and for the one corner in a million that ran
  * out of tiers.
  */
-const level = (wl: WaterLayer, v: number, b: number, fallback: number) => {
-  const k = tierAt(wl, v, b);
-  return k < 0 || !wl.vn[k] ? fallback : wl.vs[k];
-};
+const level = (wl: WaterLayer, k: number, fallback: number) =>
+  (k < 0 || !wl.vn[k] ? fallback : wl.vs[k]);
 
 /**
  * The same sheet's surface one step away, or this corner's own where the
@@ -730,12 +798,28 @@ const level = (wl: WaterLayer, v: number, b: number, fallback: number) => {
  * that a corner holds several sheets, a shoreline lit by whatever unrelated
  * water happens to be next to it.
  */
-function nearby(wl: WaterLayer, v: number, step: number, b: number, k: number): number {
-  const j = v + step;
+function nearby(
+  wl: WaterLayer, columns: ColumnField, v: number, dx: number, dy: number,
+  k: number,
+): number {
+  const vw = columns.nx + 1;
+  const j = v + dx + dy * vw;
   const here = wl.vs[k];
   if (j < 0 || j * TIERS >= wl.vs.length) return here;
-  const jk = tierAt(wl, j, b);
-  if (jk >= 0 && wl.vn[jk]) return wl.vs[jk];
+  // ASKED THROUGH A COLUMN THE TWO CORNERS SHARE, picked canonically — a
+  // component decided AT this corner says nothing about the one a step away,
+  // and picking the bridge per asker would give four columns of one sheet
+  // four different answers for the corner they share. @see sharedContrib
+  const vx = v % vw, vy = (v / vw) | 0;
+  const m = sharedContrib(wl.cSheet[k], dx, dy, columns.layers);
+  if (m >= 0) {
+    const q = Math.floor(m / columns.layers);
+    const jk = tierAt(wl, j, maskOf(
+      wl, columns, j, vx + dx, vy + dy,
+      vx - 1 + (q & 1), vy - 1 + (q >> 1), m % columns.layers,
+    ));
+    if (jk >= 0 && wl.vn[jk]) return wl.vs[jk];
+  }
   // NOT THIS SHEET, so it is only a gradient if it is BELOW. A lip is the
   // case that matters: the surface really does tip over the edge, and the
   // sheet leaving it is lit from exactly that — so a brink read as level
@@ -749,7 +833,7 @@ function nearby(wl: WaterLayer, v: number, step: number, b: number, k: number): 
   let below = here;
   for (let t = 0; t < TIERS; t++) {
     const o = j * TIERS + t;
-    if (wl.cBody[o] === NO_BODY) break;
+    if (wl.cSheet[o] === NO_SHEET) break;
     if (wl.vn[o] && wl.vs[o] < below) below = wl.vs[o];
   }
   return below;
@@ -787,6 +871,9 @@ export function drawWater(
   faces = true, rim = RIM,
 ) {
   wl.t += dt;
+  // A NEW FRAME, so every corner's partition is stale. One increment rather
+  // than clearing a megabyte of stamps. @see WaterLayer.masks
+  wl.stamp++;
 
   // Rewind the batches that hold anything, so an empty map costs nothing. The
   // quads still sit in their buffers until they are overwritten or uploaded
@@ -795,20 +882,20 @@ export function drawWater(
 
   const region = activeBox(columns);
   if (region) {
-    // WHICH WATER IS ONE SHEET, before anything is averaged into a corner.
-    // Everything below keys off this: the corners, their colours, and which
-    // neighbour a side face hangs down to. @see findBodies
+    // WHICH WATER IS ONE SHEET is no longer worked out here, ahead of
+    // everything, and that is the point of `render/sheet-group`: each corner
+    // partitions its own contributors when it is asked, out of depth, ground
+    // and roof. There is nothing to prepare, nothing to keep in step with the
+    // box, and nothing that can be a frame behind what it is grouping.
     //
-    // ONE COLUMN WIDER THAN THE BOX, because a side face asks what the
-    // NEIGHBOUR draws, and the neighbour of the last column in the box is
-    // outside it. Labelled only to the box, that neighbour answered with
-    // whatever label it happened to be carrying from an earlier, larger
-    // frame — so the faces came out differently on the second draw of an
-    // unchanged scene, which is how this was caught.
-    findBodies(columns, {
-      x0: region.x0 - 1, y0: region.y0 - 1,
-      x1: region.x1 + 1, y1: region.y1 + 1,
-    }, wl.bodies);
+    // It also takes a bug with it. The fill had to run one column WIDER than
+    // the active box, because a side face asks what the NEIGHBOUR draws and
+    // the neighbour of the last column in the box is outside it; labelled only
+    // to the box, that neighbour answered with whatever it was carrying from
+    // an earlier, larger frame, and the faces came out differently on the
+    // second draw of an unchanged scene. A corner that decides for itself has
+    // no edge to fall off.
+    //
     // Carried one frame down the current before anything reads it. The falls
     // advance in the SOLVER now — where a fall has got to decides when its
     // water lands, so it is not a thing the renderer may have an opinion on.
@@ -867,8 +954,6 @@ function fillQuads(
       const i = a * columns.cells + ci;
       const d = depth[i];
       if (d <= columns.params.dryDepth) continue;
-      const sheet = wl.bodies.at[i];
-      if (sheet === NO_BODY) continue;
 
       const tx = tileOf(cx);
       // UNDER A ROOF GOES UNDER THE ROOF. Everything else is water in the
@@ -909,8 +994,14 @@ function fillQuads(
       const bed = columns.ground[i];
       const own = surfaceAt(columns, i);
       const v00 = cy * vw + cx, v10 = v00 + 1, v01 = v00 + vw, v11 = v01 + 1;
-      const k00 = tierAt(wl, v00, sheet), k10 = tierAt(wl, v10, sheet);
-      const k11 = tierAt(wl, v11, sheet), k01 = tierAt(wl, v01, sheet);
+      // EACH CORNER'S OWN PARTITION, asked with this column. The key is no
+      // longer one id shared by all four — it is what each corner made of the
+      // contributors it has — but it names the same water, because this
+      // column is in every one of them. @see render/sheet-group
+      const k00 = tierOf(wl, columns, v00, cx, cy, cx, cy, a);
+      const k10 = tierOf(wl, columns, v10, cx + 1, cy, cx, cy, a);
+      const k11 = tierOf(wl, columns, v11, cx + 1, cy + 1, cx, cy, a);
+      const k01 = tierOf(wl, columns, v01, cx, cy + 1, cx, cy, a);
       const h00 = Math.max(k00 < 0 ? own : wl.vs[k00], bed);
       const h10 = Math.max(k10 < 0 ? own : wl.vs[k10], bed);
       const h11 = Math.max(k11 < 0 ? own : wl.vs[k11], bed);
@@ -975,9 +1066,9 @@ function fillQuads(
       const eastB = eastOn && ahead ? ahead : batch;
       const southB = southOn && ahead ? ahead : batch;
       if (eastB !== batch || southB !== batch) wl.live.add(tx + ty + 1);
-      sideFace(eastB, wl, columns, i, sheet, cx, cy, 1, 0, fx1v, fy0, fx1v, fy1,
+      sideFace(eastB, wl, columns, i, a, cx, cy, 1, 0, fx1v, fy0, fx1v, fy1,
         v10, v11, base, HWs, HHs, HUs, rim);
-      sideFace(southB, wl, columns, i, sheet, cx, cy, 0, 1, fx0v, fy1, fx1v, fy1,
+      sideFace(southB, wl, columns, i, a, cx, cy, 0, 1, fx0v, fy1, fx1v, fy1,
         v01, v11, base, HWs, HHs, HUs, rim);
       }
     }
@@ -1001,7 +1092,7 @@ function speed(columns: ColumnField, cx: number, cy: number, a = 0): number {
  * water's own floor is rock.
  */
 function sideFace(
-  batch: QuadBatch, wl: WaterLayer, columns: ColumnField, i: number, sheet: number,
+  batch: QuadBatch, wl: WaterLayer, columns: ColumnField, i: number, a: number,
   cx: number, cy: number, dx: number, dy: number,
   ax: number, ay: number, bx: number, by: number,
   vA: number, vB: number,
@@ -1030,14 +1121,18 @@ function sideFace(
   // step drop. Matched to the neighbour's corners there is nothing left to
   // leave showing.
   const wetJ = !offMap && columns.depth[j] > columns.params.dryDepth;
-  // BOTH SHEETS BY NAME. The face hangs from what THIS sheet draws at each
-  // corner down to what the NEIGHBOUR'S sheet draws there — which used to be
-  // two calls to `levelAt` with two different beds, a stand-in for exactly
-  // this question. Asked by sheet it is a lookup, and a neighbour that is a
-  // different body of water gives a different answer without anything having
-  // to infer that from heights.
+  // BOTH SHEETS, EACH NAMED BY THE COLUMN THAT STANDS IN IT. The face hangs
+  // from what THIS column's water draws at each corner down to what the
+  // NEIGHBOUR'S draws there — which used to be two calls to `levelAt` with
+  // two different beds, a stand-in for exactly this question. Asked by
+  // contributor it is a lookup, and a neighbour that is a different body of
+  // water gives a different answer without anything having to infer that from
+  // heights. The twin of water-gpu's sidePart.
   const mine = surfaceAt(columns, i);
-  const theirs = wetJ ? wl.bodies.at[j] : NO_BODY;
+  const vw2 = columns.nx + 1;
+  const tier = (v: number, qx: number, qy: number) => tierOf(
+    wl, columns, v, v % vw2, (v / vw2) | 0, qx, qy, a,
+  );
   // What the neighbour would draw if this corner did not know about it: its
   // own surface, which is what it is standing at. Falling back to its BED
   // instead makes the face taller than the water it is the side of, and puts
@@ -1047,8 +1142,10 @@ function sideFace(
   // shader path is generated from too.
   const side = resolveSide(
     bed, bedJ, wetJ,
-    level(wl, vA, sheet, mine), level(wl, vA, theirs, theirTop),
-    level(wl, vB, sheet, mine), level(wl, vB, theirs, theirTop),
+    level(wl, tier(vA, cx, cy), mine),
+    level(wl, wetJ ? tier(vA, nx2, ny2) : -1, theirTop),
+    level(wl, tier(vB, cx, cy), mine),
+    level(wl, wetJ ? tier(vB, nx2, ny2) : -1, theirTop),
   );
   // Both ends flat against their own floor is a side that is not there. The
   // shader draws it anyway and makes no fragments; here it would be a quad to

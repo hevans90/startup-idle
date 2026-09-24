@@ -58,14 +58,43 @@ import type { Dialect } from "./corner-rule";
 export const CORNER_COLUMNS = 4;
 
 /**
+ * The most storeys a column can have. @see fluid/field's TIERS
+ *
+ * Only the scratch below needs it — the rule itself reads `f.layers` — and it
+ * is stated rather than imported because `fluid` must not depend on `world`
+ * and this file would then be the only edge the other way.
+ */
+const TIERS_MAX = 3;
+
+/**
  * Where a slot's water stands, or its bed where it is dry.
  *
  * The twin of the solver's `besideAt`. Both slots of a join are wet by the
  * time this matters, so only the wet branch is ever taken there — it keeps
  * the dry one because the rule is stated over any two slots.
+ *
+ * IN THE SHADER'S PRECISION, and that is not a detail. While the grouping was
+ * a flood fill on the host, both paths read the ONE answer it uploaded, so it
+ * did not matter what precision it was reached in. Decided here, each path
+ * evaluates the rule for itself — the host in double, the device in float —
+ * and the second half of the rule is a THRESHOLD. `floor + depth` differs in
+ * its last bits between the two, so a surface sitting within an ulp of a fall
+ * from its neighbour would join the component on one path and not on the
+ * other: one whole column in or out of a corner's average. `Math.fround` puts
+ * the host's arithmetic in the device's, so the two evaluate the same
+ * comparison. `dryDepth` gets the same treatment because 0.02 is not
+ * representable in a float at all, so "is this wet" is a second threshold the
+ * two could straddle.
+ *
+ * TO BE CLEAR ABOUT WHAT THIS DID NOT FIX: it is not what the pixel
+ * comparison is currently unhappy about. That divergence survives this
+ * unchanged — see the note on the comparison in `water-compare`. This is a
+ * precision hole closed on principle, not a measured repair.
  */
 const beside = (f: ColumnField, j: number) =>
-  f.depth[j] > f.params.dryDepth ? surfaceAt(f, j) : f.ground[j];
+  f.depth[j] > Math.fround(f.params.dryDepth)
+    ? Math.fround(surfaceAt(f, j))
+    : f.ground[j];
 
 /**
  * Whether two wet slots of NEIGHBOURING columns are the same sheet.
@@ -93,9 +122,11 @@ const beside = (f: ColumnField, j: number) =>
  */
 export function sameSheet(f: ColumnField, ia: number, jb: number): boolean {
   const { ground, roof } = f;
+  // The first half is safe in either precision: grounds and roofs are half
+  // steps, which are exact in a float. Only the second compares a SUM.
   if (!connected(ground[ia], roof[ia], ground[jb], roof[jb])) return false;
-  return !(ground[ia] - beside(f, jb) >= FALL_MIN
-    || ground[jb] - beside(f, ia) >= FALL_MIN);
+  return !(Math.fround(ground[ia] - beside(f, jb)) >= FALL_MIN
+    || Math.fround(ground[jb] - beside(f, ia)) >= FALL_MIN);
 }
 
 /**
@@ -170,10 +201,95 @@ function joinedAt(
   if (bx < 0 || by < 0 || bx >= f.nx || by >= f.ny) return false;
   const ia = (ka % layers) * f.cells + ay * f.nx + ax;
   const jb = (kb % layers) * f.cells + by * f.nx + bx;
-  const dry = f.params.dryDepth;
+  const dry = Math.fround(f.params.dryDepth);
   if (f.depth[ia] <= dry || f.depth[jb] <= dry) return false;
   return sameSheet(f, ia, jb);
 }
+
+/**
+ * A contributor of `mask` that the corner one step away ALSO holds, or -1.
+ *
+ * The lighting asks a corner either side of the one it is drawing how high the
+ * same water stands there — see `nearby` — and a component decided AT a corner
+ * says nothing about a corner it does not touch. Two corners a step apart do
+ * share two columns, though, so the bridge between them is a contributor that
+ * lies in both: this picks the LOWEST-indexed member of the component on the
+ * shared edge.
+ *
+ * LOWEST, and that is the whole point. Every column of a component computes
+ * the identical mask, so every one of them picks the identical bridge and asks
+ * the neighbouring corner the identical question. Picked per ASKER instead —
+ * the obvious thing, clamping the asking column into the corner being asked —
+ * four columns of one sheet get four different answers for the corner they
+ * share, and since each quad draws its own copy of that vertex, the shading
+ * comes apart along every seam between them.
+ */
+export function sharedContrib(
+  mask: number, dx: number, dy: number, layers: number,
+): number {
+  for (let m = 0; m < CORNER_COLUMNS * layers; m++) {
+    if (((mask >> m) & 1) === 0) continue;
+    const q = Math.floor(m / layers);
+    if (dx < 0 && (q & 1) !== 0) continue;
+    if (dx > 0 && (q & 1) !== 1) continue;
+    if (dy < 0 && (q >> 1) !== 0) continue;
+    if (dy > 0 && (q >> 1) !== 1) continue;
+    return m;
+  }
+  return -1;
+}
+
+/**
+ * EVERY contributor's component at one corner, in one pass.
+ *
+ * {@link cornerMask} answers for one contributor and is the rule; the shader
+ * wants exactly that, because a vertex asks about itself and nothing else. The
+ * mesh builder asks about all twelve — the scatter, the quad and both side
+ * faces come back to the same corner a dozen times over — so it gets the
+ * partition once and reads it, which is a union-find over at most twelve nodes
+ * instead of twelve floods.
+ *
+ * Writes `4 * layers` masks into `out` at `at`. A test holds it to agreeing
+ * with the rule on every corner of a map with a span, a cliff and a shore on
+ * it, because a fast path that disagrees with the rule is worse than no fast
+ * path.
+ */
+export function cornerMasksInto(
+  f: ColumnField, vx: number, vy: number, out: Int32Array, at: number,
+): void {
+  const layers = f.layers, n = CORNER_COLUMNS * layers;
+  // Union-find, on the stack. `n` is twelve at the very most, so a linear
+  // find is cheaper than the bookkeeping that would avoid it.
+  const parent = PARENT;
+  for (let k = 0; k < n; k++) parent[k] = k;
+  for (let e = 0; e < CORNER_COLUMNS; e++) {
+    const qa = quadA(e), qb = quadB(e);
+    for (let a = 0; a < layers; a++) {
+      for (let b = 0; b < layers; b++) {
+        const ka = qa * layers + a, kb = qb * layers + b;
+        if (!joinedAt(f, vx, vy, ka, kb)) continue;
+        let ra = ka; while (parent[ra] !== ra) ra = parent[ra];
+        let rb = kb; while (parent[rb] !== rb) rb = parent[rb];
+        if (ra !== rb) parent[ra] = rb;
+      }
+    }
+  }
+  // TWO SWEEPS, because a root's full membership is only known once every
+  // member has found it.
+  for (let k = 0; k < n; k++) ROOT[k] = 0;
+  for (let k = 0; k < n; k++) {
+    let r = k; while (parent[r] !== r) r = parent[r];
+    ROOT[r] |= 1 << k;
+  }
+  for (let k = 0; k < n; k++) {
+    let r = k; while (parent[r] !== r) r = parent[r];
+    out[at + k] = ROOT[r];
+  }
+}
+
+/** Scratch for {@link cornerMasksInto}. Twelve is the most there can be. */
+const PARENT = new Int32Array(CORNER_COLUMNS * TIERS_MAX);
+const ROOT = new Int32Array(CORNER_COLUMNS * TIERS_MAX);
 
 /**
  * The same rule as shader source.
@@ -261,6 +377,24 @@ ${wgsl
     if (grew == 0) { break; }
   }
   return comp;
+}
+
+${wgsl
+    ? "fn sharedOf(mask: i32, dx: i32, dy: i32) -> i32 {"
+    : "int sharedOf(int mask, int dx, int dy) {"}
+  // The lowest-indexed member of the component that the corner one step away
+  // also holds — see the twin in sheet-group.ts, and why it must be the
+  // lowest rather than the asker's own.
+  for (${LOOP} m = 0; m < 4 * slots(); m = m + 1) {
+    if (bitAt(mask, m) == 0) { continue; }
+    ${INT} q = m / slots();
+    if (dx < 0 && (q & 1) != 0) { continue; }
+    if (dx > 0 && (q & 1) != 1) { continue; }
+    if (dy < 0 && (q >> 1) != 0) { continue; }
+    if (dy > 0 && (q >> 1) != 1) { continue; }
+    return m;
+  }
+  return -1;
 }
 
 ${wgsl

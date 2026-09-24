@@ -211,9 +211,9 @@ describe("the two shader dialects are the same program", () => {
 
   test("and each is written in its own language, not the other's", () => {
     const wgsl = cornerRuleSource("wgsl"), glsl = cornerRuleSource("glsl");
-    expect(wgsl).toContain("fn cornerOf(vx: i32, vy: i32, sheet: f32) -> vec4<f32>");
+    expect(wgsl).toContain("fn cornerOf(vx: i32, vy: i32, ax: i32, ay: i32, aa: i32) -> vec4<f32>");
     expect(wgsl).toContain("fn resolveSide(bed: f32, bedJ: f32, wetJ: bool");
-    expect(glsl).toContain("vec4 cornerOf(int vx, int vy, float sheet)");
+    expect(glsl).toContain("vec4 cornerOf(int vx, int vy, int ax, int ay, int aa)");
     expect(glsl).toContain("vec4 resolveSide(float bed, float bedJ, bool wetJ");
     expect(glsl).not.toContain("<f32>");
     expect(wgsl).not.toContain("float ");
@@ -239,12 +239,13 @@ describe("the two shader dialects are the same program", () => {
     // by the bed they stood on and then thought better of it where the split
     // was wrong, and the builder had that second half while the shader did
     // not. There is no merge now because there is no guess to undo — the
-    // split is made once, off the geometry, in `render/bodies`. So what both
-    // dialects have to carry is the sheet test, and neither may carry the
-    // grouping the merge existed to repair.
+    // corner partitions its own contributors, in `render/sheet-group`. So what
+    // both dialects have to carry is the membership test, and neither may
+    // carry the grouping the merge existed to repair.
     for (const d of ["wgsl", "glsl"] as const) {
       const src = cornerRuleSource(d);
-      expect(src).toContain("sheetAt(cx, cy, a) != sheet");
+      expect(src).toContain("cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa))");
+      expect(src).toContain("bitAt(mine, k * slots() + a) == 0");
       expect(src).not.toContain("nHi");
       expect(src).not.toContain("nLo");
     }
