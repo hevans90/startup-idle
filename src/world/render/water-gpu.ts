@@ -60,11 +60,12 @@ import {
 import {
   activeBox, MATERIAL_SLOTS, MAX_FLOW_SPEED, type ColumnField,
 } from "../../fluid/columns";
-import { RIM, cornerRuleSource } from "./corner-rule";
+import { RIM, brinkRuleSource, cornerRuleSource } from "./corner-rule";
 import { OPEN_SKY } from "../../fluid/slots";
 import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
 import { createQuadsPass, type QuadsPass } from "./quads-gpu";
+import { createBrinkPass, type BrinkPass } from "./brink-gpu";
 import { FALL_MIN } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
 import { COLUMNS_PER_TILE } from "../water/field";
@@ -334,9 +335,19 @@ struct Water {
 @group(2) @binding(5) var uFx : texture_2d<f32>;
 @group(2) @binding(6) var uFy : texture_2d<f32>;
 @group(2) @binding(7) var uRoof : texture_2d<f32>;
-@group(2) @binding(8) var uTint : texture_2d<f32>;
-@group(2) @binding(9) var uMaterial : texture_2d<f32>;
-@group(2) @binding(10) var uQuads : texture_2d<u32>;
+// HOW HARD EACH SLOT IS LEAVING, worked out once a frame. @see brink-gpu
+//
+// IN THE ORDER THE RESOURCES ARE HANDED OVER, which is what decides the
+// binding and not the number written here: Pixi walks the resource object and
+// assigns them in turn, so a texture inserted in the middle of that object and
+// numbered at the end here silently shifts every binding past it. What that
+// looks like is the quad list arriving where the shade ramp was expected —
+// "none of the supported sample types (Uint) match the expected (Float)" — and
+// the whole water pass refusing to build.
+@group(2) @binding(8) var uBrink : texture_2d<f32>;
+@group(2) @binding(9) var uTint : texture_2d<f32>;
+@group(2) @binding(10) var uMaterial : texture_2d<f32>;
+@group(2) @binding(11) var uQuads : texture_2d<u32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -379,6 +390,8 @@ fn roofAt(x: i32, y: i32, a: i32) -> f32 {
 // reason select is on this side. @see render/sheet-group
 fn bitOf(k: i32) -> i32 { return 1i << u32(k); }
 fn bitAt(m: i32, k: i32) -> i32 { return (m >> u32(k)) & 1; }
+// Whether the brink texture was filled this frame. @see brink-gpu
+fn brinkOn() -> bool { return water.uSlots.z > 0.5; }
 /** The four things the shared corner rule asks its host for. */
 fn dryDepth() -> f32 { return water.uBand.z; }
 fn fallMin() -> f32 { return ${FALL_MIN}.0; }
@@ -389,6 +402,17 @@ fn inside(x: i32, y: i32) -> bool {
   return x >= 0 && y >= 0 && x < i32(water.uGrid.x) && y < i32(water.uGrid.y);
 }
 
+${brinkRuleSource("wgsl")}
+// READ, NOT RUN, wherever the brink pass has been. The scan is two thirds of
+// this shader's cost and its answer is the same for every one of the dozens of
+// callers a column has in a frame — so it is worked out once per slot, on the
+// device, and this is a texel. Where the map's width will not take the copy
+// into the texture there is nothing to read and it runs, exactly as it did
+// before. @see brink-gpu, canCopyOut
+fn atBrink(cx: i32, cy: i32, a: i32) -> f32 {
+  if (brinkOn()) { return textureLoad(uBrink, vec2<i32>(cx, slotRow(cy, a)), 0).r; }
+  return brinkCalc(cx, cy, a);
+}
 ${sheetGroupSource("wgsl")}
 ${cornerRuleSource("wgsl", DRAWDOWN)}
 ${quadRuleSource("wgsl")}
@@ -799,6 +823,8 @@ uniform sampler2D uRoof;
 uniform sampler2D uTint;
 uniform sampler2D uMaterial;
 uniform highp usampler2D uQuads;
+// How hard each slot is leaving, once a frame. See brink-gpu.
+uniform sampler2D uBrink;
 
 // How many STOREYS a column has, and where a storey's plane of rows begins —
 // see the WGSL twin, where the layout is argued.
@@ -813,6 +839,8 @@ float roofAt(int x, int y, int a) { return texelFetch(uRoof, ivec2(x, slotRow(y,
 // spellings are argued. @see render/sheet-group
 int bitOf(int k) { return 1 << k; }
 int bitAt(int m, int k) { return (m >> k) & 1; }
+// Whether the brink texture was filled this frame. See brink-gpu.
+bool brinkOn() { return uSlots.z > 0.5; }
 float dryDepth() { return uBand.z; }
 float fallMin() { return ${FALL_MIN}.0; }
 bool facesOn() { return uIso.w > 0.5; }
@@ -836,6 +864,12 @@ bool inside(int x, int y) {
   return x >= 0 && y >= 0 && x < int(uGrid.x) && y < int(uGrid.y);
 }
 
+${brinkRuleSource("glsl")}
+// Read, not run, wherever the brink pass has been — see the WGSL twin.
+float atBrink(int cx, int cy, int a) {
+  if (brinkOn()) { return texelFetch(uBrink, ivec2(cx, slotRow(cy, a)), 0).r; }
+  return brinkCalc(cx, cy, a);
+}
 ${sheetGroupSource("glsl")}
 ${cornerRuleSource("glsl", DRAWDOWN)}
 ${quadRuleSource("glsl")}
@@ -1200,7 +1234,7 @@ const FRAGMENT_STAGE = 2;
  * Nothing is filtered here in any case — every read is a `textureLoad` at an
  * integer coordinate, which is a fetch and not a sample, and needs no sampler.
  */
-const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uRoof"];
+const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uRoof", "uBrink"];
 const BYTE_FIELDS = ["uTint", "uMaterial"];
 /** The quad list, which is `r32uint` and so neither of the above. @see QUAD_CAP */
 const UINT_FIELDS = ["uQuads"];
@@ -1335,6 +1369,11 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     resource: columns.material, width: nx, height: ny * layers, format: "r8unorm",
     scaleMode: "nearest",
   });
+  // HOW HARD EACH SLOT IS LEAVING. Filled by the device once a frame and by
+  // nothing else — the host has no use for it and never uploads it, so the
+  // array behind it stays the zeros it was made with. @see brink-gpu
+  const brinkF32 = new Float32Array(nx * ny * layers);
+  const brinkTex = viewOf(brinkF32, nx, ny * layers);
   const tint = tintSource();
   // WHICH QUADS EACH BAND DRAWS. The identity until something gathers it.
   // @see quadList
@@ -1384,7 +1423,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       resources: {
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
-        uFx: fx, uFy: fy, uRoof: roof,
+        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
         uTint: tint, uMaterial: material, uQuads: quads,
       },
     });
@@ -1419,7 +1458,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       resources: {
         water: underWater,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
-        uFx: fx, uFy: fy, uRoof: roof,
+        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
         uTint: tint, uMaterial: material, uQuads: quads,
       },
     });
@@ -1433,7 +1472,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     meshes,
     under,
     faces: 1,
-    sources: [depth, ground, washTex, foamTex, fx, fy, material, roof],
+    sources: [depth, ground, washTex, foamTex, fx, fy, material, roof, brinkTex],
     // THE SHADE RAMP, kept on the layer because the falls colour from it too:
     // a sheet and the surface it leaves are the same water, so they read the
     // same table. @see createSheet
@@ -1470,6 +1509,16 @@ const FED: readonly (readonly [number, FieldName, 1 | 4])[] = [
 const GROUND_AT = 1;
 /** And the roofs, which are geometry and move only when the map does. */
 const ROOF_AT = 7;
+/**
+ * And the brink, which the DEVICE fills and the host never does.
+ *
+ * Not in {@link FED} because that table is about what `copyOut` moves off the
+ * solver's own field buffer, and this comes out of a pass of its own. It is
+ * skipped by the upload loop unconditionally: the array behind it is zeros,
+ * and sending those up would overwrite the only copy that means anything.
+ * @see createBrinkPass
+ */
+const BRINK_AT = 8;
 
 /** Just enough of the renderer to ask what stands behind a texture source. */
 type GpuTextureSystem = {
@@ -1580,6 +1629,14 @@ export type QuadGather = {
   gathered: boolean;
   /** Frames still checked for validation errors. @see createQuadsPass */
   watch: number;
+  /**
+   * The brink pass and where its answer goes, or null on a map whose width
+   * will not take the copy.
+   *
+   * Null means the shaders run the scan inline, which is what they did before
+   * this existed. @see createBrinkPass, canCopyOut
+   */
+  brink: { pass: BrinkPass; into: GPUTexture; slots: number } | null;
   /** Where each band's quads live. @see quadList */
   list: QuadList;
 };
@@ -1603,11 +1660,29 @@ export function attachQuadGather(
   // which is exactly why nobody noticed. The row is `LIST_W` now and nothing
   // about the map's shape can change it.
   const pass = createQuadsPass(device, list, LIST_W * list.rows, DRAWDOWN);
-  pass.bind(
-    get(wl.sources[0]).createView(),
-    get(wl.sources[1]).createView(),
-    get(wl.sources[ROOF_AT]).createView(),
-  );
+  const depthView = get(wl.sources[0]).createView();
+  const groundView = get(wl.sources[1]).createView();
+  const roofView = get(wl.sources[ROOF_AT]).createView();
+  const brinkView = get(wl.sources[BRINK_AT]).createView();
+  pass.bind(depthView, groundView, roofView, brinkView);
+  // AND THE BRINK, which both this pass and the vertex shader read. Only where
+  // the row rule allows the copy into the texture; otherwise there is no
+  // texture to read and both of them run the scan. @see canCopyOut
+  const plane = wl.sources[0] as unknown as { width: number; height: number };
+  const bnx = plane.width, bny = plane.height / wl.layers;
+  let brink: QuadGather["brink"] = null;
+  if (canCopyOut(bnx, 4)) {
+    const bp = createBrinkPass(device, bnx * bny * wl.layers);
+    bp.bind(depthView, groundView, roofView);
+    brink = { pass: bp, into: get(wl.sources[BRINK_AT]), slots: bnx * bny * wl.layers };
+    // The shaders only read it once there is something in it to read.
+    for (const m of [...wl.meshes, ...wl.under]) {
+      const u = m.shader?.resources.water as UniformGroup | undefined;
+      if (!u) continue;
+      (u.uniforms.uSlots as Float32Array)[2] = 1;
+      u.update();
+    }
+  }
   return {
     pass,
     into: get(wl.quads),
@@ -1622,6 +1697,7 @@ export function attachQuadGather(
     busy: false,
     gathered: false,
     watch: 4,
+    brink,
     list,
   };
 }
@@ -1641,8 +1717,24 @@ export function gatherQuads(
   g.pass.say(
     columns.nx, columns.ny, COLUMNS_PER_TILE, h,
     columns.params.dryDepth, FALL_MIN, faces, columns.layers,
+    g.brink !== null,
   );
   const enc = device.createCommandEncoder({ label: "quads" });
+  // THE BRINK FIRST, because the gathering reads it and so does the draw that
+  // follows. One thread per slot, then straight into the texture — both in
+  // this encoder, so the barriers between them are the API's problem and not
+  // ours. @see createBrinkPass
+  if (g.brink) {
+    g.brink.pass.say(
+      columns.nx, columns.ny, columns.layers, columns.params.dryDepth, FALL_MIN,
+    );
+    g.brink.pass.encode(enc, g.brink.slots);
+    enc.copyBufferToTexture(
+      { buffer: g.brink.pass.out, bytesPerRow: columns.nx * 4, rowsPerImage: columns.ny * columns.layers },
+      { texture: g.brink.into },
+      { width: columns.nx, height: columns.ny * columns.layers, depthOrArrayLayers: 1 },
+    );
+  }
   // A THREAD PER QUAD, and a column has a storey's worth of them.
   g.pass.encode(enc, columns.nx * columns.ny * columns.layers);
   enc.copyBufferToTexture(
@@ -1789,6 +1881,8 @@ export function drawGpuWater(
   // the same numbers straight back up — a megabyte and a quarter a frame to
   // overwrite the answer with itself. @see deviceSinks
   for (let k = 0; k < wl.sources.length; k++) {
+    // NEVER THE BRINK. @see BRINK_AT
+    if (k === BRINK_AT) continue;
     if (carried && wl.fed.has(k)) continue;
     // THE GROUND ONLY WHEN IT MOVES. With the device filling the rest, this
     // loop was uploading the terrain and nothing else — a quarter of a

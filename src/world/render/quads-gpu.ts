@@ -25,7 +25,7 @@
  * THE ORDER IS WHATEVER THE ATOMIC GAVE OUT. Nothing downstream cares: a quad
  * carries its own column and part, so the list is a set and not a sequence.
  */
-import { cornerRuleSource } from "./corner-rule";
+import { brinkRuleSource, cornerRuleSource } from "./corner-rule";
 import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
 
@@ -37,7 +37,8 @@ const PARTS = 5;
 const QUADS_WGSL = (drawdown: number) => `
 struct Say {
   dims: vec4<i32>,        // nx, ny, columns per tile, tiles high
-  a: vec4<f32>,           // dryDepth, fallMin, faces on, spare
+  a: vec4<f32>,           // dryDepth, fallMin, faces on, slots
+  b: vec4<f32>,           // brink texture filled, spare, spare, spare
 };
 @group(0) @binding(0) var<uniform> say : Say;
 @group(0) @binding(1) var uDepth : texture_2d<f32>;
@@ -50,6 +51,8 @@ struct Say {
 @group(0) @binding(5) var<storage, read> slice : array<vec2<u32>>;
 // The underside of whatever is over a slot, or the open sky. See fluid/slots.
 @group(0) @binding(6) var uRoof : texture_2d<f32>;
+// How hard each slot is leaving, worked out once a frame. See brink-gpu.
+@group(0) @binding(7) var uBrink : texture_2d<f32>;
 
 // NO BACKTICKS IN HERE — a backtick in a comment ends the template literal.
 
@@ -78,7 +81,16 @@ fn roofAt(x: i32, y: i32, a: i32) -> f32 {
 // shader and so has to group water exactly as it does. @see render/sheet-group
 fn bitOf(k: i32) -> i32 { return 1i << u32(k); }
 fn bitAt(m: i32, k: i32) -> i32 { return (m >> u32(k)) & 1; }
+fn brinkOn() -> bool { return say.b.x > 0.5; }
 
+${brinkRuleSource("wgsl")}
+// Read where the brink pass has been, run where it has not — this pass shares
+// the corner rule with the vertex shader and has to answer it the same way.
+// @see brink-gpu
+fn atBrink(cx: i32, cy: i32, a: i32) -> f32 {
+  if (brinkOn()) { return textureLoad(uBrink, vec2<i32>(cx, slotRow(cy, a)), 0).r; }
+  return brinkCalc(cx, cy, a);
+}
 ${sheetGroupSource("wgsl")}
 ${cornerRuleSource("wgsl", drawdown)}
 ${quadRuleSource("wgsl")}
@@ -128,6 +140,7 @@ export type QuadsPass = {
   layout: GPUBindGroupLayout;
   bind: (
     depth: GPUTextureView, ground: GPUTextureView, roof: GPUTextureView,
+    brink: GPUTextureView,
   ) => void;
   /** Where the ids go, for the copy into the shader's texture. */
   list: GPUBuffer;
@@ -135,6 +148,7 @@ export type QuadsPass = {
   say: (
     nx: number, ny: number, cpt: number, tilesHigh: number,
     dryDepth: number, fallMin: number, faces: boolean, slots: number,
+    brinkOn: boolean,
   ) => void;
   destroy: () => void;
 };
@@ -173,6 +187,10 @@ export function createQuadsPass(
         binding: 6, visibility: GPUShaderStage.COMPUTE,
         texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
       },
+      {
+        binding: 7, visibility: GPUShaderStage.COMPUTE,
+        texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
+      },
     ],
   });
   const pipeline = device.createComputePipeline({
@@ -186,7 +204,7 @@ export function createQuadsPass(
     },
   });
   const uniform = device.createBuffer({
-    size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "quads say",
   });
   const list = device.createBuffer({
@@ -238,7 +256,7 @@ export function createQuadsPass(
 
   return {
     layout, list, counts,
-    bind: (depth, ground, roof) => {
+    bind: (depth, ground, roof, brink) => {
       // ONCE PER TEXTURE PAIR, not once per dispatch. The pair only changes
       // when the scene is rebuilt.
       group = device.createBindGroup({
@@ -251,14 +269,16 @@ export function createQuadsPass(
           { binding: 4, resource: { buffer: counts } },
           { binding: 5, resource: { buffer: slice } },
           { binding: 6, resource: roof },
+          { binding: 7, resource: brink },
         ],
       });
     },
-    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots) => {
-      const buf = new ArrayBuffer(32);
+    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots, brinkOn) => {
+      const buf = new ArrayBuffer(48);
       new Int32Array(buf, 0, 4).set([nx, ny, cpt, tilesHigh]);
       // The fourth was the cap, which is per band now and comes from `slice`.
       new Float32Array(buf, 16, 4).set([dryDepth, fallMin, faces ? 1 : 0, slots]);
+      new Float32Array(buf, 32, 4).set([brinkOn ? 1 : 0, 0, 0, 0]);
       device.queue.writeBuffer(uniform, 0, buf);
     },
     encode: (enc, cells) => {

@@ -331,47 +331,31 @@ export function atBrink(
 export type Dialect = "wgsl" | "glsl";
 
 /**
- * The same rule as shader source.
+ * THE BRINK SCAN, on its own, because it is the most expensive thing in the
+ * frame and not every caller wants to run it.
  *
- * The host shader has to supply the parts that differ between the two paths
- * and are none of this rule's business: `inside(x, y)`, `slots()`,
- * `depthAt(x, y, a)`, `groundAt(x, y, a)`, `roofAt(x, y, a)`, `dryDepth()`,
- * `fallMin()`, `bitOf(k)` and `bitAt(m, k)`. The `a` is which STOREY — a
- * column is a stack of slots and a bridge puts water in two of them. GLSL must
- * also supply a `select(a, b, cond)` — WGSL has it built in, and one
- * three-line helper is cheaper than teaching this template about ternaries.
+ * `atBrink` reads the ground four ways, three columns out, through every slot
+ * over there — twenty-four iterations of several texture fetches — and
+ * `cornerOf` and `cornerExtras` each ask it once PER CONTRIBUTOR. A corner has
+ * up to twelve, four corners meet at every column, and four vertices ask each
+ * corner, so one column's brink was being worked out dozens of times a frame
+ * from data that had not changed. Measured on a bridged map with the timestamps
+ * on: 23.4ms of a 35.3ms GPU frame, two thirds of everything, and it doubles
+ * the moment a map has a second storey because the innermost loop is over
+ * slots.
  *
- * It must also carry {@link sheetGroupSource} ahead of this, which is where
- * `cornerMask` and `contribOf` come from and why this rule can be one rule
- * again. The corner used to split its contributors by the BED they stood on
- * and merge them back where that guess was wrong; then it split them by an id
- * computed on the host and uploaded, which was fresh on one path and stale on
- * the other. It splits them HERE now, off the corner's own geometry — so what
- * arrives is a corner and the contributor asking, and the answer is the
- * average over the ones in its component.
+ * So the SCAN is here, as `brinkCalc`, and `atBrink` is left to the host to
+ * define. The surface shader and the gathering read it out of a texture that
+ * `brink-gpu` fills once per slot per frame; the brink pass itself is the one
+ * that calls `brinkCalc`. Same rule, one copy, computed once.
  *
- * Written against the smallest vocabulary the two languages share, so what
- * varies is a handful of keywords rather than the shape of the code.
+ * NO BACKTICKS IN HERE — see the note at the top of the shared header.
  */
-export function cornerRuleSource(dialect: Dialect, drawdown = 0, rim = RIM): string {
+export function brinkRuleSource(dialect: Dialect): string {
   const wgsl = dialect === "wgsl";
-  /**
-   * A number that is definitely a FLOAT in both languages.
-   *
-   * WGSL promotes an abstract integer where a float is wanted; GLSL does not,
-   * and refuses `1 * someFloat` outright. So a tuning constant that happens to
-   * be whole — `RIM` is 1 — compiled on one path and took the other down with
-   * "no operation * exists that takes a const int and a highp float". Every
-   * number this template interpolates goes through here.
-   */
-  const f = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
-  const head = wgsl
-    ? "fn cornerOf(vx: i32, vy: i32, mine: i32) -> vec4<f32> {"
-    : "vec4 cornerOf(int vx, int vy, int mine) {";
-  const VEC4 = wgsl ? "vec4<f32>" : "vec4";
-  const MUT = wgsl ? "var" : "float";          // a float that is written again
-  const NUM = wgsl ? "let" : "float";          // a float that is not
-  const INT = wgsl ? "let" : "int";            // an int that is not
+  const NUM = wgsl ? "let" : "float";
+  const INT = wgsl ? "let" : "int";
+  const MUT = wgsl ? "var" : "float";
   const LOOP = wgsl ? "var" : "int";
   const FLT = wgsl ? "f32" : "float";        // an int made a float
   return `
@@ -384,8 +368,8 @@ ${wgsl
 }
 
 ${wgsl
-  ? "fn atBrink(cx: i32, cy: i32, a: i32) -> f32 {"
-  : "float atBrink(int cx, int cy, int a) {"}
+  ? "fn brinkCalc(cx: i32, cy: i32, a: i32) -> f32 {"
+  : "float brinkCalc(int cx, int cy, int a) {"}
   // ALONG THE SLOT'S OWN STOREY. A deck looks along the deck for its lip and
   // the channel under it looks along the channel; asked of storey nought, a
   // bridge would take its drawdown from the riverbed.
@@ -430,7 +414,58 @@ ${wgsl
   }
   return most;
 }
+`;
+}
 
+/**
+ * The same rule as shader source.
+ *
+ * The host shader has to supply the parts that differ between the two paths
+ * and are none of this rule's business: `inside(x, y)`, `slots()`,
+ * `depthAt(x, y, a)`, `groundAt(x, y, a)`, `roofAt(x, y, a)`, `dryDepth()`,
+ * `fallMin()`, `bitOf(k)`, `bitAt(m, k)` and `atBrink(x, y, a)`.
+ *
+ * `atBrink` is the host's because WHERE it comes from is the host's business:
+ * the scan itself lives in {@link brinkRuleSource}, and a host that has the
+ * brink texture to hand reads a texel instead of running it. It is by far the
+ * most expensive thing this rule asks for. The `a` is which STOREY — a
+ * column is a stack of slots and a bridge puts water in two of them. GLSL must
+ * also supply a `select(a, b, cond)` — WGSL has it built in, and one
+ * three-line helper is cheaper than teaching this template about ternaries.
+ *
+ * It must also carry {@link sheetGroupSource} ahead of this, which is where
+ * `cornerMask` and `contribOf` come from and why this rule can be one rule
+ * again. The corner used to split its contributors by the BED they stood on
+ * and merge them back where that guess was wrong; then it split them by an id
+ * computed on the host and uploaded, which was fresh on one path and stale on
+ * the other. It splits them HERE now, off the corner's own geometry — so what
+ * arrives is a corner and the contributor asking, and the answer is the
+ * average over the ones in its component.
+ *
+ * Written against the smallest vocabulary the two languages share, so what
+ * varies is a handful of keywords rather than the shape of the code.
+ */
+export function cornerRuleSource(dialect: Dialect, drawdown = 0, rim = RIM): string {
+  const wgsl = dialect === "wgsl";
+  /**
+   * A number that is definitely a FLOAT in both languages.
+   *
+   * WGSL promotes an abstract integer where a float is wanted; GLSL does not,
+   * and refuses `1 * someFloat` outright. So a tuning constant that happens to
+   * be whole — `RIM` is 1 — compiled on one path and took the other down with
+   * "no operation * exists that takes a const int and a highp float". Every
+   * number this template interpolates goes through here.
+   */
+  const f = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
+  const head = wgsl
+    ? "fn cornerOf(vx: i32, vy: i32, mine: i32) -> vec4<f32> {"
+    : "vec4 cornerOf(int vx, int vy, int mine) {";
+  const VEC4 = wgsl ? "vec4<f32>" : "vec4";
+  const MUT = wgsl ? "var" : "float";          // a float that is written again
+  const NUM = wgsl ? "let" : "float";          // a float that is not
+  const INT = wgsl ? "let" : "int";            // an int that is not
+  const LOOP = wgsl ? "var" : "int";
+  return `
 ${head}
   ${MUT} bed = -1000.0;
   ${MUT} sum = 0.0;

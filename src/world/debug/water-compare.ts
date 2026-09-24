@@ -96,7 +96,8 @@ import {
   createFallLayer, destroyFallLayer, drawFalls,
 } from "../render/falls-render";
 import {
-  attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
+  attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, destroyQuadGather,
+  deviceSinks, gatherQuads,
   drawGpuWater,
 } from "../render/water-gpu";
 
@@ -200,13 +201,38 @@ const ROAD_TABLE = buildRoadTable("landscape");
 
 export function compareWaterPaths(
   renderer: Renderer,
-  { size = 28, px = 640, seconds = 2, tolerance = 5, faces = true } = {},
+  {
+    size = 28, px = 640, seconds = 2, tolerance = 5, faces = true,
+    // THE GATHERING, AND WITH IT THE BRINK CACHE, which is the path the game
+    // actually draws by. Off, the vertex shader runs the brink scan inline;
+    // on, it reads the texture the brink pass filled. Those have to be the
+    // same picture, and this is the only check that can say so — the fast path
+    // shipped unmeasured by this once already. @see createBrinkPass
+    gather = true,
+    // AND THE BRINK CACHE ON ITS OWN, so it can be told apart from the
+    // gathering it rides with: the gathering's counts come back by an async
+    // mapping, so how many quads a band draws is not the same twice, and a
+    // difference that moves between runs is that and not this.
+    brink = true,
+  } = {},
 ): Comparison {
   const { grid, field } = scene(size);
   void grid;
   const bands = createBandLayer(size, size);
   const cpu = createWaterLayer(field.columns, bands, 1);
   const gpu = createGpuWaterLayer(field.columns, bands, 1);
+  const device = (renderer as unknown as { gpu?: { device: GPUDevice } }).gpu?.device ?? null;
+  const g = gather && device
+    ? attachQuadGather(gpu, renderer, device, size, size) : null;
+  if (g && !brink) {
+    g.brink = null;
+    for (const m of [...gpu.meshes, ...gpu.under]) {
+      const u = m.shader?.resources.water as { uniforms: Record<string, unknown>; update: () => void } | undefined;
+      if (!u) continue;
+      (u.uniforms.uSlots as Float32Array)[2] = 0;
+      u.update();
+    }
+  }
   frame(bands.root, size, px);
 
   // Both paths see the same columns because the solver is stepped once and
@@ -216,6 +242,7 @@ export function compareWaterPaths(
     stepWater(field, 1 / 60);
     drawWater(cpu, field.columns, bands, 1 / 60, faces);
     drawGpuWater(gpu, field.columns, bands, 1 / 60, faces);
+    if (g && device) gatherQuads(g, device, field.columns, size, size, faces);
   }
 
   // What each path wanted to be visible, so that hiding one to draw the other
@@ -276,6 +303,7 @@ export function compareWaterPaths(
   }
 
   destroyWaterLayer(cpu);
+  if (g) destroyQuadGather(g);
   destroyGpuWaterLayer(gpu);
   bands.root.destroy({ children: true });
 

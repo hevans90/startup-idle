@@ -29,12 +29,13 @@ import { matpackSource } from "../../fluid/gpu/matpack";
 import { metaSource } from "../../fluid/gpu/meta";
 import { sheetSource } from "../../fluid/gpu/sheet";
 import { spillSource } from "../../fluid/gpu/spill";
-import { cornerRuleSource } from "./corner-rule";
+import { brinkRuleSource, cornerRuleSource } from "./corner-rule";
 import { dripShaderSource } from "./drips-gpu";
 import { foamSource } from "./foam-gpu";
 import { sheetRuleSource } from "./nappe";
 import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
+import { brinkSource } from "./brink-gpu";
 import { quadsSource } from "./quads-gpu";
 import { washSource } from "./wash-gpu";
 import { waterShaderSource } from "./water-gpu";
@@ -63,6 +64,7 @@ const WGSL: [string, () => string][] = [
   ["corner rule", () => cornerRuleSource("wgsl")],
   ["quad rule", () => quadRuleSource("wgsl")],
   ["sheet group", () => sheetGroupSource("wgsl")],
+  ["brink", brinkSource],
 ];
 
 describe("every shader source", () => {
@@ -164,6 +166,10 @@ describe("the rules written in both languages", () => {
 
   test("and so does the sheet grouping", () => {
     expect(skeleton(sheetGroupSource("glsl"))).toBe(skeleton(sheetGroupSource("wgsl")));
+  });
+
+  test("and so does the brink scan", () => {
+    expect(skeleton(brinkRuleSource("glsl"))).toBe(skeleton(brinkRuleSource("wgsl")));
   });
 
   test("and each is written in its own language", () => {
