@@ -639,8 +639,8 @@ fn mainVertex(
   var alpha = 0.0;
 
   if (part == 0) {
-    // THE SURFACE. At a brink any water at all draws — see showsWater.
-    if (!showsWater(cx, cy, a)) { return out; }
+    // THE SURFACE.
+    if (d <= water.uBand.z) { return out; }
     let ox = ((corner + 1) >> 1) & 1;
     let oy = corner >> 1;
     // THIS COLUMN'S OWN SHEET, which is what every corner it reads is keyed

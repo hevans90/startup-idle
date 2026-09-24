@@ -28,9 +28,7 @@ import {
   createQuadBatch, destroyQuadBatch, packAlpha, packRGB, pushQuad, resetQuads, rgba,
   uploadQuads, type QuadBatch,
 } from "./quads";
-import {
-  RIM, atBrink, resolveCorner, resolveSide, showsWater, spillAt,
-} from "./corner-rule";
+import { RIM, atBrink, resolveCorner, resolveSide, spillAt } from "./corner-rule";
 import { NO_BODY, createBodies, findBodies, type Bodies } from "./bodies";
 import { OPEN_SKY } from "../../fluid/slots";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
@@ -558,11 +556,7 @@ function cornerValues(
       const ci = y * nx + x;
       const i = A + ci;
       const d = depth[i];
-      // ANY WATER CONTRIBUTES — the same rule as `showsWater` and as sheet
-      // membership. Left at `dryDepth` here while the other two had it
-      // removed, a column that is drawn gathers no corner of its own and
-      // comes out at an alpha of nought, which is a hole with extra steps.
-      if (d <= 0) continue;
+      if (d <= params.dryDepth) continue;
       const sheet = wl.bodies.at[i];
       if (sheet === NO_BODY) continue;
       const bed = columns.ground[i];
@@ -571,7 +565,7 @@ function cornerValues(
       // what decides how solid it looks and stays the water's own.
       const sag = d * DRAWDOWN * atBrink(
         columns.nx, columns.ny, ci, columns.ground, columns.depth,
-        columns.params.dryDepth, FALL_MIN, a * columns.cells, columns.roof,
+        columns.params.dryDepth, FALL_MIN, A, columns.roof,
       );
       const surface = surfaceAt(columns, i) - sag;
       const vx = flowX(columns, x, y, a), vy = flowY(columns, x, y, a);
@@ -872,12 +866,7 @@ function fillQuads(
       for (let a = 0; a < columns.layers; a++) {
       const i = a * columns.cells + ci;
       const d = depth[i];
-      // AT A BRINK ANY WATER DRAWS — see `showsWater`, which is why a
-      // parapet's film no longer leaves a hole in the span's sheet.
-      if (!showsWater(
-        columns.nx, columns.ny, ci, columns.ground, depth,
-        columns.params.dryDepth, FALL_MIN, a * columns.cells, columns.roof,
-      )) continue;
+      if (d <= columns.params.dryDepth) continue;
       const sheet = wl.bodies.at[i];
       if (sheet === NO_BODY) continue;
 

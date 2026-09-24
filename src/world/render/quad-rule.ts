@@ -84,7 +84,7 @@ ${wgsl
     ? "fn quadDraws(cx: i32, cy: i32, part: i32, cpt: i32, faces: bool, a: i32) -> bool {"
     : "bool quadDraws(int cx, int cy, int part, int cpt, bool faces, int a) {"}
   if (!inside(cx, cy)) { return false; }
-  if (part == 0) { return showsWater(cx, cy, a); }
+  if (part == 0) { return depthAt(cx, cy, a) > dryDepth(); }
   if (!faces) { return false; }
   if (part <= 2) {
     // A SIDE OF THIS COLUMN, unless it is filed forward into the band in front.
