@@ -1142,7 +1142,7 @@ export type GpuWaterLayer = {
    * Empty until `deviceSinks` says otherwise, so a layer with no solver on it
    * uploads everything — which is what the host path wants. What must never
    * happen is skipping an upload for a texture the device turned down.
-   * @see deviceSinks, FED_AT
+   * @see deviceSinks, FED
    */
   fed: Set<number>;
   /** Whether the meshes draw at all. A measurement switch. @see showGpuWater */
@@ -1449,16 +1449,16 @@ const FED: readonly (readonly [number, FieldName, 1 | 4])[] = [
   [0, "depth", 4], [2, "washNow", 4], [3, "foamNow", 4],
   [4, "fx", 4], [5, "fy", 4], [6, "matByte", 1],
 ];
-/**
- * The ones the device COULD fill. Which it actually does is per map — see
- * {@link deviceSinks} — and the difference between those two is a texture
- * nobody writes at all. @see GpuWaterLayer.fed
- */
-const FED_AT = new Set(FED.map(([k]) => k));
 /** Where the ground sits in `sources`. The one the device never writes. */
 const GROUND_AT = 1;
-/** And the sheet ids, which the host fills whichever solver is running. */
-const BODY_AT = 7;
+/**
+ * And the sheet ids, which the host fills whichever solver is running.
+ *
+ * Exported because an instrument has to be able to read this texture back and
+ * hold it against the DEVICE's depth; nothing else outside this file wants it.
+ * @see accountDecks
+ */
+export const BODY_AT = 7;
 /** And the roofs, which are geometry and move only when the map does. */
 const ROOF_AT = 8;
 

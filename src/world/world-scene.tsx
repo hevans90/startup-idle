@@ -27,12 +27,15 @@ import {
   createWaterLayer, destroyWaterLayer, drawWater, type WaterLayer,
 } from "./render/water";
 import {
-  attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
+  BODY_AT, attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
   destroyQuadGather, drawGpuWater, gatherQuads, showGpuWater, waterOnGpu,
   type GpuWaterLayer,
 } from "./render/water-gpu";
 import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
 import { NO_BODY } from "./render/bodies";
+import {
+  accountDecks, gpuOf, readFloatRows, silenceDecks, type DeckAccount,
+} from "./debug/device-read";
 import { atBrink, showsWater } from "./render/corner-rule";
 import { FALL_MIN, waterInAir } from "../fluid/falls";
 import { crossingPoured } from "./debug/world-scenes";
@@ -273,7 +276,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
          * being drawn and then painted over. Nought in both is a mesh that is
          * not reaching the frame at all. @see showGpuWater
          */
-        window.__liveWaterPixels = () => {
+        window.__liveWaterPixels = async () => {
           const bl = blRef.current, wl = gpuRef.current;
           const field = useWorldStore.getState().getWaterField();
           const g = useWorldStore.getState().grid;
@@ -308,39 +311,29 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               y0 = Math.min(y0, p.y - ry * 3); y1 = Math.max(y1, p.y + ry);
             }
           }
+          // AND THE DECK'S OWN SHARE OF IT, which the box above cannot give:
+          // that box holds the channel under the span as well, and a river
+          // seen beside a bridge counts the same as water standing on it.
+          //
+          // The readback FIRST, and every shot after it, because this is the
+          // one step that yields: taken between the shots, a frame of the
+          // river moving would land in the difference as water the deck was
+          // drawing. @see silenceDecks
+          const c = field.columns;
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device ?? null;
+          const hush = await silenceDecks(app.renderer, device, wl.sources[0], c);
+          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+          const noDeck = shoot();
+          hush?.();
+          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+
           const was = wl.drawing;
           showGpuWater(wl, true);
           const on = shoot();
           showGpuWater(wl, false);
           const off = shoot();
           showGpuWater(wl, was);
-
-          // AND THE DECK'S OWN SHARE OF IT, which the box above cannot give:
-          // that box holds the channel under the span as well, and a river
-          // seen beside a bridge counts the same as water standing on it.
-          //
-          // Taken by the SHEET IDS rather than by the depths. They are worked
-          // out on the host every frame and uploaded, so emptying the host's
-          // upper storeys makes the deck's columns NO_BODY and the builder
-          // drops them — while the device's depth texture, which this path
-          // does not write, is left alone. Whatever changes is what the deck's
-          // water was putting on the screen. @see findBodies
-          const c = field.columns, cells = c.cells;
-          const kept = new Float32Array(cells * (c.layers - 1));
-          for (let a = 1; a < c.layers; a++) {
-            for (let i = 0; i < cells; i++) {
-              kept[(a - 1) * cells + i] = c.depth[a * cells + i];
-              c.depth[a * cells + i] = 0;
-            }
-          }
-          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
-          const noDeck = shoot();
-          for (let a = 1; a < c.layers; a++) {
-            for (let i = 0; i < cells; i++) {
-              c.depth[a * cells + i] = kept[(a - 1) * cells + i];
-            }
-          }
-          drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
           let all = 0, span = 0, deckAll = 0, deckSpan = 0;
           const w = W;
           for (let i = 0; i < on.length; i += 4) {
@@ -492,26 +485,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               if (c.roof[ia] > c.ground[ia]) deck.push(ia);
             }
           }
-          // THE REFERENCE: the same picture with the deck's water not drawn.
-          //
-          // SETTLED FIRST, and the first frames after it thrown away. Taken
-          // cold, the count climbed 771 to 2624 over eleven frames with the
-          // wet column count dead still at 133 — the picture catching up with
-          // having had the deck emptied and put back, reported as eleven
-          // frames of holes. That is this tool's own wake, not the map's.
-          const kept = deck.map((i) => c.depth[i]);
-          for (const i of deck) c.depth[i] = 0;
-          for (let k = 0; k < 3; k++) {
-            drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
-            shoot();
-          }
-          const bare = shoot();
-          deck.forEach((i, k) => { c.depth[i] = kept[k]; });
-          for (let k = 0; k < 3; k++) {
-            drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
-            shoot();
-          }
-
           const SETTLE = 20;
           // A MASK OF WHAT IS USUALLY THE DECK'S WATER, and then the pixels
           // inside it that have gone back to looking like bare deck.
@@ -532,6 +505,39 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             n: number; px: number; holes: number; air: number; wet: number;
           }[] = [];
           let n = 0;
+          /**
+           * THE REFERENCE: the same picture with the deck's water not drawn.
+           *
+           * ON BOTH SOURCES. Emptying the host's copy alone leaves the device's
+           * depth texture full, and the shader draws an unlabelled column as
+           * pseudo-sheet `-1` rather than skipping it — so the reference used
+           * to contain the very water it was the reference for. @see silenceDecks
+           *
+           * SETTLED FIRST, and the first frames after it thrown away. Taken
+           * cold, the count climbed 771 to 2624 over eleven frames with the
+           * wet column count dead still at 133 — the picture catching up with
+           * having had the deck emptied and put back, reported as eleven
+           * frames of holes. That is this tool's own wake, not the map's.
+           */
+          let bare = new Uint8Array(0);
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device ?? null;
+          // NOTHING MAY YIELD between the silence and the restore, so the
+          // readback is awaited out here and every draw and shot below it is
+          // one synchronous stretch. @see silenceDecks
+          void silenceDecks(app.renderer, device, wl.sources[0], c).then((hush) => {
+            for (let k = 0; k < 3; k++) {
+              drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+              shoot();
+            }
+            bare = shoot();
+            hush?.();
+            for (let k = 0; k < 3; k++) {
+              drawGpuWater(wl, c, bl, 1 / 60, true, solverRef.current !== null);
+              shoot();
+            }
+            requestAnimationFrame(tick);
+          });
           const tick = () => {
             const now = shoot();
             let px = 0, holes = 0;
@@ -632,7 +638,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               });
             }
           };
-          requestAnimationFrame(tick);
         });
         window.__watchQuadRoom = (frames = 240) => new Promise((done) => {
           const wl = gpuRef.current;
@@ -772,6 +777,125 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               ? `${noBody} wet deck columns have no sheet id: they draw as nothing`
               : null,
           };
+        };
+        /**
+         * THE ONE THING NOTHING ELSE COULD SEE: the DEVICE's depth, read back
+         * out of the texture the vertex shader samples, against the sheet ids.
+         *
+         * `__deckBodies` asks the same question of the host's copy of the
+         * depths — and the ids are computed from that copy, every frame, by
+         * `findBodies`. The two cannot disagree; they are the same numbers
+         * twice. So that probe reports `noBody: 0` on a bridge with a hole in
+         * it, which is a true statement about the wrong pair of sources.
+         *
+         * What the shader draws from is the device's depth texture, filled by
+         * `copyOut` on the end of the solver's own command buffer. The host's
+         * copy is a band or a sparse list behind it — up to `CARRY_EVERY`
+         * readbacks behind while anything is moving. A column at a front is
+         * wet on one and `NO_BODY` on the other, and there is no skip for
+         * `NO_BODY` on the GPU: it draws as pseudo-sheet `-1`, gathered at the
+         * corner with every other unlabelled column.
+         *
+         * Reads the whole depth plane stack in one copy, and the ids too — the
+         * body texture is uploaded whole every frame, so `idsAdrift` should be
+         * nought, and it is worth having asked once. @see accountDecks
+         */
+        window.__deviceIds = async () => {
+          const wl = gpuRef.current;
+          const f = useWorldStore.getState().getWaterField();
+          const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device ?? null;
+          if (!wl || !f) return { ok: false, why: "no device water layer" };
+          if (!device) return { ok: false, why: "not on the WebGPU path" };
+          if (!solverRef.current) {
+            return { ok: false, why: "the host is solving: there is no second source" };
+          }
+          const c = f.columns;
+          const depthTex = gpuOf(app.renderer, wl.sources[0]);
+          const bodyTex = gpuOf(app.renderer, wl.sources[BODY_AT]);
+          if (!depthTex || !bodyTex) {
+            return { ok: false, why: "no GPU textures behind the sources" };
+          }
+          const rows = c.ny * c.layers;
+          // THE IDS COPIED BEFORE ANYTHING YIELDS. `drawGpuWater` rewrites
+          // `bodies.at` in place every frame, and a readback takes several —
+          // held by reference across the await, the ids compared against this
+          // frame's depth would be some LATER frame's ids, and the instrument
+          // would invent staleness it had itself introduced.
+          const ids = wl.bodies.at.slice();
+          const [dev, onDevice] = await Promise.all([
+            readFloatRows(device, depthTex, c.nx, 0, rows),
+            readFloatRows(device, bodyTex, c.nx, 0, rows),
+          ]);
+          return {
+            ...accountDecks(c, dev, ids, onDevice),
+            dryDepth: c.params.dryDepth,
+          };
+        };
+        /**
+         * The same, frame by frame, keeping the worst.
+         *
+         * The hole being chased lasts a moment — it opens as a fall ends and
+         * closes as the labels catch up — so a snapshot taken by hand almost
+         * never lands on one. One readback in flight at a time; a frame that
+         * arrives while the last is still mapping is skipped rather than
+         * queued, which keeps this from becoming the thing it is measuring.
+         *
+         * ONE SAMPLE TAKEN FIRST, and the run abandoned if it is not an
+         * account at all. A watch that treats "the host is solving" as a
+         * hundred and fifty clean frames is the failure this whole exercise
+         * has been about: it would report `ok` for a map it never measured.
+         */
+        window.__watchDeviceIds = async (frames = 240) => {
+          // An account, or the reason there is not one. @see accountDecks
+          const account = (r: unknown) =>
+            (r as Partial<DeckAccount>).deckColumns === undefined
+              ? null : r as DeckAccount;
+          const first = account(await window.__deviceIds!());
+          if (!first) return await window.__deviceIds!();
+          if (first.deckColumns === 0) {
+            return { ...first, ok: false, why: "no storeyed columns: nothing to watch" };
+          }
+          const bad = (r: DeckAccount) => r.deviceWetNoId + r.idNoDeviceWater;
+          return new Promise((done) => {
+            let seen = 0, sampled = 0, busy = false;
+            let worst = first, worstAt = 0;
+            const series: { n: number; wetNoId: number; idNoWater: number }[] = [];
+            const tick = () => {
+              if (seen++ >= frames) {
+                done({
+                  frames: seen, sampled, worstFrame: worstAt,
+                  worstWetNoId: worst.deviceWetNoId, worstIdNoWater: worst.idNoDeviceWater,
+                  // Only the frames where the two sources actually differed:
+                  // a clean run is an empty list, which is the answer.
+                  disagreed: series,
+                  worst,
+                  ok: bad(worst) === 0,
+                  why: bad(worst) === 0
+                    ? "the device's depth and the sheet ids agreed on every"
+                      + " sampled frame"
+                    : `frame ${worstAt}: ${worst.why ?? ""}`,
+                });
+                return;
+              }
+              requestAnimationFrame(tick);
+              if (busy) return;
+              busy = true;
+              const at = seen;
+              void window.__deviceIds!().then((r) => {
+                const a = account(r);
+                if (!a) return;
+                if (bad(a) > 0 && series.length < 60) {
+                  series.push({
+                    n: at, wetNoId: a.deviceWetNoId, idNoWater: a.idNoDeviceWater,
+                  });
+                }
+                if (bad(a) > bad(worst)) { worst = a; worstAt = at; }
+                sampled++;
+              }).finally(() => { busy = false; });
+            };
+            requestAnimationFrame(tick);
+          });
         };
         // AND WHETHER THE WATER ON A BRIDGE REACHES THE SCREEN AT ALL, which
         // the comparison above cannot answer: it renders the two water
