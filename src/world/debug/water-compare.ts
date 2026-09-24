@@ -63,7 +63,7 @@ import { buildPaved, createPavedLayer } from "../render/paved";
 import { copyWater, crossingScene, wetTheDecks } from "./world-scenes";
 import { createGpuWater } from "../../fluid/gpu/solver";
 import { COLUMNS_PER_TILE } from "../water/field";
-import type { Palette } from "../palette";
+import type { Palette } from "../render/terrain";
 import {
   createWaterField, pourAt, runSources, setWaterEdge, stepWater,
 } from "../water/field";

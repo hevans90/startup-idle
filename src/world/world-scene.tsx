@@ -36,7 +36,7 @@ import { NO_BODY } from "./render/bodies";
 import {
   accountDecks, gpuOf, readFloatRows, silenceDecks, type DeckAccount,
 } from "./debug/device-read";
-import { atBrink, showsWater } from "./render/corner-rule";
+import { atBrink } from "./render/corner-rule";
 import { FALL_MIN, waterInAir } from "../fluid/falls";
 import { crossingPoured } from "./debug/world-scenes";
 import {
@@ -519,7 +519,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
            * having had the deck emptied and put back, reported as eleven
            * frames of holes. That is this tool's own wake, not the map's.
            */
-          let bare = new Uint8Array(0);
+          let bare: ReturnType<typeof shoot> = new Uint8ClampedArray(0);
           const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
             .gpu?.device ?? null;
           // NOTHING MAY YIELD between the silence and the restore, so the
@@ -687,20 +687,22 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         /**
          * DECKED COLUMNS THE MESH IS NOT DRAWING, with drawn ones either side.
          *
-         * Asked of `showsWater` itself, which is the rule the builder, the
-         * gathering and the vertex shader all decide by — so this cannot
-         * disagree with what is on the screen about which columns are in the
-         * sheet. A column missing with its neighbours present IS the hole,
-         * and its depth and its brink say why it was left out.
+         * Asked with the rule the builder, the gathering and the vertex
+         * shader all decide by, which since the brink gate was reverted is a
+         * plain cutoff on depth — `quadDraws` part 0 and `findBodies` both ask
+         * exactly this. A column missing with its neighbours present IS a
+         * hole, and its depth and its brink say why it was left out.
+         *
+         * OF THE HOST'S COPY, though, and that is its limit: the shader draws
+         * the DEVICE's depth, which is several frames ahead of this. A span
+         * can read clean here and have a hole on it. @see __deviceIds
          */
         window.__deckHolesNow = () => {
           const fld = useWorldStore.getState().getWaterField();
           if (!fld) return { ok: false, why: "no water field" };
           const f = fld.columns, cells = f.cells, dry = f.params.dryDepth;
           const deckAt = (i: number) => f.roof[cells + i] > f.ground[cells + i];
-          const drawn = (i: number) => showsWater(
-            f.nx, f.ny, i, f.ground, f.depth, dry, FALL_MIN, cells, f.roof,
-          );
+          const drawn = (i: number) => f.depth[cells + i] > dry;
           const holes: unknown[] = [];
           for (let cy = 1; cy < f.ny - 1; cy++) {
             for (let cx = 1; cx < f.nx - 1; cx++) {
