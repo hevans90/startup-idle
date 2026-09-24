@@ -219,6 +219,29 @@ describe("the two shader dialects are the same program", () => {
     expect(wgsl).not.toContain("float ");
   });
 
+  test("and both read the ground beside the corner in the BED'S storey", () => {
+    // THE 80-PIXEL DIVERGENCE, pinned. The rim rule asks what the ground does
+    // beside a corner, and on a map with a bridge "the ground" needs a storey
+    // named before it can be answered. The builder asks asideAt in the
+    // contributor's own storey; the shader read storey nought, always. On a
+    // deck those are twenty half steps apart, so the shader measured a span's
+    // rim against the riverbed under it, came out far past a fall, and never
+    // applied the rim at all — while the builder saw level ground and applied
+    // it in full. Rim nought against rim one, on every corner of a span with
+    // fewer than four contributors on it, which is its whole edge.
+    //
+    // It cost eighty pixels of `__waterCompare` and a long hunt, because the
+    // grouping had just moved and looked far more guilty than it was. A word
+    // test is only as good as the word being rare, and `bedSlot` is.
+    for (const d of ["wgsl", "glsl"] as const) {
+      const src = cornerRuleSource(d);
+      expect(src).toContain("bedSlot");
+      expect(src).toContain("groundAt(gx2, gy2, bedSlot)");
+      // And the rim is NOT measured at storey nought any more.
+      expect(src).not.toContain("lowest = min(lowest, groundAt(cx, cy, 0))");
+    }
+  });
+
   test("and neither declares anything twice", () => {
     // The twin test above compares the two dialects to EACH OTHER, so a fault
     // they share is invisible to it. Editing this template by hand once left

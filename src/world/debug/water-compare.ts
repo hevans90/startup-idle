@@ -29,28 +29,26 @@
  * tolerance nothing differs at all. Neither path draws a pixel the other
  * leaves empty. The same on both renderers, to the pixel.
  *
- * WHAT IT READS TODAY, AND IT IS NOT THAT. Since the sheet grouping moved from
- * a flood fill on the host to a partition each corner makes for itself
- * (`render/sheet-group`), this reads **80 pixels of 36,365 differing, worst 38
- * of 255, mean 0.50**, with neither path drawing a pixel the other leaves
- * empty. Every one of them is in one box, x 513-585 by y 245-277, which is the
- * PLATEAU'S LIP; the count is nought at `seconds: 0.2`, 47 at 1 and 80 at 2,
- * so it grows as the scene settles. It is not the side faces — `faces: false`
- * leaves 78 of them — and it is the corner's contributor COUNT that differs,
- * measured by painting the count instead of the water: 4 on the host where the
- * device has 3.
+ * AND THE HUNT THAT COST THE MOST, because the shape of it will repeat. When
+ * the sheet grouping moved from a flood fill on the host to a partition each
+ * corner makes for itself, this went from nought differing to **80 of 36,365,
+ * worst 38**, all in one box and growing as the scene settled. The grouping
+ * had just changed and looked guilty. It was not: painting each path's mask
+ * flat per quad showed both computing the identical component, bit for bit, at
+ * the same corner. What differed was the RIM — the shader read the ground
+ * beside a corner at storey nought while the builder read it in the
+ * contributor's own storey, which on a deck is twenty half steps apart, so one
+ * path applied the rim in full where the other never applied it at all. One
+ * line of the corner rule. @see cornerOf
  *
- * WHAT HAS BEEN RULED OUT, so nobody pays for it twice: the builder's tiers
- * are exactly the rule's components, corner for corner, on this very scene;
- * the batch union-find and the flood agree on it too; no corner overflows its
- * tiers; the 45 neighbour pairs that sit on the fall threshold sit on it
- * EXACTLY, so it is not a tie being broken two ways; and aligning the host's
- * arithmetic to the device's precision, for both the fall test and `dryDepth`,
- * changes nothing. The remaining suspect is the shader's own evaluation of the
- * partition, which nothing here can read back.
- *
- * SO THIS IS A KNOWN FAILING CONTROL, not a passing one. It was clean before
- * that change and it has to be clean again.
+ * What made it findable, in order: `where` (the box put it on the BRIDGE, not
+ * the plateau it looked like); `faces: false` (the surface, not the sides);
+ * painting the contributor COUNT instead of the water (4 against 3); painting
+ * the MASK flat per quad (identical, which cleared the new code); and painting
+ * one fixed corner's mask across every quad, so the two paths were answering
+ * about the same corner instead of about whichever one won the pixel. Four of
+ * those five readings were misleading until the last, because a pixel only
+ * ever reports the quad on TOP of it.
  *
  * THE TOLERANCE IS 5 AND WAS 4, and the extra step is the bridge. Exactly one
  * pixel of the scene reads 5, deterministically, every run: the corner where

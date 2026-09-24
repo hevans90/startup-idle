@@ -441,6 +441,7 @@ ${head}
   ${MUT} lowest = 1000.0;
   ${MUT} highest = -1000.0;
   ${MUT} edge = 0.0;
+  ${MUT} bedSlot = 0;
   // WHICH OF THIS CORNER'S CONTRIBUTORS ARE THE ASKER'S OWN WATER, worked out
   // here and now from depth, ground and roof — nothing solid between them and
   // no fall between them. A pure function of the corner, so every column
@@ -453,13 +454,8 @@ ${head}
     ${INT} cx = vx - 1 + (k & 1);
     ${INT} cy = vy - 1 + (k >> 1);
     if (!inside(cx, cy)) { edge = 1.0; continue; }
-    // THE GROUND BESIDE IT is storey nought's, always: the rim rule asks what
-    // the land does around the corner, and the land is the land whatever is
-    // built over it.
-    lowest = min(lowest, groundAt(cx, cy, 0));
-    highest = max(highest, groundAt(cx, cy, 0));
-    // AND EVERY STOREY OF IT, because a bridge's deck and the channel under
-    // it both meet this corner and only one of them is on this sheet.
+    // EVERY STOREY OF IT, because a bridge's deck and the channel under it
+    // both meet this corner and only one of them is on this sheet.
     for (${LOOP} a = 0; a < slots(); a = a + 1) {
       ${NUM} d = depthAt(cx, cy, a);
       if (d <= dryDepth()) { continue; }
@@ -476,11 +472,29 @@ ${head}
       sum = sum + surface;
       n = n + 1.0;
       // The highest bed of this sheet's OWN contributors, which is what the
-      // rim rule is measured from.
-      bed = max(bed, g);
+      // rim rule is measured from — and WHICH STOREY it was in, which is what
+      // the ground beside it has to be read at. @see asideAt
+      if (g > bed) { bed = g; bedSlot = a; }
     }
   }
   if (n == 0.0) { return ${VEC4}(0.0, 0.0, -1000.0, 0.0); }
+  // THE GROUND BESIDE THE CORNER, IN THE BED'S OWN STOREY, and that is why it
+  // is a second pass: which storey to ask is not known until the highest bed
+  // of this sheet's contributors is. Read at storey nought, a DECK's rim is
+  // measured against the riverbed twenty half steps under it — it comes out
+  // far past a fall and the rim never applies, while the builder, which asks
+  // asideAt in the contributor's own storey, sees level ground and applies
+  // it in full. Two paths, one at rim nought and one at rim one, on every
+  // corner of a span with fewer than four contributors on it. That is what
+  // the pixel comparison was unhappy about. @see asideAt
+  for (${LOOP} k2 = 0; k2 < 4; k2 = k2 + 1) {
+    ${INT} gx2 = vx - 1 + (k2 & 1);
+    ${INT} gy2 = vy - 1 + (k2 >> 1);
+    if (!inside(gx2, gy2)) { continue; }
+    ${NUM} g2 = groundAt(gx2, gy2, bedSlot);
+    lowest = min(lowest, g2);
+    highest = max(highest, g2);
+  }
   ${NUM} mean = sum / n;
   // THE RIM — see corner-rule.ts's RIM and rimAt, which this is. Fewer than
   // four wet columns of this sheet means the corner is on the outside of it,
