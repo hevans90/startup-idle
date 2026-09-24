@@ -211,9 +211,11 @@ describe("the two shader dialects are the same program", () => {
 
   test("and each is written in its own language, not the other's", () => {
     const wgsl = cornerRuleSource("wgsl"), glsl = cornerRuleSource("glsl");
-    expect(wgsl).toContain("fn cornerOf(vx: i32, vy: i32, ax: i32, ay: i32, aa: i32) -> vec4<f32>");
+    expect(wgsl).toContain("fn cornerOf(vx: i32, vy: i32, mine: i32) -> vec4<f32>");
+    expect(wgsl).toContain("fn cornerFor(vx: i32, vy: i32, ax: i32, ay: i32, aa: i32) -> vec4<f32>");
     expect(wgsl).toContain("fn resolveSide(bed: f32, bedJ: f32, wetJ: bool");
-    expect(glsl).toContain("vec4 cornerOf(int vx, int vy, int ax, int ay, int aa)");
+    expect(glsl).toContain("vec4 cornerOf(int vx, int vy, int mine)");
+    expect(glsl).toContain("vec4 cornerFor(int vx, int vy, int ax, int ay, int aa)");
     expect(glsl).toContain("vec4 resolveSide(float bed, float bedJ, bool wetJ");
     expect(glsl).not.toContain("<f32>");
     expect(wgsl).not.toContain("float ");
@@ -268,6 +270,9 @@ describe("the two shader dialects are the same program", () => {
     for (const d of ["wgsl", "glsl"] as const) {
       const src = cornerRuleSource(d);
       expect(src).toContain("cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa))");
+      // And cornerOf itself takes the component, so one vertex floods a
+      // corner once however many questions it asks of it. @see cornerFor
+      expect(src).not.toContain("mine = cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa));");
       expect(src).toContain("bitAt(mine, k * slots() + a) == 0");
       expect(src).not.toContain("nHi");
       expect(src).not.toContain("nLo");

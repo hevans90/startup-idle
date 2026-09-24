@@ -417,10 +417,9 @@ fn flowAt(cx: i32, cy: i32, d: f32, a: i32) -> vec2<f32> {
 }
 
 /** Depth, wash, foam and flow speed, averaged over the same contributors. */
-fn cornerExtras(vx: i32, vy: i32, ax: i32, ay: i32, aa: i32) -> vec4<f32> {
+fn cornerExtras(vx: i32, vy: i32, mine: i32) -> vec4<f32> {
   var d = 0.0; var wash = 0.0; var foam = 0.0; var n = 0.0;
   var vel = vec2<f32>(0.0, 0.0);
-  let mine = cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa));
   for (var k = 0; k < 4; k = k + 1) {
     let cx = vx - 1 + (k & 1);
     let cy = vy - 1 + (k >> 1);
@@ -458,29 +457,39 @@ fn cornerExtras(vx: i32, vy: i32, ax: i32, ay: i32, aa: i32) -> vec4<f32> {
  * that, so a brink read as level stops agreeing with its own waterfall. Water
  * ABOVE is a bridge, and a bridge is not a slope in the water under it.
  */
-fn nearby(vx: i32, vy: i32, dx: i32, dy: i32, ax: i32, ay: i32, aa: i32, here: f32) -> f32 {
+fn nearby(vx: i32, vy: i32, dx: i32, dy: i32, mine: i32, here: f32) -> f32 {
   // ASKED THROUGH A COLUMN THE TWO CORNERS SHARE. A component decided AT the
   // home corner says nothing about the corner a step away, but the two of them
   // do share two columns — so the question travels along one of those, picked
   // canonically so that every column of this sheet asks the same one.
-  // @see sharedOf
-  let mine = cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa));
+  // The home component comes in as an argument: this is called four times per
+  // vertex and flooding the same corner four times over is most of what the
+  // grouping cost. @see sharedOf
   let m = sharedOf(mine, dx, dy);
   let jx = vx + dx;
   let jy = vy + dy;
   if (m >= 0) {
     let q = m / slots();
-    let c = cornerOf(jx, jy, vx - 1 + (q & 1), vy - 1 + (q >> 1), m % slots());
+    let c = cornerFor(jx, jy, vx - 1 + (q & 1), vy - 1 + (q >> 1), m % slots());
     if (c.w > 0.0) { return c.x; }
   }
   var below = here;
+  // ONE FLOOD PER COMPONENT, not one per contributor. Everything a flood
+  // finds is in the component it just answered for, so it never has to be
+  // asked again — which takes this loop from eight floods to the number of
+  // separate bodies of water meeting the corner, which is one or two.
+  var seen = 0;
   for (var k = 0; k < 4; k = k + 1) {
     let cx = jx - 1 + (k & 1);
     let cy = jy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
     for (var a = 0; a < slots(); a = a + 1) {
+      let at = k * slots() + a;
+      if (bitAt(seen, at) == 1) { continue; }
       if (depthAt(cx, cy, a) <= water.uBand.z) { continue; }
-      let o = cornerOf(jx, jy, cx, cy, a);
+      let msk = cornerMask(jx, jy, at);
+      seen = seen | msk;
+      let o = cornerOf(jx, jy, msk);
       if (o.w > 0.0 && o.x < below) { below = o.x; }
     }
   }
@@ -548,10 +557,10 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   // count of nought. The twin of water.ts's sideFace.
   let ownTop = min(bed + d, roofAt(cx, cy, a));
   let theirTop = select(bedJ, min(bedJ + depthAt(jx, jy, a), roofAt(jx, jy, a)), wetJ);
-  let cA = cornerOf(vax, vay, cx, cy, a);
-  let cB = cornerOf(cx + 1, cy + 1, cx, cy, a);
-  let oA = cornerOf(vax, vay, jx, jy, a);
-  let oB = cornerOf(cx + 1, cy + 1, jx, jy, a);
+  let cA = cornerFor(vax, vay, cx, cy, a);
+  let cB = cornerFor(cx + 1, cy + 1, cx, cy, a);
+  let oA = cornerFor(vax, vay, jx, jy, a);
+  let oB = cornerFor(cx + 1, cy + 1, jx, jy, a);
   let s = resolveSide(
     bed, bedJ, wetJ,
     select(ownTop, cA.x, cA.w > 0.0), select(theirTop, oA.x, oA.w > 0.0),
@@ -658,22 +667,23 @@ fn mainVertex(
     if (d <= water.uBand.z) { return out; }
     let ox = ((corner + 1) >> 1) & 1;
     let oy = corner >> 1;
-    // THIS COLUMN, which is how every corner it reads is asked. A column is
+    // THIS COLUMN'S COMPONENT AT THIS CORNER, worked out ONCE. A column is
     // always one of its own corners' four, so what comes back is always the
-    // component it is in and always the one it helped make.
-    // @see render/sheet-group
-    let c = cornerOf(cx + ox, cy + oy, cx, cy, a);
+    // component it is in and always the one it helped make — and everything
+    // this vertex asks of this corner is asked with it. @see render/sheet-group
+    let vcx = cx + ox;
+    let vcy = cy + oy;
+    let mine = cornerMask(vcx, vcy, contribOf(vcx, vcy, cx, cy, a));
+    let c = cornerOf(vcx, vcy, mine);
     let bed = groundAt(cx, cy, a);
     h = max(c.x, bed);
     fx = fx0 + f32(ox) * step;
     fy = fy0 + f32(oy) * step;
 
-    let e = cornerExtras(cx + ox, cy + oy, cx, cy, a);
+    let e = cornerExtras(vcx, vcy, mine);
     let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
-    let gx = nearby(cx + ox, cy + oy, -1, 0, cx, cy, a, c.x)
-           - nearby(cx + ox, cy + oy, 1, 0, cx, cy, a, c.x);
-    let gy = nearby(cx + ox, cy + oy, 0, -1, cx, cy, a, c.x)
-           - nearby(cx + ox, cy + oy, 0, 1, cx, cy, a, c.x);
+    let gx = nearby(vcx, vcy, -1, 0, mine, c.x) - nearby(vcx, vcy, 1, 0, mine, c.x);
+    let gy = nearby(vcx, vcy, 0, -1, mine, c.x) - nearby(vcx, vcy, 0, 1, mine, c.x);
     let lean = (gx + gy) * 0.5;
     let respond = lean / (abs(lean) + ${SLOPE_REF});
     let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
@@ -849,10 +859,9 @@ vec2 flowAt(int cx, int cy, float d, int a) {
   return clamp(vec2(vx, vy), vec2(-${MAX_FLOW_SPEED}.0), vec2(${MAX_FLOW_SPEED}.0));
 }
 
-vec4 cornerExtras(int vx, int vy, int ax, int ay, int aa) {
+vec4 cornerExtras(int vx, int vy, int mine) {
   float d = 0.0; float wash = 0.0; float foam = 0.0; float n = 0.0;
   vec2 vel = vec2(0.0);
-  int mine = cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa));
   for (int k = 0; k < 4; ++k) {
     int cx = vx - 1 + (k & 1);
     int cy = vy - 1 + (k >> 1);
@@ -878,25 +887,31 @@ vec4 cornerExtras(int vx, int vy, int ax, int ay, int aa) {
 
 // The same sheet one corner away, and otherwise only what is BELOW — see the
 // WGSL twin, where the asymmetry is argued.
-float nearby(int vx, int vy, int dx, int dy, int ax, int ay, int aa, float here) {
-  // Asked through a column the two corners share — see the WGSL twin.
-  int mine = cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa));
+float nearby(int vx, int vy, int dx, int dy, int mine, float here) {
+  // Asked through a column the two corners share, with the home component
+  // passed in — see the WGSL twin.
   int m = sharedOf(mine, dx, dy);
   int jx = vx + dx;
   int jy = vy + dy;
   if (m >= 0) {
     int q = m / slots();
-    vec4 c = cornerOf(jx, jy, vx - 1 + (q & 1), vy - 1 + (q >> 1), m % slots());
+    vec4 c = cornerFor(jx, jy, vx - 1 + (q & 1), vy - 1 + (q >> 1), m % slots());
     if (c.w > 0.0) { return c.x; }
   }
   float below = here;
+  // One flood per component, not one per contributor — see the WGSL twin.
+  int seen = 0;
   for (int k = 0; k < 4; ++k) {
     int cx = jx - 1 + (k & 1);
     int cy = jy - 1 + (k >> 1);
     if (!inside(cx, cy)) { continue; }
     for (int a = 0; a < slots(); ++a) {
+      int at = k * slots() + a;
+      if (bitAt(seen, at) == 1) { continue; }
       if (depthAt(cx, cy, a) <= uBand.z) { continue; }
-      vec4 o = cornerOf(jx, jy, cx, cy, a);
+      int msk = cornerMask(jx, jy, at);
+      seen = seen | msk;
+      vec4 o = cornerOf(jx, jy, msk);
       if (o.w > 0.0 && o.x < below) { below = o.x; }
     }
   }
@@ -945,10 +960,10 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
 
   float ownTop = min(bed + d, roofAt(cx, cy, a));
   float theirTop = wetJ ? min(bedJ + depthAt(jx, jy, a), roofAt(jx, jy, a)) : bedJ;
-  vec4 cA = cornerOf(vax, vay, cx, cy, a);
-  vec4 cB = cornerOf(cx + 1, cy + 1, cx, cy, a);
-  vec4 oA = cornerOf(vax, vay, jx, jy, a);
-  vec4 oB = cornerOf(cx + 1, cy + 1, jx, jy, a);
+  vec4 cA = cornerFor(vax, vay, cx, cy, a);
+  vec4 cB = cornerFor(cx + 1, cy + 1, cx, cy, a);
+  vec4 oA = cornerFor(vax, vay, jx, jy, a);
+  vec4 oB = cornerFor(cx + 1, cy + 1, jx, jy, a);
   vec4 s = resolveSide(
     bed, bedJ, wetJ,
     cA.w > 0.0 ? cA.x : ownTop, oA.w > 0.0 ? oA.x : theirTop,
@@ -1029,20 +1044,21 @@ void main() {
     if (d <= uBand.z) { return; }
     int ox = ((corner + 1) >> 1) & 1;
     int oy = corner >> 1;
-    // THIS COLUMN, which is how every corner it reads is asked — see the
+    // This column's component at this corner, worked out ONCE — see the
     // WGSL twin.
-    vec4 c = cornerOf(cx + ox, cy + oy, cx, cy, a);
+    int vcx = cx + ox;
+    int vcy = cy + oy;
+    int mine = cornerMask(vcx, vcy, contribOf(vcx, vcy, cx, cy, a));
+    vec4 c = cornerOf(vcx, vcy, mine);
     float bed = groundAt(cx, cy, a);
     h = max(c.x, bed);
     fx = fx0 + float(ox) * step;
     fy = fy0 + float(oy) * step;
 
-    vec4 e = cornerExtras(cx + ox, cy + oy, cx, cy, a);
+    vec4 e = cornerExtras(vcx, vcy, mine);
     float cd = e.x; float wash = e.y; float foam = e.z; float speed = e.w;
-    float gx = nearby(cx + ox, cy + oy, -1, 0, cx, cy, a, c.x)
-             - nearby(cx + ox, cy + oy, 1, 0, cx, cy, a, c.x);
-    float gy = nearby(cx + ox, cy + oy, 0, -1, cx, cy, a, c.x)
-             - nearby(cx + ox, cy + oy, 0, 1, cx, cy, a, c.x);
+    float gx = nearby(vcx, vcy, -1, 0, mine, c.x) - nearby(vcx, vcy, 1, 0, mine, c.x);
+    float gy = nearby(vcx, vcy, 0, -1, mine, c.x) - nearby(vcx, vcy, 0, 1, mine, c.x);
     float lean = (gx + gy) * 0.5;
     float respond = lean / (abs(lean) + ${SLOPE_REF});
     float rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});

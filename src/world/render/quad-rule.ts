@@ -68,10 +68,10 @@ ${wgsl
   // back with a count of nought, which is what picks its own top below.
   ${NUM} ownTop = min(bed + depthAt(cx, cy, a), roofAt(cx, cy, a));
   ${NUM} theirTop = select(bedJ, min(bedJ + depthAt(jx, jy, a), roofAt(jx, jy, a)), wetJ);
-  ${V4} cA = cornerOf(vax, vay, cx, cy, a);
-  ${V4} cB = cornerOf(cx + 1, cy + 1, cx, cy, a);
-  ${V4} oA = cornerOf(vax, vay, jx, jy, a);
-  ${V4} oB = cornerOf(cx + 1, cy + 1, jx, jy, a);
+  ${V4} cA = cornerFor(vax, vay, cx, cy, a);
+  ${V4} cB = cornerFor(cx + 1, cy + 1, cx, cy, a);
+  ${V4} oA = cornerFor(vax, vay, jx, jy, a);
+  ${V4} oB = cornerFor(cx + 1, cy + 1, jx, jy, a);
   ${V4} s = resolveSide(
     bed, bedJ, wetJ,
     select(ownTop, cA.x, cA.w > 0.0), select(theirTop, oA.x, oA.w > 0.0),

@@ -366,8 +366,8 @@ export function cornerRuleSource(dialect: Dialect, drawdown = 0, rim = RIM): str
    */
   const f = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
   const head = wgsl
-    ? "fn cornerOf(vx: i32, vy: i32, ax: i32, ay: i32, aa: i32) -> vec4<f32> {"
-    : "vec4 cornerOf(int vx, int vy, int ax, int ay, int aa) {";
+    ? "fn cornerOf(vx: i32, vy: i32, mine: i32) -> vec4<f32> {"
+    : "vec4 cornerOf(int vx, int vy, int mine) {";
   const VEC4 = wgsl ? "vec4<f32>" : "vec4";
   const MUT = wgsl ? "var" : "float";          // a float that is written again
   const NUM = wgsl ? "let" : "float";          // a float that is not
@@ -442,12 +442,13 @@ ${head}
   ${MUT} highest = -1000.0;
   ${MUT} edge = 0.0;
   ${MUT} bedSlot = 0;
-  // WHICH OF THIS CORNER'S CONTRIBUTORS ARE THE ASKER'S OWN WATER, worked out
-  // here and now from depth, ground and roof — nothing solid between them and
-  // no fall between them. A pure function of the corner, so every column
-  // asking gets the same partition and none of them can disagree about the
-  // height they share. @see render/sheet-group
-  ${INT} mine = cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa));
+  // MINE IS THE COMPONENT, worked out from depth, ground and roof — nothing
+  // solid between them and no fall between them — and PASSED IN rather than
+  // worked out here. A pure function of the corner, so every column asking
+  // gets the same partition and none of them can disagree about the height
+  // they share; taken as an argument because one vertex asks several
+  // questions of the same corner and the flood is far too expensive to run
+  // once per question. @see cornerFor, render/sheet-group
   // THE UP-TO-FOUR COLUMNS THAT MEET HERE, and only the ones in that
   // component.
   for (${LOOP} k = 0; k < 4; k = k + 1) {
@@ -503,6 +504,15 @@ ${head}
   ${NUM} rimHere = ${f(rim)} * (1.0 - clamp(aside / fallMin(), 0.0, 1.0));
   ${NUM} top = select(mean, mean + (bed - mean) * rimHere, n < 4.0);
   return ${VEC4}(top, top, bed, n);
+}
+
+${wgsl
+  ? "fn cornerFor(vx: i32, vy: i32, ax: i32, ay: i32, aa: i32) -> vec4<f32> {"
+  : "vec4 cornerFor(int vx, int vy, int ax, int ay, int aa) {"}
+  // The corner as slot aa of column (ax, ay) sees it. For the callers that
+  // ask about ONE contributor once; anything asking the same corner twice
+  // should hold the mask itself and call cornerOf. @see cornerOf
+  return cornerOf(vx, vy, cornerMask(vx, vy, contribOf(vx, vy, ax, ay, aa)));
 }
 
 ${wgsl
