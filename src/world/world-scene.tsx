@@ -1128,6 +1128,24 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
 
     return () => {
       cancelled = true;
+      // THE DEVICE'S SHEETS GO WITH THE BANDS THEY LIVE IN, and before them.
+      //
+      // The fall layer's meshes are children of the band layer, so
+      // `destroyBandLayer` below takes their buffers with it — while the
+      // SOLVER is still running and still spilling this frame's quads into
+      // them. The solver is rebuilt on `sceneEpoch`, which is bumped at the
+      // END of this effect's async build, so there are frames between the two
+      // in which the tick submits a command buffer naming buffers that no
+      // longer exist: "used in submit while destroyed", once a frame, for as
+      // long as the rebuild takes.
+      //
+      // Cleared here, the solver simply stops drawing sheets until the effect
+      // that owns it hands it a new layer. @see sheetTo
+      solverRef.current?.sheetTo(null);
+      if (gfRef.current) {
+        destroyGpuFallLayer(gfRef.current);
+        gfRef.current = null;
+      }
       cursorRef.current?.destroy();
       cursorRef.current = null;
       if (flRef.current) destroyWaterLayer(flRef.current);
