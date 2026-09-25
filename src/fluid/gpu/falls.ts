@@ -98,10 +98,20 @@ fn bankLanding(to: i32, amount: f32, material: u32, speed: f32) {
   // so no water arrives beyond it, so the box never grows to reach it. It cost
   // a whole column of water by frame thirty and a fiftieth of a percent of the
   // map's volume with it.
-  atomicMin(&reduce[0], to % nx());
-  atomicMin(&reduce[1], to / nx());
-  atomicMax(&reduce[2], to % nx());
-  atomicMax(&reduce[3], to / nx());
+  //
+  // OFF THE COLUMN AND NOT OFF THE SLOT INDEX. "to" is a SLOT — the plane the
+  // water is landing in times the map, plus the cell — so on a bridged map
+  // dividing it by nx() gives the row plus a whole map's worth of rows, and a
+  // landing into storey one reported a y past ny and an x that was whatever
+  // the remainder happened to be. The box is a clamp on every pass that reads
+  // it, so one plunge onto a deck widened the dispatch region of the entire
+  // solver to nonsense for as long as it lasted. At one storey the plane is
+  // nought and this is the arithmetic it always was. @see slotBase
+  let cell = to % (nx() * ny());
+  atomicMin(&reduce[0], cell % nx());
+  atomicMin(&reduce[1], cell / nx());
+  atomicMax(&reduce[2], cell % nx());
+  atomicMax(&reduce[3], cell / nx());
   atomicAdd(&acc[accAt(${ACC.landing}, to)], i32(amount * LAND_SCALE));
   atomicAdd(&acc[accAt(${ACC.impulse}, to)], i32(amount * speed * LAND_SCALE));
   if (material != 0u) {
@@ -176,8 +186,14 @@ fn land(k: i32, to: i32, src: i32, share: f32, drop: f32) {
     }
     // Posted before it is held back, for the reason postSpawn gives: water
     // taken out of the landing that no drop carries is water lost.
+    // THE COLUMN, NOT THE SLOT, because that is what drainSpawns decodes it
+    // as: it reads the cell modulo nx for x and divided by nx for y. Handed a
+    // slot index, a crown thrown up by a plunge into storey one spawned its
+    // drops a whole map of rows down — which is off the map, so they were
+    // never seen. Which storey it happened in is not lost: the height the
+    // drops start at is the next argument, and that is read off the slot.
     if (spray > 0.0 && !postSpawn(
-      k, ${SPAWN_CROWN}, to, spray,
+      k, ${SPAWN_CROWN}, to % (nx() * ny()), spray,
       groundAt(to) + depthAt(to), speed, 0.0, f32(mat)
     )) {
       spray = 0.0;
