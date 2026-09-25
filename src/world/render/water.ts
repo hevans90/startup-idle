@@ -18,8 +18,7 @@
  * tile it sits in, and that tile's band decides what occludes it.
  */
 import {
-  MATERIAL_SLOTS, activeBox, flowX, flowY, surfaceAt, velocityAt, type ColumnField,
-} from "../../fluid/columns";
+  MATERIAL_SLOTS, activeBox, flowX, flowY, surfaceAt, velocityAt, type ColumnField, wet,} from "../../fluid/columns";
 import { COLUMNS_PER_TILE, columnOf, tileOf } from "../water/field";
 import { FALL_MIN } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
@@ -585,7 +584,7 @@ function cornerValues(
   region: { x0: number; y0: number; x1: number; y1: number },
   rim: number,
 ) {
-  const { nx, depth, params } = columns;
+  const { nx, depth } = columns;
   const vw = nx + 1;
   // Only the region's own corners, cleared and rebuilt: filling the whole
   // vertex array cost more than the water did on a mostly dry map.
@@ -625,7 +624,7 @@ function cornerValues(
       const ci = y * nx + x;
       const i = A + ci;
       const d = depth[i];
-      if (d <= params.dryDepth) continue;
+      if (!wet(columns, i)) continue;
       const bed = columns.ground[i];
       const shown = shownDepth(columns, i, d);
       // Leaned toward the lip — see `DRAWDOWN`. The height only; `shown` is
@@ -953,7 +952,7 @@ function fillQuads(
       for (let a = 0; a < columns.layers; a++) {
       const i = a * columns.cells + ci;
       const d = depth[i];
-      if (d <= columns.params.dryDepth) continue;
+      if (!wet(columns, i)) continue;
 
       const tx = tileOf(cx);
       // UNDER A ROOF GOES UNDER THE ROOF. Everything else is water in the
@@ -1130,7 +1129,7 @@ function sideFace(
   // 2.7% of the ground under it and every sample of it on a tile with a one
   // step drop. Matched to the neighbour's corners there is nothing left to
   // leave showing.
-  const wetJ = !offMap && columns.depth[j] > columns.params.dryDepth;
+  const wetJ = !offMap && wet(columns, j);
   // BOTH SHEETS, EACH NAMED BY THE COLUMN THAT STANDS IN IT. The face hangs
   // from what THIS column's water draws at each corner down to what the
   // NEIGHBOUR'S draws there — which used to be two calls to `levelAt` with

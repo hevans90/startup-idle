@@ -388,6 +388,12 @@ fn roofAt(x: i32, y: i32, a: i32) -> f32 {
 // in the shared rule because WGSL wants a u32 on the right of a shift and GLSL
 // has no u32 at all, so the two cannot be spelled the same way — the same
 // reason select is on this side. @see render/sheet-group
+// IS THERE WATER HERE. One spelling of the one threshold, because there used
+// to be several and they drifted: a run at moving the cutoff changed some of
+// them and not the others, and what that made was a column feeding a corner's
+// HEIGHT but not its alpha — a hole with extra steps, on the device only, that
+// the mesh builder could not reproduce. @see wetRule
+fn wet(d: f32) -> bool { return d > dryDepth(); }
 fn bitOf(k: i32) -> i32 { return 1i << u32(k); }
 fn bitAt(m: i32, k: i32) -> i32 { return (m >> u32(k)) & 1; }
 // Whether the brink texture was filled this frame. @see brink-gpu
@@ -838,6 +844,8 @@ float groundAt(int x, int y, int a) { return texelFetch(uGround, ivec2(x, slotRo
 float roofAt(int x, int y, int a) { return texelFetch(uRoof, ivec2(x, slotRow(y, a)), 0).r; }
 // A corner's contributors as a bitmask — see the WGSL twin, where the two
 // spellings are argued. @see render/sheet-group
+// Is there water here — see the WGSL twin.
+bool wet(float d) { return d > dryDepth(); }
 int bitOf(int k) { return 1 << k; }
 int bitAt(int m, int k) { return (m >> k) & 1; }
 // Whether the brink texture was filled this frame. See brink-gpu.

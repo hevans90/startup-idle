@@ -57,7 +57,7 @@ ${wgsl
   ${BOOL} rim = !inside(jx, jy);
   ${NUM} bed = groundAt(cx, cy, a);
   ${NUM} bedJ = select(groundAt(jx, jy, a), bed, rim);
-  ${BOOL} wetJ = !rim && depthAt(jx, jy, a) > dryDepth();
+  ${BOOL} wetJ = !rim && wet(depthAt(jx, jy, a));
   ${INT} vax = cx + select(0, 1, axis == 0);
   ${INT} vay = cy + select(1, 0, axis == 0);
   // BY CONTRIBUTOR, exactly as the vertex shader asks it — see water-gpu's
@@ -84,11 +84,11 @@ ${wgsl
     ? "fn quadDraws(cx: i32, cy: i32, part: i32, cpt: i32, faces: bool, a: i32) -> bool {"
     : "bool quadDraws(int cx, int cy, int part, int cpt, bool faces, int a) {"}
   if (!inside(cx, cy)) { return false; }
-  if (part == 0) { return depthAt(cx, cy, a) > dryDepth(); }
+  if (part == 0) { return wet(depthAt(cx, cy, a)); }
   if (!faces) { return false; }
   if (part <= 2) {
     // A SIDE OF THIS COLUMN, unless it is filed forward into the band in front.
-    if (depthAt(cx, cy, a) <= dryDepth()) { return false; }
+    if (!wet(depthAt(cx, cy, a))) { return false; }
     ${INT} axis = part - 1;
     if (forward(cx, cy, axis, cpt, a)) { return false; }
     return sideShows(cx, cy, axis, a);
@@ -98,7 +98,7 @@ ${wgsl
   ${INT} bx = cx - select(0, 1, axis2 == 0);
   ${INT} by = cy - select(1, 0, axis2 == 0);
   if (!inside(bx, by)) { return false; }
-  if (depthAt(bx, by, a) <= dryDepth()) { return false; }
+  if (!wet(depthAt(bx, by, a))) { return false; }
   if (!forward(bx, by, axis2, cpt, a)) { return false; }
   return sideShows(bx, by, axis2, a);
 }

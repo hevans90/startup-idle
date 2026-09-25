@@ -754,6 +754,22 @@ export const at = (f: ColumnField, x: number, y: number) => y * f.nx + x;
  * is all of those at the soffit. The pressure head is the solver's business
  * and stays inside it. @see wetTop, head
  */
+/**
+ * IS THERE WATER IN THIS SLOT. One spelling of the one threshold.
+ *
+ * There used to be several — `> dryDepth`, `<= dryDepth`, `> 0` — written out
+ * wherever they were wanted, and they drifted. A run at moving the cutoff to
+ * `> 0` changed the sheet membership and the corner's HEIGHT and left the
+ * corner's ALPHA and the side gates where they were, which makes a column that
+ * contributes a height and no opacity: a hole with extra steps, on the device
+ * only, that the mesh builder could not reproduce. It was reverted, and what
+ * it showed is that the cutoff has to be one thing with one name.
+ *
+ * The shader asks the host for `wet(d)` for the same reason and the generated
+ * rules carry no comparison of their own — a test says so. @see wetRule
+ */
+export const wet = (f: ColumnField, i: number) => f.depth[i] > f.params.dryDepth;
+
 export const surfaceAt = (f: ColumnField, i: number) =>
   wetTop(f.ground[i], f.roof[i], f.depth[i]);
 

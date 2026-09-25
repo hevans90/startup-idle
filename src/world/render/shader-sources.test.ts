@@ -274,3 +274,44 @@ describe("shader source is not TypeScript", () => {
     });
   }
 });
+
+/**
+ * ONE THRESHOLD, WITH ONE NAME.
+ *
+ * "Is there water here" was written out wherever it was wanted — `> dryDepth`,
+ * `<= dryDepth`, and for one commit `> 0` — and the spellings drifted. Moving
+ * the cutoff changed the sheet membership and the corner's HEIGHT and left the
+ * corner's ALPHA and the side gates where they were, which makes a column that
+ * contributes a height and no opacity: a hole with extra steps, on the device
+ * only, that the mesh builder could not reproduce. It was reverted, and the
+ * lesson is that a rule shared by four callers cannot carry its own copy of
+ * the comparison.
+ *
+ * So the shared rules ask the host for `wet(d)` and name the threshold nowhere
+ * else. This is what stops it drifting back: a rule that mentions `dryDepth`
+ * at all is a rule that has grown a second opinion about it.
+ */
+describe("the shared rules name the threshold once", () => {
+  const RULES: [string, (d: "wgsl" | "glsl") => string][] = [
+    ["corner rule", (d) => cornerRuleSource(d)],
+    ["quad rule", (d) => quadRuleSource(d)],
+    ["sheet group", (d) => sheetGroupSource(d)],
+    ["brink rule", (d) => brinkRuleSource(d)],
+  ];
+  for (const [name, make] of RULES) {
+    test(`${name} asks for wet() and never spells the cutoff itself`, () => {
+      for (const d of ["wgsl", "glsl"] as const) {
+        const code = make(d).replace(/\/\/[^\n]*/g, "");
+        expect(code.includes("dryDepth"), `${name} ${d}`).toBe(false);
+      }
+    });
+  }
+
+  test("and every host that carries a rule defines it", () => {
+    const s = waterShaderSource();
+    expect(s.wgsl).toContain("fn wet(d: f32) -> bool");
+    expect(s.glsl).toContain("bool wet(float d)");
+    expect(quadsSource()).toContain("fn wet(d: f32) -> bool");
+    expect(brinkSource()).toContain("fn wet(d: f32) -> bool");
+  });
+});

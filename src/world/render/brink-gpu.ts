@@ -49,6 +49,12 @@ fn slots() -> i32 { return say.dims.z; }
 fn dryDepth() -> f32 { return say.a.x; }
 fn fallMin() -> f32 { return say.a.y; }
 fn slotRow(y: i32, a: i32) -> i32 { return a * ny() + y; }
+// IS THERE WATER HERE. One spelling of the one threshold, because there used
+// to be several and they drifted: a run at moving the cutoff changed some of
+// them and not the others, and what that made was a column feeding a corner's
+// HEIGHT but not its alpha — a hole with extra steps, on the device only, that
+// the mesh builder could not reproduce. @see wetRule
+fn wet(d: f32) -> bool { return d > dryDepth(); }
 fn inside(x: i32, y: i32) -> bool {
   return x >= 0 && y >= 0 && x < nx() && y < ny();
 }

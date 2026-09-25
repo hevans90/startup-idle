@@ -402,7 +402,7 @@ ${wgsl
         ${NUM} gj = groundAt(jx, jy, b);
         if (min(roofAt(cx, cy, a), roofAt(jx, jy, b)) <= max(bed, gj)) { continue; }
         ${NUM} dj2 = depthAt(jx, jy, b);
-        ${NUM} s = select(gj, gj + dj2, dj2 > dryDepth());
+        ${NUM} s = select(gj, gj + dj2, wet(dj2));
         if (found == 0.0 || s < beside) { beside = s; floorJ = gj; found = 1.0; }
       }
       if (found == 0.0) { break; }
@@ -422,8 +422,12 @@ ${wgsl
  *
  * The host shader has to supply the parts that differ between the two paths
  * and are none of this rule's business: `inside(x, y)`, `slots()`,
- * `depthAt(x, y, a)`, `groundAt(x, y, a)`, `roofAt(x, y, a)`, `dryDepth()`,
+ * `depthAt(x, y, a)`, `groundAt(x, y, a)`, `roofAt(x, y, a)`, `wet(d)`,
  * `fallMin()`, `bitOf(k)`, `bitAt(m, k)` and `atBrink(x, y, a)`.
+ *
+ * `wet` is the ONE threshold, asked for by name rather than written out:
+ * there used to be several spellings of it and a run at moving the cutoff
+ * changed some and not the others. @see wetRule
  *
  * `atBrink` is the host's because WHERE it comes from is the host's business:
  * the scan itself lives in {@link brinkRuleSource}, and a host that has the
@@ -494,7 +498,7 @@ ${head}
     // both meet this corner and only one of them is on this sheet.
     for (${LOOP} a = 0; a < slots(); a = a + 1) {
       ${NUM} d = depthAt(cx, cy, a);
-      if (d <= dryDepth()) { continue; }
+      if (!wet(d)) { continue; }
       if (bitAt(mine, k * slots() + a) == 0) { continue; }
       ${NUM} g = groundAt(cx, cy, a);
       // UNDER A ROOF THE WATER STOPS AT THE ROOF. A slot running full is

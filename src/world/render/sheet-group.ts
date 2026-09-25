@@ -49,7 +49,7 @@
  * generated once and emitted in whichever dialect asks.
  */
 import type { ColumnField } from "../../fluid/columns";
-import { surfaceAt } from "../../fluid/columns";
+import { surfaceAt, wet } from "../../fluid/columns";
 import { FALL_MIN } from "../../fluid/falls";
 import { connected } from "../../fluid/slots";
 import type { Dialect } from "./corner-rule";
@@ -92,9 +92,7 @@ const TIERS_MAX = 3;
  * precision hole closed on principle, not a measured repair.
  */
 const beside = (f: ColumnField, j: number) =>
-  f.depth[j] > Math.fround(f.params.dryDepth)
-    ? Math.fround(surfaceAt(f, j))
-    : f.ground[j];
+  wet(f, j) ? Math.fround(surfaceAt(f, j)) : f.ground[j];
 
 /**
  * Whether two wet slots of NEIGHBOURING columns are the same sheet.
@@ -201,8 +199,7 @@ function joinedAt(
   if (bx < 0 || by < 0 || bx >= f.nx || by >= f.ny) return false;
   const ia = (ka % layers) * f.cells + ay * f.nx + ax;
   const jb = (kb % layers) * f.cells + by * f.nx + bx;
-  const dry = Math.fround(f.params.dryDepth);
-  if (f.depth[ia] <= dry || f.depth[jb] <= dry) return false;
+  if (!wet(f, ia) || !wet(f, jb)) return false;
   return sameSheet(f, ia, jb);
 }
 
@@ -330,8 +327,8 @@ ${wgsl
   // water on it is not a member of any sheet.
   ${NUM} da = depthAt(ax, ay, sa);
   ${NUM} db = depthAt(bx, by, sb);
-  if (da <= dryDepth()) { return 0; }
-  if (db <= dryDepth()) { return 0; }
+  if (!wet(da)) { return 0; }
+  if (!wet(db)) { return 0; }
   ${NUM} ga = groundAt(ax, ay, sa);
   ${NUM} gb = groundAt(bx, by, sb);
   ${NUM} ra = roofAt(ax, ay, sa);

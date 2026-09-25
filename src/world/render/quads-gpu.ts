@@ -80,6 +80,12 @@ fn roofAt(x: i32, y: i32, a: i32) -> f32 {
 // A corner's contributors as a bitmask — see water-gpu's twin, where the two
 // spellings are argued. This pass shares the corner rule with the vertex
 // shader and so has to group water exactly as it does. @see render/sheet-group
+// IS THERE WATER HERE. One spelling of the one threshold, because there used
+// to be several and they drifted: a run at moving the cutoff changed some of
+// them and not the others, and what that made was a column feeding a corner's
+// HEIGHT but not its alpha — a hole with extra steps, on the device only, that
+// the mesh builder could not reproduce. @see wetRule
+fn wet(d: f32) -> bool { return d > dryDepth(); }
 fn bitOf(k: i32) -> i32 { return 1i << u32(k); }
 fn bitAt(m: i32, k: i32) -> i32 { return (m >> u32(k)) & 1; }
 fn brinkOn() -> bool { return say.b.x > 0.5; }

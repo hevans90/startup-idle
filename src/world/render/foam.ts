@@ -35,7 +35,7 @@
  * into the column directly rather than through the divergence the breaking
  * test reads.
  */
-import { flowX, flowY, type ColumnField } from "../../fluid/columns";
+import { flowX, flowY, wet, type ColumnField } from "../../fluid/columns";
 import { wetTop } from "../../fluid/slots";
 
 /**
@@ -162,11 +162,10 @@ function whiteAt(
   foam: Float32Array, c: ColumnField, jx: number, jy: number,
   bed: number, top: number, a: number,
 ): number {
-  const { cells, layers, nx, ground, roof, depth, params } = c;
+  const { cells, layers, nx, ground, roof, depth } = c;
   const jc = jy * nx + jx;
-  const dry = params.dryDepth;
   const touches = (jb: number) => {
-    if (depth[jb] <= dry) return false;
+    if (!wet(c, jb)) return false;
     const jt = wetTop(ground[jb], roof[jb], depth[jb]);
     return (jt < top ? jt : top) > (ground[jb] > bed ? ground[jb] : bed);
   };
@@ -195,9 +194,8 @@ export function stepFoam(
   region: { x0: number; y0: number; x1: number; y1: number },
 ) {
   const { nx, cell, now, next, cells, layers } = foam;
-  const { depth, broke, params } = columns;
+  const { depth, broke } = columns;
   const splash = columns.drips.splashed ? columns.drips.splash : null;
-  const dry = params.dryDepth;
   const back = dt / cell;
   const keep = Math.exp(-dt / LIFE);
   const lastX = foam.nx - 1, lastY = foam.ny - 1;
@@ -217,7 +215,7 @@ export function stepFoam(
           next[ia] = 0;
           continue;
         }
-        if (depth[ia] <= dry) { next[ia] = 0; continue; }
+        if (!wet(columns, ia)) { next[ia] = 0; continue; }
         // THIS SLOT'S OWN CURRENT. A deck's water is carried by what is
         // running over the deck, not by the river under it.
         const vx = flowX(columns, x, y, a), vy = flowY(columns, x, y, a);
@@ -244,11 +242,11 @@ export function stepFoam(
         // of the scale — which `__frameCompare` caught and no test did.
         // @see whiteAt
         const bed = columns.ground[ia];
-        const wet = wetTop(bed, columns.roof[ia], depth[ia]);
-        const p = whiteAt(now, columns, x0, y0, bed, wet, a);
-        const q = whiteAt(now, columns, x1, y0, bed, wet, a);
-        const c = whiteAt(now, columns, x0, y1, bed, wet, a);
-        const d = whiteAt(now, columns, x1, y1, bed, wet, a);
+        const mineTop = wetTop(bed, columns.roof[ia], depth[ia]);
+        const p = whiteAt(now, columns, x0, y0, bed, mineTop, a);
+        const q = whiteAt(now, columns, x1, y0, bed, mineTop, a);
+        const c = whiteAt(now, columns, x0, y1, bed, mineTop, a);
+        const d = whiteAt(now, columns, x1, y1, bed, mineTop, a);
         const top = p + (q - p) * fx, bot = c + (d - c) * fx;
         const carried = (top + (bot - top) * fy) * keep;
         // What the SOLVER says is breaking HERE, in this slot, which is the
