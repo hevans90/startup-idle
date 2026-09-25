@@ -200,11 +200,16 @@ export async function compareSheetPaths(
   sheet.spill(enc, gfl.verts.map((v) => sys.buffer.getGPUBuffer(v)));
   sheet.copy(enc);
   device.queue.submit([enc.finish()]);
+  // WAIT ON THE QUEUE AND NOT ON A FRAME. The counts come back by a mapping,
+  // and the obvious way to wait for one is to tick a few rAFs — which stops
+  // dead the moment the pane is not on screen, and then this hangs rather than
+  // reporting. Nothing here draws until the shots at the end, so there is no
+  // reason to want a frame at all.
+  await device.queue.onSubmittedWorkDone();
   sheet.fetch();
-  // The counts come back by a mapping; give it frames rather than guess.
   let counts: Uint32Array | null = null;
-  for (let n = 0; n < 240 && !counts; n++) {
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
+  for (let n = 0; n < 200 && !counts; n++) {
+    await new Promise((r) => setTimeout(r, 4));
     counts = sheet.says();
   }
   drawGpuFalls(gfl, counts);

@@ -1560,8 +1560,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // drop-ordering difference earns it. The one-layer path is exactly where
     // it was. @see spanned, spannedDry
     //
-    // It is still read for the SHEETS below, which are one storey yet.
-    const storeyed = field ? field.columns.layers > 1 : false;
+    // AND THE SHEETS TOO, as of the storey-aware decode — so nothing in the
+    // water asks how many storeys a map has any more.
     // SAY SO ON THE READOUT. A badge that reports the switch rather than the
     // path claims the device is running whenever anything declines to build
     // a solver. @see gpuWaterWhy
@@ -1630,11 +1630,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         buffer?: { getGPUBuffer: (b: unknown) => GPUBuffer };
         texture?: { getGpuSource: (s: unknown) => GPUTexture };
       };
-      // THE DEVICE'S SHEETS ARE STILL ONE STOREY. Everything else in the
-      // solver walks slot pairs now; the sheet builder decodes a fall's edge
-      // the old way, so on a map with bridges the HOST draws the falls — it
-      // is plane-aware and costs a few hundred quads. @see drawFalls
-      if (bl && sr && !storeyed && rend?.buffer && rend?.texture) {
+      // AND ON A MAP WITH BRIDGES TOO, now. The sheet builder decoded a
+      // fall's edge as a column and an axis alone, so every edge in a plane
+      // past the first landed off the end of the map and was thrown away —
+      // most of them, on a bridged map — and the HOST drew the falls instead,
+      // from a copy of the depths that is up to thirty readbacks stale while
+      // the surface they have to meet is the device's own. It reads the slot
+      // pair now, and `__sheetCompare` says the two builders agree: on a
+      // cliff with a deck at its edge, 2,016 quads each side against 192
+      // before, and no pixel either draws that the other leaves empty.
+      // @see compareSheetPaths
+      if (bl && sr && rend?.buffer && rend?.texture) {
         const gfl = createGpuFallLayer(bl);
         gfRef.current = gfl;
         sr.sheetTo({

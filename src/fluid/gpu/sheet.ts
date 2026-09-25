@@ -110,8 +110,11 @@ fn onMap(x: i32, y: i32) -> bool {
 }
 
 /** Whether the edge is falling at all. The twin of falls.ts's own test. */
-fn fallingOn(i: i32, axis: i32) -> bool {
-  let k = i * 2 + axis;
+fn fallingOn(pl: i32, i: i32, axis: i32) -> bool {
+  // A FALL'S EDGE IS A SLOT PAIR, an axis and a column, packed in that order —
+  // the twin of fallEdge in fluid/falls. At one storey the plane is nought and
+  // this is the i * 2 + axis it always was.
+  let k = pl * nx() * ny() * 2 + i * 2 + axis;
   return frontAt(k) > headAt(k);
 }
 
@@ -126,10 +129,12 @@ fn spillOf(bed: f32, beside: f32) -> f32 {
   return clamp(how, 0.0, 1.0);
 }
 
-fn brinkAt(i: i32) -> f32 {
+fn brinkAt(ia: i32) -> f32 {
+  let cells = nx() * ny();
+  let i = ia % cells;
   let cx = i % nx();
   let cy = i / nx();
-  let bed = groundAt(i);
+  let bed = groundAt(ia);
   var most = 0.0;
   for (var k = 0; k < 4; k = k + 1) {
     var dx = 0;
@@ -140,10 +145,25 @@ fn brinkAt(i: i32) -> f32 {
       let jx = cx + dx * r;
       let jy = cy + dy * r;
       if (!onMap(jx, jy)) { break; }
-      let j = jy * nx() + jx;
-      if (groundAt(j) > bed) { break; }
-      var beside = groundAt(j);
-      if (depthAt(j) > dryDepth()) { beside = beside + depthAt(j); }
+      let jc = jy * nx() + jx;
+      // WHICH SLOT OVER THERE THE WATER WOULD ACTUALLY REACH, and the LOWEST
+      // of them, because that is the drop it is leaning into. The twin of
+      // brinkCalc in corner-rule, and the reason it is not the ground alone: a
+      // road at the mouth of a span is level with the deck and fourteen above
+      // the channel, and the abutment is closed, so nothing crosses.
+      var beside = 0.0;
+      var floorJ = 0.0;
+      var found = 0.0;
+      for (var b = 0; b < slots(); b = b + 1) {
+        let jb = slotBase(b) + jc;
+        let gj = groundAt(jb);
+        if (min(roofAt(ia), roofAt(jb)) <= max(bed, gj)) { continue; }
+        let dj = depthAt(jb);
+        let sfc = select(gj, gj + dj, dj > dryDepth());
+        if (found == 0.0 || sfc < beside) { beside = sfc; floorJ = gj; found = 1.0; }
+      }
+      if (found == 0.0) { break; }
+      if (floorJ > bed) { break; }
       let how = spillOf(bed, beside);
       let near = how * (1.0 - f32(r - 1) / ${num(BRINK_REACH)});
       most = max(most, near);
@@ -168,15 +188,22 @@ fn drawnOf(i: i32) -> f32 {
 /**
  * The column beside this one ALONG the lip, if it is falling too, else -1.
  */
-fn alongLip(i: i32, axis: i32, d: i32) -> i32 {
-  let cx = i % nx();
-  let cy = i / nx();
+fn alongLip(pl: i32, sa: i32, i: i32, axis: i32, d: i32) -> i32 {
+  let cells = nx() * ny();
+  let c = i % cells;
+  let cx = c % nx();
+  let cy = c / nx();
   var jx = cx;
   var jy = cy;
   if (axis == 0) { jy = cy + d; } else { jx = cx + d; }
   if (!onMap(jx, jy)) { return -1; }
   let j = jy * nx() + jx;
-  if (fallingOn(j, axis)) { return j; }
+  // ON THE SAME SLOT PAIR: a lip along a deck's edge is a lip in storey one
+  // falling into storey nought, and the column beside it is only part of the
+  // same lip if its water is leaving and arriving in the same two places.
+  // HANDED BACK AS A SLOT, because every value the caller then shares off it
+  // — the throw, the foam, the shown depth, the brink — is per slot.
+  if (fallingOn(pl, j, axis)) { return slotBase(sa) + j; }
   return -1;
 }
 
@@ -211,9 +238,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (lip >= cliffN()) { return; }
 
   let kk = cliffAt(lip);
-  let i = kk / 2;
-  let axis = kk % 2;
-  if (i < 0 || i >= nx() * ny()) { return; }
+  // A FALL'S EDGE IS A SLOT PAIR, AN AXIS AND A COLUMN, and this read it as a
+  // column and an axis alone — so every edge in a plane past the first decoded
+  // to a column off the end of the map and was thrown away by the bound below.
+  // On a map with a bridge that is most of them, which is why this pass was
+  // gated off there and the host drew the falls instead. The twin of fallEdge
+  // in fluid/falls, and of the decode in gpu/falls.
+  let cells = nx() * ny();
+  let pl = kk / (cells * 2);
+  let rest = kk - pl * cells * 2;
+  let i = rest / 2;
+  let axis = rest % 2;
+  // The storey the water is LEAVING, and the one it is falling INTO.
+  let sa = pl / slots();
+  let sb = pl - sa * slots();
+  let ia = slotBase(sa) + i;
+  if (i < 0 || i >= cells) { return; }
   let head = headAt(kk);
   let front = frontAt(kk);
   if (!(front > head)) { return; }
@@ -237,32 +277,34 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let bx = fx0 + stepT;
   let by = fy0 + stepT;
 
-  let back = alongLip(i, axis, -1);
-  let fwd = alongLip(i, axis, 1);
+  let back = alongLip(pl, sa, i, axis, -1);
+  let fwd = alongLip(pl, sa, i, axis, 1);
   let bi = max(back, 0);
   let fi = max(fwd, 0);
 
-  let axThrow = share(throwXAt(i), throwXAt(bi), back);
-  let ayThrow = share(throwYAt(i), throwYAt(bi), back);
-  let bxThrow = share(throwXAt(i), throwXAt(fi), fwd);
-  let byThrow = share(throwYAt(i), throwYAt(fi), fwd);
+  let axThrow = share(throwXAt(ia), throwXAt(bi), back);
+  let ayThrow = share(throwYAt(ia), throwYAt(bi), back);
+  let bxThrow = share(throwXAt(ia), throwXAt(fi), fwd);
+  let byThrow = share(throwYAt(ia), throwYAt(fi), fwd);
 
-  let foamA = share(foamNowAt(i), foamNowAt(bi), back);
-  let foamB = share(foamNowAt(i), foamNowAt(fi), fwd);
-  let shownA = share(shownOf(i), shownOf(bi), back);
-  let shownB = share(shownOf(i), shownOf(fi), fwd);
-  let washA = share(washNowAt(i), washNowAt(bi), back);
-  let washB = share(washNowAt(i), washNowAt(fi), fwd);
-  let leanA = share(brinkAt(i), brinkAt(bi), back);
-  let leanB = share(brinkAt(i), brinkAt(fi), fwd);
+  // THE FOAM OF THE SLOT IT IS LEAVING; the wash is the world's and per
+  // column, so it keeps the column index. @see stepFoam
+  let foamA = share(foamNowAt(ia), foamNowAt(bi), back);
+  let foamB = share(foamNowAt(ia), foamNowAt(fi), fwd);
+  let shownA = share(shownOf(ia), shownOf(bi), back);
+  let shownB = share(shownOf(ia), shownOf(fi), fwd);
+  let washA = share(washNowAt(i), washNowAt(bi % cells), back);
+  let washB = share(washNowAt(i), washNowAt(fi % cells), fwd);
+  let leanA = share(brinkAt(ia), brinkAt(bi), back);
+  let leanB = share(brinkAt(ia), brinkAt(fi), fwd);
   // A LIP LEANS BY CONSTRUCTION and its pattern is fullest, so the brink goes
   // in as the lean, and how much pattern shows is one. @see sharedLit
   let litA = 0.5 + leanA * 0.34 + washA * (0.2 + 0.8) * 0.3;
   let litB = 0.5 + leanB * 0.34 + washB * (0.2 + 0.8) * 0.3;
-  let brinkA = share(drawnOf(i), drawnOf(bi), back);
-  let brinkB = share(drawnOf(i), drawnOf(fi), fwd);
-  let lipA = share(groundAt(i), groundAt(bi), back);
-  let lipB = share(groundAt(i), groundAt(fi), fwd);
+  let brinkA = share(drawnOf(ia), drawnOf(bi), back);
+  let brinkB = share(drawnOf(ia), drawnOf(fi), fwd);
+  let lipA = share(groundAt(ia), groundAt(bi), back);
+  let lipB = share(groundAt(ia), groundAt(fi), fwd);
 
   // THE PIECE, cut in TIME and biased toward the lip. @see nappeSteps
   let tHead = sqrt(2.0 * max(0.0, head) / ${num(FALL_GRAVITY)});
