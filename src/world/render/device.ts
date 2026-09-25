@@ -179,7 +179,37 @@ function watchCreation(device: GPUDevice) {
       return made;
     };
   }
+  watchSubmits(device);
   console.info("GPU: watching every creating call (?gpuwhy). This costs a scope per call.");
+}
+
+/**
+ * AND WHO SUBMITTED IT, which the message cannot say.
+ *
+ * "[Buffer (unlabeled)] used in submit while destroyed" names neither the
+ * buffer nor the caller, and by the time it surfaces the stack is gone: the
+ * error is asynchronous and the submit that caused it is several frames back.
+ * There are half a dozen things submitting here — the solver, the gathering,
+ * the brink pass, Pixi's own render, and any harness that is open — and
+ * nothing in the message tells them apart.
+ *
+ * So under the same switch every submit is scoped, with its own stack captured
+ * at the call, and a failure prints the two together. A stack per submit is far
+ * too expensive to leave on, which is why this lives behind `?gpuwhy` with the
+ * rest.
+ */
+function watchSubmits(device: GPUDevice) {
+  const proto = Object.getPrototypeOf(device.queue) as Record<string, unknown>;
+  const real = proto.submit as (this: GPUQueue, b: readonly GPUCommandBuffer[]) => void;
+  if (typeof real !== "function") return;
+  proto.submit = function (this: GPUQueue, buffers: readonly GPUCommandBuffer[]) {
+    const from = new Error("submitted here").stack;
+    device.pushErrorScope("validation");
+    real.call(this, buffers);
+    void device.popErrorScope().then((e) => {
+      if (e) console.error(`GPU: a submit was refused — ${e.message}\n${from}`);
+    }).catch(() => { /* the device went; nothing to report it to */ });
+  };
 }
 
 export function openDevice(): Promise<HeldGpu | null> {
