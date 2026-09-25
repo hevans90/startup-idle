@@ -67,7 +67,7 @@ import { BRINK_REACH } from "../../world/render/corner-rule";
 import { DRAWDOWN, SHADES, SHOW_DEPTH } from "../../world/render/water";
 import { LIP_BIAS, NAPPE_STEPS, sheetRuleSource } from "../../world/render/nappe";
 import { FALL_GRAVITY } from "../falls";
-import { STATE_WGSL, bindState, stateLayout, type GpuState } from "./state";
+import { STATE_WGSL, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
 
@@ -430,7 +430,7 @@ export function createSheet(
     label: "sheet",
     layout: device.createPipelineLayout({ bindGroupLayouts: [state, layout] }),
     compute: {
-      module: device.createShaderModule({ code: SHEET_WGSL, label: "sheet" }),
+      module: shaderModule(device, SHEET_WGSL, "sheet"),
       entryPoint: "main",
     },
   });

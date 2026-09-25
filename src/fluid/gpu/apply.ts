@@ -34,8 +34,7 @@ import { BREAK_START, BREAK_STOP, PERSIST, VERTICAL } from "../columns";
 import {
   CLAMP_SCALE, CLAMP_SLOT, DELTA_SCALE, DELTA_SLOT, REDUCE_SLOTS,
   AIR_SLOT, DEPTH_SLOT, WATER_SCALE, WET_SLOT,
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 import type { Box } from "./accelerate";
 
 const WORKGROUP = 8;
@@ -276,7 +275,7 @@ export function createApply(device: GPUDevice): ApplyPass {
     label: "apply",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: APPLY_WGSL, label: "apply" }),
+      module: shaderModule(device, APPLY_WGSL, "apply"),
       entryPoint: "main",
     },
   });

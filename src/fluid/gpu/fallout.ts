@@ -33,8 +33,7 @@
  */
 import {
   AIR_SLOT, FALL_OUT_MAX, STATE_WGSL, WATER_SCALE,
-  beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
 
@@ -68,7 +67,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // at the lips and nowhere else, which is why they can ride here instead of
   // coming back as two more maps.
   setFallOut(n, 6, washNowAt(i));
-  setFallOut(n, 7, foamNowAt(i));
+  // THE FOAM OF THE SLOT IT IS LEAVING, not of the column: a sheet off a
+  // deck is made of the deck's water. @see stepFoam
+  setFallOut(n, 7, foamNowAt(ia));
   // HOW HARD IT IS POURING over THIS edge, which is the only flux the host
   // reads: pourOf asks for fx on an east lip and fy on a south one, never
   // both. One float here for two whole maps of flux there.
@@ -98,7 +99,7 @@ export function createFallout(device: GPUDevice): FalloutPass {
     label: "fallout",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: FALLOUT_WGSL, label: "fallout" }),
+      module: shaderModule(device, FALLOUT_WGSL, "fallout"),
       entryPoint: "main",
     },
   });

@@ -21,8 +21,7 @@
  * which cells were touched, rather than an append-only log.
  */
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
 
@@ -91,7 +90,7 @@ export function createArrive(device: GPUDevice): ArrivePass {
     label: "arrive",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: ARRIVE_WGSL, label: "arrive" }),
+      module: shaderModule(device, ARRIVE_WGSL, "arrive"),
       entryPoint: "main",
     },
   });

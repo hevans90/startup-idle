@@ -27,8 +27,7 @@
  */
 import { FALL_MIN, THROW_EASE } from "../falls";
 import {
-  CLIFFN_SLOT, STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  CLIFFN_SLOT, STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 8;
 
@@ -152,7 +151,7 @@ export function createCliffs(device: GPUDevice): CliffsPass {
     label: "cliffs",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: CLIFFS_WGSL, label: "cliffs" }),
+      module: shaderModule(device, CLIFFS_WGSL, "cliffs"),
       entryPoint: "main",
     },
   });

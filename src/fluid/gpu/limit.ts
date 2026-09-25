@@ -35,8 +35,7 @@
  * run outward through it, and no other cell can claim either.
  */
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 import type { Box } from "./accelerate";
 
 const WORKGROUP = 8;
@@ -126,7 +125,7 @@ export type LimitPass = {
 
 export function createLimit(device: GPUDevice): LimitPass {
   const layout = stateLayout(device);
-  const module = device.createShaderModule({ code: LIMIT_WGSL, label: "limit" });
+  const module = shaderModule(device, LIMIT_WGSL, "limit");
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
   const of = (entryPoint: string) => device.createComputePipeline({
     label: `limit:${entryPoint}`,

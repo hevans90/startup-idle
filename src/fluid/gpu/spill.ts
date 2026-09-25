@@ -13,8 +13,7 @@
  * a rim of water that should not be there and is then blamed on the solver.
  */
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
 
@@ -78,7 +77,7 @@ export function createSpill(device: GPUDevice): SpillPass {
     label: "spill",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: SPILL_WGSL, label: "spill" }),
+      module: shaderModule(device, SPILL_WGSL, "spill"),
       entryPoint: "main",
     },
   });

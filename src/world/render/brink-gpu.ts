@@ -1,3 +1,4 @@
+import { shaderModule } from "../../fluid/gpu/state";
 /**
  * HOW HARD EACH SLOT'S WATER IS LEAVING, worked out once a frame.
  *
@@ -111,7 +112,7 @@ export function createBrinkPass(device: GPUDevice, slots: number): BrinkPass {
     label: "brink",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: BRINK_WGSL, label: "brink" }),
+      module: shaderModule(device, BRINK_WGSL, "brink"),
       entryPoint: "main",
     },
   });

@@ -22,8 +22,7 @@
  * and the assert for it is that `cells` divides by four.
  */
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
 
@@ -66,7 +65,7 @@ export function createMatpack(device: GPUDevice): MatpackPass {
     label: "matpack",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: MATPACK_WGSL, label: "matpack" }),
+      module: shaderModule(device, MATPACK_WGSL, "matpack"),
       entryPoint: "main",
     },
   });

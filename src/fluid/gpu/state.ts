@@ -505,7 +505,12 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     kickX: pairCells, kickY: pairCells, capX: pairCells, capY: pairCells,
     arrive: cells * ARRIVE_STRIDE,
     washNow: cells, washNext: cells, washSeed: cells,
-    foamNow: cells, foamNext: cells, splashNow: cells, splashIn: cells,
+    // A PLANE PER STOREY for the foam and the splash, because both are born
+    // in a SLOT — the solver's `broke` always was per slot, and a plunge lands
+    // in one. `splashIn` is the host's drop marks, which are per column and
+    // land in storey nought's plane; the rest of it stays nought. @see stepFoam
+    foamNow: slotCells, foamNext: slotCells,
+    splashNow: slotCells, splashIn: slotCells,
     spawn: SPAWN_MAX * SPAWN_STRIDE,
     wantAt: WANT_MAX, wantOut: WANT_MAX,
     // The PERIMETER, not the area: the rim is an edge. @see rimAt
@@ -751,6 +756,42 @@ export function copyOut(enc: GPUCommandEncoder, s: GpuState, sinks: readonly Sin
       { width: s.nx, height: rows, depthOrArrayLayers: 1 },
     );
   }
+}
+
+/**
+ * A shader module that SAYS WHY it would not compile.
+ *
+ * `createShaderModule` never throws. A module with a syntax error in it is
+ * handed back looking perfectly well, and the first sign of trouble is the
+ * PIPELINE built from it reporting "invalid due to a previous error" — on
+ * submit, once a frame, with no line, no reason and nothing to search for. The
+ * pass then does nothing, and a pass doing nothing is not a blank screen: it
+ * is water that does not move, or foam that never appears, or a gathering that
+ * hands back an empty list. Every one of those has been chased as a logic bug
+ * at least once in this file's history, twice in one afternoon.
+ *
+ * So every module in the engine goes through here, and the compiler's own
+ * message — with its LINE — reaches the console. It costs one promise per
+ * module at startup and nothing per frame.
+ *
+ * The two that caught me, for the flavour of it: `u32 + i32` in the
+ * gathering's list write, and a parameter named `top` in the foam's sampler
+ * where the body already had a local by that name. Both one-liners, both
+ * silent, both hours.
+ */
+export function shaderModule(
+  device: GPUDevice, code: string, label: string,
+): GPUShaderModule {
+  const module = device.createShaderModule({ code, label });
+  void module.getCompilationInfo?.().then((info) => {
+    for (const m of info.messages) {
+      if (m.type === "info") continue;
+      console.error(
+        `GPU: the ${label} shader, line ${m.lineNum}:${m.linePos} — ${m.message}`,
+      );
+    }
+  }).catch(() => { /* an implementation without compilation info */ });
+  return module;
 }
 
 /**

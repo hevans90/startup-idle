@@ -653,7 +653,7 @@ function cornerValues(
           wl.vvx[k] = vx;
           wl.vvy[k] = vy;
           wl.vw[k] = wash[ci];
-          wl.vf[k] = foam[ci];
+          wl.vf[k] = foam[i];
         } else {
           wl.vs[k] += surface;
           wl.vn[k]++;
@@ -664,7 +664,7 @@ function cornerValues(
           wl.vvx[k] += vx;
           wl.vvy[k] += vy;
           wl.vw[k] += wash[ci];
-          wl.vf[k] += foam[ci];
+          wl.vf[k] += foam[i];
         }
       }
     }

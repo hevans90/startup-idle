@@ -1,3 +1,4 @@
+import { shaderModule } from "../../fluid/gpu/state";
 /**
  * WHICH QUADS ARE WORTH DRAWING, gathered once a frame.
  *
@@ -239,9 +240,7 @@ export function createQuadsPass(
       },
     ],
   });
-  const module = device.createShaderModule({
-    code: QUADS_WGSL(drawdown), label: "quads",
-  });
+  const module = shaderModule(device, QUADS_WGSL(drawdown), "quads");
   // WHAT THE COMPILER ACTUALLY SAID, because the alternative is what it says
   // at the other end: "invalid due to a previous error", on the pipeline, once
   // a frame, with no line and no reason. A module that will not compile takes

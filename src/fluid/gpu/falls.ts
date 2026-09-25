@@ -50,8 +50,7 @@ import {
 import { DROP, crown } from "../drips";
 import {
   SPAWN_CROWN, SPAWN_MAX, SPAWN_SHED, SPAWN_STRIDE, STATE_WGSL, beginPass,
-  bindState, stateLayout, type GpuState,
-} from "./state";
+  bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
 
@@ -331,7 +330,7 @@ export function createFalls(device: GPUDevice): FallsPass {
     label: "falls",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: FALLS_WGSL, label: "falls" }),
+      module: shaderModule(device, FALLS_WGSL, "falls"),
       entryPoint: "main",
     },
   });

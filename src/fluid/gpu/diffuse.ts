@@ -34,8 +34,7 @@
  */
 import { MIXING, SWEEPS } from "../columns";
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 import type { Box } from "./accelerate";
 
 const WORKGROUP = 8;
@@ -178,9 +177,7 @@ export function createDiffuse(device: GPUDevice): DiffusePass {
   const layout = stateLayout(device);
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
   const stages = ([0, 1] as const).map((axis) => {
-    const module = device.createShaderModule({
-      code: diffuseWgsl(axis), label: `diffuse-${axis}`,
-    });
+    const module = shaderModule(device, diffuseWgsl(axis), `diffuse-${axis}`);
     return ["prep", "sweepAB", "sweepBA", "writeBack"].map((entryPoint) =>
       device.createComputePipeline({
         label: `diffuse-${axis}:${entryPoint}`,

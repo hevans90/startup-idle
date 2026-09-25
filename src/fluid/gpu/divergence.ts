@@ -33,8 +33,7 @@
  * it needs them and does not, the same way `limit` does.
  */
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 import type { Box } from "./accelerate";
 
 const WORKGROUP = 8;
@@ -159,7 +158,7 @@ export function createDivergence(device: GPUDevice): DivergencePass {
     label: "divergence",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: DIVERGENCE_WGSL, label: "divergence" }),
+      module: shaderModule(device, DIVERGENCE_WGSL, "divergence"),
       entryPoint: "main",
     },
   });

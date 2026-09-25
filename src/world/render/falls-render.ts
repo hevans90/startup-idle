@@ -223,7 +223,7 @@ export const sharedFoam = (foam: Float32Array, i: number, j: number) =>
 /**
  * The column a slot index is in. @see ColumnField.layers
  *
- * `foam` and `wash` are fields of the WORLD rather than of the water — one
+ * `wash` is a field of the WORLD rather than of the water — one
  * value per column, whatever is standing there — so anything reading them
  * from a slot has to come back down to the column first.
  */
@@ -368,10 +368,11 @@ export function drawFalls(
     const byThrow = sharedThrow(columns, i, fwd, 1);
     // What the lip is carrying, so the fall is not the one clean stretch
     // between two white pools — see `sharedFoam`.
-    const foamA = foam
-      ? sharedFoam(foam, ci, back < 0 ? -1 : columnOfSlot(columns, back)) : 0;
-    const foamB = foam
-      ? sharedFoam(foam, ci, fwd < 0 ? -1 : columnOfSlot(columns, fwd)) : 0;
+    // BY SLOT, not by column: the sheet is made of the water that left THIS
+    // slot, and on a span the deck and the channel under it carry different
+    // white. @see stepFoam
+    const foamA = foam ? sharedFoam(foam, i, back) : 0;
+    const foamB = foam ? sharedFoam(foam, i, fwd) : 0;
     // AND EVERYTHING ELSE THE SURFACE KNOWS ABOUT THIS WATER. The sheet
     // used to mix its own colour from a flat 0.20, how hard the lip was
     // pouring and a third of the foam — a recipe that agreed with the

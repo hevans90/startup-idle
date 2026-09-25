@@ -25,8 +25,7 @@
  * mark has to live somewhere both can reach and fade on its own clock.
  */
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "../../fluid/gpu/state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "../../fluid/gpu/state";
 import { ACC, LAND_SCALE } from "../../fluid/gpu/falls";
 import { SPLASH_LIFE } from "../../fluid/drips";
 import { LIFE } from "./foam";
@@ -40,7 +39,18 @@ ${STATE_WGSL}
 
 // NO BACKTICKS IN HERE — see the note at the top of the shared header.
 
-fn accAt2(region: i32, i: i32) -> i32 { return region * (nx() * ny()) + i; }
+// THE SAME STRIDE THE BANK WAS WRITTEN WITH, which this did not have.
+//
+// It read region * (nx * ny) while falls.ts banks at region * (nx * ny *
+// slots()) — so on a map with one storey the two agreed and on a map with two
+// this read the SPLASH region at three cells and found itself a slot and a
+// half into the IMPULSE region instead. A sheet off a deck plunging into the
+// river marked no white at all on the device path, and whatever momentum
+// happened to be banked showed up as white somewhere it had no business being.
+// @see accAt in fluid/gpu/falls
+fn accAt2(region: i32, i: i32) -> i32 {
+  return region * (nx() * ny() * slots()) + i;
+}
 
 /**
  * WHERE A SPLASH IS, kept by the device because both sides mark it.
@@ -59,13 +69,20 @@ fn splash(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (x >= nx() || y >= ny()) { return; }
   let i = y * nx() + x;
   let keep = exp(-frameDt() / ${f(SPLASH_LIFE)});
-  var v = splashNowAt(i) * keep;
-  // What the plunges banked this frame, and what the host's drops marked.
-  let banked = f32(atomicLoad(&acc[accAt2(${ACC.splash}, i)])) / ${f(LAND_SCALE)};
-  v = max(max(v, banked), splashInAt(i));
-  // Below a hundredth it is nothing, which is what stops a mark lingering for
-  // ever at a value nobody can see.
-  setSplashNow(i, select(v, 0.0, v < 0.01));
+  let cells = nx() * ny();
+  // A PLANE PER STOREY. The bank is per slot because a plunge lands in a slot,
+  // and the host's drop marks are per column — they go on storey nought, which
+  // is where they have always gone. @see stepFoam
+  for (var a = 0; a < slots(); a = a + 1) {
+    let ia = a * cells + i;
+    var v = splashNowAt(ia) * keep;
+    let banked = f32(atomicLoad(&acc[accAt2(${ACC.splash}, ia)])) / ${f(LAND_SCALE)};
+    v = max(v, banked);
+    if (a == 0) { v = max(v, splashInAt(i)); }
+    // Below a hundredth it is nothing, which is what stops a mark lingering
+    // for ever at a value nobody can see.
+    setSplashNow(ia, select(v, 0.0, v < 0.01));
+  }
 }
 
 /*
@@ -82,8 +99,42 @@ fn splash(@builtin(global_invocation_id) gid: vec3<u32>) {
  * 0.895 against a LANDING of 0.9, and not one cliff foot marked.
  */
 
+
+/** Whether the water in slot jb touches water standing bed..top. @see whiteAt */
+fn touchesHere(jb: i32, bed: f32, top: f32) -> bool {
+  let d = depthAt(jb);
+  if (d <= dryDepth()) { return false; }
+  let jt = min(groundAt(jb) + d, roofAt(jb));
+  return min(jt, top) > max(groundAt(jb), bed);
+}
+
+/**
+ * The white on one column, in the storey this water CAME FROM.
+ *
+ * The twin of whiteAt in foam.ts, and the note there is the argument: a road
+ * is slot nought and the deck it runs onto is slot one, so water crossing a
+ * span changes SLOT, and a trace that stays in its own plane finds nothing
+ * behind it. The test is whether the two bodies of WATER touch — not
+ * connected(), which two slots open to the same sky always are however far
+ * apart their water is. Same storey first, because that is always the answer
+ * on a map with no bridges and then it costs one test.
+ */
+fn whiteAt(jx: i32, jy: i32, bed: f32, top: f32, a: i32) -> f32 {
+  let cells = nx() * ny();
+  let jc = jy * nx() + jx;
+  let same = a * cells + jc;
+  if (touchesHere(same, bed, top)) { return foamNowAt(same); }
+  for (var b = 0; b < slots(); b = b + 1) {
+    if (b == a) { continue; }
+    let jb = b * cells + jc;
+    if (touchesHere(jb, bed, top)) { return foamNowAt(jb); }
+  }
+  return 0.0;
+}
+
+
 /** Bilinear sample of the white as it stands, clamped at the rim. */
-fn sampleFoam(sx: f32, sy: f32) -> f32 {
+fn sampleFoam(sx: f32, sy: f32, slot: i32, bed: f32, wet: f32) -> f32 {
   let cx = clamp(sx, 0.0, f32(nx() - 1));
   let cy = clamp(sy, 0.0, f32(ny() - 1));
   let x0 = i32(cx);
@@ -92,11 +143,12 @@ fn sampleFoam(sx: f32, sy: f32) -> f32 {
   let y1 = select(y0, y0 + 1, y0 < ny() - 1);
   let fx = cx - f32(x0);
   let fy = cy - f32(y0);
-  let a = foamNowAt(y0 * nx() + x0);
-  let b = foamNowAt(y0 * nx() + x1);
-  let c = foamNowAt(y1 * nx() + x0);
-  let d = foamNowAt(y1 * nx() + x1);
-  let top = a + (b - a) * fx;
+  // EACH CORNER IN THE STOREY IT FED FROM. @see whiteAt
+  let p = whiteAt(x0, y0, bed, wet, slot);
+  let q = whiteAt(x1, y0, bed, wet, slot);
+  let c = whiteAt(x0, y1, bed, wet, slot);
+  let d = whiteAt(x1, y1, bed, wet, slot);
+  let top = p + (q - p) * fx;
   let bot = c + (d - c) * fx;
   return top + (bot - top) * fy;
 }
@@ -108,21 +160,27 @@ fn carry(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = i32(gid.y);
   if (x < b.x || y < b.y || x > b.z || y > b.w) { return; }
   let i = y * nx() + x;
-  // Dry columns hold no foam at all, and holding none is not the same as
-  // holding what they held: a puddle that dries leaves no white behind it.
-  // AND THE RIM LOSES ITS WHITE WITH ITS WATER, the same as the host's own
-  // pass does: foam advected into a ring that is emptied every substep has
-  // nothing left to ride out on. @see openEdgeRim
-  if (openEdgeRim(i)) { setFoamNext(i, 0.0); return; }
-  if (depthAt(i) <= dryDepth()) { setFoamNext(i, 0.0); return; }
-
+  let cells = nx() * ny();
   let back = frameDt() / cellSize();
-  let carried = sampleFoam(
-    f32(x) - flowXAt(i) * back, f32(y) - flowYAt(i) * back,
-  ) * exp(-frameDt() / ${f(LIFE)});
-
-  let born = max(brokeAt(i), splashNowAt(i));
-  setFoamNext(i, max(carried, born));
+  let fade = exp(-frameDt() / ${f(LIFE)});
+  for (var a = 0; a < slots(); a = a + 1) {
+    let ia = a * cells + i;
+    // Dry slots hold no foam at all, and holding none is not the same as
+    // holding what they held: a puddle that dries leaves no white behind it.
+    // AND THE RIM LOSES ITS WHITE WITH ITS WATER, the same as the host's own
+    // pass does: foam advected into a ring that is emptied every substep has
+    // nothing left to ride out on. @see openEdgeRim
+    if (openEdgeRim(i)) { setFoamNext(ia, 0.0); continue; }
+    if (depthAt(ia) <= dryDepth()) { setFoamNext(ia, 0.0); continue; }
+    // THIS SLOT'S OWN CURRENT, and its own breaking. A deck's water is
+    // carried by what runs over the deck. @see stepFoam
+    let carried = sampleFoam(
+      f32(x) - flowXAt(ia) * back, f32(y) - flowYAt(ia) * back, a,
+      groundAt(ia), min(groundAt(ia) + depthAt(ia), roofAt(ia)),
+    ) * fade;
+    let born = max(brokeAt(ia), splashNowAt(ia));
+    setFoamNext(ia, max(carried, born));
+  }
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
@@ -132,7 +190,10 @@ fn swap(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = i32(gid.y);
   if (x < b.x || y < b.y || x > b.z || y > b.w) { return; }
   let i = y * nx() + x;
-  setFoamNow(i, foamNextAt(i));
+  let cells = nx() * ny();
+  for (var a = 0; a < slots(); a = a + 1) {
+    setFoamNow(a * cells + i, foamNextAt(a * cells + i));
+  }
 }
 `;
 
@@ -144,7 +205,7 @@ export type FoamPass = {
 export function createFoamPass(device: GPUDevice): FoamPass {
   const layout = stateLayout(device);
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
-  const module = device.createShaderModule({ code: FOAM_WGSL, label: "foam" });
+  const module = shaderModule(device, FOAM_WGSL, "foam");
   const [splash, carry, swap] = ["splash", "carry", "swap"].map((entryPoint) =>
     device.createComputePipeline({
       label: `foam:${entryPoint}`,

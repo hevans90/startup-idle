@@ -26,8 +26,7 @@
  * from wherever the water used to be.
  */
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "../../fluid/gpu/state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "../../fluid/gpu/state";
 import { SETTLE } from "./flow-wash";
 
 const WORKGROUP = 8;
@@ -91,7 +90,7 @@ export type WashPass = {
 export function createWashPass(device: GPUDevice): WashPass {
   const layout = stateLayout(device);
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
-  const module = device.createShaderModule({ code: WASH_WGSL, label: "wash" });
+  const module = shaderModule(device, WASH_WGSL, "wash");
   const stages = ["carry", "swap"].map((entryPoint) =>
     device.createComputePipeline({
       label: `wash:${entryPoint}`,

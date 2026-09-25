@@ -25,8 +25,7 @@
 import { COLUMNS_PER_TILE } from "../../world/water/field";
 import {
   DEPTH_SLOT, STATE_WGSL, WATER_SCALE, WET_SLOT,
-  beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 8;
 
@@ -92,7 +91,7 @@ export function createMeta(device: GPUDevice): MetaPass {
     label: "meta",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: META_WGSL, label: "meta" }),
+      module: shaderModule(device, META_WGSL, "meta"),
       entryPoint: "main",
     },
   });

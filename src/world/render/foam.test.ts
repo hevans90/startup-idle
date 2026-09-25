@@ -14,9 +14,10 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { activeBox } from "../../fluid/columns";
+import { activeBox, createColumnField } from "../../fluid/columns";
 import { createWaterField, pourAt, stepWater, type WaterField } from "../water/field";
 import { createGrid, fillTerrain, setHeight } from "../grid";
+import { OPEN_SKY } from "../../fluid/slots";
 import { createFoam, stepFoam, type FoamField } from "./foam";
 
 /** Run the water and the foam together, the way the renderer does. */
@@ -211,5 +212,152 @@ describe("foam", () => {
 
     expect(most(fed.foam)).toBeGreaterThan(0.7);
     expect(most(drip.foam)).toBeLessThan(0.15);
+  });
+});
+
+/**
+ * A BRIDGE, which is where foam being one plane over columns came apart.
+ *
+ * Foam is carried by the current and born where the water breaks, and on a
+ * span those are two different waters: the road over the deck runs one way and
+ * the channel under it runs another. Held per column it was the CHANNEL's
+ * answer that won — the deck's white was advected by the river's flow, born
+ * from the river's breaking, and wiped outright wherever the channel below
+ * happened to be dry.
+ *
+ * Built by hand rather than from a fixture, because what is pinned is the
+ * indexing and not the geometry: two storeys, water in each, and the question
+ * of which one the foam belongs to.
+ */
+describe("foam on a span", () => {
+  /** A deck over x in the middle third, with a channel under it. */
+  function span(n = 16) {
+    const f = createColumnField(n, n, undefined, 1, 2);
+    const lo = Math.floor(n / 3), hi = Math.floor((2 * n) / 3);
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const i = y * n + x;
+        const decked = x >= lo && x < hi;
+        f.ground[i] = -20;
+        f.roof[i] = decked ? -2 : OPEN_SKY;      // the soffit over the channel
+        f.ground[f.cells + i] = decked ? 0 : -20;
+        f.roof[f.cells + i] = decked ? OPEN_SKY : -20;   // absent off the span
+      }
+    }
+    return { f, lo, hi };
+  }
+
+  /** Slot a of every column gets a current running east. @see outX */
+  function pushEast(f: ReturnType<typeof span>["f"], a: number, amount: number) {
+    const { cells, layers } = f;
+    for (let i = 0; i < cells; i++) f.fx[(a * layers + a) * cells + i] = amount;
+  }
+
+  const whole = (f: ReturnType<typeof span>["f"]) =>
+    ({ x0: 0, y0: 0, x1: f.nx - 1, y1: f.ny - 1 });
+
+  test("is a plane per storey, not one over columns", () => {
+    const { f } = span();
+    expect(createFoam(f).now.length).toBe(f.cells * f.layers);
+    expect(f.layers).toBe(2);
+  });
+
+  test("a deck keeps its white over a channel that is bone dry", () => {
+    // THE REPORTED FAULT, at its simplest. The old field wiped a column's
+    // foam when slot NOUGHT was dry, and under a span slot nought is the
+    // channel — so water crossing a bridge over a dry culvert lost all of it.
+    const { f, lo, hi } = span();
+    const cells = f.cells;
+    const foam = createFoam(f);
+    for (let y = 0; y < f.ny; y++) {
+      for (let x = lo; x < hi; x++) {
+        f.depth[cells + y * f.nx + x] = 2;
+        foam.now[cells + y * f.nx + x] = 1;
+      }
+    }
+    stepFoam(foam, f, 1 / 60, whole(f));
+    let kept = 0, wet = 0;
+    for (let y = 0; y < f.ny; y++) {
+      for (let x = lo; x < hi; x++) {
+        wet++;
+        if (foam.now[cells + y * f.nx + x] > 0.9) kept++;
+      }
+    }
+    expect(wet).toBeGreaterThan(20);
+    expect(kept).toBe(wet);
+    // And the dry channel under it holds none, which is the other half.
+    for (let i = 0; i < cells; i++) expect(foam.now[i]).toBe(0);
+  });
+
+  test("white crosses the abutment, where the storey changes", () => {
+    // A road is slot NOUGHT and the deck it runs onto is slot ONE, so water
+    // crossing a span changes slot. A trace that stayed in its own plane found
+    // nothing behind it and the deck came out blank — worse than the wrong
+    // white it had before. It follows `connected` instead. @see whiteAt
+    const { f, lo, hi } = span();
+    const cells = f.cells;
+    // A ROAD at the deck's own level either side of it, so the two are one
+    // body of water with nothing but a slot boundary between them.
+    for (let y = 0; y < f.ny; y++) {
+      for (let x = 0; x < f.nx; x++) {
+        if (x >= lo && x < hi) continue;
+        const i = y * f.nx + x;
+        f.ground[i] = 0; f.roof[i] = OPEN_SKY;
+        f.ground[cells + i] = 0; f.roof[cells + i] = 0;   // absent
+      }
+    }
+    for (let y = 0; y < f.ny; y++) {
+      for (let x = 0; x < f.nx; x++) {
+        const i = y * f.nx + x;
+        const a = x >= lo && x < hi ? 1 : 0;
+        f.depth[a * cells + i] = 2;
+      }
+    }
+    pushEast(f, 0, 40);
+    pushEast(f, 1, 40);
+    const foam = createFoam(f);
+    // White on the road WEST of the span only.
+    for (let y = 0; y < f.ny; y++) {
+      for (let x = 0; x < lo; x++) foam.now[y * f.nx + x] = 1;
+    }
+    for (let n = 0; n < 40; n++) stepFoam(foam, f, 1 / 60, whole(f));
+    let got = 0;
+    for (let y = 0; y < f.ny; y++) {
+      if (foam.now[cells + y * f.nx + lo] > 0.05) got++;
+    }
+    expect(got).toBe(f.ny);
+  });
+
+  test("and does not cross to a deck the water cannot reach", () => {
+    // The control, and the reason the test above means anything: lift the deck
+    // clear of the road and there is no longer a path between the two slots,
+    // so `connected` refuses and the white stays where it is.
+    const { f, lo, hi } = span();
+    const cells = f.cells;
+    for (let y = 0; y < f.ny; y++) {
+      for (let x = 0; x < f.nx; x++) {
+        const i = y * f.nx + x;
+        if (x >= lo && x < hi) { f.ground[cells + i] = 40; continue; }  // out of reach
+        f.ground[i] = 0; f.roof[i] = OPEN_SKY;
+        f.ground[cells + i] = 0; f.roof[cells + i] = 0;
+      }
+    }
+    for (let y = 0; y < f.ny; y++) {
+      for (let x = 0; x < f.nx; x++) {
+        const i = y * f.nx + x;
+        const a = x >= lo && x < hi ? 1 : 0;
+        f.depth[a * cells + i] = 2;
+      }
+    }
+    pushEast(f, 0, 40);
+    pushEast(f, 1, 40);
+    const foam = createFoam(f);
+    for (let y = 0; y < f.ny; y++) {
+      for (let x = 0; x < lo; x++) foam.now[y * f.nx + x] = 1;
+    }
+    for (let n = 0; n < 40; n++) stepFoam(foam, f, 1 / 60, whole(f));
+    for (let y = 0; y < f.ny; y++) {
+      expect(foam.now[cells + y * f.nx + lo]).toBe(0);
+    }
   });
 });

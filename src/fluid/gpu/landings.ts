@@ -39,8 +39,7 @@ import { PLUNGE_CAP, PLUNGE_PUSH } from "../columns";
 import { ACROSS } from "../drips";
 import { ACC, LAND_SCALE } from "./falls";
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 8;
 
@@ -262,9 +261,7 @@ export type LandingsPass = {
 export function createLandings(device: GPUDevice): LandingsPass {
   const layout = stateLayout(device);
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
-  const module = device.createShaderModule({
-    code: LANDINGS_WGSL, label: "landings",
-  });
+  const module = shaderModule(device, LANDINGS_WGSL, "landings");
   const stages = ["water", "push", "clampFlux"].map((entryPoint) =>
     device.createComputePipeline({
       label: `landings:${entryPoint}`,

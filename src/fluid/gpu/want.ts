@@ -26,8 +26,7 @@
  * @see CARRY_EVERY, WANT_MAX
  */
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
 
@@ -62,7 +61,7 @@ export function createWant(device: GPUDevice): WantPass {
     label: "want",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: WANT_WGSL, label: "want" }),
+      module: shaderModule(device, WANT_WGSL, "want"),
       entryPoint: "main",
     },
   });

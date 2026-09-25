@@ -36,6 +36,7 @@
  * test reads.
  */
 import { flowX, flowY, type ColumnField } from "../../fluid/columns";
+import { wetTop } from "../../fluid/slots";
 
 /**
  * How white the foot of a fall used to go, kept as the scale the splash is
@@ -74,15 +75,38 @@ export type FoamField = {
   readonly ny: number;
   /** Tiles across one column, so a speed in tiles becomes a step in columns. */
   readonly cell: number;
-  /** How white each column is, 0 to 1. */
+  /** `nx * ny`: the stride from one storey's plane to the next. */
+  readonly cells: number;
+  /** How many storeys. @see ColumnField.layers */
+  readonly layers: number;
+  /**
+   * How white each SLOT is, 0 to 1, as a plane per storey.
+   *
+   * A PLANE PER STOREY, and it was one plane over columns until a bridge
+   * showed why it cannot be. Foam is carried by the current and born where the
+   * water breaks, and on a span those are two different waters: the deck's
+   * road runs one way and the channel under it runs another. Held per column,
+   * the deck's white was advected by the RIVER's flow, born from the RIVER's
+   * breaking, and wiped outright wherever the channel below happened to be
+   * dry — so water crossing onto a span lost most of its foam at the abutment,
+   * which is exactly what it looked like.
+   *
+   * It is still one field of the world in the sense that matters — the same
+   * rule, the same clock — but which water is carrying it is a question that
+   * needs a storey named. @see stepFoam
+   */
   now: Float32Array;
   /** Scratch, so a frame never reads what it has already written. */
   next: Float32Array;
 };
 
 export function createFoam(columns: ColumnField): FoamField {
-  const { nx, ny, cell } = columns;
-  return { nx, ny, cell, now: new Float32Array(nx * ny), next: new Float32Array(nx * ny) };
+  const { nx, ny, cell, cells, layers } = columns;
+  return {
+    nx, ny, cell, cells, layers,
+    now: new Float32Array(cells * layers),
+    next: new Float32Array(cells * layers),
+  };
 }
 
 /**
@@ -111,6 +135,52 @@ export function createFoam(columns: ColumnField): FoamField {
  */
 
 /**
+ * The white on column `(jx, jy)`, in the storey this water CAME FROM.
+ *
+ * A PLANE PER STOREY is not enough on its own, and the abutment of a bridge is
+ * why. A road is one storey and its water is in slot nought; the deck it runs
+ * onto is a second storey and its water is in slot one. So water crossing onto
+ * a span changes SLOT, and a backward trace that stays in its own plane finds
+ * nothing behind it — the deck came out with no white at all, which is worse
+ * than the wrong white it had before.
+ *
+ * Foam is carried BY THE WATER, so the trace has to follow the water — and
+ * the test is whether the two bodies of water TOUCH: their wetted intervals
+ * overlap, floor to wet top. `connected` is the wrong question here and it is
+ * worth saying why, because it was the first thing tried: two slots both open
+ * to the sky are connected by the air above them however far apart their water
+ * is, so a channel twenty half steps down would have had its white lifted onto
+ * the deck over it — the original fault wearing a new hat. Water that touches
+ * water is water that could have carried this white here.
+ *
+ * The same storey is tried first, because on a map with no bridges that is
+ * always the answer and it then costs one test. Nothing touching means nothing
+ * arrived, which reads as nought — a lip with air behind it has no upstream
+ * white, and that is right.
+ */
+function whiteAt(
+  foam: Float32Array, c: ColumnField, jx: number, jy: number,
+  bed: number, top: number, a: number,
+): number {
+  const { cells, layers, nx, ground, roof, depth, params } = c;
+  const jc = jy * nx + jx;
+  const dry = params.dryDepth;
+  const touches = (jb: number) => {
+    if (depth[jb] <= dry) return false;
+    const jt = wetTop(ground[jb], roof[jb], depth[jb]);
+    return (jt < top ? jt : top) > (ground[jb] > bed ? ground[jb] : bed);
+  };
+  const same = a * cells + jc;
+  if (touches(same)) return foam[same];
+  for (let b = 0; b < layers; b++) {
+    if (b === a) continue;
+    const jb = b * cells + jc;
+    if (touches(jb)) return foam[jb];
+  }
+  return 0;
+}
+
+/**
  * Carry the foam one frame down the current, fading it as it goes.
  *
  * The same backward trace as the flow wash — for each column, where was the
@@ -124,7 +194,7 @@ export function stepFoam(
   foam: FoamField, columns: ColumnField, dt: number,
   region: { x0: number; y0: number; x1: number; y1: number },
 ) {
-  const { nx, cell, now, next } = foam;
+  const { nx, cell, now, next, cells, layers } = foam;
   const { depth, broke, params } = columns;
   const splash = columns.drips.splashed ? columns.drips.splash : null;
   const dry = params.dryDepth;
@@ -132,47 +202,66 @@ export function stepFoam(
   const keep = Math.exp(-dt / LIFE);
   const lastX = foam.nx - 1, lastY = foam.ny - 1;
   const rim = columns.openEdge;
-  for (let y = region.y0; y <= region.y1; y++) {
-    for (let x = region.x0; x <= region.x1; x++) {
-      const i = y * nx + x;
-      // AND THE RIM LOSES ITS WHITE WITH ITS WATER. `spill` empties the
-      // outermost ring every substep, and foam advected into it has nothing
-      // left to ride out on — so it piles up there and the edge of the map
-      // goes white and stays white. Cleared, what reaches the rim leaves with
-      // everything it was carrying, which is what an open edge means.
-      if (rim && (x === 0 || y === 0 || x === lastX || y === lastY)) {
-        next[i] = 0;
-        continue;
+  for (let a = 0; a < layers; a++) {
+    const A = a * cells;
+    for (let y = region.y0; y <= region.y1; y++) {
+      for (let x = region.x0; x <= region.x1; x++) {
+        const i = y * nx + x;
+        const ia = A + i;
+        // AND THE RIM LOSES ITS WHITE WITH ITS WATER. `spill` empties the
+        // outermost ring every substep, and foam advected into it has nothing
+        // left to ride out on — so it piles up there and the edge of the map
+        // goes white and stays white. Cleared, what reaches the rim leaves with
+        // everything it was carrying, which is what an open edge means.
+        if (rim && (x === 0 || y === 0 || x === lastX || y === lastY)) {
+          next[ia] = 0;
+          continue;
+        }
+        if (depth[ia] <= dry) { next[ia] = 0; continue; }
+        // THIS SLOT'S OWN CURRENT. A deck's water is carried by what is
+        // running over the deck, not by the river under it.
+        const vx = flowX(columns, x, y, a), vy = flowY(columns, x, y, a);
+        let sx = x - vx * back;
+        let sy = y - vy * back;
+        sx = sx < 0 ? 0 : sx > lastX ? lastX : sx;
+        sy = sy < 0 ? 0 : sy > lastY ? lastY : sy;
+        const x0 = sx | 0, y0 = sy | 0;
+        const x1 = x0 < lastX ? x0 + 1 : x0, y1 = y0 < lastY ? y0 + 1 : y0;
+        const fx = sx - x0, fy = sy - y0;
+        // EACH CORNER IN THE STOREY IT FED FROM. @see whiteAt
+        const bed = columns.ground[ia];
+        const wet = wetTop(bed, columns.roof[ia], depth[ia]);
+        const p = whiteAt(now, columns, x0, y0, bed, wet, a);
+        const q = whiteAt(now, columns, x1, y0, bed, wet, a);
+        const c = whiteAt(now, columns, x0, y1, bed, wet, a);
+        const d = whiteAt(now, columns, x1, y1, bed, wet, a);
+        const top = p + (q - p) * fx, bot = c + (d - c) * fx;
+        const carried = (top + (bot - top) * fy) * keep;
+        // What the SOLVER says is breaking HERE, in this slot, which is the
+        // same number it dissipates on — so the water goes white exactly
+        // where it loses energy. `broke` has been per slot all along.
+        const wave = broke[ia];
+        // And where a DROP landed. Water arriving out of the air has air in it
+        // whether it came over a lip as a sheet or out of a pipe as a drop; the
+        // difference is that a drop is put in by hand rather than through the
+        // divergence, so the surface rate the breaking test reads never sees it
+        // and it has to leave word — see `splash` in fluid/drips.
+        //
+        // ON STOREY NOUGHT ONLY, and that is a known hole rather than a
+        // choice: `drips.splash` is one plane over columns, because a drop
+        // records where it landed and not which storey it landed ON. Put on
+        // every storey it would whiten a deck when something splashed in the
+        // channel underneath; put here it does what it has always done. What
+        // it needs is the landing slot, which means `markSplash` taking one.
+        const splashed = a === 0 && splash ? splash[i] : 0;
+        const born = wave > splashed ? wave : splashed;
+        next[ia] = carried > born ? carried : born;
       }
-      if (depth[i] <= dry) { next[i] = 0; continue; }
-      const vx = flowX(columns, x, y), vy = flowY(columns, x, y);
-      let sx = x - vx * back;
-      let sy = y - vy * back;
-      sx = sx < 0 ? 0 : sx > lastX ? lastX : sx;
-      sy = sy < 0 ? 0 : sy > lastY ? lastY : sy;
-      const x0 = sx | 0, y0 = sy | 0;
-      const x1 = x0 < lastX ? x0 + 1 : x0, y1 = y0 < lastY ? y0 + 1 : y0;
-      const fx = sx - x0, fy = sy - y0;
-      const a = now[y0 * nx + x0], b = now[y0 * nx + x1];
-      const c = now[y1 * nx + x0], d = now[y1 * nx + x1];
-      const top = a + (b - a) * fx, bot = c + (d - c) * fx;
-      const carried = (top + (bot - top) * fy) * keep;
-      // What the SOLVER says is breaking here, which is the same number it
-      // dissipates on — so the water goes white exactly where it loses energy.
-      const wave = broke[i];
-      // And where a DROP landed. Water arriving out of the air has air in it
-      // whether it came over a lip as a sheet or out of a pipe as a drop; the
-      // difference is that a drop is put in by hand rather than through the
-      // divergence, so the surface rate the breaking test reads never sees it
-      // and it has to leave word — see `splash` in fluid/drips.
-      const splashed = splash ? splash[i] : 0;
-      const born = wave > splashed ? wave : splashed;
-      next[i] = carried > born ? carried : born;
     }
-  }
-  // Swap rather than copy: the whole point of the scratch array.
-  for (let y = region.y0; y <= region.y1; y++) {
-    const row = y * nx;
-    now.set(next.subarray(row + region.x0, row + region.x1 + 1), row + region.x0);
+    // Swap rather than copy: the whole point of the scratch array.
+    for (let y = region.y0; y <= region.y1; y++) {
+      const row = A + y * nx;
+      now.set(next.subarray(row + region.x0, row + region.x1 + 1), row + region.x0);
+    }
   }
 }

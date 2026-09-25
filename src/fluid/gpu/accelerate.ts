@@ -20,8 +20,7 @@
 import { FLUX_FLOOR, type ColumnField } from "../columns";
 import { OPEN_SKY, PRESSURE_SLOT } from "../slots";
 import {
-  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState,
-} from "./state";
+  STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 /**
  * One thread per CELL, not per edge.
@@ -204,7 +203,7 @@ export function createAccelerate(device: GPUDevice): AcceleratePass {
     label: "accelerate",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     compute: {
-      module: device.createShaderModule({ code: ACCELERATE_WGSL, label: "accelerate" }),
+      module: shaderModule(device, ACCELERATE_WGSL, "accelerate"),
       entryPoint: "main",
     },
   });

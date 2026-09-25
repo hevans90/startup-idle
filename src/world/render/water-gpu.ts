@@ -460,10 +460,11 @@ fn cornerExtras(vx: i32, vy: i32, mine: i32) -> vec4<f32> {
       // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
       // shownDepth, which is this.
       d = d + max(dd, ${SHOW_DEPTH} * atBrink(cx, cy, a));
-      // The wash and the foam are the WORLD'S, one per column: a tile carries
-      // one current pattern whatever is built over it.
+      // The wash is the WORLD'S, one per column: a tile carries one resting
+      // pattern whatever is built over it. The foam is this SLOT'S, because a
+      // deck's white is carried by the deck's own current. @see stepFoam
       wash = wash + textureLoad(uWash, vec2<i32>(cx, cy), 0).r;
-      foam = foam + textureLoad(uFoam, vec2<i32>(cx, cy), 0).r;
+      foam = foam + textureLoad(uFoam, vec2<i32>(cx, slotRow(cy, a)), 0).r;
       vel = vel + flowAt(cx, cy, dd, a);
       n = n + 1.0;
     }
@@ -910,7 +911,7 @@ vec4 cornerExtras(int vx, int vy, int mine) {
       // shownDepth, which is this.
       d += max(dd, ${SHOW_DEPTH} * atBrink(cx, cy, a));
       wash += texelFetch(uWash, ivec2(cx, cy), 0).r;
-      foam += texelFetch(uFoam, ivec2(cx, cy), 0).r;
+      foam += texelFetch(uFoam, ivec2(cx, slotRow(cy, a)), 0).r;
       vel += flowAt(cx, cy, dd, a);
       n += 1.0;
     }
@@ -1352,9 +1353,12 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
   // so the plane starts at row `a * ny` and nothing has to be re-packed. The
   // flux has a plane per slot PAIR and so is taller again.
   //
-  // `wash` and `foam` stay one plane. They are fields of the WORLD — what the
-  // current is carrying over a tile — and a bridge does not give a tile two
-  // of them.
+  // `wash` stays ONE PLANE: it is the resting pattern of the world, what a
+  // tile's surface looks like when nothing is happening to it, and a bridge
+  // does not give a tile two of those. `foam` is a plane per storey, because
+  // foam is CARRIED and BORN — by this slot's current, where this slot breaks
+  // — and on a span the deck and the channel are two different waters running
+  // two different ways. @see stepFoam
   const { layers } = columns;
   const depth = viewOf(columns.depth, nx, ny * layers);
   const ground = viewOf(columns.ground, nx, ny * layers);
@@ -1364,7 +1368,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
   const wash = createFlowWash(columns);
   const foam = createFoam(columns);
   const washTex = viewOf(wash.now, nx, ny);
-  const foamTex = viewOf(foam.now, nx, ny);
+  const foamTex = viewOf(foam.now, nx, ny * layers);
   const material = new BufferImageSource({
     resource: columns.material, width: nx, height: ny * layers, format: "r8unorm",
     scaleMode: "nearest",
