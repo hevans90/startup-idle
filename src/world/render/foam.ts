@@ -228,7 +228,21 @@ export function stepFoam(
         const x0 = sx | 0, y0 = sy | 0;
         const x1 = x0 < lastX ? x0 + 1 : x0, y1 = y0 < lastY ? y0 + 1 : y0;
         const fx = sx - x0, fy = sy - y0;
-        // EACH CORNER IN THE STOREY IT FED FROM. @see whiteAt
+        // EACH CORNER IN THE STOREY IT FED FROM, on every map and not only on
+        // the bridged ones.
+        //
+        // THERE WAS A FAST PATH HERE FOR A SINGLE STOREY and it was wrong, in
+        // the way an optimisation is wrong when it is written from what the
+        // code looks like rather than from what it does. It read the plane
+        // directly, on the reasoning that with one slot there is nothing to
+        // choose between — but `whiteAt` does not only choose a slot, it
+        // returns NOUGHT for a neighbour whose water does not touch this
+        // water, and `now` is last frame's field: a column that was wet and
+        // has just dried still holds its white until this pass writes over it.
+        // So the shortcut pulled white out of columns the rule refuses, the
+        // device kept refusing them, and the two paths' foam parted by a third
+        // of the scale — which `__frameCompare` caught and no test did.
+        // @see whiteAt
         const bed = columns.ground[ia];
         const wet = wetTop(bed, columns.roof[ia], depth[ia]);
         const p = whiteAt(now, columns, x0, y0, bed, wet, a);
@@ -247,13 +261,11 @@ export function stepFoam(
         // divergence, so the surface rate the breaking test reads never sees it
         // and it has to leave word — see `splash` in fluid/drips.
         //
-        // ON STOREY NOUGHT ONLY, and that is a known hole rather than a
-        // choice: `drips.splash` is one plane over columns, because a drop
-        // records where it landed and not which storey it landed ON. Put on
-        // every storey it would whiten a deck when something splashed in the
-        // channel underneath; put here it does what it has always done. What
-        // it needs is the landing slot, which means `markSplash` taking one.
-        const splashed = a === 0 && splash ? splash[i] : 0;
+        // AND WHERE A DROP LANDED, in the slot it landed IN. The mark is made
+        // by the landing callback, which is the one place that knows which
+        // storey a drop at that height came down on — so a drop onto a deck
+        // whitens the deck and not the channel under it. @see markSplash
+        const splashed = splash ? splash[ia] : 0;
         const born = wave > splashed ? wave : splashed;
         next[ia] = carried > born ? carried : born;
       }

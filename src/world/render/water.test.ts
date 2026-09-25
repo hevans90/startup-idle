@@ -1200,7 +1200,12 @@ describe("a corner agrees with itself", () => {
     }, wl)).toBe(0);
     expect(wl.overflow).toBe(0);
     destroyWaterLayer(wl);
-  });
+    // TWENTY SECONDS OF WATER AT SIXTY A SECOND, drawn every frame. It lands
+    // near five seconds alone, so on the default it passed or failed by what
+    // else was running beside it — the worst way for a test to behave. Stated
+    // rather than left to chance; what it measures is twenty seconds of a
+    // pond settling and there is no shorter twenty seconds.
+  }, 20_000);
 
   test("but a sheet on a plateau and the lake below it still are", () => {
     // The case the split exists for, and the reason the test above cannot

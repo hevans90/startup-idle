@@ -56,8 +56,8 @@ fn accAt2(region: i32, i: i32) -> i32 {
  * WHERE A SPLASH IS, kept by the device because both sides mark it.
  *
  * A sheet hitting water marks it from the falls pass, in fixed point through
- * the landing bank; a drop out of the drip list marks it on the host, and is
- * uploaded. Neither is a wave breaking and the solver's own test cannot see
+ * the landing bank; a drop out of the drip list marks it on the host, in the
+ * slot it landed in, and is uploaded. Neither is a wave breaking and the solver's own test cannot see
  * either — water put into a column directly never touches the divergence the
  * breaking test reads. It fades on its own short clock, as it does on the
  * host: see fadeSplashes, whose arithmetic this is.
@@ -77,8 +77,7 @@ fn splash(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ia = a * cells + i;
     var v = splashNowAt(ia) * keep;
     let banked = f32(atomicLoad(&acc[accAt2(${ACC.splash}, ia)])) / ${f(LAND_SCALE)};
-    v = max(v, banked);
-    if (a == 0) { v = max(v, splashInAt(i)); }
+    v = max(max(v, banked), splashInAt(ia));
     // Below a hundredth it is nothing, which is what stops a mark lingering
     // for ever at a value nobody can see.
     setSplashNow(ia, select(v, 0.0, v < 0.01));

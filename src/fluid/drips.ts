@@ -76,7 +76,7 @@ const MAX_DRIPS = 1024;
 const MAX_MOUTHS = 256;
 
 /** How white a drop's arrival makes the water, per unit of volume. */
-const SPLASH = 3;
+export const SPLASH = 3;
 
 /** How long a splash mark lasts before the foam has to have taken it. */
 export const SPLASH_LIFE = 0.15;
@@ -261,7 +261,7 @@ export type DripState = {
   spun: number;
 };
 
-export function createDrips(nx: number, ny: number): DripState {
+export function createDrips(nx: number, ny: number, layers = 1): DripState {
   return {
     nx,
     cx: new Float32Array(MAX_DRIPS),
@@ -281,8 +281,8 @@ export function createDrips(nx: number, ny: number): DripState {
     mheld: new Float32Array(MAX_MOUTHS),
     mmaterial: new Uint8Array(MAX_MOUTHS),
     mouths: 0,
-    splash: new Float32Array(nx * ny),
-    lit: new Int32Array(nx * ny),
+    splash: new Float32Array(nx * ny * layers),
+    lit: new Int32Array(nx * ny * layers),
     nlit: 0,
     splashed: false,
     spun: 0,
@@ -441,9 +441,12 @@ export function stepDrips(
     // than it was handed would be making water, and the caller is the only one
     // who could notice.
     const spray = Math.min(volume, Math.max(0, land(cx, cy, volume, mat, hit, z)));
-    // A drop's arrival, left for the foam to pick up. Bigger drops splash
-    // harder, up to as white as anything gets.
-    markSplash(d, Math.round(cy) * d.nx + Math.round(cx), volume * SPLASH);
+    // A DROP'S ARRIVAL IS MARKED BY THE CALLER, not here, and only because of
+    // the storey. The white goes in the slot the drop landed IN — a drop onto
+    // a deck must not whiten the channel under it, nor the other way about —
+    // and which slot that is, is the landing callback's answer: it is the one
+    // thing here that knows the geometry. Marked from this side it went on the
+    // column, which on a bridge is both at once. @see markSplash, SPLASH
 
     // Swap the last live drop into this slot rather than shuffling the rest;
     // nothing here cares what order they are in.

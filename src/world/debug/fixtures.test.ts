@@ -301,6 +301,14 @@ describe("the water fixtures", () => {
     }
   }, WATER_FIXTURES.length * 8000);
 
+  // A MINUTE OF WATER AT SIXTY A SECOND, and it wants the room to run.
+  //
+  // It simulates 3,600 frames of a fed river, which lands at a bit over four
+  // seconds alone and a bit over five under the contention of the whole suite
+  // — so on the default five it passed or failed depending on what else was
+  // running beside it, which is the worst way for a test to behave. The
+  // budget is stated rather than left to chance; what it measures is a minute
+  // of river and there is no shorter minute.
   test("the river reaches a standing flow rather than filling up", () => {
     // As much arriving as leaving, which is the whole difference between a
     // river and a bath.
@@ -311,7 +319,7 @@ describe("the water fixtures", () => {
       stepWater(field, 1 / 60);
     }
     expect(Math.abs(wetTiles(field) - a)).toBeLessThan(a * 0.15);
-  });
+  }, 20_000);
 
   test("the cascade holds a pool on every tread", () => {
     // Each tread has a lip on its downhill side, so water stands at every

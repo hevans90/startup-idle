@@ -33,8 +33,8 @@ import {
   createFalls, dropAt, intoAir, markCliffs, stepFalls, waterInAir, type FallState,
 } from "./falls";
 import {
-  ACROSS, createDrips, crown, fadeSplashes, markSplash, stepDrips, waterInDrips,
-  type DripState,
+  ACROSS, SPLASH, createDrips, crown, fadeSplashes, markSplash, stepDrips,
+  waterInDrips, type DripState,
 } from "./drips";
 import { OPEN_SKY, PRESSURE_SLOT, wetTop } from "./slots";
 
@@ -627,7 +627,7 @@ export function createColumnField(
     box: { x0: 0, y0: 0, x1: -1, y1: -1 },      // empty
     deepest: 0,
     falls: createFalls(nx, ny, layers),
-    drips: createDrips(nx, ny),
+    drips: createDrips(nx, ny, layers),
     arrivals: null,
     wanted: null,
   };
@@ -1190,7 +1190,11 @@ export function plungeInto(
   // And it is WHITE, which the solver's own breaking test cannot tell: that
   // reads the rate the surface is changing, and a sheet delivered straight
   // into the depth never touches it. A max, so it does not care about order.
-  markSplash(f.drips, i % f.cells, (amount * PLUNGE_WHITE * speed) / IMPACT_REF);
+  // IN THE SLOT IT LANDED IN, which is what `i` already is: the device banks
+  // this same white at the landing slot, so reducing it to a column here put
+  // a plunge into a deck's channel on storey nought and the two paths' foam
+  // parted by a third of the scale. @see bankLanding, markSplash
+  markSplash(f.drips, i, (amount * PLUNGE_WHITE * speed) / IMPACT_REF);
   include(f, x, y);
 }
 
@@ -2328,6 +2332,12 @@ export function stepAir(f: ColumnField, dt: number) {
       const x = Math.round(cx), y = Math.round(cy);
       if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return 0;
       const s = slotUnder(f, y * f.nx + x, z);
+      // AND THE WHITE IT MAKES, in the slot it landed in. Water arriving out
+      // of the air has air in it, and the surface rate the breaking test reads
+      // never sees a drop — it is put in by hand — so it has to leave word.
+      // Here rather than in `stepDrips` because this is where the storey is
+      // known. @see markSplash, stepFoam
+      markSplash(f.drips, s, volume * SPLASH);
       return splashInto(f, x, y, volume, material, speed, (s / f.cells) | 0);
     },
   );
