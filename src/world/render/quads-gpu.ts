@@ -126,11 +126,57 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let quad = ((tileIdx * cpt * cpt + sub) * L + a) * ${PARTS} + part;
 
   let here = slice[band];
-  let at = atomicAdd(&counts[band], 1u);
-  if (at >= here.y) { return; }
-  // STORED ONE HIGHER, so that a slot the gathering did not reach reads as
-  // empty rather than as quad nought. @see quadCap
-  list[here.x + at] = u32(quad + 1);
+  if (quad >= i32(here.y)) { return; }
+  // AT ITS OWN INDEX, not at the next free slot.
+  //
+  // This used to claim a slot with an atomicAdd, which is the obvious way to
+  // compact a list and is WRONG HERE, because the order threads arrive in is
+  // not the order anything else in this system uses. The water is translucent,
+  // so two quads that overlap blend differently depending on which is drawn
+  // first — and with an atomic the permutation is fresh every frame. Read the
+  // list back twice on a scene with the clock STOPPED and 13,826 of its 14,258
+  // filled slots hold a different quad the second time, in pairwise swaps. On
+  // screen that is a faint shimmer along the overlaps that never settles, and
+  // it is why the pixel comparison could not be made to pass with the
+  // gathering on: 47 pixels one run, 78 the next, against nought for the
+  // ungathered identity order.
+  //
+  // So the mark goes at the quad's own place and compact() squeezes the gaps
+  // out IN ORDER, which is the order the mesh builder pushes its quads in and
+  // the order the ungathered path draws them in. @see compact
+  //
+  // STORED ONE HIGHER, so that a slot nothing marked reads as empty rather
+  // than as quad nought. @see quadCap
+  list[here.x + u32(quad)] = u32(quad + 1);
+}
+
+// ONE THREAD PER BAND, squeezing that band's marks down to the front.
+//
+// IN PLACE, and that is safe rather than lucky: the write pointer never runs
+// ahead of the read pointer, so a slot is only ever written after it has been
+// read. The tail past the count is zeroed, because a band draws a little more
+// than it gathered — see roomFor — and those extra instances have to read
+// empty rather than last frame's quad.
+//
+// A serial walk over a band's whole range, which is a few thousand steps on a
+// map this size and the reason this is not a prefix sum: it needs no shared
+// memory, no second buffer and no second dispatch over the map. On a much
+// larger map the walk is the thing that would want revisiting.
+@compute @workgroup_size(${WORKGROUP})
+fn compact(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let band = i32(gid.x);
+  if (band >= i32(arrayLength(&slice))) { return; }
+  let here = slice[band];
+  let cap = i32(here.y);
+  var w = 0;
+  for (var k = 0; k < cap; k = k + 1) {
+    let v = list[here.x + u32(k)];
+    if (v == 0u) { continue; }
+    list[here.x + u32(w)] = v;
+    w = w + 1;
+  }
+  for (var j = w; j < cap; j = j + 1) { list[here.x + u32(j)] = 0u; }
+  atomicStore(&counts[band], u32(w));
 }
 `;
 
@@ -193,15 +239,28 @@ export function createQuadsPass(
       },
     ],
   });
+  const module = device.createShaderModule({
+    code: QUADS_WGSL(drawdown), label: "quads",
+  });
+  // WHAT THE COMPILER ACTUALLY SAID, because the alternative is what it says
+  // at the other end: "invalid due to a previous error", on the pipeline, once
+  // a frame, with no line and no reason. A module that will not compile takes
+  // the gathering with it, and a gathering that produces nothing is a map with
+  // no water on it — which is how this was found rather than reported.
+  void module.getCompilationInfo?.().then((info) => {
+    for (const m of info.messages) {
+      if (m.type === "info") continue;
+      console.error(`WATER: the gathering shader, line ${m.lineNum}: ${m.message}`);
+    }
+  }).catch(() => { /* older implementations have no compilation info */ });
+  const pipes = device.createPipelineLayout({ bindGroupLayouts: [layout] });
   const pipeline = device.createComputePipeline({
-    label: "quads",
-    layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-    compute: {
-      module: device.createShaderModule({
-        code: QUADS_WGSL(drawdown), label: "quads",
-      }),
-      entryPoint: "main",
-    },
+    label: "quads", layout: pipes, compute: { module, entryPoint: "main" },
+  });
+  // And the squeeze, which shares the bind group and touches only the buffers.
+  const squeeze = device.createComputePipeline({
+    label: "quads compact", layout: pipes,
+    compute: { module, entryPoint: "compact" },
   });
   const uniform = device.createBuffer({
     size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -293,6 +352,11 @@ export function createQuadsPass(
       pass.setPipeline(pipeline);
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil((cells * PARTS) / WORKGROUP));
+      // THEN THE SQUEEZE, in the same pass: one marks, the other compacts, and
+      // the second must see all of the first. Two dispatches in one compute
+      // pass are ordered against each other by the API. @see compact
+      pass.setPipeline(squeeze);
+      pass.dispatchWorkgroups(Math.ceil(bands / WORKGROUP));
       pass.end();
     },
     destroy: () => {
