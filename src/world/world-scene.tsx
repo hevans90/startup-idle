@@ -32,6 +32,7 @@ import {
   type GpuWaterLayer,
 } from "./render/water-gpu";
 import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
+import { compareSheetPaths } from "./debug/sheet-compare";
 import {
   accountDecks, gpuOf, readFloatRows, silenceDecks, type DeckAccount,
 } from "./debug/device-read";
@@ -787,6 +788,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // the comparison above cannot answer: it renders the two water
         // builders against each other and nothing else, so a ROAD painted over
         // both of them is invisible to it. @see checkWaterOverPaving
+        // THE TWO SHEET BUILDERS, in pixels. The one comparison the water did
+        // not have: `__waterCompare` draws no falls and `__frameCompare`
+        // compares fields, which a sheet is not. @see compareSheetPaths
+        window.__sheetCompare = async (o) => {
+          const dev = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
+            .gpu?.device ?? null;
+          if (!dev) return { ok: false, why: "not on the WebGPU path" };
+          return compareSheetPaths(app.renderer, dev, o);
+        };
         window.__pavingCheck = async (o) => {
           const tex = texRef.current;
           if (!tex) return { ok: false, why: "atlas not loaded yet" };

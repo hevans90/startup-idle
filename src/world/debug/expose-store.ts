@@ -110,6 +110,11 @@ declare global {
       steps?: number; solver?: "host" | "device";
     }) => unknown;
     __waterCompare?: (o?: Record<string, number>) => unknown;
+    /** The two SHEET builders, in pixels. @see compareSheetPaths */
+    __sheetCompare?: (o?: {
+      size?: number; px?: number; seconds?: number; tolerance?: number;
+      span?: boolean;
+    }) => Promise<unknown>;
     /**
      * Runs the compute spike and says whether the round trip held.
      *
