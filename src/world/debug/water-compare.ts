@@ -29,6 +29,26 @@
  * tolerance nothing differs at all. Neither path draws a pixel the other
  * leaves empty. The same on both renderers, to the pixel.
  *
+ * WHAT IT READS NOW, and why it is not nought. The scene grew a CAUSEWAY with
+ * a bridged gap in it, because the span it already had is submerged and so has
+ * no deck-to-road seam anywhere on it — and that seam is the one place the two
+ * builders can differ about which STOREY the water next door is in. With the
+ * seam in, and the builder's side face reading the neighbour's own storey
+ * instead of slot nought, it reads **28 pixels of 34,943 differing, worst 33**,
+ * the same every run, with NOTHING MISSING either way. Before that fix, 45.
+ *
+ * The residue is the side faces at the seam and not the surfaces: with faces
+ * off it is 6. Forcing every face to flat opaque red on both paths turns it
+ * into 31 pixels the shader draws and the builder does not — a sliver, not a
+ * missing face, which is the same thing said twice: the two put a face's top
+ * about a pixel apart there. At real opacity neither path leaves a pixel the
+ * other drew, which is the property that matters.
+ *
+ * SO `ok` IS FALSE ON THIS SCENE UNTIL THAT IS CLOSED, deliberately. A control
+ * that is quietly relaxed to fit what it measures is not a control. 28 is the
+ * number to watch: a change that moves it has done something, and a change
+ * that does not has not.
+ *
  * AND THE HUNT THAT COST THE MOST, because the shape of it will repeat. When
  * the sheet grouping moved from a flood fill on the host to a partition each
  * corner makes for itself, this went from nought differing to **80 of 36,365,
@@ -163,6 +183,23 @@ function scene(size: number) {
   for (let y = mid - 2; y <= mid + 1; y++) {
     for (let x = rim + 2; x <= rim + 5; x++) setDeck(grid, x, y, 1, 18);
   }
+  // AND A CAUSEWAY WITH A GAP BRIDGED IN IT, well clear of the water below.
+  //
+  // The span above is SUBMERGED — the basin fills to about 26 and its deck is
+  // at 18 — so it has no deck-to-road seam anywhere on it, and that seam is
+  // the one place the two mesh builders can differ about which STOREY the
+  // water next door is in. The builder read the neighbour's slot nought where
+  // the shader reads its own storey, which at an abutment is the channel
+  // against the road: one path drew a full-height pane and the other drew
+  // nothing, and this scene could not see it. High and dry, it can.
+  const deckZ = 34, road = mid + 4;
+  for (let y = road; y <= road + 1; y++) {
+    for (let x = rim + 1; x < size - rim - 1; x++) setHeight(grid, x, y, deckZ);
+    for (let x = rim + 7; x <= rim + 8; x++) {
+      setHeight(grid, x, y, 10);              // the gap the causeway crosses
+      setDeck(grid, x, y, 1, deckZ);          // and the span over it
+    }
+  }
   const field = createWaterField(grid);
   setWaterEdge(field, false);
   for (let y = rim; y < size - rim; y++) {
@@ -171,6 +208,15 @@ function scene(size: number) {
   // A sheet on the plateau, which will spill off its lip.
   for (let y = rim + 2; y < size - rim - 2; y++) {
     for (let x = size - 9; x < size - rim; x++) pourAt(field, x, y, 5, 1);
+  }
+  // WATER RUNNING ALONG THE CAUSEWAY, over the road and onto the deck.
+  //
+  // Deep enough to be past the fade, which is not fussiness: a film sitting on
+  // the alpha ramp differs between the two paths by a shade index rounding one
+  // way or the other, and thirty-odd silhouette pixels of that drown out
+  // whatever the SEAM is doing, which is the thing this is here to show.
+  for (let y = road; y <= road + 1; y++) {
+    for (let x = rim + 2; x < size - rim - 2; x++) pourAt(field, x, y, 5, 1);
   }
   // And a puddle on the span, which is water at a height nothing else on the
   // map stands at — so the corner where the deck meets the air really does

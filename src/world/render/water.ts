@@ -1106,7 +1106,17 @@ function sideFace(
   // edge behaves like dry ground at this column's own level, which is what
   // makes the body reach all the way down to the bed it stands on.
   const offMap = nx2 >= columns.nx || ny2 >= columns.ny;
-  const j = offMap ? i : ny2 * columns.nx + nx2;
+  // THE NEIGHBOUR IN THIS COLUMN'S OWN STOREY, which is what the shader reads
+  // and what this did not. `i` is a SLOT and this was a COLUMN, so every side
+  // face on a bridged map was hung against slot nought of the column next
+  // door: at a deck-to-road seam the shader saw the road's water and this saw
+  // the CHANNEL under it, twenty half steps down and usually dry. One path
+  // drew a full-height pane there and the other drew nothing.
+  //
+  // It was invisible to the pixel comparison because the only deck in that
+  // scene is submerged, so it has no deck-to-road seam on it at all. The scene
+  // has a road onto the span now. @see sidePart
+  const j = offMap ? i : a * columns.cells + ny2 * columns.nx + nx2;
   const bedJ = offMap ? bed : columns.ground[j];
 
   // DOWN TO WHERE THE NEIGHBOUR'S OWN QUAD REACHES, corner for corner, and no
