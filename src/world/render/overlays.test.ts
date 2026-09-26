@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Graphics } from "pixi.js";
 import { HEIGHT_UNIT, HH, HW, cellToWorld } from "../iso";
-import { createGrid, fillTerrain, setHeight } from "../grid";
-import { cellDiamond, drawGrid, drawHover, heightPx, pickError } from "./overlays";
+import { createGrid, fillTerrain, setDeck, setHeight } from "../grid";
+import {
+  cellDiamond, drawDeckPiers, drawGrid, drawHover, heightPx, pickError,
+} from "./overlays";
 
 describe("cellDiamond", () => {
   test("four points around the cell centre, at the tile's half-extents", () => {
@@ -57,6 +59,67 @@ describe("drawHover", () => {
     // the shape used must match the cell's height, not height 0
     const raised = cellDiamond(2, 2, 4, 1);
     expect(raised[1]).toBeLessThan(cellDiamond(2, 2, 0, 1)[1]);
+  });
+});
+
+/**
+ * A DECKED CELL HAS TWO SURFACES and every tool acts on the upper one, so the
+ * cursor has to be on it. It was not: the highlight was drawn off
+ * `grid.height`, which under a bridge is the channel — so the pointer sat on
+ * a span and the green diamond sat in the riverbed twenty half steps below,
+ * naming a surface no tool was going to touch.
+ */
+describe("the cursor over a deck", () => {
+  const bridged = () => {
+    const g = createGrid(8, 8);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) setHeight(g, x, y, -10);
+    setDeck(g, 3, 3, 1, 12);
+    return g;
+  };
+
+  /** The top of what was drawn, in world px — smaller is higher up. */
+  const topOf = (gfx: Graphics) => gfx.context.bounds.minY;
+
+  test("the highlight is on the DECK, not on the ground it spans", () => {
+    const g = bridged();
+    const on = new Graphics(), off = new Graphics();
+    drawHover(on, g, { x: 3, y: 3 }, 1);
+    drawHover(off, g, { x: 5, y: 5 }, 1);
+    // Both cells have the same ground; only one has a span over it, and the
+    // twenty-two half steps between them is the whole of the bug.
+    expect(topOf(on)).toBeLessThan(topOf(off) - 22 * HEIGHT_UNIT * 0.9);
+    // And it is the deck's own plane, give or take the stroke's mitre.
+    expect(Math.abs(topOf(on) - cellDiamond(3, 3, 12, 1)[1])).toBeLessThan(3);
+  });
+
+  test("and it says what it is standing on", () => {
+    // Two surfaces one above the other are one diamond otherwise, and the
+    // picture cannot say which of them is selected.
+    const g = bridged();
+    const piers = new Graphics();
+    drawDeckPiers(piers, g, 3, 3, 1, 0x7cfc9a);
+    // Drawn down to the ground under the span, not just at the deck.
+    expect(piers.context.bounds.maxY).toBeGreaterThan(cellDiamond(3, 3, -10, 1)[5] - 1);
+    expect(piers.context.bounds.minY).toBeLessThan(cellDiamond(3, 3, 12, 1)[3] + 1);
+  });
+
+  test("a cell with no deck draws no piers at all", () => {
+    const g = bridged();
+    const piers = new Graphics();
+    drawDeckPiers(piers, g, 5, 5, 1, 0x7cfc9a);
+    expect(piers.context.instructions).toHaveLength(0);
+    // and off the map is a no-op rather than a throw
+    expect(() => drawDeckPiers(piers, g, -1, 0, 1, 0x7cfc9a)).not.toThrow();
+  });
+
+  test("the calibration crosshair measures against the surface too", () => {
+    // Or the instrument reports an error the picker never made: the march
+    // stops at the deck, so that is the centre the offset is from.
+    const g = bridged();
+    const c = cellToWorld(3, 3, 12, 1);
+    const e = pickError({ wx: c.wx, wy: c.wy }, { x: 3, y: 3 }, g, 1)!;
+    expect(e.dist).toBeCloseTo(0, 6);
   });
 });
 

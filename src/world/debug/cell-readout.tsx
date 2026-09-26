@@ -13,7 +13,7 @@ import { useRef } from "react";
 import { useWorldStore } from "../../state/world.store";
 import { useCellAnchorFollow } from "../anchors/use-cell-anchor";
 import { bandOf, HEIGHT_UNIT, RAMP_NAME, rampDir, rampRise } from "../iso";
-import { heightAt, rampPackedAt } from "../grid";
+import { heightAt, idx, inBounds, rampPackedAt } from "../grid";
 import { DIR, DIAG, isPaved, maskAt } from "../roads/mask";
 import { buildRoadTable, roadSpriteFor } from "../roads/table";
 import { netComponentAt } from "../../state/world.store";
@@ -29,6 +29,14 @@ export function CellReadout() {
   const grid = useWorldStore((s) => s.grid);
 
   const h = hover ? (heightAt(grid, hover.x, hover.y) ?? 0) : 0;
+  // A CELL WITH A DECK HAS TWO SURFACES and every tool acts on the upper one,
+  // so the readout has to say which is which — `height` alone is the ground
+  // under a bridge, and reading it as what you are about to paint is the
+  // whole confusion. @see surfaceHeightAt
+  const deck =
+    hover && inBounds(grid, hover.x, hover.y) && grid.deck[idx(grid, hover.x, hover.y)] !== 0
+      ? grid.deckZ[idx(grid, hover.x, hover.y)]
+      : null;
   const packed = hover ? rampPackedAt(grid, hover.x, hover.y) : 0;
   const dir = rampDir(packed);
   const rise = rampRise(packed);
@@ -64,6 +72,14 @@ export function CellReadout() {
               <span className="ml-1">({h % 2 === 0 ? h / 2 : h / 2} step)</span>
             )}
           </div>
+          {deck !== null && (
+            // no dark: pair — the panel itself is bg-gray-950/90 whatever the
+            // theme is, so a light variant here would be unreadable on it
+            <div className="rounded-sm bg-sky-500/20 px-1 text-sky-300">
+              deck <span className="text-white">{deck}</span>
+              <span className="ml-1 opacity-70">over ground {h}</span>
+            </div>
+          )}
           {dir !== 0 && (
             <div className="text-gray-400">
               ramp <span className="text-white">{RAMP_NAME[dir]}</span>

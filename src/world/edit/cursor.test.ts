@@ -5,8 +5,8 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { createGrid, fillTerrain, setHeight, setTerrain } from "../grid";
-import { HH, HW, cellToWorld } from "../iso";
+import { createGrid, fillTerrain, setDeck, setHeight, setTerrain } from "../grid";
+import { HEIGHT_UNIT, HH, HW, cellToWorld } from "../iso";
 import {
   cursorSignature, footprintPerimeter, validateErase, validatePaint, validatorFor,
 } from "./cursor";
@@ -133,5 +133,30 @@ describe("cursorSignature", () => {
     const before = cursorSignature(grid, i, validateErase);
     setTerrain(grid, 2, 2, 0);
     expect(cursorSignature(grid, i, validateErase)).not.toBe(before);
+  });
+
+  test("a deck appearing under the footprint changes it", () => {
+    // The signature is what decides whether to redraw, so it has to be taken
+    // off the height the cursor DRAWS at. Off the terrain instead, laying a
+    // bridge under the pointer moved the cursor twenty half steps and the
+    // signature called it the same picture.
+    const grid = g();
+    const before = cursorSignature(grid, input(), validatePaint);
+    setDeck(grid, 2, 2, 1, 12);
+    expect(cursorSignature(grid, input(), validatePaint)).not.toBe(before);
+  });
+});
+
+describe("a footprint over a deck", () => {
+  test("traces the span, not the channel under it", () => {
+    const grid = g();
+    for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) setHeight(grid, x, y, -10);
+    const top = (segs: [number, number, number, number][]) =>
+      Math.min(...segs.flatMap(([, y0, , y1]) => [y0, y1]));
+    // The same cell before and after, so nothing but the height moves.
+    const off = top(footprintPerimeter(grid, [{ x: 3, y: 3 }], 1));
+    setDeck(grid, 3, 3, 1, 12);
+    const on = top(footprintPerimeter(grid, [{ x: 3, y: 3 }], 1));
+    expect(off - on).toBeCloseTo(22 * HEIGHT_UNIT, 6);
   });
 });

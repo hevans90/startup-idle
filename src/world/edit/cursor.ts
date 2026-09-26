@@ -18,8 +18,8 @@
 import { Container, Graphics, Sprite, type Texture } from "pixi.js";
 
 import { bandOf, cellToWorld, spriteY, type Cell } from "../iso";
-import { VOID, heightAt, idx, inBounds, type Grid } from "../grid";
-import { cellDiamond } from "../render/overlays";
+import { VOID, idx, inBounds, surfaceHeightAt, type Grid } from "../grid";
+import { cellDiamond, drawDeckPiers } from "../render/overlays";
 import { TILE_BLEED } from "../render/terrain";
 import type { BandLayer } from "../render/bands";
 import type { ToolId } from "./tools";
@@ -76,8 +76,9 @@ function vertices(x: number, y: number, h: number, scale: number) {
  * Outer boundary of a footprint as world-space segments.
  *
  * An edge is on the perimeter when the cell across it is not in the footprint.
- * Each segment uses its OWN cell's height, so a footprint straddling a step
- * traces the terrain rather than floating at one level.
+ * Each segment uses its OWN cell's SURFACE height, so a footprint straddling a
+ * step traces the terrain rather than floating at one level — and one
+ * straddling the end of a bridge climbs onto the span. @see surfaceHeightAt
  */
 export function footprintPerimeter(
   grid: Grid,
@@ -88,7 +89,7 @@ export function footprintPerimeter(
   const out: [number, number, number, number][] = [];
   for (const c of cells) {
     if (!inBounds(grid, c.x, c.y)) continue;
-    const v = vertices(c.x, c.y, heightAt(grid, c.x, c.y) ?? 0, scale);
+    const v = vertices(c.x, c.y, surfaceHeightAt(grid, c.x, c.y), scale);
     for (const e of EDGES) {
       if (inSet.has(`${c.x + e.dx},${c.y + e.dy}`)) continue;
       out.push([v[e.a][0], v[e.a][1], v[e.b][0], v[e.b][1]]);
@@ -115,8 +116,13 @@ export type CursorInput = {
 export function cursorSignature(grid: Grid, input: CursorInput, valid: Validator): string {
   const parts: string[] = [input.frame ?? "-", input.tool, input.scale.toFixed(4)];
   for (const c of input.cells) {
-    const h = inBounds(grid, c.x, c.y) ? grid.height[idx(grid, c.x, c.y)] : 0;
-    parts.push(`${c.x},${c.y},${h},${valid(grid, c.x, c.y).ok ? 1 : 0}`);
+    // THE HEIGHT IT DRAWS AT, not the terrain's: laying a deck under the
+    // pointer moves the cursor and changes nothing else, and a signature off
+    // the ground would call that the same picture and skip the redraw.
+    const on = inBounds(grid, c.x, c.y);
+    const h = on ? surfaceHeightAt(grid, c.x, c.y) : 0;
+    const d = on ? grid.deck[idx(grid, c.x, c.y)] : 0;
+    parts.push(`${c.x},${c.y},${h},${d},${valid(grid, c.x, c.y).ok ? 1 : 0}`);
   }
   return parts.join("|");
 }
@@ -204,9 +210,17 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
 
     for (const c of input.cells) {
       if (!inBounds(grid, c.x, c.y)) { blocked++; continue; }
-      const h = heightAt(grid, c.x, c.y) ?? 0;
+      // ON THE SURFACE PICKING CHOSE. A deck and the ground under it share a
+      // cell, and the march stops at the deck — so a cursor drawn off
+      // `grid.height` sat in the channel under the span the pointer was on,
+      // which is the one reading of a bridge nobody wants.
+      const h = surfaceHeightAt(grid, c.x, c.y);
       const ok = valid(grid, c.x, c.y).ok;
       if (!ok) blocked++;
+
+      // And say what it is standing on, or two surfaces one above the other
+      // are one diamond and the picture is ambiguous. @see drawDeckPiers
+      drawDeckPiers(outline, grid, c.x, c.y, input.scale, ok ? CURSOR_OK : CURSOR_BLOCKED);
 
       // per-cell tint, so a partly blocked footprint says which cells
       outline.poly(cellDiamond(c.x, c.y, h, input.scale));

@@ -11,7 +11,7 @@
 import { Graphics } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW, cellToWorld, type Cell } from "../iso";
-import { heightAt, inBounds, type Grid } from "../grid";
+import { heightAt, idx, inBounds, surfaceHeightAt, type Grid } from "../grid";
 
 /** Diamond outline for one cell, as a flat point list around its centre. */
 export function cellDiamond(x: number, y: number, h: number, scale: number): number[] {
@@ -49,11 +49,51 @@ export function drawGrid(
   return drawn;
 }
 
+/**
+ * Draw what a decked cell is standing OVER: the ground outlined faintly, and
+ * a pier at each visible vertex joining the two.
+ *
+ * A cell with a bridge on it has two surfaces, and every tool acts on the
+ * upper one. A lone diamond cannot say which, and drawn at the ground — which
+ * is what everything here did — it says the wrong one outright: the highlight
+ * sat in the riverbed under the span the pointer was on, twenty half steps
+ * below the road it was about to paint. So the diamond goes on the surface,
+ * and this says what the surface is standing on.
+ *
+ * The north vertex gets no pier. It is the back corner, hidden behind the
+ * cell's own top face, and a line there reads as a stray mark rather than as
+ * depth. @see surfaceHeightAt
+ *
+ * A no-op on a cell with no deck, which is almost all of them.
+ */
+export function drawDeckPiers(
+  g: Graphics,
+  grid: Grid,
+  x: number,
+  y: number,
+  scale: number,
+  color: number,
+) {
+  if (!inBounds(grid, x, y)) return;
+  const i = idx(grid, x, y);
+  if (grid.deck[i] === 0) return;
+  const top = cellDiamond(x, y, grid.deckZ[i], scale);
+  const bed = cellDiamond(x, y, grid.height[i], scale);
+  g.poly(bed);
+  g.stroke({ color, width: 1, alpha: 0.35, pixelLine: true });
+  for (const v of [1, 2, 3]) {              // E, S, W — not N, which is behind
+    g.moveTo(top[v * 2], top[v * 2 + 1]).lineTo(bed[v * 2], bed[v * 2 + 1]);
+  }
+  g.stroke({ color, width: 1, alpha: 0.5, pixelLine: true });
+}
+
 /** Highlight one cell. Cleared when `cell` is null. */
 export function drawHover(g: Graphics, grid: Grid, cell: Cell | null, scale: number) {
   g.clear();
   if (!cell || !inBounds(grid, cell.x, cell.y)) return;
-  const h = heightAt(grid, cell.x, cell.y) ?? 0;
+  // ON THE SURFACE, which is the deck where there is one. @see drawDeckPiers
+  const h = surfaceHeightAt(grid, cell.x, cell.y);
+  drawDeckPiers(g, grid, cell.x, cell.y, scale, 0x7cfc9a);
   g.poly(cellDiamond(cell.x, cell.y, h, scale));
   g.fill({ color: 0x7cfc9a, alpha: 0.22 });
   g.poly(cellDiamond(cell.x, cell.y, h, scale));
@@ -162,8 +202,9 @@ export function drawPickCrosshair(
   const r = 7 * scale;
 
   if (cell && inBounds(grid, cell.x, cell.y)) {
-    const h = heightAt(grid, cell.x, cell.y) ?? 0;
-    const c = cellToWorld(cell.x, cell.y, h, scale);
+    // The height PICKING used, or the instrument reports an error the picker
+    // did not make: over a bridge the march lands on the deck. @see surfaceSampler
+    const c = cellToWorld(cell.x, cell.y, surfaceHeightAt(grid, cell.x, cell.y), scale);
     g.moveTo(pointer.wx, pointer.wy).lineTo(c.wx, c.wy);
     g.stroke({ color: 0xff7a7a, width: 1, alpha: 0.8, pixelLine: true });
     // dot at the cell centre picking resolved to
@@ -184,8 +225,7 @@ export function pickError(
   scale: number,
 ): { dx: number; dy: number; dist: number } | null {
   if (!pointer || !cell || !inBounds(grid, cell.x, cell.y)) return null;
-  const h = heightAt(grid, cell.x, cell.y) ?? 0;
-  const c = cellToWorld(cell.x, cell.y, h, scale);
+  const c = cellToWorld(cell.x, cell.y, surfaceHeightAt(grid, cell.x, cell.y), scale);
   const dx = pointer.wx - c.wx;
   const dy = pointer.wy - c.wy;
   return { dx, dy, dist: Math.hypot(dx, dy) };
@@ -221,7 +261,8 @@ export function drawNetComponents(
       const y = b - x;
       const id = netIdAt(x, y);
       if (id < 0) continue;
-      const h = heightAt(grid, x, y) ?? 0;
+      // A DECK IS A ROAD, so this is the surface height. @see setDeck
+      const h = surfaceHeightAt(grid, x, y);
       g.poly(cellDiamond(x, y, h, scale));
       // golden-angle stride, so adjacent component ids never land on similar hues
       g.fill({ color: hslToHex((id * 137.508) % 360, 0.72, 0.55), alpha: 0.55 });
@@ -251,7 +292,7 @@ export function drawRoadMask(
       const y = b - x;
       if (!isPaved(x, y)) continue;
       const m = maskAt(x, y);
-      const h = heightAt(grid, x, y) ?? 0;
+      const h = surfaceHeightAt(grid, x, y);
       g.poly(cellDiamond(x, y, h, scale));
       // orthogonals set the hue, diagonal count the lightness
       const orth = m & 0xf;
@@ -309,7 +350,7 @@ export function drawRoadGaps(
       const y = b - x;
       const pick = pickAt(x, y);
       if (!pick || pick.exact) continue;
-      const h = heightAt(grid, x, y) ?? 0;
+      const h = surfaceHeightAt(grid, x, y);
       g.poly(cellDiamond(x, y, h, scale));
       g.fill({ color: pick.frame ? 0xffb347 : 0xff4d4d, alpha: 0.6 });
       drawn++;

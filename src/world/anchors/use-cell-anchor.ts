@@ -82,7 +82,12 @@ export function useCellAnchorFollow(
         if (shown) { el.style.visibility = "hidden"; shown = false; }
         return;
       }
-      const h = grid.height[hover.y * grid.w + hover.x] ?? 0;
+      // THE SURFACE, not the terrain: over a bridge the readout belongs on
+      // the span the pointer is on, not down in the channel it crosses.
+      // Indexed rather than called so a hover left over from a resize still
+      // falls back to zero. @see surfaceHeightAt
+      const hi = hover.y * grid.w + hover.x;
+      const h = (grid.deck[hi] !== 0 ? grid.deckZ[hi] : grid.height[hi]) ?? 0;
       vp = viewport;
       const p = projectCell(hover, h, scale, toScreen, lift);
       const x = Math.round(p.x), y = Math.round(p.y);
