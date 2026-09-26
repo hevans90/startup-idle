@@ -2009,17 +2009,34 @@ export function divergence(f: ColumnField, c: PassConsts) {
           if (x + 1 < nx) {
             const move = fx[p] * spread;
             if (move !== 0) {
-              delta[ia] -= move;
+              const jb = B + i + 1;
               // OVER A LIP it goes into the air instead, and stays there
               // until it has fallen the distance — see `falls`. Only
               // downhill: water climbing the other way is not going over
               // anything. A drop is measured from the slot it LEAVES to the
               // slot it is aimed at, so coming off the side of a deck is a
               // fall and running onto the road at the end of one is not.
-              if (move > 0 && dropAt(f, i, 0, a, b) > 0) {
+              //
+              // THE SIGN OF THE FLUX AGAINST THE SIGN OF THE DROP, which is
+              // what lets a fall face west as well as east. This asked only
+              // whether the water was going the +x way over a +x drop, so a
+              // cliff facing the other way was crossed in a single step with
+              // nothing in the air at all.
+              //
+              // AND THE SOURCE IS WHICHEVER SLOT IT LEFT. Only the source
+              // gives water up here — what it gave goes to the air, not to
+              // the far side — so the subtraction cannot be hoisted out of
+              // the branch the way it was while every fall went one way.
+              // @see dropAt
+              const d = dropAt(f, i, 0, a, b);
+              if (move > 0 && d > 0) {
+                delta[ia] -= move;
                 intoAir(f, i, 0, move, pl);
+              } else if (move < 0 && d < 0) {
+                delta[jb] += move;
+                intoAir(f, i, 0, -move, pl);
               } else {
-                const jb = B + i + 1;
+                delta[ia] -= move;
                 delta[jb] += move;
                 if (move > 0) {
                   if (move > bestIn[jb]) { bestIn[jb] = move; bestMat[jb] = material[ia]; }
@@ -2033,11 +2050,16 @@ export function divergence(f: ColumnField, c: PassConsts) {
           if (y + 1 < ny) {
             const move = fy[p] * spread;
             if (move !== 0) {
-              delta[ia] -= move;
-              if (move > 0 && dropAt(f, i, 1, a, b) > 0) {
+              const jb = B + i + nx;
+              const d = dropAt(f, i, 1, a, b);
+              if (move > 0 && d > 0) {
+                delta[ia] -= move;
                 intoAir(f, i, 1, move, pl);
+              } else if (move < 0 && d < 0) {
+                delta[jb] += move;
+                intoAir(f, i, 1, -move, pl);
               } else {
-                const jb = B + i + nx;
+                delta[ia] -= move;
                 delta[jb] += move;
                 if (move > 0) {
                   if (move > bestIn[jb]) { bestIn[jb] = move; bestMat[jb] = material[ia]; }

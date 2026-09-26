@@ -47,7 +47,10 @@ describe("the parabola a fall follows", () => {
     // speed throws itself two tiles and reads as fired from a hose.
     expect(throwOf(0.4)).toBeCloseTo(0.4, 6);
     expect(throwOf(3)).toBe(FALL_THROW);
-    expect(throwOf(-2)).toBe(0);                  // and never backwards
+    // The sign survives: "never backwards" is a rule about the axis the
+    // water goes over, and it lives in `outward` now — clamped here, every
+    // fall facing west or north threw nothing at all. @see outward
+    expect(throwOf(-2)).toBe(-2);
   });
 
   test("it thins as it accelerates, and never quite to nothing", () => {

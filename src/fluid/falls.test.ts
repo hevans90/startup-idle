@@ -12,8 +12,8 @@ import {
   totalWater,
 } from "./columns";
 import {
-  BREAK, FALL_GRAVITY, FALL_MIN, FALL_THROW, driftAt, fallExtent, landsAt, throwOf,
-  waterInAir,
+  BREAK, FALL_GRAVITY, FALL_MIN, FALL_THROW, driftAt, fallExtent, landsAt, outward,
+  throwOf, waterInAir,
 } from "./falls";
 import { DROP, dripRoom, waterInDrips } from "./drips";
 
@@ -142,7 +142,17 @@ describe("the set of edges a fall can happen on", () => {
     }
     stepFlow(f, 1 / 60);
     // Snapped to what the water is actually doing, not eased down from 99.
-    expect(f.falls.throwX[i]).toBeCloseTo(throwOf(flowX(f, 9, 5)), 2);
+    //
+    // AGAINST THE FLOW'S MAGNITUDE and not against a second reading of it:
+    // the snap happens inside a substep and this samples the flow after the
+    // whole step, so the two are the same quantity a few milliseconds apart.
+    // Compared for equality it passed only while `throwOf` clamped both
+    // sides to nought — a west-going lip made this assertion `0 === 0`, and
+    // the day the sign survived it had never been checking anything.
+    const now = Math.abs(flowX(f, 9, 5));
+    expect(Math.abs(f.falls.throwX[i])).toBeGreaterThan(now * 0.4);
+    expect(Math.abs(f.falls.throwX[i])).toBeLessThan(now * 2.5);
+    expect(f.falls.throwX[i]).toBeLessThan(0);   // and it went the flow's way
   });
 });
 
@@ -567,6 +577,71 @@ describe("a lip throws no faster than the water flows", () => {
     // clamp. Anything it is handed is already inside the cap.
     expect(throwOf(MAX_FLOW_SPEED)).toBe(MAX_FLOW_SPEED);
     expect(throwOf(MAX_FLOW_SPEED * 10)).toBe(FALL_THROW);
-    expect(throwOf(-1)).toBe(0);                 // and outward only
+    // THE CAP IS ON THE MAGNITUDE and the sign survives it. "Outward only"
+    // is a rule about the axis the water goes OVER, and it used to be
+    // enforced here by clamping at nought — where the axis is not known, and
+    // at the cost of every fall that faces west or north. @see outward
+    expect(throwOf(-MAX_FLOW_SPEED)).toBe(-MAX_FLOW_SPEED);
+    expect(throwOf(-MAX_FLOW_SPEED * 10)).toBe(-FALL_THROW);
+    expect(outward(-1, false)).toBe(0);          // back into the rock: nothing
+    expect(outward(-1, true)).toBe(-1);          // the way this fall goes
+    expect(outward(1, true)).toBe(0);
   });
+});
+
+/**
+ * A CLIFF FACES FOUR WAYS AND A FALL FACES TWO.
+ *
+ * `markCliffs` tests the `x + 1` and `y + 1` edges and only where THIS column
+ * is the higher one, and `dropAt` measures `ground[i] - beside(j)` with `j`
+ * always east or south — so a drop going WEST or NORTH is not a cliff to
+ * either of them. The solver moves that water across in one step, the way it
+ * did everywhere before falls existed: no time in the air, no sheet, no
+ * spray, no plunge.
+ *
+ * The shelf below is the mirror of `cliff` above, and nothing else about it
+ * differs. @see markCliffs, dropAt
+ */
+function westCliff(high: number, amount = 12) {
+  const f = createColumnField(20, 12, CALM, 0.5);
+  for (let y = 0; y < 12; y++) {
+    for (let x = 0; x < 20; x++) {
+      f.ground[at(f, x, y)] = y < 2 || y > 9 || x < 2 ? high + 20 : x > 9 ? high : 0;
+    }
+  }
+  for (let y = 4; y <= 7; y++) addWater(f, 10, y, amount, 1);
+  return f;
+}
+
+describe("a cliff facing west", () => {
+  test("holds water in the air, the same as one facing east", () => {
+    const east = cliff(14);
+    const west = westCliff(14);
+    let mostEast = 0, mostWest = 0;
+    for (let n = 0; n < 60 * 2; n++) {
+      stepFlow(east, 1 / 60);
+      stepFlow(west, 1 / 60);
+      mostEast = Math.max(mostEast, waterInAir(east));
+      mostWest = Math.max(mostWest, waterInAir(west));
+    }
+    expect(mostEast).toBeGreaterThan(1);
+    // The mirror image of a waterfall is a waterfall.
+    expect(mostWest).toBeGreaterThan(1);
+  }, 20_000);
+
+  test("and spawns a lip for the renderer to hang a sheet on", () => {
+    // AT THE LIP ITSELF, and not merely somewhere. The rig is walled, and a
+    // wall is an east-facing drop like any other — asked for `cliffN > 0`
+    // this passes on the wall's own cliffs while the shelf in the middle has
+    // nothing on it at all, which is the whole of what is wrong.
+    const west = westCliff(14);
+    for (let n = 0; n < 60 * 2; n++) stepFlow(west, 1 / 60);
+    const lips = new Set<number>();
+    for (let n = 0; n < west.falls.cliffN; n++) lips.add(west.falls.cliff[n]);
+    // The shelf's own brink: the edge between column 10, which stands at
+    // `high`, and column 9, which is the floor.
+    let found = 0;
+    for (let y = 4; y <= 7; y++) if (lips.has(((y * west.nx) + 9) * 2)) found++;
+    expect(found).toBe(4);
+  }, 20_000);
 });

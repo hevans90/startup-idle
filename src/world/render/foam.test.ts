@@ -115,10 +115,20 @@ describe("foam", () => {
     for (let y = 7; y <= 12; y++) for (let x = 7; x <= 12; x++) pourAt(field, x, y, 4, 1);
     run(field, foam, 6);
 
+    // THE SHEET, WHICH IS THE PLATEAU LESS ITS OWN LIPS. Water standing on a
+    // plateau spills off every edge of it, and a lip is the one place it is
+    // genuinely accelerating — the drawdown is real and the surface rate is
+    // right to notice it. What this is about is the MIDDLE: a criterion that
+    // read a cliff as a trough whitened the whole sheet, not its fringe.
+    //
+    // It used to take the whole plateau and expect nought, which held only
+    // because two of its four edges were not falls at all. @see dropAt
     const nx = field.columns.nx;
     let onTop = 0;
-    for (let cy = 6 * 4; cy < 14 * 4; cy++) {
-      for (let cx = 6 * 4; cx < 14 * 4; cx++) if (foam.now[cy * nx + cx] > 0.05) onTop++;
+    for (let cy = 6 * 4 + 2; cy < 14 * 4 - 2; cy++) {
+      for (let cx = 6 * 4 + 2; cx < 14 * 4 - 2; cx++) {
+        if (foam.now[cy * nx + cx] > 0.05) onTop++;
+      }
     }
     expect(onTop).toBe(0);
   });

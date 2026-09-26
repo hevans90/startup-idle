@@ -35,7 +35,7 @@
 import type { Container } from "pixi.js";
 
 import type { ColumnField } from "../../fluid/columns";
-import { driftAt, fallExtent, falling } from "../../fluid/falls";
+import { driftAt, dropAt, fallExtent, falling, outward } from "../../fluid/falls";
 import { COLUMNS_PER_TILE, tileOf } from "../water/field";
 import { fluidMaterial } from "../water/materials";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -120,7 +120,9 @@ const throwY = (c: ColumnField, i: number) => c.falls.throwY[i];
  * lip of a south edge along x, so the neighbour that shares a lip with this
  * one is across the OTHER axis from the one the water went over.
  */
-function alongLip(c: ColumnField, i: number, axis: number, d: number, pl = 0) {
+function alongLip(
+  c: ColumnField, i: number, axis: number, d: number, pl = 0, step = 0,
+) {
   // `i` is a SLOT index and so is the answer: a lip on a bridge's deck runs
   // along the deck, and the column beside it is only its neighbour if it is
   // falling on the same PLANE. Asked of plane zero, the lip along a parapet
@@ -132,7 +134,14 @@ function alongLip(c: ColumnField, i: number, axis: number, d: number, pl = 0) {
   const jy = axis === 0 ? cy + d : cy;
   if (jx < 0 || jy < 0 || jx >= c.nx || jy >= c.ny) return -1;
   const j = jy * c.nx + jx;
-  return falling(c, j, axis, pl) ? base + j : -1;
+  // AND THE EDGE THAT NEIGHBOUR POURS OVER IS NOT ALWAYS ITS OWN. An edge is
+  // owned by the column on its low-index side whichever way the water goes,
+  // so on a fall running back — west or north — the source column's lip is
+  // the edge BEHIND it. `step` is the distance between the two, and asking
+  // about the wrong one reads a neighbour as dry and ends the run there.
+  const e = j - step;
+  if (e < 0) return -1;
+  return falling(c, e, axis, pl) ? base + j : -1;
 }
 
 /**
@@ -334,21 +343,34 @@ export function drawFalls(
     const pl = (k / (columns.cells * 2)) | 0;
     const rest = k - pl * columns.cells * 2;
     const ci = rest >> 1, axis = rest & 1;
-    const a = (pl / columns.layers) | 0;
-    const i = a * columns.cells + ci;           // the slot the water leaves
-    const cx = ci % nx, cy = (ci / nx) | 0;
-    const jx = axis === 0 ? cx + 1 : cx, jy = axis === 0 ? cy : cy + 1;
+    const a = (pl / columns.layers) | 0, b = pl % columns.layers;
+    const ex = ci % nx, ey = (ci / nx) | 0;     // the edge's own column
+    const jx = axis === 0 ? ex + 1 : ex, jy = axis === 0 ? ey : ey + 1;
     if (jx >= columns.nx || jy >= columns.ny) continue;
     const reach = fallExtent(columns, ci, axis, pl);
     if (!reach) continue;
 
+    // WHICH OF THE EDGE'S TWO COLUMNS THE WATER LEAVES, which is the sign of
+    // the drop — see `dropAt`. An edge belongs to the column on its low-index
+    // side whichever way the water goes over it, so a fall running west or
+    // north leaves the column on the OTHER side, and everything a sheet is
+    // made of — its thickness, its colour, its throw, the lip it hangs from —
+    // belongs to that one. Hung from the low side regardless, as this was, a
+    // westward fall drew a sheet climbing out of the floor it lands on.
+    const back = dropAt(columns, ci, axis, a, b) < 0;
+    const stepBack = back ? (axis === 0 ? 1 : nx) : 0;
+    const src = back ? b * columns.cells + ci + stepBack : a * columns.cells + ci;
+    const i = src;                              // the slot the water leaves
+
     // The edge it goes over, in tiles: the east edge runs along y, the
     // south edge along x. Full width, always — the whole edge of the
     // column is what the water leaves by, and anything narrower leaves
-    // the rock showing between one fall and the next.
-    const tx = tileOf(cx), ty = tileOf(cy);
-    const fx0 = tx - 0.5 + (cx % COLUMNS_PER_TILE) * step;
-    const fy0 = ty - 0.5 + (cy % COLUMNS_PER_TILE) * step;
+    // the rock showing between one fall and the next. OFF THE EDGE'S OWN
+    // COLUMN, not the source's: the edge does not move when the water over
+    // it turns round.
+    const tx = tileOf(ex), ty = tileOf(ey);
+    const fx0 = tx - 0.5 + (ex % COLUMNS_PER_TILE) * step;
+    const fy0 = ty - 0.5 + (ey % COLUMNS_PER_TILE) * step;
     const ax = axis === 0 ? fx0 + step : fx0;
     const ay = axis === 0 ? fy0 : fy0 + step;
     const bx = fx0 + step, by = fy0 + step;
@@ -357,40 +379,47 @@ export function drawFalls(
     // The lip's two ENDS, each shared with whatever is beside it — see
     // `sharedPour`. `a` is the end towards −y on an east edge and −x on a
     // south edge, which is the same side `alongLip` calls −1.
-    const back = alongLip(columns, i, axis, -1, pl);
-    const fwd = alongLip(columns, i, axis, 1, pl);
+    const sideA = alongLip(columns, i, axis, -1, pl, stepBack);
+    const sideB = alongLip(columns, i, axis, 1, pl, stepBack);
     // The throw at each end, as a VECTOR — see `throwX`. Both components,
     // because a sheet goes the way the water was going and not the way the
     // rock happens to face.
-    const axThrow = sharedThrow(columns, i, back, 0);
-    const ayThrow = sharedThrow(columns, i, back, 1);
-    const bxThrow = sharedThrow(columns, i, fwd, 0);
-    const byThrow = sharedThrow(columns, i, fwd, 1);
+    // ALONG THE AXIS IT POURS OVER, never back into the rock — see
+    // `outward`. The across component keeps whichever way it points, which
+    // is what takes a sheet off a convex corner along the flow.
+    const along = (v: number) => outward(v, back);
+    const across = (v: number) => v;
+    const onX = axis === 0 ? along : across;
+    const onY = axis === 0 ? across : along;
+    const axThrow = onX(sharedThrow(columns, i, sideA, 0));
+    const ayThrow = onY(sharedThrow(columns, i, sideA, 1));
+    const bxThrow = onX(sharedThrow(columns, i, sideB, 0));
+    const byThrow = onY(sharedThrow(columns, i, sideB, 1));
     // What the lip is carrying, so the fall is not the one clean stretch
     // between two white pools — see `sharedFoam`.
     // BY SLOT, not by column: the sheet is made of the water that left THIS
     // slot, and on a span the deck and the channel under it carry different
     // white. @see stepFoam
-    const foamA = foam ? sharedFoam(foam, i, back) : 0;
-    const foamB = foam ? sharedFoam(foam, i, fwd) : 0;
+    const foamA = foam ? sharedFoam(foam, i, sideA) : 0;
+    const foamB = foam ? sharedFoam(foam, i, sideB) : 0;
     // AND EVERYTHING ELSE THE SURFACE KNOWS ABOUT THIS WATER. The sheet
     // used to mix its own colour from a flat 0.20, how hard the lip was
     // pouring and a third of the foam — a recipe that agreed with the
     // surface above it nowhere. See `sheetLook`, which these feed.
-    const shownA = sharedShown(columns, i, back);
-    const shownB = sharedShown(columns, i, fwd);
-    const litA = sharedLit(columns, i, back, wash);
-    const litB = sharedLit(columns, i, fwd, wash);
+    const shownA = sharedShown(columns, i, sideA);
+    const shownB = sharedShown(columns, i, sideB);
+    const litA = sharedLit(columns, i, sideA, wash);
+    const litB = sharedLit(columns, i, sideB, wash);
 
     // How thick the sheet is where it leaves, at each end — see
     // `sharedBrink`. This is what the sheet is HUNG FROM.
-    const brinkA = sharedBrink(columns, i, back);
-    const brinkB = sharedBrink(columns, i, fwd);
+    const brinkA = sharedBrink(columns, i, sideA);
+    const brinkB = sharedBrink(columns, i, sideB);
     // And the height it leaves FROM, shared for the same reason — see
     // `sharedLip`. This is the one that was not, and it is the one that
     // tore a stepped lip into a plate per tread.
-    const lipA = sharedLip(columns, i, back);
-    const lipB = sharedLip(columns, i, fwd);
+    const lipA = sharedLip(columns, i, sideA);
+    const lipB = sharedLip(columns, i, sideB);
 
     nappeSteps(reach.head, reach.front, STEPS);
     for (const piece of STEPS) {

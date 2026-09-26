@@ -118,9 +118,37 @@ export const CLING = 1 / 6;
  */
 export const FALL_THROW = 3;
 
-/** The lip speed a fall actually gets to use: outward only, and capped. */
+/**
+ * The lip speed a fall actually gets to use: capped in MAGNITUDE, sign kept.
+ *
+ * It clamped to nought at the bottom, which is the right rule said in the
+ * wrong place. "Outward only" is about the axis the water goes OVER — a sheet
+ * thrown back the way it came is a sheet inside the cliff — and it was
+ * enforced here, where the axis is not known, by throwing away the sign.
+ *
+ * That cost two things. A fall facing WEST or NORTH has a negative flow at
+ * its lip by definition, so every one of them got a throw of nought and hung
+ * dead vertical while every east-facing fall on the same map arced. And the
+ * ACROSS component, which is the one that makes a sheet leave a convex corner
+ * along the flow rather than square to the rock, was thrown away too whenever
+ * the water happened to be going the other way.
+ *
+ * So the cap is on the magnitude and the outward rule moves to {@link
+ * outward}, which is applied where the axis IS known. @see FALL_THROW
+ */
 export const throwOf = (speed: number) =>
-  Math.min(FALL_THROW, Math.max(0, speed));
+  Math.max(-FALL_THROW, Math.min(FALL_THROW, speed));
+
+/**
+ * A lip's throw along the axis it pours over, never back into the rock.
+ *
+ * `back` is the fall's own direction — west or north rather than east or
+ * south, the sign {@link dropAt} carries. Applied to the ALONG component
+ * only: the across one is free to be either way round, which is the whole of
+ * what makes a sheet leave a corner along the flow.
+ */
+export const outward = (speed: number, back: boolean) =>
+  (back ? Math.min(0, speed) : Math.max(0, speed));
 
 /**
  * How far out of the rock a fall has got, `below` half steps down.
@@ -337,6 +365,31 @@ export function createFalls(nx: number, ny: number, layers = 1): FallState {
  * be from another shape of terrain entirely — easing from that is easing from
  * nothing, and it is the one place this optimisation could have been seen.
  */
+/**
+ * Does the ground fall away from this slot, over any of its four edges?
+ *
+ * The question `cliffCol` answers, and the reason it is asked per column
+ * rather than accumulated while the edges are claimed: a fall leaves the
+ * HIGHER of the two columns an edge joins, so on a westward fall that is not
+ * the column that owns the edge. @see markCliffs
+ */
+function isLip(
+  f: ColumnField, x: number, y: number, b: number,
+  fa: number, ra: number,
+): boolean {
+  const { nx, ny, cells, ground, roof } = f;
+  const B = b * cells;
+  for (let d = 0; d < 4; d++) {
+    const jx = x + (d === 0 ? 1 : d === 1 ? -1 : 0);
+    const jy = y + (d === 2 ? 1 : d === 3 ? -1 : 0);
+    if (jx < 0 || jy < 0 || jx >= nx || jy >= ny) continue;
+    const jb = B + jy * nx + jx;
+    const joined = (ra < roof[jb] ? ra : roof[jb]) > (fa > ground[jb] ? fa : ground[jb]);
+    if (joined && fa - ground[jb] >= FALL_MIN) return true;
+  }
+  return false;
+}
+
 export function markCliffs(f: ColumnField) {
   const { nx, ny, cells, layers, ground, roof } = f;
   const s = f.falls;
@@ -365,6 +418,12 @@ export function markCliffs(f: ColumnField) {
           const fa = ground[ia], ra = roof[ia];
           if (ra <= fa) continue;               // no slot, so no lip
           const k = (P + i) * 2;
+          // EITHER WAY OVER THE EDGE. An edge belongs to the column on its
+          // low-index side whichever way the water goes over it, so claiming
+          // it is unchanged and only the TEST widens: a drop of `FALL_MIN`
+          // from `ia` to `jb` is a cliff, and so is one the other way. The
+          // second half of that was missing, and with it every waterfall on
+          // the map that happened to face west or north. @see dropAt
           if (x + 1 < nx) {
             const jb = B + i + 1;
             // A PAIR THAT IS NOT JOINED HAS NO LIP. The deck of a bridge
@@ -373,21 +432,31 @@ export function markCliffs(f: ColumnField) {
             // nothing crosses and nothing falls. @see fluid/slots
             const joined = (ra < roof[jb] ? ra : roof[jb])
               > (fa > ground[jb] ? fa : ground[jb]);
-            if ((joined && fa - ground[jb] >= FALL_MIN) || air[k] > 0 || front[k] > 0) {
+            const step = fa - ground[jb];
+            if ((joined && (step >= FALL_MIN || -step >= FALL_MIN))
+              || air[k] > 0 || front[k] > 0) {
               s.cliff[n++] = k;
-              cliffNow[ia] = 1;
             }
           }
           if (y + 1 < ny) {
             const jb = B + i + nx;
             const joined = (ra < roof[jb] ? ra : roof[jb])
               > (fa > ground[jb] ? fa : ground[jb]);
-            if ((joined && fa - ground[jb] >= FALL_MIN)
+            const step = fa - ground[jb];
+            if ((joined && (step >= FALL_MIN || -step >= FALL_MIN))
               || air[k + 1] > 0 || front[k + 1] > 0) {
               s.cliff[n++] = k + 1;
-              cliffNow[ia] = 1;
             }
           }
+          // AND WHETHER THIS COLUMN IS A LIP IS A QUESTION ABOUT ITS OWN FOUR
+          // EDGES, not about the two it happens to own. The smoothed launch
+          // is per column and belongs to the column the water LEAVES, which
+          // for a westward fall is the one on the high-index side of the
+          // edge — and marking that from here would be a write into a
+          // neighbour's cell, which the device twin cannot do at all.
+          // Asked of itself, both paths get the same answer with no
+          // cross-thread write anywhere. @see seedThrow
+          if (isLip(f, x, y, b, fa, ra)) cliffNow[ia] = 1;
         }
       }
     }
@@ -432,8 +501,24 @@ export const besideAt = (f: ColumnField, j: number) =>
   f.depth[j] > f.params.dryDepth ? wetTop(f.ground[j], f.roof[j], f.depth[j]) : f.ground[j];
 
 /**
- * How far water leaving column `i` over one of its edges would fall, or 0
- * where that is a step in a river rather than a cliff.
+ * How far water goes over one of a column's edges, SIGNED: positive falls
+ * toward `j` — east on axis nought, south on axis one — negative falls back
+ * toward `i`, and nought is a step in a river rather than a cliff.
+ *
+ * THE SIGN IS THE DIRECTION, and that is the whole of what lets a fall face
+ * four ways rather than two. An edge was measured one way only, `i` down to
+ * `j`, so a drop to the WEST or the NORTH was not a cliff to anything that
+ * asked: the solver moved that water across in a single step the way it did
+ * everywhere before falls existed, and half the cliffs on any map had no
+ * sheet, no spray and no plunge at the foot of them. The sign costs nothing —
+ * every caller that tested `dropAt(...) > 0` still means what it meant, and
+ * the one that hands water to the air now pairs the sign of the flux with the
+ * sign of the drop.
+ *
+ * AT MOST ONE WAY, always, which is why one number can carry both. The two
+ * drops are `ground[i] - beside(j)` and `ground[j] - beside(i)`, and
+ * `beside` is never below its own ground — so both being at least `FALL_MIN`
+ * would need the ground to be four half steps below itself.
  *
  * Read off the GROUND on the far side, not its surface: a pool at the foot of
  * a cliff shortens the fall, and once it is deep enough there is no fall left.
@@ -445,8 +530,11 @@ export function dropAt(
   const jx = axis === 0 ? x + 1 : x, jy = axis === 0 ? y : y + 1;
   if (jx >= f.nx || jy >= f.ny) return 0;
   const cells = f.cells;
-  const drop = f.ground[a * cells + i] - besideAt(f, b * cells + jy * f.nx + jx);
-  return drop >= FALL_MIN ? drop : 0;
+  const ia = a * cells + i, jb = b * cells + jy * f.nx + jx;
+  const there = f.ground[ia] - besideAt(f, jb);
+  if (there >= FALL_MIN) return there;
+  const back = f.ground[jb] - besideAt(f, ia);
+  return back >= FALL_MIN ? -back : 0;
 }
 
 /**
@@ -503,23 +591,50 @@ export function stepFalls(
       const i = rest >> 1, axis = rest & 1;
       const a = (pl / layers) | 0, b = pl - a * layers;
       const ia = a * cells + i;
-      const x = i % nx, y = (i / nx) | 0;
-      // The box still decides, exactly as it did: a cliff outside it is one
-      // the solver is not looking at this step.
-      if (x < region.x0 || x > region.x1 || y < region.y0 || y > region.y1) continue;
-      // The smoothed launch, followed once per column — see `FallState.throwX`.
-      // Every edge of it, the renderer and the spray all read this, so there
-      // is one arc and it does not chatter. Once per column and not once per
-      // edge: the set is in column order, so a column's two edges are adjacent.
-      if (s.eased[ia] !== run) {
-        s.throwX[ia] += (throwOf(flowX(f, x, y, a)) - s.throwX[ia]) * ease;
-        s.throwY[ia] += (throwOf(flowY(f, x, y, a)) - s.throwY[ia]) * ease;
-        s.eased[ia] = run;
-      }
+      const ex = i % nx, ey = (i / nx) | 0;
       {
-        const jx = axis === 0 ? x + 1 : x, jy = axis === 0 ? y : y + 1;
-        const j = b * cells + jy * nx + jx;
-        const drop = f.ground[ia] - besideAt(f, j);
+        const jx = axis === 0 ? ex + 1 : ex, jy = axis === 0 ? ey : ey + 1;
+        const jb = b * cells + jy * nx + jx;
+        // WHICH WAY IT GOES OVER, and therefore which of the two slots the
+        // water is leaving. Positive is the way this always used to be, out
+        // of `ia` and into `jb`; negative is the mirror of it. Everything
+        // below reads `from` and `j` rather than the two slot indices, so
+        // there is one description of a fall and it faces four ways.
+        //
+        // ASKED OF `dropAt` rather than measured again here, because that is
+        // the rule and this is one of four places that needs it. @see dropAt
+        const signed = dropAt(f, i, axis, a, b);
+        const back = signed < 0;
+        // WITH THE CLIFF GONE, DOWNHILL IS STILL DOWNHILL. `signed` is nought
+        // where the step has filled in, and whatever is left in the air has
+        // to be put somewhere — the lower of the two, which for a fall that
+        // was running back is not the far side.
+        const flat = signed === 0 && f.ground[jb] > f.ground[ia];
+        const from = back || flat ? jb : ia;
+        const j = back || flat ? ia : jb;
+        const drop = back ? -signed : signed;
+        // THE BOX IS ABOUT THE COLUMN THE WATER LEAVES, which is not always
+        // the column that owns the edge. An edge belongs to its low-index
+        // side whichever way the water goes over it, so on a westward fall
+        // the owner is the DRY side — outside the active box almost by
+        // definition. Tested there, every backward fall was skipped every
+        // step: its air went in and never came out, and what should have
+        // been a waterfall was a slow leak into nowhere. Measured on a
+        // plateau spilling all four ways, 0.269 of water stuck in the air on
+        // the west lip against 0.065 moving through the east one.
+        const sx = back || flat ? jx : ex, sy = back || flat ? jy : ey;
+        if (sx < region.x0 || sx > region.x1
+          || sy < region.y0 || sy > region.y1) continue;
+        // The smoothed launch, followed once per column — see
+        // `FallState.throwX`. Every edge of it, the renderer and the spray
+        // all read this, so there is one arc and it does not chatter. On the
+        // column the water LEAVES, for the same reason the box is.
+        if (s.eased[from] !== run) {
+          const fa = (from / cells) | 0;
+          s.throwX[from] += (throwOf(flowX(f, sx, sy, fa)) - s.throwX[from]) * ease;
+          s.throwY[from] += (throwOf(flowY(f, sx, sy, fa)) - s.throwY[from]) * ease;
+          s.eased[from] = run;
+        }
         // AND THE SAME NUMBER AS AN F32, because `front` and `head` are f32
         // arrays and a sheet arriving is a sheet that has SATURATED at the
         // bottom. Clamp with `Math.min(drop, ...)` and store, and what comes
@@ -541,13 +656,18 @@ export function stepFalls(
           //
           // `reset` leaves the air alone, so what is left drains through here
           // again next step. The sheet stops being drawn either way.
-          land(f, k, j, ia, Math.min(1, dt / DROWN));
+          land(f, k, j, from, Math.min(1, dt / DROWN));
           reset(s, k);
           continue;
         }
 
-        const flux = axis === 0 ? f.fx[pl * cells + i] : f.fy[pl * cells + i];
-        s.since[k] = flux > 0 && depth[ia] > params.dryDepth ? 0 : s.since[k] + dt;
+        // STILL POURING, measured with the sign the fall itself has: the flux
+        // on an edge is positive toward `jb`, so a westward fall is fed by a
+        // NEGATIVE one and reading it unsigned would have every such fall
+        // let go of its lip on the frame it started. @see CLING
+        const raw = axis === 0 ? f.fx[pl * cells + i] : f.fy[pl * cells + i];
+        const flux = back ? -raw : raw;
+        s.since[k] = flux > 0 && depth[from] > params.dryDepth ? 0 : s.since[k] + dt;
 
         if (s.since[k] < CLING) {
           s.head[k] = 0;                        // more is coming over behind it
@@ -565,7 +685,7 @@ export function stepFalls(
         // what it throws is DROPS — real ones, out of its own mass, so the
         // sheet is lighter for it and what lands at the bottom lands twice:
         // most of it through the sheet, some of it a drop at a time.
-        if (s.front[k] > BREAK && s.air[k] > 0) shedSpray(f, k, ia, axis, dt, drop);
+        if (s.front[k] > BREAK && s.air[k] > 0) shedSpray(f, k, from, axis, back, dt, drop);
 
         // NOTHING lands until the front gets there. After that it leaves the
         // air at the rate it is arriving, which in a steady fall is the rate
@@ -573,12 +693,12 @@ export function stepFalls(
         if (s.front[k] >= reach && s.air[k] > 0) {
           const fall = Math.sqrt((2 * drop) / FALL_GRAVITY);
           // Where the SHEET gets to, not the column over the edge.
-          land(f, k, landsAt(f, ia, j, drop), ia, Math.min(1, dt / fall), drop);
+          land(f, k, landsAt(f, from, j, drop), from, Math.min(1, dt / fall), drop);
         }
         // Caught its own front, or fallen past the bottom: nothing is left of
         // it, and anything still in the air has landed by now.
         if (s.head[k] >= s.front[k] || s.head[k] >= reach) {
-          land(f, k, j, ia, 1);
+          land(f, k, j, from, 1);
           reset(s, k);
         }
       }
@@ -744,7 +864,8 @@ export function scatterOf(k: number, speed: number, salt = 0): number {
  * it is not a one-line one.
  */
 function shedSpray(
-  f: ColumnField, k: number, i: number, axis: number, dt: number, drop: number,
+  f: ColumnField, k: number, i: number, axis: number, back: boolean,
+  dt: number, drop: number,
 ) {
   const s = f.falls;
   const loose = Math.min(1, (s.front[k] - BREAK) / BREAK);
@@ -771,8 +892,8 @@ function shedSpray(
   // the drop lives in column space and the lip's speed is read in tiles.
   // The SMOOTHED launch, the same one the sheet is drawn on and the water
   // lands on, so a drop still leaves from where the sheet is.
-  const lip = (axis === 0 ? f.falls.throwX[i] : f.falls.throwY[i]) / f.cell;
-  dropFrom(f, k, take, below, u, lip, f.material[i]);
+  const lip = outward(axis === 0 ? f.falls.throwX[i] : f.falls.throwY[i], back) / f.cell;
+  dropFrom(f, k, take, below, u, lip, f.material[i], back);
 }
 
 /**
@@ -791,13 +912,19 @@ function shedSpray(
  */
 export function dropFrom(
   f: ColumnField, k: number, take: number, below: number, u: number,
-  lip: number, material: number,
+  lip: number, material: number, back = false,
 ) {
   // The plane, then the edge inside it — see `fallEdge`. The drop comes off
   // the slot the sheet LEFT, so the height it starts at is that slot's floor.
+  //
+  // WHICH OF THE EDGE'S TWO COLUMNS THAT IS depends on which way the water
+  // went over it: `back` means it left the column on the high-index side,
+  // so the drop starts there and the arc runs the other way. @see dropAt
   const pl = (k / (f.cells * 2)) | 0;
   const rest = k - pl * f.cells * 2;
-  const i = rest >> 1, axis = rest & 1;
+  const e = rest >> 1, axis = rest & 1;
+  const step = back ? (axis === 0 ? 1 : f.nx) : 0;
+  const i = e + step;
   const ia = ((pl / f.layers) | 0) * f.cells + i;
   const x = i % f.nx, y = (i / f.nx) | 0;
   const out = driftAt(lip, below);

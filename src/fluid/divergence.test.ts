@@ -86,29 +86,47 @@ function gather(
     for (let x = X0; x <= X1; x++) {
       const i = y * nx + x;
       let d = 0;
-      // The row above's southward move, if that row was walked at all.
+      // INTO THE AIR EITHER WAY OVER AN EDGE, which is the sign of the flux
+      // against the sign of the drop — see `dropAt`. The water that goes
+      // into the air leaves its SOURCE and arrives nowhere, so an edge whose
+      // move is in the air contributes to neither of its two cells.
+      const aired = (e: number, axis: number, move: number) => {
+        const drop = dropAt(f, e, axis);
+        return (move > 0 && drop > 0) || (move < 0 && drop < 0);
+      };
+      // The row above's southward move, if that row was walked at all. Lost
+      // to the air only when it was coming TOWARDS this cell: a move the
+      // other way over that edge is water this cell gave up, air or not.
       if (y - 1 >= Y0) {
         const move = fy[i - nx] * spread;
-        if (!(move > 0 && dropAt(f, i - nx, 1) > 0)) d = round(d + move);
+        if (!(move > 0 && aired(i - nx, 1, move))) d = round(d + move);
       }
       // The cell before's eastward one.
       if (x - 1 >= X0) {
         const move = fx[i - 1] * spread;
-        if (!(move > 0 && dropAt(f, i - 1, 0) > 0)) d = round(d + move);
+        if (!(move > 0 && aired(i - 1, 0, move))) d = round(d + move);
       }
-      // And its own two, which leave whether or not they go into the air.
-      if (x + 1 < nx) d = round(d - fx[i] * spread);
-      if (y + 1 < ny) d = round(d - fy[i] * spread);
+      // And its own two, which leave unless the AIR took them from the far
+      // side instead: a westward fall over this cell's east edge is water
+      // the cell to the east gave up, and this one neither gains nor loses.
+      if (x + 1 < nx) {
+        const move = fx[i] * spread;
+        if (!(move < 0 && aired(i, 0, move))) d = round(d - move);
+      }
+      if (y + 1 < ny) {
+        const move = fy[i] * spread;
+        if (!(move < 0 && aired(i, 1, move))) d = round(d - move);
+      }
       delta[i] = d;
 
       // An edge belongs to one cell, so this is the same write either way.
       if (x + 1 < nx) {
         const move = fx[i] * spread;
-        if (move > 0 && dropAt(f, i, 0) > 0) air[i * 2] += move;
+        if (aired(i, 0, move)) air[i * 2] += Math.abs(move);
       }
       if (y + 1 < ny) {
         const move = fy[i] * spread;
-        if (move > 0 && dropAt(f, i, 1) > 0) air[i * 2 + 1] += move;
+        if (aired(i, 1, move)) air[i * 2 + 1] += Math.abs(move);
       }
     }
   }
