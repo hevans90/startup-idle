@@ -29,12 +29,16 @@
  * tolerance nothing differs at all. Neither path draws a pixel the other
  * leaves empty. The same on both renderers, to the pixel.
  *
- * WHAT IT READS NOW. The scene grew a CAUSEWAY with a bridged gap in it,
- * because the span it already had is submerged and so has no deck-to-road
- * seam anywhere on it — and that seam turned out to be where two separate
- * faults lived. It reads **6 pixels of 34,943 differing, worst 33**, the same
- * every run, with NOTHING MISSING either way and the same six whether the
- * side faces are drawn or not. It was 45, then 28.
+ * WHAT IT READS NOW: **2 pixels of 42,088**, the same every run, with NOTHING
+ * MISSING either way. It was 45, then 28, then 6 of 34,943 — and then the
+ * scene grew twenty per cent more water when falls learned to face west, and
+ * that is worth reading the history for, because the number went UP to 42
+ * and every one of the extra pixels was the instrument's fault rather than
+ * the builders'. See the note on premultiplication in the compare loop.
+ *
+ * The scene has a CAUSEWAY with a bridged gap in it, because the span it
+ * already had is submerged and so has no deck-to-road seam anywhere on it —
+ * and that seam turned out to be where two separate faults lived.
  *
  * THE TWO FAULTS WERE BOTH ABOUT THE FAR-EDGE FACE a span hangs into the
  * diamond of the road in front of it, and neither was a rule computed two
@@ -157,6 +161,15 @@ export type Comparison = {
   onlyGpu: number;
   /** Contributors the builder dropped for want of a tier. @see TIERS */
   overflow: number;
+  /**
+   * How far the two paths' CARRIED fields have drifted apart, worst cell.
+   *
+   * Both step their own foam and wash off the same columns with the same dt
+   * and the same active box, so these are supposed to be nought. Anything
+   * else and the pixels differ for a reason neither mesh builder owns.
+   */
+  foamDrift: number;
+  washDrift: number;
   /** Where the disagreements are, and what they look like. Null when clean. */
   where: null | {
     x0: number; y0: number; x1: number; y1: number;
@@ -264,23 +277,30 @@ function frame(root: Container, size: number, px: number) {
  * How much SPECKLE a pass is allowed: the share of drawn pixels that may
  * differ by more than the tolerance and still count as the same picture.
  *
- * Not a number chosen to fit the reading. It is what QUANTISATION costs —
- * a shade rounded to a neighbouring row of the tint table, a silhouette
- * landing a pixel across — measured at three resolutions, where it comes to
- * 0.023%, 0.017% and 0.023% of what is drawn. This is not quite twice that.
+ * Not a number chosen to fit the reading. It is what QUANTISATION costs once
+ * the comparison stopped shouting about pixels nobody can see — see the note
+ * on premultiplication in the loop below, which took this floor down twenty
+ * fold. Clean, the scene reads 0.005% at its design point, 0.004% at double
+ * the resolution and 0.010% at half; this is about twice the worst of those.
  *
- * AND HERE IS WHAT IT CANNOT RESOLVE, because a threshold stated without its
- * blind spot is worse than none. Putting back the storey-packing fault reads
- * 0.063% and 0.059% — it trips, but by half again, not by an order. Putting
- * back the tier fault ALONE reads six more pixels than clean and would sail
- * through. So this catches a fault that costs a face and not one that costs a
- * fringe, and the COUNTS are the finer instrument: `differing` is reported
- * whatever this says, and a change that moves it has done something. The
- * faults this was built for are nowhere near the line — the corner merge
- * missing from the shader read 4.5% of the frame, seventy times over.
- * @see compareWaterPaths
+ * WHAT IT CATCHES, measured rather than asserted: putting the storey-packing
+ * fault back reads 0.043% at one second and 0.033% at two, so it trips by
+ * about twice from the other side. Before the premultiplied compare that
+ * fault only tripped at two seconds and only by half again, because most of
+ * its signal was drowned out by fringe pixels differing by one bit.
+ *
+ * WHAT IT STILL CANNOT RESOLVE. A fault worth a couple of pixels — the tier
+ * fault two commits back was six — sails through, so the COUNTS remain the
+ * finer instrument: `differing` is reported whatever this says, and a change
+ * that moves it has done something. The faults this was built for are nowhere
+ * near the line: the corner merge missing from the shader read 4.5%.
+ *
+ * AND THE SCENE'S DESIGN POINT IS TWO SECONDS. Run longer it reads 0.007% at
+ * four and 0.055% at eight, the last of which trips this — a couple of dozen
+ * pixels at moderate alpha, written down here rather than tuned away, because
+ * nobody has yet found what they are. @see compareWaterPaths
  */
-export const SPECKLE = 0.0004;
+export const SPECKLE = 0.0002;
 
 /** The road art the editor itself uses. @see checkWaterOverPaving */
 const ROAD_TABLE = buildRoadTable("landscape");
@@ -354,6 +374,23 @@ export function compareWaterPaths(
     return out.pixels;
   };
 
+  // AND WHETHER THE TWO CARRIED FIELDS ARE STILL THE SAME FIELD. Both paths
+  // step their own foam and wash, from the same columns with the same dt, so
+  // they are supposed to stay identical to the bit — and if they do not, the
+  // pixels differ for a reason that is nothing to do with either builder.
+  // Reported rather than inferred, because inferring it from a shade is what
+  // cost an afternoon. @see drawWater, drawGpuWater
+  const drift = (x: Float32Array, y: Float32Array) => {
+    let worst = 0;
+    for (let i = 0; i < Math.min(x.length, y.length); i++) {
+      const d = Math.abs(x[i] - y[i]);
+      if (d > worst) worst = d;
+    }
+    return worst;
+  };
+  const foamDrift = drift(cpu.foam.now, gpu.foam.now);
+  const washDrift = drift(cpu.wash.now, gpu.wash.now);
+
   const a = shot("cpu");
   const b = shot("gpu");
 
@@ -374,8 +411,25 @@ export function compareWaterPaths(
     drawn++;
     if (aOn && !bOn) onlyCpu++;
     if (bOn && !aOn) onlyGpu++;
-    let d = 0;
-    for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(a[i + c] - b[i + c]));
+    // AS IT REACHED THE SCREEN, which means PREMULTIPLIED. The extract hands
+    // back straight alpha, so a channel is divided by its own coverage — and
+    // at the coverage a water fringe actually has that turns one bit into a
+    // score of them. Measured: a pixel at alpha 13 reading 98/137/177 against
+    // 98/157/177, two channels bit-identical and the third out by 20, is one
+    // least significant bit of what was drawn, 255/13 apart once it has been
+    // divided back up.
+    //
+    // It is not a rounding to wave away. It made the comparison read the
+    // emptiest pixels in the frame the loudest, so a scene that grew a wider
+    // shallow fringe — which four-way falls did — looked like a builder that
+    // had stopped agreeing. Weighted by what each pixel contributed, the same
+    // frames read nought. @see drawn
+    let d = Math.abs(a[i + 3] - b[i + 3]);
+    for (let c = 0; c < 3; c++) {
+      const av = (a[i + c] * a[i + 3]) / 255;
+      const bv = (b[i + c] * b[i + 3]) / 255;
+      d = Math.max(d, Math.abs(av - bv));
+    }
     total += d;
     if (d > worst) worst = d;
     if (d > tolerance) {
@@ -410,6 +464,8 @@ export function compareWaterPaths(
     // such limit, so any number here is a difference between the two that is
     // nothing to do with the rule they share. @see TIERS
     overflow: cpu.overflow,
+    foamDrift,
+    washDrift,
     ok: share <= SPECKLE && onlyCpu === 0 && onlyGpu === 0,
   };
 }
