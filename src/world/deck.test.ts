@@ -15,12 +15,12 @@ import {
 import { applyFixture } from "./debug/fixtures";
 import { generateMap } from "./gen/generate-map";
 import {
-  COLUMNS_PER_TILE, createWaterField, deckedAt, depthAt, pourAt, setWaterEdge,
-  stepWater, syncGround, totalVolume,
+  COLUMNS_PER_TILE, createWaterField, deckedAt, depthAt, drainAt, pourAt,
+  setWaterEdge, stepWater, syncGround, totalVolume,
 } from "./water/field";
 import { addWater, createColumnField, totalWater } from "../fluid/columns";
 import { DROP } from "../fluid/drips";
-import { dropFrom, fallEdge } from "../fluid/falls";
+import { dropFrom, fallEdge, waterInAir } from "../fluid/falls";
 import { OPEN_SKY, connected } from "../fluid/slots";
 
 /**
@@ -35,6 +35,13 @@ const onDeck = (field: { columns: { depth: Float32Array; cells: number; layers: 
   if (c.layers < 2) return 0;
   let sum = 0;
   for (let i = c.cells; i < c.cells * c.layers; i++) sum += c.depth[i];
+  return sum;
+};
+
+/** How much the field is moving, summed over both axes and every edge. */
+const momentum = (c: { fx: Float32Array; fy: Float32Array }) => {
+  let sum = 0;
+  for (let i = 0; i < c.fx.length; i++) sum += Math.abs(c.fx[i]) + Math.abs(c.fy[i]);
   return sum;
 };
 
@@ -302,6 +309,55 @@ describe("water on a deck", () => {
     expect(field.columns.layers).toBe(2);
     expect(field.fieldRev).toBeGreaterThan(was);
     expect(totalWater(field.columns)).toBeCloseTo(put, 6);
+  });
+
+  test("and what is in the AIR over it survives the same rebuild", () => {
+    // Depth alone used to be what came across, so laying the first bridge on
+    // a map put out every waterfall running on it: the falls, the spray and
+    // all of the momentum were left behind in the field being discarded, and
+    // a river mid-plunge restarted from a standstill. @see growStoreys
+    const g = createGrid(12, 12);
+    fillTerrain(g, 1);
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) setHeight(g, x, y, x < 6 ? 0 : -20);
+    }
+    const field = createWaterField(g);
+    setWaterEdge(field, false);
+    for (let n = 0; n < 60 * 3; n++) {
+      pourAt(field, 2, 6, 1, 1);
+      stepWater(field, 1 / 60);
+    }
+    const air = waterInAir(field.columns);
+    const push = momentum(field.columns);
+    const drops = field.columns.drips.live;
+    expect(air).toBeGreaterThan(0);
+    expect(push).toBeGreaterThan(0);
+    expect(field.columns.layers).toBe(1);
+
+    // A deck laid nowhere near the fall, which rebuilds the field anyway.
+    for (let y = 9; y <= 10; y++) for (let x = 9; x <= 10; x++) setDeck(g, x, y, 1, 4);
+    syncGround(field, g);
+
+    expect(field.columns.layers).toBe(2);
+    expect(waterInAir(field.columns)).toBeCloseTo(air, 6);
+    expect(momentum(field.columns)).toBeCloseTo(push, 6);
+    expect(field.columns.drips.live).toBe(drops);
+  }, 20_000);
+
+  test("draining a span takes the water off IT, not out of the channel", () => {
+    // The twin of the pour above, and it was missed: every water tool was
+    // taught which surface the pick meant except this one, so a drain
+    // dragged over a bridge emptied the river under it and left the puddle
+    // on the span alone. @see drainAt
+    const { field } = pan(10);
+    pourAt(field, 5, 5, 6, 1);          // on the span
+    pourAt(field, 1, 1, 6, 1);          // and on the bed, off to one side
+    const bed = onGround(field);
+    expect(onDeck(field)).toBeGreaterThan(0);
+
+    drainAt(field, 5, 5, Infinity);
+    expect(onDeck(field)).toBe(0);
+    expect(onGround(field)).toBeCloseTo(bed, 6);
   });
 
   test("pouring on a span puts the water ON it, not on the ground beneath", () => {

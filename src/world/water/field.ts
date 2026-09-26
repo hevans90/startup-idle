@@ -411,12 +411,39 @@ function parapetAt(
   return 0;
 }
 
+/** Copy the first `n` entries across, whatever pair of typed arrays it is. */
+function carry(
+  to: Float32Array | Float64Array | Uint8Array | Int32Array,
+  from: Float32Array | Float64Array | Uint8Array | Int32Array,
+  n: number,
+) {
+  for (let i = 0; i < n; i++) to[i] = from[i];
+}
+
 /**
  * Rebuild the column field with room for a deck, keeping the water.
  *
  * Slot zero of the new field is slot zero of the old one, copied across, so
  * putting a bridge on a map does not empty its river. Everything else starts
  * where a new field starts.
+ *
+ * SLOT ZERO IS A PREFIX, which is what makes the copying this short. A
+ * per-slot array indexes `a * cells + i`, so slot zero is `[0, cells)`
+ * whatever `layers` is; a per-pair array indexes `(a * layers + b) * cells`,
+ * so pair (0,0) is the same range; and a fall edge indexes
+ * `p * cells * 2 + i * 2 + axis`, so pair zero is `[0, cells * 2)`. The old
+ * field has one layer, so ALL of it is that prefix.
+ *
+ * AND THE WATER IN THE AIR IS WATER. Depth alone was kept here once, and the
+ * result was that laying the first deck on a map deleted every waterfall
+ * running on it and reset the river's momentum to nothing — a bridge dropped
+ * next to a fall put the fall out. Momentum, the breaking state and the falls
+ * all carry.
+ *
+ * WHAT IT DOES NOT KEEP is the per-step scratch — the fluxes' kicks and caps,
+ * the landing accumulators, the iteration buffers — which is cleared at the
+ * top of every step anyway, and the cliff index, which `stepFlow` rebuilds
+ * off the ground it is about to be given. @see markCliffs
  *
  * WHAT IT CANNOT KEEP is anything a DEVICE solver is holding: the device owns
  * the water while it is attached and its buffers are the old shape. That is
@@ -426,9 +453,44 @@ function parapetAt(
 function growStoreys(field: WaterField) {
   const old = field.columns;
   const next = createColumnField(old.nx, old.ny, old.params, old.cell, STOREYS);
-  next.ground.set(old.ground.subarray(0, old.cells));
-  next.depth.set(old.depth.subarray(0, old.cells));
-  next.material.set(old.material.subarray(0, old.cells));
+  const n = old.cells;
+  // The surface. `ground` and `roof` are rewritten by the `syncSlots` that
+  // follows; they are copied so the field is never briefly inconsistent.
+  carry(next.ground, old.ground, n);
+  carry(next.roof, old.roof, n);
+  carry(next.depth, old.depth, n);
+  carry(next.material, old.material, n);
+  // The motion. Without these the river stops dead and starts again.
+  carry(next.fx, old.fx, n);
+  carry(next.fy, old.fy, n);
+  carry(next.rate, old.rate, n);
+  carry(next.velo, old.velo, n);
+  carry(next.broke, old.broke, n);
+  carry(next.breakAge, old.breakAge, n);
+  next.breaking = old.breaking;
+  // The water in the air, on the edges it is falling over and the columns it
+  // is being thrown from. @see fallEdge
+  const of = old.falls, nf = next.falls;
+  for (const k of ["air", "front", "head", "frontSpeed", "headSpeed", "since", "shed"] as const) {
+    carry(nf[k], of[k], n * 2);
+  }
+  carry(nf.throwX, of.throwX, n);
+  carry(nf.throwY, of.throwY, n);
+  // The spray. A drop is a position over the map rather than an index into
+  // it, so the whole live list comes across unchanged; the splash marks are
+  // per slot and take the prefix.
+  const od = old.drips, nd = next.drips;
+  for (const k of ["cx", "cy", "z", "vz", "vx", "vy", "shape", "shaken", "volume", "material"] as const) {
+    carry(nd[k], od[k], od.live);
+  }
+  nd.live = od.live;
+  for (const k of ["mcx", "mcy", "mz", "mheld", "mmaterial"] as const) carry(nd[k], od[k], od.mouths);
+  nd.mouths = od.mouths;
+  carry(nd.splash, od.splash, n);
+  carry(nd.lit, od.lit, od.nlit);
+  nd.nlit = od.nlit;
+  nd.splashed = od.splashed;
+  nd.spun = od.spun;
   next.t = old.t;
   next.deepest = old.deepest;
   next.box = { ...old.box };
@@ -616,7 +678,15 @@ export function pourAt(
   }
 }
 
-/** Take water off the columns of a tile. `Infinity` empties it. */
+/**
+ * Take water off the columns of a tile. `Infinity` empties it.
+ *
+ * ON THE DECK WHERE THERE IS ONE, for the same reason `pourAt` is and by the
+ * same test: a drain acts on the surface the pick named. It did not, so a
+ * drain dragged across a bridge emptied the CHANNEL twenty half steps under
+ * it — out of sight — and left the puddle on the span it was aimed at
+ * exactly where it was. @see pourAt, deckedAt
+ */
 export function drainAt(
   field: WaterField,
   x: number,
@@ -624,11 +694,12 @@ export function drainAt(
   amount: number,
 ) {
   const { columns } = field;
+  const slot = deckedAt(field, x, y) ? 1 : 0;
   const cx0 = columnOf(x),
     cy0 = columnOf(y);
   for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
     for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
-      addWater(columns, cx0 + dx, cy0 + dy, -amount);
+      addWater(columns, cx0 + dx, cy0 + dy, -amount, 0, slot);
     }
   }
 }
