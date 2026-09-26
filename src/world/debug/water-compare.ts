@@ -29,25 +29,43 @@
  * tolerance nothing differs at all. Neither path draws a pixel the other
  * leaves empty. The same on both renderers, to the pixel.
  *
- * WHAT IT READS NOW, and why it is not nought. The scene grew a CAUSEWAY with
- * a bridged gap in it, because the span it already had is submerged and so has
- * no deck-to-road seam anywhere on it — and that seam is the one place the two
- * builders can differ about which STOREY the water next door is in. With the
- * seam in, and the builder's side face reading the neighbour's own storey
- * instead of slot nought, it reads **28 pixels of 34,943 differing, worst 33**,
- * the same every run, with NOTHING MISSING either way. Before that fix, 45.
+ * WHAT IT READS NOW. The scene grew a CAUSEWAY with a bridged gap in it,
+ * because the span it already had is submerged and so has no deck-to-road
+ * seam anywhere on it — and that seam turned out to be where two separate
+ * faults lived. It reads **6 pixels of 34,943 differing, worst 33**, the same
+ * every run, with NOTHING MISSING either way and the same six whether the
+ * side faces are drawn or not. It was 45, then 28.
  *
- * The residue is the side faces at the seam and not the surfaces: with faces
- * off it is 6. Forcing every face to flat opaque red on both paths turns it
- * into 31 pixels the shader draws and the builder does not — a sliver, not a
- * missing face, which is the same thing said twice: the two put a face's top
- * about a pixel apart there. At real opacity neither path leaves a pixel the
- * other drew, which is the property that matters.
+ * THE TWO FAULTS WERE BOTH ABOUT THE FAR-EDGE FACE a span hangs into the
+ * diamond of the road in front of it, and neither was a rule computed two
+ * ways — both were about WHERE the answer was filed.
  *
- * SO `ok` IS FALSE ON THIS SCENE UNTIL THAT IS CLOSED, deliberately. A control
- * that is quietly relaxed to fit what it measures is not a control. 28 is the
- * number to watch: a change that moves it has done something, and a change
- * that does not has not.
+ *  - The device asked which TIER a quad belongs to about the column whose
+ *    diamond the quad lands in. For a filed-forward face that is the wrong
+ *    column, and at this seam it is fatal: an upper slot over a column with
+ *    no deck is ABSENT, floor and roof equal, which reads as roofed — so the
+ *    open tier threw the span's own face away before the branch that owns it
+ *    ran. The device drew no face at all and the builder drew one. Worth 6.
+ *  - And a quad's id packed the STOREY outside the part, so every quad of
+ *    storey nought drew before any quad of storey one. The road's own water
+ *    was therefore painted before the face the span beside it hangs into the
+ *    same diamond, and the face landed on top of water NEARER the camera than
+ *    itself. The builder, which files that face into the band ahead before
+ *    reaching any of that band's columns whatever storey they are in, painted
+ *    it under. Worth the other 22. @see water-gpu's PARTS
+ *
+ * WHAT THE SIX ARE, so nobody hunts them again. Three are a tint index: the
+ * surface's shade is a float quantised to a row of the tint table, and at an
+ * exact half the two paths round to neighbouring rows — which is why each of
+ * those pixels differs in ONE channel, by seven to nine, at the same alpha.
+ * The other three are a silhouette: a surface edge lands one pixel apart, and
+ * two of them are literally the same colour one row up. Both are the
+ * float-against-double class this tolerates everywhere else, and neither is a
+ * rule that disagrees with itself.
+ *
+ * SO `ok` ALLOWS A SPECKLE, and says how big. A control that cannot pass is a
+ * control nobody reads, and "nought differing" was only ever reachable on a
+ * scene with no bridge on it. @see SPECKLE
  *
  * AND THE HUNT THAT COST THE MOST, because the shape of it will repeat. When
  * the sheet grouping moved from a flood fill on the host to a partition each
@@ -242,6 +260,28 @@ function frame(root: Container, size: number, px: number) {
  * `tolerance` is per channel out of 255. Below it two pixels count as the same
  * colour, which is what lets float against double pass.
  */
+/**
+ * How much SPECKLE a pass is allowed: the share of drawn pixels that may
+ * differ by more than the tolerance and still count as the same picture.
+ *
+ * Not a number chosen to fit the reading. It is what QUANTISATION costs —
+ * a shade rounded to a neighbouring row of the tint table, a silhouette
+ * landing a pixel across — measured at three resolutions, where it comes to
+ * 0.023%, 0.017% and 0.023% of what is drawn. This is not quite twice that.
+ *
+ * AND HERE IS WHAT IT CANNOT RESOLVE, because a threshold stated without its
+ * blind spot is worse than none. Putting back the storey-packing fault reads
+ * 0.063% and 0.059% — it trips, but by half again, not by an order. Putting
+ * back the tier fault ALONE reads six more pixels than clean and would sail
+ * through. So this catches a fault that costs a face and not one that costs a
+ * fringe, and the COUNTS are the finer instrument: `differing` is reported
+ * whatever this says, and a change that moves it has done something. The
+ * faults this was built for are nowhere near the line — the corner merge
+ * missing from the shader read 4.5% of the frame, seventy times over.
+ * @see compareWaterPaths
+ */
+export const SPECKLE = 0.0004;
+
 /** The road art the editor itself uses. @see checkWaterOverPaving */
 const ROAD_TABLE = buildRoadTable("landscape");
 
@@ -255,6 +295,11 @@ export function compareWaterPaths(
     // same picture, and this is the only check that can say so — the fast path
     // shipped unmeasured by this once already. @see createBrinkPass
     gather = true,
+    // HOW MANY of the differing pixels come back with their colours. Eight is
+    // enough to say WHERE; a hunt wants the shape of the cluster, and a
+    // cluster of thirty reported eight at a time is four runs of guessing
+    // which ones were left out.
+    probes = 8,
     // AND THE BRINK CACHE ON ITS OWN, so it can be told apart from the
     // gathering it rides with: the gathering's counts come back by an async
     // mapping, so how many quads a band draws is not the same twice, and a
@@ -338,7 +383,7 @@ export function compareWaterPaths(
       const p = i / 4, x = p % px, y = (p / px) | 0;
       bx0 = Math.min(bx0, x); bx1 = Math.max(bx1, x);
       by0 = Math.min(by0, y); by1 = Math.max(by1, y);
-      if (samples.length < 8) {
+      if (samples.length < probes) {
         samples.push({
           x, y, by: d,
           cpu: [a[i], a[i + 1], a[i + 2], a[i + 3]],
@@ -353,9 +398,10 @@ export function compareWaterPaths(
   destroyGpuWaterLayer(gpu);
   bands.root.destroy({ children: true });
 
+  const share = drawn ? differing / drawn : 0;
   return {
     width: px, height: px, drawn, differing,
-    share: drawn ? differing / drawn : 0,
+    share,
     worst, mean: drawn ? total / drawn : 0, onlyCpu, onlyGpu,
     where: differing
       ? { x0: bx0, y0: by0, x1: bx1, y1: by1, samples }
@@ -364,7 +410,7 @@ export function compareWaterPaths(
     // such limit, so any number here is a difference between the two that is
     // nothing to do with the rule they share. @see TIERS
     overflow: cpu.overflow,
-    ok: differing === 0 && onlyCpu === 0 && onlyGpu === 0,
+    ok: share <= SPECKLE && onlyCpu === 0 && onlyGpu === 0,
   };
 }
 

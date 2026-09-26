@@ -15,6 +15,15 @@
  * vertex shader answer it from its textures and a compute pass answer it from
  * the same textures without either knowing about the other.
  *
+ * THE PART NUMBER IS THE DRAW ORDER, which is why the far-edge faces filed
+ * forward from the column behind are 0 and 1 rather than 3 and 4. A band's
+ * quads are drawn in index order, so a face belonging to the column BEHIND
+ * has to be numbered before the surface of the column whose diamond it hangs
+ * into, or it is painted over water that is nearer the camera than it is.
+ * Numbered last, it was — and the mesh builder, which files the same face
+ * into the band ahead before that band's own columns are reached, was not.
+ * @see water-gpu's PARTS, water.ts's fillQuads
+ *
  * A FACE WITH NO HEIGHT IS NOT A FACE. `sidePart` never refuses to build one —
  * it hands back a quad whose two ends have collapsed to their own floor, which
  * makes no fragments and cost four vertex invocations anyway. That collapse is
@@ -84,23 +93,27 @@ ${wgsl
     ? "fn quadDraws(cx: i32, cy: i32, part: i32, cpt: i32, faces: bool, a: i32) -> bool {"
     : "bool quadDraws(int cx, int cy, int part, int cpt, bool faces, int a) {"}
   if (!inside(cx, cy)) { return false; }
-  if (part == 0) { return wet(depthAt(cx, cy, a)); }
-  if (!faces) { return false; }
-  if (part <= 2) {
-    // A SIDE OF THIS COLUMN, unless it is filed forward into the band in front.
-    if (!wet(depthAt(cx, cy, a))) { return false; }
-    ${INT} axis = part - 1;
-    if (forward(cx, cy, axis, cpt, a)) { return false; }
-    return sideShows(cx, cy, axis, a);
+  // PARTS 0 AND 1 FIRST, and the numbering is the draw order — see PARTS.
+  if (part <= 1) {
+    // The far-edge face of the column BEHIND this one, filed into this band
+    // because this is the diamond it hangs into. It belongs to the column
+    // further away, so it is painted BEFORE anything this one draws.
+    if (!faces) { return false; }
+    ${INT} axis2 = part;
+    ${INT} bx = cx - select(0, 1, axis2 == 0);
+    ${INT} by = cy - select(1, 0, axis2 == 0);
+    if (!inside(bx, by)) { return false; }
+    if (!wet(depthAt(bx, by, a))) { return false; }
+    if (!forward(bx, by, axis2, cpt, a)) { return false; }
+    return sideShows(bx, by, axis2, a);
   }
-  // The far-edge face of the column BEHIND this one, filed into this band.
-  ${INT} axis2 = part - 3;
-  ${INT} bx = cx - select(0, 1, axis2 == 0);
-  ${INT} by = cy - select(1, 0, axis2 == 0);
-  if (!inside(bx, by)) { return false; }
-  if (!wet(depthAt(bx, by, a))) { return false; }
-  if (!forward(bx, by, axis2, cpt, a)) { return false; }
-  return sideShows(bx, by, axis2, a);
+  if (part == 2) { return wet(depthAt(cx, cy, a)); }
+  if (!faces) { return false; }
+  // A SIDE OF THIS COLUMN, unless it is filed forward into the band in front.
+  if (!wet(depthAt(cx, cy, a))) { return false; }
+  ${INT} axis = part - 3;
+  if (forward(cx, cy, axis, cpt, a)) { return false; }
+  return sideShows(cx, cy, axis, a);
 }
 `;
 }

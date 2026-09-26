@@ -125,6 +125,23 @@ const PER_TILE = COLUMNS_PER_TILE * COLUMNS_PER_TILE;
  * point, which costs four vertex shader invocations and no fragments. That is
  * the trade this path makes everywhere — the CPU builder walks what exists,
  * this walks what could exist.
+ *
+ * AND THE NUMBER IS THE DRAW ORDER, which is why they are numbered as they
+ * are. A band draws its quads in index order, so what a part IS decides what
+ * is painted over what:
+ *
+ *   0, 1  the far-edge face of the column BEHIND, filed into this diamond
+ *   2     this column's surface
+ *   3, 4  this column's own side faces
+ *
+ * The forward-filed faces come FIRST because they belong to water further
+ * from the camera than anything this column draws. Numbered last, they were
+ * painted over the surface of the tile they hang into — while the mesh
+ * builder, which files the same face into the band ahead before reaching any
+ * of that band's columns, painted it under. Ten of the pixels the water
+ * comparison used to carry were that and nothing else, and the other twelve
+ * were the STOREY sitting outside the part in a quad's id, which is the same
+ * mistake one level up. @see quadRuleSource, mainVertex
  */
 const PARTS = 5;
 
@@ -662,10 +679,18 @@ fn mainVertex(
   // under the span and whatever stands on the deck, so the storey is as much
   // a part of a quad's identity as which of the five pieces it is.
   let L = slots();
-  let part = quad % ${PARTS};
-  let cell = quad / ${PARTS};
-  let a = cell % L;
-  let slot = cell / L;
+  // A QUAD IS A PART, A STOREY AND A COLUMN, and the STOREY is the innermost
+  // of the three — which is the draw order as much as it is the packing.
+  // Storey outside part, and all of storey nought's quads came before any of
+  // storey one's: the road's own water was painted before the far-edge face
+  // the SPAN beside it hangs into the same diamond, so the face landed on top
+  // of water that is nearer the camera than it is. The builder, which files
+  // that face into the band ahead before reaching any of that band's columns
+  // whatever storey they are in, painted it under. @see PARTS
+  let a = quad % L;
+  let rest = quad / L;
+  let part = rest % ${PARTS};
+  let slot = rest / ${PARTS};
   let tileIdx = slot / per;
   let sub = slot % per;
 
@@ -680,9 +705,23 @@ fn mainVertex(
   if (!inside(cx, cy)) { return out; }
 
   let d = depthAt(cx, cy, a);
-  // Whichever column this quad hangs off decides its tier — the far-edge
-  // faces below use the column BEHIND, and ask again with that one.
-  if ((roofAt(cx, cy, a) < ${OPEN_SKY}) != roofedTier()) { return out; }
+  // WHICHEVER COLUMN THIS QUAD HANGS OFF DECIDES ITS TIER, and for a face
+  // filed FORWARD that is the column BEHIND, not the one whose diamond it
+  // lands in. Asked about (cx, cy) here and "asked again" with the column
+  // behind in the branch below, it was really asked about BOTH — and the
+  // second question cannot undo the first.
+  //
+  // At a DECK-TO-ROAD SEAM that loses the face. An upper slot over a column
+  // with no deck on it is ABSENT — floor and roof equal, which reads as
+  // roofed — so the open tier of the band in front rejected the span's own
+  // far-edge face before the branch that owns it ever ran. The builder drew
+  // it and the device did not, and that is 22 of the 28 pixels the water
+  // comparison has been carrying. @see syncSlots, forward
+  let back = part <= 1;
+  let ocx = cx - select(0, select(0, 1, part == 0), back);
+  let ocy = cy - select(0, select(1, 0, part == 0), back);
+  if (!inside(ocx, ocy)) { return out; }
+  if ((roofAt(ocx, ocy, a) < ${OPEN_SKY}) != roofedTier()) { return out; }
   let step = water.uGrid.w;
   let fx0 = f32(tx) - 0.5 + f32(sx) * step;
   let fy0 = f32(ty) - 0.5 + f32(sy) * step;
@@ -693,7 +732,22 @@ fn mainVertex(
   var rgb = vec3<f32>(0.0);
   var alpha = 0.0;
 
-  if (part == 0) {
+  if (back) {
+    // The far-edge face of the column BEHIND this one, filed into this band
+    // because that is the diamond it hangs into, and drawn FIRST because it
+    // belongs to water further from the camera — see PARTS.
+    //
+    // ocx/ocy ARE that column, and the tier gate above has already been asked
+    // about it, once, where every part asks.
+    if (!facesOn()) { return out; }
+    let bd = depthAt(ocx, ocy, a);
+    if (bd <= water.uBand.z) { return out; }
+    if (!forward(ocx, ocy, part, cpt, a)) { return out; }
+    let p = sidePart(ocx, ocy, part, corner,
+      fx0 - select(0.0, step, part == 0), fy0 - select(step, 0.0, part == 0), step, bd, a);
+    if (!p.ok) { return out; }
+    fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
+  } else if (part == 2) {
     // THE SURFACE.
     if (d <= water.uBand.z) { return out; }
     let ox = ((corner + 1) >> 1) & 1;
@@ -727,31 +781,15 @@ fn mainVertex(
     alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
     let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
     rgb = textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb;
-  } else if (part <= 2) {
+  } else {
     // A SIDE of this column. Hung from the very corners the surface quad
     // used, so the two share vertices and there is no seam between them.
     // Skipped where it is filed FORWARD instead — see PARTS.
     if (d <= water.uBand.z) { return out; }
     if (!facesOn()) { return out; }
-    let axis = part - 1;
+    let axis = part - 3;
     if (forward(cx, cy, axis, cpt, a)) { return out; }
     let p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d, a);
-    if (!p.ok) { return out; }
-    fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
-  } else {
-    // The far-edge face of the column BEHIND this one, filed into this band
-    // because that is the diamond it hangs into — see PARTS.
-    if (!facesOn()) { return out; }
-    let axis = part - 3;
-    let bx = cx - select(0, 1, axis == 0);
-    let by = cy - select(1, 0, axis == 0);
-    if (!inside(bx, by)) { return out; }
-    let bd = depthAt(bx, by, a);
-    if (bd <= water.uBand.z) { return out; }
-    if ((roofAt(bx, by, a) < ${OPEN_SKY}) != roofedTier()) { return out; }
-    if (!forward(bx, by, axis, cpt, a)) { return out; }
-    let p = sidePart(bx, by, axis, corner,
-      fx0 - select(0.0, step, axis == 0), fy0 - select(step, 0.0, axis == 0), step, bd, a);
     if (!p.ok) { return out; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   }
@@ -1054,10 +1092,18 @@ void main() {
   int quad = gl_InstanceID;
   // A part, a STOREY and a column — see the WGSL twin.
   int L = slots();
-  int part = quad % ${PARTS};
-  int cell = quad / ${PARTS};
-  int a = cell % L;
-  int slot = cell / L;
+  // A QUAD IS A PART, A STOREY AND A COLUMN, and the STOREY is the innermost
+  // of the three — which is the draw order as much as it is the packing.
+  // Storey outside part, and all of storey nought's quads came before any of
+  // storey one's: the road's own water was painted before the far-edge face
+  // the SPAN beside it hangs into the same diamond, so the face landed on top
+  // of water that is nearer the camera than it is. The builder, which files
+  // that face into the band ahead before reaching any of that band's columns
+  // whatever storey they are in, painted it under. @see PARTS
+  int a = quad % L;
+  int rest = quad / L;
+  int part = rest % ${PARTS};
+  int slot = rest / ${PARTS};
   int tileIdx = slot / per;
   int sub = slot % per;
 
@@ -1072,7 +1118,23 @@ void main() {
   if (!inside(cx, cy)) { return; }
 
   float d = depthAt(cx, cy, a);
-  if ((roofAt(cx, cy, a) < ${OPEN_SKY}) != roofedTier()) { return; }
+  // WHICHEVER COLUMN THIS QUAD HANGS OFF DECIDES ITS TIER, and for a face
+  // filed FORWARD that is the column BEHIND, not the one whose diamond it
+  // lands in. Asked about (cx, cy) here and "asked again" with the column
+  // behind in the branch below, it was really asked about BOTH — and the
+  // second question cannot undo the first.
+  //
+  // At a DECK-TO-ROAD SEAM that loses the face. An upper slot over a column
+  // with no deck on it is ABSENT — floor and roof equal, which reads as
+  // roofed — so the open tier of the band in front rejected the span's own
+  // far-edge face before the branch that owns it ever ran. The builder drew
+  // it and the device did not, and that is 22 of the 28 pixels the water
+  // comparison has been carrying. @see syncSlots, forward
+  bool back = part <= 1;
+  int ocx = cx - (back ? (part == 0 ? 1 : 0) : 0);
+  int ocy = cy - (back ? (part == 0 ? 0 : 1) : 0);
+  if (!inside(ocx, ocy)) { return; }
+  if ((roofAt(ocx, ocy, a) < ${OPEN_SKY}) != roofedTier()) { return; }
   float step = uGrid.w;
   float fx0 = float(tx) - 0.5 + float(sx) * step;
   float fy0 = float(ty) - 0.5 + float(sy) * step;
@@ -1083,7 +1145,17 @@ void main() {
   vec3 rgb = vec3(0.0);
   float alpha = 0.0;
 
-  if (part == 0) {
+  if (back) {
+    // The far-edge face of the column BEHIND, drawn FIRST — see the WGSL twin.
+    if (!facesOn()) { return; }
+    float bd = depthAt(ocx, ocy, a);
+    if (bd <= uBand.z) { return; }
+    if (!forward(ocx, ocy, part, cpt, a)) { return; }
+    Part p = sidePart(ocx, ocy, part, corner,
+      fx0 - (part == 0 ? step : 0.0), fy0 - (part == 0 ? 0.0 : step), step, bd, a);
+    if (!p.ok) { return; }
+    fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
+  } else if (part == 2) {
     if (d <= uBand.z) { return; }
     int ox = ((corner + 1) >> 1) & 1;
     int oy = corner >> 1;
@@ -1114,26 +1186,12 @@ void main() {
     alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
     int mat = int(texelFetch(uMaterial, ivec2(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
     rgb = texelFetch(uTint, ivec2(int(shade + 0.5), mat), 0).rgb;
-  } else if (part <= 2) {
+  } else {
     if (d <= uBand.z) { return; }
     if (!facesOn()) { return; }
-    int axis = part - 1;
+    int axis = part - 3;
     if (forward(cx, cy, axis, cpt, a)) { return; }
     Part p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d, a);
-    if (!p.ok) { return; }
-    fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
-  } else {
-    if (!facesOn()) { return; }
-    int axis = part - 3;
-    int bx = cx - (axis == 0 ? 1 : 0);
-    int by = cy - (axis == 0 ? 0 : 1);
-    if (!inside(bx, by)) { return; }
-    float bd = depthAt(bx, by, a);
-    if (bd <= uBand.z) { return; }
-    if ((roofAt(bx, by, a) < ${OPEN_SKY}) != roofedTier()) { return; }
-    if (!forward(bx, by, axis, cpt, a)) { return; }
-    Part p = sidePart(bx, by, axis, corner,
-      fx0 - (axis == 0 ? step : 0.0), fy0 - (axis == 0 ? 0.0 : step), step, bd, a);
     if (!p.ok) { return; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   }

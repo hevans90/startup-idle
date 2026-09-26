@@ -130,7 +130,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let tx0 = max(0, band - (say.dims.w - 1));
   let tileIdx = tx - tx0;
   let sub = (cy % cpt) * cpt + (cx % cpt);
-  let quad = ((tileIdx * cpt * cpt + sub) * L + a) * ${PARTS} + part;
+  // PART OUTSIDE STOREY, which is the vertex shader's packing and, because a
+  // band draws its list in order, the painter's order too. @see water-gpu
+  let quad = ((tileIdx * cpt * cpt + sub) * ${PARTS} + part) * L + a;
 
   let here = slice[band];
   if (quad >= i32(here.y)) { return; }
