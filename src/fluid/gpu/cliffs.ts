@@ -115,23 +115,42 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var own = 0.0;
     for (var b = 0; b < L; b = b + 1) {
       let k = (pairBase(a, b) + i) * 2;
+      // EITHER WAY OVER THE EDGE. An edge belongs to the column on its
+      // low-index side whichever way the water goes over it, so claiming is
+      // unchanged and only the TEST widens — and because the two directions
+      // cannot both be a cliff, no edge is claimed twice. The twin of
+      // markCliffs. @see dropAt
       if (x + 1 < nx()) {
         let jb = slotBase(b) + i + 1;
         let joined = min(roofAt(ia), roofAt(jb)) > max(groundAt(ia), groundAt(jb));
-        if ((joined && groundAt(ia) - groundAt(jb) >= ${f(FALL_MIN)})
+        let stepDown = groundAt(ia) - groundAt(jb);
+        if ((joined && max(stepDown, -stepDown) >= ${f(FALL_MIN)})
           || airAt(k) > 0.0 || frontAt(k) > 0.0) {
           claim(k);
-          own = 1.0;
         }
       }
       if (y + 1 < ny()) {
         let jb = slotBase(b) + i + nx();
         let joined = min(roofAt(ia), roofAt(jb)) > max(groundAt(ia), groundAt(jb));
-        if ((joined && groundAt(ia) - groundAt(jb) >= ${f(FALL_MIN)})
+        let stepDown = groundAt(ia) - groundAt(jb);
+        if ((joined && max(stepDown, -stepDown) >= ${f(FALL_MIN)})
           || airAt(k + 1) > 0.0 || frontAt(k + 1) > 0.0) {
           claim(k + 1);
-          own = 1.0;
         }
+      }
+      // AND WHETHER THIS COLUMN IS A LIP IS A QUESTION ABOUT ITS OWN FOUR
+      // EDGES, not about the two it happens to own. A fall leaves the HIGHER
+      // of the two columns an edge joins, so on a westward fall that is not
+      // the owner — and marking the owner's neighbour from here would be a
+      // write into another thread's cell. Asked of itself there is no race
+      // and no guard to get wrong. @see seedThrow, isLip
+      for (var d = 0; d < 4; d = d + 1) {
+        let gx = x + select(select(0, -1, d == 1), 1, d == 0);
+        let gy = y + select(select(0, -1, d == 3), 1, d == 2);
+        if (gx < 0 || gy < 0 || gx >= nx() || gy >= ny()) { continue; }
+        let nb = slotBase(b) + gy * nx() + gx;
+        let joined = min(roofAt(ia), roofAt(nb)) > max(groundAt(ia), groundAt(nb));
+        if (joined && groundAt(ia) - groundAt(nb) >= ${f(FALL_MIN)}) { own = 1.0; }
       }
     }
     seedThrow(ia, x, y, own);

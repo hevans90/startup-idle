@@ -134,7 +134,7 @@ fn brinkAt(ia: i32) -> f32 {
   let i = ia % cells;
   let cx = i % nx();
   let cy = i / nx();
-  let bed = groundAt(ia);
+  let bed = groundAt(src);
   var most = 0.0;
   for (var k = 0; k < 4; k = k + 1) {
     var dx = 0;
@@ -188,9 +188,10 @@ fn drawnOf(i: i32) -> f32 {
 /**
  * The column beside this one ALONG the lip, if it is falling too, else -1.
  */
-fn alongLip(pl: i32, sa: i32, i: i32, axis: i32, d: i32) -> i32 {
+fn alongLip(pl: i32, src: i32, axis: i32, d: i32, stepBack: i32) -> i32 {
   let cells = nx() * ny();
-  let c = i % cells;
+  let base = src - (src % cells);
+  let c = src % cells;
   let cx = c % nx();
   let cy = c / nx();
   var jx = cx;
@@ -198,12 +199,18 @@ fn alongLip(pl: i32, sa: i32, i: i32, axis: i32, d: i32) -> i32 {
   if (axis == 0) { jy = cy + d; } else { jx = cx + d; }
   if (!onMap(jx, jy)) { return -1; }
   let j = jy * nx() + jx;
+  // AND THE EDGE THAT NEIGHBOUR POURS OVER IS NOT ALWAYS ITS OWN. An edge
+  // belongs to the column on its low-index side whichever way the water goes
+  // over it, so on a fall running west or north the source column's lip is
+  // the edge BEHIND it — stepBack is the distance between the two.
+  let e = j - stepBack;
+  if (e < 0) { return -1; }
   // ON THE SAME SLOT PAIR: a lip along a deck's edge is a lip in storey one
   // falling into storey nought, and the column beside it is only part of the
   // same lip if its water is leaving and arriving in the same two places.
   // HANDED BACK AS A SLOT, because every value the caller then shares off it
   // — the throw, the foam, the shown depth, the brink — is per slot.
-  if (fallingOn(pl, j, axis)) { return slotBase(sa) + j; }
+  if (fallingOn(pl, e, axis)) { return base + j; }
   return -1;
 }
 
@@ -252,7 +259,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // The storey the water is LEAVING, and the one it is falling INTO.
   let sa = pl / slots();
   let sb = pl - sa * slots();
-  let ia = slotBase(sa) + i;
   if (i < 0 || i >= cells) { return; }
   let head = headAt(kk);
   let front = frontAt(kk);
@@ -264,6 +270,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   var jy = cy;
   if (axis == 0) { jx = cx + 1; } else { jy = cy + 1; }
   if (!onMap(jx, jy)) { return; }
+
+  // WHICH OF THE EDGE'S TWO COLUMNS THE WATER LEAVES, which is the sign of
+  // the drop. Everything a sheet is made of — its thickness, its colour, its
+  // throw, the lip it hangs from — belongs to that one, and hung from the
+  // low-index side regardless a westward fall drew a sheet climbing out of
+  // the floor it lands on. The twin of falls-render. @see dropAt
+  let rev = dropAt(i, axis, sa, sb) < 0.0;
+  let stepBack = select(0, select(nx(), 1, axis == 0), rev);
+  let src = select(slotBase(sa) + i, slotBase(sb) + i + stepBack, rev);
 
   // THE EDGE IT GOES OVER, in tiles, exactly as the host lays it out.
   let stepT = 1.0 / f32(cpt());
@@ -277,34 +292,34 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let bx = fx0 + stepT;
   let by = fy0 + stepT;
 
-  let back = alongLip(pl, sa, i, axis, -1);
-  let fwd = alongLip(pl, sa, i, axis, 1);
+  let back = alongLip(pl, src, axis, -1, stepBack);
+  let fwd = alongLip(pl, src, axis, 1, stepBack);
   let bi = max(back, 0);
   let fi = max(fwd, 0);
 
-  let axThrow = share(throwXAt(ia), throwXAt(bi), back);
-  let ayThrow = share(throwYAt(ia), throwYAt(bi), back);
-  let bxThrow = share(throwXAt(ia), throwXAt(fi), fwd);
-  let byThrow = share(throwYAt(ia), throwYAt(fi), fwd);
+  let axThrow = share(throwXAt(src), throwXAt(bi), back);
+  let ayThrow = share(throwYAt(src), throwYAt(bi), back);
+  let bxThrow = share(throwXAt(src), throwXAt(fi), fwd);
+  let byThrow = share(throwYAt(src), throwYAt(fi), fwd);
 
   // THE FOAM OF THE SLOT IT IS LEAVING; the wash is the world's and per
   // column, so it keeps the column index. @see stepFoam
-  let foamA = share(foamNowAt(ia), foamNowAt(bi), back);
-  let foamB = share(foamNowAt(ia), foamNowAt(fi), fwd);
-  let shownA = share(shownOf(ia), shownOf(bi), back);
-  let shownB = share(shownOf(ia), shownOf(fi), fwd);
+  let foamA = share(foamNowAt(src), foamNowAt(bi), back);
+  let foamB = share(foamNowAt(src), foamNowAt(fi), fwd);
+  let shownA = share(shownOf(src), shownOf(bi), back);
+  let shownB = share(shownOf(src), shownOf(fi), fwd);
   let washA = share(washNowAt(i), washNowAt(bi % cells), back);
   let washB = share(washNowAt(i), washNowAt(fi % cells), fwd);
-  let leanA = share(brinkAt(ia), brinkAt(bi), back);
-  let leanB = share(brinkAt(ia), brinkAt(fi), fwd);
+  let leanA = share(brinkAt(src), brinkAt(bi), back);
+  let leanB = share(brinkAt(src), brinkAt(fi), fwd);
   // A LIP LEANS BY CONSTRUCTION and its pattern is fullest, so the brink goes
   // in as the lean, and how much pattern shows is one. @see sharedLit
   let litA = 0.5 + leanA * 0.34 + washA * (0.2 + 0.8) * 0.3;
   let litB = 0.5 + leanB * 0.34 + washB * (0.2 + 0.8) * 0.3;
-  let brinkA = share(drawnOf(ia), drawnOf(bi), back);
-  let brinkB = share(drawnOf(ia), drawnOf(fi), fwd);
-  let lipA = share(groundAt(ia), groundAt(bi), back);
-  let lipB = share(groundAt(ia), groundAt(fi), fwd);
+  let brinkA = share(drawnOf(src), drawnOf(bi), back);
+  let brinkB = share(drawnOf(src), drawnOf(fi), fwd);
+  let lipA = share(groundAt(src), groundAt(bi), back);
+  let lipB = share(groundAt(src), groundAt(fi), fwd);
 
   // THE PIECE, cut in TIME and biased toward the lip. @see nappeSteps
   let tHead = sqrt(2.0 * max(0.0, head) / ${num(FALL_GRAVITY)});
@@ -347,7 +362,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let footZA = lipA - toZ + brinkA;
   let footZB = lipB - toZ + brinkB;
 
-  let mat = i32(materialAt(i));
+  // THE SLOT THE WATER LEFT, not the column. materialAt indexes the flat
+  // field, so a bare column index reads storey nought — which on a fall off
+  // a deck is the river underneath it, and on a fall running west is the
+  // wrong column as well. The host has always read this off the source slot.
+  let mat = i32(materialAt(src));
   let hiA = sheetLook(shownA, foamA, litA, brinkA, fromZ);
   let hiB = sheetLook(shownB, foamB, litB, brinkB, fromZ);
   let loA = sheetLook(shownA, foamA, litA, brinkA, toZ);

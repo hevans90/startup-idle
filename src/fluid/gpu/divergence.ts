@@ -57,7 +57,12 @@ ${STATE_WGSL}
  * a message instead of a pass that silently does nothing.
  */
 fn divertedAt(i: i32, axis: i32, a: i32, b: i32, moved: f32) -> bool {
-  return moved > 0.0 && dropAt(i, axis, a, b) > 0.0;
+  // THE SIGN OF THE FLUX AGAINST THE SIGN OF THE DROP. An edge is a cliff in
+  // one direction at most, and water only goes into the air when it is going
+  // the way the ground falls. Asked of the +x way alone, a fall facing west
+  // or north was crossed in a single step. @see dropAt
+  let drop = dropAt(i, axis, a, b);
+  return (moved > 0.0 && drop > 0.0) || (moved < 0.0 && drop < 0.0);
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
@@ -86,7 +91,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       if (y - 1 >= consts.box.y) {
         let e = pairBase(b, a) + i - nx();
         let moved = fyAt(e) * sp;
-        if (!divertedAt(i - nx(), 1, b, a, moved)) {
+        // Lost to the air only when it was coming TOWARDS this slot: a move
+        // the other way over that edge is water THIS slot gave up, and it
+        // gives it up whether the far side receives it or the air does.
+        if (!(moved > 0.0 && divertedAt(i - nx(), 1, b, a, moved))) {
           d = d + moved;
           if (moved > bestIn) {
             bestIn = moved;
@@ -98,7 +106,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       if (x - 1 >= consts.box.x) {
         let e = pairBase(b, a) + i - 1;
         let moved = fxAt(e) * sp;
-        if (!divertedAt(i - 1, 0, b, a, moved)) {
+        if (!(moved > 0.0 && divertedAt(i - 1, 0, b, a, moved))) {
           d = d + moved;
           if (moved > bestIn) {
             bestIn = moved;
@@ -111,18 +119,28 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       //    arriving from the slot beyond, and is credited like the two above.
       if (x + 1 < nx()) {
         let moved = fxAt(pairBase(a, b) + i) * sp;
-        d = d - moved;
-        if (moved < 0.0 && -moved > bestIn) {
-          bestIn = -moved;
-          bestMat = field[consts.o0.z + slotBase(b) + i + 1];
+        // A MOVE THE OTHER WAY THAT WENT INTO THE AIR NEVER ARRIVES. It is
+        // the slot beyond that gave it up, and this one neither gains it nor
+        // takes its material — which is the mirror of what the outward case
+        // has always done.
+        let held = moved < 0.0 && divertedAt(i, 0, a, b, moved);
+        if (!held) {
+          d = d - moved;
+          if (moved < 0.0 && -moved > bestIn) {
+            bestIn = -moved;
+            bestMat = field[consts.o0.z + slotBase(b) + i + 1];
+          }
         }
       }
       if (y + 1 < ny()) {
         let moved = fyAt(pairBase(a, b) + i) * sp;
-        d = d - moved;
-        if (moved < 0.0 && -moved > bestIn) {
-          bestIn = -moved;
-          bestMat = field[consts.o0.z + slotBase(b) + i + nx()];
+        let held = moved < 0.0 && divertedAt(i, 1, a, b, moved);
+        if (!held) {
+          d = d - moved;
+          if (moved < 0.0 && -moved > bestIn) {
+            bestIn = -moved;
+            bestMat = field[consts.o0.z + slotBase(b) + i + nx()];
+          }
         }
       }
     }
@@ -136,11 +154,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       let p = pairBase(a, b) + i;
       if (x + 1 < nx()) {
         let moved = fxAt(p) * sp;
-        if (divertedAt(i, 0, a, b, moved)) { addAir(p * 2, moved); }
+        if (divertedAt(i, 0, a, b, moved)) { addAir(p * 2, abs(moved)); }
       }
       if (y + 1 < ny()) {
         let moved = fyAt(p) * sp;
-        if (divertedAt(i, 1, a, b, moved)) { addAir(p * 2 + 1, moved); }
+        if (divertedAt(i, 1, a, b, moved)) { addAir(p * 2 + 1, abs(moved)); }
       }
     }
   }

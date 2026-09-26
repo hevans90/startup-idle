@@ -1375,7 +1375,13 @@ fn besideAt(j: i32) -> f32 {
 }
 
 /**
- * How far water leaving slot a over one edge would fall to slot b.
+ * How far water goes over one of a column's edges, SIGNED: positive falls
+ * from slot a of i toward slot b of the cell east or south of it, negative
+ * falls back the other way, and nought is a step in a river.
+ *
+ * THE SIGN IS THE DIRECTION, which is the whole of what lets a fall face four
+ * ways. The twin of falls.ts's dropAt, argument for argument — see the long
+ * note it carries.
  *
  * i is a COLUMN and a, b are storeys: a drop is measured from the slot the
  * water LEAVES to the slot it is aimed at, so coming off the side of a deck
@@ -1387,8 +1393,12 @@ fn dropAt(i: i32, axis: i32, a: i32, b: i32) -> f32 {
   let jx = select(x, x + 1, axis == 0);
   let jy = select(y + 1, y, axis == 0);
   if (jx >= nx() || jy >= ny()) { return 0.0; }
-  let drop = groundAt(slotBase(a) + i) - besideAt(slotBase(b) + jy * nx() + jx);
-  return select(0.0, drop, drop >= fallMin());
+  let ia = slotBase(a) + i;
+  let jb = slotBase(b) + jy * nx() + jx;
+  let there = groundAt(ia) - besideAt(jb);
+  if (there >= fallMin()) { return there; }
+  let back = groundAt(jb) - besideAt(ia);
+  return select(0.0, -back, back >= fallMin());
 }
 `;
 

@@ -120,18 +120,6 @@ fn bankLanding(to: i32, amount: f32, material: u32, speed: f32) {
   }
 }
 
-/**
- * Where a neighbour's water, or failing that its ground, stands.
- *
- * The water's own TOP and not its hydraulic surface: this asks what a falling
- * sheet will hit, and a full culvert is hit at its soffit.
- */
-fn besideAt2(j: i32) -> f32 {
-  let dj = depthAt(j);
-  let top = min(groundAt(j) + dj, roofAt(j));
-  return select(groundAt(j), top, dj > dryDepth());
-}
-
 /** How far a sheet has drifted after falling this far. @see driftAt */
 fn driftAt(v: f32, below: f32) -> f32 {
   return v * sqrt(2.0 * max(below, 0.0) / ${f(FALL_GRAVITY)});
@@ -239,10 +227,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let ia = slotBase(sa) + i;
   let x = i % nx();
   let y = i / nx();
-  // The box still decides, exactly as it does on the CPU.
-  if (x < consts.box.x || x > consts.box.z || y < consts.box.y || y > consts.box.w) {
-    return;
-  }
 
   // THE SMOOTHED LAUNCH IS NOT HERE ANY MORE. It was, once per column, and a
   // thread decided whether it was its column's first edge by looking at the
@@ -255,22 +239,50 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let jx = select(x, x + 1, axis == 0);
   let jy = select(y + 1, y, axis == 0);
-  let j = slotBase(sb) + jy * nx() + jx;
-  let drop = groundAt(ia) - besideAt2(j);
+  let jb = slotBase(sb) + jy * nx() + jx;
+  // WHICH WAY IT GOES OVER, and therefore which of the two slots the water is
+  // leaving. Positive is the way this always used to be, out of ia and into
+  // jb; negative is the mirror of it. The twin of stepFalls, which carries
+  // the long note. @see dropAt
+  let signed = dropAt(i, axis, sa, sb);
+  let back = signed < 0.0;
+  // With the cliff gone, downhill is still downhill: whatever is left in the
+  // air goes to the lower of the two, which for a fall that was running back
+  // is not the far side.
+  let flat = signed == 0.0 && groundAt(jb) > groundAt(ia);
+  let other = back || flat;
+  let src = select(ia, jb, other);
+  let j = select(jb, ia, other);
+  let drop = select(signed, -signed, back);
+
+  // THE BOX IS ABOUT THE COLUMN THE WATER LEAVES, which is not always the one
+  // that owns the edge — see stepFalls, where testing the owner left every
+  // backward fall's air in the air for ever.
+  let sx = select(x, jx, other);
+  let sy = select(y, jy, other);
+  if (sx < consts.box.x || sx > consts.box.z
+    || sy < consts.box.y || sy > consts.box.w) {
+    return;
+  }
 
   if (drop < fallMin()) {
     // The cliff has gone — filled in from below, or the ground moved. What is
     // in the air belongs to the cell below, but it arrives over DROWN rather
     // than all at once: dumped, it puts the pool up over the cliff and kills
     // the next fall too, which is a flicker and not a waterfall.
-    land(k, j, ia, min(1.0, dt() / ${f(DROWN)}), 0.0);
+    land(k, j, src, min(1.0, dt() / ${f(DROWN)}), 0.0);
     resetFall(k);
     return;
   }
 
   let e = pairBase(sa, sb) + i;
-  let flux = select(fyAt(e), fxAt(e), axis == 0);
-  setSince(k, select(sinceAt(k) + dt(), 0.0, flux > 0.0 && depthAt(ia) > dryDepth()));
+  // STILL POURING, with the sign the fall itself has: the flux on an edge is
+  // positive toward jb, so a westward fall is fed by a NEGATIVE one and
+  // reading it unsigned would have it let go of its lip on the frame it
+  // started. @see CLING
+  let raw = select(fyAt(e), fxAt(e), axis == 0);
+  let flux = select(raw, -raw, back);
+  setSince(k, select(sinceAt(k) + dt(), 0.0, flux > 0.0 && depthAt(src) > dryDepth()));
 
   if (sinceAt(k) < ${f(CLING)}) {
     setHead(k, 0.0);                            // more is coming over behind it
@@ -306,13 +318,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let below = min(drop, headAt(k) + (frontAt(k) - headAt(k)) * (0.5 + 0.5 * v));
         // Tiles a second into columns a second. The SMOOTHED launch, the same
         // one the sheet is drawn on, so a drop leaves from where the sheet is.
-        let lip = select(throwYAt(ia), throwXAt(ia), axis == 0) / cellSize();
+        // ALONG THE AXIS IT POURS OVER, never back into the rock — the twin
+        // of the host's outward().
+        let raw2 = select(throwYAt(src), throwXAt(src), axis == 0);
+        let lip = select(max(0.0, raw2), min(0.0, raw2), back) / cellSize();
         // POSTED BEFORE THE WATER MOVES. If the outbox is full the request
         // cannot be recorded, and then the shed must not happen either — the
         // alternative is a sheet that loses water no drop ever carries, which
         // is a leak, and a leaking sim is one nobody can reason about.
         if (postSpawn(
-          k, ${SPAWN_SHED}, ia, take, below, u, lip, f32(materialAt(ia))
+          k, ${SPAWN_SHED}, src, take, below, u, lip, f32(materialAt(src))
         )) {
           setShed(k, shedAt(k) - take);
           setAir(k, airAt(k) - take);
@@ -325,11 +340,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // the rate it is arriving, which in a steady fall is the rate it went over.
   if (frontAt(k) >= drop && airAt(k) > 0.0) {
     let fall = sqrt((2.0 * drop) / ${f(FALL_GRAVITY)});
-    land(k, landsAt(ia, j, drop), ia, min(1.0, dt() / fall), drop);
+    land(k, landsAt(src, j, drop), src, min(1.0, dt() / fall), drop);
   }
   // Caught its own front, or fallen past the bottom: nothing is left of it.
   if (headAt(k) >= frontAt(k) || headAt(k) >= drop) {
-    land(k, j, ia, 1.0, 0.0);
+    land(k, j, src, 1.0, 0.0);
     resetFall(k);
   }
 }
