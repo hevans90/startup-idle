@@ -2181,6 +2181,38 @@ export function applyDepths(f: ColumnField, c: PassConsts) {
  * as a velocity of zero — which is what a dry cell's flux over the depth floor
  * comes to — every waterline becomes a wall for the turbulence to drag the
  * flow down against, and a river is nearly all bank.
+ *
+ * AND THIS PASS IS NOT MIRROR-SYMMETRIC, WHICH IS A BUG AND IS NOT FIXED HERE.
+ *
+ * `velo` is an EDGE quantity — edge `i` is the one between column `i` and
+ * column `i + step` — and every cell-centred number this pass reads off it is
+ * indexed by the LOW cell. So `broke[near + i]`, which gates both the
+ * viscosity and the write-back, is the breaking of the cell on the edge's low
+ * side only. A cell's own breaking therefore diffuses its EAST and SOUTH
+ * momentum and never its west or north: those edges are indexed by the
+ * neighbour, and if the neighbour is not breaking they are left alone.
+ *
+ * Measured, and it is not subtle. Twenty units of water dropped on ONE column
+ * of perfectly flat ground, no falls and no wind: after two steps the column
+ * to the west holds 2.506 and the column to the east 1.471, from an initial
+ * condition symmetric to the bit. A shelf spilling east and its exact mirror
+ * spilling west part company on the first frame, by 0.32 of depth.
+ *
+ * THE FIX IS SHORT AND THE FALLOUT IS NOT. Taking `broke`, `depth` and `rate`
+ * as the mean of the edge's two cells, and gating the write-back on either of
+ * them breaking, makes the blob symmetric to 6e-8 and the mirrored shelves
+ * agree to 6e-6 over six seconds. It also moves five tests in `fluid/`, one of
+ * which — "the water runs AWAY from it, faster than the pool flows" — asserts
+ * that a plunge drives its pool HARDER than the river feeding it, and goes
+ * from 0.685 to 0.359. That is a question about what a plunge should do, not
+ * an expectation to renumber, and it wants answering before this lands. The
+ * device twin in `gpu/diffuse.ts` has the same indexing and would have to
+ * change in step, under `compare-pass`.
+ *
+ * It is written down here because it is the root of a symptom that looked like
+ * something else entirely: a plateau spilling all four ways keeps foaming at
+ * its WEST and NORTH lips for seconds after the east and south have settled,
+ * which was blamed on four-way falls and is this. @see gpu/diffuse
  */
 export function diffuseBreaking(f: ColumnField, c: PassConsts) {
   const { nx, cells, layers, fx, fy, depth, broke, rate, velo, iterA, iterB, params } = f;
