@@ -295,10 +295,10 @@ function frame(root: Container, size: number, px: number) {
  * that moves it has done something. The faults this was built for are nowhere
  * near the line: the corner merge missing from the shader read 4.5%.
  *
- * AND THE SCENE'S DESIGN POINT IS TWO SECONDS. Run longer it reads 0.007% at
- * four and 0.055% at eight, the last of which trips this — a couple of dozen
- * pixels at moderate alpha, written down here rather than tuned away, because
- * nobody has yet found what they are. @see compareWaterPaths
+ * AND IT HOLDS AT EVERY DURATION NOW. It read 0.055% at eight seconds when
+ * this was written, which was the west rim being lit by the east — `nearby`
+ * bounding its step on a flat index that wraps a row. Nought at eight
+ * seconds since. @see nearby in render/water
  */
 export const SPECKLE = 0.0002;
 

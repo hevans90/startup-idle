@@ -10,8 +10,8 @@ import { describe, expect, test } from "bun:test";
 
 import { FLOW_DEFAULTS } from "../../fluid/columns";
 import {
-  COLUMNS_PER_TILE, createWaterField, pourAt, runSources, stepWater, syncGround,
-  type WaterField,
+  COLUMNS_PER_TILE, createWaterField, pourAt, runSources, setWaterEdge, stepWater,
+  syncGround, type WaterField,
 } from "../water/field";
 import { createGrid, fillTerrain, setHeight, setSource } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -1464,4 +1464,59 @@ describe("what the GPU is left holding", () => {
     expect(deep).toBeGreaterThan(shallow);
     destroyWaterLayer(wl);
   });
+});
+
+/**
+ * THE RIM IS NOT NEXT TO THE OTHER RIM.
+ *
+ * `nearby` asks what the same sheet is doing one corner away, and the answer
+ * lights the surface: `lean` comes out of it, and `lean` is most of what
+ * decides a corner's shade. It bounded its step on the FLAT corner index —
+ * which says nothing at all about a step in x, because at `vx` nought a step
+ * of minus one lands on the last corner of the row before, an index that is
+ * perfectly in range and a whole map away.
+ *
+ * So the west rim was lit from the east rim and the east from the west. It is
+ * a shade and not a hole, which is why it survived: `cover` does not depend on
+ * the lean, so the fringe was exactly the right shape in exactly the wrong
+ * colour, and the pixel comparison put it at up to 23 of 255 along both rims.
+ *
+ * Asserted as an INDEPENDENCE, which is the only form that can fail for the
+ * right reason: put water on one rim, shade the other, then change the first
+ * and shade again. A corner cannot be lit by water it has no business seeing.
+ */
+describe("the shading at one rim cannot see the other", () => {
+  const rimLit = (east: number) => {
+    const grid = createGrid(12, 12);
+    fillTerrain(grid, 1);
+    for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) setHeight(grid, x, y, 0);
+    const field = createWaterField(grid);
+    setWaterEdge(field, false);
+    // A shallow film along the WEST edge, which is what the rim reads.
+    for (let y = 2; y <= 9; y++) pourAt(field, 0, y, 0.6, 1);
+    // And whatever the caller wants on the EAST one, a whole map away.
+    if (east > 0) for (let y = 2; y <= 9; y++) pourAt(field, 11, y, east, 1);
+    const bands = createBandLayer(grid.w, grid.h);
+    bands.visibleLo = 0;
+    bands.visibleHi = grid.w + grid.h;
+    const wl = createWaterLayer(field.columns, bands, 1);
+    for (let n = 0; n < 30; n++) stepWater(field, 1 / 60);
+    drawWater(wl, field.columns, bands, 1 / 60);
+    // The west rim's corners, tier zero.
+    const vw = field.columns.nx + 1;
+    const out: number[] = [];
+    for (let y = 2 * 4; y <= 9 * 4; y++) {
+      const k = (y * vw + 0) * TIERS;
+      out.push(wl.vn[k] ? wl.vl[k] : -1);
+    }
+    destroyWaterLayer(wl);
+    return out;
+  };
+
+  test("water on the far rim does not change this one's shade", () => {
+    const dry = rimLit(0);
+    const flooded = rimLit(14);
+    expect(dry.some((v) => v >= 0)).toBe(true);   // there is something to shade
+    expect(flooded).toEqual(dry);
+  }, 20_000);
 });

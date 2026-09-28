@@ -802,14 +802,26 @@ function nearby(
   k: number,
 ): number {
   const vw = columns.nx + 1;
-  const j = v + dx + dy * vw;
   const here = wl.vs[k];
-  if (j < 0 || j * TIERS >= wl.vs.length) return here;
-  // ASKED THROUGH A COLUMN THE TWO CORNERS SHARE, picked canonically — a
-  // component decided AT this corner says nothing about the one a step away,
-  // and picking the bridge per asker would give four columns of one sheet
-  // four different answers for the corner they share. @see sharedContrib
+  // BOUNDED ON THE CORNER, NOT ON THE INDEX, and the difference is a whole
+  // map. This tested the FLAT index — `j < 0 || j * TIERS >= length` — which
+  // says nothing about a step in x: at `vx` nought, `dx` of minus one lands
+  // on `v - 1`, the LAST corner of the row before, and that index is
+  // perfectly in range. So the west rim read its slope off the east rim and
+  // the east rim off the west, and the shading along both came out of water
+  // on the other side of the world.
+  //
+  // It is a SHADE and not a hole, which is why it sat there: `cover` does not
+  // depend on the lean, so the fringe was the right shape and the wrong
+  // colour. The device has always been right here, because it works in corner
+  // COORDINATES and `inside` rejects the step — so the two paths disagreed by
+  // up to 23 of 255 along the rim, which is what the pixel comparison was
+  // still reporting at eight seconds once it stopped shouting about
+  // premultiplied fringe. @see nearby in water-gpu
   const vx = v % vw, vy = (v / vw) | 0;
+  const jx = vx + dx, jy = vy + dy;
+  if (jx < 0 || jy < 0 || jx >= vw || jy > columns.ny) return here;
+  const j = jy * vw + jx;
   const m = sharedContrib(wl.cSheet[k], dx, dy, columns.layers);
   if (m >= 0) {
     const q = Math.floor(m / columns.layers);
