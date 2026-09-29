@@ -134,7 +134,7 @@ fn brinkAt(ia: i32) -> f32 {
   let i = ia % cells;
   let cx = i % nx();
   let cy = i / nx();
-  let bed = groundAt(src);
+  let bed = groundAt(ia);
   var most = 0.0;
   for (var k = 0; k < 4; k = k + 1) {
     var dx = 0;

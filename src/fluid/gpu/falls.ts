@@ -131,9 +131,19 @@ fn driftAt(v: f32, below: f32) -> f32 {
  * The lip's smoothed throw carries it forward as it falls. Only onto ground
  * LOWER than the lip — thrown at a wall it lands at the foot of the wall.
  */
+/**
+ * Nearest column, TIES AWAY FROM NOUGHT — the twin of toColumn in
+ * fluid/falls, which carries the note. WGSL's round breaks ties to the even
+ * integer and JavaScript's toward positive infinity, so neither is the same
+ * rounding and neither is symmetric; trunc is the one both spell alike.
+ */
+fn toColumn(v: f32) -> i32 {
+  return i32(select(-trunc(0.5 - v), trunc(v + 0.5), v >= 0.0));
+}
+
 fn landsAt(ia: i32, j: i32, drop: f32) -> i32 {
-  let ox = i32(round(driftAt(throwXAt(ia), drop) / cellSize()));
-  let oy = i32(round(driftAt(throwYAt(ia), drop) / cellSize()));
+  let ox = toColumn(driftAt(throwXAt(ia), drop) / cellSize());
+  let oy = toColumn(driftAt(throwYAt(ia), drop) / cellSize());
   if (ox == 0 && oy == 0) { return j; }
   // WITHIN THE SLOT IT WAS AIMED AT. A sheet drifting a column further out is
   // still falling into the same storey, and a drift that changed storey would

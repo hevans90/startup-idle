@@ -1181,8 +1181,12 @@ fn cellSize() -> f32 { return consts.d.z; }
  * an enormous speed.
  */
 fn flowXAt(ia: i32) -> f32 {
+  // AT THE ONE THRESHOLD, as the host is: below it the reported speed is not
+  // a measurement, because the divisor is floored at eight dry depths and a
+  // column holding a billionth of a unit would answer with a full river.
+  // @see flowX in fluid/columns
   let d = depthAt(ia);
-  if (d <= 0.0) { return 0.0; }
+  if (d <= dryDepth()) { return 0.0; }
   let by = max(d, dryDepth() * 8.0);
   let L = slots();
   let cells = nx() * ny();
@@ -1203,8 +1207,12 @@ fn flowXAt(ia: i32) -> f32 {
 }
 
 fn flowYAt(ia: i32) -> f32 {
+  // AT THE ONE THRESHOLD, as the host is: below it the reported speed is not
+  // a measurement, because the divisor is floored at eight dry depths and a
+  // column holding a billionth of a unit would answer with a full river.
+  // @see flowX in fluid/columns
   let d = depthAt(ia);
-  if (d <= 0.0) { return 0.0; }
+  if (d <= dryDepth()) { return 0.0; }
   let by = max(d, dryDepth() * 8.0);
   let L = slots();
   let cells = nx() * ny();

@@ -772,11 +772,33 @@ function land(
  * column over the edge: a sheet that would hit a wall on the way down is not
  * modelled, and inventing it here is worse than landing the water short.
  */
+/**
+ * Nearest column, TIES AWAY FROM NOUGHT.
+ *
+ * `Math.round` breaks ties toward positive infinity, so a drift of minus two
+ * and a half columns lands two out and a drift of PLUS two and a half lands
+ * three — and a waterfall is not the mirror of its mirror image. It shows up
+ * as a splash in the wrong column, which is a plunge, a scoured hole and a
+ * patch of foam in the wrong place: measured on two mirror-image shelves,
+ * identical to 1e-7 for forty-three frames, this is what parted them on the
+ * frame the first sheet landed.
+ *
+ * And a half is not a rare case here. The drift is divided by `cell`, which
+ * is a quarter or a half, so the quotient lands on a half whenever the arc
+ * does anything tidy at all.
+ *
+ * WRITTEN OUT RATHER THAN CALLED, because WGSL's `round` breaks ties to the
+ * even integer and this has to agree with the device to the column. `trunc`
+ * is the one rounding the two languages spell the same way.
+ */
+const toColumn = (v: number) =>
+  (v >= 0 ? Math.trunc(v + 0.5) : -Math.trunc(0.5 - v));
+
 export function landsAt(
   f: ColumnField, i: number, j: number, drop: number,
 ): number {
-  const ox = Math.round(driftAt(f.falls.throwX[i], drop) / f.cell);
-  const oy = Math.round(driftAt(f.falls.throwY[i], drop) / f.cell);
+  const ox = toColumn(driftAt(f.falls.throwX[i], drop) / f.cell);
+  const oy = toColumn(driftAt(f.falls.throwY[i], drop) / f.cell);
   if (ox === 0 && oy === 0) return j;
   // WITHIN THE SLOT IT WAS AIMED AT. A sheet drifting a column further out is
   // still falling into the same storey of the world, and a drift that changed
@@ -929,10 +951,27 @@ export function dropFrom(
   const x = i % f.nx, y = (i / f.nx) | 0;
   const out = driftAt(lip, below);
   const side = (u - 0.5) * FAN;
+  // FROM THE LIP, WHICH IS ON THE OTHER SIDE WHEN THE FALL RUNS BACK.
+  //
+  // A drop's position is in columns with the INTEGERS AT THE CENTRES — that
+  // is what `crown` places a plume at and what the landing resolves with a
+  // round. So the edge a column pours over is half a column out, and which
+  // half depends on the direction: plus for east and south, minus for west
+  // and north.
+  //
+  // Written `x + 0.5` it was, and while every fall went east that read as
+  // the spray starting a little further downstream than it should — harmless
+  // enough that nobody looked. Running the other way it put the spray half a
+  // column INTO the lip, so a westward fall shed drops that landed back on
+  // top of the cliff they had just left. Measured on a plateau spilling all
+  // four ways, 0.67 of splash on the plateau's own west lip against nought
+  // on its east one, seconds after both should have been done — which is the
+  // white nobody could account for. @see crown, stepDrips
+  const edge = back ? -0.5 : 0.5;
   dripFrom(
     f.drips,
-    axis === 0 ? x + 0.5 + out : x + side,
-    axis === 0 ? y + side : y + 0.5 + out,
+    axis === 0 ? x + edge + out : x + side,
+    axis === 0 ? y + side : y + edge + out,
     f.ground[ia] - below,
     take, material,
     axis === 0 ? lip : side * FAN,

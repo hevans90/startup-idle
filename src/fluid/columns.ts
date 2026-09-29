@@ -2184,35 +2184,52 @@ export function applyDepths(f: ColumnField, c: PassConsts) {
  *
  * AND THIS PASS IS NOT MIRROR-SYMMETRIC, WHICH IS A BUG AND IS NOT FIXED HERE.
  *
- * `velo` is an EDGE quantity — edge `i` is the one between column `i` and
- * column `i + step` — and every cell-centred number this pass reads off it is
- * indexed by the LOW cell. So `broke[near + i]`, which gates both the
- * viscosity and the write-back, is the breaking of the cell on the edge's low
- * side only. A cell's own breaking therefore diffuses its EAST and SOUTH
- * momentum and never its west or north: those edges are indexed by the
- * neighbour, and if the neighbour is not breaking they are left alone.
+ * `velo` is an EDGE quantity — edge `i` joins column `i` to the column a step
+ * on — and every cell-centred number this reads off it is indexed by the LOW
+ * cell. So `broke`, which gates both the viscosity and the write-back, is the
+ * breaking of ONE of the edge's two cells: a cell's own breaking diffuses its
+ * EAST and SOUTH momentum and never its west or north, because those edges
+ * are indexed by the neighbour.
  *
- * Measured, and it is not subtle. Twenty units of water dropped on ONE column
- * of perfectly flat ground, no falls and no wind: after two steps the column
- * to the west holds 2.506 and the column to the east 1.471, from an initial
- * condition symmetric to the bit. A shelf spilling east and its exact mirror
- * spilling west part company on the first frame, by 0.32 of depth.
+ * Measured, and it is not subtle. Twenty units of water on ONE column of
+ * perfectly flat ground, no falls and no wind: after two steps the column to
+ * the west holds 2.506 and the column to the east 1.471, from an initial
+ * condition symmetric to the bit. Two mirror-image shelves part on the first
+ * frame by 0.32 of depth.
  *
- * THE FIX IS SHORT AND THE FALLOUT IS NOT. Taking `broke`, `depth` and `rate`
- * as the mean of the edge's two cells, and gating the write-back on either of
- * them breaking, makes the blob symmetric to 6e-8 and the mirrored shelves
- * agree to 6e-6 over six seconds. It also moves five tests in `fluid/`, one of
- * which — "the water runs AWAY from it, faster than the pool flows" — asserts
- * that a plunge drives its pool HARDER than the river feeding it, and goes
- * from 0.685 to 0.359. That is a question about what a plunge should do, not
- * an expectation to renumber, and it wants answering before this lands. The
- * device twin in `gpu/diffuse.ts` has the same indexing and would have to
- * change in step, under `compare-pass`.
+ * WHAT IT IS NOT is the late churn at a plateau's west and north lips, which
+ * is what sent me here. That was the SPRAY leaving from the column centre
+ * rather than the lip — see `dropFrom` — and with that fixed the four lips
+ * decay together whether this is fixed or not. Worth saying plainly, because
+ * the two symptoms look alike and only one of them is this.
  *
- * It is written down here because it is the root of a symptom that looked like
- * something else entirely: a plateau spilling all four ways keeps foaming at
- * its WEST and NORTH lips for seconds after the east and south have settled,
- * which was blamed on four-way falls and is this. @see gpu/diffuse
+ * WHY IT IS NOT FIXED. Every even-handed version of it is easy to write and
+ * changes what the water DOES, because the pass genuinely does twice the work
+ * once it reaches all four of a cell's edges. Three separate invariants move,
+ * and each is a question about the model rather than a number to renumber:
+ *
+ *  - A PARAPET stops being a capacity. `deck.test`'s saturation — twice the
+ *    water over the same deck leaving the same puddle — holds at 156/154/155
+ *    today and slides to 193/156/115 once the west and north parapet edges
+ *    diffuse like the east and south ones.
+ *  - A DRAIN slows. It takes 8 of its 8 today and 7.1 with the pass made
+ *    even-handed, because a convergent inflow is damped from four sides
+ *    instead of two.
+ *  - A PLUNGE gets more radial, and better: the hole deepens from 1.58 to
+ *    0.95 with a proper rim behind it, and both columns above the impact run
+ *    backward against the river instead of one. That one is an improvement
+ *    and its test would want rewriting, not restoring.
+ *
+ * Gating the pass on where water can actually cross — `accelerate`'s own
+ * `carry > 0`, or the depth above the sill as a mixing length — fixes the
+ * parapet and breaks the drain instead: it lands on the water's SURFACE
+ * rather than its presence, so it flickers at a draining edge, and a switch
+ * that flickers is a thing this scheme rings on. Measured, a drain's own
+ * columns flashing to nothing on 65 frames of 300.
+ *
+ * So it wants a decision about what a turbulent viscosity should do at a kerb
+ * and at a drain, which is not a decision to take while chasing something
+ * else. @see gpu/diffuse, which carries the same indexing
  */
 export function diffuseBreaking(f: ColumnField, c: PassConsts) {
   const { nx, cells, layers, fx, fy, depth, broke, rate, velo, iterA, iterB, params } = f;
@@ -2475,22 +2492,37 @@ function inY(f: ColumnField, i: number, a: number): number {
   return q;
 }
 
+/**
+ * AT THE ONE THRESHOLD, and it used to be at nought. Below that the reported
+ * speed is not a measurement of anything: the divisor is floored at eight dry
+ * depths, so a column holding a BILLIONTH of a unit divides its neighbours'
+ * flux by 0.16 and answers with a full river.
+ *
+ * Measured, and not academic. Two mirror-image shelves, identical to 1e-7 of
+ * depth for thirteen frames, parted when one lip emptied to exactly nought
+ * and the other to 3.7e-9: one answered 0 and the other 0.52, the smoothed
+ * throw eased toward the difference, and from there the two rigs had
+ * different arcs, different landing columns and twice the water in the air.
+ * A threshold at nought is a threshold on the last bit of a float.
+ * @see wet, the one spelling of this
+ */
 export function flowX(f: ColumnField, x: number, y: number, a = 0): number {
   const i = y * f.nx + x;
   const ia = a * f.cells + i;
   const d = f.depth[ia];
-  if (d <= 0) return 0;
+  if (d <= f.params.dryDepth) return 0;
   const by = Math.max(d, f.params.dryDepth * 8);
   const west = x > 0 ? inX(f, i - 1, a) : 0;
   const v = (west + outX(f, i, a)) * 0.5 / by;
   return v > MAX_FLOW_SPEED ? MAX_FLOW_SPEED : v < -MAX_FLOW_SPEED ? -MAX_FLOW_SPEED : v;
 }
 
+/** @see flowX, whose threshold this is. */
 export function flowY(f: ColumnField, x: number, y: number, a = 0): number {
   const i = y * f.nx + x;
   const ia = a * f.cells + i;
   const d = f.depth[ia];
-  if (d <= 0) return 0;
+  if (d <= f.params.dryDepth) return 0;
   const by = Math.max(d, f.params.dryDepth * 8);
   const north = y > 0 ? inY(f, i - f.nx, a) : 0;
   const v = (north + outY(f, i, a)) * 0.5 / by;
