@@ -79,6 +79,31 @@ describe("a fall starts at one bar and stops at a lower one", () => {
     expect(frame(f)).toBeGreaterThan(0);
   });
 
+  test("and a fall held in the band is still a fall, sheet and all", () => {
+    // The latch held the DECISION and stepFalls undid it: it took a drop under
+    // FALL_MIN for a cliff that had gone, and dumped and reset every latched
+    // fall in the band each step — the water still went into the air and no
+    // sheet was ever drawn for it.
+    const f = cliff(10, 0);
+    poolAt(f, 5);
+    for (let n = 0; n < 30; n++) {
+      for (let y = 4; y <= 7; y++) addWater(f, 9, y, 0.2, 1);
+      stepFlow(f, 1 / 60);
+    }
+    const k = fallEdge(f, lip(f), 0);
+    expect(f.falls.front[k]).toBeGreaterThan(0);
+    poolAt(f, 7);                                   // into the band: a drop of three
+    let alive = 0;
+    for (let n = 0; n < 30; n++) {
+      for (let y = 4; y <= 7; y++) addWater(f, 9, y, 0.2, 1);
+      poolAt(f, 7);
+      stepFlow(f, 1 / 60);
+      if (f.falls.front[k] > 0 && f.falls.air[k] > 0) alive++;
+    }
+    expect(f.falls.falling[k]).toBe(1);
+    expect(alive).toBe(30);
+  });
+
   test("and an edge that stops being a cliff forgets it was falling", () => {
     // The hazard a latch brings: an edge left latched after its cliff is
     // edited away answers with the lower bar, a fall nothing steps, and the
@@ -92,6 +117,28 @@ describe("a fall starts at one bar and stops at a lower one", () => {
     markCliffs(f);
     expect(f.falls.falling[fallEdge(f, lip(f), 0)]).toBe(0);
     expect(dropAt(f, lip(f), 0)).toBe(0);           // a step of three: no fall
+  });
+});
+
+describe("a sheet sheds only what it can spare", () => {
+  test("a trickle over a tall lip stays a sheet rather than being stripped every step", () => {
+    // The spray rate is per edge and blind to what is going over, so a pour
+    // thinner than a drop gave up ALL of it every step once its front was
+    // past BREAK — and the bank, paid only what was taken, stayed owed and
+    // did it again. A deck's parapet, whose pour rises and falls with the
+    // water sloshing on the deck, blinked its sheet on and off fifty five
+    // times in forty seconds. @see shedSpray
+    const f = cliff(20, 0);
+    const k = fallEdge(f, at(f, 9, 5), 0);
+    let bare = 0, past = 0;
+    for (let n = 0; n < 180; n++) {
+      for (let y = 4; y <= 7; y++) addWater(f, 9, y, 0.03, 1);
+      stepFlow(f, 1 / 60);
+      if (f.falls.front[k] > BREAK) { past++; if (f.falls.air[k] <= 0) bare++; }
+    }
+    // It really did get past the breaking point, or nothing was shed at all.
+    expect(past).toBeGreaterThan(60);
+    expect(bare).toBe(0);
   });
 });
 

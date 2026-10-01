@@ -696,7 +696,12 @@ export function stepFalls(
         // water on a scene of 529. The device was right. A value a float array
         // cannot hold is not a threshold that array can be tested against.
         const reach = Math.fround(drop);
-        if (drop < FALL_MIN) {
+        // NOUGHT, NOT UNDER FALL_MIN: `dropAt` has already decided, and with
+        // the latch a running fall's drop is anywhere down to FALL_STOP.
+        // Tested against FALL_MIN here, every latched fall in that band was
+        // dumped and reset each step — the water still went into the air and
+        // no sheet was ever drawn for it. @see FALL_STOP
+        if (drop <= 0) {
           // The cliff has gone — filled in from below, or the ground moved.
           // Whatever was in the air belongs to the cell below it, but it
           // arrives over {@link DROWN} rather than all in one step: dumped,
@@ -945,12 +950,23 @@ function shedSpray(
   // off one across the map.
   s.shed[k] += SHED * loose * f.room * dt;
   if (s.shed[k] < DROP) return;
+  // ONLY WHAT THE SHEET CAN SPARE: a drop, while at least a drop is left
+  // behind. The rate is per edge and blind to what is going over, so a
+  // trickle used to give up EVERYTHING it carried every step — `take` was
+  // the whole of a sheet thinner than a drop, the bank was only paid that,
+  // and so it stayed owed and stripped the sheet bare again on the next
+  // step. The sheet existed only while the pour outran a fixed rate of
+  // spray, and a deck's parapet, whose pour rises and falls as the water on
+  // the deck sloshes, blinked its sheet on and off up to fifty five times in
+  // forty seconds. Thinner than that, a sheet holds together — and the debt
+  // is capped at the one drop it is waiting for, so a thin spell does not
+  // save up a burst of spray to throw the moment the pour thickens.
+  if (s.air[k] < 2 * DROP) { s.shed[k] = DROP; return; }
   // A DROP, and not whatever has piled up in the bank. The rate puts a
   // fortieth of one in there per step, so the bank crosses the line somewhere
   // past it and letting the whole bank go would throw a drop a few percent
   // over the size anything is allowed to be. The rest stays owed.
-  const take = Math.min(s.air[k], DROP);
-  if (take <= 0) return;
+  const take = DROP;
   s.shed[k] -= take;
   s.air[k] -= take;
 

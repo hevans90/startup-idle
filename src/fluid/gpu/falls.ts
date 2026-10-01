@@ -275,7 +275,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     return;
   }
 
-  if (drop < fallMin()) {
+  // NOUGHT, NOT UNDER FALL_MIN: dropAt has decided, and with the latch a
+  // running fall's drop is anywhere down to FALL_STOP. The twin of stepFalls.
+  if (drop <= 0.0) {
     // The cliff has gone — filled in from below, or the ground moved. What is
     // in the air belongs to the cell below, but it arrives over DROWN rather
     // than all at once: dumped, it puts the pool up over the cliff and kills
@@ -313,8 +315,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (frontAt(k) > ${f(BREAK)} && airAt(k) > 0.0) {
     let loose = min(1.0, (frontAt(k) - ${f(BREAK)}) / ${f(BREAK)});
     setShed(k, shedAt(k) + ${f(SHED)} * loose * roomNow() * dt());
-    if (shedAt(k) >= ${f(DROP)}) {
-      let take = min(airAt(k), ${f(DROP)});
+    // ONLY WHAT THE SHEET CAN SPARE: a drop, while at least a drop is left
+    // behind, and the debt capped at the one drop it waits for. The twin of
+    // shedSpray, which says what a trickle used to do without it.
+    if (shedAt(k) >= ${f(DROP)} && airAt(k) < ${f(2 * DROP)}) {
+      setShed(k, ${f(DROP)});
+    } else if (shedAt(k) >= ${f(DROP)}) {
+      let take = ${f(DROP)};
       if (take > 0.0) {
         // frontSpeed FREEZES once the front saturates, so each edge sheds
         // from a point of its own and keeps it. Seeding this on shedAt was
