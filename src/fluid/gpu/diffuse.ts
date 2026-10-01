@@ -6,33 +6,26 @@
  * step worked out. A step behind, which is what an explicit indicator always
  * is.
  *
- * FOUR DISPATCHES PER AXIS, and no atomics anywhere. The CPU does it in four
- * loops and so does this:
+ * TWO DISPATCHES PER AXIS, and no atomics anywhere:
  *
- *   1. PREP — the velocity on each edge, from its flux and the depth under it,
- *      copied into the first iterate.
- *   2. SWEEP, reading A and writing B.
- *   3. SWEEP, reading B and writing A.
- *   4. WRITE BACK — the settled velocity becomes a flux again.
+ *   1. PREP — for every edge, its depth, its velocity and its viscosity, or a
+ *      depth of nought for an edge that takes no part.
+ *   2. EXCHANGE — every edge trades momentum with its four neighbours and
+ *      writes ITS OWN flux. It reads only what the prep wrote, never a flux,
+ *      so writing the flux in the same dispatch races nothing.
  *
- * THE PING-PONG IS THE WHOLE POINT. A Jacobi sweep reads its four neighbours
- * and writes itself, so reading and writing the same array is a different
- * algorithm — Gauss-Seidel, which converges differently and depends on the
- * order the cells are visited in. Two arrays and a swap is what makes a sweep
- * order-independent, which is what makes it safe to run 65,536 cells at once.
- * The CPU needs the two arrays for correctness; the device needs them for
- * correctness AND for the race.
- *
- * What carries the values between the four is the DISPATCH BOUNDARY: within a
+ * What carries the values between the two is the DISPATCH BOUNDARY: within a
  * pass each dispatch is its own synchronization scope and they behave as if
- * run serially — see the note in `state.ts`. Nothing else is needed and
- * nothing else is encoded.
+ * run serially — see the note in `state.ts`.
  *
- * SWEEPS IS TWO AND THE CODE KNOWS IT. After an even number of sweeps the
- * answer is back in A, which is why stage 4 reads A. An odd count would leave
- * it in B and this would silently read the sweep before last.
+ * CONSERVED BY ARITHMETIC, not by an atomic. Each side of a face works out
+ * the same `D` from the same two numbers — sums and products, which do not
+ * care about order — so what one edge gains its neighbour loses, without
+ * either writing the other's flux. The Jacobi sweeps this replaced needed two
+ * arrays and a ping-pong to be order-independent; the exchange is
+ * order-independent by construction.
  */
-import { MIXING, SWEEPS } from "../columns";
+import { MIXING } from "../columns";
 import {
   STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 import type { Box } from "./accelerate";
@@ -65,104 +58,93 @@ fn setQ(e: i32, v: f32) {
 }
 
 /**
- * The depth under an edge: the mean of the two cells it lies between, floored
- * so that dividing a flux by it cannot explode where the water is a film.
+ * PREP: the edge's depth, velocity and viscosity, IN EVERY PLANE.
+ *
+ * Only an edge with BOTH its cells wet takes part, and one that does not
+ * writes a depth of nought, which is what the exchange tests. The far cell
+ * is read only where the edge has one — the last column of a row has no east
+ * edge, and reading past it lands in the first cell of the next row.
+ *
+ * The viscosity is the mean of the two cells', so a cell's breaking reaches
+ * all four of its edges and not only the two it owns. Each cell's is a mixing
+ * length squared over a time, the length being the depth.
  */
-fn headUnder(i: i32, a: i32, b: i32) -> f32 {
-  let step = select(nx(), 1, AXIS == 0);
-  let far = i + step;
-  let here = depthAt(slotBase(a) + i);
-  let beyond = select(here, depthAt(slotBase(b) + far), far < nx() * ny());
-  return max((here + beyond) * 0.5, dryDepth() * 8.0);
-}
-
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
 fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
   let x = consts.box.x + i32(gid.x);
   let y = consts.box.y + i32(gid.y);
   if (x > consts.box.z || y > consts.box.w) { return; }
   let i = y * nx() + x;
+  let step = select(nx(), 1, AXIS == 0);
+  let inMap = select(y + 1 < ny(), x + 1 < nx(), AXIS == 0);
   let L = slots();
   for (var a = 0; a < L; a = a + 1) {
+    let ia = slotBase(a) + i;
+    let dn = depthAt(ia);
     for (var b = 0; b < L; b = b + 1) {
       let e = pairBase(a, b) + i;
-      let v = qAt(e) / headUnder(i, a, b);
-      setVelo(e, v);
-      setIterA(e, v);
+      var df = 0.0;
+      var jb = 0;
+      if (inMap) {
+        jb = slotBase(b) + i + step;
+        df = depthAt(jb);
+      }
+      if (dn <= dryDepth() || df <= dryDepth()) {
+        setIterB(e, 0.0);
+        setIterA(e, 0.0);
+        continue;
+      }
+      let h = max((dn + df) * 0.5, dryDepth() * 8.0);
+      setIterB(e, h);
+      setVelo(e, qAt(e) / h);
+      setIterA(e, breakingOn() * ${f(MIXING)} * 0.5
+        * (brokeAt(ia) * dn * rateAt(ia) + brokeAt(jb) * df * rateAt(jb)));
     }
   }
 }
 
 /**
- * One Jacobi sweep: each cell is its own OLD value plus its neighbours' NEW
- * ones, in the ratio the viscosity sets.
+ * EXCHANGE: trade momentum with the four neighbours, in this plane.
  *
- * The viscosity comes from the breaking intensity — a mixing length squared
- * over a time, the length being the depth. Where nothing is breaking it is
- * nought and the cell keeps the velocity it came in with.
+ * D dv / (1 + 8 D / h) a face, h the shallower edge — graded where the
+ * viscosity is small and approaching an eighth of the way where it is large,
+ * so an edge keeps at least half its own velocity. At a QUARTER the one
+ * pattern a grid can hold that is not a wave flips sign every substep instead
+ * of dying, and the breaking test reads that as breaking. @see diffuseBreaking
  *
- * A neighbour outside the box, or dry, is not a neighbour: the cell stands in
- * for it, which is a zero-gradient wall rather than a hole. IN THIS PLANE,
- * because a deck's momentum has nothing to say to the channel's.
+ * A neighbour outside the box is not a neighbour: its prep never ran, so what
+ * is there is last substep's. Every edge that takes part is inside the box.
  */
-fn sweep(i: i32, x: i32, y: i32, readA: bool) {
-  let L = slots();
-  for (var a = 0; a < L; a = a + 1) {
-    let ia = slotBase(a) + i;
-    let d = diffScale() * brokeAt(ia) * ${f(MIXING)} * depthAt(ia) * rateAt(ia) * breakingOn();
-    for (var b = 0; b < L; b = b + 1) {
-      let P = pairBase(a, b);
-      let e = P + i;
-      if (d <= 0.0) {
-        if (readA) { setIterB(e, veloAt(e)); } else { setIterA(e, veloAt(e)); }
-        continue;
-      }
-      let here = select(iterBAt(e), iterAAt(e), readA);
-      let w = select(here, select(iterBAt(e - 1), iterAAt(e - 1), readA),
-        x > consts.box.x && depthAt(ia - 1) > dryDepth());
-      let ea = select(here, select(iterBAt(e + 1), iterAAt(e + 1), readA),
-        x < consts.box.z && depthAt(ia + 1) > dryDepth());
-      let n = select(here, select(iterBAt(e - nx()), iterAAt(e - nx()), readA),
-        y > consts.box.y && depthAt(ia - nx()) > dryDepth());
-      let so = select(here, select(iterBAt(e + nx()), iterAAt(e + nx()), readA),
-        y < consts.box.w && depthAt(ia + nx()) > dryDepth());
-      let out = (veloAt(e) + d * (w + ea + n + so)) / (1.0 + 4.0 * d);
-      if (readA) { setIterB(e, out); } else { setIterA(e, out); }
-    }
-  }
-}
-
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn sweepAB(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
-  sweep(y * nx() + x, x, y, true);
-}
-
-@compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn sweepBA(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
-  sweep(y * nx() + x, x, y, false);
-}
-
-@compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn writeBack(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn exchange(@builtin(global_invocation_id) gid: vec3<u32>) {
   let x = consts.box.x + i32(gid.x);
   let y = consts.box.y + i32(gid.y);
   if (x > consts.box.z || y > consts.box.w) { return; }
   let i = y * nx() + x;
   let L = slots();
   for (var a = 0; a < L; a = a + 1) {
-    // Only where something broke. Elsewhere the flux is left exactly as it
-    // was, rather than round-tripped through a division and a multiplication
-    // that would not give it back unchanged.
-    if (brokeAt(slotBase(a) + i) <= 0.0) { continue; }
     for (var b = 0; b < L; b = b + 1) {
-      let e = pairBase(a, b) + i;
-      setQ(e, iterAAt(e) * headUnder(i, a, b));
+      let P = pairBase(a, b);
+      let e = P + i;
+      let hi = iterBAt(e);
+      if (hi <= 0.0) { continue; }
+      let vi = veloAt(e);
+      let ni = iterAAt(e);
+      var moved = 0.0;
+      for (var k = 0; k < 4; k = k + 1) {
+        let jx = x + select(select(0, 1, k == 1), -1, k == 0);
+        let jy = y + select(select(0, 1, k == 3), -1, k == 2);
+        if (jx < consts.box.x || jx > consts.box.z
+            || jy < consts.box.y || jy > consts.box.w) { continue; }
+        let ej = P + jy * nx() + jx;
+        let hj = iterBAt(ej);
+        if (hj <= 0.0) { continue; }
+        let nf = (ni + iterAAt(ej)) * 0.5;
+        if (nf <= 0.0) { continue; }
+        let d = diffScale() * nf * ((hi + hj) * 0.5);
+        moved = moved + d * (veloAt(ej) - vi) / (1.0 + 8.0 * d / min(hi, hj));
+      }
+      if (moved != 0.0) { setQ(e, qAt(e) + moved); }
     }
   }
 }
@@ -178,7 +160,7 @@ export function createDiffuse(device: GPUDevice): DiffusePass {
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
   const stages = ([0, 1] as const).map((axis) => {
     const module = shaderModule(device, diffuseWgsl(axis), `diffuse-${axis}`);
-    return ["prep", "sweepAB", "sweepBA", "writeBack"].map((entryPoint) =>
+    return ["prep", "exchange"].map((entryPoint) =>
       device.createComputePipeline({
         label: `diffuse-${axis}:${entryPoint}`,
         layout: pipelineLayout,
@@ -203,8 +185,5 @@ export function createDiffuse(device: GPUDevice): DiffusePass {
     },
   };
 }
-
-/** Two, and `writeBack` reads A because of it. @see SWEEPS */
-export const sweepsHere = SWEEPS;
 
 export const diffuseSource = (axis: 0 | 1 = 0) => diffuseWgsl(axis);

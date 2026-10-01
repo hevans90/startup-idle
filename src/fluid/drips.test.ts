@@ -252,11 +252,11 @@ describe("the marks a landing leaves are a LIST", () => {
 
 describe("a drop hitting the water", () => {
   /** A still, deep, walled pond — so anything moving in it came from the drop. */
-  const still = (depth = 6) => {
-    const f = createColumnField(24, 24, { ...FLOW_DEFAULTS, wind: 0 }, 0.25);
+  const still = (depth = 6, params = { ...FLOW_DEFAULTS, wind: 0 }, size = 24) => {
+    const f = createColumnField(size, size, params, 0.25);
     f.ground.fill(0);
     setOpenEdge(f, false);
-    for (let y = 0; y < 24; y++) for (let x = 0; x < 24; x++) addWater(f, x, y, depth, 1);
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) addWater(f, x, y, depth, 1);
     for (let n = 0; n < 240; n++) stepFlow(f, 1 / 60);
     return f;
   };
@@ -296,16 +296,27 @@ describe("a drop hitting the water", () => {
     // surface: the walls stand proud, gravity pulls them back and past, and
     // the disturbance runs outward at the wave speed. So the test is that the
     // furthest thing moving gets further away with time.
-    const f = still();
-    const flat = surface(f, 12, 12);
-    dripFrom(f.drips, 12, 12, 40, DROP, 1);
+    //
+    // WITH NO DEAD BAND, because it is the dead band and not the ring that
+    // sets how far anything gets in a pond this small: below `minSlope` a head
+    // pushes nothing, and on the default every disturbance here stops at six
+    // columns. The breaking exchange carries the crater's momentum out to that
+    // limit inside the first frame, so with the dead band on, early and later
+    // both read six and the test measures the band. Off, the ring runs from
+    // six to eighteen over the same thirty frames. @see diffuseBreaking
+    //
+    // And a pond with room in it: with nothing stopping it the ring reaches
+    // the wall of a twenty four column pond inside six frames.
+    const f = still(6, { ...FLOW_DEFAULTS, wind: 0, minSlope: 0 }, 48);
+    const flat = surface(f, 24, 24);
+    dripFrom(f.drips, 24, 24, 40, DROP, 1);
     while (f.drips.live > 0) stepFlow(f, 1 / 60);
 
     /** How far out the disturbance reaches, along a row through the middle. */
     const reach = () => {
       let far = 0;
-      for (let x = 12; x < 24; x++) {
-        if (Math.abs(surface(f, x, 12) - flat) > 1e-4) far = x - 12;
+      for (let x = 24; x < 48; x++) {
+        if (Math.abs(surface(f, x, 24) - flat) > 1e-4) far = x - 24;
       }
       return far;
     };

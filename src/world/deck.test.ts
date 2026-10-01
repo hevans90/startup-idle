@@ -401,19 +401,42 @@ describe("water on a deck", () => {
   }, 20_000);
 
   test("and what it holds is bounded by the kerb, however much is poured", () => {
-    // The saturation itself, because it is the thing that says the parapet
-    // is geometry and not a fraction somebody tuned: twice the water over
-    // the same deck leaves the same puddle behind.
+    // The kerb is geometry, so what it can hold is a number worked out from
+    // the floors and not from the pour: every column inside the ring can hold
+    // water up to the kerb's top and no higher, and the kerb's own columns
+    // hold none. Whatever is poured, what is left standing is under that.
+    //
+    // IT USED TO SAY THE PUDDLE WAS THE SAME FOR EITHER POUR — 154 and 155 —
+    // and that was the breaking pass being lopsided, not the kerb. Neither
+    // pour fills the deck: what stays is what did not slosh over while a
+    // column forty or sixty deep collapsed, and once the pass treated west
+    // and north like east and south the two came out at 153 and 192, both
+    // settled, both well under the 392 the kerb can hold. @see diffuseBreaking
     const held = (amount: number) => {
       const { field } = pan(10);
       pourAt(field, 5, 5, amount, 1);
       for (let n = 0; n < 60 * 20; n++) stepWater(field, 1 / 60);
-      return onDeck(field);
+      return { on: onDeck(field), field };
     };
-    // Within a couple of percent of each other, and both a long way under
-    // what was put on: the number is the deck's capacity, not the pour's.
-    const a = held(40), b = held(60);
-    expect(Math.abs(b - a) / a).toBeLessThan(0.05);
+    const { on: a, field } = held(40);
+    const { on: b } = held(60);
+    const c = field.columns;
+    let room = 0, kerbTop = -Infinity;
+    for (let i = c.cells; i < c.cells * 2; i++) {
+      if (c.roof[i] > c.ground[i]) kerbTop = Math.max(kerbTop, c.ground[i]);
+    }
+    for (let i = c.cells; i < c.cells * 2; i++) {
+      if (c.roof[i] > c.ground[i]) room += kerbTop - c.ground[i];
+    }
+    // The ring really is raised, or there is no capacity to be under.
+    expect(kerbTop).toBeGreaterThan(10);
+    expect(room).toBeGreaterThan(0);
+    for (const kept of [a, b]) {
+      expect(kept).toBeGreaterThan(0);
+      expect(kept).toBeLessThanOrEqual(room + 1e-3);
+    }
+    // And both a long way under what was put on: the bound is the deck's,
+    // not the pour's.
     expect(b).toBeLessThan(640 * 0.4);
   }, 40_000);
 

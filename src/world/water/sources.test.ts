@@ -118,7 +118,14 @@ describe("a drain", () => {
     const f = tank(g);
     for (let y = 8; y <= 16; y++) for (let x = 8; x <= 16; x++) pourAt(f, x, y, 60, 1);
     setSource(g, 12, 12, -SOURCE_RATE);
-    live(f, g, 5);                                  // let the pour settle over it
+    // LET THE POUR SETTLE OVER IT, and twenty seconds is what that takes. A
+    // pour sixty deep collapsing is breaking over most of its surface for the
+    // first ten, and breaking water converging on a drain shares its momentum
+    // across the inflow from either side — what comes from the west and what
+    // comes from the east meet and cancel. Measured at five seconds that is
+    // 5.1 of the 8, at ten 7.1, and from twenty on all of it, which is the
+    // drain's rate with water standing on it. @see diffuseBreaking
+    live(f, g, 20);
     const held = totalVolume(f, g);
     live(f, g, 5);
     const perSecond = (held - totalVolume(f, g)) / (COLUMNS_PER_TILE * COLUMNS_PER_TILE) / 5;

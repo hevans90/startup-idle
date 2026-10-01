@@ -141,10 +141,16 @@ describe("and catches the ways a port actually goes wrong", () => {
   });
 
   test("and PAST the horizon it says drifting, not different", async () => {
-    // Five seconds out, the same one ULP has grown five orders of magnitude
-    // and moved a hundred cells — two correct solvers simulating different
+    // Twenty seconds out, the same one ULP has grown six orders of magnitude
+    // and moved across the pond — two correct solvers simulating different
     // ponds. It has to come back as drifting, because a harness that called
     // that a fault would be turned off inside a week.
+    //
+    // TWENTY, where it was ten, because the water got less chaotic. The
+    // breaking pass used to make momentum where it ran, and an amplifier of
+    // that kind takes a one ULP seed to 0.031 in ten seconds. Moving the
+    // momentum instead of making it, the same seed is 6e-5 at ten seconds —
+    // still inside `same` — and 1.02 at twenty. @see diffuseBreaking
     const seed = (f: ColumnField, dt: number) => {
       stepFlow(f, dt);
       if (f.t < 0.02) f.depth[at(f, 8, 8)] = Math.fround(f.depth[at(f, 8, 8)] * (1 + 2 ** -23));
@@ -152,7 +158,7 @@ describe("and catches the ways a port actually goes wrong", () => {
     const [a, b] = pair();
     const r = await compareSolvers(
       cpuCandidate("reference", a, stepFlow), cpuCandidate("one ulp", b, seed),
-      { frames: 600, every: 100 },
+      { frames: 1200, every: 100 },
     );
     expect(r.verdict).toBe("drifting");
     expect(r.worst.depth).toBeGreaterThan(1e-4);   // it really did diverge

@@ -128,7 +128,15 @@ describe("a breaking wave loses energy, and nothing else does", () => {
     // here are a flat per-second drag and a bed friction that falls off as one
     // over the depth squared, neither of which can tell a ten tile swell from
     // a one column spike.
-    expect(shoved(8, 1)).toBeLessThan(shoved(8, 0) * 0.7);
+    //
+    // A QUARTER, NOT THREE TENTHS, since the pass started MOVING momentum
+    // rather than deleting it. The old one wrote a smoothed velocity back on
+    // the breaking edges alone and so threw momentum away wherever it ran,
+    // which took this to 0.597 — and in a deep pool made momentum from
+    // nothing and pumped it dry. Conserving it, the only loss left is the
+    // energy in the differences between neighbours, and this reads 0.705.
+    // @see diffuseBreaking
+    expect(shoved(8, 1)).toBeLessThan(shoved(8, 0) * 0.75);
   });
 
   test("and leaves a wave that is not alone", () => {

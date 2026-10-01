@@ -1605,30 +1605,6 @@ export const BREAK_STOP = 0.15 / VERTICAL;
 export const PERSIST = 5;
 
 /**
- * How many Jacobi sweeps the implicit diffusion gets.
- *
- * Nowhere near enough to converge, and it does not need to be. What the
- * implicit form buys is not accuracy, it is that the answer is BOUNDED however
- * large the viscosity — even ONE sweep is `(u + d * sum of neighbours) over
- * (1 + 4d)`, which for a large `d` is the average of the neighbours and for a
- * small one is barely a change. It can smooth but it cannot overshoot, so the
- * coefficient never has to be held down to keep it stable. Measured, one sweep
- * and four give the same answer to two decimal places; two is the middle of
- * that for a tenth of a millisecond.
- *
- * That matters because holding it down was what made the explicit version
- * useless. The stability limit is a diffusion number of an eighth, and the
- * modelled viscosity here runs a couple of hundred times past it — so clamped,
- * every breaking column got the SAME maximum smoothing whether it was barely
- * breaking or coming apart, and the model's nought-to-one ramp meant nothing.
- * Measured: scaling the coefficient by a hundred changed the result by a third
- * (rms 0.27 to 0.39), which is the signature of a term that is saturated
- * rather than graded. What it damaged, it damaged at every setting — a drain
- * lost a third of its throughput and rivers stopped running.
- */
-export const SWEEPS = 2;
-
-/**
  * Work out what is breaking, and how hard, from the last step's surface rate.
  *
  * This is the thing `render/foam` only ever DREW. Foam there is a diagnostic:
@@ -2178,135 +2154,126 @@ export function applyDepths(f: ColumnField, c: PassConsts) {
 }
 
 /**
- * Spread the momentum of a breaking column into the ones around it, implicitly.
+ * Spread the momentum of breaking water into the water around it.
  *
  * A diffusion, because that is what turbulence does to momentum. It is scale
  * SELECTIVE in the way the drags are not — a one column spike has an enormous
- * second derivative and a ten tile swell has almost none — and it cannot
- * create anything, because every sweep is an average of values already there.
+ * second derivative and a ten tile swell has almost none.
  *
- * On the VELOCITY and not the discharge. The published term diffuses `h u` and
- * divides by `h`; diffusing the discharge on its own moves momentum between
- * columns of very different depth as though they were the same water, which
- * over rolling ground is most of the pairs there are.
+ * AN EXCHANGE, NOT A SMOOTHING, and that is the whole of this function. Two
+ * neighbouring edges trade `D * (v_j - v_i)`: what one gains the other loses,
+ * and `D` is worked out from the two of them in an order that makes it the
+ * same number on both sides, so the total momentum of the field is untouched
+ * to the bit. The published term is the divergence of `nu h grad u`, and this
+ * is that, in flux form.
  *
- * And only between WET neighbours. A dry cell stands in as this edge's own
- * velocity, which is a zero gradient and so no exchange at all. Read instead
- * as a velocity of zero — which is what a dry cell's flux over the depth floor
- * comes to — every waterline becomes a wall for the turbulence to drag the
- * flow down against, and a river is nearly all bank.
+ * It used to smooth the VELOCITY implicitly and write `v * h` back on the
+ * breaking edges alone — so every write made momentum the neighbours had not
+ * given up, in proportion to the depth. In shallow water that was a nudge. In
+ * a pit sixty deep with a river over it, it was a pump: the pool sloshed, the
+ * slosh broke, the breaking threw water out over the pit's edge, and over
+ * ninety seconds the pool's surface fell from two over the river's bed to
+ * eight under it, a range of twenty to thirty half steps and up to a hundred
+ * and ninety columns breaking. With breaking off the same pool sat level at
+ * 4.5 to within 0.18.
  *
- * AND THIS PASS IS NOT MIRROR-SYMMETRIC, WHICH IS A BUG AND IS NOT FIXED HERE.
+ * AND IT IS EVEN-HANDED. Each edge's viscosity is the mean of its two cells',
+ * where it used to be the low cell's alone — so a cell's breaking reached its
+ * east and south momentum and never its west or north, and twenty units on
+ * one column of flat ground spread 2.506 west against 1.471 east.
  *
- * `velo` is an EDGE quantity — edge `i` joins column `i` to the column a step
- * on — and every cell-centred number this reads off it is indexed by the LOW
- * cell. So `broke`, which gates both the viscosity and the write-back, is the
- * breaking of ONE of the edge's two cells: a cell's own breaking diffuses its
- * EAST and SOUTH momentum and never its west or north, because those edges
- * are indexed by the neighbour.
+ * Only between edges whose cells are both WET. A bank is not a wall for the
+ * turbulence to drag the flow down against — an edge into a dry cell carries
+ * nothing worth mixing and simply takes no part. And within one PLANE, since
+ * a deck's momentum has nothing to say to the channel's.
  *
- * Measured, and it is not subtle. Twenty units of water on ONE column of
- * perfectly flat ground, no falls and no wind: after two steps the column to
- * the west holds 2.506 and the column to the east 1.471, from an initial
- * condition symmetric to the bit. Two mirror-image shelves part on the first
- * frame by 0.32 of depth.
+ * Velocity is what is compared, momentum is what moves: `D` carries the depth
+ * of the face, so trading between a deep edge and a shallow one changes the
+ * shallow one's speed far more, which is what sharing momentum means.
  *
- * WHAT IT IS NOT is the late churn at a plateau's west and north lips, which
- * is what sent me here. That was the SPRAY leaving from the column centre
- * rather than the lip — see `dropFrom` — and with that fixed the four lips
- * decay together whether this is fixed or not. Worth saying plainly, because
- * the two symptoms look alike and only one of them is this.
+ * BOUNDED, AND STILL GRADED. Each face moves `D dv / (1 + 8 D / h)`, `h` the
+ * shallower of its two edges. Small, that is `D dv` and follows the viscosity
+ * all the way up; large, it moves each side an EIGHTH of the way at most, so
+ * an edge keeps at least half of its own velocity whatever its four
+ * neighbours do. A hard clamp was tried here once and is why Jacobi sweeps
+ * replaced it: the modelled viscosity runs a couple of hundred times past an
+ * explicit limit, so clamped, every breaking column got the same smoothing
+ * however hard it was breaking. This approaches the limit rather than hitting
+ * it.
  *
- * WHY IT IS NOT FIXED. Every even-handed version of it is easy to write and
- * changes what the water DOES, because the pass genuinely does twice the work
- * once it reaches all four of a cell's edges. Three separate invariants move,
- * and each is a question about the model rather than a number to renumber:
- *
- *  - A PARAPET stops being a capacity. `deck.test`'s saturation — twice the
- *    water over the same deck leaving the same puddle — holds at 156/154/155
- *    today and slides to 193/156/115 once the west and north parapet edges
- *    diffuse like the east and south ones.
- *  - A DRAIN slows. It takes 8 of its 8 today and 7.1 with the pass made
- *    even-handed, because a convergent inflow is damped from four sides
- *    instead of two.
- *  - A PLUNGE gets more radial, and better: the hole deepens from 1.58 to
- *    0.95 with a proper rim behind it, and both columns above the impact run
- *    backward against the river instead of one. That one is an improvement
- *    and its test would want rewriting, not restoring.
- *
- * Gating the pass on where water can actually cross — `accelerate`'s own
- * `carry > 0`, or the depth above the sill as a mixing length — fixes the
- * parapet and breaks the drain instead: it lands on the water's SURFACE
- * rather than its presence, so it flickers at a draining edge, and a switch
- * that flickers is a thing this scheme rings on. Measured, a drain's own
- * columns flashing to nothing on 65 frames of 300.
- *
- * So it wants a decision about what a turbulent viscosity should do at a kerb
- * and at a drain, which is not a decision to take while chasing something
- * else. @see gpu/diffuse, which carries the same indexing
+ * AN EIGHTH AND NOT A QUARTER, and the quarter is worth recording because it
+ * looks right. At a quarter a saturated edge becomes exactly its neighbours'
+ * mean, and for the one pattern a grid can hold that is not a wave — each
+ * edge the opposite of the four round it — the mean of the neighbours is the
+ * negative of the edge. That pattern is not damped, it flips sign every
+ * substep, and a surface flipping every substep is what the breaking test
+ * measures. Measured on a pool over rolling ground: six and a half thousand
+ * columns breaking and spikes of fifty half steps for the whole forty five
+ * seconds at a quarter; at an eighth the breaking dies out and the worst
+ * column settles to 0.65, where the old pass left it at 0.62. @see gpu/diffuse
  */
 export function diffuseBreaking(f: ColumnField, c: PassConsts) {
-  const { nx, cells, layers, fx, fy, depth, broke, rate, velo, iterA, iterB, params } = f;
+  const { nx, ny, cells, layers, fx, fy, depth, broke, rate, velo, iterA, iterB, params } = f;
   const { x0, y0, x1, y1, diffScale: scale } = c;
   const floor = params.dryDepth * 8;
   const dry = params.dryDepth;
+  const mix = MIXING * params.breaking;
+  // Per edge of the plane in hand: its velocity, its viscosity, its depth —
+  // nought for an edge that takes no part. Reused plane by plane and axis by
+  // axis, so a substep allocates nothing.
+  const nu = iterA, under = iterB;
 
-  // ONE PLANE AT A TIME. The scratch is a column's worth and the planes are
-  // walked in turn, so `velo` and the two iterates are reused rather than
-  // multiplied — a diffusion of the deck's momentum has nothing to say to the
-  // channel's, and they never overlap in time.
   const R = { x0: 0, y0: 0, x1: 0, y1: 0 };
   for (let a = 0; a < layers; a++) {
     for (let b = 0; b < layers; b++) {
       if (!planeRegion(f, a, b, x0, y0, x1, y1, R)) continue;
       const plane = (a * layers + b) * cells;
-      const near = a * cells;
+      const near = a * cells, beyond = b * cells;
       for (let axis = 0; axis < 2; axis++) {
         const q = axis === 0 ? fx : fy;
         const step = axis === 0 ? 1 : nx;
+        let any = false;
         for (let y = R.y0; y <= R.y1; y++) {
           for (let x = R.x0; x <= R.x1; x++) {
             const i = y * nx + x;
-            const far = i + step;
+            const inMap = axis === 0 ? x + 1 < nx : y + 1 < ny;
+            const j = i + step;
             const dn = depth[near + i];
-            const df = far < cells ? depth[b * cells + far] : dn;
+            const df = inMap ? depth[beyond + j] : 0;
+            if (dn <= dry || df <= dry) { under[i] = 0; nu[i] = 0; continue; }
             const h = Math.max((dn + df) * 0.5, floor);
+            under[i] = h;
             velo[i] = q[plane + i] / h;
-            iterA[i] = velo[i];
+            nu[i] = mix * 0.5 * (broke[near + i] * dn * rate[near + i]
+              + broke[beyond + j] * df * rate[beyond + j]);
+            if (nu[i] > 0) any = true;
           }
         }
-        // (I - dt nu grad^2) u_new = u_old, by Jacobi: each cell is its own
-        // old value plus its neighbours' new ones, in the ratio the viscosity
-        // sets.
-        let from = iterA, into = iterB;
-        for (let sweep = 0; sweep < SWEEPS; sweep++) {
-          for (let y = R.y0; y <= R.y1; y++) {
-            for (let x = R.x0; x <= R.x1; x++) {
-              const i = y * nx + x;
-              // The viscosity, from the intensity: a mixing length squared
-              // over a time, the length being the depth.
-              const d = scale * broke[near + i] * MIXING
-                * depth[near + i] * rate[near + i] * params.breaking;
-              if (d <= 0) { into[i] = velo[i]; continue; }
-              const here = from[i];
-              const w = x > R.x0 && depth[near + i - 1] > dry ? from[i - 1] : here;
-              const e = x < R.x1 && depth[near + i + 1] > dry ? from[i + 1] : here;
-              const n = y > R.y0 && depth[near + i - nx] > dry ? from[i - nx] : here;
-              const so = y < R.y1 && depth[near + i + nx] > dry ? from[i + nx] : here;
-              into[i] = (velo[i] + d * (w + e + n + so)) / (1 + 4 * d);
-            }
-          }
-          const swap = from; from = into; into = swap;
-        }
+        if (!any) continue;
         for (let y = R.y0; y <= R.y1; y++) {
           for (let x = R.x0; x <= R.x1; x++) {
             const i = y * nx + x;
-            if (broke[near + i] <= 0) continue;
-            const far = i + step;
-            const dn = depth[near + i];
-            const df = far < cells ? depth[b * cells + far] : dn;
-            const h = Math.max((dn + df) * 0.5, floor);
-            q[plane + i] = from[i] * h;
+            const hi = under[i];
+            if (hi <= 0) continue;
+            const vi = velo[i], ni = nu[i];
+            let moved = 0;
+            // The four neighbours, each in the region and taking part. The
+            // arithmetic is the same on both sides of a face — sums and
+            // products of the same two numbers — so what this edge gains is
+            // to the bit what its neighbour loses.
+            for (let k = 0; k < 4; k++) {
+              const jx = k === 0 ? x - 1 : k === 1 ? x + 1 : x;
+              const jy = k === 2 ? y - 1 : k === 3 ? y + 1 : y;
+              if (jx < R.x0 || jx > R.x1 || jy < R.y0 || jy > R.y1) continue;
+              const j = jy * nx + jx;
+              const hj = under[j];
+              if (hj <= 0) continue;
+              const nf = (ni + nu[j]) * 0.5;
+              if (nf <= 0) continue;
+              const d = scale * nf * ((hi + hj) * 0.5);
+              moved += d * (velo[j] - vi) / (1 + 8 * d / (hi < hj ? hi : hj));
+            }
+            if (moved !== 0) q[plane + i] += moved;
           }
         }
       }
