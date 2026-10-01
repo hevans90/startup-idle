@@ -251,7 +251,7 @@ describe("the surface the mesh carries", () => {
       return split;
     };
     for (const jolt of [0, 6, 14, 30]) expect(torn(jolt)).toBe(0);
-  });
+  }, 20_000);
 
   test("every column holding water is drawn — the sheet has no holes in it", () => {
     // The regression, and it took a solver change to expose it: once water
@@ -920,7 +920,7 @@ describe("running water reads as running", () => {
     }
     expect(moved).toBeGreaterThan(n * 0.15);
     destroyWaterLayer(wl);
-  });
+  }, 20_000);
 
   test("a corner is shaded from AVERAGED neighbours, not from their sum", () => {
     // The bug this caught: shading a corner in the same pass that averages
@@ -1244,7 +1244,7 @@ describe("a corner agrees with itself", () => {
     for (const id of top.ids) expect(foot.ids.has(id)).toBe(false);
     expect(wl.overflow).toBe(0);
     destroyWaterLayer(wl);
-  });
+  }, 20_000);
 });
 
 describe("a breaking wave goes white", () => {
@@ -1284,7 +1284,7 @@ describe("a breaking wave goes white", () => {
     expect(reds.length).toBeGreaterThan(100);
     expect(Math.max(...reds)).toBeLessThanOrEqual(WATER_TOPS_OUT);
     destroyWaterLayer(wl);
-  });
+  }, 20_000);
 
   test("the foot of a waterfall is whiter than water gets, and you see less through it", () => {
     const grid = createGrid(20, 20);

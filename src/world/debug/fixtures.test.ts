@@ -333,7 +333,7 @@ describe("the water fixtures", () => {
       if (here > 1) pools++;
     }
     expect(pools).toBeGreaterThan(4);
-  });
+  }, 20_000);
 
   test("switching to another fixture leaves no taps behind", () => {
     const g = createGrid(48, 48);

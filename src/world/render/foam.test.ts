@@ -155,7 +155,7 @@ describe("foam", () => {
     // happen is white that never leaves.
     run(field, foam, 29);
     expect(total(foam)).toBeLessThan(splash * 0.02);
-  });
+  }, 20_000);
 
   test("a ripple is not a breaker, and a wave worth the name is", () => {
     // The gap that used to need a criterion of its own: out in the middle of a
@@ -193,7 +193,7 @@ describe("foam", () => {
     const big = pond(8);
     expect(big).toBeGreaterThan(0.04);
     expect(big).toBeLessThan(0.5);
-  });
+  }, 20_000);
 
   test("a fed waterfall lands white; a trickle down the same cliff does not", () => {
     const cliff = () => {

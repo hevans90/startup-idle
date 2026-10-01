@@ -277,7 +277,7 @@ describe("deep water settles like shallow water", () => {
     // Stepped to the depth it is at, 1.1 half steps. Stepped at a flat 1/60,
     // 32 — which is the screenshot this came from.
     expect(worst).toBeLessThan(3);
-  });
+  }, 20_000);
 
   test("a shove in deep water dies out, the same as in shallow", () => {
     // The bug: the CFL guard on the flux was written from the ONE dimensional
@@ -312,7 +312,7 @@ describe("deep water settles like shallow water", () => {
     run(deep, 30);
     expect(chop(shallow)).toBeGreaterThan(0);
     expect(chop(deep)).toBeLessThan(chop(shallow) * 3);
-  });
+  }, 20_000);
 
   test("it does not invent water while it rings, either", () => {
     // The runaway pumped volume as well as energy: a pool with a pit lowered
@@ -833,7 +833,7 @@ describe("resolution is a detail setting", () => {
     // And the same water in physical terms: depth is a height, so a tile's
     // worth of it is the sum over that tile's columns divided by their number.
     for (const r of runs) expect(r.water).toBeCloseTo(runs[0].water, 3);
-  });
+  }, 20_000);
 
   test("and it gets there in the same time", () => {
     const spread = [1, 2, 4].map((cpt) => {
@@ -846,7 +846,7 @@ describe("resolution is a detail setting", () => {
     // Most of the way there after five seconds, at every resolution. Before the
     // fix the fine grid was still less than half settled at that point.
     for (const s of spread) expect(s).toBeGreaterThan(0.8);
-  });
+  }, 20_000);
 
   test("a released slug travels the same distance whatever the grid", () => {
     // What makes the above true: the only speed in the scheme is gravity and

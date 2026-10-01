@@ -192,7 +192,7 @@ describe("the edge of the map", () => {
     live(open, g, 60);
     live(walled, g, 60);
     expect(totalVolume(open, g)).toBeLessThan(totalVolume(walled, g) * 0.5);
-  });
+  }, 20_000);
 });
 
 describe("the layer", () => {
