@@ -925,7 +925,7 @@ export function upload(s: GpuState, f: ColumnField) {
   put("cliffCol", wide);
   // The fall latch, READ BEFORE IT IS WRITTEN for the same reason, and per
   // edge so it is longer than the scratch above. @see FALL_STOP
-  put("falling", Float32Array.from(s2.falling));
+  put("falling", s2.falling);
 }
 
 /**

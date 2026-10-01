@@ -319,8 +319,12 @@ export type FallState = {
    * cleared there, so an edge whose cliff has been edited away cannot go on
    * answering with the lower bar. Read by `dropAt` everywhere else. The
    * device keeps its own and sets it the same way, in the cliffs pass.
+   *
+   * FLOATS, nought or one, and not bytes, because the RENDERER reads it too:
+   * a sheet splits at a lip exactly when the solver says the lip falls, and
+   * as floats it is a texture with no conversion between. @see sameSheet
    */
-  readonly falling: Uint8Array;
+  readonly falling: Float32Array;
   /**
    * WHICH SUBSTEP EACH SLOT LAST EASED ITS THROW ON, and the number of the
    * one running.
@@ -381,7 +385,7 @@ export function createFalls(nx: number, ny: number, layers = 1): FallState {
     cliffN: 0,
     cliffCol: new Uint8Array(cols),
     cliffNow: new Uint8Array(cols),
-    falling: new Uint8Array(n),
+    falling: new Float32Array(n),
     eased: new Int32Array(cols).fill(-1),
     easedRun: 0,
   };

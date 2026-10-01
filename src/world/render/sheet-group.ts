@@ -50,7 +50,7 @@
  */
 import type { ColumnField } from "../../fluid/columns";
 import { surfaceAt, wet } from "../../fluid/columns";
-import { FALL_MIN } from "../../fluid/falls";
+import { FALL_MIN, FALL_STOP, fallEdge } from "../../fluid/falls";
 import { connected } from "../../fluid/slots";
 import type { Dialect } from "./corner-rule";
 
@@ -142,14 +142,41 @@ const beside = (f: ColumnField, j: number) =>
  * waterfalls on, which is what makes "there is a fall here" one fact rather
  * than two opinions. Either bed standing a fall clear of what is beside it is
  * a lip; a ripple cannot make one, because a ripple does not move the bed.
+ *
+ * AND THE SAME BAR `dropAt` USES: `FALL_MIN`, or `FALL_STOP` where the
+ * solver's latch says the edge is already falling. Asked with `FALL_MIN`
+ * alone, the surface either side of a fall the solver was holding open split
+ * and merged with every ripple in the pool below — 1,848 switches in forty
+ * seconds across the cascade's lips against the solver's 360, and in 28% of
+ * wet samples the two disagreed outright: one sheet drawn across an edge that
+ * was falling, or a split where nothing fell. @see FALL_STOP
  */
 export function sameSheet(f: ColumnField, ia: number, jb: number): boolean {
   const { ground, roof } = f;
   // The first half is safe in either precision: grounds and roofs are half
   // steps, which are exact in a float. Only the second compares a SUM.
   if (!connected(ground[ia], roof[ia], ground[jb], roof[jb])) return false;
-  return !(Math.fround(ground[ia] - beside(f, jb)) >= FALL_MIN
-    || Math.fround(ground[jb] - beside(f, ia)) >= FALL_MIN);
+  const there = Math.fround(ground[ia] - beside(f, jb));
+  const back = Math.fround(ground[jb] - beside(f, ia));
+  const drop = there > back ? there : back;
+  if (drop >= FALL_MIN) return false;
+  if (drop < FALL_STOP) return true;
+  // In the band, and only there, the latch decides. @see joinedAt's twin
+  return !f.falls.falling[edgeBetween(f, ia, jb)];
+}
+
+/**
+ * The fall edge between two slots of NEIGHBOURING columns: owned by the
+ * low-index column, its slot first in the pair. @see fallEdge
+ */
+function edgeBetween(f: ColumnField, ia: number, jb: number): number {
+  const { cells, layers } = f;
+  const ci = ia % cells, cj = jb % cells;
+  const a = (ia / cells) | 0, b = (jb / cells) | 0;
+  const axis = Math.abs(ci - cj) === 1 ? 0 : 1;
+  return ci < cj
+    ? fallEdge(f, ci, axis, a * layers + b)
+    : fallEdge(f, cj, axis, b * layers + a);
 }
 
 /**
@@ -380,10 +407,24 @@ ${wgsl
   if (min(ra, rb) <= max(ga, gb)) { return 0; }
   // AND NO FALL BETWEEN THEM, off the BED and not off the surface, so a wave
   // cannot split a pool. Both are wet, so where each stands is its wet top.
+  // THE SOLVER'S BAR: FALL_MIN, or FALL_STOP where its latch says this edge is
+  // already falling. The twin of sameSheet.
   ${NUM} wa = min(ga + da, ra);
   ${NUM} wb = min(gb + db, rb);
-  if (ga - wb >= fallMin()) { return 0; }
-  if (gb - wa >= fallMin()) { return 0; }
+  ${NUM} drop = max(ga - wb, gb - wa);
+  if (drop >= fallMin()) { return 0; }
+  if (drop < fallStop()) { return 1; }
+  // IN THE BAND, AND ONLY THERE, IS THE LATCH ASKED: it can change the answer
+  // nowhere else, and asked of every pair the texture reads cost the vertex
+  // shader a sixth of its time. Of the edge's OWNER — the low-index column,
+  // its slot first — and of that side alone.
+  ${MUT} held = 0;
+  if (ay < by || (ay == by && ax < bx)) {
+    if (latchAt(ax, ay, select(1, 0, ay == by), sa, sb)) { held = 1; }
+  } else {
+    if (latchAt(bx, by, select(1, 0, ay == by), sb, sa)) { held = 1; }
+  }
+  if (held == 1) { return 0; }
   return 1;
 }
 

@@ -66,7 +66,7 @@ import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
 import { createQuadsPass, type QuadsPass } from "./quads-gpu";
 import { createBrinkPass, type BrinkPass } from "./brink-gpu";
-import { FALL_MIN } from "../../fluid/falls";
+import { FALL_MIN, FALL_STOP } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
 import { COLUMNS_PER_TILE } from "../water/field";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -342,7 +342,7 @@ struct Water {
   uIso: vec4<f32>,        // HW, HH, HEIGHT_UNIT (all scaled), faces on
   uBand: vec4<f32>,       // band, first tile x, dry depth, tiles in this band
   uList: vec4<f32>,       // this band's offset into the quad list, list width
-  uSlots: vec4<f32>,      // storeys, and which band tier this mesh draws
+  uSlots: vec4<f32>,      // storeys, which band tier, brink filled, latch fresh
 };
 @group(2) @binding(0) var<uniform> water : Water;
 @group(2) @binding(1) var uDepth : texture_2d<f32>;
@@ -362,9 +362,12 @@ struct Water {
 // "none of the supported sample types (Uint) match the expected (Float)" — and
 // the whole water pass refusing to build.
 @group(2) @binding(8) var uBrink : texture_2d<f32>;
-@group(2) @binding(9) var uTint : texture_2d<f32>;
-@group(2) @binding(10) var uMaterial : texture_2d<f32>;
-@group(2) @binding(11) var uQuads : texture_2d<u32>;
+// WHICH EDGES THE SOLVER SAYS ARE FALLING, so a sheet splits at a lip exactly
+// when the lip falls. AFTER THE BRINK, in the resources too. See latchAt.
+@group(2) @binding(9) var uFalling : texture_2d<f32>;
+@group(2) @binding(10) var uTint : texture_2d<f32>;
+@group(2) @binding(11) var uMaterial : texture_2d<f32>;
+@group(2) @binding(12) var uQuads : texture_2d<u32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -418,6 +421,19 @@ fn brinkOn() -> bool { return water.uSlots.z > 0.5; }
 /** The four things the shared corner rule asks its host for. */
 fn dryDepth() -> f32 { return water.uBand.z; }
 fn fallMin() -> f32 { return ${FALL_MIN}.0; }
+fn fallStop() -> f32 { return ${FALL_STOP}.0; }
+// WHETHER THE SOLVER'S LATCH SAYS THIS EDGE IS ALREADY FALLING, so the sheet
+// grouping asks the same bar dropAt does. The edge of a slot PAIR, owned by
+// the column (x, y), packed the way the solver packs it and read back off a
+// texture nx wide. Where the latch is not fresh this frame — the device
+// solving on a map too narrow to copy it out — it answers no, and the
+// grouping falls back to FALL_MIN alone. See FALL_STOP, sameSheet.
+fn latchAt(x: i32, y: i32, axis: i32, a: i32, b: i32) -> bool {
+  if (water.uSlots.w < 0.5) { return false; }
+  let w = i32(water.uGrid.x);
+  let k = ((a * slots() + b) * w * i32(water.uGrid.y) + y * w + x) * 2 + axis;
+  return textureLoad(uFalling, vec2<i32>(k % w, k / w), 0).r > 0.5;
+}
 /** Whether the sides of the water are drawn at all — a debug switch. */
 fn facesOn() -> bool { return water.uIso.w > 0.5; }
 
@@ -870,6 +886,8 @@ uniform sampler2D uMaterial;
 uniform highp usampler2D uQuads;
 // How hard each slot is leaving, once a frame. See brink-gpu.
 uniform sampler2D uBrink;
+// Which edges the solver says are falling. See the WGSL twin's latchAt.
+uniform sampler2D uFalling;
 
 // How many STOREYS a column has, and where a storey's plane of rows begins —
 // see the WGSL twin, where the layout is argued.
@@ -890,6 +908,15 @@ int bitAt(int m, int k) { return (m >> k) & 1; }
 bool brinkOn() { return uSlots.z > 0.5; }
 float dryDepth() { return uBand.z; }
 float fallMin() { return ${FALL_MIN}.0; }
+float fallStop() { return ${FALL_STOP}.0; }
+// Whether the solver's latch says this edge is already falling — see the WGSL
+// twin, where the packing and the fallback are argued.
+bool latchAt(int x, int y, int axis, int a, int b) {
+  if (uSlots.w < 0.5) { return false; }
+  int w = int(uGrid.x);
+  int k = ((a * slots() + b) * w * int(uGrid.y) + y * w + x) * 2 + axis;
+  return texelFetch(uFalling, ivec2(k - (k / w) * w, k / w), 0).r > 0.5;
+}
 bool facesOn() { return uIso.w > 0.5; }
 // WGSL has this and GLSL does not. One helper is cheaper than teaching the
 // shared rule about two ways of writing a conditional.
@@ -903,6 +930,7 @@ bool facesOn() { return uIso.w > 0.5; }
 // has to actually have it.
 float select(float a, float b, bool c) { return c ? b : a; }
 int   select(int a, int b, bool c)     { return c ? b : a; }
+bool  select(bool a, bool b, bool c)   { return c ? b : a; }
 vec2  select(vec2 a, vec2 b, bool c)   { return c ? b : a; }
 vec3  select(vec3 a, vec3 b, bool c)   { return c ? b : a; }
 vec4  select(vec4 a, vec4 b, bool c)   { return c ? b : a; }
@@ -1257,6 +1285,12 @@ export type GpuWaterLayer = {
   tint: TextureSource;
   /** The ground revision the texture holds. @see ColumnField.groundRev */
   groundSent: number;
+  /**
+   * Whether the fall latch the shaders read is the solver's own this frame,
+   * as last written into their uniforms; -1 before the first frame. @see
+   * latchAt, FALLING_AT
+   */
+  latchOn: number;
   wash: FlowWash;
   foam: FoamField;
   /** How many storeys the field has. @see ColumnField.layers */
@@ -1301,7 +1335,9 @@ const FRAGMENT_STAGE = 2;
  * Nothing is filtered here in any case — every read is a `textureLoad` at an
  * integer coordinate, which is a fetch and not a sample, and needs no sampler.
  */
-const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uRoof", "uBrink"];
+const FLOAT_FIELDS = [
+  "uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uRoof", "uBrink", "uFalling",
+];
 const BYTE_FIELDS = ["uTint", "uMaterial"];
 /** The quad list, which is `r32uint` and so neither of the above. @see QUAD_CAP */
 const UINT_FIELDS = ["uQuads"];
@@ -1444,6 +1480,10 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
   // array behind it stays the zeros it was made with. @see brink-gpu
   const brinkF32 = new Float32Array(nx * ny * layers);
   const brinkTex = viewOf(brinkF32, nx, ny * layers);
+  // WHICH EDGES ARE FALLING, nought or one per edge of a slot pair, the
+  // solver's own latch and its own packing. A texture nx wide and as tall as
+  // that takes: two edges a column, a plane per pair. @see latchAt
+  const fallingTex = viewOf(columns.falls.falling, nx, ny * 2 * layers * layers);
   const tint = tintSource();
   // WHICH QUADS EACH BAND DRAWS. The identity until something gathers it.
   // @see quadList
@@ -1493,7 +1533,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       resources: {
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
-        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
+        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex, uFalling: fallingTex,
         uTint: tint, uMaterial: material, uQuads: quads,
       },
     });
@@ -1528,7 +1568,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       resources: {
         water: underWater,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
-        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
+        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex, uFalling: fallingTex,
         uTint: tint, uMaterial: material, uQuads: quads,
       },
     });
@@ -1542,7 +1582,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     meshes,
     under,
     faces: 1,
-    sources: [depth, ground, washTex, foamTex, fx, fy, material, roof, brinkTex],
+    sources: [depth, ground, washTex, foamTex, fx, fy, material, roof, brinkTex, fallingTex],
     // THE SHADE RAMP, kept on the layer because the falls colour from it too:
     // a sheet and the surface it leaves are the same water, so they read the
     // same table. @see createSheet
@@ -1550,6 +1590,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     quads,
     wash, foam, layers, gather: null, fed: new Set(),
     groundSent: -1,
+    latchOn: -1,
     most: meshes.map((m) => m.geometry.instanceCount),
     drawing: true, cpuMs: 0, advectMs: 0, uploadMs: 0,
   };
@@ -1573,7 +1614,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
  */
 const FED: readonly (readonly [number, FieldName, 1 | 4])[] = [
   [0, "depth", 4], [2, "washNow", 4], [3, "foamNow", 4],
-  [4, "fx", 4], [5, "fy", 4], [6, "matByte", 1],
+  [4, "fx", 4], [5, "fy", 4], [6, "matByte", 1], [9, "falling", 4],
 ];
 /** Where the ground sits in `sources`. The one the device never writes. */
 const GROUND_AT = 1;
@@ -1589,6 +1630,14 @@ const ROOF_AT = 7;
  * @see createBrinkPass
  */
 const BRINK_AT = 8;
+/**
+ * And the solver's fall latch. In {@link FED}: the device copies it out. On the
+ * host-solver path it is uploaded like the rest. With the device solving on a
+ * map that cannot take the copy, the host's copy is not the device's latch and
+ * is not sent at all — the shaders are told it is not fresh and fall back to
+ * FALL_MIN. @see latchAt
+ */
+const FALLING_AT = 9;
 
 /** Just enough of the renderer to ask what stands behind a texture source. */
 type GpuTextureSystem = {
@@ -1671,6 +1720,8 @@ export function showGpuWater(wl: GpuWaterLayer, show: boolean) {
  */
 export type QuadGather = {
   pass: QuadsPass;
+  /** The layer it gathers for, whose latch flag it shares. @see latchAt */
+  layer: GpuWaterLayer;
   /** Where the ids land, in the shader's own texture. */
   into: GPUTexture;
   /** The last counts to come back, padded and clamped when they are used. */
@@ -1734,7 +1785,8 @@ export function attachQuadGather(
   const groundView = get(wl.sources[1]).createView();
   const roofView = get(wl.sources[ROOF_AT]).createView();
   const brinkView = get(wl.sources[BRINK_AT]).createView();
-  pass.bind(depthView, groundView, roofView, brinkView);
+  const fallingView = get(wl.sources[FALLING_AT]).createView();
+  pass.bind(depthView, groundView, roofView, brinkView, fallingView);
   // AND THE BRINK, which both this pass and the vertex shader read. Only where
   // the row rule allows the copy into the texture; otherwise there is no
   // texture to read and both of them run the scan. @see canCopyOut
@@ -1755,6 +1807,7 @@ export function attachQuadGather(
   }
   return {
     pass,
+    layer: wl,
     into: get(wl.quads),
     count: new Uint32Array(bands),
     grew: new Int32Array(bands),
@@ -1787,7 +1840,7 @@ export function gatherQuads(
   g.pass.say(
     columns.nx, columns.ny, COLUMNS_PER_TILE, h,
     columns.params.dryDepth, FALL_MIN, faces, columns.layers,
-    g.brink !== null,
+    g.brink !== null, g.layer.latchOn === 1,
   );
   const enc = device.createCommandEncoder({ label: "quads" });
   // THE BRINK FIRST, because the gathering reads it and so does the draw that
@@ -1933,6 +1986,21 @@ export function drawGpuWater(
       grp.update();
     }
   }
+  // AND WHETHER THE FALL LATCH IS FRESH, into the spare slot of uSlots, on
+  // the same terms. Fresh when the host is solving, because the host's latch
+  // is the solver's and goes up with the rest; fresh when the device is
+  // solving and copying it out; not otherwise, and then the grouping asks
+  // FALL_MIN alone rather than read a latch nobody is keeping. @see latchAt
+  const latch = !carried || wl.fed.has(FALLING_AT) ? 1 : 0;
+  if (wl.latchOn !== latch) {
+    wl.latchOn = latch;
+    for (const m of [...wl.meshes, ...wl.under]) {
+      const grp = m.shader?.resources.water as UniformGroup | undefined;
+      if (!grp) continue;
+      (grp.uniforms.uSlots as Float32Array)[3] = latch;
+      grp.update();
+    }
+  }
   const region = activeBox(columns);
   const tA = performance.now();
   if (region && dt > 0) {
@@ -1954,6 +2022,9 @@ export function drawGpuWater(
     // NEVER THE BRINK. @see BRINK_AT
     if (k === BRINK_AT) continue;
     if (carried && wl.fed.has(k)) continue;
+    // NOR A LATCH THE DEVICE IS NOT COPYING OUT: the host's copy is not the
+    // solver's then, and the shaders have been told not to read it.
+    if (carried && k === FALLING_AT) continue;
     // THE GROUND ONLY WHEN IT MOVES. With the device filling the rest, this
     // loop was uploading the terrain and nothing else — a quarter of a
     // megabyte a frame to say what it said last frame. The CPU path still

@@ -1,3 +1,4 @@
+import { FALL_STOP } from "../../fluid/falls";
 import { shaderModule } from "../../fluid/gpu/state";
 /**
  * WHICH QUADS ARE WORTH DRAWING, gathered once a frame.
@@ -39,7 +40,7 @@ const QUADS_WGSL = (drawdown: number) => `
 struct Say {
   dims: vec4<i32>,        // nx, ny, columns per tile, tiles high
   a: vec4<f32>,           // dryDepth, fallMin, faces on, slots
-  b: vec4<f32>,           // brink texture filled, spare, spare, spare
+  b: vec4<f32>,           // brink texture filled, fall latch fresh, spare, spare
 };
 @group(0) @binding(0) var<uniform> say : Say;
 @group(0) @binding(1) var uDepth : texture_2d<f32>;
@@ -54,6 +55,8 @@ struct Say {
 @group(0) @binding(6) var uRoof : texture_2d<f32>;
 // How hard each slot is leaving, worked out once a frame. See brink-gpu.
 @group(0) @binding(7) var uBrink : texture_2d<f32>;
+// Which edges the solver says are falling. See water-gpu's latchAt.
+@group(0) @binding(8) var uFalling : texture_2d<f32>;
 
 // NO BACKTICKS IN HERE — a backtick in a comment ends the template literal.
 
@@ -61,6 +64,7 @@ fn nx() -> i32 { return say.dims.x; }
 fn ny() -> i32 { return say.dims.y; }
 fn dryDepth() -> f32 { return say.a.x; }
 fn fallMin() -> f32 { return say.a.y; }
+fn fallStop() -> f32 { return ${FALL_STOP}.0; }
 // How many STOREYS a column has, and where a storey's plane of rows begins.
 // See water-gpu, where the layout is argued.
 fn slots() -> i32 { return i32(say.a.w); }
@@ -89,6 +93,14 @@ fn wet(d: f32) -> bool { return d > dryDepth(); }
 fn bitOf(k: i32) -> i32 { return 1i << u32(k); }
 fn bitAt(m: i32, k: i32) -> i32 { return (m >> u32(k)) & 1; }
 fn brinkOn() -> bool { return say.b.x > 0.5; }
+// Whether the solver's latch says this edge is already falling — water-gpu's
+// twin, where the packing and the fallback are argued. This pass groups water
+// exactly as the vertex shader does, so it has to ask the same bar.
+fn latchAt(x: i32, y: i32, axis: i32, a: i32, b: i32) -> bool {
+  if (say.b.y < 0.5) { return false; }
+  let k = ((a * slots() + b) * nx() * ny() + y * nx() + x) * 2 + axis;
+  return textureLoad(uFalling, vec2<i32>(k % nx(), k / nx()), 0).r > 0.5;
+}
 
 ${brinkRuleSource("wgsl")}
 // Read where the brink pass has been, run where it has not — this pass shares
@@ -195,7 +207,7 @@ export type QuadsPass = {
   layout: GPUBindGroupLayout;
   bind: (
     depth: GPUTextureView, ground: GPUTextureView, roof: GPUTextureView,
-    brink: GPUTextureView,
+    brink: GPUTextureView, falling: GPUTextureView,
   ) => void;
   /** Where the ids go, for the copy into the shader's texture. */
   list: GPUBuffer;
@@ -203,7 +215,7 @@ export type QuadsPass = {
   say: (
     nx: number, ny: number, cpt: number, tilesHigh: number,
     dryDepth: number, fallMin: number, faces: boolean, slots: number,
-    brinkOn: boolean,
+    brinkOn: boolean, latchOn: boolean,
   ) => void;
   destroy: () => void;
 };
@@ -244,6 +256,10 @@ export function createQuadsPass(
       },
       {
         binding: 7, visibility: GPUShaderStage.COMPUTE,
+        texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
+      },
+      {
+        binding: 8, visibility: GPUShaderStage.COMPUTE,
         texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
       },
     ],
@@ -322,7 +338,7 @@ export function createQuadsPass(
 
   return {
     layout, list, counts,
-    bind: (depth, ground, roof, brink) => {
+    bind: (depth, ground, roof, brink, falling) => {
       // ONCE PER TEXTURE PAIR, not once per dispatch. The pair only changes
       // when the scene is rebuilt.
       group = device.createBindGroup({
@@ -336,15 +352,16 @@ export function createQuadsPass(
           { binding: 5, resource: { buffer: slice } },
           { binding: 6, resource: roof },
           { binding: 7, resource: brink },
+          { binding: 8, resource: falling },
         ],
       });
     },
-    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots, brinkOn) => {
+    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots, brinkOn, latchOn) => {
       const buf = new ArrayBuffer(48);
       new Int32Array(buf, 0, 4).set([nx, ny, cpt, tilesHigh]);
       // The fourth was the cap, which is per band now and comes from `slice`.
       new Float32Array(buf, 16, 4).set([dryDepth, fallMin, faces ? 1 : 0, slots]);
-      new Float32Array(buf, 32, 4).set([brinkOn ? 1 : 0, 0, 0, 0]);
+      new Float32Array(buf, 32, 4).set([brinkOn ? 1 : 0, latchOn ? 1 : 0, 0, 0]);
       device.queue.writeBuffer(uniform, 0, buf);
     },
     encode: (enc, cells) => {

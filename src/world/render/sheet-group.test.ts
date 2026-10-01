@@ -13,8 +13,10 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { addWater, createColumnField, surfaceAt, type ColumnField } from "../../fluid/columns";
-import { FALL_MIN } from "../../fluid/falls";
+import {
+  addWater, at, createColumnField, stepFlow, surfaceAt, type ColumnField,
+} from "../../fluid/columns";
+import { FALL_MIN, FALL_STOP, dropAt, fallEdge, markCliffs } from "../../fluid/falls";
 import { OPEN_SKY } from "../../fluid/slots";
 import {
   CORNER_COLUMNS, contribOf, cornerMask, cornerMasksInto, sameSheet, shows,
@@ -214,6 +216,61 @@ describe("a bridge", () => {
     for (let y = 2; y <= 5; y++) for (let x = 2; x <= 5; x++) addWater(f, x, y, 3, 1, 1);
     // Corner (3,3): the kerb at (2,2) and the deck at (3,3).
     expect(maskAt(f, 3, 3, 2, 2, 1)).toBe(maskAt(f, 3, 3, 3, 3, 1));
+  });
+});
+
+describe("a sheet splits where the solver says water falls, and nowhere else", () => {
+  /** A shelf ten high over a walled floor, poured on at its lip. */
+  const shelf = () => {
+    const f = createColumnField(20, 12, undefined, 0.5);
+    for (let y = 0; y < 12; y++) {
+      for (let x = 0; x < 20; x++) {
+        f.ground[at(f, x, y)] = y < 2 || y > 9 || x > 17 ? 40 : x < 10 ? 10 : 0;
+      }
+    }
+    return f;
+  };
+
+  test("a lip the solver is holding open stays two sheets in the band", () => {
+    // Asked with FALL_MIN alone, the surface either side of a fall the solver
+    // was holding open merged and split with every ripple in the pool below:
+    // 1,848 switches in forty seconds on the cascade's lips against the
+    // solver's 360. @see FALL_STOP
+    const f = shelf();
+    for (let y = 2; y <= 9; y++) {
+      addWater(f, 9, y, 1, 1);
+      for (let x = 10; x <= 17; x++) addWater(f, x, y, 7, 1);   // a drop of three
+    }
+    const ia = at(f, 9, 5), jb = at(f, 10, 5);
+    const k = fallEdge(f, ia, 0);
+    f.falls.falling[k] = 0;                         // not falling: under FALL_MIN
+    expect(sameSheet(f, ia, jb)).toBe(true);
+    f.falls.falling[k] = 1;                         // falling: over FALL_STOP
+    expect(sameSheet(f, ia, jb)).toBe(false);
+    // And it is the same edge whichever column asks.
+    expect(sameSheet(f, jb, ia)).toBe(false);
+    expect(FALL_STOP).toBeLessThan(FALL_MIN);
+  });
+
+  test("and over a running pour the grouping never disagrees with the solver", () => {
+    const f = shelf();
+    for (let y = 2; y <= 9; y++) for (let x = 10; x <= 17; x++) addWater(f, x, y, 5, 1);
+    let lips = 0, disagree = 0;
+    for (let n = 0; n < 240; n++) {
+      for (let y = 4; y <= 7; y++) addWater(f, 8, y, 0.4, 1);
+      stepFlow(f, 1 / 60);
+      markCliffs(f);
+      for (let q = 0; q < f.falls.cliffN; q++) {
+        const e = f.falls.cliff[q];
+        const i = e >> 1, axis = e & 1;
+        const j = i + (axis === 0 ? 1 : f.nx);
+        if (f.depth[i] <= f.params.dryDepth || f.depth[j] <= f.params.dryDepth) continue;
+        lips++;
+        if (sameSheet(f, i, j) === (dropAt(f, i, axis) !== 0)) disagree++;
+      }
+    }
+    expect(lips).toBeGreaterThan(500);
+    expect(disagree).toBe(0);
   });
 });
 
