@@ -721,6 +721,38 @@ describe("the edge of a deck", () => {
     expect(totalWater(field.columns)).toBeGreaterThan(put * 0.4);
     expect(totalVolume(field, g)).toBeCloseTo(put, 1);
   }, 20_000);
+
+  test("and the channel under it, running full, holds no more than the channel beside it", () => {
+    // THE SPONGE. Past its roof a slot's head was a twenty-fourth of its
+    // excess, so it took twenty-four of water to lift the head by one and
+    // every column under a flooded span soaked up the river: 67.5 deep in a
+    // gap of twelve on the crossing fixture, still climbing, and the substeps
+    // for the whole map sized from it. @see PRESSURE_SLOT
+    const { g, field } = spanned();
+    setWaterEdge(field, false);
+    const c = field.columns;
+    // Flood the open ground to 16, which is over the soffit at 10, the deck
+    // at 12 and its kerb at 14. The channel under the span fills from the side.
+    for (let ty = 0; ty < g.h; ty++) {
+      for (let tx = 0; tx < g.w; tx++) {
+        if (!deckedAt(field, tx, ty)) pourAt(field, tx, ty, 36, 1);
+      }
+    }
+    for (let n = 0; n < 60 * 10; n++) stepWater(field, 1 / 60);
+    let under = 0, open = 0, roofed = 0;
+    for (let i = 0; i < c.cells; i++) {
+      if (c.roof[i] < OPEN_SKY) { under = Math.max(under, c.depth[i]); roofed++; }
+      else open = Math.max(open, c.depth[i]);
+    }
+    // It really is running full and the river really is over the soffit, or
+    // this proves nothing about a pressurised slot.
+    expect(roofed).toBeGreaterThan(0);
+    expect(c.ground[0] + open).toBeGreaterThan(c.roof[(4 * 5 + 1) * c.nx + 4 * 5 + 1]);
+    // The column under the span is as deep as the open channel, not 24 times
+    // the excess deeper — and so is the deepest number the substeps read.
+    expect(under).toBeLessThan(open + 0.5);
+    expect(c.deepest).toBeLessThan(open + 0.5);
+  }, 20_000);
 });
 
 /**

@@ -50,9 +50,10 @@ struct Edge { head: f32, carry: f32, drag: f32, joined: bool };
  * The HYDRAULIC surface of a slot: what the head is measured to.
  *
  * Below the roof this is the plain floor plus depth it has always been. Above
- * it the extra depth is in a narrow slot and buys little height, so a conduit
+ * it each unit of extra depth buys PRESSURE_SLOT of height, so a conduit
  * running full goes on flowing under pressure instead of quietly stopping —
- * Preissmann. The twin of head in fluid/slots.
+ * Preissmann. The twin of head in fluid/slots, which says why the slot is as
+ * wide as the conduit.
  */
 fn headOf(i: i32) -> f32 {
   let floor = groundAt(i);
@@ -76,17 +77,21 @@ fn edgeAt(i: i32, j: i32, si: f32) -> Edge {
   if (!e.joined) { return e; }
   // AND FROM THE LID DOWNWARDS, which is the same argument stood on its head:
   // an edge is a GAP and a gap has a top. Water four steps deep against an
-  // opening one step tall pushes through one step of opening. On an uncovered
-  // slot the lid is the sky and this never binds.
+  // opening one step tall pushes through one step of opening — so the CARRY
+  // is capped by the gap. The HEAD is not: capped too, a slot running full
+  // reads exactly the gap on both sides, a head of nought, and never pushes
+  // back, so momentum rams water into it with nothing to stop it. The twin of
+  // accelerate in fluid/columns. On an uncovered slot the lid is the sky and
+  // neither cap binds.
   let gap = lid - sill;
-  let hi = clamp(si - sill, 0.0, gap);
-  let hj = clamp(headOf(j) - sill, 0.0, gap);
+  let hi = max(si - sill, 0.0);
+  let hj = max(headOf(j) - sill, 0.0);
   let head = hi - hj;
   // carry is the depth on whichever side is UPHILL: the water with a path
   // across the edge. It doubles as the dry gate, and on level ground it is the
   // upstream depth. NO BACKTICKS ANYWHERE BELOW: this is a template literal,
   // and one in a shader comment ends the shader.
-  let carry = min(hMax(), select(hj, hi, head > 0.0));
+  let carry = min(hMax(), min(select(hj, hi, head > 0.0), gap));
   // upstream, not "from": that is a RESERVED KEYWORD in WGSL, and a shader
   // that fails to parse does not throw — the pass silently does nothing and
   // the readback shows the input unchanged, which reads exactly like a physics

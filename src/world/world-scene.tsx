@@ -98,7 +98,7 @@ import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, onDeviceLost } from "./render/device";
 import {
   compareAccelerate, compareCliffs, pour as pourScene,
-  scene as accelScene, spanned, spannedDry, spray,
+  scene as accelScene, spanned, spannedDry, spannedFull, spray,
 } from "../fluid/gpu/compare-pass";
 import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
@@ -863,7 +863,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // person watching the water would ask. @see compareFrames
         window.__frameCompare = async (
           frames = 60, sprayScene = false,
-          bridged: boolean | "dry" | "road" = false,
+          bridged: boolean | "dry" | "road" | "full" = false,
         ) => {
           const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
             .gpu?.device;
@@ -880,7 +880,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
           if (bridged) {
             return compareFrames(
-              device, frames, bridged === "dry" ? spannedDry : spanned,
+              device, frames,
+              bridged === "dry" ? spannedDry : bridged === "full" ? spannedFull : spanned,
               undefined, bridged === "dry" ? undefined : SPRAY_BOUNDS,
             );
           }
@@ -986,13 +987,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // wrong about a roof in any way at all and still come back clean.
         // @see spanned
         window.__spanPass = async (
-          settle = 30, through = "limit", solo = true, dry = false,
+          settle = 30, through = "limit", solo = true, dry: boolean | "full" = false,
         ) => {
           const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
             .gpu?.device;
           if (!device) return { ok: false, why: "no WebGPU device" };
           return compareAccelerate(
-            device, settle, dry ? spannedDry : spanned,
+            device, settle, dry === "full" ? spannedFull : dry ? spannedDry : spanned,
             through as "diffuse" | "accelerate" | "limit" | "divergence"
               | "apply" | "falls" | "landings",
             solo,

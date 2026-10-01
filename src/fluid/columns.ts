@@ -1793,8 +1793,8 @@ export function accelerate(f: ColumnField, c: PassConsts) {
           if (ra <= fa) { fx[p] = 0; fy[p] = 0; continue; }
           const da = depth[ia];
           // The HYDRAULIC surface, written out rather than called: past the
-          // roof the extra depth is in a narrow slot and buys little height,
-          // which is what lets a full conduit go on flowing. @see head
+          // roof the extra depth goes on buying height, which is what lets a
+          // full conduit go on flowing. @see head, PRESSURE_SLOT
           const rma = ra - fa;
           const sa = da <= rma ? fa + da : ra + (da - rma) * PRESSURE_SLOT;
           // SHELTERED SLOTS GET NO WEATHER. A gust is a thing that happens to
@@ -1818,10 +1818,17 @@ export function accelerate(f: ColumnField, c: PassConsts) {
               const gap = lid - sill;
               const db = depth[jb], rmb = rb - fb;
               const sb = db <= rmb ? fb + db : rb + (db - rmb) * PRESSURE_SLOT;
-              let hi = sa - sill; if (hi < 0) hi = 0; else if (hi > gap) hi = gap;
-              let hj = sb - sill; if (hj < 0) hj = 0; else if (hj > gap) hj = gap;
+              // THE PUSH IS THE WHOLE HEAD; ONLY WHAT IT MOVES IS CAPPED BY
+              // THE GAP. Both were capped once, and for a slot running full
+              // that is both sides reading exactly `gap` and a head of nought:
+              // the full slot never pushed back, and momentum rammed water
+              // into it with nothing to stop it — 1487 deep under a span with
+              // a gap of thirty. @see PRESSURE_SLOT
+              const hi = sa > sill ? sa - sill : 0;
+              const hj = sb > sill ? sb - sill : 0;
               const head = hi - hj;
-              const carry = Math.min(hMax, head > 0 ? hi : hj);
+              const up = head > 0 ? hi : hj;
+              const carry = Math.min(hMax, up < gap ? up : gap);
               const k = keepOf[material[head > 0 ? ia : jb]];
               const push = carry > 0 && Math.abs(head) > minHead;
               const q = push ? (fx[p] + gain * carry * head) * k : fx[p] * k;
@@ -1849,10 +1856,17 @@ export function accelerate(f: ColumnField, c: PassConsts) {
               const gap = lid - sill;
               const db = depth[jb], rmb = rb - fb;
               const sb = db <= rmb ? fb + db : rb + (db - rmb) * PRESSURE_SLOT;
-              let hi = sa - sill; if (hi < 0) hi = 0; else if (hi > gap) hi = gap;
-              let hj = sb - sill; if (hj < 0) hj = 0; else if (hj > gap) hj = gap;
+              // THE PUSH IS THE WHOLE HEAD; ONLY WHAT IT MOVES IS CAPPED BY
+              // THE GAP. Both were capped once, and for a slot running full
+              // that is both sides reading exactly `gap` and a head of nought:
+              // the full slot never pushed back, and momentum rammed water
+              // into it with nothing to stop it — 1487 deep under a span with
+              // a gap of thirty. @see PRESSURE_SLOT
+              const hi = sa > sill ? sa - sill : 0;
+              const hj = sb > sill ? sb - sill : 0;
               const head = hi - hj;
-              const carry = Math.min(hMax, head > 0 ? hi : hj);
+              const up = head > 0 ? hi : hj;
+              const carry = Math.min(hMax, up < gap ? up : gap);
               const k = keepOf[material[head > 0 ? ia : jb]];
               const push = carry > 0 && Math.abs(head) > minHead;
               const q = push ? (fy[p] + gain * carry * head) * k : fy[p] * k;

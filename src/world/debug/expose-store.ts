@@ -157,7 +157,7 @@ declare global {
     __pourLiveResult?: unknown;
     /** Whole frames, both solvers. @see compareFrames */
     __frameCompare?: (
-      frames?: number, spray?: boolean, bridged?: boolean | "dry" | "road",
+      frames?: number, spray?: boolean, bridged?: boolean | "dry" | "road" | "full",
     ) => Promise<unknown>;
     /** The cliff index, both ways. @see compareCliffs */
     __cliffCompare?: (
@@ -167,7 +167,7 @@ declare global {
     __sprayCompare?: (settle?: number, through?: string) => Promise<unknown>;
     /** One pass, on the scene with a bridge on it. @see spanned */
     __spanPass?: (
-      settle?: number, through?: string, solo?: boolean, dry?: boolean,
+      settle?: number, through?: string, solo?: boolean, dry?: boolean | "full",
     ) => Promise<unknown>;
     /**
      * The band layer, so a console session can move the camera.

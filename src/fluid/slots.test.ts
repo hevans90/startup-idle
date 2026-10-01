@@ -101,10 +101,18 @@ describe("the surface of a slot", () => {
     expect(head(0, OPEN_SKY, 500)).toBe(500);
   });
 
-  it("keeps climbing once the slot is full, but in something narrow", () => {
+  it("keeps climbing once the slot is full", () => {
     // Eight of room and ten of water: two are in the pressure slot.
     expect(head(0, 8, 10)).toBeCloseTo(8 + 2 * PRESSURE_SLOT, 10);
     expect(head(0, 8, 10)).toBeGreaterThan(8);
+  });
+
+  it("and a unit of head over the roof costs no more than a unit of water", () => {
+    // The sponge, pinned. This was a twenty-fourth multiplying the excess, so
+    // one of head over the soffit took twenty-four of water and the channel
+    // under every flooded deck soaked up the river. @see PRESSURE_SLOT
+    expect(head(0, 8, 9)).toBe(9);
+    expect(head(0, 8, 9 + 24) - 8).toBe(25);
   });
 
   it("is continuous at the moment it fills", () => {

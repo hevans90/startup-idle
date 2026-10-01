@@ -103,7 +103,7 @@ export function scene(wind = FLOW_DEFAULTS.wind): ColumnField {
  * runs once and the pair is (0,0) — so a scene with no deck on it exercises
  * exactly the arithmetic that was there before and says nothing at all about
  * the arithmetic that is new. This one has a channel roofed over its middle
- * and a deck above that, so the lid caps a head, an absent slot refuses an
+ * and a deck above that, so the lid caps a carry, an absent slot refuses an
  * edge, a road meets a deck across a pair that is not (0,0), and the rim,
  * the cliffs and the landings all have two storeys to sort out.
  */
@@ -200,6 +200,18 @@ export function spanned(
  * fifty. @see compareAccelerate, compareCliffs
  */
 export const spannedDry = () => spanned(0, 3, 5, 4);
+
+/**
+ * THE SAME BRIDGE IN A FLOOD: the river six over the soffit and four over the
+ * deck, so the channel under the span runs FULL.
+ *
+ * The other two never get there, so the one branch a flood takes — a slot
+ * whose head is past its roof — was compared on neither. It was also where a
+ * pressurised slot pushed back with a head of nought, because the head was
+ * capped by the gap as well as the carry, and the channel under a span soaked
+ * the river up without limit. @see PRESSURE_SLOT
+ */
+export const spannedFull = () => spanned(-8, 0, 2, 14);
 
 /**
  * A COLLAPSING POUR, which is the scene the other two never are.

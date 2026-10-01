@@ -60,36 +60,53 @@
 export const OPEN_SKY = 1e9;
 
 /**
- * How much a slot is pressurised past its roof, as a fraction.
+ * How much head a slot gains per unit of depth past its roof.
  *
  * WATER THAT FILLS ITS GAP DOES NOT STOP. A culvert running full is not a
  * culvert that has stopped flowing — it is one flowing under pressure, driven
  * by the head at either END rather than by the slope of a free surface. A
  * shallow-water scheme has no pressure term and cannot say that, so the
  * standard answer is Preissmann's: pretend the conduit continues upward as a
- * narrow slot. The water level keeps rising, but in something narrow, so a
- * little volume buys a lot of head — and a head gradient is the only thing
- * this solver knows how to be driven by.
+ * slot, and let the water level keep rising in it. A head gradient is the
+ * only thing this solver knows how to be driven by.
  *
- * The width ratio is the slot's to the conduit's. Small enough and the
- * pressurised wave runs at about the right speed; too small and it runs so
- * fast the substep cannot keep up with it. A twenty-fourth is the usual
- * compromise and is what this uses.
+ * ONE, which is a slot as wide as the conduit: past the roof the head goes on
+ * being `floor + depth`, exactly as if the soffit were not there, and only the
+ * renderer stops at it. @see wetTop
+ *
+ * This was a twenty-fourth, MULTIPLYING the excess — the narrow slot's
+ * arithmetic upside down. A narrow slot is a little volume buying a lot of
+ * head; this was twenty-four of volume buying one of head, a sponge under
+ * every deck. Measured on the `crossing` fixture flooded to 2.4 over the
+ * deck: columns under the span 67.5 deep in a gap of twelve and still
+ * climbing toward 117, nearly two thousand units stored where nobody could
+ * see them, and — because the substeps are sized from the deepest column on
+ * the map — three substeps for the whole map where the open water needed
+ * two, heading for four.
+ *
+ * The narrow slot done the right way round was the other choice, and is the
+ * wrong one here. Its wave runs `1 / sqrt(width)` times faster than the open
+ * water's — about five times at a twenty-fourth — and the substeps would have
+ * to follow it on any map with a bridge in a flood. Full width adds no
+ * stiffness at all: the column under a span is exactly as deep as the open
+ * channel beside it, so the substep sizing sees nothing it has not already
+ * seen. What it costs is a little fictional storage — one unit per half step
+ * of head over the soffit, where the old slot took twenty-four.
  *
  * It matters for exactly one thing here, and that thing is a flood: water
  * under a bridge deep enough to touch the soffit. Without it the water simply
  * stops noticing it is full and sits there with a surface drawn through the
  * deck. With it, it backs up and goes round, which is what it does.
  */
-export const PRESSURE_SLOT = 1 / 24;
+export const PRESSURE_SLOT = 1;
 
 /**
  * The HYDRAULIC surface of a slot: what the head is measured to.
  *
  * Below the roof this is the plain `floor + depth` it has always been. Above
- * it the extra depth is in the narrow slot and buys `PRESSURE_SLOT` of its
- * height, so the surface keeps climbing and keeps driving flow, but the water
- * is no longer where the surface says it is. That is the whole of the
+ * it each unit of extra depth buys `PRESSURE_SLOT` of height, so the surface
+ * keeps climbing and keeps driving flow, but the water is no longer where the
+ * surface says it is — there is a deck in the way. That is the whole of the
  * approximation and it is why the RENDERER must not use this — see
  * {@link wetTop}.
  */
