@@ -1228,8 +1228,19 @@ fn flowYAt(ia: i32) -> f32 {
   return clamp(v, -${num(MAX_FLOW_SPEED)}, ${num(MAX_FLOW_SPEED)});
 }
 
-/** What a lip throws at that speed. @see throwOf */
-fn throwOf(speed: f32) -> f32 { return min(${num(FALL_THROW)}, max(0.0, speed)); }
+/**
+ * What a lip throws at that speed. @see throwOf
+ *
+ * A CAP ON THE MAGNITUDE, both ways, as the host's is. This clamped at nought
+ * after the host stopped, so every west- and north-facing lip on the device
+ * threw nothing and hung dead vertical, and the across component lost its
+ * sign. __cliffCompare counted 769 lips differing, every one a negative throw
+ * on the host and nought here. The outward rule is not here; it is applied
+ * where the axis is known — the twin of outward() in fluid/falls.
+ */
+fn throwOf(speed: f32) -> f32 {
+  return clamp(speed, -${num(FALL_THROW)}, ${num(FALL_THROW)});
+}
 
 fn kickXAt(i: i32) -> f32 { return field[consts.o8.x + i]; }
 fn kickYAt(i: i32) -> f32 { return field[consts.o8.y + i]; }

@@ -19,10 +19,10 @@
 import {
   FLOW_DEFAULTS, MATERIAL_SLOTS, accelerate, activeBox, addWater,
   applyDepths, applyLandings, createColumnField, diffuseBreaking, divergence,
-  limit,
+  flowX, flowY, limit,
   stepFlow, type ColumnField, type PassConsts,
 } from "../columns";
-import { markCliffs, stepFalls } from "../falls";
+import { THROW_EASE, markCliffs, stepFalls, throwOf } from "../falls";
 import { FALL_MIN } from "../falls";
 import { dripRoom } from "../drips";
 import { OPEN_SKY } from "../slots";
@@ -1065,6 +1065,23 @@ export async function compareCliffs(
   let seeded = 0;
   for (let i = 0; i < wasCol.length; i++) {
     if (!wasCol[i] && cpu.falls.cliffCol[i]) seeded++;
+  }
+  // AND ONE FRAME OF THE EASE, which the device's cliffs pass does and
+  // markCliffs does not. The host eases inside stepFalls, once a substep; the
+  // device moved it here, once a frame on frameDt, and the two compose to the
+  // same filter (@see cliffs). Left out, every settled lip read as differing
+  // by one ease step whatever the device did — so this comparison could not
+  // see the device throwing NOUGHT at every backward lip, because its count
+  // was the same with the fault as without it. The box is the whole map, as
+  // writeConsts above says it is.
+  const ease = 1 - Math.exp(-(1 / 60) / THROW_EASE);
+  const { throwX, throwY } = cpu.falls;
+  for (let ia = 0; ia < wasCol.length; ia++) {
+    if (!wasCol[ia] || !cpu.falls.cliffCol[ia]) continue;
+    const i = ia % cpu.cells, a = (ia / cpu.cells) | 0;
+    const x = i % cpu.nx, y = (i / cpu.nx) | 0;
+    throwX[ia] += (throwOf(flowX(cpu, x, y, a)) - throwX[ia]) * ease;
+    throwY[ia] += (throwOf(flowY(cpu, x, y, a)) - throwY[ia]) * ease;
   }
 
   const gCliff = await readField(state, "cliff");

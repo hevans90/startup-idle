@@ -220,6 +220,11 @@ fn share(a: f32, b: f32, j: i32) -> f32 {
   return (a + b) * 0.5;
 }
 
+/** A throw never points back into the rock it left. The twin of outward(). */
+fn outward(v: f32, rev: bool) -> f32 { return select(max(0.0, v), min(0.0, v), rev); }
+fn alongX(v: f32, axis: i32, rev: bool) -> f32 { return select(v, outward(v, rev), axis == 0); }
+fn alongY(v: f32, axis: i32, rev: bool) -> f32 { return select(v, outward(v, rev), axis == 1); }
+
 ${sheetRuleSource()}
 
 fn driftAt(speed: f32, below: f32) -> f32 {
@@ -297,10 +302,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let bi = max(back, 0);
   let fi = max(fwd, 0);
 
-  let axThrow = share(throwXAt(src), throwXAt(bi), back);
-  let ayThrow = share(throwYAt(src), throwYAt(bi), back);
-  let bxThrow = share(throwXAt(src), throwXAt(fi), fwd);
-  let byThrow = share(throwYAt(src), throwYAt(fi), fwd);
+  // ALONG THE AXIS IT POURS OVER, never back into the rock; the across
+  // component keeps its sign. The twin of outward() in falls-render. Hidden
+  // while the device's throw could not go negative, which made it a no-op on
+  // every east and south lip.
+  let axThrow = alongX(share(throwXAt(src), throwXAt(bi), back), axis, rev);
+  let ayThrow = alongY(share(throwYAt(src), throwYAt(bi), back), axis, rev);
+  let bxThrow = alongX(share(throwXAt(src), throwXAt(fi), fwd), axis, rev);
+  let byThrow = alongY(share(throwYAt(src), throwYAt(fi), fwd), axis, rev);
 
   // THE FOAM OF THE SLOT IT IS LEAVING; the wash is the world's and per
   // column, so it keeps the column index. @see stepFoam
