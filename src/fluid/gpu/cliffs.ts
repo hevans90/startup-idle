@@ -127,6 +127,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if ((joined && max(stepDown, -stepDown) >= ${f(FALL_MIN)})
           || airAt(k) > 0.0 || frontAt(k) > 0.0) {
           claim(k);
+          // THE LATCH, asked with last frame's and written for this one. This
+          // thread owns the edge and dropAt reads only this edge's latch, so
+          // no other thread reads what it writes. See FALL_STOP, markCliffs.
+          setFalling(k, select(0.0, 1.0, dropAt(i, 0, a, b) != 0.0));
+        } else {
+          setFalling(k, 0.0);
         }
       }
       if (y + 1 < ny()) {
@@ -136,6 +142,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if ((joined && max(stepDown, -stepDown) >= ${f(FALL_MIN)})
           || airAt(k + 1) > 0.0 || frontAt(k + 1) > 0.0) {
           claim(k + 1);
+          setFalling(k + 1, select(0.0, 1.0, dropAt(i, 1, a, b) != 0.0));
+        } else {
+          setFalling(k + 1, 0.0);
         }
       }
       // AND WHETHER THIS COLUMN IS A LIP IS A QUESTION ABOUT ITS OWN FOUR

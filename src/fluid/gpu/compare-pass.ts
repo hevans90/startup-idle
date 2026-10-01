@@ -1035,6 +1035,10 @@ export async function compareCliffs(
 ): Promise<{
   ok: boolean; cpuN: number; gpuN: number; missing: number[]; extra: number[];
   colDiff: number; throwDiff: number; worstThrow: number; seeded: number;
+  /** Edges whose fall latch the two disagree about. @see FALL_STOP */
+  latchDiff: number;
+  /** And how many edges are latched at all, so a nought is not vacuous. */
+  latched: number;
   /** Which slots the throw differs at, and what each side holds there. */
   throwSaid: unknown[];
   deviceSaid: string | null;
@@ -1100,6 +1104,14 @@ export async function compareCliffs(
   const gCol = await readField(state, "cliffCol");
   const gThrowX = await readField(state, "throwX");
   const gThrowY = await readField(state, "throwY");
+  // THE FALL LATCH, set by the same pass: an edge falling on one side and not
+  // the other is a fall that starts or stops a frame apart. @see FALL_STOP
+  const gFalling = await readField(state, "falling");
+  let latchDiff = 0, latched = 0;
+  for (let k = 0; k < cpu.falls.falling.length; k++) {
+    if (cpu.falls.falling[k]) latched++;
+    if ((cpu.falls.falling[k] ? 1 : 0) !== (gFalling[k] > 0.5 ? 1 : 0)) latchDiff++;
+  }
   const gpuN = readReduce(new Int32Array(
     await readRaw(device, state.reduce, REDUCE_SLOTS * 4),
   )).cliffN;
@@ -1138,8 +1150,8 @@ export async function compareCliffs(
   state.destroy();
   return {
     ok: said === null && gpuN === cpu.falls.cliffN && !missing.length
-      && !extra.length && colDiff === 0 && throwDiff === 0,
+      && !extra.length && colDiff === 0 && throwDiff === 0 && latchDiff === 0,
     cpuN: cpu.falls.cliffN, gpuN, missing, extra, colDiff, throwDiff,
-    throwSaid, worstThrow, seeded, deviceSaid: said,
+    throwSaid, worstThrow, seeded, latchDiff, latched, deviceSaid: said,
   };
 }

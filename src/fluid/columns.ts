@@ -887,6 +887,9 @@ export function rebuildSlots(f: ColumnField): void {
   if (!moved) return;
   f.fx.fill(0, cells);
   f.fy.fill(0, cells);
+  // And the fall latch with them: a plane the passes stopped visiting must not
+  // come back believing its edges are already falling. @see FallState.falling
+  f.falls.falling.fill(0, cells * 2);
 }
 
 /**

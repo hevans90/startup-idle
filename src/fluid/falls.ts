@@ -45,6 +45,29 @@ export const FALL_GRAVITY = 90;
 export const FALL_MIN = 4;
 
 /**
+ * Below this a fall ALREADY RUNNING stops, in half steps. @see FALL_MIN
+ *
+ * TWO THRESHOLDS, NOT ONE, for the reason breaking has two. A lip whose pool
+ * below stands about `FALL_MIN` under it sits on the bar, and every ripple in
+ * the pool takes it across: the edge switched between a step the water flows
+ * over and a fall it drops off, with the sheet, the plunge and the spray
+ * coming and going, up to nineteen times in forty seconds on the cascade
+ * fixture — 186 of its 2,816 lips six times or more. A fall starts at
+ * `FALL_MIN` and, once running, stops only below this: at two, not one lip
+ * there switches six times.
+ *
+ * HELD IN A LATCH, once a frame — see `FallState.falling` — and not in the
+ * water in the air, which was the obvious memory and does not work: a fall
+ * four or five steps tall lands within a frame, so there is usually nothing
+ * in the air at a frame's end even while it pours, and holding on that made
+ * the switching four times WORSE.
+ *
+ * Under `FALL_MIN` by less than it, so a drop still cannot be a fall both
+ * ways at once — `dropAt`'s one signed number survives. @see dropAt
+ */
+export const FALL_STOP = 2;
+
+/**
  * How long a fall stays attached to its lip after the last water crosses.
  *
  * The flux over an edge is a real quantity in a real simulation and it crosses
@@ -288,6 +311,17 @@ export type FallState = {
    */
   readonly cliffNow: Uint8Array;
   /**
+   * WHICH EDGES WERE FALLING when this frame began, per edge of a slot pair,
+   * the same index as `air`. The latch {@link FALL_STOP} is held in.
+   *
+   * Set once a frame in `markCliffs`, from `dropAt` asked with last frame's
+   * latch, and only on an edge in the cliff index — every other edge is
+   * cleared there, so an edge whose cliff has been edited away cannot go on
+   * answering with the lower bar. Read by `dropAt` everywhere else. The
+   * device keeps its own and sets it the same way, in the cliffs pass.
+   */
+  readonly falling: Uint8Array;
+  /**
    * WHICH SUBSTEP EACH SLOT LAST EASED ITS THROW ON, and the number of the
    * one running.
    *
@@ -347,6 +381,7 @@ export function createFalls(nx: number, ny: number, layers = 1): FallState {
     cliffN: 0,
     cliffCol: new Uint8Array(cols),
     cliffNow: new Uint8Array(cols),
+    falling: new Uint8Array(n),
     eased: new Int32Array(cols).fill(-1),
     easedRun: 0,
   };
@@ -393,7 +428,7 @@ function isLip(
 export function markCliffs(f: ColumnField) {
   const { nx, ny, cells, layers, ground, roof } = f;
   const s = f.falls;
-  const { air, front, cliffCol, cliffNow } = s;
+  const { air, front, cliffCol, cliffNow, falling } = s;
   let n = 0;
   cliffNow.fill(0);
   // THE SLOT PAIR OUTSIDE, for the reason `accelerate` sets out: walked
@@ -436,6 +471,12 @@ export function markCliffs(f: ColumnField) {
             if ((joined && (step >= FALL_MIN || -step >= FALL_MIN))
               || air[k] > 0 || front[k] > 0) {
               s.cliff[n++] = k;
+              // THE LATCH, asked with last frame's, written for this one.
+              // Only this edge's own latch is read by its own dropAt, so the
+              // order across edges does not matter. @see falling
+              falling[k] = dropAt(f, i, 0, a, b) !== 0 ? 1 : 0;
+            } else {
+              falling[k] = 0;
             }
           }
           if (y + 1 < ny) {
@@ -446,6 +487,9 @@ export function markCliffs(f: ColumnField) {
             if ((joined && (step >= FALL_MIN || -step >= FALL_MIN))
               || air[k + 1] > 0 || front[k + 1] > 0) {
               s.cliff[n++] = k + 1;
+              falling[k + 1] = dropAt(f, i, 1, a, b) !== 0 ? 1 : 0;
+            } else {
+              falling[k + 1] = 0;
             }
           }
           // AND WHETHER THIS COLUMN IS A LIP IS A QUESTION ABOUT ITS OWN FOUR
@@ -522,6 +566,10 @@ export const besideAt = (f: ColumnField, j: number) =>
  *
  * Read off the GROUND on the far side, not its surface: a pool at the foot of
  * a cliff shortens the fall, and once it is deep enough there is no fall left.
+ *
+ * AND THE BAR DEPENDS ON WHETHER IT WAS ALREADY FALLING: `FALL_MIN` to start,
+ * `FALL_STOP` to keep going, read off the latch `markCliffs` sets. @see
+ * FALL_STOP
  */
 export function dropAt(
   f: ColumnField, i: number, axis: number, a = 0, b = 0,
@@ -531,10 +579,11 @@ export function dropAt(
   if (jx >= f.nx || jy >= f.ny) return 0;
   const cells = f.cells;
   const ia = a * cells + i, jb = b * cells + jy * f.nx + jx;
+  const bar = f.falls.falling[fallEdge(f, i, axis, a * f.layers + b)] ? FALL_STOP : FALL_MIN;
   const there = f.ground[ia] - besideAt(f, jb);
-  if (there >= FALL_MIN) return there;
+  if (there >= bar) return there;
   const back = f.ground[jb] - besideAt(f, ia);
-  return back >= FALL_MIN ? -back : 0;
+  return back >= bar ? -back : 0;
 }
 
 /**

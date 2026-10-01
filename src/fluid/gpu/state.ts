@@ -58,7 +58,7 @@
 import {
   MATERIAL_SLOTS, MAX_FLOW_SPEED, rimLength, type Arrivals, type ColumnField,
 } from "../columns";
-import { FALL_THROW } from "../falls";
+import { FALL_STOP, FALL_THROW } from "../falls";
 import type { Stamps } from "./stamps";
 
 /** A number WGSL will read as an f32 — an integer needs its point. */
@@ -362,6 +362,10 @@ export const FIELDS = [
   // a field that is stale rather than one that is frozen. @see WANT_MAX
   "wantAt", "wantOut",
   "rim", "roof",
+  // WHICH EDGES WERE FALLING when the frame began: the latch FALL_STOP is held
+  // in. Per edge of a slot pair, like air, and the device's own — set in the
+  // cliffs pass and read by dropAt. @see FallState.falling
+  "falling",
 ] as const;
 export type FieldName = (typeof FIELDS)[number];
 
@@ -518,6 +522,7 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     // THE UNDERSIDE OF WHATEVER IS OVER A SLOT, one per slot, like the
     // ground it is the ceiling of. @see ColumnField.roof
     roof: slotCells,
+    falling: pairCells * 2,
   };
   const offset = {} as Record<FieldName, number>;
   let at = 0;
@@ -918,6 +923,9 @@ export function upload(s: GpuState, f: ColumnField) {
   // a byte array, so it rides widened like the material does.
   for (let i = 0; i < s2.cliffCol.length; i++) wide[i] = s2.cliffCol[i];
   put("cliffCol", wide);
+  // The fall latch, READ BEFORE IT IS WRITTEN for the same reason, and per
+  // edge so it is longer than the scratch above. @see FALL_STOP
+  put("falling", Float32Array.from(s2.falling));
 }
 
 /**
@@ -994,7 +1002,7 @@ export function writeConsts(
   i32[77] = o.rim;
   i32[78] = u.rimMaterial;
   i32[79] = u.rimHeld ? 1 : 0;
-  i32[80] = o.roof; i32[81] = u.slots;
+  i32[80] = o.roof; i32[81] = u.slots; i32[82] = o.falling;
   i32[68] = o.foamNow; i32[69] = o.foamNext;
   i32[70] = o.splashNow; i32[71] = o.splashIn;
   f32[51] = u.frameDt;
@@ -1071,7 +1079,7 @@ struct Consts {
   o11: vec4<i32>,        // offsets: foamNow, foamNext, splashNow, splashIn
   o12: vec4<i32>,        // offset: matByte, open edge, wantAt, wantOut
   o13: vec4<i32>,        // wantN, then the rim: offset, material, whether held
-  o14: vec4<i32>,        // roof: offset, how many storeys, 2 spare
+  o14: vec4<i32>,        // roof: offset, how many storeys; falling: offset; spare
 };
 
 @group(0) @binding(0) var<uniform> consts : Consts;
@@ -1251,6 +1259,9 @@ fn setKickY(i: i32, v: f32) { field[consts.o8.y + i] = v; }
 fn setCapX(i: i32, v: f32) { field[consts.o8.z + i] = v; }
 fn setCapY(i: i32, v: f32) { field[consts.o8.w + i] = v; }
 fn cliffColAt(i: i32) -> f32 { return field[consts.o9.x + i]; }
+/** Whether edge k was falling when the frame began. The latch, see FALL_STOP. */
+fn fallingAt(k: i32) -> f32 { return field[consts.o14.z + k]; }
+fn setFalling(k: i32, v: f32) { field[consts.o14.z + k] = v; }
 /** The arrivals list: how many, and the nth one's five numbers. */
 fn arriveCount() -> i32 { return consts.o9.z; }
 fn arriveAt(n: i32, part: i32) -> f32 {
@@ -1414,10 +1425,13 @@ fn dropAt(i: i32, axis: i32, a: i32, b: i32) -> f32 {
   if (jx >= nx() || jy >= ny()) { return 0.0; }
   let ia = slotBase(a) + i;
   let jb = slotBase(b) + jy * nx() + jx;
+  // FALL_MIN TO START, FALL_STOP TO KEEP GOING, off the latch the cliffs pass
+  // sets once a frame. The twin of dropAt in fluid/falls. See FALL_STOP.
+  let bar = select(fallMin(), ${num(FALL_STOP)}, fallingAt((pairBase(a, b) + i) * 2 + axis) > 0.5);
   let there = groundAt(ia) - besideAt(jb);
-  if (there >= fallMin()) { return there; }
+  if (there >= bar) { return there; }
   let back = groundAt(jb) - besideAt(ia);
-  return select(0.0, -back, back >= fallMin());
+  return select(0.0, -back, back >= bar);
 }
 `;
 

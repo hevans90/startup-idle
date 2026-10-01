@@ -12,8 +12,8 @@ import {
   totalWater,
 } from "./columns";
 import {
-  BREAK, FALL_GRAVITY, FALL_MIN, FALL_THROW, driftAt, fallExtent, landsAt, outward,
-  throwOf, waterInAir,
+  BREAK, FALL_GRAVITY, FALL_MIN, FALL_STOP, FALL_THROW, driftAt, dropAt, fallEdge,
+  fallExtent, landsAt, markCliffs, outward, throwOf, waterInAir,
 } from "./falls";
 import { DROP, dripRoom, waterInDrips } from "./drips";
 
@@ -43,6 +43,57 @@ function below(f: ReturnType<typeof cliff>) {
   for (let y = 0; y < 12; y++) for (let x = 10; x < 18; x++) v += f.depth[at(f, x, y)];
   return v;
 }
+
+describe("a fall starts at one bar and stops at a lower one", () => {
+  // A lip whose pool below stands about FALL_MIN under it sat on the bar, and
+  // every ripple took it across: on the cascade fixture 186 of 2,816 lips
+  // switched between a step and a fall six times or more in forty seconds, up
+  // to nineteen. Latched, none does. @see FALL_STOP
+  /** The shelf's lip edge, from column 9 to 10, and the pool's surface. */
+  const lip = (f: ReturnType<typeof cliff>) => at(f, 9, 5);
+  const poolAt = (f: ReturnType<typeof cliff>, top: number) => {
+    for (let y = 2; y <= 9; y++) for (let x = 10; x <= 17; x++) f.depth[at(f, x, y)] = top;
+  };
+  const frame = (f: ReturnType<typeof cliff>) => { markCliffs(f); return dropAt(f, lip(f), 0); };
+
+  test("the bars are what the latch needs them to be", () => {
+    // Under FALL_MIN, or there is no band to hold a fall in; and above
+    // nought, so no drop can clear the lower bar BOTH ways at once — that
+    // would need the ground to stand above itself — and dropAt's one signed
+    // number survives.
+    expect(FALL_STOP).toBeLessThan(FALL_MIN);
+    expect(FALL_STOP).toBeGreaterThan(0);
+  });
+
+  test("a pool rising into the band keeps a running fall going", () => {
+    const f = cliff(10, 0);
+    poolAt(f, 5);                                   // a drop of five: a fall
+    expect(frame(f)).toBeGreaterThan(0);
+    poolAt(f, 7);                                   // three: under the bar to START
+    expect(frame(f)).toBeCloseTo(3, 6);             // but it is already running
+    poolAt(f, 9);                                   // one: under the bar to KEEP going
+    expect(frame(f)).toBe(0);
+    poolAt(f, 7);                                   // and back to three
+    expect(frame(f)).toBe(0);                       // which is not enough to start
+    poolAt(f, 5);
+    expect(frame(f)).toBeGreaterThan(0);
+  });
+
+  test("and an edge that stops being a cliff forgets it was falling", () => {
+    // The hazard a latch brings: an edge left latched after its cliff is
+    // edited away answers with the lower bar, a fall nothing steps, and the
+    // water that goes into its air never lands.
+    const f = cliff(10, 0);
+    poolAt(f, 5);
+    frame(f);
+    expect(f.falls.falling[fallEdge(f, lip(f), 0)]).toBe(1);
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 10; x++) f.ground[at(f, x, y)] = 3;
+    poolAt(f, 0);
+    markCliffs(f);
+    expect(f.falls.falling[fallEdge(f, lip(f), 0)]).toBe(0);
+    expect(dropAt(f, lip(f), 0)).toBe(0);           // a step of three: no fall
+  });
+});
 
 describe("the set of edges a fall can happen on", () => {
   /**

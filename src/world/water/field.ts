@@ -471,7 +471,7 @@ function growStoreys(field: WaterField) {
   // The water in the air, on the edges it is falling over and the columns it
   // is being thrown from. @see fallEdge
   const of = old.falls, nf = next.falls;
-  for (const k of ["air", "front", "head", "frontSpeed", "headSpeed", "since", "shed"] as const) {
+  for (const k of ["air", "front", "head", "frontSpeed", "headSpeed", "since", "shed", "falling"] as const) {
     carry(nf[k], of[k], n * 2);
   }
   carry(nf.throwX, of.throwX, n);
