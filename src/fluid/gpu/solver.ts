@@ -386,6 +386,8 @@ export function createGpuWater(
    * flag, so the two answers cannot drift apart. @see deviceSinks
    */
   const matFed = into.some((k) => k.name === "matByte");
+  /** Whether the renderer's latch texture is filled from here. @see LATCH_ROW */
+  const latchFed = into.some((k) => k.name === "fallByte");
   const everyFrame = matFed
     ? runs
     : [...runs, runOf(["material", "material"] as const)];
@@ -1433,6 +1435,9 @@ export function createGpuWater(
     // AND THE MATERIALS, PACKED INTO THE BYTES ITS TEXTURE WANTS.
     // @see createMatpack
     passes.matpack.encode(enc, state);
+    // AND THE FALL LATCH, PACKED TO BYTES, where the renderer is reading it
+    // from here. @see LATCH_ROW
+    if (latchFed) passes.matpack.encodeLatch(enc, state);
     // AND THE SURFACE'S TEXTURES, FILLED FROM HERE rather than from the host's
     // copy of the same numbers. Last, so every pass that writes them has run.
     // @see copyOut

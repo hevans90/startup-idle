@@ -68,6 +68,17 @@ export const FALL_MIN = 4;
 export const FALL_STOP = 2;
 
 /**
+ * How many edges' latches make one ROW of the renderer's texture of them.
+ *
+ * Two hundred and fifty six because a texture copy's row must be a multiple of
+ * 256 bytes and the latch is a byte an edge. The latch is a flat list, so its
+ * texture need not be the map's width — and at the map's width a byte texture
+ * cannot be copied into on anything narrower than 64 tiles. At this width
+ * every map can. @see FallState.falling, latchAt
+ */
+export const LATCH_ROW = 256;
+
+/**
  * How long a fall stays attached to its lip after the last water crosses.
  *
  * The flux over an edge is a real quantity in a real simulation and it crosses
@@ -320,11 +331,12 @@ export type FallState = {
    * answering with the lower bar. Read by `dropAt` everywhere else. The
    * device keeps its own and sets it the same way, in the cliffs pass.
    *
-   * FLOATS, nought or one, and not bytes, because the RENDERER reads it too:
-   * a sheet splits at a lip exactly when the solver says the lip falls, and
-   * as floats it is a texture with no conversion between. @see sameSheet
+   * BYTES, nought or one, padded to a whole {@link LATCH_ROW}, because the
+   * RENDERER reads it too — a sheet splits at a lip exactly when the solver
+   * says the lip falls — and as bytes it is a texture with no conversion
+   * between, a quarter the size it was as floats. @see sameSheet
    */
-  readonly falling: Float32Array;
+  readonly falling: Uint8Array;
   /**
    * WHICH SUBSTEP EACH SLOT LAST EASED ITS THROW ON, and the number of the
    * one running.
@@ -385,7 +397,7 @@ export function createFalls(nx: number, ny: number, layers = 1): FallState {
     cliffN: 0,
     cliffCol: new Uint8Array(cols),
     cliffNow: new Uint8Array(cols),
-    falling: new Float32Array(n),
+    falling: new Uint8Array(Math.ceil(n / LATCH_ROW) * LATCH_ROW),
     eased: new Int32Array(cols).fill(-1),
     easedRun: 0,
   };

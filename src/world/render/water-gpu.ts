@@ -66,7 +66,7 @@ import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
 import { createQuadsPass, type QuadsPass } from "./quads-gpu";
 import { createBrinkPass, type BrinkPass } from "./brink-gpu";
-import { FALL_MIN, FALL_STOP } from "../../fluid/falls";
+import { FALL_MIN, FALL_STOP, LATCH_ROW } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
 import { COLUMNS_PER_TILE } from "../water/field";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -362,11 +362,12 @@ struct Water {
 // "none of the supported sample types (Uint) match the expected (Float)" — and
 // the whole water pass refusing to build.
 @group(2) @binding(8) var uBrink : texture_2d<f32>;
+@group(2) @binding(9) var uTint : texture_2d<f32>;
+@group(2) @binding(10) var uMaterial : texture_2d<f32>;
 // WHICH EDGES THE SOLVER SAYS ARE FALLING, so a sheet splits at a lip exactly
-// when the lip falls. AFTER THE BRINK, in the resources too. See latchAt.
-@group(2) @binding(9) var uFalling : texture_2d<f32>;
-@group(2) @binding(10) var uTint : texture_2d<f32>;
-@group(2) @binding(11) var uMaterial : texture_2d<f32>;
+// when the lip falls. A BYTE TEXTURE, so after the material in the resources
+// too. See latchAt.
+@group(2) @binding(11) var uFalling : texture_2d<f32>;
 @group(2) @binding(12) var uQuads : texture_2d<u32>;
 
 struct VSOutput {
@@ -424,15 +425,17 @@ fn fallMin() -> f32 { return ${FALL_MIN}.0; }
 fn fallStop() -> f32 { return ${FALL_STOP}.0; }
 // WHETHER THE SOLVER'S LATCH SAYS THIS EDGE IS ALREADY FALLING, so the sheet
 // grouping asks the same bar dropAt does. The edge of a slot PAIR, owned by
-// the column (x, y), packed the way the solver packs it and read back off a
-// texture nx wide. Where the latch is not fresh this frame — the device
-// solving on a map too narrow to copy it out — it answers no, and the
-// grouping falls back to FALL_MIN alone. See FALL_STOP, sameSheet.
+// the column (x, y), packed the way the solver packs it: a byte an edge, read
+// back off a texture LATCH_ROW wide — ANY byte set, because the device packs a
+// falling edge as 255 and the host keeps it as 1, and through r8unorm those
+// read 1.0 and a 255th. Where the latch is not fresh this frame
+// it answers no, and the grouping falls back to FALL_MIN alone. See
+// FALL_STOP, LATCH_ROW, sameSheet.
 fn latchAt(x: i32, y: i32, axis: i32, a: i32, b: i32) -> bool {
   if (water.uSlots.w < 0.5) { return false; }
   let w = i32(water.uGrid.x);
   let k = ((a * slots() + b) * w * i32(water.uGrid.y) + y * w + x) * 2 + axis;
-  return textureLoad(uFalling, vec2<i32>(k % w, k / w), 0).r > 0.5;
+  return textureLoad(uFalling, vec2<i32>(k % ${LATCH_ROW}, k / ${LATCH_ROW}), 0).r > 0.0;
 }
 /** Whether the sides of the water are drawn at all — a debug switch. */
 fn facesOn() -> bool { return water.uIso.w > 0.5; }
@@ -915,7 +918,7 @@ bool latchAt(int x, int y, int axis, int a, int b) {
   if (uSlots.w < 0.5) { return false; }
   int w = int(uGrid.x);
   int k = ((a * slots() + b) * w * int(uGrid.y) + y * w + x) * 2 + axis;
-  return texelFetch(uFalling, ivec2(k - (k / w) * w, k / w), 0).r > 0.5;
+  return texelFetch(uFalling, ivec2(k - (k / ${LATCH_ROW}) * ${LATCH_ROW}, k / ${LATCH_ROW}), 0).r > 0.0;
 }
 bool facesOn() { return uIso.w > 0.5; }
 // WGSL has this and GLSL does not. One helper is cheaper than teaching the
@@ -1335,10 +1338,8 @@ const FRAGMENT_STAGE = 2;
  * Nothing is filtered here in any case — every read is a `textureLoad` at an
  * integer coordinate, which is a fetch and not a sample, and needs no sampler.
  */
-const FLOAT_FIELDS = [
-  "uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uRoof", "uBrink", "uFalling",
-];
-const BYTE_FIELDS = ["uTint", "uMaterial"];
+const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uRoof", "uBrink"];
+const BYTE_FIELDS = ["uTint", "uMaterial", "uFalling"];
 /** The quad list, which is `r32uint` and so neither of the above. @see QUAD_CAP */
 const UINT_FIELDS = ["uQuads"];
 
@@ -1480,10 +1481,13 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
   // array behind it stays the zeros it was made with. @see brink-gpu
   const brinkF32 = new Float32Array(nx * ny * layers);
   const brinkTex = viewOf(brinkF32, nx, ny * layers);
-  // WHICH EDGES ARE FALLING, nought or one per edge of a slot pair, the
-  // solver's own latch and its own packing. A texture nx wide and as tall as
-  // that takes: two edges a column, a plane per pair. @see latchAt
-  const fallingTex = viewOf(columns.falls.falling, nx, ny * 2 * layers * layers);
+  // WHICH EDGES ARE FALLING, a byte per edge of a slot pair, the solver's own
+  // latch and its own packing, LATCH_ROW wide. @see latchAt, LATCH_ROW
+  const fallingTex = new BufferImageSource({
+    resource: columns.falls.falling, width: LATCH_ROW,
+    height: columns.falls.falling.length / LATCH_ROW, format: "r8unorm",
+    scaleMode: "nearest",
+  });
   const tint = tintSource();
   // WHICH QUADS EACH BAND DRAWS. The identity until something gathers it.
   // @see quadList
@@ -1533,8 +1537,8 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       resources: {
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
-        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex, uFalling: fallingTex,
-        uTint: tint, uMaterial: material, uQuads: quads,
+        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uQuads: quads,
       },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
@@ -1568,8 +1572,8 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       resources: {
         water: underWater,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
-        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex, uFalling: fallingTex,
-        uTint: tint, uMaterial: material, uQuads: quads,
+        uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uQuads: quads,
       },
     });
     const underMesh = new Mesh<Geometry, Shader>({ geometry: underGeom, shader: underShader });
@@ -1612,9 +1616,12 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
  * the bytes the texture wants in exactly the order it wants them, and the copy
  * reads THAT. @see createMatpack
  */
-const FED: readonly (readonly [number, FieldName, 1 | 4])[] = [
+const FED: readonly (readonly [number, FieldName, 1 | 4, number?])[] = [
   [0, "depth", 4], [2, "washNow", 4], [3, "foamNow", 4],
-  [4, "fx", 4], [5, "fy", 4], [6, "matByte", 1], [9, "falling", 4],
+  [4, "fx", 4], [5, "fy", 4], [6, "matByte", 1],
+  // The fall latch as bytes, LATCH_ROW wide rather than the map's width — so
+  // every map can take the copy, where at nx a byte texture needs 64 tiles.
+  [9, "fallByte", 1, LATCH_ROW],
 ];
 /** Where the ground sits in `sources`. The one the device never writes. */
 const GROUND_AT = 1;
@@ -1664,14 +1671,14 @@ export function deviceSinks(
   // PER TEXTURE, not once for the layer. A map 128 columns across can take the
   // float copies and cannot take the material's byte one, and asking the
   // question once gave the stricter answer to all six. @see canCopyOut
-  const fed = FED.filter(([, , texel]) => canCopyOut(nx, texel));
+  const fed = FED.filter(([, , texel, across]) => canCopyOut(across ?? nx, texel));
   // AND SAY SO WHEN ONE IS REFUSED. A map whose rows are the wrong width falls
   // back to the host uploading that texture every frame — slower, correct, and
   // completely silent, so the first anybody knows is a frame time that does
   // not match the same code on a different map. Once, at build, with the
   // number that would have to change.
   if (import.meta.env.DEV && fed.length < FED.length) {
-    const out = FED.filter(([, , t]) => !canCopyOut(nx, t)).map(([, n]) => n);
+    const out = FED.filter(([, , t, w]) => !canCopyOut(w ?? nx, t)).map(([, n]) => n);
     console.info(
       `WATER: ${out.join(", ")} cannot be copied into at ${nx} columns and will`
       + " be uploaded by the host every frame. A row must be a multiple of 256"
@@ -1690,7 +1697,9 @@ export function deviceSinks(
   // are special: `carried` is only true while the device owns the water, and
   // a decked map only started running on the device recently.
   wl.fed = new Set(fed.map(([k]) => k));
-  return fed.map(([k, name, texel]) => ({ name, texture: get(wl.sources[k]), texel }));
+  return fed.map(([k, name, texel, width]) => ({
+    name, texture: get(wl.sources[k]), texel, width,
+  }));
 }
 
 /**

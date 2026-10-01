@@ -58,7 +58,7 @@
 import {
   MATERIAL_SLOTS, MAX_FLOW_SPEED, rimLength, type Arrivals, type ColumnField,
 } from "../columns";
-import { FALL_STOP, FALL_THROW } from "../falls";
+import { FALL_STOP, FALL_THROW, LATCH_ROW } from "../falls";
 import type { Stamps } from "./stamps";
 
 /** A number WGSL will read as an f32 — an integer needs its point. */
@@ -366,6 +366,10 @@ export const FIELDS = [
   // in. Per edge of a slot pair, like air, and the device's own — set in the
   // cliffs pass and read by dropAt. @see FallState.falling
   "falling",
+  // AND THE SAME LATCH AS BYTES, four to a word, for the renderer's texture of
+  // it: packed by matpack's second entry point, copied out LATCH_ROW wide.
+  // A quarter of the copy the floats were. @see LATCH_ROW
+  "fallByte",
 ] as const;
 export type FieldName = (typeof FIELDS)[number];
 
@@ -523,6 +527,8 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     // ground it is the ceiling of. @see ColumnField.roof
     roof: slotCells,
     falling: pairCells * 2,
+    // Whole rows of LATCH_ROW bytes, so the copy never reads past the field.
+    fallByte: Math.ceil((pairCells * 2) / LATCH_ROW) * (LATCH_ROW / 4),
   };
   const offset = {} as Record<FieldName, number>;
   let at = 0;
@@ -706,6 +712,12 @@ export type Sink = {
    * field of packed bytes rather than a field of floats. @see createMatpack
    */
   texel?: 1 | 4;
+  /**
+   * Texels a ROW, where the field is not laid out a map row at a time. The
+   * fall latch is a flat list and is copied LATCH_ROW wide, which any map can
+   * take. Absent, a row is the map's width. @see LATCH_ROW
+   */
+  width?: number;
 };
 
 /**
@@ -745,8 +757,9 @@ export function copyOut(enc: GPUCommandEncoder, s: GpuState, sinks: readonly Sin
     // which shape, so nothing has to be kept in step with `LENGTHS`: the field
     // is `length` floats, a row is `nx` texels, and the rest is division. At
     // one layer every one of these is the `ny` it used to be.
+    const across = sink.width ?? s.nx;
     const rows = Math.min(
-      Math.floor((s.length[sink.name] * 4) / (s.nx * texel)),
+      Math.floor((s.length[sink.name] * 4) / (across * texel)),
       sink.texture.height,
     );
     if (rows <= 0) continue;
@@ -754,11 +767,11 @@ export function copyOut(enc: GPUCommandEncoder, s: GpuState, sinks: readonly Sin
       {
         buffer: s.field,
         offset: s.offset[sink.name] * 4,
-        bytesPerRow: s.nx * texel,
+        bytesPerRow: across * texel,
         rowsPerImage: rows,
       },
       { texture: sink.texture },
-      { width: s.nx, height: rows, depthOrArrayLayers: 1 },
+      { width: across, height: rows, depthOrArrayLayers: 1 },
     );
   }
 }
@@ -925,7 +938,8 @@ export function upload(s: GpuState, f: ColumnField) {
   put("cliffCol", wide);
   // The fall latch, READ BEFORE IT IS WRITTEN for the same reason, and per
   // edge so it is longer than the scratch above. @see FALL_STOP
-  put("falling", s2.falling);
+  // Bytes on the host, floats here, and the host's is padded to whole rows.
+  put("falling", Float32Array.from(s2.falling.subarray(0, s.length.falling)));
 }
 
 /**
@@ -1002,7 +1016,7 @@ export function writeConsts(
   i32[77] = o.rim;
   i32[78] = u.rimMaterial;
   i32[79] = u.rimHeld ? 1 : 0;
-  i32[80] = o.roof; i32[81] = u.slots; i32[82] = o.falling;
+  i32[80] = o.roof; i32[81] = u.slots; i32[82] = o.falling; i32[83] = o.fallByte;
   i32[68] = o.foamNow; i32[69] = o.foamNext;
   i32[70] = o.splashNow; i32[71] = o.splashIn;
   f32[51] = u.frameDt;
@@ -1079,7 +1093,7 @@ struct Consts {
   o11: vec4<i32>,        // offsets: foamNow, foamNext, splashNow, splashIn
   o12: vec4<i32>,        // offset: matByte, open edge, wantAt, wantOut
   o13: vec4<i32>,        // wantN, then the rim: offset, material, whether held
-  o14: vec4<i32>,        // roof: offset, how many storeys; falling: offset; spare
+  o14: vec4<i32>,        // roof: offset, how many storeys; falling, fallByte: offsets
 };
 
 @group(0) @binding(0) var<uniform> consts : Consts;
@@ -1262,6 +1276,7 @@ fn cliffColAt(i: i32) -> f32 { return field[consts.o9.x + i]; }
 /** Whether edge k was falling when the frame began. The latch, see FALL_STOP. */
 fn fallingAt(k: i32) -> f32 { return field[consts.o14.z + k]; }
 fn setFalling(k: i32, v: f32) { field[consts.o14.z + k] = v; }
+fn setFallByte(n: i32, v: u32) { field[consts.o14.w + n] = bitcast<f32>(v); }
 /** The arrivals list: how many, and the nth one's five numbers. */
 fn arriveCount() -> i32 { return consts.o9.z; }
 fn arriveAt(n: i32, part: i32) -> f32 {

@@ -52,22 +52,43 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let d = materialAt(i + 3) & 255u;
   setMatByte(n, a | (b << 8u) | (c << 16u) | (d << 24u));
 }
+
+// AND THE FALL LATCH, the same way: four edges to a word, a byte each, 255
+// for falling so the texture reads one. Every word of the field is written,
+// the padding past the last edge with noughts, so a row the copy takes whole
+// never carries last frame's tail. See LATCH_ROW in fluid/falls.
+@compute @workgroup_size(${WORKGROUP})
+fn latch(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let n = i32(gid.x);
+  let edges = nx() * ny() * 2 * slots() * slots();
+  var word = 0u;
+  for (var j = 0; j < 4; j = j + 1) {
+    let k = n * 4 + j;
+    if (k < edges && fallingAt(k) > 0.5) { word = word | (255u << u32(j * 8)); }
+  }
+  setFallByte(n, word);
+}
 `;
 
 export type MatpackPass = {
   encode: (enc: GPUCommandEncoder, s: GpuState) => void;
+  /** The fall latch, packed for the renderer's texture of it. @see latch */
+  encodeLatch: (enc: GPUCommandEncoder, s: GpuState) => void;
   layout: GPUBindGroupLayout;
 };
 
 export function createMatpack(device: GPUDevice): MatpackPass {
   const layout = stateLayout(device);
+  const module = shaderModule(device, MATPACK_WGSL, "matpack");
   const pipeline = device.createComputePipeline({
     label: "matpack",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-    compute: {
-      module: shaderModule(device, MATPACK_WGSL, "matpack"),
-      entryPoint: "main",
-    },
+    compute: { module, entryPoint: "main" },
+  });
+  const latchPipeline = device.createComputePipeline({
+    label: "matpack:latch",
+    layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+    compute: { module, entryPoint: "latch" },
   });
   return {
     layout,
@@ -91,6 +112,15 @@ export function createMatpack(device: GPUDevice): MatpackPass {
       const words = Math.ceil((s.nx * s.ny * s.layers) / 4);
       const pass = beginPass(enc, s, "matpack");
       pass.setPipeline(pipeline);
+      bindState(pass, s, layout);
+      pass.dispatchWorkgroups(Math.ceil(words / WORKGROUP));
+      pass.end();
+    },
+    encodeLatch: (enc, s) => {
+      // Every word of the field, padding and all. @see latch
+      const words = s.length.fallByte;
+      const pass = beginPass(enc, s, "matpack");
+      pass.setPipeline(latchPipeline);
       bindState(pass, s, layout);
       pass.dispatchWorkgroups(Math.ceil(words / WORKGROUP));
       pass.end();

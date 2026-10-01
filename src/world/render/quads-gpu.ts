@@ -1,4 +1,4 @@
-import { FALL_STOP } from "../../fluid/falls";
+import { FALL_STOP, LATCH_ROW } from "../../fluid/falls";
 import { shaderModule } from "../../fluid/gpu/state";
 /**
  * WHICH QUADS ARE WORTH DRAWING, gathered once a frame.
@@ -99,7 +99,7 @@ fn brinkOn() -> bool { return say.b.x > 0.5; }
 fn latchAt(x: i32, y: i32, axis: i32, a: i32, b: i32) -> bool {
   if (say.b.y < 0.5) { return false; }
   let k = ((a * slots() + b) * nx() * ny() + y * nx() + x) * 2 + axis;
-  return textureLoad(uFalling, vec2<i32>(k % nx(), k / nx()), 0).r > 0.5;
+  return textureLoad(uFalling, vec2<i32>(k % ${LATCH_ROW}, k / ${LATCH_ROW}), 0).r > 0.0;
 }
 
 ${brinkRuleSource("wgsl")}
