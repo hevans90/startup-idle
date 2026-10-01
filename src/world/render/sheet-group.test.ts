@@ -17,7 +17,7 @@ import { addWater, createColumnField, surfaceAt, type ColumnField } from "../../
 import { FALL_MIN } from "../../fluid/falls";
 import { OPEN_SKY } from "../../fluid/slots";
 import {
-  CORNER_COLUMNS, contribOf, cornerMask, cornerMasksInto, sameSheet,
+  CORNER_COLUMNS, contribOf, cornerMask, cornerMasksInto, sameSheet, shows,
 } from "./sheet-group";
 
 const field = (n: number, layers = 1) => createColumnField(n, n, undefined, 1, layers);
@@ -119,6 +119,41 @@ describe("a bridge", () => {
     const open = maskAt(f, 3, 4, 2, 3, 0);
     const under = maskAt(f, 3, 4, 3, 3, 0);
     expect(open).toBe(under);
+  });
+
+  test("a river risen OVER the span is one sheet with the deck's water, and the channel under it is in none", () => {
+    // THE CUT. Flooded, the channel under the deck runs full against its
+    // soffit and is still CONNECTED to the river beside it — so it joined that
+    // sheet, and every corner it shared with the open water averaged the
+    // soffit's height in. On the crossing fixture flooded 2.4 over the deck,
+    // 25 of 168 corners holding deck water came out a median 1.41 low.
+    // @see shows
+    const f = culvert();
+    // The river at 3: twenty three over its bed, three over the deck.
+    for (let y = 3; y <= 4; y++) {
+      for (let x = 1; x <= 8; x++) {
+        addWater(f, x, y, 23, 1);
+        if (x >= 3 && x <= 4) addWater(f, x, y, 3, 1, 1);
+      }
+    }
+    const open = maskAt(f, 3, 4, 2, 3, 0);
+    const deck = maskAt(f, 3, 4, 3, 3, 1);
+    expect(open).toBe(deck);
+    // The channel under the span is running full, so it is no surface at all
+    // and in nobody's sheet — not the river's, and not even its own neighbour's.
+    expect(shows(f, f.cells * 0 + 3 * f.nx + 3)).toBe(false);
+    expect(open & (1 << contribOf(3, 4, 3, 3, 0, f.layers))).toBe(0);
+    expect(maskAt(f, 4, 4, 3, 3, 0) & (1 << contribOf(4, 4, 4, 4, 0, f.layers))).toBe(0);
+
+    // AND BACK AGAIN, from the depths alone: let the river fall under the
+    // soffit and the deck dry off, and the channel is the river's again.
+    for (let y = 3; y <= 4; y++) {
+      for (let x = 1; x <= 8; x++) {
+        f.depth[y * f.nx + x] = 15;
+        f.depth[f.cells + y * f.nx + x] = 0;
+      }
+    }
+    expect(maskAt(f, 3, 4, 2, 3, 0)).toBe(maskAt(f, 3, 4, 3, 3, 0));
   });
 
   test("and a puddle on the deck is a DIFFERENT sheet", () => {

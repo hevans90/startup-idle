@@ -498,7 +498,9 @@ ${head}
     // both meet this corner and only one of them is on this sheet.
     for (${LOOP} a = 0; a < slots(); a = a + 1) {
       ${NUM} d = depthAt(cx, cy, a);
-      if (!wet(d)) { continue; }
+      // A SURFACE, not merely wet: a channel running full under a deck is in
+      // nobody's sheet and has no height to give. @see shows
+      if (!shows(cx, cy, a)) { continue; }
       if (bitAt(mine, k * slots() + a) == 0) { continue; }
       ${NUM} g = groundAt(cx, cy, a);
       // UNDER A ROOF THE WATER STOPS AT THE ROOF. A slot running full is

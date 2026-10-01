@@ -103,14 +103,19 @@ ${wgsl
     ${INT} bx = cx - select(0, 1, axis2 == 0);
     ${INT} by = cy - select(1, 0, axis2 == 0);
     if (!inside(bx, by)) { return false; }
-    if (!wet(depthAt(bx, by, a))) { return false; }
+    if (!shows(bx, by, a)) { return false; }
     if (!forward(bx, by, axis2, cpt, a)) { return false; }
     return sideShows(bx, by, axis2, a);
   }
-  if (part == 2) { return wet(depthAt(cx, cy, a)); }
+  // A SLOT THAT IS NOT A SURFACE DRAWS NOTHING OF ITS OWN — dry, or running
+  // full under a deck, where all it could show is the bridge's underside.
+  // Whether a NEIGHBOUR'S water hides a face is a different question and stays
+  // wetJ: a face hung into the channel under a span would be a pane beneath
+  // the deck's edge. @see shows
+  if (part == 2) { return shows(cx, cy, a); }
   if (!faces) { return false; }
   // A SIDE OF THIS COLUMN, unless it is filed forward into the band in front.
-  if (!wet(depthAt(cx, cy, a))) { return false; }
+  if (!shows(cx, cy, a)) { return false; }
   ${INT} axis = part - 3;
   if (forward(cx, cy, axis, cpt, a)) { return false; }
   return sideShows(cx, cy, axis, a);

@@ -91,6 +91,31 @@ const TIERS_MAX = 3;
  * unchanged — see the note on the comparison in `water-compare`. This is a
  * precision hole closed on principle, not a measured repair.
  */
+/**
+ * Whether a slot's water is a SURFACE — something you could see from above.
+ *
+ * Wet, and not pressed against its own roof. A slot running full under a deck
+ * is water against a soffit: there is nothing over it to see from, and what
+ * it would draw is the underside of the bridge. Counted as a surface, it was
+ * the cut in the sheet when a river rose over a span — the channel under the
+ * deck was CONNECTED to the river beside it, so it joined that sheet, and the
+ * corners it shared with the open water averaged in the soffit's height. On
+ * the crossing flooded to 2.4 over the deck, 25 of the 168 corners holding
+ * deck water came out a median 1.41 half steps low.
+ *
+ * Left out, the river over the span and the deck's own water are one sheet,
+ * which is what they are; let the river fall back under the soffit and the
+ * slot is a surface again on the very next frame, from the depths alone. No
+ * state, no threshold of its own: just before it fills it stands at the
+ * soffit, which is where the water beside it is, so dropping out changes no
+ * corner by more than the last hair of filling.
+ *
+ * ROUNDED TO A FLOAT FIRST, for the reason `beside` is: the shader adds the
+ * two in f32 and the slot that is exactly full is the one this decides.
+ */
+export const shows = (f: ColumnField, i: number) =>
+  wet(f, i) && Math.fround(f.ground[i] + f.depth[i]) < f.roof[i];
+
 const beside = (f: ColumnField, j: number) =>
   wet(f, j) ? Math.fround(surfaceAt(f, j)) : f.ground[j];
 
@@ -199,7 +224,8 @@ function joinedAt(
   if (bx < 0 || by < 0 || bx >= f.nx || by >= f.ny) return false;
   const ia = (ka % layers) * f.cells + ay * f.nx + ax;
   const jb = (kb % layers) * f.cells + by * f.nx + bx;
-  if (!wet(f, ia) || !wet(f, jb)) return false;
+  // DRY OR DROWNED SLOTS JOIN NOTHING. @see shows
+  if (!shows(f, ia) || !shows(f, jb)) return false;
   return sameSheet(f, ia, jb);
 }
 
@@ -308,6 +334,21 @@ export function sheetGroupSource(dialect: Dialect): string {
   const MUT = wgsl ? "var" : "int";
   const LOOP = wgsl ? "var" : "int";
   return `
+// IS THIS SLOT'S WATER A SURFACE: wet, and not pressed against its own roof.
+// A slot running full under a deck is water against a soffit, and counted as
+// a surface its corners averaged the soffit into the river over the span.
+// The twin of shows in sheet-group.ts. Every rule below asks this, never wet,
+// when the question is whether a slot is something to draw.
+${wgsl
+    ? `fn shows(x: i32, y: i32, a: i32) -> bool {
+  let d = depthAt(x, y, a);
+  return wet(d) && groundAt(x, y, a) + d < roofAt(x, y, a);
+}`
+    : `bool shows(int x, int y, int a) {
+  float d = depthAt(x, y, a);
+  return wet(d) && groundAt(x, y, a) + d < roofAt(x, y, a);
+}`}
+
 ${wgsl
     ? "fn joinedAt(vx: i32, vy: i32, ka: i32, kb: i32) -> i32 {"
     : "int joinedAt(int vx, int vy, int ka, int kb) {"}
@@ -323,12 +364,13 @@ ${wgsl
   if (!inside(bx, by)) { return 0; }
   ${INT} sa = ka % slots();
   ${INT} sb = kb % slots();
-  // DRY SLOTS JOIN NOTHING. The grouping is over the water, and a bed with no
-  // water on it is not a member of any sheet.
+  // DRY OR DROWNED SLOTS JOIN NOTHING. The grouping is over the water you can
+  // see, and neither a bed with no water on it nor a channel running full
+  // under a deck is a member of any sheet.
+  if (!shows(ax, ay, sa)) { return 0; }
+  if (!shows(bx, by, sb)) { return 0; }
   ${NUM} da = depthAt(ax, ay, sa);
   ${NUM} db = depthAt(bx, by, sb);
-  if (!wet(da)) { return 0; }
-  if (!wet(db)) { return 0; }
   ${NUM} ga = groundAt(ax, ay, sa);
   ${NUM} gb = groundAt(bx, by, sb);
   ${NUM} ra = roofAt(ax, ay, sa);

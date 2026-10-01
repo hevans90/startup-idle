@@ -745,6 +745,57 @@ describe("the edge of a deck", () => {
     expect(totalVolume(field, g)).toBeCloseTo(put, 1);
   }, 20_000);
 
+  test("and a river risen over it is drawn as ONE surface, not dragged down to the soffit", () => {
+    // THE CUT, at the mesh. The channel under a flooded span runs full and is
+    // connected to the river beside it, so it used to join that sheet and pull
+    // every corner it shared toward the soffit, ten here, while the water
+    // stands at 14.4: 2.28 low at the worst of 1,024 corners. It is no surface
+    // now, so the corners the deck's water draws are the open river's and the
+    // deck's alone, and none is low at all. @see shows
+    const { g, field } = spanned();
+    setWaterEdge(field, false);
+    const c = field.columns;
+    for (let ty = 0; ty < g.h; ty++) {
+      for (let tx = 0; tx < g.w; tx++) {
+        if (!deckedAt(field, tx, ty)) pourAt(field, tx, ty, 40, 1);
+      }
+    }
+    for (let n = 0; n < 60 * 10; n++) stepWater(field, 1 / 60);
+    const bands = createBandLayer(g.w, g.h);
+    const wl = createWaterLayer(c, bands, 1);
+    drawWater(wl, c, bands, 1 / 60);
+    // The highest SURFACE in a column: the deck's water where there is a deck,
+    // else the open river. Never the channel pressed against the soffit.
+    const top = (cx: number, cy: number) => {
+      const i = cy * c.nx + cx;
+      const up = c.cells + i;
+      return c.roof[up] > c.ground[up] && c.depth[up] > c.params.dryDepth
+        ? c.ground[up] + c.depth[up] : c.ground[i] + c.depth[i];
+    };
+    let corners = 0, worst = 0;
+    const span0 = 4 * COLUMNS_PER_TILE, span1 = 8 * COLUMNS_PER_TILE;
+    for (let cy = span0; cy < span1; cy++) {
+      for (let cx = span0; cx < span1; cx++) {
+        for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+          const vx = cx + dx, vy = cy + dy, v = vy * (c.nx + 1) + vx;
+          const k = tierOf(wl, c, v, vx, vy, cx, cy, 1);
+          if (k < 0 || !wl.vn[k]) continue;
+          let low = Infinity;
+          for (const [ox, oy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) {
+            low = Math.min(low, top(vx + ox, vy + oy));
+          }
+          worst = Math.max(worst, low - wl.vs[k]);
+          corners++;
+        }
+      }
+    }
+    // The flood really is over the deck and its kerb, or there is no cut to
+    // be had — and the deck's water really is drawn.
+    expect(top(span0 + 5, span0 + 5)).toBeGreaterThan(14);
+    expect(corners).toBeGreaterThan(200);
+    expect(worst).toBeLessThan(0.25);
+  }, 20_000);
+
   test("and the channel under it, running full, holds no more than the channel beside it", () => {
     // THE SPONGE. Past its roof a slot's head was a twenty-fourth of its
     // excess, so it took twenty-four of water to lift the head by one and

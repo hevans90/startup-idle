@@ -29,7 +29,7 @@ import {
 } from "./quads";
 import { RIM, atBrink, resolveCorner, resolveSide, spillAt } from "./corner-rule";
 import {
-  CORNER_COLUMNS, contribOf, cornerMasksInto, sharedContrib,
+  CORNER_COLUMNS, contribOf, cornerMasksInto, sharedContrib, shows,
 } from "./sheet-group";
 import { OPEN_SKY } from "../../fluid/slots";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
@@ -624,7 +624,8 @@ function cornerValues(
       const ci = y * nx + x;
       const i = A + ci;
       const d = depth[i];
-      if (!wet(columns, i)) continue;
+      // A SURFACE, not merely wet. @see shows
+      if (!shows(columns, i)) continue;
       const bed = columns.ground[i];
       const shown = shownDepth(columns, i, d);
       // Leaned toward the lip — see `DRAWDOWN`. The height only; `shown` is
@@ -964,7 +965,8 @@ function fillQuads(
       for (let a = 0; a < columns.layers; a++) {
       const i = a * columns.cells + ci;
       const d = depth[i];
-      if (!wet(columns, i)) continue;
+      // Nothing of its own where it is not a surface. @see shows
+      if (!shows(columns, i)) continue;
 
       const tx = tileOf(cx);
       // UNDER A ROOF GOES UNDER THE ROOF. Everything else is water in the
