@@ -19,7 +19,7 @@
  * drops away. Nothing lands until the front reaches the bottom, and after that
  * water leaves the air at the rate it is arriving.
  */
-import { flowX, flowY, planeRegion, plungeInto, type ColumnField } from "./columns";
+import { activeBox, flowX, flowY, planeRegion, plungeInto, type ColumnField } from "./columns";
 import { DROP, dripFrom, dripRoom } from "./drips";
 import { wetTop } from "./slots";
 
@@ -337,22 +337,6 @@ export type FallState = {
    * between, a quarter the size it was as floats. @see sameSheet
    */
   readonly falling: Uint8Array;
-  /**
-   * WHICH SUBSTEP EACH SLOT LAST EASED ITS THROW ON, and the number of the
-   * one running.
-   *
-   * The launch is followed once per SLOT per substep, and it used to be kept
-   * to that by walking the cliff set in column order and noticing when the
-   * column changed. The set is not in column order any more — it is grouped
-   * by slot PAIR, because that is what makes a field with no decks on it cost
-   * what it did — so a slot's edges are no longer adjacent in it and the
-   * cheap test would ease some of them several times over.
-   *
-   * A stamp does not care about order. It costs one compare and one store per
-   * cliff edge, against an integer that never has to be cleared.
-   */
-  readonly eased: Int32Array;
-  easedRun: number;
 };
 
 /**
@@ -398,8 +382,6 @@ export function createFalls(nx: number, ny: number, layers = 1): FallState {
     cliffCol: new Uint8Array(cols),
     cliffNow: new Uint8Array(cols),
     falling: new Uint8Array(Math.ceil(n / LATCH_ROW) * LATCH_ROW),
-    eased: new Int32Array(cols).fill(-1),
-    easedRun: 0,
   };
 }
 
@@ -441,7 +423,7 @@ function isLip(
   return false;
 }
 
-export function markCliffs(f: ColumnField) {
+export function markCliffs(f: ColumnField, frameDt = 0) {
   const { nx, ny, cells, layers, ground, roof } = f;
   const s = f.falls;
   const { air, front, cliffCol, cliffNow, falling } = s;
@@ -529,13 +511,30 @@ export function markCliffs(f: ColumnField) {
   //
   // Its own pass, because whether a slot owns a cliff is only settled once
   // every plane has been looked at.
+  //
+  // AND EVERY OTHER LIP IS EASED TOWARD ITS FLOW, ONCE A FRAME, here — which
+  // is where the device does it and when. It was done in `stepFalls`, once a
+  // SUBSTEP on the substep's dt: the same filter over a frame, since
+  // 1 - exp(-h / THROW_EASE) composes exactly, but a different throw at the
+  // moment each landing is placed. A fall whose drift sat a hair under half a
+  // column at the top of the frame crept over it on the host by its landing
+  // and stayed under it on the device, and the two put the same 0.446 of water
+  // a row apart — which is what the spray comparison had been failing on, on
+  // every scene, since the device moved its ease. Inside the active box only,
+  // as the device's cliffs pass: a lip nobody is stepping keeps its throw.
+  const ease = 1 - Math.exp(-frameDt / THROW_EASE);
+  const box = frameDt > 0 ? activeBox(f) : null;
   for (let ia = 0; ia < cliffNow.length; ia++) {
     const own = cliffNow[ia];
     if (!own && !cliffCol[ia]) continue;
+    const i = ia % cells, a = (ia / cells) | 0;
+    const x = i % nx, y = (i / nx) | 0;
     if (own && !cliffCol[ia]) {
-      const i = ia % cells, a = (ia / cells) | 0;
-      s.throwX[ia] = throwOf(flowX(f, i % nx, (i / nx) | 0, a));
-      s.throwY[ia] = throwOf(flowY(f, i % nx, (i / nx) | 0, a));
+      s.throwX[ia] = throwOf(flowX(f, x, y, a));
+      s.throwY[ia] = throwOf(flowY(f, x, y, a));
+    } else if (own && box && x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1) {
+      s.throwX[ia] += (throwOf(flowX(f, x, y, a)) - s.throwX[ia]) * ease;
+      s.throwY[ia] += (throwOf(flowY(f, x, y, a)) - s.throwY[ia]) * ease;
     }
     cliffCol[ia] = own;
   }
@@ -630,10 +629,6 @@ export function stepFalls(
 ) {
   const { nx, cells, layers, depth, params } = f;
   const s = f.falls;
-  // Hoisted because it is a function of `dt` alone. Measured as worth nothing
-  // — both engines already lift a pure `Math.exp` of loop invariants out — but
-  // it reads as what it is up here.
-  const ease = 1 - Math.exp(-dt / THROW_EASE);
   // ONCE, for every fall in this step — see `ColumnField.room`. Read per fall
   // it is what made the falls depend on the order they were walked in.
   f.room = dripRoom(f.drips);
@@ -645,7 +640,6 @@ export function stepFalls(
   // the air on one: `dropAt` answers nought past the last column, so `intoAir`
   // is never called there. The drain that used to run for every edge of the
   // last row and column, every substep, was draining nothing.
-  const run = ++s.easedRun;
   for (let n = 0; n < s.cliffN; n++) {
       const k = s.cliff[n];
       // A FALL'S EDGE IS A SLOT PAIR, an axis and a column, packed in that
@@ -690,16 +684,8 @@ export function stepFalls(
         const sx = back || flat ? jx : ex, sy = back || flat ? jy : ey;
         if (sx < region.x0 || sx > region.x1
           || sy < region.y0 || sy > region.y1) continue;
-        // The smoothed launch, followed once per column — see
-        // `FallState.throwX`. Every edge of it, the renderer and the spray
-        // all read this, so there is one arc and it does not chatter. On the
-        // column the water LEAVES, for the same reason the box is.
-        if (s.eased[from] !== run) {
-          const fa = (from / cells) | 0;
-          s.throwX[from] += (throwOf(flowX(f, sx, sy, fa)) - s.throwX[from]) * ease;
-          s.throwY[from] += (throwOf(flowY(f, sx, sy, fa)) - s.throwY[from]) * ease;
-          s.eased[from] = run;
-        }
+        // The smoothed launch is followed once a FRAME, in `markCliffs` —
+        // see the note there on why not here.
         // AND THE SAME NUMBER AS AN F32, because `front` and `head` are f32
         // arrays and a sheet arriving is a sheet that has SATURATED at the
         // bottom. Clamp with `Math.min(drop, ...)` and store, and what comes

@@ -1525,7 +1525,7 @@ export function stepFlow(f: ColumnField, dt: number) {
   // `stepFalls` walking the whole box every SUBSTEP doing much more than that.
   // WHERE THE SLOTS ARE, on the same terms and for the same reasons.
   rebuildSlots(f);
-  markCliffs(f);
+  markCliffs(f, dt);
   for (const h of substepsFor(f, dt)) substep(f, h);
 }
 
@@ -1971,6 +1971,12 @@ export function divergence(f: ColumnField, c: PassConsts) {
       const row = base + y * nx;
       delta.fill(0, row + cx0, row + cx1 + 1);
       bestIn.fill(0, row + cx0, row + cx1 + 1);
+      // AND WHAT WON, with what it won by. Left standing, a cell nothing flows
+      // into this step kept the material of whatever last did — never read,
+      // because a cell with no inflow cannot fill, but the device writes a
+      // nought there, and the comparison of this pass could never pass: thirty
+      // cells of stale argmax on every scene, each with nothing arriving.
+      bestMat.fill(0, row + cx0, row + cx1 + 1);
     }
   }
   // Note the biggest contributor to each cell as we go, so a cell that fills

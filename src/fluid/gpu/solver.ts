@@ -533,8 +533,18 @@ export function createGpuWater(
    * blinks; a floor so that the first frames of a map that has not reported
    * yet still carry a fall. It costs a few tens of kilobytes to be generous
    * here, against the two megabytes this replaced. @see FALL_OUT_MAX
+   *
+   * THE FIRST FRAME FROM THE HOST'S OWN COUNT, which it has whenever it has
+   * marked its cliffs: sized at the bare floor, a map with more lips than that
+   * read the rest back as nothing on its first frame — 127 of 1,151 on the
+   * comparison's scene, half a unit of water missing from the host's copy of
+   * the air for one frame, which is what a leak looks like to anything that
+   * watches the total.
    */
-  let lipCap = 1024;
+  let lipCap = Math.min(
+    FALL_OUT_MAX,
+    Math.max(Math.min(1024, f.depth.length * 2), f.falls.cliffN * 2),
+  );
   /**
    * HOW MUCH OF THE SPRAY'S OUTBOX THE NEXT READBACK ASKS FOR.
    *

@@ -19,10 +19,10 @@
 import {
   FLOW_DEFAULTS, MATERIAL_SLOTS, accelerate, activeBox, addWater,
   applyDepths, applyLandings, createColumnField, diffuseBreaking, divergence,
-  flowX, flowY, limit,
+  limit,
   stepFlow, type ColumnField, type PassConsts,
 } from "../columns";
-import { THROW_EASE, markCliffs, stepFalls, throwOf } from "../falls";
+import { markCliffs, stepFalls } from "../falls";
 import { FALL_MIN } from "../falls";
 import { dripRoom } from "../drips";
 import { OPEN_SKY } from "../slots";
@@ -357,6 +357,8 @@ export type PassDiff = {
   airDiff?: number;
   matDiff?: number;
   matWinner?: number;
+  /** Which cells the material argmax differs at, and what each side saw. */
+  matSaid?: unknown[];
   airDiff2?: number;
   frontDiff?: number;
   landDiff?: number;
@@ -382,6 +384,7 @@ export type PassDiff = {
   airAt2?: unknown;
   frontAt?: unknown;
   depthDiff?: number;
+  depthSaid?: unknown[];
   worstDepth?: number;
   depthScale?: number;
   rateDiff?: number;
@@ -502,7 +505,9 @@ export async function compareAccelerate(
     }
   }
 
-  const before = { fx: gpuSide.fx.slice(), fy: gpuSide.fy.slice() };
+  const before = {
+    fx: gpuSide.fx.slice(), fy: gpuSide.fy.slice(), depth: gpuSide.depth.slice(),
+  };
   // ERROR SCOPES AROUND ALL OF IT. A compute pass that fails validation does
   // not throw and does not draw: it silently does nothing, and the readback
   // then shows the input unchanged — which reads exactly like a physics bug
@@ -717,6 +722,7 @@ export async function compareAccelerate(
   // has changed, not the arithmetic, and that is worth failing loudly for.
   let deltaExact = 0, airDiff = 0, matDiff = 0;
   let worstDelta = 0, notBitEqual = 0, deltaScale = 0, matWinner = 0;
+  const matSaid: unknown[] = [];
   if (gd && ga && gm) {
     for (let y = region.y0; y <= region.y1; y++) {
       for (let x = region.x0; x <= region.x1; x++) {
@@ -735,6 +741,17 @@ export async function compareAccelerate(
           // is only read by a cell that was dry and is filling, and a cell
           // filling from a billionth of a half step is not filling.
           matWinner = Math.max(matWinner, cpu.bestIn[i]);
+          if (matSaid.length < 8) {
+            const n = cpu.nx;
+            matSaid.push({
+              at: `${x},${y}`, cpu: cpu.bestMat[i], gpu: gm[i],
+              bestIn: cpu.bestIn[i], depth: +cpu.depth[i].toFixed(4),
+              mats: [cpu.material[i - n], cpu.material[i - 1], cpu.material[i + 1],
+                cpu.material[i + n]],
+              moves: [cpu.fy[i - n], cpu.fx[i - 1], -cpu.fx[i], -cpu.fy[i]]
+                .map((v) => +v.toExponential(2)),
+            });
+          }
         }
       }
     }
@@ -872,6 +889,8 @@ export async function compareAccelerate(
   }
 
   let depthDiff = 0, rateDiff = 0, brokeDiff = 0, worstDepth = 0, worstRate = 0;
+  /** Which cells the depth differs at, and what each side and the start held. */
+  const depthSaid: unknown[] = [];
   let depthScale = 0, rateScale = 0;
   const gMaterial = ran(6) ? await readField(state, "material") : null;
   if (gMaterial) {
@@ -900,7 +919,15 @@ export async function compareAccelerate(
         const i = y * cpu.nx + x;
         const dd = Math.abs(cpu.depth[i] - gDepth[i]);
         worstDepth = Math.max(worstDepth, dd);
-        if (matters(dd, Math.abs(cpu.depth[i]), depthScale)) depthDiff++;
+        if (matters(dd, Math.abs(cpu.depth[i]), depthScale)) {
+          depthDiff++;
+          if (depthSaid.length < 8) {
+            depthSaid.push({
+              at: `${x},${y}`, cpu: +cpu.depth[i].toFixed(4), gpu: +gDepth[i].toFixed(4),
+              before: +before.depth[i].toFixed(4),
+            });
+          }
+        }
         if (!breaks) continue;
         const dr = Math.abs(cpu.rate[i] - gRate[i]);
         worstRate = Math.max(worstRate, dr);
@@ -967,6 +994,7 @@ export async function compareAccelerate(
     airDiff,
     matDiff,
     depthDiff,
+    depthSaid,
     worstDepth,
     depthScale,
     rateDiff,
@@ -976,6 +1004,7 @@ export async function compareAccelerate(
     reduceSaid,
     /** The largest arriving move at any cell whose material flipped. */
     matWinner,
+    matSaid,
     /** Pass 5: the fall state, and the landings it banked. */
     airDiff2,
     frontDiff,
@@ -1052,13 +1081,16 @@ export async function compareCliffs(
   // faults in this port hid.
   if (fresh) { cpu.falls.cliffCol.fill(0); gpuSide.falls.cliffCol.fill(0); }
 
+  const box = activeBox(gpuSide) ?? { x0: 0, y0: 0, x1: gpuSide.nx - 1, y1: gpuSide.ny - 1 };
   const state = createGpuState(device, gpuSide);
   device.pushErrorScope("validation");
   device.pushErrorScope("internal");
   upload(state, gpuSide);
   const p = gpuSide.params;
   writeConsts(state, {
-    x0: 0, y0: 0, x1: gpuSide.nx - 1, y1: gpuSide.ny - 1,
+    // THE ACTIVE BOX, which is where both sides ease a lip's throw. The two
+    // fields are the same water, so they have the same box.
+    x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1,
     gain: 0, bedGain: 0, hMax: 0, minHead: 0, spread: 0, dt: 1 / 60,
     windDepth: 2.5, dryDepth: p.dryDepth, fallMin: FALL_MIN,
     openEdge: gpuSide.openEdge,
@@ -1077,27 +1109,11 @@ export async function compareCliffs(
   // runs, because running it is what changes them. Nought means the scene has
   // no NEW lip in it and the seeding branch went untested.
   const wasCol = cpu.falls.cliffCol.slice();
-  markCliffs(cpu);
+  // ONE FRAME, and so one frame of the ease, inside the box both sides use.
+  markCliffs(cpu, 1 / 60);
   let seeded = 0;
   for (let i = 0; i < wasCol.length; i++) {
     if (!wasCol[i] && cpu.falls.cliffCol[i]) seeded++;
-  }
-  // AND ONE FRAME OF THE EASE, which the device's cliffs pass does and
-  // markCliffs does not. The host eases inside stepFalls, once a substep; the
-  // device moved it here, once a frame on frameDt, and the two compose to the
-  // same filter (@see cliffs). Left out, every settled lip read as differing
-  // by one ease step whatever the device did — so this comparison could not
-  // see the device throwing NOUGHT at every backward lip, because its count
-  // was the same with the fault as without it. The box is the whole map, as
-  // writeConsts above says it is.
-  const ease = 1 - Math.exp(-(1 / 60) / THROW_EASE);
-  const { throwX, throwY } = cpu.falls;
-  for (let ia = 0; ia < wasCol.length; ia++) {
-    if (!wasCol[ia] || !cpu.falls.cliffCol[ia]) continue;
-    const i = ia % cpu.cells, a = (ia / cpu.cells) | 0;
-    const x = i % cpu.nx, y = (i / cpu.nx) | 0;
-    throwX[ia] += (throwOf(flowX(cpu, x, y, a)) - throwX[ia]) * ease;
-    throwY[ia] += (throwOf(flowY(cpu, x, y, a)) - throwY[ia]) * ease;
   }
 
   const gCliff = await readField(state, "cliff");

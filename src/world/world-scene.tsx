@@ -85,7 +85,7 @@ import {
   setWholeMap, type GpuWater,
 } from "../fluid/gpu/solver";
 import {
-  SPRAY_BOUNDS, checkPour, checkPourLive, compareFrames, flat,
+  SPRAY_BOUNDS, WIND_BOUNDS, checkPour, checkPourLive, compareFrames, flat,
 } from "../fluid/gpu/compare-frames";
 import { gpuWaterHeldBack, gpuWaterSaw } from "./debug/gpu-water-stat";
 import { flushStamps, holdStamps, stampsNow } from "./debug/gpu-stamps";
@@ -885,9 +885,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               undefined, bridged === "dry" ? undefined : SPRAY_BOUNDS,
             );
           }
+          // THE WINDY SCENE ON ITS OWN BOUNDS. @see WIND_BOUNDS
           return sprayScene
             ? compareFrames(device, frames, spray, undefined, SPRAY_BOUNDS)
-            : compareFrames(device, frames);
+            : compareFrames(device, frames, accelScene, undefined, WIND_BOUNDS);
         };
         // THE SAME POUR, DRIVEN LIKE THE TICK. @see checkPourLive
         // STARTED RATHER THAN AWAITED: it paces itself on animation frames, so

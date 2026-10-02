@@ -144,6 +144,34 @@ const WORST = 0.02;
  */
 export const SPRAY_BOUNDS: Bounds = { worst: 0.12, air: 5e-3 };
 
+/**
+ * And the bounds for the WINDY scene, which is the default one.
+ *
+ * WORST and AIR above were measured when this scene's falls faced two ways and
+ * it carried about 240 lips. Since falls face four, it carries 1,151 — its bed
+ * is a staircase with steps of up to six — and the wind is what makes the
+ * deep water move at all, which is the one place f32 and f64 part company: a
+ * head across an edge is a difference of two surfaces ten half steps up that
+ * differ by a hundredth, and f32 keeps three digits of it. That was traced
+ * and closed under WATER-PLAN's P2, with the instruction not to chase it by
+ * making the host more like the device; it is drift, and it reaches the falls
+ * now. Measured on the scene with every pass agreeing to rounding on its own,
+ * deterministic run to run, relative to the deepest column and the air:
+ *
+ *   frames    30      60      90      120     180     240     300
+ *   worst     4.3e-3  1.6e-2  8.2e-3  4.3e-2  4.0e-2  3.5e-2  3.4e-2
+ *   air       1.5e-4  1.2e-3  7.9e-4  8.8e-4  8.8e-4  4.4e-3  3.7e-2
+ *
+ * With the wind off the same scene stays inside WORST and AIR at every length
+ * measured (worst 3.5e-3, air 1e-4 at 120, breaking off). So these hold the
+ * windy scene to what it does — the worst plateaus near 0.04 — and catch a
+ * gross fault at any length up to 240; past that the air drifts beyond them,
+ * written down rather than tuned away. Two host solvers a ULP apart in every
+ * cell stay far closer than this, which is what says the gap is the device's
+ * arithmetic and not the scene's chaos.
+ */
+export const WIND_BOUNDS: Bounds = { worst: 0.06, air: 5e-3 };
+
 /** What a run is allowed to differ by. @see WORST, AIR, SPRAY_BOUNDS */
 export type Bounds = { worst: number; air: number };
 
