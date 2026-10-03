@@ -1,4 +1,5 @@
 import { FALL_STOP, LATCH_ROW } from "../../fluid/falls";
+import { OPEN_SKY } from "../../fluid/slots";
 import { shaderModule } from "../../fluid/gpu/state";
 /**
  * WHICH QUADS ARE WORTH DRAWING, gathered once a frame.
@@ -43,6 +44,7 @@ struct Say {
   dims: vec4<i32>,        // nx, ny, columns per tile, tiles high
   a: vec4<f32>,           // dryDepth, fallMin, faces on, slots
   b: vec4<f32>,           // brink texture filled, fall latch fresh, spare, spare
+  c: vec4<i32>,           // where the roofed tier's list begins (0: one tier), bands, spare, spare
 };
 @group(0) @binding(0) var<uniform> say : Say;
 @group(0) @binding(1) var uDepth : texture_2d<f32>;
@@ -150,6 +152,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let here = slice[band];
   if (quad >= i32(here.y)) { return; }
+  // WHICH TIER DRAWS IT, asked exactly as the vertex shader's gate asks it:
+  // of the column the quad HANGS OFF, which for a far-edge face is the column
+  // behind. Marked in the top bit, and sorted into the roofed tier's own list
+  // by compact, so neither tier's mesh runs a vertex shader on a quad only to
+  // throw it away. @see QuadList.second, water-gpu's roofedTier
+  var roofed = 0u;
+  if (say.c.x > 0) {
+    let back = part <= 1;
+    let ocx = cx - select(0, select(0, 1, part == 0), back);
+    let ocy = cy - select(0, select(1, 0, part == 0), back);
+    if (inside(ocx, ocy) && roofAt(ocx, ocy, a) < ${OPEN_SKY}.0) { roofed = 1u; }
+  }
   // AT ITS OWN INDEX, not at the next free slot.
   //
   // This used to claim a slot with an atomicAdd, which is the obvious way to
@@ -170,7 +184,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   //
   // STORED ONE HIGHER, so that a slot nothing marked reads as empty rather
   // than as quad nought. @see quadCap
-  list[here.x + u32(quad)] = u32(quad + 1);
+  list[here.x + u32(quad)] = u32(quad + 1) | (roofed << 31u);
 }
 
 // ONE THREAD PER BAND, squeezing that band's marks down to the front.
@@ -191,15 +205,28 @@ fn compact(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (band >= i32(arrayLength(&slice))) { return; }
   let here = slice[band];
   let cap = i32(here.y);
+  // THE ROOFED ONES TO THEIR OWN LIST, in the same order, and the rest down
+  // to the front of this one. The roofed list is a different stretch of the
+  // buffer, cleared before the gathering, so writing it races nothing; the
+  // open one is squeezed in place as before. @see QuadList.second
+  let second = u32(max(say.c.x, 0));
   var w = 0;
+  var r = 0;
   for (var k = 0; k < cap; k = k + 1) {
     let v = list[here.x + u32(k)];
     if (v == 0u) { continue; }
-    list[here.x + u32(w)] = v;
-    w = w + 1;
+    let id = v & 0x7fffffffu;
+    if ((v >> 31u) == 1u) {
+      list[second + here.x + u32(r)] = id;
+      r = r + 1;
+    } else {
+      list[here.x + u32(w)] = id;
+      w = w + 1;
+    }
   }
   for (var j = w; j < cap; j = j + 1) { list[here.x + u32(j)] = 0u; }
   atomicStore(&counts[band], u32(w));
+  if (second > 0u) { atomicStore(&counts[say.c.y + band], u32(r)); }
 }
 `;
 
@@ -223,7 +250,7 @@ export type QuadsPass = {
 };
 
 /** Offset and length per band, as the shader wants them. @see quadList */
-export type Slices = { offsets: Uint32Array; caps: Uint32Array; total: number };
+export type Slices = { offsets: Uint32Array; caps: Uint32Array; total: number; second: number };
 
 export function createQuadsPass(
   device: GPUDevice, slices: Slices, slots: number, drawdown: number,
@@ -288,7 +315,7 @@ export function createQuadsPass(
     compute: { module, entryPoint: "compact" },
   });
   const uniform = device.createBuffer({
-    size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "quads say",
   });
   const list = device.createBuffer({
@@ -304,8 +331,10 @@ export function createQuadsPass(
       | GPUBufferUsage.COPY_DST,
     label: "quad list",
   });
+  // A COUNT PER BAND PER TIER. @see QuadList.second
+  const tiers = slices.second ? 2 : 1;
   const counts = device.createBuffer({
-    size: Math.max(16, bands * 4),
+    size: Math.max(16, bands * tiers * 4),
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
       | GPUBufferUsage.COPY_DST,
     label: "quad counts",
@@ -359,11 +388,12 @@ export function createQuadsPass(
       });
     },
     say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots, brinkOn, latchOn) => {
-      const buf = new ArrayBuffer(48);
+      const buf = new ArrayBuffer(64);
       new Int32Array(buf, 0, 4).set([nx, ny, cpt, tilesHigh]);
       // The fourth was the cap, which is per band now and comes from `slice`.
       new Float32Array(buf, 16, 4).set([dryDepth, fallMin, faces ? 1 : 0, slots]);
       new Float32Array(buf, 32, 4).set([brinkOn ? 1 : 0, latchOn ? 1 : 0, 0, 0]);
+      new Int32Array(buf, 48, 4).set([slices.second, bands, 0, 0]);
       device.queue.writeBuffer(uniform, 0, buf);
     },
     encode: (enc, cells) => {

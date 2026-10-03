@@ -230,6 +230,12 @@ export type QuadList = {
   total: number;
   /** Rows of `LIST_W` the texture needs to hold them. */
   rows: number;
+  /**
+   * Where the ROOFED tier's copy of the layout begins, or nought on a map of
+   * one storey, which has no roofed water. Band `b`'s roofed quads live at
+   * `second + offsets[b]`, with the same cap. @see BandLayer.underOf
+   */
+  second: number;
 };
 
 export function quadList(w: number, h: number, layers = 1): QuadList {
@@ -245,7 +251,16 @@ export function quadList(w: number, h: number, layers = 1): QuadList {
     caps[b] = bandTiles(w, h, b) * PER_TILE * PARTS * layers;
     at += caps[b];
   }
-  return { caps, offsets, total: at, rows: Math.max(1, Math.ceil(at / LIST_W)) };
+  // TWICE OVER WHERE THERE ARE TWO TIERS. Each band draws twice on a map with
+  // decks — once under the paving for water with something over it, once over
+  // it for the rest — and each used to be handed the SAME list and throw away
+  // what was not its own, so every quad on the map paid for its vertex shader
+  // twice once a single deck existed anywhere: a flooded bridge drew 38,698
+  // quads where a flooded river drew 15,226. The gathering sorts each quad
+  // into its tier now, and the roofed ones need a list of their own.
+  const second = layers > 1 ? at : 0;
+  const total = layers > 1 ? at * 2 : at;
+  return { caps, offsets, total, rows: Math.max(1, Math.ceil(total / LIST_W)), second };
 }
 
 /**
@@ -288,9 +303,14 @@ export const mapSizeCeiling = (step = 1): number => {
 /** The list, as a texture: a storage buffer would have no WebGL twin. */
 function quadListSource(list: QuadList): TextureSource {
   const ids = new Uint32Array(LIST_W * list.rows);
-  for (let b = 0; b < list.caps.length; b++) {
-    const at = list.offsets[b];
-    for (let q = 0; q < list.caps[b]; q++) ids[at + q] = q + 1;
+  // THE IDENTITY, IN BOTH TIERS: until something gathers, each tier considers
+  // every quad and keeps its own, which is what both did before there was a
+  // gathering at all. @see QuadList.second
+  for (const base of list.second ? [0, list.second] : [0]) {
+    for (let b = 0; b < list.caps.length; b++) {
+      const at = base + list.offsets[b];
+      for (let q = 0; q < list.caps[b]; q++) ids[at + q] = q + 1;
+    }
   }
   return new BufferImageSource({
     resource: ids, width: LIST_W, height: list.rows, format: "r32uint",
@@ -1559,7 +1579,8 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       uGrid: { value: new Float32Array([nx, ny, COLUMNS_PER_TILE, 1 / COLUMNS_PER_TILE]), type: "vec4<f32>" },
       uIso: { value: new Float32Array([HW * scale, HH * scale, HEIGHT_UNIT * scale, 1]), type: "vec4<f32>" },
       uBand: { value: new Float32Array([b, tx0, columns.params.dryDepth, tiles]), type: "vec4<f32>" },
-      uList: { value: new Float32Array([list.offsets[b], LIST_W, 0, 0]), type: "vec4<f32>" },
+      // ITS OWN SLICE, in the roofed tier's copy of the list. @see QuadList.second
+      uList: { value: new Float32Array([list.second + list.offsets[b], LIST_W, 0, 0]), type: "vec4<f32>" },
       uSlots: { value: new Float32Array([layers, 1, 0, 0]), type: "vec4<f32>" },
     });
     const underGeom = new Geometry({
@@ -1733,7 +1754,11 @@ export type QuadGather = {
   layer: GpuWaterLayer;
   /** Where the ids land, in the shader's own texture. */
   into: GPUTexture;
-  /** The last counts to come back, padded and clamped when they are used. */
+  /**
+   * The last counts to come back, padded and clamped when they are used: one
+   * per band for the open tier, then one per band for the roofed tier where
+   * the map has one. @see QuadList.second
+   */
   count: Uint32Array;
   /**
    * WHAT EACH BAND HAS LATELY GROWN BY between one gathering and the next.
@@ -1783,6 +1808,8 @@ export function attachQuadGather(
   const get = sys.texture.getGpuSource.bind(sys.texture);
   const list = quadList(w, h, wl.layers);
   const bands = wl.meshes.length;
+  // A COUNT PER BAND PER TIER: the open ones, then the roofed. @see QuadList.second
+  const tiers = list.second ? 2 : 1;
   // THE ROW RULE IS NOW SATISFIED BY CONSTRUCTION. A buffer-to-texture row has
   // to be a multiple of 256 bytes, and it used to be a band's STRIDE — so a map
   // whose shorter side was not a multiple of four lost its gathering outright
@@ -1818,11 +1845,11 @@ export function attachQuadGather(
     pass,
     layer: wl,
     into: get(wl.quads),
-    count: new Uint32Array(bands),
-    grew: new Int32Array(bands),
-    was: new Uint32Array(bands),
+    count: new Uint32Array(bands * tiers),
+    grew: new Int32Array(bands * tiers),
+    was: new Uint32Array(bands * tiers),
     staging: device.createBuffer({
-      size: Math.max(16, bands * 4),
+      size: Math.max(16, bands * tiers * 4),
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       label: "quad counts back",
     }),
@@ -2074,9 +2101,9 @@ export function drawGpuWater(
     //
     // `wl.most` EITHER WAY, so losing the gather falls back to identity rather
     // than to whatever the last gathering happened to leave behind. @see most
-    // BOTH TIERS THE SAME. The gather counts quads and not which mesh will
-    // keep them, so each tier is asked to consider the same complement and
-    // each throws away what is not its own. @see roofedTier
+    // EACH TIER ITS OWN COUNT, off its own list. Both tiers used to be handed
+    // the same count and the same list, and each threw away what was not its
+    // own — every quad's vertex shader run twice. @see QuadList.second
     const n = g && g.gathered
       ? roomFor(g.count[b], g.grew[b], wl.most[b])
       : wl.most[b];
@@ -2086,7 +2113,10 @@ export function drawGpuWater(
     if (wl.meshes[b].visible !== show) wl.meshes[b].visible = show;
     const u = wl.under[b];
     if (u) {
-      u.geometry.instanceCount = n;
+      const B = wl.meshes.length;
+      u.geometry.instanceCount = g && g.gathered
+        ? roomFor(g.count[B + b], g.grew[B + b], wl.most[b])
+        : wl.most[b];
       if (u.visible !== show) u.visible = show;
     }
   }

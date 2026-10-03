@@ -148,6 +148,9 @@ describe("the rules written in both languages", () => {
       .replace(/\b(?:float|vec4|vec2|int|bool|void)\s+(\w+)\(([^)]*)\)\s*\{/g,
         (_m, n: string, a: string) =>
           `HEAD ${n}(${a.split(",").map((x) => x.trim().split(/\s+/).pop()).join(",")}) {`)
+      // A LOCAL ARRAY is the one declaration whose shape differs and not just
+      // its keyword: WGSL's `G: array<f32, 12>` is GLSL's `G[12]`.
+      .replace(/(\w+): array<f32, (\d+)>/g, "$1[$2]")
       .replace(/vec4<f32>/g, "vec4")
       .replace(/vec2<f32>/g, "vec2")
       .replace(/\b(f32|float)\(/g, "T(")

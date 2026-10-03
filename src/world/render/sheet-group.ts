@@ -435,20 +435,70 @@ ${wgsl
   // twelve. Grown a round at a time and stopped the moment a round adds
   // nobody — a full corner of one sheet is done in the first round and
   // confirmed in the second. @see the twin in sheet-group.ts
-  ${INT} n = 4 * slots();
+  //
+  // EACH CONTRIBUTOR READ ONCE, up front, and the joins asked of what was
+  // read. Asked through joinedAt, every pair read both its slots' depth,
+  // ground and roof twice over — once to ask whether each shows, once to use
+  // them — and a round asks every pair: with two storeys that is sixteen
+  // pairs a round against four, on every corner of the map whether or not a
+  // deck is anywhere near it. It was the whole of why a flooded bridge cost
+  // the vertex shader 1.8 times what a flooded river did per quad. The same
+  // tests in the same order on the same numbers, so the same partition.
+  ${INT} L = slots();
+  ${INT} n = 4 * L;
+  ${wgsl ? "var G: array<f32, 12>;" : "float G[12];"}
+  ${wgsl ? "var W: array<f32, 12>;" : "float W[12];"}
+  ${wgsl ? "var R: array<f32, 12>;" : "float R[12];"}
+  ${MUT} seen = 0;
+  for (${LOOP} q = 0; q < 4; q = q + 1) {
+    ${INT} qx = vx - 1 + (q & 1);
+    ${INT} qy = vy - 1 + (q >> 1);
+    if (!inside(qx, qy)) { continue; }
+    for (${LOOP} a = 0; a < L; a = a + 1) {
+      ${INT} m = q * L + a;
+      ${NUM} d = depthAt(qx, qy, a);
+      ${NUM} g = groundAt(qx, qy, a);
+      ${NUM} r = roofAt(qx, qy, a);
+      // shows, written out: wet, and not pressed against its own roof.
+      if (!(wet(d) && g + d < r)) { continue; }
+      G[m] = g;
+      W[m] = min(g + d, r);
+      R[m] = r;
+      seen = seen | bitOf(m);
+    }
+  }
   ${MUT} comp = bitOf(k);
-  for (${LOOP} r = 0; r < n; r = r + 1) {
+  for (${LOOP} rd = 0; rd < n; rd = rd + 1) {
     ${MUT} grew = 0;
     for (${LOOP} e = 0; e < 4; e = e + 1) {
       // 0-1 and 2-3 across, 0-2 and 1-3 along. The diagonals are not edges.
       ${INT} qa = select(e - 2, e * 2, e < 2);
       ${INT} qb = select(e, e * 2 + 1, e < 2);
-      for (${LOOP} a = 0; a < slots(); a = a + 1) {
-        for (${LOOP} b = 0; b < slots(); b = b + 1) {
-          ${INT} ka = qa * slots() + a;
-          ${INT} kb = qb * slots() + b;
+      for (${LOOP} a = 0; a < L; a = a + 1) {
+        for (${LOOP} b = 0; b < L; b = b + 1) {
+          ${INT} ka = qa * L + a;
+          ${INT} kb = qb * L + b;
           if (bitAt(comp, ka) == bitAt(comp, kb)) { continue; }
-          if (joinedAt(vx, vy, ka, kb) == 0) { continue; }
+          // DRY OR DROWNED SLOTS JOIN NOTHING, nor do columns off the map.
+          if (bitAt(seen, ka) == 0 || bitAt(seen, kb) == 0) { continue; }
+          // CONNECTED, and no fall between them — joinedAt's own tests.
+          if (min(R[ka], R[kb]) <= max(G[ka], G[kb])) { continue; }
+          ${NUM} drop = max(G[ka] - W[kb], G[kb] - W[ka]);
+          if (drop >= fallMin()) { continue; }
+          if (drop >= fallStop()) {
+            // In the band, and only there, the latch — of the edge's owner.
+            ${INT} ax = vx - 1 + (qa & 1);
+            ${INT} ay = vy - 1 + (qa >> 1);
+            ${INT} bx = vx - 1 + (qb & 1);
+            ${INT} by = vy - 1 + (qb >> 1);
+            ${wgsl ? "var held = false;" : "bool held = false;"}
+            if (ay < by || (ay == by && ax < bx)) {
+              held = latchAt(ax, ay, select(1, 0, ay == by), a, b);
+            } else {
+              held = latchAt(bx, by, select(1, 0, ay == by), b, a);
+            }
+            if (held) { continue; }
+          }
           comp = comp | bitOf(ka) | bitOf(kb);
           grew = 1;
         }

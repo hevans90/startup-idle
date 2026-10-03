@@ -1056,9 +1056,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const onDevice = solverRef.current !== null;
           const cpu = flRef.current, gpu = gpuRef.current;
           if (!field || !scene.bl || (!cpu && !gpu)) return null;
-          const build = () => (cpu
-            ? drawWater(cpu, field.columns, scene.bl!, 1 / 60)
-            : drawGpuWater(gpu!, field.columns, scene.bl!, 1 / 60, true, onDevice));
           const device = (renderer as unknown as { gpu?: { device: GPUDevice } }).gpu?.device;
           // THE STAMPS GO ROUND TOO. They are resolved at the end of the
           // ticker's frame, and the bench does not use the ticker — so without
@@ -1072,35 +1069,34 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               true,
             );
           };
-          // THE SOLVER THE TICK WOULD USE, not `stepWater` unconditionally —
-          // which is what this used to do, so in GPU mode it benched the CPU
-          // solver and reported the number as the device's. A bench that
-          // measures the path you are not running is worse than none.
-          const step = () => {
-            const s = solverRef.current;
-            if (!s) { stepWater(field, 1 / 60); return; }
-            s.sync(field.columns);
-            s.step(field.columns, 1 / 60);
-            // AND THE READOUT GETS FED, exactly as the tick feeds it — so the
-            // leak alarm is armed while the bench is driving, which is the one
-            // way to exercise it with the tab in the background.
-            gpuWaterSaw(s.last());
-          };
-          for (let i = 0; i < 30; i++) { step(); build(); frame(); }
-          if (device) await device.queue.onSubmittedWorkDone();
-
-          let solve = 0, draw = 0, submit = 0;
-          const t0 = performance.now();
-          for (let i = 0; i < n; i++) {
-            const a = performance.now(); step();
-            const b = performance.now(); build();
-            const c = performance.now(); frame();
-            const d = performance.now();
-            solve += b - a; draw += c - b; submit += d - c;
-            if (sync && device) await device.queue.onSubmittedWorkDone();
+          // THE TICK'S OWN FRAME OF WATER, not a copy of the parts somebody
+          // remembered. This used to step the solver and build the mesh and
+          // nothing else — no springs, no pipes, no gathering, no falls, no
+          // drips — so it timed a frame nobody plays. @see waterFrameRef
+          //
+          // AND THE TICKER STOPPED while it runs. With `sync` on the bench
+          // awaits the queue between frames, and the live tick ran in every
+          // one of those gaps: two loops stepping one field, timed as one.
+          const water = () => waterFrameRef.current?.(1 / 60) ?? { solve: 0, build: 0 };
+          const ticking = app.ticker.started;
+          app.ticker.stop();
+          let solve = 0, draw = 0, submit = 0, wall = 0;
+          try {
+            for (let i = 0; i < 30; i++) { water(); frame(); }
+            if (device) await device.queue.onSubmittedWorkDone();
+            const t0 = performance.now();
+            for (let i = 0; i < n; i++) {
+              const spent = water();
+              const c = performance.now(); frame();
+              const d = performance.now();
+              solve += spent.solve; draw += spent.build; submit += d - c;
+              if (sync && device) await device.queue.onSubmittedWorkDone();
+            }
+            if (device) await device.queue.onSubmittedWorkDone();
+            wall = performance.now() - t0;
+          } finally {
+            if (ticking) app.ticker.start();
           }
-          if (device) await device.queue.onSubmittedWorkDone();
-          const wall = performance.now() - t0;
           const per = (v: number) => Math.round((v / n) * 100) / 100;
           return {
             // BOTH HALVES, NAMED SEPARATELY, because they vary separately:
@@ -1113,6 +1109,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             mesh: cpu ? "cpu" : "gpu",
             frames: n, sync,
             solve: per(solve), build: per(draw), submit: per(submit), wall: per(wall),
+            // WHAT THE RENDER WAS ASKED TO DRAW, because that is what its cost
+            // follows: the instances on the last frame, over the surface's
+            // bands and the faces under them. @see quads-gpu
+            ...(gpu ? {
+              quads: [...gpu.meshes, ...gpu.under]
+                .reduce((a, m) => a + (m.visible ? m.geometry.instanceCount : 0), 0),
+            } : {}),
             ...(solverRef.current ? { last: solverRef.current.last() } : {}),
           };
         };
@@ -1698,39 +1701,25 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     };
   }, [gpuWater, sceneEpoch]);
 
-  // Animated structures — the fluid in an excavation. Costs one Map walk per
-  // frame when nothing on the map animates, because a renderer that declares no
-  // `tick` is skipped outright.
-  useTick((ticker) => {
-    const sl = slRef.current, bl = blRef.current, tex = texRef.current;
-    const fl = flRef.current;
-    const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
-    // The water runs every frame, and the mesh is rebuilt from it every frame:
-    // the surface changes everywhere at once, so there is no incremental
-    // version of drawing it.
+  /**
+   * ONE FRAME OF WATER: the readback, the springs, the pipes, the solver, the
+   * gathering, the mesh, the falls, the drips and the tally — everything the
+   * tick does to the water, as one function, so the bench can do EXACTLY it.
+   *
+   * It was written inline in the tick, and `__waterBench` kept its own copy of
+   * the parts somebody had thought of: the solver and the mesh. No springs, no
+   * pipes, no gathering, no falls, no drips, and the faces always on whatever
+   * the overlay said — so it measured a frame nobody plays, and read lower
+   * than the HUD for reasons nobody could see. Kept in a ref and refreshed
+   * every render, so the bench reads the same overlays and scale the tick does.
+   * Returns the two halves the HUD times, or null when there is no water.
+   */
+  const waterFrameRef = useRef<((dt: number) => { solve: number; build: number } | null) | null>(null);
+  waterFrameRef.current = (dt: number) => {
+    const bl = blRef.current, fl = flRef.current;
     const field = useWorldStore.getState().getWaterField();
-    /**
-     * THE FRAME'S TIME, CUT TO WHAT THE WATER CAN ACTUALLY TAKE.
-     *
-     * The solver drops whatever it cannot fit into `MAX_SUBSTEPS` — that is
-     * the backstop, and it is right — but everything else in this tick was
-     * still being handed the WHOLE frame. So on a long frame the springs
-     * poured a full frame's water into a flow that had advanced a fifth of
-     * one, and the map gained water it had had no time to move.
-     *
-     * A backgrounded tab is not a corner case here: rAF throttles to about
-     * one frame a second, which is sixty times the step the water can take,
-     * and the map floods while nobody is looking at it. Measured on a spring
-     * at 48 squared — five seconds of wall clock in one-second frames left 80
-     * of water against the 16 the same second of flow should hold.
-     *
-     * Clamped HERE, where time enters, rather than scaled at each use: then
-     * `dt` means one thing to the springs, the pipes, the solver and the two
-     * renderers, and nothing downstream has to know this happened. @see maxStep
-     */
-    const dt = field ? Math.min(raw, maxStep(field.columns)) : raw;
     const gpu = gpuRef.current;
-    if (bl && field && (fl || gpu)) {
+    if (!(bl && field && (fl || gpu))) return null;
       // WHAT THE DEVICE FINISHED COMES BACK FIRST, before a spring or a pipe
       // pours a drop into this frame. The scatter overwrites the host's
       // depths, so done after them it lands on top of this frame's water and
@@ -1815,19 +1804,54 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       if (drRef.current) drawGpuDrips(drRef.current, field, bl, grid, overlays.xray);
       const t2 = performance.now();
-      perfAdd("solve", t1 - t0);
-      perfAdd("build", t2 - t1);
-      if (import.meta.env.DEV) {
-        const w = (window as unknown as { __waterMs?: { solve: number; draw: number; n: number } });
-        const acc = w.__waterMs ?? (w.__waterMs = { solve: 0, draw: 0, n: 0 });
-        acc.solve += t1 - t0; acc.draw += t2 - t1; acc.n++;
-      }
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the
       // walk over the columns when it is not. @see createMeta
       const tally = solverRef.current?.last().reduce ?? null;
       useWorldStore.getState().refreshWaterMeta(
         tally ? { wet: tally.wet, water: tally.water } : undefined,
       );
+      return { solve: t1 - t0, build: t2 - t1 };
+  };
+
+  // Animated structures — the fluid in an excavation. Costs one Map walk per
+  // frame when nothing on the map animates, because a renderer that declares no
+  // `tick` is skipped outright.
+  useTick((ticker) => {
+    const sl = slRef.current, bl = blRef.current, tex = texRef.current;
+    const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
+    // The water runs every frame, and the mesh is rebuilt from it every frame:
+    // the surface changes everywhere at once, so there is no incremental
+    // version of drawing it.
+    const field = useWorldStore.getState().getWaterField();
+    /**
+     * THE FRAME'S TIME, CUT TO WHAT THE WATER CAN ACTUALLY TAKE.
+     *
+     * The solver drops whatever it cannot fit into `MAX_SUBSTEPS` — that is
+     * the backstop, and it is right — but everything else in this tick was
+     * still being handed the WHOLE frame. So on a long frame the springs
+     * poured a full frame's water into a flow that had advanced a fifth of
+     * one, and the map gained water it had had no time to move.
+     *
+     * A backgrounded tab is not a corner case here: rAF throttles to about
+     * one frame a second, which is sixty times the step the water can take,
+     * and the map floods while nobody is looking at it. Measured on a spring
+     * at 48 squared — five seconds of wall clock in one-second frames left 80
+     * of water against the 16 the same second of flow should hold.
+     *
+     * Clamped HERE, where time enters, rather than scaled at each use: then
+     * `dt` means one thing to the springs, the pipes, the solver and the two
+     * renderers, and nothing downstream has to know this happened. @see maxStep
+     */
+    const dt = field ? Math.min(raw, maxStep(field.columns)) : raw;
+    const spent = waterFrameRef.current?.(dt);
+    if (spent) {
+      perfAdd("solve", spent.solve);
+      perfAdd("build", spent.build);
+      if (import.meta.env.DEV) {
+        const w = (window as unknown as { __waterMs?: { solve: number; draw: number; n: number } });
+        const acc = w.__waterMs ?? (w.__waterMs = { solve: 0, draw: 0, n: 0 });
+        acc.solve += spent.solve; acc.draw += spent.build; acc.n++;
+      }
     }
     if (!sl || !bl || !tex || !hasAnimated(sl)) return;
     tickStructures(sl, { bands: bl, textures: tex, grid, scale }, dt);
