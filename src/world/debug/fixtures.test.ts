@@ -294,12 +294,17 @@ describe("the water fixtures", () => {
   // does not silently spend the next one's time — which is what happened when
   // `plunge` was added and a twenty second bound that had been comfortable for
   // five became a failure that only showed up in a full run.
+  //
+  // TWELVE SECONDS A FIXTURE, not eight. Alone it runs 33 seconds for the six
+  // of them, 5.5 each — two thirds of the old budget, and the whole suite
+  // around it adds half again, which took it to 53 against 48. Twelve is a
+  // little over twice the solo time, the margin the full run actually needs.
   test("and each of them is running a minute later", () => {
     for (const id of WATER_FIXTURES) {
       const { field } = live(id, 60);
       expect(wetTiles(field)).toBeGreaterThan(100);
     }
-  }, WATER_FIXTURES.length * 8000);
+  }, WATER_FIXTURES.length * 12_000);
 
   // A MINUTE OF WATER AT SIXTY A SECOND, and it wants the room to run.
   //
@@ -468,7 +473,10 @@ describe("the inlet fixture", () => {
     const settled = totalVolume(field, g);
     runFor(g, field, 120);
     expect(Math.abs(totalVolume(field, g) - settled)).toBeLessThan(settled * 0.05);
-  }, 40000);
+    // FIFTY SECONDS: 22 alone and 31 in a full run, which is three quarters
+    // of the forty it had — the next one to fail on time, found from the
+    // suite's own timings before it did. Twice the solo time and a bit.
+  }, 50_000);
 });
 
 describe("the pipes fixture", () => {

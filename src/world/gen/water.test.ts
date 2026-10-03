@@ -262,7 +262,10 @@ describe("a map opens settled", () => {
       const late = r.at[179] - r.at[119];
       expect(late).toBeLessThan(early * 1.5 + r.at[119] * 0.003);
     }
-  }, 60_000);
+    // A HUNDRED SECONDS, not sixty: six simulated minutes of a fed map, 45
+    // seconds alone and 68 inside the full suite. A little over twice the
+    // solo time, which is the margin the full run needs.
+  }, 100_000);
 });
 
 /**
