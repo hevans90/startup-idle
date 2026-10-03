@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { DIR } from "../../iso/dir";
 import {
-  RAMP, createGrid, fillTerrain, idx, pipeAt, rampAt, setHeight, setPaved, setRamp, setTerrain,
-  setInflow, setSource, sourceAt,
+  RAMP, createGrid, fillTerrain, idx, pipeAt, rampAt, setDeck, setHeight, setPaved, setRamp,
+  setTerrain, setInflow, setSource, sourceAt,
 } from "../grid";
 import { commit, createHistory } from "../edit/commands";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import {
-  createWaterField, depthAt, pourAt, setWaterEdge, stepWater, totalVolume,
+  DECK_SLOT, createWaterField, depthAt, pourAt, setWaterEdge, slotDepthAt, stepWater, totalVolume,
 } from "../water/field";
 import {
   WORLD_FILE_VERSION, WorldFileError, deserializeWorld, fromJSON,
@@ -77,14 +77,68 @@ describe("round trip", () => {
     // the bound is the ROUNDING and not a number picked to pass: the layer
     // holds whole half steps, so a tile can be out by half of one, and the
     // depth that comes back is within that of the depth that went in.
+    //
+    // EVERY TILE, AT THE SAME INSTANT, and not one tile against a number. Two
+    // seconds is not long enough for this basin to find its level — it is
+    // still sloshing between one and three at the centre, and fifteen seconds
+    // on it is out by a third — so "the middle is deeper than one" sampled the
+    // slosh, and failed whenever the trough was passing. The snapshot is of
+    // the water as it STANDS, wave and all, and that is what is checked.
     const again = createWaterField(wet);
-    expect(depthAt(again, 5, 5)).toBeCloseTo(depthAt(field, 5, 5), 0);
-    expect(depthAt(again, 5, 5)).toBeGreaterThan(1);
+    let held = 0;
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) {
+        expect(Math.abs(depthAt(again, x, y) - depthAt(field, x, y))).toBeLessThanOrEqual(0.5 + 1e-6);
+        held += depthAt(again, x, y);
+      }
+    }
+    expect(held).toBeGreaterThan(16);                 // a basin's worth, not a film
     // Whole-map volume the same way: every wet tile may lose half a step off
     // each of its columns, and nothing may be gained that was not there.
     const wetTiles = [...wet.pool].filter((v) => v > 0).length;
     const slack = wetTiles * 0.5 * 16;
     expect(Math.abs(totalVolume(again, wet) - totalVolume(field, g))).toBeLessThan(slack);
+  });
+
+  test("and the water ON A BRIDGE comes back on the bridge", () => {
+    // The file's pool layer is one number a tile, and a bridged tile has two
+    // surfaces. Saved from the ground storey alone, the puddle on the span
+    // was lost and the river under it kept — or, poured from the old layer,
+    // would have gone into the river. Each storey has its own layer now.
+    const g = createGrid(8, 8);
+    fillTerrain(g, 1);
+    for (let y = 0; y < 8; y++) for (let x = 3; x <= 4; x++) setHeight(g, x, y, -8);
+    for (let x = 3; x <= 4; x++) setDeck(g, x, 4, 1, 4);
+    const field = createWaterField(g);
+    setWaterEdge(field, false);
+    pourAt(field, 3, 4, 3, 1);                      // onto the deck
+    pourAt(field, 4, 2, 5, 1);                      // into the channel, off it
+    const before = {
+      deck: slotDepthAt(field, 3, 4, DECK_SLOT), ground: depthAt(field, 3, 4),
+      channel: depthAt(field, 4, 2),
+    };
+    expect(before.deck).toBe(3);
+    expect(before.ground).toBe(0);
+
+    const wet = deserializeWorld(serializeWorld(g, PAL, field)).grid;
+    expect(wet.deckPool[idx(wet, 3, 4)]).toBe(3);
+    expect(wet.pool[idx(wet, 3, 4)]).toBe(0);
+    const again = createWaterField(wet);
+    expect(slotDepthAt(again, 3, 4, DECK_SLOT)).toBe(before.deck);
+    expect(depthAt(again, 3, 4)).toBe(before.ground);
+    expect(depthAt(again, 4, 2)).toBe(before.channel);
+  });
+
+  test("and a deck taken down since drops what was saved on it", () => {
+    // A deck pool with no deck has nothing to stand on. It is dropped rather
+    // than written into a slot that is not there — or onto the riverbed,
+    // which would be water the map never had in that place.
+    const g = createGrid(6, 6);
+    fillTerrain(g, 1);
+    g.deckPool[idx(g, 2, 2)] = 4;
+    const field = createWaterField(g);
+    expect(depthAt(field, 2, 2)).toBe(0);
+    expect(totalVolume(field, g)).toBe(0);
   });
 
   test("but the snapshot is only what is STANDING", () => {

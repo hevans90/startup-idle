@@ -14,7 +14,7 @@ import {
   VOID, createGrid, edited, recomputeHeightRange, stampFootprint,
   type Grid, type Structure,
 } from "../grid";
-import { poolSnapshot, type WaterField } from "../water/field";
+import { DECK_SLOT, poolSnapshot, type WaterField } from "../water/field";
 
 export const WORLD_FILE_VERSION = 1;
 
@@ -45,6 +45,14 @@ export type WorldFile = {
    * refuses to open a map over a layer whose absence has an obvious answer.
    */
   pool?: string;
+  /**
+   * Standing water ON THE DECKS, in half steps per cell. @see Grid.deckPool
+   *
+   * OPTIONAL on read, like `pool`: a file written before this has no deck
+   * water in it, which is what it was written without, and opens with dry
+   * spans — the same as it always did.
+   */
+  deckPool?: string;
   /**
    * base64 Uint8Array of {@link import("../grid").RAMP} directions.
    *
@@ -190,6 +198,7 @@ export function serializeWorld(
     paved: encodeU16(grid.paved),
     fluid: encodeU16(grid.fluid),
     pool: encodeU8(water ? poolSnapshot(water, grid) : grid.pool),
+    deckPool: encodeU8(water ? poolSnapshot(water, grid, DECK_SLOT) : grid.deckPool),
     source: encodeI8(grid.source),
     deck: encodeU8(grid.deck),
     deckZ: encodeI8(grid.deckZ),
@@ -249,6 +258,7 @@ export function deserializeWorld(file: unknown): { grid: Grid; palette: WorldFil
   if (typeof f.ramp === "string") grid.ramp.set(decodeU8(f.ramp, n));
   if (typeof f.fluid === "string") grid.fluid.set(decodeU16(f.fluid, n));
   if (typeof f.pool === "string") grid.pool.set(decodeU8(f.pool, n));
+  if (typeof f.deckPool === "string") grid.deckPool.set(decodeU8(f.deckPool, n));
   if (typeof f.source === "string") grid.source.set(decodeI8(f.source, n));
   if (typeof f.deck === "string") grid.deck.set(decodeU8(f.deck, n));
   if (typeof f.deckZ === "string") grid.deckZ.set(decodeI8(f.deckZ, n));

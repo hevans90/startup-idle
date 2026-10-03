@@ -39,6 +39,7 @@ const clear = (g: Grid, material: number) => {
   g.deckZ.fill(0);
   g.fluid.fill(0);
   g.pool.fill(0);
+  g.deckPool.fill(0);
   g.pipe.fill(0);
 };
 

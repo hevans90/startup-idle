@@ -915,7 +915,13 @@ export function startAutosave(): () => void {
   // THE LAST WRITE BEFORE THE TAB GOES, which is the one that actually matters:
   // a debounce that never fires is a lost map. Same triggers the session store
   // uses for presence. @see App.tsx
-  const flush = () => saveNow();
+  //
+  // AND IT WRITES THE WORLD AS IT STANDS, not only a save an edit left queued.
+  // Pouring is not an edit, so it bumps no revision and queues nothing: fill a
+  // lake after your last edit, close the tab, and this flushed nothing at all —
+  // the map came back with the water as it was at that edit, however long ago.
+  // Water moves on its own; leaving is always worth a snapshot.
+  const flush = () => { scheduleSave(input); saveNow(); };
   const onHide = () => { if (document.visibilityState === "hidden") flush(); };
   document.addEventListener("visibilitychange", onHide);
   window.addEventListener("pagehide", flush);

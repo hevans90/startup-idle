@@ -117,6 +117,7 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   g.inflow.fill(0);
   g.fluid.fill(0);
   g.pool.fill(0);
+  g.deckPool.fill(0);
   g.pipe.fill(0);
   g.pipeZ.fill(0);
 

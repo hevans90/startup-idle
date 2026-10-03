@@ -5,16 +5,19 @@
  * WIRING between it and the store — the seam where a saved map's palette went
  * missing because the load path destructured only the grid.
  */
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, jest, test } from "bun:test";
 
 import { deserializeWorld, serializeWorld, toJSON } from "../world/io/serialize";
 import {
-  DIRT, GRASS, INITIAL_TERRAIN_PALETTE, drainDirty, getNetwork, readoutFromUrl, useWorldStore,
+  DIRT, GRASS, INITIAL_TERRAIN_PALETTE, drainDirty, getNetwork, readoutFromUrl, startAutosave,
+  useWorldStore,
 } from "./world.store";
+import { loadSaved } from "../world/io/world-save";
+import { createGrid, fillTerrain, idx, setHeight } from "../world/grid";
 import { componentCount } from "../world/roads/network";
 import { DEFAULT_GEN, GEN_SLIDERS } from "../world/gen/params";
 import { RAMP, rampDir, rampRise } from "../world/iso";
-import { COLUMNS_PER_TILE, SOLID_LIFT } from "../world/water/field";
+import { COLUMNS_PER_TILE, SOLID_LIFT, pourAt } from "../world/water/field";
 
 const s = () => useWorldStore.getState();
 
@@ -474,5 +477,39 @@ describe("the cell readout's query flag", () => {
     expect(readoutFromUrl("?readout=")).toBe(true);
     expect(readoutFromUrl("?readout")).toBe(true);
     expect(readoutFromUrl("?reedout=0")).toBe(true);
+  });
+});
+
+describe("autosave", () => {
+  test("water poured after the last edit is saved when the tab is left", () => {
+    // Pouring is not an edit: it bumps no revision and queues no save. The
+    // flush on leaving wrote only a save an edit had queued, so a lake filled
+    // after the last edit was never written, and the map came back with the
+    // water as it stood at that edit. @see startAutosave
+    const on: Record<string, () => void> = {};
+    const doc = globalThis.document as unknown as Record<string, unknown>;
+    const g0 = globalThis as unknown as Record<string, unknown>;
+    const was = { add: doc.addEventListener, remove: doc.removeEventListener, window: g0.window };
+    const listen = { addEventListener: (k: string, f: () => void) => { on[k] = f; }, removeEventListener: () => {} };
+    Object.assign(doc, listen);
+    g0.window = listen;
+    try {
+      const g = createGrid(8, 8);
+      fillTerrain(g, GRASS);
+      for (let y = 3; y <= 4; y++) for (let x = 3; x <= 4; x++) setHeight(g, x, y, -6);
+      s().loadGrid(g, [...INITIAL_TERRAIN_PALETTE]);
+      const stop = startAutosave();
+      jest.runAllTimers();                     // the first save, of the dry map
+      expect(loadSaved()!.grid.pool[idx(g, 3, 3)]).toBe(0);
+
+      pourAt(s().getWaterField()!, 3, 3, 8, 1);
+      on.pagehide();
+      expect(loadSaved()!.grid.pool[idx(g, 3, 3)]).toBeGreaterThan(0);
+      stop();
+    } finally {
+      doc.addEventListener = was.add;
+      doc.removeEventListener = was.remove;
+      g0.window = was.window;
+    }
   });
 });

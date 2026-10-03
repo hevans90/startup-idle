@@ -150,6 +150,9 @@ export const OPEN_EDGE_DEFAULT = true;
  */
 export const STOREYS = 2;
 
+/** The slot a deck's own water is in. Slot nought is the ground. @see syncSlots */
+export const DECK_SLOT = 1;
+
 /** Whether any tile on the map carries a deck. @see syncSlots */
 export function anyDeck(grid: Grid): boolean {
   for (let i = 0; i < grid.deck.length; i++) if (grid.deck[i] !== 0) return true;
@@ -227,6 +230,18 @@ export function fillPools(field: WaterField, grid: Grid) {
   for (let y = 0; y < grid.h; y++) {
     for (let x = 0; x < grid.w; x++) {
       const i = idx(grid, x, y);
+      // THE DECK'S OWN WATER, onto the deck, where there still is one. A pool
+      // saved on a span that has since been taken down has nothing to stand
+      // on, and is dropped rather than put in a slot that is not there.
+      const onDeck = grid.deck[i] !== 0 ? grid.deckPool[i] : 0;
+      if (onDeck > 0) {
+        const material = grid.fluid[i] || 1;
+        for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
+          for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
+            addWater(field.columns, columnOf(x) + dx, columnOf(y) + dy, onDeck, material, DECK_SLOT);
+          }
+        }
+      }
       const deep = grid.pool[i];
       if (deep <= 0) continue;
       // STRAIGHT ONTO THE GROUND, not through `pourAt`, which now sends a
@@ -260,6 +275,10 @@ export function fillPools(field: WaterField, grid: Grid) {
  * new map's initial condition, which is exactly "save the world as it stands,
  * open it as it was".
  *
+ * ONE STOREY AT A TIME: the ground's for {@link Grid.pool}, and with `slot`
+ * the deck's for {@link Grid.deckPool}. Before there was a slot argument the
+ * water on every bridge was simply not saved.
+ *
  * Per tile and rounded to a half step, because that is what the layer holds.
  * A film thinner than half a half step rounds away — on a flat plain friction
  * always leaves one, and a saved map that came back with a millimetre of water
@@ -282,11 +301,15 @@ export function fillPools(field: WaterField, grid: Grid) {
  * is why this says so rather than doing it.
  * @see WORLD_FILE_VERSION, HEIGHT_MAX
  */
-export function poolSnapshot(field: WaterField, grid: Grid): Uint8Array {
+export function poolSnapshot(field: WaterField, grid: Grid, slot = 0): Uint8Array {
   const out = new Uint8Array(grid.w * grid.h);
+  // A FIELD WITH NO DECK STOREY HAS NO DECK WATER, and the layer is all
+  // nought — which is what a map with no decks saves.
+  if (slot >= field.columns.layers) return out;
   for (let y = 0; y < grid.h; y++) {
     for (let x = 0; x < grid.w; x++) {
-      out[idx(grid, x, y)] = Math.min(255, Math.round(depthAt(field, x, y)));
+      if (slot === DECK_SLOT && grid.deck[idx(grid, x, y)] === 0) continue;
+      out[idx(grid, x, y)] = Math.min(255, Math.round(slotDepthAt(field, x, y, slot)));
     }
   }
   return out;
@@ -715,7 +738,14 @@ export function drainAt(
  * A no-op on the CPU path. @see wantDepth
  */
 export function depthAt(field: WaterField, x: number, y: number): number {
+  return slotDepthAt(field, x, y, 0);
+}
+
+/** {@link depthAt}, in one storey — {@link DECK_SLOT} for the water on a deck. */
+export function slotDepthAt(field: WaterField, x: number, y: number, slot: number): number {
   const { columns } = field;
+  if (slot < 0 || slot >= columns.layers) return 0;
+  const base = slot * columns.cells;
   const cx0 = columnOf(x),
     cy0 = columnOf(y);
   let sum = 0,
@@ -725,7 +755,7 @@ export function depthAt(field: WaterField, x: number, y: number): number {
       const cx = cx0 + dx,
         cy = cy0 + dy;
       if (cx >= columns.nx || cy >= columns.ny) continue;
-      const i = cy * columns.nx + cx;
+      const i = base + cy * columns.nx + cx;
       sum += columns.depth[i];
       wantDepth(columns, i);
       n++;

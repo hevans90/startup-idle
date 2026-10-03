@@ -81,8 +81,22 @@ export type Grid = {
    * running the live depths are the truth and this does not follow them, the
    * same way {@link source} is a rate the world obeys rather than a record of
    * what came out of it.
+   *
+   * The water on the GROUND. What stands on a deck over the cell is
+   * {@link deckPool}'s.
    */
   pool: Uint8Array;
+  /**
+   * Water standing ON THE DECK over a cell when the map starts, in half steps
+   * above the deck. 0 = dry, and always 0 where there is no {@link deck}.
+   *
+   * {@link pool} is one number a tile, and a bridged tile has two surfaces: the
+   * river under the span and whatever is on the span. With only the one layer,
+   * saving a running map kept the river and lost every puddle on every bridge.
+   * Same terms as `pool` — an initial condition, a depth not a level, and the
+   * same {@link fluid}.
+   */
+  deckPool: Uint8Array;
   /**
    * Water in or out per second at a cell; 0 = nothing, negative = a drain.
    *
@@ -239,6 +253,7 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     paved: new Uint16Array(n),
     fluid: new Uint16Array(n),
     pool: new Uint8Array(n),
+    deckPool: new Uint8Array(n),
     source: new Int8Array(n),
     inflow: new Int8Array(n),
     deck: new Uint8Array(n),
