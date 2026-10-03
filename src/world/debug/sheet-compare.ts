@@ -48,6 +48,11 @@ import { HEIGHT_UNIT, HH, HW } from "../iso";
 
 export type SheetComparison = {
   scene: "cliff" | "span";
+  /**
+   * Seconds of water the scene ran before the shot: until water had been going
+   * over its lips for half a second, at least `seconds`, at most `limit`.
+   */
+  ranFor: number;
   /** Lips the scene actually had. A nought is a warning, not a pass. */
   lips: number;
   /** And how much water was in the AIR. A lip with nothing going over it
@@ -85,6 +90,9 @@ export type SheetComparison = {
  * device's sheet pass already claims to handle, so it has to read clean before
  * the bridged one means anything.
  */
+/** Water in the air, summed, past which the scene's falls are running. */
+const AIR_FALLING = 1;
+
 function cliffScene(size: number, span: boolean) {
   const grid = createGrid(size, size);
   fillTerrain(grid, 1);
@@ -132,7 +140,7 @@ function frame(root: Container, size: number, px: number) {
 
 export async function compareSheetPaths(
   renderer: Renderer, device: GPUDevice,
-  { size = 24, px = 640, seconds = 2, tolerance = 5, span = false } = {},
+  { size = 24, px = 640, seconds = 2, tolerance = 5, span = false, limit = 10 } = {},
 ): Promise<SheetComparison> {
   const { field } = cliffScene(size, span);
   const c = field.columns;
@@ -140,12 +148,26 @@ export async function compareSheetPaths(
   const scale = frame(bands.root, size, px);
 
   // ONE FIELD, STEPPED ONCE, on the host. Both builders read it.
+  //
+  // UNTIL WATER IS GOING OVER, not for a fixed time. A sheet is drawn only
+  // where a fall has water in it, and two seconds — which this ran for,
+  // flatly — is about when the front REACHES the lip on this scene: the shot
+  // was taken with nothing in the air, both builders made nought quads, and
+  // the comparison reported "nothing was compared" from the day it was
+  // written. So it runs `seconds` at least, then on until the falls are
+  // carrying water and have been for half a second, so the sheets have
+  // formed; and gives up at `limit`, saying so. @see SheetComparison.ranFor
   const wash = createFlowWash(c);
   const foam = createFoam(c);
-  for (let n = 0; n < Math.round(seconds * 60); n++) {
+  const inAir = () => { let a = 0; for (const v of c.falls.air) a += v; return a; };
+  let frames = 0, falling = 0;
+  while (frames < Math.round(limit * 60)) {
     stepWater(field, 1 / 60);
     const box = activeBox(c);
     if (box) { stepFlowWash(wash, c, 1 / 60, box); stepFoam(foam, c, 1 / 60, box); }
+    frames++;
+    falling = inAir() > AIR_FALLING ? falling + 1 : 0;
+    if (frames >= Math.round(seconds * 60) && falling >= 30) break;
   }
   const region = activeBox(c);
 
@@ -271,16 +293,19 @@ export async function compareSheetPaths(
   }
   return {
     scene: span ? "span" : "cliff",
+    ranFor: +(frames / 60).toFixed(2),
     lips, air: +air.toFixed(4), deckLips, hostQuads, deviceQuads,
     drawn, differing, worst, mean: drawn ? total / drawn : 0,
     onlyHost, onlyDevice,
     // A SHEET HAS TO HAVE BEEN BUILT, on BOTH sides, or there is nothing here
     // to agree about — the surest way to pass this is to compare two empty
     // pictures. @see hostQuads
-    ok: lips > 0 && hostQuads > 0 && deviceQuads > 0
+    ok: falling >= 30 && lips > 0 && hostQuads > 0 && deviceQuads > 0
       && (!span || deckLips > 0)
       && differing === 0 && onlyHost === 0 && onlyDevice === 0,
-    why: span && deckLips === 0
+    why: falling < 30
+      ? `no water went over in ${limit} s: the scene never fell, so nothing was compared`
+      : span && deckLips === 0
       ? "no lip is on the deck: the span scene is not asking the question"
       : lips === 0 ? "no lips: the scene never spilled, so nothing was compared"
       : hostQuads === 0 && deviceQuads === 0
