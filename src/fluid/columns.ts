@@ -1493,6 +1493,42 @@ const COURANT = 0.4;
  * to the square root of the depth — a pond four times deeper needs twice the
  * substeps.
  */
+/**
+ * The Courant number the carry cap holds a substep to. @see carryCap
+ */
+export const CAP_COURANT = 0.45;
+
+/**
+ * The deepest water an edge's flux may credit in a substep `dt` long.
+ *
+ * TWO CAPS, and the second is the one that matters. The first is the old
+ * backstop, fixed by `maxDt`: a Courant number of 0.71 at a full-length step,
+ * which is where the scheme comes apart in any case. The second follows THIS
+ * substep: whatever depth the frame was planned for, no edge is credited water
+ * deeper than this step can carry at {@link CAP_COURANT}.
+ *
+ * WHY: THE PLAN CAN BE STALE. `substepsFor` cuts the frame from `deepest`, and
+ * on the device that is the reduction the last readback brought back — four
+ * or five frames old — so water that deepened in between ran at a step cut for
+ * shallower water. The old backstop let that run to 0.71, and the scheme
+ * stands up in spikes from 0.49: a rolling-bed pool sixty deep, stepped as if
+ * it were ten, stood its worst column 46 off its neighbours where the true plan
+ * holds it at 0.95. Capped per substep it reads 1.08.
+ *
+ * 0.45, ABOVE THE 0.4 THE STEPPER AIMS AT, so with a fresh plan this sits at
+ * least a quarter above the deepest water and never touches it — a cap that
+ * lands ON the water's own depth caps some edges and not their neighbours,
+ * and that switching rings (the note in `substep`). It binds only when the
+ * plan was wrong, and then on exactly the water it was wrong about, which
+ * carries its waves a little slow for the few frames until the plan catches
+ * up. And below 0.49, where the staircase bed starts to spike.
+ * @see stableStep, COURANT
+ */
+export function carryCap(cell: number, dt: number, params: FlowParams): number {
+  const backstop = (cell / params.maxDt) ** 2 / (2 * params.gravity);
+  return Math.min(backstop, (CAP_COURANT * cell / dt) ** 2 / params.gravity);
+}
+
 function stableStep(f: ColumnField): number {
   const h = f.deepest;
   if (h <= 0) return f.params.maxDt;
@@ -1542,8 +1578,9 @@ export function stepFlow(f: ColumnField, dt: number) {
  * Lifted out because the device solver has to cut the frame the same way and
  * a stepping rule written twice is a pair of solvers that diverge for a
  * reason that is nobody's physics. The device plans its frame from the
- * `deepest` its last reduction reported, which is a frame stale — the `hMax`
- * backstop in `substep` is what makes that safe, exactly as it is here.
+ * `deepest` its last readback reported, which is four or five frames stale —
+ * {@link carryCap}, which follows each substep's own length, is what makes
+ * that safe. The old backstop, fixed by `maxDt`, did not.
  *
  * The list is short by construction: the guard is the same {@link
  * MAX_SUBSTEPS} the loop used to carry, and a frame that runs out of substeps
@@ -2544,7 +2581,8 @@ function substep(f: ColumnField, dt: number, calmDt = 0) {
    *
    * This is the BACKSTOP and not the working limit — `stableStep` keeps the
    * step short enough that nothing ever reaches this, and it only binds when
-   * a frame has run out of substeps. It deliberately sits well above where
+   * a frame has run out of substeps, or was planned from a stale `deepest`.
+   * @see carryCap It deliberately sits well above where
    * the stepper aims, because a cap that lands ON the water's own depth is
    * worse than one that lands miles above it: some edges get capped and their
    * neighbours do not, and that switching is itself a thing a scheme can ring
@@ -2552,7 +2590,7 @@ function substep(f: ColumnField, dt: number, calmDt = 0) {
    * seconds while the same pond with the cap at 50 — every edge capped, all of
    * them consistently — sat still. Uniform is fine. Half on, half off is not.
    */
-  const hMax = (cell / params.maxDt) ** 2 / (2 * params.gravity);
+  const hMax = carryCap(cell, dt, params);
   for (let m = 0; m < MATERIAL_SLOTS; m++) {
     f.keepOf[m] = f.dragOf[m] > 0 ? Math.pow(f.dragOf[m], dt) : keep;
   }

@@ -43,10 +43,10 @@
  * a second is not something anybody can see, and it is stated here rather than
  * discovered.
  *
- * THE SUBSTEPS ARE PLANNED ON THE HOST, from the `deepest` the last frame's
- * reduction reported. That is a frame stale and it is safe for the reason the
- * plan gives: `hMax` inside the accelerate pass is a backstop that does not
- * care what the stepper thought. See `substepsFor`, which is shared with the
+ * THE SUBSTEPS ARE PLANNED ON THE HOST, from the `deepest` the last readback
+ * reported. That is four or five frames stale and it is safe because the
+ * carry cap inside the accelerate pass follows each substep's own length, not
+ * what the stepper thought the water was. @see carryCap See `substepsFor`, which is shared with the
  * CPU solver so the two cut a frame the same way.
  *
  * SPILL AND WIND STAY WHERE THEY WERE — spill because it runs at the top of
@@ -57,7 +57,7 @@
  * nobody needs.
  */
 import {
-  MATERIAL_SLOTS, clearArrivals, createArrivals, stepAir, stirWind,
+  MATERIAL_SLOTS, carryCap, clearArrivals, createArrivals, stepAir, stirWind,
   maxStep, substepsFor, wantDepth, type ColumnField,
   type PassConsts,
 } from "../columns";
@@ -1358,7 +1358,7 @@ export function createGpuWater(
         x0: region.x0, y0: region.y0, x1: region.x1, y1: region.y1,
         gain: p.gravity * h / field.cell,
         bedGain: p.bedDrag * h,
-        hMax: (field.cell / p.maxDt) ** 2 / (2 * p.gravity),
+        hMax: carryCap(field.cell, h, p),
         minHead: p.minSlope * field.cell,
         spread: h / field.cell,
         diffScale: h / (field.cell * field.cell),

@@ -333,6 +333,42 @@ describe("deep water settles like shallow water", () => {
     expect(worst).toBeLessThan(3);
   }, 20_000);
 
+  test("nor when the frame was planned for shallower water than it is", () => {
+    // The device plans each frame from the `deepest` its last readback
+    // brought back, four or five frames old, so water that deepened since is
+    // stepped as if it were shallower. Told ten every frame, this pool — about
+    // sixty — was stepped at the full 1/60 and stood its worst column 46 off
+    // its neighbours, through a backstop that only bound at 0.71. The carry
+    // cap follows each substep's own length now. @see carryCap
+    const size = 96, perTile = 4;
+    const f = createColumnField(size, size, CALM, 0.25);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const tx = Math.floor(x / perTile), ty = Math.floor(y / perTile);
+        f.ground[y * size + x] =
+          Math.round(10 * Math.sin(tx * 0.4) * Math.cos(ty * 0.33) + 6 * Math.sin((tx + ty) * 0.21));
+      }
+    }
+    setOpenEdge(f, false);
+    for (let y = 24; y < 72; y++) for (let x = 24; x < 72; x++) addWater(f, x, y, 60, 1);
+    for (let n = 0; n < 60 * 20; n++) {
+      f.deepest = 10;                            // what a stale readback says
+      stepFlow(f, 1 / 60);
+    }
+    let worst = 0;
+    for (let y = 1; y < size - 1; y++) {
+      for (let x = 1; x < size - 1; x++) {
+        const i = y * size + x;
+        if (f.depth[i] <= f.params.dryDepth) continue;
+        const round = [i - 1, i + 1, i - size, i + size];
+        if (round.some((j) => f.depth[j] <= f.params.dryDepth)) continue;
+        const mean = round.reduce((a, j) => a + surfaceAt(f, j), 0) / 4;
+        worst = Math.max(worst, Math.abs(surfaceAt(f, i) - mean));
+      }
+    }
+    expect(worst).toBeLessThan(3);
+  }, 20_000);
+
   test("a shove in deep water dies out, the same as in shallow", () => {
     // The bug: the CFL guard on the flux was written from the ONE dimensional
     // Courant condition, and this grid is two dimensional, where the limit is

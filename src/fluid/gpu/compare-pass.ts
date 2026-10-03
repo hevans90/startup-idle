@@ -18,7 +18,7 @@
  */
 import {
   FLOW_DEFAULTS, MATERIAL_SLOTS, accelerate, activeBox, addWater,
-  applyDepths, applyLandings, calmChop, createColumnField, diffuseBreaking, divergence,
+  applyDepths, applyLandings, calmChop, carryCap, createColumnField, diffuseBreaking, divergence,
   limit,
   stepFlow, type ColumnField, type PassConsts,
 } from "../columns";
@@ -493,7 +493,7 @@ export async function compareAccelerate(
     x0: region.x0, y0: region.y0, x1: region.x1, y1: region.y1,
     gain: p.gravity * dt / cpu.cell,
     bedGain: p.bedDrag * dt,
-    hMax: (cpu.cell / p.maxDt) ** 2 / (2 * p.gravity),
+    hMax: carryCap(cpu.cell, dt, p),
     minHead: p.minSlope * cpu.cell,
     spread: dt / cpu.cell,
     diffScale: dt / (cpu.cell * cpu.cell),
