@@ -100,6 +100,9 @@ export type FlowParams = {
    * hillside, and the same pour on the same hill settled over 385 tiles at four
    * columns per tile against 986 at two. A gradient is a property of the
    * ground.
+   *
+   * AND ONLY FOR SHALLOW WATER: it fades out between {@link BAND_FULL} and
+   * {@link BAND_GONE} of depth. @see deadBand
    */
   minSlope: number;
   /**
@@ -1526,7 +1529,11 @@ export function stepFlow(f: ColumnField, dt: number) {
   // WHERE THE SLOTS ARE, on the same terms and for the same reasons.
   rebuildSlots(f);
   markCliffs(f, dt);
-  for (const h of substepsFor(f, dt)) substep(f, h);
+  // The calm runs in the FIRST substep only, over the whole frame's time — the
+  // same sum the device calls `frameDt`. @see calmChop
+  const plan = substepsFor(f, dt);
+  const whole = plan.reduce((a, b) => a + b, 0);
+  for (let n = 0; n < plan.length; n++) substep(f, plan[n], n === 0 ? whole : 0);
 }
 
 /**
@@ -1669,6 +1676,39 @@ export type PassConsts = {
 };
 
 /**
+ * The dead band is whole up to this depth of water crossing an edge. @see deadBand
+ */
+export const BAND_FULL = 4;
+
+/** And gone by this one. @see deadBand */
+export const BAND_GONE = 8;
+
+/**
+ * How small a head an edge with `carry` of water over its sill ignores.
+ *
+ * `minSlope` is there for THIN water — it is what gives a puddle an edge
+ * instead of a film that creeps across the map for ever, and what lets a
+ * plateau drain to something you can see. In DEEP water it is a fault. Almost
+ * every head in a deep pool is smaller than the band, so the water coasts on
+ * its own momentum with nothing pulling it back until a head grows past the
+ * band, gets kicked, overshoots and coasts again: a dead-zone limit cycle.
+ * Measured on a pit thirty five deep with a river over it, the surface moved
+ * at an rms of 10.2 half steps a second on a four-frame period, almost all of
+ * it column against column — the chop that never settled. With the band gone
+ * in deep water it is 1.28, the same pit sixty deep 12.8 to 1.79, and eight
+ * deep 4.6 to 1.06. Wind made no difference to any of it.
+ *
+ * WHOLE TO FOUR, GONE BY EIGHT. Faded from depth nought, it reached water two
+ * deep too — river depth, not film — and changed what a plunge digs into its
+ * pool. Held whole to four, everything at river depth is exactly what it was.
+ * @see FlowParams.minSlope
+ */
+export const deadBand = (minHead: number, carry: number) =>
+  carry <= BAND_FULL ? minHead
+    : carry >= BAND_GONE ? 0
+      : minHead * (BAND_GONE - carry) / (BAND_GONE - BAND_FULL);
+
+/**
  * PASS 1 — every edge accelerated by the head across it and the water able to
  * carry it, then dragged.
  *
@@ -1809,7 +1849,7 @@ export function accelerate(f: ColumnField, c: PassConsts) {
               const up = head > 0 ? hi : hj;
               const carry = Math.min(hMax, up < gap ? up : gap);
               const k = keepOf[material[head > 0 ? ia : jb]];
-              const push = carry > 0 && Math.abs(head) > minHead;
+              const push = carry > 0 && Math.abs(head) > deadBand(minHead, carry);
               const q = push ? (fx[p] + gain * carry * head) * k : fx[p] * k;
               // The wind is added AFTER the drag, so it is this step's push
               // rather than something the drag has already taken a bite out
@@ -1847,7 +1887,7 @@ export function accelerate(f: ColumnField, c: PassConsts) {
               const up = head > 0 ? hi : hj;
               const carry = Math.min(hMax, up < gap ? up : gap);
               const k = keepOf[material[head > 0 ? ia : jb]];
-              const push = carry > 0 && Math.abs(head) > minHead;
+              const push = carry > 0 && Math.abs(head) > deadBand(minHead, carry);
               const q = push ? (fy[p] + gain * carry * head) * k : fy[p] * k;
               fy[p] = floored(carry > 0
                 ? q / (1 + bedGain * Math.abs(q) / (carry * carry))
@@ -2290,7 +2330,175 @@ export function diffuseBreaking(f: ColumnField, c: PassConsts) {
   }
 }
 
-function substep(f: ColumnField, dt: number) {
+/**
+ * The hyperviscosity, in tiles to the fourth a second. @see calmChop
+ */
+export const CALM = 1e-3;
+
+/** Water shallower than this, across an edge, is not calmed at all. @see calmChop */
+export const CALM_FROM = 2;
+
+/** And water this deep is calmed in full. @see calmChop */
+export const CALM_FULL = 4;
+
+/** What one step of {@link calmChop} moves, per unit of the fourth difference. */
+export const calmScale = (dt: number, cell: number) =>
+  Math.min(1 / 80, CALM * dt / (cell * cell * cell * cell));
+
+/** How much of the calm an edge `h` deep gets. @see calmChop */
+export const calmWeight = (h: number) =>
+  h <= CALM_FROM ? 0 : h >= CALM_FULL ? 1 : (h - CALM_FROM) / (CALM_FULL - CALM_FROM);
+
+/** The Laplacian of the edge velocities at `i`, over the neighbours taking part. */
+function lapAt(
+  velo: Float32Array, under: Float32Array, nx: number,
+  R: { x0: number; y0: number; x1: number; y1: number }, x: number, y: number,
+) {
+  const i = y * nx + x, vi = velo[i];
+  let L = 0;
+  if (x > R.x0 && under[i - 1] > 0) L += velo[i - 1] - vi;
+  if (x < R.x1 && under[i + 1] > 0) L += velo[i + 1] - vi;
+  if (y > R.y0 && under[i - nx] > 0) L += velo[i - nx] - vi;
+  if (y < R.y1 && under[i + nx] > 0) L += velo[i + nx] - vi;
+  return L;
+}
+
+/** One face of {@link calmChop}'s exchange, before the scale. */
+function face(
+  j: number, wi: number, hi: number, li: number,
+  w: Float32Array, under: Float32Array, lap: Float32Array,
+) {
+  const wj = w[j];
+  if (wj <= 0) return 0;
+  return (wi < wj ? wi : wj) * ((hi + under[j]) * 0.5) * (lap[j] - li);
+}
+
+/**
+ * PASS 0, FIRST HALF — deep water is calmed at the scale of the grid.
+ *
+ * THE CHOP. A pool a few deep with a river running over it never settled: its
+ * surface carried a column-scale wave field that the river kept feeding and
+ * nothing took out. Shallow-water waves a column or two long are barely damped
+ * at depth — the drag is on the bed, and in deep water the bed is a long way
+ * down — so every kick the inflow gave the pool stayed in it, and the shading,
+ * which is steep in slope, drew each one as a stripe. Measured on a pit seven
+ * deep under a river: the surface moving at 1.58 half steps a second rms and a
+ * column-to-column slope of 0.051, still going after a minute.
+ *
+ * FOURTH DIFFERENCES, NOT SECOND. A plain viscosity damps a wave by k², so
+ * strong enough to calm the chop it flattens the swell the wind raises on a
+ * pond as well, and visibly: that is ν = 0.0127, and the pond froze. This
+ * damps by k⁴ — sixteen times harder on a wave two columns long than on one
+ * four long — and at {@link CALM} the same pit reads 0.17 and 0.008 while the
+ * pond keeps its full range of shade, changing over seconds instead of
+ * shimmering. A plain viscosity weak enough to leave the pond alone (0.003)
+ * only halved the chop.
+ *
+ * ONLY IN DEEP WATER, faded in between {@link CALM_FROM} and
+ * {@link CALM_FULL} of edge depth. A river is under one deep: its ripples are
+ * how it reads as running, and its speed is what it was.
+ *
+ * CONSERVED, as the breaking exchange is: each face moves momentum by the
+ * difference of the two Laplacians either side, worked out from the same
+ * numbers on both sides, so what one edge loses its neighbour gains. Explicit,
+ * and capped at an eightieth a step so the stiffest mode — sixty four times the
+ * scale — decays rather than flips.
+ *
+ * ONCE A FRAME, in the first substep, over the whole frame's time. Every
+ * substep it was a sixth of the host solver on a generated map full of lakes,
+ * as much as `accelerate`; the damping it does is slow beside a substep, so
+ * doing it in one go loses nothing, and on the device at sixty frames a
+ * second there is one substep anyway.
+ * @see gpu/calm, diffuseBreaking
+ */
+export function calmChop(f: ColumnField, c: PassConsts) {
+  const { nx, ny, cells, layers, fx, fy, depth, velo, iterA: lap, iterB: under, params } = f;
+  const { x0, y0, x1, y1 } = c;
+  const k = calmScale(c.dt, f.cell);
+  const dry = params.dryDepth;
+  const R = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  for (let a = 0; a < layers; a++) {
+    for (let b = 0; b < layers; b++) {
+      if (!planeRegion(f, a, b, x0, y0, x1, y1, R)) continue;
+      const plane = (a * layers + b) * cells;
+      const near = a * cells, beyond = b * cells;
+      for (let axis = 0; axis < 2; axis++) {
+        const q = axis === 0 ? fx : fy;
+        const step = axis === 0 ? 1 : nx;
+        // ONLY THE DEEP EDGES MOVE, so only their box is worked: the deep
+        // edges, and a column round them for the velocities their Laplacians
+        // read. Swept over the whole active box this was a fifth of the host
+        // solver on a generated map, which is nearly all river. The answer is
+        // the same to the bit — nothing outside the box has any weight.
+        let dx0 = R.x1 + 1, dy0 = R.y1 + 1, dx1 = -1, dy1 = -1;
+        for (let y = R.y0; y <= R.y1; y++) {
+          for (let x = R.x0; x <= R.x1; x++) {
+            const i = y * nx + x;
+            const inMap = axis === 0 ? x + 1 < nx : y + 1 < ny;
+            if (!inMap) continue;
+            const dn = depth[near + i], df = depth[beyond + i + step];
+            if (dn <= dry || df <= dry || (dn + df) * 0.5 <= CALM_FROM) continue;
+            if (x < dx0) dx0 = x;
+            if (x > dx1) dx1 = x;
+            if (y < dy0) dy0 = y;
+            if (y > dy1) dy1 = y;
+          }
+        }
+        if (dx1 < 0) continue;
+        const px0 = Math.max(R.x0, dx0 - 1), px1 = Math.min(R.x1, dx1 + 1);
+        const py0 = Math.max(R.y0, dy0 - 1), py1 = Math.min(R.y1, dy1 + 1);
+        for (let y = py0; y <= py1; y++) {
+          for (let x = px0; x <= px1; x++) {
+            const i = y * nx + x;
+            const inMap = axis === 0 ? x + 1 < nx : y + 1 < ny;
+            const dn = depth[near + i];
+            const df = inMap ? depth[beyond + i + step] : 0;
+            if (dn <= dry || df <= dry) { under[i] = 0; continue; }
+            const h = (dn + df) * 0.5;
+            under[i] = h;
+            velo[i] = q[plane + i] / h;
+          }
+        }
+        // The Laplacians, once each and only where an edge is calmed: the
+        // exchange reads five of them an edge, and only between two calmed
+        // edges. Then each edge's weight, into the velocities, which nothing
+        // reads again.
+        const w = velo;
+        for (let y = dy0; y <= dy1; y++) {
+          for (let x = dx0; x <= dx1; x++) {
+            const i = y * nx + x;
+            if (under[i] <= CALM_FROM) continue;
+            lap[i] = lapAt(velo, under, nx, R, x, y);
+          }
+        }
+        for (let y = py0; y <= py1; y++) {
+          for (let x = px0; x <= px1; x++) {
+            const i = y * nx + x;
+            w[i] = calmWeight(under[i]);
+          }
+        }
+        for (let y = dy0; y <= dy1; y++) {
+          for (let x = dx0; x <= dx1; x++) {
+            const i = y * nx + x;
+            const wi = w[i];
+            if (wi <= 0) continue;
+            const hi = under[i], li = lap[i];
+            let moved = 0;
+            // The four neighbours in a fixed order, each in the region and
+            // calmed. The same order on the device. @see gpu/calm
+            if (x > R.x0) moved += face(i - 1, wi, hi, li, w, under, lap);
+            if (x < R.x1) moved += face(i + 1, wi, hi, li, w, under, lap);
+            if (y > R.y0) moved += face(i - nx, wi, hi, li, w, under, lap);
+            if (y < R.y1) moved += face(i + nx, wi, hi, li, w, under, lap);
+            if (moved !== 0) q[plane + i] -= k * moved;
+          }
+        }
+      }
+    }
+  }
+}
+
+function substep(f: ColumnField, dt: number, calmDt = 0) {
   f.t += dt;
   if (f.openEdge) spill(f);
   const region = activeBox(f);
@@ -2361,6 +2569,9 @@ function substep(f: ColumnField, dt: number) {
   //    of this one, on the viscosity that step worked out. A step behind,
   //    which is what an explicit indicator always is.
   if (f.breaking && params.breaking > 0) diffuseBreaking(f, consts);
+  //    And deep water loses its column-scale chop, ONCE A FRAME, on the
+  //    frame's own dt. @see calmChop
+  if (calmDt > 0) calmChop(f, { ...consts, dt: calmDt });
   accelerate(f, consts);
 
   // 2. LIMIT — see `limit`, lifted out for the same reason as `accelerate`.

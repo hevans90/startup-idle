@@ -66,6 +66,7 @@ import { createAccelerate } from "./accelerate";
 import { createApply, readReduce, reduceSeed } from "./apply";
 import { createArrive } from "./arrive";
 import { createCliffs } from "./cliffs";
+import { createCalm } from "./calm";
 import { createDiffuse } from "./diffuse";
 import { createDivergence } from "./divergence";
 import { createFallout } from "./fallout";
@@ -351,6 +352,7 @@ export function createGpuWater(
     spill: createSpill(device),
     cliffs: createCliffs(device),
     diffuse: createDiffuse(device),
+    calm: createCalm(device),
     accelerate: createAccelerate(device),
     limit: createLimit(device),
     divergence: createDivergence(device),
@@ -1289,6 +1291,7 @@ export function createGpuWater(
     passes.arrive.encode(enc, state, arriveN);
     passes.cliffs.encode(enc, state);
 
+    let calmFirst = true;
     for (const h of plan) {
       field.t += h;
       stirWind(field);
@@ -1392,6 +1395,10 @@ export function createGpuWater(
       if (field.breaking && p.breaking > 0 && on("diffuse")) {
         passes.diffuse.encode(sub, state, region);
       }
+      // And deep water loses its column-scale chop, once a frame, over the
+      // frame's time. @see calmChop
+      if (calmFirst && on("diffuse")) passes.calm.encode(sub, state, region);
+      calmFirst = false;
       if (on("accelerate")) passes.accelerate.encode(sub, state, region);
       if (on("limit")) passes.limit.encode(sub, state, region);
       if (on("divergence")) passes.divergence.encode(sub, state, region);

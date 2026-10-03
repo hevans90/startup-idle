@@ -383,13 +383,23 @@ describe("a port is one rule, whichever way the water is going", () => {
     const held = totalVolume(f, g);
     for (let n = 0; n < 60 * 6; n++) { runPipes(f, g, 1 / 60); stepWater(f, 1 / 60); }
     const at6 = waterInPipes(f, g);
-    for (let n = 0; n < 60 * 6; n++) { runPipes(f, g, 1 / 60); stepWater(f, 1 / 60); }
+    // THE LEVEL AVERAGED OVER THE LAST SIX SECONDS, not read at one instant.
+    // Surcharged, the run sloshes: its level swings from about four and a
+    // half to fourteen on a cycle of ten seconds or so, around a mean of 7.8.
+    // Read at the twelfth second alone it was wherever the swing happened to
+    // be — 8.67 on one version of the solver and 10.52 on another that left
+    // the mean exactly where it was. The claim is about where it settles.
+    let mean = 0, samples = 0;
+    for (let n = 0; n < 60 * 6; n++) {
+      runPipes(f, g, 1 / 60); stepWater(f, 1 / 60);
+      for (let x = 4; x <= 8; x++) mean += pipeLevelAt(g, f, x, 7) / 5;
+      samples++;
+    }
+    mean /= samples;
 
     expect(at6).toBeGreaterThan(5 * PIPE_FULL);        // past the crown
     expect(waterInPipes(f, g)).toBeCloseTo(at6, 0);       // and no longer rising
     expect(totalVolume(f, g)).toBeCloseTo(held, 2);       // out of the pool, not thin air
-    let mean = 0;
-    for (let x = 4; x <= 8; x++) mean += pipeLevelAt(g, f, x, 7) / 5;
     // Up to about the pool's own surface. About, and not exactly: past the
     // crown the surface inside is a hairline, so the pipe is stiff there and a
     // port trades a little standing head for being able to move water at all

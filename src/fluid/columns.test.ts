@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  FLOW_DEFAULTS, MAX_FLOW_SPEED, addWater, at, createColumnField, flowEnergy, maxStep,
+  BAND_GONE, CALM_FULL, FLOW_DEFAULTS, MAX_FLOW_SPEED, addWater, at, createColumnField, flowEnergy, maxStep,
   rimAt, rimLength, setMaterialDrag, setOpenEdge, setRim,
   stepFlow, substepsFor, surfaceAt, totalWater, velocityAt, type ColumnField,
 } from "./columns";
@@ -135,8 +135,12 @@ describe("a breaking wave loses energy, and nothing else does", () => {
     // which took this to 0.597 — and in a deep pool made momentum from
     // nothing and pumped it dry. Conserving it, the only loss left is the
     // energy in the differences between neighbours, and this reads 0.705.
-    // @see diffuseBreaking
-    expect(shoved(8, 1)).toBeLessThan(shoved(8, 0) * 0.75);
+    //
+    // AND A FIFTH, since deep water is calmed. The calm is a second sink on
+    // exactly the short, steep waves a slug makes, so both arms lose some of
+    // the same energy before breaking gets to it: 0.659 against 0.839, 0.785.
+    // @see diffuseBreaking, calmChop
+    expect(shoved(8, 1)).toBeLessThan(shoved(8, 0) * 0.82);
   });
 
   test("and leaves a wave that is not alone", () => {
@@ -235,6 +239,56 @@ describe("deep water settles like shallow water", () => {
     run(f, 5);
     return f;
   };
+
+  /** A pit `deep` under a river, run 15 s; then its surface's rms speed. */
+  const chopIn = (deep: number) => {
+    const nx = 96, ny = 32;
+    const f = createColumnField(nx, ny, { ...FLOW_DEFAULTS }, 0.25);
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) {
+        const bank = y < 8 || y >= 24, pit = x >= 36 && x < 60 && y >= 10 && y < 22;
+        f.ground[y * nx + x] = bank ? 40 : pit ? -deep : 0;
+      }
+    }
+    setOpenEdge(f, true);
+    for (let y = 10; y < 22; y++) for (let x = 36; x < 60; x++) addWater(f, x, y, deep + 4, 1);
+    const pour = () => { for (let y = 8; y < 24; y++) addWater(f, 2, y, 0.25, 1); };
+    for (let n = 0; n < 60 * 15; n++) { pour(); stepFlow(f, 1 / 60); }
+    const pool: number[] = [];
+    for (let y = 12; y < 20; y++) for (let x = 40; x < 56; x++) pool.push(y * nx + x);
+    let was = pool.map((i) => surfaceAt(f, i)), sq = 0, n = 0;
+    for (let t = 0; t < 120; t++) {
+      pour();
+      stepFlow(f, 1 / 60);
+      const now = pool.map((i) => surfaceAt(f, i));
+      for (let k = 0; k < pool.length; k++) { sq += (now[k] - was[k]) ** 2; n++; }
+      was = now;
+    }
+    return { depth: f.depth[pool[0]], rms: Math.sqrt(sq / n) * 60 };
+  };
+
+  test("a deep pool with a river over it does not chop", () => {
+    // The dead band is for THIN water. In a pool thirty deep almost every head
+    // is under it, so the water coasted, got kicked as a head grew past the
+    // band, overshot and coasted again — a column-scale flicker on a period of
+    // four frames that never settled: 10.6 half steps a second, rms, on this
+    // scene. Faded out with depth it was 3.3, and the calm takes it to under
+    // one. @see deadBand, calmChop
+    const { depth, rms } = chopIn(30);
+    // It really is deep, and the river really is running over it.
+    expect(depth).toBeGreaterThan(BAND_GONE);
+    expect(rms).toBeLessThan(2);
+  }, 20_000);
+
+  test("nor does one only a few deep", () => {
+    // The pool the report came from was seven deep, where the dead band is
+    // most of the way gone and was never the fault: the river kept feeding a
+    // column-scale wave field that nothing in deep water takes out. 1.58 a
+    // second rms with nothing to calm it. @see calmChop
+    const { depth, rms } = chopIn(7);
+    expect(depth).toBeGreaterThan(CALM_FULL);
+    expect(rms).toBeLessThan(0.5);
+  }, 20_000);
 
   test("a pool over ROLLING ground settles, and does not stand up in spikes", () => {
     // The report this comes from: lower the ground under a pool and the waves

@@ -910,8 +910,13 @@ describe("running water reads as running", () => {
 
     expect(spread([...wl.vl].filter((_, v) => wl.vn[v]))).toBeGreaterThan(6);
 
+    // OVER A SECOND, not a third of one. The calm takes out the column-scale
+    // shimmer — the same waves that made a deep pool under a river boil — and
+    // what is left is swell, which moves the shading over seconds: about a
+    // quarter of the corners in one, against the one percent of the
+    // photograph. @see calmChop
     const before = [...wl.vl], wet = [...wl.vn];
-    run(20);
+    run(60);
     let moved = 0, n = 0;
     for (let v = 0; v < before.length; v++) {
       if (!wet[v] || !wl.vn[v]) continue;

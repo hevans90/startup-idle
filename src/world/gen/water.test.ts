@@ -251,9 +251,16 @@ describe("a map opens settled", () => {
       // ONLY RISES COUNT. Written as `early * 1.5` it inverts the moment the
       // map is DRAINING, where a smaller fall is a bigger number and a
       // perfectly stable map fails for settling too gently.
+      //
+      // AND THE SLACK IS A SHARE OF THE WATER, not a flat fifty. A settled map
+      // wanders a few tenths of a percent minute to minute, and since deep
+      // water is calmed these lakes stand higher and hold about seven percent
+      // more: seed 11 read 27569, 27535, 27601, 27569, 27448, 27353 minute by
+      // minute for six minutes — settled, then falling — and failed fifty on
+      // the third minute's +66. @see calmChop
       const early = Math.max(0, r.at[119] - r.at[59]);
       const late = r.at[179] - r.at[119];
-      expect(late).toBeLessThan(early * 1.5 + 50);
+      expect(late).toBeLessThan(early * 1.5 + r.at[119] * 0.003);
     }
   }, 60_000);
 });

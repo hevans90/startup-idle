@@ -18,7 +18,7 @@
  */
 import {
   FLOW_DEFAULTS, MATERIAL_SLOTS, accelerate, activeBox, addWater,
-  applyDepths, applyLandings, createColumnField, diffuseBreaking, divergence,
+  applyDepths, applyLandings, calmChop, createColumnField, diffuseBreaking, divergence,
   limit,
   stepFlow, type ColumnField, type PassConsts,
 } from "../columns";
@@ -28,6 +28,7 @@ import { dripRoom } from "../drips";
 import { OPEN_SKY } from "../slots";
 import { createAccelerate } from "./accelerate";
 import { createApply, readReduce, reduceSeed } from "./apply";
+import { createCalm } from "./calm";
 import { createDiffuse } from "./diffuse";
 import { ACC, LAND_SCALE, createFalls, drainSpawns } from "./falls";
 import { createLandings } from "./landings";
@@ -567,8 +568,14 @@ export async function compareAccelerate(
   // means a shader that will not compile fails the comparison of passes BEFORE
   // it — which is the opposite of what comparing a chain is for, and is
   // exactly what happened when pass 3 first used a reserved word.
+  // PASS 0 IS TWO PASSES, the breaking exchange and the calm, run in the
+  // order the substep runs them. @see calmChop
+  const createPass0 = (d: GPUDevice) => {
+    const a = createDiffuse(d), b = createCalm(d);
+    return { encode: (e: GPUCommandEncoder, st: GpuState, bx: Box) => { a.encode(e, st, bx); b.encode(e, st, bx); } };
+  };
   const builders = [
-    createDiffuse, createAccelerate, createLimit, createDivergence, createApply,
+    createPass0, createAccelerate, createLimit, createDivergence, createApply,
   ];
   const gpuPasses: ((e: GPUCommandEncoder, st: GpuState, b: Box) => void)[] = [];
   for (let k = from; k <= Math.min(upTo, 4); k++) {
@@ -588,7 +595,7 @@ export async function compareAccelerate(
   let landed = 0;
   const cpuPasses: ((f: ColumnField, c: PassConsts) => void)[] =
     [
-      diffuseBreaking, accelerate, limit, divergence, applyDepths,
+      (fld, c) => { diffuseBreaking(fld, c); calmChop(fld, c); }, accelerate, limit, divergence, applyDepths,
       (fld, c) => stepFalls(fld, c.dt, { x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1 }),
       // Takes no consts: what it applies was banked by the pass before it —
       // and counted here, because applying it is also what CLEARS it.

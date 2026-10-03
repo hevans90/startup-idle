@@ -17,7 +17,7 @@
  * step, and `fluid/compare` is built around exactly that: the measured horizon
  * is about a second, and one pass run once is far inside it.
  */
-import { FLUX_FLOOR, type ColumnField } from "../columns";
+import { BAND_FULL, BAND_GONE, FLUX_FLOOR, type ColumnField } from "../columns";
 import { OPEN_SKY, PRESSURE_SLOT } from "../slots";
 import {
   STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
@@ -105,7 +105,11 @@ fn edgeAt(i: i32, j: i32, si: f32) -> Edge {
 
 /** One edge's new flux, from its old one. */
 fn fluxAt(old: f32, e: Edge, wind: f32) -> f32 {
-  let push = e.carry > 0.0 && abs(e.head) > minHead();
+  // THE DEAD BAND IS FOR SHALLOW WATER: whole to BAND_FULL of carry, gone by
+  // BAND_GONE. The twin of deadBand in fluid/columns, which says what it
+  // did to deep water.
+  let band = minHead() * clamp((${BAND_GONE}.0 - e.carry) / (${BAND_GONE - BAND_FULL}.0), 0.0, 1.0);
+  let push = e.carry > 0.0 && abs(e.head) > band;
   let q = select(old * e.drag, (old + gain() * e.carry * e.head) * e.drag, push);
   if (e.carry <= 0.0) { return q; }
   // THE SQUARE OF A DENORMAL DEPTH IS NOUGHT IN f32, AND THIS IS A DIVISION.
