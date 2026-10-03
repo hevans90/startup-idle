@@ -1006,6 +1006,54 @@ export function wantDepth(f: ColumnField, i: number): void {
   w.at[w.n++] = i;
 }
 
+/**
+ * Ask for every cell a drop in the air might read when it lands.
+ *
+ * `stepDrips` reads the surface at `Math.round(cx), Math.round(cy)` — and a
+ * drop sitting at 10.49 reads cell 10 this frame and cell 11 the next, on a
+ * drift of a hundredth. So the cell it occupies is not enough and neither is
+ * predicting where its velocity takes it: measured on the spray scene, asking
+ * about the drop's own cell took the worst cell from 0.071 to 0.103, and
+ * adding one and four frames of travel only brought it to 0.100. The FIVE-CELL
+ * cross — the drop and its four neighbours — brings it to 0.07078, which is
+ * the band's own number to five digits.
+ *
+ * EVERY STOREY THERE IS at each of those cells, and not the ground's alone. A
+ * drop lands on the surface UNDER it — `slotUnder`, which over a bridge is the
+ * deck — and only the ground was asked about, so a drop onto a deck read the
+ * deck's depth from a copy refreshed every thirty readbacks and could land as
+ * if on a dry deck or into water that had gone. Not just the slot the drop is
+ * over now: which one that is, is itself worked out from those same stale
+ * surfaces. An absent slot is skipped, so off a bridge this asks what it did.
+ *
+ * DEDUPED through `asked`, a per-slot stamp the caller clears by the list,
+ * because a waterfall's spray is a cluster and its drops share cells. Cells
+ * already in the list — the pipe mouths, the cursor — must be stamped first.
+ * @see wantDepth
+ */
+export function wantDrops(f: ColumnField, asked: Uint8Array): void {
+  const d = f.drips;
+  const one = (cx: number, cy: number) => {
+    const x = Math.round(cx), y = Math.round(cy);
+    if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return;
+    const i = y * f.nx + x;
+    for (let a = 0; a < f.layers; a++) {
+      const ia = a * f.cells + i;
+      if (a > 0 && f.roof[ia] <= f.ground[ia]) continue;   // no storey here
+      if (asked[ia]) continue;
+      asked[ia] = 1;
+      wantDepth(f, ia);
+    }
+  };
+  for (let k = 0; k < d.live; k++) {
+    one(d.cx[k], d.cy[k]);
+    one(d.cx[k] + 1, d.cy[k]);
+    one(d.cx[k] - 1, d.cy[k]);
+    one(d.cx[k], d.cy[k] + 1);
+    one(d.cx[k], d.cy[k] - 1);
+  }
+}
+
 export function createArrivals(cells: number): Arrivals {
   return {
     cell: new Int32Array(cells), depth: new Float32Array(cells),

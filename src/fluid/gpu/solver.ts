@@ -58,7 +58,7 @@
  */
 import {
   MATERIAL_SLOTS, carryCap, clearArrivals, createArrivals, stepAir, stirWind,
-  maxStep, substepsFor, wantDepth, type ColumnField,
+  maxStep, substepsFor, wantDrops, type ColumnField,
   type PassConsts,
 } from "../columns";
 import { drainSpawns } from "./falls";
@@ -1219,40 +1219,15 @@ export function createGpuWater(
     const want = field.wanted;
     let wantN = 0;
     if (want) {
-      const d = field.drips;
-      // EVERY CELL A DROP MIGHT READ, which is not the cell it is in.
-      //
-      // `stepDrips` reads the surface at `Math.round(cx), Math.round(cy)` —
-      // and a drop sitting at 10.49 reads cell 10 this frame and cell 11 the
-      // next, on a drift of a hundredth. So the cell it occupies is not enough
-      // and neither is predicting where its velocity takes it: measured on the
-      // spray scene, asking about the drop's own cell took the worst cell from
-      // 0.071 to 0.103, and adding one and four frames of travel only brought
-      // it to 0.100. The FIVE-CELL cross — the drop and its four neighbours —
-      // brings it to 0.07078, which is the band's own number to five digits.
-      //
-      // DEDUPED, because a waterfall's spray is a cluster and its drops share
-      // cells. Through the same stamp the scatter uses, which is free: it is
+      // EVERY CELL A DROP MIGHT READ, in every storey it might land in.
+      // Deduped through the same stamp the scatter uses, which is free: it is
       // already allocated and already cleared by list rather than by fill.
+      // @see wantDrops
       const asked = wroteDepth;
-      const one = (cx: number, cy: number) => {
-        const x = Math.round(cx), y = Math.round(cy);
-        if (x < 0 || y < 0 || x >= field.nx || y >= field.ny) return;
-        const i = y * field.nx + x;
-        if (asked[i]) return;
-        asked[i] = 1;
-        wantDepth(field, i);
-      };
       // The mouths and the cursor registered earlier in the frame and are
       // already in the list; stamp them so a drop over one does not repeat it.
       for (let k = 0; k < want.n; k++) asked[want.at[k]] = 1;
-      for (let k = 0; k < d.live; k++) {
-        one(d.cx[k], d.cy[k]);
-        one(d.cx[k] + 1, d.cy[k]);
-        one(d.cx[k] - 1, d.cy[k]);
-        one(d.cx[k], d.cy[k] + 1);
-        one(d.cx[k], d.cy[k] - 1);
-      }
+      wantDrops(field, asked);
       wantN = want.n;
       if (wantN > 0) {
         device.queue.writeBuffer(

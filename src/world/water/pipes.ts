@@ -8,15 +8,11 @@
  *
  * PIPES THAT TOUCH ARE ONE PIPE. That is the whole of the network model —
  * adjacency, the same rule roads use, so a run you paint is a run that
- * carries. A network HOLDS water, and the cells of one network share a LEVEL:
- * connected vessels, equalised every step. That is a quasi-steady assumption
- * and it is worth naming, because it is the one thing here that is a
- * simplification rather than a model. It says water inside a pipe rearranges
- * itself much faster than the water outside does, which is true — the wave
- * speed in a conduit is far above a pond's — and it is what a 1-D Saint-Venant
- * pipe gives you in that limit. What it costs is SLOSHING: a level that
- * equalises instantly cannot slosh, and nothing here will until the level is
- * allowed to vary along the pipe.
+ * carries. The water along a run is `pipe-flow`'s: one dimensional shallow
+ * water with momentum, a round bore, and a Preissmann slot above the crown so
+ * that part full and surcharged are one code path. So a part full run SLOSHES,
+ * as a channel does, and a full one goes under pressure — and does not ring,
+ * which the slot on its own made it do. @see SURGE_DAMP
  *
  * The water is held PER CELL, which is what makes editing safe. Networks merge
  * when you join two runs and split when you cut one, and a volume booked
@@ -37,11 +33,6 @@
  *   - an end whose pool rises above the pipe's own level REVERSES, and the
  *     network BACKS UP — which a fixed rate can never do, and which is most of
  *     the reason to have done this at all.
- *
- * What is NOT here: the level does not vary along a pipe, so there is no
- * sloshing and no travel time, and a full pipe stops accepting rather than
- * going under pressure — pressurised flow is a different regime and wants a
- * Preissmann slot to stay one code path. Both are the next stage.
  *
  * The dripping itself is `fluid/drips` and everything interesting about it is
  * there. This file knows about tiles: which column a mouth hangs over, how

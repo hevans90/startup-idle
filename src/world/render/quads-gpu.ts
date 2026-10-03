@@ -18,11 +18,13 @@ import { shaderModule } from "../../fluid/gpu/state";
  * The band then draws that many instances instead of all of them.
  *
  * FROM THE TEXTURES, not from the solver's buffer, and that is what keeps the
- * rule single. `cornerRuleSource` and `quadRuleSource` are written against
- * five functions — `inside`, `depthAt`, `groundAt`, `dryDepth`, `fallMin` —
- * and the vertex shader answers them from these same two textures. Answering
- * them from the packed field instead would mean a second spelling of the rule
- * and a second answer to disagree with the first.
+ * rule single. `cornerRuleSource` and `quadRuleSource` are written against a
+ * handful of functions — `inside`, `depthAt`, `groundAt`, `dryDepth`,
+ * `fallMin` and the rest — and the vertex shader answers them from these same
+ * textures: the depth and the ground, and since storeys and the fall latch,
+ * the roof, the brink and `uFalling` beside them. Answering them from the
+ * packed field instead would mean a second spelling of the rule and a second
+ * answer to disagree with the first.
  *
  * THE ORDER IS WHATEVER THE ATOMIC GAVE OUT. Nothing downstream cares: a quad
  * carries its own column and part, so the list is a set and not a sequence.

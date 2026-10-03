@@ -14,8 +14,9 @@ import {
 } from "./drips";
 import { FALL_GRAVITY } from "./falls";
 import {
-  FLOW_DEFAULTS, addWater, createColumnField, setOpenEdge, stepFlow, totalWater,
+  FLOW_DEFAULTS, addWater, createColumnField, setOpenEdge, stepFlow, totalWater, wantDrops,
 } from "./columns";
+import { OPEN_SKY } from "./slots";
 
 /** A flat floor at zero, and a place for drops to land. */
 const floor = () => ({
@@ -479,5 +480,46 @@ describe("a fleck ringing faster than the step", () => {
     // 0.58 radians a step — nowhere near the limit, so the shape it rings
     // through must be the unclamped one.
     expect(wobbleOf(DROP) * (1 / 60)).toBeLessThan(1.5);
+  });
+});
+
+describe("what the device is asked about a drop", () => {
+  test("every storey under it, so a drop onto a deck reads the deck", () => {
+    // On the device path a drop lands on the host's COPY of the depth, which is
+    // only fresh where it was asked for. Only the ground storey was asked, so a
+    // drop over a bridge read the deck from a copy thirty readbacks old.
+    // @see wantDrops
+    const f = createColumnField(12, 12, FLOW_DEFAULTS, 0.25, 2);
+    const cells = f.cells;
+    for (let i = 0; i < cells; i++) {
+      f.roof[cells + i] = f.ground[cells + i];         // no deck anywhere...
+    }
+    for (let x = 4; x <= 7; x++) {                     // ...but over x 4 to 7
+      const i = 5 * f.nx + x;
+      f.roof[i] = 8;
+      f.ground[cells + i] = 9;
+      f.roof[cells + i] = OPEN_SKY;
+    }
+    f.wanted = { at: new Int32Array(256), n: 0 };
+    const d = f.drips;
+    d.cx[0] = 5; d.cy[0] = 5; d.z[0] = 20; d.live = 1;  // over the deck
+    d.cx[1] = 9; d.cy[1] = 9; d.z[1] = 20; d.live = 2;  // over open ground
+
+    wantDrops(f, new Uint8Array(cells * 2));
+    const asked = new Set(f.wanted.at.subarray(0, f.wanted.n));
+    const at = (x: number, y: number, a = 0) => a * cells + y * f.nx + x;
+    // Over the deck: both storeys, at the drop and across it.
+    for (const [x, y] of [[5, 5], [4, 5], [6, 5]]) {
+      expect(asked.has(at(x, y, 0))).toBe(true);
+      expect(asked.has(at(x, y, 1))).toBe(true);
+    }
+    // Off it, the ground alone — the storey that is not there is not asked.
+    expect(asked.has(at(5, 4, 0))).toBe(true);
+    expect(asked.has(at(5, 4, 1))).toBe(false);
+    expect(asked.has(at(9, 9, 0))).toBe(true);
+    expect(asked.has(at(9, 9, 1))).toBe(false);
+    // And each once: five cells off the deck, three on it twice over.
+    expect(f.wanted.n).toBe(asked.size);
+    expect(f.wanted.n).toBe(5 + 5 + 3);
   });
 });
