@@ -118,6 +118,94 @@ const MAX_SUBSTEPS = 8;
 const MIN_HEAD = 1e-5;
 
 /**
+ * How fast a surcharged pipe's cells are pushed to pass on what they take in,
+ * a second.
+ *
+ * THE SLOT IS A FICTION, and this is where it showed. Past the crown a half
+ * step of head costs a fiftieth of a pipe's width in volume, so a closed run
+ * between two openings behaves like a row of stiff springs: a little more in
+ * than out and the level leaps. A run under a pool, both ends open, was left
+ * ringing between half empty and twenty three half steps on a third of a
+ * second's cycle — its middle sucked dry, then pressed to three times the
+ * pool's head — and still swinging from 1.8 to 15.4 twelve seconds on. Real
+ * water in a full pipe is all but incompressible and cannot do any of that;
+ * the wall friction, which is quadratic and there for FLOWS, is next to
+ * nothing on a small fast swing.
+ *
+ * So each surcharged cell that is not an opening has its NET INFLOW relaxed
+ * towards nought, shared over its edges — which is the incompressibility the
+ * slot stands in for, as a rate. It acts on the DIFFERENCE between a cell's
+ * edges and not on the flow, so water carried through a full pipe from one
+ * opening to another goes exactly as fast: held between two heads, the same
+ * run passes 5.49 a second either way. Fifteen a second settles the ringing
+ * within four seconds, to 8.0 against the pool's 8.
+ *
+ * Not at an OPENING, whose port is the other half of its balance and runs
+ * after this; and only past nine tenths full, since a part full pipe has a
+ * free surface and its slosh is real.
+ */
+export const SURGE_DAMP = 15;
+
+/** Per edge, what {@link dampSurge} moves. Grown to the largest map seen. */
+let surgeScratch = new Float32Array(0);
+
+/**
+ * {@link SURGE_DAMP}, over one network for one substep.
+ *
+ * Jacobi: every cell's correction worked out from the fluxes as they stood,
+ * then all of them applied, so the answer does not depend on the order the
+ * cells are listed in. Water is conserved whatever this does — volumes only
+ * ever follow from what crosses an edge.
+ */
+function dampSurge(
+  grid: Grid, cells: Int32Array, from: number, to: number, dt: number,
+  open: (i: number) => boolean, pipe: Float32Array, flux: Float32Array,
+) {
+  const { w, h } = grid;
+  const rate = Math.min(0.5, SURGE_DAMP * dt);
+  if (surgeScratch.length < flux.length) surgeScratch = new Float32Array(flux.length);
+  const corr = surgeScratch;
+  let any = false;
+  for (let k = from; k < to; k++) {
+    const i = cells[k];
+    corr[i * 2] = 0;
+    corr[i * 2 + 1] = 0;
+  }
+  for (let k = from; k < to; k++) {
+    const i = cells[k];
+    const depth = pipeDepth(pipe[i]);
+    if (depth <= 0.9 * PIPE_D) continue;
+    const full = depth >= PIPE_D ? 1 : (depth - 0.9 * PIPE_D) / (0.1 * PIPE_D);
+    if (open(i)) continue;
+    const x = i % w, y = (i / w) | 0;
+    const east = x + 1 < w && grid.pipe[i + 1] ? i * 2 : -1;
+    const south = y + 1 < h && grid.pipe[i + w] ? i * 2 + 1 : -1;
+    const west = x > 0 && grid.pipe[i - 1] ? (i - 1) * 2 : -1;
+    const north = y > 0 && grid.pipe[i - w] ? (i - w) * 2 + 1 : -1;
+    // In, less out: east and south carry flow AWAY when positive, west and
+    // north carry it IN.
+    let net = 0, n = 0;
+    if (east >= 0) { net -= flux[east]; n++; }
+    if (south >= 0) { net -= flux[south]; n++; }
+    if (west >= 0) { net += flux[west]; n++; }
+    if (north >= 0) { net += flux[north]; n++; }
+    if (n === 0 || net === 0) continue;
+    const c = (rate * full * net) / n;
+    if (east >= 0) corr[east] += c;
+    if (south >= 0) corr[south] += c;
+    if (west >= 0) corr[west] -= c;
+    if (north >= 0) corr[north] -= c;
+    any = true;
+  }
+  if (!any) return;
+  for (let k = from; k < to; k++) {
+    const i = cells[k];
+    flux[i * 2] += corr[i * 2];
+    flux[i * 2 + 1] += corr[i * 2 + 1];
+  }
+}
+
+/**
  * A circular bore, as a table.
  *
  * The relation between how full a round pipe is and how deep the water in it
@@ -251,9 +339,13 @@ function aboveSill(volume: number, sill: number): number {
  * substep a frame; the same pipe pressed full runs seven times that and takes
  * a few. `MAX_SUBSTEPS` is the backstop — past it the step is simply short of
  * what it should be, which damps rather than explodes.
+ *
+ * `open` says which cells are OPENINGS — ports onto the world — which the
+ * surge damping leaves alone. @see SURGE_DAMP
  */
 export function stepPipeFlow(
   field: WaterField, grid: Grid, cells: Int32Array, from: number, to: number, dt: number,
+  open: (i: number) => boolean = () => false,
 ) {
   let left = dt;
   let guard = 0;
@@ -265,13 +357,14 @@ export function stepPipeFlow(
     }
     const stable = fastest > 0 ? COURANT / fastest : left;
     const h = left < stable ? left : stable;
-    substep(field, grid, cells, from, to, h);
+    substep(field, grid, cells, from, to, h, open);
     left -= h;
   }
 }
 
 function substep(
   field: WaterField, grid: Grid, cells: Int32Array, from: number, to: number, dt: number,
+  open: (i: number) => boolean,
 ) {
   const { w, h } = grid;
   const pipe = field.pipe;
@@ -317,6 +410,10 @@ function substep(
       flux[e] = carry > 0 ? q / (1 + (wall * (q < 0 ? -q : q)) / (carry * carry)) : 0;
     }
   }
+
+  // 1b. A FULL PIPE IS NOT A SPRING. Where a closed cell is surcharged, its
+  //     net inflow is relaxed towards nought. @see SURGE_DAMP
+  dampSurge(grid, cells, from, to, dt, open, pipe, flux);
 
   // 2. SCALE each cell's outflows down to the water it actually has. One pass
   //    is enough: reducing an outflow can only reduce a neighbour's inflow, so

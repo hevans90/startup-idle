@@ -383,19 +383,25 @@ describe("a port is one rule, whichever way the water is going", () => {
     const held = totalVolume(f, g);
     for (let n = 0; n < 60 * 6; n++) { runPipes(f, g, 1 / 60); stepWater(f, 1 / 60); }
     const at6 = waterInPipes(f, g);
-    // THE LEVEL AVERAGED OVER THE LAST SIX SECONDS, not read at one instant.
-    // Surcharged, the run sloshes: its level swings from about four and a
-    // half to fourteen on a cycle of ten seconds or so, around a mean of 7.8.
-    // Read at the twelfth second alone it was wherever the swing happened to
-    // be — 8.67 on one version of the solver and 10.52 on another that left
-    // the mean exactly where it was. The claim is about where it settles.
-    let mean = 0, samples = 0;
+    // THE LEVEL AVERAGED OVER THE LAST SIX SECONDS, and its SWING over them.
+    // Surcharged, the run used to ring: its closed middle between the two
+    // open ends went from half empty to twenty three on a third of a second's
+    // cycle and was still swinging from 1.8 to 15.4 twelve seconds in, which
+    // is the slot's fiction of a compressible pipe and nothing real water
+    // does. It settles now, to within a few hundredths. @see SURGE_DAMP
+    let mean = 0, samples = 0, lo = Infinity, hi = -Infinity;
     for (let n = 0; n < 60 * 6; n++) {
       runPipes(f, g, 1 / 60); stepWater(f, 1 / 60);
-      for (let x = 4; x <= 8; x++) mean += pipeLevelAt(g, f, x, 7) / 5;
+      for (let x = 4; x <= 8; x++) {
+        const level = pipeLevelAt(g, f, x, 7);
+        mean += level / 5;
+        if (level < lo) lo = level;
+        if (level > hi) hi = level;
+      }
       samples++;
     }
     mean /= samples;
+    expect(hi - lo).toBeLessThan(0.5);                 // standing, not ringing
 
     expect(at6).toBeGreaterThan(5 * PIPE_FULL);        // past the crown
     expect(waterInPipes(f, g)).toBeCloseTo(at6, 0);       // and no longer rising

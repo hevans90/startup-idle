@@ -245,3 +245,30 @@ describe("over a ridge, and under one", () => {
     expect(waterInPipes(f, g)).toBeCloseTo(held, 5);        // and all of it did
   });
 });
+
+describe("a full pipe is not a spring", () => {
+  test("and damping its ringing does not slow what it carries", () => {
+    // The surge damping relaxes a closed cell's net inflow, never the flow:
+    // a run held between two heads passes the same water a second with it as
+    // without it. Without is every cell called an opening, which it skips.
+    // @see SURGE_DAMP
+    const carried = (damped: boolean) => {
+      const { g, f } = run(8);
+      const nets = findPipeNets(g, createPipeNets(g.w, g.h));
+      const a = idx(g, 4, 12), b = idx(g, 11, 12);
+      const open = damped ? (i: number) => i === a || i === b : () => true;
+      for (let x = 4; x < 12; x++) f.pipe[idx(g, x, 12)] = pipeVolume(6);
+      let moved = 0;
+      for (let t = 0; t < 60 * 10; t++) {
+        f.pipe[a] = pipeVolume(8);
+        f.pipe[b] = pipeVolume(4);
+        stepPipeFlow(f, g, nets.cells, nets.at[0], nets.at[1], 1 / 60, open);
+        if (t >= 60 * 6) moved += f.pipeFlux[idx(g, 6, 12) * 2] / (60 * 4);
+      }
+      return moved;
+    };
+    const off = carried(false), on = carried(true);
+    expect(off).toBeGreaterThan(4);                    // it really is carrying
+    expect(Math.abs(on - off)).toBeLessThan(off * 0.01);
+  });
+});

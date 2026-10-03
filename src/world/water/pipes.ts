@@ -267,7 +267,15 @@ export function runPipes(field: WaterField, grid: Grid, dt: number): void {
     // The water moves ALONG the run under its own momentum before anything at
     // the ends is looked at, so what a port sees is a level that has already
     // had this step's travel in it.
-    stepPipeFlow(field, grid, cells, from, to, dt);
+    //
+    // Told which cells are OPENINGS — a port onto the world, not buried —
+    // because a full run's damping must leave those to their ports.
+    stepPipeFlow(field, grid, cells, from, to, dt, (c) => {
+      const cx = c % grid.w, cy = (c / grid.w) | 0;
+      if (!isPort(grid, cx, cy)) return false;
+      const m = pipeMouth(grid, cx, cy, grid.pipe[c]);
+      return !!m && !isSealed(columns, m.cx, m.cy, m.z);
+    });
 
     for (let k = from; k < to; k++) {
       const i = cells[k];
