@@ -290,6 +290,41 @@ export const mapSizeCeiling = (step = 1): number => {
   return Math.max(step, Math.floor(tiles / step) * step);
 };
 
+/**
+ * How wide a tile has to be on screen, in pixels, before it is drawn column
+ * by column. Narrower than this a column is two pixels or less, and a flat
+ * tile is drawn as one quad. @see zoomedOut, quads-gpu's tiles
+ *
+ * WHY: the render is vertex-bound, and on a big map the mesh is the map's
+ * area in quads whatever the screen can show. A 128 tile map flooded drew
+ * 252,000 surfaces for 12 ms of GPU, fitted to a window where each of them
+ * is under a pixel across.
+ */
+export const LOD_TILE_PX = 8;
+
+/**
+ * Whether, at this ON-SCREEN scale — the world's scale times the viewport's
+ * zoom — flat tiles are drawn whole. @see LOD_TILE_PX
+ */
+export const zoomedOut = (scale: number) => 2 * HW * scale < LOD_TILE_PX;
+
+/**
+ * Which tiles can be on screen across it, as a range of tx - ty, from the
+ * viewport's left and right edges in world units.
+ *
+ * A tile's x on screen is (tx - ty) times the half-width and NOTHING ELSE —
+ * its height moves it up and down, never sideways — so this is exact up to
+ * the tile's own width, and the margin covers that and the faces a tile
+ * files into the band in front of it. Above and below is the bands' own cull.
+ * At scale one a 128 tile map drew all of every visible band, the map's full
+ * width of it, into a window a few dozen tiles across. @see visibleBandRange
+ */
+export const CULL_MARGIN = 3;
+export const cullFor = (left: number, right: number, scale: number) => ({
+  from: Math.floor(left / (HW * scale)) - CULL_MARGIN,
+  to: Math.ceil(right / (HW * scale)) + CULL_MARGIN,
+});
+
 /** The device limits a map's size is held to. @see ceilingFor */
 export type SizeLimits = {
   maxTextureDimension2D: number;
@@ -763,9 +798,12 @@ fn mainVertex(
   // the list's width. @see quadList
   let at = i32(water.uList.x) + i32(inst);
   let lw = i32(water.uList.y);
-  let quad = i32(textureLoad(
-    uQuads, vec2<i32>(at % lw, at / lw), 0,
-  ).r) - 1;
+  let raw = textureLoad(uQuads, vec2<i32>(at % lw, at / lw), 0).r;
+  // A WHOLE TILE: zoomed out, a flat tile's surface is one quad from its
+  // first column to its far corner, marked by the gathering. Only ever set in
+  // a gathered list, so the identity draws as it always did. @see LOD_TILE_PX
+  let whole = ((raw >> 30u) & 1u) == 1u;
+  let quad = i32(raw & 0x3fffffffu) - 1;
   if (quad < 0) { return out; }
   // A QUAD IS A PART, A STOREY AND A COLUMN. A bridge column draws the river
   // under the span and whatever stands on the deck, so the storey is as much
@@ -844,18 +882,25 @@ fn mainVertex(
     if (d <= water.uBand.z) { return out; }
     let ox = ((corner + 1) >> 1) & 1;
     let oy = corner >> 1;
+    // HOW MANY COLUMNS THIS QUAD SPANS: one, or a whole tile. A whole tile's
+    // corners are the tile's own, each asked by the tile's column AT that
+    // corner — so each comes out exactly as the column-by-column mesh has it
+    // there, and only what lies between them is lost. @see LOD_TILE_PX
+    let span = select(1, cpt, whole);
+    let ccx = cx + ox * (span - 1);
+    let ccy = cy + oy * (span - 1);
     // THIS COLUMN'S COMPONENT AT THIS CORNER, worked out ONCE. A column is
     // always one of its own corners' four, so what comes back is always the
     // component it is in and always the one it helped make — and everything
     // this vertex asks of this corner is asked with it. @see render/sheet-group
-    let vcx = cx + ox;
-    let vcy = cy + oy;
-    let mine = cornerMask(vcx, vcy, contribOf(vcx, vcy, cx, cy, a));
+    let vcx = ccx + ox;
+    let vcy = ccy + oy;
+    let mine = cornerMask(vcx, vcy, contribOf(vcx, vcy, ccx, ccy, a));
     let c = cornerOf(vcx, vcy, mine);
-    let bed = groundAt(cx, cy, a);
+    let bed = groundAt(ccx, ccy, a);
     h = max(c.x, bed);
-    fx = fx0 + f32(ox) * step;
-    fy = fy0 + f32(oy) * step;
+    fx = fx0 + f32(ox * span) * step;
+    fy = fy0 + f32(oy * span) * step;
 
     let e = cornerExtras(vcx, vcy, mine);
     let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
@@ -871,7 +916,7 @@ fn mainVertex(
     let fade = min(1.0, cd / ${SHOW_DEPTH});
     let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
     alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
-    let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
+    let mat = i32(textureLoad(uMaterial, vec2<i32>(ccx, slotRow(ccy, a)), 0).r * 255.0 + 0.5);
     rgb = textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb;
   } else {
     // A SIDE of this column. Hung from the very corners the surface quad
@@ -1869,7 +1914,7 @@ export function attachQuadGather(
   // and every band drew its whole complement for ever, correctly and slowly,
   // which is exactly why nobody noticed. The row is `LIST_W` now and nothing
   // about the map's shape can change it.
-  const pass = createQuadsPass(device, list, LIST_W * list.rows, DRAWDOWN);
+  const pass = createQuadsPass(device, list, LIST_W * list.rows, DRAWDOWN, w * h * wl.layers);
   const depthView = get(wl.sources[0]).createView();
   const groundView = get(wl.sources[1]).createView();
   const roofView = get(wl.sources[ROOF_AT]).createView();
@@ -1924,12 +1969,13 @@ export function attachQuadGather(
  */
 export function gatherQuads(
   g: QuadGather, device: GPUDevice, columns: ColumnField,
-  w: number, h: number, faces: boolean,
+  w: number, h: number, faces: boolean, zoomedOut = false,
+  cull: { from: number; to: number } | null = null,
 ) {
   g.pass.say(
     columns.nx, columns.ny, COLUMNS_PER_TILE, h,
     columns.params.dryDepth, FALL_MIN, faces, columns.layers,
-    g.brink !== null, g.layer.latchOn === 1,
+    g.brink !== null, g.layer.latchOn === 1, zoomedOut, cull,
   );
   const enc = device.createCommandEncoder({ label: "quads" });
   // THE BRINK FIRST, because the gathering reads it and so does the draw that

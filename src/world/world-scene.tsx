@@ -28,7 +28,7 @@ import {
 } from "./render/water";
 import {
   attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
-  destroyQuadGather, drawGpuWater, gatherQuads, showGpuWater, waterOnGpu,
+  cullFor, destroyQuadGather, drawGpuWater, gatherQuads, showGpuWater, waterOnGpu, zoomedOut,
   type GpuWaterLayer,
 } from "./render/water-gpu";
 import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
@@ -1809,8 +1809,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // solver has filled the textures it reads; on the host's it is a frame
       // behind them, which `roomFor` has the headroom for. @see gatherQuads
       const dev = heldDevice();
+      const vp = useWorldStore.getState().viewport;
       if (gpu?.gather && dev) {
-        gatherQuads(gpu.gather, dev, field.columns, grid.w, grid.h, overlays.faces);
+        gatherQuads(
+          gpu.gather, dev, field.columns, grid.w, grid.h, overlays.faces,
+          // Zoomed out, a flat tile is one quad — unless a dev session has
+          // switched it off to look at the difference. @see LOD_TILE_PX
+          // ON SCREEN, which is the store's scale times the viewport's own
+          // zoom: the editor zooms through the viewport, and the scale alone
+          // reads 1 on a map fitted to the window at a twenty-fifth of that.
+          zoomedOut(scale * (vp?.scale.x ?? 1))
+            && !(import.meta.env.DEV && (window as unknown as { __lodOff?: boolean }).__lodOff),
+          // And only what is across the screen. @see cullFor
+          vp && !(import.meta.env.DEV && (window as unknown as { __cullOff?: boolean }).__cullOff)
+            ? cullFor(vp.left, vp.right, scale) : null,
+        );
       }
       if (fl) drawWater(fl, field.columns, bl, dt, overlays.faces);
       else if (gpu) {

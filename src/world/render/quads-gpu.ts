@@ -43,8 +43,8 @@ const QUADS_WGSL = (drawdown: number) => `
 struct Say {
   dims: vec4<i32>,        // nx, ny, columns per tile, tiles high
   a: vec4<f32>,           // dryDepth, fallMin, faces on, slots
-  b: vec4<f32>,           // brink texture filled, fall latch fresh, spare, spare
-  c: vec4<i32>,           // where the roofed tier's list begins (0: one tier), bands, spare, spare
+  b: vec4<f32>,           // brink texture filled, fall latch fresh, the screen's tx - ty from, to
+  c: vec4<i32>,           // where the roofed tier's list begins (0: one tier), bands, zoomed out, culled to the screen
 };
 @group(0) @binding(0) var<uniform> say : Say;
 @group(0) @binding(1) var uDepth : texture_2d<f32>;
@@ -61,6 +61,9 @@ struct Say {
 @group(0) @binding(7) var uBrink : texture_2d<f32>;
 // Which edges the solver says are falling. See water-gpu's latchAt.
 @group(0) @binding(8) var uFalling : texture_2d<f32>;
+// WHETHER EACH TILE IS ONE FLAT PIECE OF ONE SHEET, per storey, worked out
+// by the tiles stage below and read by main. @see tiles
+@group(0) @binding(9) var<storage, read_write> tileFlat : array<u32>;
 
 // NO BACKTICKS IN HERE — a backtick in a comment ends the template literal.
 
@@ -156,6 +159,25 @@ fn main(
 
   let here = slice[band];
   if (quad >= i32(here.y)) { return; }
+  // OFF THE SIDES OF THE SCREEN. A band is a diagonal of the map and the
+  // camera culls whole bands above and below it — but a visible band on a big
+  // map runs the map's whole width, and a tile's x on screen is tx - ty and
+  // nothing else, whatever its height. @see cullFor
+  if (say.c.w > 0) {
+    let across = f32(tx - ty);
+    if (across < say.b.z || across > say.b.w) { return; }
+  }
+  // ZOOMED OUT, A FLAT TILE IS ONE QUAD. Its first column's surface stands
+  // for all sixteen, marked so the vertex shader spans the tile; the other
+  // fifteen surfaces are not drawn. @see tiles, water-gpu's tileQuad
+  var whole = 0u;
+  if (say.c.z > 0 && part == 2) {
+    let tw = nx() / cpt;
+    if (tileFlat[(ty * tw + tx) * L + a] == 1u) {
+      if (sub != 0) { return; }
+      whole = 1u;
+    }
+  }
   // WHICH TIER DRAWS IT, asked exactly as the vertex shader's gate asks it:
   // of the column the quad HANGS OFF, which for a far-edge face is the column
   // behind. Marked in the top bit, and sorted into the roofed tier's own list
@@ -188,7 +210,55 @@ fn main(
   //
   // STORED ONE HIGHER, so that a slot nothing marked reads as empty rather
   // than as quad nought. @see quadCap
-  list[here.x + u32(quad)] = u32(quad + 1) | (roofed << 31u);
+  list[here.x + u32(quad)] = u32(quad + 1) | (roofed << 31u) | (whole << 30u);
+}
+
+// ONE THREAD PER TILE PER STOREY: whether all sixteen of its columns are one
+// flat piece of one sheet, so that zoomed out, where a column is a pixel or
+// less, the tile can be drawn as a single quad. Every column shows; all are
+// in the same tier; and every pair of neighbours inside the tile is joined
+// with no fall between them — the corner rule's own tests. A tile with a
+// shore, a lip or a roof edge in it is drawn column by column as ever.
+// @see water-gpu's LOD_TILE_PX
+@compute @workgroup_size(${WORKGROUP})
+fn tiles(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+  let n = ${flatIndexWgsl(WORKGROUP)};
+  let L = slots();
+  let cpt = say.dims.z;
+  let tw = nx() / cpt;
+  let th = ny() / cpt;
+  if (n >= tw * th * L) { return; }
+  let a = n % L;
+  let t = n / L;
+  let x0 = (t % tw) * cpt;
+  let y0 = (t / tw) * cpt;
+  var flat = 1u;
+  let roofed = roofAt(x0, y0, a) < ${OPEN_SKY}.0;
+  for (var k = 0; k < cpt * cpt; k = k + 1) {
+    let x = x0 + k % cpt;
+    let y = y0 + k / cpt;
+    let d = depthAt(x, y, a);
+    let g = groundAt(x, y, a);
+    let r = roofAt(x, y, a);
+    if (!(wet(d) && g + d < r) || (r < ${OPEN_SKY}.0) != roofed) { flat = 0u; break; }
+    // East and south, inside the tile.
+    for (var e = 0; e < 2; e = e + 1) {
+      let jx = x + select(0, 1, e == 0);
+      let jy = y + select(1, 0, e == 0);
+      if (jx >= x0 + cpt || jy >= y0 + cpt) { continue; }
+      let dj = depthAt(jx, jy, a);
+      let gj = groundAt(jx, jy, a);
+      let rj = roofAt(jx, jy, a);
+      if (min(r, rj) <= max(g, gj)) { flat = 0u; break; }
+      let drop = max(g - min(gj + dj, rj), gj - min(g + d, r));
+      if (drop >= fallStop()) { flat = 0u; break; }
+    }
+    if (flat == 0u) { break; }
+  }
+  tileFlat[n] = flat;
 }
 
 // ONE THREAD PER BAND, squeezing that band's marks down to the front.
@@ -248,7 +318,8 @@ export type QuadsPass = {
   say: (
     nx: number, ny: number, cpt: number, tilesHigh: number,
     dryDepth: number, fallMin: number, faces: boolean, slots: number,
-    brinkOn: boolean, latchOn: boolean,
+    brinkOn: boolean, latchOn: boolean, zoomedOut: boolean,
+    cull: { from: number; to: number } | null,
   ) => void;
   destroy: () => void;
 };
@@ -257,7 +328,7 @@ export type QuadsPass = {
 export type Slices = { offsets: Uint32Array; caps: Uint32Array; total: number; second: number };
 
 export function createQuadsPass(
-  device: GPUDevice, slices: Slices, slots: number, drawdown: number,
+  device: GPUDevice, slices: Slices, slots: number, drawdown: number, tiles: number,
 ): QuadsPass {
   const bands = slices.caps.length;
   const layout = device.createBindGroupLayout({
@@ -295,6 +366,10 @@ export function createQuadsPass(
         binding: 8, visibility: GPUShaderStage.COMPUTE,
         texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
       },
+      {
+        binding: 9, visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage" },
+      },
     ],
   });
   const module = shaderModule(device, QUADS_WGSL(drawdown), "quads");
@@ -314,6 +389,11 @@ export function createQuadsPass(
     label: "quads", layout: pipes, compute: { module, entryPoint: "main" },
   });
   // And the squeeze, which shares the bind group and touches only the buffers.
+  // And the tile test, which main reads and so must run first. @see tiles
+  const tileTest = device.createComputePipeline({
+    label: "quads tiles", layout: pipes,
+    compute: { module, entryPoint: "tiles" },
+  });
   const squeeze = device.createComputePipeline({
     label: "quads compact", layout: pipes,
     compute: { module, entryPoint: "compact" },
@@ -342,6 +422,12 @@ export function createQuadsPass(
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
       | GPUBufferUsage.COPY_DST,
     label: "quad counts",
+  });
+  // A word per tile per storey. @see tiles
+  const tileFlat = device.createBuffer({
+    size: Math.max(16, tiles * 4),
+    usage: GPUBufferUsage.STORAGE,
+    label: "quad tiles",
   });
   // The layout, uploaded once: it is a function of the map's shape and the map
   // is rebuilt rather than resized.
@@ -388,16 +474,19 @@ export function createQuadsPass(
           { binding: 6, resource: roof },
           { binding: 7, resource: brink },
           { binding: 8, resource: falling },
+          { binding: 9, resource: { buffer: tileFlat } },
         ],
       });
     },
-    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots, brinkOn, latchOn) => {
+    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots, brinkOn, latchOn, zoomedOut, cull) => {
       const buf = new ArrayBuffer(64);
       new Int32Array(buf, 0, 4).set([nx, ny, cpt, tilesHigh]);
       // The fourth was the cap, which is per band now and comes from `slice`.
       new Float32Array(buf, 16, 4).set([dryDepth, fallMin, faces ? 1 : 0, slots]);
-      new Float32Array(buf, 32, 4).set([brinkOn ? 1 : 0, latchOn ? 1 : 0, 0, 0]);
-      new Int32Array(buf, 48, 4).set([slices.second, bands, 0, 0]);
+      new Float32Array(buf, 32, 4).set([
+        brinkOn ? 1 : 0, latchOn ? 1 : 0, cull?.from ?? 0, cull?.to ?? 0,
+      ]);
+      new Int32Array(buf, 48, 4).set([slices.second, bands, zoomedOut ? 1 : 0, cull ? 1 : 0]);
       device.queue.writeBuffer(uniform, 0, buf);
     },
     encode: (enc, cells) => {
@@ -409,8 +498,12 @@ export function createQuadsPass(
       enc.clearBuffer(list);
       enc.clearBuffer(counts);
       const pass = enc.beginComputePass({ label: "quads" });
-      pass.setPipeline(pipeline);
       pass.setBindGroup(0, group);
+      // THE TILES FIRST, which main reads. Two dispatches in one pass are
+      // ordered against each other. @see tiles
+      pass.setPipeline(tileTest);
+      pass.dispatchWorkgroups(...groups1d(tiles, WORKGROUP));
+      pass.setPipeline(pipeline);
       pass.dispatchWorkgroups(...groups1d(cells * PARTS, WORKGROUP));
       // THEN THE SQUEEZE, in the same pass: one marks, the other compacts, and
       // the second must see all of the first. Two dispatches in one compute
@@ -420,7 +513,7 @@ export function createQuadsPass(
       pass.end();
     },
     destroy: () => {
-      uniform.destroy(); list.destroy(); counts.destroy(); slice.destroy();
+      uniform.destroy(); list.destroy(); counts.destroy(); slice.destroy(); tileFlat.destroy();
     },
   };
 }
