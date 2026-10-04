@@ -1,6 +1,6 @@
 import { FALL_STOP, LATCH_ROW } from "../../fluid/falls";
 import { OPEN_SKY } from "../../fluid/slots";
-import { shaderModule } from "../../fluid/gpu/state";
+import { flatIndexWgsl, groups1d, shaderModule } from "../../fluid/gpu/state";
 /**
  * WHICH QUADS ARE WORTH DRAWING, gathered once a frame.
  *
@@ -119,8 +119,12 @@ ${cornerRuleSource("wgsl", drawdown)}
 ${quadRuleSource("wgsl")}
 
 @compute @workgroup_size(${WORKGROUP})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let n = i32(gid.x);
+fn main(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+  // FLAT OVER TWO DIMENSIONS where one cannot hold the quads. @see groups1d
+  let n = ${flatIndexWgsl(WORKGROUP)};
   let L = slots();
   let cells = nx() * ny();
   if (n >= cells * ${PARTS} * L) { return; }
@@ -407,7 +411,7 @@ export function createQuadsPass(
       const pass = enc.beginComputePass({ label: "quads" });
       pass.setPipeline(pipeline);
       pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil((cells * PARTS) / WORKGROUP));
+      pass.dispatchWorkgroups(...groups1d(cells * PARTS, WORKGROUP));
       // THEN THE SQUEEZE, in the same pass: one marks, the other compacts, and
       // the second must see all of the first. Two dispatches in one compute
       // pass are ordered against each other by the API. @see compact

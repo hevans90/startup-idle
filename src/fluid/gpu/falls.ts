@@ -50,7 +50,7 @@ import {
 import { DROP, crown } from "../drips";
 import {
   SPAWN_CROWN, SPAWN_MAX, SPAWN_SHED, SPAWN_STRIDE, STATE_WGSL, beginPass,
-  bindState, stateLayout, type GpuState, shaderModule,} from "./state";
+  bindState, flatIndexWgsl, groups1d, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
 
@@ -215,8 +215,12 @@ fn resetFall(k: i32) {
 }
 
 @compute @workgroup_size(${WORKGROUP})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let n = i32(gid.x);
+fn main(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+  // FLAT OVER TWO DIMENSIONS where one cannot hold the edges. @see groups1d
+  let n = ${flatIndexWgsl(WORKGROUP)};
   // FROM THE DEVICE'S OWN COUNT, not from a uniform the host filled in. Once
   // the cliff pass builds the index there is no frame in which the host knows
   // how long it is, and a dispatch sized from a stale count walks either too
@@ -410,7 +414,7 @@ export function createFalls(device: GPUDevice): FallsPass {
       // edit that more than doubles the lip count would do exactly that until
       // the next readback. A tenth of a percent of a frame is not worth a
       // physics pass that silently skips edges.
-      pass.dispatchWorkgroups(Math.ceil(edges / WORKGROUP));
+      pass.dispatchWorkgroups(...groups1d(edges, WORKGROUP));
       pass.end();
     },
   };

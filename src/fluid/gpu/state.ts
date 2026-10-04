@@ -1498,6 +1498,36 @@ export function stateLayout(device: GPUDevice): GPUBindGroupLayout {
  * timing that is missing from one of them, and a readout that is quietly short
  * of a pass is worse than one that has none. @see Stamps
  */
+/**
+ * The most workgroups a dispatch may ask for along one dimension, which
+ * WebGPU guarantees and no device here exceeds.
+ */
+export const MAX_GROUPS = 65535;
+
+/**
+ * A one-dimensional dispatch of `threads`, as the workgroups to ask for.
+ *
+ * SPLIT OVER Y WHEN X CANNOT HOLD IT. A pass that is a thread per edge, or per
+ * quad, outgrows one dimension on a big map with a deck: at 204 tiles the
+ * falls want 83,000 workgroups and the quad gathering 104,000, against 65,535.
+ * The dispatch does not throw — it is refused, the command buffer with it,
+ * and every frame after says only that something before it was invalid. The
+ * shader rebuilds its flat index with {@link flatIndexWgsl}; below the limit
+ * this is the dispatch it always was, with a Y of one.
+ */
+export function groups1d(threads: number, workgroup: number): [number, number] {
+  const g = Math.max(1, Math.ceil(threads / workgroup));
+  const gx = Math.min(g, MAX_GROUPS);
+  return [gx, Math.ceil(g / gx)];
+}
+
+/**
+ * The flat thread index of a {@link groups1d} dispatch, as WGSL. Needs the
+ * entry point to take `gid` (global_invocation_id) and `nwg` (num_workgroups).
+ */
+export const flatIndexWgsl = (workgroup: number) =>
+  `i32(gid.y * nwg.x * ${workgroup}u + gid.x)`;
+
 export function beginPass(
   enc: GPUCommandEncoder, s: GpuState, label: string,
 ): GPUComputePassEncoder {
