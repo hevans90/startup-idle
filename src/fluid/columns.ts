@@ -863,8 +863,30 @@ export function slotUnder(f: ColumnField, i: number, z: number): number {
  * moves.
  */
 export function rebuildSlots(f: ColumnField): void {
+  if (!slotBoxesInto(f)) return;
+  const { cells } = f;
+  f.fx.fill(0, cells);
+  f.fy.fill(0, cells);
+  // And the fall latch with them: a plane the passes stopped visiting must not
+  // come back believing its edges are already falling. @see FallState.falling
+  f.falls.falling.fill(0, cells * 2);
+}
+
+/**
+ * Just the boxes of {@link rebuildSlots}, from the geometry, with nothing
+ * cleared: whether any of them moved.
+ *
+ * ON ITS OWN for a COPY of the host's field taken while the device owns the
+ * water. The host never steps then, so nothing rebuilds its boxes and a deck
+ * built since reads as an empty one — and a comparison run on that copy had
+ * the host walk none of the deck's planes while the device walked all of
+ * them, which read as the two disagreeing by 16 of flux on every edge off a
+ * wet deck. Rebuilding with the clear would throw away the very momentum the
+ * comparison is of. @see checkLive
+ */
+export function slotBoxesInto(f: ColumnField): boolean {
   const { nx, ny, cells, layers, ground, roof, slotBox } = f;
-  if (layers < 2) return;                       // slot zero is the map
+  if (layers < 2) return false;                 // slot zero is the map
   let moved = false;
   for (let a = 1; a < layers; a++) {
     const A = a * cells;
@@ -887,12 +909,7 @@ export function rebuildSlots(f: ColumnField): void {
       slotBox[k] = x0; slotBox[k + 1] = y0; slotBox[k + 2] = x1; slotBox[k + 3] = y1;
     }
   }
-  if (!moved) return;
-  f.fx.fill(0, cells);
-  f.fy.fill(0, cells);
-  // And the fall latch with them: a plane the passes stopped visiting must not
-  // come back believing its edges are already falling. @see FallState.falling
-  f.falls.falling.fill(0, cells * 2);
+  return moved;
 }
 
 /**

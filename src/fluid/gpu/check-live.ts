@@ -21,7 +21,7 @@
  * The live field is never touched, so leaving it on changes nothing about the
  * water you are looking at.
  */
-import { activeBox, type ColumnField } from "../columns";
+import { activeBox, slotBoxesInto, type ColumnField } from "../columns";
 import { compareAccelerate, cloneOf, type PassDiff } from "./compare-pass";
 
 /** One pass's verdict, as the HUD shows it. */
@@ -53,6 +53,9 @@ export async function checkLive(
     return [{ pass: "—", ok: false, relative: 0, did: 0, why: "nothing wet" }];
   }
   const snapshot = cloneOf(live);
+  // ITS SLOT BOXES FROM ITS GEOMETRY, which the host's copy does not keep
+  // while the device has the water. @see slotBoxesInto
+  slotBoxesInto(snapshot);
   const out: PassCheck[] = [];
   for (const pass of ORDER) {
     try {
