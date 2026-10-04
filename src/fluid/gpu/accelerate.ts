@@ -62,7 +62,25 @@ fn headOf(i: i32) -> f32 {
   return select(roofAt(i) + (d - room) * ${PRESSURE_SLOT}, floor + d, d <= room);
 }
 
-fn edgeAt(i: i32, j: i32, si: f32) -> Edge {
+/**
+ * How far slot i's hydraulic surface stands above a sill, never below nought.
+ *
+ * WRITTEN FROM THE FLOOR, not as headOf(i) minus the sill. That subtraction
+ * cancels: on ground four up, four plus a film of 7e-9 IS four in f32, so a
+ * film the host's f64 sees and moves was no water at all on the device, its
+ * edge kept whatever flux it had, and the live check caught one such edge
+ * holding -0.015 the host had dragged to nothing. (floor - sill) + depth is
+ * exact wherever the floor is the sill, which is nearly every edge — and
+ * there it is exactly what the host gets. @see headOf
+ */
+fn aboveSill(i: i32, sill: f32) -> f32 {
+  let floor = groundAt(i);
+  let room = roofAt(i) - floor;
+  let d = depthAt(i);
+  return max(select(roofAt(i) + (d - room) * ${PRESSURE_SLOT} - sill, (floor - sill) + d, d <= room), 0.0);
+}
+
+fn edgeAt(i: i32, j: i32) -> Edge {
   var e: Edge;
   let gi = groundAt(i);
   let gj = groundAt(j);
@@ -84,8 +102,8 @@ fn edgeAt(i: i32, j: i32, si: f32) -> Edge {
   // accelerate in fluid/columns. On an uncovered slot the lid is the sky and
   // neither cap binds.
   let gap = lid - sill;
-  let hi = max(si - sill, 0.0);
-  let hj = max(headOf(j) - sill, 0.0);
+  let hi = aboveSill(i, sill);
+  let hj = aboveSill(j, sill);
   let head = hi - hj;
   // carry is the depth on whichever side is UPHILL: the water with a path
   // across the edge. It doubles as the dry gate, and on level ground it is the
@@ -172,7 +190,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // edges with two momenta. At one storey this is the single edge it was.
   for (var a = 0; a < L; a = a + 1) {
     let ia = slotBase(a) + i;
-    let si = headOf(ia);
     // SHELTERED SLOTS GET NO WEATHER: a gust happens to a surface open to the
     // sky, and the water under a bridge is not. On a map with no decks every
     // slot is, so this is the wind the field always had.
@@ -182,13 +199,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     for (var b = 0; b < L; b = b + 1) {
       let p = pairBase(a, b) + i;
       if (x + 1 < nx()) {
-        let e = edgeAt(ia, slotBase(b) + i + 1, si);
+        let e = edgeAt(ia, slotBase(b) + i + 1);
         setFx(p, select(0.0, fluxAt(fxAt(p), e, wx), e.joined));
       } else {
         setFx(p, 0.0);                          // the map edge is a wall
       }
       if (y + 1 < ny()) {
-        let e = edgeAt(ia, slotBase(b) + i + nx(), si);
+        let e = edgeAt(ia, slotBase(b) + i + nx());
         setFy(p, select(0.0, fluxAt(fyAt(p), e, wy), e.joined));
       } else {
         setFy(p, 0.0);
