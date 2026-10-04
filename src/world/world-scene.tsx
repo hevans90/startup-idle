@@ -166,6 +166,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    * once it appears rather than waiting for the next pointer move.
    */
   const [sceneEpoch, setSceneEpoch] = useState(0);
+  /**
+   * BUMPED WHEN THE WATER FIELD IS REPLACED UNDER THE SAME GRID, which is
+   * what the first deck on a map does: a field's storeys are fixed when it is
+   * made, so `growStoreys` makes a new one, and nothing here noticed. The
+   * scene is built on grid identity, and the grid had not changed — so the
+   * water layer kept one storey's textures and copied two storeys into them
+   * every frame, and the device solver, torn down by the tick for holding the
+   * old field, was never built again: the map ran on the host for the rest of
+   * the session, and only a reload put it back. @see WaterField.fieldRev
+   */
+  const [fieldEpoch, setFieldEpoch] = useState(0);
+  /** The column field the scene was last built for. @see fieldEpoch */
+  const sceneField = useRef<unknown>(null);
+  /** The field a rebuild has been asked for, so it is asked once. */
+  const rebuildAsked = useRef<unknown>(null);
   const grid = useWorldStore((s) => s.grid);
   const scale = useWorldStore((s) => s.scale);
   const { app } = useApplication();
@@ -185,6 +200,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const pl = createPavedLayer(grid, ROAD_TABLE, scale);
       const sl = createStructureLayer();
       const water = useWorldStore.getState().getWaterField();
+      sceneField.current = water?.columns ?? null;
       // THE MESH KNOWS ABOUT STOREYS, so a map with bridges on it draws on
       // the device like any other. The SOLVER still does not — see the effect
       // that builds it — which is the one thing left holding a bridged map on
@@ -1181,7 +1197,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // The renderer and stage are read only by the dev bench above, and both
     // outlive this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grid, scale]);
+  }, [grid, scale, fieldEpoch]);
 
   // Frame the map once the viewport registers. Separate from the build effect
   // because the viewport can arrive after the scene is already drawn, and it
@@ -1730,6 +1746,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const field = useWorldStore.getState().getWaterField();
     const gpu = gpuRef.current;
     if (!(bl && field && (fl || gpu))) return null;
+    // A FIELD THE SCENE WAS NOT BUILT FOR: rebuild it, and step nothing on
+    // layers shaped for the old one in the meantime. @see fieldEpoch
+    // Asked for ONCE and skipped until it lands: only the scene build says
+    // which field it was built for, since the rebuild is asynchronous.
+    if (sceneField.current !== field.columns) {
+      if (rebuildAsked.current !== field.columns) {
+        rebuildAsked.current = field.columns;
+        setFieldEpoch((n) => n + 1);
+      }
+      return null;
+    }
       // WHAT THE DEVICE FINISHED COMES BACK FIRST, before a spring or a pipe
       // pours a drop into this frame. The scatter overwrites the host's
       // depths, so done after them it lands on top of this frame's water and
