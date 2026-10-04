@@ -9,9 +9,9 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { LIST_W, bandTiles, quadCap, quadList, roomFor } from "./water-gpu";
+import { LIST_W, bandTiles, ceilingFor, quadCap, quadList, roomFor } from "./water-gpu";
 import { COLUMNS_PER_TILE } from "../water/field";
-import { canCopyOut } from "../../fluid/gpu/state";
+import { canCopyOut, stateBytes } from "../../fluid/gpu/state";
 import { readReduce, reduceSeed } from "../../fluid/gpu/apply";
 import { CLAMP_SLOT, DELTA_SLOT, DEPTH_SLOT, REDUCE_SLOTS, WET_SLOT } from "../../fluid/gpu/state";
 
@@ -258,5 +258,41 @@ describe("which textures the layer stops uploading", () => {
     // 256 columns, a 64-tile map, takes everything.
     expect(canCopyOut(256, 4)).toBe(true);
     expect(canCopyOut(256, 1)).toBe(true);
+  });
+});
+
+describe("the largest map the water will run on", () => {
+  /** The solver's state for a square map of `t` tiles with a deck on it. */
+  const state = (t: number) =>
+    stateBytes(t * COLUMNS_PER_TILE, t * COLUMNS_PER_TILE, 2, Math.ceil(t / 4) ** 2);
+
+  test("is held to the BUFFER limits, and not the texture alone", () => {
+    // The device that broke: a texture limit of 16,384, which the quad list
+    // took to mean 204 tiles, and the buffer limits a device gets unasked. At
+    // 128 tiles with a deck the state is a 153 MB binding against 128, and
+    // the water silently stopped. @see ceilingFor
+    const unasked = {
+      maxTextureDimension2D: 16384,
+      maxStorageBufferBindingSize: 128 * 2 ** 20,
+      maxBufferSize: 256 * 2 ** 20,
+    };
+    const t = ceilingFor(unasked);
+    expect(t).toBeLessThan(128);
+    expect(state(t)).toBeLessThanOrEqual(128 * 2 ** 20);
+    expect(state(t + 1)).toBeGreaterThan(128 * 2 ** 20);
+  });
+
+  test("and offers what the hardware has when the device asked for it", () => {
+    const asked = {
+      maxTextureDimension2D: 16384,
+      maxStorageBufferBindingSize: 2 ** 32 - 4,
+      maxBufferSize: 2 ** 32 - 4,
+    };
+    expect(ceilingFor(asked)).toBe(204);
+  });
+
+  test("and the guaranteed limits where there is no device at all", () => {
+    expect(ceilingFor(null)).toBe(102);
+    expect(state(102)).toBeLessThanOrEqual(128 * 2 ** 20);
   });
 });

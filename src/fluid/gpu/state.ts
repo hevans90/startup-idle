@@ -468,27 +468,21 @@ export type PassUniforms = {
   slots: number;
 };
 
-export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
-  const cells = f.nx * f.ny;
-  // PER SLOT, and per slot PAIR. At one storey both are `cells` and every
-  // index below is the index it always was — the same dimension-not-a-mode
-  // the host solver took. @see ColumnField.layers
-  const { layers } = f;
+/**
+ * How many words each field of the solver's state takes, for a map `nx` by
+ * `ny` columns of `layers` storeys with a wind grid of `wind` cells.
+ *
+ * A FUNCTION OF ITS OWN so the size can be asked before anything is made: the
+ * whole state is one storage buffer, and a map too big for the device's
+ * buffer limits is a map whose water silently stops. @see mapSizeCeiling
+ */
+export function fieldSizes(
+  nx: number, ny: number, layers: number, wind: number,
+): Record<FieldName, number> {
+  const cells = nx * ny;
   const slotCells = cells * layers;
   const pairCells = cells * layers * layers;
-  // A SUBSTEP'S WORTH EACH, for the three that change BETWEEN substeps.
-  //
-  // The wind gusts on the clock and the drag is raised to the substep's own
-  // dt, so both are rewritten every substep — which was safe while every
-  // substep was its own command buffer and is not safe now that the frame is
-  // one. `queue.writeBuffer` takes effect where it is CALLED in the queue, and
-  // every one of these calls happens before the single submit, so the last
-  // substep's wind landed before the first substep's dispatches ran and every
-  // substep read the same, wrong, weather. A ring, like the constants, and the
-  // slot goes into the OFFSET the constants already carry — so no shader
-  // changes at all. @see CONSTS_SLOTS
-  const wind = f.windX.length;
-  const sizes: Record<FieldName, number> = {
+  return {
     ground: slotCells, depth: slotCells, material: slotCells,
     fx: pairCells, fy: pairCells,
     // A SCALE PER SLOT: it is one slot's water paying for its own outflows.
@@ -522,7 +516,7 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     spawn: SPAWN_MAX * SPAWN_STRIDE,
     wantAt: WANT_MAX, wantOut: WANT_MAX,
     // The PERIMETER, not the area: the rim is an edge. @see rimAt
-    rim: rimLength(f.nx, f.ny),
+    rim: rimLength(nx, ny),
     // THE UNDERSIDE OF WHATEVER IS OVER A SLOT, one per slot, like the
     // ground it is the ceiling of. @see ColumnField.roof
     roof: slotCells,
@@ -530,6 +524,32 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     // Whole rows of LATCH_ROW bytes, so the copy never reads past the field.
     fallByte: Math.ceil((pairCells * 2) / LATCH_ROW) * (LATCH_ROW / 4),
   };
+}
+
+/** The whole state buffer, in bytes. @see fieldSizes */
+export const stateBytes = (nx: number, ny: number, layers: number, wind: number) =>
+  Object.values(fieldSizes(nx, ny, layers, wind)).reduce((a, n) => a + n, 0) * 4;
+
+export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
+  const cells = f.nx * f.ny;
+  // PER SLOT, and per slot PAIR. At one storey both are `cells` and every
+  // index below is the index it always was — the same dimension-not-a-mode
+  // the host solver took. @see ColumnField.layers
+  const { layers } = f;
+  const slotCells = cells * layers;
+  // A SUBSTEP'S WORTH EACH, for the three that change BETWEEN substeps.
+  //
+  // The wind gusts on the clock and the drag is raised to the substep's own
+  // dt, so both are rewritten every substep — which was safe while every
+  // substep was its own command buffer and is not safe now that the frame is
+  // one. `queue.writeBuffer` takes effect where it is CALLED in the queue, and
+  // every one of these calls happens before the single submit, so the last
+  // substep's wind landed before the first substep's dispatches ran and every
+  // substep read the same, wrong, weather. A ring, like the constants, and the
+  // slot goes into the OFFSET the constants already carry — so no shader
+  // changes at all. @see CONSTS_SLOTS
+  const wind = f.windX.length;
+  const sizes = fieldSizes(f.nx, f.ny, layers, wind);
   const offset = {} as Record<FieldName, number>;
   let at = 0;
   for (const name of FIELDS) {

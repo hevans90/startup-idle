@@ -51,7 +51,7 @@
  * gathering allocates for what is actually there rather than the worst case.
  * @see createSheet, gatherQuads
  */
-import { heldGpu, textureLimit } from "./device";
+import { MIN_TEXTURE_DIMENSION, heldGpu } from "./device";
 import {
   Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh,
   Shader, TextureSource, UniformGroup,
@@ -68,12 +68,12 @@ import { createQuadsPass, type QuadsPass } from "./quads-gpu";
 import { createBrinkPass, type BrinkPass } from "./brink-gpu";
 import { FALL_MIN, FALL_STOP, LATCH_ROW } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
-import { COLUMNS_PER_TILE } from "../water/field";
+import { COLUMNS_PER_TILE, STOREYS } from "../water/field";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "./bands";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
 import {
-  canCopyOut, type FieldName, type Sink,
+  canCopyOut, stateBytes, type FieldName, type Sink,
 } from "../../fluid/gpu/state";
 import { createFoam, stepFoam, type FoamField } from "./foam";
 
@@ -285,9 +285,62 @@ export const maxMapTiles = (textureWidth: number): number =>
  * guaranteed minimum is the right answer. @see heldGpu
  */
 export const mapSizeCeiling = (step = 1): number => {
-  const tiles = maxMapTiles(textureLimit(heldGpu()?.device));
+  const device = heldGpu()?.device;
+  const tiles = ceilingFor(device ? device.limits : null);
   return Math.max(step, Math.floor(tiles / step) * step);
 };
+
+/** The device limits a map's size is held to. @see ceilingFor */
+export type SizeLimits = {
+  maxTextureDimension2D: number;
+  maxStorageBufferBindingSize: number;
+  maxBufferSize: number;
+};
+
+/**
+ * The guaranteed limits, for when there is no device to ask: the one answer
+ * true everywhere. @see MIN_TEXTURE_DIMENSION
+ */
+const GUARANTEED: SizeLimits = {
+  maxTextureDimension2D: MIN_TEXTURE_DIMENSION,
+  maxStorageBufferBindingSize: 128 * 1024 * 1024,
+  maxBufferSize: 256 * 1024 * 1024,
+};
+
+/**
+ * The largest square map, in tiles, that every buffer and texture the water
+ * makes will fit, on a device with these limits.
+ *
+ * NOT JUST THE QUAD LIST. This used to be {@link maxMapTiles} alone — the one
+ * texture somebody had once hit — and offered 204 tiles on a device that
+ * could not hold a 128 tile map's water: the solver's state is one storage
+ * buffer of every field, which at 128 tiles with a deck is a 161 MB binding
+ * against the 128 a device gets unasked. Nothing threw. The water stopped.
+ *
+ * AS IF THE MAP HAD A DECK, because it can be given one at any moment and
+ * the field grows its second storey then, after the size was chosen.
+ * @see STOREYS, fieldSizes
+ */
+export function ceilingFor(limits: SizeLimits | null): number {
+  const lim = limits ?? GUARANTEED;
+  const tex = lim.maxTextureDimension2D;
+  const buffer = Math.min(lim.maxStorageBufferBindingSize, lim.maxBufferSize);
+  const L = STOREYS;
+  const fits = (t: number) => {
+    const n = t * COLUMNS_PER_TILE;
+    // A wind cell is four tiles across. @see ColumnField.wstride
+    const wind = Math.ceil(t / 4) ** 2;
+    if (stateBytes(n, n, L, wind) > buffer) return false;
+    if (n * L > tex) return false;                              // a plane per storey
+    if (Math.ceil((n * n * L * L * 2) / LATCH_ROW) > tex) return false;   // the latch
+    const list = quadList(t, t, L);
+    if (list.rows > tex || LIST_W * list.rows * 4 > buffer) return false;
+    return true;
+  };
+  let t = maxMapTiles(tex);
+  while (t > 1 && !fits(t)) t--;
+  return t;
+}
 
 /**
  * STORED ONE HIGHER THAN IT IS, so that nought means EMPTY.
