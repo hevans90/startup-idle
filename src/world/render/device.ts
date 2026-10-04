@@ -234,9 +234,23 @@ export function openDevice(): Promise<HeldGpu | null> {
       // This adapter reports 16,384, which is 204 tiles. Asking for what is
       // there costs nothing and cannot fail — a device may be asked for any
       // limit up to its adapter's.
+      //
+      // AND THE BUFFER SIZES, for the same reason and with the same silence
+      // when they are missing. The solver keeps every field in one storage
+      // buffer, and on a map with a deck that is two storeys of everything:
+      // at 128 tiles it wants a 161 MB binding against the 128 the device
+      // gets unasked, and at 204 a 407 MB buffer against 256. Neither throws.
+      // The bind group comes back invalid, every frame after is "invalid due
+      // to a previous error", and the water stops — the host's copy freezes at
+      // whatever it last held and anything poured simply vanishes. This
+      // adapter offers four gigabytes of both. @see mapSizeCeiling
       const device = await adapter.requestDevice({
         requiredFeatures: wanted,
-        requiredLimits: { maxTextureDimension2D: adapter.limits.maxTextureDimension2D },
+        requiredLimits: {
+          maxTextureDimension2D: adapter.limits.maxTextureDimension2D,
+          maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+          maxBufferSize: adapter.limits.maxBufferSize,
+        },
       });
       // SUBSCRIBED ONCE, HERE, because this is the only place a device is
       // made. `lost` RESOLVES rather than rejecting, so there is nothing to
