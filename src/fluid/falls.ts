@@ -70,13 +70,20 @@ export const FALL_STOP = 2;
 /**
  * How many edges' latches make one ROW of the renderer's texture of them.
  *
- * Two hundred and fifty six because a texture copy's row must be a multiple of
- * 256 bytes and the latch is a byte an edge. The latch is a flat list, so its
+ * A MULTIPLE OF 256 because a texture copy's row must be a multiple of 256
+ * bytes and the latch is a byte an edge. The latch is a flat list, so its
  * texture need not be the map's width — and at the map's width a byte texture
  * cannot be copied into on anything narrower than 64 tiles. At this width
- * every map can. @see FallState.falling, latchAt
+ * every map can.
+ *
+ * A THOUSAND AND TWENTY FOUR and not 256, because the texture's HEIGHT is the
+ * edges over this, and an edge is per slot PAIR: on a map with a deck that is
+ * four planes of two edges a column. At 256 a 204 tile map wanted 20,808 rows
+ * against a device's 16,384, the texture was refused, and the water layer
+ * built on it drew nothing. At 1,024 the same map is 5,202 rows, inside even
+ * the 8,192 every device guarantees. @see FallState.falling, latchAt
  */
-export const LATCH_ROW = 256;
+export const LATCH_ROW = 1024;
 
 /**
  * How long a fall stays attached to its lip after the last water crosses.
