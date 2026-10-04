@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { LIST_W, bandTiles, ceilingFor, quadCap, quadList, roomFor } from "./water-gpu";
+import { LIST_W, bandTiles, ceilingFor, nextGrew, quadCap, quadList, roomFor } from "./water-gpu";
 import { COLUMNS_PER_TILE } from "../water/field";
 import { canCopyOut, stateBytes } from "../../fluid/gpu/state";
 import { readReduce, reduceSeed } from "../../fluid/gpu/apply";
@@ -294,5 +294,24 @@ describe("the largest map the water will run on", () => {
   test("and the guaranteed limits where there is no device at all", () => {
     expect(ceilingFor(null)).toBe(102);
     expect(state(102)).toBeLessThanOrEqual(128 * 2 ** 20);
+  });
+});
+
+describe("the padding a band keeps after it grows", () => {
+  test("holds most of a frame's growth, for the readback that is behind it", () => {
+    expect(nextGrew(0, 80)).toBe(80);
+    expect(nextGrew(80, 0)).toBe(70);
+  });
+
+  test("and a flood's comes back down in a fraction of a second, not half a minute", () => {
+    // At a quad a frame, a band that grew by 1,500 in a flood stayed padded
+    // by it for twenty five seconds. @see LEAK
+    let g = 1500, frames = 0;
+    while (g > 0) { g = nextGrew(g, 0); frames++; }
+    expect(frames).toBeLessThan(60);
+  });
+
+  test("and growth still beats the leak", () => {
+    expect(nextGrew(10, 50)).toBe(50);
   });
 });

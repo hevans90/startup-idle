@@ -1976,9 +1976,7 @@ export function gatherQuads(
     // HOW MUCH EACH BAND JUST GREW, before the new counts overwrite the old.
     // @see QuadGather.grew
     for (let b = 0; b < g.count.length; b++) {
-      const by = got[b] - g.was[b];
-      const fell = g.grew[b] - LEAK;
-      g.grew[b] = Math.max(by, fell > 0 ? fell : 0);
+      g.grew[b] = nextGrew(g.grew[b], got[b] - g.was[b]);
       g.was[b] = got[b];
     }
     g.count.set(got);
@@ -1998,13 +1996,31 @@ export function gatherQuads(
  * what the band can hold.
  */
 /**
- * How fast the remembered growth comes back down, in quads a frame.
+ * How fast the remembered growth comes back down: an EIGHTH of it a frame,
+ * and never less than this many quads.
  *
- * One. A band that took a pour is padded for it for about as many frames as
- * the pour was wide — half a second on the worst one measured — and a band
- * that is merely spreading is back to the floor within a few.
+ * It was one quad a frame, flat, on the reasoning that a pour widens a band by
+ * about as many quads as it is wide — tens — and so is padded for half a
+ * second. A flood is not tens. Pour over a 128 tile map and a band grows by a
+ * thousand and more, and at a quad a frame it stayed padded by that for
+ * twenty-five seconds: 182,000 instances of padding over 252,000 real quads,
+ * every one of them a vertex shader that runs to its empty-slot test, and 8%
+ * of the render for as long as it lasted. Taking an eighth, a frame still
+ * keeps seven eighths of what it grew by — which is what the padding is for,
+ * a readback a frame or two behind a band that is still growing — and a flood
+ * of 1,500 is back to the floor in 44 frames, under a second. @see nextGrew
  */
 const LEAK = 1;
+const LEAK_SHARE = 8;
+
+/**
+ * A band's remembered growth, given what it had and what it just grew by.
+ * The larger of the new growth and the old one leaked down. @see LEAK
+ */
+export const nextGrew = (grew: number, by: number): number => {
+  const fell = grew - Math.max(LEAK, Math.ceil(grew / LEAK_SHARE));
+  return Math.max(by, fell > 0 ? fell : 0);
+};
 
 /**
  * And the floor, which is what a band that has never grown still carries.
