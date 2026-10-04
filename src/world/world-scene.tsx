@@ -594,17 +594,27 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const tick = () => {
             const g = wl.gather;
             if (g) {
-              for (let b = 0; b < wl.meshes.length; b++) {
-                const drew = wl.meshes[b].geometry.instanceCount;
-                const wanted = g.count[b];
-                if (wanted > drew) {
-                  const by = wanted - drew;
-                  if (by > worst) worst = by;
-                  if (short.length < 30) {
-                    short.push({
-                      n, band: b, wanted, drew, by,
-                      onASpan: deckBands.has(b), grew: g.grew[b],
-                    });
+              // BOTH TIERS, each against its own count: the roofed tier has
+              // a list of its own since the gathering sorts by tier, and a
+              // shortfall there drops water from under a span exactly as one
+              // in the open tier drops it from everywhere else.
+              // @see QuadList.second
+              const B = wl.meshes.length;
+              const tiers = wl.under.length ? 2 : 1;
+              for (let t = 0; t < tiers; t++) {
+                for (let b = 0; b < B; b++) {
+                  const mesh = t ? wl.under[b] : wl.meshes[b];
+                  const drew = mesh.geometry.instanceCount;
+                  const wanted = g.count[t * B + b] ?? 0;
+                  if (wanted > drew) {
+                    const by = wanted - drew;
+                    if (by > worst) worst = by;
+                    if (short.length < 30) {
+                      short.push({
+                        n, band: b, tier: t ? "roofed" : "open", wanted, drew, by,
+                        onASpan: deckBands.has(b), grew: g.grew[t * B + b],
+                      });
+                    }
                   }
                 }
               }
