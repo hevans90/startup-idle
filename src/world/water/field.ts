@@ -723,6 +723,15 @@ export function drainAt(
   for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
     for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
       addWater(columns, cx0 + dx, cy0 + dy, -amount, 0, slot);
+      // ASKED FOR BY NAME, because a drain takes what is THERE: while the
+      // device has the water the host's copy of a column it does not name is
+      // a slow rolling refresh, and a drain that read that would take water
+      // the device no longer has, or leave what it should have taken.
+      // @see wantDepth, DEPTH_ROLL
+      const cx = cx0 + dx, cy = cy0 + dy;
+      if (cx < columns.nx && cy < columns.ny) {
+        wantDepth(columns, slot * columns.cells + cy * columns.nx + cx);
+      }
     }
   }
 }

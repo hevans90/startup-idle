@@ -84,7 +84,7 @@ import { createFoamPass } from "../../world/render/foam-gpu";
 import { createWant } from "./want";
 import {
   ARRIVE_STRIDE, CLIFFN_SLOT, CONSTS_SLOTS, CONSTS_STRIDE,
-  CARRIED_BACK, CARRY_EVERY, FALL_OUT_BACK, FALL_OUT_MAX, FALL_OUT_STRIDE,
+  CARRIED_BACK, CARRY_ROLL, DEPTH_ROLL, FALL_OUT_BACK, FALL_OUT_MAX, FALL_OUT_STRIDE,
   FIELDS, REDUCE_SLOTS, SPAWNED_SLOT, SPAWN_MAX, SPAWN_STRIDE, WANT_MAX,
   copyOut, createGpuState, runsOf,
   upload, uploadArrivals, writeConsts, type FieldName, type Sink,
@@ -286,6 +286,13 @@ export type GpuWater = {
   stepAwaited: (f: ColumnField, dt: number) => Promise<void>;
   last: () => GpuFrame;
   /**
+   * Bring EVERYTHING back on the next readback — the whole band of depth and
+   * the carried fields whole — instead of this frame's slice of them. For a
+   * harness comparing the host's copy, which is otherwise a rolling refresh.
+   * That readback reports `carried`. @see DEPTH_ROLL, CARRY_ROLL
+   */
+  requestFull: () => void;
+  /**
    * A TIMESTAMP PAIR FOR A PASS THIS CODE DOES NOT ENCODE.
    *
    * The renderer's work is a render pass built inside Pixi, and the only way
@@ -399,7 +406,14 @@ export function createGpuWater(
   /** The carried fields, for the slow refresh. @see CARRIED_BACK */
   const carriedRuns = CARRIED_BACK.map(runOf);
   /** Readbacks until the carried fields come back whole. @see CARRY_EVERY */
-  let carryDue = 0;
+  /**
+   * Which slice of rows the depth and the carried fields bring back next.
+   * @see DEPTH_ROLL, CARRY_ROLL
+   */
+  let depthRoll = 0;
+  let carryRoll = 0;
+  /** Whether the next readback brings back everything at once. @see requestFull */
+  let fullAsked = false;
   /**
    * THE MOST FLOATS ANY ONE READBACK ASKS FOR, which is not the field.
    *
@@ -425,6 +439,8 @@ export function createGpuWater(
     // The depth band at its widest, ON EVERY STOREY: a band is rows and a
     // column is a stack of them, so what comes back is one run per slot.
     + state.nx * state.ny * state.layers
+    // And the named cells beside it: a full readback carries both. @see requestFull
+    + WANT_MAX
     + Math.max(
       FALL_OUT_MAX * FALL_OUT_STRIDE + lenOf(carriedRuns),
       lenOf(wholeRuns),
@@ -563,7 +579,7 @@ export function createGpuWater(
   type Band = { y0: number; y1: number };
   let pending: {
     raw: Float32Array; red: Int32Array; carriedFull: boolean;
-    lipsFresh: boolean; band: Band; sparse: boolean; wantN: number;
+    lipsFresh: boolean; band: Band; sparse: boolean; wantN: number; carry: Band | null;
   } | null = null;
   let inFlight = 0;
   let readMs = 0;
@@ -610,7 +626,7 @@ export function createGpuWater(
     const p = pending;
     pending = null;
     if (field.nx !== state.nx || field.ny !== state.ny) return;
-    scatter(p.raw, p.red, field, p.carriedFull, p.lipsFresh, p.band, p.sparse, p.wantN);
+    scatter(p.raw, p.red, field, p.carriedFull, p.lipsFresh, p.band, p.sparse, p.wantN, p.carry);
   };
 
   const frame: GpuFrame = {
@@ -624,6 +640,7 @@ export function createGpuWater(
   const scatter = (
     raw: Float32Array, red: Int32Array, into: ColumnField, carriedFull: boolean,
     lipsFresh: boolean, band: Band, sparse: boolean, wantN: number,
+    carry: Band | null = null,
   ) => {
     // SAID PER SCATTER and not per encode, because it is a fact about what
     // just landed in the host's arrays rather than about what was asked for.
@@ -669,18 +686,19 @@ export function createGpuWater(
     // are offsets WITHIN a plane, and everything that tests them takes the
     // slot index modulo the column count first. @see cells
     const cells = into.nx * into.ny;
-    const from = sparse ? 0 : band.y0 * into.nx;
-    const upto = sparse ? 0 : (band.y1 + 1) * into.nx;
+    const from = band.y0 * into.nx;
+    const upto = (band.y1 + 1) * into.nx;
     if (sparse) {
-      // THE NAMED CELLS AND NOTHING ELSE. Every other column keeps whatever
-      // the last whole band left it, which is what the carry frames refresh.
+      // THE NAMED CELLS, which this frame is reading. The rest of the map
+      // keeps what the rolling slice last left it. @see DEPTH_ROLL
       const at = state.offset.wantOut;
       for (let k = 0; k < wantN; k++) {
         const i = flightWant[k];
         into.depth[i] = raw[at + k];
         wroteDepth[i] = 1;
       }
-    } else {
+    }
+    {
       // ONE PLANE AT A TIME, because the device's depth is `cells * layers`
       // and this used to copy back the first `cells` of it and call the job
       // done. Everything a bridge was holding stayed at whatever the host had
@@ -711,6 +729,19 @@ export function createGpuWater(
       put("fx", into.fx);
       put("fy", into.fy);
       if (carried) { put("washNow", carried.now); put("foamNow", carried.foam); }
+    } else if (carry) {
+      // ONE SLICE OF ROWS, plane by plane, at its own place. @see CARRY_ROLL
+      const lo = carry.y0 * into.nx, hi = (carry.y1 + 1) * into.nx;
+      const slice = (name: (typeof FIELDS)[number], dst: Float32Array | Uint8Array, planes: number) => {
+        for (let p = 0; p < planes; p++) {
+          const at = state.offset[name] + p * cells;
+          dst.set(raw.subarray(at + lo, at + hi), p * cells + lo);
+        }
+      };
+      if (matFed) slice("material", into.material, into.layers);
+      slice("fx", into.fx, into.layers * into.layers);
+      slice("fy", into.fy, into.layers * into.layers);
+      if (carried) { slice("washNow", carried.now, 1); slice("foamNow", carried.foam, 1); }
     }
     // THE LIPS, SCATTERED BACK OUT OF THE LIST.
     //
@@ -882,7 +913,8 @@ export function createGpuWater(
         // cannot answer the second. @see wroteDepth
         // WITHIN ITS OWN PLANE, since the band covers the same rows on each.
         const c = i % cells;
-        if (sparse ? !wroteDepth[i] : (c < from || c >= upto)) continue;
+        // IN THE SLICE OF ROWS, OR NAMED: both came back this time.
+        if ((c < from || c >= upto) && !(sparse && wroteDepth[i])) continue;
         const next = Math.max(0, into.depth[i] + b.depth[k]);
         if (b.mat[k] && b.depth[k] > 0) into.material[i] = b.mat[k];
         into.depth[i] = next;
@@ -898,7 +930,10 @@ export function createGpuWater(
         // Measured on the waterfall fixture over four hundred steps: 359 flux
         // arrivals re-applied, EVERY ONE of them onto a stale base and not one
         // onto a fresh one, 272.9 of flux added that the host already held.
-        if (carriedFull) {
+        // And now the flux comes back a slice of rows at a time, so it is the
+        // slice that says whether this cell's base was refreshed. @see CARRY_ROLL
+        if (carriedFull
+          || (carry && c >= carry.y0 * into.nx && c < (carry.y1 + 1) * into.nx)) {
           into.fx[i] += b.fx[k];
           into.fy[i] += b.fy[k];
         }
@@ -960,44 +995,71 @@ export function createGpuWater(
     // more; what they are for is the handover back to the CPU solver, which
     // starts advecting the host's copy from wherever it happens to be.
     // @see CARRIED_BACK
-    const carryNow = fallList && carryDue <= 0;
-    carryDue = carryNow ? CARRY_EVERY : carryDue - 1;
+    // EVERYTHING AT ONCE ONLY WHEN SOMEBODY ASKS. It used to be every thirty
+    // readbacks: the band and the carried fields together, which on a flooded
+    // 204 tile map with a deck is five megabytes of depth and twenty seven of
+    // material and flux in one frame — and between those, every frame nothing
+    // had named a cell, the whole band anyway. @see requestFull
+    const carryNow = !fallList || fullAsked;
+    fullAsked = false;
     // THE ROWS THE DEVICE COULD HAVE TOUCHED, and no others. Remembered until
     // the scatter, because what it covers decides what the arrivals still in
     // flight may be applied to. @see depthBand
     const reg = frame.region as
       { x0: number; y0: number; x1: number; y1: number } | null;
-    const band = depthBand && reg
+    const whole = depthBand && reg
       ? { y0: Math.max(0, reg.y0), y1: Math.min(state.ny - 1, reg.y1) }
       : { y0: 0, y1: state.ny - 1 };
+    /** Rows `k` of `n` slices of the map, clipped to it. */
+    const sliceOf = (k: number, n: number): Band => {
+      const per = Math.ceil(state.ny / n);
+      return { y0: k * per, y1: Math.min(state.ny - 1, (k + 1) * per - 1) };
+    };
+    // THE DEPTH: the cells named this frame, and ONE SLICE OF ROWS. The named
+    // cells are what is read now — drops, pipe mouths, the cursor — and the
+    // slice is the slow refresh that keeps the rest of the host's copy, which
+    // the save and the handover to the CPU solver see, stale rather than
+    // frozen: the whole map every DEPTH_ROLL readbacks, as it was every thirty
+    // before, at a thirtieth of the bytes. @see DEPTH_ROLL
+    const band = carryNow ? whole : sliceOf(depthRoll, DEPTH_ROLL);
+    if (!carryNow) depthRoll = (depthRoll + 1) % DEPTH_ROLL;
+    // AND THE CARRIED FIELDS THE SAME WAY, slower, since nothing reads them
+    // while the device runs but the handover. @see CARRY_ROLL
+    const carry = carryNow ? null : sliceOf(carryRoll, CARRY_ROLL);
+    if (!carryNow) carryRoll = (carryRoll + 1) % CARRY_ROLL;
     const spawnRun = {
       at: state.offset.spawn,
       len: Math.min(spawnCap, SPAWN_MAX) * SPAWN_STRIDE,
     };
-    // THE DEPTH, WHOLE OR BY NAME.
-    //
-    // The band was 97% of this readback, and on a flooded map it is the whole
-    // map because the active box is. What reads it is the drops, the pipe
-    // mouths and the cursor — about two hundred and ninety cells — so they say
-    // which, and the device answers those. @see createWant
-    //
-    // THE BAND STILL COMES BACK on the carry frames, which is what keeps the
-    // save and the handover to the CPU solver seeing a field that is stale
-    // rather than one that is frozen. Same clock as the wash and the foam, and
-    // deliberately the same: they are the same kind of promise.
     flightWant.set(lastWant.subarray(0, lastWantN));
     flightWantN = lastWantN;
-    const sparse = fallList && !carryNow && flightWantN > 0;
+    const sparse = fallList && flightWantN > 0;
     // AND ONE RUN PER STOREY, because a band is rows and a column is a stack
     // of them. The named cells are already slot indices and need no such
     // thing. @see slots, scatter
     const bandRows = (band.y1 - band.y0 + 1) * state.nx;
-    const depthRuns = sparse
-      ? [{ at: state.offset.wantOut, len: flightWantN }]
-      : Array.from({ length: state.layers }, (_, a) => ({
+    const depthRuns = [
+      ...(sparse ? [{ at: state.offset.wantOut, len: flightWantN }] : []),
+      ...Array.from({ length: state.layers }, (_, a) => ({
         at: state.offset.depth + a * state.cells + band.y0 * state.nx,
         len: bandRows,
+      })),
+    ];
+    // A carried field's slice, plane by plane: material per slot, the fluxes
+    // per slot pair, the wash and the foam per column.
+    const planesOf = (name: FieldName, planes: number, rows: Band) =>
+      Array.from({ length: planes }, (_, p) => ({
+        at: state.offset[name] + p * state.cells + rows.y0 * state.nx,
+        len: (rows.y1 - rows.y0 + 1) * state.nx,
       }));
+    const carrySlice = carry
+      ? [
+        ...(matFed ? planesOf("material", state.layers, carry) : []),
+        ...planesOf("fx", state.layers * state.layers, carry),
+        ...planesOf("fy", state.layers * state.layers, carry),
+        ...(carried ? [...planesOf("washNow", 1, carry), ...planesOf("foamNow", 1, carry)] : []),
+      ]
+      : [];
     // THE LIPS, AND WHETHER ANYONE IS STILL READING THEM.
     //
     // The row exists to feed `drawFalls`: the air, the front, the head, the
@@ -1021,7 +1083,7 @@ export function createGpuWater(
     const asked = fallList
       ? [...everyFrame, spawnRun, ...depthRuns,
         ...(lipsNow ? [lipRun] : []),
-        ...(carryNow ? carriedRuns : [])]
+        ...(carryNow ? carriedRuns : carrySlice)]
       : [...everyFrame, spawnRun, ...depthRuns, ...wholeRuns];
     // PACKED, NOT AT THEIR OWN OFFSETS. `off` is where each run lands in the
     // staging buffer; the host unpacks by it below. @see stagingFloats
@@ -1070,9 +1132,10 @@ export function createGpuWater(
         // how many were named. @see createWant
         sparse,
         wantN: flightWantN,
-        // Whether the carried fields are in it, since most of the time they
-        // are not and what is at their offsets is the last time they were.
-        carriedFull: carryNow || !fallList,
+        // Whether the carried fields are in it whole, and if not which slice
+        // of their rows is. @see CARRY_ROLL
+        carriedFull: carryNow,
+        carry,
         // Whether the lip rows in this readback are THIS frame's. @see lipsNow
         lipsFresh: lipsNow,
         band,
@@ -1477,6 +1540,7 @@ export function createGpuWater(
       );
     },
     last: () => frame,
+    requestFull: () => { fullAsked = true; },
     stamp: (label) => (dead ? undefined : state.stamps?.take(label)),
     destroy: () => {
       dead = true;
@@ -1573,11 +1637,15 @@ export function createGpuWater(
 
     stepAwaited: async (field, dt) => {
       // No arrears here: it waits for every frame, so none is ever skipped.
+      // AND EVERYTHING COMES BACK: this is the harnesses' path, and they
+      // compare the host's copy cell by cell, which the live path refreshes a
+      // slice at a time. @see requestFull
+      fullAsked = true;
       const t0 = performance.now();
       if (pending) {
         scatter(
           pending.raw, pending.red, field, pending.carriedFull,
-          pending.lipsFresh, pending.band, pending.sparse, pending.wantN,
+          pending.lipsFresh, pending.band, pending.sparse, pending.wantN, pending.carry,
         );
         pending = null;
       }
@@ -1589,12 +1657,12 @@ export function createGpuWater(
         // Narrowed by hand: TypeScript cannot see that `readback` assigns it.
         const got = pending as {
           raw: Float32Array; red: Int32Array; carriedFull: boolean;
-          lipsFresh: boolean; band: Band; sparse: boolean; wantN: number;
+          lipsFresh: boolean; band: Band; sparse: boolean; wantN: number; carry: Band | null;
         } | null;
         if (got) {
           scatter(
             got.raw, got.red, field, got.carriedFull, got.lipsFresh, got.band,
-            got.sparse, got.wantN,
+            got.sparse, got.wantN, got.carry,
           );
           pending = null;
         }

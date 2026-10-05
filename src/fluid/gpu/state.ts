@@ -708,8 +708,34 @@ export const CARRIED_BACK: readonly (readonly [FieldName, FieldName])[] = [
   ["foamNow", "foamNow"],
 ];
 
-/** How many readbacks apart the carried fields come back whole. */
+/**
+ * How many readbacks apart the carried fields came back whole, before they
+ * were rolled; kept as the bound a harness waits for a full one inside.
+ * @see requestFull
+ */
 export const CARRY_EVERY = 30;
+
+/**
+ * How many readbacks the DEPTH takes to come back whole, a slice of rows each.
+ *
+ * The host's copy is read now by name — the drops, the pipe mouths, the
+ * cursor ask for the cells they read, and the device answers those — so the
+ * rest of it is only the slow refresh the save and the handover to the CPU
+ * solver see. That used to be the whole band, every frame nothing was named
+ * and every thirty when something was: on a flooded 204 tile map with a deck,
+ * five megabytes. A thirtieth of the rows each readback keeps the same
+ * staleness, the whole map every thirty, for a thirtieth of the bytes.
+ */
+export const DEPTH_ROLL = 30;
+
+/**
+ * And how many the CARRIED FIELDS take — the material, both fluxes on every
+ * slot pair, the wash and the foam. Nothing reads them while the device runs
+ * but the handover back to the CPU solver, so they roll slower: on the same
+ * map they were twenty seven megabytes in one frame every thirty. @see
+ * CARRIED_BACK
+ */
+export const CARRY_ROLL = 120;
 
 /**
  * The FALLS, which do not come back as arrays at all. @see FALL_OUT_STRIDE
