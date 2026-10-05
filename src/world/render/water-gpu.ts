@@ -51,6 +51,7 @@
  * gathering allocates for what is actually there rather than the worst case.
  * @see createSheet, gatherQuads
  */
+import { holdShown } from "./hold";
 import { MIN_TEXTURE_DIMENSION, heldGpu } from "./device";
 import {
   Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh,
@@ -679,6 +680,34 @@ fn nearby(vx: i32, vy: i32, dx: i32, dy: i32, mine: i32, here: f32) -> f32 {
   return below;
 }
 
+/**
+ * NEARBY, CHEAPLY: the mean surface of the columns showing round the corner
+ * one step away, in this quad's storey, or this corner's own where none do.
+ *
+ * FOR A WHOLE TILE ONLY. nearby above asks the corner one step away which
+ * sheet it is in, and that is a flood — four of them a vertex, two thirds of
+ * what the surface cost on a flooded 204 tile map: 27 ms with them, 9.5
+ * without. A tile drawn whole is under eight pixels across, and the gradient
+ * between its corners is shading detail inside a pixel or two, so it is read
+ * straight off the columns. A lower corner still pulls the mean down, so a
+ * brink still leans toward its lip. @see LOD_TILE_PX
+ */
+fn nearbyFlat(vx: i32, vy: i32, dx: i32, dy: i32, a: i32, here: f32) -> f32 {
+  let jx = vx + dx;
+  let jy = vy + dy;
+  var sum = 0.0;
+  var n = 0.0;
+  for (var k = 0; k < 4; k = k + 1) {
+    let cx = jx - 1 + (k & 1);
+    let cy = jy - 1 + (k >> 1);
+    if (!inside(cx, cy)) { continue; }
+    if (!shows(cx, cy, a)) { continue; }
+    sum = sum + min(groundAt(cx, cy, a) + depthAt(cx, cy, a), roofAt(cx, cy, a));
+    n = n + 1.0;
+  }
+  return select(here, sum / n, n > 0.0);
+}
+
 /** A shade off the fluid's own ramp, the way the CPU builder lightens one. */
 fn aerated(mat: i32, t: f32) -> vec3<f32> {
   let k = clamp(t / ${LIGHTEST}, 0.0, 1.0) * ${TINTS - 1}.0;
@@ -912,8 +941,18 @@ fn mainVertex(
 
     let e = cornerExtras(vcx, vcy, mine);
     let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
-    let gx = nearby(vcx, vcy, -1, 0, mine, c.x) - nearby(vcx, vcy, 1, 0, mine, c.x);
-    let gy = nearby(vcx, vcy, 0, -1, mine, c.x) - nearby(vcx, vcy, 0, 1, mine, c.x);
+    // ZOOMED OUT AND WHOLE, the gradient off the columns; otherwise off the
+    // sheet, as the column-by-column mesh and the host builder have it.
+    // @see nearbyFlat
+    var gx = 0.0;
+    var gy = 0.0;
+    if (whole) {
+      gx = nearbyFlat(vcx, vcy, -1, 0, a, c.x) - nearbyFlat(vcx, vcy, 1, 0, a, c.x);
+      gy = nearbyFlat(vcx, vcy, 0, -1, a, c.x) - nearbyFlat(vcx, vcy, 0, 1, a, c.x);
+    } else {
+      gx = nearby(vcx, vcy, -1, 0, mine, c.x) - nearby(vcx, vcy, 1, 0, mine, c.x);
+      gy = nearby(vcx, vcy, 0, -1, mine, c.x) - nearby(vcx, vcy, 0, 1, mine, c.x);
+    }
     let lean = (gx + gy) * 0.5;
     let respond = lean / (abs(lean) + ${SLOPE_REF});
     let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
@@ -1385,6 +1424,8 @@ export const waterShaderSource = () => ({
 
 export type GpuWaterLayer = {
   meshes: Mesh<Geometry, Shader>[];
+  /** Frames each band's roofed tier has gathered nothing. @see holdShown */
+  underIdle: Uint16Array;
   /**
    * The same bands again, drawn BEFORE the paving, for water with something
    * over it. @see BandLayer.underOf
@@ -1711,6 +1752,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
 
   return {
     meshes,
+    underIdle: new Uint16Array(meshes.length),
     under,
     faces: 1,
     sources: [depth, ground, washTex, foamTex, fx, fy, material, roof, brinkTex, fallingTex],
@@ -2240,7 +2282,22 @@ export function drawGpuWater(
       u.geometry.instanceCount = Math.min(instanceCap, g && g.gathered
         ? roomFor(g.count[B + b], g.grew[B + b], wl.most[b])
         : wl.most[b]);
-      if (u.visible !== show) u.visible = show;
+      // THE ROOFED TIER ONLY WHERE THERE IS ROOFED WATER. Every band has one
+      // on a map with a deck anywhere, and all but the few the bridge crosses
+      // gather nothing — but the spare in roomFor meant each still drew, and
+      // a draw has a fixed cost: on a flooded 204 tile map 814 of them were
+      // 5.3 ms of the surface's 26 before a quad was drawn. Held rather than
+      // flipped, so water coming and going under a span does not rebuild the
+      // scene's instructions; a band that starts to hold some shows when the
+      // count comes back, a frame or two after. Ungathered, the identity has
+      // no count to ask, and the band draws as it always did. @see holdShown
+      if (!show) {
+        if (u.visible) u.visible = false;
+      } else if (g && g.gathered) {
+        holdShown(u, g.count[B + b] > 0 || g.grew[B + b] > 0, wl.underIdle, b);
+      } else if (!u.visible) {
+        u.visible = true;
+      }
     }
   }
   wl.cpuMs = performance.now() - t0;
