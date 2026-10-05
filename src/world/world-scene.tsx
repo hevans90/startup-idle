@@ -1726,7 +1726,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // any renderer or map shape that cannot take the copy, in which case the
       // layer goes on uploading them. @see deviceSinks
       layer && rendererRef.current
-        ? deviceSinks(layer, rendererRef.current, field.columns.nx)
+        ? deviceSinks(layer, rendererRef.current)
         : [],
     );
     // AND THE GATHERING, which only runs while the device owns the water: it

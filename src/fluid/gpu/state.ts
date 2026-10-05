@@ -793,13 +793,27 @@ export type Sink = {
  * THE 256-BYTE ROW RULE. `bytesPerRow` must be a multiple of 256 whenever more
  * than one row is copied, and a row here is `nx` floats. A 256-column map —
  * which is what a 64-tile map is — gives 1024 and is fine; a map whose width
- * is not a multiple of 64 is not, and there is no padding to be done about it
- * from this side. The caller checks and simply does not wire the sinks up, so
- * such a map keeps the upload it has always had rather than failing.
+ * is not a multiple of 64 is not. Such a field is first copied into rows that
+ * ARE 256 bytes apart by `createPadOut`, and `padded` says where each went; a
+ * caller that does not pad keeps the old answer, which is to not wire those
+ * sinks up and upload from the host.
  */
-export function copyOut(enc: GPUCommandEncoder, s: GpuState, sinks: readonly Sink[]) {
+export function copyOut(
+  enc: GPUCommandEncoder, s: GpuState, sinks: readonly Sink[],
+  padded?: ReadonlyMap<Sink, { buffer: GPUBuffer; offset: number; bytesPerRow: number; rows: number }>,
+) {
   for (const sink of sinks) {
     const texel = sink.texel ?? 4;
+    // ROWS THE WRONG WIDTH were put somewhere they are not. @see createPadOut
+    const p = padded?.get(sink);
+    if (p) {
+      enc.copyBufferToTexture(
+        { buffer: p.buffer, offset: p.offset, bytesPerRow: p.bytesPerRow, rowsPerImage: p.rows },
+        { texture: sink.texture },
+        { width: sink.width ?? s.nx, height: p.rows, depthOrArrayLayers: 1 },
+      );
+      continue;
+    }
     // AS MANY ROWS AS THE FIELD HAS, which is not `ny` on a map with storeys.
     //
     // Every per-slot field is a stack of planes — depth and the material are

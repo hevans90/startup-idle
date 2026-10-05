@@ -72,6 +72,7 @@ import { createDiffuse } from "./diffuse";
 import { createDivergence } from "./divergence";
 import { createFallout } from "./fallout";
 import { createMatpack } from "./matpack";
+import { createPadOut } from "./padout";
 import { createMeta } from "./meta";
 import { createSheet, type SheetPass } from "./sheet";
 import { holdStamps } from "../../world/debug/gpu-stamps";
@@ -369,6 +370,7 @@ export function createGpuWater(
     landings: createLandings(device),
     fallout: createFallout(device),
     matpack: createMatpack(device),
+    padout: createPadOut(device),
     meta: createMeta(device),
     want: createWant(device),
     wash: createWashPass(device),
@@ -1504,7 +1506,9 @@ export function createGpuWater(
     // AND THE SURFACE'S TEXTURES, FILLED FROM HERE rather than from the host's
     // copy of the same numbers. Last, so every pass that writes them has run.
     // @see copyOut
-    copyOut(enc, state, into);
+    // On a map whose rows are not 256 bytes, through rows that are first.
+    // @see createPadOut
+    copyOut(enc, state, into, passes.padout.encode(enc, state, into));
     if (watch > 0) {
       watch--;
       device.pushErrorScope("validation");
@@ -1565,6 +1569,7 @@ export function createGpuWater(
       sheet = null;
       sheetAt = null;
       for (const s of staging) { s.field.destroy(); s.reduce.destroy(); }
+      passes.padout.destroy();
       state.destroy();
     },
     sync: (field) => {

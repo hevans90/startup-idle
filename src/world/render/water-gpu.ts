@@ -1824,36 +1824,23 @@ type GpuTextureSystem = {
  * The textures for the solver to fill, or nothing at all.
  *
  * Nothing at all on the WebGL path, where there is no `getGpuSource` to ask,
- * and one at a time on a map whose rows are the wrong width for that texel —
- * see `canCopyOut`. Whatever is left out the layer keeps uploading exactly as
- * it always has, which is slower and right rather than faster and absent.
+ * and then the layer keeps uploading from the host exactly as it always has.
  *
- * The solver READS THIS BACK: material left out here has to keep coming down
- * every frame, because the host's copy is then what fills the texture.
+ * The solver READS THIS BACK: were the material left out here it would have to
+ * keep coming down every frame, because the host's copy would then be what
+ * fills the texture.
  */
-export function deviceSinks(
-  wl: GpuWaterLayer, renderer: unknown, nx: number,
-): Sink[] {
+export function deviceSinks(wl: GpuWaterLayer, renderer: unknown): Sink[] {
   const sys = renderer as Partial<GpuTextureSystem>;
   if (typeof sys?.texture?.getGpuSource !== "function") return [];
   const get = sys.texture.getGpuSource.bind(sys.texture);
-  // PER TEXTURE, not once for the layer. A map 128 columns across can take the
-  // float copies and cannot take the material's byte one, and asking the
-  // question once gave the stricter answer to all six. @see canCopyOut
-  const fed = FED.filter(([, , texel, across]) => canCopyOut(across ?? nx, texel));
-  // AND SAY SO WHEN ONE IS REFUSED. A map whose rows are the wrong width falls
-  // back to the host uploading that texture every frame — slower, correct, and
-  // completely silent, so the first anybody knows is a frame time that does
-  // not match the same code on a different map. Once, at build, with the
-  // number that would have to change.
-  if (import.meta.env.DEV && fed.length < FED.length) {
-    const out = FED.filter(([, , t, w]) => !canCopyOut(w ?? nx, t)).map(([, n]) => n);
-    console.info(
-      `WATER: ${out.join(", ")} cannot be copied into at ${nx} columns and will`
-      + " be uploaded by the host every frame. A row must be a multiple of 256"
-      + " bytes: 64 columns for a float texture, 256 for the material's byte one.",
-    );
-  }
+  // EVERY TEXTURE, ON EVERY MAP. A field whose rows are not a multiple of 256
+  // bytes — a float one under 64 columns' multiple, the material's under 256
+  // — is padded on the device into rows that are, and copied from there; it
+  // used to be left to the host to upload, which kept the host's copy of the
+  // material coming back whole every frame on most map sizes, and the depth
+  // too. @see createPadOut
+  const fed = FED;
   // AND REMEMBER WHICH, because the layer has to stop uploading exactly the
   // textures the device is really filling and no others. Told the static list
   // instead, a texture this refused was skipped by the host AND never written

@@ -717,7 +717,7 @@ export async function checkWaterOverPaving(
         // point of the device arm. Left out, the solver writes none of them
         // and `deckTexture` below reads nought whatever `copyOut` does —
         // measuring a wire that was never connected. @see deviceSinks
-        gpu ? deviceSinks(gpu, renderer, columns.nx) : [],
+        gpu ? deviceSinks(gpu, renderer) : [],
       );
       for (let n = 0; n < steps; n++) {
         runSources(field, grid, 1 / 60);
