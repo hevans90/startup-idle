@@ -235,6 +235,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         window.__falls = faRef.current;
         // The device-built sheets, so a harness can count what it drew.
         window.__sheets = () => gfRef.current;
+        // And the drops, so a layer at a time can be hidden and timed.
+        (window as unknown as { __drips?: () => unknown }).__drips = () => drRef.current;
         window.__solver = () => solverRef.current;
         window.__waterGpu = gpuRef.current;
         window.__renderer = app.renderer;
@@ -1088,6 +1090,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // this a bench fills the query set, stops timing at the cap, and
           // reports whatever the live path last left behind. @see flushStamps
           const frame = () => {
+            // THE BANDS THIS CAMERA SHOWS, as the tick would cull them.
+            cullBandsRef.current?.();
             renderer.render({ container: stage });
             flushStamps(
               (renderer as unknown as { gpu?: { device: GPUDevice } })
@@ -1740,6 +1744,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    * every render, so the bench reads the same overlays and scale the tick does.
    * Returns the two halves the HUD times, or null when there is no water.
    */
+  /** The band cull, as the tick runs it and the bench calls it. */
+  const cullBandsRef = useRef<(() => void) | null>(null);
   const waterFrameRef = useRef<((dt: number) => { solve: number; build: number } | null) | null>(null);
   waterFrameRef.current = (dt: number) => {
     const bl = blRef.current, fl = flRef.current;
@@ -1985,7 +1991,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
 
   // Cull to the visible band range each frame. Cheap: one comparison per band,
   // and setVisibleBands early-returns when the range has not moved.
-  useTick(() => {
+  //
+  // A FUNCTION THE BENCH CALLS TOO. It was this tick's body and nothing else,
+  // and the bench does not tick — so a bench run kept whatever band range the
+  // last real frame had left, and zooming out for one measured the bands the
+  // previous zoom showed. @see cullBandsRef
+  cullBandsRef.current = () => {
     const bl = blRef.current;
     const vp = useWorldStore.getState().viewport;
     if (!bl || !vp) return;
@@ -1999,7 +2010,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (n !== useWorldStore.getState().drawnBands) {
       useWorldStore.getState().setDrawnBands(n);
     }
-  });
+  };
+  useTick(() => cullBandsRef.current?.());
 
   void app;
   return (

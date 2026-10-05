@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Container } from "pixi.js";
+import { HOLD_FRAMES } from "./hold";
 
 import {
   colourAt, createQuadBatch, destroyQuadBatch, pushQuad, quadAt, resetQuads, rgba, uploadQuads,
@@ -157,7 +158,7 @@ describe("uploading", () => {
     destroyQuadBatch(b);
   });
 
-  test("the mesh shows only while it has something to draw", () => {
+  test("the mesh shows when it has something to draw, and is HELD a while after", () => {
     const b = fresh();
     uploadQuads(b);
     expect(b.mesh.visible).toBe(false);
@@ -166,8 +167,22 @@ describe("uploading", () => {
     uploadQuads(b);
     expect(b.mesh.visible).toBe(true);
 
+    // Emptied, it draws nothing — its quads are blanked to points — but stays
+    // shown, because flipping visibility rebuilds the scene's instructions,
+    // and a band whose water comes and goes would do that every frame.
+    // @see HOLD_FRAMES
     resetQuads(b);
     uploadQuads(b);
+    expect(b.mesh.visible).toBe(true);
+    expect(quadAt(b, 0).every((v) => v === 0)).toBe(true);
+
+    // Something again inside the hold: it never flipped.
+    square(b, 0, 0);
+    uploadQuads(b);
+    expect(b.mesh.visible).toBe(true);
+
+    // And idle for the whole hold, it goes.
+    for (let n = 0; n < HOLD_FRAMES; n++) { resetQuads(b); uploadQuads(b); }
     expect(b.mesh.visible).toBe(false);
     destroyQuadBatch(b);
   });

@@ -40,6 +40,7 @@
  * up on the big map. Bands with nothing on them are switched off outright, so
  * a map with one pipe on it pays for one band.
  */
+import { holdShown } from "./hold";
 import {
   Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh,
   Shader, TextureSource, UniformGroup,
@@ -503,6 +504,8 @@ export type GpuDripLayer = {
   live: Set<number>;
   /** Slots used per band this frame. Kept here so a frame allocates nothing. */
   used: Int32Array;
+  /** Frames each band has drawn nothing. @see holdShown */
+  idle: Uint16Array;
   /** Milliseconds of CPU the last frame's build took, for measuring. */
   cpuMs: number;
 };
@@ -660,7 +663,10 @@ export function createGpuDripLayer(bands: BandLayer, scale = 1): GpuDripLayer {
     meshes.push(mesh);
   }
 
-  return { meshes, data, source, tint, scale, live: new Set(), used: new Int32Array(rows), cpuMs: 0 };
+  return {
+    meshes, data, source, tint, scale, live: new Set(), used: new Int32Array(rows),
+    idle: new Uint16Array(rows), cpuMs: 0,
+  };
 }
 
 export function destroyGpuDripLayer(dl: GpuDripLayer) {
@@ -925,12 +931,9 @@ export function drawGpuDrips(
   // Nothing to say if nothing changed and nothing was there — an empty map
   // should not be uploading a texture full of zeroes sixty times a second.
   if (dl.live.size > 0 || had) dl.source.update();
-  for (let b = 0; b < rows; b++) {
-    const show = used[b] > 0;
-    // Only on a change: visibility is structural, and flipping it every frame
-    // makes the renderer rebuild the scene's instruction list every frame.
-    if (meshes[b].visible !== show) meshes[b].visible = show;
-  }
+  // HELD, not flipped: visibility is structural, and a band whose drops come
+  // and go would rebuild the scene's instructions every frame. @see holdShown
+  for (let b = 0; b < rows; b++) holdShown(meshes[b], used[b] > 0, dl.idle, b);
   void bands;
   dl.cpuMs = performance.now() - t0;
 }

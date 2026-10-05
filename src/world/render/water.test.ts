@@ -1396,9 +1396,11 @@ describe("which bands get any of it", () => {
     expect(wl.live.size).toBeLessThan(wide);
     for (const b of wl.live) expect(b).toBeGreaterThanOrEqual(12);
     for (const b of wl.live) expect(b).toBeLessThanOrEqual(13);
-    // The bands that went away hold nothing now, and stopped drawing.
+    // The bands that went away hold nothing now, and draw nothing. (Their
+    // meshes stay shown for a while — @see HOLD_FRAMES — with every quad a
+    // point.)
     expect(polysOf(wl.strips[8]).length).toBe(0);
-    expect(wl.strips[8].mesh.visible).toBe(false);
+    expect(wl.strips[8].n).toBe(0);
     destroyWaterLayer(wl);
   });
 });
@@ -1419,7 +1421,6 @@ describe("what the GPU is left holding", () => {
     drawWater(wl, field.columns, bands, 1 / 60);
 
     expect(batch.n).toBe(0);
-    expect(batch.mesh.visible).toBe(false);
     // Every vertex the GPU can still reach collapsed to the origin.
     for (let k = 0; k < had * 4 * 3; k++) expect(batch.f32[k]).toBe(0);
     destroyWaterLayer(wl);

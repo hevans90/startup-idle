@@ -20,6 +20,7 @@
  * about a second; a count over it draws slots that were cleared, and four
  * corners at the origin make no fragments.
  */
+import { holdShown } from "./hold";
 import {
   Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader,
 } from "pixi.js";
@@ -150,6 +151,8 @@ export type GpuFallLayer = {
   cap: number;
   /** Bands drawing anything, so a band that empties is hidden once. */
   live: Set<number>;
+  /** Frames each band has drawn nothing. @see holdShown */
+  idle: Uint16Array;
 };
 
 export function createGpuFallLayer(bands: BandLayer, cap = SHEET_CAP): GpuFallLayer {
@@ -191,7 +194,7 @@ export function createGpuFallLayer(bands: BandLayer, cap = SHEET_CAP): GpuFallLa
     (bands.structureOf[b] as Container).addChild(mesh);
     meshes.push(mesh);
   }
-  return { meshes, verts, indices, cap, live: new Set() };
+  return { meshes, verts, indices, cap, live: new Set(), idle: new Uint16Array(n) };
 }
 
 export function destroyGpuFallLayer(fl: GpuFallLayer) {
@@ -225,9 +228,10 @@ export function drawGpuFalls(fl: GpuFallLayer, counts: Uint32Array | null) {
   for (let b = 0; b < fl.meshes.length; b++) {
     const quads = counts ? Math.min(counts[b] ?? 0, fl.cap) : 0;
     const mesh = fl.meshes[b];
+    // NOUGHT INSTANCES WHILE HELD SHOWN AND EMPTY, which draws nothing.
     mesh.geometry.instanceCount = quads;
     const on = quads > 0;
-    mesh.visible = on;
+    holdShown(mesh, on, fl.idle, b);
     if (on) fl.live.add(b); else fl.live.delete(b);
   }
 }

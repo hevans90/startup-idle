@@ -18,6 +18,7 @@
  * Vertices carry a position and a colour and nothing else. There is no texture:
  * the water's whole look is in the colours its mesh builder works out per quad.
  */
+import { holdShown } from "./hold";
 import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader } from "pixi.js";
 import type { Container } from "pixi.js";
 
@@ -69,6 +70,8 @@ export type QuadBatch = {
   n: number;
   /** Quads the GPU is currently holding, so a shrink knows what to blank. */
   drawn: number;
+  /** Frames this batch has drawn nothing, in a one-slot array. @see holdShown */
+  idle: Uint16Array;
 };
 
 /**
@@ -216,7 +219,10 @@ export function createQuadBatch(parent: Container, cap = 16): QuadBatch {
   mesh.visible = false;
   parent.addChild(mesh);
 
-  return { mesh, geometry, vertices, indices, f32, u32: new Uint32Array(f32.buffer), cap, n: 0, drawn: 0 };
+  return {
+    mesh, geometry, vertices, indices, f32, u32: new Uint32Array(f32.buffer), cap, n: 0, drawn: 0,
+    idle: new Uint16Array(1),
+  };
 }
 
 export function destroyQuadBatch(b: QuadBatch) {
@@ -294,10 +300,10 @@ export function uploadQuads(b: QuadBatch) {
   const used = Math.max(b.n, b.drawn);
   b.drawn = b.n;
   if (used) b.vertices.update(used * VERTS * STRIDE);
-  const show = b.n > 0;
-  // Only on a change: visibility is structural, and flipping it every frame
-  // makes the renderer rebuild the scene's instruction list every frame.
-  if (b.mesh.visible !== show) b.mesh.visible = show;
+  // HELD, not flipped: visibility is structural, and a batch that empties and
+  // fills would rebuild the scene's instructions every frame. Shown and empty,
+  // its quads are the collapsed points blanked above. @see holdShown
+  holdShown(b.mesh, b.n > 0, b.idle, 0);
 }
 
 /** The quads a batch holds, as flat `[x, y, x, y, x, y, x, y]` — for tests. */
