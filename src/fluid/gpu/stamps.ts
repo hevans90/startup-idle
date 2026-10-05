@@ -74,6 +74,12 @@ export type Stamps = {
   read: () => void;
   /** Milliseconds of GPU per pass, averaged, plus the total. */
   says: () => { of: Record<string, number>; total: number; frames: number };
+  /**
+   * Forget every frame timed so far, so the next means are of what runs from
+   * here. A measurement that changes what is drawn and reads the mean straight
+   * after was reading a blend of before and after. @see perf-scene
+   */
+  reset: () => void;
   destroy: () => void;
 };
 
@@ -178,6 +184,7 @@ export function createStamps(device: GPUDevice): Stamps {
 
   return {
     take, arm: (on: boolean) => { armed = on; }, resolve, read, says,
+    reset: () => { rings.clear(); frames = 0; },
     destroy: () => {
       dead = true;
       set.destroy();

@@ -23,9 +23,19 @@ export const HOLD_FRAMES = 120;
  * One band's mesh, one frame: whether it is drawing anything now, and the
  * frames it has been idle, kept in `idle[b]`. Flips `visible` only on a change.
  */
+/**
+ * Meshes a measurement has hidden, which the hold must not show again. A
+ * weak set, so a mesh that goes away takes its entry with it. @see perf-scene
+ */
+export const heldHidden = new WeakSet<object>();
+
 export function holdShown(
   mesh: { visible: boolean }, active: boolean, idle: Uint16Array, b: number,
 ): void {
+  if (heldHidden.has(mesh)) {
+    if (mesh.visible) mesh.visible = false;
+    return;
+  }
   if (active) idle[b] = 0;
   else if (idle[b] < 0xffff) idle[b]++;
   const show = active || (mesh.visible && idle[b] < HOLD_FRAMES);

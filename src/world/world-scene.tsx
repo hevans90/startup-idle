@@ -5,6 +5,8 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
+import { heldHidden } from "./render/hold";
+import type { Renderer } from "pixi.js";
 import { nappeStepsAt } from "./render/nappe";
 import { extend, useApplication, useTick } from "@pixi/react";
 import {
@@ -74,7 +76,8 @@ import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
 import { footprintCells, surfaceSampler } from "./grid";
 import { HEIGHT_UNIT, HH, HW, cellToWorld, pickCell, worldToCellF } from "./iso";
-import { runSources, stepWater } from "./water/field";
+import { pourAt, runSources, stepWater } from "./water/field";
+import { applyPinned, runPerfScene } from "./debug/perf-scene";
 import { runPipes } from "./water/pipes";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
 import {
@@ -1091,6 +1094,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // this a bench fills the query set, stops timing at the cap, and
           // reports whatever the live path last left behind. @see flushStamps
           const frame = () => {
+            // THE VIEW A PERF SCENE PINNED, if one did: put back before every
+            // frame, because the pane's own size and the viewport's React
+            // props can each undo it between two. @see pinView
+            applyPinned(renderer as unknown as Renderer, useWorldStore.getState().viewport);
             // THE BANDS THIS CAMERA SHOWS, as the tick would cull them.
             cullBandsRef.current?.();
             renderer.render({ container: stage });
@@ -1149,6 +1156,55 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             } : {}),
             ...(solverRef.current ? { last: solverRef.current.last() } : {}),
           };
+        };
+      }
+
+      // A PERFORMANCE SCENE THAT HOLDS STILL — see debug/perf-scene. Built
+      // here because it needs the bench, the layers and the store at once.
+      // Polled through `window.__perfLast`, since a whole run outlasts any one
+      // call into the page.
+      if (import.meta.env.DEV) {
+        const w = window as unknown as {
+          __perfScene?: (o?: object) => Promise<unknown>;
+          __perfLast?: { stage: string; report: unknown };
+          __waterBench?: (n?: number, sync?: boolean) => Promise<unknown>;
+          __gpuTime?: () => unknown;
+        };
+        w.__perfScene = async (o = {}) => {
+          const status = { stage: "starting", report: null as unknown };
+          w.__perfLast = status;
+          const report = await runPerfScene({
+            renderer: app.renderer as unknown as Renderer,
+            store: () => useWorldStore.getState() as never,
+            bench: (n, sync) => w.__waterBench!(n, sync) as Promise<Record<string, unknown> | null>,
+            gpuTime: () => w.__gpuTime?.() as never,
+            skip: (names) => setSkip(names),
+            resetGpu: () => stampsNow()?.reset(),
+            pour: (x, y, depth) => {
+              const f = useWorldStore.getState().getWaterField();
+              if (f) pourAt(f, x, y, depth, 1);
+            },
+            setHidden: (names) => {
+              if (gpuRef.current) showGpuWater(gpuRef.current, !names.includes("surface"));
+              const groups: [string, { visible: boolean }[]][] = [
+                ["sheets", gfRef.current?.meshes ?? faRef.current?.strips.map((b) => b.mesh) ?? []],
+                ["drops", drRef.current?.meshes ?? []],
+              ];
+              for (const [name, meshes] of groups) {
+                const off = names.includes(name);
+                for (const m of meshes) {
+                  if (off) { heldHidden.add(m); m.visible = false; } else heldHidden.delete(m);
+                }
+              }
+            },
+            ready: () => {
+              const f = useWorldStore.getState().getWaterField();
+              return !!f && sceneField.current === f.columns && !!blRef.current
+                && (!!flRef.current || !!gpuRef.current);
+            },
+          }, o, (stage) => { status.stage = stage; });
+          status.report = report;
+          return report;
         };
       }
 
