@@ -883,6 +883,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
  * start a timer or reach for `localStorage`. The editor turns it on.
  */
 export function startAutosave(): () => void {
+  // `?nosave`: a session that must not write the map — a benchmark resizing
+  // and flooding scratch maps, say, which would otherwise overwrite the one
+  // somebody has spent an evening building. It still LOADS the saved map.
+  if (typeof location !== "undefined" && new URLSearchParams(location.search).has("nosave")) {
+    return () => {};
+  }
   const input = () => ({
     grid: useWorldStore.getState().grid,
     // The paved palette is a placeholder the editor has never filled; passed as
