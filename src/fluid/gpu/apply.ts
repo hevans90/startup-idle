@@ -33,7 +33,7 @@
 import { BREAK_START, BREAK_STOP, PERSIST, VERTICAL } from "../columns";
 import {
   CLAMP_SCALE, CLAMP_SLOT, DELTA_SCALE, DELTA_SLOT, REDUCE_SLOTS,
-  AIR_SLOT, DEPTH_SLOT, WATER_SCALE, WET_SLOT,
+  AIR_SLOT, DEPTH_LANES, DEPTH_SLOT, WATER_SCALE, WET_SLOT,
   STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 import type { Box } from "./accelerate";
 
@@ -240,6 +240,13 @@ export const reduceSeed = (nx: number, ny: number) => {
   return out;
 };
 
+/** The columns' water, its lanes summed in a double. @see DEPTH_LANES */
+const lanesOf = (raw: Int32Array) => {
+  let sum = 0;
+  for (let k = 0; k < DEPTH_LANES; k++) sum += raw[DEPTH_SLOT + k] ?? 0;
+  return sum;
+};
+
 /** The reduction read back as the numbers it stands for. */
 export const readReduce = (raw: Int32Array) => ({
   x0: raw[0], y0: raw[1], x1: raw[2], y1: raw[3],
@@ -262,11 +269,11 @@ export const readReduce = (raw: Int32Array) => ({
    * responsible for, and on a closed map with nothing pouring it is a
    * constant. @see GpuFrame.deviceWater
    */
-  depth: raw[DEPTH_SLOT] / WATER_SCALE,
+  depth: lanesOf(raw) / WATER_SCALE,
   /** And what is still in the air off a lip. @see AIR_SLOT */
   air: raw[AIR_SLOT] / WATER_SCALE,
   /** The two together, which is what the readout puts on the screen. */
-  water: (raw[DEPTH_SLOT] + raw[AIR_SLOT]) / WATER_SCALE,
+  water: (lanesOf(raw) + raw[AIR_SLOT]) / WATER_SCALE,
 });
 
 export function createApply(device: GPUDevice): ApplyPass {

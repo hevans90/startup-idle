@@ -13,7 +13,9 @@ import { LIST_W, bandTiles, ceilingFor, nextGrew, quadCap, quadList, roomFor } f
 import { COLUMNS_PER_TILE } from "../water/field";
 import { canCopyOut, stateBytes } from "../../fluid/gpu/state";
 import { readReduce, reduceSeed } from "../../fluid/gpu/apply";
-import { CLAMP_SLOT, DELTA_SLOT, DEPTH_SLOT, REDUCE_SLOTS, WET_SLOT } from "../../fluid/gpu/state";
+import {
+  CLAMP_SLOT, DELTA_SLOT, DEPTH_LANES, DEPTH_SLOT, REDUCE_SLOTS, WATER_SCALE, WET_SLOT,
+} from "../../fluid/gpu/state";
 
 /** What `SPARE` is, read off the function rather than imported. */
 const SPARE = roomFor(0, 0, 1e9);
@@ -313,5 +315,19 @@ describe("the padding a band keeps after it grows", () => {
 
   test("and growth still beats the leak", () => {
     expect(nextGrew(10, 50)).toBe(50);
+  });
+});
+
+describe("the columns' water, past what one counter holds", () => {
+  test("is summed over its lanes, so a big flooded map does not wrap", () => {
+    // One i32 in 256ths carries eight million; a 204 tile map flooded thirty
+    // deep is about twenty. Each lane holds a share and the sum is a double.
+    // @see DEPTH_LANES
+    const raw = reduceSeed(64, 64);
+    const perLane = 2_000_000_000;                // near an i32's ceiling each
+    for (let k = 0; k < DEPTH_LANES; k++) raw[DEPTH_SLOT + k] = perLane;
+    const r = readReduce(raw);
+    expect(r.depth).toBeCloseTo((perLane * DEPTH_LANES) / WATER_SCALE, 0);
+    expect(r.depth).toBeGreaterThan(0);
   });
 });

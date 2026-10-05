@@ -96,7 +96,7 @@ export const CONSTS_SLOTS = 16;
  * and the delta's tallies, the wet count, the columns' water and the air's.
  * @see GpuState.reduce
  */
-export const REDUCE_SLOTS = 13;
+export const REDUCE_SLOTS = 13 + 64;
 
 /** The slot the spray's spawn counter claims from. @see REDUCE_SLOTS */
 export const SPAWNED_SLOT = 6;
@@ -215,7 +215,22 @@ export const WET_SLOT = 10;
  * that stopped being the device's answer the day depth started coming back by
  * the band. @see GpuFrame.deviceWater
  */
-export const DEPTH_SLOT = 11;
+export const DEPTH_SLOT = 13;
+
+/**
+ * How many slots {@link DEPTH_SLOT} is spread over, from it onwards: a tile
+ * adds into the lane its row picks, and the host sums the lanes in a double.
+ *
+ * ONE SLOT OVERFLOWED. It is an i32 in 256ths, so it carries eight million —
+ * which is a 64 tile map flooded four times over and a 204 tile map flooded
+ * thirty half steps deep about a third of. Past it the sum wrapped: the
+ * readout went negative, a flooded map's total "fell" a million a frame while
+ * nothing moved, and the leak alarm read a scene holding still as one pouring
+ * water away. Sixty four lanes hold a 204 tile map with a deck on it filled
+ * to the brim, at the same precision. Slot 11, where the one tally was, is
+ * unused. @see WATER_SCALE
+ */
+export const DEPTH_LANES = 64;
 
 /**
  * And every drop still in the AIR off a lip, summed per lip in `createFallout`.
@@ -234,7 +249,8 @@ export const AIR_SLOT = 12;
  * sixteen half steps of error on a number the readout rounds to an integer
  * and displays next to five figures. The headroom is what picks the scale:
  * a map flooded to thirty half steps everywhere holds about two million, and
- * an `i32` at this scale carries eight.
+ * an `i32` at this scale carries eight. Which a big map is not: see
+ * {@link DEPTH_LANES}, which is how the columns' sum gets past it.
  */
 export const WATER_SCALE = 256;
 

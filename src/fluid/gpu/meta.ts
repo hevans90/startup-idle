@@ -24,7 +24,7 @@
  */
 import { COLUMNS_PER_TILE } from "../../world/water/field";
 import {
-  DEPTH_SLOT, STATE_WGSL, WATER_SCALE, WET_SLOT,
+  DEPTH_LANES, DEPTH_SLOT, STATE_WGSL, WATER_SCALE, WET_SLOT,
   beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 8;
@@ -76,7 +76,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // thousand losses in the same direction and the total comes out light by a
   // hundredth of a per cent every time. The half turns a bias into a wobble.
   // @see WATER_SCALE
-  atomicAdd(&reduce[${DEPTH_SLOT}], i32(sum * ${WATER_SCALE}.0 + 0.5));
+  // INTO THIS ROW'S LANE, which the host sums in a double: one slot overflowed
+  // on a big flooded map. @see DEPTH_LANES
+  atomicAdd(&reduce[${DEPTH_SLOT} + i32(gid.y) % ${DEPTH_LANES}], i32(sum * ${WATER_SCALE}.0 + 0.5));
 }
 `;
 
