@@ -1011,10 +1011,14 @@ export function createGpuWater(
       ? { y0: Math.max(0, reg.y0), y1: Math.min(state.ny - 1, reg.y1) }
       : { y0: 0, y1: state.ny - 1 };
     /** Rows `k` of `n` slices of the map, clipped to it. */
-    const sliceOf = (k: number, n: number): Band => {
-      const per = Math.ceil(state.ny / n);
-      return { y0: k * per, y1: Math.min(state.ny - 1, (k + 1) * per - 1) };
-    };
+    // SPREAD EVENLY, not a ceiling's worth each: 816 rows in 120 slices of
+    // seven ran off the map at the 117th, and those slices came out with a
+    // negative length the copy refused. A map with fewer rows than slices
+    // gets empty ones, which ask for nothing.
+    const sliceOf = (k: number, n: number): Band => ({
+      y0: Math.floor((k * state.ny) / n),
+      y1: Math.floor(((k + 1) * state.ny) / n) - 1,
+    });
     // THE DEPTH: the cells named this frame, and ONE SLICE OF ROWS. The named
     // cells are what is read now — drops, pipe mouths, the cursor — and the
     // slice is the slow refresh that keeps the rest of the host's copy, which
@@ -1090,6 +1094,7 @@ export function createGpuWater(
     let off = 0;
     const packed: { at: number; len: number; off: number }[] = [];
     for (const r of asked) {
+      if (r.len <= 0) continue;
       enc.copyBufferToBuffer(state.field, r.at * 4, slot.field, off * 4, r.len * 4);
       packed.push({ at: r.at, len: r.len, off });
       off += r.len;
