@@ -303,6 +303,14 @@ export const mapSizeCeiling = (step = 1): number => {
 export const LOD_TILE_PX = 8;
 
 /**
+ * The most instances any band's water mesh draws, for a MEASUREMENT: one keeps
+ * every draw and drops nearly all the work, which says what the draws alone
+ * cost. Never set outside one. @see perf-scene
+ */
+let instanceCap = Infinity;
+export const setInstanceCap = (n: number) => { instanceCap = n; };
+
+/**
  * Whether, at this ON-SCREEN scale — the world's scale times the viewport's
  * zoom — flat tiles are drawn whole. @see LOD_TILE_PX
  */
@@ -2222,16 +2230,16 @@ export function drawGpuWater(
     const n = g && g.gathered
       ? roomFor(g.count[b], g.grew[b], wl.most[b])
       : wl.most[b];
-    wl.meshes[b].geometry.instanceCount = n;
+    wl.meshes[b].geometry.instanceCount = Math.min(n, instanceCap);
     // Only on a change: visibility is structural, and flipping it every frame
     // makes the renderer rebuild the scene's instruction list every frame.
     if (wl.meshes[b].visible !== show) wl.meshes[b].visible = show;
     const u = wl.under[b];
     if (u) {
       const B = wl.meshes.length;
-      u.geometry.instanceCount = g && g.gathered
+      u.geometry.instanceCount = Math.min(instanceCap, g && g.gathered
         ? roomFor(g.count[B + b], g.grew[B + b], wl.most[b])
-        : wl.most[b];
+        : wl.most[b]);
       if (u.visible !== show) u.visible = show;
     }
   }

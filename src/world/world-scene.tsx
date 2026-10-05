@@ -31,7 +31,8 @@ import {
 } from "./render/water";
 import {
   attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
-  cullFor, destroyQuadGather, drawGpuWater, gatherQuads, showGpuWater, waterOnGpu, zoomedOut,
+  cullFor, destroyQuadGather, drawGpuWater, gatherQuads, setInstanceCap, showGpuWater, waterOnGpu,
+  zoomedOut,
   type GpuWaterLayer,
 } from "./render/water-gpu";
 import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
@@ -76,7 +77,7 @@ import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
 import { footprintCells, surfaceSampler } from "./grid";
 import { HEIGHT_UNIT, HH, HW, cellToWorld, pickCell, worldToCellF } from "./iso";
-import { pourAt, runSources, stepWater } from "./water/field";
+import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
 import { runPipes } from "./water/pipes";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
@@ -1180,6 +1181,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             gpuTime: () => w.__gpuTime?.() as never,
             skip: (names) => setSkip(names),
             resetGpu: () => stampsNow()?.reset(),
+            capWater: (n) => setInstanceCap(n),
             pour: (x, y, depth) => {
               const f = useWorldStore.getState().getWaterField();
               if (f) pourAt(f, x, y, depth, 1);
@@ -1196,6 +1198,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                   if (off) { heldHidden.add(m); m.visible = false; } else heldHidden.delete(m);
                 }
               }
+            },
+            still: () => {
+              const { grid: g, getWaterField } = useWorldStore.getState();
+              g.source.fill(0);
+              g.inflow.fill(0);
+              const f = getWaterField();
+              if (f) syncGround(f, g);
             },
             ready: () => {
               const f = useWorldStore.getState().getWaterField();

@@ -12,7 +12,8 @@
  *     being timed, so the second half of an A/B timed a different scene;
  *   - and a layer hidden with `visible` was shown again by the band hold.
  *
- * So the scene builds its own map, closes its edges, PINS its view — size,
+ * So the scene builds its own map, closes its edges and turns off what feeds
+ * it, PINS its view — size,
  * zoom and centre re-applied before every frame the bench drives — and hides
  * layers with `visible`, telling the band hold to leave them hidden. Not with
  * `renderable`, which was tried: it is not structural, so hiding took and
@@ -107,6 +108,8 @@ export type PerfDeps = {
   gpuTime: () => { of: Record<string, number>; total: number; frames: number } | null;
   /** Forget the GPU frames timed so far. @see Stamps.reset */
   resetGpu: () => void;
+  /** Cap every water mesh's instances; Infinity for none. @see setInstanceCap */
+  capWater: (n: number) => void;
   pour: (x: number, y: number, depth: number) => void;
   /**
    * Hide exactly these water layers and show the rest: "surface", "sheets",
@@ -116,6 +119,8 @@ export type PerfDeps = {
   setHidden: (names: string[]) => void;
   /** Whether the scene is built for the field there is now. */
   ready: () => boolean;
+  /** Turn off every spring, drain and off-map inflow on the map. */
+  still: () => void;
 };
 
 export type PerfOptions = {
@@ -136,7 +141,15 @@ export type PerfOptions = {
   skip?: string[];
   /** Measure the scene already built — no resize, no fixture, no flood. */
   reuse?: boolean;
+  /**
+   * Configurations to time in place of the usual five. Each hides `hide`, caps
+   * every water mesh at `cap` instances — one keeps the draws and drops the
+   * work — and renders at `resolution`.
+   */
+  configs?: PerfConfig[];
 };
+
+export type PerfConfig = { name: string; hide?: string[]; cap?: number; resolution?: number };
 
 /** The configurations, each a set of water layers HIDDEN for it. */
 const CONFIGS: Record<string, string[]> = {
@@ -165,6 +178,8 @@ export async function runPerfScene(
     size = 204, fixture = "bridge", flood = 30, settle = 240,
     frames = 10, rounds = 2, w = 800, h = 600, zoom = "fit", skip = [], reuse = false,
   } = opts;
+  const configs: PerfConfig[] = opts.configs
+    ?? Object.entries(CONFIGS).map(([name, hide]) => ({ name, hide }));
   const st = deps.store;
   const empty = (why: string, view: PinnedView): PerfReport => ({
     ok: false, why, size, fixture, view, wetFrom: 0, wetTo: 0, waterFrom: 0, waterTo: 0,
@@ -182,6 +197,7 @@ export async function runPerfScene(
   }
 
   const wasOpen = st().openEdge;
+  const wasResolution = deps.renderer.resolution;
   pinView(view);
   try {
     if (reuse) {
@@ -201,6 +217,12 @@ export async function runPerfScene(
         return empty("the scene was not rebuilt for the fixture's field", view);
       }
 
+      // AND NOTHING FED. With the edges closed, a fixture's springs and the
+      // river it is fed at the rim have nowhere to go: the first version of
+      // this left them on, and the map filled for as long as anyone measured
+      // it — sixty deep where it was poured thirty, until the water tally
+      // overflowed. @see DEPTH_LANES
+      deps.still();
       if (flood > 0) {
         progress("flooding");
         for (let y = 8; y < size - 8; y++) {
@@ -217,9 +239,14 @@ export async function runPerfScene(
     const last0 = (first?.last ?? {}) as { reduce?: { wet?: number; water?: number } };
     const runs: PerfRow[] = [];
     for (let r = 0; r < rounds; r++) {
-      for (const [config, hidden] of Object.entries(CONFIGS)) {
+      for (const { name: config, hide: hidden = [], cap = Infinity, resolution } of configs) {
         progress(`round ${r + 1}/${rounds}: ${config}`);
         hide(hidden);
+        deps.capWater(cap);
+        if (resolution && deps.renderer.resolution !== resolution) {
+          deps.renderer.resolution = resolution;
+          deps.renderer.resize(view.w, view.h);
+        }
         // WARMED UP before it is timed: a layer shown or hidden rebuilds what
         // the renderer draws, and that one frame's cost belongs to the switch
         // and not to the configuration. Then the stamps turn over.
@@ -259,7 +286,7 @@ export async function runPerfScene(
     const last1 = (end?.last ?? {}) as { reduce?: { wet?: number; water?: number } };
 
     const mean: Record<string, PerfRow> = {};
-    for (const config of Object.keys(CONFIGS)) {
+    for (const config of [...new Set(configs.map((c) => c.name))]) {
       const mine = runs.filter((x) => x.config === config);
       const avg = (k: keyof PerfRow) =>
         Math.round((mine.reduce((a, x) => a + (x[k] as number), 0) / mine.length) * 100) / 100;
@@ -284,6 +311,11 @@ export async function runPerfScene(
   } finally {
     deps.setHidden([]);
     deps.skip([]);
+    deps.capWater(Infinity);
+    if (deps.renderer.resolution !== wasResolution) {
+      deps.renderer.resolution = wasResolution;
+      deps.renderer.resize(view.w, view.h);
+    }
     unpinView();
     st().setOpenEdge(wasOpen);
     progress("done");
