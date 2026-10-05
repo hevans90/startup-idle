@@ -69,6 +69,24 @@ const num = (v: number) => (Number.isInteger(v) ? `${v}.0` : `${v}`);
  */
 export const NAPPE_STEPS = 24;
 
+/** The fewest pieces a sheet is ever cut into. @see nappeStepsAt */
+export const NAPPE_STEPS_MIN = 3;
+
+/**
+ * How many pieces a sheet is cut into when a tile is `tilePx` wide on screen.
+ *
+ * A PIECE A FEW PIXELS TALL, and no finer. A fall of twelve half steps stands
+ * a tile and a half high on screen, so at the editor's 1:1 every one of the
+ * twenty-four pieces is a handful of pixels — and fitted to the window on a
+ * 204 tile map, where a tile is under four pixels across, the whole sheet is
+ * about five, cut twenty-four ways: a thousand lips' worth of quads none of
+ * which is a pixel. One piece for every two pixels of tile width keeps a
+ * piece about three pixels tall, which is the size of the chord error the
+ * full count was chosen against. @see NAPPE_STEPS
+ */
+export const nappeStepsAt = (tilePx: number): number =>
+  Math.max(NAPPE_STEPS_MIN, Math.min(NAPPE_STEPS, Math.ceil(tilePx / 2)));
+
 /**
  * How far a fall thins over, in half steps.
  *

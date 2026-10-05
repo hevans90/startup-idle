@@ -56,6 +56,7 @@
  * to reproduce in a shader, and reproducing a sine in f32 is a difference
  * nobody needs.
  */
+import { NAPPE_STEPS } from "../../world/render/nappe";
 import {
   MATERIAL_SLOTS, carryCap, clearArrivals, createArrivals, stepAir, stirWind,
   maxStep, substepsFor, wantDrops, type ColumnField,
@@ -324,7 +325,7 @@ export type GpuWater = {
    * rebuilding the pass for a zoom would throw away a frame of sheets. Does
    * nothing where the scale has not moved. @see SheetTo
    */
-  sheetScale: (scale: number) => void;
+  sheetScale: (scale: number, steps?: number) => void;
   destroy: () => void;
 };
 
@@ -571,6 +572,8 @@ export function createGpuWater(
   let sheet: SheetPass | null = null;
   /** What it was asked for with, so a zoom can re-say it. @see sheetScale */
   let sheetAt: SheetTo | null = null;
+  /** Pieces the sheets were last told to cut into. @see nappeStepsAt */
+  let sheetSteps = NAPPE_STEPS;
   /**
    * The edges the last scatter wrote, so the next one clears only those.
    *
@@ -1454,6 +1457,7 @@ export function createGpuWater(
       sheetAt = to;
       if (!to) return;
       sheet = createSheet(device, to.bands, to.cap);
+      sheetSteps = NAPPE_STEPS;
       sheet.bind(to.tint);
       sheet.say(
         to.proj[0], to.proj[1], to.proj[2], to.proj[3],
@@ -1462,12 +1466,14 @@ export function createGpuWater(
     },
     sheetCounts: () => sheet?.says() ?? null,
     sheetQuads: () => sheet?.quads ?? null,
-    sheetScale: (scale) => {
-      if (!sheet || !sheetAt || scale === sheetAt.proj[3]) return;
+    sheetScale: (scale, steps = NAPPE_STEPS) => {
+      if (!sheet || !sheetAt) return;
+      if (scale === sheetAt.proj[3] && steps === sheetSteps) return;
+      sheetSteps = steps;
       sheetAt = { ...sheetAt, proj: [sheetAt.proj[0], sheetAt.proj[1], sheetAt.proj[2], scale] };
       sheet.say(
         sheetAt.proj[0], sheetAt.proj[1], sheetAt.proj[2], scale,
-        sheetAt.bands, sheetAt.cap, sheetAt.cpt, sheetAt.tilesHigh,
+        sheetAt.bands, sheetAt.cap, sheetAt.cpt, sheetAt.tilesHigh, steps,
       );
     },
     last: () => frame,

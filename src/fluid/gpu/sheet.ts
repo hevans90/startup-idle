@@ -93,6 +93,8 @@ struct Say {
   proj: vec4<f32>,
   // bands, cap per band, columns per tile, tiles high
   dims: vec4<i32>,
+  // pieces a sheet is cut into, spare, spare, spare
+  lod: vec4<i32>,
 };
 @group(1) @binding(0) var<uniform> say : Say;
 @group(1) @binding(1) var<storage, read_write> verts : array<f32>;
@@ -104,6 +106,9 @@ fn hh() -> f32 { return say.proj.y * say.proj.w; }
 fn hu() -> f32 { return say.proj.z * say.proj.w; }
 fn cap() -> i32 { return say.dims.y; }
 fn cpt() -> i32 { return say.dims.z; }
+// HOW MANY PIECES each sheet is cut into, which zoomed out is fewer than
+// NAPPE_STEPS: a piece a few pixels tall and no finer. @see nappeStepsAt
+fn steps() -> i32 { return say.lod.x; }
 
 fn onMap(x: i32, y: i32) -> bool {
   return x >= 0 && y >= 0 && x < nx() && y < ny();
@@ -245,8 +250,8 @@ fn packed(shade: f32, mat: i32, cover: f32) -> u32 {
 @compute @workgroup_size(${WORKGROUP})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let n = i32(gid.x);
-  let lip = n / ${NAPPE_STEPS};
-  let piece = n % ${NAPPE_STEPS};
+  let lip = n / steps();
+  let piece = n % steps();
   if (lip >= cliffN()) { return; }
 
   let kk = cliffAt(lip);
@@ -340,12 +345,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // invalid all along, which is what reaches the console.
   var fromZ = head;
   if (piece > 0) {
-    let t0 = tHead + (tFront - tHead) * pow(k0 / ${num(NAPPE_STEPS)}, ${num(LIP_BIAS)});
+    let t0 = tHead + (tFront - tHead) * pow(k0 / f32(steps()), ${num(LIP_BIAS)});
     fromZ = ${num(FALL_GRAVITY)} * t0 * t0 * 0.5;
   }
   var toZ = front;
-  if (piece + 1 < ${NAPPE_STEPS}) {
-    let t1 = tHead + (tFront - tHead) * pow(k1 / ${num(NAPPE_STEPS)}, ${num(LIP_BIAS)});
+  if (piece + 1 < steps()) {
+    let t1 = tHead + (tFront - tHead) * pow(k1 / f32(steps()), ${num(LIP_BIAS)});
     toZ = ${num(FALL_GRAVITY)} * t1 * t1 * 0.5;
   }
 
@@ -470,6 +475,7 @@ export type SheetPass = {
   say: (
     hw: number, hh: number, hu: number, scale: number,
     bands: number, cap: number, cpt: number, tilesHigh: number,
+    steps?: number,
   ) => void;
   destroy: () => void;
 };
@@ -505,9 +511,11 @@ export function createSheet(
     },
   });
   const uniform = device.createBuffer({
-    size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "sheet say",
   });
+  /** Pieces a sheet is cut into, as last said. @see nappeStepsAt */
+  let steps = NAPPE_STEPS;
   // THE PASS'S OWN TARGET, because the buffers the meshes draw cannot be one
   // buffer. @see spill
   const quads = device.createBuffer({
@@ -567,10 +575,12 @@ export function createSheet(
         ],
       });
     },
-    say: (hw, hh, hu, scale, bandN, cap, cpt, tilesHigh) => {
-      const buf = new ArrayBuffer(32);
+    say: (hw, hh, hu, scale, bandN, cap, cpt, tilesHigh, pieces = NAPPE_STEPS) => {
+      steps = Math.max(1, Math.min(NAPPE_STEPS, Math.round(pieces)));
+      const buf = new ArrayBuffer(48);
       new Float32Array(buf, 0, 4).set([hw, hh, hu, scale]);
       new Int32Array(buf, 16, 4).set([bandN, cap, cpt, tilesHigh]);
+      new Int32Array(buf, 32, 4).set([steps, 0, 0, 0]);
       device.queue.writeBuffer(uniform, 0, buf);
     },
     spill: (enc, dests) => {
@@ -597,8 +607,9 @@ export function createSheet(
       pass.setPipeline(pipeline);
       bindState(pass, s, state);
       pass.setBindGroup(1, group);
+      // A THREAD PER PIECE, and zoomed out a sheet has fewer. @see steps
       pass.dispatchWorkgroups(
-        Math.max(1, Math.ceil((lips * NAPPE_STEPS) / WORKGROUP)),
+        Math.max(1, Math.ceil((lips * steps) / WORKGROUP)),
       );
       pass.end();
     },

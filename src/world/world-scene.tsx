@@ -5,6 +5,7 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
+import { nappeStepsAt } from "./render/nappe";
 import { extend, useApplication, useTick } from "@pixi/react";
 import {
   Container, Graphics, RenderTexture, UPDATE_PRIORITY,
@@ -1852,7 +1853,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (gfRef.current) {
           // The camera's own scale, in case it has moved since the pass was
           // set up — a no-op on every frame it has not. @see sheetScale
-          solverRef.current?.sheetScale(scale);
+          // And how finely to cut each sheet, from how big a tile is on
+          // screen: zoomed out, a fall is a few pixels tall and twenty-four
+          // pieces of it is waste. @see nappeStepsAt
+          const vpz = useWorldStore.getState().viewport?.scale.x ?? 1;
+          solverRef.current?.sheetScale(scale, nappeStepsAt(2 * HW * scale * vpz));
           drawGpuFalls(gfRef.current, solverRef.current?.sheetCounts() ?? null);
         } else {
           drawFalls(faRef.current, field.columns, box, white, drift);

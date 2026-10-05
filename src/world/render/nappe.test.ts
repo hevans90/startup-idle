@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  AERATED, FALL_REACH, FRAY, SPRAYED, breakingAt, sheetAt, sheetRuleSource, thinAt,
+  AERATED, FALL_REACH, FRAY, SPRAYED, breakingAt, sheetAt, sheetRuleSource, thinAt, NAPPE_STEPS, NAPPE_STEPS_MIN, nappeStepsAt,
 } from "./nappe";
 import { SHADES, SHOW_DEPTH, SOLID_FLOOR, SOLID_RANGE, TINTS } from "./water";
 import { BREAK } from "../../fluid/falls";
@@ -83,5 +83,21 @@ describe("the sheet's rules as shader source", () => {
    */
   test("nothing in the generated source rounds with WGSL's round", () => {
     expect(src).not.toMatch(/\bround\s*\(/);
+  });
+});
+
+describe("how finely a sheet is cut, by how big it is on screen", () => {
+  test("in full at the editor's own zoom, where a tile is 132 pixels", () => {
+    expect(nappeStepsAt(132)).toBe(NAPPE_STEPS);
+  });
+
+  test("a piece a few pixels tall in between", () => {
+    expect(nappeStepsAt(16)).toBe(8);
+  });
+
+  test("and never fewer than the floor, fitted to the window on a big map", () => {
+    // 204 tiles fitted to an 800 pixel window: a tile is under four pixels.
+    expect(nappeStepsAt(3.7)).toBe(NAPPE_STEPS_MIN);
+    expect(nappeStepsAt(0)).toBe(NAPPE_STEPS_MIN);
   });
 });
