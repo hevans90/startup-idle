@@ -46,6 +46,9 @@ struct Say {
 fn nx() -> i32 { return say.dims.x; }
 fn ny() -> i32 { return say.dims.y; }
 fn slots() -> i32 { return say.dims.z; }
+// THE ROW THE ANSWER IS WRITTEN AT: the map's width, rounded up to whole 256
+// bytes so the copy into the texture can take it on any map. @see brinkRow
+fn row() -> i32 { return say.dims.w; }
 fn dryDepth() -> f32 { return say.a.x; }
 fn fallMin() -> f32 { return say.a.y; }
 fn slotRow(y: i32, a: i32) -> i32 { return a * ny() + y; }
@@ -81,10 +84,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let cy = cell / nx();
   // A DRY SLOT LEANS NOWHERE, and skipping it is most of the map: the scan
   // only means anything where there is water to lean.
-  if (depthAt(cx, cy, a) <= dryDepth()) { out[i] = 0.0; return; }
-  out[i] = brinkCalc(cx, cy, a);
+  let o = slotRow(cy, a) * row() + cx;
+  if (depthAt(cx, cy, a) <= dryDepth()) { out[o] = 0.0; return; }
+  out[o] = brinkCalc(cx, cy, a);
 }
 `;
+
+/**
+ * Floats a row of the answer: the width, padded to a multiple of 64 so a row
+ * is whole 256 bytes and the copy into the texture is allowed whatever the
+ * map's width. Before this a map not a multiple of 16 tiles across ran the
+ * scan inline in every vertex instead. The tail of each row is never read.
+ */
+export const brinkRow = (nx: number) => Math.ceil(nx / 64) * 64;
 
 export type BrinkPass = {
   encode: (enc: GPUCommandEncoder, slots: number) => void;
@@ -95,7 +107,8 @@ export type BrinkPass = {
   destroy: () => void;
 };
 
-export function createBrinkPass(device: GPUDevice, slots: number): BrinkPass {
+/** @param floats the answer's size, rows padded. @see brinkRow */
+export function createBrinkPass(device: GPUDevice, floats: number): BrinkPass {
   const layout = device.createBindGroupLayout({
     entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
@@ -127,7 +140,7 @@ export function createBrinkPass(device: GPUDevice, slots: number): BrinkPass {
     label: "brink say",
   });
   const out = device.createBuffer({
-    size: Math.max(16, slots * 4),
+    size: Math.max(16, floats * 4),
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     label: "brink",
   });
@@ -148,7 +161,7 @@ export function createBrinkPass(device: GPUDevice, slots: number): BrinkPass {
     },
     say: (nx, ny, s, dryDepth, fallMin) => {
       const buf = new ArrayBuffer(32);
-      new Int32Array(buf, 0, 4).set([nx, ny, s, 0]);
+      new Int32Array(buf, 0, 4).set([nx, ny, s, brinkRow(nx)]);
       new Float32Array(buf, 16, 4).set([dryDepth, fallMin, 0, 0]);
       device.queue.writeBuffer(uniform, 0, buf);
     },

@@ -66,7 +66,7 @@ import { OPEN_SKY } from "../../fluid/slots";
 import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
 import { createQuadsPass, type QuadsPass } from "./quads-gpu";
-import { createBrinkPass, type BrinkPass } from "./brink-gpu";
+import { brinkRow, createBrinkPass, type BrinkPass } from "./brink-gpu";
 import { FALL_MIN, FALL_STOP, LATCH_ROW } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
 import { COLUMNS_PER_TILE, STOREYS } from "../water/field";
@@ -74,7 +74,7 @@ import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "./bands";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
 import {
-  canCopyOut, stateBytes, type FieldName, type Sink,
+  stateBytes, type FieldName, type Sink,
 } from "../../fluid/gpu/state";
 import { createFoam, stepFoam, type FoamField } from "./foam";
 
@@ -1920,11 +1920,9 @@ export type QuadGather = {
   /** Frames still checked for validation errors. @see createQuadsPass */
   watch: number;
   /**
-   * The brink pass and where its answer goes, or null on a map whose width
-   * will not take the copy.
-   *
-   * Null means the shaders run the scan inline, which is what they did before
-   * this existed. @see createBrinkPass, canCopyOut
+   * The brink pass and where its answer goes. On every map since its rows
+   * were padded; null would mean the shaders run the scan inline, which is
+   * what they did before this existed. @see createBrinkPass, brinkRow
    */
   brink: { pass: BrinkPass; into: GPUTexture; slots: number } | null;
   /** Where each band's quads live. @see quadList */
@@ -1958,14 +1956,14 @@ export function attachQuadGather(
   const brinkView = get(wl.sources[BRINK_AT]).createView();
   const fallingView = get(wl.sources[FALLING_AT]).createView();
   pass.bind(depthView, groundView, roofView, brinkView, fallingView);
-  // AND THE BRINK, which both this pass and the vertex shader read. Only where
-  // the row rule allows the copy into the texture; otherwise there is no
-  // texture to read and both of them run the scan. @see canCopyOut
+  // AND THE BRINK, which both this pass and the vertex shader read. On every
+  // map now: the pass writes its rows padded to whole 256 bytes, which is
+  // what the copy into the texture asks. @see brinkRow
   const plane = wl.sources[0] as unknown as { width: number; height: number };
   const bnx = plane.width, bny = plane.height / wl.layers;
   let brink: QuadGather["brink"] = null;
-  if (canCopyOut(bnx, 4)) {
-    const bp = createBrinkPass(device, bnx * bny * wl.layers);
+  {
+    const bp = createBrinkPass(device, brinkRow(bnx) * bny * wl.layers);
     bp.bind(depthView, groundView, roofView);
     brink = { pass: bp, into: get(wl.sources[BRINK_AT]), slots: bnx * bny * wl.layers };
     // The shaders only read it once there is something in it to read.
@@ -2025,7 +2023,10 @@ export function gatherQuads(
     );
     g.brink.pass.encode(enc, g.brink.slots);
     enc.copyBufferToTexture(
-      { buffer: g.brink.pass.out, bytesPerRow: columns.nx * 4, rowsPerImage: columns.ny * columns.layers },
+      {
+        buffer: g.brink.pass.out, bytesPerRow: brinkRow(columns.nx) * 4,
+        rowsPerImage: columns.ny * columns.layers,
+      },
       { texture: g.brink.into },
       { width: columns.nx, height: columns.ny * columns.layers, depthOrArrayLayers: 1 },
     );

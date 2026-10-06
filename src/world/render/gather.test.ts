@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 import { LIST_W, bandTiles, ceilingFor, nextGrew, quadCap, quadList, roomFor } from "./water-gpu";
 import { COLUMNS_PER_TILE } from "../water/field";
 import { canCopyOut, stateBytes } from "../../fluid/gpu/state";
+import { brinkRow } from "./brink-gpu";
 import { readReduce, reduceSeed } from "../../fluid/gpu/apply";
 import {
   CLAMP_SLOT, DELTA_SLOT, DEPTH_LANES, DEPTH_SLOT, REDUCE_SLOTS, WATER_SCALE, WET_SLOT,
@@ -70,6 +71,15 @@ describe("whether the device may copy straight into a texture", () => {
     expect(canCopyOut(128, 1)).toBe(false);
     // The case the per-texture question exists for.
     expect(canCopyOut(128, 4) && !canCopyOut(128, 1)).toBe(true);
+  });
+
+  test("the brink's padded row takes the copy on any width", () => {
+    for (const tiles of [24, 64, 100, 204]) {
+      const nx = tiles * COLUMNS_PER_TILE;
+      expect(canCopyOut(brinkRow(nx), 4)).toBe(true);
+      expect(brinkRow(nx)).toBeGreaterThanOrEqual(nx);
+      expect(brinkRow(nx) - nx).toBeLessThan(64);
+    }
   });
 
   test("the live map's shape takes both", () => {
