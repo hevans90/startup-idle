@@ -15,9 +15,9 @@
  *
  * Keeping them separate is what lets both be true at once, and costs nothing.
  */
-import { Container, Graphics, Sprite, type Texture } from "pixi.js";
+import { Container, Graphics, MeshSimple, Sprite, Texture } from "pixi.js";
 
-import { bandOf, cellToWorld, spriteY, type Cell } from "../iso";
+import { HH, HW, bandOf, cellToWorld, spriteY, type Cell } from "../iso";
 import { VOID, idx, inBounds, surfaceHeightAt, type Grid } from "../grid";
 import { cellDiamond, drawDeckPiers } from "../render/overlays";
 import { TILE_BLEED } from "../render/terrain";
@@ -85,13 +85,27 @@ export function footprintPerimeter(
   cells: readonly Cell[],
   scale: number,
 ): [number, number, number, number][] {
-  const inSet = new Set(cells.map((c) => `${c.x},${c.y}`));
+  // A MASK OVER THE GRID, not a set of "x,y" strings: a pour dragged over a
+  // 128 tile map is sixteen thousand cells, and this ran on every pointer
+  // move. Cells off the map are rare and keep a set of their own.
+  const mask = new Uint8Array(grid.w * grid.h);
+  const off = new Set<string>();
+  for (const c of cells) {
+    if (inBounds(grid, c.x, c.y)) mask[c.y * grid.w + c.x] = 1;
+    else off.add(`${c.x},${c.y}`);
+  }
+  const has = (x: number, y: number) => inBounds(grid, x, y)
+    ? mask[y * grid.w + x] === 1
+    : off.size > 0 && off.has(`${x},${y}`);
   const out: [number, number, number, number][] = [];
   for (const c of cells) {
     if (!inBounds(grid, c.x, c.y)) continue;
+    // AN INTERIOR CELL HAS NO EDGE TO DRAW, and is most of a big footprint:
+    // asked first, so only the rim works out its corners.
+    if (EDGES.every((e) => has(c.x + e.dx, c.y + e.dy))) continue;
     const v = vertices(c.x, c.y, surfaceHeightAt(grid, c.x, c.y), scale);
     for (const e of EDGES) {
-      if (inSet.has(`${c.x + e.dx},${c.y + e.dy}`)) continue;
+      if (has(c.x + e.dx, c.y + e.dy)) continue;
       out.push([v[e.a][0], v[e.a][1], v[e.b][0], v[e.b][1]]);
     }
   }
@@ -114,7 +128,16 @@ export type CursorInput = {
  * drawing depends on, so if the signature matches, the picture would too.
  */
 export function cursorSignature(grid: Grid, input: CursorInput, valid: Validator): string {
-  const parts: string[] = [input.frame ?? "-", input.tool, input.scale.toFixed(4)];
+  // HASHED, NOT SPELLED OUT. A part per cell joined into one string was a
+  // string of sixteen thousand parts for a pour dragged over a 128 tile map,
+  // built on every pointer move to find out whether anything changed. Two
+  // independent 32 bit hashes of the same numbers, and the count, say the
+  // same thing for a few integer multiplies a cell.
+  let h1 = 0x811c9dc5 | 0, h2 = 0x5bd1e995 | 0;
+  const mix = (v: number) => {
+    h1 = Math.imul(h1 ^ v, 0x01000193);
+    h2 = Math.imul(h2 ^ v, 0x5bd1e995) ^ (h2 >>> 15);
+  };
   for (const c of input.cells) {
     // THE HEIGHT IT DRAWS AT, not the terrain's: laying a deck under the
     // pointer moves the cursor and changes nothing else, and a signature off
@@ -122,9 +145,13 @@ export function cursorSignature(grid: Grid, input: CursorInput, valid: Validator
     const on = inBounds(grid, c.x, c.y);
     const h = on ? surfaceHeightAt(grid, c.x, c.y) : 0;
     const d = on ? grid.deck[idx(grid, c.x, c.y)] : 0;
-    parts.push(`${c.x},${c.y},${h},${d},${valid(grid, c.x, c.y).ok ? 1 : 0}`);
+    mix(c.x); mix(c.y); mix(Math.round(h * 64)); mix(d);
+    mix(valid(grid, c.x, c.y).ok ? 1 : 0);
   }
-  return parts.join("|");
+  return [
+    input.frame ?? "-", input.tool, input.scale.toFixed(4),
+    input.cells.length, h1 >>> 0, h2 >>> 0,
+  ].join("|");
 }
 
 export type BuildCursor = {
@@ -146,6 +173,40 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
   outline.eventMode = "none";
   outline.zIndex = 1000;      // above the debug overlays, whatever order they mount in
   overlay.addChild(outline);
+
+  // THE TINT AS TWO MESHES, open and blocked, under the outline. It was a
+  // diamond and a fill per cell in the outline's Graphics, and Pixi builds a
+  // shape object per call: a pour dragged over a 128 tile map was sixteen
+  // thousand of them and 159 ms on every pointer move. Four corners a cell in
+  // a typed array is the same picture for well under a millisecond.
+  const tints: (MeshSimple | null)[] = [null, null];
+  const setTint = (k: 0 | 1, corners: Float32Array, n: number, color: number) => {
+    let m = tints[k];
+    if (n === 0) { if (m) m.visible = false; return; }
+    const verts = corners.subarray(0, n * 8);
+    if (!m || m.vertices.length !== n * 8) {
+      m?.destroy();
+      const indices = new Uint32Array(n * 6);
+      for (let q = 0; q < n; q++) {
+        const o = q * 4, w = q * 6;
+        indices[w] = o; indices[w + 1] = o + 1; indices[w + 2] = o + 2;
+        indices[w + 3] = o; indices[w + 4] = o + 2; indices[w + 5] = o + 3;
+      }
+      m = new MeshSimple({
+        texture: Texture.WHITE, vertices: Float32Array.from(verts),
+        uvs: new Float32Array(n * 8), indices,
+      });
+      m.eventMode = "none";
+      m.zIndex = 999;                            // under the outline
+      m.alpha = 0.28;
+      overlay.addChild(m);
+      tints[k] = m;
+    } else {
+      m.vertices = Float32Array.from(verts);
+    }
+    m.tint = color;
+    m.visible = true;
+  };
 
   // Pooled: a drag over a 5×5 brush churns sprites otherwise.
   const pool: Sprite[] = [];
@@ -182,6 +243,7 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
 
   cursor.clear = () => {
     outline.clear();
+    for (const m of tints) if (m) m.visible = false;
     used = 0;
     releaseGhosts();
     cursor.cells = [];
@@ -208,25 +270,54 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
     const tex = input.frame ? textures[input.frame] : undefined;
     let blocked = 0;
 
-    for (const c of input.cells) {
+    // THREE SWEEPS, not one shape at a time. A diamond and a fill per cell was
+    // sixteen thousand fills for a pour dragged over a 128 tile map, and Pixi
+    // tessellates every one again when the outline is next drawn — the render
+    // call's own time went from 5 ms to 19 with the drag. So the piers, then
+    // every open cell's diamond under ONE fill, then every blocked one under
+    // another: the same picture, piers under the tint as before, in three
+    // instructions. @see drawDeckPiers
+    const heights = new Float64Array(input.cells.length);
+    const oks = new Uint8Array(input.cells.length);
+    for (let n = 0; n < input.cells.length; n++) {
+      const c = input.cells[n];
       if (!inBounds(grid, c.x, c.y)) { blocked++; continue; }
       // ON THE SURFACE PICKING CHOSE. A deck and the ground under it share a
       // cell, and the march stops at the deck — so a cursor drawn off
       // `grid.height` sat in the channel under the span the pointer was on,
       // which is the one reading of a bridge nobody wants.
-      const h = surfaceHeightAt(grid, c.x, c.y);
+      heights[n] = surfaceHeightAt(grid, c.x, c.y);
       const ok = valid(grid, c.x, c.y).ok;
+      oks[n] = ok ? 1 : 2;
       if (!ok) blocked++;
-
       // And say what it is standing on, or two surfaces one above the other
       // are one diamond and the picture is ambiguous. @see drawDeckPiers
       drawDeckPiers(outline, grid, c.x, c.y, input.scale, ok ? CURSOR_OK : CURSOR_BLOCKED);
-
-      // per-cell tint, so a partly blocked footprint says which cells
-      outline.poly(cellDiamond(c.x, c.y, h, input.scale));
-      outline.fill({ color: ok ? CURSOR_OK : CURSOR_BLOCKED, alpha: 0.28 });
-
-      if (tex && ok) {
+    }
+    // per-cell tint, so a partly blocked footprint says which cells
+    for (const want of [1, 2] as const) {
+      const corners = new Float32Array(input.cells.length * 8);
+      let q = 0;
+      const hw = HW * input.scale, hh = HH * input.scale;
+      for (let n = 0; n < input.cells.length; n++) {
+        if (oks[n] !== want) continue;
+        const c = input.cells[n];
+        // cellDiamond's four corners, written straight into the array.
+        const { wx, wy } = cellToWorld(c.x, c.y, heights[n], input.scale);
+        const o = q * 8;
+        corners[o] = wx; corners[o + 1] = wy - hh;
+        corners[o + 2] = wx + hw; corners[o + 3] = wy;
+        corners[o + 4] = wx; corners[o + 5] = wy + hh;
+        corners[o + 6] = wx - hw; corners[o + 7] = wy;
+        q++;
+      }
+      setTint(want === 1 ? 0 : 1, corners, q, want === 1 ? CURSOR_OK : CURSOR_BLOCKED);
+    }
+    if (tex) {
+      for (let n = 0; n < input.cells.length; n++) {
+        if (oks[n] !== 1) continue;
+        const c = input.cells[n];
+        const h = heights[n];
         const s = ghost();
         s.texture = tex;
         const { wx, wy } = cellToWorld(c.x, c.y, h, input.scale);
@@ -262,6 +353,7 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
     cursor.clear();
     for (const s of pool) s.destroy();
     pool.length = 0;
+    for (const m of tints) m?.destroy();
     outline.destroy();
   };
 

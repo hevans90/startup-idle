@@ -1488,11 +1488,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     };
   }, [viewportForPick]);
 
-  // Hover highlight follows the store, redrawn only when the cell changes.
-  const hover = useWorldStore((s) => s.hover);
+  // Hover highlight follows the store, redrawn only when the cell changes —
+  // off a SUBSCRIPTION, not a selector: the hover moves with the pointer, and
+  // a selector re-rendered this whole component on every cell it crossed.
+  // @see the build cursor below, which does the same
   useEffect(() => {
-    if (hoverGfx.current) drawHover(hoverGfx.current, grid, hover, scale);
-  }, [hover, grid, scale]);
+    const draw = () => {
+      if (hoverGfx.current) drawHover(hoverGfx.current, grid, useWorldStore.getState().hover, scale);
+    };
+    draw();
+    return useWorldStore.subscribe((s, was) => { if (s.hover !== was.hover) draw(); });
+  }, [grid, scale]);
 
   // Calibration: changing the offset re-picks at the last pointer position, so
   // the highlight and crosshair move while you drag the slider.
@@ -1586,9 +1592,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // footprint you see before pressing is the same shape that commits, drawn by
   // the same code. Per-cell validity, so a partly blocked footprint says which
   // cells are the problem rather than just refusing as a whole.
-  const stroke = useWorldStore((s) => s.stroke);
+  // THE STROKE AND THE HOVER ARE NOT SUBSCRIBED HERE. They change on every
+  // pointer move, and a selector here re-rendered the whole scene component
+  // each time to redraw one cursor — on a pour dragged over a 128 tile map,
+  // most of the 22 ms each move was costing once the drawing itself was
+  // cheap. The cursor is redrawn straight off a store subscription instead.
   const brushRadius = useWorldStore((s) => s.brushRadius);
-  const hoverForBrush = useWorldStore((s) => s.hover);
   const material = useWorldStore((s) => s.material);
   const structureDefId = useWorldStore((s) => s.structureDefId);
   // `palette` and `revision` are already selected above, for the terrain
@@ -1598,36 +1607,43 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const cur = cursorRef.current, tex = texRef.current;
     if (!cur || !tex) return;
 
-    // A live drag takes over; otherwise the hover stands in as a one-cell
-    // anchor so the brush size is visible before pressing rather than
-    // discovered after.
-    const s0: Stroke | null = stroke ?? (
-      hoverForBrush && tool !== "inspect"
-        ? { tool, brush: "point", anchor: hoverForBrush, head: hoverForBrush }
-        : null
-    );
-    if (!s0) { cur.clear(); return; }
+    const draw = () => {
+      const { stroke, hover: hoverForBrush } = useWorldStore.getState();
+      // A live drag takes over; otherwise the hover stands in as a one-cell
+      // anchor so the brush size is visible before pressing rather than
+      // discovered after.
+      const s0: Stroke | null = stroke ?? (
+        hoverForBrush && tool !== "inspect"
+          ? { tool, brush: "point", anchor: hoverForBrush, head: hoverForBrush }
+          : null
+      );
+      if (!s0) { cur.clear(); return; }
 
-    // A STRUCTURE tool previews its footprint, not a brush: the same function
-    // the commit uses, so the rect you drag out is the rect you get.
-    const cells = isStructureTool(s0.tool)
-      ? (() => {
-          const fp = structureFootprint(structureDef(structureDefId), s0.anchor, s0.head);
-          return footprintCells(fp.x, fp.y, fp.w, fp.h);
-        })()
-      : strokeFootprint(grid, s0, brushRadius);
+      // A STRUCTURE tool previews its footprint, not a brush: the same function
+      // the commit uses, so the rect you drag out is the rect you get.
+      const cells = isStructureTool(s0.tool)
+        ? (() => {
+            const fp = structureFootprint(structureDef(structureDefId), s0.anchor, s0.head);
+            return footprintCells(fp.x, fp.y, fp.w, fp.h);
+          })()
+        : strokeFootprint(grid, s0, brushRadius);
 
-    cur.update(grid, {
-      cells,
-      // Only a material tool places a tile, so only it gets a ghost. Erase and
-      // the height tools show the outline alone — ghosting a material they
-      // never write would claim the wrong thing about what the click does.
-      frame: s0.tool === "paintTerrain" ? (palette[material] ?? null) : null,
-      tool: s0.tool,
-      scale,
-    }, tex);
+      cur.update(grid, {
+        cells,
+        // Only a material tool places a tile, so only it gets a ghost. Erase and
+        // the height tools show the outline alone — ghosting a material they
+        // never write would claim the wrong thing about what the click does.
+        frame: s0.tool === "paintTerrain" ? (palette[material] ?? null) : null,
+        tool: s0.tool,
+        scale,
+      }, tex);
+    };
+    draw();
+    return useWorldStore.subscribe((s, was) => {
+      if (s.stroke !== was.stroke || s.hover !== was.hover) draw();
+    });
   }, [
-    stroke, hoverForBrush, brushRadius, tool, material, palette, structureDefId,
+    brushRadius, tool, material, palette, structureDefId,
     grid, scale, revision, sceneEpoch,
   ]);
 
