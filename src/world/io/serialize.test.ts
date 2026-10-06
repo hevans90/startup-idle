@@ -93,10 +93,18 @@ describe("round trip", () => {
       }
     }
     expect(held).toBeGreaterThan(16);                 // a basin's worth, not a film
-    // Whole-map volume the same way: every wet tile may lose half a step off
-    // each of its columns, and nothing may be gained that was not there.
-    const wetTiles = [...wet.pool].filter((v) => v > 0).length;
-    const slack = wetTiles * 0.5 * 16;
+    // Whole-map volume the same way: a tile may lose what rounding can take
+    // off it, half a step a column OR ALL OF IT if it holds less, and nothing
+    // may be gained that was not there. Counted off the FIELD, and not off
+    // the tiles the file came back wet on: the film a slosh leaves on the rim
+    // is under half a step a tile, rounds to nothing, and so was exactly the
+    // water the old count left out — this passed or failed on how many rim
+    // tiles happened to round up at the instant it was saved, 22 one way and
+    // 16 the other.
+    let slack = 0;
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) slack += Math.min(depthAt(field, x, y), 0.5) * 16;
+    }
     expect(Math.abs(totalVolume(again, wet) - totalVolume(field, g))).toBeLessThan(slack);
   });
 

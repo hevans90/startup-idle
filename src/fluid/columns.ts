@@ -2365,6 +2365,7 @@ export function applyDepths(f: ColumnField, c: PassConsts) {
  */
 export function diffuseBreaking(f: ColumnField, c: PassConsts) {
   const { nx, ny, cells, layers, fx, fy, depth, broke, rate, velo, iterA, iterB, params } = f;
+  const { ground, roof } = f;
   const { x0, y0, x1, y1, diffScale: scale } = c;
   const floor = params.dryDepth * 8;
   const dry = params.dryDepth;
@@ -2392,7 +2393,16 @@ export function diffuseBreaking(f: ColumnField, c: PassConsts) {
             const dn = depth[near + i];
             const df = inMap ? depth[beyond + j] : 0;
             if (dn <= dry || df <= dry) { under[i] = 0; nu[i] = 0; continue; }
-            const h = Math.max((dn + df) * 0.5, floor);
+            // FROM THE SILL, for the calm's reason: this trades momentum too,
+            // and judged by the plain mean an edge over a pit's wall is deep
+            // water that is really a few half steps over a lip. But the wall
+            // stays IN — see lipDepth for why this is not the calm's rule.
+            const hs = lipDepth(
+              ground[near + i], roof[near + i], dn,
+              ground[beyond + j], roof[beyond + j], df,
+            );
+            if (hs <= 0) { under[i] = 0; nu[i] = 0; continue; }
+            const h = Math.max(hs, floor);
             under[i] = h;
             velo[i] = q[plane + i] / h;
             nu[i] = mix * 0.5 * (broke[near + i] * dn * rate[near + i]
@@ -2479,11 +2489,6 @@ export const calmWeight = (h: number) =>
 export function calmDepth(
   gn: number, rn: number, dn: number, gf: number, rf: number, df: number,
 ): number {
-  const sill = gn > gf ? gn : gf;
-  const lid = rn < rf ? rn : rf;
-  const hn = Math.max(0, dn - (sill - gn));
-  const hf = Math.max(0, df - (sill - gf));
-  const h = (hn + hf) * 0.5;
   // OVER A REAL STEP THE EDGE TAKES NO PART, the way an edge into dry ground
   // does not. Calmed at its true depth instead, it was worse the other way: a
   // river crossing a pit's lip runs fast over the lip and slow in the pit, and
@@ -2492,7 +2497,34 @@ export function calmDepth(
   // 1.0. Left out, the wall is a boundary the calm works up to and not across.
   // A step that is small beside the water over it — a tile's staircase under
   // a deep pool — is not a wall, and stays in. @see CALM_STEP
-  if (h < CALM_STEP * (dn + df) * 0.5) return 0;
+  //
+  // Judged BEFORE the lid caps it: water a deck holds down is not a wall.
+  const sill = gn > gf ? gn : gf;
+  const over = (Math.max(0, dn - (sill - gn)) + Math.max(0, df - (sill - gf))) * 0.5;
+  return over < CALM_STEP * (dn + df) * 0.5 ? 0 : lipDepth(gn, rn, dn, gf, rf, df);
+}
+
+/**
+ * The mean of an edge's two depths measured from the SILL between them, no
+ * deeper than the gap under any lid: the water that actually crosses it. On
+ * level ground `(dn + df) / 2` to the bit. What momentum on an edge is worth
+ * — its energy goes as q² over THIS — so anything that trades momentum
+ * between edges has to judge them by it, or it makes energy at every step.
+ *
+ * The BREAKING diffusion uses this as it stands, wall edges and all: it is a
+ * second-order mixing, which smooths a jump without overshooting it, and a
+ * breaking wave hitting a wall is exactly where it should dissipate. Leaving
+ * the wall out, as the calm does, let a pour of forty into a basin six deep
+ * slosh over its rim as a film. @see calmDepth, diffuseBreaking
+ */
+export function lipDepth(
+  gn: number, rn: number, dn: number, gf: number, rf: number, df: number,
+): number {
+  const sill = gn > gf ? gn : gf;
+  const lid = rn < rf ? rn : rf;
+  const hn = Math.max(0, dn - (sill - gn));
+  const hf = Math.max(0, df - (sill - gf));
+  const h = (hn + hf) * 0.5;
   const gap = lid - sill;
   return h < gap ? h : Math.max(0, gap);
 }

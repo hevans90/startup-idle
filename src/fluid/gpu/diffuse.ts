@@ -29,6 +29,7 @@ import { MIXING } from "../columns";
 import {
   STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 import type { Box } from "./accelerate";
+import { CALM_DEPTH_WGSL } from "./calm";
 
 const WORKGROUP = 8;
 
@@ -44,6 +45,7 @@ const f = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
  */
 const diffuseWgsl = (axis: 0 | 1) => `
 ${STATE_WGSL}
+${CALM_DEPTH_WGSL}
 
 // NO BACKTICKS IN HERE — see the note at the top of the shared header.
 
@@ -94,7 +96,14 @@ fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
         setIterA(e, 0.0);
         continue;
       }
-      let h = max((dn + df) * 0.5, dryDepth() * 8.0);
+      // FROM THE SILL, wall edges and all. @see lipDepth
+      let hs = lipDepth(groundAt(ia), roofAt(ia), dn, groundAt(jb), roofAt(jb), df);
+      if (hs <= 0.0) {
+        setIterB(e, 0.0);
+        setIterA(e, 0.0);
+        continue;
+      }
+      let h = max(hs, dryDepth() * 8.0);
       setIterB(e, h);
       setVelo(e, qAt(e) / h);
       setIterA(e, breakingOn() * ${f(MIXING)} * 0.5

@@ -27,6 +27,36 @@ const WORKGROUP = 8;
 
 const f = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
 
+/**
+ * The depth an edge counts as, to the calm and to the breaking diffusion
+ * both — one spelling, since the two passes trade momentum the same way and
+ * went wrong the same way. The calm also leaves walls out; the breaking does
+ * not. @see lipDepth, calmDepth
+ */
+export const CALM_DEPTH_WGSL = `
+/**
+ * An edge's depth over its lip: the mean of the two depths over the SILL,
+ * capped at the gap under any lid. On level ground the plain mean, exactly.
+ * @see lipDepth, calmDepth, which carry the whole note
+ */
+fn lipDepth(gn: f32, rn: f32, dn: f32, gf: f32, rf: f32, df: f32) -> f32 {
+  let sill = max(gn, gf);
+  let lid = min(rn, rf);
+  let hn = max(0.0, dn - (sill - gn));
+  let hf = max(0.0, df - (sill - gf));
+  let h = (hn + hf) * 0.5;
+  let gap = lid - sill;
+  return select(max(0.0, gap), h, h < gap);
+}
+
+// And the calm's: over a real step the edge takes no part. @see calmDepth
+fn calmDepth(gn: f32, rn: f32, dn: f32, gf: f32, rf: f32, df: f32) -> f32 {
+  let sill = max(gn, gf);
+  let over = (max(0.0, dn - (sill - gn)) + max(0.0, df - (sill - gf))) * 0.5;
+  return select(lipDepth(gn, rn, dn, gf, rf, df), 0.0, over < ${f(CALM_STEP)} * (dn + df) * 0.5);
+}
+`;
+
 const calmWgsl = (axis: 0 | 1) => `
 ${STATE_WGSL}
 
@@ -52,22 +82,7 @@ fn calmScale() -> f32 {
   return min(1.0 / 80.0, ${f(CALM)} * frameDt() / (c * c * c * c));
 }
 
-/**
- * The calm's depth for an edge: the mean of the two depths over the SILL,
- * capped at the gap under any lid. On level ground the plain mean, exactly.
- * @see calmDepth, which carries the whole note
- */
-fn calmDepth(gn: f32, rn: f32, dn: f32, gf: f32, rf: f32, df: f32) -> f32 {
-  let sill = max(gn, gf);
-  let lid = min(rn, rf);
-  let hn = max(0.0, dn - (sill - gn));
-  let hf = max(0.0, df - (sill - gf));
-  let h = (hn + hf) * 0.5;
-  // Over a real step the edge takes no part. @see calmDepth, CALM_STEP
-  if (h < ${f(CALM_STEP)} * (dn + df) * 0.5) { return 0.0; }
-  let gap = lid - sill;
-  return select(max(0.0, gap), h, h < gap);
-}
+${CALM_DEPTH_WGSL}
 
 fn inBox(x: i32, y: i32) -> bool {
   return x >= consts.box.x && x <= consts.box.z && y >= consts.box.y && y <= consts.box.w;

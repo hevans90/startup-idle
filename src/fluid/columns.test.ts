@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  BAND_GONE, CALM_FULL, FLOW_DEFAULTS, calmDepth, MAX_FLOW_SPEED, addWater, at, createColumnField, flowEnergy, maxStep,
+  BAND_GONE, CALM_FULL, FLOW_DEFAULTS, calmDepth, diffuseBreaking, lipDepth, MAX_FLOW_SPEED, addWater, at, createColumnField, flowEnergy, maxStep,
   rimAt, rimLength, setMaterialDrag, setOpenEdge, setRim,
   stepFlow, substepsFor, surfaceAt, totalWater, velocityAt, type ColumnField,
 } from "./columns";
@@ -330,6 +330,45 @@ describe("deep water settles like shallow water", () => {
     expect(Math.sqrt(q2 / n)).toBeLessThan(1);
     expect(jump).toBeLessThan(0.5);
   }, 30_000);
+
+  test("breaking at a pit's wall takes energy out, and does not make it", () => {
+    // The breaking diffusion judged an edge's depth by the plain mean, so the
+    // edge over a pit's wall read as deep water that is really two half steps
+    // over a lip — and momentum traded onto it from the pit carried twenty
+    // times the energy it had there. Judged by the water over the lip it
+    // dissipates, and the wall still takes part: a breaking wave hitting a
+    // wall is where it SHOULD lose energy. Left out, as the calm leaves it, a
+    // pour into a basin sloshed over the rim as a film. @see lipDepth
+    const f = createColumnField(10, 1, { ...FLOW_DEFAULTS, wind: 0 }, 0.25);
+    for (let x = 0; x < 10; x++) {
+      f.ground[x] = x >= 5 ? -40 : 0;
+      f.depth[x] = 2 - f.ground[x];
+      f.broke[x] = 1;
+      f.rate[x] = 40;
+      f.fx[x] = x >= 5 && x < 9 ? 30 : 0;             // a current in the pit; the wall edge still
+    }
+    f.breaking = true;
+    const energy = () => {
+      let e = 0;
+      for (let x = 0; x < 9; x++) {
+        const h = lipDepth(f.ground[x], 1e9, f.depth[x], f.ground[x + 1], 1e9, f.depth[x + 1]);
+        if (h > 0) e += f.fx[x] ** 2 / h;
+      }
+      return e;
+    };
+    const before = energy();
+    const dt = 1 / 120;
+    for (let k = 0; k < 20; k++) {
+      diffuseBreaking(f, {
+        x0: 0, y0: 0, x1: 9, y1: 0, gain: 0, bedGain: 0, hMax: 1e9, minHead: 0,
+        spread: dt / f.cell, dt, diffScale: dt / (f.cell * f.cell),
+      });
+    }
+    // 85.7 to 134.9 by the plain mean, the wall edge shoved to 11.4; now 83.8.
+    expect(energy()).toBeLessThan(before);
+    expect(f.fx[4]).toBeGreaterThan(0);               // the wall is still mixed
+    expect(f.fx[4]).toBeLessThan(2);
+  });
 
   test("the calm's depth is the plain mean on level ground, and the lip's at a step", () => {
     const sky = 1e9;
