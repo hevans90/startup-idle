@@ -54,7 +54,7 @@ struct Say {
   a: vec4<f32>,           // dryDepth, fallMin, faces on, slots
   b: vec4<f32>,           // brink texture filled, fall latch fresh, the screen's tx - ty from, to
   c: vec4<i32>,           // where the roofed tier's list begins (0: one tier), bands, zoomed out, culled to the screen
-  d: vec4<i32>,           // the bands to gather, first and last, when culled; unused
+  d: vec4<i32>,           // the bands to gather, first and last, when culled; cheap gradient; unused
 };
 @group(0) @binding(0) var<uniform> say : Say;
 @group(0) @binding(1) var uDepth : texture_2d<f32>;
@@ -236,7 +236,10 @@ fn main(
   //
   // STORED ONE HIGHER, so that a slot nothing marked reads as empty rather
   // than as quad nought. @see quadCap
-  marks[here.x + u32(quad)] = u32(quad + 1) | (roofed << 31u) | (whole << 30u);
+  // And a surface to shade cheaply, when its tiles are small on screen.
+  // @see GRAD_TILE_PX
+  let cheap = select(0u, 1u, say.d.z == 1 && part == 2);
+  marks[here.x + u32(quad)] = u32(quad + 1) | (roofed << 31u) | (whole << 30u) | (cheap << 29u);
 }
 
 // ONE THREAD PER TILE PER STOREY: whether all sixteen of its columns are one
@@ -397,6 +400,7 @@ export type QuadsPass = {
     dryDepth: number, fallMin: number, faces: boolean, slots: number,
     brinkOn: boolean, latchOn: boolean, zoomedOut: boolean,
     cull: { from: number; to: number; lo?: number; hi?: number } | null,
+    cheap?: boolean,
   ) => void;
   destroy: () => void;
 };
@@ -567,7 +571,7 @@ export function createQuadsPass(
         ],
       });
     },
-    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots, brinkOn, latchOn, zoomedOut, cull) => {
+    say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots, brinkOn, latchOn, zoomedOut, cull, cheap = false) => {
       const buf = new ArrayBuffer(80);
       new Int32Array(buf, 0, 4).set([nx, ny, cpt, tilesHigh]);
       // The fourth was the cap, which is per band now and comes from `slice`.
@@ -578,7 +582,7 @@ export function createQuadsPass(
       new Int32Array(buf, 48, 4).set([slices.second, bands, zoomedOut ? 1 : 0, cull ? 1 : 0]);
       // Gathered a margin beyond the bands on screen. @see BAND_MARGIN
       new Int32Array(buf, 64, 4).set([
-        (cull?.lo ?? 0) - BAND_MARGIN, (cull?.hi ?? bands) + BAND_MARGIN, 0, 0,
+        (cull?.lo ?? 0) - BAND_MARGIN, (cull?.hi ?? bands) + BAND_MARGIN, cheap ? 1 : 0, 0,
       ]);
       device.queue.writeBuffer(uniform, 0, buf);
     },

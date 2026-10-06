@@ -32,7 +32,7 @@ import {
 import {
   attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
   cullFor, destroyQuadGather, drawGpuWater, gatherQuads, setInstanceCap, showGpuWater, waterOnGpu,
-  zoomedOut,
+  cheapGradient, zoomedOut,
   type GpuWaterLayer,
 } from "./render/water-gpu";
 import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
@@ -1932,6 +1932,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               ...visibleBandRange(grid, scale, vp.top, vp.bottom),
             }
             : null,
+          // And shaded cheaply, where a column is a few points across.
+          // @see GRAD_TILE_PX
+          cheapGradient(scale * (vp?.scale.x ?? 1))
+            && !(import.meta.env.DEV && (window as unknown as { __gradOff?: boolean }).__gradOff),
         );
       }
       if (fl) drawWater(fl, field.columns, bl, dt, overlays.faces);

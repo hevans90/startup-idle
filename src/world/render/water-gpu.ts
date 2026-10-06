@@ -304,6 +304,24 @@ export const mapSizeCeiling = (step = 1): number => {
 export const LOD_TILE_PX = 8;
 
 /**
+ * And how wide a tile has to be before a COLUMN'S surface is shaded off the
+ * sheet it is in, rather than off the columns round each corner — the cheap
+ * gradient whole tiles already use. @see nearbyFlat, cheapGradient
+ *
+ * WHY: the sheet-aware gradient is four calls of the sheet grouping a vertex,
+ * and on a big window it is half the render. A 128 tile map poured over,
+ * fitted to a 1512 point window, drew 296,000 surfaces in 24.8 ms; the cheap
+ * gradient drew them in 11.5. What it gives up is shading at shores and
+ * lips, where the columns round a corner are in different sheets — 2.5 to
+ * 3.7 per cent of the water's pixels move by more than five levels at the
+ * pixel comparison's zoom — and under 24 points a column is under six.
+ */
+export const GRAD_TILE_PX = 24;
+
+/** Whether, at this on-screen scale, columns are shaded cheaply. @see GRAD_TILE_PX */
+export const cheapGradient = (scale: number) => 2 * HW * scale < GRAD_TILE_PX;
+
+/**
  * The most instances any band's water mesh draws, for a MEASUREMENT: one keeps
  * every draw and drops nearly all the work, which says what the draws alone
  * cost. Never set outside one. @see perf-scene
@@ -840,7 +858,11 @@ fn mainVertex(
   // first column to its far corner, marked by the gathering. Only ever set in
   // a gathered list, so the identity draws as it always did. @see LOD_TILE_PX
   let whole = ((raw >> 30u) & 1u) == 1u;
-  let quad = i32(raw & 0x3fffffffu) - 1;
+  // AND A SURFACE TO SHADE CHEAPLY, the gathering's other mark: its tile is
+  // small enough on screen that the gradient comes off the columns round
+  // each corner, as a whole tile's always has. @see GRAD_TILE_PX
+  let cheap = ((raw >> 29u) & 1u) == 1u;
+  let quad = i32(raw & 0x1fffffffu) - 1;
   if (quad < 0) { return out; }
   // A QUAD IS A PART, A STOREY AND A COLUMN. A bridge column draws the river
   // under the span and whatever stands on the deck, so the storey is as much
@@ -946,7 +968,7 @@ fn mainVertex(
     // @see nearbyFlat
     var gx = 0.0;
     var gy = 0.0;
-    if (whole) {
+    if (whole || cheap) {
       gx = nearbyFlat(vcx, vcy, -1, 0, a, c.x) - nearbyFlat(vcx, vcy, 1, 0, a, c.x);
       gy = nearbyFlat(vcx, vcy, 0, -1, a, c.x) - nearbyFlat(vcx, vcy, 0, 1, a, c.x);
     } else {
@@ -2006,11 +2028,12 @@ export function gatherQuads(
   g: QuadGather, device: GPUDevice, columns: ColumnField,
   w: number, h: number, faces: boolean, zoomedOut = false,
   cull: { from: number; to: number; lo?: number; hi?: number } | null = null,
+  cheap = false,
 ) {
   g.pass.say(
     columns.nx, columns.ny, COLUMNS_PER_TILE, h,
     columns.params.dryDepth, FALL_MIN, faces, columns.layers,
-    g.brink !== null, g.layer.latchOn === 1, zoomedOut, cull,
+    g.brink !== null, g.layer.latchOn === 1, zoomedOut, cull, cheap,
   );
   const enc = device.createCommandEncoder({ label: "quads" });
   // THE BRINK FIRST, because the gathering reads it and so does the draw that
