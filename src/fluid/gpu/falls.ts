@@ -49,7 +49,7 @@ import {
 } from "../columns";
 import { DROP, crown } from "../drips";
 import {
-  SPAWN_CROWN, SPAWN_MAX, SPAWN_SHED, SPAWN_STRIDE, STATE_WGSL, beginPass,
+  CLIFFN_SLOT, MAX_GROUPS, SPAWN_CROWN, SPAWN_MAX, SPAWN_SHED, SPAWN_STRIDE, STATE_WGSL, beginPass,
   bindState, flatIndexWgsl, groups1d, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
@@ -371,6 +371,27 @@ fn main(
 }
 `;
 
+/**
+ * THE DISPATCH, SIZED BY THE DEVICE. One thread reads the cliff count the
+ * cliff pass just made and writes the falls' workgroup counts — laid out the
+ * way {@link groups1d} lays them out, so the flat index is the same either
+ * way — for the indirect dispatch straight after it.
+ */
+const SIZE_WGSL = `
+@group(0) @binding(0) var<storage, read> reduce: array<i32>;
+@group(0) @binding(1) var<storage, read_write> args: array<u32>;
+
+@compute @workgroup_size(1)
+fn main() {
+  let n = u32(max(reduce[${CLIFFN_SLOT}], 0));
+  let g = max(1u, (n + ${WORKGROUP - 1}u) / ${WORKGROUP}u);
+  let gx = min(g, ${MAX_GROUPS}u);
+  args[0] = gx;
+  args[1] = (g + gx - 1u) / gx;
+  args[2] = 1u;
+}
+`;
+
 export type FallsPass = {
   encode: (enc: GPUCommandEncoder, s: GpuState, cliffN: number) => void;
   layout: GPUBindGroupLayout;
@@ -386,35 +407,72 @@ export function createFalls(device: GPUDevice): FallsPass {
       entryPoint: "main",
     },
   });
+  const sizeLayout = device.createBindGroupLayout({
+    label: "falls:size",
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    ],
+  });
+  const sizer = device.createComputePipeline({
+    label: "falls:size",
+    layout: device.createPipelineLayout({ bindGroupLayouts: [sizeLayout] }),
+    compute: { module: shaderModule(device, SIZE_WGSL, "falls:size"), entryPoint: "main" },
+  });
+  /** The indirect arguments, one set per state. @see SIZE_WGSL */
+  const sized = new WeakMap<GpuState, { args: GPUBuffer; bound: GPUBindGroup }>();
+  const argsOf = (s: GpuState) => {
+    let had = sized.get(s);
+    if (had) return had;
+    const args = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT,
+      label: "falls:args",
+    });
+    had = {
+      args,
+      bound: device.createBindGroup({
+        layout: sizeLayout,
+        entries: [
+          { binding: 0, resource: { buffer: s.reduce } },
+          { binding: 1, resource: { buffer: args } },
+        ],
+      }),
+    };
+    sized.set(s, had);
+    return had;
+  };
   return {
     layout,
     encode: (enc, s, edges) => {
       if (edges <= 0) return;
+      // ONE THREAD PER CLIFF EDGE THE DEVICE COUNTED, and not one per slot
+      // the index could hold. The index's length is only known on the device
+      // — the cliff pass counts it, and the host hears three to five frames
+      // later — so this dispatched the worst case, two edges a cell on every
+      // slot pair, and let the threads past the count return. That was
+      // measured cheap on a 64 tile map (0.019 ms) and was 2.3 ms on a
+      // flooded 204 tile one: 5.3 million threads a substep, every one of
+      // them reading the count and leaving, to walk a few thousand lips. So
+      // one thread reads the count and sizes the dispatch, and the dispatch
+      // reads its size from there; nothing is ever under-dispatched, because
+      // the size IS the count. `edges` is now only whether to run at all.
+      // Threads past the count in the last workgroup still return.
+      //
+      // THE SIZING IN A PASS OF ITS OWN. In the same pass as the dispatch it
+      // sizes, the indirect read was not ordered after the write on this
+      // device: the perf scene's flood lost half its water in thirty seconds,
+      // and the same two dispatches with the fixed size lost none.
+      const { args, bound } = argsOf(s);
+      const size = enc.beginComputePass({ label: "falls:size" });
+      size.setPipeline(sizer);
+      size.setBindGroup(0, bound);
+      size.dispatchWorkgroups(1);
+      size.end();
       const pass = beginPass(enc, s, "falls");
       pass.setPipeline(pipeline);
       bindState(pass, s, layout);
-      // ONE THREAD PER SLOT THE INDEX COULD HOLD, which on the device path is
-      // TWO PER CELL and not one per cliff edge — 131,072 threads on a
-      // 256-square map to walk an index of about 732. The header on this file
-      // says one per edge and that is the intent, not the dispatch.
-      //
-      // `edges` is what the caller can GUARANTEE covers the index: the exact
-      // count where the host built it, and the worst case where the device
-      // did, because only the device knows this frame's count and the host
-      // does not hear it until the readback lands three to five frames later.
-      // Threads past the end read the count and return.
-      //
-      // MEASURED BEFORE SHRINKING IT, and it is not worth shrinking. Over 1500
-      // frames of the waterfall fixture this pass costs 0.019 ms a frame, next
-      // to 0.102 for `diffuse` and 4.28 for the render, on a frame that is
-      // vsync-locked at 8.3. Sizing it from `lipCap` the way `fallout` does
-      // would save about 0.012 ms — and `fallout` can afford that bound
-      // because under-dispatching it only means fewer rows come back, where
-      // under-dispatching THIS means water in the air that nobody steps. An
-      // edit that more than doubles the lip count would do exactly that until
-      // the next readback. A tenth of a percent of a frame is not worth a
-      // physics pass that silently skips edges.
-      pass.dispatchWorkgroups(...groups1d(edges, WORKGROUP));
+      pass.dispatchWorkgroupsIndirect(args, 0);
       pass.end();
     },
   };
