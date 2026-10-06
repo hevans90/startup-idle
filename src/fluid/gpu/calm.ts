@@ -17,7 +17,7 @@
  * face read the same two stored Laplacians.
  * @see calmChop
  */
-import { CALM, CALM_FROM, CALM_FULL } from "../columns";
+import { CALM, CALM_FROM, CALM_FULL, CALM_STEP } from "../columns";
 import {
   STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,
 } from "./state";
@@ -52,6 +52,23 @@ fn calmScale() -> f32 {
   return min(1.0 / 80.0, ${f(CALM)} * frameDt() / (c * c * c * c));
 }
 
+/**
+ * The calm's depth for an edge: the mean of the two depths over the SILL,
+ * capped at the gap under any lid. On level ground the plain mean, exactly.
+ * @see calmDepth, which carries the whole note
+ */
+fn calmDepth(gn: f32, rn: f32, dn: f32, gf: f32, rf: f32, df: f32) -> f32 {
+  let sill = max(gn, gf);
+  let lid = min(rn, rf);
+  let hn = max(0.0, dn - (sill - gn));
+  let hf = max(0.0, df - (sill - gf));
+  let h = (hn + hf) * 0.5;
+  // Over a real step the edge takes no part. @see calmDepth, CALM_STEP
+  if (h < ${f(CALM_STEP)} * (dn + df) * 0.5) { return 0.0; }
+  let gap = lid - sill;
+  return select(max(0.0, gap), h, h < gap);
+}
+
 fn inBox(x: i32, y: i32) -> bool {
   return x >= consts.box.x && x <= consts.box.z && y >= consts.box.y && y <= consts.box.w;
 }
@@ -78,7 +95,8 @@ fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
   let inMap = select(y + 1 < ny(), x + 1 < nx(), AXIS == 0);
   let L = slots();
   for (var a = 0; a < L; a = a + 1) {
-    let dn = depthAt(slotBase(a) + i);
+    let ia = slotBase(a) + i;
+    let dn = depthAt(ia);
     for (var b = 0; b < L; b = b + 1) {
       let e = pairBase(a, b) + i;
       var df = 0.0;
@@ -87,7 +105,13 @@ fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
         setIterB(e, 0.0);
         continue;
       }
-      let h = (dn + df) * 0.5;
+      // FROM THE SILL, not the mean of the two beds. @see calmDepth
+      let jb = slotBase(b) + i + step;
+      let h = calmDepth(groundAt(ia), roofAt(ia), dn, groundAt(jb), roofAt(jb), df);
+      if (h <= dryDepth()) {
+        setIterB(e, 0.0);
+        continue;
+      }
       setIterB(e, h);
       setVelo(e, qAt(e) / h);
     }

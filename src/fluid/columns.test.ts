@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  BAND_GONE, CALM_FULL, FLOW_DEFAULTS, MAX_FLOW_SPEED, addWater, at, createColumnField, flowEnergy, maxStep,
+  BAND_GONE, CALM_FULL, FLOW_DEFAULTS, calmDepth, MAX_FLOW_SPEED, addWater, at, createColumnField, flowEnergy, maxStep,
   rimAt, rimLength, setMaterialDrag, setOpenEdge, setRim,
   stepFlow, substepsFor, surfaceAt, totalWater, velocityAt, type ColumnField,
 } from "./columns";
@@ -272,8 +272,10 @@ describe("deep water settles like shallow water", () => {
     // is under it, so the water coasted, got kicked as a head grew past the
     // band, overshot and coasted again — a column-scale flicker on a period of
     // four frames that never settled: 10.6 half steps a second, rms, on this
-    // scene. Faded out with depth it was 3.3, and the calm takes it to under
-    // one. @see deadBand, calmChop
+    // scene. Faded out with depth it was 3.3, and the calm takes it to 1.27 —
+    // 1.02 while the calm still ran across the pit's wall, which damped this
+    // rim by the same mistake that pumped a still one. @see deadBand,
+    // calmChop, calmDepth
     const { depth, rms } = chopIn(30);
     // It really is deep, and the river really is running over it.
     expect(depth).toBeGreaterThan(BAND_GONE);
@@ -289,6 +291,57 @@ describe("deep water settles like shallow water", () => {
     expect(depth).toBeGreaterThan(CALM_FULL);
     expect(rms).toBeLessThan(0.5);
   }, 20_000);
+
+  test("a deep pit in a shallow lake does not pump a jet round its rim", () => {
+    // The calm used the plain mean of an edge's two depths, so at a pit's
+    // submerged wall an edge with a lip 1.5 deep on one side and 63 on the
+    // other read as 32 deep and was calmed as deep water. The calm trades
+    // momentum, and energy goes as q² over the TRUE depth: moved onto an edge
+    // that is really a twentieth as deep, it is twenty times the energy. A jet
+    // stood round the rim at a flux of 33, the surface stepping four half steps
+    // at the wall — and it held with the wind switched off, which is what says
+    // it was being made and not merely driven. @see calmDepth
+    const size = 96, pit = 60, shelf = 3;
+    const f = createColumnField(size, size, { ...FLOW_DEFAULTS }, 0.25);
+    const c0 = size / 2 - 16, c1 = size / 2 + 16;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        // Whole tiles, as the game's ground is: the wall is a step.
+        const tx = Math.floor(x / 4) * 4, ty = Math.floor(y / 4) * 4;
+        f.ground[y * size + x] = tx >= c0 && tx < c1 && ty >= c0 && ty < c1 ? -pit : 0;
+      }
+    }
+    setOpenEdge(f, false);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) addWater(f, x, y, shelf - f.ground[y * size + x], 1);
+    }
+    run(f, 30);
+    f.params.wind = 0;
+    run(f, 20);
+    let q2 = 0, n = 0, jump = 0;
+    for (let y = c0; y < c1; y++) {
+      for (const x of [c0 - 1, c1 - 1]) {
+        const e = y * size + x;
+        q2 += f.fx[e] ** 2; n++;
+        jump = Math.max(jump, Math.abs(surfaceAt(f, e) - surfaceAt(f, e + 1)));
+      }
+    }
+    // 33.3 and 3.77 before; 0.088 and 0.069 with the wall left out of the calm.
+    expect(Math.sqrt(q2 / n)).toBeLessThan(1);
+    expect(jump).toBeLessThan(0.5);
+  }, 30_000);
+
+  test("the calm's depth is the plain mean on level ground, and the lip's at a step", () => {
+    const sky = 1e9;
+    // Level: exactly what it always was.
+    expect(calmDepth(5, sky, 3.3, 5, sky, 4.1)).toBe((3.3 + 4.1) * 0.5);
+    // A small step under deep water is still deep water: the depth over the lip.
+    expect(calmDepth(1, sky, 30, 0, sky, 31)).toBe(30);
+    // A shelf 1.5 deep against a pit 63 deep under it is a wall, not water.
+    expect(calmDepth(0, sky, 1.5, -60, sky, 63)).toBe(0);
+    // And never deeper than the gap under a lid.
+    expect(calmDepth(0, 4, 10, 0, 6, 10)).toBe(4);
+  });
 
   test("a pool over ROLLING ground settles, and does not stand up in spikes", () => {
     // The report this comes from: lower the ground under a pool and the waves

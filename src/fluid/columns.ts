@@ -2451,6 +2451,58 @@ export const calmScale = (dt: number, cell: number) =>
 export const calmWeight = (h: number) =>
   h <= CALM_FROM ? 0 : h >= CALM_FULL ? 1 : (h - CALM_FROM) / (CALM_FULL - CALM_FROM);
 
+/**
+ * HOW DEEP AN EDGE IS, TO THE CALM: the mean of its two columns' depths
+ * measured from the SILL between them, not from their own beds, and no deeper
+ * than the gap under any lid.
+ *
+ * On level ground that is `(dn + df) / 2` to the bit — `sill - g` is nought on
+ * both sides — which is what it always was. At a step it is not, and the step
+ * is where it matters. The plain mean called an edge between a shelf 1.5 deep
+ * and a pit 63 deep thirty two deep, when the water crossing it is the two or
+ * three over the lip. So the calm took that edge for deep water, gave it the
+ * full weight, and traded momentum between it and the pit's edges as if they
+ * were alike. The trade conserves momentum, but energy goes as q² over the
+ * TRUE depth: flux moved onto an edge that is really a twentieth as deep
+ * carries twenty times the energy it did. At every submerged wall the calm was
+ * a pump. Measured, a pit 60 deep in a lake 3 deep held a jet round its rim
+ * at a flux of 33 with the surface stepping four half steps at the wall, and
+ * held it with the wind switched off; a lake 33 deep all over was glassy. That
+ * is the "deep water chops even with water round it" this was added to stop.
+ *
+ * So an edge is calmed at the depth over its lip, and an edge over a REAL step
+ * — less than {@link CALM_STEP} of its plain mean standing over the lip — is
+ * not calmed at all: the calm works up to a wall and not across it. The same
+ * rim reads 0.088 and dies away with the wind.
+ * @see calmChop, gpu/calm
+ */
+export function calmDepth(
+  gn: number, rn: number, dn: number, gf: number, rf: number, df: number,
+): number {
+  const sill = gn > gf ? gn : gf;
+  const lid = rn < rf ? rn : rf;
+  const hn = Math.max(0, dn - (sill - gn));
+  const hf = Math.max(0, df - (sill - gf));
+  const h = (hn + hf) * 0.5;
+  // OVER A REAL STEP THE EDGE TAKES NO PART, the way an edge into dry ground
+  // does not. Calmed at its true depth instead, it was worse the other way: a
+  // river crossing a pit's lip runs fast over the lip and slow in the pit, and
+  // a fourth-order smoothing of that jump overshoots on both sides of it — a
+  // river over a pit thirty deep chopped at 2.3 where the pump had left it at
+  // 1.0. Left out, the wall is a boundary the calm works up to and not across.
+  // A step that is small beside the water over it — a tile's staircase under
+  // a deep pool — is not a wall, and stays in. @see CALM_STEP
+  if (h < CALM_STEP * (dn + df) * 0.5) return 0;
+  const gap = lid - sill;
+  return h < gap ? h : Math.max(0, gap);
+}
+
+/**
+ * The share of an edge's plain mean depth that has to stand over its lip for
+ * the calm to treat it as water rather than as a wall. @see calmDepth
+ */
+export const CALM_STEP = 0.5;
+
 /** The Laplacian of the edge velocities at `i`, over the neighbours taking part. */
 function lapAt(
   velo: Float32Array, under: Float32Array, nx: number,
@@ -2515,6 +2567,7 @@ function face(
  */
 export function calmChop(f: ColumnField, c: PassConsts) {
   const { nx, ny, cells, layers, fx, fy, depth, velo, iterA: lap, iterB: under, params } = f;
+  const { ground, roof } = f;
   const { x0, y0, x1, y1 } = c;
   const k = calmScale(c.dt, f.cell);
   const dry = params.dryDepth;
@@ -2539,7 +2592,12 @@ export function calmChop(f: ColumnField, c: PassConsts) {
             const inMap = axis === 0 ? x + 1 < nx : y + 1 < ny;
             if (!inMap) continue;
             const dn = depth[near + i], df = depth[beyond + i + step];
-            if (dn <= dry || df <= dry || (dn + df) * 0.5 <= CALM_FROM) continue;
+            if (dn <= dry || df <= dry) continue;
+            const h = calmDepth(
+              ground[near + i], roof[near + i], dn,
+              ground[beyond + i + step], roof[beyond + i + step], df,
+            );
+            if (h <= CALM_FROM) continue;
             if (x < dx0) dx0 = x;
             if (x > dx1) dx1 = x;
             if (y < dy0) dy0 = y;
@@ -2556,7 +2614,12 @@ export function calmChop(f: ColumnField, c: PassConsts) {
             const dn = depth[near + i];
             const df = inMap ? depth[beyond + i + step] : 0;
             if (dn <= dry || df <= dry) { under[i] = 0; continue; }
-            const h = (dn + df) * 0.5;
+            // FROM THE SILL, not the mean of the two beds. @see calmDepth
+            const h = calmDepth(
+              ground[near + i], roof[near + i], dn,
+              ground[beyond + i + step], roof[beyond + i + step], df,
+            );
+            if (h <= dry) { under[i] = 0; continue; }
             under[i] = h;
             velo[i] = q[plane + i] / h;
           }
