@@ -27,6 +27,8 @@
  */
 import type { Renderer } from "pixi.js";
 import type { Viewport } from "pixi-viewport";
+import { STOREYS, anyDeck } from "../water/field";
+import type { Grid } from "../grid";
 
 /** A view to hold every bench frame at. @see pinView */
 export type PinnedView = { w: number; h: number; zoom: number; x: number; y: number };
@@ -94,7 +96,7 @@ export type PerfReport = {
 export type PerfDeps = {
   renderer: Renderer;
   store: () => {
-    grid: { w: number; h: number };
+    grid: Grid;
     viewport: Viewport | null;
     openEdge: boolean;
     resize: (w: number, h: number) => void;
@@ -232,6 +234,19 @@ export async function runPerfScene(
       // it — sixty deep where it was poured thirty, until the water tally
       // overflowed. @see DEPTH_LANES
       deps.still();
+      // AND READY FOR THE FIELD IT WILL BE, storeys and all, before a drop
+      // goes in. A deck grows the field a storey, and that can land after
+      // the waits above — inside `still`, which syncs the ground — so the
+      // flood went into a field the scene had not been rebuilt for, and every
+      // so often a fresh scene held half its water and drew half the work. It
+      // read as a leak once and as a twofold speed-up once.
+      const storeys = () => {
+        const f = st().getWaterField();
+        return !!f && f.columns.layers >= (anyDeck(st().grid) ? STOREYS : 1);
+      };
+      if (!await until(() => storeys() && deps.ready(), 60_000)) {
+        return empty("the field did not grow its storeys within a minute", view);
+      }
       if (flood > 0) {
         progress("flooding");
         for (let y = 8; y < size - 8; y++) {
