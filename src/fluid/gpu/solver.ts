@@ -1198,6 +1198,14 @@ export function createGpuWater(
     const first = !primed;
     if (first) {
       upload(state, field);
+      // AND WHAT WAS NOTED SINCE THE SOLVER WAS MADE IS IN THAT UPLOAD ALREADY.
+      // The arrivals list starts collecting the moment the solver exists, and
+      // the host's arrays it was just uploaded from hold every one of those
+      // writes — so sending the list as well put them in twice. A pour landing
+      // between a rebuild and the first frame doubled: the perf scene's flood
+      // did, whenever the scene was ready before its solver had stepped, and
+      // read as thirty four million where seventeen had been poured.
+      if (field.arrivals) clearArrivals(field.arrivals);
       if (carried) {
         // The still pattern never changes, and the advected one starts as a
         // copy of it — see `createFlowWash`. Both go up once and stay.
