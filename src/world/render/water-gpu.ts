@@ -65,7 +65,7 @@ import { RIM, brinkRuleSource, cornerRuleSource } from "./corner-rule";
 import { OPEN_SKY } from "../../fluid/slots";
 import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
-import { createQuadsPass, type QuadsPass } from "./quads-gpu";
+import { BAND_MARGIN, createQuadsPass, type QuadsPass } from "./quads-gpu";
 import { brinkRow, createBrinkPass, type BrinkPass } from "./brink-gpu";
 import { FALL_MIN, FALL_STOP, LATCH_ROW } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
@@ -1939,6 +1939,24 @@ export type QuadGather = {
   busy: boolean;
   /** Whether the list currently holds a gathering or the identity. */
   gathered: boolean;
+  /**
+   * WHICH GATHERING THE COUNTS DESCRIBE, and which this frame's is: the bands
+   * it took in and whether flat tiles were whole.
+   *
+   * A count is a frame or two old, which is fine while the gathering it came
+   * from is the one running — a band grows a little, and the pad covers it.
+   * It is not fine when the gathering CHANGED: a band that has just come on
+   * screen was not gathered, so its count is nought, and a band crossing the
+   * whole-tile cutoff needs sixteen times the quads it had. Drawn off that
+   * count, the water blinked out on every quick zoom and came back when the
+   * readback did. Such a band draws everything it could hold instead — empty
+   * slots draw nothing — until a count from a gathering like this one lands.
+   * @see trusted
+   */
+  now: GatherKey | null;
+  took: GatherKey | null;
+  sent: GatherKey | null;
+  counted: GatherKey | null;
   /** Frames still checked for validation errors. @see createQuadsPass */
   watch: number;
   /**
@@ -1953,6 +1971,35 @@ export type QuadGather = {
 
 /** Just enough of the renderer to ask what stands behind a texture source. */
 type GetGpu = { texture: { getGpuSource: (s: TextureSource) => GPUTexture } };
+
+/**
+ * The bands a gathering took in, the tiles across the screen it took, and
+ * whether flat tiles were whole. @see QuadGather.now
+ */
+type GatherKey = { lo: number; hi: number; from: number; to: number; whole: boolean };
+
+/**
+ * Whether band b's count can be drawn from: it came from a gathering that
+ * covered everything THIS FRAME'S GATHERING took of the band — the band and
+ * at least as much of its width — with flat tiles the same way. Not merely
+ * what is on screen: a band draws the first so many entries of its list, in
+ * order along the band, and a list gathered wider than the count's has more
+ * of them, so what is on screen can sit past the count. A count off a wider
+ * gathering is safe: it draws a few empty slots. @see QuadGather.now
+ */
+const trusted = (g: QuadGather, b: number) => {
+  const c = g.counted, t = g.took;
+  return c !== null && t !== null && c.whole === t.whole
+    && b >= c.lo && b <= c.hi && b >= t.lo && b <= t.hi
+    && c.from <= t.from && c.to >= t.to;
+};
+
+/**
+ * How much wider than the screen the gathering reaches, as a share of what is
+ * on it, each side. A zoom that stays inside it keeps drawing off its counts;
+ * one that leaves it draws everything until a count catches up. @see trusted
+ */
+const GATHER_REACH = 0.25;
 
 export function attachQuadGather(
   wl: GpuWaterLayer, renderer: unknown, device: GPUDevice | null,
@@ -2010,6 +2057,7 @@ export function attachQuadGather(
     }),
     busy: false,
     gathered: false,
+    now: null, took: null, sent: null, counted: null,
     watch: 4,
     brink,
     list,
@@ -2030,11 +2078,32 @@ export function gatherQuads(
   cull: { from: number; to: number; lo?: number; hi?: number } | null = null,
   cheap = false,
 ) {
+  // WHAT THIS FRAME NEEDS, and a GATHERING WIDER THAN IT, so a count from a
+  // frame or two back still covers a view that has moved since. @see trusted
+  const all = { lo: -Infinity, hi: Infinity, from: -Infinity, to: Infinity };
+  const need = cull && cull.lo !== undefined && cull.hi !== undefined
+    ? { lo: cull.lo, hi: cull.hi, from: cull.from, to: cull.to }
+    : cull ? { ...all, from: cull.from, to: cull.to } : all;
+  const wide = (lo: number, hi: number) => {
+    const m = Number.isFinite(lo) ? Math.ceil((hi - lo) * GATHER_REACH) : 0;
+    return [lo - m, hi + m];
+  };
+  const [glo, ghi] = wide(need.lo, need.hi);
+  const [gfrom, gto] = wide(need.from, need.to);
+  const reach = cull
+    ? { from: gfrom, to: gto, ...(Number.isFinite(glo) ? { lo: glo, hi: ghi } : {}) }
+    : null;
   g.pass.say(
     columns.nx, columns.ny, COLUMNS_PER_TILE, h,
     columns.params.dryDepth, FALL_MIN, faces, columns.layers,
-    g.brink !== null, g.layer.latchOn === 1, zoomedOut, cull, cheap,
+    g.brink !== null, g.layer.latchOn === 1, zoomedOut, reach, cheap,
   );
+  g.now = { ...need, whole: zoomedOut };
+  // What the gathering took in, which is what its counts will describe —
+  // the shader's band range carries BAND_MARGIN on top. @see quads-gpu
+  g.took = {
+    lo: glo - BAND_MARGIN, hi: ghi + BAND_MARGIN, from: gfrom, to: gto, whole: zoomedOut,
+  };
   const enc = device.createCommandEncoder({ label: "quads" });
   // THE BRINK FIRST, because the gathering reads it and so does the draw that
   // follows. One thread per slot, then straight into the texture — both in
@@ -2065,6 +2134,7 @@ export function gatherQuads(
     enc.copyBufferToBuffer(
       g.pass.counts, 0, g.staging, 0, g.count.length * 4,
     );
+    g.sent = g.took;
   }
   if (g.watch > 0) {
     g.watch--;
@@ -2087,6 +2157,7 @@ export function gatherQuads(
       g.was[b] = got[b];
     }
     g.count.set(got);
+    g.counted = g.sent;
     g.staging.unmap();
   }).catch(() => { /* torn down mid-flight */ })
     .finally(() => { g.busy = false; });
@@ -2280,7 +2351,8 @@ export function drawGpuWater(
     // EACH TIER ITS OWN COUNT, off its own list. Both tiers used to be handed
     // the same count and the same list, and each threw away what was not its
     // own — every quad's vertex shader run twice. @see QuadList.second
-    const n = g && g.gathered
+    // AND EVERYTHING, where the count is from a different gathering. @see trusted
+    const n = g && g.gathered && trusted(g, b)
       ? roomFor(g.count[b], g.grew[b], wl.most[b])
       : wl.most[b];
     wl.meshes[b].geometry.instanceCount = Math.min(n, instanceCap);
@@ -2290,7 +2362,7 @@ export function drawGpuWater(
     const u = wl.under[b];
     if (u) {
       const B = wl.meshes.length;
-      u.geometry.instanceCount = Math.min(instanceCap, g && g.gathered
+      u.geometry.instanceCount = Math.min(instanceCap, g && g.gathered && trusted(g, b)
         ? roomFor(g.count[B + b], g.grew[B + b], wl.most[b])
         : wl.most[b]);
       // THE ROOFED TIER ONLY WHERE THERE IS ROOFED WATER. Every band has one
@@ -2305,7 +2377,9 @@ export function drawGpuWater(
       if (!show) {
         if (u.visible) u.visible = false;
       } else if (g && g.gathered) {
-        holdShown(u, g.count[B + b] > 0 || g.grew[B + b] > 0, wl.underIdle, b);
+        // A count from a different gathering says nothing about this one:
+        // shown, as it would be ungathered. @see trusted
+        holdShown(u, !trusted(g, b) || g.count[B + b] > 0 || g.grew[B + b] > 0, wl.underIdle, b);
       } else if (!u.visible) {
         u.visible = true;
       }
