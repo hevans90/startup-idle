@@ -49,8 +49,9 @@ import {
 } from "../columns";
 import { DROP, crown } from "../drips";
 import {
-  CLIFFN_SLOT, MAX_GROUPS, SPAWN_CROWN, SPAWN_MAX, SPAWN_SHED, SPAWN_STRIDE, STATE_WGSL, beginPass,
+  CLIFFN_SLOT, LAND_BOX_FAR, MAX_GROUPS, SPAWN_CROWN, SPAWN_MAX, SPAWN_SHED, SPAWN_STRIDE, STATE_WGSL, beginPass,
   bindState, flatIndexWgsl, groups1d, stateLayout, type GpuState, shaderModule,} from "./state";
+import { createIndirectRing } from "./indirect";
 
 const WORKGROUP = 64;
 
@@ -112,6 +113,12 @@ fn bankLanding(to: i32, amount: f32, material: u32, speed: f32) {
   atomicMin(&reduce[1], cell / nx());
   atomicMax(&reduce[2], cell % nx());
   atomicMax(&reduce[3], cell / nx());
+  // And the box the landings pass is dispatched over. @see landBoxAt
+  let lb = landBoxAt();
+  atomicMax(&acc[lb], ${LAND_BOX_FAR} - cell % nx());
+  atomicMax(&acc[lb + 1], ${LAND_BOX_FAR} - cell / nx());
+  atomicMax(&acc[lb + 2], cell % nx() + 1);
+  atomicMax(&acc[lb + 3], cell / nx() + 1);
   atomicAdd(&acc[accAt(${ACC.landing}, to)], i32(amount * LAND_SCALE));
   atomicAdd(&acc[accAt(${ACC.impulse}, to)], i32(amount * speed * LAND_SCALE));
   if (material != 0u) {
@@ -419,29 +426,11 @@ export function createFalls(device: GPUDevice): FallsPass {
     layout: device.createPipelineLayout({ bindGroupLayouts: [sizeLayout] }),
     compute: { module: shaderModule(device, SIZE_WGSL, "falls:size"), entryPoint: "main" },
   });
-  /** The indirect arguments, one set per state. @see SIZE_WGSL */
-  const sized = new WeakMap<GpuState, { args: GPUBuffer; bound: GPUBindGroup }>();
-  const argsOf = (s: GpuState) => {
-    let had = sized.get(s);
-    if (had) return had;
-    const args = device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT,
-      label: "falls:args",
-    });
-    had = {
-      args,
-      bound: device.createBindGroup({
-        layout: sizeLayout,
-        entries: [
-          { binding: 0, resource: { buffer: s.reduce } },
-          { binding: 1, resource: { buffer: args } },
-        ],
-      }),
-    };
-    sized.set(s, had);
-    return had;
-  };
+  // @see createIndirectRing, for why not one buffer.
+  const ring = createIndirectRing(device, "falls", sizeLayout, (key, args) => [
+    { binding: 0, resource: { buffer: (key as GpuState).reduce } },
+    { binding: 1, resource: { buffer: args } },
+  ]);
   return {
     layout,
     encode: (enc, s, edges) => {
@@ -459,11 +448,10 @@ export function createFalls(device: GPUDevice): FallsPass {
       // the size IS the count. `edges` is now only whether to run at all.
       // Threads past the count in the last workgroup still return.
       //
-      // THE SIZING IN A PASS OF ITS OWN. In the same pass as the dispatch it
-      // sizes, the indirect read was not ordered after the write on this
-      // device: the perf scene's flood lost half its water in thirty seconds,
-      // and the same two dispatches with the fixed size lost none.
-      const { args, bound } = argsOf(s);
+      // IN A PASS OF ITS OWN: in the same pass as the dispatch it sizes, the
+      // write was not seen here, and the perf scene's flood lost half its
+      // water. And into arguments of their own. @see createIndirectRing
+      const { args, bound } = ring.next(s);
       const size = enc.beginComputePass({ label: "falls:size" });
       size.setPipeline(sizer);
       size.setBindGroup(0, bound);

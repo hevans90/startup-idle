@@ -105,6 +105,13 @@ export const SPAWNED_SLOT = 6;
 export const CLIFFN_SLOT = 7;
 
 /**
+ * What the landed box's low corner is stored against: a cleared word is
+ * nought, so the least x is kept as the greatest of this minus x. Past any
+ * map's width. @see landBoxAt
+ */
+export const LAND_BOX_FAR = 1 << 20;
+
+/**
  * One lip's row in the falls outbox: the edge, then what is on it.
  *
  * Ten floats — which edge, the water in the air off it, how far the front and
@@ -581,7 +588,8 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
   const acc = device.createBuffer({
     // FOUR REGIONS, each a SLOT's worth: a landing is banked against the slot
     // it arrives in, and a bridge has two. @see ACC
-    size: slotCells * 4 * 4,
+    // AND FOUR WORDS MORE: the box everything landed in. @see LAND_BOX_FAR
+    size: slotCells * 4 * 4 + 16,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     label: "landings",
   });
@@ -1176,6 +1184,12 @@ struct Consts {
 @group(0) @binding(1) var<storage, read_write> field : array<f32>;
 @group(0) @binding(2) var<storage, read_write> reduce : array<atomic<i32>>;
 @group(0) @binding(3) var<storage, read_write> acc : array<atomic<i32>>;
+
+// THE BOX THIS SUBSTEP'S LANDINGS FELL IN, after the four regions of acc, so
+// it is cleared with them. Four atomicMax words, since a cleared word is
+// nought: LAND_BOX_FAR minus the least x and y, then one past the greatest.
+// Nothing landed reads as an empty box. @see bankLanding, createLandings
+fn landBoxAt() -> i32 { return nx() * ny() * slots() * 4; }
 
 fn nx() -> i32 { return consts.dims.x; }
 fn ny() -> i32 { return consts.dims.y; }
