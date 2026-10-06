@@ -84,7 +84,7 @@ import { createWashPass } from "../../world/render/wash-gpu";
 import { createFoamPass } from "../../world/render/foam-gpu";
 import { createWant } from "./want";
 import {
-  ARRIVE_STRIDE, CLIFFN_SLOT, CONSTS_SLOTS, CONSTS_STRIDE,
+  ARRIVE_STRIDE, CLIFFN_SLOT, CONSTS_SLOTS, CONSTS_STRIDE, slotMaskOf,
   CARRIED_BACK, CARRY_ROLL, DEPTH_ROLL, FALL_OUT_BACK, FALL_OUT_MAX, FALL_OUT_STRIDE,
   FIELDS, REDUCE_SLOTS, SPAWNED_SLOT, SPAWN_MAX, SPAWN_STRIDE, WANT_MAX,
   copyOut, createGpuState, runsOf,
@@ -1118,8 +1118,14 @@ export function createGpuWater(
       // reaching the console, but it has to be CAUGHT: unhandled, it surfaces
       // as an AbortError from a React effect cleanup and looks like a fault in
       // whatever else happened to be going on.
-      await slot.field.mapAsync(GPUMapMode.READ);
-      await slot.reduce.mapAsync(GPUMapMode.READ);
+      // BOTH AT ONCE. Awaited one after the other, the second was only asked
+      // for once the first had come back, and each answer waits on the
+      // browser's next look at the device — two round trips in the HUD's
+      // wait where one will do.
+      await Promise.all([
+        slot.field.mapAsync(GPUMapMode.READ),
+        slot.reduce.mapAsync(GPUMapMode.READ),
+      ]);
       if (dead) return;
       // A VIEW PER RUN, copied into the scratch at its own offset, so that
       // everything downstream can go on indexing by the field's offset exactly
@@ -1280,6 +1286,8 @@ export function createGpuWater(
       if (field.groundRev !== sentRoof) {
         sentRoof = field.groundRev;
         device.queue.writeBuffer(state.field, state.offset.roof * 4, field.roof);
+        // And which storeys each column has, which the roofs decide. @see hasSlot
+        device.queue.writeBuffer(state.field, state.offset.slotMask * 4, slotMaskOf(field));
       }
       // ONE FRAME PAST THE LAST MARK. `splashed` goes false on the frame the
       // last one fades out, and the device is still holding whatever was sent

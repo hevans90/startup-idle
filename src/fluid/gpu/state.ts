@@ -65,7 +65,7 @@ import type { Stamps } from "./stamps";
 const num = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
 
 /**
- * Bytes in the uniform block. Twenty-one `vec4`s — see `writeConsts`.
+ * Bytes in the uniform block. Twenty-two `vec4`s — see `writeConsts`.
  *
  * GROWS WITH THE STRUCT, and forgetting that is a real failure rather than a
  * tidy-up: the binding is made at exactly this size, so a `Consts` that has
@@ -74,7 +74,7 @@ const num = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
  * compare harness is what caught it. @see CONSTS_STRIDE, which is a multiple
  * of 256 and has plenty of room.
  */
-const CONSTS_BYTES = 336;
+const CONSTS_BYTES = 352;
 
 /**
  * How far apart one substep's constants sit from the next.
@@ -385,6 +385,14 @@ export const FIELDS = [
   // a field that is stale rather than one that is frozen. @see WANT_MAX
   "wantAt", "wantOut",
   "rim", "roof",
+  // WHICH STOREYS EACH COLUMN HAS, a bit a slot, as the bits of a float. One
+  // deck makes the whole field two storeys deep, and every pass then did four
+  // planes of loads and arithmetic for every column where almost everywhere
+  // one plane exists — 9.1 ms of compute on a flooded 204 tile bridge against
+  // 3.8 for the same flood with no bridge. A pass asks this first and, for a
+  // storey that is not there, makes the writes it would have made without
+  // the reads. @see slotMaskOf, hasSlot
+  "slotMask",
   // WHICH EDGES WERE FALLING when the frame began: the latch FALL_STOP is held
   // in. Per edge of a slot pair, like air, and the device's own — set in the
   // cliffs pass and read by dropAt. @see FallState.falling
@@ -543,6 +551,7 @@ export function fieldSizes(
     // THE UNDERSIDE OF WHATEVER IS OVER A SLOT, one per slot, like the
     // ground it is the ceiling of. @see ColumnField.roof
     roof: slotCells,
+    slotMask: cells,
     falling: pairCells * 2,
     // Whole rows of LATCH_ROW bytes, so the copy never reads past the field.
     fallByte: Math.ceil((pairCells * 2) / LATCH_ROW) * (LATCH_ROW / 4),
@@ -967,6 +976,7 @@ export function upload(s: GpuState, f: ColumnField) {
   put("ground", f.ground);
   put("depth", f.depth);
   put("roof", f.roof);
+  put("slotMask", slotMaskOf(f));
   // ONLY WHEN THERE IS ONE. A map with no inflow leaves the slice untouched
   // and the shader never reads it, because `rimHeld` is false. @see spill
   if (f.rim) put("rim", f.rim);
@@ -1101,10 +1111,28 @@ export function writeConsts(
   i32[78] = u.rimMaterial;
   i32[79] = u.rimHeld ? 1 : 0;
   i32[80] = o.roof; i32[81] = u.slots; i32[82] = o.falling; i32[83] = o.fallByte;
+  i32[84] = o.slotMask;
   i32[68] = o.foamNow; i32[69] = o.foamNext;
   i32[70] = o.splashNow; i32[71] = o.splashIn;
   f32[51] = u.frameDt;
   s.device.queue.writeBuffer(s.consts, (slot % CONSTS_SLOTS) * CONSTS_STRIDE, buf);
+}
+
+/**
+ * Which storeys each column has, a bit a slot, as the bit patterns of floats
+ * — the field buffer is floats and the shader bitcasts. A slot is there where
+ * its roof is above its ground: the rule every pass already tests, once per
+ * plane per edge, after loading both. @see hasSlot
+ */
+export function slotMaskOf(f: ColumnField): Float32Array {
+  const bits = new Uint32Array(f.cells);
+  for (let a = 0; a < f.layers; a++) {
+    const base = a * f.cells;
+    for (let i = 0; i < f.cells; i++) {
+      if (f.roof[base + i] > f.ground[base + i]) bits[i] |= 1 << a;
+    }
+  }
+  return new Float32Array(bits.buffer);
 }
 
 /** Copy any buffer back off the device, as raw bytes. */
@@ -1178,6 +1206,7 @@ struct Consts {
   o12: vec4<i32>,        // offset: matByte, open edge, wantAt, wantOut
   o13: vec4<i32>,        // wantN, then the rim: offset, material, whether held
   o14: vec4<i32>,        // roof: offset, how many storeys; falling, fallByte: offsets
+  o15: vec4<i32>,        // slotMask: offset, then spare
 };
 
 @group(0) @binding(0) var<uniform> consts : Consts;
@@ -1243,6 +1272,10 @@ fn rimHeld() -> bool { return consts.o13.w != 0; }
 fn roofAt(i: i32) -> f32 { return field[consts.o14.x + i]; }
 /** How many STOREYS a column has. @see ColumnField.layers */
 fn slots() -> i32 { return consts.o14.y; }
+/** Which storeys column i has, a bit a slot. @see slotMaskOf */
+fn slotMaskAt(i: i32) -> u32 { return bitcast<u32>(field[consts.o15.x + i]); }
+/** Whether column i has storey a: a slot whose roof is above its ground. */
+fn hasSlot(i: i32, a: i32) -> bool { return ((slotMaskAt(i) >> u32(a)) & 1u) != 0u; }
 /** The start of slot a's plane, which is a whole map of columns. */
 fn slotBase(a: i32) -> i32 { return a * nx() * ny(); }
 /**

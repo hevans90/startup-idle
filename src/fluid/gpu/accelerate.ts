@@ -188,8 +188,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // EVERY SLOT OF THIS COLUMN AGAINST EVERY SLOT OF THE NEXT. A road beside a
   // bridge meets both the deck and the channel under it, and those are two
   // edges with two momenta. At one storey this is the single edge it was.
+  // WHICH STOREYS THIS COLUMN AND ITS TWO NEIGHBOURS HAVE, read once. An edge
+  // with a storey missing at either end is not joined, and its flux is nought
+  // — written without the loads that would have said so. @see hasSlot
+  let east = select(0u, slotMaskAt(i + 1), x + 1 < nx());
+  let south = select(0u, slotMaskAt(i + nx()), y + 1 < ny());
   for (var a = 0; a < L; a = a + 1) {
     let ia = slotBase(a) + i;
+    if (!hasSlot(i, a)) {
+      for (var b = 0; b < L; b = b + 1) {
+        let p = pairBase(a, b) + i;
+        setFx(p, 0.0);
+        setFy(p, 0.0);
+      }
+      continue;
+    }
     // SHELTERED SLOTS GET NO WEATHER: a gust happens to a surface open to the
     // sky, and the water under a bridge is not. On a map with no decks every
     // slot is, so this is the wind the field always had.
@@ -198,13 +211,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let wy = select(0.0, wyv, open);
     for (var b = 0; b < L; b = b + 1) {
       let p = pairBase(a, b) + i;
-      if (x + 1 < nx()) {
+      let bit = 1u << u32(b);
+      if ((east & bit) == 0u) {
+        setFx(p, 0.0);                          // no storey there, or the map edge
+      } else if (x + 1 < nx()) {
         let e = edgeAt(ia, slotBase(b) + i + 1);
         setFx(p, select(0.0, fluxAt(fxAt(p), e, wx), e.joined));
       } else {
         setFx(p, 0.0);                          // the map edge is a wall
       }
-      if (y + 1 < ny()) {
+      if ((south & bit) == 0u) {
+        setFy(p, 0.0);
+      } else if (y + 1 < ny()) {
         let e = edgeAt(ia, slotBase(b) + i + nx());
         setFy(p, select(0.0, fluxAt(fyAt(p), e, wy), e.joined));
       } else {

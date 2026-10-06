@@ -76,8 +76,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   // ONE SLOT AT A TIME, and every plane that reaches it. At one storey this
   // is the four incident edges it always was.
+  // WHICH STOREYS THE FOUR NEIGHBOURS HAVE. An edge to a storey that is not
+  // there carries nought — accelerate has just written it so — and adding a
+  // nought changes no sum, so those terms are skipped rather than loaded.
+  // @see hasSlot
+  let north = select(0u, slotMaskAt(i - nx()), y - 1 >= consts.box.y);
+  let west = select(0u, slotMaskAt(i - 1), x - 1 >= consts.box.x);
+  let east = select(0u, slotMaskAt(i + 1), x + 1 < nx());
+  let south = select(0u, slotMaskAt(i + nx()), y + 1 < ny());
   for (var a = 0; a < L; a = a + 1) {
     let ia = slotBase(a) + i;
+    // A STOREY THAT IS NOT THERE: nothing in, nothing out, nothing won.
+    if (!hasSlot(i, a)) {
+      setDelta(ia, 0.0);
+      setBestMat(ia, 0.0);
+      continue;
+    }
     var d = 0.0;
     // The biggest thing arriving, and what it is made of, so a cell that fills
     // this step knows what filled it. Strictly greater, so on a tie the first
@@ -88,7 +102,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     for (var b = 0; b < L; b = b + 1) {
       // 1. The row above's southward move into this slot. Only if that row
       //    was walked at all: outside the box the CPU never pushed here.
-      if (y - 1 >= consts.box.y) {
+      let bit = 1u << u32(b);
+      if ((north & bit) != 0u) {
         let e = pairBase(b, a) + i - nx();
         let moved = fyAt(e) * sp;
         // Lost to the air only when it was coming TOWARDS this slot: a move
@@ -103,7 +118,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
       }
       // 2. The cell before's eastward one.
-      if (x - 1 >= consts.box.x) {
+      if ((west & bit) != 0u) {
         let e = pairBase(b, a) + i - 1;
         let moved = fxAt(e) * sp;
         if (!(moved > 0.0 && divertedAt(i - 1, 0, b, a, moved))) {
@@ -117,7 +132,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       // 3. Its own two, which LEAVE whether or not they go into the air —
       //    that is what falling off a lip is. A move the other way is water
       //    arriving from the slot beyond, and is credited like the two above.
-      if (x + 1 < nx()) {
+      if ((east & bit) != 0u) {
         let moved = fxAt(pairBase(a, b) + i) * sp;
         // A MOVE THE OTHER WAY THAT WENT INTO THE AIR NEVER ARRIVES. It is
         // the slot beyond that gave it up, and this one neither gains it nor
@@ -132,7 +147,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
           }
         }
       }
-      if (y + 1 < ny()) {
+      if ((south & bit) != 0u) {
         let moved = fyAt(pairBase(a, b) + i) * sp;
         let held = moved < 0.0 && divertedAt(i, 1, a, b, moved);
         if (!held) {
@@ -152,11 +167,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // writer per edge, so this is the same write the scatter makes.
     for (var b = 0; b < L; b = b + 1) {
       let p = pairBase(a, b) + i;
-      if (x + 1 < nx()) {
+      let bit = 1u << u32(b);
+      if ((east & bit) != 0u) {
         let moved = fxAt(p) * sp;
         if (divertedAt(i, 0, a, b, moved)) { addAir(p * 2, abs(moved)); }
       }
-      if (y + 1 < ny()) {
+      if ((south & bit) != 0u) {
         let moved = fyAt(p) * sp;
         if (divertedAt(i, 1, a, b, moved)) { addAir(p * 2 + 1, abs(moved)); }
       }
