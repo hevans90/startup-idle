@@ -261,6 +261,11 @@ fn tiles(
   let t = n / L;
   let x0 = (t % tw) * cpt;
   let y0 = (t / tw) * cpt;
+  // Only the tiles of the bands main gathers. @see BAND_MARGIN
+  if (say.c.w > 0) {
+    let band = t % tw + t / tw;
+    if (band < say.d.x || band > say.d.y) { return; }
+  }
   var flat = 1u;
   let roofed = roofAt(x0, y0, a) < ${OPEN_SKY}.0;
   for (var k = 0; k < cpt * cpt; k = k + 1) {
@@ -317,6 +322,9 @@ fn compact(
 ) {
   let band = i32(wid.x);
   if (band >= i32(arrayLength(&slice))) { return; }
+  // A BAND NOT GATHERED has no marks to squeeze, and its list and count are
+  // cleared already. The whole workgroup leaves together, before any barrier.
+  if (say.c.w > 0 && (band < say.d.x || band > say.d.y)) { return; }
   let here = slice[band];
   let cap = i32(here.y);
   let t = i32(lid.x);
