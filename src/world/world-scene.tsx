@@ -1081,7 +1081,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // EACH FRAME'S OWN WAIT, and a hook before each frame — for a sweep
           // that moves the view frame by frame and wants to know which frames
           // the GPU fell behind on. `warm` frames run first, untimed.
-          o: { each?: (i: number) => void; warm?: number } = {},
+          o: { each?: (i: number) => void; warm?: number; dt?: number } = {},
         ) => {
           const field = useWorldStore.getState().getWaterField();
           // THE SOLVER AND THE MESH ARE TWO CHOICES, and this reported one
@@ -1122,7 +1122,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // AND THE TICKER STOPPED while it runs. With `sync` on the bench
           // awaits the queue between frames, and the live tick ran in every
           // one of those gaps: two loops stepping one field, timed as one.
-          const water = () => waterFrameRef.current?.(1 / 60) ?? { solve: 0, build: 0 };
+          // A FRAME'S TIME, a sixtieth unless asked: a long frame is more
+          // substeps, and what those cost is a question of its own.
+          const water = () => waterFrameRef.current?.(o.dt ?? 1 / 60) ?? { solve: 0, build: 0 };
           const ticking = app.ticker.started;
           app.ticker.stop();
           let solve = 0, draw = 0, submit = 0, wall = 0;
@@ -1181,7 +1183,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const w = window as unknown as {
           __perfScene?: (o?: object) => Promise<unknown>;
           __perfLast?: { stage: string; report: unknown };
-          __waterBench?: (n?: number, sync?: boolean, o?: { each?: (i: number) => void; warm?: number }) => Promise<unknown>;
+          __waterBench?: (n?: number, sync?: boolean, o?: { each?: (i: number) => void; warm?: number; dt?: number }) => Promise<unknown>;
           __gpuTime?: () => unknown;
         };
         w.__perfScene = async (o = {}) => {

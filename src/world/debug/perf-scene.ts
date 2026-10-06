@@ -123,7 +123,7 @@ export type PerfDeps = {
     generateWorld: (seed: number, size?: number) => void;
   };
   bench: (
-    n: number, sync: boolean, o?: { each?: (i: number) => void; warm?: number },
+    n: number, sync: boolean, o?: { each?: (i: number) => void; warm?: number; dt?: number },
   ) => Promise<Record<string, unknown> | null>;
   /** Leave these solver passes out. @see setSkip */
   skip: (names: string[]) => void;
@@ -165,6 +165,8 @@ export type PerfOptions = {
    * for asking what a map someone plays costs: nothing falls in it.
    */
   asIs?: boolean;
+  /** Each timed frame's time, a sixtieth unless set: a long frame is more substeps. */
+  dt?: number;
   /** With `asIs`, generate this seed at `size` first. */
   seed?: number;
   /**
@@ -369,7 +371,7 @@ export async function runPerfScene(
         deps.resetGpu();
         await deps.bench(2, true);
         deps.resetGpu();
-        const b = await deps.bench(frames, true);
+        const b = await deps.bench(frames, true, { dt: opts.dt });
         await sleep(300);
         const t = deps.gpuTime();
         const of = t?.of ?? {};
