@@ -1906,8 +1906,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           zoomedOut(scale * (vp?.scale.x ?? 1))
             && !(import.meta.env.DEV && (window as unknown as { __lodOff?: boolean }).__lodOff),
           // And only what is across the screen. @see cullFor
+          // And above and below it, the bands the meshes are culled to.
+          // @see BAND_MARGIN
           vp && !(import.meta.env.DEV && (window as unknown as { __cullOff?: boolean }).__cullOff)
-            ? cullFor(vp.left, vp.right, scale) : null,
+            ? {
+              ...cullFor(vp.left, vp.right, scale),
+              ...visibleBandRange(grid, scale, vp.top, vp.bottom),
+            }
+            : null,
         );
       }
       if (fl) drawWater(fl, field.columns, bl, dt, overlays.faces);

@@ -2005,7 +2005,7 @@ export function attachQuadGather(
 export function gatherQuads(
   g: QuadGather, device: GPUDevice, columns: ColumnField,
   w: number, h: number, faces: boolean, zoomedOut = false,
-  cull: { from: number; to: number } | null = null,
+  cull: { from: number; to: number; lo?: number; hi?: number } | null = null,
 ) {
   g.pass.say(
     columns.nx, columns.ny, COLUMNS_PER_TILE, h,
