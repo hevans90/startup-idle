@@ -70,14 +70,31 @@ export type PerfRow = {
   quads: number;
   readMs: number;
   readMb: number;
+  /**
+   * Each frame's submit to the GPU finishing it, averaged — the whole of the
+   * frame's GPU time, copies and uploads included, which the per-pass stamps
+   * are not. Where this runs well past `render + compute`, the difference is
+   * work no pass is timing.
+   */
+  wait: number;
   /** GPU milliseconds per timed pass, render included. */
   passes: Record<string, number>;
   /** How many frames the GPU means are of. Fewer than half the frames run is a thin sample. */
   samples: number;
 };
 
+/** Each frame of a sweep: the zoom it was drawn at and how long the GPU took. */
+export type SweepReport = {
+  zooms: number[];
+  waits: number[];
+  p50: number; p95: number; max: number;
+  /** The frames over a 60 Hz frame's budget, with their zooms. */
+  slow: { i: number; zoom: number; ms: number }[];
+};
+
 export type PerfReport = {
   ok: boolean;
+  sweep?: SweepReport;
   why: string | null;
   size: number;
   fixture: string;
@@ -103,8 +120,11 @@ export type PerfDeps = {
     applyFixture: (id: never) => void;
     setOpenEdge: (open: boolean) => void;
     getWaterField: () => { columns: { layers: number } } | null;
+    generateWorld: (seed: number, size?: number) => void;
   };
-  bench: (n: number, sync: boolean) => Promise<Record<string, unknown> | null>;
+  bench: (
+    n: number, sync: boolean, o?: { each?: (i: number) => void; warm?: number },
+  ) => Promise<Record<string, unknown> | null>;
   /** Leave these solver passes out. @see setSkip */
   skip: (names: string[]) => void;
   gpuTime: () => { of: Record<string, number>; total: number; frames: number } | null;
@@ -137,6 +157,24 @@ export type PerfOptions = {
   rounds?: number;
   w?: number;
   h?: number;
+  /**
+   * MEASURE THE WORLD AS IT IS — whatever is loaded, its springs running, its
+   * rivers and falls going — rather than building a still flood. With a seed,
+   * a map is generated first at `size`. The perf scene's own flood holds
+   * still by design, which is right for comparing configurations and wrong
+   * for asking what a map someone plays costs: nothing falls in it.
+   */
+  asIs?: boolean;
+  /** With `asIs`, generate this seed at `size` first. */
+  seed?: number;
+  /**
+   * A VIEW THAT MOVES, frame by frame, instead of the configurations: the
+   * zoom swept geometrically from `from` to `to` and back over `frames`, the
+   * centre panned `pan` map-heights across, each frame timed from its submit
+   * to the GPU finishing it. Steady views are cheap; the waits people see
+   * come when the view changes. @see SweepReport
+   */
+  sweep?: { frames: number; from: number; to: number; pan?: number };
   /** "fit" for the whole map in the window, or a viewport zoom. */
   zoom?: "fit" | number;
   /** Solver passes to leave out for the whole run. @see setSkip */
@@ -179,6 +217,7 @@ export async function runPerfScene(
   const {
     size = 204, fixture = "bridge", flood = 30, settle = 240,
     frames = 10, rounds = 2, w = 800, h = 600, zoom = "fit", skip = [], reuse = false,
+    asIs = false, seed,
   } = opts;
   const configs: PerfConfig[] = opts.configs
     ?? Object.entries(CONFIGS).map(([name, hide]) => ({ name, hide }));
@@ -189,7 +228,9 @@ export async function runPerfScene(
   });
   // A HEIGHT'S WORTH OF MAP, as the band math lays it out: the map is a
   // diamond (w + h) half-widths across and (w + h) half-heights down.
-  const span = { x: (size + size) * 66, y: (size + size) * 33 };
+  // As is, the map's own size, unless a seed is about to make one.
+  const across = asIs && seed === undefined ? deps.store().grid.w : size;
+  const span = { x: (across + across) * 66, y: (across + across) * 33 };
   const fit = Math.min(w / span.x, h / span.y) * 0.94;
   const view: PinnedView = {
     w, h, zoom: zoom === "fit" ? fit : zoom, x: 0, y: span.y / 2,
@@ -202,7 +243,19 @@ export async function runPerfScene(
   const wasResolution = deps.renderer.resolution;
   pinView(view);
   try {
-    if (reuse) {
+    if (asIs) {
+      if (seed !== undefined) {
+        progress("generating");
+        st().generateWorld(seed, size);
+        await sleep(500);
+      }
+      if (!await until(() => deps.ready(), 60_000)) {
+        return empty("the world was not ready within a minute", view);
+      }
+      // Run long enough for its rivers to arrive and its falls to start.
+      progress("settling");
+      await deps.bench(settle, false);
+    } else if (reuse) {
       if (st().grid.w !== size) return empty(`the scene built is ${st().grid.w} tiles, not ${size}`, view);
       // CLOSED AND STILL AGAIN, because the last run put the edges back the
       // way it found them on its way out. Reused without this, the flood
@@ -257,6 +310,39 @@ export async function runPerfScene(
       await deps.bench(settle, false);
     }
 
+    if (opts.sweep) {
+      const { frames: n, from, to, pan = 0 } = opts.sweep;
+      const zooms: number[] = [];
+      const at = (i: number) => {
+        // There and back, geometric in zoom, so each frame is the same step
+        // in what the screen shows.
+        const t = i < n / 2 ? i / (n / 2) : (n - i) / (n / 2);
+        return from * (to / from) ** t;
+      };
+      deps.resetGpu();
+      const b = await deps.bench(n, true, {
+        warm: 0,
+        each: (i) => {
+          const zoom = at(i);
+          zooms.push(zoom);
+          pinView({ ...view, zoom, x: view.x + pan * span.y * (i / n - 0.5), y: view.y });
+        },
+      });
+      pinView(view);
+      const waits = ((b?.waits as number[] | undefined) ?? []).map((v) => Math.round(v * 100) / 100);
+      const sorted = [...waits].sort((a, b2) => a - b2);
+      const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0;
+      return {
+        ...empty("", view), ok: true, why: null,
+        sweep: {
+          zooms: zooms.map((z) => Math.round(z * 1e4) / 1e4), waits,
+          p50: q(0.5), p95: q(0.95), max: sorted[sorted.length - 1] ?? 0,
+          slow: waits.map((ms, i) => ({ i, zoom: Math.round(zooms[i] * 1e4) / 1e4, ms }))
+            .filter((x) => x.ms > 16.7),
+        },
+      };
+    }
+
     const hide = deps.setHidden;
     deps.skip(skip);
     const first = await deps.bench(1, true);
@@ -300,6 +386,10 @@ export async function runPerfScene(
           quads: Number(b?.quads ?? 0),
           readMs: last.readMs ?? 0,
           readMb: last.readMb ?? 0,
+          wait: (() => {
+            const w = (b?.waits as number[] | undefined) ?? [];
+            return w.length ? w.reduce((a, v) => a + v, 0) / w.length : 0;
+          })(),
           passes: { ...of },
           samples: t?.frames ?? 0,
         });
@@ -322,11 +412,11 @@ export async function runPerfScene(
       mean[config] = {
         config, render: avg("render"), compute: avg("compute"), solve: avg("solve"),
         build: avg("build"), submit: avg("submit"), quads: avg("quads"),
-        readMs: avg("readMs"), readMb: avg("readMb"), passes, samples: avg("samples"),
+        readMs: avg("readMs"), readMb: avg("readMb"), wait: avg("wait"), passes, samples: avg("samples"),
       };
     }
     return {
-      ok: true, why: null, size, fixture, view,
+      ok: true, why: null, size: across, fixture: asIs ? "as is" : fixture, view,
       wetFrom: last0.reduce?.wet ?? 0, wetTo: last1.reduce?.wet ?? 0,
       waterFrom: Math.round(last0.reduce?.water ?? 0),
       waterTo: Math.round(last1.reduce?.water ?? 0),

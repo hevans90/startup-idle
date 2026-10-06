@@ -67,7 +67,7 @@ import { BRINK_REACH } from "../../world/render/corner-rule";
 import { DRAWDOWN, SHADES, SHOW_DEPTH } from "../../world/render/water";
 import { LIP_BIAS, NAPPE_STEPS, sheetRuleSource } from "../../world/render/nappe";
 import { FALL_GRAVITY } from "../falls";
-import { STATE_WGSL, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
+import { STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
 
@@ -603,7 +603,7 @@ export function createSheet(
       // cleared slot is four corners at the origin, which makes no fragments.
       enc.clearBuffer(quads);
       enc.clearBuffer(counts);
-      const pass = enc.beginComputePass({ label: "sheet" });
+      const pass = beginPass(enc, s, "sheet");
       pass.setPipeline(pipeline);
       bindState(pass, s, state);
       pass.setBindGroup(1, group);

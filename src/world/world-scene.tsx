@@ -1076,7 +1076,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
          * it, and a device number taken with it off is worth nothing until it
          * has been taken again with it on. @see hidden tab, same genre
          */
-        window.__waterBench = async (n = 200, sync = false) => {
+        window.__waterBench = async (
+          n = 200, sync = false,
+          // EACH FRAME'S OWN WAIT, and a hook before each frame — for a sweep
+          // that moves the view frame by frame and wants to know which frames
+          // the GPU fell behind on. `warm` frames run first, untimed.
+          o: { each?: (i: number) => void; warm?: number } = {},
+        ) => {
           const field = useWorldStore.getState().getWaterField();
           // THE SOLVER AND THE MESH ARE TWO CHOICES, and this reported one
           // name for both. `path` was read off the solver while `build` ran
@@ -1120,16 +1126,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const ticking = app.ticker.started;
           app.ticker.stop();
           let solve = 0, draw = 0, submit = 0, wall = 0;
+          const waits: number[] = [];
           try {
-            for (let i = 0; i < 30; i++) { water(); frame(); }
+            for (let i = 0; i < (o.warm ?? 30); i++) { water(); frame(); }
             if (device) await device.queue.onSubmittedWorkDone();
             const t0 = performance.now();
             for (let i = 0; i < n; i++) {
+              o.each?.(i);
               const spent = water();
               const c = performance.now(); frame();
               const d = performance.now();
               solve += spent.solve; draw += spent.build; submit += d - c;
-              if (sync && device) await device.queue.onSubmittedWorkDone();
+              if (sync && device) {
+                await device.queue.onSubmittedWorkDone();
+                waits.push(performance.now() - d);
+              }
             }
             if (device) await device.queue.onSubmittedWorkDone();
             wall = performance.now() - t0;
@@ -1148,6 +1159,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             mesh: cpu ? "cpu" : "gpu",
             frames: n, sync,
             solve: per(solve), build: per(draw), submit: per(submit), wall: per(wall),
+            // Per frame, from the submit to the GPU finishing it. @see o.each
+            waits,
             // WHAT THE RENDER WAS ASKED TO DRAW, because that is what its cost
             // follows: the instances on the last frame, over the surface's
             // bands and the faces under them. @see quads-gpu
@@ -1168,7 +1181,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const w = window as unknown as {
           __perfScene?: (o?: object) => Promise<unknown>;
           __perfLast?: { stage: string; report: unknown };
-          __waterBench?: (n?: number, sync?: boolean) => Promise<unknown>;
+          __waterBench?: (n?: number, sync?: boolean, o?: { each?: (i: number) => void; warm?: number }) => Promise<unknown>;
           __gpuTime?: () => unknown;
         };
         w.__perfScene = async (o = {}) => {
@@ -1177,7 +1190,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const report = await runPerfScene({
             renderer: app.renderer as unknown as Renderer,
             store: () => useWorldStore.getState() as never,
-            bench: (n, sync) => w.__waterBench!(n, sync) as Promise<Record<string, unknown> | null>,
+            bench: (n, sync, o) => w.__waterBench!(n, sync, o) as Promise<Record<string, unknown> | null>,
             gpuTime: () => w.__gpuTime?.() as never,
             skip: (names) => setSkip(names),
             resetGpu: () => stampsNow()?.reset(),

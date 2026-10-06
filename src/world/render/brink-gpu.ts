@@ -1,4 +1,5 @@
 import { shaderModule } from "../../fluid/gpu/state";
+import { stampsNow } from "../debug/gpu-stamps";
 /**
  * HOW HARD EACH SLOT'S WATER IS LEAVING, worked out once a frame.
  *
@@ -167,7 +168,8 @@ export function createBrinkPass(device: GPUDevice, floats: number): BrinkPass {
     },
     encode: (enc, n) => {
       if (!group) return;
-      const pass = enc.beginComputePass({ label: "brink" });
+      const writes = stampsNow()?.take("brink");
+      const pass = enc.beginComputePass(writes ? { label: "brink", timestampWrites: writes } : { label: "brink" });
       pass.setPipeline(pipeline);
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil(n / WORKGROUP));

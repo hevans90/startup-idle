@@ -84,7 +84,7 @@ declare global {
       of: Record<string, number>; total: number; frames: number;
     } | null;
     /** Drives frames by hand, past the rAF throttle. See world-scene. */
-    __waterBench?: (n?: number, sync?: boolean) => Promise<unknown>;
+    __waterBench?: (n?: number, sync?: boolean, o?: { each?: (i: number) => void; warm?: number }) => Promise<unknown>;
     /** Draws one scene both ways and compares the pixels. See water-compare. */
     /** What the water mesh puts on the screen you are looking at. */
     __liveWaterPixels?: () => unknown;
