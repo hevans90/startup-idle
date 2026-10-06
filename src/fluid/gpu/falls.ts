@@ -448,9 +448,7 @@ export function createFalls(device: GPUDevice): FallsPass {
       // the size IS the count. `edges` is now only whether to run at all.
       // Threads past the count in the last workgroup still return.
       //
-      // IN A PASS OF ITS OWN: in the same pass as the dispatch it sizes, the
-      // write was not seen here, and the perf scene's flood lost half its
-      // water. And into arguments of their own. @see createIndirectRing
+      // Into arguments of their own. @see createIndirectRing
       const { args, bound } = ring.next(s);
       const size = enc.beginComputePass({ label: "falls:size" });
       size.setPipeline(sizer);

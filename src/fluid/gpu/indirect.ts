@@ -6,14 +6,13 @@
  * write its workgroup counts and dispatches indirectly off them. Twice a
  * substep, up to twelve substeps, all in one command buffer.
  *
- * WHY A RING. What was measured: the falls' sizing written in the SAME pass as
- * the dispatch it sizes was not seen by it on this device, and a still flood
- * on a 204 tile map lost half its water while every frame comparison passed.
- * A pass of its own fixed that. One buffer reused by every substep in a
- * command buffer was then suspected of the same thing and was NOT shown to
- * fail — the reading that suggested it was a hidden pane's frozen frames —
- * but a buffer per use costs sixteen bytes and leaves nothing for an ordering
- * rule to get wrong, so they are not shared.
+ * WHY A RING, when nothing was shown to need one. A still flood once seemed
+ * to lose half its water with the sizing in the dispatch's own pass, and then
+ * with one buffer shared across substeps. Both were the measurement: the
+ * perf scene sometimes flooded before its field had grown the deck's storey,
+ * and a hidden pane froze the readings between runs. With those fixed, every
+ * arrangement holds the flood to the unit. A buffer per use costs sixteen
+ * bytes and leaves no ordering rule to lean on, so it stays.
  */
 
 /** More than any one command buffer uses: two passes, twelve substeps. */
