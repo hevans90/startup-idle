@@ -202,6 +202,15 @@ export async function runPerfScene(
   try {
     if (reuse) {
       if (st().grid.w !== size) return empty(`the scene built is ${st().grid.w} tiles, not ${size}`, view);
+      // CLOSED AND STILL AGAIN, because the last run put the edges back the
+      // way it found them on its way out. Reused without this, the flood
+      // drained off the open rim through every warm-up: a third of it a run,
+      // which read exactly like a solver losing water.
+      st().setOpenEdge(false);
+      deps.still();
+      if (!await until(() => deps.ready(), 60_000)) {
+        return empty("the reused scene was not ready within a minute", view);
+      }
     } else {
       progress("building");
       st().setOpenEdge(false);
