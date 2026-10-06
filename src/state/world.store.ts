@@ -693,7 +693,13 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // stays deliberate — nothing here creates a slope that was not asked for —
     // but leaving an existing one at its old direction and rise after the
     // ground moved under it draws a tilt the heightmap does not have.
-    if (!isSlopeTool(s0.tool)) {
+    //
+    // ONLY WHERE THE GROUND OR THE ROAD COULD HAVE MOVED: a slope follows the
+    // heights, and a paved cell is left to the road. Every other tool changes
+    // neither, and asked anyway this walked the footprint and its neighbours
+    // to find nothing — on a pour dragged over a 128 tile map, part of a 30 ms
+    // hitch on letting go. @see derivedSlope
+    if (!isSlopeTool(s0.tool) && (isHeightTool(s0.tool) || isRoadTool(s0.tool))) {
       for (const c of heightDirtyCells(st.grid, cells)) {
         const i = c.y * st.grid.w + c.x;
         if (st.grid.ramp[i] === RAMP.NONE || st.grid.paved[i] !== VOID_MATERIAL) continue;
@@ -706,8 +712,13 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // the grid, which has not been written yet.
     // A slope tool writes `ramp` itself, so it must not then be overwritten by
     // the road derivation — which would clear it, there being no road here.
-    if (!isSlopeTool(s0.tool)
-        && (isRoadTool(s0.tool) || isHeightTool(s0.tool) || isWaterTool(s0.tool))) {
+    //
+    // NOT FOR WATER, which it used to be: a road ramp is a function of the
+    // paved layer and the heights, and pouring or draining writes neither — it
+    // writes `fluid`. Asked anyway, a pour over a 128 tile map re-derived every
+    // cell's ramp and its neighbours' to get the same answers, 12 to 32 ms of
+    // the hitch on letting go. @see rampNeed
+    if (!isSlopeTool(s0.tool) && (isRoadTool(s0.tool) || isHeightTool(s0.tool))) {
       const read = readerFor(b, st.grid);
       for (const c of heightDirtyCells(st.grid, cells)) {
         b.set("ramp", c.x, c.y, derivedRamp(read, c.x, c.y));
