@@ -16,6 +16,7 @@
 import Decimal from "break_infinity.js";
 
 import { housedBy } from "./housing";
+import { structureDef } from "../world/structures/def";
 import { useMoneyStore } from "../state/money.store";
 
 /** What the smallest housing costs. Everything else is priced from here. */
@@ -36,9 +37,37 @@ const PER_BED = 1.35;
  * the caller has to be able to tell them apart before it charges anybody.
  */
 export function buildCost(defId: string): Decimal | null {
+  const port = structureDef(defId)?.port;
+  if (port) return new Decimal(PORT_PER_CALL_A_MINUTE * callsAMinute(port)).round();
   const h = housedBy(defId);
   if (!h || h.slots <= 0) return null;
   return new Decimal(BASE).times(Decimal.pow(PER_BED, h.slots));
+}
+
+/**
+ * A SEAPORT IS PRICED OFF WHAT IT HANDLES: the boats a minute it can turn
+ * round, every berth busy. So a tier that takes six times the traffic costs
+ * six times as much — the same deal at every size, and the choice is about
+ * the ground on the bank, not the price per boat:
+ *
+ *   tier 1 — 1 berth, 20 s a call —  3 a minute —  240
+ *   tier 2 — 2 berths, 15 s       —  8 a minute —  640
+ *   tier 3 — 3 berths, 10 s       — 18 a minute — 1440
+ */
+const PORT_PER_CALL_A_MINUTE = 80;
+const callsAMinute = (p: { berths: number; dockSeconds: number }) => (p.berths * 60) / p.dockSeconds;
+
+/**
+ * What upgrading one building into another costs, or null if it is not sold:
+ * the DIFFERENCE between the two prices, so a port built a tier at a time
+ * costs exactly what building the top tier outright would have. Never less
+ * than nothing.
+ */
+export function upgradeCost(fromId: string, toId: string): Decimal | null {
+  const to = buildCost(toId);
+  if (!to) return null;
+  const from = buildCost(fromId) ?? new Decimal(0);
+  return Decimal.max(to.minus(from), 0);
 }
 
 /** Whether the player could afford this, without charging them. */

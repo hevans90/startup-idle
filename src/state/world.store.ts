@@ -52,7 +52,7 @@ import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
 import { clearSaved, hasSaved, saveNow, scheduleSave } from "../world/io/world-save";
-import { buildCost, spendForBuild } from "../game/build-cost";
+import { buildCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
 import { forgetGenParams, loadGenParams, saveGenParams } from "../world/io/gen-settings";
@@ -829,7 +829,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // charged together so a refusal cannot leave the money spent — the same
     // order the hiring gate needs, and for the same reason.
     if (st.playing && !demolishing && target) {
-      if (!spendForBuild(buildCost(target.id))) { set({ stroke: null }); return; }
+      // An upgrade costs the step up, not the whole building again. @see upgradeCost
+      const price = upgrade
+        ? upgradeCost(st.grid.structures.get(under)!.def, upgrade.id)
+        : buildCost(target.id);
+      if (!spendForBuild(price)) { set({ stroke: null }); return; }
     }
     const touched = commit(st.grid, history, cmd);
     // The bed stands on what is built as well as on the terrain — a placed

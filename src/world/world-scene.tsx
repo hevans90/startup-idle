@@ -1645,10 +1645,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // @see validatePlacement
       let valid: Validator | undefined;
       const rivers = getTraffic().rivers ?? undefined;
+      // The same rules the click will be held to, frontage too under play rules.
+      const rules = {
+        ...(rivers ? { rivers } : {}),
+        ...(useWorldStore.getState().playing ? { needsRoad: true } : {}),
+      };
       // OVER A BUILDING WITH A NEXT TIER, the click upgrades it, so the cursor
       // shows what it would grow into instead. @see planUpgrade
       const under = s0.tool === "placeStructure" ? structureAt(grid, s0.head.x, s0.head.y) : -1;
-      const plan = under >= 0 ? planUpgrade(grid, under, { ...(rivers ? { rivers } : {}) }) : null;
+      const plan = under >= 0 ? planUpgrade(grid, under, rules) : null;
       if (plan) {
         const { w, h } = plan.to.footprint;
         cells = footprintCells(plan.x, plan.y, w, h);
@@ -1657,7 +1662,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const def = structureDef(structureDefId);
         if (def) {
           const fp = structureFootprint(def, s0.anchor, s0.head);
-          const check = validatePlacement(grid, def, fp.x, fp.y, { ...(rivers ? { rivers } : {}) });
+          const check = validatePlacement(grid, def, fp.x, fp.y, rules);
           valid = (_g, x, y) => check.cells[(y - fp.y) * fp.w + (x - fp.x)] ?? { ok: false };
         }
       }

@@ -5,7 +5,10 @@
  * WIRING between it and the store — the seam where a saved map's palette went
  * missing because the load path destructured only the grid.
  */
-import { beforeEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import Decimal from "break_infinity.js";
+
+import { useMoneyStore } from "./money.store";
 
 import { deserializeWorld, serializeWorld, toJSON } from "../world/io/serialize";
 import {
@@ -13,7 +16,7 @@ import {
   useWorldStore,
 } from "./world.store";
 import { loadSaved } from "../world/io/world-save";
-import { createGrid, fillTerrain, idx, setHeight } from "../world/grid";
+import { createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
 import { componentCount } from "../world/roads/network";
 import { DEFAULT_GEN, GEN_SLIDERS } from "../world/gen/params";
 import { RAMP, rampDir, rampRise } from "../world/iso";
@@ -511,5 +514,56 @@ describe("autosave", () => {
       doc.removeEventListener = was.remove;
       g0.window = was.window;
     }
+  });
+});
+
+describe("a seaport under play rules", () => {
+  /**
+   * A river across the map, rows 6 to 9, and a road along row 3 — so a port at
+   * row 4 is on the bank and has frontage, as play rules need.
+   */
+  const harbour = () => {
+    const g = createGrid(24, 16);
+    fillTerrain(g, 1);
+    for (let y = 6; y <= 9; y++) for (let x = 0; x < g.w; x++) { g.pool[idx(g, x, y)] = 4; g.fluid[idx(g, x, y)] = 1; }
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 3)] = 1;
+    for (let y = 6; y <= 9; y++) setInflow(g, 0, y, 4);   // a river, not a long lake
+    s().loadGrid(g);
+    s().setTool("placeStructure");
+    s().setStructureDef("seaport");
+    s().setPlaying(true);
+  };
+  const money = (n: number) => useMoneyStore.setState({ money: new Decimal(n) });
+  const port = () => [...s().grid.structures.values()].find((p) => p.def.startsWith("seaport"));
+
+  afterEach(() => s().setPlaying(false));
+
+  test("is bought, then upgraded for the step up, a tier at a time", () => {
+    harbour();
+    money(5000);
+    s().commitStructure({ x: 8, y: 4 });
+    expect(port()?.def).toBe("seaport");
+    expect(useMoneyStore.getState().money.toNumber()).toBe(5000 - 240);
+    s().commitStructure({ x: 8, y: 4 });
+    expect(port()?.def).toBe("seaport-2");
+    expect(useMoneyStore.getState().money.toNumber()).toBe(5000 - 640);
+    s().commitStructure({ x: 8, y: 4 });
+    expect(port()?.def).toBe("seaport-3");
+    // Built a tier at a time, it costs what the top tier does outright.
+    expect(useMoneyStore.getState().money.toNumber()).toBe(5000 - 1440);
+  });
+
+  test("and is refused, with nothing spent, when the money is not there", () => {
+    harbour();
+    money(239);
+    s().commitStructure({ x: 8, y: 4 });
+    expect(port()).toBeUndefined();
+    expect(useMoneyStore.getState().money.toNumber()).toBe(239);
+    money(300);
+    s().commitStructure({ x: 8, y: 4 });
+    expect(port()?.def).toBe("seaport");
+    s().commitStructure({ x: 8, y: 4 });                 // 400 for the step up: short
+    expect(port()?.def).toBe("seaport");
+    expect(useMoneyStore.getState().money.toNumber()).toBe(60);
   });
 });

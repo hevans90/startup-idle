@@ -84,11 +84,6 @@ function cellVerdict(
   if (!placementOf(def).allowOnPaved && grid.paved[i] !== VOID) {
     return { ok: false, reason: "on a road" };
   }
-  // BESIDE a road, which is not the same as ON one — and both rules apply, so
-  // housing wants a cell that is bare itself and touches paving.
-  if (rules.needsRoad && !touchesRoad(grid, x, y)) {
-    return { ok: false, reason: "no road access" };
-  }
   if (placementOf(def).riverside && rules.rivers && riverAt(rules.rivers, x, y)) {
     return { ok: false, reason: "in the river" };
   }
@@ -149,6 +144,22 @@ export function validatePlacement(
   const firstBad = verdicts.find((v) => !v.ok);
   if (firstBad) {
     return { ok: false, cells: verdicts, reason: firstBad.reason ?? "blocked", groundHeight };
+  }
+
+  // BESIDE a road, which is not the same as ON one — and both rules apply, so
+  // a building wants cells that are bare themselves, and frontage.
+  //
+  // FRONTAGE IS THE FOOTPRINT'S, not every cell's: a door on one side is
+  // a door. Asked of every cell, it held for the one-cell houses it was
+  // written for and refused every seaport there could be — a port's back row
+  // fronts the road and its front row the river, and no cell does both.
+  if (rules.needsRoad && !cells.some((c) => inBounds(grid, c.x, c.y) && touchesRoad(grid, c.x, c.y))) {
+    return {
+      ok: false,
+      cells: verdicts.map(() => ({ ok: false, reason: "no road access" })),
+      reason: "no road access",
+      groundHeight,
+    };
   }
 
   // ON A BANK is a property of the footprint too: no one cell of it has to

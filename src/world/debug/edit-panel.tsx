@@ -16,6 +16,13 @@ import type { BrushId, ToolId } from "../edit/tools";
 import { allStructureDefs } from "../structures/def";
 import { fluidChoices } from "../water/materials";
 import { housingCapacity } from "../../game/housing";
+import { buildCost } from "../../game/build-cost";
+
+/** A building's price for its tooltip, as play rules would charge it. @see buildCost */
+const priceOf = (defId: string) => {
+  const p = buildCost(defId);
+  return p ? ` · $${Math.round(p.toNumber()).toLocaleString()} in play` : " · not for sale in play";
+};
 
 const BTN = "cursor-pointer rounded border px-2 py-1 font-mono";
 const ON = "border-emerald-500 bg-emerald-500/20 text-emerald-300";
@@ -283,7 +290,7 @@ export function EditPanel() {
       <div className="mt-1 flex flex-wrap gap-1">
         {allStructureDefs().map((d) => (
           <button key={d.id} type="button" onClick={() => setStructureDef(d.id)}
-            title={`${d.footprint.w}×${d.footprint.h} · ${d.render.kind}`}
+            title={`${d.footprint.w}×${d.footprint.h} · ${d.render.kind}${priceOf(d.id)}`}
             className={`${BTN} ${structureDefId === d.id ? ON : OFF}`}>{d.name}</button>
         ))}
       </div>

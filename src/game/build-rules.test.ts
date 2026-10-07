@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import Decimal from "break_infinity.js";
-import { buildCost, canAfford, spendForBuild } from "./build-cost";
+import { buildCost, canAfford, spendForBuild, upgradeCost } from "./build-cost";
 import { housedBy } from "./housing";
 import { useMoneyStore } from "../state/money.store";
 import { createGrid, fillTerrain, idx } from "../world/grid";
@@ -118,5 +118,32 @@ describe("what a building costs", () => {
     useMoneyStore.setState({ money: price.times(3) });
     expect(spendForBuild(price)).toBe(true);
     expect(useMoneyStore.getState().money.eq(price.times(2))).toBe(true);
+  });
+});
+
+describe("seaports have a price", () => {
+  test("off the boats a minute they turn round, the same deal at every tier", () => {
+    expect(buildCost("seaport")!.toNumber()).toBe(240);
+    expect(buildCost("seaport-2")!.toNumber()).toBe(640);
+    expect(buildCost("seaport-3")!.toNumber()).toBe(1440);
+  });
+
+  test("and an upgrade costs the step up, so building up costs what building outright does", () => {
+    expect(upgradeCost("seaport", "seaport-2")!.toNumber()).toBe(400);
+    expect(upgradeCost("seaport-2", "seaport-3")!.toNumber()).toBe(800);
+    expect(upgradeCost("kit:intern.t0", "nothing")).toBeNull();
+  });
+});
+
+describe("frontage is the footprint's, not every cell's", () => {
+  test("a two-deep building fronts the road from its back row", () => {
+    const g = ground(true);                      // road on rows 4 and 5
+    // Rows 2 and 3: only row 3 touches the road. Refused for the bank, not the road.
+    expect(validatePlacement(g, structureDef("seaport")!, 3, 2, { needsRoad: true }).reason)
+      .toBe("not on a river bank");
+    // Rows 1 and 2: neither does.
+    const back = validatePlacement(g, structureDef("seaport")!, 3, 1, { needsRoad: true });
+    expect(back.reason).toBe("no road access");
+    expect(back.cells.every((c) => !c.ok)).toBe(true);
   });
 });
