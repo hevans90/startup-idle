@@ -417,7 +417,7 @@ describe("boats", () => {
     for (const [x, y, heading] of boats) {
       f.boats.push({
         id: f.next++, x, y, vx: 0.3, vy: 0, heading, z: 1, vz: 0, pitch: 0, roll: 0,
-        afloat: true, phase: 0,
+        afloat: true, phase: 0, motor: 0,
       });
     }
     return f;

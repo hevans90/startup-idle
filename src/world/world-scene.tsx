@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, getFleet, getNetwork, useWorldStore } from "../state/world.store";
+import { drainDirty, getFleet, getNetwork, getTraffic, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -49,7 +49,7 @@ import {
 } from "./structures/layer";
 import type { RenderCtx } from "./structures/render";
 import { structureDef } from "./structures/def";
-import { strokeFootprint as structureFootprint } from "./structures/place";
+import { strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import "./structures/tiles-renderer";
@@ -71,9 +71,11 @@ import {
  * columns, which stack and so multiply their own alpha.
  */
 const XRAY_GROUND = 0.26;
-import { createBuildCursor, type BuildCursor } from "./edit/cursor";
+import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { stepFleet, wantFleet } from "./boats/fleet";
+import { stepTraffic, trafficSteer } from "./boats/traffic";
+import "./structures/seaport-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
@@ -1637,7 +1639,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           })()
         : strokeFootprint(grid, s0, brushRadius);
 
+      // A STRUCTURE'S FOOTPRINT is judged whole — on a bank, on level enough
+      // ground — and the verdict handed to each of its cells. Against the
+      // rivers as traffic last mapped them, which is at most a second old.
+      // @see validatePlacement
+      let valid: Validator | undefined;
+      if (s0.tool === "placeStructure") {
+        const def = structureDef(structureDefId);
+        if (def) {
+          const fp = structureFootprint(def, s0.anchor, s0.head);
+          const rivers = getTraffic().rivers ?? undefined;
+          const check = validatePlacement(grid, def, fp.x, fp.y, { ...(rivers ? { rivers } : {}) });
+          valid = (_g, x, y) => check.cells[(y - fp.y) * fp.w + (x - fp.x)] ?? { ok: false };
+        }
+      }
+
       cur.update(grid, {
+        valid,
         cells,
         // Only a material tool places a tile, so only it gets a ghost. Erase and
         // the height tools show the outline alone — ghosting a material they
@@ -1992,7 +2010,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // THE BOATS, on the water this frame left: bob, tilt, drift, then drawn.
       // @see world/boats
       const fleet = getFleet();
-      stepFleet(fleet, field.columns, dt);
+      // The rivers' traffic first: boats in from a ported river's inflow, and
+      // off at its exit. Then every boat, the ones under way steered for it.
+      const traffic = getTraffic();
+      stepTraffic(traffic, fleet, useWorldStore.getState().grid, field.columns, dt);
+      stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
       boatRef.current?.draw(fleet, field.columns, scale, dt);
       const t2 = performance.now();
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the

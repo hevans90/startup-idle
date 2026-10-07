@@ -44,6 +44,12 @@ export type Placement = {
    * flatten by hand first is the annoying half of the rule.
    */
   autoFlatten?: boolean;
+  /**
+   * Must stand on a RIVER'S BANK: on dry ground, with the river beside it.
+   * A fact about the building — a seaport away from the water is not one — so
+   * the editor obeys it too, unlike frontage. @see riversBeside
+   */
+  riverside?: boolean;
 };
 
 export type StructureDef = {
@@ -111,8 +117,20 @@ const kitDefs = (): StructureDef[] =>
     render: { kind: "tiles", kit: { kit } },
   }));
 
+/**
+ * A SEAPORT: quays, a warehouse and a crane on a river's bank. While one
+ * stands beside a river, boats come down that river. @see stepTraffic
+ */
+export const SEAPORT: StructureDef = {
+  id: "seaport",
+  name: "seaport",
+  footprint: { w: 2, h: 2 },
+  render: { kind: "custom", rendererId: "seaport" },
+  placement: { riverside: true },
+};
+
 const DEFS = new Map<string, StructureDef>(
-  kitDefs().map((d) => [d.id, d]),
+  [...kitDefs(), SEAPORT].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;
@@ -136,6 +154,7 @@ export function placementOf(def: StructureDef): Required<Placement> {
   return {
     allowOnPaved: def.placement?.allowOnPaved ?? false,
     autoFlatten: def.placement?.autoFlatten ?? true,
+    riverside: def.placement?.riverside ?? false,
   };
 }
 

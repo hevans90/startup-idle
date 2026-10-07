@@ -118,6 +118,12 @@ export type CursorInput = {
   frame: string | null;
   tool: ToolId;
   scale: number;
+  /**
+   * Per-cell validity for this footprint, when the tool's own is not the
+   * whole story — a structure that must stand on a river's bank, say, which
+   * no cell can answer alone. @see validatorFor
+   */
+  valid?: Validator;
 };
 
 /**
@@ -252,7 +258,7 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
   };
 
   cursor.update = (grid, input, textures) => {
-    const valid = validatorFor(input.tool);
+    const valid = input.valid ?? validatorFor(input.tool);
     const sig = cursorSignature(grid, input, valid);
     if (sig === signature) return false;
     signature = sig;

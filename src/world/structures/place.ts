@@ -17,6 +17,7 @@ import {
   VOID, footprintCells, idx, inBounds, structureAt, type Grid, type Structure,
 } from "../grid";
 import { RAMP } from "../iso";
+import { riverAt, riversBeside, type RiverMap } from "../boats/river";
 import { placementOf, type StructureDef } from "./def";
 
 /** Where a structure stroke places: the head cell, with the definition's footprint. */
@@ -61,6 +62,13 @@ export type PlaceRules = {
    * with one road across it, so where you build is where the road is.
    */
   needsRoad?: boolean;
+  /**
+   * The map's rivers as they stand, for a building that must be on a bank.
+   * The water is live state and placement is a question about the grid, so
+   * whoever has the water hands this in; without it no bank can be found.
+   * @see Placement.riverside
+   */
+  rivers?: RiverMap;
 };
 
 const NO_RULES: PlaceRules = {};
@@ -80,6 +88,9 @@ function cellVerdict(
   // housing wants a cell that is bare itself and touches paving.
   if (rules.needsRoad && !touchesRoad(grid, x, y)) {
     return { ok: false, reason: "no road access" };
+  }
+  if (placementOf(def).riverside && rules.rivers && riverAt(rules.rivers, x, y)) {
+    return { ok: false, reason: "in the river" };
   }
   return OK;
 }
@@ -138,6 +149,17 @@ export function validatePlacement(
   const firstBad = verdicts.find((v) => !v.ok);
   if (firstBad) {
     return { ok: false, cells: verdicts, reason: firstBad.reason ?? "blocked", groundHeight };
+  }
+
+  // ON A BANK is a property of the footprint too: no one cell of it has to
+  // touch the river, but one of them must.
+  if (placementOf(def).riverside && !(rules.rivers && riversBeside(rules.rivers, ox, oy, w, h).length)) {
+    return {
+      ok: false,
+      cells: verdicts.map(() => ({ ok: false, reason: "not on a river bank" })),
+      reason: "not on a river bank",
+      groundHeight,
+    };
   }
 
   // Uneven ground is a property of the FOOTPRINT, so it can only be judged

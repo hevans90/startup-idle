@@ -10,6 +10,8 @@
 import {
   addBoat, createFleet, removeBoatNear, restoreFleet, type Fleet, type SavedBoat,
 } from "../world/boats/fleet";
+import { mapRiver, tileDepthOf } from "../world/boats/river";
+import { createTraffic, type Traffic } from "../world/boats/traffic";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
@@ -186,6 +188,9 @@ export const getWater = () => water;
  */
 let fleet: Fleet = createFleet();
 export const getFleet = () => fleet;
+/** And the boats coming down its rivers, from its seaports. @see world/boats/traffic */
+let traffic: Traffic = createTraffic();
+export const getTraffic = () => traffic;
 
 /**
  * Cells the renderer has not reconciled yet, ACCUMULATED across edits.
@@ -494,6 +499,12 @@ const START_READOUT = readoutFromUrl();
 
 const START_FIXTURE = fixtureFromUrl();
 /**
+ * Whether this session opened on a `?fixture=`. Then the fixture IS the map:
+ * the saved one is not loaded over it, and nothing is saved, so looking at a
+ * rig can never write over the map somebody built. @see startAutosave
+ */
+export const startedOnFixture = () => START_FIXTURE !== null;
+/**
  * The generator's settings as they were left. @see loadGenParams
  *
  * Read once, here, rather than in the initialiser below, because the SIZE is
@@ -593,6 +604,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     network = createNetwork(grid);
     water = createWaterField(grid);
     fleet = createFleet();
+    traffic = createTraffic();
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
@@ -792,7 +804,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const demolishing = st.tool === "demolish";
     // THE GAME'S RULES, NOT THE EDITOR'S. Frontage is a rule of play; the
     // editor has to stay able to author a building anywhere. @see PlaceRules
-    const rules = st.playing ? { needsRoad: true } : {};
+    const rules = {
+      ...(st.playing ? { needsRoad: true } : {}),
+      // THE RIVERS AS THEY STAND, for a building that must be on a bank. A
+      // fact about the building, so the editor obeys it too. @see riverside
+      ...(water && def?.placement?.riverside ? { rivers: mapRiver(st.grid, tileDepthOf(water.columns)) } : {}),
+    };
     const cmd = demolishing
       ? demolishCommand(st.grid, structureAt(st.grid, c.x, c.y))
       : def && placeCommand(st.grid, def, c.x, c.y, rules);
@@ -894,6 +911,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     network = createNetwork(grid);
     water = createWaterField(grid);
     fleet = createFleet();
+    traffic = createTraffic();
     // The file's boats, on the file's water. @see restoreFleet
     if (boats?.length) restoreFleet(fleet, water.columns, boats);
     setWaterEdge(water, get().openEdge);          // a new field, the same world
@@ -931,6 +949,8 @@ export function startAutosave(): () => void {
   if (typeof location !== "undefined" && new URLSearchParams(location.search).has("nosave")) {
     return () => {};
   }
+  // A FIXTURE SESSION is a rig, not the map. @see startedOnFixture
+  if (startedOnFixture()) return () => {};
   const input = () => ({
     grid: useWorldStore.getState().grid,
     // The paved palette is a placeholder the editor has never filled; passed as

@@ -7,6 +7,10 @@
  * cell" becomes reproducible.
  */
 import { DIR } from "../../iso/dir";
+import { mapRiver, poolDepthOf } from "../boats/river";
+import { commit, createHistory } from "../edit/commands";
+import { SEAPORT } from "../structures/def";
+import { placeCommand } from "../structures/place";
 import { layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
@@ -16,7 +20,7 @@ import {
 export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
-  | "river" | "inlet" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
+  | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
   | "firstRoad";
 
@@ -359,6 +363,54 @@ export function buildInlet(g: Grid, material: number) {
   for (let y = Math.round(centre - half); y <= Math.round(centre + half); y++) {
     setInflow(g, 0, y, INLET_STAGE);
   }
+}
+
+/**
+ * The inlet river with SEAPORTS on its banks, so it has traffic.
+ *
+ * Everything boats do in one place: the river comes in over the west edge and
+ * leaves by the east, and with a port on it a boat is sent in over the inflow
+ * every few seconds, goes down the bends under its own power with a wake
+ * behind it, and is taken off at the far edge. @see world/boats/traffic
+ *
+ * THE PORTS ARE PLACED BY THE RULE, not stamped: each goes through
+ * `placeCommand` against the river as the fixture's own pool maps it, so a
+ * port here is one the editor would also have let you put there. Searched for
+ * along the bank near where it is wanted, on the floodplain and not the
+ * valley wall, which levelling would have carved a step into.
+ */
+export function buildHarbour(g: Grid, material: number) {
+  buildInlet(g, material);
+  const rivers = mapRiver(g, poolDepthOf(g));
+  const history = createHistory();
+  const want: [number, number][] = [[0.3, -1], [0.55, 1], [0.78, -1]];
+  for (const [at, side] of want) {
+    const spot = harbourSpot(g, rivers, Math.round(g.w * at), side);
+    if (!spot) continue;
+    const cmd = placeCommand(g, SEAPORT, spot.x, spot.y, { rivers });
+    if (cmd) commit(g, history, cmd);
+  }
+}
+
+/** A bank on `side` of the river (−1 north, 1 south) near column `x`, or null. */
+function harbourSpot(g: Grid, rivers: ReturnType<typeof mapRiver>, x: number, side: number) {
+  for (let d = 0; d < 8; d++) {
+    for (const sx of [x + d, x - d]) {
+      for (let y = 1; y < g.h - 2; y++) {
+        const cells = [[sx, y], [sx + 1, y], [sx, y + 1], [sx + 1, y + 1]];
+        if (cells.some(([cx, cy]) => !inBounds(g, cx, cy))) continue;
+        const hs = cells.map(([cx, cy]) => g.height[idx(g, cx, cy)]);
+        if (Math.max(...hs) - Math.min(...hs) > 1) continue;
+        // On the side asked for: the river is beyond it, that way.
+        const beyond = side < 0 ? y + 2 : y - 1;
+        if (beyond < 0 || beyond >= g.h) continue;
+        if (!rivers.river[idx(g, sx, beyond)] && !rivers.river[idx(g, sx + 1, beyond)]) continue;
+        const check = placeCommand(g, SEAPORT, sx, y, { rivers });
+        if (check) return { x: sx, y };
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -828,7 +880,7 @@ export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, cros
  */
 export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
-  "splitTrap", "river", "inlet", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
+  "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
   "firstRoad",
 ];
@@ -847,6 +899,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "splitTrap": buildSplitTrap(g, material, cx, cy); return;
     case "river": buildRiver(g, material); recomputeHeightRange(g); return;
     case "inlet": buildInlet(g, material); recomputeHeightRange(g); return;
+    case "harbour": buildHarbour(g, material); recomputeHeightRange(g); return;
     case "bridge": buildBridge(g, material); recomputeHeightRange(g); return;
     case "crossing": buildCrossing(g, material); recomputeHeightRange(g); return;
     case "cascade": buildCascade(g, material); recomputeHeightRange(g); return;

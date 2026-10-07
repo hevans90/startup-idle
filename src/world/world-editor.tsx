@@ -14,7 +14,7 @@ import { openDevice, type HeldGpu } from "./render/device";
 
 import { useResizeToWrapper } from "../hooks/use-resize-to-wrapper";
 import type { Overlays } from "../state/world.store";
-import { DEFAULT_SIZE, startAutosave, useWorldStore } from "../state/world.store";
+import { DEFAULT_SIZE, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
 import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
 import { Calibration } from "./debug/calibration";
 import { CellReadout } from "./debug/cell-readout";
@@ -64,6 +64,9 @@ export function WorldEditor() {
    * initialiser runs once and is the cheapest place to do a one-shot load.
    */
   useState(() => {
+    // A `?fixture=` is the map this session, not the saved one, and the store
+    // has already built it. @see startedOnFixture
+    if (startedOnFixture()) return true;
     const saved = loadSaved();
     if (saved) {
       useWorldStore.getState().loadGrid(saved.grid, saved.palette.terrain, saved.boats);

@@ -18,6 +18,12 @@
  * float in. There is no wind on it and it does not push the water: it is a
  * passenger.
  *
+ * UNLESS IT HAS AN ENGINE. A boat that came down a river from a seaport is
+ * under way: it pushes itself along whatever way it is steered — downstream,
+ * to the river's exit — on top of what the water does to it, because a
+ * current alone leaves a boat sitting in every slack reach and pool. Its push
+ * is its own and not the water's: nothing it does moves a column. @see traffic
+ *
  * On the device the host's depths are refreshed a slice at a time, so every
  * boat asks for the columns it reads, every frame, the way a falling drop
  * does. @see wantFleet, wantDepth
@@ -45,6 +51,8 @@ export type Boat = {
   afloat: boolean;
   /** A phase of its own, so a harbour full of them does not bob in step. */
   phase: number;
+  /** Its own push, tiles a second squared; nought for a boat with no engine. */
+  motor: number;
 };
 
 export type Fleet = { boats: Boat[]; next: number; t: number };
@@ -126,7 +134,7 @@ export function addBoat(f: Fleet, c: ColumnField, x: number, y: number): Boat | 
     // Facing down the screen and to the right, the way the art faces.
     heading: Math.PI / 4,
     z: s.surface, vz: 0, pitch: 0, roll: 0, afloat: true,
-    phase: (f.next * 2.399) % (Math.PI * 2),
+    phase: (f.next * 2.399) % (Math.PI * 2), motor: 0,
   };
   f.boats.push(boat);
   return boat;
@@ -163,8 +171,11 @@ export function wantFleet(f: Fleet, c: ColumnField): void {
   }
 }
 
-/** One frame of every boat: bob, tilt, drift, turn. */
-export function stepFleet(f: Fleet, c: ColumnField, dt: number): void {
+/** Which way a boat with an engine should go from a point, or null for nowhere. */
+export type Steer = (x: number, y: number) => { x: number; y: number } | null;
+
+/** One frame of every boat: bob, tilt, drift, push, turn. */
+export function stepFleet(f: Fleet, c: ColumnField, dt: number, steer?: Steer): void {
   if (dt <= 0) return;
   const h = Math.min(dt, 1 / 20);       // a long frame is not a launch
   f.t += h;
@@ -197,6 +208,9 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number): void {
     if (b.afloat) {
       b.vx += (-SLOPE_PUSH * sx - DRAG * b.vx) * h;
       b.vy += (-SLOPE_PUSH * sy - DRAG * b.vy) * h;
+      // AND ITS OWN PUSH, where it has one and somewhere to go.
+      const way = b.motor > 0 && steer ? steer(b.x, b.y) : null;
+      if (way) { b.vx += b.motor * way.x * h; b.vy += b.motor * way.y * h; }
     } else {
       b.vx = 0; b.vy = 0;
     }
@@ -242,10 +256,10 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number): void {
  * high it rides and how it is tilted are the water's to say, and they come
  * back from it within a frame or two of loading. @see serializeWorld
  */
-export type SavedBoat = { x: number; y: number; heading: number };
+export type SavedBoat = { x: number; y: number; heading: number; motor?: number };
 
 export const saveFleet = (f: Fleet): SavedBoat[] =>
-  f.boats.map((b) => ({ x: b.x, y: b.y, heading: b.heading }));
+  f.boats.map((b) => ({ x: b.x, y: b.y, heading: b.heading, ...(b.motor ? { motor: b.motor } : {}) }));
 
 /**
  * Put saved boats back on a fresh field's water.
@@ -261,7 +275,7 @@ export function restoreFleet(f: Fleet, c: ColumnField, saved: readonly SavedBoat
     f.boats.push({
       id: f.next++, x: s.x, y: s.y, vx: 0, vy: 0, heading: s.heading,
       z: w.surface, vz: 0, pitch: 0, roll: 0, afloat: w.depth > DRAFT,
-      phase: (f.next * 2.399) % (Math.PI * 2),
+      phase: (f.next * 2.399) % (Math.PI * 2), motor: s.motor ?? 0,
     });
   }
 }

@@ -227,7 +227,8 @@ function readBoat(raw: unknown, w: number, h: number): SavedBoat | null {
   const b = raw as Partial<SavedBoat>;
   if (![b.x, b.y, b.heading].every((v) => typeof v === "number" && Number.isFinite(v))) return null;
   if (b.x! < -0.5 || b.y! < -0.5 || b.x! > w - 0.5 || b.y! > h - 0.5) return null;
-  return { x: b.x!, y: b.y!, heading: b.heading! };
+  const motor = typeof b.motor === "number" && Number.isFinite(b.motor) && b.motor > 0 ? b.motor : 0;
+  return { x: b.x!, y: b.y!, heading: b.heading!, ...(motor ? { motor } : {}) };
 }
 
 export class WorldFileError extends Error {}
