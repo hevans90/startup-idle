@@ -239,6 +239,9 @@ export function EditPanel() {
         <button type="button" onClick={() => setTool("pipe")}
           title="a pipe on the side of a cell — drips over whatever is beyond it. Click again to turn it."
           className={`${BTN} ${tool === "pipe" ? ON : OFF}`}>pipe (&apos;)</button>
+        <button type="button" onClick={() => setTool("boat")}
+          title="click on water to put a boat on it; click a boat to take it off"
+          className={`${BTN} ${tool === "boat" ? ON : OFF}`}>boat (h)</button>
         <button type="button" onClick={() => setOpenEdge(!openEdge)}
           title="whether water runs off the edge of the map"
           className={`${BTN} ${openEdge ? ON : OFF}`}>open edge</button>

@@ -23,6 +23,8 @@ const TOOL_KEYS: Record<string, ToolId> = {
   // l/; carry on the same row: a spring and a drain are the running versions
   // of the two beside them
   l: "spring", ";": "sink", "'": "pipe",
+  // h for a boat: free, and next to the water row
+  h: "boat",
   u: "slope", i: "unslope",
 };
 const BRUSH_KEYS: Record<string, BrushId> = { "1": "point", "2": "rect", "3": "line" };

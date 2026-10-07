@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, getNetwork, useWorldStore } from "../state/world.store";
+import { drainDirty, getFleet, getNetwork, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -72,6 +72,8 @@ import {
  */
 const XRAY_GROUND = 0.26;
 import { createBuildCursor, type BuildCursor } from "./edit/cursor";
+import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
+import { stepFleet, wantFleet } from "./boats/fleet";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
@@ -165,6 +167,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // held so an edit can re-texture just the cells that changed
   const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
+  /** The boats, drawn among the movers of the bands. @see world/boats */
+  const boatRef = useRef<BoatLayer | null>(null);
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -244,6 +248,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         (window as unknown as { __drips?: () => unknown }).__drips = () => drRef.current;
         window.__solver = () => solverRef.current;
         window.__waterGpu = gpuRef.current;
+        // The boats, for a harness to look at. @see world/boats
+        (window as unknown as { __boats?: () => unknown }).__boats = () => getFleet();
         window.__renderer = app.renderer;
         // What the readback costs, answered by not doing it. @see setReadback
         window.__readback = setReadback;
@@ -1237,6 +1243,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (overlayRoot.current) {
         cursorRef.current = createBuildCursor(overlayRoot.current, bl);
       }
+      boatRef.current = createBoatLayer(bl);
       setSceneEpoch((n) => n + 1);
 
       console.info(`WORLD: ${grid.w}×${grid.h}, ${bl.bands.length} bands`);
@@ -1264,6 +1271,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       cursorRef.current?.destroy();
       cursorRef.current = null;
+      boatRef.current?.destroy();
+      boatRef.current = null;
       if (flRef.current) destroyWaterLayer(flRef.current);
       if (gpuRef.current) destroyGpuWaterLayer(gpuRef.current);
       if (faRef.current) destroyFallLayer(faRef.current);
@@ -1901,6 +1910,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);
       runPipes(field, grid, dt);
+      // The columns the boats will read, asked for before the step uploads
+      // the list. @see wantFleet
+      wantFleet(getFleet(), field.columns);
       // THE SWITCH. With the solver built, the frame's water is the device's
       // and the CPU solver does not run at all — see `gpu/solver`, and the
       // note there about the round trip this still pays for.
@@ -1977,6 +1989,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
       }
       if (drRef.current) drawGpuDrips(drRef.current, field, bl, grid, overlays.xray);
+      // THE BOATS, on the water this frame left: bob, tilt, drift, then drawn.
+      // @see world/boats
+      const fleet = getFleet();
+      stepFleet(fleet, field.columns, dt);
+      boatRef.current?.draw(fleet, scale);
       const t2 = performance.now();
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the
       // walk over the columns when it is not. @see createMeta

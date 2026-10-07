@@ -7,6 +7,7 @@
  * would leave a save file holding employees with nowhere to live.
  * @see startAutosave, loadSaved
  */
+import { addBoat, createFleet, removeBoatNear, type Fleet } from "../world/boats/fleet";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
@@ -176,6 +177,13 @@ let water: WaterField | null = null;
 
 /** The live water field, for the renderer and the debug hook. */
 export const getWater = () => water;
+
+/**
+ * THE BOATS on that water: live state like it, placed by a tool and not by an
+ * edit, so not undoable — and a new map is a new harbour. @see world/boats
+ */
+let fleet: Fleet = createFleet();
+export const getFleet = () => fleet;
 
 /**
  * Cells the renderer has not reconciled yet, ACCUMULATED across edits.
@@ -575,6 +583,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const grid = freshGrid(w, h);
     network = createNetwork(grid);
     water = createWaterField(grid);
+    fleet = createFleet();
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
@@ -621,6 +630,16 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // A STRUCTURE is placed at one cell by one command, so it skips the stroke
     // machinery — brush size and drag shape mean nothing to it.
     if (isStructureTool(s0.tool)) { get().commitStructure(s0.head); return; }
+    // A BOAT goes on the water under the click, or the one there comes off.
+    // Live state like the water: not an edit, and nothing to undo. @see fleet
+    if (s0.tool === "boat") {
+      const cols = water?.columns;
+      if (cols && !removeBoatNear(fleet, s0.head.x, s0.head.y)) {
+        addBoat(fleet, cols, s0.head.x, s0.head.y);
+      }
+      set({ stroke: null });
+      return;
+    }
 
     const cells = strokeFootprint(st.grid, s0, st.brushRadius);
     const b = new PatchBuilder(st.grid);
@@ -865,6 +884,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     history = createHistory();
     network = createNetwork(grid);
     water = createWaterField(grid);
+    fleet = createFleet();
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();   // the scene rebuilds wholesale on a new grid identity
     // A saved map's terrain indices only mean anything against the palette it

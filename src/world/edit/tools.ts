@@ -28,6 +28,7 @@ export type ToolId =
   | "spring"
   | "sink"
   | "pipe"
+  | "boat"
   | "placeStructure"
   | "demolish"
   | "inspect";
