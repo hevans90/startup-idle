@@ -85,10 +85,13 @@ function draw(g: Graphics, s: Structure, ctx: RenderCtx): void {
   const wu0 = x0 + 0.08, wu1 = x0 + 0.95, wv0 = y0 + 0.1, wv1 = y1 - 0.25;
   box(wu0, wv0, wu1, wv1, QUAY, QUAY + WALLS, WALL, WALL, WALL_SHADE);
   const um = (wu0 + wu1) / 2, top = QUAY + WALLS, ridge = QUAY + RIDGE, eave = 0.08;
+  // THE GABLE BEFORE THE ROOF: the roof overhangs it by `eave`, so it is in
+  // front of the gable's top edges and has to be painted over them. Drawn
+  // after, the gable cut a wedge out of both slopes.
+  quad([P(wu0, wv1, top), P(wu1, wv1, top), P(um, wv1, ridge)], WALL_SHADE);
   quad([P(wu0 - eave, wv0, top), P(um, wv0, ridge), P(um, wv1 + eave, ridge), P(wu0 - eave, wv1 + eave, top)], ROOF_SHADE);
   quad([P(um, wv0, ridge), P(wu1 + eave, wv0, top), P(wu1 + eave, wv1 + eave, top), P(um, wv1 + eave, ridge)], ROOF);
-  // The gable at the front, and a door in the lit side.
-  quad([P(wu0, wv1, top), P(wu1, wv1, top), P(um, wv1, ridge)], WALL_SHADE);
+  // And a door in the lit side.
   const dv = (wv0 + wv1) / 2;
   quad([P(wu1, dv - 0.22, QUAY + 1.8), P(wu1, dv + 0.22, QUAY + 1.8), P(wu1, dv + 0.22, QUAY), P(wu1, dv - 0.22, QUAY)], DOOR);
 
