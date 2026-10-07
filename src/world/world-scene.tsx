@@ -1845,6 +1845,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const cullBandsRef = useRef<(() => void) | null>(null);
   const waterFrameRef = useRef<((dt: number) => { solve: number; build: number } | null) | null>(null);
   waterFrameRef.current = (dt: number) => {
+    // THE BANDS ON SCREEN FIRST, so the water draws for this frame's view and
+    // not the last one's. The cull is its own tick and runs after this one,
+    // so the water read last frame's range — and every band a zoom out
+    // brought into view drew nothing for its first frame: a fringe of water
+    // missing all the way through the zoom. Idempotent; the tick after this
+    // finds nothing to change. @see cullBandsRef
+    cullBandsRef.current?.();
     const bl = blRef.current, fl = flRef.current;
     const field = useWorldStore.getState().getWaterField();
     const gpu = gpuRef.current;

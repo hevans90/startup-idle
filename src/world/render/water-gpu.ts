@@ -1994,6 +1994,54 @@ const trusted = (g: QuadGather, b: number) => {
     && c.from <= t.from && c.to >= t.to;
 };
 
+/** Tiles of band b whose x across the screen (tx - ty) lies in [from, to]. */
+const tilesAcross = (b: number, from: number, to: number, w: number, h: number) => {
+  // tx = (b + a) / 2, ty = (b - a) / 2: a must share b's parity, and both
+  // must land on the map — which bounds a to [b - 2(h-1), b] and [-b, 2(w-1) - b].
+  let lo = Math.max(from, -b, b - 2 * (h - 1));
+  let hi = Math.min(to, b, 2 * (w - 1) - b);
+  if (!Number.isFinite(lo)) lo = Math.max(-b, b - 2 * (h - 1));
+  if (!Number.isFinite(hi)) hi = Math.min(b, 2 * (w - 1) - b);
+  lo = Math.ceil(lo); hi = Math.floor(hi);
+  if (((lo - b) % 2 + 2) % 2 !== 0) lo++;
+  if (((hi - b) % 2 + 2) % 2 !== 0) hi--;
+  return hi < lo ? 0 : (hi - lo) / 2 + 1;
+};
+
+/**
+ * THE MOST band b's list can hold this frame, when its count is from a
+ * different gathering — instead of everything the band could ever hold.
+ *
+ * That was the fallback, and zooming OUT is a fallback on nearly every band on
+ * every frame: the view keeps widening past the last gathering. On a 128 tile
+ * map that drew 4.3 million instances a frame and took the GPU to 20 ms,
+ * where zooming in drew 0.23 million. But a list can only have grown by the
+ * tiles this frame's gathering took that the counted one did not, and a tile
+ * holds at most `perTile` quads — so the count plus that is a bound, and a
+ * tight one for a zoom a few tiles a frame. Going to whole tiles only ever
+ * removes surfaces, so a count from columns bounds it; going back to columns,
+ * each counted tile can regain the fifteen surfaces its whole quad stood in
+ * for, and no more. @see trusted
+ */
+const boundFor = (
+  g: QuadGather, b: number, count: number, w: number, h: number,
+  perTile: number, unwhole: number, most: number,
+) => {
+  const c = g.counted, t = g.took;
+  if (c === null || t === null) return most;
+  const inC = b >= c.lo && b <= c.hi;
+  const all = tilesAcross(b, t.from, t.to, w, h);
+  const kept = inC
+    ? tilesAcross(b, Math.max(t.from, c.from), Math.min(t.to, c.to), w, h)
+    : 0;
+  // AND OUT OF WHOLE TILES, each tile it counted can grow by the surfaces a
+  // whole tile stood in for — only surfaces: the faces are the same either
+  // way. Everything the band could hold was the fallback here, and it is the
+  // one a zoom IN crosses: 4 million instances for a frame. @see unwhole
+  const regrown = c.whole && !t.whole ? kept * unwhole : 0;
+  return Math.min(most, (inC ? count : 0) + (all - kept) * perTile + regrown);
+};
+
 /**
  * How much wider than the screen the gathering reaches, as a share of what is
  * on it, each side. A zoom that stays inside it keeps drawing off its counts;
@@ -2344,6 +2392,10 @@ export function drawGpuWater(
     hi = tile(region.x1) + tile(region.y1);
   }
   const vlo = bands.visibleLo, vhi = bands.visibleHi;
+  // The most quads one tile can put in a band's list. @see boundFor
+  const perTile = COLUMNS_PER_TILE * COLUMNS_PER_TILE * PARTS * wl.layers;
+  // And the surfaces a whole tile stands in for, going back to columns.
+  const unwhole = (COLUMNS_PER_TILE * COLUMNS_PER_TILE - 1) * wl.layers;
   const g = wl.gather;
   for (let b = 0; b < wl.meshes.length; b++) {
     const show = wl.drawing && b >= lo && b <= hi;
@@ -2357,8 +2409,13 @@ export function drawGpuWater(
     // own — every quad's vertex shader run twice. @see QuadList.second
     // AND EVERYTHING, where the count is from a different gathering. @see trusted
     const onScreen = b >= vlo && b <= vhi;
-    const n = !onScreen ? 0 : g && g.gathered && trusted(g, b)
-      ? roomFor(g.count[b], g.grew[b], wl.most[b])
+    // Off a count from another gathering, the most its list can now hold.
+    // @see boundFor
+    const n = !onScreen ? 0 : g && g.gathered
+      ? roomFor(
+        trusted(g, b) ? g.count[b] : boundFor(g, b, g.count[b], bands.w, bands.h, perTile, unwhole, wl.most[b]),
+        g.grew[b], wl.most[b],
+      )
       : wl.most[b];
     wl.meshes[b].geometry.instanceCount = Math.min(n, instanceCap);
     // Only on a change: visibility is structural, and flipping it every frame
@@ -2367,8 +2424,12 @@ export function drawGpuWater(
     const u = wl.under[b];
     if (u) {
       const B = wl.meshes.length;
-      u.geometry.instanceCount = !onScreen ? 0 : Math.min(instanceCap, g && g.gathered && trusted(g, b)
-        ? roomFor(g.count[B + b], g.grew[B + b], wl.most[b])
+      u.geometry.instanceCount = !onScreen ? 0 : Math.min(instanceCap, g && g.gathered
+        ? roomFor(
+          trusted(g, b) ? g.count[B + b]
+            : boundFor(g, b, g.count[B + b], bands.w, bands.h, perTile, unwhole, wl.most[b]),
+          g.grew[B + b], wl.most[b],
+        )
         : wl.most[b]);
       // THE ROOFED TIER ONLY WHERE THERE IS ROOFED WATER. Every band has one
       // on a map with a deck anywhere, and all but the few the bridge crosses
