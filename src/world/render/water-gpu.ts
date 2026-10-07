@@ -2332,14 +2332,18 @@ export function drawGpuWater(
   // was built around exactly that question. The water's comes from the solver's
   // active box: a band is `x + y` in tiles, so the box's corners bound which
   // bands can hold anything at all.
-  let lo = bands.visibleLo, hi = bands.visibleHi;
+  // WHERE THERE IS WATER, which decides whether a band's mesh is shown, and
+  // WHAT IS ON SCREEN, which decides only how many quads it draws. They were
+  // one range and both went into `visible` — structural, so every band the
+  // view crossed while zooming rebuilt the render group it is in. A count of
+  // nought is not structural. @see BandLayer.chunks
+  let lo = 0, hi = -1;                            // nothing wet: nothing draws
   if (region) {
     const tile = (c: number) => Math.floor(c / COLUMNS_PER_TILE);
-    lo = Math.max(lo, tile(region.x0) + tile(region.y0));
-    hi = Math.min(hi, tile(region.x1) + tile(region.y1));
-  } else {
-    hi = lo - 1;                                  // nothing wet: nothing draws
+    lo = tile(region.x0) + tile(region.y0);
+    hi = tile(region.x1) + tile(region.y1);
   }
+  const vlo = bands.visibleLo, vhi = bands.visibleHi;
   const g = wl.gather;
   for (let b = 0; b < wl.meshes.length; b++) {
     const show = wl.drawing && b >= lo && b <= hi;
@@ -2352,7 +2356,8 @@ export function drawGpuWater(
     // the same count and the same list, and each threw away what was not its
     // own — every quad's vertex shader run twice. @see QuadList.second
     // AND EVERYTHING, where the count is from a different gathering. @see trusted
-    const n = g && g.gathered && trusted(g, b)
+    const onScreen = b >= vlo && b <= vhi;
+    const n = !onScreen ? 0 : g && g.gathered && trusted(g, b)
       ? roomFor(g.count[b], g.grew[b], wl.most[b])
       : wl.most[b];
     wl.meshes[b].geometry.instanceCount = Math.min(n, instanceCap);
@@ -2362,7 +2367,7 @@ export function drawGpuWater(
     const u = wl.under[b];
     if (u) {
       const B = wl.meshes.length;
-      u.geometry.instanceCount = Math.min(instanceCap, g && g.gathered && trusted(g, b)
+      u.geometry.instanceCount = !onScreen ? 0 : Math.min(instanceCap, g && g.gathered && trusted(g, b)
         ? roomFor(g.count[B + b], g.grew[B + b], wl.most[b])
         : wl.most[b]);
       // THE ROOFED TIER ONLY WHERE THERE IS ROOFED WATER. Every band has one
