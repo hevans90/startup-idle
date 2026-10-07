@@ -72,6 +72,11 @@ export type StructureDef = {
    * alongside at once, and for how long each one does. @see world/boats/traffic
    */
   port?: { berths: number; dockSeconds: number };
+  /**
+   * What clicking it with the build tool turns it into, in place, if anything:
+   * the next tier, grown out of its own footprint. @see upgradeCommand
+   */
+  upgradesTo?: string;
 };
 
 const RAW_KITS = (kits as { kits: Record<string, Partial<BuildingKit>> }).kits;
@@ -132,8 +137,8 @@ const kitDefs = (): StructureDef[] =>
  * saved before tiers already name. @see stepTraffic
  */
 export const SEAPORTS: readonly StructureDef[] = [
-  { id: "seaport", name: "seaport", footprint: { w: 2, h: 2 }, port: { berths: 1, dockSeconds: 20 } },
-  { id: "seaport-2", name: "seaport II", footprint: { w: 3, h: 2 }, port: { berths: 2, dockSeconds: 15 } },
+  { id: "seaport", name: "seaport", footprint: { w: 2, h: 2 }, port: { berths: 1, dockSeconds: 20 }, upgradesTo: "seaport-2" },
+  { id: "seaport-2", name: "seaport II", footprint: { w: 3, h: 2 }, port: { berths: 2, dockSeconds: 15 }, upgradesTo: "seaport-3" },
   { id: "seaport-3", name: "seaport III", footprint: { w: 4, h: 2 }, port: { berths: 3, dockSeconds: 10 } },
 ].map((d) => ({
   ...d,

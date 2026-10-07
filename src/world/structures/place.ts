@@ -18,7 +18,7 @@ import {
 } from "../grid";
 import { RAMP } from "../iso";
 import { riverAt, riversBeside, type RiverMap } from "../boats/river";
-import { placementOf, type StructureDef } from "./def";
+import { placementOf, structureDef, type StructureDef } from "./def";
 
 /** Where a structure stroke places: the head cell, with the definition's footprint. */
 export function strokeFootprint(
@@ -231,4 +231,71 @@ export function demolishCommand(grid: Grid, id: number): Command | null {
   }
   b.removeStructure(s);
   return b.build(`demolish ${s.def}`);
+}
+
+/**
+ * Growing a structure into its next tier, in place: where it would stand and
+ * whether it may. Null when there is nothing to upgrade it to.
+ *
+ * IT GROWS OUT OF ITSELF. The new footprint keeps the old one's row and takes
+ * a column more on the east, or failing that on the west — the old footprint
+ * judged as if empty, since the building on it is the one growing. The rest is
+ * the ordinary placement check, rules and all, so a bigger seaport must still
+ * stand on the bank. @see validatePlacement
+ */
+export type UpgradePlan = PlacementCheck & {
+  from: Structure;
+  to: StructureDef;
+  x: number;
+  y: number;
+};
+
+export function planUpgrade(
+  grid: Grid, id: number, rules: PlaceRules = NO_RULES,
+): UpgradePlan | null {
+  const from = grid.structures.get(id);
+  const to = from && structureDef(structureDef(from.def)?.upgradesTo ?? "");
+  if (!from || !to) return null;
+  const grow = to.footprint.w - from.w;
+  const old = footprintCells(from.x, from.y, from.w, from.h).filter((c) => inBounds(grid, c.x, c.y));
+  // Judged as if the old footprint were empty, and put back exactly after.
+  const held = old.map((c) => grid.structureAt[idx(grid, c.x, c.y)]);
+  for (const c of old) grid.structureAt[idx(grid, c.x, c.y)] = -1;
+  let first: UpgradePlan | null = null;
+  try {
+    for (const x of [from.x, from.x - grow]) {
+      const check = validatePlacement(grid, to, x, from.y, rules);
+      const plan = { ...check, from, to, x, y: from.y };
+      if (check.ok) return plan;
+      first ??= plan;
+    }
+  } finally {
+    old.forEach((c, k) => { grid.structureAt[idx(grid, c.x, c.y)] = held[k]; });
+  }
+  return first;
+}
+
+/**
+ * The command that upgrades one structure in place, or null if it cannot be.
+ *
+ * ONE COMMAND, like placing: the record swapped for the next tier's under the
+ * SAME ID — so anything bound for it, a boat on its way to a port, is still
+ * bound for it — the new cells stamped, and the ground under them levelled to
+ * the height the building already stands at, so it does not step.
+ */
+export function upgradeCommand(grid: Grid, id: number, rules: PlaceRules = NO_RULES): Command | null {
+  const plan = planUpgrade(grid, id, rules);
+  if (!plan?.ok) return null;
+  const { from, to } = plan;
+  const b = new PatchBuilder(grid);
+  const ground = grid.height[idx(grid, from.x, from.y)];
+  const next: Structure = { ...from, def: to.id, x: plan.x, y: plan.y, w: to.footprint.w, h: to.footprint.h };
+  for (const c of footprintCells(next.x, next.y, next.w, next.h)) {
+    b.set("height", c.x, c.y, ground);
+    b.set("ramp", c.x, c.y, RAMP.NONE);
+    b.set("structureAt", c.x, c.y, id);
+  }
+  b.removeStructure(from);
+  b.addStructure(next);
+  return b.build(`upgrade ${from.def} to ${to.name}`);
 }

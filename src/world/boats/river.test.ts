@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { FLOW_DEFAULTS, createColumnField } from "../../fluid/columns";
-import { commit, createHistory } from "../edit/commands";
+import { commit, createHistory, undo } from "../edit/commands";
 import { createGrid, idx, setInflow, type Grid } from "../grid";
 import { SEAPORT, SEAPORTS, type StructureDef } from "../structures/def";
-import { placeCommand, touchesRoad, validatePlacement } from "../structures/place";
+import { planUpgrade, placeCommand, touchesRoad, upgradeCommand, validatePlacement } from "../structures/place";
 import { rampNeed } from "../roads/ramp-derive";
 import { componentCount, createNetwork } from "../roads/network";
 import { applyFixture } from "../debug/fixtures";
@@ -237,5 +237,51 @@ describe("a river wider than its inflow", () => {
     const r = mapRiver(g, poolDepthOf(g));
     expect(r.exits.every((e) => e.x === g.w - 1)).toBe(true);
     expect(downstream(r, 0, 6)!.x).toBeGreaterThan(0.9);
+  });
+});
+
+describe("upgrading a seaport in place", () => {
+  const placed = (g: Grid, x = 8) => {
+    const rivers = mapRiver(g, poolDepthOf(g));
+    const history = createHistory();
+    commit(g, history, placeCommand(g, SEAPORT, x, 4, { rivers })!);
+    return { rivers, history, id: [...g.structures.keys()][0] };
+  };
+
+  test("grows it a tier at a time, eastward, under the same id, and stops at the top", () => {
+    const g = straight();
+    const { rivers, history, id } = placed(g);
+    for (const tier of SEAPORTS.slice(1)) {
+      commit(g, history, upgradeCommand(g, id, { rivers })!);
+      const s = g.structures.get(id)!;
+      expect([s.def, s.x, s.y, s.w, s.h]).toEqual([tier.id, 8, 4, tier.footprint.w, 2]);
+      for (let k = 0; k < s.w; k++) for (let j = 0; j < 2; j++) expect(g.structureAt[idx(g, 8 + k, 4 + j)]).toBe(id);
+    }
+    expect(g.structures.size).toBe(1);
+    expect(planUpgrade(g, id, { rivers })).toBeNull();          // the top tier
+  });
+
+  test("grows westward when the east is taken, and refuses when both are", () => {
+    const g = straight();
+    const { rivers, history, id } = placed(g);
+    commit(g, history, placeCommand(g, SEAPORT, 10, 4, { rivers })!);   // right beside it
+    const plan = planUpgrade(g, id, { rivers })!;
+    expect(plan.ok).toBe(true);
+    expect(plan.x).toBe(7);
+    commit(g, history, placeCommand(g, SEAPORT, 6, 4, { rivers })!);    // and now the west too
+    expect(planUpgrade(g, id, { rivers })!.ok).toBe(false);
+    expect(upgradeCommand(g, id, { rivers })).toBeNull();
+  });
+
+  test("must still stand on the bank, and one undo puts it back as it was", () => {
+    const g = straight();
+    const { rivers, history, id } = placed(g);
+    const before = { ...g.structures.get(id)! };
+    commit(g, history, upgradeCommand(g, id, { rivers })!);
+    undo(g, history);
+    expect(g.structures.get(id)).toEqual(before);
+    expect(g.structureAt[idx(g, 10, 4)]).toBe(-1);
+    // With no rivers to ask, there is no bank to grow along.
+    expect(upgradeCommand(g, id)).toBeNull();
   });
 });

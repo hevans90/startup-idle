@@ -30,7 +30,7 @@ import {
 } from "../world/water/field";
 import { derivedSlope } from "../world/edit/slope";
 import { RAMP } from "../world/iso";
-import { demolishCommand, placeCommand } from "../world/structures/place";
+import { demolishCommand, placeCommand, upgradeCommand } from "../world/structures/place";
 
 import {
   PatchBuilder, canRedo, canUndo, commit, createHistory, peekRedo, peekUndo,
@@ -806,21 +806,30 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const demolishing = st.tool === "demolish";
     // THE GAME'S RULES, NOT THE EDITOR'S. Frontage is a rule of play; the
     // editor has to stay able to author a building anywhere. @see PlaceRules
+    // CLICKING A BUILDING THAT HAS A NEXT TIER upgrades it, whatever is
+    // selected: a seaport grows into the next seaport where it stands. @see upgradeCommand
+    const under = structureAt(st.grid, c.x, c.y);
+    const upgrade = !demolishing && under >= 0
+      ? structureDef(structureDef(st.grid.structures.get(under)?.def ?? "")?.upgradesTo ?? "")
+      : null;
+    const target = upgrade ?? def;
     const rules = {
       ...(st.playing ? { needsRoad: true } : {}),
       // THE RIVERS AS THEY STAND, for a building that must be on a bank. A
       // fact about the building, so the editor obeys it too. @see riverside
-      ...(water && def?.placement?.riverside ? { rivers: mapRiver(st.grid, tileDepthOf(water.columns)) } : {}),
+      ...(water && target?.placement?.riverside ? { rivers: mapRiver(st.grid, tileDepthOf(water.columns)) } : {}),
     };
     const cmd = demolishing
-      ? demolishCommand(st.grid, structureAt(st.grid, c.x, c.y))
-      : def && placeCommand(st.grid, def, c.x, c.y, rules);
+      ? demolishCommand(st.grid, under)
+      : upgrade
+        ? upgradeCommand(st.grid, under, rules)
+        : def && placeCommand(st.grid, def, c.x, c.y, rules);
     if (!cmd) { set({ stroke: null }); return; }
     // AND IT HAS TO BE PAID FOR, before anything is committed. Checked and
     // charged together so a refusal cannot leave the money spent — the same
     // order the hiring gate needs, and for the same reason.
-    if (st.playing && !demolishing && def) {
-      if (!spendForBuild(buildCost(def.id))) { set({ stroke: null }); return; }
+    if (st.playing && !demolishing && target) {
+      if (!spendForBuild(buildCost(target.id))) { set({ stroke: null }); return; }
     }
     const touched = commit(st.grid, history, cmd);
     // The bed stands on what is built as well as on the terrain — a placed

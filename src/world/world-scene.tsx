@@ -49,7 +49,7 @@ import {
 } from "./structures/layer";
 import type { RenderCtx } from "./structures/render";
 import { structureDef } from "./structures/def";
-import { strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
+import { planUpgrade, strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import "./structures/tiles-renderer";
@@ -79,7 +79,7 @@ import "./structures/seaport-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { footprintCells, surfaceSampler } from "./grid";
+import { footprintCells, structureAt, surfaceSampler } from "./grid";
 import { HEIGHT_UNIT, HH, HW, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
@@ -1632,7 +1632,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
 
       // A STRUCTURE tool previews its footprint, not a brush: the same function
       // the commit uses, so the rect you drag out is the rect you get.
-      const cells = isStructureTool(s0.tool)
+      let cells = isStructureTool(s0.tool)
         ? (() => {
             const fp = structureFootprint(structureDef(structureDefId), s0.anchor, s0.head);
             return footprintCells(fp.x, fp.y, fp.w, fp.h);
@@ -1644,11 +1644,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // rivers as traffic last mapped them, which is at most a second old.
       // @see validatePlacement
       let valid: Validator | undefined;
-      if (s0.tool === "placeStructure") {
+      const rivers = getTraffic().rivers ?? undefined;
+      // OVER A BUILDING WITH A NEXT TIER, the click upgrades it, so the cursor
+      // shows what it would grow into instead. @see planUpgrade
+      const under = s0.tool === "placeStructure" ? structureAt(grid, s0.head.x, s0.head.y) : -1;
+      const plan = under >= 0 ? planUpgrade(grid, under, { ...(rivers ? { rivers } : {}) }) : null;
+      if (plan) {
+        const { w, h } = plan.to.footprint;
+        cells = footprintCells(plan.x, plan.y, w, h);
+        valid = (_g, x, y) => plan.cells[(y - plan.y) * w + (x - plan.x)] ?? { ok: false };
+      } else if (s0.tool === "placeStructure") {
         const def = structureDef(structureDefId);
         if (def) {
           const fp = structureFootprint(def, s0.anchor, s0.head);
-          const rivers = getTraffic().rivers ?? undefined;
           const check = validatePlacement(grid, def, fp.x, fp.y, { ...(rivers ? { rivers } : {}) });
           valid = (_g, x, y) => check.cells[(y - fp.y) * fp.w + (x - fp.x)] ?? { ok: false };
         }
@@ -1667,7 +1675,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     };
     draw();
     return useWorldStore.subscribe((s, was) => {
-      if (s.stroke !== was.stroke || s.hover !== was.hover) draw();
+      // And on an edit: an upgrade changes what is under a cursor that has not moved.
+      if (s.stroke !== was.stroke || s.hover !== was.hover || s.revision !== was.revision) draw();
     });
   }, [
     brushRadius, tool, material, palette, structureDefId,
