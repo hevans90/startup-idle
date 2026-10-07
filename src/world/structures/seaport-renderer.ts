@@ -89,9 +89,16 @@ function draw(g: Graphics, s: Structure, ctx: RenderCtx): void {
   // `eave` but ends FLUSH with the gable. An overhang there is seen from
   // underneath at this angle — the line of sight climbs faster than the roof
   // does — and with no soffit drawn the gap under it showed straight through.
+  //
+  // EACH SLOPE IS ONE PLANE, through the ridge and the wall's top edge, and the
+  // eave carries on down it: `low` is lower than the wall top by the drop over
+  // the overhang. An eave put at the wall top's height made the roof's edge a
+  // different line from the gable's, and the sliver between them showed the
+  // wall and the sky.
+  const low = top - (eave * (ridge - top)) / (um - wu0);
   quad([P(wu0, wv1, top), P(wu1, wv1, top), P(um, wv1, ridge)], WALL_SHADE);
-  quad([P(wu0 - eave, wv0, top), P(um, wv0, ridge), P(um, wv1, ridge), P(wu0 - eave, wv1, top)], ROOF_SHADE);
-  quad([P(um, wv0, ridge), P(wu1 + eave, wv0, top), P(wu1 + eave, wv1, top), P(um, wv1, ridge)], ROOF);
+  quad([P(wu0 - eave, wv0, low), P(um, wv0, ridge), P(um, wv1, ridge), P(wu0 - eave, wv1, low)], ROOF_SHADE);
+  quad([P(um, wv0, ridge), P(wu1 + eave, wv0, low), P(wu1 + eave, wv1, low), P(um, wv1, ridge)], ROOF);
   // And a door in the lit side.
   const dv = (wv0 + wv1) / 2;
   quad([P(wu1, dv - 0.22, QUAY + 1.8), P(wu1, dv + 0.22, QUAY + 1.8), P(wu1, dv + 0.22, QUAY), P(wu1, dv - 0.22, QUAY)], DOOR);
