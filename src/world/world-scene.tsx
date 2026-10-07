@@ -1993,7 +1993,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // @see world/boats
       const fleet = getFleet();
       stepFleet(fleet, field.columns, dt);
-      boatRef.current?.draw(fleet, scale);
+      boatRef.current?.draw(fleet, field.columns, scale, dt);
       const t2 = performance.now();
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the
       // walk over the columns when it is not. @see createMeta
