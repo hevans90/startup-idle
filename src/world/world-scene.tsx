@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, getFleet, getNetwork, getTraffic, useWorldStore } from "../state/world.store";
+import { drainDirty, getFleet, getNetwork, getTown, getTraffic, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -73,6 +73,8 @@ import {
 const XRAY_GROUND = 0.26;
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
+import { createTownLayer, type TownLayer } from "./agents/town-render";
+import { stepTown } from "./agents/town";
 import { stepFleet, wantFleet } from "./boats/fleet";
 import { stepTraffic, trafficSteer } from "./boats/traffic";
 import "./structures/seaport-renderer";
@@ -171,6 +173,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const cursorRef = useRef<BuildCursor | null>(null);
   /** The boats, drawn among the movers of the bands. @see world/boats */
   const boatRef = useRef<BoatLayer | null>(null);
+  /** The cars and people, drawn among the movers too. @see world/agents */
+  const townRef = useRef<TownLayer | null>(null);
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -252,6 +256,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         window.__waterGpu = gpuRef.current;
         // The boats, for a harness to look at. @see world/boats
         (window as unknown as { __boats?: () => unknown }).__boats = () => getFleet();
+        // And the town's traffic. @see world/agents
+        (window as unknown as { __town?: () => unknown }).__town = () => getTown();
         window.__renderer = app.renderer;
         // What the readback costs, answered by not doing it. @see setReadback
         window.__readback = setReadback;
@@ -1246,6 +1252,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         cursorRef.current = createBuildCursor(overlayRoot.current, bl);
       }
       boatRef.current = createBoatLayer(bl);
+      townRef.current = createTownLayer(bl);
       setSceneEpoch((n) => n + 1);
 
       console.info(`WORLD: ${grid.w}×${grid.h}, ${bl.bands.length} bands`);
@@ -1275,6 +1282,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cursorRef.current = null;
       boatRef.current?.destroy();
       boatRef.current = null;
+      townRef.current?.destroy();
+      townRef.current = null;
       if (flRef.current) destroyWaterLayer(flRef.current);
       if (gpuRef.current) destroyGpuWaterLayer(gpuRef.current);
       if (faRef.current) destroyFallLayer(faRef.current);
@@ -2030,6 +2039,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       stepTraffic(traffic, fleet, useWorldStore.getState().grid, field.columns, dt);
       stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
       boatRef.current?.draw(fleet, field.columns, scale, dt);
+      // THE TOWN: cars and people on their trips round the roads. @see world/agents
+      const net = getNetwork();
+      if (net) {
+        const st = useWorldStore.getState();
+        stepTown(getTown(), st.grid, net, st.revision, dt);
+        townRef.current?.draw(getTown(), scale);
+      }
       const t2 = performance.now();
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the
       // walk over the columns when it is not. @see createMeta

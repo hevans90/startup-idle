@@ -12,6 +12,7 @@ import {
 } from "../world/boats/fleet";
 import { mapRiver, tileDepthOf } from "../world/boats/river";
 import { createTraffic, type Traffic } from "../world/boats/traffic";
+import { createTown, type Town } from "../world/agents/town";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
@@ -191,6 +192,9 @@ export const getFleet = () => fleet;
 /** And the boats coming down its rivers, from its seaports. @see world/boats/traffic */
 let traffic: Traffic = createTraffic();
 export const getTraffic = () => traffic;
+/** And the cars and people on its roads. @see world/agents/town */
+let town: Town = createTown();
+export const getTown = () => town;
 
 /**
  * Cells the renderer has not reconciled yet, ACCUMULATED across edits.
@@ -607,6 +611,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     water = createWaterField(grid);
     fleet = createFleet();
     traffic = createTraffic();
+    town = createTown();
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
@@ -927,6 +932,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     water = createWaterField(grid);
     fleet = createFleet();
     traffic = createTraffic();
+    town = createTown();
     // The file's boats, on the file's water. @see restoreFleet
     if (boats?.length) restoreFleet(fleet, water.columns, boats);
     setWaterEdge(water, get().openEdge);          // a new field, the same world
