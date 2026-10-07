@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Sprite, Texture } from "pixi.js";
 import { bandCount, bandOf, cellToWorld, TILE_W } from "../iso";
 import {
-  createBandLayer, destroyBandLayer, setVisibleBands, visibleBandCount,
+  BAND_CHUNK, bandShown, createBandLayer, destroyBandLayer, setVisibleBands, visibleBandCount,
 } from "./bands";
 
 describe("createBandLayer", () => {
@@ -77,33 +77,43 @@ describe("the invariant bands rely on", () => {
 });
 
 describe("culling", () => {
-  test("shows only the requested range", () => {
-    const L = createBandLayer(10, 10);
-    setVisibleBands(L, 4, 8);
-    expect(visibleBandCount(L)).toBe(5);
+  // BY CHUNK OF BANDS, each a render group, so a band coming or going does not
+  // re-batch the stage. A band is drawn when its chunk is. @see BandLayer.chunks
+  test("shows every chunk the requested range touches, and only those", () => {
+    const L = createBandLayer(40, 40);
+    setVisibleBands(L, 20, 40);
+    expect(visibleBandCount(L)).toBe(21);
     for (let b = 0; b < L.bands.length; b++) {
-      expect(L.bands[b].visible).toBe(b >= 4 && b <= 8);
+      const k = Math.floor(b / BAND_CHUNK);
+      expect(bandShown(L, b)).toBe(k >= Math.floor(20 / BAND_CHUNK) && k <= Math.floor(40 / BAND_CHUNK));
     }
+    // The range itself is drawn, whatever the chunking.
+    for (let b = 20; b <= 40; b++) expect(bandShown(L, b)).toBe(true);
   });
   test("clamps out-of-range requests", () => {
     const L = createBandLayer(5, 5);
     setVisibleBands(L, -100, 100);
     expect([L.visibleLo, L.visibleHi]).toEqual([0, L.bands.length - 1]);
-    expect(L.bands.every((b) => b.visible)).toBe(true);
+    expect(L.bands.every((_, b) => bandShown(L, b))).toBe(true);
   });
   test("is idempotent — repeat calls touch nothing", () => {
-    const L = createBandLayer(6, 6);
+    const L = createBandLayer(40, 40);
     setVisibleBands(L, 2, 5);
-    const before = L.bands.map((b) => b.visible);
+    const before = L.chunks.map((c) => c.visible);
     setVisibleBands(L, 2, 5);
-    expect(L.bands.map((b) => b.visible)).toEqual(before);
+    expect(L.chunks.map((c) => c.visible)).toEqual(before);
   });
   test("a culled band keeps its children (visibility only)", () => {
-    const L = createBandLayer(5, 5);
-    L.staticOf[3].addChild(new Sprite(Texture.EMPTY));
+    const L = createBandLayer(40, 40);
+    L.staticOf[60].addChild(new Sprite(Texture.EMPTY));
     setVisibleBands(L, 0, 1);
-    expect(L.bands[3].visible).toBe(false);
-    expect(L.staticOf[3].children.length).toBe(1);
+    expect(bandShown(L, 60)).toBe(false);
+    expect(L.staticOf[60].children.length).toBe(1);
+  });
+  test("each chunk is its own render group, so its contents are not re-batched", () => {
+    const L = createBandLayer(40, 40);
+    expect(L.chunks.length).toBe(Math.ceil(L.bands.length / BAND_CHUNK));
+    expect(L.chunks.every((c) => c.isRenderGroup)).toBe(true);
   });
 });
 
@@ -133,7 +143,9 @@ describe("scale", () => {
   test("a 64x64 map is 127 bands", () => {
     const L = createBandLayer(64, 64);
     expect(L.bands.length).toBe(127);
-    expect(L.root.children.length).toBe(127);
+    // In chunks of BAND_CHUNK, each a render group. @see BandLayer.chunks
+    expect(L.root.children.length).toBe(Math.ceil(127 / BAND_CHUNK));
+    expect(L.chunks.reduce((n, c) => n + c.children.length, 0)).toBe(127);
     destroyBandLayer(L);
   });
 });

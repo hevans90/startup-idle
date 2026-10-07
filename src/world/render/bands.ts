@@ -29,8 +29,23 @@ import { bandCount } from "../iso";
 export type BandLayer = {
   /** Add this to the viewport. */
   root: Container;
-  /** Band wrapper, index = `x + y`. Toggle `.visible` to cull. */
+  /** Band wrapper, index = `x + y`. Culled by its chunk. @see chunks */
   bands: Container[];
+  /**
+   * CONSECUTIVE BANDS, A RENDER GROUP EACH, and what the cull toggles.
+   *
+   * A band's `visible` is structural: flipped, the renderer rebuilt the
+   * instruction list of the group it is in — the whole stage, every terrain
+   * sprite of every band on screen — and the cull flipped one on nearly every
+   * frame of a zoom or a pan. On a 128 tile map that was 7 to 8 ms of the
+   * render call's CPU on every such frame, against 2 with the view still.
+   * A band per render group fixed it in principle and hit Pixi's uniform
+   * batch ceiling at 1,221 groups. So a group per CHUNK of bands: a chunk
+   * flipping touches only the root's short list of chunks, and nothing in
+   * one is re-batched because another came or went. The price is drawing up
+   * to a chunk's worth of off-screen bands at either edge. @see BAND_CHUNK
+   */
+  chunks: Container[];
   /**
    * Terrain COLUMNS per band, drawn beneath the static content.
    *
@@ -90,10 +105,28 @@ export type BandLayer = {
   visibleHi: number;
 };
 
+/** Bands to a chunk. @see BandLayer.chunks */
+export const BAND_CHUNK = 16;
+
+/** Whether band b is drawn: its chunk is. @see BandLayer.chunks */
+export const bandShown = (layer: BandLayer, b: number) =>
+  layer.chunks[Math.floor(b / BAND_CHUNK)]?.visible ?? false;
+
 export function createBandLayer(w: number, h: number): BandLayer {
   const n = bandCount(w, h);
-  const root = new Container();
+  // THE ROOT IS A RENDER GROUP TOO, so moving or zooming the view is one
+  // transform on the GPU rather than a new world transform, and a fresh
+  // upload, for every sprite on the map. @see chunks
+  const root = new Container({ isRenderGroup: true });
   root.sortableChildren = true;
+  const chunks: Container[] = [];
+  for (let k = 0; k * BAND_CHUNK < n; k++) {
+    const chunk = new Container({ isRenderGroup: true });
+    chunk.zIndex = k;
+    chunk.sortableChildren = true;
+    chunks.push(chunk);
+    root.addChild(chunk);
+  }
 
   const bands: Container[] = [];
   const cliffOf: Container[] = [];
@@ -132,13 +165,14 @@ export function createBandLayer(w: number, h: number): BandLayer {
     pavedOf.push(paved);
     structureOf.push(structures);
     dynamicOf.push(dyn);
-    root.addChild(band);
+    chunks[Math.floor(b / BAND_CHUNK)].addChild(band);
   }
   // Sorted exactly once, at build. Nothing after this re-sorts the world.
   root.sortChildren();
+  for (const c of chunks) c.sortChildren();
 
   return {
-    root, bands, cliffOf, staticOf, underOf, pavedOf, structureOf, dynamicOf,
+    root, bands, chunks, cliffOf, staticOf, underOf, pavedOf, structureOf, dynamicOf,
     w, h, visibleLo: 0, visibleHi: n - 1, groundAlpha: 1,
   };
 }
@@ -159,9 +193,10 @@ export function setVisibleBands(layer: BandLayer, lo: number, hi: number) {
   const l = Math.max(0, Math.min(n - 1, lo));
   const r = Math.max(0, Math.min(n - 1, hi));
   if (l === layer.visibleLo && r === layer.visibleHi) return;
-  for (let b = 0; b < n; b++) {
-    const vis = b >= l && b <= r;
-    if (layer.bands[b].visible !== vis) layer.bands[b].visible = vis;
+  // BY CHUNK: a chunk is shown when any of its bands is wanted. @see chunks
+  for (let k = 0; k < layer.chunks.length; k++) {
+    const vis = (k + 1) * BAND_CHUNK - 1 >= l && k * BAND_CHUNK <= r;
+    if (layer.chunks[k].visible !== vis) layer.chunks[k].visible = vis;
   }
   layer.visibleLo = l;
   layer.visibleHi = r;
@@ -199,6 +234,7 @@ export const visibleBandCount = (layer: BandLayer) =>
 export function destroyBandLayer(layer: BandLayer) {
   layer.root.destroy({ children: true });
   layer.bands.length = 0;
+  layer.chunks.length = 0;
   layer.cliffOf.length = 0;
   layer.staticOf.length = 0;
   layer.underOf.length = 0;
