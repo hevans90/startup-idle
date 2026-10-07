@@ -9,8 +9,9 @@
 import { DIR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { commit, createHistory } from "../edit/commands";
-import { SEAPORT } from "../structures/def";
-import { placeCommand } from "../structures/place";
+import { SEAPORTS, type StructureDef } from "../structures/def";
+import { placeCommand, validatePlacement } from "../structures/place";
+import { derivedRamp } from "../roads/ramp-derive";
 import { layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
@@ -366,51 +367,120 @@ export function buildInlet(g: Grid, material: number) {
 }
 
 /**
- * The inlet river with SEAPORTS on its banks, so it has traffic.
+ * A river with a SEAPORT OF EACH TIER on its bank, and roads to them all.
  *
  * Everything boats do in one place: the river comes in over the west edge and
- * leaves by the east, and with a port on it a boat is sent in over the inflow
- * every few seconds, goes down the bends under its own power with a wake
- * behind it, and is taken off at the far edge. @see world/boats/traffic
+ * leaves by the east, and with ports on it boats are sent in over the inflow,
+ * go to whichever port will turn them round soonest, lie alongside for that
+ * port's time, and go on down and out at the far edge, each with a wake behind
+ * it. @see world/boats/traffic
+ *
+ * GENTLE GROUND, not a gorge: FLAT land with the channel cut
+ * {@link HARBOUR_CUT} into it, and nothing else. The river is drawn down to
+ * the far edge by the open edge alone, not by a valley falling under it. A
+ * valley falling in whole steps — whole, so the road along it could ramp them
+ * — threw the river over each step, and the fall splashed out over the land
+ * either side of it. Flat, the roads need no ramps at all.
+ *
+ * Held {@link HARBOUR_FREEBOARD} under its brim: at the brim, on land with
+ * no valley to hold it, the flow's own head topped the banks and the whole
+ * floodplain went under. So its banks are a lip, not a cliff.
  *
  * THE PORTS ARE PLACED BY THE RULE, not stamped: each goes through
  * `placeCommand` against the river as the fixture's own pool maps it, so a
- * port here is one the editor would also have let you put there. Searched for
- * along the bank near where it is wanted, on the floodplain and not the
- * valley wall, which levelling would have carved a step into.
+ * port here is one the editor would also have let you put there. Tiers one to
+ * three, west to east, a quarter of the map apart, all on the north bank so one
+ * road reaches them all: a main road from edge to edge, and a spur from it down
+ * to the back of each port. The ramps are derived the way the road tool
+ * derives them. @see derivedRamp
  */
 export function buildHarbour(g: Grid, material: number) {
-  buildInlet(g, material);
+  clear(g, material);
+  const mid = g.h / 2;
+  const half = Math.max(2, Math.round(g.h * 0.05));
+  const amp = g.h * 0.1;
+  const centre = (x: number) => mid + amp * Math.sin((x / g.w) * Math.PI * 2);
+  for (let x = 0; x < g.w; x++) {
+    for (let y = 0; y < g.h; y++) {
+      set(g, x, y, Math.abs(y - centre(x)) <= half ? -HARBOUR_CUT : 0);
+    }
+    // Full from the start. @see buildInlet, which says why
+    pond(g, -HARBOUR_FREEBOARD, 1, x, 0, x, g.h - 1);
+  }
+  // The whole cross-section, held just under the brim where it comes in —
+  // and held where it goes out too, a little lower, which is what makes it
+  // flow. A bare open edge drained the last tiles to under half a step, too
+  // shallow to float a boat off the map, and the river had no way out.
+  for (let y = 0; y < g.h; y++) {
+    if (Math.abs(y - centre(0)) <= half) setInflow(g, 0, y, HARBOUR_CUT - HARBOUR_FREEBOARD);
+    if (Math.abs(y - centre(g.w - 1)) <= half) setInflow(g, g.w - 1, y, HARBOUR_CUT - HARBOUR_FREEBOARD - HARBOUR_HEAD);
+  }
+
+  // THE PORTS, a tier at a time, west to east.
   const rivers = mapRiver(g, poolDepthOf(g));
   const history = createHistory();
-  const want: [number, number][] = [[0.3, -1], [0.55, 1], [0.78, -1]];
-  for (const [at, side] of want) {
-    const spot = harbourSpot(g, rivers, Math.round(g.w * at), side);
-    if (!spot) continue;
-    const cmd = placeCommand(g, SEAPORT, spot.x, spot.y, { rivers });
-    if (cmd) commit(g, history, cmd);
+  const ports: { x: number; y: number; w: number }[] = [];
+  SEAPORTS.forEach((def, k) => {
+    const want = Math.round((g.w * (k + 1)) / (SEAPORTS.length + 1)) - (def.footprint.w >> 1);
+    const spot = harbourSpot(g, rivers, def, want);
+    if (!spot) return;
+    const cmd = placeCommand(g, def, spot.x, spot.y, { rivers });
+    if (!cmd) return;
+    commit(g, history, cmd);
+    ports.push({ ...spot, w: def.footprint.w });
+  });
+
+  // THE ROADS: two lanes edge to edge north of the river, and a spur down
+  // from it to the back of each port, two lanes wide in the port's middle.
+  // On flat ground they need no ramps; derived anyway, so a change to the
+  // ground here cannot leave a road that cannot climb it.
+  const road = Math.max(1, Math.round(mid - amp - half - 7));
+  for (let x = 0; x < g.w; x++) { pave(g, x, road); pave(g, x, road + 1); }
+  for (const p of ports) {
+    const lane = p.x + ((p.w - 2) >> 1);
+    for (let y = road + 2; y < p.y; y++) { pave(g, lane, y); pave(g, lane + 1, y); }
+  }
+  const read = {
+    inBounds: (x: number, y: number) => inBounds(g, x, y),
+    paved: (x: number, y: number) => g.paved[idx(g, x, y)] !== 0,
+    height: (x: number, y: number) => g.height[idx(g, x, y)],
+  };
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) if (read.paved(x, y)) g.ramp[idx(g, x, y)] = derivedRamp(read, x, y);
   }
 }
 
-/** A bank on `side` of the river (−1 north, 1 south) near column `x`, or null. */
-function harbourSpot(g: Grid, rivers: ReturnType<typeof mapRiver>, x: number, side: number) {
-  for (let d = 0; d < 8; d++) {
-    for (const sx of [x + d, x - d]) {
-      for (let y = 1; y < g.h - 2; y++) {
-        const cells = [[sx, y], [sx + 1, y], [sx, y + 1], [sx + 1, y + 1]];
-        if (cells.some(([cx, cy]) => !inBounds(g, cx, cy))) continue;
-        const hs = cells.map(([cx, cy]) => g.height[idx(g, cx, cy)]);
-        if (Math.max(...hs) - Math.min(...hs) > 1) continue;
-        // On the side asked for: the river is beyond it, that way.
-        const beyond = side < 0 ? y + 2 : y - 1;
-        if (beyond < 0 || beyond >= g.h) continue;
-        if (!rivers.river[idx(g, sx, beyond)] && !rivers.river[idx(g, sx + 1, beyond)]) continue;
-        const check = placeCommand(g, SEAPORT, sx, y, { rivers });
-        if (check) return { x: sx, y };
+/** Half steps the harbour's channel is cut below the land. */
+const HARBOUR_CUT = 4;
+/** Half steps the harbour's river is held under its brim. */
+const HARBOUR_FREEBOARD = 1;
+/** Half steps lower it is held where it leaves than where it comes in. */
+const HARBOUR_HEAD = 1;
+
+/**
+ * Where a port of this def goes on the north bank, its west end near `x`: the
+ * placeable spot with the most river along its south side — the most room for
+ * berths — on level ground, nearest `x`. Null if there is none near it.
+ */
+function harbourSpot(g: Grid, rivers: ReturnType<typeof mapRiver>, def: StructureDef, x: number) {
+  const { w, h } = def.footprint;
+  let best: { x: number; y: number } | null = null, bestScore = -Infinity;
+  for (let d = 0; d < 6; d++) {
+    for (const sx of d ? [x + d, x - d] : [x]) {
+      for (let y = 1; y < g.h - h - 1; y++) {
+        let ok = true, river = 0;
+        const h0 = inBounds(g, sx, y) ? g.height[idx(g, sx, y)] : 0;
+        for (let k = 0; k < w && ok; k++) {
+          for (let j = 0; j < h; j++) if (!inBounds(g, sx + k, y + j) || g.height[idx(g, sx + k, y + j)] !== h0) ok = false;
+          if (inBounds(g, sx + k, y + h) && rivers.river[idx(g, sx + k, y + h)]) river++;
+        }
+        if (!ok || !river || !validatePlacement(g, def, sx, y, { rivers }).ok) continue;
+        const score = river * 10 - d;
+        if (score > bestScore) { best = { x: sx, y }; bestScore = score; }
       }
     }
   }
-  return null;
+  return best;
 }
 
 /**

@@ -549,7 +549,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   revision: 0,
   boatRev: 0,
   lastTouched: [],
-  netComponents: 0,
+  // Counted, not assumed: a `?fixture=` builds its roads into the first grid
+  // and never goes through `loadGrid`, so a nought here stayed nought.
+  ...netMeta(),
   undoDepth: 0,
   redoDepth: 0,
   undoName: null,

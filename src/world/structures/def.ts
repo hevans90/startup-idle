@@ -67,6 +67,11 @@ export type StructureDef = {
    */
   clearsTerrain?: boolean;
   placement?: Placement;
+  /**
+   * A SEAPORT: boats on the river beside it call here. How many can lie
+   * alongside at once, and for how long each one does. @see world/boats/traffic
+   */
+  port?: { berths: number; dockSeconds: number };
 };
 
 const RAW_KITS = (kits as { kits: Record<string, Partial<BuildingKit>> }).kits;
@@ -118,19 +123,29 @@ const kitDefs = (): StructureDef[] =>
   }));
 
 /**
- * A SEAPORT: quays, a warehouse and a crane on a river's bank. While one
- * stands beside a river, boats come down that river. @see stepTraffic
+ * THE SEAPORTS, by tier: quays, warehouses and cranes on a river's bank. While
+ * one stands beside a river, boats come down that river to call at it.
+ *
+ * A bigger port is a longer quay with more BERTHS — boats alongside at once —
+ * and quicker turnarounds, so a river's ports can take more boats a minute and
+ * the river sends them in faster. The tier-one id stays `seaport`, which maps
+ * saved before tiers already name. @see stepTraffic
  */
-export const SEAPORT: StructureDef = {
-  id: "seaport",
-  name: "seaport",
-  footprint: { w: 2, h: 2 },
-  render: { kind: "custom", rendererId: "seaport" },
+export const SEAPORTS: readonly StructureDef[] = [
+  { id: "seaport", name: "seaport", footprint: { w: 2, h: 2 }, port: { berths: 1, dockSeconds: 20 } },
+  { id: "seaport-2", name: "seaport II", footprint: { w: 3, h: 2 }, port: { berths: 2, dockSeconds: 15 } },
+  { id: "seaport-3", name: "seaport III", footprint: { w: 4, h: 2 }, port: { berths: 3, dockSeconds: 10 } },
+].map((d) => ({
+  ...d,
+  render: { kind: "custom", rendererId: "seaport" } as const,
   placement: { riverside: true },
-};
+}));
+
+/** The first tier. */
+export const SEAPORT = SEAPORTS[0];
 
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), SEAPORT].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

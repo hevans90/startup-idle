@@ -62,6 +62,8 @@ export type Boat = {
   route?: number[];
   /** Seconds left alongside at the one it is at. */
   dockLeft?: number;
+  /** Which of that port's berths it has been given, once it has one. */
+  berth?: number;
 };
 
 export type Fleet = { boats: Boat[]; next: number; t: number };

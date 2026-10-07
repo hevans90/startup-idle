@@ -24,6 +24,8 @@ import { footprintCells, inBounds, type Grid } from "../grid";
 
 /** Deeper than this, in half steps, and a tile is navigable river. */
 export const RIVER_DEPTH = 1;
+/** Half steps under a river's highest-held inflow that an inflow still counts as a source. */
+const SOURCE_SLACK = 0.5;
 /** How far down a river, in steps along it, the rim has to be to be a way out. */
 const EXIT_FROM_SOURCE = 8;
 
@@ -106,10 +108,19 @@ export function mapRiver(
     // touch the rim too. Counted as exits, they were the nearest way out of
     // the river for every boat that came in, and each one turned round and
     // left by the edge it had just arrived over.
+    //
+    // THE HIGHEST-HELD INFLOWS ONLY. An edge can be held at a level where a
+    // river LEAVES as well as where it comes in — held lower, so it is the way
+    // the water goes, and a river drained by a bare open edge runs too shallow
+    // at the rim to float a boat out. Water comes in where it is held highest;
+    // an inflow held lower than that is an exit like any other rim tile.
+    let top = -Infinity;
+    for (const i of members) if (g.inflow[i] !== 0) top = Math.max(top, g.height[i] + g.inflow[i]);
+    const isSource = (i: number) => g.inflow[i] !== 0 && g.height[i] + g.inflow[i] >= top - SOURCE_SLACK;
     const fromSource = new Map<number, number>();
     head = 0; tail = 0;
     for (const i of members) {
-      if (g.inflow[i] === 0) continue;
+      if (!isSource(i)) continue;
       sources.push({ x: i % g.w, y: (i / g.w) | 0, river: label });
       fromSource.set(i, 0);
       queue[tail++] = i;
@@ -127,7 +138,7 @@ export function mapRiver(
     head = 0; tail = 0;
     for (const i of members) {
       const x = i % g.w, y = (i / g.w) | 0;
-      if (g.inflow[i] !== 0 || !onRim(g, x, y) || fromSource.get(i)! < EXIT_FROM_SOURCE) continue;
+      if (isSource(i) || !onRim(g, x, y) || !((fromSource.get(i) ?? Infinity) >= EXIT_FROM_SOURCE)) continue;
       exits.push({ x, y, river: label });
       toExit[i] = 0;
       queue[tail++] = i;
@@ -209,15 +220,22 @@ export function downhill(
   return m > 1e-6 ? { x: vx / m, y: vy / m } : null;
 }
 
-/** Steps from one river tile to every other tile of its river; Infinity elsewhere. */
-export function stepsFrom(r: RiverMap, x: number, y: number): Float32Array {
+/**
+ * Steps from the nearest of some river tiles to every other tile of their
+ * river; Infinity elsewhere. The tiles are taken to be on one river.
+ */
+export function stepsFrom(r: RiverMap, seeds: readonly { x: number; y: number }[]): Float32Array {
   const out = new Float32Array(r.w * r.h).fill(Infinity);
-  const label = riverAt(r, x, y);
+  const label = seeds.length ? riverAt(r, seeds[0].x, seeds[0].y) : 0;
   if (!label) return out;
   const queue = new Int32Array(r.w * r.h);
   let head = 0, tail = 0;
-  out[y * r.w + x] = 0;
-  queue[tail++] = y * r.w + x;
+  for (const s of seeds) {
+    const i = s.y * r.w + s.x;
+    if (r.river[i] !== label || out[i] === 0) continue;
+    out[i] = 0;
+    queue[tail++] = i;
+  }
   while (head < tail) {
     const i = queue[head++];
     const cx = i % r.w, cy = (i / r.w) | 0;
@@ -231,31 +249,38 @@ export function stepsFrom(r: RiverMap, x: number, y: number): Float32Array {
   return out;
 }
 
+/** A place a boat ties up: its river tile, and the point in it it moors at. */
+export type BerthSpot = { tx: number; ty: number; x: number; y: number; river: number };
+
 /**
- * Where a boat ties up at a structure on a river's bank: the river tile
- * beside it nearest the middle of its side, or null if none is beside it.
- * `at` is the tile; `x`, `y` the point a boat moors at — in the tile, drawn
- * in toward the quay. @see traffic
+ * Where boats tie up at a structure on a river's bank: up to `n` river tiles
+ * beside it, all along ONE side — the side with the most river beside it,
+ * which is its quay — spread out along that side. Empty if no river is beside
+ * it. Each point is in its tile, drawn in toward the quay. @see traffic
  */
-export function berthOf(
-  r: RiverMap, x0: number, y0: number, w: number, h: number,
-): { tx: number; ty: number; x: number; y: number; river: number } | null {
-  const cx = x0 + (w - 1) / 2, cy = y0 + (h - 1) / 2;
-  let best: { tx: number; ty: number; x: number; y: number; river: number } | null = null;
-  let bestD = Infinity;
+export function berthsBeside(
+  r: RiverMap, x0: number, y0: number, w: number, h: number, n: number,
+): BerthSpot[] {
+  const sides = new Map<string, BerthSpot[]>();
   for (const c of footprintCells(x0, y0, w, h)) {
     for (const [dx, dy] of STEPS) {
       const nx = c.x + dx, ny = c.y + dy;
       if (nx >= x0 && nx < x0 + w && ny >= y0 && ny < y0 + h) continue;
       const river = riverAt(r, nx, ny);
       if (!river) continue;
-      const d = Math.hypot(nx - cx, ny - cy);
-      if (d >= bestD) continue;
-      bestD = d;
-      best = { tx: nx, ty: ny, x: nx - dx * BERTH_IN, y: ny - dy * BERTH_IN, river };
+      const key = `${dx},${dy}`;
+      const list = sides.get(key) ?? [];
+      list.push({ tx: nx, ty: ny, x: nx - dx * BERTH_IN, y: ny - dy * BERTH_IN, river });
+      sides.set(key, list);
     }
   }
-  return best;
+  let quay: BerthSpot[] = [];
+  for (const list of sides.values()) if (list.length > quay.length) quay = list;
+  quay.sort((a, b) => a.tx - b.tx || a.ty - b.ty);
+  if (quay.length <= n) return quay;
+  // Spread along it: the middle for one, the ends and between for more.
+  if (n === 1) return [quay[(quay.length - 1) >> 1]];
+  return Array.from({ length: n }, (_, k) => quay[Math.round((k * (quay.length - 1)) / (n - 1))]);
 }
 
 /** How far in from its tile's middle toward the quay a boat ties up, tiles. */

@@ -1,17 +1,20 @@
 /**
- * World v2 — river traffic: boats that come in where a river does, go down it
- * under their own power, and leave where it does.
+ * World v2 — river traffic: boats that come in where a river does, call at a
+ * seaport on it, and go on down and out where it leaves.
  *
- * ONLY WHERE THERE IS A PORT. A river with a seaport on its bank sends a boat
- * in over its inflow every so often, up to a few at once; a river without one
- * stays empty, and so does every lake. The boat steers for its river's exit
- * and is taken off the map when it gets there. @see RiverMap, SEAPORT
+ * ONLY WHERE THERE IS A PORT. A river with a seaport on its bank sends boats
+ * in over its inflow; a river without one stays empty, and so does every
+ * lake. @see RiverMap, SEAPORTS
  *
- * CALLING AT EVERY PORT ON THE WAY. A boat sent in is given the seaports on
- * its river as a route, the furthest upstream first. It steers to each one's
- * berth — the river tile beside the quay — ties up there for a while, and
- * then goes on to the next, and after the last to the exit. A berth with a
- * boat already in it is waited for, a little way off. @see berthOf
+ * EACH BOAT CALLS AT ONE PORT: the one on its river it would be turned round
+ * soonest at, counting the boats already bound for each against how many
+ * berths it has and how long a call there takes. It steers to that port, waits
+ * off it in the order it arrived until a berth is free, ties up for the port's
+ * time, and goes on to the exit, where it is taken off the map.
+ *
+ * THROUGHPUT IS THE PORTS'. A river sends boats in about as fast as its ports
+ * can turn them round — a berth a call's length — so a bigger port, with more
+ * berths and quicker calls, means more boats on the river, not longer queues.
  *
  * The rivers are re-mapped about once a second rather than every frame: the
  * water moves, and a bank that is wet one second and dry the next does not
@@ -19,20 +22,22 @@
  */
 import type { ColumnField } from "../../fluid/columns";
 import type { Grid } from "../grid";
-import { SEAPORT } from "../structures/def";
+import { structureDef } from "../structures/def";
 import { addBoat, type Boat, type Fleet, type Steer } from "./fleet";
 import {
-  berthOf, downhill, downstream, isExit, mapRiver, riverAt, riversBeside, stepsFrom, tileDepthOf,
-  type RiverMap,
+  berthsBeside, downhill, downstream, isExit, mapRiver, riverAt, stepsFrom, tileDepthOf,
+  type BerthSpot, type RiverMap,
 } from "./river";
 
 /** Seconds between looks at the rivers. */
 const REMAP_EVERY = 1;
-/** Seconds between boats on a river with a port, and before the first. */
-const SPAWN_EVERY = 6;
+/** The quickest and slowest a river sends boats, seconds apart, and before the first. */
+const SPAWN_FASTEST = 3;
+const SPAWN_SLOWEST = 20;
 const FIRST_SPAWN = 1;
-/** The most boats under way on one river at once. */
-const MAX_PER_RIVER = 6;
+/** Boats under way on a river: this many, and this many more for every berth on it. */
+const MAX_BASE = 2;
+const MAX_PER_BERTH = 2;
 /** How hard a boat under way pushes itself, tiles a second squared. */
 export const RIVER_MOTOR = 1;
 /** A boat closer than this to where the next would appear holds it back, tiles. */
@@ -41,44 +46,61 @@ const SPAWN_CLEAR = 1.1;
 const SPAWN_IN = 1.25;
 /** Nearer the rim than this, tiles, on an exit, and a boat has left. */
 const LEAVE_AT = 0.3;
-/** Seconds a boat lies alongside at a port. */
-export const DOCK_TIME = 5;
 /** Nearer its berth than this, tiles, and a boat ties up. */
 const TIE_UP_AT = 0.45;
-/** Nearer a taken berth than this, tiles, and a boat waits where it is. */
+/** Nearer a port's berths than this, tiles, and a boat joins its queue. */
 const WAIT_AT = 1.6;
 
-/** A seaport's berth, and how far every tile of its river is from it. */
-type Berth = { x: number; y: number; tx: number; ty: number; river: number; steps: Float32Array };
+/** One berth at a port, and how far every tile of its river is from it. */
+type Berth = BerthSpot & { steps: Float32Array };
+
+/** A seaport as the traffic sees it. */
+export type Port = {
+  id: number;
+  river: number;
+  /** Seconds a boat lies alongside. */
+  dock: number;
+  berths: Berth[];
+  /** Steps to the nearest of its berths, for a boat that has not been given one. */
+  steps: Float32Array;
+};
 
 export type Traffic = {
   rivers: RiverMap | null;
-  /** Rivers, from 1, with a seaport on their bank. */
-  ported: Set<number>;
-  /** Each seaport's berth, by its structure id. */
-  berths: Map<number, Berth>;
+  /** Every seaport with a berth on a river, by structure id. */
+  ports: Map<number, Port>;
   /**
-   * The boats come for each berth, in the order they got near it: only the
-   * first may tie up. Nearest-first let a boat arriving late slip in ahead of
-   * one that had been waiting off the berth for a whole call.
+   * The boats come for each port, in the order they got near it: a free berth
+   * goes to the first of them without one. Nearest-first let a boat arriving
+   * late slip in ahead of one that had been waiting off the port a whole call.
    */
   queues: Map<number, number[]>;
   sinceMap: number;
-  untilSpawn: number;
+  /** Seconds to the next boat, per river. */
+  untilSpawn: Map<number, number>;
   /** Boats sent so far, to vary where along the inflow the next one comes in. */
   sent: number;
 };
 
 export const createTraffic = (): Traffic => ({
-  rivers: null, ported: new Set(), berths: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: FIRST_SPAWN, sent: 0,
+  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0,
 });
 
-/** Which rivers have a seaport on their bank. */
-export function portedRivers(g: Grid, r: RiverMap): Set<number> {
-  const out = new Set<number>();
+/** Every seaport's berths, on the rivers as they stand. */
+export function portsOf(g: Grid, r: RiverMap): Map<number, Port> {
+  const out = new Map<number, Port>();
   for (const s of g.structures.values()) {
-    if (s.def !== SEAPORT.id) continue;
-    for (const k of riversBeside(r, s.x, s.y, s.w, s.h)) out.add(k);
+    const port = structureDef(s.def)?.port;
+    if (!port) continue;
+    const spots = berthsBeside(r, s.x, s.y, s.w, s.h, port.berths);
+    if (!spots.length) continue;
+    out.set(s.id, {
+      id: s.id,
+      river: spots[0].river,
+      dock: port.dockSeconds,
+      berths: spots.map((b) => ({ ...b, steps: stepsFrom(r, [{ x: b.tx, y: b.ty }]) })),
+      steps: stepsFrom(r, spots.map((b) => ({ x: b.tx, y: b.ty }))),
+    });
   }
   return out;
 }
@@ -87,84 +109,116 @@ export function portedRivers(g: Grid, r: RiverMap): Set<number> {
 const insideBy = (r: RiverMap, x: number, y: number) =>
   Math.min(x + 0.5, y + 0.5, r.w - 0.5 - x, r.h - 0.5 - y);
 
-/** Every seaport's berth, on the rivers as they stand. */
-export function berthsOf(g: Grid, r: RiverMap): Map<number, Berth> {
-  const out = new Map<number, Berth>();
-  for (const s of g.structures.values()) {
-    if (s.def !== SEAPORT.id) continue;
-    const b = berthOf(r, s.x, s.y, s.w, s.h);
-    if (b) out.set(s.id, { ...b, steps: stepsFrom(r, b.tx, b.ty) });
-  }
-  return out;
+/** Down a step count, and straight at the point once in its own tile. */
+function toward(r: RiverMap, steps: Float32Array, b: Boat, at: { x: number; y: number }) {
+  const way = downhill(steps, r.w, r.h, b.x, b.y);
+  if (way) return way;
+  const dx = at.x - b.x, dy = at.y - b.y, d = Math.hypot(dx, dy);
+  return d > 1e-6 ? { x: dx / d, y: dy / d } : null;
 }
 
+const nearestBerth = (p: Port, b: Boat) => {
+  let best = p.berths[0], bestD = Infinity;
+  for (const k of p.berths) {
+    const d = Math.hypot(k.x - b.x, k.y - b.y);
+    if (d < bestD) { best = k; bestD = d; }
+  }
+  return best;
+};
+
 /**
- * The way a boat under way should go: to the berth of the next port on its
- * route, and with none left, downstream to its river's exit. Straight at the
- * berth once it is in the berth's own tile, where the steps run out.
+ * The way a boat under way should go: to its berth, or to its port's nearest
+ * berth before it has one, and once it has called, downstream to the exit.
  */
 export const trafficSteer = (t: Traffic): Steer | undefined => {
   const r = t.rivers;
   if (!r) return undefined;
   return (b: Boat) => {
-    const next = b.route?.length ? t.berths.get(b.route[0]) : undefined;
-    if (!next) return downstream(r, b.x, b.y);
-    const way = downhill(next.steps, r.w, r.h, b.x, b.y);
-    if (way) return way;
-    const dx = next.x - b.x, dy = next.y - b.y, d = Math.hypot(dx, dy);
-    return d > 1e-6 ? { x: dx / d, y: dy / d } : null;
+    const port = b.route?.length ? t.ports.get(b.route[0]) : undefined;
+    if (!port) return downstream(r, b.x, b.y);
+    const berth = b.berth !== undefined ? port.berths[b.berth] : undefined;
+    if (berth) return toward(r, berth.steps, b, berth);
+    return toward(r, port.steps, b, nearestBerth(port, b));
   };
 };
 
+/** Let a boat go from the port it is at, or was bound for. */
+function castOff(t: Traffic, b: Boat): void {
+  const port = b.route?.shift();
+  b.moor = null;
+  b.dockLeft = 0;
+  b.berth = undefined;
+  if (port !== undefined) t.queues.set(port, (t.queues.get(port) ?? []).filter((id) => id !== b.id));
+}
+
 /**
- * The calls a boat is making: tie up at the next berth when it gets there,
- * cast off when its time is up, and wait off a berth another boat is in.
+ * The calls being made: join a port's queue on getting near it, take a free
+ * berth in turn, tie up there, and cast off when the call is over.
  */
 function stepCalls(t: Traffic, f: Fleet, dt: number): void {
-  // Boats that have gone, or no longer want a berth, leave its queue.
+  // Boats that have gone, or are bound somewhere else now, leave a queue.
   const live = new Map(f.boats.map((b) => [b.id, b]));
   for (const [port, q] of t.queues) {
     t.queues.set(port, q.filter((id) => live.get(id)?.route?.[0] === port));
   }
   for (const b of f.boats) {
-    if (!b.route) continue;
+    if (!b.route?.length) continue;
+    const port = t.ports.get(b.route[0]);
     // A port that has gone, or lost its river, is not called at.
-    while (b.route.length && !t.berths.has(b.route[0])) { b.route.shift(); b.moor = null; b.dockLeft = 0; }
-    if (!b.route.length) { b.moor = null; continue; }
-    const port = b.route[0];
-    const berth = t.berths.get(port)!;
+    if (!port || (b.berth !== undefined && !port.berths[b.berth])) { castOff(t, b); continue; }
     if ((b.dockLeft ?? 0) > 0) {
       b.dockLeft! -= dt;
-      if (b.dockLeft! <= 0) {
-        b.route.shift();
-        b.moor = null;
-        t.queues.set(port, (t.queues.get(port) ?? []).filter((id) => id !== b.id));
-      }
+      if (b.dockLeft! <= 0) castOff(t, b);
       continue;
     }
-    const d = Math.hypot(berth.x - b.x, berth.y - b.y);
-    if (d >= WAIT_AT) { b.moor = null; continue; }
-    // NEAR IT: in the queue, and tied up only when it is this boat's turn.
-    const q = t.queues.get(port) ?? [];
-    if (!q.includes(b.id)) q.push(b.id);
-    t.queues.set(port, q);
-    if (q[0] !== b.id) { b.moor ??= { x: b.x, y: b.y }; continue; }
-    if (d < TIE_UP_AT) {
-      b.moor = { x: berth.x, y: berth.y };
-      b.dockLeft = DOCK_TIME;
-    } else {
+    if (b.berth === undefined) {
+      const near = nearestBerth(port, b);
+      if (Math.hypot(near.x - b.x, near.y - b.y) >= WAIT_AT) { b.moor = null; continue; }
+      // NEAR IT: in the queue, and a berth when one is free and it is next.
+      const q = t.queues.get(port.id) ?? [];
+      if (!q.includes(b.id)) q.push(b.id);
+      t.queues.set(port.id, q);
+      const held = new Set(
+        f.boats.filter((o) => o.route?.[0] === port.id && o.berth !== undefined).map((o) => o.berth!),
+      );
+      const next = q.find((id) => live.get(id)?.berth === undefined);
+      const free = port.berths.map((_, k) => k).filter((k) => !held.has(k));
+      if (next !== b.id || !free.length) { b.moor ??= { x: b.x, y: b.y }; continue; }
+      free.sort((m, n) =>
+        Math.hypot(port.berths[m].x - b.x, port.berths[m].y - b.y)
+        - Math.hypot(port.berths[n].x - b.x, port.berths[n].y - b.y));
+      b.berth = free[0];
       b.moor = null;
+    }
+    const berth = port.berths[b.berth];
+    if (Math.hypot(berth.x - b.x, berth.y - b.y) < TIE_UP_AT) {
+      b.moor = { x: berth.x, y: berth.y };
+      b.dockLeft = port.dock;
     }
   }
 }
 
-/** One frame of the rivers' traffic: re-map, take off the boats that left, send new ones. */
+/**
+ * The port on a river a new boat would be turned round soonest at: the boats
+ * already bound for each, plus this one, a berth's worth at a time.
+ */
+function pickPort(t: Traffic, f: Fleet, river: number): Port | null {
+  let best: Port | null = null, bestWait = Infinity;
+  for (const p of t.ports.values()) {
+    if (p.river !== river) continue;
+    const bound = f.boats.filter((b) => b.route?.[0] === p.id).length;
+    const wait = Math.ceil((bound + 1) / p.berths.length) * p.dock;
+    if (wait < bestWait) { best = p; bestWait = wait; }
+  }
+  return best;
+}
+
+/** One frame of the rivers' traffic: re-map, make the calls, take off the boats that left, send new ones. */
 export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: number): void {
   t.sinceMap += dt;
   if (!t.rivers || t.sinceMap >= REMAP_EVERY || t.rivers.w !== g.w || t.rivers.h !== g.h) {
     t.rivers = mapRiver(g, tileDepthOf(c));
-    t.ported = portedRivers(g, t.rivers);
-    t.berths = berthsOf(g, t.rivers);
+    t.ports = portsOf(g, t.rivers);
     t.sinceMap = 0;
   }
   const r = t.rivers;
@@ -176,13 +230,21 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     if (isExit(r, b.x, b.y) && insideBy(r, b.x, b.y) < LEAVE_AT) f.boats.splice(k, 1);
   }
 
-  // ARRIVING: every so often, a boat in over each ported river's inflow.
-  t.untilSpawn -= dt;
-  if (t.untilSpawn > 0) return;
-  t.untilSpawn = SPAWN_EVERY;
-  for (const river of t.ported) {
+  // ARRIVING: on each river with a port, as fast as its ports turn boats round.
+  const rivers = new Map<number, { berths: number; perSecond: number }>();
+  for (const p of t.ports.values()) {
+    const v = rivers.get(p.river) ?? { berths: 0, perSecond: 0 };
+    v.berths += p.berths.length;
+    v.perSecond += p.berths.length / p.dock;
+    rivers.set(p.river, v);
+  }
+  for (const [river, cap] of rivers) {
+    const left = (t.untilSpawn.get(river) ?? FIRST_SPAWN) - dt;
+    t.untilSpawn.set(river, left);
+    if (left > 0) continue;
+    t.untilSpawn.set(river, Math.min(SPAWN_SLOWEST, Math.max(SPAWN_FASTEST, 1 / cap.perSecond)));
     const under = f.boats.filter((b) => b.motor > 0 && riverAt(r, Math.round(b.x), Math.round(b.y)) === river);
-    if (under.length >= MAX_PER_RIVER) continue;
+    if (under.length >= MAX_BASE + MAX_PER_BERTH * cap.berths) continue;
     const sources = r.sources.filter((s) => s.river === river);
     if (!sources.length) continue;
     // Near the middle of the inflow, a little to either side boat by boat.
@@ -197,16 +259,12 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
       y: at.y + (at.y === 0 ? SPAWN_IN : at.y === g.h - 1 ? -SPAWN_IN : 0),
     };
     if (f.boats.some((b) => Math.hypot(b.x - s.x, b.y - s.y) < SPAWN_CLEAR)) continue;
+    const port = pickPort(t, f, river);
     const boat = addBoat(f, c, s.x, s.y);
     if (!boat) continue;
     t.sent++;
     boat.motor = RIVER_MOTOR;
-    // ITS ROUTE: the ports on its river, the furthest from the exit first,
-    // which is the order it passes them in going down.
-    boat.route = [...t.berths.entries()]
-      .filter(([, b]) => b.river === river)
-      .sort(([, a], [, b]) => r.toExit[b.ty * r.w + b.tx] - r.toExit[a.ty * r.w + a.tx])
-      .map(([id]) => id);
+    boat.route = port ? [port.id] : [];
     const way = downstream(r, s.x, s.y);
     if (way) boat.heading = Math.atan2(way.y, way.x);
   }

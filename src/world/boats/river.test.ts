@@ -3,12 +3,14 @@ import { describe, expect, test } from "bun:test";
 import { FLOW_DEFAULTS, createColumnField } from "../../fluid/columns";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, idx, setInflow, type Grid } from "../grid";
-import { SEAPORT } from "../structures/def";
-import { placeCommand, validatePlacement } from "../structures/place";
+import { SEAPORT, SEAPORTS, type StructureDef } from "../structures/def";
+import { placeCommand, touchesRoad, validatePlacement } from "../structures/place";
+import { rampNeed } from "../roads/ramp-derive";
+import { componentCount, createNetwork } from "../roads/network";
 import { applyFixture } from "../debug/fixtures";
 import { createFleet, stepFleet } from "./fleet";
-import { berthOf, downstream, mapRiver, poolDepthOf, riversBeside } from "./river";
-import { DOCK_TIME, createTraffic, stepTraffic, trafficSteer } from "./traffic";
+import { berthsBeside, downstream, mapRiver, poolDepthOf, riversBeside } from "./river";
+import { createTraffic, stepTraffic, trafficSteer } from "./traffic";
 
 /**
  * A straight river across a flat map: rows `y0..y1` are water `depth` deep the
@@ -75,21 +77,65 @@ describe("a seaport", () => {
     expect(validatePlacement(g, SEAPORT, 7, 1, { rivers }).ok).toBe(false);
   });
 
-  test("the harbour fixture has ports on its river's banks", () => {
+  test("the harbour fixture has one of each tier on its bank, west to east, with a berth each", () => {
     const g = createGrid(64, 64, 1);
     applyFixture(g, "harbour", 1);
-    const ports = [...g.structures.values()].filter((s) => s.def === SEAPORT.id);
-    expect(ports.length).toBeGreaterThanOrEqual(2);
+    const ports = [...g.structures.values()].sort((a, b) => a.x - b.x);
+    expect(ports.map((p) => p.def)).toEqual(SEAPORTS.map((d) => d.id));
     const rivers = mapRiver(g, poolDepthOf(g));
-    for (const p of ports) expect(riversBeside(rivers, p.x, p.y, p.w, p.h)).toEqual([1]);
+    SEAPORTS.forEach((d, k) => {
+      const p = ports[k];
+      expect([p.w, p.h]).toEqual([d.footprint.w, d.footprint.h]);
+      expect(riversBeside(rivers, p.x, p.y, p.w, p.h)).toEqual([1]);
+      expect(berthsBeside(rivers, p.x, p.y, p.w, p.h, d.port!.berths)).toHaveLength(d.port!.berths);
+    });
+    // Evenly spread: a quarter of the map apart, give or take finding a bank.
+    const mids = ports.map((p) => p.x + p.w / 2);
+    for (let k = 1; k < mids.length; k++) expect(Math.abs(mids[k] - mids[k - 1] - 16)).toBeLessThan(4);
+  });
+
+  test("and roads that reach every port, as one network, with no step a road cannot climb", () => {
+    const g = createGrid(64, 64, 1);
+    applyFixture(g, "harbour", 1);
+    expect(componentCount(createNetwork(g))).toBe(1);
+    const read = {
+      inBounds: (x: number, y: number) => x >= 0 && y >= 0 && x < g.w && y < g.h,
+      paved: (x: number, y: number) => g.paved[idx(g, x, y)] !== 0,
+      height: (x: number, y: number) => g.height[idx(g, x, y)],
+    };
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) expect(rampNeed(read, x, y).kind).not.toBe("unbridgeable");
+    }
+    // The main road runs edge to edge.
+    const row = [...Array(g.h).keys()].find((y) => read.paved(0, y))!;
+    for (let x = 0; x < g.w; x++) expect(read.paved(x, row)).toBe(true);
+    for (const p of g.structures.values()) {
+      let fronts = false;
+      for (let k = 0; k < p.w; k++) for (let j = 0; j < p.h; j++) fronts ||= touchesRoad(g, p.x + k, p.y + j);
+      expect(fronts).toBe(true);
+    }
+  });
+
+  test("and no cliffs: nowhere does the surface you see step more than one step", () => {
+    const g = createGrid(64, 64, 1);
+    applyFixture(g, "harbour", 1);
+    // The ground, or the water over it: a bank under the water is not a cliff.
+    const top = (x: number, y: number) => g.height[idx(g, x, y)] + g.pool[idx(g, x, y)];
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) {
+        if (x + 1 < g.w) expect(Math.abs(top(x + 1, y) - top(x, y))).toBeLessThanOrEqual(2);
+        if (y + 1 < g.h) expect(Math.abs(top(x, y + 1) - top(x, y))).toBeLessThanOrEqual(2);
+      }
+    }
   });
 });
 
 describe("river traffic", () => {
-  const port = (g: Grid) => {
+  const port = (g: Grid, def: StructureDef = SEAPORT) => {
     const rivers = mapRiver(g, poolDepthOf(g));
-    commit(g, createHistory(), placeCommand(g, SEAPORT, 8, 4, { rivers })!);
+    commit(g, createHistory(), placeCommand(g, def, 8, 4, { rivers })!);
   };
+  const DOCK = SEAPORT.port!.dockSeconds;
   const run = (g: Grid, seconds: number, onFrame?: (f: ReturnType<typeof createFleet>) => void) => {
     const c = fieldOf(g), f = createFleet(), t = createTraffic();
     for (let k = 0; k < Math.round(seconds * 30); k++) {
@@ -121,22 +167,22 @@ describe("river traffic", () => {
   test("each one ties up at the port on its way, then goes on", () => {
     const g = straight();
     port(g);
-    const berth = berthOf(mapRiver(g, poolDepthOf(g)), 8, 4, 2, 2)!;
+    const [berth] = berthsBeside(mapRiver(g, poolDepthOf(g)), 8, 4, 2, 2, 1);
     expect(berth.ty).toBe(6);                        // the river tile below the quay
     let docked = 0, settled = 0, left = false;
-    run(g, 45, (f) => {
+    run(g, 60, (f) => {
       const b = f.boats.find((o) => o.id === 1);
       if (!b) { left = left || docked > 0; return; }
       if ((b.dockLeft ?? 0) <= 0) return;
       docked += 1 / 30;
       // Held at the berth, and still, once the line has taken it up.
-      if (b.dockLeft! < DOCK_TIME / 2) {
+      if (b.dockLeft! < DOCK / 2) {
         expect(Math.hypot(b.x - berth.x, b.y - berth.y)).toBeLessThan(0.15);
         expect(Math.hypot(b.vx, b.vy)).toBeLessThan(0.1);
         settled++;
       }
     });
-    expect(docked).toBeCloseTo(DOCK_TIME, 0);
+    expect(docked).toBeCloseTo(DOCK, 0);
     expect(settled).toBeGreaterThan(0);
     // And then off down the river and out.
     expect(left).toBe(true);
@@ -147,7 +193,7 @@ describe("river traffic", () => {
     port(g);
     let most = 0, gone = 0;
     const ids = new Set<number>();
-    const { f } = run(g, 60, (f) => {
+    const { f } = run(g, 75, (f) => {
       for (const b of f.boats) ids.add(b.id);
       most = Math.max(most, ...f.boats.map((b) => b.x));
       gone = ids.size - f.boats.length;
@@ -155,6 +201,31 @@ describe("river traffic", () => {
     expect(most).toBeGreaterThan(g.w - 1.5);
     expect(gone).toBeGreaterThan(0);
     for (const b of f.boats) expect(b.x).toBeLessThan(g.w - 0.5);
+  });
+
+  test("a bigger port has more boats alongside at once, for less long each", () => {
+    // Over the same two minutes, count the calls finished and the most boats
+    // alongside at one moment, at a port of each tier.
+    const calls = SEAPORTS.map((def) => {
+      const g = straight(32, 16);
+      port(g, def);
+      let most = 0, done = 0;
+      const was = new Map<number, boolean>();
+      run(g, 120, (f) => {
+        let now = 0;
+        for (const b of f.boats) {
+          const alongside = (b.dockLeft ?? 0) > 0;
+          if (alongside) now++;
+          if (was.get(b.id) && !alongside) done++;
+          was.set(b.id, alongside);
+        }
+        most = Math.max(most, now);
+      });
+      return { most, done };
+    });
+    expect(calls.map((c) => c.most)).toEqual(SEAPORTS.map((d) => d.port!.berths));
+    expect(calls[1].done).toBeGreaterThan(calls[0].done);
+    expect(calls[2].done).toBeGreaterThan(calls[1].done);
   });
 });
 
