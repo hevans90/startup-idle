@@ -174,25 +174,33 @@ export function riversBeside(r: RiverMap, x0: number, y0: number, w: number, h: 
  * Which way is downstream at a point, in tile coordinates, as a unit vector:
  * down the steps-to-exit count across the tiles round it. Null off a river,
  * or on one with nowhere to go.
+ */
+export const downstream = (r: RiverMap, x: number, y: number) =>
+  downhill(r.toExit, r.w, r.h, x, y, true);
+
+/**
+ * Which way is down a steps-to-somewhere count at a point, as a unit vector.
  *
  * Weighted over the tile's four neighbours rather than toward the least, so a
  * boat crossing from one tile to the next turns smoothly and does not snap
- * between the axes.
+ * between the axes. With `outAtZero`, off the map from a tile at nought is
+ * the way to go: the way out of the map, for an exit.
  */
-export function downstream(r: RiverMap, x: number, y: number): { x: number; y: number } | null {
+export function downhill(
+  field: Float32Array, w: number, h: number, x: number, y: number, outAtZero = false,
+): { x: number; y: number } | null {
   const tx = Math.round(x), ty = Math.round(y);
-  if (tx < 0 || ty < 0 || tx >= r.w || ty >= r.h) return null;
-  const here = r.toExit[ty * r.w + tx];
+  if (tx < 0 || ty < 0 || tx >= w || ty >= h) return null;
+  const here = field[ty * w + tx];
   if (!Number.isFinite(here)) return null;
   let vx = 0, vy = 0;
   for (const [dx, dy] of STEPS) {
     const nx = tx + dx, ny = ty + dy;
-    if (nx < 0 || ny < 0 || nx >= r.w || ny >= r.h) {
-      // Off the map from an exit tile is the way out itself.
-      if (here === 0) { vx += dx; vy += dy; }
+    if (nx < 0 || ny < 0 || nx >= w || ny >= h) {
+      if (outAtZero && here === 0) { vx += dx; vy += dy; }
       continue;
     }
-    const d = r.toExit[ny * r.w + nx];
+    const d = field[ny * w + nx];
     if (!Number.isFinite(d)) continue;
     vx += (here - d) * dx;
     vy += (here - d) * dy;
@@ -200,6 +208,58 @@ export function downstream(r: RiverMap, x: number, y: number): { x: number; y: n
   const m = Math.hypot(vx, vy);
   return m > 1e-6 ? { x: vx / m, y: vy / m } : null;
 }
+
+/** Steps from one river tile to every other tile of its river; Infinity elsewhere. */
+export function stepsFrom(r: RiverMap, x: number, y: number): Float32Array {
+  const out = new Float32Array(r.w * r.h).fill(Infinity);
+  const label = riverAt(r, x, y);
+  if (!label) return out;
+  const queue = new Int32Array(r.w * r.h);
+  let head = 0, tail = 0;
+  out[y * r.w + x] = 0;
+  queue[tail++] = y * r.w + x;
+  while (head < tail) {
+    const i = queue[head++];
+    const cx = i % r.w, cy = (i / r.w) | 0;
+    for (const [dx, dy] of STEPS) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= r.w || ny >= r.h) continue;
+      const j = ny * r.w + nx;
+      if (r.river[j] === label && out[j] === Infinity) { out[j] = out[i] + 1; queue[tail++] = j; }
+    }
+  }
+  return out;
+}
+
+/**
+ * Where a boat ties up at a structure on a river's bank: the river tile
+ * beside it nearest the middle of its side, or null if none is beside it.
+ * `at` is the tile; `x`, `y` the point a boat moors at — in the tile, drawn
+ * in toward the quay. @see traffic
+ */
+export function berthOf(
+  r: RiverMap, x0: number, y0: number, w: number, h: number,
+): { tx: number; ty: number; x: number; y: number; river: number } | null {
+  const cx = x0 + (w - 1) / 2, cy = y0 + (h - 1) / 2;
+  let best: { tx: number; ty: number; x: number; y: number; river: number } | null = null;
+  let bestD = Infinity;
+  for (const c of footprintCells(x0, y0, w, h)) {
+    for (const [dx, dy] of STEPS) {
+      const nx = c.x + dx, ny = c.y + dy;
+      if (nx >= x0 && nx < x0 + w && ny >= y0 && ny < y0 + h) continue;
+      const river = riverAt(r, nx, ny);
+      if (!river) continue;
+      const d = Math.hypot(nx - cx, ny - cy);
+      if (d >= bestD) continue;
+      bestD = d;
+      best = { tx: nx, ty: ny, x: nx - dx * BERTH_IN, y: ny - dy * BERTH_IN, river };
+    }
+  }
+  return best;
+}
+
+/** How far in from its tile's middle toward the quay a boat ties up, tiles. */
+const BERTH_IN = 0.2;
 
 /** Whether a tile index is an exit — for a boat to leave the map by. */
 export const isExit = (r: RiverMap, x: number, y: number) => {

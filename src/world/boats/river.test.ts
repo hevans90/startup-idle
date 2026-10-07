@@ -7,8 +7,8 @@ import { SEAPORT } from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
 import { applyFixture } from "../debug/fixtures";
 import { createFleet, stepFleet } from "./fleet";
-import { downstream, mapRiver, poolDepthOf, riversBeside } from "./river";
-import { createTraffic, stepTraffic, trafficSteer } from "./traffic";
+import { berthOf, downstream, mapRiver, poolDepthOf, riversBeside } from "./river";
+import { DOCK_TIME, createTraffic, stepTraffic, trafficSteer } from "./traffic";
 
 /**
  * A straight river across a flat map: rows `y0..y1` are water `depth` deep the
@@ -114,7 +114,32 @@ describe("river traffic", () => {
     expect(b.motor).toBeGreaterThan(0);
     // The water here is level and still, so only its own push moved it.
     expect(b.x).toBeGreaterThan(1.5);
-    expect(Math.abs(Math.cos(b.heading) - 1)).toBeLessThan(0.1);
+    // Down the river, bound for the port's berth a little toward its bank.
+    expect(Math.cos(b.heading)).toBeGreaterThan(0.85);
+  });
+
+  test("each one ties up at the port on its way, then goes on", () => {
+    const g = straight();
+    port(g);
+    const berth = berthOf(mapRiver(g, poolDepthOf(g)), 8, 4, 2, 2)!;
+    expect(berth.ty).toBe(6);                        // the river tile below the quay
+    let docked = 0, settled = 0, left = false;
+    run(g, 45, (f) => {
+      const b = f.boats.find((o) => o.id === 1);
+      if (!b) { left = left || docked > 0; return; }
+      if ((b.dockLeft ?? 0) <= 0) return;
+      docked += 1 / 30;
+      // Held at the berth, and still, once the line has taken it up.
+      if (b.dockLeft! < DOCK_TIME / 2) {
+        expect(Math.hypot(b.x - berth.x, b.y - berth.y)).toBeLessThan(0.15);
+        expect(Math.hypot(b.vx, b.vy)).toBeLessThan(0.1);
+        settled++;
+      }
+    });
+    expect(docked).toBeCloseTo(DOCK_TIME, 0);
+    expect(settled).toBeGreaterThan(0);
+    // And then off down the river and out.
+    expect(left).toBe(true);
   });
 
   test("and takes them off when they reach the far edge", () => {

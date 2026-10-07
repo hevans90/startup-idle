@@ -53,6 +53,15 @@ export type Boat = {
   phase: number;
   /** Its own push, tiles a second squared; nought for a boat with no engine. */
   motor: number;
+  /**
+   * Where it is tied up, if it is: held there by a line, its engine off and
+   * the current not moving it. @see traffic, which ties and unties it
+   */
+  moor?: { x: number; y: number } | null;
+  /** The seaports still to call at, by structure id, the next first. @see traffic */
+  route?: number[];
+  /** Seconds left alongside at the one it is at. */
+  dockLeft?: number;
 };
 
 export type Fleet = { boats: Boat[]; next: number; t: number };
@@ -171,8 +180,12 @@ export function wantFleet(f: Fleet, c: ColumnField): void {
   }
 }
 
-/** Which way a boat with an engine should go from a point, or null for nowhere. */
-export type Steer = (x: number, y: number) => { x: number; y: number } | null;
+/** Which way a boat with an engine should go, or null for nowhere. */
+export type Steer = (b: Boat) => { x: number; y: number } | null;
+
+/** How hard a mooring line pulls a boat to where it is tied, a second squared, and its damper. */
+const MOOR_STIFF = 6;
+const MOOR_DAMP = 5;
 
 /** One frame of every boat: bob, tilt, drift, push, turn. */
 export function stepFleet(f: Fleet, c: ColumnField, dt: number, steer?: Steer): void {
@@ -205,11 +218,15 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number, steer?: Steer): 
     b.roll += (across - b.roll) * ease;
 
     // DRIFT down the surface, against a drag. Aground, it does not move.
-    if (b.afloat) {
+    // TIED UP, the line holds it where it was tied whatever the water does.
+    if (b.moor) {
+      b.vx += (MOOR_STIFF * (b.moor.x - b.x) - MOOR_DAMP * b.vx) * h;
+      b.vy += (MOOR_STIFF * (b.moor.y - b.y) - MOOR_DAMP * b.vy) * h;
+    } else if (b.afloat) {
       b.vx += (-SLOPE_PUSH * sx - DRAG * b.vx) * h;
       b.vy += (-SLOPE_PUSH * sy - DRAG * b.vy) * h;
       // AND ITS OWN PUSH, where it has one and somewhere to go.
-      const way = b.motor > 0 && steer ? steer(b.x, b.y) : null;
+      const way = b.motor > 0 && steer ? steer(b) : null;
       if (way) { b.vx += b.motor * way.x * h; b.vy += b.motor * way.y * h; }
     } else {
       b.vx = 0; b.vy = 0;
