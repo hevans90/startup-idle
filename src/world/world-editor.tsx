@@ -66,7 +66,7 @@ export function WorldEditor() {
   useState(() => {
     const saved = loadSaved();
     if (saved) {
-      useWorldStore.getState().loadGrid(saved.grid, saved.palette.terrain);
+      useWorldStore.getState().loadGrid(saved.grid, saved.palette.terrain, saved.boats);
       return true;
     }
     /**

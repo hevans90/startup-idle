@@ -19,6 +19,7 @@ import {
   WorldFileError, deserializeWorld, serializeWorld, toJSON, type WorldFile,
 } from "./serialize";
 import type { Grid } from "../grid";
+import type { Fleet } from "../boats/fleet";
 import type { WaterField } from "../water/field";
 
 /** Where the autosave lives. Distinct from the game's own persisted stores. */
@@ -68,13 +69,14 @@ export type SaveInput = {
   grid: Grid;
   palette: { terrain: readonly (string | null)[]; paved: readonly (string | null)[] };
   water?: WaterField;
+  fleet?: Fleet;
 };
 
 /** Queue a save of this world. @see saveSoon */
 export const scheduleSave = (get: () => SaveInput): void =>
   saveSoon(() => {
-    const { grid, palette, water } = get();
-    return serializeWorld(grid, palette, water);
+    const { grid, palette, water, fleet } = get();
+    return serializeWorld(grid, palette, water, fleet);
   });
 
 /**
@@ -84,7 +86,7 @@ export const scheduleSave = (get: () => SaveInput): void =>
  * future version — must start a new world rather than a blank screen, and the
  * loader already refuses an unknown version by throwing `WorldFileError`.
  */
-export function loadSaved(): { grid: Grid; palette: WorldFile["palette"] } | null {
+export function loadSaved(): ReturnType<typeof deserializeWorld> | null {
   let raw: string | null = null;
   try {
     raw = localStorage.getItem(KEY);

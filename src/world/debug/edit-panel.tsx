@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 
 import {
-  DEFAULT_SIZE, useWorldStore, VOID_MATERIAL,
+  DEFAULT_SIZE, getFleet, useWorldStore, VOID_MATERIAL,
 } from "../../state/world.store";
 import { deserializeWorld, serializeWorld, toJSON } from "../io/serialize";
 import type { FixtureId } from "./fixtures";
@@ -163,7 +163,7 @@ export function EditPanel() {
     // goes into the running world rather than into the grid — so without this
     // a map you have spent ten minutes filling saves as the dry basin it was.
     const json = toJSON(
-      serializeWorld(grid, { terrain: palette, paved: [null] }, getWaterField() ?? undefined),
+      serializeWorld(grid, { terrain: palette, paved: [null] }, getWaterField() ?? undefined, getFleet()),
     );
     const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
     const a = document.createElement("a");
@@ -175,8 +175,8 @@ export function EditPanel() {
 
   const load = async (f: File) => {
     try {
-      const { grid: g, palette: p } = deserializeWorld(JSON.parse(await f.text()));
-      loadGrid(g, p.terrain);
+      const { grid: g, palette: p, boats } = deserializeWorld(JSON.parse(await f.text()));
+      loadGrid(g, p.terrain, boats);
     } catch (err) {
       // surfaced rather than swallowed: a bad file should say why
       window.alert(`Could not load map: ${(err as Error).message}`);

@@ -7,7 +7,9 @@
  * would leave a save file holding employees with nowhere to live.
  * @see startAutosave, loadSaved
  */
-import { addBoat, createFleet, removeBoatNear, type Fleet } from "../world/boats/fleet";
+import {
+  addBoat, createFleet, removeBoatNear, restoreFleet, type Fleet, type SavedBoat,
+} from "../world/boats/fleet";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
@@ -315,6 +317,12 @@ type WorldState = {
    * rebuild, and nothing polls per frame.
    */
   revision: number;
+  /**
+   * Bumped when a boat is put on or taken off. Boats are not edits and bump no
+   * `revision`, but they are in the map file, so autosave watches this too.
+   * @see startAutosave
+   */
+  boatRev: number;
   lastTouched: Cell[];
   /** Connected components in the road graph. Mirrored, like the history depths. */
   netComponents: number;
@@ -373,7 +381,7 @@ type WorldState = {
   cancelStroke: () => void;
   doUndo: () => void;
   doRedo: () => void;
-  loadGrid: (g: Grid, palette?: (string | null)[]) => void;
+  loadGrid: (g: Grid, palette?: (string | null)[], boats?: readonly SavedBoat[]) => void;
   /**
    * Found a company on fresh ground: terrain and a road, from a seed.
    *
@@ -528,6 +536,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   heightStep: 2,
   stroke: null,
   revision: 0,
+  boatRev: 0,
   lastTouched: [],
   netComponents: 0,
   undoDepth: 0,
@@ -637,7 +646,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if (cols && !removeBoatNear(fleet, s0.head.x, s0.head.y)) {
         addBoat(fleet, cols, s0.head.x, s0.head.y);
       }
-      set({ stroke: null });
+      set({ stroke: null, boatRev: st.boatRev + 1 });
       return;
     }
 
@@ -880,11 +889,13 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     }
   },
 
-  loadGrid: (grid, palette) => {
+  loadGrid: (grid, palette, boats) => {
     history = createHistory();
     network = createNetwork(grid);
     water = createWaterField(grid);
     fleet = createFleet();
+    // The file's boats, on the file's water. @see restoreFleet
+    if (boats?.length) restoreFleet(fleet, water.columns, boats);
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();   // the scene rebuilds wholesale on a new grid identity
     // A saved map's terrain indices only mean anything against the palette it
@@ -926,6 +937,7 @@ export function startAutosave(): () => void {
     // the file wants it rather than inventing a second shape here.
     palette: { terrain: useWorldStore.getState().palette, paved: [null] },
     water: water ?? undefined,
+    fleet,
   });
   // THE GRID'S IDENTITY AS WELL AS ITS REVISION, and the second one alone was
   // a bug. `loadGrid` resets `revision` to zero, so generating a fresh map on
@@ -934,10 +946,12 @@ export function startAutosave(): () => void {
   // being persisted stopped that being data loss. A new grid is always a save.
   let seenRev = useWorldStore.getState().revision;
   let seenGrid = useWorldStore.getState().grid;
+  let seenBoats = useWorldStore.getState().boatRev;
   const stop = useWorldStore.subscribe((s) => {
-    if (s.revision === seenRev && s.grid === seenGrid) return;
+    if (s.revision === seenRev && s.grid === seenGrid && s.boatRev === seenBoats) return;
     seenRev = s.revision;
     seenGrid = s.grid;
+    seenBoats = s.boatRev;
     scheduleSave(input);
   });
   // AND WHATEVER IS ALREADY HERE, if nothing has been saved yet.

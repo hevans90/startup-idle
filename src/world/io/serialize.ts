@@ -10,6 +10,7 @@
  * palette in code would silently repaint every saved map — the indices would
  * still be valid but would mean something else.
  */
+import { saveFleet, type Fleet, type SavedBoat } from "../boats/fleet";
 import {
   VOID, createGrid, edited, recomputeHeightRange, stampFootprint,
   type Grid, type Structure,
@@ -118,6 +119,12 @@ export type WorldFile = {
    * a valid map with none.
    */
   structures?: Structure[];
+  /**
+   * The boats on the water, where they are and which way they face. OPTIONAL,
+   * like `structures`: a file from before boats has none, and an unreadable
+   * record is skipped rather than refusing the map. @see SavedBoat
+   */
+  boats?: SavedBoat[];
   /** Index → material id. Index 0 is VOID. Saved so indices keep their meaning. */
   palette: { terrain: (string | null)[]; paved: (string | null)[] };
 };
@@ -188,6 +195,7 @@ export function serializeWorld(
   grid: Grid,
   palette: { terrain: readonly (string | null)[]; paved: readonly (string | null)[] },
   water?: WaterField,
+  fleet?: Fleet,
 ): WorldFile {
   return {
     version: WORLD_FILE_VERSION,
@@ -207,8 +215,19 @@ export function serializeWorld(
     pipeZ: encodeI8(grid.pipeZ),
     ramp: encodeU8(grid.ramp),
     structures: [...grid.structures.values()],
+    // The boats as they stand, when there is a running world to ask.
+    ...(fleet ? { boats: saveFleet(fleet) } : {}),
     palette: { terrain: [...palette.terrain], paved: [...palette.paved] },
   };
+}
+
+/** One saved boat, or null if it is not one — inside the map, finite. */
+function readBoat(raw: unknown, w: number, h: number): SavedBoat | null {
+  if (!raw || typeof raw !== "object") return null;
+  const b = raw as Partial<SavedBoat>;
+  if (![b.x, b.y, b.heading].every((v) => typeof v === "number" && Number.isFinite(v))) return null;
+  if (b.x! < -0.5 || b.y! < -0.5 || b.x! > w - 0.5 || b.y! > h - 0.5) return null;
+  return { x: b.x!, y: b.y!, heading: b.heading! };
 }
 
 export class WorldFileError extends Error {}
@@ -236,7 +255,9 @@ function readStructure(raw: unknown): Structure | null {
  * frame), so a file saved against a longer palette degrades to holes rather
  * than refusing to open.
  */
-export function deserializeWorld(file: unknown): { grid: Grid; palette: WorldFile["palette"] } {
+export function deserializeWorld(
+  file: unknown,
+): { grid: Grid; palette: WorldFile["palette"]; boats: SavedBoat[] } {
   if (!file || typeof file !== "object") throw new WorldFileError("not an object");
   const f = file as Partial<WorldFile>;
   if (f.version !== WORLD_FILE_VERSION) {
@@ -287,7 +308,12 @@ export function deserializeWorld(file: unknown): { grid: Grid; palette: WorldFil
     palette.paved[0] = null;
   }
   void VOID;
-  return { grid, palette };
+  const boats: SavedBoat[] = [];
+  for (const raw of Array.isArray(f.boats) ? f.boats : []) {
+    const b = readBoat(raw, w as number, h as number);
+    if (b) boats.push(b);
+  }
+  return { grid, palette, boats };
 }
 
 export const toJSON = (f: WorldFile) => JSON.stringify(f);

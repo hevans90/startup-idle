@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DIR } from "../../iso/dir";
+import { createFleet, restoreFleet } from "../boats/fleet";
 import {
   RAMP, createGrid, fillTerrain, idx, pipeAt, rampAt, setDeck, setHeight, setPaved, setRamp,
   setTerrain, setInflow, setSource, sourceAt,
@@ -407,5 +408,44 @@ describe("structures", () => {
     const back = fromJSON(toJSON(file)).grid;
     expect(back.structures.size).toBe(1);
     expect(back.terrain[0]).toBe(1);                        // the rest of the map survived
+  });
+});
+
+describe("boats", () => {
+  const fleetOf = (...boats: [number, number, number][]) => {
+    const f = createFleet();
+    for (const [x, y, heading] of boats) {
+      f.boats.push({
+        id: f.next++, x, y, vx: 0.3, vy: 0, heading, z: 1, vz: 0, pitch: 0, roll: 0,
+        afloat: true, phase: 0,
+      });
+    }
+    return f;
+  };
+
+  test("where they are and which way they face survive the file", () => {
+    const f = fleetOf([3.25, 4.5, 0.7], [8, 2.125, -2]);
+    const { boats } = fromJSON(toJSON(serializeWorld(sample(), PAL, undefined, f)));
+    expect(boats).toEqual([{ x: 3.25, y: 4.5, heading: 0.7 }, { x: 8, y: 2.125, heading: -2 }]);
+  });
+
+  test("a file from before boats opens with none, and a bad record is skipped", () => {
+    expect(deserializeWorld(serializeWorld(sample(), PAL)).boats).toEqual([]);
+    const file = serializeWorld(sample(), PAL, undefined, fleetOf([3, 3, 0]));
+    (file as { boats: unknown[] }).boats.push(
+      { x: 99, y: 3, heading: 0 },            // off the map
+      { x: 2, y: "3", heading: 0 },           // not a number
+      null,
+    );
+    expect(deserializeWorld(file).boats).toEqual([{ x: 3, y: 3, heading: 0 }]);
+  });
+
+  test("and come back on the water when the map is loaded", () => {
+    const g = sample();
+    const field = createWaterField(g);
+    const f = createFleet();
+    restoreFleet(f, field.columns, [{ x: 3, y: 3, heading: 1 }]);
+    expect(f.boats).toHaveLength(1);
+    expect(f.boats[0]).toMatchObject({ x: 3, y: 3, heading: 1, vx: 0, vy: 0 });
   });
 });

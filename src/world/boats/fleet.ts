@@ -236,3 +236,32 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number): void {
     }
   }
 }
+
+/**
+ * A boat as the map file keeps it: where it is and which way it faces. How
+ * high it rides and how it is tilted are the water's to say, and they come
+ * back from it within a frame or two of loading. @see serializeWorld
+ */
+export type SavedBoat = { x: number; y: number; heading: number };
+
+export const saveFleet = (f: Fleet): SavedBoat[] =>
+  f.boats.map((b) => ({ x: b.x, y: b.y, heading: b.heading }));
+
+/**
+ * Put saved boats back on a fresh field's water.
+ *
+ * WITHOUT the placing tool's test for water enough to float in: a boat saved
+ * beached is still a boat, and one put down on a map whose water is still
+ * coming back from its snapshot would otherwise be lost. It rides at the
+ * surface there now, water or ground, and the spring takes it from there.
+ */
+export function restoreFleet(f: Fleet, c: ColumnField, saved: readonly SavedBoat[]): void {
+  for (const s of saved) {
+    const w = sampleWater(c, s.x, s.y);
+    f.boats.push({
+      id: f.next++, x: s.x, y: s.y, vx: 0, vy: 0, heading: s.heading,
+      z: w.surface, vz: 0, pitch: 0, roll: 0, afloat: w.depth > DRAFT,
+      phase: (f.next * 2.399) % (Math.PI * 2),
+    });
+  }
+}
