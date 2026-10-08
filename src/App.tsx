@@ -28,9 +28,11 @@ import { useInnovationStore } from "./state/innovation.store";
 import { useMoneyStore } from "./state/money.store";
 import { useSessionStore } from "./state/session.store";
 import { useThemeStore } from "./state/theme.store";
-import { useVapeAchievementsStore } from "./state/vape-achievements.store";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
+
+/** Vibe coders this run before the vape appears on the map. */
+const VAPE_UNLOCK_VIBE_CODERS = 50;
 
 /** The company's map, in its own chunk. @see CompanyMap */
 const CompanyMap = lazy(() => import("./world/play/company-map"));
@@ -64,10 +66,10 @@ function App() {
   const vibeCoderCount = useGeneratorStore(
     (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
   );
-  const hasVibeArmy = useVapeAchievementsStore((s) =>
-    s.unlockedAchievementIds.includes("vibe_army"),
-  );
-  const vapeVisible = vibeCoderCount >= 100 || hasVibeArmy;
+  // THE VAPE comes with THIS company's vibe coders, not with an achievement:
+  // achievements outlive a run, so tying it to "Vibe army" put a clickable
+  // vape on the map of every new game after the first that earned it.
+  const vapeVisible = vibeCoderCount >= VAPE_UNLOCK_VIBE_CODERS;
 
   const founderId = useFounderStore((state) => state.selectedFounderId);
 
