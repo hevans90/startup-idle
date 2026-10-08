@@ -16,7 +16,7 @@ import { Sprite, type Texture } from "pixi.js";
 
 import { composeBuilding } from "../../iso/kits";
 import { footprintCells, idx, inBounds, type Grid, type Structure } from "../grid";
-import { bandOf, cellToWorld, spriteY } from "../iso";
+import { GROUND_FRAME_H, bandOf, cellToWorld, spriteY } from "../iso";
 import { kitByName, type StructureDef } from "./def";
 import { registerRenderer, type RenderCtx, type StructureHandle, type StructureRenderer } from "./render";
 
@@ -65,10 +65,19 @@ function buildSprites(
   const h = groundHeight(ctx.grid, s);
   const out: Sprite[] = [];
 
+  // EVERY PART STANDS WHERE THE CELL'S TERRAIN TILE DOES, lifted by its own
+  // `lift`: the building art is drawn to share one bottom with a terrain tile,
+  // which is how v1 places terrain and buildings alike — all at one point.
+  //  - Each part anchored by its OWN frame's height put a frame shorter than
+  //    the ground tile — a roof, a cap — higher by the difference, on top of
+  //    its lift, and every stack's upper floors floated off over the road.
+  //  - Anchored by the building's ground frame, which is taller than a
+  //    terrain frame, sank the whole stack into its tile by the difference.
   for (const cell of footprintCells(s.x, s.y, s.w, s.h)) {
     if (!inBounds(ctx.grid, cell.x, cell.y)) continue;
     const { wx, wy } = cellToWorld(cell.x, cell.y, h, ctx.scale);
     const parent = ctx.bands.structureOf[bandOf(cell.x, cell.y)];
+    const base = spriteY(wy, GROUND_FRAME_H, ctx.scale);
     // Ground floor first, so insertion order alone stacks the column: each
     // higher part is added later and therefore draws over the one below.
     for (const part of parts) {
@@ -78,7 +87,7 @@ function buildSprites(
       sp.anchor.set(0.5, 1);
       sp.roundPixels = true;
       sp.x = wx;
-      sp.y = spriteY(wy, tex.height, ctx.scale) - part.lift * ctx.scale;
+      sp.y = base - part.lift * ctx.scale;
       sp.scale.set(ctx.scale);
       parent.addChild(sp);
       out.push(sp);
