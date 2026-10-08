@@ -225,9 +225,14 @@ export function stepWorks(
     const want = door ? wantedCrew(w, s, p, owned) : 0;
     crew.untilNext -= dt;
     if (crew.walking + crew.working < want && crew.untilNext <= 0) {
-      const homes = homesFor(places, g, p, door!.net);
+      // THE FOUNDER DRIVES IN, from where the road leaves the map — a walk
+      // across it before there is a single employee was a minute of nothing.
+      const homes = p.founderBuilds
+        ? places.filter((pl) => pl.kind === "gateway" && pl.net === door!.net)
+        : homesFor(places, g, p, door!.net);
       const home = homes[(s.id * 7 + crew.working + crew.walking) % Math.max(1, homes.length)];
-      if (home && sendOnJob(town, g, "person", home, door!, { site: s.id, role: "builder" })) crew.walking++;
+      const kind = p.founderBuilds ? "car" : "person";
+      if (home && sendOnJob(town, g, kind, home, door!, { site: s.id, role: "builder" })) crew.walking++;
       else crew.working++;    // nowhere to walk from: they are simply there
       crew.untilNext = DISPATCH_EVERY;
     }
@@ -280,7 +285,8 @@ function putToWork(town: Town, g: Grid, s: Structure, m: Mover): void {
   const y = s.y - 0.35 + ((k * 0.382) % 1) * (s.h - 0.3);
   const z = g.height[idx(g, s.x, s.y)];
   town.movers.push({
-    ...m, id: town.next++, path: [{ x: Math.round(x), y: Math.round(y) }], line: [{ x, y }],
+    // On foot at work, whatever they came in. A founder drives in.
+    ...m, kind: "person", pitch: 0, id: town.next++, path: [{ x: Math.round(x), y: Math.round(y) }], line: [{ x, y }],
     at: new Float32Array(1), s: 0, speed: 0, x, y, z, heading: (k * 2.4) % (Math.PI * 2),
     job: { site: s.id, role: "working" },
   });

@@ -12,6 +12,7 @@ import { twMerge } from "tailwind-merge";
 import {
   PRIORITY_NAMES, PROJECTS, buildersFor, type Priority, type ProjectDef,
 } from "../../game/projects";
+import { useFounderStore } from "../../state/founder.store";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
@@ -50,12 +51,15 @@ export function ProjectsPanel({ className }: { className?: string }) {
   const placeProject = useWorldStore((s) => s.placeProject);
   const setPriority = useWorldStore((s) => s.setProjectPriority);
   const generators = useGeneratorStore((s) => s.generators);
+  const only = useFounderStore((s) => s.onlyGenerator);
   const money = useMoneyStore((s) => s.money);
 
   const owned: Record<string, number> = {};
   for (const g of generators) owned[g.id] = g.amount;
   const built = builtProjects(grid);
-  const next: ProjectDef | undefined = PROJECTS.find((p) => !built.has(p.id));
+  // A founder held to one kind of employee hires nothing a project opens:
+  // those projects are not theirs to build. @see getUnlockedGeneratorIds
+  const next: ProjectDef | undefined = PROJECTS.find((p) => !built.has(p.id) && !(only && p.unlocks));
   if (!next) return null;
   const site = siteOf(grid, next);
   // Their name in the plural: "your interns", "your vibe coders".
@@ -81,8 +85,10 @@ export function ProjectsPanel({ className }: { className?: string }) {
         <p className="font-bold">{next.name}</p>
         <p className="mt-1">{next.pitch}</p>
         <p className="mt-1 text-primary-700 dark:text-primary-300">
-          Materials {formatCurrency(next.cost)}, paid as {next.deliveries} loads arrive. Built by your {who},
-          who stop working while they build.
+          {next.founderBuilds
+            ? "You build this one yourself, from salvaged materials: it costs nothing."
+            : <>Materials {formatCurrency(next.cost)}, paid as {next.deliveries} loads arrive. Built by your {who},
+              who stop working while they build.</>}
         </p>
         {choosing ? (
           <div className="mt-2 flex items-center justify-between gap-2">
@@ -126,8 +132,10 @@ export function ProjectsPanel({ className }: { className?: string }) {
       <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 tabular-nums">
         <dt className="text-primary-600 dark:text-primary-400">Crew</dt>
         <dd>{crew.working} at work{crew.walking ? `, ${crew.walking} on the way` : ""}</dd>
-        <dt className="text-primary-600 dark:text-primary-400">Away</dt>
-        <dd>{away} {who} off their desks</dd>
+        {!next.founderBuilds && <>
+          <dt className="text-primary-600 dark:text-primary-400">Away</dt>
+          <dd>{away} {who} off their desks</dd>
+        </>}
         <dt className="text-primary-600 dark:text-primary-400">Materials</dt>
         <dd>{b.delivered}/{b.deliveries} loads{truck ? ", one on the road" : ""}</dd>
       </dl>
@@ -141,9 +149,11 @@ export function ProjectsPanel({ className }: { className?: string }) {
         ))}
       </div>
       <p className="mt-1 text-[11px] text-primary-600 dark:text-primary-400">
-        {b.priority > 0
-          ? `${buildersFor(next, b.priority, owned, site.w * site.h)} of your ${who} build at ${PRIORITY_NAMES[b.priority].toLowerCase()} priority.`
-          : "No one is building."}
+        {b.priority === 0
+          ? "No one is building."
+          : next.founderBuilds
+            ? "You are building it yourself."
+            : `${buildersFor(next, b.priority, owned, site.w * site.h)} of your ${who} build at ${PRIORITY_NAMES[b.priority].toLowerCase()} priority.`}
         {money.lt(loadPrice) && !stalled ? ` The next load costs ${formatCurrency(loadPrice)}.` : ""}
       </p>
     </div>

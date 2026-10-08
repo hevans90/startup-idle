@@ -124,7 +124,7 @@ describe("the economy's side", () => {
   test("with a map, vibe coders wait for the studio, and builders are not at their desks", () => {
     const stop = setProjectReader(() => ({ built: new Set(), away: { intern: 4 } }));
     expect(projectGateOpen("vibe_coder")).toBe(false);
-    expect(projectGateOpen("intern")).toBe(true);
+    expect(projectGateOpen("intern")).toBe(false);      // the garage comes first
     expect(attendance("intern", 10)).toBeCloseTo(0.6, 9);
     stop();
     setProjectReader(() => ({ built: new Set(["studio"]), away: {} }));
@@ -161,5 +161,43 @@ describe("the HQ", () => {
     expect(alreadyEarned(HQ, {}, new Set(["managers"]))).toBe(true);
     expect(alreadyEarned(HQ, { vibe_coder: 50 }, new Set())).toBe(false);
     expect(alreadyEarned(STUDIO, { vibe_coder: 1 }, new Set())).toBe(true);
+  });
+});
+
+describe("the Founder's Garage", () => {
+  const GARAGE = projectDef("garage")!;
+
+  test("is ready from the start, built by the founder alone, for nothing, and opens interns", () => {
+    expect(GARAGE.ready({})).toBe(true);
+    expect(GARAGE.unlocks).toBe("intern");
+    const { g, history } = town();
+    commit(g, history, startSiteCommand(g, GARAGE, 12, 6, { needsRoad: true }, 0)!);
+    const wallet = { money: 0 };
+    const { w, t } = run(g, 120, wallet, {});
+    // Opened: on a free load, by one builder who is nobody's desk.
+    expect(builtProjects(g).has("garage")).toBe(true);
+    expect(wallet.money).toBe(0);
+    expect(w.away).toEqual({});
+    void t;
+  });
+
+  test("its founder drives in, and works on foot", () => {
+    const { g, history } = town();
+    commit(g, history, startSiteCommand(g, GARAGE, 12, 6, { needsRoad: true }, 0)!);
+    const net = createNetwork(g), tw = createTown(), w = createWorks();
+    let drove = false, worked = false;
+    for (let k = 0; k < 30 * 40; k++) {
+      stepTown(tw, g, net, 0, 1 / 30);
+      stepWorks(w, g, net, tw, {}, () => true, 1 / 30, k * 33);
+      drove ||= tw.movers.some((m) => m.job?.role === "builder" && m.kind === "car");
+      worked ||= tw.movers.some((m) => m.job?.role === "working" && m.kind === "person");
+    }
+    expect(drove).toBe(true);
+    expect(worked).toBe(true);
+  });
+
+  test("is given finished to a company that already has interns", () => {
+    expect(alreadyEarned(GARAGE, { intern: 3 }, new Set())).toBe(true);
+    expect(alreadyEarned(GARAGE, {}, new Set())).toBe(false);
   });
 });

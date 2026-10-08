@@ -156,6 +156,12 @@ export const SEAPORT = SEAPORTS[0];
  */
 export const PROJECT_BUILDINGS: readonly StructureDef[] = [
   {
+    id: "garage",
+    name: "Founder's Garage",
+    footprint: { w: 2, h: 1 },
+    render: { kind: "custom", rendererId: "project" },
+  },
+  {
     id: "studio",
     name: "Vibe Coder Studio",
     footprint: { w: 3, h: 2 },

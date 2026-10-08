@@ -209,6 +209,47 @@ function drawHq(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
   line([[cx, cy, TOWER + 0.3], [cx, cy, TOWER + 2.6]], PARAPET, 1.4);
 }
 
+/**
+ * THE FINISHED GARAGE: a breeze-block box with a roller door in its front, a
+ * flat roof lipped over the walls, and a hand-painted sign above the door.
+ */
+function drawGarage(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line, quad, P } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, 0.15, SLAB, SLAB_SIDE, SLAB_SHADE);
+  const w0 = x0 + 0.18, w1 = x1 - 0.18, v0 = y0 + 0.18, v1 = y1 - 0.18;
+  box(w0, v0, w1, v1, 0.15, GARAGE_WALL, BLOCK_TOP, BLOCK, BLOCK_SHADE);
+  // Courses of block on the two faces the camera sees.
+  for (let z = 0.6; z < GARAGE_WALL; z += 0.45) {
+    line([[w0, v1, z], [w1, v1, z]], BLOCK_LINE, 0.8);
+    line([[w1, v0, z], [w1, v1, z]], BLOCK_LINE, 0.8);
+  }
+  // The roller door, ribbed, in the front.
+  const d0 = w0 + 0.25, d1 = w1 - 0.25, top = GARAGE_WALL - 0.5;
+  if (d1 > s.x + c - 0.5 && d0 < s.x + c + 0.5) {
+    const a = Math.max(d0, s.x + c - 0.5), b = Math.min(d1, s.x + c + 0.5);
+    quad([P(a, v1, top), P(b, v1, top), P(b, v1, 0.15), P(a, v1, 0.15)], DOOR_ROLL);
+    for (let z = 0.35; z < top; z += 0.22) line([[a, v1, z], [b, v1, z]], DOOR_RIB, 0.8);
+  }
+  // A flat roof lipped over the walls, and the sign.
+  box(w0 - 0.05, v0 - 0.05, w1 + 0.05, v1 + 0.05, GARAGE_WALL, GARAGE_WALL + 0.18, ROOF_FLAT, ROOF_EDGE, ROOF_EDGE);
+  box(d0 + 0.1, v1 + 0.01, d1 - 0.1, v1 + 0.03, top + 0.12, GARAGE_WALL - 0.08, SIGN_BOARD, SIGN_BOARD, SIGN_BOARD);
+  line([[d0 + 0.2, v1 + 0.04, top + 0.3], [d1 - 0.2, v1 + 0.04, top + 0.3]], SIGN_PAINT, 1.4);
+}
+
+/** Heights of the garage, in half steps, and its colours. */
+const GARAGE_WALL = 2.4;
+const BLOCK = 0xd8d2c4;
+const BLOCK_SHADE = 0xb3ac9c;
+const BLOCK_TOP = 0xc9c2b2;
+const BLOCK_LINE = 0xa39c8c;
+const DOOR_ROLL = 0x9aa3ab;
+const DOOR_RIB = 0x7a838b;
+const ROOF_FLAT = 0x50565d;
+const ROOF_EDGE = 0x3c4147;
+const SIGN_BOARD = 0x2f6d4f;
+const SIGN_PAINT = 0xf3eed8;
+
 /** Heights of the HQ, in half steps, and its colours. */
 const PODIUM = 1.7;
 const TOWER = 14;
@@ -227,6 +268,7 @@ const SIGN_DARK = 0xb97f17;
  * how it is drawn finished.
  */
 const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
+  garage: { body: GARAGE_WALL, finished: drawGarage },
   studio: { body: BODY, finished: drawStudio },
   hq: { body: TOWER, finished: drawHq },
 };

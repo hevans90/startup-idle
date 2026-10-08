@@ -18,7 +18,7 @@
  */
 import type { GeneratorId } from "../state/generators.store";
 
-export type ProjectId = "studio" | "hq";
+export type ProjectId = "garage" | "studio" | "hq";
 
 /** Features of the game a project can open, beyond hiring. @see featureGateOpen */
 export type FeatureId = "managers";
@@ -32,6 +32,12 @@ export type ProjectDef = {
   structure: string;
   /** Who builds it. */
   builders: readonly GeneratorId[];
+  /**
+   * Built by THE FOUNDER, alone — for the first project, before there is
+   * anybody to build with. One builder, who drives in from the edge of the
+   * map, and is nobody's desk. @see buildersFor
+   */
+  founderBuilds?: true;
   /** Builder-seconds of work. */
   work: number;
   /** What its materials cost in all, and in how many deliveries they come. */
@@ -50,6 +56,22 @@ export type ProjectDef = {
 };
 
 export const PROJECTS: readonly ProjectDef[] = [
+  {
+    id: "garage",
+    name: "Founder's Garage",
+    pitch: "Every startup starts in a garage. Drive in, knock it into shape, and you can hire your first intern.",
+    structure: "garage",
+    builders: [],
+    founderBuilds: true,
+    work: 30,
+    // Free: salvaged, and a company with five dollars to its name can found.
+    cost: 0,
+    deliveries: 1,
+    unlocks: "intern",
+    opens: "employees",
+    ready: () => true,
+    readyWhen: "nothing",
+  },
   {
     id: "studio",
     name: "Vibe Coder Studio",
@@ -102,6 +124,7 @@ export const BUILDERS_PER_TILE = 4;
 export function buildersFor(
   def: ProjectDef, priority: Priority, owned: Partial<Record<GeneratorId, number>>, tiles: number,
 ): number {
+  if (def.founderBuilds) return priority === 0 ? 0 : 1;
   const eligible = def.builders.reduce((n, id) => n + (owned[id] ?? 0), 0);
   if (priority === 0 || eligible === 0) return 0;
   return Math.max(1, Math.min(tiles * BUILDERS_PER_TILE, Math.round(eligible * PRIORITY_SHARE[priority])));

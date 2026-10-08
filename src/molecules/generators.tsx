@@ -67,6 +67,13 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
     </div>
   ) : (
     <div className="flex flex-col">
+      {/* NOBODY TO HIRE YET: the first hire waits on the founder's garage,
+          built on the map. @see game/projects */}
+      {generators.length === 0 && (
+        <p className="px-2 py-3 text-sm text-primary-600 dark:text-primary-300">
+          No one to hire yet. Build your Founder's Garage on the map, and you can hire your first intern.
+        </p>
+      )}
       {generators.map((gen) => (
         <Popover key={gen.id} openOnHover={true} placement="left">
           <PopoverTrigger asChild>

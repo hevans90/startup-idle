@@ -50,6 +50,14 @@ You found a startup as one of several **founder archetypes**, each bending a dif
     - A company that already employs what a project unlocks gets its building stood up finished at founding (`foundEarnedProjects`).
     - The Agentic Delusionist's vibe-coders-only run is never gated.
   - **The editor never spends money:** projects there are free.
+  - **The FIRST project is the Founder's Garage:** every company starts on it, and interns can't be hired until it opens.
+    - Nobody works for you yet, so the FOUNDER builds it alone (`founderBuilds`): one builder, who is nobody's desk and DRIVES in from where the road leaves the map. A walk across a 64-tile map took over a minute of nothing. They work on foot once there.
+    - It's 30 builder-seconds on a 2×1 site, with one load of salvaged materials that costs NOTHING, so even NEET's $5 founding works.
+    - On a fresh medium map the first intern is hireable about 70 seconds after the site is chosen: about 35 s driving in, 30 s building.
+    - Drawn finished, it is a breeze-block box with a ribbed roller door, a flat roof and a painted sign.
+    - The Employees tab says why the list is empty until then.
+    - A company that already has interns, including free starting ones from prestige, is given its garage finished.
+    - A founder held to one kind of employee (the Agentic Delusionist) is never offered a project that unlocks hiring.
   - **The second project is the Company HQ:**
     - It becomes available at 10 vibe coders, after the studio.
     - Interns AND vibe coders build it, the crew split between them by headcount.
