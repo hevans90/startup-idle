@@ -1,4 +1,5 @@
 // Returns how many generators you can afford
+import { projectGateOpen } from "../game/projects";
 import Decimal from "break_infinity.js";
 import { dev10xSatisfactionExponentDelta } from "../game/satisfaction";
 import {
@@ -143,7 +144,11 @@ export const getUnlockedGeneratorIds = (
       return owned >= cond.requiredAmount;
     });
 
-    if (conditions.length === 0 || satisfied) {
+    // AND ITS PROJECT BUILT, where one opens it — but never taken from a
+    // company that already employs some: the roster drops anything locked,
+    // and nobody's vibe coders should vanish for want of a studio. @see projectGateOpen
+    const owned = ownedMap[gen.id] ?? 0;
+    if (owned > 0 || ((conditions.length === 0 || satisfied) && projectGateOpen(gen.id))) {
       unlocked.push(gen.id);
     }
   }

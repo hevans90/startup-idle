@@ -12,7 +12,10 @@ import { useEffect, useState, type RefObject } from "react";
 
 import { addBeds, foundingRemoteBeds, housingCapacity, setHousingReader } from "../game/housing";
 import { useGeneratorStore } from "../state/generators.store";
-import { startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
+import { getWorks, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
+import { setProjectReader, type ProjectId } from "../game/projects";
+import { builtProjects, catchUpWorks } from "./projects/works";
+import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
 import { useSessionStore } from "../state/session.store";
 import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
 import { loadSaved, setSaveSlot, type SaveSlot } from "./io/world-save";
@@ -105,6 +108,31 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     st.setPlaying(true);
     st.setTool("inspect");
     return () => useWorldStore.getState().setPlaying(false);
+  }, [play]);
+  /**
+   * THE PROJECTS, in the game: what a company already earned stood up
+   * finished, the time away caught up, and the economy told what is built and
+   * who is away building — for as long as the map is mounted.
+   * @see game/projects, setProjectReader
+   */
+  useEffect(() => {
+    if (!play) return;
+    const owned = ownedNow();
+    useWorldStore.getState().foundEarnedProjects(owned);
+    const opened = catchUpWorks(useWorldStore.getState().grid, owned, payForLoad, Date.now());
+    if (opened.length) announceOpened(opened);
+    // What is built changes only with the map, so it is worked out again only
+    // then: the economy asks every tick.
+    let seenGrid: unknown = null, seenRev = -1, seenProjects = -1;
+    let built: Set<ProjectId> = new Set();
+    return setProjectReader(() => {
+      const st = useWorldStore.getState();
+      if (st.grid !== seenGrid || st.revision !== seenRev || st.projectRev !== seenProjects) {
+        seenGrid = st.grid; seenRev = st.revision; seenProjects = st.projectRev;
+        built = builtProjects(st.grid);
+      }
+      return { built, away: getWorks().away };
+    });
   }, [play]);
 }
 

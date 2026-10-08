@@ -27,7 +27,13 @@ import { connects, isPaved } from "../roads/mask";
 import { find, type Network } from "../roads/network";
 
 export type Cell = { x: number; y: number };
-export type Place = Cell & { kind: "door" | "gateway"; net: number; structure?: number };
+export type Place = Cell & {
+  kind: "door" | "gateway";
+  net: number;
+  structure?: number;
+  /** A door of a building still going up: a site, not somewhere to make a trip to. */
+  building?: boolean;
+};
 
 const DIRS = ["N", "E", "S", "W"] as const;
 type Dir = (typeof DIRS)[number];
@@ -56,7 +62,10 @@ export function placesOf(g: Grid, net: Network): Place[] {
           const dist = Math.hypot(x - cx, y - cy);
           if (dist >= bestD) continue;
           bestD = dist;
-          best = { x, y, kind: "door", net: find(net, idx(g, x, y)), structure: s.id };
+          best = {
+            x, y, kind: "door", net: find(net, idx(g, x, y)), structure: s.id,
+            ...(s.build ? { building: true } : {}),
+          };
         }
       }
     }

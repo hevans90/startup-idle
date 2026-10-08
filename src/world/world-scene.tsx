@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, getFleet, getNetwork, getTown, getTraffic, useWorldStore } from "../state/world.store";
+import { drainDirty, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -75,9 +75,12 @@ import { createBuildCursor, type BuildCursor, type Validator } from "./edit/curs
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
+import { stepWorks } from "./projects/works";
+import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
 import { stepFleet, wantFleet } from "./boats/fleet";
 import { stepTraffic, trafficSteer } from "./boats/traffic";
 import "./structures/seaport-renderer";
+import "./structures/project-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
@@ -175,6 +178,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const boatRef = useRef<BoatLayer | null>(null);
   /** The cars and people, drawn among the movers too. @see world/agents */
   const townRef = useRef<TownLayer | null>(null);
+  /** The works' revision last told to the store, so autosave hears of progress. */
+  const worksRevRef = useRef(0);
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -2044,6 +2049,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (net) {
         const st = useWorldStore.getState();
         stepTown(getTown(), st.grid, net, st.revision, dt);
+        // THE PROJECTS going up: crews walking out, loads trucked in, work
+        // done — after the town has moved, so who arrived this frame is known.
+        // Paid for out of the company's money under the game's rules; free in
+        // the editor, which must never spend anybody's money. @see stepWorks
+        const works = getWorks();
+        stepWorks(works, st.grid, net, getTown(), ownedNow(), st.playing ? payForLoad : () => true, dt, Date.now());
+        if (works.opened.length) announceOpened(works.opened.splice(0));
+        if (works.rev !== worksRevRef.current) {
+          worksRevRef.current = works.rev;
+          useWorldStore.setState({ projectRev: st.projectRev + 1 });
+        }
         townRef.current?.draw(getTown(), scale);
       }
       const t2 = performance.now();

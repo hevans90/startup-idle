@@ -64,9 +64,9 @@ const NEWS_BUCKETS: NewsBucket[] = [
     when: (s) =>
       s.onlyGenerator == null && s.internAmount >= 10 && s.vibeAmount === 0,
     lines: [
-      "Ten interns. The vibe coders unlock, like a curse in a terms-of-service update.",
-      "You've bred enough juniors to summon the sloppers. Nature is healing.",
-      "The building codes now require at least one person who 'ships vibes.'",
+      "Ten interns. Hand them hard hats: the vibe coders need a studio, and it won't build itself.",
+      "You've bred enough juniors to summon the sloppers. First they have to pour the concrete.",
+      "The building codes now require at least one person who 'ships vibes.' Break ground on a studio.",
     ],
   },
   {

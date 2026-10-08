@@ -149,8 +149,22 @@ export const SEAPORTS: readonly StructureDef[] = [
 /** The first tier. */
 export const SEAPORT = SEAPORTS[0];
 
+/**
+ * BUILDINGS RAISED AS PROJECTS, not bought off a list: a site is chosen and
+ * employees build them over time, and what they open is unlocked when they
+ * do. Never for sale in the build bar. @see game/projects
+ */
+export const PROJECT_BUILDINGS: readonly StructureDef[] = [
+  {
+    id: "studio",
+    name: "Vibe Coder Studio",
+    footprint: { w: 3, h: 2 },
+    render: { kind: "custom", rendererId: "project" },
+  },
+];
+
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

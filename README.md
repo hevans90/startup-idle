@@ -29,6 +29,21 @@ You found a startup as one of several **founder archetypes**, each bending a dif
     - The sell dialog says the map resets.
     - The full world editor is still at `?world=1`, unchanged, with every tool and HUD.
   - **The old isometric city** (`src/office`) is no longer mounted by the game.
+- **Projects: the company grows by building, Caesar-style** (`game/projects.ts`, `world/projects/works.ts`, `world/play/projects-panel.tsx`, `structures/project-renderer.ts`). Reaching a milestone no longer unlocks anything by itself. It makes a PROJECT available:
+  - **Choosing a site:** a card on the map offers "Choose a site". The site is placed like a building (frontage under play rules) and appears as a fenced plot stripped to earth.
+  - **The crew:** builders leave their desks and walk there from their homes along the roads, wearing yellow hard hats. They work only once they arrive, so a site far from its builders' homes is a slow site.
+  - **Materials:** trucks bring them from where a road leaves the map, keeping up to two loads on hand ahead of the work. Each load is PAID WHEN SENT. A company that can't pay for the next load STALLS, and a crew idle for 6 seconds walks home, which at least gives the company its workers back.
+  - **Stages:** foundations rise, walls go up inside a scaffold, and the roof goes on. When it opens, a toast announces it, the crew walks home, and the thing it was for is unlocked.
+  - **The first project** is the **Vibe Coder Studio**, a 3×2 glass box with a neon sign. It's built by interns (600 builder-seconds; $400 in 8 loads), available at 10 interns, and vibe coders can't be hired until it opens.
+  - **Builders stop working while they build:** `getEmployeeOutputMults` scales each kind's output by the share at their desks (`attendance`), so the live tick and every readout agree.
+  - **How many build is automatic but steerable:** the card's PRIORITY (Paused / Low / Normal / High) gives a quarter, half or all of the eligible employees, capped at 4 per footprint tile (`buildersFor`). Pausing or lowering returns people to their desks at once; anyone still walking there turns round when they arrive.
+  - **Saved in the map:** the site is a structure with a `build` record (`Structure.build`). Time away is caught up on load (`catchUpWorks`): the whole crew worked throughout, loads were bought as needed while the money lasted, and the stock was refilled. A site already under way has its crew on site again straight after a reload; only a new site sends for them.
+  - **The economy hears through a registered reader** (`setProjectReader`), like the beds. With no map registered (simulations, tests, the phone layout) nothing is gated and nobody is away.
+  - **Nobody loses progress:**
+    - The gate never takes away a generator a company already employs.
+    - A company that already employs what a project unlocks gets its building stood up finished at founding (`foundEarnedProjects`).
+    - The Agentic Delusionist's vibe-coders-only run is never gated.
+  - **The editor never spends money:** projects there are free.
 
 ## Tech stack
 
@@ -84,6 +99,8 @@ src/
     city/              #   scene computation, building kits data, world gen
   world/               # World v2 — MUTABLE isometric map engine: the game's map, and the ?world=1 editor
     play/              #   company-map.tsx: the company's map in the game; build-bar.tsx: the player's tools
+                       #   projects-panel.tsx: the next project — its site, crew, loads, priority
+    projects/          #   works.ts: sites going up — crews, deliveries, stalls, opening, time away
     iso.ts             #   projection, half-step heights, tilted-face picking
     grid.ts            #   dense layers (terrain/height/paved/ramp/structureAt)
     gen/               #   the ground a new company founds on: value noise, a

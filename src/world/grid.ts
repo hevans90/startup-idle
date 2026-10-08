@@ -41,6 +41,26 @@ export type Structure = {
   /** Footprint size, as placed. */
   w: number;
   h: number;
+  /**
+   * STILL BEING BUILT, if present: a project's site. Gone when it opens.
+   * @see world/projects, game/projects
+   */
+  build?: Build;
+};
+
+/** A building going up. @see stepWorks */
+export type Build = {
+  /** Builder-seconds done, and needed. */
+  done: number;
+  need: number;
+  /** Deliveries of materials arrived, and needed; and what they cost in all. */
+  delivered: number;
+  deliveries: number;
+  cost: number;
+  /** How much of the company works on it: paused, low, normal, high. @see PRIORITY_SHARE */
+  priority: 0 | 1 | 2 | 3;
+  /** When it was last worked on, ms since the epoch — for the time away. */
+  updatedAt: number;
 };
 export type Grid = {
   readonly w: number;

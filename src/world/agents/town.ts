@@ -35,7 +35,14 @@ import {
 
 export type Mover = {
   id: number;
-  kind: "car" | "person";
+  kind: "car" | "person" | "truck";
+  /**
+   * WORK, if it is on some: a builder walking to a site or home from it, a
+   * builder at work on one, or a load of materials on its way. Movers on a
+   * job are not the town's trips: they are counted apart, reported when they
+   * arrive, and a builder at work stands where it is. @see world/projects
+   */
+  job?: { site: number; role: "builder" | "home" | "working" | "truck" };
   /** The cells of its route, and the line it follows through them. */
   path: Cell[];
   line: Cell[];
@@ -60,6 +67,8 @@ export type Mover = {
 
 export type Town = {
   movers: Mover[];
+  /** Movers on a job that arrived since the last look. @see stepWorks */
+  arrived: Mover[];
   next: number;
   t: number;
   places: Place[];
@@ -72,7 +81,7 @@ export type Town = {
 };
 
 export const createTown = (): Town => ({
-  movers: [], next: 1, t: 0, places: [], placesAt: -1, untilCar: 0, untilPerson: 0, seed: 0x2f6e2b1,
+  movers: [], arrived: [], next: 1, t: 0, places: [], placesAt: -1, untilCar: 0, untilPerson: 0, seed: 0x2f6e2b1,
 });
 
 /** A person's leg, half steps long, and how far it swings either side of straight down. */
@@ -100,6 +109,8 @@ const PERSON_EVERY = 0.3;
 
 /** Cruising speeds, tiles a second, and how much they vary one to the next. */
 const CAR_CRUISE = 1.6;
+const TRUCK_CRUISE = 1.15;
+const TRUCK_COLOUR = 0xd98c2b;
 const PERSON_CRUISE = 0.45;
 const SPREAD = 0.2;
 /** Tiles a second squared. */
@@ -155,11 +166,14 @@ function along(m: Mover, s: number) {
 }
 
 /** Set off on a trip, or null if there is no way there. */
+/** Cars and trucks: they drive, keep right and keep their distance. */
+const drives = (m: { kind: Mover["kind"] }) => m.kind !== "person";
+
 function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place): Mover | null {
-  const path = routeBetween(g, from, to, kind === "car");
+  const path = routeBetween(g, from, to, kind !== "person");
   if (!path || path.length < 2) return null;
   const lean = kind === "person" ? (rand(t) - 0.5) * 0.08 : 0;
-  const line = kind === "car" ? carLine(g, path) : walkLine(g, path, lean);
+  const line = kind !== "person" ? carLine(g, path) : walkLine(g, path, lean);
   // OFF THE MAP AND ON AGAIN: a trip from a gateway comes in from beyond the
   // rim, and one to a gateway drives on past it.
   if (from.kind === "gateway") {
@@ -172,13 +186,13 @@ function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place): 
   }
   const at = new Float32Array(line.length);
   for (let k = 1; k < line.length; k++) at[k] = at[k - 1] + Math.hypot(line[k].x - line[k - 1].x, line[k].y - line[k - 1].y);
-  const base = kind === "car" ? CAR_CRUISE : PERSON_CRUISE;
+  const base = kind === "car" ? CAR_CRUISE : kind === "truck" ? TRUCK_CRUISE : PERSON_CRUISE;
   const m: Mover = {
     id: t.next++, kind, path, line, at, s: 0, speed: 0,
     cruise: base * (1 + (rand(t) - 0.5) * 2 * SPREAD),
     x: line[0].x, y: line[0].y, z: roadHeightAt(g, line[0].x, line[0].y), heading: 0,
     stuck: 0, pushing: 0,
-    colour: pick(t, kind === "car" ? CAR_COLOURS : SHIRTS),
+    colour: kind === "truck" ? TRUCK_COLOUR : pick(t, kind === "car" ? CAR_COLOURS : SHIRTS),
     phase: rand(t) * Math.PI * 2,
   };
   const p = along(m, 0);
@@ -191,9 +205,10 @@ function tripFor(t: Town, kind: Mover["kind"]): [Place, Place] | null {
   const places = t.places;
   if (places.length < 2) return null;
   for (let tries = 0; tries < 8; tries++) {
-    const from = pick(t, kind === "person" ? places.filter((p) => p.kind === "door") : places);
+    const open = places.filter((p) => !p.building);
+    const from = pick(t, kind === "person" ? open.filter((p) => p.kind === "door") : open);
     if (!from) return null;
-    const ends = places.filter((p) => p !== from && p.net === from.net
+    const ends = places.filter((p) => p !== from && p.net === from.net && !p.building
       && Math.abs(p.x - from.x) + Math.abs(p.y - from.y) >= MIN_TRIP);
     if (ends.length) return [from, pick(t, ends)];
   }
@@ -311,11 +326,14 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   }
 
   // SETTING OFF, one at a time, while the town is short.
-  const want = wanted(t.places);
-  const cars = t.movers.filter((m) => m.kind === "car");
-  const people = t.movers.length - cars.length;
+  const want = wanted(t.places.filter((p) => !p.building));
+  // Everything that drives keeps its distance from everything else that does;
+  // only the town's own trips count towards how many trips it has.
+  const cars = t.movers.filter(drives);
+  const tripCars = cars.filter((m) => !m.job).length;
+  const people = t.movers.filter((m) => m.kind === "person" && !m.job).length;
   t.untilCar -= h;
-  if (t.untilCar <= 0 && cars.length < want.cars) {
+  if (t.untilCar <= 0 && tripCars < want.cars) {
     t.untilCar = CAR_EVERY;
     const trip = tripFor(t, "car");
     const m = trip && setOff(t, g, "car", ...trip);
@@ -331,11 +349,13 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
 
   // MOVING.
   for (const m of t.movers) {
-    const limit = Math.min(lineLimit(m), m.kind === "car" ? trafficLimit(m, cars) : Infinity);
+    // AT WORK on a site: standing, swinging a hammer. @see town-render
+    if (m.job?.role === "working") { m.phase += h * WORK_RATE; continue; }
+    const limit = Math.min(lineLimit(m), drives(m) ? trafficLimit(m, cars) : Infinity);
     if (m.speed < limit) m.speed = Math.min(limit, m.speed + ACCEL * h);
     else m.speed = Math.max(limit, m.speed - BRAKE * h);
     // PATIENCE: stood still a while with somewhere to be, it pushes on.
-    if (m.kind === "car") {
+    if (drives(m)) {
       m.pushing = Math.max(0, m.pushing - h);
       if (m.speed < 0.05 && lineLimit(m) > 0.2) m.stuck += h; else m.stuck = 0;
       if (m.stuck > PATIENCE) { m.pushing = PUSH; m.stuck = 0; }
@@ -349,15 +369,36 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     const want2 = Math.atan2(p.dy, p.dx);
     let d = want2 - m.heading;
     d = Math.atan2(Math.sin(d), Math.cos(d));
-    m.heading += d * Math.min(1, h * (m.kind === "car" ? 10 : 14));
+    m.heading += d * Math.min(1, h * (drives(m) ? 10 : 14));
     if (m.kind === "person") m.phase += (h * m.speed * Math.PI) / STRIDE;
   }
 
   // ARRIVING, and the road going from under somebody.
   t.movers = t.movers.filter((m) => {
-    if (m.s >= m.at[m.at.length - 1] - 0.01) return false;
+    if (m.job?.role === "working") return true;     // the site lets them go. @see stepWorks
+    if (m.s >= m.at[m.at.length - 1] - 0.01) {
+      if (m.job) t.arrived.push(m);
+      return false;
+    }
     const k = Math.min(m.path.length - 1, Math.max(0, Math.round((m.s / m.at[m.at.length - 1]) * (m.path.length - 1))));
     const c = m.path[k];
     return isPaved(g, c.x, c.y);
   });
+}
+
+/** Swings of a hammer a second, in phase, for a builder at work. */
+const WORK_RATE = 9;
+
+/**
+ * Send somebody, or a truck, on a job from one place to another. Null if there
+ * is no way there. @see stepWorks
+ */
+export function sendOnJob(
+  t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place, job: NonNullable<Mover["job"]>,
+): Mover | null {
+  const m = setOff(t, g, kind, from, to);
+  if (!m) return null;
+  m.job = job;
+  t.movers.push(m);
+  return m;
 }

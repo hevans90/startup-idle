@@ -13,6 +13,8 @@ import {
 import { mapRiver, tileDepthOf } from "../world/boats/river";
 import { createTraffic, type Traffic } from "../world/boats/traffic";
 import { createTown, type Town } from "../world/agents/town";
+import { builtProjects, createWorks, nearestSpot, siteOf, startSiteCommand, type Works } from "../world/projects/works";
+import { PROJECTS, projectDef, type Priority, type ProjectId } from "../game/projects";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
@@ -195,6 +197,9 @@ export const getTraffic = () => traffic;
 /** And the cars and people on its roads. @see world/agents/town */
 let town: Town = createTown();
 export const getTown = () => town;
+/** And the projects going up on it. @see world/projects/works */
+let works: Works = createWorks();
+export const getWorks = () => works;
 
 /**
  * Cells the renderer has not reconciled yet, ACCUMULATED across edits.
@@ -332,6 +337,24 @@ type WorldState = {
    * @see startAutosave
    */
   boatRev: number;
+  /**
+   * A PROJECT whose site is being chosen: the build tool is in hand with its
+   * building, and the next click lays out its site rather than buying
+   * anything. Null otherwise. @see startProject, game/projects
+   */
+  placingProject: ProjectId | null;
+  /** Bumped when a site is laid out, a load arrives, or a project opens: worth saving. */
+  projectRev: number;
+  /** Choose a site for a project: the next click lays it out. Null puts the choice down. */
+  placeProject: (id: ProjectId | null) => void;
+  /** How much of the company works on a site. @see PRIORITY_SHARE */
+  setProjectPriority: (structureId: number, priority: Priority) => void;
+  /**
+   * Stand up, finished, every project a company has already earned what it
+   * opens: one that employed vibe coders before projects existed gets its
+   * studio, on the best spot near the middle of its map. @see game/projects
+   */
+  foundEarnedProjects: (owned: Partial<Record<string, number>>) => void;
   lastTouched: Cell[];
   /** Connected components in the road graph. Mirrored, like the history depths. */
   netComponents: number;
@@ -552,6 +575,41 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   stroke: null,
   revision: 0,
   boatRev: 0,
+  placingProject: null,
+  projectRev: 0,
+  placeProject: (id) => {
+    const p = id ? projectDef(id) : null;
+    if (p) set({ placingProject: id, tool: "placeStructure", structureDefId: p.structure, brush: "point", brushRadius: 0 });
+    else set({ placingProject: null, tool: "inspect" });
+  },
+  foundEarnedProjects: (owned) => {
+    const st = get();
+    const built = builtProjects(st.grid);
+    const rules = st.playing ? { needsRoad: true } : {};
+    let changed = false;
+    for (const p of PROJECTS) {
+      if (!p.unlocks || !(owned[p.unlocks] ?? 0) || built.has(p.id) || siteOf(st.grid, p)) continue;
+      const def = structureDef(p.structure);
+      const spot = def && nearestSpot(st.grid, def, rules);
+      const cmd = spot && placeCommand(st.grid, def!, spot.x, spot.y, rules);
+      if (!cmd) continue;
+      commit(st.grid, history, cmd);
+      if (water && touchesSurface(cmd)) syncGround(water, st.grid);
+      if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
+      changed = true;
+    }
+    // Not something to undo: the company already had it.
+    if (changed) {
+      history = createHistory();
+      set({ revision: get().revision + 1, projectRev: get().projectRev + 1, ...historyMeta(), ...netMeta() });
+    }
+  },
+  setProjectPriority: (structureId, priority) => {
+    const b = get().grid.structures.get(structureId)?.build;
+    if (!b) return;
+    b.priority = priority;
+    set({ projectRev: get().projectRev + 1 });
+  },
   lastTouched: [],
   // Counted, not assumed: a `?fixture=` builds its roads into the first grid
   // and never goes through `loadGrid`, so a nought here stayed nought.
@@ -612,6 +670,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     fleet = createFleet();
     traffic = createTraffic();
     town = createTown();
+    works = createWorks();
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
@@ -620,8 +679,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     });
   },
 
-  setTool: (tool) => set({ tool, stroke: null }),
-  setStructureDef: (structureDefId) => set({ structureDefId }),
+  // Any other tool, or any other building, puts down a site being chosen.
+  setTool: (tool) => set({ tool, stroke: null, placingProject: null }),
+  setStructureDef: (structureDefId) => set({ structureDefId, placingProject: null }),
   setFluidMaterial: (fluidMaterial) => set({ fluidMaterial }),
   setBrush: (brush) => set({ brush, stroke: null }),
   setBrushRadius: (brushRadius) => set({ brushRadius }),
@@ -807,6 +867,29 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
    */
   commitStructure: (c) => {
     const st = get();
+    // A PROJECT'S SITE, being laid out: placed like its building, with the
+    // build record on it, and nothing paid — materials are paid for as they
+    // are sent. @see startSiteCommand
+    const project = st.placingProject ? projectDef(st.placingProject) : null;
+    if (project && st.tool === "placeStructure" && st.structureDefId === project.structure) {
+      const siteRules = {
+        ...(st.playing ? { needsRoad: true } : {}),
+        ...(water && structureDef(project.structure)?.placement?.riverside
+          ? { rivers: mapRiver(st.grid, tileDepthOf(water.columns)) } : {}),
+      };
+      const cmd = startSiteCommand(st.grid, project, c.x, c.y, siteRules, Date.now());
+      if (!cmd) { set({ stroke: null }); return; }
+      const touched = commit(st.grid, history, cmd);
+      if (water && touchesSurface(cmd)) syncGround(water, st.grid);
+      if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
+      set({
+        stroke: null, placingProject: null, tool: "inspect",
+        revision: st.revision + 1, projectRev: st.projectRev + 1,
+        lastTouched: markDirty(st.grid, touched, true),
+        ...historyMeta(), ...netMeta(),
+      });
+      return;
+    }
     const def = structureDef(st.structureDefId);
     const demolishing = st.tool === "demolish";
     // THE GAME'S RULES, NOT THE EDITOR'S. Frontage is a rule of play; the
@@ -935,6 +1018,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     fleet = createFleet();
     traffic = createTraffic();
     town = createTown();
+    works = createWorks();
     // The file's boats, on the file's water. @see restoreFleet
     if (boats?.length) restoreFleet(fleet, water.columns, boats);
     setWaterEdge(water, get().openEdge);          // a new field, the same world
@@ -990,8 +1074,10 @@ export function startAutosave(): () => void {
   let seenRev = useWorldStore.getState().revision;
   let seenGrid = useWorldStore.getState().grid;
   let seenBoats = useWorldStore.getState().boatRev;
+  let seenProjects = useWorldStore.getState().projectRev;
   const stop = useWorldStore.subscribe((s) => {
-    if (s.revision === seenRev && s.grid === seenGrid && s.boatRev === seenBoats) return;
+    if (s.revision === seenRev && s.grid === seenGrid && s.boatRev === seenBoats && s.projectRev === seenProjects) return;
+    seenProjects = s.projectRev;
     seenRev = s.revision;
     seenGrid = s.grid;
     seenBoats = s.boatRev;

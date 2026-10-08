@@ -42,6 +42,14 @@ const SHOULDER_W = 0.036;
 const KNEE = 0.7;
 
 const GLASS = 0x2a3a4a;
+const HARD_HAT = 0xf2c230;
+/** A lorry: tiles long and wide, its cab's height, and its load. */
+const TRUCK_L = 0.56;
+const TRUCK_W = 0.24;
+const TRUCK_CAB = 0.7;
+const BED = 0x5b5f66;
+const LOAD = 0xb08a55;
+const LOAD_TOP = 0xc9a46c;
 const SKINS = [0xf1d0b0, 0xe0b48e, 0xc68c5d, 0x9c6a43, 0x6e4a2f];
 const HAIRS = [0x2b2118, 0x4a3324, 0x8a5a2b, 0xd9b26a, 0x1c1c1c, 0x9a9a9a];
 const TROUSERS = [0x3a3f4b, 0x2f4a6b, 0x5b4a3a, 0x2b2b2b, 0x6b6f75];
@@ -98,7 +106,7 @@ export function createTownLayer(bands: BandLayer): TownLayer {
 export function drawMover(g: Graphics, m: Mover, s: number, bandsN: number): number {
   const ch = Math.cos(m.heading), sh = Math.sin(m.heading);
   // The body is highest mid-stride, over a straight leg, and lowest between.
-  const bob = m.kind === "person" ? Math.abs(Math.cos(m.phase)) * 0.05 : 0;
+  const bob = m.kind === "person" && m.job?.role !== "working" ? Math.abs(Math.cos(m.phase)) * 0.05 : 0;
   /** `l` along the heading and `w` across it, tiles, `up` half steps over the road. */
   const at = (l: number, w: number, up: number) => {
     const u = m.x + l * ch - w * sh;
@@ -125,10 +133,23 @@ export function drawMover(g: Graphics, m: Mover, s: number, bandsN: number): num
     return hi;
   };
   const box = (l: number, w: number) => [[l, w], [-l, w], [-l, -w], [l, -w]] as const;
+  /** A box from `l0` forward to `l1` back, `w` either side. */
+  const box2 = (l0: number, l1: number, w: number) => [[l0, w], [l1, w], [l1, -w], [l0, -w]] as const;
 
   g.clear();
   let front: { u: number; v: number }[];
-  if (m.kind === "car") {
+  if (m.kind === "truck") {
+    // A LORRY of materials: a cab, and a flatbed behind it stacked with a
+    // pallet of something. @see stepWorks
+    const front0 = TRUCK_L / 2, cabBack = TRUCK_L * 0.18;
+    const cab = prism([[front0, TRUCK_W / 2], [cabBack, TRUCK_W / 2], [cabBack, -TRUCK_W / 2], [front0, -TRUCK_W / 2]],
+      0.04, TRUCK_CAB, m.colour);
+    prism([[front0 - 0.02, TRUCK_W * 0.42], [front0 - 0.09, TRUCK_W * 0.42], [front0 - 0.09, -TRUCK_W * 0.42], [front0 - 0.02, -TRUCK_W * 0.42]],
+      TRUCK_CAB * 0.55, TRUCK_CAB * 0.95, GLASS);
+    prism(box2(cabBack - 0.02, -TRUCK_L / 2, TRUCK_W / 2), 0.04, 0.32, BED);
+    prism(box2(cabBack - 0.06, -TRUCK_L / 2 + 0.05, TRUCK_W * 0.4), 0.32, 0.72, LOAD, LOAD_TOP);
+    front = cab;
+  } else if (m.kind === "car") {
     const body = prism(box(CAR_L / 2, CAR_W / 2), 0.04, BODY, m.colour);
     // The cabin, set back from the bonnet, glass on its sides.
     prism([[CAR_L * 0.12, CAR_W * 0.42], [-CAR_L * 0.32, CAR_W * 0.42], [-CAR_L * 0.32, -CAR_W * 0.42], [CAR_L * 0.12, -CAR_W * 0.42]],
@@ -153,7 +174,9 @@ type Prism = (
  * knee, and each arm swings against the leg on its side.
  */
 function drawPerson(g: Graphics, m: Mover, s: number, at: At, prism: Prism) {
-  const skin = ofId(m.id, 0x51, SKINS), hair = ofId(m.id, 0x7a, HAIRS), legs = ofId(m.id, 0x33, TROUSERS);
+  const skin = ofId(m.id, 0x51, SKINS), legs = ofId(m.id, 0x33, TROUSERS);
+  // A BUILDER wears a hard hat, so a crew can be told from a crowd. @see stepWorks
+  const hair = m.job ? HARD_HAT : ofId(m.id, 0x7a, HAIRS);
   const ch = Math.cos(m.heading), sh = Math.sin(m.heading);
   // Which side is nearer the camera, which looks down the +u +v diagonal.
   const nearSide = -sh + ch >= 0 ? 1 : -1;
@@ -172,7 +195,19 @@ function drawPerson(g: Graphics, m: Mover, s: number, at: At, prism: Prism) {
   };
   const xy = (p: { px: number; py: number }): [number, number] => [p.px, p.py];
 
+  const working = m.job?.role === "working";
   const parts = (side: number) => {
+    // AT WORK: feet planted, and a hammer arm — the near one — beating.
+    if (working) {
+      const hip = { l: 0, up: HIP };
+      const foot = { l: side * 0.004, up: 0 };
+      const knee = { l: 0.01, up: HIP / 2 };
+      const shoulder = { l: 0, up: SHOULDER - 0.04 };
+      const beat = side === nearSide ? 1.2 + 0.9 * Math.sin(m.phase) : 0.5;
+      const elbow = swing(shoulder, ARM / 2, beat);
+      const hand = swing(elbow, ARM / 2, beat + 0.6);
+      return { leg: [hip, knee, foot], arm: [shoulder, elbow, hand] };
+    }
     const p = m.phase + (side > 0 ? 0 : Math.PI);
     const thigh = SWING * Math.sin(p);
     // The knee bends as the leg comes forward through the stride.

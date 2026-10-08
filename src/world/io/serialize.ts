@@ -13,7 +13,7 @@
 import { saveFleet, type Fleet, type SavedBoat } from "../boats/fleet";
 import {
   VOID, createGrid, edited, recomputeHeightRange, stampFootprint,
-  type Grid, type Structure,
+  type Build, type Grid, type Structure,
 } from "../grid";
 import { DECK_SLOT, poolSnapshot, type WaterField } from "../water/field";
 
@@ -245,7 +245,22 @@ function readStructure(raw: unknown): Structure | null {
   const nums = [s.id, s.x, s.y, s.w, s.h];
   if (typeof s.def !== "string" || !nums.every((v) => Number.isInteger(v))) return null;
   if ((s.w as number) <= 0 || (s.h as number) <= 0 || (s.id as number) < 0) return null;
-  return { id: s.id!, def: s.def, x: s.x!, y: s.y!, w: s.w!, h: s.h! };
+  const build = readBuild(s.build);
+  return { id: s.id!, def: s.def, x: s.x!, y: s.y!, w: s.w!, h: s.h!, ...(build ? { build } : {}) };
+}
+
+/** A building still going up, or null — a site that will not read stands finished. */
+function readBuild(raw: unknown): Build | null {
+  if (!raw || typeof raw !== "object") return null;
+  const b = raw as Partial<Build>;
+  const nums = [b.done, b.need, b.delivered, b.deliveries, b.cost, b.updatedAt];
+  if (!nums.every((v) => typeof v === "number" && Number.isFinite(v))) return null;
+  if (b.need! <= 0 || b.deliveries! <= 0) return null;
+  const priority = [0, 1, 2, 3].includes(b.priority as number) ? (b.priority as Build["priority"]) : 2;
+  return {
+    done: Math.max(0, b.done!), need: b.need!, delivered: Math.max(0, Math.min(b.deliveries!, b.delivered!)),
+    deliveries: b.deliveries!, cost: Math.max(0, b.cost!), priority, updatedAt: b.updatedAt!,
+  };
 }
 
 /**
