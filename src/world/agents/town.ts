@@ -63,6 +63,12 @@ export type Mover = {
   colour: number;
   /** A phase of its own, for a walker's step. */
   phase: number;
+  /**
+   * How steeply a vehicle is tilted along its heading, half steps a tile: the
+   * road's rise from its tail to its nose. A lorry drawn level on a ramp put
+   * one end into the road. @see town-render
+   */
+  pitch?: number;
 };
 
 export type Town = {
@@ -365,6 +371,14 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     m.x = p.x;
     m.y = p.y;
     m.z = roadHeightAt(g, p.x, p.y);
+    if (drives(m)) {
+      // Nose and tail, half a vehicle either way along the way it goes.
+      const half = m.kind === "truck" ? 0.28 : 0.19;
+      const zf = roadHeightAt(g, p.x + p.dx * half, p.y + p.dy * half);
+      const zb = roadHeightAt(g, p.x - p.dx * half, p.y - p.dy * half);
+      m.pitch = (zf - zb) / (2 * half);
+      m.z = (zf + zb) / 2;
+    }
     // Facing the way it goes, turned in over a moment, not snapped round.
     const want2 = Math.atan2(p.dy, p.dx);
     let d = want2 - m.heading;

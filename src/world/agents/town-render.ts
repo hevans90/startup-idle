@@ -111,7 +111,8 @@ export function drawMover(g: Graphics, m: Mover, s: number, bandsN: number): num
   const at = (l: number, w: number, up: number) => {
     const u = m.x + l * ch - w * sh;
     const v = m.y + l * sh + w * ch;
-    return { u, v, px: (u - v) * HW * s, py: (u + v) * HH * s - (m.z + up + bob) * HEIGHT_UNIT * s };
+    const tilt = (m.pitch ?? 0) * l;
+    return { u, v, px: (u - v) * HW * s, py: (u + v) * HH * s - (m.z + up + bob + tilt) * HEIGHT_UNIT * s };
   };
   /**
    * An outline stood up from `z0` to `z1`: the sides that face the camera,
@@ -141,14 +142,30 @@ export function drawMover(g: Graphics, m: Mover, s: number, bandsN: number): num
   if (m.kind === "truck") {
     // A LORRY of materials: a cab, and a flatbed behind it stacked with a
     // pallet of something. @see stepWorks
+    //
+    // IN DEPTH ORDER, the cab and the cargo as two pieces, the further first.
+    // Drawn cab-then-cargo always, a lorry turned toward the camera had its
+    // load painted over its cab — right only while it was driving away.
     const front0 = TRUCK_L / 2, cabBack = TRUCK_L * 0.18;
-    const cab = prism([[front0, TRUCK_W / 2], [cabBack, TRUCK_W / 2], [cabBack, -TRUCK_W / 2], [front0, -TRUCK_W / 2]],
-      0.04, TRUCK_CAB, m.colour);
-    prism([[front0 - 0.02, TRUCK_W * 0.42], [front0 - 0.09, TRUCK_W * 0.42], [front0 - 0.09, -TRUCK_W * 0.42], [front0 - 0.02, -TRUCK_W * 0.42]],
-      TRUCK_CAB * 0.55, TRUCK_CAB * 0.95, GLASS);
-    prism(box2(cabBack - 0.02, -TRUCK_L / 2, TRUCK_W / 2), 0.04, 0.32, BED);
-    prism(box2(cabBack - 0.06, -TRUCK_L / 2 + 0.05, TRUCK_W * 0.4), 0.32, 0.72, LOAD, LOAD_TOP);
-    front = cab;
+    // THE CAB: a solid lower body, and over it a cabin of glass sides with a
+    // painted roof — as the car's is. A windscreen drawn as a box of its own
+    // inside the cab put its dark top through the cab's roof, a hole in it.
+    const drawCab = () => {
+      prism([[front0, TRUCK_W / 2], [cabBack, TRUCK_W / 2], [cabBack, -TRUCK_W / 2], [front0, -TRUCK_W / 2]],
+        0.04, TRUCK_CAB * 0.55, m.colour);
+      prism([[front0 - 0.02, TRUCK_W * 0.46], [cabBack, TRUCK_W * 0.46], [cabBack, -TRUCK_W * 0.46], [front0 - 0.02, -TRUCK_W * 0.46]],
+        TRUCK_CAB * 0.55, TRUCK_CAB, GLASS, shade(m.colour, 0.92));
+    };
+    const drawCargo = () => {
+      prism(box2(cabBack - 0.02, -TRUCK_L / 2, TRUCK_W / 2), 0.04, 0.32, BED);
+      prism(box2(cabBack - 0.06, -TRUCK_L / 2 + 0.05, TRUCK_W * 0.4), 0.32, 0.72, LOAD, LOAD_TOP);
+    };
+    // Nearer the camera is further along u + v; the cab is ahead along the heading.
+    const cabNearer = ch + sh > 0;
+    if (cabNearer) { drawCargo(); drawCab(); } else { drawCab(); drawCargo(); }
+    // ITS BAND from the whole lorry, not the cab: driving away, its tail is
+    // the nearest part, and filed by the cab the ground in front painted over it.
+    front = [front0, -TRUCK_L / 2].flatMap((l) => [at(l, TRUCK_W / 2, 0), at(l, -TRUCK_W / 2, 0)]);
   } else if (m.kind === "car") {
     const body = prism(box(CAR_L / 2, CAR_W / 2), 0.04, BODY, m.colour);
     // The cabin, set back from the bonnet, glass on its sides.
