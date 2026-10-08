@@ -136,8 +136,8 @@ describe("the HQ", () => {
   const HQ = projectDef("hq")!;
 
   test("waits on ten vibe coders, and is built by interns and vibe coders both, split by headcount", () => {
-    expect(HQ.ready({ intern: 40, vibe_coder: 9 })).toBe(false);
-    expect(HQ.ready({ intern: 40, vibe_coder: 10 })).toBe(true);
+    expect(HQ.ready({ intern: 40, vibe_coder: 9 }, new Set())).toBe(false);
+    expect(HQ.ready({ intern: 40, vibe_coder: 10 }, new Set())).toBe(true);
     const { g, history } = town();
     commit(g, history, startSiteCommand(g, HQ, 12, 6, { needsRoad: true }, 0)!);
     const net = createNetwork(g), t = createTown(), w = createWorks();
@@ -168,7 +168,7 @@ describe("the Founder's Garage", () => {
   const GARAGE = projectDef("garage")!;
 
   test("is ready from the start, built by the founder alone, for nothing, and opens interns", () => {
-    expect(GARAGE.ready({})).toBe(true);
+    expect(GARAGE.ready({}, new Set())).toBe(true);
     expect(GARAGE.unlocks).toBe("intern");
     const { g, history } = town();
     commit(g, history, startSiteCommand(g, GARAGE, 12, 6, { needsRoad: true }, 0)!);
@@ -199,5 +199,46 @@ describe("the Founder's Garage", () => {
   test("is given finished to a company that already has interns", () => {
     expect(alreadyEarned(GARAGE, { intern: 3 }, new Set())).toBe(true);
     expect(alreadyEarned(GARAGE, {}, new Set())).toBe(false);
+  });
+});
+
+describe("the Boardroom Tower", () => {
+  const BOARDROOM = projectDef("boardroom")!;
+
+  test("waits on employee management, and opens mandates where there is a map", () => {
+    expect(BOARDROOM.ready({ vibe_coder: 100 }, new Set())).toBe(false);
+    expect(BOARDROOM.ready({}, new Set(["employeeManagement"]))).toBe(true);
+    const stop = setProjectReader(() => ({ built: new Set(["studio", "hq"]), away: {} }));
+    expect(featureGateOpen("mandates")).toBe(false);
+    stop();
+    const stop2 = setProjectReader(() => ({ built: new Set(["boardroom"]), away: {} }));
+    expect(featureGateOpen("mandates")).toBe(true);
+    stop2();
+    expect(featureGateOpen("mandates")).toBe(true);
+  });
+
+  test("is given finished to a company already passing mandates", () => {
+    expect(alreadyEarned(BOARDROOM, {}, new Set(["mandates"]))).toBe(true);
+    expect(alreadyEarned(BOARDROOM, {}, new Set(["managers"]))).toBe(false);
+  });
+});
+
+describe("the Campus", () => {
+  const CAMPUS = projectDef("campus")!;
+
+  test("waits on twenty vibe coders, and gates 10x devs until it stands", () => {
+    expect(CAMPUS.ready({ vibe_coder: 19 }, new Set())).toBe(false);
+    expect(CAMPUS.ready({ vibe_coder: 20 }, new Set())).toBe(true);
+    const stop = setProjectReader(() => ({ built: new Set(["garage", "studio"]), away: {} }));
+    expect(projectGateOpen("10x_dev")).toBe(false);
+    stop();
+    const stop2 = setProjectReader(() => ({ built: new Set(["campus"]), away: {} }));
+    expect(projectGateOpen("10x_dev")).toBe(true);
+    stop2();
+  });
+
+  test("has a building to put up", () => {
+    expect(structureDef(CAMPUS.structure)?.footprint.w).toBe(4);
+    expect(structureDef(projectDef("boardroom")!.structure)?.footprint.w).toBe(3);
   });
 });

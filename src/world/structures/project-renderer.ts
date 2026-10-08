@@ -264,6 +264,83 @@ const SIGN = 0xf2b43c;
 const SIGN_DARK = 0xb97f17;
 
 /**
+ * THE FINISHED BOARDROOM TOWER: slim and very tall, dark bronze glass on a
+ * stone podium, ribbed with gold fins, a gold crown, and a spire.
+ */
+function drawBoardroom(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
+  box(x0 + 0.3, y0 + 0.3, x1 - 0.3, y1 - 0.3, PLINTH, BR_PODIUM, STONE_TOP, STONE, STONE_SHADE);
+  const t0 = x0 + 0.8, t1 = x1 - 0.8, u0 = y0 + 0.8, u1 = y1 - 0.8;
+  box(t0, u0, t1, u1, BR_PODIUM, BR_TOWER, BRONZE_TOP, BRONZE, BRONZE_SHADE);
+  for (let u = t0 + 0.2; u < t1 - 0.05; u += 0.2) line([[u, u1, BR_PODIUM], [u, u1, BR_TOWER]], GOLD_FIN, 1);
+  for (let v = u0 + 0.2; v < u1 - 0.05; v += 0.2) line([[t1, v, BR_PODIUM], [t1, v, BR_TOWER]], GOLD_FIN, 1);
+  box(t0 - 0.03, u0 - 0.03, t1 + 0.03, u1 + 0.03, BR_TOWER, BR_TOWER + 0.5, GOLD, GOLD, GOLD_SHADE);
+  box(t0 + 0.25, u0 + 0.25, t1 - 0.25, u1 - 0.25, BR_TOWER + 0.5, BR_TOWER + 1.3, BRONZE_TOP, BRONZE, BRONZE_SHADE);
+  const cx = (t0 + t1) / 2, cy = (u0 + u1) / 2;
+  line([[cx, cy, BR_TOWER + 1.3], [cx, cy, BR_TOWER + 4]], GOLD, 1.6);
+}
+
+/** Heights of the boardroom tower, in half steps, and its colours. */
+const BR_PODIUM = 1.3;
+const BR_TOWER = 19;
+const STONE = 0xc9c0ad;
+const STONE_SHADE = 0xa59c89;
+const STONE_TOP = 0xb8af9c;
+const BRONZE = 0x6b6258;
+const BRONZE_SHADE = 0x4a433c;
+const BRONZE_TOP = 0x3a352f;
+const GOLD = 0xd8b04a;
+const GOLD_SHADE = 0xa9852c;
+const GOLD_FIN = 0xc9a24a;
+
+/**
+ * THE FINISHED CAMPUS: low and white, a long block across the back and a wing
+ * down one side, window bands along both, gardens on the roof, and a
+ * courtyard of grass and trees in the corner they make.
+ */
+function drawCampus(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line, quad, P } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
+  const mid = y0 + 1.9, split = x0 + 2.2;
+  // The courtyard, before what stands round it.
+  quad([P(Math.max(x0 + 0.2, s.x + c - 0.5), mid, PLINTH + 0.02), P(Math.min(split, s.x + c + 0.5), mid, PLINTH + 0.02),
+    P(Math.min(split, s.x + c + 0.5), y1 - 0.2, PLINTH + 0.02), P(Math.max(x0 + 0.2, s.x + c - 0.5), y1 - 0.2, PLINTH + 0.02)], LAWN);
+  // The long block across the back, and the wing down the side.
+  const blocks: [number, number, number, number, number][] = [
+    [x0 + 0.2, y0 + 0.2, x1 - 0.2, mid, CAMPUS_TALL],
+    [split, mid, x1 - 0.2, y1 - 0.2, CAMPUS_LOW],
+  ];
+  for (const [a0, b0, a1, b1, h] of blocks) {
+    box(a0, b0, a1, b1, PLINTH, h, ROOF_GARDEN, WHITE_PANEL, WHITE_SHADE);
+    for (let z = PLINTH + 0.7; z < h - 0.3; z += 1.1) {
+      line([[a0, b1, z], [a1, b1, z]], CAMPUS_GLASS, 3);
+      line([[a1, b0, z], [a1, b1, z]], CAMPUS_GLASS, 3);
+    }
+  }
+  // Trees in the courtyard.
+  for (const [tu, tv] of [[x0 + 0.8, y1 - 0.8], [x0 + 1.6, y1 - 1.3]]) {
+    box(tu - 0.04, tv - 0.04, tu + 0.04, tv + 0.04, PLINTH, PLINTH + 1, TRUNK, TRUNK, TRUNK);
+    box(tu - 0.28, tv - 0.28, tu + 0.28, tv + 0.28, PLINTH + 1, PLINTH + 2.1, LEAVES_TOP, LEAVES, LEAVES_SHADE);
+  }
+}
+
+/** Heights of the campus, in half steps, and its colours. */
+const CAMPUS_TALL = 4.6;
+const CAMPUS_LOW = 3.2;
+const WHITE_PANEL = 0xeeeee8;
+const WHITE_SHADE = 0xc8c8c0;
+const ROOF_GARDEN = 0x7fae5c;
+const CAMPUS_GLASS = 0x6c9fb8;
+const LAWN = 0x8cc46a;
+const TRUNK = 0x6d4a2a;
+const LEAVES = 0x5c9a46;
+const LEAVES_SHADE = 0x467a35;
+const LEAVES_TOP = 0x6db254;
+
+/**
  * Each project's building: how tall its walls go up while it is a site, and
  * how it is drawn finished.
  */
@@ -271,6 +348,8 @@ const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
   garage: { body: GARAGE_WALL, finished: drawGarage },
   studio: { body: BODY, finished: drawStudio },
   hq: { body: TOWER, finished: drawHq },
+  boardroom: { body: BR_TOWER, finished: drawBoardroom },
+  campus: { body: CAMPUS_TALL, finished: drawCampus },
 };
 
 /** The band of a column's front cell. */

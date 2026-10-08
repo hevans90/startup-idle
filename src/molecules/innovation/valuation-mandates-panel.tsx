@@ -1,3 +1,4 @@
+import { featureGateOpen } from "../../game/projects";
 import { MANDATES, useValuationStore } from "../../state/valuation.store";
 import { Button } from "../../ui/Button";
 import { InfoRow } from "../../ui/InfoRow";
@@ -19,6 +20,13 @@ export const ValuationMandatesPanel = () => {
           size="small"
         />
       </div>
+
+      {/* The board needs somewhere to meet, where the company has a map. */}
+      {!featureGateOpen("mandates") && (
+        <p className="px-1 text-xs text-amber-700 dark:text-amber-300">
+          The board meets in its Boardroom Tower. Build one on the map to pass mandates.
+        </p>
+      )}
 
       <div className="flex flex-col gap-2 px-1 pb-1">
         {MANDATES.map((m) => {

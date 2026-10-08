@@ -14,6 +14,7 @@ import {
 } from "../../game/projects";
 import { useFounderStore } from "../../state/founder.store";
 import { useGeneratorStore } from "../../state/generators.store";
+import { useInnovationStore } from "../../state/innovation.store";
 import { useMoneyStore } from "../../state/money.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
@@ -44,29 +45,51 @@ function Bar({ value, className }: { value: number; className?: string }) {
   );
 }
 
+/**
+ * THE COMPANY'S PROJECTS: a card for each going up or ready to start — they
+ * can run side by side, crews and all — and one for the next that is not
+ * ready yet, saying what it waits for.
+ */
 export function ProjectsPanel({ className }: { className?: string }) {
   useTicking(250);
+  const grid = useWorldStore((s) => s.grid);
+  const generators = useGeneratorStore((s) => s.generators);
+  const only = useFounderStore((s) => s.onlyGenerator);
+  const unlocks = useInnovationStore((s) => s.unlocks);
+  const owned: Record<string, number> = {};
+  for (const g of generators) owned[g.id] = g.amount;
+  const unlocked = new Set(Object.entries(unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
+  const built = builtProjects(grid);
+  // A founder held to one kind of employee hires nothing a project opens:
+  // those projects are not theirs to build. @see getUnlockedGeneratorIds
+  const open = PROJECTS.filter((p) => !built.has(p.id) && !(only && p.unlocks));
+  const active = open.filter((p) => siteOf(grid, p) || p.ready(owned, unlocked));
+  const teaser = open.find((p) => !active.includes(p));
+  if (!active.length && !teaser) return null;
+  return (
+    <div className={twMerge("flex max-h-[70%] flex-col gap-2 overflow-y-auto", className)}>
+      {active.map((p) => <ProjectCard key={p.id} next={p} unlocked={unlocked} />)}
+      {teaser && <ProjectCard key={teaser.id} next={teaser} unlocked={unlocked} />}
+    </div>
+  );
+}
+
+/** One project's card: what it waits for, its site to choose, or how it is going. */
+function ProjectCard({ next, unlocked, className }: { next: ProjectDef; unlocked: ReadonlySet<string>; className?: string }) {
   const grid = useWorldStore((s) => s.grid);
   const placing = useWorldStore((s) => s.placingProject);
   const placeProject = useWorldStore((s) => s.placeProject);
   const setPriority = useWorldStore((s) => s.setProjectPriority);
   const generators = useGeneratorStore((s) => s.generators);
-  const only = useFounderStore((s) => s.onlyGenerator);
   const money = useMoneyStore((s) => s.money);
-
   const owned: Record<string, number> = {};
   for (const g of generators) owned[g.id] = g.amount;
-  const built = builtProjects(grid);
-  // A founder held to one kind of employee hires nothing a project opens:
-  // those projects are not theirs to build. @see getUnlockedGeneratorIds
-  const next: ProjectDef | undefined = PROJECTS.find((p) => !built.has(p.id) && !(only && p.unlocks));
-  if (!next) return null;
   const site = siteOf(grid, next);
   // Their name in the plural: "your interns", "your vibe coders".
   const who = next.builders.map((id) => `${generators.find((g) => g.id === id)?.name ?? id}s`).join(" and ");
 
   // NOT YET: what it is waiting for.
-  if (!site && !next.ready(owned)) {
+  if (!site && !next.ready(owned, unlocked)) {
     return (
       <div className={twMerge(CARD, className)}>
         <p className="text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">Next project</p>

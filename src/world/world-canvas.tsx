@@ -15,6 +15,7 @@ import { useGeneratorStore } from "../state/generators.store";
 import { getWorks, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
 import { setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
 import { useInnovationStore } from "../state/innovation.store";
+import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
 import { builtProjects, catchUpWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -128,9 +129,9 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   useEffect(() => {
     if (!play) return;
     const owned = ownedNow();
-    const features = new Set<FeatureId>(
-      useInnovationStore.getState().unlocks.managers?.unlocked ? ["managers"] : [],
-    );
+    const features = new Set<FeatureId>();
+    if (useInnovationStore.getState().unlocks.managers?.unlocked) features.add("managers");
+    if (Object.values(useValuationStore.getState().mandateLevels).some((l) => l > 0)) features.add("mandates");
     useWorldStore.getState().foundEarnedProjects(owned, features);
     const opened = catchUpWorks(useWorldStore.getState().grid, owned, payForLoad, Date.now());
     if (opened.length) announceOpened(opened);

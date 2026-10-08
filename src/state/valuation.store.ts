@@ -6,6 +6,7 @@ import {
   decimalReplacer,
   decimalReviver,
 } from "./_break_infinity.decimals";
+import { featureGateOpen } from "../game/projects";
 import { useDirectivesStore } from "./directives.store";
 import { useFounderStore } from "./founder.store";
 
@@ -166,7 +167,9 @@ export const useValuationStore = create<ValuationState>()(
 
       canAffordMandate: (id: MandateId) => {
         const cost = get().getMandateCost(id);
-        return get().valuation.gte(cost);
+        // THE BOARD MEETS IN ITS TOWER, where the company has a map to build
+        // one on. @see game/projects
+        return get().valuation.gte(cost) && featureGateOpen("mandates");
       },
 
       purchaseMandate: (id: MandateId) => {

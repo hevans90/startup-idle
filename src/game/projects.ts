@@ -18,10 +18,10 @@
  */
 import type { GeneratorId } from "../state/generators.store";
 
-export type ProjectId = "garage" | "studio" | "hq";
+export type ProjectId = "garage" | "studio" | "hq" | "boardroom" | "campus";
 
 /** Features of the game a project can open, beyond hiring. @see featureGateOpen */
-export type FeatureId = "managers";
+export type FeatureId = "managers" | "mandates";
 
 export type ProjectDef = {
   id: ProjectId;
@@ -48,9 +48,12 @@ export type ProjectDef = {
   /** A feature of the game it opens, if any. */
   grants?: FeatureId;
   /** Where clicking the finished building takes the player: a sidebar tab. */
-  opens?: "employees" | "innovation";
-  /** Whether the company is ready for it, from what it employs. */
-  ready: (owned: Partial<Record<GeneratorId, number>>) => boolean;
+  opens?: "employees" | "innovation" | "valuation";
+  /**
+   * Whether the company is ready for it, from what it employs and what it has
+   * unlocked — "managers", "employeeManagement" and the like.
+   */
+  ready: (owned: Partial<Record<GeneratorId, number>>, unlocked: ReadonlySet<string>) => boolean;
   /** Why not yet, for the card. */
   readyWhen: string;
 };
@@ -99,6 +102,34 @@ export const PROJECTS: readonly ProjectDef[] = [
     opens: "innovation",
     ready: (owned) => (owned.vibe_coder ?? 0) >= 10,
     readyWhen: "10 vibe coders",
+  },
+  {
+    id: "boardroom",
+    name: "Boardroom Tower",
+    pitch: "Where the board meets. When it opens the board will pass mandates, and clicking it takes you to valuation.",
+    structure: "boardroom",
+    builders: ["intern", "vibe_coder"],
+    work: 4000,
+    cost: 20_000,
+    deliveries: 14,
+    grants: "mandates",
+    opens: "valuation",
+    ready: (_owned, unlocked) => unlocked.has("employeeManagement"),
+    readyWhen: "employee management",
+  },
+  {
+    id: "campus",
+    name: "Campus",
+    pitch: "A campus for the 10x devs, with room for them to think. When it opens you can hire 10x devs.",
+    structure: "campus",
+    builders: ["intern", "vibe_coder"],
+    work: 6000,
+    cost: 40_000,
+    deliveries: 16,
+    unlocks: "10x_dev",
+    opens: "employees",
+    ready: (owned) => (owned.vibe_coder ?? 0) >= 20,
+    readyWhen: "20 vibe coders",
   },
 ];
 

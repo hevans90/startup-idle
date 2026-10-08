@@ -65,7 +65,17 @@ You found a startup as one of several **founder archetypes**, each bending a dif
     - It opens MANAGERS (`grants`). Where a company has a map, `canUnlock("managers")` also needs the HQ standing (`featureGateOpen`), and the Innovation tab's button says "Managers need an HQ — build one on the map" until it does. The 1-innovation cost stays.
     - Drawn finished, it is a glass tower stepped back on a dark lobby podium, with an entrance canopy, floor-by-floor glazing, an amber sign along the roof edge and a mast. Each project's building has its own height and finished drawing (`LOOKS`), and the construction stages rise to it.
     - A company that already has managers is given its HQ finished (`alreadyEarned`).
-  - **Buildings are the way in:** with the Look tool, clicking a finished project's building opens what it is for (`ProjectDef.opens`): the HQ the Innovation tab, the studio Employees. A click is a press let go within 5 px; a drag pans. The building under the pointer is found by what is DRAWN, frontmost first (`structureHitAt`), not by the ground cell under it: a click on a tower's side is on the tower, though the cell picked there is the ground well behind it.
+  - **The Boardroom Tower** becomes available once employee management is unlocked (`ready(owned, unlocked)` sees innovation unlocks too).
+    - Interns and vibe coders build it: 4000 builder-seconds, $20,000 in 14 loads, on a 3×3 site.
+    - It opens board MANDATES. Where a company has a map, `canAffordMandate` also needs it standing, and the Valuation tab's mandates panel says why until it does.
+    - Drawn finished, it is a slim bronze-glass tower ribbed with gold fins, on a stone podium, with a gold crown and a spire. Clicking it opens Valuation.
+    - A company already passing mandates is given it finished.
+  - **The Campus** becomes available at 20 vibe coders.
+    - Interns and vibe coders build it: 6000 builder-seconds, $40,000 in 16 loads, on a 4×4 site.
+    - 10x devs can't be hired until it opens.
+    - Drawn finished, it is low white blocks in an L, with window bands, gardens on the roofs, and a courtyard of grass and trees.
+  - **Projects run side by side:** the map's card stack shows a card for every project going up or ready to start, plus one for the next that isn't ready yet, saying what it waits for.
+  - **Buildings are the way in:** with the Look tool, clicking a finished project's building opens what it is for (`ProjectDef.opens`): the HQ the Innovation tab, the boardroom Valuation, the studio and campus Employees. A click is a press let go within 5 px; a drag pans. The building under the pointer is found by what is DRAWN, frontmost first (`structureHitAt`), not by the ground cell under it: a click on a tower's side is on the tower, though the cell picked there is the ground well behind it.
 
 ## Tech stack
 
