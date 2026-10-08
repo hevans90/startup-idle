@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { attendance, projectDef, projectGateOpen, setProjectReader } from "../../game/projects";
+import {
+  alreadyEarned, attendance, featureGateOpen, projectDef, projectGateOpen, setProjectReader,
+} from "../../game/projects";
 import { createTown, stepTown } from "../agents/town";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx, type Grid } from "../grid";
@@ -127,5 +129,37 @@ describe("the economy's side", () => {
     stop();
     setProjectReader(() => ({ built: new Set(["studio"]), away: {} }));
     expect(projectGateOpen("vibe_coder")).toBe(true);
+  });
+});
+
+describe("the HQ", () => {
+  const HQ = projectDef("hq")!;
+
+  test("waits on ten vibe coders, and is built by interns and vibe coders both, split by headcount", () => {
+    expect(HQ.ready({ intern: 40, vibe_coder: 9 })).toBe(false);
+    expect(HQ.ready({ intern: 40, vibe_coder: 10 })).toBe(true);
+    const { g, history } = town();
+    commit(g, history, startSiteCommand(g, HQ, 12, 6, { needsRoad: true }, 0)!);
+    const net = createNetwork(g), t = createTown(), w = createWorks();
+    stepWorks(w, g, net, t, { intern: 30, vibe_coder: 10 }, () => true, 1 / 30, 0);
+    // Normal priority: half of forty, split three to one.
+    expect(w.away).toEqual({ intern: 15, vibe_coder: 5 });
+  });
+
+  test("opens managers: shut until it stands, where there is a map", () => {
+    const stop = setProjectReader(() => ({ built: new Set(["studio"]), away: {} }));
+    expect(featureGateOpen("managers")).toBe(false);
+    stop();
+    const stop2 = setProjectReader(() => ({ built: new Set(["studio", "hq"]), away: {} }));
+    expect(featureGateOpen("managers")).toBe(true);
+    stop2();
+    // With no map, never shut.
+    expect(featureGateOpen("managers")).toBe(true);
+  });
+
+  test("is given finished to a company that already has managers", () => {
+    expect(alreadyEarned(HQ, {}, new Set(["managers"]))).toBe(true);
+    expect(alreadyEarned(HQ, { vibe_coder: 50 }, new Set())).toBe(false);
+    expect(alreadyEarned(STUDIO, { vibe_coder: 1 }, new Set())).toBe(true);
   });
 });

@@ -161,6 +161,12 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
     footprint: { w: 3, h: 2 },
     render: { kind: "custom", rendererId: "project" },
   },
+  {
+    id: "hq",
+    name: "Company HQ",
+    footprint: { w: 3, h: 3 },
+    render: { kind: "custom", rendererId: "project" },
+  },
 ];
 
 const DEFS = new Map<string, StructureDef>(

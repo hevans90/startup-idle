@@ -84,7 +84,7 @@ import "./structures/project-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { footprintCells, structureAt, surfaceSampler } from "./grid";
+import { footprintCells, structureAt, surfaceSampler, type Structure } from "./grid";
 import { HEIGHT_UNIT, HH, HW, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
@@ -127,6 +127,26 @@ extend({ Container });
  * thin family is largely unlabelled, so asking for it would produce holes.
  */
 const ROAD_TABLE = buildRoadTable("landscape");
+
+/**
+ * The structure drawn under a point on the screen, the frontmost if several
+ * overlap there — by the bounds of what its renderer drew. Null for none.
+ */
+function structureHitAt(sl: StructureLayer | null, gx: number, gy: number): Structure | null {
+  if (!sl) return null;
+  let best: Structure | null = null, bestBand = -Infinity;
+  for (const m of sl.mounted.values()) {
+    const h = m.handle as { sprites?: Container[]; columns?: Container[]; g?: Container };
+    const drawn = h.sprites ?? h.columns ?? (h.g ? [h.g] : []);
+    const band = m.s.x + m.s.w - 1 + m.s.y + m.s.h - 1;
+    if (band <= bestBand) continue;
+    if (drawn.some((d) => d.getBounds().rectangle.contains(gx, gy))) { best = m.s; bestBand = band; }
+  }
+  return best;
+}
+
+/** A look-tool press let go within this many px of where it went down is a click, not a pan. */
+const LOOK_CLICK_SLOP = 5;
 
 export function WorldScene({ screenSize }: { screenSize: { width: number; height: number } }) {
   const rootRef = useRef<Container>(null);
@@ -1485,17 +1505,36 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // Left button paints. pixi-viewport keeps left-drag pan, so a paint drag
     // and a camera drag would fight — the paint tools therefore take the left
     // button and panning stays on middle/right while a tool is active.
+    // WITH THE LOOK TOOL, a press that is let go where it was pressed is a
+    // CLICK on the cell under it — a building, say, to open what it is for —
+    // and one dragged away is the camera panning. @see WorldState.lookedAt
+    let lookFrom: { x: number; y: number; cell: { x: number; y: number } | null } | null = null;
     const onDown = (e: FederatedPointerEvent) => {
       if (e.button !== 0) return;
       const st = useWorldStore.getState();
-      if (st.tool === "inspect") return;
+      if (st.tool === "inspect") {
+        lookFrom = { x: e.global.x, y: e.global.y, cell: cellAt(e) };
+        return;
+      }
       const cell = cellAt(e);
       if (!cell) return;                       // pressed off the map
       st.setHover(cell);
       st.beginStroke(cell);
     };
-    const onUp = () => {
+    const onUp = (e: FederatedPointerEvent) => {
       const st = useWorldStore.getState();
+      if (lookFrom && st.tool === "inspect") {
+        const moved = Math.hypot(e.global.x - lookFrom.x, e.global.y - lookFrom.y);
+        if (moved <= LOOK_CLICK_SLOP) {
+          // THE BUILDING UNDER THE POINTER, by what is drawn, before the
+          // ground: a click on a tower's side is on the tower, though the cell
+          // picked under it is the ground well behind. @see structureHitAt
+          const hit = structureHitAt(slRef.current, e.global.x, e.global.y);
+          const cell = hit ? { x: hit.x, y: hit.y } : lookFrom.cell;
+          if (cell) st.lookAt(cell);
+        }
+      }
+      lookFrom = null;
       if (st.stroke) st.endStroke();
     };
     vp.eventMode = "static";

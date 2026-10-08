@@ -18,7 +18,10 @@
  */
 import type { GeneratorId } from "../state/generators.store";
 
-export type ProjectId = "studio";
+export type ProjectId = "studio" | "hq";
+
+/** Features of the game a project can open, beyond hiring. @see featureGateOpen */
+export type FeatureId = "managers";
 
 export type ProjectDef = {
   id: ProjectId;
@@ -36,6 +39,10 @@ export type ProjectDef = {
   deliveries: number;
   /** The generator it unlocks, if any. */
   unlocks?: GeneratorId;
+  /** A feature of the game it opens, if any. */
+  grants?: FeatureId;
+  /** Where clicking the finished building takes the player: a sidebar tab. */
+  opens?: "employees" | "innovation";
   /** Whether the company is ready for it, from what it employs. */
   ready: (owned: Partial<Record<GeneratorId, number>>) => boolean;
   /** Why not yet, for the card. */
@@ -53,8 +60,23 @@ export const PROJECTS: readonly ProjectDef[] = [
     cost: 400,
     deliveries: 8,
     unlocks: "vibe_coder",
+    opens: "employees",
     ready: (owned) => (owned.intern ?? 0) >= 10,
     readyWhen: "10 interns",
+  },
+  {
+    id: "hq",
+    name: "Company HQ",
+    pitch: "A headquarters tower. When it opens you can hire managers, and clicking it takes you to innovation.",
+    structure: "hq",
+    builders: ["intern", "vibe_coder"],
+    work: 2400,
+    cost: 5000,
+    deliveries: 12,
+    grants: "managers",
+    opens: "innovation",
+    ready: (owned) => (owned.vibe_coder ?? 0) >= 10,
+    readyWhen: "10 vibe coders",
   },
 ];
 
@@ -112,6 +134,28 @@ export function projectGateOpen(id: GeneratorId): boolean {
   if (!reader) return true;
   const gate = PROJECTS.find((p) => p.unlocks === id);
   return !gate || reader().built.has(gate.id);
+}
+
+/**
+ * Whether a feature's project gate is open: no project grants it, or the one
+ * that does is built. Open whenever no map is registered.
+ */
+export function featureGateOpen(id: FeatureId): boolean {
+  if (!reader) return true;
+  const gate = PROJECTS.find((p) => p.grants === id);
+  return !gate || reader().built.has(gate.id);
+}
+
+/**
+ * Whether a company has already earned what a project opens — employs what
+ * it unlocks, or has the feature it grants — so it is given the building
+ * finished rather than asked to build it again. @see foundEarnedProjects
+ */
+export function alreadyEarned(
+  p: ProjectDef, owned: Partial<Record<GeneratorId, number>>, features: ReadonlySet<FeatureId>,
+): boolean {
+  return (p.unlocks !== undefined && (owned[p.unlocks] ?? 0) > 0)
+    || (p.grants !== undefined && features.has(p.grants));
 }
 
 /**

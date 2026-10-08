@@ -13,7 +13,8 @@ import { useEffect, useState, type RefObject } from "react";
 import { addBeds, foundingRemoteBeds, housingCapacity, setHousingReader } from "../game/housing";
 import { useGeneratorStore } from "../state/generators.store";
 import { getWorks, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
-import { setProjectReader, type ProjectId } from "../game/projects";
+import { setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
+import { useInnovationStore } from "../state/innovation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
 import { builtProjects, catchUpWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -127,7 +128,10 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   useEffect(() => {
     if (!play) return;
     const owned = ownedNow();
-    useWorldStore.getState().foundEarnedProjects(owned);
+    const features = new Set<FeatureId>(
+      useInnovationStore.getState().unlocks.managers?.unlocked ? ["managers"] : [],
+    );
+    useWorldStore.getState().foundEarnedProjects(owned, features);
     const opened = catchUpWorks(useWorldStore.getState().grid, owned, payForLoad, Date.now());
     if (opened.length) announceOpened(opened);
     // What is built changes only with the map, so it is worked out again only

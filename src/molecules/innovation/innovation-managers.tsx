@@ -2,6 +2,7 @@ import {
   ManagerKeyValues,
   useInnovationStore,
 } from "../../state/innovation.store";
+import { featureGateOpen } from "../../game/projects";
 import { usePrestigeStore } from "../../state/prestige.store";
 import { Button } from "../../ui/Button";
 import { CycleButton } from "../../ui/CyclingButton";
@@ -23,6 +24,8 @@ export const InnovationManagers = () => {
   } = useInnovationStore();
 
   const managersState = unlocks.managers;
+  // Where the company has a map, managers wait for the HQ. @see featureGateOpen
+  const hqBuilt = featureGateOpen("managers");
 
   const canUnlockManagers = canUnlock("managers");
   const canUnlockEmployeeManagement = canUnlock("employeeManagement");
@@ -43,8 +46,11 @@ export const InnovationManagers = () => {
         <Button
           onClick={() => unlock("managers")}
           disabled={!canUnlockManagers}
+          title={hqBuilt ? undefined : "Managers need an office: build your Company HQ on the map first."}
         >
-          Unlock Managers: {managersState?.cost.toFixed(2)}
+          {hqBuilt
+            ? <>Unlock Managers: {managersState?.cost.toFixed(2)}</>
+            : <>Managers need an HQ — build one on the map</>}
         </Button>
       )}
 

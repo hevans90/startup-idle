@@ -30,6 +30,8 @@ export function announceOpened(ids: readonly ProjectId[]): void {
   syncUnlockedGenerators();
   for (const id of ids) {
     const p = projectDef(id);
-    if (p) toast.success(`${p.name} has opened.${p.unlocks ? " New hires are available." : ""}`, { duration: 6000 });
+    if (!p) continue;
+    const news = p.unlocks ? " New hires are available." : p.grants === "managers" ? " You can now hire managers." : "";
+    toast.success(`${p.name} has opened.${news}`, { duration: 6000 });
   }
 }

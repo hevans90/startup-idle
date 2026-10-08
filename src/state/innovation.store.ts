@@ -8,6 +8,7 @@ import {
   decimalReplacer,
   decimalReviver,
 } from "./_break_infinity.decimals";
+import { featureGateOpen } from "../game/projects";
 import { useFounderStore } from "./founder.store";
 import { usePrestigeStore } from "./prestige.store";
 
@@ -285,7 +286,10 @@ export const useInnovationStore = create<InnovationState>()(
         const { innovation, unlocks } = get();
         return (
           !unlocks[key]?.unlocked &&
-          innovation.greaterThanOrEqualTo(unlocks[key]?.cost)
+          innovation.greaterThanOrEqualTo(unlocks[key]?.cost) &&
+          // MANAGERS WAIT FOR THE HQ, where the company has a map to build
+          // one on. @see game/projects
+          (key !== "managers" || featureGateOpen("managers"))
         );
       },
 

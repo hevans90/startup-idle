@@ -14,7 +14,7 @@ import { mapRiver, tileDepthOf } from "../world/boats/river";
 import { createTraffic, type Traffic } from "../world/boats/traffic";
 import { createTown, type Town } from "../world/agents/town";
 import { builtProjects, createWorks, nearestSpot, siteOf, startSiteCommand, type Works } from "../world/projects/works";
-import { PROJECTS, projectDef, type Priority, type ProjectId } from "../game/projects";
+import { PROJECTS, alreadyEarned, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
@@ -345,6 +345,13 @@ type WorldState = {
   placingProject: ProjectId | null;
   /** Bumped when a site is laid out, a load arrives, or a project opens: worth saving. */
   projectRev: number;
+  /**
+   * The cell last CLICKED with the look tool, and a count so clicking the
+   * same cell twice is still news. @see CompanyMap, which opens what a
+   * clicked building is for
+   */
+  lookedAt: { x: number; y: number; n: number } | null;
+  lookAt: (cell: { x: number; y: number }) => void;
   /** Choose a site for a project: the next click lays it out. Null puts the choice down. */
   placeProject: (id: ProjectId | null) => void;
   /** How much of the company works on a site. @see PRIORITY_SHARE */
@@ -354,7 +361,7 @@ type WorldState = {
    * opens: one that employed vibe coders before projects existed gets its
    * studio, on the best spot near the middle of its map. @see game/projects
    */
-  foundEarnedProjects: (owned: Partial<Record<string, number>>) => void;
+  foundEarnedProjects: (owned: Partial<Record<string, number>>, features?: ReadonlySet<FeatureId>) => void;
   lastTouched: Cell[];
   /** Connected components in the road graph. Mirrored, like the history depths. */
   netComponents: number;
@@ -581,18 +588,20 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   boatRev: 0,
   placingProject: null,
   projectRev: 0,
+  lookedAt: null,
+  lookAt: (cell) => set({ lookedAt: { x: cell.x, y: cell.y, n: (get().lookedAt?.n ?? 0) + 1 } }),
   placeProject: (id) => {
     const p = id ? projectDef(id) : null;
     if (p) set({ placingProject: id, tool: "placeStructure", structureDefId: p.structure, brush: "point", brushRadius: 0 });
     else set({ placingProject: null, tool: "inspect" });
   },
-  foundEarnedProjects: (owned) => {
+  foundEarnedProjects: (owned, features = new Set()) => {
     const st = get();
     const built = builtProjects(st.grid);
     const rules = st.playing ? { needsRoad: true } : {};
     let changed = false;
     for (const p of PROJECTS) {
-      if (!p.unlocks || !(owned[p.unlocks] ?? 0) || built.has(p.id) || siteOf(st.grid, p)) continue;
+      if (!alreadyEarned(p, owned, features) || built.has(p.id) || siteOf(st.grid, p)) continue;
       const def = structureDef(p.structure);
       const spot = def && nearestSpot(st.grid, def, rules);
       const cmd = spot && placeCommand(st.grid, def!, spot.x, spot.y, rules);

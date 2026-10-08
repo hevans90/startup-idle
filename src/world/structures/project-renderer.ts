@@ -94,8 +94,9 @@ function draw(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
   const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
   const b = s.build;
 
+  const look = LOOKS[s.def] ?? LOOKS.studio;
   if (!b) {
-    drawStudio(g, s, ctx, c);
+    look.finished(g, s, ctx, c);
     return;
   }
 
@@ -117,7 +118,7 @@ function draw(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
 
   // THE WALLS, rising through the middle, in a scaffold a little above them.
   const rise = Math.max(0, Math.min(1, (p - 0.25) / 0.6));
-  const wall = PLINTH + (BODY - PLINTH) * rise;
+  const wall = PLINTH + (look.body - PLINTH) * rise;
   if (rise > 0) {
     box(x0 + INSET + 0.08, y0 + INSET + 0.08, x1 - INSET - 0.08, y1 - INSET - 0.08, PLINTH, wall, WALL_RAW, WALL_RAW, WALL_RAW_SHADE);
     const top = wall + SCAFFOLD_ABOVE;
@@ -132,7 +133,7 @@ function draw(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
   // THE ROOF, going on at the last.
   if (p > 0.85) {
     const r = (p - 0.85) / 0.15;
-    box(x0 + INSET, y0 + INSET, x0 + INSET + (x1 - x0 - 2 * INSET) * r, y1 - INSET, BODY, BODY + 0.2, PARAPET, PARAPET, PARAPET);
+    box(x0 + INSET, y0 + INSET, x0 + INSET + (x1 - x0 - 2 * INSET) * r, y1 - INSET, look.body, look.body + 0.2, PARAPET, PARAPET, PARAPET);
   }
 
   // MATERIALS ON HAND: a stack for every delivery not yet built into it.
@@ -172,6 +173,63 @@ function drawStudio(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void 
   line([[su + 0.1, h0 + 0.37, BODY + 0.6], [su + 0.5, h0 + 0.37, BODY + 0.6]], 0xffd1e8, 1.6);
   line([[su + 0.1, h0 + 0.37, BODY + 1.0], [su + 0.5, h0 + 0.37, BODY + 1.0]], 0xffd1e8, 1.6);
 }
+
+/**
+ * THE FINISHED HQ: a podium of dark glass with an entrance canopy, a glass
+ * tower stepped back on it banded floor by floor, and a lit sign and a mast on
+ * the roof.
+ */
+function drawHq(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line, quad, P } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
+  // The podium: the lobby floors, dark glass.
+  const p0 = x0 + 0.2, p1 = x1 - 0.2, q0 = y0 + 0.2, q1 = y1 - 0.2;
+  box(p0, q0, p1, q1, PLINTH, PODIUM, PODIUM_TOP, LOBBY, LOBBY_SHADE);
+  // The canopy over the front door.
+  const mid = (x0 + x1) / 2;
+  box(mid - 0.45, q1, mid + 0.45, q1 + 0.35, PODIUM - 0.45, PODIUM - 0.3, CANOPY, CANOPY, CANOPY_SHADE);
+  if (mid >= s.x + c - 0.5 && mid <= s.x + c + 0.5) {
+    quad([P(mid - 0.22, q1, PLINTH + 0.9), P(mid + 0.22, q1, PLINTH + 0.9), P(mid + 0.22, q1, PLINTH), P(mid - 0.22, q1, PLINTH)], DOOR);
+  }
+  // The tower, stepped back from the podium's edges.
+  const t0 = x0 + 0.68, t1 = x1 - 0.68, u0 = y0 + 0.68, u1 = y1 - 0.68;
+  box(t0, u0, t1, u1, PODIUM, TOWER, GLASS_TOP, TOWER_GLASS, TOWER_SHADE);
+  for (let z = PODIUM + 0.9; z < TOWER - 0.2; z += 0.9) {
+    line([[t0, u1, z], [t1, u1, z]], MULLION, 1.2);
+    line([[t1, u0, z], [t1, u1, z]], MULLION, 1.2);
+  }
+  for (let u = t0 + 0.3; u < t1 - 0.05; u += 0.3) line([[u, u1, PODIUM], [u, u1, TOWER]], MULLION, 0.8);
+  for (let v = u0 + 0.3; v < u1 - 0.05; v += 0.3) line([[t1, v, PODIUM], [t1, v, TOWER]], MULLION, 0.8);
+  // The crown: a parapet, the company's sign, a mast.
+  box(t0, u0, t1, u1, TOWER, TOWER + 0.3, PARAPET, PARAPET, PARAPET);
+  box(t0 + 0.2, u1 - 0.08, t1 - 0.2, u1 - 0.02, TOWER + 0.3, TOWER + 1.1, SIGN_DARK, SIGN, SIGN);
+  line([[t0 + 0.35, u1, TOWER + 0.7], [t1 - 0.35, u1, TOWER + 0.7]], 0xfff1c9, 2);
+  const cx = (t0 + t1) / 2, cy = (u0 + u1) / 2;
+  line([[cx, cy, TOWER + 0.3], [cx, cy, TOWER + 2.6]], PARAPET, 1.4);
+}
+
+/** Heights of the HQ, in half steps, and its colours. */
+const PODIUM = 1.7;
+const TOWER = 14;
+const PODIUM_TOP = 0x3a4048;
+const LOBBY = 0x3f6273;
+const LOBBY_SHADE = 0x2c4652;
+const CANOPY = 0xd9dde2;
+const CANOPY_SHADE = 0xa9aeb5;
+const TOWER_GLASS = 0x8fb7cf;
+const TOWER_SHADE = 0x5f87a0;
+const SIGN = 0xf2b43c;
+const SIGN_DARK = 0xb97f17;
+
+/**
+ * Each project's building: how tall its walls go up while it is a site, and
+ * how it is drawn finished.
+ */
+const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
+  studio: { body: BODY, finished: drawStudio },
+  hq: { body: TOWER, finished: drawHq },
+};
 
 /** The band of a column's front cell. */
 const bandOfColumn = (s: Structure, c: number) => s.x + c + s.y + s.h - 1;

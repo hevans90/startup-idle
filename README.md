@@ -50,6 +50,14 @@ You found a startup as one of several **founder archetypes**, each bending a dif
     - A company that already employs what a project unlocks gets its building stood up finished at founding (`foundEarnedProjects`).
     - The Agentic Delusionist's vibe-coders-only run is never gated.
   - **The editor never spends money:** projects there are free.
+  - **The second project is the Company HQ:**
+    - It becomes available at 10 vibe coders, after the studio.
+    - Interns AND vibe coders build it, the crew split between them by headcount.
+    - It costs 2400 builder-seconds and $5,000 in 12 loads, on a 3×3 site.
+    - It opens MANAGERS (`grants`). Where a company has a map, `canUnlock("managers")` also needs the HQ standing (`featureGateOpen`), and the Innovation tab's button says "Managers need an HQ — build one on the map" until it does. The 1-innovation cost stays.
+    - Drawn finished, it is a glass tower stepped back on a dark lobby podium, with an entrance canopy, floor-by-floor glazing, an amber sign along the roof edge and a mast. Each project's building has its own height and finished drawing (`LOOKS`), and the construction stages rise to it.
+    - A company that already has managers is given its HQ finished (`alreadyEarned`).
+  - **Buildings are the way in:** with the Look tool, clicking a finished project's building opens what it is for (`ProjectDef.opens`): the HQ the Innovation tab, the studio Employees. A click is a press let go within 5 px; a drag pans. The building under the pointer is found by what is DRAWN, frontmost first (`structureHitAt`), not by the ground cell under it: a click on a tower's side is on the tower, though the cell picked there is the ground well behind it.
 
 ## Tech stack
 
