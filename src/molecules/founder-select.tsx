@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
 import { useExitsStore } from "../state/exits.store";
@@ -14,6 +14,13 @@ import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
+import { useSessionStore } from "../state/session.store";
+
+/**
+ * STEP TWO of founding: choosing the land the company is founded on. In its
+ * own chunk, with the map generator it runs. @see MapSetup
+ */
+const MapSetup = lazy(() => import("../world/play/map-setup"));
 
 // ─── local helpers ────────────────────────────────────────────────────────────
 
@@ -76,6 +83,9 @@ function PanelRow({
 export const FounderSelect = () => {
   const chooseFounder = useFounderStore((s) => s.chooseFounder);
   const [selected, setSelected] = useState<string | null>(null);
+  // FOUNDING IS TWO STEPS: who, then where. @see MapSetup
+  const [step, setStep] = useState<"founder" | "land">("founder");
+  const setMapChoice = useSessionStore((s) => s.setMapChoice);
 
   const equity = usePrestigeStore((s) => s.equity);
   const exits = usePrestigeStore((s) => s.exits);
@@ -142,6 +152,22 @@ export const FounderSelect = () => {
     modifiers.freeStartingLevels > 0 ||
     modifiers.disableManagers ||
     modifiers.satisfactionNeutralized;
+
+  if (step === "land" && selected) {
+    return (
+      <Suspense fallback={<div className="h-full w-full bg-primary-100 dark:bg-primary-900" />}>
+        <MapSetup
+          founder={FOUNDERS.find((f) => f.id === selected)?.name ?? "you"}
+          onBack={() => setStep("founder")}
+          onFound={(choice) => {
+            // The land first, so the company's map is made from it when it mounts.
+            setMapChoice({ seed: choice.seed, params: { ...choice.params } });
+            chooseFounder(selected);
+          }}
+        />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-primary-100 text-primary-900 dark:bg-primary-900 dark:text-primary-50">
@@ -255,9 +281,9 @@ export const FounderSelect = () => {
               type="button"
               disabled={selected == null}
               className="px-6 py-3 text-base font-bold disabled:opacity-40"
-              onClick={() => selected && chooseFounder(selected)}
+              onClick={() => selected && setStep("land")}
             >
-              Found your startup →
+              Next: choose your land →
             </Button>
             <span className="text-[11px] tabular-nums opacity-25">
               v{CURRENT_VERSION}

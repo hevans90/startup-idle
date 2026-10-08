@@ -14,6 +14,7 @@ import { addBeds, foundingRemoteBeds, housingCapacity, setHousingReader } from "
 import { useGeneratorStore } from "../state/generators.store";
 import { getWorks, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
 import { setProjectReader, type ProjectId } from "../game/projects";
+import { DEFAULT_GEN, type GenParams } from "./gen/params";
 import { builtProjects, catchUpWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
 import { useSessionStore } from "../state/session.store";
@@ -75,6 +76,14 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
      * run's save away, and that is what makes a new startup a new map.
      * @see generatePlayableMap, retireRunSave
      */
+    // THE LAND THE PLAYER CHOSE, if they chose some: the seed and settings
+    // they previewed, so the map they get is the map they saw. @see MapSetup
+    const choice = slot === "run" ? useSessionStore.getState().mapChoice : null;
+    if (choice) {
+      const params = { ...DEFAULT_GEN, ...choice.params } as GenParams;
+      useWorldStore.getState().generateWorld(choice.seed, params.size, params);
+      return true;
+    }
     useWorldStore.getState().generateWorld(useSessionStore.getState().incorporatedAt);
     return true;
   });

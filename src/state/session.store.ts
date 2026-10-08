@@ -19,6 +19,14 @@ type SessionState = {
    */
   remoteBeds: Record<string, number> | null;
   setRemoteBeds: (beds: Record<string, number>) => void;
+  /**
+   * THE LAND CHOSEN for this company when it was founded: the generator's
+   * seed and settings, as previewed. The map is made from it the first time
+   * it mounts, so it is the map that was shown. Null before a choice, and for
+   * a company founded before there was one to make. @see MapSetup
+   */
+  mapChoice: { seed: number; params: Record<string, number> } | null;
+  setMapChoice: (choice: { seed: number; params: Record<string, number> } | null) => void;
   touch: () => void;
   /** Stamp a fresh incorporation — a new company begins. */
   incorporate: () => void;
@@ -32,9 +40,11 @@ export const useSessionStore = create<SessionState>()(
       incorporatedAt: Date.now(),
       remoteBeds: null,
       setRemoteBeds: (remoteBeds) => set({ remoteBeds }),
+      mapChoice: null,
+      setMapChoice: (mapChoice) => set({ mapChoice }),
       touch: () => set({ lastSeenAt: Date.now() }),
       incorporate: () => set({ incorporatedAt: Date.now() }),
-      reset: () => set({ lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null }),
+      reset: () => set({ lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null }),
     }),
     {
       name: "session",
@@ -43,6 +53,7 @@ export const useSessionStore = create<SessionState>()(
         lastSeenAt: s.lastSeenAt,
         incorporatedAt: s.incorporatedAt,
         remoteBeds: s.remoteBeds,
+        mapChoice: s.mapChoice,
       }),
     },
   ),

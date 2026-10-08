@@ -12,13 +12,14 @@ import { useMoneyStore } from "./money.store";
 
 import { deserializeWorld, serializeWorld, toJSON } from "../world/io/serialize";
 import {
-  DIRT, GRASS, INITIAL_TERRAIN_PALETTE, drainDirty, getNetwork, readoutFromUrl, startAutosave,
+  DIRT, GRASS, INITIAL_TERRAIN_PALETTE, SAND, WOODS, drainDirty, getNetwork, readoutFromUrl, startAutosave,
   useWorldStore,
 } from "./world.store";
 import { loadSaved } from "../world/io/world-save";
 import { createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
 import { componentCount } from "../world/roads/network";
 import { DEFAULT_GEN, GEN_SLIDERS } from "../world/gen/params";
+import { generatePlayableMap } from "../world/gen/generate-map";
 import { RAMP, rampDir, rampRise } from "../world/iso";
 import { COLUMNS_PER_TILE, SOLID_LIFT, pourAt } from "../world/water/field";
 
@@ -565,5 +566,22 @@ describe("a seaport under play rules", () => {
     s().commitStructure({ x: 8, y: 4 });                 // 400 for the step up: short
     expect(port()?.def).toBe("seaport");
     expect(useMoneyStore.getState().money.toNumber()).toBe(60);
+  });
+});
+
+describe("the land chosen when founding", () => {
+  test("is the land founded: the preview's map and the game's are the same map", () => {
+    // As the founder screen previews it. @see MapSetup
+    const params = { ...DEFAULT_GEN, size: 48, relief: 30, rivers: 2, trees: 0.5 };
+    const preview = createGrid(params.size, params.size);
+    const report = generatePlayableMap(preview, { seed: 1234567, material: GRASS, dirt: DIRT, sand: SAND, woods: WOODS, params });
+    // As the company's map makes it from the choice. @see useFoundWorld
+    s().generateWorld(report.seed, params.size, params);
+    const g = s().grid;
+    expect([g.w, g.h]).toEqual([48, 48]);
+    expect([...g.height]).toEqual([...preview.height]);
+    expect([...g.terrain]).toEqual([...preview.terrain]);
+    expect([...g.paved]).toEqual([...preview.paved]);
+    expect([...g.pool]).toEqual([...preview.pool]);
   });
 });

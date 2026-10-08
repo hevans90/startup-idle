@@ -421,7 +421,11 @@ type WorldState = {
    * field and the road network are all rebuilt for the new map rather than
    * carrying over from the old one.
    */
-  generateWorld: (seed: number, size?: number) => void;
+  /**
+   * A new map from the generator. With `params`, by those settings rather
+   * than the editor's own — the land a player chose when founding. @see MapSetup
+   */
+  generateWorld: (seed: number, size?: number, params?: GenParams) => void;
   /** Change one generation parameter. Does NOT regenerate — press generate. */
   setGenParam: (key: keyof GenParams, value: number) => void;
   /** Put every generation parameter back to its default. */
@@ -984,13 +988,14 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   // The size comes from the generation settings unless a caller names one —
   // a fixture or a test, which wants the size it asked for and not the panel's.
-  generateWorld: (seed, size = get().gen.size) => {
-    const grid = freshGrid(size, size);
+  generateWorld: (seed, size = get().gen.size, params) => {
+    const n = params?.size ?? size;
+    const grid = freshGrid(n, n);
     // GRASS, not the current material: a new company should not found on
     // whatever the last thing painted in the editor happened to be.
     const report = generatePlayableMap(grid, {
       seed, material: GRASS, dirt: DIRT, sand: SAND, woods: WOODS,
-      params: get().gen,
+      params: params ?? get().gen,
     });
     get().loadGrid(grid, [...INITIAL_TERRAIN_PALETTE]);
     // AFTER `loadGrid`, which resets the rest of the map's state — set before,
