@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import Decimal from "break_infinity.js";
 import { buildCost, canAfford, spendForBuild, upgradeCost } from "./build-cost";
-import { housedBy } from "./housing";
+import { addBeds, foundingRemoteBeds, housedBy } from "./housing";
 import { useMoneyStore } from "../state/money.store";
 import { createGrid, fillTerrain, idx } from "../world/grid";
 import { structureDef } from "../world/structures/def";
@@ -145,5 +145,13 @@ describe("frontage is the footprint's, not every cell's", () => {
     const back = validatePlacement(g, structureDef("seaport")!, 3, 1, { needsRoad: true });
     expect(back.reason).toBe("no road access");
     expect(back.cells.every((c) => !c.ok)).toBe(true);
+  });
+});
+
+describe("beds off the map", () => {
+  test("a new company has its starter interns, and one that hired before its map keeps everyone", () => {
+    expect(foundingRemoteBeds({})).toEqual({ intern: 2, vibe_coder: 0, "10x_dev": 0 });
+    expect(foundingRemoteBeds({ intern: 500, vibe_coder: 40 })).toEqual({ intern: 500, vibe_coder: 40, "10x_dev": 0 });
+    expect(addBeds({ intern: 4, vibe_coder: 0, "10x_dev": 0 }, { intern: 2 })).toEqual({ intern: 6, vibe_coder: 0, "10x_dev": 0 });
   });
 });

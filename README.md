@@ -18,7 +18,17 @@ You found a startup as one of several **founder archetypes**, each bending a dif
 - **Founders** — six archetypes (Hacker, Bootstrapper, Visionary, Hustler, Agentic Delusionist, NEET) each with a unique *per-founder scaling modifier* that grows stronger with every acquisition made as that specific founder (tracked in `state/exits.store.ts`, persisted). Dynamic perk text shows current bonus levels. NEET starts with $5 and no base bonuses but doubles all money output with every exit (×2^n). Chosen on a full-screen select before the game begins; cards show the exit count badge and a scaling-modifier description.
 - **Offline progression** — on return, the real game tick is replayed in chunks over the time away (full credit, capped at 2 days), with a "while you were away" popup.
 - **Company Acquisition (prestige)** — once you've built enough *total accrued valuation*, accept an acquisition offer to bank permanent **Equity** (diminishing-returns payout), soft-reset into a fresh company (re-picking a founder; Equity, skill tree and board mandates persist), and spend Equity in a Path-of-Exile-style **skill tree** (~330 procedurally-laid-out nodes across themed clusters with standalone keystones, rendered on its own PixiJS viewport — verified overlap-free, light/dark themed). Costs escalate per node allocated; hovering previews the cheapest route (with total cost) and a click allocates the whole route at once; the tree is **respeccable** (Exits buy persistent respec points; one click refunds a node and its dependents). Includes fuzzy node **search** and hover-to-spotlight from the allocated-bonuses panel. The full loop — accrual tracking, payout, soft reset, allocation, respec, persistence — is in, and node **effects are wired to the economy**: every allocated grant resolves (`resolvePrestigeModifiers`) into multipliers applied at the same chokepoints as the founder modifiers (money, innovation, valuation, employee output, headcount synergy, automation, manager speed, hire cost, singularity, satisfaction-gain rate, Equity payout). **All keystones are fully implemented**, including their structural reshapes — Bootstrapped disables managers & auto-buy, Crunch Mode switches satisfaction off, Enshittify halves positive satisfaction bonuses, AGI-Pilled cripples interns, Permanent Acqui-hire grants free starting intern levels — each surfaced in the relevant UI (see `docs/acquisition-skill-tree-design.md`).
-- **Isometric city** — a PixiJS + pixi-viewport scene that visualizes each district's headcount as growing building stacks, with hover highlighting and HTML info popovers.
+- **The company's map** (`world/play/company-map.tsx`, `world/play/build-bar.tsx`, `world/world-canvas.tsx`) — every company founds a TOWN, generated from the day it was incorporated, and it is the main view of the game in place of the old procedural city. The player builds on it under the game's rules: housing and seaports need road frontage (one cell of the footprint on a road) and are paid for, and clicking a seaport upgrades it. The build bar has Look, Road, Lift road, Build (a picker of everything for sale, priced, dimmed when you can't afford it) and Demolish, beside each district's **beds against headcount**. Beds cap hiring: you can't hire past them.
+  - **Remote beds:** some beds are off the map, recorded once when the map is founded (`foundingRemoteBeds`, kept in the session store). A new company gets 2 intern beds, enough to earn the price of its first house; without them a company with no beds could hire no one, so could earn nothing and build nothing. A company that already had employees before it had a map keeps all of them, so existing saves are not stranded behind hundreds of houses.
+  - **Selling the company sells the map:** `resetRunStores` calls `retireRunSave`, which forgets the run's map and holds saving off until the next map loads, so the sold map's flush on unmount can't write it back. The next company's map is generated fresh when the world next mounts and finds no save.
+  - **Two save slots:** the run's map (`world-run`) and the editor's (`world-map`) are kept apart, so ending a run can never take a hand-built editor map with it.
+  - **Lazy-loaded:** the map engine loads in its own chunk after the founder screen.
+  - **Remounting:** the map now unmounts and mounts again within one page (at every sale), which the editor never did. Two fixes for that: the camera viewport takes itself off the store when destroyed (the next scene used to find the dead one and draw nothing), and the frame-timing ticker cleanup tolerates an app already torn down.
+  - **Changes elsewhere:**
+    - The first grid's road-network count is counted rather than assumed 0.
+    - The sell dialog says the map resets.
+    - The full world editor is still at `?world=1`, unchanged, with every tool and HUD.
+  - **The old isometric city** (`src/office`) is no longer mounted by the game.
 
 ## Tech stack
 
@@ -72,7 +82,8 @@ src/
     viewport.tsx       #   pixi-viewport (pan/zoom)
     math-utils.ts      #   v1-only iso helpers; re-exports src/iso/projection
     city/              #   scene computation, building kits data, world gen
-  world/               # World v2 — MUTABLE isometric map engine (?world=1)
+  world/               # World v2 — MUTABLE isometric map engine: the game's map, and the ?world=1 editor
+    play/              #   company-map.tsx: the company's map in the game; build-bar.tsx: the player's tools
     iso.ts             #   projection, half-step heights, tilted-face picking
     grid.ts            #   dense layers (terrain/height/paved/ramp/structureAt)
     gen/               #   the ground a new company founds on: value noise, a

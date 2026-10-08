@@ -133,7 +133,8 @@ const AcquireConfirm = ({
           ))}
           <p className="mt-1 text-[11px] opacity-60">
             Equity, skill tree and board mandates persist. Money, employees,
-            upgrades, innovation and valuation reset.
+            upgrades, innovation, valuation and the company's map reset — the
+            next company founds on new ground.
           </p>
         </div>
 

@@ -21,6 +21,8 @@ export function WorldViewport({
   screenSize: { width: number; height: number };
 }) {
   const ref = useRef<Viewport>(null);
+  /** The viewport this put on the store, kept: the ref is detached before an unmount's cleanup runs. */
+  const registered = useRef<Viewport | null>(null);
   const setViewport = useWorldStore((s) => s.setViewport);
   const pixiApp = useApplication();
   const events = pixiApp?.app.renderer?.events;
@@ -34,6 +36,7 @@ export function WorldViewport({
     // higher silently blocks the initial fit and leaves the camera stranded.
     applyViewportControls(vp, { minScale: 0.015, maxScale: 8 });
     setViewport(vp);
+    registered.current = vp;
     console.info("WORLD VIEWPORT: bootstrapped");
     return true;
   }, [setViewport]);
@@ -51,6 +54,18 @@ export function WorldViewport({
     }, 50);
     return () => window.clearInterval(id);
   }, [init, events, ticker]);
+
+  /**
+   * AND OFF THE STORE WHEN IT GOES. The store outlives the canvas: the game
+   * unmounts the map when a company is sold and mounts it again for the next,
+   * and the next scene, finding the destroyed viewport still there, set the
+   * scale of something with no scale left and drew nothing at all.
+   */
+  useEffect(() => () => {
+    if (registered.current && useWorldStore.getState().viewport === registered.current) {
+      useWorldStore.setState({ viewport: null });
+    }
+  }, []);
 
   if (!ticker || !events) return null;
 

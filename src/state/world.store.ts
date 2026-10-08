@@ -52,7 +52,7 @@ import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
-import { clearSaved, hasSaved, saveNow, scheduleSave } from "../world/io/world-save";
+import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { buildCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
@@ -927,6 +927,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   loadGrid: (grid, palette, boats) => {
+    // A map is in memory that belongs to somebody again. @see retireRunSave
+    suspendSaving(false);
     history = createHistory();
     network = createNetwork(grid);
     water = createWaterField(grid);
@@ -1027,3 +1029,4 @@ export function startAutosave(): () => void {
 
 /** Throw the saved map away. A deliberate act — see the reset button. */
 export const forgetSavedWorld = () => clearSaved();
+

@@ -6,9 +6,11 @@
  * holding employees with nowhere to live. Every failure mode here is therefore
  * tested for what it does to the NEXT load, not merely for not throwing.
  */
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { clearSaved, hasSaved, loadSaved, saveNow, saveSoon } from "./world-save";
+import {
+  clearSaved, hasSaved, loadSaved, retireRunSave, saveNow, saveSoon, setSaveSlot, suspendSaving,
+} from "./world-save";
 import { serializeWorld } from "./serialize";
 import { createGrid, fillTerrain, idx, setHeight } from "../grid";
 import { createWaterField, pourAt } from "../water/field";
@@ -173,5 +175,57 @@ describe("what counts as something to save", () => {
 
     expect(second).not.toBe(first);
     expect(loadSaved()!.grid.height[idx(b.grid, 4, 4)]).toBe(9);
+  });
+});
+
+describe("the run's map and the editor's", () => {
+  const file = () => serializeWorld(world(4, 4).grid, PALETTE);
+  beforeEach(() => {
+    localStorage.clear();
+    suspendSaving(false);
+  });
+  // The slot is the page's, so put it back for whatever runs next.
+  afterEach(() => {
+    setSaveSlot("editor");
+    suspendSaving(false);
+  });
+
+  test("save to different slots", () => {
+    setSaveSlot("editor");
+    saveSoon(file); saveNow();
+    setSaveSlot("run");
+    saveSoon(file); saveNow();
+    expect(localStorage.getItem("world-map")).not.toBeNull();
+    expect(localStorage.getItem("world-run")).not.toBeNull();
+  });
+
+  test("selling the company forgets the run's map and never the editor's", () => {
+    setSaveSlot("editor");
+    saveSoon(file); saveNow();
+    setSaveSlot("run");
+    saveSoon(file); saveNow();
+    retireRunSave();
+    expect(localStorage.getItem("world-run")).toBeNull();
+    expect(localStorage.getItem("world-map")).not.toBeNull();
+  });
+
+  test("and the sold map's last flush does not write it back", () => {
+    setSaveSlot("run");
+    saveSoon(file);                       // a save still queued at the sale
+    retireRunSave();
+    saveNow();                            // the unmount's flush
+    saveSoon(file); saveNow();            // and anything after it
+    expect(localStorage.getItem("world-run")).toBeNull();
+    // Until the next map is loaded and saving resumes.
+    suspendSaving(false);
+    saveSoon(file); saveNow();
+    expect(localStorage.getItem("world-run")).not.toBeNull();
+  });
+
+  test("retiring from the editor's page leaves its saving alone", () => {
+    setSaveSlot("editor");
+    retireRunSave();
+    saveSoon(file); saveNow();
+    expect(localStorage.getItem("world-map")).not.toBeNull();
   });
 });

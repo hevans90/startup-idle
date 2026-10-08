@@ -1,5 +1,5 @@
 import { FloatingTree } from "@floating-ui/react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import toast, { resolveValue, Toaster } from "react-hot-toast";
 import { evaluateAchievements } from "./game/achievements.engine";
 import {
@@ -7,9 +7,7 @@ import {
   type OfflineSummary,
 } from "./game/offline-progress";
 import { useCompareVersion } from "./hooks/use-compare-version";
-import { useResizeToWrapper } from "./hooks/use-resize-to-wrapper";
 import { AiSingularityReadout } from "./molecules/ai-singularity-readout";
-import { CityHoverPopover } from "./molecules/city-hover-popover";
 import { DevPanel } from "./molecules/dev-panel";
 import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
 import { FounderSelect } from "./molecules/founder-select";
@@ -24,7 +22,6 @@ import { Sidebar } from "./molecules/sidebar";
 import { Toolbar } from "./molecules/toolbar";
 import { Upgrades } from "./molecules/upgrades";
 import { VapeMapWrapper } from "./molecules/vape-map-wrapper";
-import { Office } from "./office/office";
 import { useFounderStore } from "./state/founder.store";
 import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
@@ -34,6 +31,9 @@ import { useThemeStore } from "./state/theme.store";
 import { useVapeAchievementsStore } from "./state/vape-achievements.store";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
+
+/** The company's map, in its own chunk. @see CompanyMap */
+const CompanyMap = lazy(() => import("./world/play/company-map"));
 
 const useDynamicTitle = (interval = 1000) => {
   useEffect(() => {
@@ -58,11 +58,6 @@ function App() {
   const innovation = useInnovationStore((s) => s.innovation);
 
   const lastAchievementEvalRef = useRef(0);
-  const {
-    ref: officeWrapperRef,
-    setRef: setOfficeWrapperRef,
-    size: wrapperSize,
-  } = useResizeToWrapper();
 
   const getMoneyPerSecond = useGeneratorStore((s) => s.getMoneyPerSecond);
   const mps = getMoneyPerSecond();
@@ -189,19 +184,14 @@ function App() {
               <GameStageTicker className="absolute top-13 left-0 right-0 z-20" />
 
               <div className="relative min-h-0 w-full flex-1 basis-0 overflow-hidden">
-                <div
-                  ref={setOfficeWrapperRef}
-                  className="absolute inset-x-0 bottom-0 top-0 z-0 min-h-0"
-                >
-                  {wrapperSize && (
-                    <Office
-                      wrapperRef={officeWrapperRef}
-                      wrapperSize={wrapperSize}
-                    />
-                  )}
+                {/* THE COMPANY'S MAP, where the old procedural city was: its
+                    own town, built on under the game's rules. Loaded lazily —
+                    the map engine is most of the bundle. @see CompanyMap */}
+                <div className="absolute inset-0 z-0 min-h-0">
+                  <Suspense fallback={null}>
+                    <CompanyMap />
+                  </Suspense>
                 </div>
-
-                <CityHoverPopover />
 
                 <EmployeeSatisfactionOverlay className="absolute bottom-3 right-3 z-10" />
 

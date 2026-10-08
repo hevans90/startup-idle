@@ -108,3 +108,33 @@ export function roomFor(id: GeneratorId, owned: number): number {
   const beds = capacityFn()[id] ?? 0;
   return Math.max(0, beds - owned);
 }
+
+/**
+ * Beds a new company starts with OFF the map, before it has built anything:
+ * enough interns to earn the price of the first house. Without them a company
+ * with no beds could hire nobody, so earned nothing, so could build nothing.
+ */
+export const STARTER_REMOTE_BEDS: Partial<Record<GeneratorId, number>> = { intern: 2 };
+
+/**
+ * The beds a company has off its map when the map is founded: its starter
+ * crew, or everyone it already employs if that is more.
+ *
+ * EVERYONE ALREADY HIRED, so a company that grew before it had a map is not
+ * suddenly unable to hire one more until it has housed hundreds: the people it
+ * has live elsewhere, and only growth from here needs a roof on the map.
+ */
+export function foundingRemoteBeds(owned: Partial<Record<GeneratorId, number>>): Record<GeneratorId, number> {
+  const out = { ...NO_HOUSING };
+  for (const id of Object.keys(out) as GeneratorId[]) {
+    out[id] = Math.max(owned[id] ?? 0, STARTER_REMOTE_BEDS[id] ?? 0);
+  }
+  return out;
+}
+
+/** Two sets of beds, added. */
+export function addBeds(a: Record<GeneratorId, number>, b: Partial<Record<string, number>>): Record<GeneratorId, number> {
+  const out = { ...a };
+  for (const id of Object.keys(out) as GeneratorId[]) out[id] += b[id] ?? 0;
+  return out;
+}

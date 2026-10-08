@@ -22,8 +22,36 @@ import type { Grid } from "../grid";
 import type { Fleet } from "../boats/fleet";
 import type { WaterField } from "../water/field";
 
-/** Where the autosave lives. Distinct from the game's own persisted stores. */
-const KEY = "world-map";
+/**
+ * Where the autosave lives. Distinct from the game's own persisted stores.
+ *
+ * TWO SLOTS, because there are two maps. The EDITOR's (`?world=1`) is
+ * somebody's authored map, kept until they throw it away. The RUN's is the
+ * company's, made new for every company and thrown away when it is sold. Kept
+ * apart so that ending a run can never take the editor's map with it — the
+ * game's first exit would otherwise have deleted a map built by hand.
+ * @see setSaveSlot, retireRunSave
+ */
+const SLOTS = { editor: "world-map", run: "world-run" } as const;
+export type SaveSlot = keyof typeof SLOTS;
+let KEY: string = SLOTS.editor;
+
+/** Which map this page saves to and loads from. Set before anything loads. */
+export function setSaveSlot(slot: SaveSlot): void {
+  KEY = SLOTS[slot];
+}
+
+/**
+ * Saving held off, while a map is in memory that must not be written: the
+ * one a sold company left behind, between its exit and the next company's
+ * map. Its last flush on unmount, and any save still queued, would otherwise
+ * write it straight back over the slot that was just cleared. @see retireRunSave
+ */
+let suspended = false;
+export function suspendSaving(on: boolean): void {
+  suspended = on;
+  if (on) { if (timer !== null) { clearTimeout(timer); timer = null; } pending = null; }
+}
 
 /**
  * How long after the last edit the map is written.
@@ -42,7 +70,7 @@ export function saveNow(): void {
   if (timer !== null) { clearTimeout(timer); timer = null; }
   const make = pending;
   pending = null;
-  if (!make) return;
+  if (!make || suspended) return;
   try {
     localStorage.setItem(KEY, toJSON(make()));
   } catch {
@@ -59,6 +87,7 @@ export function saveNow(): void {
  * many edits arrived in between.
  */
 export function saveSoon(make: () => WorldFile): void {
+  if (suspended) return;
   pending = make;
   if (timer !== null) clearTimeout(timer);
   timer = setTimeout(saveNow, DEBOUNCE_MS);
@@ -120,5 +149,22 @@ export function clearSaved(): void {
   pending = null;
   try {
     localStorage.removeItem(KEY);
+  } catch { /* nothing to do and nothing to say */ }
+}
+
+/**
+ * THE COMPANY WAS SOLD, and its map goes with it.
+ *
+ * Forgets the run's saved map and, if this page is saving to it, holds saving
+ * off until the next map is loaded — so the sold company's map, still in
+ * memory and flushed by the world's unmount, is not written straight back.
+ * The next company's map is made when the world next mounts and finds no save:
+ * generated fresh from the day it was incorporated. The editor's map is never
+ * touched, whichever slot this page is on. @see resetRunStores, useFoundWorld
+ */
+export function retireRunSave(): void {
+  if (KEY === SLOTS.run) suspendSaving(true);
+  try {
+    localStorage.removeItem(SLOTS.run);
   } catch { /* nothing to do and nothing to say */ }
 }

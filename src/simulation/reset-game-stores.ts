@@ -11,11 +11,12 @@ import { useSessionStore } from "../state/session.store";
 import { useUpgradeStore } from "../state/upgrades.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
+import { retireRunSave } from "../world/io/world-save";
 
 /**
  * Resets a single RUN — everything that should start fresh when you get
  * acquired (money, employees, upgrades, innovation, valuation, AI singularity,
- * founder, offline clock) — while PRESERVING prestige (Equity + skill tree),
+ * founder, offline clock, the company's map) — while PRESERVING prestige (Equity + skill tree),
  * board mandates, and vape achievements/upgrades. The founder is cleared so a
  * new one is chosen.
  */
@@ -30,6 +31,8 @@ export function resetRunStores(): void {
   useSessionStore.getState().reset();
   useDirectivesStore.getState().reset();
   useSlopPitStore.getState().reset();
+  // And the company's map: a new company founds on new ground. @see retireRunSave
+  retireRunSave();
 
   const now = Date.now();
   useInnovationStore.setState({ globalLastTick: now });

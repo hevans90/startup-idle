@@ -2172,7 +2172,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     return () => {
       renderer.render = real as typeof renderer.render;
       if (encoder && realBegin) encoder.beginRenderPass = realBegin;
-      app.ticker.remove(done, null);
+      // The app can already be torn down by now, when the whole map unmounts.
+      app.ticker?.remove(done, null);
     };
   }, [app]);
 
