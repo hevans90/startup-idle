@@ -26,6 +26,7 @@
  * for every map, and not saved. @see world/boats
  */
 import type { Grid } from "../grid";
+import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import {
@@ -73,6 +74,18 @@ export type Town = {
 export const createTown = (): Town => ({
   movers: [], next: 1, t: 0, places: [], placesAt: -1, untilCar: 0, untilPerson: 0, seed: 0x2f6e2b1,
 });
+
+/** A person's leg, half steps long, and how far it swings either side of straight down. */
+export const LEG = 0.5;
+export const SWING = 0.5;
+/** A tile along the ground in half steps' height, on the screen: so a swing can be put in either. */
+export const HALF_STEP_IN_TILES = HEIGHT_UNIT / Math.hypot(HW, HH);
+/**
+ * Tiles a person covers in one step: a leg's reach forward plus its reach
+ * back. Their phase goes on by π a step, so the feet keep pace with the ground
+ * and do not skate. @see town-render
+ */
+export const STRIDE = 2 * LEG * Math.sin(SWING) * HALF_STEP_IN_TILES;
 
 /** At most this many cars and people. */
 export const MAX_CARS = 40;
@@ -337,7 +350,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     let d = want2 - m.heading;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     m.heading += d * Math.min(1, h * (m.kind === "car" ? 10 : 14));
-    if (m.kind === "person") m.phase += h * m.speed * 22;
+    if (m.kind === "person") m.phase += (h * m.speed * Math.PI) / STRIDE;
   }
 
   // ARRIVING, and the road going from under somebody.
