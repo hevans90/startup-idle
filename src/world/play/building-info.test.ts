@@ -32,12 +32,12 @@ describe("a building's label", () => {
     const build = { done: 300, need: 600, delivered: 3, deliveries: 8, cost: 400, priority: 2 as const, updatedAt: 0 };
     const info = infoFor(at("studio", { w: 3, h: 2, build }), ctx({ stalled: new Set([7]) }))!;
     expect(info.brief).toEqual(["50%"]);
-    expect(info.lines.map((l) => l.text)).toContain("Stalled: needs money for materials");
+    expect(info.lines.map((l) => l.text)).toEqual(["50% built", "Stalled"]);
   });
 
   test("a finished project says what it opened and where a click goes", () => {
     const info = infoFor(at("hq", { w: 3, h: 3 }), ctx())!;
-    expect(info.lines.map((l) => l.text)).toEqual(["Opened managers", "Click for Innovation"]);
+    expect(info.lines.map((l) => l.text)).toEqual(["Click for Innovation"]);
   });
 
   test("a seaport counts its boats", () => {

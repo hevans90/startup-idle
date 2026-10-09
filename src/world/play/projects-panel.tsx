@@ -15,9 +15,9 @@ import {
 import { useFounderStore } from "../../state/founder.store";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
-import { useMoneyStore } from "../../state/money.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
+import { opensText } from "./building-info";
 import { builtProjects, materialCap, siteOf, STALL_GRACE } from "../projects/works";
 
 const CARD =
@@ -85,51 +85,44 @@ function ProjectCard({ next, unlocked, className }: { next: ProjectDef; unlocked
   const placeProject = useWorldStore((s) => s.placeProject);
   const setPriority = useWorldStore((s) => s.setProjectPriority);
   const generators = useGeneratorStore((s) => s.generators);
-  const money = useMoneyStore((s) => s.money);
   const owned: Record<string, number> = {};
   for (const g of generators) owned[g.id] = g.amount;
   const site = siteOf(grid, next);
   // Their name in the plural: "your interns", "your vibe coders".
   const who = next.builders.map((id) => `${generators.find((g) => g.id === id)?.name ?? id}s`).join(" and ");
 
-  // NOT YET: what it is waiting for.
+  const TAG = "text-[10px] font-bold uppercase tracking-wide";
+
+  // NOT YET: one line, what it waits for.
   if (!site && !next.ready(owned, unlocked)) {
     return (
-      <div className={twMerge(CARD, className)}>
-        <p className="text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">Next project</p>
-        <p className="font-bold">{next.name}</p>
-        <p className="mt-1 text-primary-700 dark:text-primary-300">Needs {next.readyWhen}.</p>
+      <div className={twMerge(CARD, "w-auto self-start whitespace-nowrap text-primary-700 dark:text-primary-300", className)}>
+        <span className={twMerge(TAG, "mr-1 text-primary-500")}>Next</span>
+        <b className="text-primary-900 dark:text-primary-100">{next.name}</b> · needs {next.readyWhen}
       </div>
     );
   }
 
-  // READY: choose a site, or choosing one.
+  // READY: what it opens, what it costs, and a site to choose.
   if (!site) {
     const choosing = placing === next.id;
     const income = useGeneratorStore.getState().getMoneyPerSecond();
     return (
       <div className={twMerge(CARD, className)}>
-        <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">New project</p>
-        <p className="font-bold">{next.name}</p>
-        <p className="mt-1">{next.pitch}</p>
-        <p className="mt-1 text-primary-700 dark:text-primary-300">
-          {next.founderBuilds
-            ? "You build this one yourself, from salvaged materials: it costs nothing."
-            : <>Materials {formatCurrency(projectCost(next, income))}, paid as {next.deliveries} loads arrive. Built by your {who},
-              who stop working while they build.</>}
+        <p><span className={twMerge(TAG, "mr-1 text-emerald-700 dark:text-emerald-400")}>New</span><b>{next.name}</b></p>
+        <p className="text-primary-700 dark:text-primary-300">{opensText(next)}</p>
+        <p className="tabular-nums text-primary-600 dark:text-primary-400"
+          title={next.founderBuilds ? undefined
+            : `About ${formatDuration(next.incomeSeconds)} of income, fixed when you choose the site. Builders leave their desks while they build.`}>
+          {next.founderBuilds ? "Free · you build it" : `${formatCurrency(projectCost(next, income))} · built by ${who}`}
         </p>
-        {!next.founderBuilds && (
-          <p className="mt-1 text-[11px] text-primary-600 dark:text-primary-400">
-            About {formatDuration(next.incomeSeconds)} of your income: the price is fixed when you choose the site.
-          </p>
-        )}
         {choosing ? (
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="text-emerald-700 dark:text-emerald-400">Click a spot beside a road for its site.</span>
+          <div className="mt-1.5 flex items-center justify-between gap-2">
+            <span className="text-emerald-700 dark:text-emerald-400">Click beside a road</span>
             <button type="button" className={BTN} onClick={() => placeProject(null)}>Cancel</button>
           </div>
         ) : (
-          <button type="button" className={twMerge(BTN, "mt-2 w-full font-bold")} onClick={() => placeProject(next.id)}>
+          <button type="button" className={twMerge(BTN, "mt-1.5 w-full font-bold")} onClick={() => placeProject(next.id)}>
             Choose a site
           </button>
         )}
@@ -137,43 +130,32 @@ function ProjectCard({ next, unlocked, className }: { next: ProjectDef; unlocked
     );
   }
 
-  // GOING UP.
+  // GOING UP: progress, one line of who and what, what is wrong if anything, and the priority.
   const b = site.build!;
   const works = getWorks();
   const crew = works.crews.get(site.id) ?? { walking: 0, working: 0 };
   const loadPrice = b.cost / b.deliveries;
-  const stalled = (works.stalled.get(site.id) ?? 0) > 0;
+  const stalledFor = works.stalled.get(site.id) ?? 0;
   const truck = (works.trucks.get(site.id) ?? 0) > 0;
   const caughtUp = b.done >= materialCap(b) - 1e-6;
-  const away = next.builders.reduce((n, id) => n + (works.away[id] ?? 0), 0);
-  const status = b.priority === 0
-    ? "Paused. Everyone is back at their desk."
-    : stalled
-      ? `Stalled: ${formatCurrency(loadPrice)} needed for the next load.${(works.stalled.get(site.id) ?? 0) > STALL_GRACE ? " The crew has gone home." : ""}`
-      : caughtUp && truck
-        ? "Waiting for a load to arrive."
-        : crew.working === 0 && crew.walking > 0
-          ? "The crew is on its way."
-          : "Building.";
+  const problem = b.priority === 0 ? null
+    : stalledFor > 0 ? `Stalled: next load ${formatCurrency(loadPrice)}${stalledFor > STALL_GRACE ? ", crew gone home" : ""}`
+      : caughtUp && truck ? "Waiting for a load"
+        : crew.working === 0 && crew.walking > 0 ? "Crew on the way" : null;
   return (
     <div className={twMerge(CARD, className)}>
       <div className="flex items-baseline justify-between">
-        <p className="font-bold">{next.name}</p>
+        <b>{next.name}</b>
         <span className="tabular-nums">{Math.floor((b.done / b.need) * 100)}%</span>
       </div>
       <Bar value={b.done / b.need} className="mt-1" />
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 tabular-nums">
-        <dt className="text-primary-600 dark:text-primary-400">Crew</dt>
-        <dd>{crew.working} at work{crew.walking ? `, ${crew.walking} on the way` : ""}</dd>
-        {!next.founderBuilds && <>
-          <dt className="text-primary-600 dark:text-primary-400">Away</dt>
-          <dd>{away} {who} off their desks</dd>
-        </>}
-        <dt className="text-primary-600 dark:text-primary-400">Materials</dt>
-        <dd>{b.delivered}/{b.deliveries} loads{truck ? ", one on the road" : ""}</dd>
-      </dl>
-      <p className={twMerge("mt-1", stalled && "text-red-700 dark:text-red-400")}>{status}</p>
-      <div className="mt-2 flex gap-1" title="How much of the company works on it. Builders don't work at their desks.">
+      <p className="mt-1 tabular-nums text-primary-700 dark:text-primary-300">
+        {crew.working + crew.walking} building · {b.delivered}/{b.deliveries} loads
+      </p>
+      {problem && <p className={stalledFor > 0 ? "text-red-700 dark:text-red-400" : "text-primary-600 dark:text-primary-400"}>{problem}</p>}
+      <div className="mt-1.5 flex gap-1"
+        title={next.founderBuilds ? "You build it yourself."
+          : `How much of the company builds: ${buildersFor(next, b.priority, owned, site.w * site.h)} of your ${who} now. Builders don't work at their desks.`}>
         {PRIORITY_NAMES.map((name, k) => (
           <button key={name} type="button" onClick={() => setPriority(site.id, k as Priority)}
             className={twMerge(BTN, "flex-1 px-1", b.priority === k && ON)}>
@@ -181,14 +163,6 @@ function ProjectCard({ next, unlocked, className }: { next: ProjectDef; unlocked
           </button>
         ))}
       </div>
-      <p className="mt-1 text-[11px] text-primary-600 dark:text-primary-400">
-        {b.priority === 0
-          ? "No one is building."
-          : next.founderBuilds
-            ? "You are building it yourself."
-            : `${buildersFor(next, b.priority, owned, site.w * site.h)} of your ${who} build at ${PRIORITY_NAMES[b.priority].toLowerCase()} priority.`}
-        {money.lt(loadPrice) && !stalled ? ` The next load costs ${formatCurrency(loadPrice)}.` : ""}
-      </p>
     </div>
   );
 }

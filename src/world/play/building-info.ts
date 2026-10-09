@@ -7,7 +7,7 @@
  * through `InfoContext`.
  */
 import { housedBy, residentsIn } from "../../game/housing";
-import { projectForStructure } from "../../game/projects";
+import { projectForStructure, type ProjectDef } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
 import type { Structure } from "../grid";
 import { structureDef, type StructureDef } from "../structures/def";
@@ -57,6 +57,14 @@ const KIND_NAME: Record<GeneratorId, [string, string]> = {
 export const KIND_COLOUR: Record<GeneratorId, number> = { intern: 0xf2b51d, vibe_coder: 0xff4fa3, "10x_dev": 0x2fb8a8 };
 const TAB_NAME = { employees: "Employees", innovation: "Innovation", valuation: "Valuation" } as const;
 
+/** What a project opens, in a few words: "Opens hiring vibe coders". */
+export function opensText(p: ProjectDef): string {
+  if (p.unlocks) return `Opens hiring ${KIND_NAME[p.unlocks][1]}`;
+  if (p.grants === "managers") return "Opens managers";
+  if (p.grants === "mandates") return "Opens board mandates";
+  return "";
+}
+
 /** A housing building's name: `intern.t1` is "Intern house II", or "Intern lot II" while empty. */
 export function housingName(defId: string, empty = false): string | null {
   const h = housedBy(defId);
@@ -101,22 +109,16 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
   if (p) {
     if (s.build) {
       const pct = Math.floor((s.build.done / s.build.need) * 100);
-      const lines: InfoLine[] = [
-        { text: `${pct}% built` },
-        { text: `${s.build.delivered}/${s.build.deliveries} loads delivered`, tone: "dim" },
-      ];
+      // The card has the rest: here, how far, and what is wrong.
+      const lines: InfoLine[] = [{ text: `${pct}% built` }];
       if (s.build.priority === 0) lines.push({ text: "Paused", tone: "warn" });
-      else if (ctx.stalled.has(s.id)) lines.push({ text: "Stalled: needs money for materials", tone: "warn" });
+      else if (ctx.stalled.has(s.id)) lines.push({ text: "Stalled", tone: "warn" });
       return {
         title: p.name, accent: 0xd4a01e, brief: [`${pct}%`], lines,
         facts: [{ type: "site", name: p.name, pct, stalled: ctx.stalled.has(s.id), paused: s.build.priority === 0 }],
       };
     }
-    const lines: InfoLine[] = [];
-    if (p.unlocks) lines.push({ text: `Opened hiring ${KIND_NAME[p.unlocks][1]}`, tone: "good" });
-    if (p.grants === "managers") lines.push({ text: "Opened managers", tone: "good" });
-    if (p.grants === "mandates") lines.push({ text: "Opened board mandates", tone: "good" });
-    if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
+    const lines: InfoLine[] = p.opens ? [{ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" }] : [];
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
   }
 
