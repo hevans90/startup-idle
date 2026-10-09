@@ -15,6 +15,7 @@ import { createTraffic, type Traffic } from "../world/boats/traffic";
 import { createTown, type Town } from "../world/agents/town";
 import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
 import { housedBy } from "../game/housing";
+import { useGeneratorStore } from "./generators.store";
 import { incomeNow } from "../world/projects/economy";
 import { builtProjects, createWorks, nearestSpot, siteOf, startSiteCommand, type Works } from "../world/projects/works";
 import { PROJECTS, alreadyEarned, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
@@ -960,6 +961,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         ? upgradeCommand(st.grid, under, rules)
         : def && placeCommand(st.grid, def, c.x, c.y, rules);
     if (!cmd) { set({ stroke: null }); return; }
+    // NO LOTS FOR PEOPLE THE COMPANY CANNOT HIRE: nobody would come to them.
+    const lotFor = st.playing && !demolishing && !upgrade && def ? housedBy(def.id)?.id : undefined;
+    if (lotFor && !useGeneratorStore.getState().generators.some((g) => g.id === lotFor)) { set({ stroke: null }); return; }
     // AND IT HAS TO BE PAID FOR, before anything is committed. Checked and
     // charged together so a refusal cannot leave the money spent — the same
     // order the hiring gate needs, and for the same reason.
