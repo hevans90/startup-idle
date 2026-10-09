@@ -199,8 +199,18 @@ export const OFFICES: readonly StructureDef[] = [
   { id: "office-10x", name: "10x office", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
 ];
 
+/**
+ * SERVICES: a café, a park and a gym, which serve the homes near them along
+ * the roads, and are what houses grow by. @see world/agents/services
+ */
+export const SERVICES: readonly StructureDef[] = [
+  { id: "cafe", name: "Café", footprint: { w: 2, h: 1 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "park", name: "Park", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "gym", name: "Gym", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+];
+
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

@@ -12,6 +12,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import type { Structure } from "../grid";
 import { structureDef, type StructureDef } from "../structures/def";
 import { workplaceKind, type Commute } from "../agents/commute";
+import { NEEDS, SERVICE_NAME, TIERS, serviceOf, tierOf, type ServiceId } from "../agents/services";
 
 /** What the live game says, for the labels. */
 export type InfoContext = {
@@ -24,6 +25,8 @@ export type InfoContext = {
   queued: ReadonlyMap<number, number>;
   /** How many live in each house, by its id. */
   residents: ReadonlyMap<number, number>;
+  /** What serves each house, by its id. */
+  coverage: ReadonlyMap<number, ReadonlySet<ServiceId>>;
   /** Each house's commute, by its id. Missing: nobody worked it out (no roads yet). */
   commutes: ReadonlyMap<number, Commute>;
   /** What each seaport has earned in the last minute, by its id. */
@@ -109,6 +112,13 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const eff = commute?.eff ?? 1;
     const lines: InfoLine[] = [{ text: `${here}/${h.slots} ${plural} living here` }];
     if (here > 0 && rate !== undefined) lines.push({ text: `Earns ${ctx.money(here * rate * eff)}/s`, tone: "good" });
+    // GROWING: what it lacks for the next tier, or that it is full and served.
+    const t = tierOf(s.def), next = t ? TIERS[TIERS.indexOf(t) + 1] : undefined;
+    if (next && here > 0) {
+      const lack = NEEDS[next].filter((n) => !ctx.coverage.get(s.id)?.has(n));
+      if (lack.length) lines.push({ text: `Grows with a ${lack.map((n) => SERVICE_NAME[n]).join(" and ")}`, tone: "dim" });
+      else if (here >= h.slots) lines.push({ text: "Growing", tone: "good" });
+    }
     if (commute && here > 0) {
       lines.push(commute.tiles === null
         ? { text: "No road to work", tone: "warn" }
@@ -144,6 +154,18 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     if (workplaceKind(s.def)) lines.push({ text: `${staff} work here` });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
+  }
+
+  // A SERVICE: how many homes it serves.
+  const service = serviceOf(s.def);
+  if (service) {
+    let homes = 0;
+    for (const [, set] of ctx.coverage) if (set.has(service)) homes++;
+    return {
+      title: def.name, accent: 0x2f8f6b, brief: [`${homes} homes`],
+      lines: [{ text: `Serves ${homes} home${homes === 1 ? "" : "s"}` }],
+      facts: [{ type: "project", name: def.name }],
+    };
   }
 
   // AN OFFICE: who works there.

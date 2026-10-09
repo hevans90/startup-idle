@@ -15,6 +15,7 @@ import { createTraffic, type Traffic } from "../world/boats/traffic";
 import { createExports, type Exports } from "../world/boats/exports";
 import { createTown, type Town } from "../world/agents/town";
 import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
+import { createEvolution, type Evolution } from "../world/agents/services";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
 import { incomeNow } from "../world/projects/economy";
@@ -205,6 +206,10 @@ export const getTown = () => town;
 /** And the projects going up on it. @see world/projects/works */
 let works: Works = createWorks();
 export const getWorks = () => works;
+
+/** How the town's houses are growing and declining. @see world/agents/services */
+let evolution: Evolution = createEvolution();
+export const getEvolution = () => evolution;
 
 /** What the ports have earned. @see world/boats/exports */
 let exports_: Exports = createExports();
@@ -724,6 +729,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     works = createWorks();
     arrivals = createArrivals();
     exports_ = createExports();
+    evolution = createEvolution();
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
@@ -1084,6 +1090,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     works = createWorks();
     arrivals = createArrivals();
     exports_ = createExports();
+    evolution = createEvolution();
     // The file's boats, on the file's water. @see restoreFleet
     if (boats?.length) restoreFleet(fleet, water.columns, boats);
     setWaterEdge(water, get().openEdge);          // a new field, the same world

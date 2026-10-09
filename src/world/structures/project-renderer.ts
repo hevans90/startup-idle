@@ -341,6 +341,87 @@ const LEAVES_SHADE = 0x467a35;
 const LEAVES_TOP = 0x6db254;
 
 /**
+ * THE CAFÉ: a little brick shop with a striped awning over its window, and a
+ * table and two chairs out front.
+ */
+function drawCafe(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, 0.12, SLAB, SLAB_SIDE, SLAB_SHADE);
+  const w0 = x0 + 0.25, w1 = x1 - 0.2, v0 = y0 + 0.15, v1 = y1 - 0.45;
+  box(w0, v0, w1, v1, 0.12, CAFE_BODY, CAFE_ROOF, CAFE_BRICK, CAFE_BRICK_SHADE);
+  // The window and the awning over it, on the street face.
+  line([[w0 + 0.15, v1 + 0.005, 0.5], [w1 - 0.15, v1 + 0.005, 0.5]], GLASS, 6);
+  for (let u = w0; u < w1 - 1e-6; u += 0.2) {
+    box(u, v1, Math.min(w1, u + 0.2), v1 + 0.22, 1.1, 1.25, ((u - w0) / 0.2) % 2 < 1 ? AWNING : AWNING_WHITE, AWNING, AWNING_SHADE);
+  }
+  // A table and two chairs on the pavement side.
+  const tu = s.x + 0.35, tv = y1 - 0.2;
+  box(tu - 0.06, tv - 0.06, tu + 0.06, tv + 0.06, 0.12, 0.45, TABLE, TABLE, TABLE_SHADE);
+  for (const du of [-0.14, 0.14]) box(tu + du - 0.04, tv - 0.04, tu + du + 0.04, tv + 0.04, 0.12, 0.3, CHAIR, CHAIR, CHAIR);
+}
+
+/** THE PARK: lawn, a gravel path across it, trees, and a bench. */
+function drawPark(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, quad, P } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  const cu0 = Math.max(x0, s.x + c - 0.5), cu1 = Math.min(x1, s.x + c + 0.5);
+  const flat = (a0: number, b0: number, a1: number, b1: number, z: number, col: number) => {
+    const u0 = Math.max(a0, cu0), u1 = Math.min(a1, cu1);
+    if (u1 > u0) quad([P(u0, b0, z), P(u1, b0, z), P(u1, b1, z), P(u0, b1, z)], col);
+  };
+  flat(x0 + 0.04, y0 + 0.04, x1 - 0.04, y1 - 0.04, 0.03, LAWN);
+  // A path corner to corner, in two legs.
+  const mu = (x0 + x1) / 2, mv = (y0 + y1) / 2;
+  flat(x0 + 0.04, mv - 0.1, x1 - 0.04, mv + 0.1, 0.04, GRAVEL);
+  flat(mu - 0.1, y0 + 0.04, mu + 0.1, y1 - 0.04, 0.04, GRAVEL);
+  // Trees in three of the quarters, a bench in the fourth.
+  // A tree is a trunk and a stepped crown, narrower as it goes up.
+  for (const [tu, tv] of [[x0 + 0.5, y0 + 0.5], [x1 - 0.5, y0 + 0.5], [x0 + 0.5, y1 - 0.5]]) {
+    box(tu - 0.035, tv - 0.035, tu + 0.035, tv + 0.035, 0.03, 0.9, TRUNK, TRUNK, TRUNK);
+    box(tu - 0.24, tv - 0.24, tu + 0.24, tv + 0.24, 0.9, 1.7, LEAVES_TOP, LEAVES, LEAVES_SHADE);
+    box(tu - 0.16, tv - 0.16, tu + 0.16, tv + 0.16, 1.7, 2.3, LEAVES_TOP, LEAVES, LEAVES_SHADE);
+    box(tu - 0.07, tv - 0.07, tu + 0.07, tv + 0.07, 2.3, 2.6, LEAVES_TOP, LEAVES, LEAVES_SHADE);
+  }
+  const bu = x1 - 0.5, bv = y1 - 0.45;
+  box(bu - 0.22, bv - 0.06, bu + 0.22, bv + 0.06, 0.03, 0.35, TABLE, TABLE, TABLE_SHADE);
+}
+
+/** THE GYM: a plain grey shed with tall windows, and a dumbbell sign on the roof. */
+function drawGym(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
+  const w0 = x0 + 0.2, w1 = x1 - 0.2, v0 = y0 + 0.2, v1 = y1 - 0.2;
+  box(w0, v0, w1, v1, PLINTH, GYM_BODY, GYM_ROOF, GYM_WALL, GYM_WALL_SHADE);
+  for (let u = w0 + 0.25; u < w1 - 0.1; u += 0.35) line([[u, v1 + 0.005, PLINTH + 0.4], [u, v1 + 0.005, GYM_BODY - 0.5]], GLASS, 4);
+  for (let v = v0 + 0.25; v < v1 - 0.1; v += 0.35) line([[w1 + 0.005, v, PLINTH + 0.4], [w1 + 0.005, v, GYM_BODY - 0.5]], GLASS, 4);
+  // The dumbbell: a bar and two weights, on posts.
+  const mu = (w0 + w1) / 2, mv = (v0 + v1) / 2;
+  line([[mu - 0.35, mv, GYM_BODY + 0.9], [mu + 0.35, mv, GYM_BODY + 0.9]], DUMBBELL, 3);
+  for (const du of [-0.33, 0.33]) box(mu + du - 0.05, mv - 0.12, mu + du + 0.05, mv + 0.12, GYM_BODY + 0.55, GYM_BODY + 1.25, DUMBBELL, DUMBBELL, DUMBBELL_SHADE);
+  line([[mu, mv, GYM_BODY], [mu, mv, GYM_BODY + 0.9]], DUMBBELL_SHADE, 2);
+}
+
+const CAFE_BODY = 2.2;
+const CAFE_BRICK = 0xb46a4c;
+const CAFE_BRICK_SHADE = 0x8e5039;
+const CAFE_ROOF = 0x4b3a33;
+const AWNING = 0x2f8f6b;
+const AWNING_WHITE = 0xf2efe6;
+const AWNING_SHADE = 0x22694e;
+const TABLE = 0x9a7349;
+const TABLE_SHADE = 0x6e5233;
+const CHAIR = 0x333a40;
+const GRAVEL = 0xd9cfb4;
+const GYM_BODY = 2.8;
+const GYM_WALL = 0x9aa3ad;
+const GYM_WALL_SHADE = 0x77808a;
+const GYM_ROOF = 0x4b5259;
+const DUMBBELL = 0x26292d;
+const DUMBBELL_SHADE = 0x141618;
+
+/**
  * Each project's building: how tall its walls go up while it is a site, and
  * how it is drawn finished.
  */
@@ -352,6 +433,10 @@ const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
   "office-intern": { body: GARAGE_WALL, finished: drawGarage },
   "office-vibe": { body: BODY, finished: drawStudio },
   "office-10x": { body: TOWER, finished: drawHq },
+  // Services. @see world/agents/services
+  cafe: { body: CAFE_BODY, finished: drawCafe },
+  park: { body: 0.2, finished: drawPark },
+  gym: { body: GYM_BODY, finished: drawGym },
   boardroom: { body: BR_TOWER, finished: drawBoardroom },
   campus: { body: CAMPUS_TALL, finished: drawCampus },
 };

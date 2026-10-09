@@ -30,6 +30,7 @@ import { getArrivals, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
 import { workplaceKind } from "../agents/commute";
+import { RANGE, serviceOf } from "../agents/services";
 import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
@@ -83,6 +84,8 @@ function sections(hireable: ReadonlySet<string>): Section[] {
     ];
     if (items.length) out.push({ title: KIND_TITLE[who], colour: KIND_COLOUR[who], items });
   }
+  const services = all.filter((d) => serviceOf(d.def.id)).sort((a, b) => a.price - b.price);
+  if (services.length) out.push({ title: "Services", colour: 0x2f8f6b, items: services });
   const ports = all.filter((d) => d.def.port).sort((a, b) => a.price - b.price);
   if (ports.length) out.push({ title: "Ports", colour: 0x4a90c8, items: ports });
   return out;
@@ -169,7 +172,7 @@ export function BuildBar({ className }: { className?: string }) {
                       )}>
                       <span className="font-bold">{tileName(def)}</span>
                       <span className="text-[10px] text-primary-600 dark:text-primary-400">
-                        {h ? `${h.slots} beds` : workplaceKind(def.id) ? "workplace" : def.port ? `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}` : ""}
+                        {h ? `${h.slots} beds` : workplaceKind(def.id) ? "workplace" : serviceOf(def.id) ? `serves ${RANGE} tiles` : def.port ? `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}` : ""}
                         {` · ${def.footprint.w}×${def.footprint.h}`}
                       </span>
                       <span className={twMerge("tabular-nums", !afford && "text-red-700 dark:text-red-400")}>
@@ -203,7 +206,7 @@ export function BuildBar({ className }: { className?: string }) {
                 {st?.riding ? <span className="text-emerald-700 dark:text-emerald-400" title={`On the way ${by}`}>+{st.riding} {by}</span> : null}
                 {st?.waiting ? (
                   <span className={st.blocked ? "text-amber-700 dark:text-amber-400" : "text-primary-600 dark:text-primary-400"}>
-                    {st.waiting} waiting{st.blocked === "no-lot" ? " for a lot" : st.blocked === "no-road" ? " (no road in)" : ""}
+                    {st.waiting} waiting{st.blocked === "no-lot" ? " for a lot" : st.blocked === "no-road" ? " (no road in)" : st.blocked === "no-services" ? " (want a café & park)" : ""}
                   </span>
                 ) : null}
               </span>

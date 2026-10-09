@@ -4,7 +4,7 @@ import type { Structure } from "../grid";
 import { collate, gatherLabels, infoFor, type InfoContext } from "./building-info";
 
 const ctx = (over: Partial<InfoContext> = {}): InfoContext => ({
-  perHead: { intern: 2 }, arriving: new Map(), alongside: new Map(), queued: new Map(), stalled: new Set(), earning: new Map(), residents: new Map(), commutes: new Map(),
+  perHead: { intern: 2 }, arriving: new Map(), alongside: new Map(), queued: new Map(), stalled: new Set(), earning: new Map(), residents: new Map(), commutes: new Map(), coverage: new Map(),
   money: (n) => `$${n}`, ...over,
 });
 const at = (def: string, extra: Partial<Structure> = {}): Structure => ({ id: 7, def, x: 0, y: 0, w: 1, h: 1, ...extra });
@@ -14,7 +14,7 @@ describe("a building's label", () => {
     const info = infoFor(at("kit:intern.t1", { residents: 3 }), ctx({ arriving: new Map([[7, 2]]) }))!;
     expect(info.title).toBe("Intern house II");
     expect(info.brief).toEqual(["3/5 · +2"]);
-    expect(info.lines.map((l) => l.text)).toEqual(["3/5 interns living here", "Earns $6/s", "2 on the way"]);
+    expect(info.lines.map((l) => l.text)).toEqual(["3/5 interns living here", "Earns $6/s", "Grows with a café and park", "2 on the way"]);
   });
 
   test("an empty lot is a lot, and says how many beds are free", () => {

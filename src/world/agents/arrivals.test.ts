@@ -63,10 +63,21 @@ describe("new hires arriving", () => {
     const cars = run(g, { vibe_coder: 3 }, 40);
     expect(housingResidents(g).vibe_coder).toBe(3);
     expect([...cars.seen.values()]).toEqual(["car", "car", "car"]);
+    // 10x devs want a café and a park near: with them, a limousine.
     const g2 = street("kit:10x_dev.t0", [6]);
+    const h = createHistory();
+    commit(g2, h, placeCommand(g2, structureDef("cafe")!, 9, 4)!);
+    commit(g2, h, placeCommand(g2, structureDef("park")!, 12, 3)!);
     const limos = run(g2, { "10x_dev": 1 }, 40);
     expect([...limos.seen.values()]).toEqual(["limo"]);
     expect(housingResidents(g2)["10x_dev"]).toBe(1);
+  });
+
+  test("10x devs will not move in with no café and park, and the bar says so", () => {
+    const g = street("kit:10x_dev.t0", [6]);
+    const { seen, a } = run(g, { "10x_dev": 1 }, 20);
+    expect(seen.size).toBe(0);
+    expect(a.status["10x_dev"]?.blocked).toBe("no-services");
   });
 
   test("fills a part-full house before starting on an empty one", () => {

@@ -247,9 +247,11 @@ function readStructure(raw: unknown): Structure | null {
   if ((s.w as number) <= 0 || (s.h as number) <= 0 || (s.id as number) < 0) return null;
   const build = readBuild(s.build);
   const residents = Number.isInteger(s.residents) && s.residents! >= 0 ? s.residents : undefined;
+  const grown = Number.isInteger(s.grown) && s.grown! > 0 ? s.grown : undefined;
   return {
     id: s.id!, def: s.def, x: s.x!, y: s.y!, w: s.w!, h: s.h!,
     ...(build ? { build } : {}), ...(residents !== undefined ? { residents } : {}),
+    ...(grown !== undefined ? { grown } : {}),
   };
 }
 

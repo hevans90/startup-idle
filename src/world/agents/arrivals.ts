@@ -31,6 +31,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import type { Grid, Structure } from "../grid";
 import type { Network } from "../roads/network";
 import type { Place } from "./roads";
+import { MOVE_IN_NEEDS, liveCoverage, meets } from "./services";
 import { sendOnJob, type Mover, type Town } from "./town";
 
 /** How each kind of employee comes. */
@@ -59,7 +60,7 @@ export type ArrivalStatus = {
   /** Hired, and not yet sent for. */
   waiting: number;
   /** Why they are waiting, if it is not just their turn. */
-  blocked?: "no-lot" | "no-road";
+  blocked?: "no-lot" | "no-road" | "no-services";
 };
 
 export type Arrivals = {
@@ -114,11 +115,12 @@ function moveIn(a: Arrivals, s: Structure | undefined, who: GeneratorId, n: numb
  */
 function planStops(
   g: Grid, places: readonly Place[], who: GeneratorId, seats: number, coming: Map<number, number>, gate: Place,
+  suits: (s: Structure) => boolean = () => true,
 ): { structure: number; n: number; door: Place }[] {
   const lots: { s: Structure; free: number; door: Place }[] = [];
   for (const s of g.structures.values()) {
     const h = housedBy(s.def);
-    if (!h || h.id !== who || s.build) continue;
+    if (!h || h.id !== who || s.build || !suits(s)) continue;
     const free = h.slots - residentsIn(s) - (coming.get(s.id) ?? 0);
     const door = places.find((p) => p.kind === "door" && p.structure === s.id && p.net === gate.net);
     if (free > 0 && door) lots.push({ s, free, door });
@@ -162,7 +164,7 @@ const gatewayNear = (places: readonly Place[], to: { x: number; y: number }, net
  * `stepWorks`, which clears the arrivals it is handed.
  */
 export function stepArrivals(
-  a: Arrivals, g: Grid, _net: Network, town: Town,
+  a: Arrivals, g: Grid, net: Network, town: Town,
   owned: Partial<Record<GeneratorId, number>>, remote: Partial<Record<string, number>>, dt: number,
 ): void {
   const places = town.places;
@@ -221,16 +223,25 @@ export function stepArrivals(
       return h?.id === who && h.slots - residentsIn(s) - (coming.get(s.id) ?? 0) > 0;
     });
     if (!anyLot) { status.blocked = "no-lot"; continue; }
+    // And somewhere they will LIVE: 10x devs want a café and a park.
+    const needs = MOVE_IN_NEEDS[who];
+    const coverage = needs ? liveCoverage(g, net) : null;
+    const suits = (s: Structure) => !needs || meets(coverage!.get(s.id), needs);
+    const anySuits = [...g.structures.values()].some((s) => {
+      const h = housedBy(s.def);
+      return h?.id === who && suits(s) && h.slots - residentsIn(s) - (coming.get(s.id) ?? 0) > 0;
+    });
+    if (!anySuits) { status.blocked = "no-services"; continue; }
     const gates = places.filter((p) => p.kind === "gateway");
     let plan: ReturnType<typeof planStops> = [], gate: Place | null = null;
     const vehicle = VEHICLE[who];
     const seats = vehicle === "bus" ? Math.min(BUS_SEATS, waiting) : 1;
     for (const gw of gates) {
-      const p = planStops(g, places, who, seats, coming, gw);
+      const p = planStops(g, places, who, seats, coming, gw, suits);
       if (p.length) {
         // The way in nearest its first stop, on the same roads.
         gate = gatewayNear(places, p[0].door, gw.net) ?? gw;
-        plan = planStops(g, places, who, seats, coming, gate);
+        plan = planStops(g, places, who, seats, coming, gate, suits);
         break;
       }
     }

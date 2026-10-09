@@ -39,6 +39,9 @@ const PER_BED = 1.35;
  * the caller has to be able to tell them apart before it charges anybody.
  */
 export function buildCost(defId: string): Decimal | null {
+  // A SERVICE: seconds of income, never under a floor.
+  const service = SERVICE_PRICE[defId];
+  if (service) return Decimal.max(new Decimal(service.floor), new Decimal(safeIncome()).times(service.seconds)).round();
   // AN OFFICE: so many hires' worth of the people who will work there.
   const office = OFFICE_FOR[defId];
   if (office) {
@@ -70,6 +73,12 @@ export function buildCost(defId: string): Decimal | null {
  *  - a seaport, seconds of income for each boat a minute it turns round.
  */
 const BED_SHARE = 0.25;
+/** Cafés, parks and gyms: seconds of income, never under a floor. @see world/agents/services */
+const SERVICE_PRICE: Record<string, { seconds: number; floor: number }> = {
+  cafe: { seconds: 30, floor: 150 },
+  park: { seconds: 60, floor: 400 },
+  gym: { seconds: 120, floor: 2000 },
+};
 /** An office costs this many of the next hire's price, never under a floor. */
 const OFFICE_HIRES = 4;
 const OFFICE_FOR: Record<string, { who: GeneratorId; floor: number }> = {

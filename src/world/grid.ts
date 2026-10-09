@@ -54,6 +54,12 @@ export type Structure = {
    * @see world/agents/arrivals, residentsIn
    */
   residents?: number;
+  /**
+   * Tiers this house has GROWN since it was put down, served by cafés, parks
+   * and gyms; what it can decline by when it loses them. Absent: none.
+   * @see world/agents/services
+   */
+  grown?: number;
 };
 
 /** A building going up. @see stepWorks */

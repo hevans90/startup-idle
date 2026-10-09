@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, getArrivals, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { drainDirty, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -76,6 +76,7 @@ import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
+import { liveCoverage, stepEvolution } from "./agents/services";
 import { recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
@@ -2123,6 +2124,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           for (const [id, n] of Object.entries(fake ?? {})) owned[id as keyof typeof owned] = (owned[id as keyof typeof owned] ?? 0) + n;
           stepArrivals(arrivals, st.grid, net, getTown(), owned, fake ? {} : useSessionStore.getState().remoteBeds ?? {}, dt);
           if (arrivals.moved.length) useWorldStore.getState().housingMoved(arrivals.moved.splice(0));
+        }
+        // THE TOWN EVOLVING, in the game: houses growing round the cafés,
+        // parks and gyms that serve them, and declining when they lose them.
+        if (st.playing) {
+          const grew = stepEvolution(getEvolution(), st.grid, liveCoverage(st.grid, net), dt);
+          if (grew.length) useWorldStore.getState().housingMoved(grew);
         }
         const works = getWorks();
         stepWorks(works, st.grid, net, getTown(), ownedNow(), st.playing ? payForLoad : () => true, dt, Date.now());
