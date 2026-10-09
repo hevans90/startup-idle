@@ -4,7 +4,7 @@ import type { Structure } from "../grid";
 import { collate, gatherLabels, infoFor, type InfoContext } from "./building-info";
 
 const ctx = (over: Partial<InfoContext> = {}): InfoContext => ({
-  perHead: { intern: 2 }, arriving: new Map(), alongside: new Map(), queued: new Map(), stalled: new Set(), earning: new Map(),
+  perHead: { intern: 2 }, arriving: new Map(), alongside: new Map(), queued: new Map(), stalled: new Set(), earning: new Map(), residents: new Map(), commutes: new Map(),
   money: (n) => `$${n}`, ...over,
 });
 const at = (def: string, extra: Partial<Structure> = {}): Structure => ({ id: 7, def, x: 0, y: 0, w: 1, h: 1, ...extra });

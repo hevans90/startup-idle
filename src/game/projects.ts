@@ -199,6 +199,11 @@ export type ProjectReading = {
   built: ReadonlySet<ProjectId>;
   /** Employees away from their desks, building, per kind. */
   away: Partial<Record<GeneratorId, number>>;
+  /**
+   * The share of a full day's work each kind does for the time it spends
+   * getting there. Absent, or a kind missing, is all of it. @see commuteFactor
+   */
+  commute?: Partial<Record<GeneratorId, number>>;
 };
 
 let reader: (() => ProjectReading) | null = null;
@@ -245,11 +250,14 @@ export function alreadyEarned(
 }
 
 /**
- * The share of a kind of employee AT THEIR DESKS: those away building are not
- * producing. One when no map is registered, or nobody is away.
+ * The share of a kind of employee's work that gets done: those AT THEIR
+ * DESKS — not away building, or still on their way to the map — and of their
+ * day, what their commute leaves. One when no map is registered.
  */
 export function attendance(id: GeneratorId, owned: number): number {
   if (!reader || owned <= 0) return 1;
-  const away = reader().away[id] ?? 0;
-  return Math.max(0, Math.min(1, (owned - away) / owned));
+  const r = reader();
+  const away = r.away[id] ?? 0;
+  const here = Math.max(0, Math.min(1, (owned - away) / owned));
+  return here * Math.max(0, Math.min(1, r.commute?.[id] ?? 1));
 }

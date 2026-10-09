@@ -14,11 +14,12 @@ import {
   addBeds, awaitingArrival, foundingRemoteBeds, housingCapacity, housingResidents, setHousingReader,
 } from "../game/housing";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
-import { getWorks, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
+import { getNetwork, getWorks, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
 import { setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
 import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
+import { commuteFactor, liveCommutes } from "./agents/commute";
 import { builtProjects, catchUpWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
 import { useSessionStore } from "../state/session.store";
@@ -157,7 +158,10 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const away = { ...getWorks().away };
       const coming = awaitingArrival(ownedNow(), useSessionStore.getState().remoteBeds ?? {}, residents);
       for (const [id, n] of Object.entries(coming)) away[id as GeneratorId] = (away[id as GeneratorId] ?? 0) + n;
-      return { built, away };
+      const remote = useSessionStore.getState().remoteBeds ?? {};
+      const net = getNetwork();
+      const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;
+      return { built, away, commute };
     });
   }, [play]);
 }

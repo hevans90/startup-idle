@@ -11,6 +11,7 @@ import { projectForStructure, type ProjectDef } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
 import type { Structure } from "../grid";
 import { structureDef, type StructureDef } from "../structures/def";
+import { workplaceKind, type Commute } from "../agents/commute";
 
 /** What the live game says, for the labels. */
 export type InfoContext = {
@@ -21,6 +22,10 @@ export type InfoContext = {
   /** Boats alongside each seaport, and waiting off it, by its id. */
   alongside: ReadonlyMap<number, number>;
   queued: ReadonlyMap<number, number>;
+  /** How many live in each house, by its id. */
+  residents: ReadonlyMap<number, number>;
+  /** Each house's commute, by its id. Missing: nobody worked it out (no roads yet). */
+  commutes: ReadonlyMap<number, Commute>;
   /** What each seaport has earned in the last minute, by its id. */
   earning: ReadonlyMap<number, number>;
   /** Project sites stalled for want of money, by id. */
@@ -59,6 +64,13 @@ const KIND_NAME: Record<GeneratorId, [string, string]> = {
 export const KIND_COLOUR: Record<GeneratorId, number> = { intern: 0xf2b51d, vibe_coder: 0xff4fa3, "10x_dev": 0x2fb8a8 };
 const TAB_NAME = { employees: "Employees", innovation: "Innovation", valuation: "Valuation" } as const;
 
+/** How many commute to a workplace: everyone living where it is the nearest. */
+function workforce(id: number, ctx: InfoContext): number {
+  let n = 0;
+  for (const [house, c] of ctx.commutes) if (c.to === id) n += ctx.residents.get(house) ?? 0;
+  return n;
+}
+
 /** What a project opens, in a few words: "Opens hiring vibe coders". */
 export function opensText(p: ProjectDef): string {
   if (p.unlocks) return `Opens hiring ${KIND_NAME[p.unlocks][1]}`;
@@ -93,8 +105,15 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const coming = ctx.arriving.get(s.id) ?? 0;
     const [, plural] = KIND_NAME[h.id];
     const rate = ctx.perHead[h.id];
+    const commute = ctx.commutes.get(s.id);
+    const eff = commute?.eff ?? 1;
     const lines: InfoLine[] = [{ text: `${here}/${h.slots} ${plural} living here` }];
-    if (here > 0 && rate !== undefined) lines.push({ text: `Earns ${ctx.money(here * rate)}/s`, tone: "good" });
+    if (here > 0 && rate !== undefined) lines.push({ text: `Earns ${ctx.money(here * rate * eff)}/s`, tone: "good" });
+    if (commute && here > 0) {
+      lines.push(commute.tiles === null
+        ? { text: "No road to work", tone: "warn" }
+        : { text: `${commute.tiles}-tile commute${eff < 1 ? ` · ${Math.round(eff * 100)}%` : ""}`, tone: eff < 0.75 ? "warn" : "dim" });
+    }
     if (coming > 0) lines.push({ text: `${coming} on the way`, tone: "good" });
     else if (here < h.slots) lines.push({ text: `${h.slots - here} beds free`, tone: "dim" });
     return {
@@ -102,7 +121,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
       accent: KIND_COLOUR[h.id],
       brief: [coming > 0 ? `${here}/${h.slots} · +${coming}` : `${here}/${h.slots}`],
       lines,
-      facts: [{ type: "home", who: h.id, residents: here, beds: h.slots, earns: rate === undefined ? undefined : here * rate, coming }],
+      facts: [{ type: "home", who: h.id, residents: here, beds: h.slots, earns: rate === undefined ? undefined : here * rate * eff, coming }],
     };
   }
 
@@ -120,8 +139,22 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
         facts: [{ type: "site", name: p.name, pct, stalled: ctx.stalled.has(s.id), paused: s.build.priority === 0 }],
       };
     }
-    const lines: InfoLine[] = p.opens ? [{ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" }] : [];
+    const lines: InfoLine[] = [];
+    const staff = workforce(s.id, ctx);
+    if (workplaceKind(s.def)) lines.push({ text: `${staff} work here` });
+    if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
+  }
+
+  // AN OFFICE: who works there.
+  const office = workplaceKind(s.def);
+  if (office) {
+    const staff = workforce(s.id, ctx);
+    return {
+      title: def.name, accent: KIND_COLOUR[office], brief: [`${staff} at work`],
+      lines: [{ text: `${staff} ${KIND_NAME[office][1]} work here` }],
+      facts: [{ type: "project", name: def.name }],
+    };
   }
 
   // A SEAPORT: its berths, and the boats calling.

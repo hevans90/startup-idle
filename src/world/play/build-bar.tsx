@@ -29,6 +29,7 @@ import { useSessionStore } from "../../state/session.store";
 import { getArrivals, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
+import { workplaceKind } from "../agents/commute";
 import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
@@ -75,7 +76,11 @@ function sections(hireable: ReadonlySet<string>): Section[] {
   const out: Section[] = [];
   for (const who of KINDS) {
     if (!hireable.has(who)) continue;
-    const items = all.filter((d) => housedBy(d.def.id)?.id === who).sort((a, b) => tierOf(a.def.id) - tierOf(b.def.id));
+    // Their lots, smallest first, then their office.
+    const items = [
+      ...all.filter((d) => housedBy(d.def.id)?.id === who).sort((a, b) => tierOf(a.def.id) - tierOf(b.def.id)),
+      ...all.filter((d) => workplaceKind(d.def.id) === who),
+    ];
     if (items.length) out.push({ title: KIND_TITLE[who], colour: KIND_COLOUR[who], items });
   }
   const ports = all.filter((d) => d.def.port).sort((a, b) => a.price - b.price);
@@ -86,7 +91,8 @@ function sections(hireable: ReadonlySet<string>): Section[] {
 /** A tile's name in its section, which already says whose: "Lot II", "Tower lot", "Seaport II". */
 const TIER_NAME: Record<string, string> = { t0: "Lot", t1: "Lot II", t2: "Lot III", landmark: "Tower lot" };
 const tileName = (def: StructureDef) =>
-  housedBy(def.id) ? TIER_NAME[TIER_ORDER[tierOf(def.id)]] ?? saleName(def) : saleName(def);
+  housedBy(def.id) ? TIER_NAME[TIER_ORDER[tierOf(def.id)]] ?? saleName(def)
+    : workplaceKind(def.id) ? "Office" : saleName(def);
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
@@ -163,7 +169,7 @@ export function BuildBar({ className }: { className?: string }) {
                       )}>
                       <span className="font-bold">{tileName(def)}</span>
                       <span className="text-[10px] text-primary-600 dark:text-primary-400">
-                        {h ? `${h.slots} beds` : def.port ? `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}` : ""}
+                        {h ? `${h.slots} beds` : workplaceKind(def.id) ? "workplace" : def.port ? `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}` : ""}
                         {` · ${def.footprint.w}×${def.footprint.h}`}
                       </span>
                       <span className={twMerge("tabular-nums", !afford && "text-red-700 dark:text-red-400")}>

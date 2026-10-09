@@ -187,8 +187,20 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
   },
 ];
 
+/**
+ * OFFICES: more places for a kind of employee to work, bought and put down
+ * anywhere on the road like housing, so a town can bring work closer to where
+ * its people live. Drawn like the building that first opened that kind of
+ * work, smaller or larger. @see world/agents/commute
+ */
+export const OFFICES: readonly StructureDef[] = [
+  { id: "office-intern", name: "Intern office", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "office-vibe", name: "Vibe studio", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "office-10x", name: "10x office", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
+];
+
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

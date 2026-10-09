@@ -348,6 +348,10 @@ const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
   garage: { body: GARAGE_WALL, finished: drawGarage },
   studio: { body: BODY, finished: drawStudio },
   hq: { body: TOWER, finished: drawHq },
+  // Offices, drawn as the buildings that first opened their kind of work.
+  "office-intern": { body: GARAGE_WALL, finished: drawGarage },
+  "office-vibe": { body: BODY, finished: drawStudio },
+  "office-10x": { body: TOWER, finished: drawHq },
   boardroom: { body: BR_TOWER, finished: drawBoardroom },
   campus: { body: CAMPUS_TALL, finished: drawCampus },
 };

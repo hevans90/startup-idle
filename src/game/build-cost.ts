@@ -17,7 +17,7 @@ import Decimal from "break_infinity.js";
 
 import { housedBy } from "./housing";
 import { structureDef } from "../world/structures/def";
-import { useGeneratorStore } from "../state/generators.store";
+import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { getGeneratorCost } from "../utils/generator-utils";
 
@@ -39,6 +39,11 @@ const PER_BED = 1.35;
  * the caller has to be able to tell them apart before it charges anybody.
  */
 export function buildCost(defId: string): Decimal | null {
+  // AN OFFICE: so many hires' worth of the people who will work there.
+  const office = OFFICE_FOR[defId];
+  if (office) {
+    return Decimal.max(new Decimal(office.floor), getGeneratorCost(office.who, 1).times(OFFICE_HIRES));
+  }
   const port = structureDef(defId)?.port;
   if (port) {
     const floor = new Decimal(PORT_PER_CALL_A_MINUTE * callsAMinute(port)).round();
@@ -65,6 +70,13 @@ export function buildCost(defId: string): Decimal | null {
  *  - a seaport, seconds of income for each boat a minute it turns round.
  */
 const BED_SHARE = 0.25;
+/** An office costs this many of the next hire's price, never under a floor. */
+const OFFICE_HIRES = 4;
+const OFFICE_FOR: Record<string, { who: GeneratorId; floor: number }> = {
+  "office-intern": { who: "intern", floor: 150 },
+  "office-vibe": { who: "vibe_coder", floor: 2500 },
+  "office-10x": { who: "10x_dev", floor: 50_000 },
+};
 /** More a bed in a bigger building: the ground it saves is the premium. */
 const TIER_PREMIUM: Record<string, number> = { t0: 1, t1: 1.1, t2: 1.25, landmark: 1.5 };
 /** Seconds of income a seaport costs, per boat a minute: 30 s, 80 s, 180 s by tier. */

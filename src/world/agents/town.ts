@@ -25,7 +25,9 @@
  * Nothing here touches the grid. It is live state like the boats, made fresh
  * for every map, and not saved. @see world/boats
  */
+import { residentsIn } from "../../game/housing";
 import type { Grid } from "../grid";
+import { liveCommutes } from "./commute";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
@@ -232,6 +234,33 @@ function tripFor(t: Town, kind: Mover["kind"]): [Place, Place] | null {
   return null;
 }
 
+/**
+ * A COMMUTE, as a trip: someone from a house with people in it to the
+ * workplace they go to, or home again — on foot if it is near, in a car if it
+ * is not. Null when there is no such trip to make, or the kind does not suit:
+ * a long way is not walked, nor a short one driven. @see liveCommutes
+ */
+function commuteTrip(t: Town, g: Grid, net: Network, kind: Mover["kind"]): [Place, Place] | null {
+  const commutes = liveCommutes(g, net);
+  const doors = new Map<number, Place>();
+  for (const p of t.places) if (p.kind === "door" && p.structure !== undefined && !p.building) doors.set(p.structure, p);
+  const trips: [Place, Place][] = [];
+  for (const [house, c] of commutes) {
+    if (c.to === null || c.tiles === null || c.tiles < MIN_TRIP) continue;
+    if ((kind === "person") !== (c.tiles <= WALK_TO_WORK)) continue;
+    const s = g.structures.get(house);
+    if (!s || !residentsIn(s)) continue;
+    const home = doors.get(house), work = doors.get(c.to);
+    if (home && work) trips.push([home, work]);
+  }
+  if (!trips.length) return null;
+  const [home, work] = pick(t, trips);
+  return rand(t) < 0.5 ? [home, work] : [work, home];
+}
+/** Of the town's trips, the share that are people going to work or home; and the farthest anyone walks there, tiles. */
+const COMMUTE_SHARE = 0.6;
+const WALK_TO_WORK = 12;
+
 /** How many cars and people a town this size has. */
 export function wanted(places: readonly Place[]): { cars: number; people: number } {
   const doors = places.filter((p) => p.kind === "door").length;
@@ -352,14 +381,14 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   t.untilCar -= h;
   if (t.untilCar <= 0 && tripCars < want.cars) {
     t.untilCar = CAR_EVERY;
-    const trip = tripFor(t, "car");
+    const trip = (rand(t) < COMMUTE_SHARE ? commuteTrip(t, g, net, "car") : null) ?? tripFor(t, "car");
     const m = trip && setOff(t, g, "car", ...trip);
     if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR)) t.movers.push(m);
   }
   t.untilPerson -= h;
   if (t.untilPerson <= 0 && people < want.people) {
     t.untilPerson = PERSON_EVERY;
-    const trip = tripFor(t, "person");
+    const trip = (rand(t) < COMMUTE_SHARE ? commuteTrip(t, g, net, "person") : null) ?? tripFor(t, "person");
     const m = trip && setOff(t, g, "person", ...trip);
     if (m) t.movers.push(m);
   }

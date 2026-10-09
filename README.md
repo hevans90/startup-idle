@@ -43,10 +43,18 @@ Every company builds a town (`world/play/company-map.tsx`). Under the game's rul
 - **Remote beds:** a new company has 2 intern beds off the map, so it can earn its first house. A company that had staff before it had a map keeps them all (`foundingRemoteBeds`).
 - **Max hiring** stops at the free beds (`getMaxAffordableAmountAndCost`).
 
+**Commuting** (`world/agents/commute.ts`):
+
+- **Workplaces:** each kind works at the building that opened it (garage, studio, campus) or at an **office** for its kind. Offices are bought from the Build picker and drawn like the original buildings: an intern office (2×2), a vibe studio (2×2) and a 10x office (3×3).
+- **The cost of distance:** a house's commute is its road distance to the nearest workplace of its kind. Up to 8 tiles costs nothing, then 1.25% a tile down to 50%. With no road to any workplace, its people work at 25%. Remote workers lose nothing.
+- **Effect:** the average multiplies into each kind's output through `attendance` (`commuteFactor`), alongside people away building or still arriving.
+- **On the map:** 60% of the town's trips are commutes, walked if 12 tiles or under, driven if further. House labels show the commute; workplace labels show how many work there.
+
 **Prices follow the economy** (`game/build-cost.ts`). Each is the larger of a fixed floor and a live share:
 
 - **Housing:** a quarter of the next hire's price per bed, times a tier premium.
 - **Seaports:** 10 seconds of income per boat a minute they can turn round.
+- **Offices:** four times the next hire's price for that kind (at least $150, $2,500 or $50,000).
 
 **Projects: the company grows by building** (`game/projects.ts`, `world/projects/works.ts`, `world/play/projects-panel.tsx`). Milestones make a **project** available instead of unlocking things outright. You choose a site, and then:
 

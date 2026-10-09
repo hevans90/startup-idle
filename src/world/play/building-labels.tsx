@@ -28,9 +28,11 @@ import { twMerge } from "tailwind-merge";
 
 import { attendance } from "../../game/projects";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
-import { getArrivals, getExports, getFleet, getTraffic, getWorks, useWorldStore } from "../../state/world.store";
+import { getArrivals, getExports, getFleet, getNetwork, getTraffic, getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { perMinute } from "../boats/exports";
+import { liveCommutes } from "../agents/commute";
+import { housedBy, residentsIn } from "../../game/housing";
 import { drawnTop, shownStructures } from "../structures/layer";
 import { gatherLabels, infoFor, type BuildingInfo, type InfoContext } from "./building-info";
 
@@ -76,7 +78,11 @@ function gather(): InfoContext {
   const now = performance.now(), ex = getExports();
   const earning = new Map<number, number>();
   for (const id of ex.recent.keys()) earning.set(id, perMinute(ex, id, now));
-  return { perHead, arriving, alongside, queued, stalled, earning, money: (n) => formatCurrency(n) };
+  const st = useWorldStore.getState(), net = getNetwork();
+  const residents = new Map<number, number>();
+  for (const s of st.grid.structures.values()) if (housedBy(s.def)) residents.set(s.id, residentsIn(s));
+  const commutes = net ? liveCommutes(st.grid, net) : new Map();
+  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, money: (n) => formatCurrency(n) };
 }
 
 /** One label on the screen: the buildings it speaks for, and what it says. */
