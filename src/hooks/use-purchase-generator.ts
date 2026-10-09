@@ -14,9 +14,16 @@ export function useGeneratorPurchase(id: string) {
   const purchase = useGeneratorStore((state) => state.purchaseGenerator);
   const purchaseMode = useGeneratorStore((state) => state.purchaseMode);
 
+  const owned = useGeneratorStore(
+    (state) => state.generators.find((g) => g.id === id)?.amount ?? 0
+  );
+  // Read every render: the map can add beds without anything here changing.
+  const room = roomFor(id as GeneratorId, owned);
+  // Capped by the beds as well as the money. @see getMaxAffordableAmountAndCost
   const max = useMemo(
     () => getMaxAffordableAmountAndCost(id),
-    [id, money.toString()]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [id, money.toString(), owned, room]
   );
 
   const resolvedAmount = useMemo(() => {
@@ -48,10 +55,7 @@ export function useGeneratorPurchase(id: string) {
    * The store refuses the purchase anyway; this is so the BUTTON can say so
    * rather than looking broken when it is clicked and nothing happens.
    */
-  const owned = useGeneratorStore(
-    (state) => state.generators.find((g) => g.id === id)?.amount ?? 0
-  );
-  const beds = roomFor(id as GeneratorId, owned);
+  const beds = room;
   const housed = beds >= resolvedAmount;
 
   const onPurchase = () => {

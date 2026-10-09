@@ -1,4 +1,5 @@
 // Returns how many generators you can afford
+import { roomFor } from "../game/housing";
 import { projectGateOpen } from "../game/projects";
 import Decimal from "break_infinity.js";
 import { dev10xSatisfactionExponentDelta } from "../game/satisfaction";
@@ -55,7 +56,25 @@ export const getGeneratorCost = (id: string, amount: number = 1): Decimal => {
   return totalCost.times(employeeCostMult).times(hireCostMult).times(1 - juiceReduction).times(tlMult);
 };
 
+/**
+ * As many as can be hired NOW: as many as the money pays for, and never more
+ * than there are beds for — the housing gate would take only that many, and
+ * charging for the rest, or offering them, is the max button lying.
+ * @see roomFor, increaseGenerator
+ */
 export const getMaxAffordableAmountAndCost = (
+  id: string
+): { amount: number; cost: Decimal } => {
+  const best = maxForMoney(id);
+  const owned = useGeneratorStore.getState().generators.find((g) => g.id === id)?.amount ?? 0;
+  const room = roomFor(id as GeneratorId, owned);
+  if (best.amount <= room) return best;
+  const amount = Math.max(0, Math.floor(room));
+  return { amount, cost: amount > 0 ? getGeneratorCost(id, amount) : new Decimal(0) };
+};
+
+/** As many as the money pays for, beds aside. */
+const maxForMoney = (
   id: string
 ): { amount: number; cost: Decimal } => {
   const genState = useGeneratorStore.getState();

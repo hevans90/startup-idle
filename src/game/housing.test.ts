@@ -16,6 +16,7 @@ import Decimal from "break_infinity.js";
 import { useGeneratorStore } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { resetAllGameStores } from "../simulation/reset-game-stores";
+import { getGeneratorCost, getMaxAffordableAmountAndCost } from "../utils/generator-utils";
 import {
   NO_HOUSING, housedBy, housingCapacity, roomFor, setHousingReader,
 } from "./housing";
@@ -97,6 +98,25 @@ describe("the gate", () => {
     expect(roomFor("intern", 0)).toBe(Infinity);
     useGeneratorStore.getState().purchaseGenerator("intern", 5);
     expect(owned("intern")).toBe(5);
+  });
+
+  test("MAX hires as many as there are beds for, priced for that many, and then can hire", () => {
+    ungate = gateAt(4);
+    const max = getMaxAffordableAmountAndCost("intern");
+    expect(max.amount).toBe(4);
+    expect(max.cost.eq(getGeneratorCost("intern", 4))).toBe(true);
+    const before = useMoneyStore.getState().money;
+    useGeneratorStore.getState().purchaseGenerator("intern", max.amount);
+    expect(owned("intern")).toBe(4);
+    expect(before.minus(useMoneyStore.getState().money).eq(max.cost)).toBe(true);
+    // Full: nothing more to offer.
+    expect(getMaxAffordableAmountAndCost("intern").amount).toBe(0);
+  });
+
+  test("MAX is the money's limit when that comes first", () => {
+    ungate = gateAt(1000);
+    useMoneyStore.setState({ money: new Decimal(20) });
+    expect(getMaxAffordableAmountAndCost("intern").amount).toBeLessThan(10);
   });
 
   test("a hire needs a bed", () => {
