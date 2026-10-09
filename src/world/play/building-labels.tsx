@@ -9,13 +9,19 @@
  * what its building DREW, so a tower's label is over the tower, not over the
  * ground it stands on. @see drawnTop
  *
- * TWO SPEEDS. Where each label is follows the camera every frame, set straight
- * on the element; what it says changes slowly, and is rendered a few times a
- * second.
+ * NEVER ONE OVER ANOTHER, AND NOTHING LOST. Labels that would overlap on the
+ * screen are COLLATED into one — "Interns: 7/12 in 3 homes, earn $12/s" — over
+ * the middle of the buildings it speaks for. Zoom out and they gather into
+ * fewer; zoom in and they come apart, down to one a building. @see collate
  *
- * BY ZOOM: nothing when the map is far away, one line when it is middling,
- * and everything close up. And NEVER ONE OVER ANOTHER: the nearest building's
- * label wins, and the ones it would cover wait for more room.
+ * Close in, everything; further out, a line a group. @see DETAIL_FROM
+ *
+ * THREE SPEEDS:
+ *  - what each says, a few times a second;
+ *  - which gather together, then too, and whenever the zoom has changed —
+ *    worked out on the screen, from where each building's label would sit;
+ *  - where they are, every frame, from points kept in the WORLD, so a pan
+ *    moves them without measuring a building again.
  */
 import { useEffect, useRef, useState } from "react";
 import { twMerge } from "tailwind-merge";
@@ -25,11 +31,14 @@ import { useGeneratorStore, type GeneratorId } from "../../state/generators.stor
 import { getArrivals, getFleet, getTraffic, getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { drawnTop, shownStructures } from "../structures/layer";
-import { infoFor, type BuildingInfo, type InfoContext } from "./building-info";
+import { gatherLabels, infoFor, type BuildingInfo, type InfoContext } from "./building-info";
 
-/** Below this zoom no labels; below the next, one line each. */
-export const LABELS_FROM = 0.15;
+/** Below this zoom, a line a group rather than everything. */
 export const DETAIL_FROM = 0.45;
+/** How often what the labels say, and how they gather, is worked out again, ms. */
+const READ_EVERY = 400;
+/** A change of zoom by more than this share gathers them again at once. */
+const REZOOM = 0.04;
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
@@ -64,89 +73,97 @@ function gather(): InfoContext {
   return { perHead, arriving, alongside, queued, stalled, money: (n) => formatCurrency(n) };
 }
 
+/** One label on the screen: the buildings it speaks for, and what it says. */
+type Group = { key: string; ids: number[]; info: BuildingInfo };
+
 export function BuildingLabels({ className }: { className?: string }) {
   const on = useWorldStore((s) => s.labels);
   const grid = useWorldStore((s) => s.grid);
-  const [infos, setInfos] = useState<[number, BuildingInfo][]>([]);
-  const [zoom, setZoom] = useState<"none" | "brief" | "full">("full");
-  const els = useRef(new Map<number, HTMLDivElement>());
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [full, setFull] = useState(true);
+  const els = useRef(new Map<string, HTMLDivElement>());
+  /** Each group's point in the world, and the zoom they were gathered at. */
+  const anchors = useRef(new Map<string, { x: number; y: number }>());
+  const gatheredAt = useRef(0);
 
-  // WHAT THEY SAY, a few times a second.
   useEffect(() => {
     if (!on) return;
+    /** WHAT THEY SAY, AND HOW THEY GATHER, from where each building stands now. */
     const read = () => {
+      const st = useWorldStore.getState();
+      const vp = st.viewport, sl = shownStructures();
+      if (!vp || !sl) return;
       const ctx = gather();
-      const out: [number, BuildingInfo][] = [];
-      for (const s of useWorldStore.getState().grid.structures.values()) {
+      const scale = vp.scale.x;
+      const detail = scale >= DETAIL_FROM;
+      const items: Parameters<typeof gatherLabels>[0][number][] = [];
+      for (const s of st.grid.structures.values()) {
         const info = infoFor(s, ctx);
-        if (info) out.push([s.id, info]);
+        const top = info && drawnTop(sl, s.id);
+        if (!info || !top) continue;
+        items.push({ id: s.id, x: top.x, y: top.y, band: s.x + s.w + s.y + s.h, info });
       }
-      setInfos(out);
+      const out = gatherLabels(items, detail, ctx.money);
+      const next = new Map<string, { x: number; y: number }>();
+      const list: Group[] = out.map((g) => {
+        const key = [...g.ids].sort((a, b) => a - b).join(",");
+        // Kept in the world, so a pan needs only to project it.
+        const w = vp.toWorld(g.x, g.y);
+        next.set(key, { x: w.x, y: w.y });
+        return { key, ids: g.ids, info: g.info };
+      });
+      anchors.current = next;
+      gatheredAt.current = scale;
+      setFull(detail);
+      setGroups(list);
     };
     read();
-    const id = setInterval(read, 400);
-    return () => clearInterval(id);
-  }, [on, grid]);
+    const id = setInterval(read, READ_EVERY);
 
-  // WHERE THEY ARE, every frame.
-  useEffect(() => {
-    if (!on) return;
+    /** WHERE THEY ARE, every frame; and gathered again at once on a zoom. */
     let raf = 0;
     const frame = () => {
       raf = requestAnimationFrame(frame);
-      const sl = shownStructures();
-      const scale = useWorldStore.getState().viewport?.scale.x ?? 1;
-      const z = scale < LABELS_FROM ? "none" : scale < DETAIL_FROM ? "brief" : "full";
-      setZoom((was) => (was === z ? was : z));
-      // NEAREST FIRST, and a label that would cover one already placed is
-      // left out — it shows again closer in, where there is room. Read every
-      // size before writing any place, so the page lays out once a frame.
-      const grid = useWorldStore.getState().grid;
-      const todo: { el: HTMLDivElement; x: number; y: number; w: number; h: number; band: number }[] = [];
-      for (const [id, el] of els.current) {
-        const s = grid.structures.get(id);
-        const at = sl && s && z !== "none" ? drawnTop(sl, id) : null;
-        if (!at || !s) { el.style.visibility = "hidden"; continue; }
-        const w = el.offsetWidth, h = el.offsetHeight;
-        todo.push({ el, x: Math.round(at.x - w / 2), y: Math.round(at.y - 4 - h), w, h, band: s.x + s.w + s.y + s.h });
-      }
-      todo.sort((p, q) => q.band - p.band);
-      const placed: { x: number; y: number; w: number; h: number }[] = [];
-      for (const t of todo) {
-        const hit = placed.some((p) => t.x < p.x + p.w && p.x < t.x + t.w && t.y < p.y + p.h && p.y < t.y + t.h);
-        if (hit) { t.el.style.visibility = "hidden"; continue; }
-        placed.push(t);
-        t.el.style.visibility = "visible";
-        t.el.style.zIndex = String(t.band);
-        t.el.style.transform = `translate(${t.x}px, ${t.y}px)`;
+      const vp = useWorldStore.getState().viewport;
+      if (!vp) return;
+      if (Math.abs(vp.scale.x / (gatheredAt.current || 1) - 1) > REZOOM) read();
+      for (const [key, el] of els.current) {
+        const w = anchors.current.get(key);
+        if (!w) { el.style.visibility = "hidden"; continue; }
+        const p = vp.toScreen(w.x, w.y);
+        el.style.visibility = "visible";
+        el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y - 4)}px) translate(-50%, -100%)`;
       }
     };
     frame();
-    return () => cancelAnimationFrame(raf);
-  }, [on]);
+    return () => { clearInterval(id); cancelAnimationFrame(raf); };
+  }, [on, grid]);
 
-  if (!on || zoom === "none") return null;
+  if (!on) return null;
   return (
     <div className={twMerge("pointer-events-none absolute inset-0 overflow-hidden", className)}>
-      {infos.map(([id, info]) => (
-        <div key={id}
-          ref={(el) => { if (el) els.current.set(id, el); else els.current.delete(id); }}
-          className="invisible absolute left-0 top-0 whitespace-nowrap border-l-2 bg-primary-50/90 px-1.5 py-0.5 text-[10px] leading-tight text-primary-900 shadow-sm dark:bg-primary-900/85 dark:text-primary-100"
+      {groups.map(({ key, ids, info }) => (
+        <div key={key}
+          ref={(el) => { if (el) els.current.set(key, el); else els.current.delete(key); }}
+          className={twMerge(
+            "invisible absolute left-0 top-0 whitespace-nowrap border-l-2 bg-primary-50/90 px-1.5 py-0.5 text-[10px] leading-[13px] text-primary-900 shadow-sm dark:bg-primary-900/85 dark:text-primary-100",
+            ids.length > 1 && "border-dashed",
+          )}
           style={{ borderLeftColor: hex(info.accent) }}>
-          {zoom === "brief" ? (
-            <span className="tabular-nums">{info.headline}</span>
-          ) : (
+          {full ? (
             <>
               <p className="font-bold">{info.title}</p>
               {info.lines.map((l, k) => (
                 <p key={k} className={twMerge(
-                  "tabular-nums",
+                  "whitespace-pre tabular-nums",
                   l.tone === "good" && "text-emerald-700 dark:text-emerald-400",
                   l.tone === "warn" && "text-amber-700 dark:text-amber-400",
                   l.tone === "dim" && "text-primary-600 dark:text-primary-400",
                 )}>{l.text}</p>
               ))}
             </>
+          ) : (
+            info.brief.map((b, k) => <p key={k} className="tabular-nums">{b}</p>)
           )}
         </div>
       ))}
