@@ -10,6 +10,8 @@
  * updates and unmounts through the registry, which is what lets the pit and a
  * tower share one lifecycle.
  */
+import type { Container } from "pixi.js";
+
 import { structureDef } from "./def";
 import { rendererFor, type RenderCtx, type StructureHandle, type StructureRenderer } from "./render";
 import type { Grid, Structure } from "../grid";
@@ -26,6 +28,33 @@ export type StructureLayer = {
   /** Structures whose definition or renderer is missing — reported, not hidden. */
   unrenderable: number;
 };
+
+/**
+ * The layer the map on screen is drawn with, for whatever sits over the
+ * canvas and needs to know where a building was DRAWN — its labels. Set by the
+ * scene while it is mounted. @see BuildingLabels
+ */
+let shown: StructureLayer | null = null;
+export const setShownStructures = (sl: StructureLayer | null) => { shown = sl; };
+export const shownStructures = () => shown;
+
+/**
+ * The top middle of what a structure drew, in the canvas's own pixels, or
+ * null if it drew nothing.
+ */
+export function drawnTop(sl: StructureLayer, id: number): { x: number; y: number } | null {
+  const m = sl.mounted.get(id);
+  if (!m) return null;
+  const h = m.handle as { sprites?: Container[]; columns?: Container[]; g?: Container };
+  const drawn = h.sprites ?? h.columns ?? (h.g ? [h.g] : []);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity;
+  for (const d of drawn) {
+    const b = d.getBounds().rectangle;
+    if (b.width <= 0 && b.height <= 0) continue;
+    x0 = Math.min(x0, b.x); x1 = Math.max(x1, b.x + b.width); y0 = Math.min(y0, b.y);
+  }
+  return Number.isFinite(y0) ? { x: (x0 + x1) / 2, y: y0 } : null;
+}
 
 export const createStructureLayer = (): StructureLayer => ({
   mounted: new Map(),

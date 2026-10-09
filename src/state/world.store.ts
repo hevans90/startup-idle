@@ -374,6 +374,9 @@ type WorldState = {
    * time away, or into housing from before lots. @see settleHousing
    */
   settleHousing: (owned: Partial<Record<string, number>>, remote: Partial<Record<string, number>>) => void;
+  /** Whether each building wears a label of what it is and how it is doing. @see BuildingLabels */
+  labels: boolean;
+  setLabels: (on: boolean) => void;
   /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
   housingMoved: (ids: readonly number[]) => void;
   lastTouched: Cell[];
@@ -609,6 +612,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (p) set({ placingProject: id, tool: "placeStructure", structureDefId: p.structure, brush: "point", brushRadius: 0 });
     else set({ placingProject: null, tool: "inspect" });
   },
+  labels: true,
+  setLabels: (on) => set({ labels: on }),
   settleHousing: (owned, remote) => {
     get().housingMoved(settleHousing(get().grid, owned, remote));
   },

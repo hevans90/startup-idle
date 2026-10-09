@@ -28,6 +28,7 @@ import { useMoneyStore } from "../../state/money.store";
 import { getArrivals, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import type { ToolId } from "../edit/tools";
+import { saleName } from "./building-info";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
@@ -44,16 +45,6 @@ const forSale = (): { def: StructureDef; price: number }[] =>
     .map((def) => ({ def, price: buildCost(def.id)?.toNumber() ?? -1 }))
     .filter((d) => d.price >= 0)
     .sort((a, b) => a.price - b.price);
-
-/** A building's name as a player reads it: `intern.t1` is "Intern housing II". */
-function labelOf(def: StructureDef): string {
-  const h = housedBy(def.id);
-  if (!h) return def.name.replace(/^seaport/, "Seaport");
-  const tier = /\.(t0|t1|t2|landmark)$/.exec(def.id)?.[1];
-  const roman = tier === "landmark" ? " tower" : tier === "t0" ? "" : tier === "t1" ? " II" : " III";
-  const who = h.id === "intern" ? "Intern" : h.id === "vibe_coder" ? "Vibe coder" : "10x dev";
-  return `${who} lot${roman}`;
-}
 
 const BTN =
   "cursor-pointer px-2 py-1 text-xs border border-primary-400 dark:border-primary-600 "
@@ -73,6 +64,8 @@ export function BuildBar({ className }: { className?: string }) {
   const money = useMoneyStore((s) => s.money);
   const generators = useGeneratorStore((s) => s.generators);
   const [picking, setPicking] = useState(false);
+  const labels = useWorldStore((s) => s.labels);
+  const setLabels = useWorldStore((s) => s.setLabels);
 
   // Not memoised: prices follow the economy. @see buildCost
   const sale = forSale();
@@ -109,7 +102,7 @@ export function BuildBar({ className }: { className?: string }) {
                   !afford && "opacity-50",
                 )}>
                 <span>
-                  {labelOf(def)}
+                  {saleName(def)}
                   <span className="ml-1 text-primary-600 dark:text-primary-400">
                     {h ? `${h.slots} beds` : def.port ? `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}` : ""}
                     {` · ${def.footprint.w}×${def.footprint.h}`}
@@ -125,9 +118,13 @@ export function BuildBar({ className }: { className?: string }) {
         {TOOLS.map((t) => (
           <button key={t.id} type="button" title={t.hint} onClick={() => choose(t.id)}
             className={twMerge(BTN, tool === t.id && ON)}>
-            {t.id === "placeStructure" && chosen && tool === t.id ? `Build: ${labelOf(chosen.def)}` : t.label}
+            {t.id === "placeStructure" && chosen && tool === t.id ? `Build: ${saleName(chosen.def)}` : t.label}
           </button>
         ))}
+        <button type="button" title="Show or hide what each building is and how it is doing"
+          onClick={() => setLabels(!labels)} className={twMerge(BTN, labels && ON)}>
+          Labels
+        </button>
       </div>
       <div className="flex gap-3 bg-primary-50/80 px-2 py-1 text-[11px] tabular-nums dark:bg-primary-900/90"
         title="Beds — on lots zoned on the map, plus people living off it — against people employed. You cannot hire past your beds. A new hire works once they have arrived and moved in.">

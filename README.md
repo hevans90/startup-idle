@@ -34,6 +34,13 @@ You found a startup as one of several **founder archetypes**, each bending a dif
     - **Empty lots aren't destinations:** the town's ordinary traffic doesn't make trips to them.
     - **Settled on load** (`settleHousing`): rides aren't saved, so on mounting the map everyone who should live on it moves straight in, fullest first. Housing from before lots (no `residents`) is settled the same way, so an old save's houses beyond its headcount become lots.
     - **The editor** places finished housing, as before. For watching arrivals there, `window.__fakeHires = { intern: 9 }` sends for hires nobody made, without touching the economy.
+  - **Every building wears a LABEL** (`world/play/building-labels.tsx`, words from `building-info.ts`), toggled by the build bar's Labels button:
+    - **Houses and lots:** who lives there out of how many beds, what they earn a second, and how many are on the way, or how many beds are free.
+    - **Project sites:** percent built and loads delivered, and whether the site is paused or stalled for money. **Finished projects:** what they opened, and which tab a click opens.
+    - **Seaports:** berths and call time, and boats alongside and waiting.
+    - **HTML over the canvas**, pinned to the top middle of what each building DREW (`drawnTop`), so a tower's label sits over the tower. Positions follow the camera every frame; the words refresh a few times a second.
+    - **By zoom:** none far out, one line (`headline`) middling, everything close in.
+    - **Never one over another:** the nearest building's label wins, and the ones it would cover are hidden until there's room. Also in the editor.
   - **Prices follow the economy** (`buildCost`): each is the larger of its old fixed price (a floor) and a live share. Housing costs a quarter of the next hire's price a bed, times a tier premium (×1, ×1.1, ×1.25, ×1.5 for a tower). A seaport costs 10 seconds of income per boat a minute it turns round (30 s, 80 s, 180 s by tier). The picker prices at today's rates.
   - **Remote beds:** some beds are off the map, recorded once when the map is founded (`foundingRemoteBeds`, kept in the session store). A new company gets 2 intern beds, enough to earn the price of its first house; without them a company with no beds could hire no one, so could earn nothing and build nothing. A company that already had employees before it had a map keeps all of them, so existing saves are not stranded behind hundreds of houses.
   - **Selling the company sells the map:** `resetRunStores` calls `retireRunSave`, which forgets the run's map and holds saving off until the next map loads, so the sold map's flush on unmount can't write it back. The next company's map is generated fresh when the world next mounts and finds no save.

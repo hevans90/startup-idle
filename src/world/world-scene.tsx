@@ -44,7 +44,7 @@ import { atBrink } from "./render/corner-rule";
 import { FALL_MIN } from "../fluid/falls";
 import { crossingPoured } from "./debug/world-scenes";
 import {
-  clearStructureLayer, createStructureLayer, hasAnimated, refreshStructuresAt,
+  clearStructureLayer, createStructureLayer, hasAnimated, refreshStructuresAt, setShownStructures,
   syncStructures, tickStructures, type StructureLayer,
 } from "./structures/layer";
 import type { RenderCtx } from "./structures/render";
@@ -266,6 +266,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       clRef.current = cl;
       plRef.current = pl;
       slRef.current = sl;
+      setShownStructures(sl);
       flRef.current = fl;
       // See expose-store: an animated structure's state is not observable from
       // outside any other way.
@@ -1316,6 +1317,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (faRef.current) destroyFallLayer(faRef.current);
       if (drRef.current) destroyGpuDripLayer(drRef.current);
       if (slRef.current) clearStructureLayer(slRef.current);
+      setShownStructures(null);
       if (blRef.current) destroyBandLayer(blRef.current);
       slRef.current = null;
       flRef.current = null;

@@ -11,6 +11,7 @@ import { useResizeToWrapper } from "../hooks/use-resize-to-wrapper";
 import type { Overlays } from "../state/world.store";
 import { DEFAULT_SIZE, useWorldStore } from "../state/world.store";
 import { useFoundWorld, WorldCanvas } from "./world-canvas";
+import { BuildingLabels } from "./play/building-labels";
 import { Calibration } from "./debug/calibration";
 import { CellReadout } from "./debug/cell-readout";
 import { EditPanel } from "./debug/edit-panel";
@@ -48,6 +49,7 @@ export function WorldEditor() {
           which is the failure mode that makes v1's map-harness look broken */}
       <div ref={setRef} className="relative min-h-0 min-w-[420px] flex-1">
         <WorldCanvas wrapperRef={wrapperRef} size={size} />
+        <BuildingLabels />
         {/* anchored HTML — inside the wrapper but pointer-events-none, so it
             can never intercept a pick */}
         {import.meta.env.DEV && <PerfHud />}
