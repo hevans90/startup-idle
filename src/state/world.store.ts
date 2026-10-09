@@ -29,7 +29,7 @@ import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
 import { createGrid, fillTerrain, idx, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
-import { structureDef } from "../world/structures/def";
+import { SLOP_PIT, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
 import {
@@ -206,6 +206,9 @@ export const getTown = () => town;
 /** And the projects going up on it. @see world/projects/works */
 let works: Works = createWorks();
 export const getWorks = () => works;
+
+/** When a spot for the slop pit was last looked for. @see openSlopPit */
+let slopTriedAt = -Infinity;
 
 /** How the town's houses are growing and declining. @see world/agents/services */
 let evolution: Evolution = createEvolution();
@@ -388,6 +391,11 @@ type WorldState = {
   /** Whether each building wears a label of what it is and how it is doing. @see BuildingLabels */
   labels: boolean;
   setLabels: (on: boolean) => void;
+  /**
+   * Put the slop pit on the map, beside the studio, if it is not there yet.
+   * Not something to undo, or to pay for. @see SLOP_PIT
+   */
+  openSlopPit: () => void;
   /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
   housingMoved: (ids: readonly number[]) => void;
   lastTouched: Cell[];
@@ -625,6 +633,23 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   labels: true,
   setLabels: (on) => set({ labels: on }),
+  openSlopPit: () => {
+    const st = get();
+    for (const s of st.grid.structures.values()) if (s.def === SLOP_PIT.id) return;
+    // Looking for a spot walks the whole map: not every frame, if there is none.
+    const now = Date.now();
+    if (now - slopTriedAt < 5000) return;
+    slopTriedAt = now;
+    const studio = [...st.grid.structures.values()].find((s) => s.def === "studio");
+    const spot = nearestSpot(st.grid, SLOP_PIT, {}, studio ? { x: studio.x + 1, y: studio.y + 1 } : undefined);
+    const cmd = spot && placeCommand(st.grid, SLOP_PIT, spot.x, spot.y, {});
+    if (!cmd) return;
+    const touched = commit(st.grid, history, cmd);
+    if (water && touchesSurface(cmd)) syncGround(water, st.grid);
+    if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
+    history = createHistory();
+    set({ revision: st.revision + 1, lastTouched: markDirty(st.grid, touched, true), ...historyMeta(), ...netMeta() });
+  },
   settleHousing: (owned, remote) => {
     get().housingMoved(settleHousing(get().grid, owned, remote));
   },

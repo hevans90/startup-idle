@@ -209,8 +209,19 @@ export const SERVICES: readonly StructureDef[] = [
   { id: "gym", name: "Gym", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
 ];
 
+/**
+ * THE SLOP PIT: where fifty vibe coders' output goes. Not built or bought: it
+ * opens up beside the studio on its own once there are that many, and fills.
+ * @see state/slop-pit.store, slop-renderer
+ */
+export const SLOP_PIT: StructureDef = {
+  id: "slop-pit", name: "Slop pit", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "slop" },
+  // A hole: the ground there is not drawn, or it would cover what is in it.
+  clearsTerrain: true,
+};
+
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

@@ -25,6 +25,8 @@ export type InfoContext = {
   queued: ReadonlyMap<number, number>;
   /** How many live in each house, by its id. */
   residents: ReadonlyMap<number, number>;
+  /** How full the slop pit is, 0–100, and what share of income it takes. */
+  slop?: { fill: number; penalty: number };
   /** What serves each house, by its id. */
   coverage: ReadonlyMap<number, ReadonlySet<ServiceId>>;
   /** Each house's commute, by its id. Missing: nobody worked it out (no roads yet). */
@@ -154,6 +156,14 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     if (workplaceKind(s.def)) lines.push({ text: `${staff} work here` });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
+  }
+
+  // THE SLOP PIT: how full, and what it is costing.
+  if (s.def === "slop-pit") {
+    const fill = Math.floor(ctx.slop?.fill ?? 0), penalty = Math.round((ctx.slop?.penalty ?? 0) * 100);
+    const lines: InfoLine[] = [{ text: `${fill}% full` }];
+    if (penalty > 0) lines.push({ text: `Income −${penalty}%`, tone: "warn" });
+    return { title: def.name, accent: 0x7bd13a, brief: [`${fill}%`], lines, facts: [{ type: "project", name: def.name }] };
   }
 
   // A SERVICE: how many homes it serves.

@@ -585,3 +585,20 @@ describe("the land chosen when founding", () => {
     expect([...g.pool]).toEqual([...preview.pool]);
   });
 });
+
+describe("the slop pit", () => {
+  test("opens once, on the map, beside the studio", () => {
+    s().resize(24, 24);
+    const g = s().grid;
+    fillTerrain(g, GRASS);
+    s().loadGrid(g, s().palette);
+    const studio = { id: 900, def: "studio", x: 4, y: 4, w: 3, h: 2 };
+    s().grid.structures.set(studio.id, studio);
+    s().openSlopPit();
+    const pits = [...s().grid.structures.values()].filter((x) => x.def === "slop-pit");
+    expect(pits.length).toBe(1);
+    expect(Math.hypot(pits[0].x - 5, pits[0].y - 5)).toBeLessThan(6);
+    s().openSlopPit();
+    expect([...s().grid.structures.values()].filter((x) => x.def === "slop-pit").length).toBe(1);
+  });
+});

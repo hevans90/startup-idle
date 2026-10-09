@@ -77,6 +77,7 @@ import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution } from "./agents/services";
+import { SLOP_PIT_UNLOCK_COUNT } from "../state/slop-pit.store";
 import { recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
@@ -87,6 +88,7 @@ import { stepFleet, wantFleet } from "./boats/fleet";
 import { stepTraffic, trafficSteer } from "./boats/traffic";
 import "./structures/seaport-renderer";
 import "./structures/project-renderer";
+import "./structures/slop-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
@@ -2125,6 +2127,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           stepArrivals(arrivals, st.grid, net, getTown(), owned, fake ? {} : useSessionStore.getState().remoteBeds ?? {}, dt);
           if (arrivals.moved.length) useWorldStore.getState().housingMoved(arrivals.moved.splice(0));
         }
+        // THE SLOP PIT, opening up beside the studio once there are enough
+        // vibe coders to fill it. @see SLOP_PIT
+        if (st.playing && (ownedNow().vibe_coder ?? 0) >= SLOP_PIT_UNLOCK_COUNT) st.openSlopPit();
         // THE TOWN EVOLVING, in the game: houses growing round the cafés,
         // parks and gyms that serve them, and declining when they lose them.
         if (st.playing) {

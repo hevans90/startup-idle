@@ -33,6 +33,7 @@ import { formatCurrency } from "../../utils/money-utils";
 import { perMinute } from "../boats/exports";
 import { liveCommutes } from "../agents/commute";
 import { liveCoverage } from "../agents/services";
+import { useSlopPitStore } from "../../state/slop-pit.store";
 import { housedBy, residentsIn } from "../../game/housing";
 import { drawnTop, shownStructures } from "../structures/layer";
 import { gatherLabels, infoFor, type BuildingInfo, type InfoContext } from "./building-info";
@@ -84,7 +85,9 @@ function gather(): InfoContext {
   for (const s of st.grid.structures.values()) if (housedBy(s.def)) residents.set(s.id, residentsIn(s));
   const commutes = net ? liveCommutes(st.grid, net) : new Map();
   const coverage = net ? liveCoverage(st.grid, net) : new Map();
-  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, money: (n) => formatCurrency(n) };
+  const pit = useSlopPitStore.getState();
+  const slop = { fill: pit.fill, penalty: 1 - pit.getMoneyPenaltyMult() };
+  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, slop, money: (n) => formatCurrency(n) };
 }
 
 /** One label on the screen: the buildings it speaks for, and what it says. */

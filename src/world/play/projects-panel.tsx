@@ -17,6 +17,7 @@ import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
+import { SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../../state/slop-pit.store";
 import { opensText } from "./building-info";
 import { builtProjects, materialCap, siteOf, STALL_GRACE } from "../projects/works";
 
@@ -69,11 +70,42 @@ export function ProjectsPanel({ className }: { className?: string }) {
   const open = PROJECTS.filter((p) => !built.has(p.id) && !(only && p.unlocks));
   const active = open.filter((p) => siteOf(grid, p) || p.ready(owned, unlocked));
   const teaser = open.find((p) => !active.includes(p));
-  if (!active.length && !teaser) return null;
+  const pit = (owned.vibe_coder ?? 0) >= SLOP_PIT_UNLOCK_COUNT;
+  if (!active.length && !teaser && !pit) return null;
   return (
     <div className={twMerge("flex max-h-[70%] flex-col gap-2 overflow-y-auto", className)}>
+      {pit && <SlopPitCard />}
       {active.map((p) => <ProjectCard key={p.id} next={p} unlocked={unlocked} />)}
       {teaser && <ProjectCard key={teaser.id} next={teaser} unlocked={unlocked} />}
+    </div>
+  );
+}
+
+/**
+ * THE SLOP PIT'S CARD: how full it is, what it is costing, and the drain —
+ * which costs the vibe coders' morale. @see state/slop-pit.store
+ */
+function SlopPitCard() {
+  const fill = useSlopPitStore((s) => s.fill);
+  const penalty = 1 - useSlopPitStore.getState().getMoneyPenaltyMult();
+  return (
+    <div className={CARD}>
+      <div className="flex items-baseline justify-between">
+        <b>Slop pit</b>
+        <span className="tabular-nums">{Math.floor(fill)}%</span>
+      </div>
+      <div className="mt-1 h-2 w-full bg-primary-200 dark:bg-primary-800">
+        <div className={twMerge("h-full", fill > 50 ? "bg-red-600 dark:bg-red-400" : "bg-lime-600 dark:bg-lime-400")}
+          style={{ width: `${Math.min(100, fill)}%` }} />
+      </div>
+      <p className={twMerge("mt-1", penalty > 0 ? "text-red-700 dark:text-red-400" : "text-primary-600 dark:text-primary-400")}>
+        {penalty > 0 ? `Income −${Math.round(penalty * 100)}%` : "No harm until half full"}
+      </p>
+      <button type="button" disabled={fill < 1} onClick={() => useSlopPitStore.getState().drain()}
+        className={twMerge(BTN, "mt-1.5 w-full disabled:cursor-default disabled:opacity-40")}
+        title="Empties the pit. The vibe coders hate it.">
+        Drain · −40 vibe coder morale
+      </button>
     </div>
   );
 }

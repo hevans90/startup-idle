@@ -13,7 +13,7 @@ A satirical idle game about scaling a tech startup by any means necessary: hire 
 - **Employee management and satisfaction:** perks per role (money, innovation, cost, auto-buy), and a morale score that drifts each tick and feeds back into output.
 - **Team leaders:** one named employee per role, hired from three candidates. Each has a trait, earns ranks over time, and spends skill points on a small skill pool, some of which reach across roles.
 - **Vape shop:** 53 achievements earn vape juice, which buys 12 upgrades shown on an SVG vape. The vape itself, a rhythm minigame, appears once the company has 50 vibe coders. Achievements and upgrades survive prestige.
-- **Slop pit:** fills with headcount once there are 50 vibe coders, and costs income above half full (`state/slop-pit.store.ts`). It isn't drawn on the new map yet.
+- **Slop pit:** fills with headcount once there are 50 vibe coders, and costs income above half full, up to 85% (`state/slop-pit.store.ts`). On the map it opens beside the studio as a 3×3 excavation with acid-green sludge rising as it fills (`structures/slop-renderer.ts`). A card shows the fill and the penalty, with a Drain button that costs 40 vibe coder morale.
 - **AI singularity:** a meter that creeps up when vibe coders are miserable.
 - **Founders:** six archetypes (Hacker, Bootstrapper, Visionary, Hustler, Agentic Delusionist, NEET). Each has a bonus that grows with every exit made as that founder. NEET starts with $5 and doubles money output per exit.
 - **Offline progress:** the real tick is replayed over the time away (capped at 2 days), with a "welcome back" summary.

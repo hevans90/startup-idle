@@ -88,3 +88,11 @@ describe("labels too close to show apart", () => {
     }
   });
 });
+
+describe("the slop pit's label", () => {
+  test("says how full it is, and what it costs once it costs anything", () => {
+    const pit = (fill: number, penalty: number) => infoFor(at("slop-pit", { w: 3, h: 3 }), ctx({ slop: { fill, penalty } }))!;
+    expect(pit(30, 0).lines.map((l) => l.text)).toEqual(["30% full"]);
+    expect(pit(75.4, 0.425).lines.map((l) => l.text)).toEqual(["75% full", "Income −43%"]);
+  });
+});

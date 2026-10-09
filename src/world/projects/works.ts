@@ -344,11 +344,13 @@ export function catchUpWorks(
 }
 
 /**
- * The placeable spot for a building nearest the middle of the map, or null.
- * For a building the company has earned already and is given, not built.
+ * The placeable spot for a building nearest the middle of the map — or `near`
+ * a point, if given — or null. For a building the company is given, not built.
  */
-export function nearestSpot(g: Grid, def: StructureDef, rules: PlaceRules): { x: number; y: number } | null {
-  const cx = g.w / 2, cy = g.h / 2;
+export function nearestSpot(
+  g: Grid, def: StructureDef, rules: PlaceRules, near?: { x: number; y: number },
+): { x: number; y: number } | null {
+  const cx = near?.x ?? g.w / 2, cy = near?.y ?? g.h / 2;
   let best: { x: number; y: number } | null = null, bestD = Infinity;
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
