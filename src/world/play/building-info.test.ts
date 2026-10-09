@@ -4,7 +4,7 @@ import type { Structure } from "../grid";
 import { collate, gatherLabels, infoFor, type InfoContext } from "./building-info";
 
 const ctx = (over: Partial<InfoContext> = {}): InfoContext => ({
-  perHead: { intern: 2 }, arriving: new Map(), alongside: new Map(), queued: new Map(), stalled: new Set(),
+  perHead: { intern: 2 }, arriving: new Map(), alongside: new Map(), queued: new Map(), stalled: new Set(), earning: new Map(),
   money: (n) => `$${n}`, ...over,
 });
 const at = (def: string, extra: Partial<Structure> = {}): Structure => ({ id: 7, def, x: 0, y: 0, w: 1, h: 1, ...extra });
@@ -41,8 +41,10 @@ describe("a building's label", () => {
   });
 
   test("a seaport counts its boats", () => {
-    const info = infoFor(at("seaport-2", { w: 3, h: 2 }), ctx({ alongside: new Map([[7, 1]]), queued: new Map([[7, 2]]) }))!;
-    expect(info.lines[1].text).toBe("1 alongside, 2 waiting");
+    const info = infoFor(at("seaport-2", { w: 3, h: 2 }),
+      ctx({ alongside: new Map([[7, 1]]), queued: new Map([[7, 2]]), earning: new Map([[7, 60]]) }))!;
+    expect(info.lines.map((l) => l.text)).toEqual(["1/2 alongside · 2 waiting", "Earning $60/min"]);
+    expect(info.brief).toEqual(["$60/min"]);
   });
 });
 

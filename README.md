@@ -86,6 +86,7 @@ The gates apply only while a map is mounted, through registered readers (`setHou
 - **Tiers:** three, at 2×2, 3×2 and 4×2, with 1, 2 and 3 berths and 20, 15 and 10 s calls. They go on river banks only.
 - **Upgrades:** click a seaport with Build to upgrade it in place; you pay the difference.
 - **Traffic:** boats come down a river only when it has a port. They queue first-come for a berth, dock, then leave at the map's far end.
+- **Ports earn:** every completed call pays 0.5, 0.75 or 1 s of income by tier, never under $4, $8 or $16 (`portCallFee`). A "+$X" rises off the port, and its label shows earnings a minute. Nothing is earned while the map isn't running.
 
 **The town's traffic** (`world/agents/town.ts`):
 

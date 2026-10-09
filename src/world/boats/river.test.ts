@@ -188,6 +188,25 @@ describe("river traffic", () => {
     expect(left).toBe(true);
   });
 
+  test("reports each call completed, once, for the port to be paid", () => {
+    const g = straight();
+    port(g);
+    const portId = [...g.structures.keys()][0];
+    let calls: number[] = [], firstAt = -1;
+    // A call reports only when the boat casts off.
+    const c = fieldOf(g), f = createFleet(), t = createTraffic();
+    for (let k = 0; k < 60 * 30; k++) {
+      stepTraffic(t, f, g, c, 1 / 30);
+      stepFleet(f, c, 1 / 30, trafficSteer(t));
+      if (t.calls.length && firstAt < 0) firstAt = k / 30;
+      calls = calls.concat(t.calls.splice(0));
+    }
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((id) => id === portId)).toBe(true);
+    // Not before a boat could have lain its whole time alongside.
+    expect(firstAt).toBeGreaterThan(DOCK);
+  });
+
   test("and takes them off when they reach the far edge", () => {
     const g = straight();
     port(g);

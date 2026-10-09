@@ -80,10 +80,16 @@ export type Traffic = {
   untilSpawn: Map<number, number>;
   /** Boats sent so far, to vary where along the inflow the next one comes in. */
   sent: number;
+  /**
+   * Ports where a call was COMPLETED since the last look, by structure id —
+   * a boat that lay its full time alongside and cast off. What the port is
+   * paid for. @see world/boats/exports
+   */
+  calls: number[];
 };
 
 export const createTraffic = (): Traffic => ({
-  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0,
+  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [],
 });
 
 /** Every seaport's berths, on the rivers as they stand. */
@@ -168,7 +174,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
     if (!port || (b.berth !== undefined && !port.berths[b.berth])) { castOff(t, b); continue; }
     if ((b.dockLeft ?? 0) > 0) {
       b.dockLeft! -= dt;
-      if (b.dockLeft! <= 0) castOff(t, b);
+      if (b.dockLeft! <= 0) { t.calls.push(port.id); castOff(t, b); }
       continue;
     }
     if (b.berth === undefined) {

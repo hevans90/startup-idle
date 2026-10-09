@@ -21,6 +21,8 @@ export type InfoContext = {
   /** Boats alongside each seaport, and waiting off it, by its id. */
   alongside: ReadonlyMap<number, number>;
   queued: ReadonlyMap<number, number>;
+  /** What each seaport has earned in the last minute, by its id. */
+  earning: ReadonlyMap<number, number>;
   /** Project sites stalled for want of money, by id. */
   stalled: ReadonlySet<number>;
   /** Money as the game writes it. */
@@ -37,7 +39,7 @@ export type Fact =
   | { type: "home"; who: GeneratorId; residents: number; beds: number; earns?: number; coming: number }
   | { type: "site"; name: string; pct: number; stalled: boolean; paused: boolean }
   | { type: "project"; name: string }
-  | { type: "port"; berths: number; alongside: number; waiting: number };
+  | { type: "port"; berths: number; alongside: number; waiting: number; earning: number };
 
 export type BuildingInfo = {
   title: string;
@@ -125,14 +127,15 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
   // A SEAPORT: its berths, and the boats calling.
   if (def.port) {
     const along = ctx.alongside.get(s.id) ?? 0, waiting = ctx.queued.get(s.id) ?? 0;
+    const earning = ctx.earning.get(s.id) ?? 0;
     const lines: InfoLine[] = [
-      { text: `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""} · ${def.port.dockSeconds} s a call` },
-      { text: `${along} alongside${waiting ? `, ${waiting} waiting` : ""}`, tone: along ? "good" : "dim" },
+      { text: `${along}/${def.port.berths} alongside${waiting ? ` · ${waiting} waiting` : ""}`, tone: along ? undefined : "dim" },
     ];
-    if (def.upgradesTo) lines.push({ text: "Click with Build to upgrade", tone: "dim" });
+    if (earning > 0) lines.push({ text: `Earning ${ctx.money(earning)}/min`, tone: "good" });
     return {
-      title: saleName(def), accent: 0x4a90c8, brief: [`${along}/${def.port.berths} alongside`], lines,
-      facts: [{ type: "port", berths: def.port.berths, alongside: along, waiting }],
+      title: saleName(def), accent: 0x4a90c8,
+      brief: [earning > 0 ? `${ctx.money(earning)}/min` : `${along}/${def.port.berths} alongside`], lines,
+      facts: [{ type: "port", berths: def.port.berths, alongside: along, waiting, earning }],
     };
   }
   return null;
@@ -177,8 +180,10 @@ export function collate(infos: readonly BuildingInfo[], money: (n: number) => st
   if (ports.length) {
     const along = ports.reduce((n, f) => n + f.alongside, 0), berths = ports.reduce((n, f) => n + f.berths, 0);
     const waiting = ports.reduce((n, f) => n + f.waiting, 0);
+    const earning = ports.reduce((n, f) => n + f.earning, 0);
     lines.push({ text: `${ports.length} seaport${ports.length > 1 ? "s" : ""}: ${along}/${berths} alongside${waiting ? `, ${waiting} waiting` : ""}` });
-    brief.push(`Ports ${along}/${berths}`);
+    if (earning > 0) lines.push({ text: `  earning ${money(earning)}/min`, tone: "good" });
+    brief.push(earning > 0 ? `Ports ${money(earning)}/min` : `Ports ${along}/${berths}`);
   }
   const accents = new Set(infos.map((i) => i.accent));
   return {

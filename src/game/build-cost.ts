@@ -89,6 +89,28 @@ const PORT_PER_CALL_A_MINUTE = 80;
 const callsAMinute = (p: { berths: number; dockSeconds: number }) => (p.berths * 60) / p.dockSeconds;
 
 /**
+ * WHAT A PORT IS PAID FOR A CALL: a boat that lay its time alongside and cast
+ * off. Seconds of the company's income, more at a bigger port, and never
+ * under a floor — so a port earns its keep at any size of company, and pays
+ * itself back in ten to twenty minutes of steady trade.
+ *
+ *   tier 1 — 0.5 s of income a call, at least 4 —  3 calls a minute
+ *   tier 2 — 0.75 s,                 at least 8 —  8 a minute
+ *   tier 3 — 1 s,                    at least 16 — 18 a minute
+ *
+ * Null for anything that is not a port.
+ */
+export function portCallFee(defId: string, income = safeIncome()): number | null {
+  const port = structureDef(defId)?.port;
+  if (!port) return null;
+  const tier = Math.min(3, Math.max(1, port.berths));
+  const live = Number.isFinite(income) && income > 0 ? income * CALL_SECONDS[tier] : 0;
+  return Math.max(CALL_FLOOR[tier], live);
+}
+const CALL_SECONDS: Record<number, number> = { 1: 0.5, 2: 0.75, 3: 1 };
+const CALL_FLOOR: Record<number, number> = { 1: 4, 2: 8, 3: 16 };
+
+/**
  * What upgrading one building into another costs, or null if it is not sold:
  * the DIFFERENCE between the two prices, so a port built a tier at a time
  * costs exactly what building the top tier outright would have. Never less

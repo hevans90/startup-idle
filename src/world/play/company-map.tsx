@@ -18,6 +18,7 @@ import { structureOf } from "../grid";
 import { useFoundWorld, WorldCanvas } from "../world-canvas";
 import { BuildBar } from "./build-bar";
 import { BuildingLabels } from "./building-labels";
+import { PortIncome } from "./port-income";
 import { ProjectsPanel } from "./projects-panel";
 // The stores on `window` in development, as the editor has them. @see expose-store
 import "../debug/expose-store";
@@ -41,6 +42,7 @@ export default function CompanyMap() {
     <div ref={setRef} className="absolute inset-0 min-h-0 bg-primary-900">
       <WorldCanvas wrapperRef={wrapperRef} size={size} />
       <BuildingLabels />
+      <PortIncome />
       <ProjectsPanel className="absolute left-2 top-24 z-10" />
       <BuildBar className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 items-center" />
     </div>

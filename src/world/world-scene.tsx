@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, getArrivals, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { drainDirty, getArrivals, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -76,6 +76,9 @@ import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
+import { recordCall } from "./boats/exports";
+import { portCallFee } from "../game/build-cost";
+import { useMoneyStore } from "../state/money.store";
 import { useSessionStore } from "../state/session.store";
 import { stepWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -2085,6 +2088,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // off at its exit. Then every boat, the ones under way steered for it.
       const traffic = getTraffic();
       stepTraffic(traffic, fleet, useWorldStore.getState().grid, field.columns, dt);
+      // THE PORTS PAID for the calls they finished — in the game, into the
+      // company's money; in the editor, shown and never paid. @see portCallFee
+      if (traffic.calls.length) {
+        const st = useWorldStore.getState(), now = performance.now();
+        for (const id of traffic.calls.splice(0)) {
+          const s = st.grid.structures.get(id);
+          const fee = s ? portCallFee(s.def) : null;
+          if (fee === null) continue;
+          if (st.playing) useMoneyStore.getState().increaseMoney(fee);
+          recordCall(getExports(), id, fee, now);
+        }
+      }
       stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
       boatRef.current?.draw(fleet, field.columns, scale, dt);
       // THE TOWN: cars and people on their trips round the roads. @see world/agents

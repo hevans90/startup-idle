@@ -12,6 +12,7 @@ import {
 } from "../world/boats/fleet";
 import { mapRiver, tileDepthOf } from "../world/boats/river";
 import { createTraffic, type Traffic } from "../world/boats/traffic";
+import { createExports, type Exports } from "../world/boats/exports";
 import { createTown, type Town } from "../world/agents/town";
 import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
 import { housedBy } from "../game/housing";
@@ -204,6 +205,10 @@ export const getTown = () => town;
 /** And the projects going up on it. @see world/projects/works */
 let works: Works = createWorks();
 export const getWorks = () => works;
+
+/** What the ports have earned. @see world/boats/exports */
+let exports_: Exports = createExports();
+export const getExports = () => exports_;
 
 /** New hires on their way to the map, and moving in. @see world/agents/arrivals */
 let arrivals: Arrivals = createArrivals();
@@ -718,6 +723,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     town = createTown();
     works = createWorks();
     arrivals = createArrivals();
+    exports_ = createExports();
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
@@ -1077,6 +1083,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     town = createTown();
     works = createWorks();
     arrivals = createArrivals();
+    exports_ = createExports();
     // The file's boats, on the file's water. @see restoreFleet
     if (boats?.length) restoreFleet(fleet, water.columns, boats);
     setWaterEdge(water, get().openEdge);          // a new field, the same world

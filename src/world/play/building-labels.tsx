@@ -28,8 +28,9 @@ import { twMerge } from "tailwind-merge";
 
 import { attendance } from "../../game/projects";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
-import { getArrivals, getFleet, getTraffic, getWorks, useWorldStore } from "../../state/world.store";
+import { getArrivals, getExports, getFleet, getTraffic, getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
+import { perMinute } from "../boats/exports";
 import { drawnTop, shownStructures } from "../structures/layer";
 import { gatherLabels, infoFor, type BuildingInfo, type InfoContext } from "./building-info";
 
@@ -58,10 +59,12 @@ function gather(): InfoContext {
   for (const r of getArrivals().rides.values()) {
     for (const d of r.drops) arriving.set(d.structure, (arriving.get(d.structure) ?? 0) + d.n);
   }
+  // Alongside is at a berth and tied up; a boat held off the port waiting
+  // for one is moored too, but it is waiting.
   const alongside = new Map<number, number>();
   for (const b of getFleet().boats) {
     const port = b.route?.[0];
-    if (port !== undefined && b.moor) alongside.set(port, (alongside.get(port) ?? 0) + 1);
+    if (port !== undefined && b.berth !== undefined && (b.dockLeft ?? 0) > 0) alongside.set(port, (alongside.get(port) ?? 0) + 1);
   }
   const queued = new Map<number, number>();
   for (const [id, q] of getTraffic().queues) {
@@ -70,7 +73,10 @@ function gather(): InfoContext {
   }
   const stalled = new Set<number>();
   for (const [id, t] of getWorks().stalled) if (t > 0) stalled.add(id);
-  return { perHead, arriving, alongside, queued, stalled, money: (n) => formatCurrency(n) };
+  const now = performance.now(), ex = getExports();
+  const earning = new Map<number, number>();
+  for (const id of ex.recent.keys()) earning.set(id, perMinute(ex, id, now));
+  return { perHead, arriving, alongside, queued, stalled, earning, money: (n) => formatCurrency(n) };
 }
 
 /** One label on the screen: the buildings it speaks for, and what it says. */
