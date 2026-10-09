@@ -52,7 +52,7 @@ Every company builds a town (`world/play/company-map.tsx`). Under the game's rul
 
 **Prices follow the economy** (`game/build-cost.ts`). Each is the larger of a fixed floor and a live share:
 
-- **Housing:** a quarter of the next hire's price per bed, times a tier premium.
+- **Housing:** a quarter of the next hire's price per bed, with a bulk discount for bigger lots (×1, ×0.85, ×0.7, ×0.55 for a tower). Early on the floors make small lots the buy; later, towers are.
 - **Seaports:** 10 seconds of income per boat a minute they can turn round.
 - **Offices:** four times the next hire's price for that kind (at least $150, $2,500 or $50,000).
 
@@ -207,4 +207,4 @@ src/
 
 ## Testing
 
-`bun test` runs colocated `*.test.ts` files and headless progression sims in `src/simulation`. Type-check with `bun run typecheck` (`tsc -b`); the app tsconfig excludes tests, so they run through Bun. Design rationale lives in the code's doc comments, beside what it explains.
+`bun test` runs colocated `*.test.ts` files and headless progression sims in `src/simulation`. `simulate-map-run.ts` plays the core run with the town gating it (beds, arrivals, projects, commute), and `map-balance.test.ts` holds its pacing against the ungated run. Run it with `BALANCE=1` to print the milestones side by side. Type-check with `bun run typecheck` (`tsc -b`); the app tsconfig excludes tests, so they run through Bun. Design rationale lives in the code's doc comments, beside what it explains.

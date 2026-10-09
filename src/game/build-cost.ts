@@ -22,7 +22,7 @@ import { useMoneyStore } from "../state/money.store";
 import { getGeneratorCost } from "../utils/generator-utils";
 
 /** What the smallest housing costs. Everything else is priced from here. */
-const BASE = 25;
+const BASE = 8;
 
 /**
  * How much dearer a bed gets in a bigger building.
@@ -48,7 +48,7 @@ export function buildCost(defId: string): Decimal | null {
   if (port) {
     const floor = new Decimal(PORT_PER_CALL_A_MINUTE * callsAMinute(port)).round();
     const live = new Decimal(safeIncome()).times(PORT_INCOME_SECONDS_PER_CALL * callsAMinute(port)).round();
-    return Decimal.max(floor, live);
+    return Decimal.max(floor, live).round();
   }
   const h = housedBy(defId);
   if (!h || h.slots <= 0) return null;
@@ -57,7 +57,7 @@ export function buildCost(defId: string): Decimal | null {
   // hire's price a bed, more a bed the bigger the building.
   const tier = /\.(t0|t1|t2|landmark)$/.exec(defId)?.[1] ?? "t0";
   const live = getGeneratorCost(h.id, 1).times(h.slots * BED_SHARE * (TIER_PREMIUM[tier] ?? 1));
-  return Decimal.max(floor, live);
+  return Decimal.max(floor, live).round();
 }
 
 /**
@@ -78,7 +78,7 @@ const OFFICE_FOR: Record<string, { who: GeneratorId; floor: number }> = {
   "office-10x": { who: "10x_dev", floor: 50_000 },
 };
 /** More a bed in a bigger building: the ground it saves is the premium. */
-const TIER_PREMIUM: Record<string, number> = { t0: 1, t1: 1.1, t2: 1.25, landmark: 1.5 };
+const TIER_PREMIUM: Record<string, number> = { t0: 1, t1: 0.85, t2: 0.7, landmark: 0.55 };
 /** Seconds of income a seaport costs, per boat a minute: 30 s, 80 s, 180 s by tier. */
 const PORT_INCOME_SECONDS_PER_CALL = 10;
 
