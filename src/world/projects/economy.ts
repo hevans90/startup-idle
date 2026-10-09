@@ -17,6 +17,12 @@ export function ownedNow(): Partial<Record<GeneratorId, number>> {
   return out;
 }
 
+/**
+ * The company's income a second, as the economy reports it: what a project
+ * chosen now is priced off. @see projectCost
+ */
+export const incomeNow = (): number => useGeneratorStore.getState().getMoneyPerSecond();
+
 /** Pay for a load out of the company's money, if it has it. */
 export function payForLoad(amount: number): boolean {
   const m = useMoneyStore.getState();

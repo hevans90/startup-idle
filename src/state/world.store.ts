@@ -13,6 +13,7 @@ import {
 import { mapRiver, tileDepthOf } from "../world/boats/river";
 import { createTraffic, type Traffic } from "../world/boats/traffic";
 import { createTown, type Town } from "../world/agents/town";
+import { incomeNow } from "../world/projects/economy";
 import { builtProjects, createWorks, nearestSpot, siteOf, startSiteCommand, type Works } from "../world/projects/works";
 import { PROJECTS, alreadyEarned, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
 import { Viewport } from "pixi-viewport";
@@ -890,7 +891,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         ...(water && structureDef(project.structure)?.placement?.riverside
           ? { rivers: mapRiver(st.grid, tileDepthOf(water.columns)) } : {}),
       };
-      const cmd = startSiteCommand(st.grid, project, c.x, c.y, siteRules, Date.now());
+      // Priced off the income now, in play; the editor never charges.
+      const cmd = startSiteCommand(st.grid, project, c.x, c.y, siteRules, Date.now(), st.playing ? incomeNow() : 0);
       if (!cmd) { set({ stroke: null }); return; }
       const touched = commit(st.grid, history, cmd);
       if (water && touchesSurface(cmd)) syncGround(water, st.grid);

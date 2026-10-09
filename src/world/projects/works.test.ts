@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  alreadyEarned, attendance, featureGateOpen, projectDef, projectGateOpen, setProjectReader,
+  alreadyEarned, attendance, featureGateOpen, projectCost, projectDef, projectGateOpen, setProjectReader,
 } from "../../game/projects";
 import { createTown, stepTown } from "../agents/town";
 import { commit, createHistory } from "../edit/commands";
@@ -56,7 +56,7 @@ describe("a project", () => {
     // Opened: the record is off, the studio stands, it was paid for in full.
     expect(siteOf(g, STUDIO)).toBeNull();
     expect(builtProjects(g).has("studio")).toBe(true);
-    expect(wallet.money).toBeCloseTo(10_000 - STUDIO.cost, 6);
+    expect(wallet.money).toBeCloseTo(10_000 - STUDIO.floor, 6);
     expect(w.opened).toEqual(["studio"]);
   });
 
@@ -92,7 +92,7 @@ describe("a project", () => {
   test("stalls with no money for its next load, and its crew goes home", () => {
     const { g, history } = town();
     commit(g, history, startSiteCommand(g, STUDIO, 12, 6, { needsRoad: true }, 0)!);
-    const wallet = { money: STUDIO.cost / STUDIO.deliveries * 2 };   // two loads' worth
+    const wallet = { money: STUDIO.floor / STUDIO.deliveries * 2 };   // two loads' worth
     const { w } = run(g, 120, wallet);
     const b = siteOf(g, STUDIO)!.build!;
     expect(b.delivered).toBe(2);
@@ -109,7 +109,7 @@ describe("a project", () => {
     // An hour away with ten interns, five building: done long since.
     expect(catchUpWorks(g, { intern: 10 }, spend, 3600_000)).toEqual(["studio"]);
     expect(builtProjects(g).has("studio")).toBe(true);
-    expect(wallet.money).toBeCloseTo(10_000 - STUDIO.cost, 6);
+    expect(wallet.money).toBeCloseTo(10_000 - STUDIO.floor, 6);
   });
 });
 
@@ -240,5 +240,27 @@ describe("the Campus", () => {
   test("has a building to put up", () => {
     expect(structureDef(CAMPUS.structure)?.footprint.w).toBe(4);
     expect(structureDef(projectDef("boardroom")!.structure)?.footprint.w).toBe(3);
+  });
+});
+
+describe("what a project costs", () => {
+  test("is seconds of income, never under its floor, and fixed when the site is chosen", () => {
+    // A company earning next to nothing pays the floor; one earning a lot pays its seconds.
+    expect(projectCost(STUDIO, 1)).toBe(STUDIO.floor);
+    expect(projectCost(STUDIO, 1e6)).toBe(STUDIO.incomeSeconds * 1e6);
+    expect(projectCost(projectDef("garage")!, 1e9)).toBe(0);
+    expect(projectCost(STUDIO, Number.NaN)).toBe(STUDIO.floor);
+    expect(Number.isFinite(projectCost(STUDIO, 1e307))).toBe(true);
+    const { g, history } = town();
+    commit(g, history, startSiteCommand(g, STUDIO, 12, 6, { needsRoad: true }, 0, 1e4)!);
+    const b = siteOf(g, STUDIO)!.build!;
+    expect(b.cost).toBe(STUDIO.incomeSeconds * 1e4);
+    // Each load is a share of that, however the income moves after.
+    const wallet = { money: 1e9 };
+    run(g, 10, wallet);
+    // (Paid when sent, so a load on the road is paid for too.)
+    const loads = (1e9 - wallet.money) / (b.cost / b.deliveries);
+    expect(loads).toBeGreaterThanOrEqual(1);
+    expect(loads).toBeCloseTo(Math.round(loads), 6);
   });
 });

@@ -23,7 +23,7 @@
  */
 import { housedBy } from "../../game/housing";
 import {
-  BUILDERS_PER_TILE, buildersFor, projectForStructure, type ProjectDef, type ProjectId,
+  BUILDERS_PER_TILE, buildersFor, projectCost, projectForStructure, type ProjectDef, type ProjectId,
 } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
 import { idx, type Build, type Grid, type Structure } from "../grid";
@@ -84,9 +84,9 @@ export function builtProjects(g: Grid): Set<ProjectId> {
 export const siteOf = (g: Grid, p: ProjectDef): Structure | null =>
   [...g.structures.values()].find((s) => s.def === p.structure && s.build) ?? null;
 
-/** A fresh build record for a project. */
-export const newBuild = (p: ProjectDef, now: number): Build => ({
-  done: 0, need: p.work, delivered: 0, deliveries: p.deliveries, cost: p.cost, priority: 2, updatedAt: now,
+/** A fresh build record for a project, priced off the company's income now. @see projectCost */
+export const newBuild = (p: ProjectDef, now: number, income = 0): Build => ({
+  done: 0, need: p.work, delivered: 0, deliveries: p.deliveries, cost: projectCost(p, income), priority: 2, updatedAt: now,
 });
 
 /**
@@ -95,12 +95,12 @@ export const newBuild = (p: ProjectDef, now: number): Build => ({
  * here — materials are paid for as they are sent.
  */
 export function startSiteCommand(
-  g: Grid, p: ProjectDef, x: number, y: number, rules: PlaceRules, now: number,
+  g: Grid, p: ProjectDef, x: number, y: number, rules: PlaceRules, now: number, income = 0,
 ): Command | null {
   const def = structureDef(p.structure);
   const cmd = def && placeCommand(g, def, x, y, rules);
   if (!cmd?.structures?.added.length) return null;
-  cmd.structures.added[0].build = newBuild(p, now);
+  cmd.structures.added[0].build = newBuild(p, now, income);
   return cmd;
 }
 

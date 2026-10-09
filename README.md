@@ -39,8 +39,9 @@ You found a startup as one of several **founder archetypes**, each bending a dif
   - **Choosing a site:** a card on the map offers "Choose a site". The site is placed like a building (frontage under play rules) and appears as a fenced plot stripped to earth.
   - **The crew:** builders leave their desks and walk there from their homes along the roads, wearing yellow hard hats. They work only once they arrive, so a site far from its builders' homes is a slow site.
   - **Materials:** trucks bring them from where a road leaves the map, keeping up to two loads on hand ahead of the work. Each load is PAID WHEN SENT. A company that can't pay for the next load STALLS, and a crew idle for 6 seconds walks home, which at least gives the company its workers back.
+  - **Priced in income, not dollars** (`projectCost`): a project's materials cost so many SECONDS of the company's income a second, never less than a floor. Income grows by orders of magnitude over a run, and a prestiged company reaches a threshold earning far more than a fresh one, so a fixed price is a wall to one and a rounding error to the next. The price is FIXED WHEN THE SITE IS CHOSEN (`Build.cost`), so the card can say the total, and growing during the build doesn't make the remaining loads dearer. The editor never charges.
   - **Stages:** foundations rise, walls go up inside a scaffold, and the roof goes on. When it opens, a toast announces it, the crew walks home, and the thing it was for is unlocked.
-  - **The first project** is the **Vibe Coder Studio**, a 3×2 glass box with a neon sign. It's built by interns (600 builder-seconds; $400 in 8 loads), available at 10 interns, and vibe coders can't be hired until it opens.
+  - **The first project** is the **Vibe Coder Studio**, a 3×2 glass box with a neon sign. It's built by interns (600 builder-seconds; 45 seconds of income, at least $400, in 8 loads), available at 10 interns, and vibe coders can't be hired until it opens.
   - **Builders stop working while they build:** `getEmployeeOutputMults` scales each kind's output by the share at their desks (`attendance`), so the live tick and every readout agree.
   - **How many build is automatic but steerable:** the card's PRIORITY (Paused / Low / Normal / High) gives a quarter, half or all of the eligible employees, capped at 4 per footprint tile (`buildersFor`). Pausing or lowering returns people to their desks at once; anyone still walking there turns round when they arrive.
   - **Saved in the map:** the site is a structure with a `build` record (`Structure.build`). Time away is caught up on load (`catchUpWorks`): the whole crew worked throughout, loads were bought as needed while the money lasted, and the stock was refilled. A site already under way has its crew on site again straight after a reload; only a new site sends for them.
@@ -61,17 +62,17 @@ You found a startup as one of several **founder archetypes**, each bending a dif
   - **The second project is the Company HQ:**
     - It becomes available at 10 vibe coders, after the studio.
     - Interns AND vibe coders build it, the crew split between them by headcount.
-    - It costs 2400 builder-seconds and $5,000 in 12 loads, on a 3×3 site.
+    - It costs 2400 builder-seconds and 60 seconds of income (at least $5,000) in 12 loads, on a 3×3 site.
     - It opens MANAGERS (`grants`). Where a company has a map, `canUnlock("managers")` also needs the HQ standing (`featureGateOpen`), and the Innovation tab's button says "Managers need an HQ — build one on the map" until it does. The 1-innovation cost stays.
     - Drawn finished, it is a glass tower stepped back on a dark lobby podium, with an entrance canopy, floor-by-floor glazing, an amber sign along the roof edge and a mast. Each project's building has its own height and finished drawing (`LOOKS`), and the construction stages rise to it.
     - A company that already has managers is given its HQ finished (`alreadyEarned`).
   - **The Boardroom Tower** becomes available once employee management is unlocked (`ready(owned, unlocked)` sees innovation unlocks too).
-    - Interns and vibe coders build it: 4000 builder-seconds, $20,000 in 14 loads, on a 3×3 site.
+    - Interns and vibe coders build it: 4000 builder-seconds, 90 seconds of income (at least $20,000) in 14 loads, on a 3×3 site.
     - It opens board MANDATES. Where a company has a map, `canAffordMandate` also needs it standing, and the Valuation tab's mandates panel says why until it does.
     - Drawn finished, it is a slim bronze-glass tower ribbed with gold fins, on a stone podium, with a gold crown and a spire. Clicking it opens Valuation.
     - A company already passing mandates is given it finished.
   - **The Campus** becomes available at 20 vibe coders.
-    - Interns and vibe coders build it: 6000 builder-seconds, $40,000 in 16 loads, on a 4×4 site.
+    - Interns and vibe coders build it: 6000 builder-seconds, 2 minutes of income (at least $40,000) in 16 loads, on a 4×4 site.
     - 10x devs can't be hired until it opens.
     - Drawn finished, it is low white blocks in an L, with window bands, gardens on the roofs, and a courtyard of grass and trees.
   - **Projects run side by side:** the map's card stack shows a card for every project going up or ready to start, plus one for the next that isn't ready yet, saying what it waits for.

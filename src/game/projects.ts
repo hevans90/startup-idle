@@ -40,8 +40,14 @@ export type ProjectDef = {
   founderBuilds?: true;
   /** Builder-seconds of work. */
   work: number;
-  /** What its materials cost in all, and in how many deliveries they come. */
-  cost: number;
+  /**
+   * What its materials cost, IN SECONDS OF THE COMPANY'S INCOME — priced when
+   * the site is chosen and fixed from then on. @see projectCost
+   */
+  incomeSeconds: number;
+  /** The least its materials cost, whatever the income. */
+  floor: number;
+  /** In how many deliveries the materials come, each paid for as it is sent. */
   deliveries: number;
   /** The generator it unlocks, if any. */
   unlocks?: GeneratorId;
@@ -68,7 +74,8 @@ export const PROJECTS: readonly ProjectDef[] = [
     founderBuilds: true,
     work: 30,
     // Free: salvaged, and a company with five dollars to its name can found.
-    cost: 0,
+    incomeSeconds: 0,
+    floor: 0,
     deliveries: 1,
     unlocks: "intern",
     opens: "employees",
@@ -82,7 +89,8 @@ export const PROJECTS: readonly ProjectDef[] = [
     structure: "studio",
     builders: ["intern"],
     work: 600,
-    cost: 400,
+    incomeSeconds: 45,
+    floor: 400,
     deliveries: 8,
     unlocks: "vibe_coder",
     opens: "employees",
@@ -96,7 +104,8 @@ export const PROJECTS: readonly ProjectDef[] = [
     structure: "hq",
     builders: ["intern", "vibe_coder"],
     work: 2400,
-    cost: 5000,
+    incomeSeconds: 60,
+    floor: 5000,
     deliveries: 12,
     grants: "managers",
     opens: "innovation",
@@ -110,7 +119,8 @@ export const PROJECTS: readonly ProjectDef[] = [
     structure: "boardroom",
     builders: ["intern", "vibe_coder"],
     work: 4000,
-    cost: 20_000,
+    incomeSeconds: 90,
+    floor: 20_000,
     deliveries: 14,
     grants: "mandates",
     opens: "valuation",
@@ -124,7 +134,8 @@ export const PROJECTS: readonly ProjectDef[] = [
     structure: "campus",
     builders: ["intern", "vibe_coder"],
     work: 6000,
-    cost: 40_000,
+    incomeSeconds: 120,
+    floor: 40_000,
     deliveries: 16,
     unlocks: "10x_dev",
     opens: "employees",
@@ -132,6 +143,27 @@ export const PROJECTS: readonly ProjectDef[] = [
     readyWhen: "20 vibe coders",
   },
 ];
+
+/**
+ * WHAT A PROJECT COSTS, given the company's income a second: so many seconds
+ * of it, and never less than its floor.
+ *
+ * Not a fixed price, because income is not fixed: it grows by orders of
+ * magnitude over a run, and with prestige a company can reach a project's
+ * threshold earning a hundred times what a fresh one does. A fixed price is a
+ * wall to one company and a rounding error to the next. Priced in income, a
+ * project costs every company the same thing — a minute or two of what it
+ * earns, spent on a building rather than on hires — and the floor keeps it a
+ * real price for a company earning next to nothing.
+ *
+ * FIXED WHEN THE SITE IS CHOSEN (`Build.cost`), so the card can say what it
+ * will cost in all, and a company that grows while it builds is not charged
+ * more for the loads still to come.
+ */
+export function projectCost(p: ProjectDef, incomePerSecond: number): number {
+  const live = Number.isFinite(incomePerSecond) ? Math.max(0, incomePerSecond) * p.incomeSeconds : 0;
+  return Math.min(Number.MAX_VALUE, Math.max(p.floor, Math.round(live)));
+}
 
 export const projectDef = (id: string): ProjectDef | null => PROJECTS.find((p) => p.id === id) ?? null;
 

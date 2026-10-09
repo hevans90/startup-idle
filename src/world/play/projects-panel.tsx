@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { twMerge } from "tailwind-merge";
 
 import {
-  PRIORITY_NAMES, PROJECTS, buildersFor, type Priority, type ProjectDef,
+  PRIORITY_NAMES, PROJECTS, buildersFor, projectCost, type Priority, type ProjectDef,
 } from "../../game/projects";
 import { useFounderStore } from "../../state/founder.store";
 import { useGeneratorStore } from "../../state/generators.store";
@@ -27,6 +27,10 @@ const BTN =
   "cursor-pointer border border-primary-400 px-2 py-1 hover:bg-primary-200 "
   + "dark:border-primary-600 dark:hover:bg-primary-800";
 const ON = "bg-primary-300 dark:bg-primary-700";
+
+/** "45 seconds", "2 minutes". */
+const formatDuration = (s: number) =>
+  s < 90 ? `${s} seconds` : `${Math.round(s / 60)} minutes`;
 
 /** Re-render a few times a second: the work moves on its own. */
 function useTicking(ms: number) {
@@ -102,6 +106,7 @@ function ProjectCard({ next, unlocked, className }: { next: ProjectDef; unlocked
   // READY: choose a site, or choosing one.
   if (!site) {
     const choosing = placing === next.id;
+    const income = useGeneratorStore.getState().getMoneyPerSecond();
     return (
       <div className={twMerge(CARD, className)}>
         <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">New project</p>
@@ -110,9 +115,14 @@ function ProjectCard({ next, unlocked, className }: { next: ProjectDef; unlocked
         <p className="mt-1 text-primary-700 dark:text-primary-300">
           {next.founderBuilds
             ? "You build this one yourself, from salvaged materials: it costs nothing."
-            : <>Materials {formatCurrency(next.cost)}, paid as {next.deliveries} loads arrive. Built by your {who},
+            : <>Materials {formatCurrency(projectCost(next, income))}, paid as {next.deliveries} loads arrive. Built by your {who},
               who stop working while they build.</>}
         </p>
+        {!next.founderBuilds && (
+          <p className="mt-1 text-[11px] text-primary-600 dark:text-primary-400">
+            About {formatDuration(next.incomeSeconds)} of your income: the price is fixed when you choose the site.
+          </p>
+        )}
         {choosing ? (
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="text-emerald-700 dark:text-emerald-400">Click a spot beside a road for its site.</span>
