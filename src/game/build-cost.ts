@@ -17,7 +17,9 @@ import Decimal from "break_infinity.js";
 
 import { housedBy } from "./housing";
 import { structureDef } from "../world/structures/def";
+import { useGeneratorStore } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
+import { getGeneratorCost } from "../utils/generator-utils";
 
 /** What the smallest housing costs. Everything else is priced from here. */
 const BASE = 25;
@@ -38,11 +40,40 @@ const PER_BED = 1.35;
  */
 export function buildCost(defId: string): Decimal | null {
   const port = structureDef(defId)?.port;
-  if (port) return new Decimal(PORT_PER_CALL_A_MINUTE * callsAMinute(port)).round();
+  if (port) {
+    const floor = new Decimal(PORT_PER_CALL_A_MINUTE * callsAMinute(port)).round();
+    const live = new Decimal(safeIncome()).times(PORT_INCOME_SECONDS_PER_CALL * callsAMinute(port)).round();
+    return Decimal.max(floor, live);
+  }
   const h = housedBy(defId);
   if (!h || h.slots <= 0) return null;
-  return new Decimal(BASE).times(Decimal.pow(PER_BED, h.slots));
+  const floor = new Decimal(BASE).times(Decimal.pow(PER_BED, h.slots));
+  // SCALED BY WHAT THE PEOPLE IT HOUSES COST TO HIRE: a share of the next
+  // hire's price a bed, more a bed the bigger the building.
+  const tier = /\.(t0|t1|t2|landmark)$/.exec(defId)?.[1] ?? "t0";
+  const live = getGeneratorCost(h.id, 1).times(h.slots * BED_SHARE * (TIER_PREMIUM[tier] ?? 1));
+  return Decimal.max(floor, live);
 }
+
+/**
+ * PRICES FOLLOW THE ECONOMY. A fixed price is a wall early in a run and a
+ * rounding error late in one — hire prices and income grow by orders of
+ * magnitude — so each price is the larger of a FLOOR (the fixed price it
+ * always had, so a new company still feels it) and a share of the economy:
+ *  - housing, a share of the hire price of the people it is for: the beds are
+ *    part of the cost of hiring them;
+ *  - a seaport, seconds of income for each boat a minute it turns round.
+ */
+const BED_SHARE = 0.25;
+/** More a bed in a bigger building: the ground it saves is the premium. */
+const TIER_PREMIUM: Record<string, number> = { t0: 1, t1: 1.1, t2: 1.25, landmark: 1.5 };
+/** Seconds of income a seaport costs, per boat a minute: 30 s, 80 s, 180 s by tier. */
+const PORT_INCOME_SECONDS_PER_CALL = 10;
+
+const safeIncome = () => {
+  const n = useGeneratorStore.getState().getMoneyPerSecond();
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
 
 /**
  * A SEAPORT IS PRICED OFF WHAT IT HANDLES: the boats a minute it can turn
