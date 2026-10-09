@@ -9,9 +9,15 @@
  *
  * AND THE BEDS, beside the tools, because they are why you build: each
  * district's beds against the people working in it, so the cap on hiring is
- * something you can see before you run into it. @see housingCapacity
+ * something you can see before you run into it — and who is on their way in,
+ * and why anyone hired is still waiting. @see housingCapacity, stepArrivals
+ *
+ * HOUSING IS ZONED: building it lays out a LOT, which new hires move into
+ * when they arrive. @see world/agents/arrivals
  */
 import { useMemo, useState } from "react";
+
+import { VEHICLE } from "../agents/arrivals";
 import { twMerge } from "tailwind-merge";
 
 import { buildCost } from "../../game/build-cost";
@@ -19,7 +25,7 @@ import { addBeds, housedBy, housingCapacity } from "../../game/housing";
 import { useSessionStore } from "../../state/session.store";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
-import { useWorldStore } from "../../state/world.store";
+import { getArrivals, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
@@ -28,11 +34,11 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town" },
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
   { id: "eraseRoad", label: "Lift road", hint: "Drag to take road up" },
-  { id: "placeStructure", label: "Build", hint: "Click beside a road to build; click a seaport to upgrade it" },
+  { id: "placeStructure", label: "Build", hint: "Click beside a road to build or zone a lot; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down" },
 ];
 
-/** What is for sale, cheapest first. @see buildCost */
+/** What is for sale, cheapest first, at today's prices. @see buildCost */
 const forSale = (): { def: StructureDef; price: number }[] =>
   allStructureDefs()
     .map((def) => ({ def, price: buildCost(def.id)?.toNumber() ?? -1 }))
@@ -46,7 +52,7 @@ function labelOf(def: StructureDef): string {
   const tier = /\.(t0|t1|t2|landmark)$/.exec(def.id)?.[1];
   const roman = tier === "landmark" ? " tower" : tier === "t0" ? "" : tier === "t1" ? " II" : " III";
   const who = h.id === "intern" ? "Intern" : h.id === "vibe_coder" ? "Vibe coder" : "10x dev";
-  return `${who} housing${roman}`;
+  return `${who} lot${roman}`;
 }
 
 const BTN =
@@ -68,7 +74,8 @@ export function BuildBar({ className }: { className?: string }) {
   const generators = useGeneratorStore((s) => s.generators);
   const [picking, setPicking] = useState(false);
 
-  const sale = useMemo(forSale, []);
+  // Not memoised: prices follow the economy. @see buildCost
+  const sale = forSale();
   // Beds change with what is built, so with the revision as well as the grid.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // As the economy counts them: built on the map, and off it. Worked out here
@@ -123,13 +130,21 @@ export function BuildBar({ className }: { className?: string }) {
         ))}
       </div>
       <div className="flex gap-3 bg-primary-50/80 px-2 py-1 text-[11px] tabular-nums dark:bg-primary-900/90"
-        title="Beds — built on the map, plus people living off it — against people employed. You cannot hire past your beds.">
+        title="Beds — on lots zoned on the map, plus people living off it — against people employed. You cannot hire past your beds. A new hire works once they have arrived and moved in.">
         {generators.filter((g) => g.amount > 0 || beds[g.id as keyof typeof beds] > 0).map((g) => {
           const have = beds[g.id as keyof typeof beds] ?? 0;
           const full = g.amount >= have;
+          const st = getArrivals().status[g.id as keyof typeof VEHICLE];
+          const by = { bus: "by bus", car: "by car", limo: "by limo" }[VEHICLE[g.id as keyof typeof VEHICLE]];
           return (
             <span key={g.id} className={full ? "text-red-700 dark:text-red-400" : undefined}>
               {g.name}: {g.amount}/{have} beds
+              {st?.riding ? <span className="text-emerald-700 dark:text-emerald-400"> · {st.riding} on the way {by}</span> : null}
+              {st?.waiting ? (
+                <span className={st.blocked ? "text-amber-700 dark:text-amber-400" : undefined}>
+                  {" · "}{st.waiting} waiting{st.blocked === "no-lot" ? " for a lot" : st.blocked === "no-road" ? ": no road in to their lot" : ""}
+                </span>
+              ) : null}
             </span>
           );
         })}

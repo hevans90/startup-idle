@@ -246,7 +246,11 @@ function readStructure(raw: unknown): Structure | null {
   if (typeof s.def !== "string" || !nums.every((v) => Number.isInteger(v))) return null;
   if ((s.w as number) <= 0 || (s.h as number) <= 0 || (s.id as number) < 0) return null;
   const build = readBuild(s.build);
-  return { id: s.id!, def: s.def, x: s.x!, y: s.y!, w: s.w!, h: s.h!, ...(build ? { build } : {}) };
+  const residents = Number.isInteger(s.residents) && s.residents! >= 0 ? s.residents : undefined;
+  return {
+    id: s.id!, def: s.def, x: s.x!, y: s.y!, w: s.w!, h: s.h!,
+    ...(build ? { build } : {}), ...(residents !== undefined ? { residents } : {}),
+  };
 }
 
 /** A building still going up, or null — a site that will not read stands finished. */

@@ -46,6 +46,14 @@ export type Structure = {
    * @see world/projects, game/projects
    */
   build?: Build;
+  /**
+   * HOUSING: how many live there. A building placed in the game is a LOT,
+   * zoned and empty, and fills as new hires arrive to move in; drawn as a
+   * marked plot while nobody does, and rising floor by floor as it fills.
+   * Absent on housing from before lots, or placed in the editor: full.
+   * @see world/agents/arrivals, residentsIn
+   */
+  residents?: number;
 };
 
 /** A building going up. @see stepWorks */

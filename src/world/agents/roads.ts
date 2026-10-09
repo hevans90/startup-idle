@@ -31,7 +31,7 @@ export type Place = Cell & {
   kind: "door" | "gateway";
   net: number;
   structure?: number;
-  /** A door of a building still going up: a site, not somewhere to make a trip to. */
+  /** A door of a building still going up, or an empty lot: not somewhere to make a trip to. */
   building?: boolean;
 };
 
@@ -64,7 +64,9 @@ export function placesOf(g: Grid, net: Network): Place[] {
           bestD = dist;
           best = {
             x, y, kind: "door", net: find(net, idx(g, x, y)), structure: s.id,
-            ...(s.build ? { building: true } : {}),
+            // A site, or a lot nobody lives on yet: nobody's trip starts or
+            // ends there. @see Structure.residents
+            ...(s.build || s.residents === 0 ? { building: true } : {}),
           };
         }
       }

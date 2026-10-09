@@ -52,7 +52,7 @@ const SCAFFOLD_ABOVE = 0.7;
 const INSET = 0.1;
 
 /** What a column of a building draws with: projection, and boxes clipped to the column. */
-function pen(g: Graphics, s: Structure, ctx: RenderCtx, c: number) {
+export function pen(g: Graphics, s: Structure, ctx: RenderCtx, c: number) {
   const sc = ctx.scale;
   const ground = inBounds(ctx.grid, s.x, s.y) ? ctx.grid.height[idx(ctx.grid, s.x, s.y)] : 0;
   const P = (u: number, v: number, z: number): [number, number] =>

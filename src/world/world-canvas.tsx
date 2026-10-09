@@ -10,8 +10,10 @@
 import { Application } from "@pixi/react";
 import { useEffect, useState, type RefObject } from "react";
 
-import { addBeds, foundingRemoteBeds, housingCapacity, setHousingReader } from "../game/housing";
-import { useGeneratorStore } from "../state/generators.store";
+import {
+  addBeds, awaitingArrival, foundingRemoteBeds, housingCapacity, housingResidents, setHousingReader,
+} from "../game/housing";
+import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { getWorks, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
 import { setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
 import { useInnovationStore } from "../state/innovation.store";
@@ -133,19 +135,29 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     if (useInnovationStore.getState().unlocks.managers?.unlocked) features.add("managers");
     if (Object.values(useValuationStore.getState().mandateLevels).some((l) => l > 0)) features.add("mandates");
     useWorldStore.getState().foundEarnedProjects(owned, features);
+    // Whoever was on their way has arrived while the map was not looked at.
+    useWorldStore.getState().settleHousing(owned, useSessionStore.getState().remoteBeds ?? {});
     const opened = catchUpWorks(useWorldStore.getState().grid, owned, payForLoad, Date.now());
     if (opened.length) announceOpened(opened);
     // What is built changes only with the map, so it is worked out again only
     // then: the economy asks every tick.
     let seenGrid: unknown = null, seenRev = -1, seenProjects = -1;
     let built: Set<ProjectId> = new Set();
+    let residents = housingResidents(useWorldStore.getState().grid);
     return setProjectReader(() => {
       const st = useWorldStore.getState();
       if (st.grid !== seenGrid || st.revision !== seenRev || st.projectRev !== seenProjects) {
         seenGrid = st.grid; seenRev = st.revision; seenProjects = st.projectRev;
         built = builtProjects(st.grid);
+        residents = housingResidents(st.grid);
       }
-      return { built, away: getWorks().away };
+      // AWAY FROM THEIR DESKS: building, and — hired but not arrived — on
+      // their way to the map, or waiting for somewhere to live on it.
+      // @see awaitingArrival
+      const away = { ...getWorks().away };
+      const coming = awaitingArrival(ownedNow(), useSessionStore.getState().remoteBeds ?? {}, residents);
+      for (const [id, n] of Object.entries(coming)) away[id as GeneratorId] = (away[id as GeneratorId] ?? 0) + n;
+      return { built, away };
     });
   }, [play]);
 }

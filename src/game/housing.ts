@@ -19,7 +19,7 @@
  * @see setHousingReader
  */
 import type { GeneratorId } from "../state/generators.store";
-import type { Grid } from "../world/grid";
+import type { Grid, Structure } from "../world/grid";
 
 /**
  * Employees a building of each tier houses.
@@ -90,6 +90,41 @@ export function housingCapacity(grid: Grid): Record<GeneratorId, number> {
   for (const s of grid.structures.values()) {
     const h = housedBy(s.def);
     if (h) out[h.id] += h.slots;
+  }
+  return out;
+}
+
+/**
+ * How many live in a building: its residents, or — housing from before lots,
+ * or placed in the editor — as many as it has beds.
+ */
+export function residentsIn(s: Structure): number {
+  const h = housedBy(s.def);
+  if (!h) return 0;
+  return Math.min(h.slots, s.residents ?? h.slots);
+}
+
+/** People living on this map, per generator: arrived and moved in. */
+export function housingResidents(grid: Grid): Record<GeneratorId, number> {
+  const out = { ...NO_HOUSING };
+  for (const s of grid.structures.values()) {
+    const h = housedBy(s.def);
+    if (h) out[h.id] += residentsIn(s);
+  }
+  return out;
+}
+
+/**
+ * Hired, and not here yet: on their way, or waiting for somewhere to go.
+ * They are not at a desk, so they do not produce. @see attendance
+ */
+export function awaitingArrival(
+  owned: Partial<Record<GeneratorId, number>>, remote: Partial<Record<string, number>>, residents: Record<GeneratorId, number>,
+): Partial<Record<GeneratorId, number>> {
+  const out: Partial<Record<GeneratorId, number>> = {};
+  for (const id of Object.keys(NO_HOUSING) as GeneratorId[]) {
+    const n = Math.max(0, (owned[id] ?? 0) - (remote[id] ?? 0) - residents[id]);
+    if (n > 0) out[id] = n;
   }
   return out;
 }

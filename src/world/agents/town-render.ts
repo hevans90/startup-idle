@@ -47,6 +47,15 @@ const HARD_HAT = 0xf2c230;
 const TRUCK_L = 0.56;
 const TRUCK_W = 0.24;
 const TRUCK_CAB = 0.7;
+/** A bus and a limousine: tiles long and wide. */
+const BUS_L = 0.62;
+const BUS_W = 0.24;
+const BUS_SKIRT = 0.5;
+const BUS_ROOF = 0.98;
+const BUS_STRIPE = 0x2b2f36;
+const LIMO_L = 0.6;
+const LIMO_W = 0.21;
+const CHROME = 0xd8dde3;
 const BED = 0x5b5f66;
 const LOAD = 0xb08a55;
 const LOAD_TOP = 0xc9a46c;
@@ -166,6 +175,22 @@ export function drawMover(g: Graphics, m: Mover, s: number, bandsN: number): num
     // ITS BAND from the whole lorry, not the cab: driving away, its tail is
     // the nearest part, and filed by the cab the ground in front painted over it.
     front = [front0, -TRUCK_L / 2].flatMap((l) => [at(l, TRUCK_W / 2, 0), at(l, -TRUCK_W / 2, 0)]);
+  } else if (m.kind === "bus") {
+    // THE INTERNS' BUS: a long yellow box, a band of windows down its sides
+    // under a pale roof, and a dark stripe along the skirt.
+    const body = prism(box(BUS_L / 2, BUS_W / 2), 0.04, BUS_SKIRT * 0.3, BUS_STRIPE);
+    prism(box(BUS_L / 2, BUS_W / 2), BUS_SKIRT * 0.3, BUS_SKIRT, m.colour);
+    prism(box(BUS_L / 2 - 0.01, BUS_W / 2 - 0.004), BUS_SKIRT, BUS_ROOF - 0.08, GLASS);
+    prism(box(BUS_L / 2, BUS_W / 2), BUS_ROOF - 0.08, BUS_ROOF, m.colour, 0xf4efe2);
+    front = body;
+  } else if (m.kind === "limo") {
+    // THE 10X DEV'S LIMOUSINE: long, low and black, a stretched cabin of dark
+    // glass, and a line of chrome along its waist.
+    const body = prism(box(LIMO_L / 2, LIMO_W / 2), 0.04, BODY * 0.9, m.colour);
+    prism(box(LIMO_L / 2 - 0.005, LIMO_W / 2 + 0.002), BODY * 0.9 - 0.04, BODY * 0.9, CHROME, m.colour);
+    prism([[LIMO_L * 0.2, LIMO_W * 0.42], [-LIMO_L * 0.38, LIMO_W * 0.42], [-LIMO_L * 0.38, -LIMO_W * 0.42], [LIMO_L * 0.2, -LIMO_W * 0.42]],
+      BODY * 0.9, CABIN * 0.88, 0x1d2630, shade(m.colour, 1.4));
+    front = body;
   } else if (m.kind === "car") {
     const body = prism(box(CAR_L / 2, CAR_W / 2), 0.04, BODY, m.colour);
     // The cabin, set back from the bonnet, glass on its sides.

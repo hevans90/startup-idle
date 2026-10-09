@@ -26,6 +26,12 @@ declare global {
      */
     __structures?: unknown;
     /**
+     * Hires to send for that nobody made, so arrivals — the buses, cars and
+     * limousines — can be watched on any map without touching the economy's
+     * persisted stores. @see stepArrivals
+     */
+    __fakeHires?: Record<string, number>;
+    /**
      * The live water field, for the same reason.
      *
      * Depth is a float updated every frame and held outside the store, so this

@@ -25,6 +25,16 @@ You found a startup as one of several **founder archetypes**, each bending a dif
   - **Lazy-loaded:** the step is in its own chunk, generator and all.
   - **A new choice each run:** the choice is reset with the session at every sale.
 - **The company's map** (`world/play/company-map.tsx`, `world/play/build-bar.tsx`, `world/world-canvas.tsx`) — every company founds a TOWN, generated from the day it was incorporated, and it is the main view of the game in place of the old procedural city. The player builds on it under the game's rules: housing and seaports need road frontage (one cell of the footprint on a road) and are paid for, and clicking a seaport upgrades it. The build bar has Look, Road, Lift road, Build (a picker of everything for sale, priced, dimmed when you can't afford it) and Demolish, beside each district's **beds against headcount**. Beds cap hiring: you can't hire past them.
+  - **Housing is ZONED, Caesar's way** (`world/agents/arrivals.ts`). Building housing in the game lays out a LOT: scraped ground, corner stakes and tape, and a sign in the district's colour (yellow interns, pink vibe coders, teal 10x devs). Its beds count towards the hiring cap at once, but nobody lives there yet (`Structure.residents`, 0).
+    - **A hire has to ARRIVE.** Hiring is an offer accepted; the new hire then comes in from where a road leaves the map. Until they've moved in they're at no desk and produce nothing: hired-but-not-here counts as away in `attendance`, alongside builders (`awaitingArrival`).
+    - **Each kind arrives its own way:** interns by BUS, vibe coders by CAR (one each, 1.2 s apart), 10x devs by LIMOUSINE (2.5 s apart).
+    - **The bus is shared:** it waits at the map's edge for a busload of 12, or until the first intern has waited 6 s, then drives a ROUND of the lots they're going to, nearest next, standing 1.4 s at each stop to let people off, and drives off the map empty. Lots already part-full are filled first, so a street fills a house at a time rather than a bed in each.
+    - **The conditions:** a lot of their kind with a bed free, counting people already on their way to it so two vehicles never race for one bed, and a road to it from the edge of the map. Missing either, they wait off the map, and the beds bar says why ("2 waiting: no road in to their lot"). It also shows how many are on the way, and how.
+    - **Houses rise as they fill:** a lot with anyone in it is drawn as its building, with floors in proportion to how full it is.
+    - **Empty lots aren't destinations:** the town's ordinary traffic doesn't make trips to them.
+    - **Settled on load** (`settleHousing`): rides aren't saved, so on mounting the map everyone who should live on it moves straight in, fullest first. Housing from before lots (no `residents`) is settled the same way, so an old save's houses beyond its headcount become lots.
+    - **The editor** places finished housing, as before. For watching arrivals there, `window.__fakeHires = { intern: 9 }` sends for hires nobody made, without touching the economy.
+  - **Prices follow the economy** (`buildCost`): each is the larger of its old fixed price (a floor) and a live share. Housing costs a quarter of the next hire's price a bed, times a tier premium (×1, ×1.1, ×1.25, ×1.5 for a tower). A seaport costs 10 seconds of income per boat a minute it turns round (30 s, 80 s, 180 s by tier). The picker prices at today's rates.
   - **Remote beds:** some beds are off the map, recorded once when the map is founded (`foundingRemoteBeds`, kept in the session store). A new company gets 2 intern beds, enough to earn the price of its first house; without them a company with no beds could hire no one, so could earn nothing and build nothing. A company that already had employees before it had a map keeps all of them, so existing saves are not stranded behind hundreds of houses.
   - **Selling the company sells the map:** `resetRunStores` calls `retireRunSave`, which forgets the run's map and holds saving off until the next map loads, so the sold map's flush on unmount can't write it back. The next company's map is generated fresh when the world next mounts and finds no save.
   - **Two save slots:** the run's map (`world-run`) and the editor's (`world-map`) are kept apart, so ending a run can never take a hand-built editor map with it.
@@ -149,7 +159,7 @@ src/
     water/             #   fluid materials, the column field, ground + rim-inflow sync
                        #   pipes.ts + pipe-net.ts: networks, and heads at their ports
                        #   pipe-flow.ts: Saint-Venant along a round bore
-    agents/            #   roads.ts: doors, gateways, keep-right routes, lanes and kerbs
+    agents/            #   roads.ts: doors, gateways, keep-right routes, lanes and kerbs; arrivals.ts: new hires by bus, car and limo
                        #   town.ts: cars and people on trips round the roads
                        #   town-render.ts: cars and people, projected like the boats
     boats/             #   fleet.ts: boats that float, bob, tilt and drift on the water

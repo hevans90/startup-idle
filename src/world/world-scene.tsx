@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { drainDirty, getArrivals, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -75,6 +75,8 @@ import { createBuildCursor, type BuildCursor, type Validator } from "./edit/curs
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
+import { stepArrivals } from "./agents/arrivals";
+import { useSessionStore } from "../state/session.store";
 import { stepWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
 import { stepFleet, wantFleet } from "./boats/fleet";
@@ -2092,6 +2094,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // done — after the town has moved, so who arrived this frame is known.
         // Paid for out of the company's money under the game's rules; free in
         // the editor, which must never spend anybody's money. @see stepWorks
+        // NEW HIRES ARRIVING, in the game: by bus, car or limousine from the
+        // edge of the map to a lot with room, and moving in. Before the works,
+        // which clears who arrived. @see world/agents/arrivals
+        // (`__fakeHires`, in development: people to send for that nobody has
+        // hired, so a bus can be watched without touching the economy.)
+        const fake = import.meta.env.DEV ? window.__fakeHires : undefined;
+        if (st.playing || fake) {
+          const arrivals = getArrivals();
+          const owned = ownedNow();
+          for (const [id, n] of Object.entries(fake ?? {})) owned[id as keyof typeof owned] = (owned[id as keyof typeof owned] ?? 0) + n;
+          stepArrivals(arrivals, st.grid, net, getTown(), owned, fake ? {} : useSessionStore.getState().remoteBeds ?? {}, dt);
+          if (arrivals.moved.length) useWorldStore.getState().housingMoved(arrivals.moved.splice(0));
+        }
         const works = getWorks();
         stepWorks(works, st.grid, net, getTown(), ownedNow(), st.playing ? payForLoad : () => true, dt, Date.now());
         if (works.opened.length) announceOpened(works.opened.splice(0));

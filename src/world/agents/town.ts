@@ -35,14 +35,19 @@ import {
 
 export type Mover = {
   id: number;
-  kind: "car" | "person" | "truck";
+  kind: "car" | "person" | "truck" | "bus" | "limo";
   /**
    * WORK, if it is on some: a builder walking to a site or home from it, a
    * builder at work on one, or a load of materials on its way. Movers on a
    * job are not the town's trips: they are counted apart, reported when they
    * arrive, and a builder at work stands where it is. @see world/projects
    */
-  job?: { site: number; role: "builder" | "home" | "working" | "truck" };
+  job?: { site: number; role: "builder" | "home" | "working" | "truck" | "arrive" | "leave" };
+  /**
+   * Seconds to stand where it is before going on: a bus at a stop, letting
+   * its passengers off. @see world/agents/arrivals
+   */
+  wait?: number;
   /** The cells of its route, and the line it follows through them. */
   path: Cell[];
   line: Cell[];
@@ -117,6 +122,10 @@ const PERSON_EVERY = 0.3;
 const CAR_CRUISE = 1.6;
 const TRUCK_CRUISE = 1.15;
 const TRUCK_COLOUR = 0xd98c2b;
+const BUS_CRUISE = 1.2;
+const BUS_COLOUR = 0xf2b51d;
+const LIMO_CRUISE = 1.45;
+const LIMO_COLOUR = 0x17181c;
 const PERSON_CRUISE = 0.45;
 const SPREAD = 0.2;
 /** Tiles a second squared. */
@@ -192,13 +201,15 @@ function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place): 
   }
   const at = new Float32Array(line.length);
   for (let k = 1; k < line.length; k++) at[k] = at[k - 1] + Math.hypot(line[k].x - line[k - 1].x, line[k].y - line[k - 1].y);
-  const base = kind === "car" ? CAR_CRUISE : kind === "truck" ? TRUCK_CRUISE : PERSON_CRUISE;
+  const base = kind === "car" ? CAR_CRUISE : kind === "truck" ? TRUCK_CRUISE : kind === "bus" ? BUS_CRUISE
+    : kind === "limo" ? LIMO_CRUISE : PERSON_CRUISE;
   const m: Mover = {
     id: t.next++, kind, path, line, at, s: 0, speed: 0,
     cruise: base * (1 + (rand(t) - 0.5) * 2 * SPREAD),
     x: line[0].x, y: line[0].y, z: roadHeightAt(g, line[0].x, line[0].y), heading: 0,
     stuck: 0, pushing: 0,
-    colour: kind === "truck" ? TRUCK_COLOUR : pick(t, kind === "car" ? CAR_COLOURS : SHIRTS),
+    colour: kind === "truck" ? TRUCK_COLOUR : kind === "bus" ? BUS_COLOUR : kind === "limo" ? LIMO_COLOUR
+      : pick(t, kind === "car" ? CAR_COLOURS : SHIRTS),
     phase: rand(t) * Math.PI * 2,
   };
   const p = along(m, 0);
@@ -310,7 +321,7 @@ function lineLimit(m: Mover): number {
   const total = m.at[m.at.length - 1];
   const left = total - m.s;
   let v = Math.sqrt(2 * BRAKE * Math.max(0, left)) + 0.05;
-  if (m.kind === "car") {
+  if (m.kind === "car" || m.kind === "bus" || m.kind === "limo") {
     const a = along(m, m.s), b = along(m, Math.min(total, m.s + 0.6));
     const turn = Math.abs(Math.atan2(a.dx * b.dy - a.dy * b.dx, a.dx * b.dx + a.dy * b.dy));
     v = Math.min(v, m.cruise * (1 - 0.6 * Math.min(1, turn / (Math.PI / 2))));
@@ -357,6 +368,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   for (const m of t.movers) {
     // AT WORK on a site: standing, swinging a hammer. @see town-render
     if (m.job?.role === "working") { m.phase += h * WORK_RATE; continue; }
+    // AT A STOP: standing, then on its way.
+    if (m.wait && m.wait > 0) { m.wait -= h; m.speed = 0; continue; }
     const limit = Math.min(lineLimit(m), drives(m) ? trafficLimit(m, cars) : Infinity);
     if (m.speed < limit) m.speed = Math.min(limit, m.speed + ACCEL * h);
     else m.speed = Math.max(limit, m.speed - BRAKE * h);
@@ -373,7 +386,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     m.z = roadHeightAt(g, p.x, p.y);
     if (drives(m)) {
       // Nose and tail, half a vehicle either way along the way it goes.
-      const half = m.kind === "truck" ? 0.28 : 0.19;
+      const half = m.kind === "truck" ? 0.28 : m.kind === "bus" ? 0.31 : m.kind === "limo" ? 0.3 : 0.19;
       const zf = roadHeightAt(g, p.x + p.dx * half, p.y + p.dy * half);
       const zb = roadHeightAt(g, p.x - p.dx * half, p.y - p.dy * half);
       m.pitch = (zf - zb) / (2 * half);

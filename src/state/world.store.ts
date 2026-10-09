@@ -13,6 +13,8 @@ import {
 import { mapRiver, tileDepthOf } from "../world/boats/river";
 import { createTraffic, type Traffic } from "../world/boats/traffic";
 import { createTown, type Town } from "../world/agents/town";
+import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
+import { housedBy } from "../game/housing";
 import { incomeNow } from "../world/projects/economy";
 import { builtProjects, createWorks, nearestSpot, siteOf, startSiteCommand, type Works } from "../world/projects/works";
 import { PROJECTS, alreadyEarned, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
@@ -202,6 +204,10 @@ export const getTown = () => town;
 let works: Works = createWorks();
 export const getWorks = () => works;
 
+/** New hires on their way to the map, and moving in. @see world/agents/arrivals */
+let arrivals: Arrivals = createArrivals();
+export const getArrivals = () => arrivals;
+
 /**
  * Cells the renderer has not reconciled yet, ACCUMULATED across edits.
  *
@@ -363,6 +369,13 @@ type WorldState = {
    * studio, on the best spot near the middle of its map. @see game/projects
    */
   foundEarnedProjects: (owned: Partial<Record<string, number>>, features?: ReadonlySet<FeatureId>) => void;
+  /**
+   * EVERYONE HOME: whoever should live on the map moved in at once — after
+   * time away, or into housing from before lots. @see settleHousing
+   */
+  settleHousing: (owned: Partial<Record<string, number>>, remote: Partial<Record<string, number>>) => void;
+  /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
+  housingMoved: (ids: readonly number[]) => void;
   lastTouched: Cell[];
   /** Connected components in the road graph. Mirrored, like the history depths. */
   netComponents: number;
@@ -596,6 +609,19 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (p) set({ placingProject: id, tool: "placeStructure", structureDefId: p.structure, brush: "point", brushRadius: 0 });
     else set({ placingProject: null, tool: "inspect" });
   },
+  settleHousing: (owned, remote) => {
+    get().housingMoved(settleHousing(get().grid, owned, remote));
+  },
+  housingMoved: (ids) => {
+    if (!ids.length) return;
+    const st = get();
+    const cells: number[] = [];
+    for (const id of ids) {
+      const s = st.grid.structures.get(id);
+      if (s) cells.push(idx(st.grid, s.x, s.y));
+    }
+    set({ revision: st.revision + 1, lastTouched: markDirty(st.grid, cells, false) });
+  },
   foundEarnedProjects: (owned, features = new Set()) => {
     const st = get();
     const built = builtProjects(st.grid);
@@ -685,6 +711,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     traffic = createTraffic();
     town = createTown();
     works = createWorks();
+    arrivals = createArrivals();
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
@@ -938,6 +965,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         : buildCost(target.id);
       if (!spendForBuild(price)) { set({ stroke: null }); return; }
     }
+    // HOUSING IN THE GAME IS A LOT: zoned, and empty until somebody arrives
+    // to live there. @see world/agents/arrivals
+    if (st.playing && !demolishing && !upgrade && def && housedBy(def.id)) {
+      for (const s of cmd.structures?.added ?? []) s.residents = 0;
+    }
     const touched = commit(st.grid, history, cmd);
     // The bed stands on what is built as well as on the terrain — a placed
     // structure lifts it, a demolish drops it back. @see syncGround
@@ -1035,6 +1067,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     traffic = createTraffic();
     town = createTown();
     works = createWorks();
+    arrivals = createArrivals();
     // The file's boats, on the file's water. @see restoreFleet
     if (boats?.length) restoreFleet(fleet, water.columns, boats);
     setWaterEdge(water, get().openEdge);          // a new field, the same world
