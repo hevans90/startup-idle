@@ -27,7 +27,7 @@ import { addBeds, housedBy, housingCapacity } from "../../game/housing";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
-import { getArrivals, useWorldStore } from "../../state/world.store";
+import { UNDO_WINDOW_MS, getArrivals, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
 import { workplaceKind } from "../agents/commute";
@@ -48,6 +48,7 @@ const ICONS: Record<string, ReactNode> = {
   placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
   labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
+  undo: <Icon><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" /></Icon>,
 };
 
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
@@ -140,6 +141,15 @@ export function BuildBar({ className }: { className?: string }) {
     return () => clearTimeout(id);
   }, [notice]);
   const showNotice = notice && Date.now() - notice.at < NOTICE_MS;
+  // THE LAST BUILD, while it can be taken back. @see undoLastBuild
+  const lastBuild = useWorldStore((s) => s.lastBuild);
+  const undoLastBuild = useWorldStore((s) => s.undoLastBuild);
+  useEffect(() => {
+    if (!lastBuild) return;
+    const id = setTimeout(() => setNow(Date.now()), Math.max(0, lastBuild.at + UNDO_WINDOW_MS - Date.now()) + 50);
+    return () => clearTimeout(id);
+  }, [lastBuild]);
+  const canUndo = lastBuild && Date.now() - lastBuild.at < UNDO_WINDOW_MS;
 
   // Who the company can hire: the generators it has unlocked. @see getUnlockedGeneratorIds
   const hireable = new Set(generators.map((g) => g.id));
@@ -249,6 +259,13 @@ export function BuildBar({ className }: { className?: string }) {
               )}
             </button>
           ))}
+          {canUndo && (
+            <button type="button" title="Take back the last build and get its money back"
+              onClick={undoLastBuild} className={twMerge(TOOL, "text-amber-800 dark:text-amber-300")}>
+              {ICONS.undo}
+              <span>Undo +{formatCurrency(lastBuild!.refund)}</span>
+            </button>
+          )}
           <span className="mx-0.5 my-1 w-px bg-primary-300 dark:bg-primary-700" />
           <button type="button" title="Show or hide what each building is and how it is doing"
             onClick={() => setLabels(!labels)} className={twMerge(TOOL, labels && TOOL_ON)}>

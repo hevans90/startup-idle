@@ -18,6 +18,7 @@ import { createArrivals, settleHousing, type Arrivals } from "../world/agents/ar
 import { createEvolution, serviceOf, type Evolution } from "../world/agents/services";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
+import { useMoneyStore } from "./money.store";
 import { incomeNow } from "../world/projects/economy";
 import { builtProjects, createWorks, nearestSpot, siteOf, startSiteCommand, type Works } from "../world/projects/works";
 import { PROJECTS, alreadyEarned, featureGateOpen, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
@@ -44,7 +45,7 @@ import { demolishCommand, placeCommand, upgradeCommand, validatePlacement } from
 import {
   PatchBuilder, canRedo, canUndo, commit, createHistory, peekRedo, peekUndo,
   redo as redoCmd, redoLabel, touchedCells, touchesNetwork, touchesSurface,
-  undo as undoCmd, undoLabel, type History,
+  undo as undoCmd, undoLabel, type Command, type History,
 } from "../world/edit/commands";
 import {
   applyEdit, componentCount, createNetwork, netIdAt, rebuild as rebuildNet,
@@ -219,6 +220,27 @@ export function lotLine(st: { tool: string; structureDefId: string; placingProje
   if (!housedBy(st.structureDefId)) return null;
   if (s0.anchor.x === s0.head.x && s0.anchor.y === s0.head.y) return null;
   return strokeCells(st.grid, { ...s0, brush: "line" });
+}
+
+/**
+ * UNDO IN THE GAME: the last build — one placement, a road stroke, or a
+ * dragged row of lots — taken back with its money, for a short while after,
+ * and only while nothing else has been done to the map since.
+ */
+export const UNDO_WINDOW_MS = 15_000;
+let buildCmds: Command[] = [];
+let batching = false;
+function recordBuild(cmd: Command, refund: number) {
+  const st = useWorldStore.getState();
+  if (!st.playing) return;
+  const now = Date.now();
+  if (batching && st.lastBuild) {
+    buildCmds.push(cmd);
+    useWorldStore.setState({ lastBuild: { at: now, refund: st.lastBuild.refund + refund } });
+  } else {
+    buildCmds = [cmd];
+    useWorldStore.setState({ lastBuild: { at: now, refund } });
+  }
 }
 
 /** When a spot for the slop pit was last looked for. @see openSlopPit */
@@ -408,6 +430,13 @@ type WorldState = {
    * nothing to say. @see BuildBar
    */
   notice: { text: string; at: number } | null;
+  /**
+   * THE LAST BUILD, in the game, while it can still be taken back: what it
+   * cost, and when. @see undoLastBuild
+   */
+  lastBuild: { at: number; refund: number } | null;
+  /** Take back the last build, if it is recent and nothing has been done since, and refund it. */
+  undoLastBuild: () => void;
   /** Whether each building wears a label of what it is and how it is doing. @see BuildingLabels */
   labels: boolean;
   setLabels: (on: boolean) => void;
@@ -654,6 +683,20 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   labels: true,
   setLabels: (on) => set({ labels: on }),
   notice: null,
+  lastBuild: null,
+  undoLastBuild: () => {
+    const st = get();
+    if (!st.lastBuild || Date.now() - st.lastBuild.at > UNDO_WINDOW_MS) return;
+    // Only if the top of the history is still that build, all of it.
+    if (!buildCmds.length || peekUndo(history) !== buildCmds[buildCmds.length - 1]) { set({ lastBuild: null }); return; }
+    for (let k = buildCmds.length - 1; k >= 0; k--) {
+      if (peekUndo(history) !== buildCmds[k]) break;
+      get().doUndo();
+    }
+    useMoneyStore.getState().increaseMoney(st.lastBuild.refund);
+    buildCmds = [];
+    set({ lastBuild: null });
+  },
   openSlopPit: () => {
     const st = get();
     for (const s of st.grid.structures.values()) if (s.def === SLOP_PIT.id) return;
@@ -820,6 +863,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const st = get();
     const s0 = st.stroke;
     if (!s0) return;
+    // What a road stroke cost, for taking it back. @see undoLastBuild
+    let roadPaid = 0;
     // A STRUCTURE is placed at one cell by one command, so it skips the stroke
     // machinery — brush size and drag shape mean nothing to it.
     // LOTS GO DOWN IN A LINE: dragged along a street, a lot on every cell of
@@ -829,12 +874,17 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const line = lotLine(st, s0);
       if (!line) { get().commitStructure(s0.head); return; }
       let placed = 0;
+      // A fresh build to take back: the row, not the row and what came before.
+      buildCmds = [];
+      set({ lastBuild: null });
+      batching = true;
       for (const c of line) {
         const before = get().grid.structures.size;
         get().commitStructure(c);
         if (get().grid.structures.size > before) placed++;
         else if (/Not enough money/.test(get().notice?.text ?? "")) break;
       }
+      batching = false;
       // Some cells along a street will not take a lot — a road, a building —
       // and that is not news if others did.
       if (placed > 0 && !/Not enough money/.test(get().notice?.text ?? "")) set({ notice: null });
@@ -922,6 +972,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of road: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
           return;
         }
+        if (fresh > 0) roadPaid = price.toNumber();
       }
       for (const c of cells) b.set("paved", c.x, c.y, value);
     } else {
@@ -967,6 +1018,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const cmd = b.build(strokeLabel(s0, cells.length));
     if (!cmd) { set({ stroke: null }); return; }   // no-op click adds no history
     const touched = commit(st.grid, history, cmd);
+    if (roadPaid > 0) recordBuild(cmd, roadPaid);
     // The columns stand on the terrain, so the terrain moving moves them. Done
     // after the commit, on the grid the command actually produced.
     if (water && touchesSurface(cmd)) syncGround(water, st.grid);
@@ -1054,6 +1106,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // A REFUSAL SAYS WHY, in the game: a click that does nothing and says
     // nothing reads as broken. @see WorldState.notice
     const refuse = (text: string) => { set({ stroke: null, ...(st.playing ? { notice: { text, at: Date.now() } } : {}) }); };
+    // What this build cost, for taking it back. @see undoLastBuild
+    let paid = 0;
     if (!cmd) {
       const why = !demolishing && !upgrade && def ? validatePlacement(st.grid, def, c.x, c.y, rules).reason : undefined;
       refuse(why ? `Can't build here: ${why}` : "Can't build here");
@@ -1076,6 +1130,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         ? upgradeCost(st.grid.structures.get(under)!.def, upgrade.id)
         : buildCost(target.id);
       if (!spendForBuild(price)) { refuse(price ? `Not enough money: ${formatCurrency(price.toNumber())}` : "Not for sale"); return; }
+      paid = price!.toNumber();
     }
     // HOUSING IN THE GAME IS A LOT: zoned, and empty until somebody arrives
     // to live there. @see world/agents/arrivals
@@ -1083,6 +1138,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       for (const s of cmd.structures?.added ?? []) s.residents = 0;
     }
     const touched = commit(st.grid, history, cmd);
+    if (paid > 0) recordBuild(cmd, paid);
     // The bed stands on what is built as well as on the terrain — a placed
     // structure lifts it, a demolish drops it back. @see syncGround
     if (water && touchesSurface(cmd)) syncGround(water, st.grid);

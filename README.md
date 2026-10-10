@@ -98,6 +98,8 @@ Wonders multiply output through the same chains as everything else (`wonderBonus
 
 **The projects log** (`world/play/projects-panel.tsx`) is a quest log in the corner: In progress, Available and Up next (each with what it waits for). It folds to one line, and pulses with a "new" badge when a project becomes available that you haven't seen. Opening it marks them seen (`Session.seenProjects`, kept with the company, as is whether it's open). The slop pit's card sits beside it.
 
+**Undo:** for 15 s after a build, a road stroke or a dragged row of lots, an Undo button takes it back with its money, as long as nothing else has changed the map since (`undoLastBuild`).
+
 **Refusals say why:** a build that can't go there, or can't be paid for, shows a short notice over the build bar ("Can't build here: no road access", "Not enough money: $640").
 
 **Labels** (`world/play/building-labels.tsx`, `building-info.ts`) sit over every building:

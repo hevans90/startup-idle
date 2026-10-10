@@ -654,3 +654,53 @@ describe("lots dragged in a line", () => {
     expect(s().notice?.text).toMatch(/Not enough money/);
   });
 });
+
+describe("undo in the game", () => {
+  afterEach(() => { s().setPlaying(false); useMoneyStore.setState({ money: new Decimal(0) }); });
+  const street = () => {
+    s().resize(14, 8);
+    const g = s().grid;
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 4)] = 1;
+    s().loadGrid(g, s().palette);
+    s().setPlaying(true);
+    s().setTool("placeStructure");
+    s().setStructureDef("kit:intern.t0");
+  };
+  const lots = () => [...s().grid.structures.values()].filter((x) => x.def === "kit:intern.t0").length;
+
+  test("takes back the last placement, with its money", () => {
+    street();
+    useMoneyStore.setState({ money: new Decimal(100) });
+    s().commitStructure({ x: 3, y: 3 });
+    expect(lots()).toBe(1);
+    expect(s().lastBuild?.refund).toBe(15);
+    s().undoLastBuild();
+    expect(lots()).toBe(0);
+    expect(useMoneyStore.getState().money.toNumber()).toBe(100);
+    expect(s().lastBuild).toBeNull();
+  });
+
+  test("takes back a dragged row whole, and only that row", () => {
+    street();
+    useMoneyStore.setState({ money: new Decimal(1000) });
+    s().commitStructure({ x: 1, y: 5 });                      // an earlier lot, kept
+    s().beginStroke({ x: 3, y: 3 }); s().updateStroke({ x: 7, y: 3 }); s().endStroke();
+    expect(lots()).toBe(6);
+    expect(s().lastBuild?.refund).toBe(75);
+    s().undoLastBuild();
+    expect(lots()).toBe(1);
+    expect(useMoneyStore.getState().money.toNumber()).toBe(1000 - 15);
+  });
+
+  test("not once something else has been done to the map", () => {
+    street();
+    useMoneyStore.setState({ money: new Decimal(100) });
+    s().commitStructure({ x: 3, y: 3 });
+    s().setTool("eraseRoad");
+    s().setBrush("point");
+    s().beginStroke({ x: 10, y: 4 }); s().endStroke();
+    s().undoLastBuild();
+    expect(lots()).toBe(1);
+    expect(useMoneyStore.getState().money.toNumber()).toBe(85);
+  });
+});
