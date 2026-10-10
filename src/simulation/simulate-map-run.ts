@@ -25,6 +25,7 @@ import { useMoneyStore } from "../state/money.store";
 import { syncAvailableUpgrades, UPGRADES_CORE, useUpgradeStore } from "../state/upgrades.store";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { structureDef } from "../world/structures/def";
+import { STALL_GRACE } from "../world/projects/works";
 import { syncUnlockedGenerators } from "../state/generators.store";
 import { advanceGameplayOneSecond } from "./run-sim";
 import { resetAllGameStores } from "./reset-game-stores";
@@ -63,14 +64,18 @@ export type MapRunReport = {
   lots: number;
 };
 
-const GATES: readonly ProjectId[] = ["garage", "studio", "campus"];
+const GATES: readonly ProjectId[] = ["garage", "townhall", "studio", "campus"];
 /** Lots a street, beds a lot by tier, and the service each tier grows with. */
 const STREET = 6;
 const TIER_SLOTS = [2, 5, 12, 30];
 const SERVICE_ORDER = ["cafe", "park", "gym"] as const;
 const STOCK = 2;
 
-type Site = { p: ProjectDef; done: number; delivered: number; inFlight: number[]; cost: number; startedAt: number; tiles: number };
+type Site = {
+  p: ProjectDef; done: number; delivered: number; inFlight: number[]; cost: number; startedAt: number; tiles: number;
+  /** Seconds it has sat out of materials with no money for more; past STALL_GRACE its crew has gone home. */
+  stalled: number;
+};
 
 export function simulateMapRun(
   advanceTimersByTime: (ms: number) => void,
@@ -100,7 +105,8 @@ export function simulateMapRun(
     for (const h of pending) out[h.id] = (out[h.id] ?? 0) + 1;
     const o = owned();
     for (const s of sites) {
-      if (s.p.founderBuilds) continue;
+      // A crew stalled long enough has gone home, and is back at its desks. @see STALL_GRACE
+      if (s.p.founderBuilds || s.stalled > STALL_GRACE) continue;
       const crew = buildersFor(s.p, 2, o, s.tiles);
       // Split by headcount, as the works do.
       const eligible = s.p.builders.reduce((n, id) => n + (o[id] ?? 0), 0);
@@ -141,7 +147,8 @@ export function simulateMapRun(
     const lotTier = last && last.lots < STREET ? last.tier : 0;
     const lotPrice = buildCost(lotDef)!.toNumber();
     let best = { kind: "lot" as "lot" | "grow", cost: lotPrice, beds: TIER_SLOTS[lotTier], street: -1 };
-    list.forEach((st, k) => {
+    // Services only once the Town Hall has opened them.
+    if (built.has("townhall")) list.forEach((st, k) => {
       if (st.tier >= SERVICE_ORDER.length) return;
       const cost = buildCost(SERVICE_ORDER[st.tier])!.toNumber();
       const gained = st.lots * (TIER_SLOTS[st.tier + 1] - TIER_SLOTS[st.tier]);
@@ -159,7 +166,7 @@ export function simulateMapRun(
       if (built.has(id) || sites.some((s) => s.p.id === id) || !p.ready(o, unlocked)) continue;
       const def = structureDef(p.structure)!;
       sites.push({
-        p, done: 0, delivered: 0, inFlight: [], startedAt: t,
+        p, done: 0, delivered: 0, inFlight: [], startedAt: t, stalled: 0,
         cost: projectCost(p, useGeneratorStore.getState().getMoneyPerSecond()),
         tiles: def.footprint.w * def.footprint.h,
       });
@@ -172,13 +179,16 @@ export function simulateMapRun(
       const sent = s.delivered + s.inFlight.length;
       if ((cap - s.done) / perLoad + s.inFlight.length < STOCK && sent < s.p.deliveries) {
         const price = s.cost / s.p.deliveries;
-        if (money() >= price) { spend(price); report.spentOnProjects += price; s.inFlight.push(t + truck); }
+        if (money() >= price) { spend(price); report.spentOnProjects += price; s.inFlight.push(t + truck); s.stalled = 0; }
         else report.stalledSeconds++;
       }
+      // Out of materials, and none coming: stalled.
+      if (s.done >= cap - 1e-6 && s.inFlight.length === 0 && s.delivered < s.p.deliveries) s.stalled++;
+      else s.stalled = 0;
       // Work, once the crew is there, as far as the materials go.
       const there = t - s.startedAt >= (s.p.founderBuilds ? founderDrive : walkIn);
       const crew = s.p.founderBuilds ? 1 : buildersFor(s.p, 2, o, s.tiles);
-      if (there) s.done = Math.min(cap, s.done + crew);
+      if (there && s.stalled <= STALL_GRACE) s.done = Math.min(cap, s.done + crew);
       if (s.done >= s.p.work - 1e-6 && s.delivered >= s.p.deliveries) {
         built.add(s.p.id);
         report.opened[s.p.id] = t;

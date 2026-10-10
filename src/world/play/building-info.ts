@@ -80,6 +80,8 @@ function workforce(id: number, ctx: InfoContext): number {
 export function opensText(p: ProjectDef): string {
   if (p.unlocks) return `Opens hiring ${KIND_NAME[p.unlocks][1]}`;
   if (p.grants === "managers") return "Opens managers";
+  if (p.grants === "services") return "Opens cafés, parks and gyms";
+  if (p.grants === "ports") return "Opens seaports";
   if (p.grants === "mandates") return "Opens board mandates";
   return "";
 }

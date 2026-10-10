@@ -18,10 +18,10 @@
  */
 import type { GeneratorId } from "../state/generators.store";
 
-export type ProjectId = "garage" | "studio" | "hq" | "boardroom" | "campus";
+export type ProjectId = "garage" | "studio" | "hq" | "boardroom" | "campus" | "townhall" | "harbour";
 
 /** Features of the game a project can open, beyond hiring. @see featureGateOpen */
-export type FeatureId = "managers" | "mandates";
+export type FeatureId = "managers" | "mandates" | "services" | "ports";
 
 export type ProjectDef = {
   id: ProjectId;
@@ -83,6 +83,20 @@ export const PROJECTS: readonly ProjectDef[] = [
     readyWhen: "nothing",
   },
   {
+    id: "townhall",
+    name: "Town Hall",
+    pitch: "Opens cafés, parks and gyms. Houses near them grow.",
+    structure: "townhall",
+    builders: ["intern"],
+    work: 300,
+    incomeSeconds: 30,
+    floor: 120,
+    deliveries: 6,
+    grants: "services",
+    ready: (owned) => (owned.intern ?? 0) >= 6,
+    readyWhen: "6 interns",
+  },
+  {
     id: "studio",
     name: "Vibe Coder Studio",
     pitch: "A studio for vibe coders. Your interns build it; when it opens, you can hire vibe coders.",
@@ -96,6 +110,20 @@ export const PROJECTS: readonly ProjectDef[] = [
     opens: "employees",
     ready: (owned) => (owned.intern ?? 0) >= 10,
     readyWhen: "10 interns",
+  },
+  {
+    id: "harbour",
+    name: "Harbour Office",
+    pitch: "Opens seaports on the river banks. Boats pay for every call.",
+    structure: "harbour",
+    builders: ["intern", "vibe_coder"],
+    work: 900,
+    incomeSeconds: 45,
+    floor: 1500,
+    deliveries: 8,
+    grants: "ports",
+    ready: (owned) => (owned.vibe_coder ?? 0) >= 5,
+    readyWhen: "5 vibe coders",
   },
   {
     id: "hq",

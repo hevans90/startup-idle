@@ -264,3 +264,28 @@ describe("what a project costs", () => {
     expect(loads).toBeCloseTo(Math.round(loads), 6);
   });
 });
+
+describe("the Town Hall and the Harbour Office", () => {
+  test("open services and ports, shut until they stand where there is a map", () => {
+    const TOWNHALL = projectDef("townhall")!, HARBOUR = projectDef("harbour")!;
+    expect(TOWNHALL.grants).toBe("services");
+    expect(HARBOUR.grants).toBe("ports");
+    expect(TOWNHALL.ready({ intern: 5 }, new Set())).toBe(false);
+    expect(TOWNHALL.ready({ intern: 6 }, new Set())).toBe(true);
+    expect(HARBOUR.ready({ vibe_coder: 5 }, new Set())).toBe(true);
+    const stop = setProjectReader(() => ({ built: new Set(["garage"]), away: {} }));
+    expect(featureGateOpen("services")).toBe(false);
+    expect(featureGateOpen("ports")).toBe(false);
+    stop();
+    const stop2 = setProjectReader(() => ({ built: new Set(["townhall", "harbour"]), away: {} }));
+    expect(featureGateOpen("services")).toBe(true);
+    expect(featureGateOpen("ports")).toBe(true);
+    stop2();
+  });
+
+  test("are given finished to a company whose map already has services, or ports", () => {
+    expect(alreadyEarned(projectDef("townhall")!, {}, new Set(["services"]))).toBe(true);
+    expect(alreadyEarned(projectDef("harbour")!, {}, new Set(["ports"]))).toBe(true);
+    expect(alreadyEarned(projectDef("harbour")!, {}, new Set(["services"]))).toBe(false);
+  });
+});

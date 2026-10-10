@@ -403,6 +403,52 @@ function drawGym(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
   line([[mu, mv, GYM_BODY], [mu, mv, GYM_BODY + 0.9]], DUMBBELL_SHADE, 2);
 }
 
+/**
+ * THE TOWN HALL: pale stone on a stepped base, a row of columns across its
+ * front under a pediment band, and a clock in a little tower on the roof.
+ */
+function drawTownHall(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, 0.25, STONE_TOP, STONE, STONE_SHADE);
+  box(x0 + 0.2, y0 + 0.2, x1 - 0.2, y1 - 0.2, 0.25, 0.45, STONE_TOP, STONE, STONE_SHADE);
+  const w0 = x0 + 0.3, w1 = x1 - 0.3, v0 = y0 + 0.3, v1 = y1 - 0.55;
+  box(w0, v0, w1, v1, 0.45, HALL_BODY, HALL_ROOF, HALL_WALL, HALL_WALL_SHADE);
+  // The columns along the front, under a band across their tops.
+  for (let u = w0 + 0.12; u < w1 - 0.05; u += 0.3) box(u - 0.04, v1 + 0.08, u + 0.04, v1 + 0.16, 0.45, HALL_BODY - 0.35, STONE_TOP, STONE, STONE_SHADE);
+  box(w0, v1, w1, v1 + 0.22, HALL_BODY - 0.35, HALL_BODY, STONE_TOP, STONE, STONE_SHADE);
+  // The clock tower.
+  const mu = (w0 + w1) / 2, mv = (v0 + v1) / 2;
+  box(mu - 0.2, mv - 0.2, mu + 0.2, mv + 0.2, HALL_BODY, HALL_BODY + 1.6, HALL_ROOF, HALL_WALL, HALL_WALL_SHADE);
+  line([[mu - 0.1, mv + 0.201, HALL_BODY + 1.1], [mu + 0.1, mv + 0.201, HALL_BODY + 1.1]], CLOCK, 5);
+  box(mu - 0.24, mv - 0.24, mu + 0.24, mv + 0.24, HALL_BODY + 1.6, HALL_BODY + 1.8, HALL_ROOF, HALL_ROOF, HALL_ROOF);
+}
+
+/** THE HARBOUR OFFICE: a red-brick office with a white trim, and a flagpole. */
+function drawHarbour(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, 0.12, SLAB, SLAB_SIDE, SLAB_SHADE);
+  const w0 = x0 + 0.25, w1 = x1 - 0.35, v0 = y0 + 0.25, v1 = y1 - 0.25;
+  box(w0, v0, w1, v1, 0.12, HARBOUR_BODY, HARBOUR_ROOF, CAFE_BRICK, CAFE_BRICK_SHADE);
+  box(w0 - 0.02, v0 - 0.02, w1 + 0.02, v1 + 0.02, HARBOUR_BODY, HARBOUR_BODY + 0.15, AWNING_WHITE, AWNING_WHITE, STONE_SHADE);
+  for (let u = w0 + 0.2; u < w1 - 0.1; u += 0.3) line([[u, v1 + 0.005, 0.6], [u, v1 + 0.005, HARBOUR_BODY - 0.4]], GLASS, 5);
+  // The flagpole, beside it, flying a blue flag.
+  const fu = x1 - 0.18, fv = y1 - 0.2;
+  line([[fu, fv, 0.12], [fu, fv, HARBOUR_BODY + 2]], POLE, 1.5);
+  box(fu, fv - 0.01, fu + 0.3, fv + 0.01, HARBOUR_BODY + 1.4, HARBOUR_BODY + 1.95, FLAG, FLAG, FLAG);
+}
+
+const HALL_BODY = 2.6;
+const HALL_WALL = 0xe6dfcf;
+const HALL_WALL_SHADE = 0xc2bba9;
+const HALL_ROOF = 0x5b6670;
+const CLOCK = 0xf4f0e2;
+const HARBOUR_BODY = 2.2;
+const HARBOUR_ROOF = 0x3d4a57;
+const POLE = 0xd8dde3;
+const FLAG = 0x2e6fb5;
+
 const CAFE_BODY = 2.2;
 const CAFE_BRICK = 0xb46a4c;
 const CAFE_BRICK_SHADE = 0x8e5039;
@@ -433,6 +479,8 @@ const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
   "office-intern": { body: GARAGE_WALL, finished: drawGarage },
   "office-vibe": { body: BODY, finished: drawStudio },
   "office-10x": { body: TOWER, finished: drawHq },
+  townhall: { body: HALL_BODY, finished: drawTownHall },
+  harbour: { body: HARBOUR_BODY, finished: drawHarbour },
   // Services. @see world/agents/services
   cafe: { body: CAFE_BODY, finished: drawCafe },
   park: { body: 0.2, finished: drawPark },

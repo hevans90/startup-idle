@@ -37,7 +37,10 @@ export function announceOpened(ids: readonly ProjectId[]): void {
   for (const id of ids) {
     const p = projectDef(id);
     if (!p) continue;
-    const news = p.unlocks ? " New hires are available." : p.grants === "managers" ? " You can now hire managers." : "";
+    const news = p.unlocks ? " New hires are available."
+      : p.grants === "managers" ? " You can now hire managers."
+        : p.grants === "services" ? " You can now build cafés, parks and gyms."
+          : p.grants === "ports" ? " You can now build seaports." : "";
     toast.success(`${p.name} has opened.${news}`, { duration: 6000 });
   }
 }

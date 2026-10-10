@@ -22,6 +22,7 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { buildCost } from "../../game/build-cost";
+import { featureGateOpen } from "../../game/projects";
 import { addBeds, housedBy, housingCapacity } from "../../game/housing";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
@@ -82,10 +83,11 @@ function sections(hireable: ReadonlySet<string>): Section[] {
     ];
     if (items.length) out.push({ title: KIND_TITLE[who], colour: KIND_COLOUR[who], items });
   }
+  // Services and ports once their projects have opened them. @see featureGateOpen
   const services = all.filter((d) => serviceOf(d.def.id)).sort((a, b) => a.price - b.price);
-  if (services.length) out.push({ title: "Services", colour: 0x2f8f6b, items: services });
+  if (services.length && featureGateOpen("services")) out.push({ title: "Services", colour: 0x2f8f6b, items: services });
   const ports = all.filter((d) => d.def.port).sort((a, b) => a.price - b.price);
-  if (ports.length) out.push({ title: "Ports", colour: 0x4a90c8, items: ports });
+  if (ports.length && featureGateOpen("ports")) out.push({ title: "Ports", colour: 0x4a90c8, items: ports });
   return out;
 }
 
@@ -108,7 +110,7 @@ const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
 const PANEL = "border border-primary-300 bg-primary-50/95 shadow-md dark:border-primary-700 dark:bg-primary-900/95";
 const TOOL =
-  "flex cursor-pointer items-center gap-1 px-2 py-1 text-xs text-primary-800 hover:bg-primary-200 "
+  "flex cursor-pointer items-center gap-1 whitespace-nowrap px-2 py-1 text-xs text-primary-800 hover:bg-primary-200 "
   + "dark:text-primary-200 dark:hover:bg-primary-800";
 const TOOL_ON = "bg-primary-800 text-primary-50 hover:bg-primary-800 dark:bg-primary-200 dark:text-primary-900 dark:hover:bg-primary-200";
 

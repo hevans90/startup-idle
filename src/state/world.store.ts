@@ -15,12 +15,12 @@ import { createTraffic, type Traffic } from "../world/boats/traffic";
 import { createExports, type Exports } from "../world/boats/exports";
 import { createTown, type Town } from "../world/agents/town";
 import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
-import { createEvolution, type Evolution } from "../world/agents/services";
+import { createEvolution, serviceOf, type Evolution } from "../world/agents/services";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
 import { incomeNow } from "../world/projects/economy";
 import { builtProjects, createWorks, nearestSpot, siteOf, startSiteCommand, type Works } from "../world/projects/works";
-import { PROJECTS, alreadyEarned, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
+import { PROJECTS, alreadyEarned, featureGateOpen, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
@@ -998,6 +998,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         ? upgradeCommand(st.grid, under, rules)
         : def && placeCommand(st.grid, def, c.x, c.y, rules);
     if (!cmd) { set({ stroke: null }); return; }
+    // NOR SERVICES OR PORTS before the projects that open them. @see featureGateOpen
+    if (st.playing && !demolishing && target) {
+      if (serviceOf(target.id) && !featureGateOpen("services")) { set({ stroke: null }); return; }
+      if (target.port && !featureGateOpen("ports")) { set({ stroke: null }); return; }
+    }
     // NO LOTS FOR PEOPLE THE COMPANY CANNOT HIRE: nobody would come to them.
     const lotFor = st.playing && !demolishing && !upgrade && def ? housedBy(def.id)?.id : undefined;
     if (lotFor && !useGeneratorStore.getState().generators.some((g) => g.id === lotFor)) { set({ stroke: null }); return; }

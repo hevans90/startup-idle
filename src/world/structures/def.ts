@@ -185,6 +185,18 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
     footprint: { w: 4, h: 4 },
     render: { kind: "custom", rendererId: "project" },
   },
+  {
+    id: "townhall",
+    name: "Town Hall",
+    footprint: { w: 3, h: 2 },
+    render: { kind: "custom", rendererId: "project" },
+  },
+  {
+    id: "harbour",
+    name: "Harbour Office",
+    footprint: { w: 2, h: 2 },
+    render: { kind: "custom", rendererId: "project" },
+  },
 ];
 
 /**

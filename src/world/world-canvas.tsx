@@ -20,6 +20,8 @@ import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
 import { commuteFactor, liveCommutes } from "./agents/commute";
+import { serviceOf } from "./agents/services";
+import { structureDef } from "./structures/def";
 import { builtProjects, catchUpWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
 import { useSessionStore } from "../state/session.store";
@@ -135,6 +137,11 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     const features = new Set<FeatureId>();
     if (useInnovationStore.getState().unlocks.managers?.unlocked) features.add("managers");
     if (Object.values(useValuationStore.getState().mandateLevels).some((l) => l > 0)) features.add("mandates");
+    // A map that already has services or ports has already earned them.
+    for (const s of useWorldStore.getState().grid.structures.values()) {
+      if (serviceOf(s.def)) features.add("services");
+      if (structureDef(s.def)?.port) features.add("ports");
+    }
     useWorldStore.getState().foundEarnedProjects(owned, features);
     // Whoever was on their way has arrived while the map was not looked at.
     useWorldStore.getState().settleHousing(owned, useSessionStore.getState().remoteBeds ?? {});
