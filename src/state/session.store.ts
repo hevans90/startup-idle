@@ -27,6 +27,16 @@ type SessionState = {
    */
   mapChoice: { seed: number; params: Record<string, number> } | null;
   setMapChoice: (choice: { seed: number; params: Record<string, number> } | null) => void;
+  /**
+   * Projects this company has been SHOWN as available, by id: the projects
+   * log pulses for any available one not in here, and opening the log
+   * marks what it shows. Reset with the company. @see ProjectsLog
+   */
+  seenProjects: string[];
+  markProjectsSeen: (ids: readonly string[]) => void;
+  /** Whether the projects log is open or folded away. */
+  projectsOpen: boolean;
+  setProjectsOpen: (open: boolean) => void;
   touch: () => void;
   /** Stamp a fresh incorporation — a new company begins. */
   incorporate: () => void;
@@ -42,9 +52,18 @@ export const useSessionStore = create<SessionState>()(
       setRemoteBeds: (remoteBeds) => set({ remoteBeds }),
       mapChoice: null,
       setMapChoice: (mapChoice) => set({ mapChoice }),
+      seenProjects: [],
+      markProjectsSeen: (ids) => set((s) => {
+        const fresh = ids.filter((id) => !s.seenProjects.includes(id));
+        return fresh.length ? { seenProjects: [...s.seenProjects, ...fresh] } : s;
+      }),
+      projectsOpen: true,
+      setProjectsOpen: (projectsOpen) => set({ projectsOpen }),
       touch: () => set({ lastSeenAt: Date.now() }),
       incorporate: () => set({ incorporatedAt: Date.now() }),
-      reset: () => set({ lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null }),
+      reset: () => set({
+        lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
+      }),
     }),
     {
       name: "session",
@@ -54,6 +73,8 @@ export const useSessionStore = create<SessionState>()(
         incorporatedAt: s.incorporatedAt,
         remoteBeds: s.remoteBeds,
         mapChoice: s.mapChoice,
+        seenProjects: s.seenProjects,
+        projectsOpen: s.projectsOpen,
       }),
     },
   ),

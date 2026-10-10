@@ -1,12 +1,11 @@
 /**
- * World v2 — the company's next project, as a card on the map.
+ * World v2 — the company's projects, as a log on the map.
  *
- * One card, for the next thing the company could build: what it needs before
- * it can start, then a button to choose its site, then — while it goes up —
- * how far it has got, who is on it, what has been delivered, what is holding
- * it up, and how much of the company to give it. @see game/projects, stepWorks
+ * A card a project: what it opens and costs and a site to choose, or — while
+ * it goes up — how far it has got, what is holding it up, and how much of the
+ * company to give it. @see game/projects, stepWorks
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import {
@@ -15,6 +14,7 @@ import {
 import { useFounderStore } from "../../state/founder.store";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
+import { useSessionStore } from "../../state/session.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../../state/slop-pit.store";
@@ -51,9 +51,14 @@ function Bar({ value, className }: { value: number; className?: string }) {
 }
 
 /**
- * THE COMPANY'S PROJECTS: a card for each going up or ready to start — they
- * can run side by side, crews and all — and one for the next that is not
- * ready yet, saying what it waits for.
+ * THE PROJECTS LOG, like a quest log: what is IN PROGRESS, what is AVAILABLE
+ * to start, and what is UP NEXT and waiting on what — folded away to one line
+ * when you want the map, and PULSING when something has become available that
+ * you have not looked at yet. Opening it marks what it shows as seen; the
+ * seen list and whether it is open are kept with the company.
+ * @see Session.seenProjects
+ *
+ * The slop pit's card goes beside it, not in it: it is not a project.
  */
 export function ProjectsPanel({ className }: { className?: string }) {
   useTicking(250);
@@ -61,6 +66,10 @@ export function ProjectsPanel({ className }: { className?: string }) {
   const generators = useGeneratorStore((s) => s.generators);
   const only = useFounderStore((s) => s.onlyGenerator);
   const unlocks = useInnovationStore((s) => s.unlocks);
+  const isOpen = useSessionStore((s) => s.projectsOpen);
+  const setOpen = useSessionStore((s) => s.setProjectsOpen);
+  const seen = useSessionStore((s) => s.seenProjects);
+  const markSeen = useSessionStore((s) => s.markProjectsSeen);
   const owned: Record<string, number> = {};
   for (const g of generators) owned[g.id] = g.amount;
   const unlocked = new Set(Object.entries(unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
@@ -68,16 +77,76 @@ export function ProjectsPanel({ className }: { className?: string }) {
   // A founder held to one kind of employee hires nothing a project opens:
   // those projects are not theirs to build. @see getUnlockedGeneratorIds
   const open = PROJECTS.filter((p) => !built.has(p.id) && !(only && p.unlocks));
-  const active = open.filter((p) => siteOf(grid, p) || p.ready(owned, unlocked));
-  const teaser = open.find((p) => !active.includes(p));
+  const going = open.filter((p) => siteOf(grid, p));
+  const available = open.filter((p) => !siteOf(grid, p) && p.ready(owned, unlocked));
+  const next = open.filter((p) => !going.includes(p) && !available.includes(p));
+  const fresh = available.filter((p) => !seen.includes(p.id));
   const pit = (owned.vibe_coder ?? 0) >= SLOP_PIT_UNLOCK_COUNT;
-  if (!active.length && !teaser && !pit) return null;
+
+  // OPEN, what it shows has been seen.
+  const freshKey = fresh.map((p) => p.id).join(",");
+  useEffect(() => {
+    if (isOpen && freshKey) markSeen(freshKey.split(","));
+  }, [isOpen, freshKey, markSeen]);
+
+  if (!open.length && !pit) return null;
   return (
-    <div className={twMerge("flex max-h-[70%] flex-col gap-2 overflow-y-auto", className)}>
+    <div className={twMerge("flex max-h-[75%] w-72 flex-col gap-2", className)}>
       {pit && <SlopPitCard />}
-      {active.map((p) => <ProjectCard key={p.id} next={p} unlocked={unlocked} />)}
-      {teaser && <ProjectCard key={teaser.id} next={teaser} unlocked={unlocked} />}
+      {open.length > 0 && (
+        <div className={twMerge(CARD, "flex min-h-0 flex-col p-0")}>
+          <button type="button" onClick={() => setOpen(!isOpen)}
+            className={twMerge(
+              "flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-left hover:bg-primary-100 dark:hover:bg-primary-800",
+              !isOpen && fresh.length > 0 && "animate-pulse",
+            )}
+            title={isOpen ? "Fold the projects log away" : "Open the projects log"}>
+            <b className="flex-1">Projects</b>
+            {fresh.length > 0 && !isOpen && (
+              <span className="bg-emerald-600 px-1.5 text-[10px] font-bold uppercase text-white dark:bg-emerald-500 dark:text-primary-950">
+                {fresh.length} new
+              </span>
+            )}
+            <span className="tabular-nums text-primary-600 dark:text-primary-400">
+              {going.length > 0 && `${going.length} building`}
+              {going.length > 0 && available.length > 0 && " · "}
+              {available.length > 0 && `${available.length} ready`}
+            </span>
+            <span aria-hidden className="text-primary-500">{isOpen ? "▾" : "▸"}</span>
+          </button>
+          {isOpen && (
+            <div className="flex min-h-0 flex-col gap-2 overflow-y-auto border-t border-primary-200 p-2 dark:border-primary-700">
+              {going.length > 0 && <LogSection title="In progress">
+                {going.map((p) => <ProjectCard key={p.id} next={p} className={IN_LOG} />)}
+              </LogSection>}
+              {available.length > 0 && <LogSection title="Available">
+                {available.map((p) => <ProjectCard key={p.id} next={p} className={IN_LOG} />)}
+              </LogSection>}
+              {next.length > 0 && <LogSection title="Up next">
+                {next.map((p) => (
+                  <p key={p.id} className="flex justify-between gap-2 text-primary-700 dark:text-primary-300">
+                    <span>{p.name}</span>
+                    <span className="text-right text-primary-500">needs {p.readyWhen}</span>
+                  </p>
+                ))}
+              </LogSection>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+/** A card inside the log: no frame or shadow of its own, a rule above it. */
+const IN_LOG = "w-full border-0 bg-transparent p-0 shadow-none dark:bg-transparent";
+
+function LogSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-primary-500">{title}</p>
+      {children}
+    </section>
   );
 }
 
@@ -110,8 +179,8 @@ function SlopPitCard() {
   );
 }
 
-/** One project's card: what it waits for, its site to choose, or how it is going. */
-function ProjectCard({ next, unlocked, className }: { next: ProjectDef; unlocked: ReadonlySet<string>; className?: string }) {
+/** One project's card: its site to choose, or how it is going. */
+function ProjectCard({ next, className }: { next: ProjectDef; className?: string }) {
   const grid = useWorldStore((s) => s.grid);
   const placing = useWorldStore((s) => s.placingProject);
   const placeProject = useWorldStore((s) => s.placeProject);
@@ -124,16 +193,6 @@ function ProjectCard({ next, unlocked, className }: { next: ProjectDef; unlocked
   const who = next.builders.map((id) => `${generators.find((g) => g.id === id)?.name ?? id}s`).join(" and ");
 
   const TAG = "text-[10px] font-bold uppercase tracking-wide";
-
-  // NOT YET: one line, what it waits for.
-  if (!site && !next.ready(owned, unlocked)) {
-    return (
-      <div className={twMerge(CARD, "w-auto self-start whitespace-nowrap text-primary-700 dark:text-primary-300", className)}>
-        <span className={twMerge(TAG, "mr-1 text-primary-500")}>Next</span>
-        <b className="text-primary-900 dark:text-primary-100">{next.name}</b> · needs {next.readyWhen}
-      </div>
-    );
-  }
 
   // READY: what it opens, what it costs, and a site to choose.
   if (!site) {

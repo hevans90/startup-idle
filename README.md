@@ -29,7 +29,7 @@ Every company builds a town (`world/play/company-map.tsx`). Under the game's rul
 
 - **Top row:** each district's people against its beds, with who's on the way and who's waiting.
 - **Bottom row:** the tools, Look, Road, Lift, Build, Demolish and Labels.
-- **Build picker:** everything at once, no scrolling: a row per employee kind the company can hire (its Lot and its Office), then Services, then Ports.
+- **Build picker:** everything at once, no scrolling: a row per employee kind the company can hire (its Lot and its Office), then Services once the Town Hall stands, then Ports once the Harbour Office does.
 
 **Housing is zoned, Caesar-style** (`world/agents/arrivals.ts`):
 
@@ -86,8 +86,12 @@ Other project rules:
 | Company HQ | 10 vibe coders | interns + vibe coders | 2,400 | 60 s (≥ $5,000), 12 loads | 3×3 | managers |
 | Boardroom Tower | employee management | interns + vibe coders | 4,000 | 90 s (≥ $20,000), 14 loads | 3×3 | board mandates |
 | Campus | 20 vibe coders | interns + vibe coders | 6,000 | 2 min (≥ $40,000), 16 loads | 4×4 | hiring 10x devs |
+| Town Hall | 6 interns | interns | 300 | 30 s (≥ $120), 6 loads | 3×2 | cafés, parks and gyms |
+| Harbour Office | 5 vibe coders | interns + vibe coders | 900 | 45 s (≥ $1,500), 8 loads | 2×2 | seaports |
 
 The gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`). Simulations, tests and the phone layout are never gated.
+
+**The projects log** (`world/play/projects-panel.tsx`) is a quest log in the corner: In progress, Available and Up next (each with what it waits for). It folds to one line, and pulses with a "new" badge when a project becomes available that you haven't seen. Opening it marks them seen (`Session.seenProjects`, kept with the company, as is whether it's open). The slop pit's card sits beside it.
 
 **Labels** (`world/play/building-labels.tsx`, `building-info.ts`) sit over every building:
 
