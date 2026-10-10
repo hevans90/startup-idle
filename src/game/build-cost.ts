@@ -5,13 +5,9 @@
  * it costs. Without a price, placing housing is a click and the only question
  * is where — with one, it is a decision about when.
  *
- * PRICED OFF THE TIER, not off a table. The kit ids already carry the district
- * and the tier (`kit:intern.t0`), and `housedBy` already reads them — so the
- * price follows the beds, and a building that houses six times as many costs
- * more than six times as much. That is what stops "always build the biggest"
- * being the only move: bigger is better per cell of ground, and worse per
- * pound, so which one is right depends on whether you are short of money or
- * short of frontage.
+ * HOUSING IS ONE LOT A KIND, priced off the beds it holds and what the people
+ * in them cost to hire; it grows from there, served by cafés, parks and gyms.
+ * @see world/agents/services
  */
 import Decimal from "break_infinity.js";
 
@@ -21,16 +17,8 @@ import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { getGeneratorCost } from "../utils/generator-utils";
 
-/** What the smallest housing costs. Everything else is priced from here. */
-const BASE = 8;
-
-/**
- * How much dearer a bed gets in a bigger building.
- *
- * Above one, so the big ones are a premium for the ground they save rather
- * than a strictly better deal. @see buildCost
- */
-const PER_BED = 1.35;
+/** The least a lot costs, whatever the hire prices. */
+const LOT_FLOOR = 15;
 
 /**
  * The price of one building, or null if it is not something the game sells.
@@ -55,11 +43,14 @@ export function buildCost(defId: string): Decimal | null {
   }
   const h = housedBy(defId);
   if (!h || h.slots <= 0) return null;
-  const floor = new Decimal(BASE).times(Decimal.pow(PER_BED, h.slots));
+  // ONE LOT A KIND IS FOR SALE: the smallest. The bigger ones are what a lot
+  // GROWS into, served by cafés, parks and gyms — not something to buy.
+  // @see world/agents/services
+  if (!/\.t0$/.test(defId)) return null;
+  const floor = new Decimal(LOT_FLOOR);
   // SCALED BY WHAT THE PEOPLE IT HOUSES COST TO HIRE: a share of the next
-  // hire's price a bed, more a bed the bigger the building.
-  const tier = /\.(t0|t1|t2|landmark)$/.exec(defId)?.[1] ?? "t0";
-  const live = getGeneratorCost(h.id, 1).times(h.slots * BED_SHARE * (TIER_PREMIUM[tier] ?? 1));
+  // hire's price a bed.
+  const live = getGeneratorCost(h.id, 1).times(h.slots * BED_SHARE);
   return Decimal.max(floor, live).round();
 }
 
@@ -75,9 +66,9 @@ export function buildCost(defId: string): Decimal | null {
 const BED_SHARE = 0.25;
 /** Cafés, parks and gyms: seconds of income, never under a floor. @see world/agents/services */
 const SERVICE_PRICE: Record<string, { seconds: number; floor: number }> = {
-  cafe: { seconds: 30, floor: 150 },
-  park: { seconds: 60, floor: 400 },
-  gym: { seconds: 120, floor: 2000 },
+  cafe: { seconds: 4, floor: 150 },
+  park: { seconds: 8, floor: 400 },
+  gym: { seconds: 16, floor: 2000 },
 };
 /** An office costs this many of the next hire's price, never under a floor. */
 const OFFICE_HIRES = 4;
@@ -86,8 +77,7 @@ const OFFICE_FOR: Record<string, { who: GeneratorId; floor: number }> = {
   "office-vibe": { who: "vibe_coder", floor: 2500 },
   "office-10x": { who: "10x_dev", floor: 50_000 },
 };
-/** More a bed in a bigger building: the ground it saves is the premium. */
-const TIER_PREMIUM: Record<string, number> = { t0: 1, t1: 0.85, t2: 0.7, landmark: 0.55 };
+
 /** Seconds of income a seaport costs, per boat a minute: 30 s, 80 s, 180 s by tier. */
 const PORT_INCOME_SECONDS_PER_CALL = 10;
 

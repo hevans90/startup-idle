@@ -28,11 +28,12 @@ describe("the map's pacing", () => {
         "first 10x dev": { base: fmt(first["10x_dev"]), map: fmt(map.firstHire["10x_dev"]) },
         "core complete": { base: fmt(base.totalSeconds), map: fmt(map.totalSeconds) },
       });
-      console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, stalled: map.stalledSeconds });
+      console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, services: map.services, spentOnServices: map.spentOnServices, stalled: map.stalledSeconds });
     }
-    // PACING GUARDS, from the balance pass (2026-10-09: core 1.45 h ungated,
-    // 1.53 h on a town with an 85% commute; 35 lots). Wide enough for tuning,
-    // tight enough to catch a wall.
+    // PACING GUARDS, from the balance passes (2026-10-10: core 1.45 h
+    // ungated, 1.26 h on a town with an 85% commute, 71 lots and 10 services
+    // with one lot a kind that grows). Wide enough for tuning, tight enough to
+    // catch a wall.
     expect(map.totalSeconds).toBeLessThan(base.totalSeconds * 1.5);
     expect(map.tenth.intern!).toBeLessThan(5 * 60);
     expect(map.opened.campus!).toBeLessThan(30 * 60);
@@ -40,5 +41,7 @@ describe("the map's pacing", () => {
     expect(map.spentOnLots).toBeLessThan(map.spentOnHires * 0.15);
     // A player places dozens of lots in a run, not hundreds.
     expect(map.lots).toBeLessThan(80);
+    // And growing them is worth it: services get bought, not skipped.
+    expect(map.services).toBeGreaterThan(3);
   });
 });

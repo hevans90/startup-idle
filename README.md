@@ -29,7 +29,7 @@ Every company builds a town (`world/play/company-map.tsx`). Under the game's rul
 
 - **Top row:** each district's people against its beds, with who's on the way and who's waiting.
 - **Bottom row:** the tools, Look, Road, Lift, Build, Demolish and Labels.
-- **Build picker:** grouped into housing by district and ports. It only offers lots for employees the company can hire.
+- **Build picker:** everything at once, no scrolling: a row per employee kind the company can hire (its Lot and its Office), then Services, then Ports.
 
 **Housing is zoned, Caesar-style** (`world/agents/arrivals.ts`):
 
@@ -52,7 +52,7 @@ Every company builds a town (`world/play/company-map.tsx`). Under the game's rul
 
 **Services, and housing that evolves** (`world/agents/services.ts`):
 
-- **Services:** a café (2×1), a park (2×2) and a gym (2×2). Each serves homes within 8 road tiles of its door. They're in the picker's Services section, priced at 30, 60 and 120 s of income (at least $150, $400 or $2,000).
+- **Services:** a café (2×1), a park (2×2) and a gym (2×2). Each serves homes within 8 road tiles of its door. They're in the picker's Services section, priced at 4, 8 and 16 s of income (at least $150, $400 or $2,000), so growing a street is cheaper a bed than adding to it.
 - **Growth:** a full house served for the next tier for 20 s grows in place, for free: a lot grows to II with a café, II to III with a café and a park, III to a tower with all three. More beds on the same ground (`Structure.grown`).
 - **Decline:** a house that grew declines one tier after 30 s without what its tier needs, and the people beyond its beds move out until there's room. Houses bought at a tier never decline below it.
 - **10x devs are particular:** they only move into lots served by a café and a park, and the beds row says so when that's what they're waiting for.
@@ -60,7 +60,7 @@ Every company builds a town (`world/play/company-map.tsx`). Under the game's rul
 
 **Prices follow the economy** (`game/build-cost.ts`). Each is the larger of a fixed floor and a live share:
 
-- **Housing:** a quarter of the next hire's price per bed, with a bulk discount for bigger lots (×1, ×0.85, ×0.7, ×0.55 for a tower). Early on the floors make small lots the buy; later, towers are.
+- **Housing:** one lot per kind (1×1, 2 beds) for a quarter of the next hire's price per bed, at least $15. Bigger houses aren't for sale: lots grow into them.
 - **Seaports:** 10 seconds of income per boat a minute they can turn round.
 - **Services:** seconds of income (see above).
 - **Offices:** four times the next hire's price for that kind (at least $150, $2,500 or $50,000).

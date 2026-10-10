@@ -18,7 +18,7 @@
  *    when they arrive — and only for people the company can hire: no lots for
  *    vibe coders before the studio opens. @see world/agents/arrivals
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { buildCost } from "../../game/build-cost";
@@ -59,16 +59,14 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
 
 const KINDS: GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 const KIND_TITLE: Record<GeneratorId, string> = { intern: "Interns", vibe_coder: "Vibe coders", "10x_dev": "10x devs" };
-const TIER_ORDER = ["t0", "t1", "t2", "landmark"];
-const tierOf = (id: string) => TIER_ORDER.indexOf(/\.(t0|t1|t2|landmark)$/.exec(id)?.[1] ?? "");
 
 type ForSale = { def: StructureDef; price: number };
 type Section = { title: string; colour?: number; items: ForSale[] };
 
 /**
- * What is for sale at today's prices, in sections: housing by district, only
- * for people the company can hire, smallest first; then ports.
- * @see buildCost
+ * What is for sale at today's prices, a row a section: for each kind of
+ * employee the company can hire, its lot and its office; then services; then
+ * ports. @see buildCost
  */
 function sections(hireable: ReadonlySet<string>): Section[] {
   const all: ForSale[] = allStructureDefs()
@@ -77,9 +75,9 @@ function sections(hireable: ReadonlySet<string>): Section[] {
   const out: Section[] = [];
   for (const who of KINDS) {
     if (!hireable.has(who)) continue;
-    // Their lots, smallest first, then their office.
+    // Their lot — one; it grows — then their office.
     const items = [
-      ...all.filter((d) => housedBy(d.def.id)?.id === who).sort((a, b) => tierOf(a.def.id) - tierOf(b.def.id)),
+      ...all.filter((d) => housedBy(d.def.id)?.id === who),
       ...all.filter((d) => workplaceKind(d.def.id) === who),
     ];
     if (items.length) out.push({ title: KIND_TITLE[who], colour: KIND_COLOUR[who], items });
@@ -91,11 +89,20 @@ function sections(hireable: ReadonlySet<string>): Section[] {
   return out;
 }
 
-/** A tile's name in its section, which already says whose: "Lot II", "Tower lot", "Seaport II". */
-const TIER_NAME: Record<string, string> = { t0: "Lot", t1: "Lot II", t2: "Lot III", landmark: "Tower lot" };
+/** A tile's name in its row, which already says whose: "Lot", "Office", "Seaport II". */
 const tileName = (def: StructureDef) =>
-  housedBy(def.id) ? TIER_NAME[TIER_ORDER[tierOf(def.id)]] ?? saleName(def)
-    : workplaceKind(def.id) ? "Office" : saleName(def);
+  housedBy(def.id) ? "Lot" : workplaceKind(def.id) ? "Office"
+    : def.port ? saleName(def).replace(/^Seaport/, "Port") : saleName(def);
+
+/** What a tile is, in a few words. */
+function tileNote(def: StructureDef): string {
+  const h = housedBy(def.id);
+  if (h) return `${h.slots} beds · grows`;
+  if (workplaceKind(def.id)) return "workplace";
+  if (serviceOf(def.id)) return `serves ${RANGE} tiles`;
+  if (def.port) return `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}`;
+  return "";
+}
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
@@ -150,39 +157,36 @@ export function BuildBar({ className }: { className?: string }) {
   return (
     <div className={twMerge("flex flex-col items-center gap-1.5 text-primary-900 dark:text-primary-100", className)}>
       {picking && (
-        <div className={twMerge(PANEL, "flex max-h-72 w-[min(34rem,calc(100vw-1rem))] flex-col gap-2 overflow-y-auto p-2")}>
+        // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
+        <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
           {sale.map((sec) => (
-            <section key={sec.title}>
-              <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
-                {sec.colour !== undefined && <span className="h-2 w-2" style={{ background: hex(sec.colour) }} />}
+            <Fragment key={sec.title}>
+              <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
+                {sec.colour !== undefined && <span className="h-2 w-2 shrink-0" style={{ background: hex(sec.colour) }} />}
                 {sec.title}
               </p>
-              <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+              <div className="flex flex-wrap gap-1 sm:flex-nowrap">
                 {sec.items.map(({ def, price }) => {
                   const afford = money.gte(price);
-                  const h = housedBy(def.id);
                   const on = def.id === structureDefId;
                   return (
-                    <button key={def.id} type="button"
+                    <button key={def.id} type="button" title={`${saleName(def)} · ${def.footprint.w}×${def.footprint.h}`}
                       onClick={() => { setStructureDef(def.id); setPicking(false); }}
                       className={twMerge(
-                        "flex cursor-pointer flex-col items-start border border-primary-200 px-2 py-1 text-left text-xs hover:border-primary-500 dark:border-primary-700 dark:hover:border-primary-400",
+                        "flex w-32 cursor-pointer flex-col border border-primary-200 px-1.5 py-0.5 text-left text-xs hover:border-primary-500 dark:border-primary-700 dark:hover:border-primary-400",
                         on && "border-primary-700 bg-primary-200 dark:border-primary-200 dark:bg-primary-800",
                         !afford && "opacity-50",
                       )}>
-                      <span className="font-bold">{tileName(def)}</span>
-                      <span className="text-[10px] text-primary-600 dark:text-primary-400">
-                        {h ? `${h.slots} beds` : workplaceKind(def.id) ? "workplace" : serviceOf(def.id) ? `serves ${RANGE} tiles` : def.port ? `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}` : ""}
-                        {` · ${def.footprint.w}×${def.footprint.h}`}
+                      <span className="flex items-baseline justify-between gap-1">
+                        <b className="truncate">{tileName(def)}</b>
+                        <span className={twMerge("tabular-nums", !afford && "text-red-700 dark:text-red-400")}>{formatCurrency(price)}</span>
                       </span>
-                      <span className={twMerge("tabular-nums", !afford && "text-red-700 dark:text-red-400")}>
-                        {formatCurrency(price)}
-                      </span>
+                      <span className="truncate text-[10px] text-primary-600 dark:text-primary-400">{tileNote(def)}</span>
                     </button>
                   );
                 })}
               </div>
-            </section>
+            </Fragment>
           ))}
         </div>
       )}

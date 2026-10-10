@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import Decimal from "break_infinity.js";
 import { buildCost, canAfford, spendForBuild, upgradeCost } from "./build-cost";
-import { addBeds, foundingRemoteBeds, housedBy } from "./housing";
+import { addBeds, foundingRemoteBeds } from "./housing";
 import { useMoneyStore } from "../state/money.store";
 import { createGrid, fillTerrain, idx } from "../world/grid";
 import { structureDef } from "../world/structures/def";
@@ -80,22 +80,19 @@ describe("frontage is a rule of the game, not of the data", () => {
 describe("what a building costs", () => {
   beforeEach(() => { useMoneyStore.setState({ money: new Decimal(0) }); });
 
-  test("more beds cost more", () => {
-    const t0 = buildCost("kit:intern.t0")!;
-    const t2 = buildCost("kit:intern.t2")!;
-    expect(t2.gt(t0)).toBe(true);
+  /**
+   * ONE LOT A KIND: the bigger houses are what a lot grows into, never
+   * something to buy. @see world/agents/services
+   */
+  test("only the smallest lot of each kind is for sale", () => {
+    for (const who of ["intern", "vibe_coder", "10x_dev"]) {
+      expect(buildCost(`kit:${who}.t0`)).not.toBeNull();
+      for (const tier of ["t1", "t2", "landmark"]) expect(buildCost(`kit:${who}.${tier}`)).toBeNull();
+    }
   });
 
-  /**
-   * The premium is the point: bigger housing is better per cell of GROUND and
-   * worse per pound, so which is right depends on whether you are short of
-   * money or short of frontage. Without it, "build the biggest" is the only
-   * move and the map stops being a decision.
-   */
-  test("a bigger building is dearer PER BED, not merely in total", () => {
-    const t0 = buildCost("kit:intern.t0")!.toNumber() / housedBy("kit:intern.t0")!.slots;
-    const t2 = buildCost("kit:intern.t2")!.toNumber() / housedBy("kit:intern.t2")!.slots;
-    expect(t2).toBeGreaterThan(t0);
+  test("a lot costs at least its floor, and a share of the next hire once that is more", () => {
+    expect(buildCost("kit:intern.t0")!.toNumber()).toBe(15);
   });
 
   test("something that is not housing is not for sale", () => {

@@ -2,8 +2,9 @@
  * The core run AS THE MAP PLAYS IT: the same greedy player as
  * {@link simulateCoreUpgradeRun} — always the cheapest next thing — but with
  * the company's town gating it, as an abstract town rather than a grid:
- *  - BEDS: nobody is hired without one. Lots are bought at their live price,
- *    the cheapest a bed, when the next hire has nowhere to live;
+ *  - BEDS: nobody is hired without one. More come from a new lot, or from
+ *    the next café, park or gym for a street of lots, which grows them all a
+ *    tier — whichever is cheaper a bed, at today's prices;
  *  - ARRIVALS: a hire takes a while to get to the map, and does not work until
  *    they have;
  *  - PROJECTS: the garage, the studio and the campus gate hiring, and are
@@ -23,8 +24,7 @@ import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { syncAvailableUpgrades, UPGRADES_CORE, useUpgradeStore } from "../state/upgrades.store";
 import { getGeneratorCost } from "../utils/generator-utils";
-import { allStructureDefs, structureDef } from "../world/structures/def";
-import { housedBy } from "../game/housing";
+import { structureDef } from "../world/structures/def";
 import { syncUnlockedGenerators } from "../state/generators.store";
 import { advanceGameplayOneSecond } from "./run-sim";
 import { resetAllGameStores } from "./reset-game-stores";
@@ -52,6 +52,9 @@ export type MapRunReport = {
   /** Spent on lots, and on project materials. */
   spentOnLots: number;
   spentOnProjects: number;
+  /** Cafés, parks and gyms bought, and what they cost. */
+  services: number;
+  spentOnServices: number;
   /** Spent on hiring, for scale. */
   spentOnHires: number;
   /** Seconds some site sat stalled for want of money. */
@@ -61,6 +64,10 @@ export type MapRunReport = {
 };
 
 const GATES: readonly ProjectId[] = ["garage", "studio", "campus"];
+/** Lots a street, beds a lot by tier, and the service each tier grows with. */
+const STREET = 6;
+const TIER_SLOTS = [2, 5, 12, 30];
+const SERVICE_ORDER = ["cafe", "park", "gym"] as const;
 const STOCK = 2;
 
 type Site = { p: ProjectDef; done: number; delivered: number; inFlight: number[]; cost: number; startedAt: number; tiles: number };
@@ -111,21 +118,36 @@ export function simulateMapRun(
 
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
-    spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, stalledSeconds: 0, lots: 0,
+    spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
 
-  // The cheapest lot a bed for a kind, at today's prices.
-  const bestLot = (id: GeneratorId) => {
-    let best: { def: string; slots: number; price: number } | null = null;
-    for (const def of allStructureDefs()) {
-      const h = housedBy(def.id);
-      const price = h?.id === id ? buildCost(def.id)?.toNumber() : undefined;
-      if (!h || price === undefined) continue;
-      if (!best || price / h.slots < best.price / best.slots) best = { def: def.id, slots: h.slots, price };
-    }
-    return best!;
+  /**
+   * STREETS: lots in sixes, each street served by the services the player
+   * has bought it, its lots grown to the tier those allow. A service serves
+   * about a street of lots. @see world/agents/services
+   */
+  const streets: Record<GeneratorId, { lots: number; tier: number }[]> = { intern: [], vibe_coder: [], "10x_dev": [] };
+  /**
+   * The cheapest way to more beds for a kind, a bed at a time: a new lot (on
+   * the last street, at its tier once it has grown), or the next service for
+   * a street, which grows every lot on it a tier.
+   */
+  const bestBeds = (id: GeneratorId): { kind: "lot" | "grow"; cost: number; beds: number; street: number } => {
+    const lotDef = `kit:${id}.t0`;
+    const list = streets[id];
+    const last = list[list.length - 1];
+    const lotTier = last && last.lots < STREET ? last.tier : 0;
+    const lotPrice = buildCost(lotDef)!.toNumber();
+    let best = { kind: "lot" as "lot" | "grow", cost: lotPrice, beds: TIER_SLOTS[lotTier], street: -1 };
+    list.forEach((st, k) => {
+      if (st.tier >= SERVICE_ORDER.length) return;
+      const cost = buildCost(SERVICE_ORDER[st.tier])!.toNumber();
+      const gained = st.lots * (TIER_SLOTS[st.tier + 1] - TIER_SLOTS[st.tier]);
+      if (cost / gained < best.cost / best.beds) best = { kind: "grow", cost, beds: gained, street: k };
+    });
+    return best;
   };
 
   /** One second of the town: projects started, worked, supplied and opened; hires arriving. */
@@ -167,7 +189,7 @@ export function simulateMapRun(
     for (let k = pending.length - 1; k >= 0; k--) if (pending[k].at <= t) pending.splice(k, 1);
   };
 
-  type Next = { kind: "gen" | "upgrade" | "lot"; id: string; cost: number };
+  type Next = { kind: "gen" | "upgrade" | "lot" | "grow"; id: string; cost: number };
   const cheapest = (): Next | null => {
     syncAvailableUpgrades();
     const have = new Set(useUpgradeStore.getState().unlockedUpgradeIds);
@@ -180,9 +202,9 @@ export function simulateMapRun(
       const id = g.id as GeneratorId;
       if (roomFor(id, g.amount) >= 1) consider({ kind: "gen", id, cost: getGeneratorCost(id, 1).toNumber() });
       else {
-        // No bed: the next of them costs a lot first.
-        const lot = bestLot(id);
-        consider({ kind: "lot", id: lot.def, cost: lot.price });
+        // No bed: the next of them costs a lot, or a service, first.
+        const way = bestBeds(id);
+        consider({ kind: way.kind, id, cost: way.cost });
       }
     }
     return best;
@@ -201,10 +223,19 @@ export function simulateMapRun(
         }
         continue;
       }
-      if (next.kind === "lot") {
-        const h = housedBy(next.id)!;
-        spend(next.cost); report.spentOnLots += next.cost; report.lots++;
-        beds[h.id] += h.slots;
+      if (next.kind === "lot" || next.kind === "grow") {
+        const id = next.id as GeneratorId, way = bestBeds(id);
+        spend(next.cost);
+        if (way.kind === "lot") {
+          report.spentOnLots += next.cost; report.lots++;
+          const list = streets[id], last = list[list.length - 1];
+          if (last && last.lots < STREET) last.lots++;
+          else list.push({ lots: 1, tier: 0 });
+        } else {
+          report.spentOnServices += next.cost; report.services++;
+          streets[id][way.street].tier++;
+        }
+        beds[id] = (id === "intern" ? 2 : 0) + streets[id].reduce((n, st) => n + st.lots * TIER_SLOTS[st.tier], 0);
       } else if (next.kind === "gen") {
         const id = next.id as GeneratorId;
         useGeneratorStore.getState().purchaseGenerator(id, 1);
