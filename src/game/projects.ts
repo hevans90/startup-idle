@@ -62,6 +62,11 @@ export type ProjectDef = {
   ready: (owned: Partial<Record<GeneratorId, number>>, unlocked: ReadonlySet<string>) => boolean;
   /** Why not yet, for the card. */
   readyWhen: string;
+  /**
+   * What the MAP must have for this project to be offered at all: a river,
+   * for a harbour. Asked by whoever shows the projects. @see hasRiver
+   */
+  needsMap?: "river";
 };
 
 export const PROJECTS: readonly ProjectDef[] = [
@@ -122,6 +127,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 1500,
     deliveries: 8,
     grants: "ports",
+    needsMap: "river",
     ready: (owned) => (owned.vibe_coder ?? 0) >= 5,
     readyWhen: "5 vibe coders",
   },

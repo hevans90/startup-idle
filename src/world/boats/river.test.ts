@@ -3,13 +3,13 @@ import { describe, expect, test } from "bun:test";
 import { FLOW_DEFAULTS, createColumnField } from "../../fluid/columns";
 import { commit, createHistory, undo } from "../edit/commands";
 import { createGrid, idx, setInflow, type Grid } from "../grid";
-import { SEAPORT, SEAPORTS, type StructureDef } from "../structures/def";
+import { SEAPORT, SEAPORTS, structureDef, type StructureDef } from "../structures/def";
 import { planUpgrade, placeCommand, touchesRoad, upgradeCommand, validatePlacement } from "../structures/place";
 import { rampNeed } from "../roads/ramp-derive";
 import { componentCount, createNetwork } from "../roads/network";
 import { applyFixture } from "../debug/fixtures";
 import { createFleet, stepFleet } from "./fleet";
-import { berthsBeside, downstream, mapRiver, poolDepthOf, riversBeside } from "./river";
+import { berthsBeside, downstream, hasRiver, mapRiver, poolDepthOf, riverWithin, riversBeside } from "./river";
 import { createTraffic, stepTraffic, trafficSteer } from "./traffic";
 
 /**
@@ -302,5 +302,29 @@ describe("upgrading a seaport in place", () => {
     expect(g.structureAt[idx(g, 10, 4)]).toBe(-1);
     // With no rivers to ask, there is no bank to grow along.
     expect(upgradeCommand(g, id)).toBeNull();
+  });
+});
+
+describe("the Harbour Office's river", () => {
+  test("a map has a river when water is fed in over its edge, and not for a lake", () => {
+    expect(hasRiver(straight())).toBe(true);
+    const lake = createGrid(24, 16, 1);
+    for (let y = 2; y < 6; y++) for (let x = 3; x < 8; x++) lake.pool[idx(lake, x, y)] = 4;
+    expect(hasRiver(lake)).toBe(false);
+    expect(hasRiver(createGrid(24, 16, 1))).toBe(false);
+  });
+
+  test("goes within three tiles of the river, and no further", () => {
+    const g = straight();                         // river rows 6 to 9
+    const rivers = mapRiver(g, poolDepthOf(g));
+    const harbour = structureDef("harbour")!;
+    expect(riverWithin(rivers, 4, 2, 2, 2, 3)).toBe(true);     // rows 2–3: three from row 6
+    expect(riverWithin(rivers, 4, 0, 2, 2, 3)).toBe(false);    // rows 0–1: five away
+    expect(validatePlacement(g, harbour, 4, 2, { rivers }).ok).toBe(true);
+    const far = validatePlacement(g, harbour, 4, 0, { rivers });
+    expect(far.ok).toBe(false);
+    expect(far.reason).toBe("too far from a river");
+    // Without the rivers to hand, it cannot be shown to be near one.
+    expect(validatePlacement(g, harbour, 4, 2, {}).ok).toBe(false);
   });
 });

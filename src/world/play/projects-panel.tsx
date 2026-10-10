@@ -5,7 +5,7 @@
  * it goes up — how far it has got, what is holding it up, and how much of the
  * company to give it. @see game/projects, stepWorks
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import {
@@ -20,6 +20,8 @@ import { formatCurrency } from "../../utils/money-utils";
 import { SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../../state/slop-pit.store";
 import { opensText } from "./building-info";
 import { builtProjects, materialCap, siteOf, STALL_GRACE } from "../projects/works";
+import { hasRiver } from "../boats/river";
+import { structureDef } from "../structures/def";
 
 const CARD =
   "w-72 border border-primary-400 bg-primary-50/95 p-2 text-xs text-primary-900 shadow "
@@ -76,7 +78,11 @@ export function ProjectsPanel({ className }: { className?: string }) {
   const built = builtProjects(grid);
   // A founder held to one kind of employee hires nothing a project opens:
   // those projects are not theirs to build. @see getUnlockedGeneratorIds
-  const open = PROJECTS.filter((p) => !built.has(p.id) && !(only && p.unlocks));
+  // And a project that needs something the map has not got — a harbour on a
+  // map with no river — is not offered at all. @see ProjectDef.needsMap
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const river = useMemo(() => hasRiver(grid), [grid, grid.rev]);
+  const open = PROJECTS.filter((p) => !built.has(p.id) && !(only && p.unlocks) && !(p.needsMap === "river" && !river));
   const going = open.filter((p) => siteOf(grid, p));
   const available = open.filter((p) => !siteOf(grid, p) && p.ready(owned, unlocked));
   const next = open.filter((p) => !going.includes(p) && !available.includes(p));
@@ -209,7 +215,11 @@ function ProjectCard({ next, className }: { next: ProjectDef; className?: string
         </p>
         {choosing ? (
           <div className="mt-1.5 flex items-center justify-between gap-2">
-            <span className="text-emerald-700 dark:text-emerald-400">Click beside a road</span>
+            <span className="text-emerald-700 dark:text-emerald-400">
+              {structureDef(next.structure)?.placement?.nearRiver
+                ? `Beside a road, within ${structureDef(next.structure)!.placement!.nearRiver} tiles of the river`
+                : "Click beside a road"}
+            </span>
             <button type="button" className={BTN} onClick={() => placeProject(null)}>Cancel</button>
           </div>
         ) : (

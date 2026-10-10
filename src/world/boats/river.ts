@@ -42,6 +42,26 @@ export type RiverMap = {
   exits: { x: number; y: number; river: number }[];
 };
 
+/**
+ * Whether any river tile lies within `d` tiles — along either axis, the
+ * square round it — of a footprint.
+ */
+export function riverWithin(r: RiverMap, x0: number, y0: number, w: number, h: number, d: number): boolean {
+  for (let y = Math.max(0, y0 - d); y < Math.min(r.h, y0 + h + d); y++) {
+    for (let x = Math.max(0, x0 - d); x < Math.min(r.w, x0 + w + d); x++) {
+      if (r.river[y * r.w + x] > 0) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether a map has a RIVER on it at all: water fed over the map's edge, not
+ * a lake. Read off the standing water, so it needs no running water field.
+ * @see Grid.inflow
+ */
+export const hasRiver = (g: Grid): boolean => mapRiver(g, poolDepthOf(g)).sources.length > 0;
+
 /** The mean depth over a tile's columns, storey nought. */
 export function tileDepthOf(c: ColumnField): (i: number, x: number, y: number) => number {
   const n = COLUMNS_PER_TILE;

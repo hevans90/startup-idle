@@ -958,7 +958,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (project && st.tool === "placeStructure" && st.structureDefId === project.structure) {
       const siteRules = {
         ...(st.playing ? { needsRoad: true } : {}),
-        ...(water && structureDef(project.structure)?.placement?.riverside
+        ...(water && (structureDef(project.structure)?.placement?.riverside || structureDef(project.structure)?.placement?.nearRiver)
           ? { rivers: mapRiver(st.grid, tileDepthOf(water.columns)) } : {}),
       };
       // Priced off the income now, in play; the editor never charges.
@@ -990,7 +990,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       ...(st.playing ? { needsRoad: true } : {}),
       // THE RIVERS AS THEY STAND, for a building that must be on a bank. A
       // fact about the building, so the editor obeys it too. @see riverside
-      ...(water && target?.placement?.riverside ? { rivers: mapRiver(st.grid, tileDepthOf(water.columns)) } : {}),
+      ...(water && (target?.placement?.riverside || target?.placement?.nearRiver)
+        ? { rivers: mapRiver(st.grid, tileDepthOf(water.columns)) } : {}),
     };
     const cmd = demolishing
       ? demolishCommand(st.grid, under)

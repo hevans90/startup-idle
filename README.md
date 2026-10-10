@@ -87,7 +87,7 @@ Other project rules:
 | Boardroom Tower | employee management | interns + vibe coders | 4,000 | 90 s (≥ $20,000), 14 loads | 3×3 | board mandates |
 | Campus | 20 vibe coders | interns + vibe coders | 6,000 | 2 min (≥ $40,000), 16 loads | 4×4 | hiring 10x devs |
 | Town Hall | 6 interns | interns | 300 | 30 s (≥ $120), 6 loads | 3×2 | cafés, parks and gyms |
-| Harbour Office | 5 vibe coders | interns + vibe coders | 900 | 45 s (≥ $1,500), 8 loads | 2×2 | seaports |
+| Harbour Office | 5 vibe coders, on a map with a river | interns + vibe coders | 900 | 45 s (≥ $1,500), 8 loads | 2×2, within 3 tiles of the river | seaports |
 
 The gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`). Simulations, tests and the phone layout are never gated.
 

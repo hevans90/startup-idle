@@ -50,6 +50,11 @@ export type Placement = {
    * the editor obeys it too, unlike frontage. @see riversBeside
    */
   riverside?: boolean;
+  /**
+   * Must stand WITHIN this many tiles of a river: near the water, not on it.
+   * A fact about the building, like `riverside`. @see riverWithin
+   */
+  nearRiver?: number;
 };
 
 export type StructureDef = {
@@ -196,6 +201,7 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
     name: "Harbour Office",
     footprint: { w: 2, h: 2 },
     render: { kind: "custom", rendererId: "project" },
+    placement: { nearRiver: 3 },
   },
 ];
 
@@ -253,11 +259,12 @@ export function registerStructureDef(def: StructureDef): void {
 export const allStructureDefs = (): StructureDef[] => [...DEFS.values()];
 
 /** Placement rules with the defaults filled in, so callers never re-state them. */
-export function placementOf(def: StructureDef): Required<Placement> {
+export function placementOf(def: StructureDef): Required<Omit<Placement, "nearRiver">> & Pick<Placement, "nearRiver"> {
   return {
     allowOnPaved: def.placement?.allowOnPaved ?? false,
     autoFlatten: def.placement?.autoFlatten ?? true,
     riverside: def.placement?.riverside ?? false,
+    nearRiver: def.placement?.nearRiver,
   };
 }
 

@@ -17,7 +17,7 @@ import {
   VOID, footprintCells, idx, inBounds, structureAt, type Grid, type Structure,
 } from "../grid";
 import { RAMP } from "../iso";
-import { riverAt, riversBeside, type RiverMap } from "../boats/river";
+import { riverAt, riversBeside, riverWithin, type RiverMap } from "../boats/river";
 import { placementOf, structureDef, type StructureDef } from "./def";
 
 /** Where a structure stroke places: the head cell, with the definition's footprint. */
@@ -158,6 +158,17 @@ export function validatePlacement(
       ok: false,
       cells: verdicts.map(() => ({ ok: false, reason: "no road access" })),
       reason: "no road access",
+      groundHeight,
+    };
+  }
+
+  // NEAR A RIVER, likewise: some river tile within reach of the footprint.
+  const near = placementOf(def).nearRiver;
+  if (near !== undefined && !(rules.rivers && riverWithin(rules.rivers, ox, oy, w, h, near))) {
+    return {
+      ok: false,
+      cells: verdicts.map(() => ({ ok: false, reason: "too far from a river" })),
+      reason: "too far from a river",
       groundHeight,
     };
   }
