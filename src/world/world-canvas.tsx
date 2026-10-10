@@ -20,6 +20,8 @@ import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
 import { commuteFactor, liveCommutes } from "./agents/commute";
+import { setTownBonusReader } from "../game/acquisition";
+import { townBonusOf } from "./projects/town-worth";
 import { serviceOf } from "./agents/services";
 import { structureDef } from "./structures/def";
 import { builtProjects, catchUpWorks } from "./projects/works";
@@ -116,6 +118,14 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const built = housingCapacity(useWorldStore.getState().grid);
       return play ? addBeds(built, useSessionStore.getState().remoteBeds ?? {}) : built;
     });
+  }, [play]);
+  /**
+   * THE TOWN'S WORTH AT A SALE, told to the acquisition while the map is
+   * mounted in the game. @see townBonusOf
+   */
+  useEffect(() => {
+    if (!play) return;
+    return setTownBonusReader(() => townBonusOf(useWorldStore.getState().grid));
   }, [play]);
   /** THE GAME'S RULES, while the game is the one showing the map. @see playing */
   useEffect(() => {

@@ -14,6 +14,8 @@ import {
   canAcquire,
   equityForAccrued,
   performAcquisition,
+  setTownBonusReader,
+  townBonusNow,
 } from "./acquisition";
 
 describe("accruedForEquity (inverse of equityForAccrued)", () => {
@@ -147,5 +149,27 @@ describe("reset scopes", () => {
 
     resetAllGameStores();
     expect(useValuationStore.getState().mandateLevels.runway).toBe(0); // wiped
+  });
+});
+
+describe("a town's worth at a sale", () => {
+  beforeEach(() => { localStorage.clear(); resetAllGameStores(); });
+
+  test("adds its share to the offer, capped, and nothing with no map", () => {
+    const accrued = new Decimal(ACQUISITION_THRESHOLD).mul(50);
+    const plain = equityForAccrued(accrued).toNumber();
+    expect(townBonusNow()).toBe(0);
+    const stop = setTownBonusReader(() => 0.2);
+    // A fifth more, give or take the rounding down either side.
+    expect(equityForAccrued(accrued).toNumber()).toBeGreaterThanOrEqual(Math.floor(plain * 1.2));
+    expect(equityForAccrued(accrued).toNumber()).toBeLessThanOrEqual(Math.ceil((plain + 1) * 1.2));
+    // And the inverse agrees, so the progress bar is honest.
+    const at = accruedForEquity(100);
+    expect(equityForAccrued(at.mul(1.001)).toNumber()).toBeGreaterThanOrEqual(100);
+    stop();
+    const stop2 = setTownBonusReader(() => 9);
+    expect(townBonusNow()).toBe(0.5);
+    stop2();
+    expect(townBonusNow()).toBe(0);
   });
 });

@@ -23,6 +23,26 @@ const EQUITY_BASE = 15;
 const EQUITY_EXP = 0.5;
 
 /**
+ * THE TOWN'S BONUS on a sale: a company that built a good town sells for
+ * more. The map says how much through a registered reader — houses grown,
+ * services, wonders — and with no map registered there is none.
+ * @see setTownBonusReader, townBonusOf
+ */
+let townBonus: (() => number) | null = null;
+
+/** Tell the acquisition how to ask the map for its bonus; returns a function that stops it. */
+export function setTownBonusReader(read: () => number): () => void {
+  townBonus = read;
+  return () => { if (townBonus === read) townBonus = null; };
+}
+
+/** The town's bonus as a share, 0 to `TOWN_BONUS_CAP`. */
+export const townBonusNow = (): number => Math.max(0, Math.min(TOWN_BONUS_CAP, townBonus?.() ?? 0));
+
+/** The most a town adds to a sale. */
+export const TOWN_BONUS_CAP = 0.5;
+
+/**
  * Equity an acquisition would pay for a given total accrued valuation.
  * `floor(BASE · (accrued / THRESHOLD)^EXP)`, zero below the threshold.
  */
@@ -35,7 +55,7 @@ export function equityForAccrued(accrued: Decimal): Decimal {
   const eq = computeEquityMultipliers();
   const mandateEquityBoost = useValuationStore.getState().getEconomyMultipliers().equityBoost;
   return new Decimal(
-    Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP) * eq.prestige * (1 + eq.juice) * mandateEquityBoost),
+    Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP) * eq.prestige * (1 + eq.juice) * mandateEquityBoost * (1 + townBonusNow())),
   );
 }
 
@@ -48,7 +68,7 @@ export function accruedForEquity(targetEquity: number): Decimal {
   if (targetEquity <= 0) return new Decimal(0);
   const eq = computeEquityMultipliers();
   const ratio = Math.pow(
-    targetEquity / (EQUITY_BASE * eq.prestige * (1 + eq.juice)),
+    targetEquity / (EQUITY_BASE * eq.prestige * (1 + eq.juice) * (1 + townBonusNow())),
     1 / EQUITY_EXP,
   );
   return new Decimal(ACQUISITION_THRESHOLD * ratio);

@@ -4,6 +4,7 @@ import {
   accruedForEquity,
   ACQUISITION_THRESHOLD,
   equityForAccrued,
+  townBonusNow,
   performAcquisition,
 } from "../game/acquisition";
 import { SKILL_TREE } from "../game/skill-tree";
@@ -317,6 +318,12 @@ export const AcquisitionTab = () => {
               {eligible ? `+${plain(offer)} Equity` : "—"}
             </span>
           </div>
+          {townBonusNow() > 0 && (
+            <p className="text-[11px] tabular-nums text-emerald-700 dark:text-emerald-400"
+              title="Houses grown, services and wonders on your map. Up to +50%.">
+              Includes a town bonus of +{Math.round(townBonusNow() * 100)}%
+            </p>
+          )}
           <Bar frac={frac} />
           <p className="text-[11px] tabular-nums opacity-60">
             {eligible
