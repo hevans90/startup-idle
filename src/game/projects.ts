@@ -18,7 +18,12 @@
  */
 import type { GeneratorId } from "../state/generators.store";
 
-export type ProjectId = "garage" | "studio" | "hq" | "boardroom" | "campus" | "townhall" | "harbour";
+export type ProjectId =
+  | "garage" | "studio" | "hq" | "boardroom" | "campus" | "townhall" | "harbour"
+  | "datacentre" | "conference" | "ipo";
+
+/** What a WONDER multiplies, for as long as it stands. @see wonderBonus */
+export type Bonus = { money?: number; innovation?: number; valuation?: number };
 
 /** Features of the game a project can open, beyond hiring. @see featureGateOpen */
 export type FeatureId = "managers" | "mandates" | "services" | "ports";
@@ -67,6 +72,11 @@ export type ProjectDef = {
    * for a harbour. Asked by whoever shows the projects. @see hasRiver
    */
   needsMap?: "river";
+  /**
+   * A WONDER's permanent bonus: what it multiplies while it stands, rather
+   * than anything it opens. @see wonderBonus
+   */
+  bonus?: Bonus;
 };
 
 export const PROJECTS: readonly ProjectDef[] = [
@@ -176,7 +186,62 @@ export const PROJECTS: readonly ProjectDef[] = [
     ready: (owned) => (owned.vibe_coder ?? 0) >= 20,
     readyWhen: "20 vibe coders",
   },
+  // THE WONDERS: late, dear, and a bonus for good. @see wonderBonus
+  {
+    id: "datacentre",
+    name: "Data Centre",
+    pitch: "Racks of GPUs humming in the dark. Doubles the company's innovation, for good.",
+    structure: "datacentre",
+    builders: ["vibe_coder", "10x_dev"],
+    work: 10_000,
+    incomeSeconds: 180,
+    floor: 200_000,
+    deliveries: 16,
+    bonus: { innovation: 2 },
+    ready: (owned) => (owned["10x_dev"] ?? 0) >= 3,
+    readyWhen: "3 10x devs",
+  },
+  {
+    id: "conference",
+    name: "Conference Centre",
+    pitch: "Keynotes, lanyards and a stage. Valuation grows half as fast again, for good.",
+    structure: "conference",
+    builders: ["vibe_coder", "10x_dev"],
+    work: 14_000,
+    incomeSeconds: 240,
+    floor: 500_000,
+    deliveries: 18,
+    bonus: { valuation: 1.5 },
+    ready: (owned) => (owned["10x_dev"] ?? 0) >= 8,
+    readyWhen: "8 10x devs",
+  },
+  {
+    id: "ipo",
+    name: "IPO Tower",
+    pitch: "A gold tower with your ticker on it. All income half as much again, for good.",
+    structure: "ipo",
+    builders: ["vibe_coder", "10x_dev"],
+    work: 20_000,
+    incomeSeconds: 300,
+    floor: 2_000_000,
+    deliveries: 20,
+    bonus: { money: 1.5 },
+    ready: (owned) => (owned["10x_dev"] ?? 0) >= 15,
+    readyWhen: "15 10x devs",
+  },
 ];
+
+/**
+ * WHAT THE WONDERS STANDING MULTIPLY one kind of output by: the product of
+ * every built wonder's bonus for it. One with no map, or none built.
+ */
+export function wonderBonus(kind: keyof Bonus): number {
+  if (!reader) return 1;
+  const built = reader().built;
+  let m = 1;
+  for (const p of PROJECTS) if (p.bonus?.[kind] && built.has(p.id)) m *= p.bonus[kind]!;
+  return m;
+}
 
 /**
  * WHAT A PROJECT COSTS, given the company's income a second: so many seconds

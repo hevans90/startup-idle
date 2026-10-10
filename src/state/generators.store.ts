@@ -6,7 +6,7 @@ import {
 } from "zustand/middleware";
 import { setEmployeeSatisfactionReaders } from "../game/employee-satisfaction-read";
 import { roomFor } from "../game/housing";
-import { attendance } from "../game/projects";
+import { attendance, wonderBonus } from "../game/projects";
 import {
   calcGeneratorIncome,
   calcGeneratorPerSecond,
@@ -524,9 +524,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AWAY BUILDING: a desk with nobody at it makes nothing. One here,
           // so the live tick and every readout agree. @see attendance
           const here = attendance(id, get().generators.find((g) => g.id === id)?.amount ?? 0);
+          // AND THE WONDERS standing on the map. @see wonderBonus
           return {
-            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here,
-            innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here,
+            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * wonderBonus("money"),
+            innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * wonderBonus("innovation"),
           };
         },
 
@@ -989,6 +990,8 @@ export const useGeneratorStore = create<GeneratorState>()(
               mult: m.teamLeaderEmpValuationMult,
               modKey: "teamLeaderEmpValuationMult",
             },
+            // The wonders on the map. @see wonderBonus
+            { label: "Wonders", mult: wonderBonus("valuation") },
           ];
           const total = factors.reduce((acc, f) => acc * f.mult, base);
           return { total, base, mps, factors };

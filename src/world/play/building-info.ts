@@ -82,6 +82,13 @@ export function opensText(p: ProjectDef): string {
   if (p.grants === "managers") return "Opens managers";
   if (p.grants === "services") return "Opens cafés, parks and gyms";
   if (p.grants === "ports") return "Opens seaports";
+  if (p.bonus) {
+    const b = p.bonus, parts: string[] = [];
+    if (b.money) parts.push(`income ×${b.money}`);
+    if (b.innovation) parts.push(`innovation ×${b.innovation}`);
+    if (b.valuation) parts.push(`valuation ×${b.valuation}`);
+    return `Wonder: ${parts.join(", ")}, for good`;
+  }
   if (p.grants === "mandates") return "Opens board mandates";
   return "";
 }
@@ -156,6 +163,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const lines: InfoLine[] = [];
     const staff = workforce(s.id, ctx);
     if (workplaceKind(s.def)) lines.push({ text: `${staff} work here` });
+    if (p.bonus) lines.push({ text: opensText(p).replace(/^Wonder: /, "").replace(/, for good$/, ""), tone: "good" });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
   }

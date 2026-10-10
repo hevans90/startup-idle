@@ -439,6 +439,90 @@ function drawHarbour(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void
   box(fu, fv - 0.01, fu + 0.3, fv + 0.01, HARBOUR_BODY + 1.4, HARBOUR_BODY + 1.95, FLAG, FLAG, FLAG);
 }
 
+/**
+ * THE DATA CENTRE: a long low windowless block in dark grey, cooling units in
+ * a row on its roof, and a strip of status lights along its face.
+ */
+function drawDataCentre(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
+  const w0 = x0 + 0.2, w1 = x1 - 0.2, v0 = y0 + 0.2, v1 = y1 - 0.2;
+  box(w0, v0, w1, v1, PLINTH, DC_BODY, DC_ROOF, DC_WALL, DC_WALL_SHADE);
+  // Status lights, in rows, on the faces the camera sees.
+  for (const z of [1.2, 1.8, 2.4]) {
+    line([[w0 + 0.15, v1 + 0.005, z], [w1 - 0.15, v1 + 0.005, z]], DC_LIGHT, 1.5);
+    line([[w1 + 0.005, v0 + 0.15, z], [w1 + 0.005, v1 - 0.15, z]], DC_LIGHT, 1.5);
+  }
+  // Cooling units on the roof.
+  for (let u = w0 + 0.3; u < w1 - 0.25; u += 0.55) {
+    for (let v = v0 + 0.3; v < v1 - 0.25; v += 0.55) box(u, v, u + 0.35, v + 0.35, DC_BODY, DC_BODY + 0.45, DC_FAN, DC_UNIT, DC_UNIT_SHADE);
+  }
+}
+
+/**
+ * THE CONFERENCE CENTRE: a wide glass hall under a curved-looking stepped
+ * roof, with banners down its front.
+ */
+function drawConference(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
+  const w0 = x0 + 0.2, w1 = x1 - 0.2, v0 = y0 + 0.2, v1 = y1 - 0.2;
+  box(w0, v0, w1, v1, PLINTH, CONF_BODY, GLASS_TOP, GLASS, GLASS_SHADE);
+  // The roof, in steps, like a shallow vault.
+  box(w0 - 0.05, v0 - 0.05, w1 + 0.05, v1 + 0.05, CONF_BODY, CONF_BODY + 0.3, CONF_ROOF, CONF_ROOF, CONF_ROOF_SHADE);
+  box(w0 + 0.3, v0 + 0.3, w1 - 0.3, v1 - 0.3, CONF_BODY + 0.3, CONF_BODY + 0.65, CONF_ROOF, CONF_ROOF, CONF_ROOF_SHADE);
+  box(w0 + 0.7, v0 + 0.7, w1 - 0.7, v1 - 0.7, CONF_BODY + 0.65, CONF_BODY + 0.9, CONF_ROOF, CONF_ROOF, CONF_ROOF_SHADE);
+  // Banners down the front, in turn.
+  let k = 0;
+  for (let u = w0 + 0.3; u < w1 - 0.1; u += 0.5) {
+    line([[u, v1 + 0.01, CONF_BODY - 0.3], [u, v1 + 0.01, PLINTH + 0.8]], k++ % 2 ? NEON : BANNER, 6);
+  }
+}
+
+/**
+ * THE IPO TOWER: very tall, gold glass in bands, a stock ticker running round
+ * it near the top, and a beacon on the roof.
+ */
+function drawIpo(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
+  const t0 = x0 + 0.5, t1 = x1 - 0.5, u0 = y0 + 0.5, u1 = y1 - 0.5;
+  box(x0 + 0.25, y0 + 0.25, x1 - 0.25, y1 - 0.25, PLINTH, 2, LOBBY, LOBBY, LOBBY_SHADE);
+  box(t0, u0, t1, u1, 2, IPO_BODY, GOLD, GOLD, GOLD_SHADE);
+  for (let z = 3; z < IPO_BODY - 0.5; z += 1.2) {
+    line([[t0, u1 + 0.005, z], [t1, u1 + 0.005, z]], IPO_BAND, 2);
+    line([[t1 + 0.005, u0, z], [t1 + 0.005, u1, z]], IPO_BAND, 2);
+  }
+  // The ticker: a dark band with green numbers in it.
+  box(t0 - 0.02, u0 - 0.02, t1 + 0.02, u1 + 0.02, IPO_BODY - 2.2, IPO_BODY - 1.6, TICKER, TICKER, TICKER);
+  line([[t0 + 0.1, u1 + 0.025, IPO_BODY - 1.9], [t1 - 0.1, u1 + 0.025, IPO_BODY - 1.9]], TICKER_TEXT, 2);
+  // The beacon.
+  const mu = (t0 + t1) / 2, mv = (u0 + u1) / 2;
+  line([[mu, mv, IPO_BODY], [mu, mv, IPO_BODY + 2.5]], GOLD_SHADE, 2);
+  box(mu - 0.06, mv - 0.06, mu + 0.06, mv + 0.06, IPO_BODY + 2.5, IPO_BODY + 2.7, BEACON, BEACON, BEACON);
+}
+
+const DC_BODY = 3;
+const DC_WALL = 0x50565d;
+const DC_WALL_SHADE = 0x3c4146;
+const DC_ROOF = 0x2e3236;
+const DC_LIGHT = 0x3fe0a8;
+const DC_UNIT = 0x9aa3ad;
+const DC_UNIT_SHADE = 0x77808a;
+const DC_FAN = 0x6b737c;
+const CONF_BODY = 3.2;
+const CONF_ROOF = 0xe8e4da;
+const CONF_ROOF_SHADE = 0xc4bfb2;
+const BANNER = 0x2e6fb5;
+const IPO_BODY = 24;
+const IPO_BAND = 0xfff1b8;
+const TICKER = 0x15181c;
+const TICKER_TEXT = 0x3fe07a;
+const BEACON = 0xff5a4f;
+
 const HALL_BODY = 2.6;
 const HALL_WALL = 0xe6dfcf;
 const HALL_WALL_SHADE = 0xc2bba9;
@@ -480,6 +564,9 @@ const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
   "office-vibe": { body: BODY, finished: drawStudio },
   "office-10x": { body: TOWER, finished: drawHq },
   townhall: { body: HALL_BODY, finished: drawTownHall },
+  datacentre: { body: DC_BODY, finished: drawDataCentre },
+  conference: { body: CONF_BODY, finished: drawConference },
+  ipo: { body: IPO_BODY, finished: drawIpo },
   harbour: { body: HARBOUR_BODY, finished: drawHarbour },
   // Services. @see world/agents/services
   cafe: { body: CAFE_BODY, finished: drawCafe },

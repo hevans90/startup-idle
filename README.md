@@ -63,6 +63,7 @@ Every company builds a town (`world/play/company-map.tsx`). Under the game's rul
 - **Housing:** one lot per kind (1×1, 2 beds) for a quarter of the next hire's price per bed, at least $15. Bigger houses aren't for sale: lots grow into them.
 - **Seaports:** 10 seconds of income per boat a minute they can turn round.
 - **Services:** seconds of income (see above).
+- **Road:** each new tile costs the larger of $2 and 0.25 s of income, the whole stroke or none of it. Lifting road is free.
 - **Offices:** four times the next hire's price for that kind (at least $150, $2,500 or $50,000).
 
 **Projects: the company grows by building** (`game/projects.ts`, `world/projects/works.ts`, `world/play/projects-panel.tsx`). Milestones make a **project** available instead of unlocking things outright. You choose a site, and then:
@@ -88,10 +89,15 @@ Other project rules:
 | Campus | 20 vibe coders | interns + vibe coders | 6,000 | 2 min (≥ $40,000), 16 loads | 4×4 | hiring 10x devs |
 | Town Hall | 6 interns | interns | 300 | 30 s (≥ $120), 6 loads | 3×2 | cafés, parks and gyms |
 | Harbour Office | 5 vibe coders, on a map with a river | interns + vibe coders | 900 | 45 s (≥ $1,500), 8 loads | 2×2, within 3 tiles of the river | seaports |
+| Data Centre (wonder) | 3 10x devs | vibe coders + 10x devs | 10,000 | 3 min (≥ $200,000), 16 loads | 3×3 | innovation ×2, for good |
+| Conference Centre (wonder) | 8 10x devs | vibe coders + 10x devs | 14,000 | 4 min (≥ $500,000), 18 loads | 4×3 | valuation ×1.5, for good |
+| IPO Tower (wonder) | 15 10x devs | vibe coders + 10x devs | 20,000 | 5 min (≥ $2,000,000), 20 loads | 3×3 | income ×1.5, for good |
 
-The gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`). Simulations, tests and the phone layout are never gated.
+Wonders multiply output through the same chains as everything else (`wonderBonus`), and valuation's breakdown lists them. The gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`). Simulations, tests and the phone layout are never gated.
 
 **The projects log** (`world/play/projects-panel.tsx`) is a quest log in the corner: In progress, Available and Up next (each with what it waits for). It folds to one line, and pulses with a "new" badge when a project becomes available that you haven't seen. Opening it marks them seen (`Session.seenProjects`, kept with the company, as is whether it's open). The slop pit's card sits beside it.
+
+**Refusals say why:** a build that can't go there, or can't be paid for, shows a short notice over the build bar ("Can't build here: no road access", "Not enough money: $640").
 
 **Labels** (`world/play/building-labels.tsx`, `building-info.ts`) sit over every building:
 

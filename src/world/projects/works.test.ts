@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  alreadyEarned, attendance, featureGateOpen, projectCost, projectDef, projectGateOpen, setProjectReader,
+  alreadyEarned, attendance, featureGateOpen, projectCost, projectDef, wonderBonus, projectGateOpen, setProjectReader,
 } from "../../game/projects";
 import { createTown, stepTown } from "../agents/town";
 import { commit, createHistory } from "../edit/commands";
@@ -287,5 +287,28 @@ describe("the Town Hall and the Harbour Office", () => {
     expect(alreadyEarned(projectDef("townhall")!, {}, new Set(["services"]))).toBe(true);
     expect(alreadyEarned(projectDef("harbour")!, {}, new Set(["ports"]))).toBe(true);
     expect(alreadyEarned(projectDef("harbour")!, {}, new Set(["services"]))).toBe(false);
+  });
+});
+
+describe("the wonders", () => {
+  test("multiply what they say while they stand, and nothing with no map", () => {
+    expect(wonderBonus("innovation")).toBe(1);
+    const stop = setProjectReader(() => ({ built: new Set(["datacentre"]), away: {} }));
+    expect(wonderBonus("innovation")).toBe(2);
+    expect(wonderBonus("money")).toBe(1);
+    stop();
+    const stop2 = setProjectReader(() => ({ built: new Set(["datacentre", "conference", "ipo"]), away: {} }));
+    expect(wonderBonus("valuation")).toBe(1.5);
+    expect(wonderBonus("money")).toBe(1.5);
+    stop2();
+  });
+
+  test("come late, after 10x devs, and each has a building", () => {
+    for (const [id, need] of [["datacentre", 3], ["conference", 8], ["ipo", 15]] as const) {
+      const p = projectDef(id)!;
+      expect(p.ready({ "10x_dev": need - 1 }, new Set())).toBe(false);
+      expect(p.ready({ "10x_dev": need }, new Set())).toBe(true);
+      expect(structureDef(p.structure)).not.toBeNull();
+    }
   });
 });
