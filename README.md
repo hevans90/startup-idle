@@ -188,7 +188,7 @@ src/
 - **Game loop:** an interval in `App.tsx`. Per-second getters (`getMoneyPerSecond` and friends) mirror the tick's multiplier chains, so displayed rates match earnings.
 - **The world reads, the economy listens:** `game/` imports nothing from `world/` at runtime. The map registers readers for beds and projects while it's mounted.
 - **Grid:** dense typed arrays indexed `y*w+x`: terrain, height, paving, ramps, structures, decks, pipes. An edit marks cells dirty, and the renderer drains them, so an edit redraws only what changed.
-- **Bands:** sprites live in one container per diagonal `x+y`, so nothing inside a band needs sorting. Tall things are split into per-column pieces filed in their own band.
+- **Bands:** sprites live in one container per diagonal `x+y`, so nothing inside a band needs sorting. Bands are cached in render groups, so **Pixi's garbage collector is switched off** (`stopGarbageCollection`): it freed the buffers of chunks that had been off screen for a minute, and their cached draws then failed every frame once they came back. Tall things are split into per-column pieces filed in their own band.
 - **Heights:** in **half steps** (16.5 px), because the art has exactly two rises. Height moves sprites vertically only, which keeps band order and picking cheap.
 - **Roads:**
   - **Painted as areas**, then autotiled from 8-neighbour masks.

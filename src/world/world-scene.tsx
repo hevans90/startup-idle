@@ -153,6 +153,16 @@ function structureHitAt(sl: StructureLayer | null, gx: number, gy: number): Stru
   return best;
 }
 
+/**
+ * Turn off the renderer's garbage collector. One switch: Pixi's older texture
+ * and renderable collectors are only wrappers round it now, and setting them
+ * warns that they are deprecated. @see the note where the scene is built
+ */
+function stopGarbageCollection(renderer: unknown) {
+  const r = renderer as { gc?: { enabled: boolean } };
+  if (r.gc) r.gc.enabled = false;
+}
+
 /** A look-tool press let go within this many px of where it went down is a click, not a pan. */
 const LOOK_CLICK_SLOP = 5;
 
@@ -255,6 +265,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // the host. @see createGpuWaterLayer
       const onGpu = waterOnGpu();
       rendererRef.current = app?.renderer ?? null;
+      // NO GARBAGE COLLECTION. Pixi's frees the GPU data of anything it has
+      // not drawn for a minute — and the map is cached in render groups, a
+      // chunk of bands each, whose instructions still point at that data when
+      // the chunk comes back on screen. Zoomed in with the tab left open, then
+      // zoomed out: "[Buffer] used in submit while destroyed", every frame.
+      // Reproduced by setting `renderer.gc.maxUnusedTime` low and calling
+      // `renderer.gc.run()`. Everything here is destroyed explicitly when it
+      // goes, so there is nothing for a collector to do. @see stopGarbageCollection
+      if (app?.renderer) stopGarbageCollection(app.renderer);
       const fl = water && !onGpu ? createWaterLayer(water.columns, bl, scale) : null;
       gpuRef.current = water && onGpu ? createGpuWaterLayer(water.columns, bl, scale) : null;
       // Between the surface and the drips: a fall is drawn over the water
