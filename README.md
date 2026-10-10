@@ -168,7 +168,6 @@ src/
     play/            #   The game's map UI: build bar, projects, labels, land picker
     edit/  io/       #   Tools, undo/redo, build cursor; map files and saves
     debug/           #   Editor chrome, fixtures, perf and GPU comparison harnesses
-  office/            # The old procedural city (v1), no longer mounted by the game
   simulation/        # Headless sims and reset helpers, used by tests
 ```
 
