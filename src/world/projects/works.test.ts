@@ -312,3 +312,16 @@ describe("the wonders", () => {
     }
   });
 });
+
+describe("two sites at once", () => {
+  test("each takes its share of whoever is still at a desk, so somebody is always earning", () => {
+    const { g, history } = town();
+    commit(g, history, startSiteCommand(g, STUDIO, 12, 6, { needsRoad: true }, 0)!);
+    commit(g, history, startSiteCommand(g, projectDef("townhall")!, 20, 6, { needsRoad: true }, 0)!);
+    const net = createNetwork(g), t = createTown(), w = createWorks();
+    stepWorks(w, g, net, t, { intern: 20 }, () => true, 1 / 30, 0);
+    // Normal is half: ten for the first, then half the ten left for the second.
+    expect([...w.plan.values()].map((p) => p.want)).toEqual([10, 5]);
+    expect(w.away.intern).toBe(15);
+  });
+});

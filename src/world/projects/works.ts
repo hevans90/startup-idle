@@ -61,10 +61,38 @@ export type Works = {
   opened: ProjectId[];
   /** Bumped on a delivery, a stall, an opening: anything worth saving. */
   rev: number;
+  /** This frame's crews, site by site. @see crewPlan */
+  plan: CrewPlan;
 };
 
+/** How many each site's crew is, and how many of each kind. */
+export type CrewPlan = Map<number, { want: number; split: Partial<Record<GeneratorId, number>> }>;
+
+/**
+ * THE CREWS, SITE BY SITE, each a share of WHOEVER IS STILL AT A DESK: a
+ * second site at Normal takes half of the half the first one left, not half
+ * of everyone. Shares of everyone, two sites at Normal took the whole company
+ * and left nobody earning the money their next loads needed. Oldest site
+ * first; a site whose crew has gone home stalled takes nobody. @see buildersFor
+ */
+export function crewPlan(
+  sites: readonly Structure[], owned: Partial<Record<GeneratorId, number>>, idle: (s: Structure) => boolean,
+): CrewPlan {
+  const free: Partial<Record<GeneratorId, number>> = { ...owned };
+  const plan: CrewPlan = new Map();
+  for (const s of [...sites].sort((a, b) => a.id - b.id)) {
+    const p = projectForStructure(s.def);
+    if (!p || !s.build) continue;
+    const want = idle(s) ? 0 : buildersFor(p, s.build.priority, free, s.w * s.h);
+    const split = p.founderBuilds ? {} : splitCrew(p, want, free);
+    for (const [id, n] of Object.entries(split)) free[id as GeneratorId] = Math.max(0, (free[id as GeneratorId] ?? 0) - (n ?? 0));
+    plan.set(s.id, { want, split });
+  }
+  return plan;
+}
+
 export const createWorks = (): Works => ({
-  crews: new Map(), trucks: new Map(), stalled: new Map(), away: {}, opened: [], rev: 0,
+  crews: new Map(), trucks: new Map(), stalled: new Map(), away: {}, opened: [], rev: 0, plan: new Map(),
 });
 
 /** Every site still going up. */
@@ -121,7 +149,7 @@ function splitCrew(p: ProjectDef, crew: number, owned: Partial<Record<GeneratorI
 /** The crew a site wants now: none while it has stood idle too long for want of materials. */
 function wantedCrew(w: Works, s: Structure, p: ProjectDef, owned: Partial<Record<GeneratorId, number>>) {
   if ((w.stalled.get(s.id) ?? 0) > STALL_GRACE) return 0;
-  return buildersFor(p, s.build!.priority, owned, s.w * s.h);
+  return w.plan.get(s.id)?.want ?? buildersFor(p, s.build!.priority, owned, s.w * s.h);
 }
 
 /** Where a site's builders come from: the doors of their housing, else any door, else the rim. */
@@ -151,6 +179,7 @@ export function stepWorks(
   const sites = sitesOf(g);
   const places = placesOf(g, net);
   w.away = {};
+  w.plan = crewPlan(sites, owned, (s) => (w.stalled.get(s.id) ?? 0) > STALL_GRACE);
   const live = new Set(sites.map((s) => s.id));
   for (const id of w.crews.keys()) if (!live.has(id)) w.crews.delete(id);
 
@@ -247,7 +276,7 @@ export function stepWorks(
     // AWAY FROM THEIR DESKS: everyone the site has called, from the moment it
     // calls them. Paused or lowered, they are back on the books at once —
     // anyone still walking there turns round when they arrive.
-    const split = splitCrew(p, want, owned);
+    const split = want ? (w.plan.get(s.id)?.split ?? splitCrew(p, want, owned)) : {};
     for (const [id, n] of Object.entries(split)) w.away[id as GeneratorId] = (w.away[id as GeneratorId] ?? 0) + (n ?? 0);
 
     // OPENING.
@@ -314,11 +343,13 @@ export function catchUpWorks(
   maxSeconds = 2 * 24 * 3600,
 ): ProjectId[] {
   const opened: ProjectId[] = [];
+  // The crews as they would have been, a share of whoever was free. @see crewPlan
+  const plan = crewPlan(sitesOf(g), owned, () => false);
   for (const s of sitesOf(g)) {
     const b = s.build!, p = projectForStructure(s.def);
     if (!p) continue;
     let left = Math.min(maxSeconds, Math.max(0, (now - b.updatedAt) / 1000));
-    const crew = buildersFor(p, b.priority, owned, s.w * s.h);
+    const crew = plan.get(s.id)?.want ?? 0;
     while (left > 0 && crew > 0) {
       const cap = materialCap(b);
       const toCap = (cap - b.done) / crew;

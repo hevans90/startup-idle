@@ -100,17 +100,31 @@ export function simulateMapRun(
   let t = 0;
   const owned = (): Partial<Record<GeneratorId, number>> =>
     Object.fromEntries(useGeneratorStore.getState().generators.map((g) => [g.id, g.amount]));
+  /**
+   * The crews, site by site, each a share of whoever is still at a desk — as
+   * the works size them. A crew stalled long enough has gone home. @see crewPlan
+   */
+  const crews = (): Map<Site, { crew: number; split: Partial<Record<GeneratorId, number>> }> => {
+    const free: Partial<Record<GeneratorId, number>> = { ...owned() };
+    const out = new Map<Site, { crew: number; split: Partial<Record<GeneratorId, number>> }>();
+    for (const s of sites) {
+      if (s.p.founderBuilds) { out.set(s, { crew: 1, split: {} }); continue; }
+      const crew = s.stalled > STALL_GRACE ? 0 : buildersFor(s.p, 2, free, s.tiles);
+      const eligible = s.p.builders.reduce((n, id) => n + (free[id] ?? 0), 0);
+      const split: Partial<Record<GeneratorId, number>> = {};
+      for (const id of s.p.builders) {
+        split[id] = Math.round((crew * (free[id] ?? 0)) / Math.max(1, eligible));
+        free[id] = Math.max(0, (free[id] ?? 0) - split[id]!);
+      }
+      out.set(s, { crew, split });
+    }
+    return out;
+  };
   const away = (): Partial<Record<GeneratorId, number>> => {
     const out: Partial<Record<GeneratorId, number>> = {};
     for (const h of pending) out[h.id] = (out[h.id] ?? 0) + 1;
-    const o = owned();
-    for (const s of sites) {
-      // A crew stalled long enough has gone home, and is back at its desks. @see STALL_GRACE
-      if (s.p.founderBuilds || s.stalled > STALL_GRACE) continue;
-      const crew = buildersFor(s.p, 2, o, s.tiles);
-      // Split by headcount, as the works do.
-      const eligible = s.p.builders.reduce((n, id) => n + (o[id] ?? 0), 0);
-      for (const id of s.p.builders) out[id] = (out[id] ?? 0) + Math.round((crew * (o[id] ?? 0)) / Math.max(1, eligible));
+    for (const { split } of crews().values()) {
+      for (const [id, n] of Object.entries(split)) out[id as GeneratorId] = (out[id as GeneratorId] ?? 0) + (n ?? 0);
     }
     return out;
   };
@@ -171,6 +185,7 @@ export function simulateMapRun(
         tiles: def.footprint.w * def.footprint.h,
       });
     }
+    const plan = crews();
     for (const s of [...sites]) {
       // Loads arriving, and loads sent while the stock is low and the money is there.
       s.delivered += s.inFlight.filter((at) => at <= t).length;
@@ -187,7 +202,7 @@ export function simulateMapRun(
       else s.stalled = 0;
       // Work, once the crew is there, as far as the materials go.
       const there = t - s.startedAt >= (s.p.founderBuilds ? founderDrive : walkIn);
-      const crew = s.p.founderBuilds ? 1 : buildersFor(s.p, 2, o, s.tiles);
+      const crew = plan.get(s)?.crew ?? 0;
       if (there && s.stalled <= STALL_GRACE) s.done = Math.min(cap, s.done + crew);
       if (s.done >= s.p.work - 1e-6 && s.delivered >= s.p.deliveries) {
         built.add(s.p.id);
