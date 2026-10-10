@@ -632,3 +632,25 @@ describe("in the game, road costs money and a refusal says why", () => {
     expect(s().notice?.text).toMatch(/no road access/);
   });
 });
+
+describe("lots dragged in a line", () => {
+  afterEach(() => { s().setPlaying(false); useMoneyStore.setState({ money: new Decimal(0) }); });
+
+  test("a lot on every cell of the drag that takes one, paid for each, until the money runs out", () => {
+    s().resize(14, 8);
+    const g = s().grid;
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 4)] = 1;
+    s().loadGrid(g, s().palette);
+    s().setPlaying(true);
+    s().setTool("placeStructure");
+    s().setStructureDef("kit:intern.t0");
+    useMoneyStore.setState({ money: new Decimal(15 * 5 + 7) });   // five lots, and change
+    s().beginStroke({ x: 1, y: 3 });
+    s().updateStroke({ x: 12, y: 3 });
+    s().endStroke();
+    const lots = [...s().grid.structures.values()].filter((x) => x.def === "kit:intern.t0");
+    expect(lots.length).toBe(5);
+    expect(lots.every((l) => l.y === 3 && l.residents === 0)).toBe(true);
+    expect(s().notice?.text).toMatch(/Not enough money/);
+  });
+});

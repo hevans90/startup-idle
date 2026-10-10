@@ -54,7 +54,7 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
   { id: "eraseRoad", label: "Lift", hint: "Drag to take road up" },
-  { id: "placeStructure", label: "Build", hint: "Zone a lot or build a port beside a road; click a seaport to upgrade it" },
+  { id: "placeStructure", label: "Build", hint: "Build beside a road; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down" },
 ];
 

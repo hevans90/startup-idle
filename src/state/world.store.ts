@@ -52,6 +52,7 @@ import {
 } from "../world/roads/network";
 import {
   isWaterTool, isHeightTool, isPipeTool, isRoadTool, isSlopeTool, isSourceTool, isStructureTool,
+  strokeCells,
   strokeFootprint,
   strokeLabel,
   type BrushId, type Stroke, type ToolId,
@@ -207,6 +208,18 @@ export const getTown = () => town;
 /** And the projects going up on it. @see world/projects/works */
 let works: Works = createWorks();
 export const getWorks = () => works;
+
+/**
+ * The cells a drag of LOTS covers, or null for a drag that is not one: the
+ * build tool, a lot in hand, not a project's site, and a drag rather than a
+ * click. A straight line from where it went down to where it is. @see endStroke
+ */
+export function lotLine(st: { tool: string; structureDefId: string; placingProject: unknown; grid: Grid }, s0: Stroke): Cell[] | null {
+  if (st.tool !== "placeStructure" || st.placingProject) return null;
+  if (!housedBy(st.structureDefId)) return null;
+  if (s0.anchor.x === s0.head.x && s0.anchor.y === s0.head.y) return null;
+  return strokeCells(st.grid, { ...s0, brush: "line" });
+}
 
 /** When a spot for the slop pit was last looked for. @see openSlopPit */
 let slopTriedAt = -Infinity;
@@ -809,7 +822,24 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (!s0) return;
     // A STRUCTURE is placed at one cell by one command, so it skips the stroke
     // machinery — brush size and drag shape mean nothing to it.
-    if (isStructureTool(s0.tool)) { get().commitStructure(s0.head); return; }
+    // LOTS GO DOWN IN A LINE: dragged along a street, a lot on every cell of
+    // the drag that will take one, each paid for, until the money runs out.
+    // @see lotLine
+    if (isStructureTool(s0.tool)) {
+      const line = lotLine(st, s0);
+      if (!line) { get().commitStructure(s0.head); return; }
+      let placed = 0;
+      for (const c of line) {
+        const before = get().grid.structures.size;
+        get().commitStructure(c);
+        if (get().grid.structures.size > before) placed++;
+        else if (/Not enough money/.test(get().notice?.text ?? "")) break;
+      }
+      // Some cells along a street will not take a lot — a road, a building —
+      // and that is not news if others did.
+      if (placed > 0 && !/Not enough money/.test(get().notice?.text ?? "")) set({ notice: null });
+      return;
+    }
     // A BOAT goes on the water under the click, or the one there comes off.
     // Live state like the water: not an edit, and nothing to undo. @see fleet
     if (s0.tool === "boat") {

@@ -33,6 +33,7 @@ Every company builds a town (`world/play/company-map.tsx`). Under the game's rul
 
 **Housing is zoned, Caesar-style** (`world/agents/arrivals.ts`):
 
+- **A row at a time:** drag along a street with a lot in hand to zone a lot on every cell that will take one, each paid for, until the money runs out (`lotLine`). The preview shows which cells will take one.
 - **Lots:** building housing lays out a **lot** (staked ground and a sign in the district's colour). Its beds count towards the hiring cap at once, but nobody lives there yet (`Structure.residents`).
 - **Hires travel in:** a hire is an offer accepted. The new hire travels in from where a road leaves the map, and **produces nothing until they've moved in**. Hired-but-absent people count as away in `attendance`.
 - **Interns come by bus**, shared: it waits for 12 interns, or for the first to have waited 6 s, then drives a round of their lots, filling part-full houses first.
@@ -120,6 +121,8 @@ Wonders multiply output through the same chains as everything else (`wonderBonus
 - **Trips:** cars and people make trips between doors and the map's edges, along cheapest routes.
 - **Driving:** cars keep to the right-hand lane, follow at a gap, and yield at junctions by predicting where others will be.
 - **People:** they walk the kerb with jointed, striding legs.
+
+**The town is worth something at a sale** (`world/projects/town-worth.ts`): the Equity offer gets +1% for each tier a house has grown, +2% for each service and +5% for each wonder, up to +50%. The acquisition tab shows it.
 
 **Saves:** the run's map and the editor's map are kept apart (`world-run`, `world-map`). Selling the company forgets the run's map (`retireRunSave`).
 

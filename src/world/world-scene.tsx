@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { drainDirty, lotLine, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -1721,6 +1721,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const { w, h } = plan.to.footprint;
         cells = footprintCells(plan.x, plan.y, w, h);
         valid = (_g, x, y) => plan.cells[(y - plan.y) * w + (x - plan.x)] ?? { ok: false };
+      } else if (s0.tool === "placeStructure" && lotLine(useWorldStore.getState(), s0)) {
+        // A LINE OF LOTS being dragged: each cell of it, and whether it takes one.
+        const def = structureDef(structureDefId)!;
+        cells = lotLine(useWorldStore.getState(), s0)!;
+        const ok = new Map(cells.map((c) => [`${c.x},${c.y}`, validatePlacement(grid, def, c.x, c.y, rules).ok]));
+        valid = (_g, x, y) => ({ ok: ok.get(`${x},${y}`) ?? false });
       } else if (s0.tool === "placeStructure") {
         const def = structureDef(structureDefId);
         if (def) {
