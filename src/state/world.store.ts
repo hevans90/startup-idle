@@ -39,7 +39,7 @@ import {
 } from "../world/water/field";
 import { derivedSlope } from "../world/edit/slope";
 import { RAMP } from "../world/iso";
-import { demolishCommand, placeCommand, upgradeCommand } from "../world/structures/place";
+import { demolishCommand, placeCommand, upgradeCommand, validatePlacement } from "../world/structures/place";
 
 import {
   PatchBuilder, canRedo, canUndo, commit, createHistory, peekRedo, peekUndo,
@@ -61,7 +61,8 @@ import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
-import { buildCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { buildCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
 import { forgetGenParams, loadGenParams, saveGenParams } from "../world/io/gen-settings";
@@ -388,6 +389,12 @@ type WorldState = {
    * time away, or into housing from before lots. @see settleHousing
    */
   settleHousing: (owned: Partial<Record<string, number>>, remote: Partial<Record<string, number>>) => void;
+  /**
+   * What the game last refused, and when: a build that could not go there, or
+   * could not be paid for. Shown over the build bar for a moment. Null for
+   * nothing to say. @see BuildBar
+   */
+  notice: { text: string; at: number } | null;
   /** Whether each building wears a label of what it is and how it is doing. @see BuildingLabels */
   labels: boolean;
   setLabels: (on: boolean) => void;
@@ -633,6 +640,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   labels: true,
   setLabels: (on) => set({ labels: on }),
+  notice: null,
   openSlopPit: () => {
     const st = get();
     for (const s of st.grid.structures.values()) if (s.def === SLOP_PIT.id) return;
@@ -875,6 +883,16 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       }
     } else if (isRoadTool(s0.tool)) {
       const value = s0.tool === "eraseRoad" ? VOID_MATERIAL : PAVED_MATERIAL;
+      // ROAD COSTS MONEY in the game, a tile at a time — new tiles only, and
+      // the whole stroke or none of it. Lifting road is free. @see roadCost
+      if (st.playing && s0.tool === "paintRoad") {
+        const fresh = cells.filter((c) => st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL).length;
+        const price = roadCost(fresh);
+        if (fresh > 0 && !spendForBuild(price)) {
+          set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of road: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
+          return;
+        }
+      }
       for (const c of cells) b.set("paved", c.x, c.y, value);
     } else {
       const value = s0.tool === "erase" ? VOID_MATERIAL : st.material;
@@ -963,7 +981,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       };
       // Priced off the income now, in play; the editor never charges.
       const cmd = startSiteCommand(st.grid, project, c.x, c.y, siteRules, Date.now(), st.playing ? incomeNow() : 0);
-      if (!cmd) { set({ stroke: null }); return; }
+      if (!cmd) {
+        const def = structureDef(project.structure);
+        const why = def ? validatePlacement(st.grid, def, c.x, c.y, siteRules).reason : undefined;
+        set({ stroke: null, ...(st.playing ? { notice: { text: why ? `Can't build here: ${why}` : "Can't build here", at: Date.now() } } : {}) });
+        return;
+      }
       const touched = commit(st.grid, history, cmd);
       if (water && touchesSurface(cmd)) syncGround(water, st.grid);
       if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
@@ -998,15 +1021,22 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       : upgrade
         ? upgradeCommand(st.grid, under, rules)
         : def && placeCommand(st.grid, def, c.x, c.y, rules);
-    if (!cmd) { set({ stroke: null }); return; }
+    // A REFUSAL SAYS WHY, in the game: a click that does nothing and says
+    // nothing reads as broken. @see WorldState.notice
+    const refuse = (text: string) => { set({ stroke: null, ...(st.playing ? { notice: { text, at: Date.now() } } : {}) }); };
+    if (!cmd) {
+      const why = !demolishing && !upgrade && def ? validatePlacement(st.grid, def, c.x, c.y, rules).reason : undefined;
+      refuse(why ? `Can't build here: ${why}` : "Can't build here");
+      return;
+    }
     // NOR SERVICES OR PORTS before the projects that open them. @see featureGateOpen
     if (st.playing && !demolishing && target) {
-      if (serviceOf(target.id) && !featureGateOpen("services")) { set({ stroke: null }); return; }
-      if (target.port && !featureGateOpen("ports")) { set({ stroke: null }); return; }
+      if (serviceOf(target.id) && !featureGateOpen("services")) { refuse("Services need the Town Hall"); return; }
+      if (target.port && !featureGateOpen("ports")) { refuse("Seaports need the Harbour Office"); return; }
     }
     // NO LOTS FOR PEOPLE THE COMPANY CANNOT HIRE: nobody would come to them.
     const lotFor = st.playing && !demolishing && !upgrade && def ? housedBy(def.id)?.id : undefined;
-    if (lotFor && !useGeneratorStore.getState().generators.some((g) => g.id === lotFor)) { set({ stroke: null }); return; }
+    if (lotFor && !useGeneratorStore.getState().generators.some((g) => g.id === lotFor)) { refuse("Nobody to live there yet"); return; }
     // AND IT HAS TO BE PAID FOR, before anything is committed. Checked and
     // charged together so a refusal cannot leave the money spent — the same
     // order the hiring gate needs, and for the same reason.
@@ -1015,7 +1045,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const price = upgrade
         ? upgradeCost(st.grid.structures.get(under)!.def, upgrade.id)
         : buildCost(target.id);
-      if (!spendForBuild(price)) { set({ stroke: null }); return; }
+      if (!spendForBuild(price)) { refuse(price ? `Not enough money: ${formatCurrency(price.toNumber())}` : "Not for sale"); return; }
     }
     // HOUSING IN THE GAME IS A LOT: zoned, and empty until somebody arrives
     // to live there. @see world/agents/arrivals

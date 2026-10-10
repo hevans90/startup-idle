@@ -122,6 +122,19 @@ const CALL_SECONDS: Record<number, number> = { 1: 0.5, 2: 0.75, 3: 1 };
 const CALL_FLOOR: Record<number, number> = { 1: 4, 2: 8, 3: 16 };
 
 /**
+ * WHAT ROAD COSTS: so many tiles, each the larger of a little money and a
+ * quarter of a second of income — cheap, so a town is laid out for where
+ * things should go and not for what the road costs, but not nothing, so it is
+ * not painted everywhere.
+ */
+export function roadCost(tiles: number): Decimal {
+  const each = Math.max(ROAD_FLOOR, safeIncome() * ROAD_INCOME_SECONDS);
+  return new Decimal(Math.round(each * tiles));
+}
+const ROAD_FLOOR = 2;
+const ROAD_INCOME_SECONDS = 0.25;
+
+/**
  * What upgrading one building into another costs, or null if it is not sold:
  * the DIFFERENCE between the two prices, so a port built a tier at a time
  * costs exactly what building the top tier outright would have. Never less

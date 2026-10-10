@@ -18,7 +18,7 @@
  *    when they arrive — and only for people the company can hire: no lots for
  *    vibe coders before the studio opens. @see world/agents/arrivals
  */
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { buildCost } from "../../game/build-cost";
@@ -106,6 +106,9 @@ function tileNote(def: StructureDef): string {
   return "";
 }
 
+/** How long a refusal stays up, ms. */
+const NOTICE_MS = 3500;
+
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
 const PANEL = "border border-primary-300 bg-primary-50/95 shadow-md dark:border-primary-700 dark:bg-primary-900/95";
@@ -128,6 +131,15 @@ export function BuildBar({ className }: { className?: string }) {
   const money = useMoneyStore((s) => s.money);
   const generators = useGeneratorStore((s) => s.generators);
   const [picking, setPicking] = useState(false);
+  // WHAT WAS LAST REFUSED, for a few seconds. @see WorldState.notice
+  const notice = useWorldStore((s) => s.notice);
+  const [, setNow] = useState(0);
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNow(Date.now()), NOTICE_MS + 50);
+    return () => clearTimeout(id);
+  }, [notice]);
+  const showNotice = notice && Date.now() - notice.at < NOTICE_MS;
 
   // Who the company can hire: the generators it has unlocked. @see getUnlockedGeneratorIds
   const hireable = new Set(generators.map((g) => g.id));
@@ -158,6 +170,11 @@ export function BuildBar({ className }: { className?: string }) {
 
   return (
     <div className={twMerge("flex flex-col items-center gap-1.5 text-primary-900 dark:text-primary-100", className)}>
+      {showNotice && (
+        <p role="status" className="border border-red-300 bg-red-50/95 px-2 py-1 text-xs text-red-800 shadow dark:border-red-800 dark:bg-red-950/90 dark:text-red-200">
+          {notice!.text}
+        </p>
+      )}
       {picking && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>

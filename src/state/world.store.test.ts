@@ -602,3 +602,33 @@ describe("the slop pit", () => {
     expect([...s().grid.structures.values()].filter((x) => x.def === "slop-pit").length).toBe(1);
   });
 });
+
+describe("in the game, road costs money and a refusal says why", () => {
+  afterEach(() => { s().setPlaying(false); useMoneyStore.setState({ money: new Decimal(0) }); });
+
+  test("a road is paid for a new tile at a time, and refused whole when it cannot be", () => {
+    s().resize(12, 12);
+    s().setPlaying(true);
+    s().setTool("paintRoad");
+    s().setBrush("point");
+    useMoneyStore.setState({ money: new Decimal(3) });
+    s().beginStroke({ x: 2, y: 2 }); s().endStroke();
+    expect(s().grid.paved[idx(s().grid, 2, 2)]).not.toBe(0);
+    expect(useMoneyStore.getState().money.toNumber()).toBe(1);
+    // Two more dollars is one tile, and there is one: refused, and said so.
+    useMoneyStore.setState({ money: new Decimal(1) });
+    s().beginStroke({ x: 3, y: 2 }); s().endStroke();
+    expect(s().grid.paved[idx(s().grid, 3, 2)]).toBe(0);
+    expect(s().notice?.text).toMatch(/Not enough money/);
+  });
+
+  test("a building that cannot go there says why", () => {
+    s().resize(12, 12);
+    s().setPlaying(true);
+    useMoneyStore.setState({ money: new Decimal(1000) });
+    s().setTool("placeStructure");
+    s().setStructureDef("kit:intern.t0");
+    s().commitStructure({ x: 6, y: 6 });     // no road anywhere
+    expect(s().notice?.text).toMatch(/no road access/);
+  });
+});
