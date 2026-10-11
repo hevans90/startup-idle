@@ -9,7 +9,8 @@ import { twMerge } from "tailwind-merge";
 import { useTicking } from "../../hooks/use-ticking";
 import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
-import { HH, HW } from "../iso";
+import { cellToWorld, HH, HW } from "../iso";
+import { idx, inBounds } from "../grid";
 import type { GameEvent } from "../events/events";
 
 const CARD =
@@ -102,7 +103,11 @@ export function EventMarkers() {
       for (const e of useWorldStore.getState().events) {
         const el = els.current.get(e.id);
         if (!el) continue;
-        const p = vp.toScreen((e.where.x - e.where.y) * HW, (e.where.x + e.where.y) * HH);
+        // ON THE GROUND THERE, not at sea level: a tile's height lifts it.
+        const g = useWorldStore.getState().grid;
+        const h = inBounds(g, e.where.x, e.where.y) ? g.height[idx(g, e.where.x, e.where.y)] : 0;
+        const w = cellToWorld(e.where.x, e.where.y, h);
+        const p = vp.toScreen(w.wx, w.wy);
         el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -50%)`;
       }
     };
@@ -112,12 +117,17 @@ export function EventMarkers() {
   }, []);
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {/* THE PING ON A RING INSIDE the one that is placed: the animation
+          is a transform, and on the placed one it overrode the placing and
+          sent the ring pulsing from the corner of the screen. */}
       {live.map((e) => (
         <div key={e.id} ref={(el) => { if (el) els.current.set(e.id, el); else els.current.delete(e.id); }}
-          className={twMerge(
-            "absolute left-0 top-0 h-16 w-16 animate-ping rounded-full border-4",
-            e.phase === "active" ? "border-red-500/80" : "border-amber-400/80",
+          className="absolute left-0 top-0 h-16 w-16">
+          <div className={twMerge(
+            "h-full w-full animate-ping rounded-full border-4",
+            e.phase === "active" ? "border-red-500/80 dark:border-red-400/80" : "border-amber-400/80 dark:border-amber-300/80",
           )} />
+        </div>
       ))}
     </div>
   );
