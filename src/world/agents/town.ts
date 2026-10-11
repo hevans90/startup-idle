@@ -44,7 +44,7 @@ export type Mover = {
    * job are not the town's trips: they are counted apart, reported when they
    * arrive, and a builder at work stands where it is. @see world/projects
    */
-  job?: { site: number; role: "builder" | "home" | "working" | "truck" | "arrive" | "leave" };
+  job?: { site: number; role: "builder" | "home" | "working" | "truck" | "arrive" | "leave" | "moving-in" };
   /**
    * Seconds to stand where it is before going on: a bus at a stop, letting
    * its passengers off. @see world/agents/arrivals
@@ -444,6 +444,33 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
 
 /** Swings of a hammer a second, in phase, for a builder at work. */
 const WORK_RATE = 9;
+
+/**
+ * SOMEBODY WALKING IN: off a bus or out of a car at a door, and the few steps
+ * from the road into the house, after `wait` seconds standing. Not a trip on
+ * the roads: a line of its own, from the stop to the middle of the house.
+ * @see stepArrivals
+ */
+export function walkInto(t: Town, g: Grid, from: Cell, to: Cell, structure: number, wait = 0): Mover {
+  const side = (rand(t) - 0.5) * 0.3;
+  const start = { x: from.x + side * (to.y - from.y), y: from.y + side * (to.x - from.x) };
+  const line = [start, { x: to.x, y: to.y }];
+  const at = new Float32Array([0, Math.hypot(to.x - start.x, to.y - start.y)]);
+  const m: Mover = {
+    id: t.next++, kind: "person",
+    // Its PATH is the stop alone, which is paved: the walk itself crosses the
+    // verge, and a mover whose path leaves the road is taken off it.
+    path: [from, from], line, at, s: 0, speed: 0,
+    cruise: PERSON_CRUISE * (1 + (rand(t) - 0.5) * 2 * SPREAD),
+    x: start.x, y: start.y, z: roadHeightAt(g, start.x, start.y),
+    heading: Math.atan2(to.y - start.y, to.x - start.x),
+    stuck: 0, pushing: 0, colour: pick(t, SHIRTS), phase: rand(t) * Math.PI * 2,
+    job: { site: structure, role: "moving-in" },
+    wait,
+  };
+  t.movers.push(m);
+  return m;
+}
 
 /**
  * Send somebody, or a truck, on a job from one place to another. Null if there

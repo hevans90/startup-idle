@@ -39,6 +39,7 @@ Every company builds a town (`world/play/company-map.tsx`). Under the game's rul
 - **Interns come by bus**, shared: it waits for 12 interns, or for the first to have waited 6 s, then drives a round of their lots, filling part-full houses first.
 - **Vibe coders come by car** and **10x devs by limousine**, one each.
 - **Conditions to arrive:** a lot of their kind with a free bed (counting people already on the way), and a road to it from the map's edge. If either is missing they wait, and the beds row says why.
+- **They walk in:** passengers get off at each stop and walk from the road to their door, a few at a time (`walkInto`).
 - **Houses rise as they fill**, floor by floor.
 - **On load:** rides aren't saved, so loading the map moves everyone straight in (`settleHousing`).
 - **Remote beds:** a new company has 2 intern beds off the map, so it can earn its first house. A company that had staff before it had a map keeps them all (`foundingRemoteBeds`).

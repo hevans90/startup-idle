@@ -218,7 +218,7 @@ type Prism = (
 function drawPerson(g: Graphics, m: Mover, s: number, at: At, prism: Prism) {
   const skin = ofId(m.id, 0x51, SKINS), legs = ofId(m.id, 0x33, TROUSERS);
   // A BUILDER wears a hard hat, so a crew can be told from a crowd. @see stepWorks
-  const hair = m.job ? HARD_HAT : ofId(m.id, 0x7a, HAIRS);
+  const hair = m.job && m.job.role !== "moving-in" ? HARD_HAT : ofId(m.id, 0x7a, HAIRS);
   const ch = Math.cos(m.heading), sh = Math.sin(m.heading);
   // Which side is nearer the camera, which looks down the +u +v diagonal.
   const nearSide = -sh + ch >= 0 ? 1 : -1;

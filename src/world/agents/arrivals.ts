@@ -32,7 +32,7 @@ import type { Grid, Structure } from "../grid";
 import type { Network } from "../roads/network";
 import type { Place } from "./roads";
 import { MOVE_IN_NEEDS, liveCoverage, meets } from "./services";
-import { sendOnJob, type Mover, type Town } from "./town";
+import { sendOnJob, walkInto, type Mover, type Town } from "./town";
 
 /** How each kind of employee comes. */
 export const VEHICLE: Record<GeneratorId, "bus" | "car" | "limo"> = {
@@ -49,6 +49,9 @@ const CAR_GAP = 1.2;
 const LIMO_GAP = 2.5;
 /** Seconds a bus stands at a stop, letting people off. */
 const DWELL = 1.4;
+/** At most this many seen walking in from one stop, this far apart, seconds. */
+const WALKERS_MAX = 6;
+const WALK_GAP = 0.35;
 
 /** Who is in a vehicle, and where each of them is going: stops, in order. */
 export type Ride = { who: GeneratorId; drops: { structure: number; n: number }[] };
@@ -179,9 +182,16 @@ export function stepArrivals(
     a.rides.delete(m.id);
     if (!ride) continue;
     const drop = ride.drops.shift();
-    if (drop) moveIn(a, g.structures.get(drop.structure), ride.who, drop.n);
+    const moved = drop ? moveIn(a, g.structures.get(drop.structure), ride.who, drop.n) : 0;
     const here = placeOf(m.job.site);
     if (!here) continue;
+    // AND THEY WALK IN, one after another, from where they got off to the
+    // door: a few people on foot is what arriving looks like. @see walkInto
+    const house = drop && g.structures.get(drop.structure);
+    if (house) {
+      const to = { x: house.x + (house.w - 1) / 2, y: house.y + (house.h - 1) / 2 };
+      for (let k = 0; k < Math.min(moved, WALKERS_MAX); k++) walkInto(town, g, here, to, house.id, k * WALK_GAP);
+    }
     const next = ride.drops[0];
     const nextDoor = next && placeOf(next.structure);
     if (next && nextDoor) {

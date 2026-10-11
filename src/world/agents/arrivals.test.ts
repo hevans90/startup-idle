@@ -45,6 +45,22 @@ describe("new hires arriving", () => {
     expect(a.rides.size).toBe(0);
   });
 
+  test("and they are seen walking in from the bus to the house, not in hard hats", () => {
+    const g = street("kit:intern.t1", [8]);
+    const net = createNetwork(g), t = createTown(), a = createArrivals();
+    let most = 0, endedAtHouse = false;
+    for (let k = 0; k < Math.round((BUS_WAIT + 40) * 30); k++) {
+      stepTown(t, g, net, 0, 1 / 30);
+      stepArrivals(a, g, net, t, { intern: 4 }, {}, 1 / 30);
+      for (const m of t.arrived) if (m.job?.role === "moving-in" && Math.abs(m.x - 8) < 0.05 && Math.abs(m.y - 4) < 0.05) endedAtHouse = true;
+      t.arrived.length = 0;
+      most = Math.max(most, t.movers.filter((m) => m.job?.role === "moving-in").length);
+    }
+    expect(housingResidents(g).intern).toBe(4);
+    expect(most).toBeGreaterThanOrEqual(2);
+    expect(endedAtHouse).toBe(true);
+  });
+
   test("a bus waits for its first intern a while, not for ever", () => {
     const g = street("kit:intern.t0", [4]);
     const early = run(g, { intern: 1 }, BUS_WAIT - 1);
