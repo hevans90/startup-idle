@@ -92,6 +92,11 @@ export function computeOfflineProgress(
     useInnovationStore.getState().tickManagers();
   }
 
+  // AND THE SEAPORTS, at the rate they were earning when the map last ran:
+  // boats only move while it does, but the trade goes on. @see portIncomePerSecond
+  const portRate = useSessionStore.getState().portIncomePerSecond;
+  if (Number.isFinite(portRate) && portRate > 0) useMoneyStore.getState().increaseMoney(portRate * totalSec);
+
   // Start the live loop fresh from now (also folds the previously-uncapped
   // manager catch-up into this capped sim).
   const after = Date.now();

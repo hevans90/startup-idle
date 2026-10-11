@@ -63,6 +63,18 @@ describe("computeOfflineProgress", () => {
     expect(summary!.elapsedMs).toBe(2 * HOUR);
   });
 
+  test("credits the seaports at the rate they were earning when the map last ran", () => {
+    startRunningGame(50);
+    const now = Date.now();
+    useSessionStore.setState({ lastSeenAt: now - 2 * HOUR, portIncomePerSecond: 0 });
+    const without = computeOfflineProgress(now)!.money.toNumber();
+    startRunningGame(50);
+    useSessionStore.setState({ lastSeenAt: now - 2 * HOUR, portIncomePerSecond: 10 });
+    const withPorts = computeOfflineProgress(now)!.money.toNumber();
+    // Ten a second for two hours, on top of the same employees' earnings.
+    expect(withPorts - without).toBeCloseTo(10 * 2 * 3600, -1);
+  });
+
   test("caps credited time at OFFLINE_CAP_MS and flags it", () => {
     startRunningGame(50);
     const now = Date.now();

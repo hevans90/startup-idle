@@ -34,6 +34,12 @@ type SessionState = {
    */
   seenProjects: string[];
   markProjectsSeen: (ids: readonly string[]) => void;
+  /**
+   * What the seaports were earning a second when the map last ran: what they
+   * are credited for the time away. @see computeOfflineProgress, recordCall
+   */
+  portIncomePerSecond: number;
+  setPortIncome: (perSecond: number) => void;
   /** Whether the projects log is open or folded away. */
   projectsOpen: boolean;
   setProjectsOpen: (open: boolean) => void;
@@ -57,12 +63,15 @@ export const useSessionStore = create<SessionState>()(
         const fresh = ids.filter((id) => !s.seenProjects.includes(id));
         return fresh.length ? { seenProjects: [...s.seenProjects, ...fresh] } : s;
       }),
+      portIncomePerSecond: 0,
+      setPortIncome: (portIncomePerSecond) => set({ portIncomePerSecond }),
       projectsOpen: true,
       setProjectsOpen: (projectsOpen) => set({ projectsOpen }),
       touch: () => set({ lastSeenAt: Date.now() }),
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
+        portIncomePerSecond: 0,
       }),
     }),
     {
@@ -75,6 +84,7 @@ export const useSessionStore = create<SessionState>()(
         mapChoice: s.mapChoice,
         seenProjects: s.seenProjects,
         projectsOpen: s.projectsOpen,
+        portIncomePerSecond: s.portIncomePerSecond,
       }),
     },
   ),

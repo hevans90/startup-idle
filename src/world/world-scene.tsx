@@ -78,7 +78,7 @@ import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution } from "./agents/services";
 import { SLOP_PIT_UNLOCK_COUNT } from "../state/slop-pit.store";
-import { recordCall } from "./boats/exports";
+import { perMinute, recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
 import { useSessionStore } from "../state/session.store";
@@ -218,6 +218,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const townRef = useRef<TownLayer | null>(null);
   /** The works' revision last told to the store, so autosave hears of progress. */
   const worksRevRef = useRef(0);
+  /**
+   * When the ports' rate a second was last kept — starting a minute ahead,
+   * so the first one is measured over a whole minute of calls and not the
+   * empty one after a load. @see portIncomePerSecond
+   */
+  const portRateAt = useRef(performance.now() + 55_000);
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -2126,6 +2132,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (fee === null) continue;
           if (st.playing) useMoneyStore.getState().increaseMoney(fee);
           recordCall(getExports(), id, fee, now);
+        }
+      }
+      // WHAT THE PORTS EARN A SECOND, kept with the company for the time away
+      // — a few times a minute, from the last minute's calls. @see portIncomePerSecond
+      if (useWorldStore.getState().playing) {
+        const now = performance.now();
+        if (now - portRateAt.current > 5000) {
+          portRateAt.current = now;
+          const ex = getExports();
+          let perMin = 0;
+          for (const id of ex.recent.keys()) perMin += perMinute(ex, id, now);
+          useSessionStore.getState().setPortIncome(perMin / 60);
         }
       }
       stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
