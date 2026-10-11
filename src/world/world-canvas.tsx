@@ -62,6 +62,14 @@ export const rendererAsked = (): "webgpu" | "webgl" =>
  * `play` puts the game's rules on: frontage and a price for every building,
  * and the look tool in hand rather than a paintbrush.
  */
+/**
+ * Which map this page has founded already — its slot and company — and which
+ * it GENERATED, rather than loaded, and has yet to give its land to.
+ * @see useFoundWorld
+ */
+let foundedKey: string | null = null;
+let generatedKey: string | null = null;
+
 export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   /**
    * THE SAVED MAP, BEFORE ANYTHING DRAWS.
@@ -73,6 +81,12 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
    */
   useState(() => {
     setSaveSlot(slot);
+    // ONCE A COMPANY, not once a mount: the map mounts more than once as the
+    // page comes up, and founding it again on the second — a map generated
+    // four times a load — wrote to the store under the first's build bar.
+    const key = `${slot}:${useSessionStore.getState().incorporatedAt}`;
+    if (foundedKey === key) return true;
+    foundedKey = key;
     // A `?fixture=` is the map this session, not the saved one, and the store
     // has already built it. @see startedOnFixture
     if (startedOnFixture()) return true;
@@ -99,10 +113,16 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const params = { ...DEFAULT_GEN, ...choice.params } as GenParams;
       useWorldStore.getState().generateWorld(choice.seed, params.size, params);
     } else useWorldStore.getState().generateWorld(useSessionStore.getState().incorporatedAt);
-    // A NEW COMPANY OWNS THE MIDDLE OF ITS MAP, and buys the rest. @see world/land
-    if (slot === "run") useSessionStore.getState().setLand(startingLand(useWorldStore.getState().grid));
+    generatedKey = key;
     return true;
   });
+  // A NEW COMPANY OWNS THE MIDDLE OF ITS MAP, and buys the rest — said once
+  // the map is up, not while drawing it. @see world/land
+  useEffect(() => {
+    if (slot !== "run" || generatedKey !== `${slot}:${useSessionStore.getState().incorporatedAt}`) return;
+    generatedKey = null;
+    useSessionStore.getState().setLand(startingLand(useWorldStore.getState().grid));
+  }, [slot]);
   // And keep it saved from here on. @see startAutosave
   useEffect(() => startAutosave(), []);
   /**
