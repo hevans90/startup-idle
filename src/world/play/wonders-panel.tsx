@@ -52,7 +52,7 @@ export function WondersPanel({ className }: { className?: string }) {
           className="cursor-pointer px-1 text-primary-500 hover:text-primary-900 dark:hover:text-primary-100" aria-label="Close">✕</button>
       </div>
       {WONDERS.map((w) => {
-        const bonus = opensText(w).replace(/^Wonder: /, "");
+        const bonus = opensText(w);
         if (built.has(w.id)) {
           return (
             <div key={w.id} className={ROW}>

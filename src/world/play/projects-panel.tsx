@@ -47,8 +47,8 @@ function Bar({ value, className }: { value: number; className?: string }) {
 }
 
 /**
- * THE PROJECTS LOG, like a quest log: what is IN PROGRESS, what is AVAILABLE
- * to start, and what is UP NEXT and waiting on what — folded away to one line
+ * THE PROJECTS LOG, like a quest log: what is IN PROGRESS, what can be
+ * started, and what is UP NEXT and waiting on what — folded away to one line
  * when you want the map, and PULSING when something has become available that
  * you have not looked at yet. Opening it marks what it shows as seen; the
  * seen list and whether it is open are kept with the company.
@@ -117,11 +117,10 @@ export function ProjectsPanel({ className }: { className?: string }) {
           </button>
           {isOpen && (
             <div className="flex min-h-0 flex-col gap-2 overflow-y-auto border-t border-primary-200 p-2 dark:border-primary-700">
+              {/* What can be started, first and untitled: the cards say it. */}
+              {available.map((p) => <ProjectCard key={p.id} next={p} className={IN_LOG} />)}
               {going.length > 0 && <LogSection title="In progress">
                 {going.map((p) => <ProjectCard key={p.id} next={p} className={IN_LOG} />)}
-              </LogSection>}
-              {available.length > 0 && <LogSection title="Available">
-                {available.map((p) => <ProjectCard key={p.id} next={p} className={IN_LOG} />)}
               </LogSection>}
               {next.length > 0 && <LogSection title="Up next">
                 {next.map((p) => (
@@ -193,15 +192,13 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
   // Their name in the plural: "your interns", "your vibe coders".
   const who = next.builders.map((id) => `${generators.find((g) => g.id === id)?.name ?? id}s`).join(" and ");
 
-  const TAG = "text-[10px] font-bold uppercase tracking-wide";
-
   // READY: what it opens, what it costs, and a site to choose.
   if (!site) {
     const choosing = placing === next.id;
     const income = useGeneratorStore.getState().getMoneyPerSecond();
     return (
       <div className={twMerge(CARD, className)}>
-        <p><span className={twMerge(TAG, "mr-1 text-emerald-700 dark:text-emerald-400")}>New</span><b>{next.name}</b></p>
+        <p><b>{next.name}</b></p>
         <p className="text-primary-700 dark:text-primary-300">{opensText(next)}</p>
         <p className="tabular-nums text-primary-600 dark:text-primary-400"
           title={next.founderBuilds ? undefined
