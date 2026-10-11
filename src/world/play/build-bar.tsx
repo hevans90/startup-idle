@@ -246,7 +246,7 @@ export function BuildBar({ className }: { className?: string }) {
         </div>
       )}
 
-      <div className={twMerge(PANEL, "flex flex-col")}>
+      <div className={twMerge(PANEL, "flex max-w-full flex-col")}>
         {/* THE BEDS: people against beds, a chip a district. */}
         <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 border-b border-primary-200 px-2 py-1 text-[11px] tabular-nums dark:border-primary-700"
           title="People employed against beds — on lots zoned on the map, plus people living off it. You can't hire past your beds. A new hire works once they've arrived and moved in.">
@@ -274,13 +274,13 @@ export function BuildBar({ className }: { className?: string }) {
         </div>
 
         {/* THE TOOLS. */}
-        <div className="flex items-stretch">
+        <div className="flex items-stretch overflow-x-auto">
           {TOOLS.filter((t) => t.id !== "buyLand" || forSale).map((t) => (
             <button key={t.id} type="button" title={t.hint} onClick={() => choose(t.id)}
               data-hint={t.id === "placeStructure" ? "build" : undefined}
               className={twMerge(TOOL, tool === t.id && TOOL_ON)}>
               {ICONS[t.id]}
-              <span>{t.label}</span>
+              <span className="max-md:hidden">{t.label}</span>
               {t.id === "placeStructure" && chosen && tool === t.id && (
                 <span className="ml-0.5 border-l border-current/30 pl-1 opacity-80">{saleName(chosen.def)}</span>
               )}
@@ -301,17 +301,17 @@ export function BuildBar({ className }: { className?: string }) {
             onClick={() => { setWondersOpen(!wondersOpen); setPicking(false); }}
             className={twMerge(TOOL, wondersOpen && TOOL_ON)}>
             {ICONS.wonders}
-            <span>Wonders</span>
+            <span className="max-md:hidden">Wonders</span>
           </button>
           <button type="button" title="Tint every house by how happy its people are" data-hint="mood"
             onClick={() => setMoodOverlay(!moodOverlay)} className={twMerge(TOOL, moodOverlay && TOOL_ON)}>
             {ICONS.mood}
-            <span>Mood</span>
+            <span className="max-md:hidden">Mood</span>
           </button>
           <button type="button" title="Show or hide what each building is and how it is doing"
             onClick={() => setLabels(!labels)} className={twMerge(TOOL, labels && TOOL_ON)}>
             {ICONS.labels}
-            <span>Labels</span>
+            <span className="max-md:hidden">Labels</span>
           </button>
         </div>
       </div>

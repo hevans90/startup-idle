@@ -78,6 +78,7 @@ function App() {
   );
 
   const isMobile = window.innerWidth <= 768;
+  const [phoneTab, setPhoneTab] = useState<"map" | "company">("map");
 
   const { theme } = useThemeStore();
 
@@ -156,26 +157,43 @@ function App() {
         {founderId == null ? (
           <FounderSelect />
         ) : isMobile ? (
-          <div className="w-full h-full flex flex-col items-center pt-16 gap-2">
-            <section className="flex flex-col items-center">
-              <h1 className="text-4xl font-bold">Startup Idle</h1>
-            </section>
-            <section className="flex flex-col items-center mb-6">
-              <button
-                className="min-w-36 p-2 text-3xl cursor-pointer hover:bg-primary-200 dark:hover:bg-primary-600 mb-2"
-                onClick={() => increaseMoney(Math.max(mps / 10, 1))}
-              >
-                {formatCurrency(money)}
+          // THE PHONE: the map and the company, a tab each. The map stays
+          // mounted on the other tab, so its gates — beds, projects, the
+          // commute — hold on a phone as on a desktop. @see useFoundWorld
+          <div className="flex h-full w-full flex-col bg-primary-50 dark:bg-primary-900">
+            <header className="flex items-center gap-2 border-b border-primary-300 px-2 py-1 dark:border-primary-700">
+              <SettingsPopover className="h-9 w-9 border-none p-1" />
+              <button className="cursor-pointer text-left" onClick={() => increaseMoney(Math.max(mps / 10, 1))}>
+                <span className="block text-lg font-bold leading-tight">{formatCurrency(money)}</span>
+                <span className="block text-[11px] text-primary-600 dark:text-primary-400">{formatCurrency(mps)}/s</span>
               </button>
-              <div className="text-sm">({formatCurrency(mps)}/s)</div>
-            </section>
-            {innovation.gte(1) && <InnovationCounter />}
-            <PurchaseModeToggle />
-            <Generators isMobile={true} />
-            <section className="mt-8">
-              <Upgrades isMobile={true} />
-            </section>
-            <SettingsPopover className="absolute top-4 left-4" />
+              <span className="flex-1" />
+              {(["map", "company"] as const).map((t) => (
+                <button key={t} type="button" onClick={() => setPhoneTab(t)}
+                  className={`cursor-pointer border px-3 py-1 text-sm ${phoneTab === t
+                    ? "border-primary-700 bg-primary-200 dark:border-primary-200 dark:bg-primary-700"
+                    : "border-primary-300 dark:border-primary-600"}`}>
+                  {t === "map" ? "Map" : "Company"}
+                </button>
+              ))}
+            </header>
+            <div className="relative min-h-0 flex-1">
+              <div className={`absolute inset-0 ${phoneTab === "map" ? "" : "invisible"}`}>
+                <Suspense fallback={null}>
+                  <CompanyMap />
+                </Suspense>
+              </div>
+              {phoneTab === "company" && (
+                <div className="absolute inset-0 flex flex-col items-center gap-2 overflow-y-auto bg-primary-50 pt-4 dark:bg-primary-900">
+                  {innovation.gte(1) && <InnovationCounter />}
+                  <PurchaseModeToggle />
+                  <Generators isMobile={true} />
+                  <section className="mt-8">
+                    <Upgrades isMobile={true} />
+                  </section>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className="flex h-full min-h-0 w-full">

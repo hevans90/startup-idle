@@ -45,10 +45,10 @@ export default function CompanyMap() {
       <WorldCanvas wrapperRef={wrapperRef} size={size} />
       <BuildingLabels />
       <PortIncome />
-      <ProjectsPanel className="absolute left-2 top-24 z-10" />
+      <ProjectsPanel className="absolute left-2 top-24 z-10 max-md:top-2 max-md:max-w-[calc(100%-1rem)]" />
       <EventMarkers />
-      <div className="absolute left-[19.5rem] right-2 top-14 z-20 flex flex-col items-start gap-2"><HintCard /><EventCards /></div>
-      <BuildBar className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 items-center" />
+      <div className="absolute left-[19.5rem] right-2 top-14 z-20 flex flex-col items-start gap-2 max-md:left-2 max-md:top-auto max-md:bottom-28"><HintCard /><EventCards /></div>
+      <BuildBar className="absolute bottom-3 left-1/2 z-10 max-w-[calc(100%-1rem)] -translate-x-1/2 items-center" />
     </div>
   );
 }

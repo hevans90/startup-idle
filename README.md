@@ -27,6 +27,8 @@ Founding is two steps: **who**, then **where** (`molecules/founder-select.tsx`, 
 
 Every company builds a town (`world/play/company-map.tsx`). Buildings need **road frontage** and cost money. **First-run hints** (`play/hints.ts`) explain it a tip at a time, with the thing they're about glowing (`data-hint`); they can be dismissed or switched off.
 
+**On a phone** (width ≤ 768): a Map and a Company tab under the money. The map stays mounted on either, so the gates hold as on a desktop; its panels fit the width and the tools are icons. One finger builds with a tool in hand, two pan and pinch.
+
 - **Build bar** (`build-bar.tsx`): beds per district; the tools (Look, Road, Lift, Build, Demolish, Land, Wonders, Mood, Labels); and a picker with a row per hireable kind (Lot, Office), then Services and Ports once unlocked. No scrolling.
 - **Undo** for 15 s after a build, road stroke or row of lots, money included (`undoLastBuild`). Refusals say why in a notice.
 - **Labels** (`building-labels.tsx`) over every building: residents, earnings, mood, progress, boats. Overlapping labels **collate** into one rather than hide (`gatherLabels`).
@@ -73,7 +75,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 | Conference Centre ★ | 8 10x devs | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | valuation ×1.5 |
 | IPO Tower ★ | 15 10x devs | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5 |
 
-★ Wonders have their own menu (`play/wonders-panel.tsx`). The **projects log** (`projects-panel.tsx`) is a foldable quest log that pulses when something new is available (`Session.seenProjects`). Gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`); sims, tests and the phone layout are never gated.
+★ Wonders have their own menu (`play/wonders-panel.tsx`). The **projects log** (`projects-panel.tsx`) is a foldable quest log that pulses when something new is available (`Session.seenProjects`). Gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`); sims and tests are never gated.
 
 **Seaports** (`boats/traffic.ts`): three tiers on river banks (1–3 berths, 20/15/10 s calls), upgraded in place for the difference. Boats queue for a berth; each call pays 0.5/0.75/1 s of income (`portCallFee`), credited offline at the last measured rate.
 

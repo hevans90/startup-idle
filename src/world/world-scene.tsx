@@ -1603,7 +1603,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // CLICK on the cell under it — a building, say, to open what it is for —
     // and one dragged away is the camera panning. @see WorldState.lookedAt
     let lookFrom: { x: number; y: number; cell: { x: number; y: number } | null } | null = null;
+    // FINGERS DOWN: a second one makes it a pinch, not a stroke.
+    const touches = new Set<number>();
     const onDown = (e: FederatedPointerEvent) => {
+      if (e.pointerType === "touch") {
+        touches.add(e.pointerId);
+        if (touches.size > 1) { useWorldStore.getState().cancelStroke(); lookFrom = null; return; }
+      }
       if (e.button !== 0) return;
       const st = useWorldStore.getState();
       if (st.tool === "inspect") {
@@ -1616,6 +1622,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       st.beginStroke(cell);
     };
     const onUp = (e: FederatedPointerEvent) => {
+      const pinching = touches.size > 1;
+      touches.delete(e.pointerId);
+      if (pinching) return;
       const st = useWorldStore.getState();
       if (lookFrom && st.tool === "inspect") {
         const moved = Math.hypot(e.global.x - lookFrom.x, e.global.y - lookFrom.y);
@@ -1769,7 +1778,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const tool = useWorldStore((s) => s.tool);
   useEffect(() => {
     if (!viewport) return;
-    setPanButtons(viewport, tool === "inspect" ? "left-middle" : "middle-right");
+    // ON A TOUCH SCREEN a finger is the "left button": with a tool in hand
+    // it builds, and panning is two fingers — the pinch. @see onDown
+    if (tool !== "inspect" && window.matchMedia?.("(pointer: coarse)").matches) viewport.plugins.remove("drag");
+    else setPanButtons(viewport, tool === "inspect" ? "left-middle" : "middle-right");
   }, [viewport, tool]);
 
   // ── build cursor ────────────────────────────────────────────────────────
