@@ -87,9 +87,7 @@ function gather(): InfoContext {
   const commutes = net ? liveCommutes(st.grid, net) : new Map();
   const coverage = net ? liveCoverage(st.grid, net) : new Map();
   const moods = net ? liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100) : new Map();
-  const pit = useSlopPitStore.getState();
-  const slop = { fill: pit.fill, penalty: 1 - pit.getMoneyPenaltyMult() };
-  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, slop, money: (n) => formatCurrency(n) };
+  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, money: (n) => formatCurrency(n) };
 }
 
 /** One label on the screen: the buildings it speaks for, and what it says. */

@@ -21,6 +21,7 @@ import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../../state/slop-pit.store";
 import { opensText } from "./building-info";
+import { clock, showMe } from "./map-focus";
 import { builtProjects, materialCap, siteOf, STALL_GRACE } from "../projects/works";
 import { hasRiver } from "../boats/river";
 import { structureDef } from "../structures/def";
@@ -157,30 +158,54 @@ function LogSection({ title, children }: { title: string; children: ReactNode })
  * THE SLOP PIT'S CARD: how full it is, what it is costing, and the drain —
  * which costs the vibe coders' morale. @see state/slop-pit.store
  */
-function SlopPitCard() {
+export function SlopPitCard() {
   const fill = useSlopPitStore((s) => s.fill);
-  const penalty = 1 - useSlopPitStore.getState().getMoneyPenaltyMult();
+  const penalty = Math.round((1 - useSlopPitStore.getState().getMoneyPenaltyMult()) * 100);
+  const ev = useWorldStore((s) => s.events.find((e) => e.kind === "slop-overflow" && e.phase !== "over"));
+  const respond = useWorldStore((s) => s.respondToEvent);
+  const trucks = ev?.choices.find((c) => c.id === "trucks");
+  const pit = useWorldStore((s) => [...s.grid.structures.values()].find((x) => x.def === "slop-pit"));
   return (
-    <div className={CARD}>
-      <div className="flex items-baseline justify-between">
-        <b>Slop pit</b>
+    <div className={twMerge(SMALL, ev?.phase === "active" ? "border-red-500 dark:border-red-400" : ev ? "border-amber-500 dark:border-amber-400" : "")}>
+      <div className="flex items-center gap-1.5">
+        <button type="button" disabled={!pit} onClick={() => pit && showMe({ x: pit.x + 1, y: pit.y + 1 })}
+          className="cursor-pointer font-bold disabled:cursor-default">Slop pit</button>
+        <div className="h-1.5 flex-1 bg-primary-200 dark:bg-primary-800">
+          <div className={twMerge("h-full", fill > 50 ? "bg-red-600 dark:bg-red-400" : "bg-lime-600 dark:bg-lime-400")}
+            style={{ width: `${Math.min(100, fill)}%` }} />
+        </div>
         <span className="tabular-nums">{Math.floor(fill)}%</span>
+        {penalty > 0 && <span className="tabular-nums text-red-700 dark:text-red-400">−{penalty}%</span>}
+        <button type="button" disabled={fill < 1}
+          onClick={() => (ev ? respond(ev.id, "drain") : useSlopPitStore.getState().drain())}
+          className={BTN_SMALL} title="Empties the pit: −40 vibe coder morale">
+          Drain
+        </button>
       </div>
-      <div className="mt-1 h-2 w-full bg-primary-200 dark:bg-primary-800">
-        <div className={twMerge("h-full", fill > 50 ? "bg-red-600 dark:bg-red-400" : "bg-lime-600 dark:bg-lime-400")}
-          style={{ width: `${Math.min(100, fill)}%` }} />
-      </div>
-      <p className={twMerge("mt-1", penalty > 0 ? "text-red-700 dark:text-red-400" : "text-primary-600 dark:text-primary-400")}>
-        {penalty > 0 ? `Income −${Math.round(penalty * 100)}%` : "No harm until half full"}
-      </p>
-      <button type="button" disabled={fill < 1} onClick={() => useSlopPitStore.getState().drain()}
-        className={twMerge(BTN, "mt-1.5 w-full disabled:cursor-default disabled:opacity-40")}
-        title="Empties the pit. The vibe coders hate it.">
-        Drain · −40 vibe coder morale
-      </button>
+      {ev && (
+        <div className="mt-1 flex items-center gap-1">
+          {ev.phase === "warning" && ev.strikesAt !== null && (
+            <span className="tabular-nums text-amber-700 dark:text-amber-400">full in {clock(ev.strikesAt - Date.now())}</span>
+          )}
+          {ev.phase === "active" && <span className="text-red-700 dark:text-red-400">overflowing</span>}
+          <span className="flex-1" />
+          {trucks && (
+            <button type="button" disabled={!!trucks.unavailable} onClick={() => respond(ev.id, "trucks")}
+              className={BTN_SMALL} title={trucks.unavailable ?? `Sludge trucks: ${trucks.cost}`}>
+              Trucks
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
+const SMALL =
+  "w-56 border border-primary-400 bg-primary-50/95 px-2 py-1 text-[11px] text-primary-900 shadow "
+  + "dark:border-primary-600 dark:bg-primary-900/95 dark:text-primary-100";
+const BTN_SMALL =
+  "cursor-pointer border border-primary-400 px-1.5 hover:bg-primary-200 disabled:cursor-default disabled:opacity-40 "
+  + "dark:border-primary-600 dark:hover:bg-primary-800";
 
 /** One project's card: its site to choose, or how it is going. */
 export function ProjectCard({ next, className }: { next: ProjectDef; className?: string }) {

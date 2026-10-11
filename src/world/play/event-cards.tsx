@@ -8,8 +8,9 @@ import { twMerge } from "tailwind-merge";
 
 import { useTicking } from "../../hooks/use-ticking";
 import { useSessionStore } from "../../state/session.store";
+import { clock, showMe } from "./map-focus";
 import { useWorldStore } from "../../state/world.store";
-import { cellToWorld, HH, HW } from "../iso";
+import { cellToWorld } from "../iso";
 import { idx, inBounds } from "../grid";
 import type { GameEvent } from "../events/events";
 
@@ -19,19 +20,6 @@ const CARD =
 const BTN =
   "flex cursor-pointer flex-col items-start border border-primary-400 px-2 py-1 text-left hover:bg-primary-200 "
   + "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-primary-600 dark:hover:bg-primary-800";
-
-const clock = (ms: number) => {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-};
-
-/** Centre the camera on a tile. */
-function showMe(where: { x: number; y: number }) {
-  const vp = useWorldStore.getState().viewport;
-  if (!vp) return;
-  vp.moveCenter((where.x - where.y) * HW, (where.x + where.y) * HH);
-  vp.emit("moved", { viewport: vp, type: "drag" } as never);
-}
 
 function EventCard({ e }: { e: GameEvent }) {
   const respond = useWorldStore((s) => s.respondToEvent);
@@ -76,7 +64,8 @@ function EventCard({ e }: { e: GameEvent }) {
 /** Every event under way or just over, newest first. */
 export function EventCards() {
   useTicking(500);
-  const events = useWorldStore((s) => s.events);
+  // THE SLOP PIT'S OVERFLOW is on the pit's own card. @see SlopPitCard
+  const events = useWorldStore((s) => s.events).filter((e) => e.kind !== "slop-overflow");
   if (!events.length) return null;
   return (
     <div className="flex flex-col gap-2">

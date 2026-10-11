@@ -26,8 +26,6 @@ export type InfoContext = {
   queued: ReadonlyMap<number, number>;
   /** How many live in each house, by its id. */
   residents: ReadonlyMap<number, number>;
-  /** How full the slop pit is, 0–100, and what share of income it takes. */
-  slop?: { fill: number; penalty: number };
   /** How happy each house is, and why, by its id. */
   moods: ReadonlyMap<number, MoodParts>;
   /** What serves each house, by its id. */
@@ -185,13 +183,8 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
   }
 
-  // THE SLOP PIT: how full, and what it is costing.
-  if (s.def === "slop-pit") {
-    const fill = Math.floor(ctx.slop?.fill ?? 0), penalty = Math.round((ctx.slop?.penalty ?? 0) * 100);
-    const lines: InfoLine[] = [{ text: `${fill}% full` }];
-    if (penalty > 0) lines.push({ text: `Income −${penalty}%`, tone: "warn" });
-    return { title: def.name, accent: 0x7bd13a, brief: [`${fill}%`], lines, facts: [{ type: "project", name: def.name }] };
-  }
+  // THE SLOP PIT has no label: its card says it all. @see SlopPitCard
+  if (s.def === "slop-pit") return null;
 
   // A SERVICE: how many homes it serves.
   const service = serviceOf(s.def);
