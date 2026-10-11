@@ -25,137 +25,57 @@ Founding is two steps: **who**, then **where** (`molecules/founder-select.tsx`, 
 
 ### The company's map
 
-Every company builds a town (`world/play/company-map.tsx`). **First-run hints** (`world/play/hints.ts`, `hint-card.tsx`) explain it a tip at a time: the garage, the first hire, zoning lots, arrivals, the Town Hall, services, offices for long commutes, and wonders. Each shows when its moment comes and goes when its goal is met, and the thing it's about glows (`data-hint`). Anything a company has already done is put away unseen, and tips can be dismissed or switched off (`Session.hintsDone`, `hintsOff`). Under the game's rules, buildings need **road frontage** (one footprint cell touching paving) and cost money. The build bar (`build-bar.tsx`) is one panel:
+Every company builds a town (`world/play/company-map.tsx`). Buildings need **road frontage** and cost money. **First-run hints** (`play/hints.ts`) explain it a tip at a time, with the thing they're about glowing (`data-hint`); they can be dismissed or switched off.
 
-- **Top row:** each district's people against its beds, with who's on the way and who's waiting.
-- **Bottom row:** the tools, Look, Road, Lift, Build, Demolish, Wonders, Mood and Labels.
-- **Build picker:** everything at once, no scrolling: a row per employee kind the company can hire (its Lot and its Office), then Services once the Town Hall stands, then Ports once the Harbour Office does.
+- **Build bar** (`build-bar.tsx`): beds per district; the tools (Look, Road, Lift, Build, Demolish, Wonders, Mood, Labels); and a picker with a row per hireable kind (Lot, Office), then Services and Ports once unlocked. No scrolling.
+- **Undo** for 15 s after a build, road stroke or row of lots, money included (`undoLastBuild`). Refusals say why in a notice.
+- **Labels** (`building-labels.tsx`) over every building: residents, earnings, mood, progress, boats. Overlapping labels **collate** into one rather than hide (`gatherLabels`).
 
 **Housing is zoned, Caesar-style** (`world/agents/arrivals.ts`):
 
-- **A row at a time:** drag along a street with a lot in hand to zone a lot on every cell that will take one, each paid for, until the money runs out (`lotLine`). The preview shows which cells will take one.
-- **Lots:** building housing lays out a **lot** (staked ground and a sign in the district's colour). Its beds count towards the hiring cap at once, but nobody lives there yet (`Structure.residents`).
-- **Hires travel in:** a hire is an offer accepted. The new hire travels in from where a road leaves the map, and **produces nothing until they've moved in**. Hired-but-absent people count as away in `attendance`.
-- **Interns come by bus**, shared: it waits for 12 interns, or for the first to have waited 6 s, then drives a round of their lots, filling part-full houses first.
-- **Vibe coders come by car** and **10x devs by limousine**, one each.
-- **Conditions to arrive:** a lot of their kind with a free bed (counting people already on the way), and a road to it from the map's edge. If either is missing they wait, and the beds row says why.
-- **They walk in:** passengers get off at each stop and walk from the road to their door, a few at a time (`walkInto`).
-- **Houses rise as they fill**, floor by floor.
-- **On load:** rides aren't saved, so loading the map moves everyone straight in (`settleHousing`).
-- **Remote beds:** a new company has 2 intern beds off the map, so it can earn its first house. A company that had staff before it had a map keeps them all (`foundingRemoteBeds`).
-- **Max hiring** stops at the free beds (`getMaxAffordableAmountAndCost`).
+- **Lots:** one per kind (1×1, 2 beds), dragged along a street a row at a time (`lotLine`). Their beds count toward the hiring cap at once; nobody lives there yet (`Structure.residents`).
+- **Hires travel in** from the map's edge and produce nothing until moved in (counted away in `attendance`). Interns share a bus (12 seats, waits up to 6 s, fills part-full houses first); vibe coders come by car, 10x devs by limousine. They walk from the road to their door.
+- **They wait** for a free bed and a road from the edge; the beds row says why. Rides aren't saved: loading moves everyone in (`settleHousing`).
+- **Remote beds:** 2 intern beds off-map to start; a company with staff before its map keeps them (`foundingRemoteBeds`). Max hiring stops at the free beds.
 
-**Commuting** (`world/agents/commute.ts`):
+**Commuting** (`agents/commute.ts`): each kind works at the building that opened it or an **office** of its kind (bought from the picker). Up to 8 road tiles is free, then −1.25% a tile to 50%; no road at all is 25%. The average multiplies into output (`commuteFactor`).
 
-- **Workplaces:** each kind works at the building that opened it (garage, studio, campus) or at an **office** for its kind. Offices are bought from the Build picker and drawn like the original buildings: an intern office (2×2), a vibe studio (2×2) and a 10x office (3×3).
-- **The cost of distance:** a house's commute is its road distance to the nearest workplace of its kind. Up to 8 tiles costs nothing, then 1.25% a tile down to 50%. With no road to any workplace, its people work at 25%. Remote workers lose nothing.
-- **Effect:** the average multiplies into each kind's output through `attendance` (`commuteFactor`), alongside people away building or still arriving.
-- **On the map:** 60% of the town's trips are commutes, walked if 12 tiles or under, driven if further. House labels show the commute; workplace labels show how many work there.
+**Services and growth** (`agents/services.ts`): a café, park and gym serve homes within 8 road tiles (4, 8, 16 s of income). A full house served for 20 s grows a tier for free (café → II, + park → III, + gym → tower), and declines after 30 s without. 10x devs only move in with a café and a park.
 
-**Services, and housing that evolves** (`world/agents/services.ts`):
+**Mood** (`agents/mood.ts`, `game/town-mood.ts`): each house's mood is its commute (to −30), services (+4/+6/+4, none −6), the slop pit nearby (−8 to −20), crowding (−6), a wonder (+5), sludge (−15) and flooding (−20), capped at ±40. It shifts each kind's satisfaction target; at −25 a house loses a resident a minute. The Mood tool tints houses.
 
-- **Services:** a café (2×1), a park (2×2) and a gym (2×2). Each serves homes within 8 road tiles of its door. They're in the picker's Services section, priced at 4, 8 and 16 s of income (at least $150, $400 or $2,000), so growing a street is cheaper a bed than adding to it.
-- **Growth:** a full house served for the next tier for 20 s grows in place, for free: a lot grows to II with a café, II to III with a café and a park, III to a tower with all three. More beds on the same ground (`Structure.grown`).
-- **Decline:** a house that grew declines one tier after 30 s without what its tier needs, and the people beyond its beds move out until there's room. Houses bought at a tier never decline below it.
-- **10x devs are particular:** they only move into lots served by a café and a park, and the beds row says so when that's what they're waiting for.
-- **Labels:** each house says what it needs to grow next; each service says how many homes it serves.
+**Map events** (`world/events/`, `play/event-cards.tsx`): a warning with a countdown, a ring on the map, and a card of choices. One at a time, each kind paced in play time (`PACING`); off with "no events" on a card or in Settings. In dev, `window.__eventNow = "convoy"` brings one forward.
 
-**Mood: the town drives satisfaction** (`world/agents/mood.ts`, `game/town-mood.ts`):
+- **Slop overflow** (`events/sludge.ts`): warned at 90%; at 100% sludge pours over the rim as real fluid until under 95%. Drain (−40 vibe coder morale), sludge trucks (20 s of income, three loads of 12%), or let it spill. Sludge dries up after.
+- **River flood** (`events/flood.ts`): the river's inflow rises just over its lowest nearby bank for a minute. Buildings with water higher against them than before are flooded. Sandbags (30 s of income), evacuate (flooded homes away), or brace (−20 mood, ports shut). Leftover water soaks away.
+- **Convoy** (with a port): calls pay double for a minute; extra hands (20 s) halve call time.
+- **Investor tour** (garage, town hall or HQ): pays 30 s of income + 1.5 s a point of town mood (0–90 s); tidying (10 s) counts +10 mood.
+- **Hackathon** (studio, 10 vibe coders): host it and they're away a minute, then +15 satisfaction.
 
-- **Each house's mood:**
-  - the commute costs up to −30 (none counted before the kind has a workplace);
-  - a café +4, a park +6, a gym +4, and no services at all −6;
-  - the slop pit within 6 tiles costs −8 to −20 as it fills;
-  - a dense house (III or a tower) with no park −6;
-  - a wonder within 10 tiles +5;
-  - sludge at the door −15, a flood −20;
-  - all capped at ±40.
-- **Satisfaction leans on it:** each kind's satisfaction target shifts by its houses' average mood, weighted by residents, through a registered reader, so sims, tests and the phone layout are unaffected.
-- **People leave:** a house at −25 or worse loses a resident every 60 s. They stay hired, and new arrivals won't move into it; the beds row says "(their homes are miserable)" when that's why they're waiting.
-- **Seen:** house labels show the mood and what weighs on it most ("Unhappy (−12): long commute"), and merged labels the weighted average. The build bar's **Mood** toggle tints every house green, pale green, amber or red. A hint points at it when a house turns unhappy.
+**Prices follow the economy** (`game/build-cost.ts`), each the larger of a floor and a live share: lots a quarter of the next hire a bed (≥ $15); offices four hires; services seconds of income; seaports 10 s of income per boat a minute; road max($2, 0.25 s of income) a tile, lifting free.
 
-**Map events** (`world/events/`): things that happen to the town, each with a warning, a countdown, a pulsing ring on the map and a card of choices (`world/play/event-cards.tsx`, under the hints).
-
-- **Slop overflow:** at 90% full the card warns, with a countdown to 100%. When full, sludge pours out of the rim as real fluid and runs downhill (`events/sludge.ts`). The choices:
-  - Drain it now, for 40 vibe coder morale;
-  - Send sludge trucks, for 20 s of income: three trucks drive from the pit, each taking 12% away;
-  - Let it spill.
-- It ends below 95%, and the sludge then dries up over time.
-- **River floods** (`events/flood.ts`), on maps with a river: the first comes after 15 min of play, then every 20–35 min, and only when nothing else is under way.
-  - A minute's warning, then the level held at the river's head rises just over its lowest nearby bank for a minute, as real water.
-  - Houses and ports with water against them higher than before are flooded.
-  - The choices: sandbags (30 s of income, nothing is harmed); evacuate (flooded homes count as away); or brace (flooded homes −20 mood, flooded ports take no trade).
-  - Afterwards, water left on ground that was dry soaks away.
-- **Off switch:** "no events" on any card, or Map events in Settings.
-
-**Prices follow the economy** (`game/build-cost.ts`). Each is the larger of a fixed floor and a live share:
-
-- **Housing:** one lot per kind (1×1, 2 beds) for a quarter of the next hire's price per bed, at least $15. Bigger houses aren't for sale: lots grow into them.
-- **Seaports:** 10 seconds of income per boat a minute they can turn round.
-- **Services:** seconds of income (see above).
-- **Road:** each new tile costs the larger of $2 and 0.25 s of income, the whole stroke or none of it. Lifting road is free.
-- **Offices:** four times the next hire's price for that kind (at least $150, $2,500 or $50,000).
-
-**Projects: the company grows by building** (`game/projects.ts`, `world/projects/works.ts`, `world/play/projects-panel.tsx`). Milestones make a **project** available instead of unlocking things outright. You choose a site, and then:
-
-1. **The crew walks there:** builders leave their desks and walk to the site in hard hats. They produce nothing while away.
-2. **Trucks bring materials:** they keep two loads on hand, and each load is **paid when sent**. With no money for the next load, the site **stalls**, and an idle crew goes home after 6 s.
-3. **The building goes up:** foundations, walls in scaffolding, then the roof. When it opens, its feature unlocks.
-
-Other project rules:
-
-- **Priority:** Paused, Low, Normal or High commits none, a quarter, half or all of the eligible employees, capped at 4 per footprint tile.
-- **Price:** materials cost **seconds of income**, never less than a floor, fixed when the site is chosen (`projectCost`).
-- **Time away:** it's caught up on load (`catchUpWorks`).
-- **Earned already:** a company that already has what a project opens gets the building finished (`foundEarnedProjects`).
-- **Clicking a finished building** with Look opens its tab.
+**Projects** (`game/projects.ts`, `world/projects/works.ts`): milestones make a project available; you pick a site, a crew walks there (away from their desks), trucks bring materials paid per load (no money stalls the site; an idle crew goes home after 6 s), and the building opens its feature. Priority commits none to all of the eligible crew; materials cost seconds of income fixed at siting; time away is caught up (`catchUpWorks`).
 
 | Project | Available at | Built by | Work (builder-s) | Materials | Site | Opens |
 | --- | --- | --- | --- | --- | --- | --- |
-| Founder's Garage | the start | the founder, who drives in | 30 | free | 2×1 | hiring interns |
-| Vibe Coder Studio | 10 interns | interns | 600 | 45 s of income (≥ $400), 8 loads | 3×2 | hiring vibe coders |
-| Company HQ | 10 vibe coders | interns + vibe coders | 2,400 | 60 s (≥ $5,000), 12 loads | 3×3 | managers |
-| Boardroom Tower | employee management | interns + vibe coders | 4,000 | 90 s (≥ $20,000), 14 loads | 3×3 | board mandates |
-| Campus | 20 vibe coders | interns + vibe coders | 6,000 | 2 min (≥ $40,000), 16 loads | 4×4 | hiring 10x devs |
-| Town Hall | 6 interns | interns | 300 | 30 s (≥ $120), 6 loads | 3×2 | cafés, parks and gyms |
-| Harbour Office | 5 vibe coders, on a map with a river | interns + vibe coders | 900 | 45 s (≥ $1,500), 8 loads | 2×2, within 3 tiles of the river | seaports |
-| Data Centre (wonder) | 3 10x devs | vibe coders + 10x devs | 10,000 | 3 min (≥ $200,000), 16 loads | 3×3 | innovation ×2, for good |
-| Conference Centre (wonder) | 8 10x devs | vibe coders + 10x devs | 14,000 | 4 min (≥ $500,000), 18 loads | 4×3 | valuation ×1.5, for good |
-| IPO Tower (wonder) | 15 10x devs | vibe coders + 10x devs | 20,000 | 5 min (≥ $2,000,000), 20 loads | 3×3 | income ×1.5, for good |
+| Founder's Garage | the start | the founder | 30 | free | 2×1 | interns |
+| Town Hall | 6 interns | interns | 300 | 30 s (≥ $120) | 3×2 | services |
+| Vibe Coder Studio | 10 interns | interns | 600 | 45 s (≥ $400) | 3×2 | vibe coders |
+| Harbour Office | 5 vibe coders, river maps | interns + vibe | 900 | 45 s (≥ $1,500) | 2×2, ≤ 3 tiles from a river | seaports |
+| Company HQ | 10 vibe coders | interns + vibe | 2,400 | 60 s (≥ $5,000) | 3×3 | managers |
+| Boardroom Tower | employee management | interns + vibe | 4,000 | 90 s (≥ $20,000) | 3×3 | board mandates |
+| Campus | 20 vibe coders | interns + vibe | 6,000 | 2 min (≥ $40,000) | 4×4 | 10x devs |
+| Data Centre ★ | 3 10x devs | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2 |
+| Conference Centre ★ | 8 10x devs | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | valuation ×1.5 |
+| IPO Tower ★ | 15 10x devs | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5 |
 
-**Wonders have a menu of their own** (`world/play/wonders-panel.tsx`, the build bar's Wonders button), not the projects log: each with what it needs, its site to choose, how it's going, or that it stands. They're built like projects. Wonders multiply output through the same chains as everything else (`wonderBonus`), and valuation's breakdown lists them. The gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`). Simulations, tests and the phone layout are never gated.
+★ Wonders have their own menu (`play/wonders-panel.tsx`). The **projects log** (`projects-panel.tsx`) is a foldable quest log that pulses when something new is available (`Session.seenProjects`). Gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`); sims, tests and the phone layout are never gated.
 
-**The projects log** (`world/play/projects-panel.tsx`) is a quest log in the corner: what can be started first, then In progress, then Up next (each with what it waits for). It folds to one line, and pulses with a "new" badge when a project becomes available that you haven't seen. Opening it marks them seen (`Session.seenProjects`, kept with the company, as is whether it's open). The slop pit's card sits beside it.
+**Seaports** (`boats/traffic.ts`): three tiers on river banks (1–3 berths, 20/15/10 s calls), upgraded in place for the difference. Boats queue for a berth; each call pays 0.5/0.75/1 s of income (`portCallFee`), credited offline at the last measured rate.
 
-**Undo:** for 15 s after a build, a road stroke or a dragged row of lots, an Undo button takes it back with its money, as long as nothing else has changed the map since (`undoLastBuild`).
+**Town traffic** (`agents/town.ts`): cars keep right, follow at a gap and yield at junctions; people walk the kerb.
 
-**Refusals say why:** a build that can't go there, or can't be paid for, shows a short notice over the build bar ("Can't build here: no road access", "Not enough money: $640").
-
-**Labels** (`world/play/building-labels.tsx`, `building-info.ts`) sit over every building:
-
-- **What they say:**
-  - houses: residents, earnings and arrivals;
-  - sites: progress and stalls;
-  - finished projects: what they opened;
-  - seaports: boats alongside and waiting.
-- **Crowding:** labels that would overlap **collate** into one that adds up what they said, so zooming out never hides information (`gatherLabels`, `collate`).
-
-**Seaports and river traffic** (`structures/def.ts`, `boats/river.ts`, `boats/traffic.ts`):
-
-- **Tiers:** three, at 2×2, 3×2 and 4×2, with 1, 2 and 3 berths and 20, 15 and 10 s calls. They go on river banks only.
-- **Upgrades:** click a seaport with Build to upgrade it in place; you pay the difference.
-- **Traffic:** boats come down a river only when it has a port. They queue first-come for a berth, dock, then leave at the map's far end.
-- **Ports earn:** every completed call pays 0.5, 0.75 or 1 s of income by tier, never under $4, $8 or $16 (`portCallFee`). A "+$X" rises off the port, and its label shows earnings a minute. While you're away they're credited at the rate they were earning when the map last ran (`Session.portIncomePerSecond`, measured over a minute of calls), within the usual offline cap.
-
-**The town's traffic** (`world/agents/town.ts`):
-
-- **Trips:** cars and people make trips between doors and the map's edges, along cheapest routes.
-- **Driving:** cars keep to the right-hand lane, follow at a gap, and yield at junctions by predicting where others will be.
-- **People:** they walk the kerb with jointed, striding legs.
-
-**The town is worth something at a sale** (`world/projects/town-worth.ts`): the Equity offer gets +1% for each tier a house has grown, +2% for each service and +5% for each wonder, up to +50%. The acquisition tab shows it.
-
-**Saves:** the run's map and the editor's map are kept apart (`world-run`, `world-map`). Selling the company forgets the run's map (`retireRunSave`).
+**At a sale** (`projects/town-worth.ts`) the Equity offer gets +1% a grown tier, +2% a service, +5% a wonder, up to +50%. The run's map and the editor's are saved apart (`world-run`, `world-map`); selling forgets the run's.
 
 ## Tech stack
 
