@@ -358,3 +358,39 @@ export function drawRoadGaps(
   }
   return drawn;
 }
+
+/**
+ * LAND THE COMPANY DOES NOT OWN, under a fog: darker where it cannot be
+ * bought yet, lighter where it can, and the parcel under the pointer lit when
+ * the land tool is in hand. Every tile at its own height, so the fog lies on
+ * the hills. Redrawn when what is owned or pointed at changes, not per frame.
+ * @see world/land
+ */
+export function drawLand(
+  g: Graphics, grid: Grid, scale: number,
+  parcelAt: (x: number, y: number) => number, owned: ReadonlySet<number>,
+  forSale: ReadonlySet<number>, lit: number,
+) {
+  g.clear();
+  // BY SHADE, one fill each: a fill per tile was thousands of them.
+  const groups = new Map<number, number[]>();
+  for (let y = 0; y < grid.h; y++) {
+    for (let x = 0; x < grid.w; x++) {
+      const p = parcelAt(x, y);
+      if (owned.has(p)) continue;
+      const shade = p === lit ? 2 : forSale.has(p) ? 1 : 0;
+      let list = groups.get(shade);
+      if (!list) groups.set(shade, (list = []));
+      list.push(idx(grid, x, y));
+    }
+  }
+  for (const [shade, cells] of groups) {
+    for (const i of cells) g.poly(cellDiamond(i % grid.w, (i / grid.w) | 0, grid.height[i], scale));
+    g.fill(LAND_SHADES[shade]);
+  }
+}
+const LAND_SHADES = [
+  { color: 0x0b1020, alpha: 0.42 },   // not for sale yet
+  { color: 0x0b1020, alpha: 0.22 },   // for sale
+  { color: 0xf2c230, alpha: 0.28 },   // for sale, and pointed at
+];

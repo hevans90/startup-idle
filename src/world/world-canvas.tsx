@@ -37,6 +37,7 @@ import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
 import { evacuatedAway } from "./events/flood";
 import { cleanupAway } from "./events/cleanup";
+import { startingLand } from "./land";
 
 /**
  * Which renderer to ask for: WebGPU, unless `?webgl=1` says otherwise.
@@ -96,9 +97,9 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     if (choice) {
       const params = { ...DEFAULT_GEN, ...choice.params } as GenParams;
       useWorldStore.getState().generateWorld(choice.seed, params.size, params);
-      return true;
-    }
-    useWorldStore.getState().generateWorld(useSessionStore.getState().incorporatedAt);
+    } else useWorldStore.getState().generateWorld(useSessionStore.getState().incorporatedAt);
+    // A NEW COMPANY OWNS THE MIDDLE OF ITS MAP, and buys the rest. @see world/land
+    if (slot === "run") useSessionStore.getState().setLand(startingLand(useWorldStore.getState().grid));
     return true;
   });
   // And keep it saved from here on. @see startAutosave

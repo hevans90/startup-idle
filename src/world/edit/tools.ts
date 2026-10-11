@@ -31,6 +31,7 @@ export type ToolId =
   | "boat"
   | "placeStructure"
   | "demolish"
+  | "buyLand"
   | "inspect";
 
 /** Tools that write the `height` layer rather than a material. */

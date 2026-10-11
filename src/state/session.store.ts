@@ -50,6 +50,12 @@ type SessionState = {
   hintsOff: boolean;
   /** Whether floods, overflows and the like stay away. @see stepEvents */
   mapEventsOff: boolean;
+  /**
+   * The parcels of its map the company owns, or null for all of it — a
+   * company that had its map before land was for sale. @see world/land
+   */
+  land: number[] | null;
+  setLand: (land: number[] | null) => void;
   setMapEventsOff: (off: boolean) => void;
   setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
@@ -82,6 +88,8 @@ export const useSessionStore = create<SessionState>()(
       }),
       hintsOff: false,
       mapEventsOff: false,
+      land: null,
+      setLand: (land) => set({ land }),
       setMapEventsOff: (mapEventsOff) => set({ mapEventsOff }),
       setHintsOff: (hintsOff) => set({ hintsOff }),
       portIncomePerSecond: 0,
@@ -92,7 +100,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [],
+        portIncomePerSecond: 0, hintsDone: [], land: null,
       }),
     }),
     {
@@ -109,6 +117,7 @@ export const useSessionStore = create<SessionState>()(
         hintsDone: s.hintsDone,
         hintsOff: s.hintsOff,
         mapEventsOff: s.mapEventsOff,
+        land: s.land,
       }),
     },
   ),

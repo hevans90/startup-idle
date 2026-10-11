@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import Decimal from "break_infinity.js";
 
 import { useMoneyStore } from "./money.store";
+import { useSessionStore } from "./session.store";
 
 import { deserializeWorld, serializeWorld, toJSON } from "../world/io/serialize";
 import {
@@ -720,5 +721,42 @@ describe("projects under play rules", () => {
     s().placeProject("townhall");
     expect(s().placingProject).toBeNull();
     expect(s().notice?.text).toMatch(/One project at a time: Vibe Coder Studio/);
+  });
+});
+
+describe("land under play rules", () => {
+  /** A 64² map, a road along row 20, owning the top-left two by two parcels. */
+  const owned = () => {
+    const g = createGrid(64, 64);
+    fillTerrain(g, 1);
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 20)] = 1;
+    s().loadGrid(g);
+    useSessionStore.getState().setLand([0, 1, 4, 5]);
+    s().setPlaying(true);
+  };
+  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); });
+
+  test("builds on its own land, and not off it", () => {
+    owned();
+    useMoneyStore.setState({ money: new Decimal(1e6) });
+    s().setTool("placeStructure");
+    s().setStructureDef("kit:intern.t0");
+    s().commitStructure({ x: 10, y: 19 });
+    expect([...s().grid.structures.values()].map((x) => [x.x, x.y])).toEqual([[10, 19]]);
+    s().commitStructure({ x: 40, y: 19 });
+    expect(s().grid.structures.size).toBe(1);
+    expect(s().notice?.text).toMatch(/not your land/);
+  });
+
+  test("buys the parcel next to its land for its price, and nothing further off", () => {
+    owned();
+    useMoneyStore.setState({ money: new Decimal(1e6) });
+    s().buyParcel({ x: 50, y: 50 });
+    expect(useSessionStore.getState().land).toEqual([0, 1, 4, 5]);
+    expect(s().notice?.text).toMatch(/next to yours/);
+    const before = useMoneyStore.getState().money.toNumber();
+    s().buyParcel({ x: 40, y: 10 });
+    expect(useSessionStore.getState().land).toEqual([0, 1, 2, 4, 5]);
+    expect(before - useMoneyStore.getState().money.toNumber()).toBeGreaterThanOrEqual(400);
   });
 });

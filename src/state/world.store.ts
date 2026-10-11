@@ -43,7 +43,7 @@ import {
 } from "../world/water/field";
 import { derivedSlope } from "../world/edit/slope";
 import { RAMP } from "../world/iso";
-import { demolishCommand, placeCommand, upgradeCommand, validatePlacement } from "../world/structures/place";
+import { demolishCommand, placeCommand, upgradeCommand, validatePlacement, type PlaceRules } from "../world/structures/place";
 
 import {
   PatchBuilder, canRedo, canUndo, commit, createHistory, peekRedo, peekUndo,
@@ -67,6 +67,8 @@ import {
 } from "../world/debug/fixtures";
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { buildCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { useSessionStore } from "./session.store";
+import { buyable, landPrice, ownsTile, parcelOf, STARTING_PARCELS } from "../world/land";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
@@ -218,6 +220,15 @@ export const getWorks = () => works;
  * build tool, a lot in hand, not a project's site, and a drag rather than a
  * click. A straight line from where it went down to where it is. @see endStroke
  */
+/**
+ * THE GAME'S PLACEMENT RULES: frontage, and the company's own land. The
+ * editor has none of them. @see PlaceRules, world/land
+ */
+export function playRules(g: Grid): PlaceRules {
+  const land = useSessionStore.getState().land;
+  return { needsRoad: true, ...(land ? { owned: (x: number, y: number) => ownsTile(g, land, x, y) } : {}) };
+}
+
 export function lotLine(st: { tool: string; structureDefId: string; placingProject: unknown; grid: Grid }, s0: Stroke): Cell[] | null {
   if (st.tool !== "placeStructure" || st.placingProject) return null;
   if (!housedBy(st.structureDefId)) return null;
@@ -252,6 +263,8 @@ export const sludgeTrucksOut = () => haulersOut;
 export const sludgeTruckBack = () => { haulersOut = Math.max(0, haulersOut - 1); };
 /** How many trucks a call sends, and what the call costs: seconds of income, never under a floor. */
 export const SLUDGE_TRUCKS = 3;
+/** What the next parcel of land costs. @see landPrice */
+export const parcelPrice = () => landPrice(Math.max(0, (useSessionStore.getState().land?.length ?? 0) - STARTING_PARCELS), incomeNow());
 export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
 /** What sandbagging the riverside against a flood costs: half a minute of income. */
 export const sandbagPrice = () => Math.max(300, Math.round(incomeNow() * 30));
@@ -475,6 +488,8 @@ type WorldState = {
    * Not something to undo, or to pay for. @see SLOP_PIT
    */
   openSlopPit: () => void;
+  /** Buy the parcel of land a cell is in, if it is for sale and affordable. @see world/land */
+  buyParcel: (c: Cell) => void;
   /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
   housingMoved: (ids: readonly number[]) => void;
   lastTouched: Cell[];
@@ -770,6 +785,25 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     buildCmds = [];
     set({ lastBuild: null });
   },
+  buyParcel: (c) => {
+    const st = get();
+    const land = useSessionStore.getState().land;
+    if (!st.playing || !land) return;
+    const p = parcelOf(st.grid, c.x, c.y);
+    if (land.includes(p)) return;
+    if (!buyable(land, p)) {
+      set({ notice: { text: "Buy the land next to yours first", at: Date.now() } });
+      return;
+    }
+    const price = parcelPrice();
+    if (useMoneyStore.getState().money.lt(price)) {
+      set({ notice: { text: `Not enough money for this land: ${formatCurrency(price)}`, at: Date.now() } });
+      return;
+    }
+    useMoneyStore.getState().spendMoney(price);
+    useSessionStore.getState().setLand([...land, p].sort((a, b) => a - b));
+    set({ revision: st.revision + 1 });
+  },
   openSlopPit: () => {
     const st = get();
     for (const s of st.grid.structures.values()) if (s.def === SLOP_PIT.id) return;
@@ -803,12 +837,13 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   foundEarnedProjects: (owned, features = new Set()) => {
     const st = get();
     const built = builtProjects(st.grid);
-    const rules = st.playing ? { needsRoad: true } : {};
+    const rules = st.playing ? playRules(st.grid) : {};
     let changed = false;
     for (const p of PROJECTS) {
       if (!alreadyEarned(p, owned, features) || built.has(p.id) || siteOf(st.grid, p)) continue;
       const def = structureDef(p.structure);
-      const spot = def && nearestSpot(st.grid, def, rules);
+      // On its own land if it fits there; anywhere on the road if not.
+      const spot = def && (nearestSpot(st.grid, def, rules) ?? (st.playing ? nearestSpot(st.grid, def, { needsRoad: true }) : null));
       const cmd = spot && placeCommand(st.grid, def!, spot.x, spot.y, rules);
       if (!cmd) continue;
       commit(st.grid, history, cmd);
@@ -943,6 +978,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // LOTS GO DOWN IN A LINE: dragged along a street, a lot on every cell of
     // the drag that will take one, each paid for, until the money runs out.
     // @see lotLine
+    if (s0.tool === "buyLand") {
+      set({ stroke: null });
+      get().buyParcel(s0.head);
+      return;
+    }
     if (isStructureTool(s0.tool)) {
       const line = lotLine(st, s0);
       if (!line) { get().commitStructure(s0.head); return; }
@@ -1038,6 +1078,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const value = s0.tool === "eraseRoad" ? VOID_MATERIAL : PAVED_MATERIAL;
       // ROAD COSTS MONEY in the game, a tile at a time — new tiles only, and
       // the whole stroke or none of it. Lifting road is free. @see roadCost
+      // AND ONLY ON THE COMPANY'S OWN LAND, laid or lifted. @see world/land
+      const land = useSessionStore.getState().land;
+      if (st.playing && land && cells.some((c) => !ownsTile(st.grid, land, c.x, c.y))) {
+        set({ stroke: null, notice: { text: "Not your land: buy it first", at: Date.now() } });
+        return;
+      }
       if (st.playing && s0.tool === "paintRoad") {
         const fresh = cells.filter((c) => st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL).length;
         const price = roadCost(fresh);
@@ -1135,7 +1181,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         return;
       }
       const siteRules = {
-        ...(st.playing ? { needsRoad: true } : {}),
+        ...(st.playing ? playRules(st.grid) : {}),
         ...(water && (structureDef(project.structure)?.placement?.riverside || structureDef(project.structure)?.placement?.nearRiver)
           ? { rivers: mapRiver(st.grid, tileDepthOf(water.columns)) } : {}),
       };
@@ -1170,7 +1216,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       : null;
     const target = upgrade ?? def;
     const rules = {
-      ...(st.playing ? { needsRoad: true } : {}),
+      ...(st.playing ? playRules(st.grid) : {}),
       // THE RIVERS AS THEY STAND, for a building that must be on a bank. A
       // fact about the building, so the editor obeys it too. @see riverside
       ...(water && (target?.placement?.riverside || target?.placement?.nearRiver)

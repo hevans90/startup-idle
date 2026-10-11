@@ -27,9 +27,11 @@ Founding is two steps: **who**, then **where** (`molecules/founder-select.tsx`, 
 
 Every company builds a town (`world/play/company-map.tsx`). Buildings need **road frontage** and cost money. **First-run hints** (`play/hints.ts`) explain it a tip at a time, with the thing they're about glowing (`data-hint`); they can be dismissed or switched off.
 
-- **Build bar** (`build-bar.tsx`): beds per district; the tools (Look, Road, Lift, Build, Demolish, Wonders, Mood, Labels); and a picker with a row per hireable kind (Lot, Office), then Services and Ports once unlocked. No scrolling.
+- **Build bar** (`build-bar.tsx`): beds per district; the tools (Look, Road, Lift, Build, Demolish, Land, Wonders, Mood, Labels); and a picker with a row per hireable kind (Lot, Office), then Services and Ports once unlocked. No scrolling.
 - **Undo** for 15 s after a build, road stroke or row of lots, money included (`undoLastBuild`). Refusals say why in a notice.
 - **Labels** (`building-labels.tsx`) over every building: residents, earnings, mood, progress, boats. Overlapping labels **collate** into one rather than hide (`gatherLabels`).
+
+**Land** (`world/land.ts`): the map is 4×4 parcels. A new company owns the 2×2 block its street runs through most (`Session.land`; null, for a company older than this, owns it all) and builds, lays road and lifts it only there. The rest is under a fog; the **Land** tool buys a parcel beside yours for the larger of $400 × 2.5ⁿ and 45 s × 1.5ⁿ of income, n parcels already bought.
 
 **Housing is zoned, Caesar-style** (`world/agents/arrivals.ts`):
 

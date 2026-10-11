@@ -27,7 +27,7 @@ import { addBeds, housedBy, housingCapacity } from "../../game/housing";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
-import { UNDO_WINDOW_MS, getArrivals, useWorldStore } from "../../state/world.store";
+import { UNDO_WINDOW_MS, getArrivals, parcelPrice, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
 import { workplaceKind } from "../agents/commute";
@@ -36,6 +36,7 @@ import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
 import { WondersPanel } from "./wonders-panel";
+import { PARCELS } from "../land";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -48,6 +49,7 @@ const ICONS: Record<string, ReactNode> = {
   eraseRoad: <Icon><path d="M5 2L3 14M11 2l2 12M6 6l4 4M10 6l-4 4" /></Icon>,
   placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
+  buyLand: <Icon><path d="M4 14V2M4 2.5h8l-2 2.5 2 2.5H4" /></Icon>,
   labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
   wonders: <Icon><path d="M8 1.5l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11l-3.7 2 .8-4.2L2 5.9l4.2-.5z" /></Icon>,
   mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
@@ -60,6 +62,7 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "eraseRoad", label: "Lift", hint: "Drag to take road up" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down" },
+  { id: "buyLand", label: "Land", hint: "Click land beside yours to buy it" },
 ];
 
 const KINDS: GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
@@ -184,6 +187,10 @@ export function BuildBar({ className }: { className?: string }) {
     }
   };
   const chosen = sale.flatMap((s) => s.items).find((d) => d.def.id === structureDefId);
+  // LAND FOR SALE, while any is left: the next parcel's price. @see world/land
+  const land = useSessionStore((s) => s.land);
+  const forSale = !!land && land.length < PARCELS * PARCELS;
+  const landNext = parcelPrice();
 
   return (
     <div className={twMerge("flex flex-col items-center gap-1.5 text-primary-900 dark:text-primary-100", className)}>
@@ -257,7 +264,7 @@ export function BuildBar({ className }: { className?: string }) {
 
         {/* THE TOOLS. */}
         <div className="flex items-stretch">
-          {TOOLS.map((t) => (
+          {TOOLS.filter((t) => t.id !== "buyLand" || forSale).map((t) => (
             <button key={t.id} type="button" title={t.hint} onClick={() => choose(t.id)}
               data-hint={t.id === "placeStructure" ? "build" : undefined}
               className={twMerge(TOOL, tool === t.id && TOOL_ON)}>
@@ -265,6 +272,9 @@ export function BuildBar({ className }: { className?: string }) {
               <span>{t.label}</span>
               {t.id === "placeStructure" && chosen && tool === t.id && (
                 <span className="ml-0.5 border-l border-current/30 pl-1 opacity-80">{saleName(chosen.def)}</span>
+              )}
+              {t.id === "buyLand" && (
+                <span className={twMerge("tabular-nums", money.lt(landNext) && "text-red-700 dark:text-red-400")}>{formatCurrency(landNext)}</span>
               )}
             </button>
           ))}
