@@ -37,6 +37,7 @@ import { allStructureDefs, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
 import { WondersPanel } from "./wonders-panel";
 import { PARCELS } from "../land";
+import { hasRiver } from "../boats/river";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -76,7 +77,7 @@ type Section = { title: string; colour?: number; items: ForSale[] };
  * employee the company can hire, its lot and its office; then services; then
  * ports. @see buildCost
  */
-function sections(hireable: ReadonlySet<string>): Section[] {
+function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
   const all: ForSale[] = allStructureDefs()
     .map((def) => ({ def, price: buildCost(def.id)?.toNumber() ?? -1 }))
     .filter((d) => d.price >= 0);
@@ -95,6 +96,9 @@ function sections(hireable: ReadonlySet<string>): Section[] {
   if (services.length && featureGateOpen("services")) out.push({ title: "Services", colour: 0x2f8f6b, items: services });
   const ports = all.filter((d) => d.def.port).sort((a, b) => a.price - b.price);
   if (ports.length && featureGateOpen("ports")) out.push({ title: "Ports", colour: 0x4a90c8, items: ports });
+  // FLOOD WALLS, on a map with a river to flood. @see LEVEE
+  const walls = all.filter((d) => d.def.id === "levee");
+  if (river && walls.length) out.push({ title: "Defences", colour: 0x8a8475, items: walls });
   return out;
 }
 
@@ -110,6 +114,7 @@ function tileNote(def: StructureDef): string {
   if (workplaceKind(def.id)) return "workplace";
   if (serviceOf(def.id)) return `serves ${RANGE} tiles`;
   if (def.port) return `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}`;
+  if (def.id === "levee") return "drag along a bank";
   return "";
 }
 
@@ -164,7 +169,9 @@ export function BuildBar({ className }: { className?: string }) {
   // Who the company can hire: the generators it has unlocked. @see getUnlockedGeneratorIds
   const hireable = new Set(generators.map((g) => g.id));
   // Not memoised: prices follow the economy. @see buildCost
-  const sale = sections(hireable);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const river = useMemo(() => hasRiver(grid), [grid, grid.rev]);
+  const sale = sections(hireable, river);
   // As the economy counts beds: built on the map, and off it. Worked out here
   // rather than asked of the economy, whose reader is registered after the
   // first render and answers "unlimited" until it is. @see useFoundWorld

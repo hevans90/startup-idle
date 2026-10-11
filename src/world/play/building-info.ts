@@ -113,6 +113,8 @@ export function saleName(def: StructureDef): string {
 export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
   const def = structureDef(s.def);
   if (!def) return null;
+  // A FLOOD WALL is a wall: no label. @see LEVEE
+  if (s.def === "levee") return null;
 
   // HOUSING: who lives there, who is coming, and what they earn.
   const h = housedBy(s.def);

@@ -361,6 +361,16 @@ function drawCafe(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
   for (const du of [-0.14, 0.14]) box(tu + du - 0.04, tv - 0.04, tu + du + 0.04, tv + 0.04, 0.12, 0.3, CHAIR, CHAIR, CHAIR);
 }
 
+/** A FLOOD WALL: a tile-wide block of concrete with a band of sandbags along its top. */
+const LEVEE_TALL = 1.3;
+const LEVEE_TOP = 0xc9c4b8, LEVEE_SIDE = 0xa8a294, LEVEE_SHADE = 0x86806f, SANDBAG = 0xb59a62, SANDBAG_SHADE = 0x8c7547;
+function drawLevee(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + 0.5, y0 = s.y - 0.5, y1 = s.y + 0.5;
+  box(x0, y0, x1, y1, 0, LEVEE_TALL, LEVEE_TOP, LEVEE_SIDE, LEVEE_SHADE);
+  box(x0 + 0.15, y0 + 0.15, x1 - 0.15, y1 - 0.15, LEVEE_TALL, LEVEE_TALL + 0.35, SANDBAG, SANDBAG, SANDBAG_SHADE);
+}
+
 /** THE PARK: lawn, a gravel path across it, trees, and a bench. */
 function drawPark(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
   const { box, quad, P } = pen(g, s, ctx, c);
@@ -574,6 +584,7 @@ const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
   gym: { body: GYM_BODY, finished: drawGym },
   boardroom: { body: BR_TOWER, finished: drawBoardroom },
   campus: { body: CAMPUS_TALL, finished: drawCampus },
+  levee: { body: LEVEE_TALL, finished: drawLevee },
 };
 
 /** The band of a column's front cell. */

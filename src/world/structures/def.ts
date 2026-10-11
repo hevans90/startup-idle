@@ -55,6 +55,8 @@ export type Placement = {
    * A fact about the building, like `riverside`. @see riverWithin
    */
   nearRiver?: number;
+  /** Needs no road beside it, even under the game's rules: a wall, not a destination. */
+  noFrontage?: boolean;
 };
 
 export type StructureDef = {
@@ -250,8 +252,18 @@ export const SLOP_PIT: StructureDef = {
   basin: 3,
 };
 
+/**
+ * A FLOOD WALL: a tile of concrete, dragged along a bank in a row. To the
+ * water every building is a wall already — this is one that is nothing else,
+ * cheap, and needs no road. @see world/events/flood
+ */
+export const LEVEE: StructureDef = {
+  id: "levee", name: "Flood wall", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" },
+  placement: { noFrontage: true },
+};
+
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;
@@ -277,6 +289,7 @@ export function placementOf(def: StructureDef): Required<Omit<Placement, "nearRi
     autoFlatten: def.placement?.autoFlatten ?? true,
     riverside: def.placement?.riverside ?? false,
     nearRiver: def.placement?.nearRiver,
+    noFrontage: def.placement?.noFrontage ?? false,
   };
 }
 

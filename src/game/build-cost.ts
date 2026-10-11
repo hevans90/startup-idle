@@ -30,6 +30,8 @@ export function buildCost(defId: string): Decimal | null {
   // A SERVICE: seconds of income, never under a floor.
   const service = SERVICE_PRICE[defId];
   if (service) return Decimal.max(new Decimal(service.floor), new Decimal(safeIncome()).times(service.seconds)).round();
+  // A FLOOD WALL: cheap, a tile at a time.
+  if (defId === "levee") return Decimal.max(new Decimal(LEVEE_FLOOR), new Decimal(safeIncome()).times(LEVEE_SECONDS)).round();
   // AN OFFICE: so many hires' worth of the people who will work there.
   const office = OFFICE_FOR[defId];
   if (office) {
@@ -70,6 +72,9 @@ const SERVICE_PRICE: Record<string, { seconds: number; floor: number }> = {
   park: { seconds: 8, floor: 400 },
   gym: { seconds: 16, floor: 2000 },
 };
+/** A tile of flood wall: half a second of income, never under a floor. */
+const LEVEE_SECONDS = 0.5;
+const LEVEE_FLOOR = 20;
 /** An office costs this many of the next hire's price, never under a floor. */
 const OFFICE_HIRES = 4;
 const OFFICE_FOR: Record<string, { who: GeneratorId; floor: number }> = {

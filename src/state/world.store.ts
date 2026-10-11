@@ -231,7 +231,7 @@ export function playRules(g: Grid): PlaceRules {
 
 export function lotLine(st: { tool: string; structureDefId: string; placingProject: unknown; grid: Grid }, s0: Stroke): Cell[] | null {
   if (st.tool !== "placeStructure" || st.placingProject) return null;
-  if (!housedBy(st.structureDefId)) return null;
+  if (!housedBy(st.structureDefId) && st.structureDefId !== "levee") return null;
   if (s0.anchor.x === s0.head.x && s0.anchor.y === s0.head.y) return null;
   return strokeCells(st.grid, { ...s0, brush: "line" });
 }

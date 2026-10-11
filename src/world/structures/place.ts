@@ -156,7 +156,7 @@ export function validatePlacement(
   // a door. Asked of every cell, it held for the one-cell houses it was
   // written for and refused every seaport there could be — a port's back row
   // fronts the road and its front row the river, and no cell does both.
-  if (rules.needsRoad && !cells.some((c) => inBounds(grid, c.x, c.y) && touchesRoad(grid, c.x, c.y))) {
+  if (rules.needsRoad && !placementOf(def).noFrontage && !cells.some((c) => inBounds(grid, c.x, c.y) && touchesRoad(grid, c.x, c.y))) {
     return {
       ok: false,
       cells: verdicts.map(() => ({ ok: false, reason: "no road access" })),

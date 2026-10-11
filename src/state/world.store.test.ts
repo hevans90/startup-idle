@@ -760,3 +760,27 @@ describe("land under play rules", () => {
     expect(before - useMoneyStore.getState().money.toNumber()).toBeGreaterThanOrEqual(400);
   });
 });
+
+describe("flood walls under play rules", () => {
+  afterEach(() => s().setPlaying(false));
+
+  test("go down with no road beside them, a row at a drag, and stand as walls to the water", () => {
+    const g = createGrid(24, 16);
+    fillTerrain(g, 1);
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 2)] = 1;
+    s().loadGrid(g);
+    s().setPlaying(true);
+    useMoneyStore.setState({ money: new Decimal(1e6) });
+    s().setTool("placeStructure");
+    s().setStructureDef("levee");
+    s().setBrush("point");
+    s().beginStroke({ x: 4, y: 10 });
+    s().updateStroke({ x: 9, y: 10 });
+    s().endStroke();
+    const walls = [...s().grid.structures.values()].filter((x) => x.def === "levee");
+    expect(walls.map((w) => w.x)).toEqual([4, 5, 6, 7, 8, 9]);
+    const field = s().getWaterField()!;
+    const i = 10 * COLUMNS_PER_TILE * field.columns.nx + 6 * COLUMNS_PER_TILE;
+    expect(field.columns.ground[i]).toBeGreaterThanOrEqual(SOLID_LIFT);
+  });
+});
