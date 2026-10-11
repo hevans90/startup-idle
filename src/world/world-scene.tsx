@@ -281,6 +281,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const grid = useWorldStore((s) => s.grid);
   const scale = useWorldStore((s) => s.scale);
   const { app } = useApplication();
+  // NOT DRAWN while out of sight: the stage goes dark, the ticks go on. @see mapHidden
+  const mapHidden = useWorldStore((s) => s.mapHidden);
+  useEffect(() => { app.stage.visible = !mapHidden; }, [app, mapHidden]);
 
   // Build the scene whenever the grid identity changes (new/resized map).
   useEffect(() => {

@@ -180,7 +180,7 @@ function App() {
             <div className="relative min-h-0 flex-1">
               <div className={`absolute inset-0 ${phoneTab === "map" ? "" : "invisible"}`}>
                 <Suspense fallback={null}>
-                  <CompanyMap />
+                  <CompanyMap hidden={phoneTab !== "map"} />
                 </Suspense>
               </div>
               {phoneTab === "company" && (

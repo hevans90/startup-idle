@@ -488,6 +488,12 @@ type WorldState = {
    * Not something to undo, or to pay for. @see SLOP_PIT
    */
   openSlopPit: () => void;
+  /**
+   * Whether the map is out of sight — on a phone's other tab — and not worth
+   * drawing. The town goes on; only the drawing stops.
+   */
+  mapHidden: boolean;
+  setMapHidden: (hidden: boolean) => void;
   /** Buy the parcel of land a cell is in, if it is for sale and affordable. @see world/land */
   buyParcel: (c: Cell) => void;
   /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
@@ -785,6 +791,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     buildCmds = [];
     set({ lastBuild: null });
   },
+  mapHidden: false,
+  setMapHidden: (mapHidden) => set({ mapHidden }),
   buyParcel: (c) => {
     const st = get();
     const land = useSessionStore.getState().land;

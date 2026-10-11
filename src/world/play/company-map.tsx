@@ -25,8 +25,10 @@ import { EventCards, EventMarkers } from "./event-cards";
 // The stores on `window` in development, as the editor has them. @see expose-store
 import "../debug/expose-store";
 
-export default function CompanyMap() {
+export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
   const { ref: wrapperRef, setRef, size } = useResizeToWrapper();
+  // OUT OF SIGHT, on a phone's other tab: not drawn, though the town goes on.
+  useEffect(() => { useWorldStore.getState().setMapHidden(hidden); }, [hidden]);
   useFoundWorld("run", true);
   /**
    * BUILDINGS ARE THE WAY IN: with the look tool in hand, clicking a finished
