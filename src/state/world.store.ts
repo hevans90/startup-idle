@@ -23,7 +23,7 @@ import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
 import { incomeNow } from "../world/projects/economy";
-import { builtProjects, createWorks, nearestSpot, siteOf, startSiteCommand, type Works } from "../world/projects/works";
+import { builtProjects, createWorks, nearestSpot, projectUnderWay, siteOf, startSiteCommand, type Works } from "../world/projects/works";
 import { PROJECTS, alreadyEarned, featureGateOpen, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
@@ -707,6 +707,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   lookAt: (cell) => set({ lookedAt: { x: cell.x, y: cell.y, n: (get().lookedAt?.n ?? 0) + 1 } }),
   placeProject: (id) => {
     const p = id ? projectDef(id) : null;
+    // ONE PROJECT AT A TIME, in the game. @see projectUnderWay
+    const busy = p && get().playing ? projectUnderWay(get().grid) : null;
+    if (busy && busy.id !== p!.id) {
+      set({ notice: { text: `One project at a time: ${busy.name} first`, at: Date.now() } });
+      return;
+    }
     if (p) set({ placingProject: id, tool: "placeStructure", structureDefId: p.structure, brush: "point", brushRadius: 0 });
     else set({ placingProject: null, tool: "inspect" });
   },
@@ -1123,6 +1129,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // are sent. @see startSiteCommand
     const project = st.placingProject ? projectDef(st.placingProject) : null;
     if (project && st.tool === "placeStructure" && st.structureDefId === project.structure) {
+      const busy = st.playing ? projectUnderWay(st.grid) : null;
+      if (busy) {
+        set({ stroke: null, placingProject: null, tool: "inspect", notice: { text: `One project at a time: ${busy.name} first`, at: Date.now() } });
+        return;
+      }
       const siteRules = {
         ...(st.playing ? { needsRoad: true } : {}),
         ...(water && (structureDef(project.structure)?.placement?.riverside || structureDef(project.structure)?.placement?.nearRiver)

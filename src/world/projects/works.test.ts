@@ -10,7 +10,7 @@ import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import {
-  STALL_GRACE, builtProjects, catchUpWorks, createWorks, siteOf, startSiteCommand, stepWorks,
+  STALL_GRACE, builtProjects, catchUpWorks, createWorks, projectUnderWay, siteOf, startSiteCommand, stepWorks,
 } from "./works";
 
 const STUDIO = projectDef("studio")!;
@@ -323,5 +323,16 @@ describe("two sites at once", () => {
     // Normal is half: ten for the first, then half the ten left for the second.
     expect([...w.plan.values()].map((p) => p.want)).toEqual([10, 5]);
     expect(w.away.intern).toBe(15);
+  });
+});
+
+describe("one project at a time", () => {
+  test("the project under way is the one with a site, and there is none before or after", () => {
+    const { g, history } = town();
+    expect(projectUnderWay(g)).toBeNull();
+    commit(g, history, startSiteCommand(g, STUDIO, 12, 6, { needsRoad: true }, 0)!);
+    expect(projectUnderWay(g)?.id).toBe("studio");
+    siteOf(g, STUDIO)!.build = undefined;
+    expect(projectUnderWay(g)).toBeNull();
   });
 });

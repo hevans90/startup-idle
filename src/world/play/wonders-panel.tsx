@@ -14,7 +14,7 @@ import { useInnovationStore } from "../../state/innovation.store";
 import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
-import { builtProjects, siteOf } from "../projects/works";
+import { builtProjects, projectUnderWay, siteOf } from "../projects/works";
 import { opensText } from "./building-info";
 import { useTicking } from "../../hooks/use-ticking";
 import { ProjectCard } from "./projects-panel";
@@ -44,6 +44,8 @@ export function WondersPanel({ className }: { className?: string }) {
   for (const g of generators) owned[g.id] = g.amount;
   const unlocked = new Set(Object.entries(unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
   const built = builtProjects(grid);
+  // ONE PROJECT AT A TIME, wonders with the rest. @see projectUnderWay
+  const busy = projectUnderWay(grid);
   return (
     <div className={twMerge(PANEL, "w-[min(22rem,calc(100vw-1rem))] p-2 text-xs text-primary-900 dark:text-primary-100", className)}>
       <div className="mb-1 flex items-baseline justify-between">
@@ -61,7 +63,16 @@ export function WondersPanel({ className }: { className?: string }) {
             </div>
           );
         }
-        if (siteOf(grid, w) || w.ready(owned, unlocked)) {
+        if (siteOf(grid, w)) {
+          return (
+            <div key={w.id} className={ROW}>
+              <ProjectCard next={w} className="w-full border-0 bg-transparent p-0 shadow-none dark:bg-transparent" />
+            </div>
+          );
+        }
+        // Hidden while another project is under way. @see projectUnderWay
+        if (busy) return null;
+        if (w.ready(owned, unlocked)) {
           return (
             <div key={w.id} className={ROW}>
               <ProjectCard next={w} className="w-full border-0 bg-transparent p-0 shadow-none dark:bg-transparent" />

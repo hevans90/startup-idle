@@ -704,3 +704,21 @@ describe("undo in the game", () => {
     expect(useMoneyStore.getState().money.toNumber()).toBe(85);
   });
 });
+
+describe("projects under play rules", () => {
+  afterEach(() => { s().setPlaying(false); s().placeProject(null); });
+
+  test("only one is started at a time: another waits until it stands", () => {
+    const g = createGrid(30, 14);
+    fillTerrain(g, 1);
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 5)] = 1;
+    s().loadGrid(g);
+    s().setPlaying(true);
+    s().placeProject("studio");
+    s().commitStructure({ x: 12, y: 6 });
+    expect([...s().grid.structures.values()].filter((x) => x.build).map((x) => x.def)).toEqual(["studio"]);
+    s().placeProject("townhall");
+    expect(s().placingProject).toBeNull();
+    expect(s().notice?.text).toMatch(/One project at a time: Vibe Coder Studio/);
+  });
+});

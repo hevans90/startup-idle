@@ -175,9 +175,11 @@ export function simulateMapRun(
   const stepTown = () => {
     const o = owned();
     const unlocked = new Set(Object.entries(useInnovationStore.getState().unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
+    // ONE PROJECT AT A TIME, as in the game: the first ready, in order. @see projectUnderWay
     for (const id of GATES) {
+      if (sites.length) break;
       const p = PROJECTS.find((x) => x.id === id)!;
-      if (built.has(id) || sites.some((s) => s.p.id === id) || !p.ready(o, unlocked)) continue;
+      if (built.has(id) || !p.ready(o, unlocked)) continue;
       const def = structureDef(p.structure)!;
       sites.push({
         p, done: 0, delivered: 0, inFlight: [], startedAt: t, stalled: 0,

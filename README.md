@@ -54,7 +54,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 
 **Prices follow the economy** (`game/build-cost.ts`), each the larger of a floor and a live share: lots a quarter of the next hire a bed (≥ $15); offices four hires; services seconds of income; seaports 10 s of income per boat a minute; road max($2, 0.25 s of income) a tile, lifting free.
 
-**Projects** (`game/projects.ts`, `world/projects/works.ts`): milestones make a project available; you pick a site, a crew walks there (away from their desks), trucks bring materials paid per load (no money stalls the site; an idle crew goes home after 6 s), and the building opens its feature. Priority commits none to all of the eligible crew; materials cost seconds of income fixed at siting; time away is caught up (`catchUpWorks`).
+**Projects** (`game/projects.ts`, `world/projects/works.ts`): milestones make a project available, **one at a time** (wonders included; the log and wonders menu show only the one under way, `projectUnderWay`); you pick a site, a crew walks there (away from their desks), trucks bring materials paid per load (no money stalls the site; an idle crew goes home after 6 s), and the building opens its feature. Priority commits none to all of the eligible crew; materials cost seconds of income fixed at siting; time away is caught up (`catchUpWorks`).
 
 | Project | Available at | Built by | Work (builder-s) | Materials | Site | Opens |
 | --- | --- | --- | --- | --- | --- | --- |

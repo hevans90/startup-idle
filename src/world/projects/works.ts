@@ -112,6 +112,20 @@ export function builtProjects(g: Grid): Set<ProjectId> {
 export const siteOf = (g: Grid, p: ProjectDef): Structure | null =>
   [...g.structures.values()].find((s) => s.def === p.structure && s.build) ?? null;
 
+/**
+ * THE PROJECT UNDER WAY, if any: ONE AT A TIME, so the company's builders
+ * all go to the one site and the next is chosen once it stands. A wonder is a
+ * project too. Null with none. @see placeProject
+ */
+export function projectUnderWay(g: Grid): ProjectDef | null {
+  for (const s of g.structures.values()) {
+    if (!s.build) continue;
+    const p = projectForStructure(s.def);
+    if (p) return p;
+  }
+  return null;
+}
+
 /** A fresh build record for a project, priced off the company's income now. @see projectCost */
 export const newBuild = (p: ProjectDef, now: number, income = 0): Build => ({
   done: 0, need: p.work, delivered: 0, deliveries: p.deliveries, cost: projectCost(p, income), priority: 2, updatedAt: now,

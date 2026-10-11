@@ -78,9 +78,12 @@ export function ProjectsPanel({ className }: { className?: string }) {
   const river = useMemo(() => hasRiver(grid), [grid, grid.rev]);
   // Wonders have a menu of their own. @see WondersPanel
   const open = PROJECTS.filter((p) => !p.bonus && !built.has(p.id) && !(only && p.unlocks) && !(p.needsMap === "river" && !river));
-  const going = open.filter((p) => siteOf(grid, p));
-  const available = open.filter((p) => !siteOf(grid, p) && p.ready(owned, unlocked));
-  const next = open.filter((p) => !going.includes(p) && !available.includes(p));
+  // ONE PROJECT AT A TIME: while one is under way — a wonder too — it is all
+  // the log shows, and the rest wait for it to stand. @see projectUnderWay
+  const going = PROJECTS.filter((p) => !built.has(p.id) && siteOf(grid, p));
+  const busy = going.length > 0;
+  const available = busy ? [] : open.filter((p) => p.ready(owned, unlocked));
+  const next = busy ? [] : open.filter((p) => !available.includes(p));
   const fresh = available.filter((p) => !seen.includes(p.id));
   const pit = (owned.vibe_coder ?? 0) >= SLOP_PIT_UNLOCK_COUNT;
 
@@ -90,11 +93,11 @@ export function ProjectsPanel({ className }: { className?: string }) {
     if (isOpen && freshKey) markSeen(freshKey.split(","));
   }, [isOpen, freshKey, markSeen]);
 
-  if (!open.length && !pit) return null;
+  if (!open.length && !busy && !pit) return null;
   return (
     <div className={twMerge("flex max-h-[75%] w-72 flex-col gap-2", className)}>
       {pit && <SlopPitCard />}
-      {open.length > 0 && (
+      {(open.length > 0 || busy) && (
         <div className={twMerge(CARD, "flex min-h-0 flex-col p-0")}>
           <button type="button" onClick={() => setOpen(!isOpen)} data-hint="projects"
             className={twMerge(
@@ -119,7 +122,7 @@ export function ProjectsPanel({ className }: { className?: string }) {
             <div className="flex min-h-0 flex-col gap-2 overflow-y-auto border-t border-primary-200 p-2 dark:border-primary-700">
               {/* What can be started, first and untitled: the cards say it. */}
               {available.map((p) => <ProjectCard key={p.id} next={p} className={IN_LOG} />)}
-              {going.length > 0 && <LogSection title="In progress">
+              {busy && <LogSection title="In progress">
                 {going.map((p) => <ProjectCard key={p.id} next={p} className={IN_LOG} />)}
               </LogSection>}
               {next.length > 0 && <LogSection title="Up next">
