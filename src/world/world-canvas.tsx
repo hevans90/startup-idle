@@ -121,7 +121,10 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   useEffect(() => {
     if (slot !== "run" || generatedKey !== `${slot}:${useSessionStore.getState().incorporatedAt}`) return;
     generatedKey = null;
-    useSessionStore.getState().setLand(startingLand(useWorldStore.getState().grid));
+    const land = startingLand(useWorldStore.getState().grid);
+    useSessionStore.getState().setLand(land);
+    // AND THE OLD BUILDINGS on the land still for sale. @see placeDerelicts
+    useWorldStore.getState().placeDerelicts(land, useSessionStore.getState().incorporatedAt);
   }, [slot]);
   // And keep it saved from here on. @see startAutosave
   useEffect(() => startAutosave(), []);

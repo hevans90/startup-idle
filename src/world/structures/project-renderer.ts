@@ -413,6 +413,20 @@ function drawGym(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
   line([[mu, mv, GYM_BODY], [mu, mv, GYM_BODY + 0.9]], DUMBBELL_SHADE, 2);
 }
 
+/** A DERELICT BUILDING: grimy walls, boarded windows, a roof fallen in at one corner. */
+const DERELICT_BODY = 1.9;
+const GRIME = 0x8a8478, GRIME_SIDE = 0x6f6a60, GRIME_SHADE = 0x58534b, BOARD = 0x7a5a3a, ROOF_HOLE = 0x2b2622;
+function drawDerelict(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line, quad, P } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  const w0 = x0 + 0.15, w1 = x1 - 0.15, v0 = y0 + 0.15, v1 = y1 - 0.15;
+  box(w0, v0, w1, v1, 0, DERELICT_BODY, GRIME, GRIME_SIDE, GRIME_SHADE);
+  for (const u of [w0 + 0.35, w0 + 0.95]) line([[u, v1 + 0.005, 0.7], [u + 0.3, v1 + 0.005, 1.2]], BOARD, 4);
+  for (const v of [v0 + 0.35, v0 + 0.95]) line([[w1 + 0.005, v, 0.7], [w1 + 0.005, v + 0.3, 1.2]], BOARD, 4);
+  const cu0 = Math.max(w0, s.x + c - 0.5), cu1 = Math.min(w0 + 0.7, s.x + c + 0.5);
+  if (cu1 > cu0) quad([P(cu0, v0 + 0.05, DERELICT_BODY + 0.01), P(cu1, v0 + 0.05, DERELICT_BODY + 0.01), P(cu1, v0 + 0.6, DERELICT_BODY + 0.01), P(cu0, v0 + 0.6, DERELICT_BODY + 0.01)], ROOF_HOLE);
+}
+
 /** AN R&D LAB: a white block with a band of glass, and a dish on the roof. */
 const LAB_BODY = 2.4;
 const LAB_WALL = 0xe9ecef, LAB_WALL_SHADE = 0xc3c9cf, LAB_ROOF = 0x6b7680, DISH = 0xdfe3e6, DISH_SHADE = 0xa9b0b6;
@@ -602,6 +616,7 @@ const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
   campus: { body: CAMPUS_TALL, finished: drawCampus },
   levee: { body: LEVEE_TALL, finished: drawLevee },
   lab: { body: LAB_BODY, finished: drawLab },
+  derelict: { body: DERELICT_BODY, finished: drawDerelict },
 };
 
 /** The band of a column's front cell. */

@@ -7,6 +7,7 @@
  * would leave a save file holding employees with nowhere to live.
  * @see startAutosave, loadSaved
  */
+import Decimal from "break_infinity.js";
 import {
   addBoat, createFleet, removeBoatNear, restoreFleet, type Fleet, type SavedBoat,
 } from "../world/boats/fleet";
@@ -33,7 +34,7 @@ import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
 import { createGrid, fillTerrain, idx, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
-import { SLOP_PIT, structureDef } from "../world/structures/def";
+import { DERELICT, SLOP_PIT, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
 import {
@@ -68,7 +69,7 @@ import {
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { buildCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { useSessionStore } from "./session.store";
-import { buyable, landPrice, ownsTile, parcelOf, STARTING_PARCELS } from "../world/land";
+import { buyable, landPrice, ownsTile, PARCELS, parcelOf, parcelRect, STARTING_PARCELS } from "../world/land";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
@@ -263,6 +264,8 @@ export const sludgeTrucksOut = () => haulersOut;
 export const sludgeTruckBack = () => { haulersOut = Math.max(0, haulersOut - 1); };
 /** How many trucks a call sends, and what the call costs: seconds of income, never under a floor. */
 export const SLUDGE_TRUCKS = 3;
+/** What clearing a derelict building costs: fifteen seconds of income. @see DERELICT */
+export const clearingPrice = () => Math.max(200, Math.round(incomeNow() * 15));
 /** What the next parcel of land costs. @see landPrice */
 export const parcelPrice = () => landPrice(Math.max(0, (useSessionStore.getState().land?.length ?? 0) - STARTING_PARCELS), incomeNow());
 export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
@@ -496,6 +499,12 @@ type WorldState = {
   setMapHidden: (hidden: boolean) => void;
   /** Buy the parcel of land a cell is in, if it is for sale and affordable. @see world/land */
   buyParcel: (c: Cell) => void;
+  /**
+   * Old buildings on the land a new company has yet to buy: one on about half
+   * its parcels, by the road, the same each time for the same `seed`. Not an
+   * edit to undo. @see DERELICT
+   */
+  placeDerelicts: (land: readonly number[], seed: number) => void;
   /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
   housingMoved: (ids: readonly number[]) => void;
   lastTouched: Cell[];
@@ -793,6 +802,32 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   mapHidden: false,
   setMapHidden: (mapHidden) => set({ mapHidden }),
+  placeDerelicts: (land, seed) => {
+    const st = get();
+    let r = seed >>> 0;
+    const rand = () => { r = (r + 0x6d2b79f5) >>> 0; let t = r; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    let changed = false;
+    for (let p = 0; p < PARCELS * PARCELS; p++) {
+      if (land.includes(p) || rand() < 0.5) continue;
+      const rect = parcelRect(st.grid, p);
+      const rules = { needsRoad: true, owned: (x: number, y: number) => parcelOf(st.grid, x, y) === p };
+      // A few tries at random spots in the parcel; none by a road and it has none.
+      for (let k = 0; k < 40; k++) {
+        const x = rect.x0 + Math.floor(rand() * (rect.x1 - rect.x0)), y = rect.y0 + Math.floor(rand() * (rect.y1 - rect.y0));
+        const cmd = placeCommand(st.grid, DERELICT, x, y, rules);
+        if (!cmd) continue;
+        commit(st.grid, history, cmd);
+        if (water && touchesSurface(cmd)) syncGround(water, st.grid);
+        if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
+        changed = true;
+        break;
+      }
+    }
+    if (changed) {
+      history = createHistory();
+      set({ revision: get().revision + 1, ...historyMeta(), ...netMeta() });
+    }
+  },
   buyParcel: (c) => {
     const st = get();
     const land = useSessionStore.getState().land;
@@ -1244,6 +1279,14 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const why = !demolishing && !upgrade && def ? validatePlacement(st.grid, def, c.x, c.y, rules).reason : undefined;
       refuse(why ? `Can't build here: ${why}` : "Can't build here");
       return;
+    }
+    // ONLY ON THE COMPANY'S OWN LAND does anything come down, either. @see world/land
+    const land = useSessionStore.getState().land;
+    if (st.playing && demolishing && land && !ownsTile(st.grid, land, c.x, c.y)) { refuse("Not your land: buy it first"); return; }
+    // A DERELICT costs to clear. @see DERELICT
+    if (st.playing && demolishing && st.grid.structures.get(under)?.def === "derelict") {
+      const price = new Decimal(clearingPrice());
+      if (!spendForBuild(price)) { refuse(`Not enough money to clear it: ${formatCurrency(price.toNumber())}`); return; }
     }
     // NOR SERVICES OR PORTS before the projects that open them. @see featureGateOpen
     if (st.playing && !demolishing && target) {

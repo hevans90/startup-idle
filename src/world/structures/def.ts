@@ -268,8 +268,17 @@ export const LEVEE: StructureDef = {
   placement: { noFrontage: true },
 };
 
+/**
+ * A DERELICT BUILDING: there already, on land a company has yet to buy, and
+ * costing it to clear once it has. Homes near one are the gloomier for it.
+ * @see placeDerelicts, MOOD.derelict
+ */
+export const DERELICT: StructureDef = {
+  id: "derelict", name: "Derelict building", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" },
+};
+
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE, LAB].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE, LAB, DERELICT].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

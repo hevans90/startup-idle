@@ -10,6 +10,7 @@ import Decimal from "break_infinity.js";
 
 import { useMoneyStore } from "./money.store";
 import { useSessionStore } from "./session.store";
+import { parcelOf } from "../world/land";
 
 import { deserializeWorld, serializeWorld, toJSON } from "../world/io/serialize";
 import {
@@ -782,5 +783,46 @@ describe("flood walls under play rules", () => {
     const field = s().getWaterField()!;
     const i = 10 * COLUMNS_PER_TILE * field.columns.nx + 6 * COLUMNS_PER_TILE;
     expect(field.columns.ground[i]).toBeGreaterThanOrEqual(SOLID_LIFT);
+  });
+});
+
+describe("derelict buildings", () => {
+  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); });
+
+  /** A 64² map with a road across every parcel row, owning the middle block. */
+  const roads = () => {
+    const g = createGrid(64, 64);
+    fillTerrain(g, 1);
+    for (const y of [8, 24, 40, 56]) for (let x = 0; x < g.w; x++) g.paved[idx(g, x, y)] = 1;
+    s().loadGrid(g);
+    return g;
+  };
+
+  test("stand only on land still for sale, by a road, the same for the same seed", () => {
+    roads();
+    s().placeDerelicts([5, 6, 9, 10], 1234);
+    const at = [...s().grid.structures.values()].filter((x) => x.def === "derelict").map((x) => [x.x, x.y]);
+    expect(at.length).toBeGreaterThan(0);
+    for (const [x, y] of at) expect([5, 6, 9, 10]).not.toContain(parcelOf(s().grid, x, y));
+    roads();
+    s().placeDerelicts([5, 6, 9, 10], 1234);
+    expect([...s().grid.structures.values()].filter((x) => x.def === "derelict").map((x) => [x.x, x.y])).toEqual(at);
+  });
+
+  test("cost to clear once the land is bought, and cannot be touched before", () => {
+    roads();
+    s().placeDerelicts([5, 6, 9, 10], 1234);
+    const d = [...s().grid.structures.values()].find((x) => x.def === "derelict")!;
+    useSessionStore.getState().setLand([5, 6, 9, 10]);
+    s().setPlaying(true);
+    s().setTool("demolish");
+    useMoneyStore.setState({ money: new Decimal(1e6) });
+    s().commitStructure({ x: d.x, y: d.y });
+    expect(s().grid.structures.has(d.id)).toBe(true);
+    expect(s().notice?.text).toMatch(/Not your land/);
+    useSessionStore.getState().setLand([...Array(16).keys()]);
+    s().commitStructure({ x: d.x, y: d.y });
+    expect(s().grid.structures.has(d.id)).toBe(false);
+    expect(useMoneyStore.getState().money.toNumber()).toBeLessThanOrEqual(1e6 - 200);
   });
 });

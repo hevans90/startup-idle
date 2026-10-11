@@ -39,10 +39,12 @@ export const MOOD = {
   wonder: 5,
   sludge: -15,
   flooded: -20,
+  derelict: -5,
 } as const;
 /** How near the slop pit and a wonder count, in tiles. */
 export const SLOP_REACH = 6;
 export const WONDER_REACH = 10;
+export const DERELICT_REACH = 4;
 /** A house's mood never goes past this, either way. */
 export const MOOD_LIMIT = 40;
 /** At or below this, people start to leave; one every this many seconds. */
@@ -67,13 +69,14 @@ export function moodsOf(
   g: Grid, commutes: ReadonlyMap<number, Commute>, coverage: Coverage, slopFill: number,
   sludged: ReadonlySet<number> = new Set(), flooded: ReadonlySet<number> = new Set(),
 ): Map<number, MoodParts> {
-  const pits: Structure[] = [], wonders: Structure[] = [];
+  const pits: Structure[] = [], wonders: Structure[] = [], derelicts: Structure[] = [];
   // Kinds with somewhere to work: with none at all, there is no commute to
   // count against anybody's home. @see WORKPLACES
   const working = new Set<GeneratorId>();
   for (const s of g.structures.values()) {
     if (s.build) continue;
     if (s.def === "slop-pit") pits.push(s);
+    if (s.def === "derelict") derelicts.push(s);
     if (projectForStructure(s.def)?.bonus) wonders.push(s);
     const w = workplaceKind(s.def);
     if (w) working.add(w);
@@ -100,6 +103,7 @@ export function moodsOf(
     const tier = tierOf(s.def);
     if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: "crowded", points: MOOD.crowded });
     if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: "near a wonder", points: MOOD.wonder });
+    if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: "derelict nearby", points: MOOD.derelict });
     if (sludged.has(s.id)) parts.push({ why: "sludge", points: MOOD.sludge });
     if (flooded.has(s.id)) parts.push({ why: "flooded", points: MOOD.flooded });
     const total = Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, parts.reduce((n, p) => n + p.points, 0)));

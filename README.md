@@ -33,7 +33,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 - **Undo** for 15 s after a build, road stroke or row of lots, money included (`undoLastBuild`). Refusals say why in a notice.
 - **Labels** (`building-labels.tsx`) over every building: residents, earnings, mood, progress, boats. Overlapping labels **collate** into one rather than hide (`gatherLabels`).
 
-**Land** (`world/land.ts`): the map is 4×4 parcels. A new company owns the 2×2 block its street runs through most (`Session.land`; null, for a company older than this, owns it all) and builds, lays road and lifts it only there. The rest is under a fog; the **Land** tool buys a parcel beside yours for the larger of $400 × 2.5ⁿ and 45 s × 1.5ⁿ of income, n parcels already bought.
+**Land** (`world/land.ts`): the map is 4×4 parcels. A new company owns the 2×2 block its street runs through most (`Session.land`; null, for a company older than this, owns it all) and builds, lays road and lifts it only there. The rest is under a fog; the **Land** tool buys a parcel beside yours for the larger of $400 × 2.5ⁿ and 45 s × 1.5ⁿ of income, n parcels already bought. About half the parcels for sale come with a **derelict building** by the road (`placeDerelicts`): −5 mood to homes within 4 tiles, and 15 s of income to demolish once the land is yours. Nothing on land you don't own can be demolished.
 
 **Housing is zoned, Caesar-style** (`world/agents/arrivals.ts`):
 
@@ -48,7 +48,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 
 **Services and growth** (`agents/services.ts`): a café, park and gym serve homes within 8 road tiles (4, 8, 16 s of income). A full house served for 20 s grows a tier for free (café → II, + park → III, + gym → tower), and declines after 30 s without. 10x devs only move in with a café and a park.
 
-**Mood** (`agents/mood.ts`, `game/town-mood.ts`): each house's mood is its commute (to −30), services (+4/+6/+4, none −6), the slop pit nearby (−8 to −20), crowding (−6), a wonder (+5), sludge (−15) and flooding (−20), capped at ±40. It shifts each kind's satisfaction target; at −25 a house loses a resident a minute. The Mood tool tints houses.
+**Mood** (`agents/mood.ts`, `game/town-mood.ts`): each house's mood is its commute (to −30), services (+4/+6/+4, none −6), the slop pit nearby (−8 to −20), crowding (−6), a wonder (+5), a derelict (−5), sludge (−15) and flooding (−20), capped at ±40. It shifts each kind's satisfaction target; at −25 a house loses a resident a minute. The Mood tool tints houses.
 
 **Map events** (`world/events/`, `play/event-cards.tsx`): a warning with a countdown, a ring on the map, and a card of choices. One at a time, each kind paced in play time, kept across loads (`PACING`, `Session.eventPacing`); off with "no events" on a card or in Settings.
 
