@@ -12,8 +12,8 @@ import { PACING, nextDueIn, type GameEvent, type PacedKind } from "./events";
 /** Seconds of play until each kind of event is next due. Live state; not saved. */
 export type Pacing = Record<PacedKind, number>;
 
-export const createPacing = (): Pacing =>
-  Object.fromEntries(Object.entries(PACING).map(([k, p]) => [k, p.first])) as Pacing;
+export const createPacing = (saved?: Record<string, number> | null): Pacing =>
+  Object.fromEntries(Object.entries(PACING).map(([k, p]) => [k, saved?.[k] ?? p.first])) as Pacing;
 
 /** The clocks run on only while nothing is under way, so events do not queue up behind each other. */
 export function tickPacing(p: Pacing, events: readonly GameEvent[], dt: number): void {

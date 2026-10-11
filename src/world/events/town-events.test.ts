@@ -18,6 +18,12 @@ describe("event pacing", () => {
     expect(p.convoy).toBe(PACING.convoy.between[0]);
   });
 
+  test("picks up where the last session left off", () => {
+    const p = createPacing({ convoy: 12 });
+    expect(p.convoy).toBe(12);
+    expect(p.hackathon).toBe(PACING.hackathon.first);
+  });
+
   test("an event that ended is found once", () => {
     const before = [ev(1, "hackathon", "active")], after = [ev(1, "hackathon", "over")];
     expect(endedBetween(before, after).map((e) => e.id)).toEqual([1]);

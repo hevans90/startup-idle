@@ -251,7 +251,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // WHEN EACH EVENT IS NEXT DUE, and for a flood the water against each
   // building before it, how far the river is risen, and what it has reached.
   // @see world/events/flood
-  const pacing = useRef(createPacing());
+  const pacing = useRef(createPacing(useSessionStore.getState().eventPacing));
+  const pacingSaved = useRef(0);
   const floodBase = useRef<FloodBase | null>(null);
   const floodRise = useRef(0);
   const floodShield = useRef<FloodShield>(null);
@@ -2376,6 +2377,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const field = st.getWaterField();
           const flood = st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
           tickPacing(pacing.current, st.events, dt);
+          // KEPT WITH THE COMPANY every few seconds, so short sessions add up. @see Session.eventPacing
+          pacingSaved.current += dt;
+          if (pacingSaved.current >= 5) { pacingSaved.current = 0; useSessionStore.getState().setEventPacing({ ...pacing.current }); }
           if (import.meta.env.DEV && window.__eventNow) { pacing.current[window.__eventNow] = 0; window.__eventNow = undefined; }
           // A CONVOY with extra hands at the quays turns boats round twice as fast.
           const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
