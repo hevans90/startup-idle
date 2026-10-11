@@ -31,7 +31,7 @@ describe("the map's pacing", () => {
         "IPO tower": { base: "—", map: fmt(map.opened.ipo) },
         "core complete": { base: fmt(base.totalSeconds), map: fmt(map.totalSeconds) },
       });
-      console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, services: map.services, spentOnServices: map.spentOnServices, stalled: map.stalledSeconds });
+      console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, services: map.services, spentOnServices: map.spentOnServices, stalled: map.stalledSeconds, parcels: map.parcels, spentOnLand: map.spentOnLand });
     }
     // PACING GUARDS, from the balance passes (2026-10-11: core 1.45 h
     // ungated, 1.33 h on a town with an 85% commute, 72 lots and 9 services
@@ -47,5 +47,8 @@ describe("the map's pacing", () => {
     expect(map.lots).toBeLessThan(80);
     // And growing them is worth it: services get bought, not skipped.
     expect(map.services).toBeGreaterThan(3);
+    // LAND is room to grow into, not a toll on the way: a parcel or two at most, cheap against hiring. @see world/land
+    expect(map.parcels).toBeLessThanOrEqual(2);
+    expect(map.spentOnLand).toBeLessThan(map.spentOnHires * 0.05);
   });
 });
