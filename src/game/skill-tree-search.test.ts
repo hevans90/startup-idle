@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { nodeById, SKILL_TREE } from "./skill-tree";
+import { SKILL_TREE } from "./skill-tree";
 import { searchNodeIds } from "./skill-tree-search";
-
-const NODES = nodeById(SKILL_TREE);
 
 describe("searchNodeIds (fuse.js over title + effect)", () => {
   test("short / empty queries match nothing", () => {

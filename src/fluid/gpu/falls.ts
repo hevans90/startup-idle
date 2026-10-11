@@ -50,7 +50,7 @@ import {
 import { DROP, crown } from "../drips";
 import {
   CLIFFN_SLOT, LAND_BOX_FAR, MAX_GROUPS, SPAWN_CROWN, SPAWN_MAX, SPAWN_SHED, SPAWN_STRIDE, STATE_WGSL, beginPass,
-  bindState, flatIndexWgsl, groups1d, stateLayout, type GpuState, shaderModule,} from "./state";
+  bindState, flatIndexWgsl, stateLayout, type GpuState, shaderModule,} from "./state";
 import { createIndirectRing } from "./indirect";
 
 const WORKGROUP = 64;
