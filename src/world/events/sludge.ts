@@ -6,7 +6,7 @@
  */
 import { housedBy } from "../../game/housing";
 import type { Grid, Structure } from "../grid";
-import { inBounds } from "../grid";
+import { inBounds, structureAt } from "../grid";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, type Town } from "../agents/town";
@@ -84,10 +84,17 @@ export function ring(g: Grid, s: Structure): { x: number; y: number }[] {
 
 /** Pour the overflow over the pit's rim, for `dt` seconds of it. */
 export function overflow(field: WaterField, g: Grid, pit: Structure, dt: number) {
-  const tiles = ring(g, pit);
+  // ONTO OPEN GROUND ONLY. To the water a building is a block standing
+  // SOLID_LIFT over its ground, and sludge poured onto one landed on its roof
+  // and fell off every side of it: a fountain over the pit. And not where it
+  // already lies deep — what is there will run on from there by itself.
+  const tiles = ring(g, pit).filter((t) => structureAt(g, t.x, t.y) < 0 && sludgeAt(field, t.x, t.y) < POUR_DEPTH);
+  if (!tiles.length) return;
   const each = (OVERFLOW_RATE * dt * (pit.w * pit.h)) / tiles.length;
   for (const t of tiles) pourAt(field, t.x, t.y, each, SLOP());
 }
+/** Sludge this deep on a tile, half steps, and no more is poured onto it. */
+const POUR_DEPTH = 2;
 
 /** How deep the sludge on a tile is, half steps, on the ground storey: its deepest column. */
 export const sludgeAt = (field: WaterField, x: number, y: number): number => fluidAt(field, x, y, SLOP());
