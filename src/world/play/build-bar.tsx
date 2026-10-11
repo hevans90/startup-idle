@@ -280,7 +280,7 @@ export function BuildBar({ className }: { className?: string }) {
               data-hint={t.id === "placeStructure" ? "build" : undefined}
               className={twMerge(TOOL, tool === t.id && TOOL_ON)}>
               {ICONS[t.id]}
-              <span className="max-md:hidden">{t.label}</span>
+              <span className="@max-3xl:hidden">{t.label}</span>
               {t.id === "placeStructure" && chosen && tool === t.id && (
                 <span className="ml-0.5 border-l border-current/30 pl-1 opacity-80">{saleName(chosen.def)}</span>
               )}
@@ -301,17 +301,17 @@ export function BuildBar({ className }: { className?: string }) {
             onClick={() => { setWondersOpen(!wondersOpen); setPicking(false); }}
             className={twMerge(TOOL, wondersOpen && TOOL_ON)}>
             {ICONS.wonders}
-            <span className="max-md:hidden">Wonders</span>
+            <span className="@max-3xl:hidden">Wonders</span>
           </button>
           <button type="button" title="Tint every house by how happy its people are" data-hint="mood"
             onClick={() => setMoodOverlay(!moodOverlay)} className={twMerge(TOOL, moodOverlay && TOOL_ON)}>
             {ICONS.mood}
-            <span className="max-md:hidden">Mood</span>
+            <span className="@max-3xl:hidden">Mood</span>
           </button>
           <button type="button" title="Show or hide what each building is and how it is doing"
             onClick={() => setLabels(!labels)} className={twMerge(TOOL, labels && TOOL_ON)}>
             {ICONS.labels}
-            <span className="max-md:hidden">Labels</span>
+            <span className="@max-3xl:hidden">Labels</span>
           </button>
         </div>
       </div>

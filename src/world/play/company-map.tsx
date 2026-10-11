@@ -43,7 +43,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
     if (p?.opens) useGlobalSettingsStore.getState().setSidebarTab(p.opens);
   }), []);
   return (
-    <div ref={setRef} className="absolute inset-0 min-h-0 bg-primary-900">
+    <div ref={setRef} className="@container absolute inset-0 min-h-0 bg-primary-900">
       <WorldCanvas wrapperRef={wrapperRef} size={size} />
       <BuildingLabels />
       <PortIncome />
