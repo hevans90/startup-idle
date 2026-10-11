@@ -13,7 +13,7 @@ A satirical idle game about scaling a tech startup by any means necessary: hire 
 - **Employee management and satisfaction:** perks per role (money, innovation, cost, auto-buy), and a morale score that drifts each tick and feeds back into output.
 - **Team leaders:** one named employee per role, hired from three candidates. Each has a trait, earns ranks over time, and spends skill points on a small skill pool, some of which reach across roles.
 - **Vape shop:** 53 achievements earn vape juice, which buys 12 upgrades shown on an SVG vape. The vape itself, a rhythm minigame, appears once the company has 50 vibe coders. Achievements and upgrades survive prestige.
-- **Slop pit:** fills with headcount once there are 50 vibe coders, and costs income above half full, up to 85% (`state/slop-pit.store.ts`). On the map it opens beside the studio as a 3×3 excavation with acid-green sludge rising as it fills (`structures/slop-renderer.ts`). A card shows the fill and the penalty, with a Drain button that costs 40 vibe coder morale.
+- **Slop pit:** fills with headcount once there are 50 vibe coders, and costs income above half full, up to 85% (`state/slop-pit.store.ts`). On the map it opens beside the studio as a 3×3 hole, and its sludge is real fluid standing in it as deep as it is full (`StructureDef.basin`, `events/sludge.ts` `syncPit`). A card shows the fill and the penalty, with a Drain button that costs 40 vibe coder morale.
 - **AI singularity:** a meter that creeps up when vibe coders are miserable.
 - **Founders:** six archetypes (Hacker, Bootstrapper, Visionary, Hustler, Agentic Delusionist, NEET). Each has a bonus that grows with every exit made as that founder. NEET starts with $5 and doubles money output per exit.
 - **Offline progress:** the real tick is replayed over the time away (capped at 2 days), with a "welcome back" summary.
@@ -46,7 +46,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 
 **Map events** (`world/events/`, `play/event-cards.tsx`): a warning with a countdown, a ring on the map, and a card of choices. One at a time, each kind paced in play time (`PACING`); off with "no events" on a card or in Settings. In dev, `window.__eventNow = "convoy"` brings one forward.
 
-- **Slop overflow** (`events/sludge.ts`): warned at 90%; at 100% sludge pours over the rim as real fluid until under 95%. Drain (−40 vibe coder morale), sludge trucks (20 s of income, three loads of 12%), or let it spill. Sludge dries up after.
+- **Slop overflow** (`events/sludge.ts`): warned at 90%; at 100% more sludge pours into the pit and brims over its rim onto open ground until under 95%. Drain (−40 vibe coder morale), sludge trucks (20 s of income, three loads of 12%), or let it spill. Sludge dries up after.
 - **River flood** (`events/flood.ts`): the river's inflow rises just over its lowest nearby bank for a minute. Buildings with water higher against them than before are flooded. Sandbags (30 s of income), evacuate (flooded homes away), or brace (−20 mood, ports shut). Leftover water soaks away.
 - **Convoy** (with a port): calls pay double for a minute; extra hands (20 s) halve call time.
 - **Investor tour** (garage, town hall or HQ): pays 30 s of income + 1.5 s a point of town mood (0–90 s); tidying (10 s) counts +10 mood.

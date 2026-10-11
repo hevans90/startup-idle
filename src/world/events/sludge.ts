@@ -1,8 +1,9 @@
 /**
- * World v2 — THE SLOP PIT'S OVERFLOW, on the map: sludge trucks sent for, and
- * the sludge itself, poured over the pit's rim into the real water — where it
- * runs downhill, thick and slow, into whatever is near — and drying up in
- * time once it has stopped. @see slop-overflow, stepEvents
+ * World v2 — THE SLOP PIT'S SLUDGE, on the map, in the real water: standing
+ * in the pit as high as the pit is full, brimming over its rim when it
+ * overflows — running downhill, thick and slow, into whatever is near — and
+ * drying up in time once it has stopped. And the sludge trucks sent for it.
+ * @see slop-overflow, stepEvents
  */
 import { housedBy } from "../../game/housing";
 import type { Grid, Structure } from "../grid";
@@ -11,13 +12,14 @@ import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, type Town } from "../agents/town";
 import { fluidIndexOf } from "../water/materials";
+import { structureDef } from "../structures/def";
 import { COLUMNS_PER_TILE, drainAt, pourAt, type WaterField } from "../water/field";
 
 /** What one truck takes away, % of the pit. */
 export const HAUL_LOAD = 12;
 /** Seconds between one sludge truck setting off and the next. */
 const TRUCK_GAP = 2.5;
-/** Sludge poured over the rim, half steps a second for each tile of it, while it overflows. */
+/** Sludge poured into the full pit, half steps a second for each tile of it, while it overflows. */
 export const OVERFLOW_RATE = 0.6;
 /** How fast it dries once it has stopped, half steps a second, and how near the pit it is looked for. */
 const DRY_RATE = 0.04;
@@ -82,19 +84,61 @@ export function ring(g: Grid, s: Structure): { x: number; y: number }[] {
   return out;
 }
 
-/** Pour the overflow over the pit's rim, for `dt` seconds of it. */
-export function overflow(field: WaterField, g: Grid, pit: Structure, dt: number) {
-  // ONTO OPEN GROUND ONLY. To the water a building is a block standing
-  // SOLID_LIFT over its ground, and sludge poured onto one landed on its roof
-  // and fell off every side of it: a fountain over the pit. And not where it
-  // already lies deep — what is there will run on from there by itself.
-  const tiles = ring(g, pit).filter((t) => structureAt(g, t.x, t.y) < 0 && sludgeAt(field, t.x, t.y) < POUR_DEPTH);
-  if (!tiles.length) return;
-  const each = (OVERFLOW_RATE * dt * (pit.w * pit.h)) / tiles.length;
-  for (const t of tiles) pourAt(field, t.x, t.y, each, SLOP());
+/** The tiles of a structure's footprint. */
+const footprint = (s: Structure) => {
+  const out: { x: number; y: number }[] = [];
+  for (let y = s.y; y < s.y + s.h; y++) for (let x = s.x; x < s.x + s.w; x++) out.push({ x, y });
+  return out;
+};
+
+/**
+ * How deep the sludge stands in a full pit, half steps: a little under the
+ * rim. Brim-full to the half step, the solver's ripples carried it over the
+ * edge with nobody pouring; only an overflow should. @see overflow
+ */
+const BRIM = 0.85;
+const depthOf = (pit: Structure) => (structureDef(pit.def)?.basin ?? 0) * BRIM;
+
+/**
+ * THE PIT'S SLUDGE KEPT AS FULL AS THE PIT IS, in the water. What the slop
+ * store says is the truth; the water is told the CHANGE since it was last
+ * told, poured in or drained out, so nothing has to read back what the
+ * device holds. The first time it sees a pit, or a field — just opened, a
+ * map just loaded — it empties it and fills it to the level afresh. Returns what it
+ * now holds, to be handed back next time. @see StructureDef.basin
+ */
+export type PitLevel = { id: number; fill: number; columns: object } | null;
+export function syncPit(was: PitLevel, field: WaterField, pit: Structure, fill: number): PitLevel {
+  const depth = depthOf(pit), tiles = footprint(pit);
+  // A NEW FIELD has none of it: a map loaded, or the field rebuilt.
+  if (!was || was.id !== pit.id || was.columns !== field.columns) {
+    for (const t of tiles) drainAt(field, t.x, t.y, Infinity);
+    if (fill > 0) for (const t of tiles) pourAt(field, t.x, t.y, (depth * fill) / 100, SLOP());
+    return { id: pit.id, fill, columns: field.columns };
+  }
+  // EMPTIED: all of it, and what had brimmed over the rim with it.
+  if (fill < 0.5 && was.fill >= 0.5) {
+    for (const t of tiles) drainAt(field, t.x, t.y, Infinity);
+    return { id: pit.id, fill, columns: field.columns };
+  }
+  const d = fill - was.fill;
+  if (Math.abs(d) < 0.5) return was;
+  for (const t of tiles) {
+    if (d > 0) pourAt(field, t.x, t.y, (depth * d) / 100, SLOP());
+    else drainAt(field, t.x, t.y, (depth * -d) / 100);
+  }
+  return { id: pit.id, fill, columns: field.columns };
 }
-/** Sludge this deep on a tile, half steps, and no more is poured onto it. */
-const POUR_DEPTH = 2;
+
+/**
+ * THE OVERFLOW, for `dt` seconds of it: more sludge into a pit that is full
+ * already, so it brims over the rim and runs out by itself, wherever the
+ * ground round it is open — never over a building, which to the water is a
+ * wall.
+ */
+export function overflow(field: WaterField, pit: Structure, dt: number) {
+  for (const t of footprint(pit)) pourAt(field, t.x, t.y, OVERFLOW_RATE * dt, SLOP());
+}
 
 /** How deep the sludge on a tile is, half steps, on the ground storey: its deepest column. */
 export const sludgeAt = (field: WaterField, x: number, y: number): number => fluidAt(field, x, y, SLOP());
@@ -114,13 +158,20 @@ export function fluidAt(field: WaterField, x: number, y: number, material: numbe
   return most;
 }
 
+/** Whether a tile is in a pit, whose sludge belongs there. */
+const inPit = (g: Grid, x: number, y: number) => {
+  const s = g.structures.get(structureAt(g, x, y));
+  return !!s && (structureDef(s.def)?.basin ?? 0) > 0;
+};
+
 /** Houses with sludge on them or right against them. */
 export function sludgedHouses(field: WaterField, g: Grid): Set<number> {
   const out = new Set<number>();
   for (const s of g.structures.values()) {
     if (!housedBy(s.def)) continue;
     for (const t of [...ring(g, s), { x: s.x, y: s.y }]) {
-      if (sludgeAt(field, t.x, t.y) > SLUDGED) { out.add(s.id); break; }
+      // What is IN the pit is not on anybody's doorstep.
+      if (!inPit(g, t.x, t.y) && sludgeAt(field, t.x, t.y) > SLUDGED) { out.add(s.id); break; }
     }
   }
   return out;
@@ -130,7 +181,7 @@ export function sludgedHouses(field: WaterField, g: Grid): Set<number> {
 export function dryUp(field: WaterField, g: Grid, pit: Structure, dt: number) {
   for (let y = Math.max(0, pit.y - DRY_REACH); y < Math.min(g.h, pit.y + pit.h + DRY_REACH); y++) {
     for (let x = Math.max(0, pit.x - DRY_REACH); x < Math.min(g.w, pit.x + pit.w + DRY_REACH); x++) {
-      if (sludgeAt(field, x, y) > 0) drainAt(field, x, y, DRY_RATE * dt);
+      if (!inPit(g, x, y) && sludgeAt(field, x, y) > 0) drainAt(field, x, y, DRY_RATE * dt);
     }
   }
 }

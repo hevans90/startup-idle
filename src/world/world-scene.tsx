@@ -78,7 +78,7 @@ import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution } from "./agents/services";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
-import { dryUp, overflow, sludgedHouses, stepHaulers } from "./events/sludge";
+import { dryUp, overflow, sludgedHouses, stepHaulers, syncPit, type PitLevel } from "./events/sludge";
 import {
   convoyTally, createPacing, endedBetween, HACKATHON_CODERS, isDue, repace, tallyCall, tickPacing, townMood,
 } from "./events/town-events";
@@ -242,6 +242,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const eventClock = useRef(0);
   const sludgeClock = useRef(0);
   const eventIds = useRef(1);
+  /** What the slop pit's sludge in the water was last filled to. @see syncPit */
+  const pitLevel = useRef<PitLevel>(null);
   // WHEN EACH EVENT IS NEXT DUE, and for a flood the water against each
   // building before it, how far the river is risen, and what it has reached.
   // @see world/events/flood
@@ -2231,6 +2233,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // THE SLOP PIT, opening up beside the studio once there are enough
         // vibe coders to fill it. @see SLOP_PIT
         if (st.playing && (ownedNow().vibe_coder ?? 0) >= SLOP_PIT_UNLOCK_COUNT) st.openSlopPit();
+        // THE SLOP PIT'S SLUDGE, standing in it in the water as high as the
+        // pit is full — in the editor too. @see syncPit
+        {
+          const pit = [...st.grid.structures.values()].find((s) => s.def === SLOP_PIT.id);
+          const field = st.getWaterField();
+          if (pit && field) pitLevel.current = syncPit(pitLevel.current, field, pit, useSlopPitStore.getState().fill);
+          else pitLevel.current = null;
+        }
         // EVENTS, in the game: the sludge trucks' loads, the director's look
         // twice a second, and what an event under way does to the map.
         // @see world/events
@@ -2291,7 +2301,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
           const overflowing = st.events.some((e) => e.kind === "slop-overflow" && e.phase === "active");
           if (pit && field) {
-            if (overflowing) overflow(field, st.grid, pit, dt);
+            if (overflowing) overflow(field, pit, dt);
             sludgeClock.current += dt;
             if (sludgeClock.current >= 2) {
               if (!overflowing) dryUp(field, st.grid, pit, sludgeClock.current);

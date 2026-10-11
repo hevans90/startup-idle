@@ -71,6 +71,12 @@ export type StructureDef = {
    * and every excavation would leave a permanent hole in the map.
    */
   clearsTerrain?: boolean;
+  /**
+   * A HOLE, so many half steps deep: to the water its footprint is ground that
+   * far below the land round it, and fluid stands in it. Anything else built
+   * is a solid block. @see syncSlots
+   */
+  basin?: number;
   placement?: Placement;
   /**
    * A SEAPORT: boats on the river beside it call here. How many can lie
@@ -238,8 +244,10 @@ export const SERVICES: readonly StructureDef[] = [
  */
 export const SLOP_PIT: StructureDef = {
   id: "slop-pit", name: "Slop pit", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "slop" },
-  // A hole: the ground there is not drawn, or it would cover what is in it.
+  // A hole: the ground there is not drawn, or it would cover what is in it,
+  // and to the water it is a basin the sludge stands in.
   clearsTerrain: true,
+  basin: 3,
 };
 
 const DEFS = new Map<string, StructureDef>(

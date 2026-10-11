@@ -24,6 +24,13 @@ import { OPEN_SKY } from "../../fluid/slots";
 import { waterInDrips } from "../../fluid/drips";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
 import { fluidChoices } from "./materials";
+import { structureDef } from "../structures/def";
+
+/** How deep a structure's hole is, half steps, or nought for one that is not a hole. @see StructureDef.basin */
+const basinOf = (g: Grid, id: number): number => {
+  const s = g.structures.get(id);
+  return (s && structureDef(s.def)?.basin) ?? 0;
+};
 import {
   createPipeNets, findPipeNets, pipeCellCount, type PipeNets,
 } from "./pipe-net";
@@ -381,9 +388,10 @@ export function syncSlots(field: WaterField, grid: Grid) {
       // feature rather than an oversight. {@link Grid.deck} is a surface in
       // the AIR with a gap under it; the ground below is untouched, so the
       // river runs under a bridge without anything having to say so.
-      const floor = structureAt(grid, tx, ty) >= 0
-        ? grid.height[t] + SOLID_LIFT
-        : grid.height[t];
+      // A BUILDING IS A BLOCK to the water, and a pit is a hole in the ground.
+      const sid = structureAt(grid, tx, ty);
+      const basin = sid >= 0 ? basinOf(grid, sid) : 0;
+      const floor = sid < 0 ? grid.height[t] : basin > 0 ? grid.height[t] - basin : grid.height[t] + SOLID_LIFT;
       ground[i] = floor;
       const decked = layers > 1 && grid.deck[t] !== 0;
       roof[i] = decked ? grid.deckZ[t] - DECK_DEPTH : OPEN_SKY;

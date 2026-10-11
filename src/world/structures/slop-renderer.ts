@@ -1,33 +1,29 @@
 /**
  * World v2 — THE SLOP PIT, drawn: a square hole with a concrete lip, earth
- * walls going down into it, and sludge standing in it as high as the pit is
- * full — toxic green, bubbling — with a hazard sign on a post at one corner.
+ * walls going down into it, and a hazard sign on a post at one corner.
  * @see SLOP_PIT, state/slop-pit.store
  *
- * Drawn like the projects, a Graphics per column, and redrawn every frame:
- * the sludge bubbles. Three columns of a few quads each is nothing.
+ * Drawn like the projects, a Graphics per column. The sludge in it is not
+ * drawn here: it is fluid, in the water. @see syncPit
  */
 import { Container, Graphics } from "pixi.js";
 
-import { useSlopPitStore } from "../../state/slop-pit.store";
+import { SLOP_PIT } from "./def";
 import type { Structure } from "../grid";
 import { pen } from "./project-renderer";
 import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
 /** `sprites` are what it drew, for the labels and the pointer. @see drawnTop, structureHitAt */
-type SlopHandle = StructureHandle & { cols: Column[]; sprites: Container[]; t: number };
+type SlopHandle = StructureHandle & { cols: Column[]; sprites: Container[] };
 
 /** How deep the pit goes, in half steps, and how far in its walls stand. */
-export const PIT_DEPTH = 3;
+export const PIT_DEPTH = SLOP_PIT.basin ?? 3;
 const LIP = 0.16;
 
 const CONCRETE = 0xb9b4a8;
 const WALL = 0x5b4632;
 const WALL_SHADE = 0x46362a;
 const FLOOR = 0x2e2620;
-const SLUDGE = 0xb4f22c;
-const SLUDGE_DEEP = 0x6f9e12;
-const FOAM = 0xeeffa8;
 const SIGN = 0xf2c230;
 const POST = 0x3a3f45;
 
@@ -37,9 +33,9 @@ const POST = 0x3a3f45;
  * front of it hides the rest; the INSIDE, walls and floor and sludge, drawn
  * through it; and the TOP, the concrete lip and the sign, over both.
  */
-type Column = { box: Container; mask: Graphics; inside: Graphics; top: Graphics };
+type Column = { box: Container; deep: Container; mask: Graphics; inside: Graphics; top: Graphics };
 
-function draw(col: Column, s: Structure, ctx: RenderCtx, c: number, t: number): void {
+function draw(col: Column, s: Structure, ctx: RenderCtx, c: number): void {
   const { mask, inside, top } = col;
   mask.clear(); inside.clear(); top.clear();
   const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
@@ -63,22 +59,8 @@ function draw(col: Column, s: Structure, ctx: RenderCtx, c: number, t: number): 
   i.quad([i.P(u0, v0, 0), i.P(u1, v0, 0), i.P(u1, v0, -PIT_DEPTH), i.P(u0, v0, -PIT_DEPTH)], WALL);
   i.quad([i.P(u0, v0, 0), i.P(u0, v1, 0), i.P(u0, v1, -PIT_DEPTH), i.P(u0, v0, -PIT_DEPTH)], WALL_SHADE);
   flat(i, u0, v0, u1, v1, -PIT_DEPTH, FLOOR, 1, false);
-  const fill = Math.max(0, Math.min(1, useSlopPitStore.getState().fill / 100));
-  if (fill > 0.005) {
-    const z = -PIT_DEPTH + PIT_DEPTH * fill * 0.95;
-    flat(i, u0, v0, u1, v1, z, fill > 0.5 ? SLUDGE : SLUDGE_DEEP, 0.95, false);
-    // The scum line on the back walls, just above the surface.
-    i.quad([i.P(u0, v0, z + 0.15), i.P(u1, v0, z + 0.15), i.P(u1, v0, z), i.P(u0, v0, z)], FOAM, 0.6);
-    i.quad([i.P(u0, v0, z + 0.15), i.P(u0, v1, z + 0.15), i.P(u0, v1, z), i.P(u0, v0, z)], FOAM, 0.45);
-    // Bubbles, each rising and bursting on a cycle of its own.
-    for (let k = 0; k < 9; k++) {
-      const bu = u0 + 0.2 + ((k * 0.37) % 1) * (u1 - u0 - 0.4), bv = v0 + 0.2 + ((k * 0.61) % 1) * (v1 - v0 - 0.4);
-      const phase = (t * (0.6 + (k % 3) * 0.25) + k * 0.31) % 1;
-      const [px, py] = i.P(bu, bv, z);
-      inside.circle(px, py, (1 + phase * 3) * ctx.scale * 2.2);
-      inside.fill({ color: FOAM, alpha: 0.85 * (1 - phase) });
-    }
-  }
+  // THE SLUDGE IS NOT DRAWN HERE: it is fluid, in the water, standing in
+  // the hole as deep as the pit is full. @see syncPit
 
   // THE TOP: the lip round the hole, and the hazard sign at the near corner.
   const o = pen(top, s, ctx, c);
@@ -96,32 +78,38 @@ function draw(col: Column, s: Structure, ctx: RenderCtx, c: number, t: number): 
 registerCustomRenderer("slop", {
   mount(s, _def, ctx) {
     const columns: Column[] = [];
+    const last = ctx.bands.structureOf.length - 1;
     for (let c = 0; c < s.w; c++) {
-      const box = new Container(), mask = new Graphics(), inside = new Graphics(), top = new Graphics();
+      const box = new Container(), deep = new Container(), mask = new Graphics(), inside = new Graphics(), top = new Graphics();
       box.eventMode = "none";
-      box.addChild(mask, inside, top);
+      deep.eventMode = "none";
+      deep.addChild(mask, inside);
+      box.addChild(top);
       inside.mask = mask;
-      const col = { box, mask, inside, top };
-      draw(col, s, ctx, c, 0);
-      // In the band of its column's front cell, like the projects.
-      const band = Math.max(0, Math.min(ctx.bands.structureOf.length - 1, s.x + c + s.y + s.h - 1));
-      ctx.bands.structureOf[band].addChild(box);
+      const col = { box, deep, mask, inside, top };
+      draw(col, s, ctx, c);
+      // THE INSIDE WITH THE GROUND, in the pit's backmost band: under the
+      // sludge, which is water and draws with the structures of each of the
+      // pit's own bands — filed in front with the lip, the walls and floor
+      // painted over all of it but the front row.
+      ctx.bands.staticOf[Math.max(0, Math.min(last, s.x + s.y))].addChild(deep);
+      // The lip and the sign in the band of the column's front cell, like the projects.
+      ctx.bands.structureOf[Math.max(0, Math.min(last, s.x + c + s.y + s.h - 1))].addChild(box);
       columns.push(col);
     }
     const handle: SlopHandle = {
-      cols: columns, sprites: columns.map((col) => col.box), t: 0,
-      destroy: () => { for (const col of columns) { col.box.parent?.removeChild(col.box); col.box.destroy({ children: true }); } },
+      cols: columns, sprites: columns.flatMap((col) => [col.box, col.deep]),
+      destroy: () => {
+        for (const col of columns) {
+          for (const k of [col.box, col.deep]) { k.parent?.removeChild(k); k.destroy({ children: true }); }
+        }
+      },
     };
     return handle;
   },
   update(h, s, _def, ctx) {
     const handle = h as SlopHandle;
-    handle.cols.forEach((col, c) => draw(col, s, ctx, c, handle.t));
-  },
-  tick(h, s, _def, ctx, dt) {
-    const handle = h as SlopHandle;
-    handle.t += dt;
-    handle.cols.forEach((col, c) => draw(col, s, ctx, c, handle.t));
+    handle.cols.forEach((col, c) => draw(col, s, ctx, c));
   },
   unmount(h) { h.destroy(); },
 });
