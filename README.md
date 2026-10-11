@@ -68,7 +68,7 @@ Every company builds a town (`world/play/company-map.tsx`). **First-run hints** 
   - the slop pit within 6 tiles costs −8 to −20 as it fills;
   - a dense house (III or a tower) with no park −6;
   - a wonder within 10 tiles +5;
-  - sludge at the door −15;
+  - sludge at the door −15, a flood −20;
   - all capped at ±40.
 - **Satisfaction leans on it:** each kind's satisfaction target shifts by its houses' average mood, weighted by residents, through a registered reader, so sims, tests and the phone layout are unaffected.
 - **People leave:** a house at −25 or worse loses a resident every 60 s. They stay hired, and new arrivals won't move into it; the beds row says "(their homes are miserable)" when that's why they're waiting.
@@ -81,6 +81,12 @@ Every company builds a town (`world/play/company-map.tsx`). **First-run hints** 
   - Send sludge trucks, for 20 s of income: three trucks drive from the pit, each taking 12% away;
   - Let it spill.
 - It ends below 95%, and the sludge then dries up over time.
+- **River floods** (`events/flood.ts`), on maps with a river: the first comes after 15 min of play, then every 20–35 min, and only when nothing else is under way.
+  - A minute's warning, then the level held at the river's head rises just over its lowest nearby bank for a minute, as real water.
+  - Houses and ports with water against them higher than before are flooded.
+  - The choices: sandbags (30 s of income, nothing is harmed); evacuate (flooded homes count as away); or brace (flooded homes −20 mood, flooded ports take no trade).
+  - Afterwards, water left on ground that was dry soaks away.
+- **Off switch:** "no events" on any card, or Map events in Settings.
 
 **Prices follow the economy** (`game/build-cost.ts`). Each is the larger of a fixed floor and a live share:
 

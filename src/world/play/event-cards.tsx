@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { useTicking } from "../../hooks/use-ticking";
+import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
 import { HH, HW } from "../iso";
 import type { GameEvent } from "../events/events";
@@ -33,6 +34,7 @@ function showMe(where: { x: number; y: number }) {
 
 function EventCard({ e }: { e: GameEvent }) {
   const respond = useWorldStore((s) => s.respondToEvent);
+  const setOff = useSessionStore((s) => s.setMapEventsOff);
   const tone = e.phase === "over" ? "border-primary-300 opacity-70 dark:border-primary-700"
     : e.phase === "active" ? "border-red-500 dark:border-red-400" : "border-amber-500 dark:border-amber-400";
   const chosen = e.choices.find((c) => c.id === e.chosen);
@@ -60,7 +62,11 @@ function EventCard({ e }: { e: GameEvent }) {
       )}
       <div className="mt-1 flex items-center justify-between text-[10px] text-primary-600 dark:text-primary-400">
         <span>{chosen ? `You chose: ${chosen.label.toLowerCase()}` : ""}</span>
-        <button type="button" onClick={() => showMe(e.where)} className="cursor-pointer underline">Show me</button>
+        <span className="flex gap-2">
+          <button type="button" onClick={() => setOff(true)} className="cursor-pointer underline"
+            title="No more floods or overflows. Back on in Settings.">no events</button>
+          <button type="button" onClick={() => showMe(e.where)} className="cursor-pointer underline">Show me</button>
+        </span>
       </div>
     </div>
   );

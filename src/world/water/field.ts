@@ -80,6 +80,11 @@ export type WaterField = {
    * re-upload a ground array into a solver that is the wrong shape.
    */
   fieldRev: number;
+  /**
+   * Half steps the rivers stand ABOVE their usual level where they come onto
+   * the map: a flood, while one is on. Live state, never saved. @see syncInflow
+   */
+  inflowRise?: number;
   /** Map size in TILES, so a resize can be detected. */
   w: number;
   h: number;
@@ -549,7 +554,7 @@ export function syncInflow(field: WaterField, grid: Grid) {
     const stage = grid.inflow[t];
     if (stage <= 0) continue;
     rim = rim ?? new Float32Array(n).fill(NO_INFLOW);
-    rim[k] = grid.height[t] + stage;
+    rim[k] = grid.height[t] + stage + (field.inflowRise ?? 0);
   }
   setRim(columns, rim, WATER_MATERIAL);
 }

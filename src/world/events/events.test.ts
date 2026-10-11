@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { OVER_SHOWN_MS, SLOP_WARN_AT, stepEvents, type EventWorld, type GameEvent } from "./events";
+import { FLOOD_MS, FLOOD_WARN_MS, OVER_SHOWN_MS, SLOP_WARN_AT, stepEvents, tourReward, type EventWorld, type GameEvent } from "./events";
 
 const world = (fill: number, now = 0, rate = 0.1): EventWorld => ({
-  now, slop: { x: 5, y: 5, fill, rate, trucks: 0, truckPrice: 300 },
+  now, slop: { x: 5, y: 5, fill, rate, trucks: 0, truckPrice: 300 }, river: null, convoy: null, tour: null, hackathon: null, enabled: true,
+});
+const river = (now: number, due: boolean, flooded = 0): EventWorld => ({
+  now, slop: null, river: { x: 0, y: 9, due, flooded, sandbagPrice: 500 }, convoy: null, tour: null, hackathon: null, enabled: true,
 });
 let n = 1;
 const next = () => n++;
@@ -47,7 +50,64 @@ describe("the slop pit's overflow, as an event", () => {
     let evs: GameEvent[] = stepEvents([], world(92), next);
     evs = stepEvents(evs, world(93, 500), next);
     expect(evs.length).toBe(1);
-    const busy = stepEvents(evs, { now: 600, slop: { x: 5, y: 5, fill: 93, rate: 0.1, trucks: 2, truckPrice: 300 } }, next);
+    const busy = stepEvents(evs, { ...world(93, 600), slop: { x: 5, y: 5, fill: 93, rate: 0.1, trucks: 2, truckPrice: 300 } }, next);
     expect(busy[0].choices.find((c) => c.id === "trucks")?.unavailable).toBe("2 on the way");
+  });
+});
+
+describe("a river flood", () => {
+  test("is warned of when due, strikes a minute later, and is over a minute after that", () => {
+    expect(stepEvents([], river(0, false), next)).toEqual([]);
+    let evs = stepEvents([], river(0, true), next);
+    expect(evs[0]).toMatchObject({ kind: "river-flood", phase: "warning", strikesAt: FLOOD_WARN_MS });
+    expect(evs[0].choices.map((c) => c.id)).toEqual(["sandbags", "evacuate", "brace"]);
+    evs = stepEvents(evs, river(FLOOD_WARN_MS, false), next);
+    expect(evs[0]).toMatchObject({ phase: "active", endsAt: FLOOD_WARN_MS + FLOOD_MS });
+    evs = stepEvents(evs, river(FLOOD_WARN_MS + 1000, false, 3), next);
+    evs = stepEvents(evs, river(FLOOD_WARN_MS + 2000, false, 1), next);
+    evs = stepEvents(evs, river(FLOOD_WARN_MS + FLOOD_MS, false), next);
+    expect(evs[0].phase).toBe("over");
+    expect(evs[0].outcome).toMatch(/3 buildings/);
+  });
+
+  test("waits for anything else under way", () => {
+    const w = { ...river(0, true), slop: { x: 5, y: 5, fill: 100, rate: 0, trucks: 0, truckPrice: 1 } };
+    const evs = stepEvents([], w, next);
+    expect(evs.map((e) => e.kind)).toEqual(["slop-overflow"]);
+  });
+
+  test("events switched off puts every one away", () => {
+    const evs = stepEvents([], river(0, true), next);
+    expect(stepEvents(evs, { ...river(1, true), enabled: false }, next)).toEqual([]);
+  });
+});
+
+describe("opportunities", () => {
+  const base = (now: number): EventWorld => ({ now, slop: null, river: null, convoy: null, tour: null, hackathon: null, enabled: true });
+
+  test("a convoy is warned of, comes in, and says what it earned", () => {
+    const w = (now: number, due: boolean, calls = 0, earned = 0) => ({
+      ...base(now), convoy: { x: 1, y: 1, due, calls, earned, handsPrice: 400 },
+    });
+    let evs = stepEvents([], w(0, true), next);
+    expect(evs[0]).toMatchObject({ kind: "convoy", phase: "warning", strikesAt: 30_000 });
+    evs = stepEvents(evs, w(30_000, false), next);
+    expect(evs[0]).toMatchObject({ phase: "active", endsAt: 90_000 });
+    evs = stepEvents(evs, w(90_000, false, 7, 140), next);
+    expect(evs[0].outcome).toBe("7 calls while it was in, for $140.");
+  });
+
+  test("a hackathon nobody hosted never starts", () => {
+    const w = (now: number) => ({ ...base(now), hackathon: { x: 1, y: 1, due: now === 0 } });
+    let evs = stepEvents([], w(0), next);
+    evs = stepEvents(evs, w(45_000), next);
+    expect(evs[0]).toMatchObject({ phase: "over", outcome: "No hackathon this time." });
+  });
+
+  test("investors pay by the town's mood, and tidying up helps", () => {
+    expect(tourReward(10, 0, false)).toBe(300);
+    expect(tourReward(10, 0, true)).toBe(450);
+    expect(tourReward(10, -40, false)).toBe(0);
+    expect(tourReward(10, 40, true)).toBe(900);
   });
 });

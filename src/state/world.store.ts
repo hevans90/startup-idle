@@ -253,6 +253,14 @@ export const sludgeTruckBack = () => { haulersOut = Math.max(0, haulersOut - 1);
 /** How many trucks a call sends, and what the call costs: seconds of income, never under a floor. */
 export const SLUDGE_TRUCKS = 3;
 export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
+/** What sandbagging the riverside against a flood costs: half a minute of income. */
+export const sandbagPrice = () => Math.max(300, Math.round(incomeNow() * 30));
+/** Extra hands at the quays for a convoy: twenty seconds of income. */
+export const convoyHandsPrice = () => Math.max(200, Math.round(incomeNow() * 20));
+/** Tidying the town up for investors: ten seconds of income. */
+export const tidyPrice = () => Math.max(100, Math.round(incomeNow() * 10));
+/** What each choice an event offers costs in money, for those that cost any. */
+const CHOICE_PRICE: Record<string, () => number> = { sandbags: sandbagPrice, hands: convoyHandsPrice, tidy: tidyPrice };
 
 /** When a spot for the slop pit was last looked for. @see openSlopPit */
 let slopTriedAt = -Infinity;
@@ -723,6 +731,17 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         useMoneyStore.getState().spendMoney(price);
         haulersOut += sendSludgeTrucks(town, st.grid, network, pit, SLUDGE_TRUCKS);
       }
+    }
+    // A CHOICE PAID FOR IS KEPT: nobody gets their money back by changing their mind.
+    if (ev.chosen && CHOICE_PRICE[ev.chosen]) return;
+    const priced = CHOICE_PRICE[choice];
+    if (priced && ev.kind !== "slop-overflow") {
+      const price = priced();
+      if (useMoneyStore.getState().money.lt(price)) {
+        set({ notice: { text: `Not enough money: ${formatCurrency(price)}`, at: Date.now() } });
+        return;
+      }
+      useMoneyStore.getState().spendMoney(price);
     }
     set({ events: get().events.map((e) => (e.id === id ? { ...e, chosen: choice } : e)) });
   },

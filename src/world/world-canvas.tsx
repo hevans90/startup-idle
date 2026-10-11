@@ -35,6 +35,7 @@ import { loadSaved, setSaveSlot, type SaveSlot } from "./io/world-save";
 import { openDevice, type HeldGpu } from "./render/device";
 import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
+import { evacuatedAway } from "./events/flood";
 
 /**
  * Which renderer to ask for: WebGPU, unless `?webgl=1` says otherwise.
@@ -189,6 +190,13 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const away = { ...getWorks().away };
       const coming = awaitingArrival(ownedNow(), useSessionStore.getState().remoteBeds ?? {}, residents);
       for (const [id, n] of Object.entries(coming)) away[id as GeneratorId] = (away[id as GeneratorId] ?? 0) + n;
+      // EVACUATED from a flood, for as long as their homes are under water.
+      // @see evacuatedAway
+      for (const [id, n] of Object.entries(evacuatedAway(st.grid))) away[id as GeneratorId] = (away[id as GeneratorId] ?? 0) + n;
+      // AT A HACKATHON, every vibe coder, for as long as it runs.
+      if (st.events.some((e) => e.kind === "hackathon" && e.phase === "active" && e.chosen === "host")) {
+        away.vibe_coder = ownedNow().vibe_coder ?? 0;
+      }
       const remote = useSessionStore.getState().remoteBeds ?? {};
       const net = getNetwork();
       const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;

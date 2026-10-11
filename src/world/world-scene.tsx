@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, lotLine, sludgeTruckBack, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { convoyHandsPrice, drainDirty, lotLine, sandbagPrice, tidyPrice, sludgeTruckBack, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -77,14 +77,22 @@ import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution } from "./agents/services";
-import { liveMoods, moodTint, setSludged, stepMood, type Unrest } from "./agents/mood";
-import { stepEvents } from "./events/events";
+import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { dryUp, overflow, sludgedHouses, stepHaulers } from "./events/sludge";
+import {
+  convoyTally, createPacing, endedBetween, HACKATHON_CODERS, isDue, repace, tallyCall, tickPacing, townMood,
+} from "./events/town-events";
+import {
+  floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
+} from "./events/flood";
+import { FLOOD_MS, HACKATHON_MORALE, stepEvents, tourReward } from "./events/events";
 import { SLOP_PIT } from "./structures/def";
 import { FILL_RATE_PER_CODER, SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
 import { perMinute, recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
+import { useGeneratorStore } from "../state/generators.store";
+import { SATISFACTION_MAX } from "../game/satisfaction";
 import { useSessionStore } from "../state/session.store";
 import { stepWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -234,6 +242,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const eventClock = useRef(0);
   const sludgeClock = useRef(0);
   const eventIds = useRef(1);
+  // WHEN EACH EVENT IS NEXT DUE, and for a flood the water against each
+  // building before it, how far the river is risen, and what it has reached.
+  // @see world/events/flood
+  const pacing = useRef(createPacing());
+  const floodBase = useRef<FloodBase | null>(null);
+  const floodRise = useRef(0);
+  const floodShield = useRef<FloodShield>(null);
+  const floodClock = useRef(0);
+  const floodedCount = useRef(0);
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -2165,8 +2182,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const st = useWorldStore.getState(), now = performance.now();
         for (const id of traffic.calls.splice(0)) {
           const s = st.grid.structures.get(id);
-          const fee = s ? portCallFee(s.def) : null;
-          if (fee === null) continue;
+          let fee = s ? portCallFee(s.def) : null;
+          // A PORT UNDER WATER takes no trade. @see portShut
+          if (fee === null || portShut(id)) continue;
+          // A CONVOY IN pays double, and is counted. @see stepOpportunities
+          const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
+          if (convoy) { fee *= 2; tallyCall(convoy.id, fee); }
           if (st.playing) useMoneyStore.getState().increaseMoney(fee);
           recordCall(getExports(), id, fee, now);
         }
@@ -2223,6 +2244,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const fill = useSlopPitStore.getState().fill;
             const vibe = ownedNow().vibe_coder ?? 0;
             const now = Date.now();
+            const head = riverHead(st.grid);
+            const pace = pacing.current;
+            // WHAT THE OPPORTUNITIES ARE ABOUT: a port, the company's front
+            // door, the studio — each only once built.
+            const built = (ids: string[]) => [...st.grid.structures.values()].find((s) => ids.includes(s.def) && !s.build);
+            const port = getTraffic().ports.size ? [...st.grid.structures.values()].find((s) => getTraffic().ports.has(s.id)) : undefined;
+            const door = built(["hq", "townhall", "garage"]), studio = built(["studio"]);
+            const income = useGeneratorStore.getState().getMoneyPerSecond();
+            const tour = st.events.find((e) => e.kind === "investor-tour" && e.phase !== "over");
+            const convoy = st.events.find((e) => e.kind === "convoy" && e.phase !== "over");
+            const tally = convoyTally(convoy?.id ?? -1);
+            const reward = tourReward(income, townMood(st.grid, liveMoods(st.grid, net, fill / 100)), tour?.chosen === "tidy");
             const next = stepEvents(st.events, {
               now,
               slop: pit ? {
@@ -2230,7 +2263,30 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 rate: vibe >= SLOP_PIT_UNLOCK_COUNT ? vibe * FILL_RATE_PER_CODER : 0,
                 trucks: sludgeTrucksOut(), truckPrice: sludgeTruckPrice(),
               } : null,
+              river: head ? {
+                ...head, due: isDue(pace, "river-flood"), flooded: floodedCount.current, sandbagPrice: sandbagPrice(),
+              } : null,
+              convoy: port ? {
+                x: port.x, y: port.y, due: isDue(pace, "convoy"), calls: tally.calls, earned: tally.earned, handsPrice: convoyHandsPrice(),
+              } : null,
+              tour: door ? { x: door.x + 1, y: door.y, due: isDue(pace, "investor-tour"), reward, tidyPrice: tidyPrice() } : null,
+              hackathon: studio && vibe >= HACKATHON_CODERS ? { x: studio.x + 1, y: studio.y + 1, due: isDue(pace, "hackathon") } : null,
+              enabled: !useSessionStore.getState().mapEventsOff,
             }, () => eventIds.current++);
+            repace(pace, st.events, next);
+            // WHAT AN EVENT LEAVES BEHIND, once over: the investors' money,
+            // the hackathon's good mood. @see stepOpportunities
+            for (const e of endedBetween(st.events, next)) {
+              if (e.kind === "investor-tour" && reward > 0) useMoneyStore.getState().increaseMoney(reward);
+              if (e.kind === "hackathon" && e.chosen === "host") {
+                useGeneratorStore.setState((g) => ({
+                  satisfactionScores: {
+                    ...g.satisfactionScores,
+                    vibe_coder: Math.min(SATISFACTION_MAX, g.satisfactionScores.vibe_coder + HACKATHON_MORALE),
+                  },
+                }));
+              }
+            }
             if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
           }
           const overflowing = st.events.some((e) => e.kind === "slop-overflow" && e.phase === "active");
@@ -2241,6 +2297,48 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               if (!overflowing) dryUp(field, st.grid, pit, sludgeClock.current);
               setSludged(sludgedHouses(field, st.grid));
               sludgeClock.current = 0;
+            }
+          }
+        }
+        // THE EVENTS' CLOCKS, and A RIVER IN FLOOD, in the game: the water
+        // held at the river's head risen and let fall again, and what it
+        // reaches looked for every couple of seconds against what stood there
+        // before. @see world/events/flood
+        if (!st.playing && floodRise.current) {
+          // Stopped mid-flood: the river goes back to its usual level.
+          const field = st.getWaterField();
+          floodRise.current = 0;
+          if (field) { field.inflowRise = 0; syncGround(field, st.grid); }
+        }
+        if (st.playing) {
+          const field = st.getWaterField();
+          const flood = st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
+          tickPacing(pacing.current, st.events, dt);
+          if (import.meta.env.DEV && window.__eventNow) { pacing.current[window.__eventNow] = 0; window.__eventNow = undefined; }
+          // A CONVOY with extra hands at the quays turns boats round twice as fast.
+          const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
+          getTraffic().rush = convoy?.chosen === "hands" ? 2 : 1;
+          if (flood && !floodBase.current && field) floodBase.current = floodBaseline(field, st.grid);
+          if (flood) floodShield.current = flood.chosen === "sandbags" || flood.chosen === "evacuate" ? flood.chosen : null;
+          const rise = flood?.phase === "active" && flood.endsAt !== undefined ? riseAt((Date.now() - (flood.endsAt - FLOOD_MS)) / 1000, floodPeak(st.grid)) : 0;
+          if (field && rise !== floodRise.current) {
+            floodRise.current = rise;
+            field.inflowRise = rise;
+            syncGround(field, st.grid);
+          }
+          floodClock.current += dt;
+          if (floodClock.current >= 2 && field && floodBase.current) {
+            floodClock.current = 0;
+            const wet = floodedNow(field, st.grid, floodBase.current.water);
+            floodedCount.current = wet.size;
+            setFloodState(wet, floodShield.current);
+            setFlooded(floodMisery());
+            // OVER: what is left on dry ground soaking away, and once it has,
+            // put away until the next one.
+            const left = flood ? 1 : soakAway(field, st.grid, floodBase.current.dry, 2);
+            if (!flood && !wet.size && !left) {
+              floodBase.current = null;
+              floodShield.current = null;
             }
           }
         }

@@ -71,7 +71,7 @@ export function stepHaulers(town: Town, g: Grid, net: Network, haul: (percent: n
 }
 
 /** The tiles round a structure's footprint, just outside it. */
-function ring(g: Grid, s: Structure): { x: number; y: number }[] {
+export function ring(g: Grid, s: Structure): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
   for (let y = s.y - 1; y <= s.y + s.h; y++) {
     for (let x = s.x - 1; x <= s.x + s.w; x++) {
@@ -90,15 +90,18 @@ export function overflow(field: WaterField, g: Grid, pit: Structure, dt: number)
 }
 
 /** How deep the sludge on a tile is, half steps, on the ground storey: its deepest column. */
-export function sludgeAt(field: WaterField, x: number, y: number): number {
-  const c = field.columns, slop = SLOP();
+export const sludgeAt = (field: WaterField, x: number, y: number): number => fluidAt(field, x, y, SLOP());
+
+/** How deep one fluid on a tile is, half steps, on the ground storey: its deepest column. */
+export function fluidAt(field: WaterField, x: number, y: number, material: number): number {
+  const c = field.columns;
   let most = 0;
   for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
     for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
       const cx = x * COLUMNS_PER_TILE + dx, cy = y * COLUMNS_PER_TILE + dy;
       if (cx >= c.nx || cy >= c.ny) continue;
       const i = cy * c.nx + cx;
-      if (c.material[i] === slop && c.depth[i] > most) most = c.depth[i];
+      if (c.material[i] === material && c.depth[i] > most) most = c.depth[i];
     }
   }
   return most;

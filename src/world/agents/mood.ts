@@ -38,6 +38,7 @@ export const MOOD = {
   crowded: -6,
   wonder: 5,
   sludge: -15,
+  flooded: -20,
 } as const;
 /** How near the slop pit and a wonder count, in tiles. */
 export const SLOP_REACH = 6;
@@ -64,7 +65,7 @@ function gap(a: Structure, b: Structure): number {
  */
 export function moodsOf(
   g: Grid, commutes: ReadonlyMap<number, Commute>, coverage: Coverage, slopFill: number,
-  sludged: ReadonlySet<number> = new Set(),
+  sludged: ReadonlySet<number> = new Set(), flooded: ReadonlySet<number> = new Set(),
 ): Map<number, MoodParts> {
   const pits: Structure[] = [], wonders: Structure[] = [];
   // Kinds with somewhere to work: with none at all, there is no commute to
@@ -100,6 +101,7 @@ export function moodsOf(
     if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: "crowded", points: MOOD.crowded });
     if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: "near a wonder", points: MOOD.wonder });
     if (sludged.has(s.id)) parts.push({ why: "sludge", points: MOOD.sludge });
+    if (flooded.has(s.id)) parts.push({ why: "flooded", points: MOOD.flooded });
     const total = Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, parts.reduce((n, p) => n + p.points, 0)));
     out.set(s.id, { total, parts });
   }
@@ -136,6 +138,9 @@ let memo: { g: Grid | null; rev: number; sites: number; fill: number; sludge: st
  */
 let sludged: ReadonlySet<number> = new Set();
 export const setSludged = (s: ReadonlySet<number>) => { sludged = s; };
+/** Houses a flood has reached and nothing kept dry, likewise. @see floodedNow */
+let flooded: ReadonlySet<number> = new Set();
+export const setFlooded = (s: ReadonlySet<number>) => { flooded = s; };
 
 /**
  * Every house's mood on this map now, worked out again when the map, its
@@ -145,9 +150,9 @@ export function liveMoods(g: Grid, net: Network, slopFill: number): Map<number, 
   let sites = 0;
   for (const s of g.structures.values()) if (s.build) sites++;
   const fill = Math.round(Math.max(0, Math.min(1, slopFill)) * 20);
-  const sludge = [...sludged].sort((a, b) => a - b).join(",");
+  const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",");
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.fill !== fill || memo.sludge !== sludge) {
-    memo = { g, rev: g.rev, sites, fill, sludge, value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), fill / 20, sludged) };
+    memo = { g, rev: g.rev, sites, fill, sludge, value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), fill / 20, sludged, flooded) };
   }
   return memo.value;
 }

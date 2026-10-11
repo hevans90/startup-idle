@@ -6,6 +6,7 @@ import {
   PopoverHeading,
   PopoverTrigger,
 } from "../ui/Popover";
+import { MapEventsToggle } from "./map-events-toggle";
 import { ResetButton } from "./reset-button";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -38,6 +39,7 @@ export const SettingsPopover = ({
         <div className="flex flex-col gap-2">
           <ResetButton />
           <ThemeToggle />
+          <MapEventsToggle />
         </div>
       </PopoverContent>
     </Popover>

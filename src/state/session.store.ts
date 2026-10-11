@@ -48,6 +48,9 @@ type SessionState = {
   hintsDone: string[];
   markHintsDone: (ids: readonly string[]) => void;
   hintsOff: boolean;
+  /** Whether floods, overflows and the like stay away. @see stepEvents */
+  mapEventsOff: boolean;
+  setMapEventsOff: (off: boolean) => void;
   setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
   projectsOpen: boolean;
@@ -78,6 +81,8 @@ export const useSessionStore = create<SessionState>()(
         return fresh.length ? { hintsDone: [...s.hintsDone, ...fresh] } : s;
       }),
       hintsOff: false,
+      mapEventsOff: false,
+      setMapEventsOff: (mapEventsOff) => set({ mapEventsOff }),
       setHintsOff: (hintsOff) => set({ hintsOff }),
       portIncomePerSecond: 0,
       setPortIncome: (portIncomePerSecond) => set({ portIncomePerSecond }),
@@ -103,6 +108,7 @@ export const useSessionStore = create<SessionState>()(
         portIncomePerSecond: s.portIncomePerSecond,
         hintsDone: s.hintsDone,
         hintsOff: s.hintsOff,
+        mapEventsOff: s.mapEventsOff,
       }),
     },
   ),

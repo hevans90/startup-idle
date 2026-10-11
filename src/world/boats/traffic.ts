@@ -86,10 +86,16 @@ export type Traffic = {
    * paid for. @see world/boats/exports
    */
   calls: number[];
+  /**
+   * How much quicker than usual the rivers run: calls take this many times
+   * less long, and boats are sent this many times as often. One, but for a
+   * convoy with extra hands at the quays. @see world/events
+   */
+  rush: number;
 };
 
 export const createTraffic = (): Traffic => ({
-  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [],
+  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], rush: 1,
 });
 
 /** Every seaport's berths, on the rivers as they stand. */
@@ -199,7 +205,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
     const berth = port.berths[b.berth];
     if (Math.hypot(berth.x - b.x, berth.y - b.y) < TIE_UP_AT) {
       b.moor = { x: berth.x, y: berth.y };
-      b.dockLeft = port.dock;
+      b.dockLeft = port.dock / t.rush;
     }
   }
 }
@@ -248,7 +254,7 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     const left = (t.untilSpawn.get(river) ?? FIRST_SPAWN) - dt;
     t.untilSpawn.set(river, left);
     if (left > 0) continue;
-    t.untilSpawn.set(river, Math.min(SPAWN_SLOWEST, Math.max(SPAWN_FASTEST, 1 / cap.perSecond)));
+    t.untilSpawn.set(river, Math.min(SPAWN_SLOWEST, Math.max(SPAWN_FASTEST, 1 / cap.perSecond)) / t.rush);
     const under = f.boats.filter((b) => b.motor > 0 && riverAt(r, Math.round(b.x), Math.round(b.y)) === river);
     if (under.length >= MAX_BASE + MAX_PER_BERTH * cap.berths) continue;
     const sources = r.sources.filter((s) => s.river === river);

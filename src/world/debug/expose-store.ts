@@ -31,6 +31,8 @@ declare global {
      * persisted stores. @see stepArrivals
      */
     __fakeHires?: Record<string, number>;
+    /** Set to bring the next event of a kind forward to now. @see PACING */
+    __eventNow?: import("../events/events").PacedKind;
     /**
      * The live water field, for the same reason.
      *
