@@ -79,7 +79,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 
 **Seaports** (`boats/traffic.ts`): three tiers on river banks (1–3 berths, 20/15/10 s calls), upgraded in place for the difference. Boats queue for a berth; each call pays 0.5/0.75/1 s of income (`portCallFee`), credited offline at the last measured rate.
 
-**Town traffic** (`agents/town.ts`): cars keep right, follow at a gap and yield at junctions; people walk the kerb.
+**Town traffic** (`agents/town.ts`): cars keep right, follow at a gap and yield at junctions; people walk the kerb. **Team leaders** walk it too (`agents/leaders.ts`): gold shirts, from a home of their kind to their workplace and back, with a name tag (`play/leader-tags.tsx`).
 
 **At a sale** (`projects/town-worth.ts`) the Equity offer gets +1% a grown tier, +2% a service, +5% a wonder, up to +50%. The run's map and the editor's are saved apart (`world-run`, `world-map`); selling forgets the run's.
 

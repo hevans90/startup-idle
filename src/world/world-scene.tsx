@@ -78,6 +78,8 @@ import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution } from "./agents/services";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
+import { createLeaders, stepLeaders } from "./agents/leaders";
+import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { cleanupAway, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { dryUp, overflow, sludgedHouses, stepHaulers, syncPit, type PitLevel } from "./events/sludge";
 import {
@@ -248,6 +250,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const pitLevel = useRef<PitLevel>(null);
   /** The crew mopping up sludge. @see stepCleanup */
   const cleanup = useRef(createCleanup());
+  /** The team leaders out and about. @see stepLeaders */
+  const leaders = useRef(createLeaders());
   // WHEN EACH EVENT IS NEXT DUE, and for a flood the water against each
   // building before it, how far the river is risen, and what it has reached.
   // @see world/events/flood
@@ -2292,6 +2296,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // @see world/events
         if (st.playing) {
           stepHaulers(getTown(), st.grid, net, (p) => useSlopPitStore.getState().haul(p), sludgeTruckBack);
+          // THE TEAM LEADERS, walking between home and work. @see stepLeaders
+          stepLeaders(leaders.current, getTown(), st.grid, net, useTeamLeadersEmployeesStore.getState().employees, dt);
           const pit = [...st.grid.structures.values()].find((s) => s.def === SLOP_PIT.id);
           const field = st.getWaterField();
           eventClock.current += dt;

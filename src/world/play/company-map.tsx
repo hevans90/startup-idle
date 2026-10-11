@@ -22,6 +22,7 @@ import { PortIncome } from "./port-income";
 import { ProjectsPanel } from "./projects-panel";
 import { HintCard } from "./hint-card";
 import { EventCards, EventMarkers } from "./event-cards";
+import { LeaderTags } from "./leader-tags";
 // The stores on `window` in development, as the editor has them. @see expose-store
 import "../debug/expose-store";
 
@@ -49,6 +50,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
       <PortIncome />
       <ProjectsPanel className="absolute left-2 top-24 z-10 max-md:top-2 max-md:max-w-[calc(100%-1rem)]" />
       <EventMarkers />
+      <LeaderTags />
       <div className="absolute left-[19.5rem] right-2 top-14 z-20 flex flex-col items-start gap-2 max-md:left-2 max-md:top-auto max-md:bottom-28"><HintCard /><EventCards /></div>
       <BuildBar className="absolute bottom-3 left-1/2 z-10 max-w-[calc(100%-1rem)] -translate-x-1/2 items-center" />
     </div>
