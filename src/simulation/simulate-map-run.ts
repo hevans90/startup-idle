@@ -64,7 +64,7 @@ export type MapRunReport = {
   lots: number;
 };
 
-const GATES: readonly ProjectId[] = ["garage", "townhall", "studio", "campus"];
+const GATES: readonly ProjectId[] = ["garage", "townhall", "studio", "campus", "datacentre", "conference", "ipo"];
 /** Lots a street, beds a lot by tier, and the service each tier grows with. */
 const STREET = 6;
 const TIER_SLOTS = [2, 5, 12, 30];

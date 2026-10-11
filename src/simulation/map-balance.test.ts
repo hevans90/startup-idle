@@ -26,14 +26,18 @@ describe("the map's pacing", () => {
         "10 vibe coders": { base: fmt(tenth.vibe_coder), map: fmt(map.tenth.vibe_coder) },
         "campus opens": { base: "—", map: fmt(map.opened.campus) },
         "first 10x dev": { base: fmt(first["10x_dev"]), map: fmt(map.firstHire["10x_dev"]) },
+        "data centre": { base: "—", map: fmt(map.opened.datacentre) },
+        "conference centre": { base: "—", map: fmt(map.opened.conference) },
+        "IPO tower": { base: "—", map: fmt(map.opened.ipo) },
         "core complete": { base: fmt(base.totalSeconds), map: fmt(map.totalSeconds) },
       });
       console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, services: map.services, spentOnServices: map.spentOnServices, stalled: map.stalledSeconds });
     }
-    // PACING GUARDS, from the balance passes (2026-10-10: core 1.45 h
-    // ungated, 1.26 h on a town with an 85% commute, 71 lots and 10 services
-    // with one lot a kind that grows). Wide enough for tuning, tight enough to
-    // catch a wall.
+    // PACING GUARDS, from the balance passes (2026-10-11: core 1.45 h
+    // ungated, 1.33 h on a town with an 85% commute, 72 lots and 9 services
+    // with one lot a kind that grows; the Data Centre built on the way at 48
+    // minutes, the later wonders past the core run). Wide enough for tuning,
+    // tight enough to catch a wall.
     expect(map.totalSeconds).toBeLessThan(base.totalSeconds * 1.5);
     expect(map.tenth.intern!).toBeLessThan(5 * 60);
     expect(map.opened.campus!).toBeLessThan(30 * 60);
