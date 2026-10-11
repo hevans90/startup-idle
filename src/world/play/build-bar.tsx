@@ -35,6 +35,7 @@ import { RANGE, serviceOf } from "../agents/services";
 import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
+import { WondersPanel } from "./wonders-panel";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -48,6 +49,7 @@ const ICONS: Record<string, ReactNode> = {
   placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
   labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
+  wonders: <Icon><path d="M8 1.5l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11l-3.7 2 .8-4.2L2 5.9l4.2-.5z" /></Icon>,
   undo: <Icon><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" /></Icon>,
 };
 
@@ -150,6 +152,8 @@ export function BuildBar({ className }: { className?: string }) {
     return () => clearTimeout(id);
   }, [lastBuild]);
   const canUndo = lastBuild && Date.now() - lastBuild.at < UNDO_WINDOW_MS;
+  const wondersOpen = useWorldStore((s) => s.wondersOpen);
+  const setWondersOpen = useWorldStore((s) => s.setWondersOpen);
 
   // Who the company can hire: the generators it has unlocked. @see getUnlockedGeneratorIds
   const hireable = new Set(generators.map((g) => g.id));
@@ -185,7 +189,8 @@ export function BuildBar({ className }: { className?: string }) {
           {notice!.text}
         </p>
       )}
-      {picking && (
+      <WondersPanel />
+      {picking && !wondersOpen && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
           {sale.map((sec) => (
@@ -267,6 +272,12 @@ export function BuildBar({ className }: { className?: string }) {
             </button>
           )}
           <span className="mx-0.5 my-1 w-px bg-primary-300 dark:bg-primary-700" />
+          <button type="button" title="The wonders: great buildings, each a bonus for good"
+            onClick={() => { setWondersOpen(!wondersOpen); setPicking(false); }}
+            className={twMerge(TOOL, wondersOpen && TOOL_ON)}>
+            {ICONS.wonders}
+            <span>Wonders</span>
+          </button>
           <button type="button" title="Show or hide what each building is and how it is doing"
             onClick={() => setLabels(!labels)} className={twMerge(TOOL, labels && TOOL_ON)}>
             {ICONS.labels}

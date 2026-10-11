@@ -5,7 +5,9 @@
  * it goes up — how far it has got, what is holding it up, and how much of the
  * company to give it. @see game/projects, stepWorks
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
+
+import { useTicking } from "../../hooks/use-ticking";
 import { twMerge } from "tailwind-merge";
 
 import {
@@ -35,14 +37,6 @@ const ON = "bg-primary-300 dark:bg-primary-700";
 const formatDuration = (s: number) =>
   s < 90 ? `${s} seconds` : `${Math.round(s / 60)} minutes`;
 
-/** Re-render a few times a second: the work moves on its own. */
-function useTicking(ms: number) {
-  const [, setN] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setN((n) => n + 1), ms);
-    return () => clearInterval(id);
-  }, [ms]);
-}
 
 function Bar({ value, className }: { value: number; className?: string }) {
   return (
@@ -82,7 +76,8 @@ export function ProjectsPanel({ className }: { className?: string }) {
   // map with no river — is not offered at all. @see ProjectDef.needsMap
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const river = useMemo(() => hasRiver(grid), [grid, grid.rev]);
-  const open = PROJECTS.filter((p) => !built.has(p.id) && !(only && p.unlocks) && !(p.needsMap === "river" && !river));
+  // Wonders have a menu of their own. @see WondersPanel
+  const open = PROJECTS.filter((p) => !p.bonus && !built.has(p.id) && !(only && p.unlocks) && !(p.needsMap === "river" && !river));
   const going = open.filter((p) => siteOf(grid, p));
   const available = open.filter((p) => !siteOf(grid, p) && p.ready(owned, unlocked));
   const next = open.filter((p) => !going.includes(p) && !available.includes(p));
@@ -186,7 +181,7 @@ function SlopPitCard() {
 }
 
 /** One project's card: its site to choose, or how it is going. */
-function ProjectCard({ next, className }: { next: ProjectDef; className?: string }) {
+export function ProjectCard({ next, className }: { next: ProjectDef; className?: string }) {
   const grid = useWorldStore((s) => s.grid);
   const placing = useWorldStore((s) => s.placingProject);
   const placeProject = useWorldStore((s) => s.placeProject);

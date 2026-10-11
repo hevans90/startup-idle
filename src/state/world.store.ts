@@ -437,6 +437,9 @@ type WorldState = {
   lastBuild: { at: number; refund: number } | null;
   /** Take back the last build, if it is recent and nothing has been done since, and refund it. */
   undoLastBuild: () => void;
+  /** Whether the wonders menu is open. @see WondersPanel */
+  wondersOpen: boolean;
+  setWondersOpen: (open: boolean) => void;
   /** Whether each building wears a label of what it is and how it is doing. @see BuildingLabels */
   labels: boolean;
   setLabels: (on: boolean) => void;
@@ -682,6 +685,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   labels: true,
   setLabels: (on) => set({ labels: on }),
+  wondersOpen: false,
+  setWondersOpen: (wondersOpen) => set({ wondersOpen }),
   notice: null,
   lastBuild: null,
   undoLastBuild: () => {

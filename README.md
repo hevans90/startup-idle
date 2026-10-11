@@ -28,7 +28,7 @@ Founding is two steps: **who**, then **where** (`molecules/founder-select.tsx`, 
 Every company builds a town (`world/play/company-map.tsx`). Under the game's rules, buildings need **road frontage** (one footprint cell touching paving) and cost money. The build bar (`build-bar.tsx`) is one panel:
 
 - **Top row:** each district's people against its beds, with who's on the way and who's waiting.
-- **Bottom row:** the tools, Look, Road, Lift, Build, Demolish and Labels.
+- **Bottom row:** the tools, Look, Road, Lift, Build, Demolish, Wonders and Labels.
 - **Build picker:** everything at once, no scrolling: a row per employee kind the company can hire (its Lot and its Office), then Services once the Town Hall stands, then Ports once the Harbour Office does.
 
 **Housing is zoned, Caesar-style** (`world/agents/arrivals.ts`):
@@ -94,7 +94,7 @@ Other project rules:
 | Conference Centre (wonder) | 8 10x devs | vibe coders + 10x devs | 14,000 | 4 min (≥ $500,000), 18 loads | 4×3 | valuation ×1.5, for good |
 | IPO Tower (wonder) | 15 10x devs | vibe coders + 10x devs | 20,000 | 5 min (≥ $2,000,000), 20 loads | 3×3 | income ×1.5, for good |
 
-Wonders multiply output through the same chains as everything else (`wonderBonus`), and valuation's breakdown lists them. The gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`). Simulations, tests and the phone layout are never gated.
+**Wonders have a menu of their own** (`world/play/wonders-panel.tsx`, the build bar's Wonders button), not the projects log: each with what it needs, its site to choose, how it's going, or that it stands. They're built like projects. Wonders multiply output through the same chains as everything else (`wonderBonus`), and valuation's breakdown lists them. The gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`). Simulations, tests and the phone layout are never gated.
 
 **The projects log** (`world/play/projects-panel.tsx`) is a quest log in the corner: In progress, Available and Up next (each with what it waits for). It folds to one line, and pulses with a "new" badge when a project becomes available that you haven't seen. Opening it marks them seen (`Session.seenProjects`, kept with the company, as is whether it's open). The slop pit's card sits beside it.
 
