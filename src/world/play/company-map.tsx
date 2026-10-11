@@ -20,6 +20,7 @@ import { BuildBar } from "./build-bar";
 import { BuildingLabels } from "./building-labels";
 import { PortIncome } from "./port-income";
 import { ProjectsPanel } from "./projects-panel";
+import { HintCard } from "./hint-card";
 // The stores on `window` in development, as the editor has them. @see expose-store
 import "../debug/expose-store";
 
@@ -44,6 +45,7 @@ export default function CompanyMap() {
       <BuildingLabels />
       <PortIncome />
       <ProjectsPanel className="absolute left-2 top-24 z-10" />
+      <div className="absolute left-[19.5rem] right-2 top-14 z-20 flex"><HintCard /></div>
       <BuildBar className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 items-center" />
     </div>
   );

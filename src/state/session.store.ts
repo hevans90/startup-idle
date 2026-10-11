@@ -40,6 +40,15 @@ type SessionState = {
    */
   portIncomePerSecond: number;
   setPortIncome: (perSecond: number) => void;
+  /**
+   * FIRST-RUN HINTS this company is done with — shown and met, dismissed, or
+   * met before they were ever needed — and whether they are off altogether.
+   * @see HintCard
+   */
+  hintsDone: string[];
+  markHintsDone: (ids: readonly string[]) => void;
+  hintsOff: boolean;
+  setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
   projectsOpen: boolean;
   setProjectsOpen: (open: boolean) => void;
@@ -63,6 +72,13 @@ export const useSessionStore = create<SessionState>()(
         const fresh = ids.filter((id) => !s.seenProjects.includes(id));
         return fresh.length ? { seenProjects: [...s.seenProjects, ...fresh] } : s;
       }),
+      hintsDone: [],
+      markHintsDone: (ids) => set((s) => {
+        const fresh = ids.filter((id) => !s.hintsDone.includes(id));
+        return fresh.length ? { hintsDone: [...s.hintsDone, ...fresh] } : s;
+      }),
+      hintsOff: false,
+      setHintsOff: (hintsOff) => set({ hintsOff }),
       portIncomePerSecond: 0,
       setPortIncome: (portIncomePerSecond) => set({ portIncomePerSecond }),
       projectsOpen: true,
@@ -71,7 +87,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0,
+        portIncomePerSecond: 0, hintsDone: [],
       }),
     }),
     {
@@ -85,6 +101,8 @@ export const useSessionStore = create<SessionState>()(
         seenProjects: s.seenProjects,
         projectsOpen: s.projectsOpen,
         portIncomePerSecond: s.portIncomePerSecond,
+        hintsDone: s.hintsDone,
+        hintsOff: s.hintsOff,
       }),
     },
   ),

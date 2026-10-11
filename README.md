@@ -25,7 +25,7 @@ Founding is two steps: **who**, then **where** (`molecules/founder-select.tsx`, 
 
 ### The company's map
 
-Every company builds a town (`world/play/company-map.tsx`). Under the game's rules, buildings need **road frontage** (one footprint cell touching paving) and cost money. The build bar (`build-bar.tsx`) is one panel:
+Every company builds a town (`world/play/company-map.tsx`). **First-run hints** (`world/play/hints.ts`, `hint-card.tsx`) explain it a tip at a time: the garage, the first hire, zoning lots, arrivals, the Town Hall, services, offices for long commutes, and wonders. Each shows when its moment comes and goes when its goal is met, and the thing it's about glows (`data-hint`). Anything a company has already done is put away unseen, and tips can be dismissed or switched off (`Session.hintsDone`, `hintsOff`). Under the game's rules, buildings need **road frontage** (one footprint cell touching paving) and cost money. The build bar (`build-bar.tsx`) is one panel:
 
 - **Top row:** each district's people against its beds, with who's on the way and who's waiting.
 - **Bottom row:** the tools, Look, Road, Lift, Build, Demolish, Wonders and Labels.

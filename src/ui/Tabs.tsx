@@ -61,6 +61,8 @@ export default function Tabs<T extends string>({
         {visibleTabs.map((tab) => (
           <button
             key={tab.id}
+            // A handle for first-run hints to point at. @see HintCard
+            data-hint={`tab-${tab.id}`}
             onClick={() => !tab.disabled && handleTabChange(tab.id)}
             disabled={tab.disabled}
             className={twMerge(

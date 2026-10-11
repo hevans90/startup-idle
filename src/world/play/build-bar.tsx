@@ -256,6 +256,7 @@ export function BuildBar({ className }: { className?: string }) {
         <div className="flex items-stretch">
           {TOOLS.map((t) => (
             <button key={t.id} type="button" title={t.hint} onClick={() => choose(t.id)}
+              data-hint={t.id === "placeStructure" ? "build" : undefined}
               className={twMerge(TOOL, tool === t.id && TOOL_ON)}>
               {ICONS[t.id]}
               <span>{t.label}</span>
@@ -272,7 +273,7 @@ export function BuildBar({ className }: { className?: string }) {
             </button>
           )}
           <span className="mx-0.5 my-1 w-px bg-primary-300 dark:bg-primary-700" />
-          <button type="button" title="The wonders: great buildings, each a bonus for good"
+          <button type="button" title="The wonders: great buildings, each a bonus for good" data-hint="wonders"
             onClick={() => { setWondersOpen(!wondersOpen); setPicking(false); }}
             className={twMerge(TOOL, wondersOpen && TOOL_ON)}>
             {ICONS.wonders}

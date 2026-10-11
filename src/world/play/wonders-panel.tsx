@@ -11,6 +11,7 @@ import { twMerge } from "tailwind-merge";
 import { PROJECTS, type ProjectDef } from "../../game/projects";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
+import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { builtProjects, siteOf } from "../projects/works";
@@ -31,6 +32,9 @@ export function WondersPanel({ className }: { className?: string }) {
   const grid = useWorldStore((s) => s.grid);
   const generators = useGeneratorStore((s) => s.generators);
   const unlocks = useInnovationStore((s) => s.unlocks);
+  // OPENED, the hint about it has done its job. @see hints
+  const markHintsDone = useSessionStore((s) => s.markHintsDone);
+  useEffect(() => { if (open) markHintsDone(["wonders"]); }, [open, markHintsDone]);
   // CHOOSING A SITE needs the map: the menu steps aside.
   useEffect(() => {
     if (placing && WONDERS.some((w) => w.id === placing)) setOpen(false);
