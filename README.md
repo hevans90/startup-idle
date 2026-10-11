@@ -13,7 +13,7 @@ A satirical idle game about scaling a tech startup by any means necessary: hire 
 - **Employee management and satisfaction:** perks per role (money, innovation, cost, auto-buy), and a morale score that drifts each tick and feeds back into output.
 - **Team leaders:** one named employee per role, hired from three candidates. Each has a trait, earns ranks over time, and spends skill points on a small skill pool, some of which reach across roles.
 - **Vape shop:** 53 achievements earn vape juice, which buys 12 upgrades shown on an SVG vape. The vape itself, a rhythm minigame, appears once the company has 50 vibe coders. Achievements and upgrades survive prestige.
-- **Slop pit:** fills with headcount once there are 50 vibe coders, and costs income above half full, up to 85% (`state/slop-pit.store.ts`). On the map it opens beside the studio as a 3×3 hole, and its sludge is real fluid standing in it as deep as it is full (`StructureDef.basin`, `events/sludge.ts` `syncPit`). One small card shows the fill, the penalty and an overflow's countdown, with Drain (−40 vibe coder morale), and Trucks once an overflow is warned of; the pit has no map label or event card of its own.
+- **Slop pit:** fills with headcount from 50 vibe coders and costs income above half full, up to 85% (`state/slop-pit.store.ts`). On the map, a 3×3 hole by the studio with its sludge as real fluid (`StructureDef.basin`, `syncPit`); one small card has the fill, penalty, countdown, Drain (−40 vibe coder morale) and Trucks.
 - **AI singularity:** a meter that creeps up when vibe coders are miserable.
 - **Founders:** six archetypes (Hacker, Bootstrapper, Visionary, Hustler, Agentic Delusionist, NEET). Each has a bonus that grows with every exit made as that founder. NEET starts with $5 and doubles money output per exit.
 - **Offline progress:** the real tick is replayed over the time away (capped at 2 days), with a "welcome back" summary.
@@ -21,7 +21,7 @@ A satirical idle game about scaling a tech startup by any means necessary: hire 
 
 ### Founding
 
-Founding is two steps: **who**, then **where** (`molecules/founder-select.tsx`, `world/play/map-setup.tsx`). "Choose your land" runs the real map generator live and previews it as a shaded diamond. It offers a seed, a size (48, 64 or 96 tiles), and sliders for hills, rivers, lakes and woods, with every generator setting behind "All settings". The map you found on is exactly the map you saw (`Session.mapChoice`).
+**Who**, then **where** (`founder-select.tsx`, `map-setup.tsx`): "Choose your land" previews the real generator live — seed, size (48/64/96), hills, rivers, lakes, woods, and every setting behind "All settings" — and you found on exactly the map you saw (`Session.mapChoice`).
 
 ### The company's map
 
@@ -50,17 +50,17 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 
 **Mood** (`agents/mood.ts`, `game/town-mood.ts`): each house's mood is its commute (to −30), services (+4/+6/+4, none −6), the slop pit nearby (−8 to −20), crowding (−6), a wonder (+5), sludge (−15) and flooding (−20), capped at ±40. It shifts each kind's satisfaction target; at −25 a house loses a resident a minute. The Mood tool tints houses.
 
-**Map events** (`world/events/`, `play/event-cards.tsx`): a warning with a countdown, a ring on the map, and a card of choices. One at a time, each kind paced in play time, kept across loads (`PACING`, `Session.eventPacing`); off with "no events" on a card or in Settings. In dev, `window.__eventNow = "convoy"` brings one forward.
+**Map events** (`world/events/`, `play/event-cards.tsx`): a warning with a countdown, a ring on the map, and a card of choices. One at a time, each kind paced in play time, kept across loads (`PACING`, `Session.eventPacing`); off with "no events" on a card or in Settings.
 
-- **Slop overflow** (`events/sludge.ts`): warned at 90%; at 100% what the vibe coders still at work produce (at least 2% of the pit a second) brims over the rim onto open ground until under 95%. **Mopping up** (`events/cleanup.ts`): 2 vibe coders a wet tile leave work (counted away), walk out and drain it by hand, then go back. Drain (−40 vibe coder morale), sludge trucks (20 s of income, three loads of 12%), or let it spill. Sludge dries up after.
-- **River flood** (`events/flood.ts`): the river's inflow rises just over its lowest nearby bank for a minute. Buildings with water higher against them than before are flooded. Sandbags (30 s of income), evacuate (flooded homes away), or brace (−20 mood, ports shut). Leftover water soaks away. **Flood walls** (Defences, river maps only): 1×1 concrete, no road needed, dragged in rows, max($20, 0.5 s of income) a tile; to the water every building is a wall.
+- **Slop overflow** (`events/sludge.ts`): warned at 90%; at 100% what the vibe coders at work produce (≥ 2% of the pit a second) brims over the rim until under 95%. Drain, sludge trucks (20 s of income, 3 × 12%), or let it spill. **Mopping up** (`events/cleanup.ts`): 2 vibe coders a wet tile leave work, walk out and drain it by hand.
+- **River flood** (`events/flood.ts`): the inflow rises just over its lowest nearby bank for a minute; buildings with water higher against them than before are flooded. Sandbags (30 s of income), evacuate (flooded homes away), or brace (−20 mood, ports shut); leftover water soaks away. **Flood walls** (Defences, river maps): 1×1, no road needed, dragged in rows, max($20, 0.5 s of income) a tile.
 - **Convoy** (with a port): calls pay double for a minute; extra hands (20 s) halve call time.
 - **Investor tour** (garage, town hall or HQ): pays 30 s of income + 1.5 s a point of town mood (0–90 s); tidying (10 s) counts +10 mood.
 - **Hackathon** (studio, 10 vibe coders): host it and they're away a minute, then +15 satisfaction.
 
 **Prices follow the economy** (`game/build-cost.ts`), each the larger of a floor and a live share: lots a quarter of the next hire a bed (≥ $15); offices four hires; services seconds of income; seaports 10 s of income per boat a minute; road max($2, 0.25 s of income) a tile, lifting free.
 
-**Projects** (`game/projects.ts`, `world/projects/works.ts`): milestones make a project available, **one at a time** (wonders included; the log and wonders menu show only the one under way, `projectUnderWay`); you pick a site, a crew walks there (away from their desks), trucks bring materials paid per load (no money stalls the site; an idle crew goes home after 6 s), and the building opens its feature. Priority commits none to all of the eligible crew; materials cost seconds of income fixed at siting; time away is caught up (`catchUpWorks`).
+**Projects** (`game/projects.ts`, `world/projects/works.ts`): milestones make one available; **one at a time** (wonders too, `projectUnderWay`). Pick a site; a crew walks there and is away from its desk; trucks bring materials paid per load (no money stalls it; an idle crew goes home after 6 s); it opens its feature. Materials are seconds of income fixed at siting; time away is caught up (`catchUpWorks`).
 
 | Project | Available at | Built by | Work (builder-s) | Materials | Site | Opens |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -115,12 +115,10 @@ bun run dev
 src/
   App.tsx            # Root: founder gate, layout, game loop, offline check
   state/             # Zustand stores, one per system, persisted
-  game/              # Pure game logic: catalogs, multipliers, satisfaction, achievements,
-                     #   offline progress, skill tree, housing, build costs, projects
+  game/              # Pure game logic: catalogs, multipliers, housing, costs, projects…
   molecules/  ui/    # Composite UI and primitives
   iso/               # Shared isometric maths and building-kit composition
-  fluid/             # Water: column solver (columns.ts, slots.ts), falls, drips;
-                     #   gpu/ is the same solver as WebGPU compute passes
+  fluid/             # Column water solver; gpu/ is the same as WebGPU compute
   world/             # World v2: the company's map, and the ?world=1 editor
     grid.ts  iso.ts  #   Dense map layers; projection, half-step heights, picking
     gen/             #   Map generator: rivers planned first, land carved round a road
@@ -128,9 +126,11 @@ src/
     structures/      #   Definitions, placement, renderers (kit stacks, seaports, projects, lots)
     water/           #   The live water field, springs, pipes
     render/          #   Bands, terrain, water mesh (vertex shader), foam, falls
-    agents/          #   Town traffic, routes, new hires arriving
+    agents/          #   Traffic, arrivals, commute, services, mood
+    events/          #   Map events: overflow, floods, opportunities, mopping up
     boats/           #   Boats, wakes, rivers, port traffic
-    projects/        #   Project sites: crews, trucks, stalls, catch-up
+    projects/        #   Project sites, labs, town worth
+    land.ts          #   Parcels: who owns what, and the price of more
     play/            #   The game's map UI: build bar, projects, labels, land picker
     edit/  io/       #   Tools, undo/redo, build cursor; map files and saves
     debug/           #   Editor chrome, fixtures, perf and GPU comparison harnesses
@@ -139,49 +139,25 @@ src/
 
 ## Architecture
 
-- **State:** a Zustand store per system, persisted. `Decimal`s are serialized by `decimalReplacer`/`decimalReviver`, and `coerceDecimal` re-hydrates odd shapes. Bumping the major or minor of `CURRENT_VERSION` (`state/version.store.ts`) wipes progress.
-- **Game loop:** an interval in `App.tsx`. Per-second getters (`getMoneyPerSecond` and friends) mirror the tick's multiplier chains, so displayed rates match earnings.
-- **The world reads, the economy listens:** `game/` imports nothing from `world/` at runtime. The map registers readers for beds and projects while it's mounted.
-- **Grid:** dense typed arrays indexed `y*w+x`: terrain, height, paving, ramps, structures, decks, pipes. An edit marks cells dirty, and the renderer drains them, so an edit redraws only what changed.
-- **Bands:** sprites live in one container per diagonal `x+y`, so nothing inside a band needs sorting. Bands are cached in render groups, so **Pixi's garbage collector is switched off** (`stopGarbageCollection`): it freed the buffers of chunks that had been off screen for a minute, and their cached draws then failed every frame once they came back. Tall things are split into per-column pieces filed in their own band.
-- **Heights:** in **half steps** (16.5 px), because the art has exactly two rises. Height moves sprites vertically only, which keeps band order and picking cheap.
-- **Roads:**
-  - **Painted as areas**, then autotiled from 8-neighbour masks.
-  - **Ramps are derived** from paving and height, not placed.
-  - **Bridges are decks:** paved ground at a level of their own, the one place the map stops being a heightfield.
-- **Structures:** a definition plus a render strategy:
-  - kit sprite stacks for housing;
-  - projected "prism" drawings for seaports, project sites and lots, each column filed in its own band.
-- **Water:**
-  - **A field of columns** stepped by a shallow-water style solver, with storeys (slots) so water can run under a bridge and over it at once.
-  - **Two paths:** the CPU path is the reference, and the WebGPU path is the default.
-  - **Comparison harnesses** keep the two paths in agreement: `?gpucheck`, `__waterCompare`, `__sheetCompare`, `__cliffCompare`.
-  - **Rivers** are fed by off-map inflows held at a level, and the map's edge absorbs.
-  - **Effects:** waterfalls, drips and foam are simulated.
-  - **Drawing:** the mesh is built in a vertex shader.
-- **Map generator:**
-  - **River first:** it plans river courses before the land, then carves a cone of buildable ground around a wandering street.
-  - **Water:** it fills basins by priority flood.
-  - **Seed vs settings:** the seed picks *which* map, and the settings pick *what kind*.
-- **Live state is not map state:** water depth, boats, traffic, arrivals and project crews live outside the grid. Saves keep what matters: pools, boats, and build and resident records.
+- **State:** a Zustand store per system, persisted; `Decimal`s go through `decimalReplacer`/`decimalReviver`. Bumping the major or minor of `CURRENT_VERSION` wipes progress.
+- **Game loop:** an interval in `App.tsx`; per-second getters mirror the tick's multipliers, so shown rates match earnings.
+- **The world reads, the economy listens:** `game/` never imports `world/` at runtime; the mounted map registers readers (beds, projects, mood, town worth).
+- **Grid:** dense typed arrays indexed `y*w+x`. Edits mark cells dirty and the renderer redraws only those.
+- **Bands:** one container per diagonal `x+y`, so nothing sorts; tall things are split per column. Bands are cached render groups, so **Pixi's GC is off** (`stopGarbageCollection`): it freed buffers cached chunks still drew.
+- **Heights** are half steps (16.5 px) and move sprites only vertically. Roads are painted areas autotiled from 8-neighbour masks; ramps are derived; bridges are decks at their own level.
+- **Structures:** a definition plus a renderer: kit sprite stacks for housing, prism drawings per column for everything else.
+- **Water:** a column field stepped by a shallow-water solver, with storeys so water runs under and over a bridge. WebGPU by default, the CPU path the reference, harnesses keeping them in step (`?gpucheck`, `__waterCompare`). Rivers are off-map inflows held at a level; falls, drips and foam are simulated; the mesh is built in a vertex shader.
+- **Map generator:** rivers planned first, buildable ground carved round a wandering street, basins filled by priority flood. The seed picks which map, the settings what kind.
+- **Live state is not map state:** water depth, boats, traffic, arrivals and crews live outside the grid; saves keep pools, boats and build and resident records.
 
 ## Dev tools
 
-- **World editor:** `?world=1` has every terrain, road, water and structure tool, with undo/redo, fixtures and overlays.
-- **URL flags:**
-  - `?fixture=<name>` uses a test map for the session (`harbour`, `firstRoad`, `crossing`, …) and doesn't autosave;
-  - `?nosave` skips saving;
-  - `?cpuwater` pins the CPU water solver;
-  - `?webgl` forces WebGL;
-  - `?gpucheck` / `?gpuwhy` debug the device.
-- **Window hooks in dev:**
-  - `__world` (the store), `__town`, `__structures` and `__net` to inspect the live map;
-  - `__waterBench(n, true)` to drive frames;
-  - `__fakeHires = { intern: 9 }` to watch arrivals without touching the economy.
-  - Use these rather than `import()` in the console, which loads a second copy of each module.
-- **Perf gotcha:** a hidden tab or pane pauses `requestAnimationFrame`, so its frame numbers are meaningless.
-- **Labeller** (`dev/roadlabel.html`): authors `building-kits.json`, `road-labels.json` and `slope-labels.json`. These are hand-authored data; never overwrite them programmatically.
-- **Localhost-only:** dev affordances like "grant juice" are gated to localhost (`utils/dev-mode.ts`).
+- **World editor:** `?world=1`, every terrain, road, water and structure tool, with undo, fixtures and overlays.
+- **URL flags:** `?fixture=<name>` (a test map, not saved), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck` / `?gpuwhy`.
+- **Window hooks in dev:** `__world`, `__town()`, `__structures`, `__net`; `__waterBench(n, true)` drives frames; `__fakeHires = { intern: 9 }` sends hires nobody made; `__eventNow` brings an event forward. Use these, not `import()`, which loads a second copy of each module.
+- **A hidden tab or pane pauses `requestAnimationFrame`**, so its frame numbers mean nothing.
+- **Labeller** (`dev/roadlabel.html`) authors `building-kits.json`, `road-labels.json` and `slope-labels.json`: hand-authored data, never overwritten by code.
+- **The DEV panel** (cheats) exists only in development builds (`import.meta.env.DEV`).
 
 ## Testing
 
