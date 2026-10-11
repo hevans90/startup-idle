@@ -144,8 +144,8 @@ export function Popover({
 } & PopoverOptions) {
   const popover = usePopover({ ...restOptions });
 
-  // Keep a global count of open popovers so CityHoverPopover can hide itself
-  // while anything is open — regardless of which popover type it is.
+  // Keep a global count of open popovers, so anything that floats over the
+  // page can tell whether one is open, whatever kind it is.
   const { open: trackOpen, close: trackClose } = useAnyPopoverStore.getState();
   React.useEffect(() => {
     if (popover.open) {
