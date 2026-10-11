@@ -38,6 +38,7 @@ import { KIND_COLOUR, saleName } from "./building-info";
 import { WondersPanel } from "./wonders-panel";
 import { PARCELS } from "../land";
 import { hasRiver } from "../boats/river";
+import { LAB_SHARE } from "../projects/labs";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -88,6 +89,8 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
     const items = [
       ...all.filter((d) => housedBy(d.def.id)?.id === who),
       ...all.filter((d) => workplaceKind(d.def.id) === who),
+      // The 10x devs' R&D lab. @see world/projects/labs
+      ...(who === "10x_dev" ? all.filter((d) => d.def.id === "lab") : []),
     ];
     if (items.length) out.push({ title: KIND_TITLE[who], colour: KIND_COLOUR[who], items });
   }
@@ -104,7 +107,7 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
 
 /** A tile's name in its row, which already says whose: "Lot", "Office", "Seaport II". */
 const tileName = (def: StructureDef) =>
-  housedBy(def.id) ? "Lot" : workplaceKind(def.id) ? "Office"
+  housedBy(def.id) ? "Lot" : workplaceKind(def.id) ? "Office" : def.id === "lab" ? "Lab"
     : def.port ? saleName(def).replace(/^Seaport/, "Port") : saleName(def);
 
 /** What a tile is, in a few words. */
@@ -115,6 +118,7 @@ function tileNote(def: StructureDef): string {
   if (serviceOf(def.id)) return `serves ${RANGE} tiles`;
   if (def.port) return `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}`;
   if (def.id === "levee") return "drag along a bank";
+  if (def.id === "lab") return `innovation +${LAB_SHARE * 100}%`;
   return "";
 }
 

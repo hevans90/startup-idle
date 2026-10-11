@@ -6,7 +6,7 @@ import {
 } from "zustand/middleware";
 import { setEmployeeSatisfactionReaders } from "../game/employee-satisfaction-read";
 import { roomFor } from "../game/housing";
-import { attendance, wonderBonus } from "../game/projects";
+import { attendance, labBonus, wonderBonus } from "../game/projects";
 import { townMoodOffsets } from "../game/town-mood";
 import {
   calcGeneratorIncome,
@@ -530,10 +530,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AWAY BUILDING: a desk with nobody at it makes nothing. One here,
           // so the live tick and every readout agree. @see attendance
           const here = attendance(id, get().generators.find((g) => g.id === id)?.amount ?? 0);
-          // AND THE WONDERS standing on the map. @see wonderBonus
+          // AND THE WONDERS standing on the map, and its R&D labs. @see wonderBonus, labBonus
           return {
             money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * wonderBonus("money"),
-            innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * wonderBonus("innovation"),
+            innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * wonderBonus("innovation") * labBonus(),
           };
         },
 

@@ -38,6 +38,7 @@ import { WorldViewport } from "./world-viewport";
 import { evacuatedAway } from "./events/flood";
 import { cleanupAway } from "./events/cleanup";
 import { startingLand } from "./land";
+import { labReading } from "./projects/labs";
 
 /**
  * Which renderer to ask for: WebGPU, unless `?webgl=1` says otherwise.
@@ -179,12 +180,14 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     let seenGrid: unknown = null, seenRev = -1, seenProjects = -1;
     let built: Set<ProjectId> = new Set();
     let residents = housingResidents(useWorldStore.getState().grid);
+    let labs = labReading(useWorldStore.getState().grid);
     return setProjectReader(() => {
       const st = useWorldStore.getState();
       if (st.grid !== seenGrid || st.revision !== seenRev || st.projectRev !== seenProjects) {
         seenGrid = st.grid; seenRev = st.revision; seenProjects = st.projectRev;
         built = builtProjects(st.grid);
         residents = housingResidents(st.grid);
+        labs = labReading(st.grid);
       }
       // AWAY FROM THEIR DESKS: building, and — hired but not arrived — on
       // their way to the map, or waiting for somewhere to live on it.
@@ -205,7 +208,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const remote = useSessionStore.getState().remoteBeds ?? {};
       const net = getNetwork();
       const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;
-      return { built, away, commute };
+      return { built, away, commute, labs };
     });
   }, [play]);
 }

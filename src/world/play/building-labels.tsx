@@ -35,6 +35,7 @@ import { liveCommutes } from "../agents/commute";
 import { liveCoverage } from "../agents/services";
 import { liveMoods } from "../agents/mood";
 import { useSlopPitStore } from "../../state/slop-pit.store";
+import { nearHub } from "../projects/labs";
 import { housedBy, residentsIn } from "../../game/housing";
 import { drawnTop, shownStructures } from "../structures/layer";
 import { gatherLabels, infoFor, type BuildingInfo, type InfoContext } from "./building-info";
@@ -87,7 +88,8 @@ function gather(): InfoContext {
   const commutes = net ? liveCommutes(st.grid, net) : new Map();
   const coverage = net ? liveCoverage(st.grid, net) : new Map();
   const moods = net ? liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100) : new Map();
-  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, money: (n) => formatCurrency(n) };
+  const labsNear = new Set([...st.grid.structures.values()].filter((s) => s.def === "lab" && nearHub(st.grid, s)).map((s) => s.id));
+  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, money: (n) => formatCurrency(n) };
 }
 
 /** One label on the screen: the buildings it speaks for, and what it says. */

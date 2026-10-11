@@ -42,6 +42,8 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 
 **Commuting** (`agents/commute.ts`): each kind works at the building that opened it or an **office** of its kind (bought from the picker). Up to 8 road tiles is free, then −1.25% a tile to 50%; no road at all is 25%. The average multiplies into output (`commuteFactor`).
 
+**R&D labs** (`world/projects/labs.ts`): sold in the 10x devs row (2×2). Each standing adds 10% to innovation, 20% within 10 tiles of the campus or Data Centre (`labBonus`, through the project reader). A minute of income (≥ $100,000), ×1.5 for each already built.
+
 **Services and growth** (`agents/services.ts`): a café, park and gym serve homes within 8 road tiles (4, 8, 16 s of income). A full house served for 20 s grows a tier for free (café → II, + park → III, + gym → tower), and declines after 30 s without. 10x devs only move in with a café and a park.
 
 **Mood** (`agents/mood.ts`, `game/town-mood.ts`): each house's mood is its commute (to −30), services (+4/+6/+4, none −6), the slop pit nearby (−8 to −20), crowding (−6), a wonder (+5), sludge (−15) and flooding (−20), capped at ±40. It shifts each kind's satisfaction target; at −25 a house loses a resident a minute. The Mood tool tints houses.

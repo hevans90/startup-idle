@@ -230,6 +230,12 @@ export const OFFICES: readonly StructureDef[] = [
 ];
 
 /**
+ * AN R&D LAB: innovation on the map, more near the campus. Sold, not built as
+ * a project. @see world/projects/labs
+ */
+export const LAB: StructureDef = { id: "lab", name: "R&D lab", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } };
+
+/**
  * SERVICES: a café, a park and a gym, which serve the homes near them along
  * the roads, and are what houses grow by. @see world/agents/services
  */
@@ -263,7 +269,7 @@ export const LEVEE: StructureDef = {
 };
 
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE, LAB].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

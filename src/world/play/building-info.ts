@@ -14,6 +14,7 @@ import { structureDef, type StructureDef } from "../structures/def";
 import { workplaceKind, type Commute } from "../agents/commute";
 import { moodWord, type MoodParts } from "../agents/mood";
 import { NEEDS, SERVICE_NAME, TIERS, serviceOf, tierOf, type ServiceId } from "../agents/services";
+import { LAB_SHARE } from "../projects/labs";
 
 /** What the live game says, for the labels. */
 export type InfoContext = {
@@ -38,6 +39,8 @@ export type InfoContext = {
   stalled: ReadonlySet<number>;
   /** Money as the game writes it. */
   money: (n: number) => string;
+  /** R&D labs near the campus or Data Centre, by id. @see nearHub */
+  labsNear?: ReadonlySet<number>;
 };
 
 export type InfoLine = { text: string; tone?: "good" | "warn" | "dim" };
@@ -187,6 +190,17 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
 
   // THE SLOP PIT has no label: its card says it all. @see SlopPitCard
   if (s.def === "slop-pit") return null;
+
+  // AN R&D LAB: what it adds to innovation. @see world/projects/labs
+  if (s.def === "lab") {
+    const near = ctx.labsNear?.has(s.id) ?? false;
+    const pct = Math.round((near ? 2 : 1) * LAB_SHARE * 100);
+    return {
+      title: def.name, accent: 0x8a7fd6, brief: [`+${pct}%`],
+      lines: [{ text: `Innovation +${pct}%${near ? ", beside the campus" : ""}`, tone: "good" }],
+      facts: [{ type: "project", name: def.name }],
+    };
+  }
 
   // A SERVICE: how many homes it serves.
   const service = serviceOf(s.def);

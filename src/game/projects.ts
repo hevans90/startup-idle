@@ -243,6 +243,11 @@ export function wonderBonus(kind: keyof Bonus): number {
   return m;
 }
 
+/** What the map's R&D labs multiply innovation by. One with no map. */
+export const labBonus = () => (reader ? reader().labs?.mult ?? 1 : 1);
+/** How many R&D labs stand on the map. */
+export const labsBuilt = () => (reader ? reader().labs?.count ?? 0 : 0);
+
 /**
  * WHAT A PROJECT COSTS, given the company's income a second: so many seconds
  * of it, and never less than its floor.
@@ -303,6 +308,8 @@ export type ProjectReading = {
    * getting there. Absent, or a kind missing, is all of it. @see commuteFactor
    */
   commute?: Partial<Record<GeneratorId, number>>;
+  /** The R&D labs standing, and what they multiply innovation by. @see world/projects/labs */
+  labs?: { count: number; mult: number };
 };
 
 let reader: (() => ProjectReading) | null = null;

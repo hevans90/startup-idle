@@ -413,6 +413,22 @@ function drawGym(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
   line([[mu, mv, GYM_BODY], [mu, mv, GYM_BODY + 0.9]], DUMBBELL_SHADE, 2);
 }
 
+/** AN R&D LAB: a white block with a band of glass, and a dish on the roof. */
+const LAB_BODY = 2.4;
+const LAB_WALL = 0xe9ecef, LAB_WALL_SHADE = 0xc3c9cf, LAB_ROOF = 0x6b7680, DISH = 0xdfe3e6, DISH_SHADE = 0xa9b0b6;
+function drawLab(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
+  const { box, line } = pen(g, s, ctx, c);
+  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
+  const w0 = x0 + 0.2, w1 = x1 - 0.2, v0 = y0 + 0.2, v1 = y1 - 0.2;
+  box(w0, v0, w1, v1, PLINTH, LAB_BODY, LAB_ROOF, LAB_WALL, LAB_WALL_SHADE);
+  line([[w0 + 0.1, v1 + 0.005, LAB_BODY * 0.6], [w1 - 0.1, v1 + 0.005, LAB_BODY * 0.6]], GLASS, 7);
+  line([[w1 + 0.005, v0 + 0.1, LAB_BODY * 0.6], [w1 + 0.005, v1 - 0.1, LAB_BODY * 0.6]], GLASS, 7);
+  const mu = w0 + 0.4, mv = v0 + 0.4;
+  line([[mu, mv, LAB_BODY], [mu, mv, LAB_BODY + 0.6]], DISH_SHADE, 2);
+  box(mu - 0.18, mv - 0.18, mu + 0.18, mv + 0.18, LAB_BODY + 0.6, LAB_BODY + 0.75, DISH, DISH, DISH_SHADE);
+}
+
 /**
  * THE TOWN HALL: pale stone on a stepped base, a row of columns across its
  * front under a pediment band, and a clock in a little tower on the roof.
@@ -585,6 +601,7 @@ const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
   boardroom: { body: BR_TOWER, finished: drawBoardroom },
   campus: { body: CAMPUS_TALL, finished: drawCampus },
   levee: { body: LEVEE_TALL, finished: drawLevee },
+  lab: { body: LAB_BODY, finished: drawLab },
 };
 
 /** The band of a column's front cell. */
