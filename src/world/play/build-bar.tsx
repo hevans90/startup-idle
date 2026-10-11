@@ -50,6 +50,7 @@ const ICONS: Record<string, ReactNode> = {
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
   labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
   wonders: <Icon><path d="M8 1.5l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11l-3.7 2 .8-4.2L2 5.9l4.2-.5z" /></Icon>,
+  mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
   undo: <Icon><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" /></Icon>,
 };
 
@@ -153,6 +154,8 @@ export function BuildBar({ className }: { className?: string }) {
   }, [lastBuild]);
   const canUndo = lastBuild && Date.now() - lastBuild.at < UNDO_WINDOW_MS;
   const wondersOpen = useWorldStore((s) => s.wondersOpen);
+  const moodOverlay = useWorldStore((s) => s.moodOverlay);
+  const setMoodOverlay = useWorldStore((s) => s.setMoodOverlay);
   const setWondersOpen = useWorldStore((s) => s.setWondersOpen);
 
   // Who the company can hire: the generators it has unlocked. @see getUnlockedGeneratorIds
@@ -244,7 +247,7 @@ export function BuildBar({ className }: { className?: string }) {
                 {st?.riding ? <span className="text-emerald-700 dark:text-emerald-400" title={`On the way ${by}`}>+{st.riding} {by}</span> : null}
                 {st?.waiting ? (
                   <span className={st.blocked ? "text-amber-700 dark:text-amber-400" : "text-primary-600 dark:text-primary-400"}>
-                    {st.waiting} waiting{st.blocked === "no-lot" ? " for a lot" : st.blocked === "no-road" ? " (no road in)" : st.blocked === "no-services" ? " (want a café & park)" : ""}
+                    {st.waiting} waiting{st.blocked === "no-lot" ? " for a lot" : st.blocked === "no-road" ? " (no road in)" : st.blocked === "no-services" ? " (want a café & park)" : st.blocked === "unhappy" ? " (their homes are miserable)" : ""}
                   </span>
                 ) : null}
               </span>
@@ -278,6 +281,11 @@ export function BuildBar({ className }: { className?: string }) {
             className={twMerge(TOOL, wondersOpen && TOOL_ON)}>
             {ICONS.wonders}
             <span>Wonders</span>
+          </button>
+          <button type="button" title="Tint every house by how happy its people are" data-hint="mood"
+            onClick={() => setMoodOverlay(!moodOverlay)} className={twMerge(TOOL, moodOverlay && TOOL_ON)}>
+            {ICONS.mood}
+            <span>Mood</span>
           </button>
           <button type="button" title="Show or hide what each building is and how it is doing"
             onClick={() => setLabels(!labels)} className={twMerge(TOOL, labels && TOOL_ON)}>

@@ -437,6 +437,9 @@ type WorldState = {
   lastBuild: { at: number; refund: number } | null;
   /** Take back the last build, if it is recent and nothing has been done since, and refund it. */
   undoLastBuild: () => void;
+  /** Whether houses are tinted by how happy they are. @see moodTint */
+  moodOverlay: boolean;
+  setMoodOverlay: (on: boolean) => void;
   /** Whether the wonders menu is open. @see WondersPanel */
   wondersOpen: boolean;
   setWondersOpen: (open: boolean) => void;
@@ -685,6 +688,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   labels: true,
   setLabels: (on) => set({ labels: on }),
+  moodOverlay: false,
+  setMoodOverlay: (moodOverlay) => set({ moodOverlay }),
   wondersOpen: false,
   setWondersOpen: (wondersOpen) => set({ wondersOpen }),
   notice: null,

@@ -5,7 +5,7 @@ import { nextHint, type HintState } from "./hints";
 const state = (over: Partial<HintState> = {}): HintState => ({
   owned: { intern: 0, vibe_coder: 0, "10x_dev": 0 },
   built: new Set(), sites: new Set(), ready: new Set(["garage"]),
-  lots: 0, residents: 0, awaiting: 0, services: 0, offices: 0, worstCommute: 1, wondersOpened: false,
+  lots: 0, residents: 0, awaiting: 0, services: 0, offices: 0, worstCommute: 1, wondersOpened: false, worstMood: 0, moodShown: false,
   ...over,
 });
 

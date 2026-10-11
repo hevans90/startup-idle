@@ -21,6 +21,9 @@ import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
 import { commuteFactor, liveCommutes } from "./agents/commute";
 import { setTownBonusReader } from "../game/acquisition";
+import { setTownMoodReader } from "../game/town-mood";
+import { liveMoods, moodOffsets } from "./agents/mood";
+import { useSlopPitStore } from "../state/slop-pit.store";
 import { townBonusOf } from "./projects/town-worth";
 import { serviceOf } from "./agents/services";
 import { structureDef } from "./structures/def";
@@ -117,6 +120,17 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     return setHousingReader(() => {
       const built = housingCapacity(useWorldStore.getState().grid);
       return play ? addBeds(built, useSessionStore.getState().remoteBeds ?? {}) : built;
+    });
+  }, [play]);
+  /**
+   * HOW THE TOWN FEELS, told to the economy while the map is mounted in the
+   * game: each kind's satisfaction leans toward its houses' mood. @see moodOffsets
+   */
+  useEffect(() => {
+    if (!play) return;
+    return setTownMoodReader(() => {
+      const net = getNetwork(), g = useWorldStore.getState().grid;
+      return net ? moodOffsets(g, liveMoods(g, net, useSlopPitStore.getState().fill / 100)) : {};
     });
   }, [play]);
   /**

@@ -12,6 +12,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import type { Structure } from "../grid";
 import { structureDef, type StructureDef } from "../structures/def";
 import { workplaceKind, type Commute } from "../agents/commute";
+import { moodWord, type MoodParts } from "../agents/mood";
 import { NEEDS, SERVICE_NAME, TIERS, serviceOf, tierOf, type ServiceId } from "../agents/services";
 
 /** What the live game says, for the labels. */
@@ -27,6 +28,8 @@ export type InfoContext = {
   residents: ReadonlyMap<number, number>;
   /** How full the slop pit is, 0–100, and what share of income it takes. */
   slop?: { fill: number; penalty: number };
+  /** How happy each house is, and why, by its id. */
+  moods: ReadonlyMap<number, MoodParts>;
   /** What serves each house, by its id. */
   coverage: ReadonlyMap<number, ReadonlySet<ServiceId>>;
   /** Each house's commute, by its id. Missing: nobody worked it out (no roads yet). */
@@ -46,7 +49,7 @@ export type InfoLine = { text: string; tone?: "good" | "warn" | "dim" };
  * without anything lost. @see collate
  */
 export type Fact =
-  | { type: "home"; who: GeneratorId; residents: number; beds: number; earns?: number; coming: number }
+  | { type: "home"; who: GeneratorId; residents: number; beds: number; earns?: number; coming: number; mood?: number }
   | { type: "site"; name: string; pct: number; stalled: boolean; paused: boolean }
   | { type: "project"; name: string }
   | { type: "port"; berths: number; alongside: number; waiting: number; earning: number };
@@ -131,6 +134,16 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
       if (lack.length) lines.push({ text: `Grows with a ${lack.map((n) => SERVICE_NAME[n]).join(" and ")}`, tone: "dim" });
       else if (here >= h.slots) lines.push({ text: "Growing", tone: "good" });
     }
+    // ITS MOOD, and what weighs on it most if it is down. @see world/agents/mood
+    const mood = ctx.moods.get(s.id);
+    if (mood && here > 0) {
+      const worst = [...mood.parts].sort((a, b) => a.points - b.points)[0];
+      const sign = mood.total > 0 ? "+" : "";
+      lines.push({
+        text: `${moodWord(mood.total)} (${sign}${mood.total})${mood.total < 0 && worst && worst.points < 0 ? `: ${worst.why}` : ""}`,
+        tone: mood.total >= 0 ? "good" : "warn",
+      });
+    }
     if (commute && here > 0) {
       lines.push(commute.tiles === null
         ? { text: "No road to work", tone: "warn" }
@@ -143,7 +156,10 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
       accent: KIND_COLOUR[h.id],
       brief: [coming > 0 ? `${here}/${h.slots} · +${coming}` : `${here}/${h.slots}`],
       lines,
-      facts: [{ type: "home", who: h.id, residents: here, beds: h.slots, earns: rate === undefined ? undefined : here * rate * eff, coming }],
+      facts: [{
+        type: "home", who: h.id, residents: here, beds: h.slots, earns: rate === undefined ? undefined : here * rate * eff, coming,
+        ...(mood && here > 0 ? { mood: mood.total } : {}),
+      }],
     };
   }
 
@@ -239,6 +255,12 @@ export function collate(infos: readonly BuildingInfo[], money: (n: number) => st
     lines.push({ text: `${name}s: ${res}/${beds} in ${homes.length} ${homes.length === 1 ? "home" : "homes"}` });
     if (known.length && res > 0) lines.push({ text: `  earn ${money(known.reduce((n, f) => n + f.earns!, 0))}/s`, tone: "good" });
     if (coming) lines.push({ text: `  ${coming} on the way`, tone: "good" });
+    // Their mood, weighted by who lives where. @see moodOffsets
+    const felt = homes.filter((f) => f.mood !== undefined && f.residents > 0);
+    if (felt.length) {
+      const avg = Math.round(felt.reduce((n, f) => n + f.mood! * f.residents, 0) / felt.reduce((n, f) => n + f.residents, 0));
+      lines.push({ text: `  ${moodWord(avg).toLowerCase()} (${avg > 0 ? "+" : ""}${avg})`, tone: avg >= 0 ? "good" : "warn" });
+    }
     brief.push(`${name}s ${res}/${beds}${coming ? ` +${coming}` : ""}`);
   }
   for (const f of facts) {

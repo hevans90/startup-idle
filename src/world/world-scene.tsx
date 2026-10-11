@@ -77,7 +77,8 @@ import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution } from "./agents/services";
-import { SLOP_PIT_UNLOCK_COUNT } from "../state/slop-pit.store";
+import { liveMoods, moodTint, stepMood, type Unrest } from "./agents/mood";
+import { SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
 import { perMinute, recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
@@ -224,6 +225,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    * empty one after a load. @see portIncomePerSecond
    */
   const portRateAt = useRef(performance.now() + 55_000);
+  /** How long each miserable house has been so. @see stepMood */
+  const unrestRef = useRef<Unrest>(new Map());
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -1678,6 +1681,33 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     redrawOverlays();
   }, [revision, grid, scale, redrawOverlays]);
 
+  // THE MOOD SHOWN: every house's own sprites tinted by how happy it is,
+  // looked at again every second, and put back when it is turned off.
+  // @see moodTint
+  const moodOverlay = useWorldStore((s) => s.moodOverlay);
+  useEffect(() => {
+    if (!moodOverlay) return;
+    // Sprites a house rebuilt since — growing, filling — are gone, not reset.
+    const tinted = new Set<{ tint: number; destroyed?: boolean }>();
+    const paint = () => {
+      const sl = slRef.current, net = getNetwork(), g = useWorldStore.getState().grid;
+      if (!sl || !net) return;
+      const moods = liveMoods(g, net, useSlopPitStore.getState().fill / 100);
+      for (const [id, m] of sl.mounted) {
+        const mood = moods.get(id);
+        if (!mood) continue;
+        const h = m.handle as { sprites?: { tint: number; destroyed?: boolean }[] };
+        for (const sp of h.sprites ?? []) { sp.tint = moodTint(mood.total); tinted.add(sp); }
+      }
+    };
+    paint();
+    const id = setInterval(paint, 1000);
+    return () => {
+      clearInterval(id);
+      for (const sp of tinted) if (!sp.destroyed) sp.tint = 0xffffff;
+    };
+  }, [moodOverlay]);
+
   // Painting takes the left button, so panning moves to middle/right while a
   // paint tool is active — otherwise a paint drag and a camera drag collide.
   const tool = useWorldStore((s) => s.tool);
@@ -2173,6 +2203,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // THE SLOP PIT, opening up beside the studio once there are enough
         // vibe coders to fill it. @see SLOP_PIT
         if (st.playing && (ownedNow().vibe_coder ?? 0) >= SLOP_PIT_UNLOCK_COUNT) st.openSlopPit();
+        // PEOPLE LEAVING MISERABLE HOUSES, in the game, one now and then.
+        // @see stepMood
+        if (st.playing) {
+          const left = stepMood(unrestRef.current, st.grid, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100), dt);
+          if (left.length) useWorldStore.getState().housingMoved(left);
+        }
         // THE TOWN EVOLVING, in the game: houses growing round the cafés,
         // parks and gyms that serve them, and declining when they lose them.
         if (st.playing) {

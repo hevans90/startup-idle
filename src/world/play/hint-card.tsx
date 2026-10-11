@@ -12,6 +12,8 @@ import { useSessionStore } from "../../state/session.store";
 import { getNetwork, useWorldStore } from "../../state/world.store";
 import { liveCommutes, workplaceKind } from "../agents/commute";
 import { serviceOf } from "../agents/services";
+import { liveMoods } from "../agents/mood";
+import { useSlopPitStore } from "../../state/slop-pit.store";
 import { builtProjects, sitesOf } from "../projects/works";
 import { projectForStructure } from "../../game/projects";
 import { nextHint, type HintState } from "./hints";
@@ -35,7 +37,13 @@ function snapshot(): HintState {
   const residents = housingResidents(grid);
   const away = awaitingArrival(owned, useSessionStore.getState().remoteBeds ?? {}, residents);
   const net = getNetwork();
-  let worstCommute = 1;
+  let worstCommute = 1, worstMood = 0;
+  if (net) {
+    for (const [house, m] of liveMoods(grid, net, useSlopPitStore.getState().fill / 100)) {
+      const s = grid.structures.get(house);
+      if (s && (s.residents ?? 1) > 0) worstMood = Math.min(worstMood, m.total);
+    }
+  }
   if (net) {
     for (const [house, c] of liveCommutes(grid, net)) {
       const s = grid.structures.get(house);
@@ -47,6 +55,7 @@ function snapshot(): HintState {
     residents: residents.intern + residents.vibe_coder + residents["10x_dev"],
     awaiting: Object.values(away).reduce((n, v) => n + (v ?? 0), 0),
     wondersOpened: false,
+    worstMood, moodShown: useWorldStore.getState().moodOverlay,
   };
 }
 

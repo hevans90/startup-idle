@@ -27,6 +27,9 @@ export type HintState = {
   /** The worst commute on the map, as the share of a day it leaves; 1 for none. */
   worstCommute: number;
   wondersOpened: boolean;
+  /** The unhappiest lived-in house's mood; 0 for none. @see world/agents/mood */
+  worstMood: number;
+  moodShown: boolean;
 };
 
 export type Hint = {
@@ -95,6 +98,13 @@ export const HINTS: readonly Hint[] = [
     target: "build",
     when: (s) => s.worstCommute < 0.8,
     done: (s) => s.offices > 0,
+  },
+  {
+    id: "mood",
+    text: "Some of your people are unhappy at home, and it costs you. Turn on Mood to see where, and read a house's label for why.",
+    target: "mood",
+    when: (s) => s.worstMood <= -10,
+    done: (s) => s.moodShown,
   },
   {
     id: "wonders",

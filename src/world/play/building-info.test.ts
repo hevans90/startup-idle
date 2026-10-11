@@ -4,7 +4,7 @@ import type { Structure } from "../grid";
 import { collate, gatherLabels, infoFor, type InfoContext } from "./building-info";
 
 const ctx = (over: Partial<InfoContext> = {}): InfoContext => ({
-  perHead: { intern: 2 }, arriving: new Map(), alongside: new Map(), queued: new Map(), stalled: new Set(), earning: new Map(), residents: new Map(), commutes: new Map(), coverage: new Map(),
+  perHead: { intern: 2 }, arriving: new Map(), alongside: new Map(), queued: new Map(), stalled: new Set(), earning: new Map(), residents: new Map(), commutes: new Map(), coverage: new Map(), moods: new Map(),
   money: (n) => `$${n}`, ...over,
 });
 const at = (def: string, extra: Partial<Structure> = {}): Structure => ({ id: 7, def, x: 0, y: 0, w: 1, h: 1, ...extra });
@@ -94,5 +94,20 @@ describe("the slop pit's label", () => {
     const pit = (fill: number, penalty: number) => infoFor(at("slop-pit", { w: 3, h: 3 }), ctx({ slop: { fill, penalty } }))!;
     expect(pit(30, 0).lines.map((l) => l.text)).toEqual(["30% full"]);
     expect(pit(75.4, 0.425).lines.map((l) => l.text)).toEqual(["75% full", "Income −43%"]);
+  });
+});
+
+describe("mood on the labels", () => {
+  test("a house says how happy it is, and what weighs on it most", () => {
+    const moods = new Map([[7, { total: -12, parts: [{ why: "café", points: 4 }, { why: "long commute", points: -12 }, { why: "no services", points: -4 }] }]]);
+    const info = infoFor(at("kit:intern.t1", { residents: 3 }), ctx({ moods }))!;
+    expect(info.lines.map((l) => l.text)).toContain("Unhappy (-12): long commute");
+  });
+
+  test("houses collated say their people's mood, weighted by who lives where", () => {
+    const moods = new Map([[1, { total: 20, parts: [] }], [2, { total: -20, parts: [] }]]);
+    const a = infoFor({ ...at("kit:intern.t1", { residents: 1 }), id: 1 }, ctx({ moods }))!;
+    const b = infoFor({ ...at("kit:intern.t1", { residents: 3 }), id: 2 }, ctx({ moods }))!;
+    expect(collate([a, b], String).lines.map((l) => l.text)).toContain("  unhappy (-10)");
   });
 });

@@ -28,7 +28,7 @@ Founding is two steps: **who**, then **where** (`molecules/founder-select.tsx`, 
 Every company builds a town (`world/play/company-map.tsx`). **First-run hints** (`world/play/hints.ts`, `hint-card.tsx`) explain it a tip at a time: the garage, the first hire, zoning lots, arrivals, the Town Hall, services, offices for long commutes, and wonders. Each shows when its moment comes and goes when its goal is met, and the thing it's about glows (`data-hint`). Anything a company has already done is put away unseen, and tips can be dismissed or switched off (`Session.hintsDone`, `hintsOff`). Under the game's rules, buildings need **road frontage** (one footprint cell touching paving) and cost money. The build bar (`build-bar.tsx`) is one panel:
 
 - **Top row:** each district's people against its beds, with who's on the way and who's waiting.
-- **Bottom row:** the tools, Look, Road, Lift, Build, Demolish, Wonders and Labels.
+- **Bottom row:** the tools, Look, Road, Lift, Build, Demolish, Wonders, Mood and Labels.
 - **Build picker:** everything at once, no scrolling: a row per employee kind the company can hire (its Lot and its Office), then Services once the Town Hall stands, then Ports once the Harbour Office does.
 
 **Housing is zoned, Caesar-style** (`world/agents/arrivals.ts`):
@@ -59,6 +59,19 @@ Every company builds a town (`world/play/company-map.tsx`). **First-run hints** 
 - **Decline:** a house that grew declines one tier after 30 s without what its tier needs, and the people beyond its beds move out until there's room. Houses bought at a tier never decline below it.
 - **10x devs are particular:** they only move into lots served by a café and a park, and the beds row says so when that's what they're waiting for.
 - **Labels:** each house says what it needs to grow next; each service says how many homes it serves.
+
+**Mood: the town drives satisfaction** (`world/agents/mood.ts`, `game/town-mood.ts`):
+
+- **Each house's mood:**
+  - the commute costs up to −30 (none counted before the kind has a workplace);
+  - a café +4, a park +6, a gym +4, and no services at all −6;
+  - the slop pit within 6 tiles costs −8 to −20 as it fills;
+  - a dense house (III or a tower) with no park −6;
+  - a wonder within 10 tiles +5;
+  - all capped at ±40.
+- **Satisfaction leans on it:** each kind's satisfaction target shifts by its houses' average mood, weighted by residents, through a registered reader, so sims, tests and the phone layout are unaffected.
+- **People leave:** a house at −25 or worse loses a resident every 60 s. They stay hired, and new arrivals won't move into it; the beds row says "(their homes are miserable)" when that's why they're waiting.
+- **Seen:** house labels show the mood and what weighs on it most ("Unhappy (−12): long commute"), and merged labels the weighted average. The build bar's **Mood** toggle tints every house green, pale green, amber or red. A hint points at it when a house turns unhappy.
 
 **Prices follow the economy** (`game/build-cost.ts`). Each is the larger of a fixed floor and a live share:
 

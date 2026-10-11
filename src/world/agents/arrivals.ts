@@ -32,6 +32,8 @@ import type { Grid, Structure } from "../grid";
 import type { Network } from "../roads/network";
 import type { Place } from "./roads";
 import { MOVE_IN_NEEDS, liveCoverage, meets } from "./services";
+import { liveMoods, tooUnhappy } from "./mood";
+import { useSlopPitStore } from "../../state/slop-pit.store";
 import { sendOnJob, walkInto, type Mover, type Town } from "./town";
 
 /** How each kind of employee comes. */
@@ -63,7 +65,7 @@ export type ArrivalStatus = {
   /** Hired, and not yet sent for. */
   waiting: number;
   /** Why they are waiting, if it is not just their turn. */
-  blocked?: "no-lot" | "no-road" | "no-services";
+  blocked?: "no-lot" | "no-road" | "no-services" | "unhappy";
 };
 
 export type Arrivals = {
@@ -233,15 +235,20 @@ export function stepArrivals(
       return h?.id === who && h.slots - residentsIn(s) - (coming.get(s.id) ?? 0) > 0;
     });
     if (!anyLot) { status.blocked = "no-lot"; continue; }
-    // And somewhere they will LIVE: 10x devs want a café and a park.
+    // And somewhere they will LIVE: 10x devs want a café and a park; and
+    // nobody moves into a house people are leaving. @see tooUnhappy
     const needs = MOVE_IN_NEEDS[who];
     const coverage = needs ? liveCoverage(g, net) : null;
-    const suits = (s: Structure) => !needs || meets(coverage!.get(s.id), needs);
-    const anySuits = [...g.structures.values()].some((s) => {
+    const moods = liveMoods(g, net, useSlopPitStore.getState().fill / 100);
+    const served = (s: Structure) => !needs || meets(coverage!.get(s.id), needs);
+    const suits = (s: Structure) => served(s) && !tooUnhappy(moods.get(s.id));
+    const free = (s: Structure) => {
       const h = housedBy(s.def);
-      return h?.id === who && suits(s) && h.slots - residentsIn(s) - (coming.get(s.id) ?? 0) > 0;
-    });
-    if (!anySuits) { status.blocked = "no-services"; continue; }
+      return h?.id === who && h.slots - residentsIn(s) - (coming.get(s.id) ?? 0) > 0;
+    };
+    const lots = [...g.structures.values()].filter(free);
+    if (!lots.some(served)) { status.blocked = "no-services"; continue; }
+    if (!lots.some(suits)) { status.blocked = "unhappy"; continue; }
     const gates = places.filter((p) => p.kind === "gateway");
     let plan: ReturnType<typeof planStops> = [], gate: Place | null = null;
     const vehicle = VEHICLE[who];

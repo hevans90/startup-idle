@@ -7,6 +7,7 @@ import {
 import { setEmployeeSatisfactionReaders } from "../game/employee-satisfaction-read";
 import { roomFor } from "../game/housing";
 import { attendance, wonderBonus } from "../game/projects";
+import { townMoodOffsets } from "../game/town-mood";
 import {
   calcGeneratorIncome,
   calcGeneratorPerSecond,
@@ -440,7 +441,12 @@ function tickSatisfaction(
   prestige: { satisfactionGainMult: number },
   employees: TeamLeaderEmployee[],
 ): SatisfactionScores {
-  const satOffsets = computeTeamLeaderEmpSatOffsets(employees);
+  const satOffsets = { ...computeTeamLeaderEmpSatOffsets(employees) };
+  // AND THE TOWN: each kind leans toward the mood of the houses it lives in.
+  // @see townMoodOffsets
+  for (const [id, n] of Object.entries(townMoodOffsets())) {
+    satOffsets[id as GeneratorId] = (satOffsets[id as GeneratorId] ?? 0) + (n ?? 0);
+  }
   let driftMult = 1;
   for (const emp of employees) {
     const srLv = emp.skills.sat_recovery ?? 0;
