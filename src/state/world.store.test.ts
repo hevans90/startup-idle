@@ -826,3 +826,20 @@ describe("derelict buildings", () => {
     expect(useMoneyStore.getState().money.toNumber()).toBeLessThanOrEqual(1e6 - 200);
   });
 });
+
+describe("the slop pit under play rules", () => {
+  afterEach(() => s().setPlaying(false));
+  test("cannot be demolished", () => {
+    const g = createGrid(20, 20);
+    fillTerrain(g, 1);
+    s().loadGrid(g);
+    s().setTool("placeStructure");
+    s().setStructureDef("slop-pit");
+    s().commitStructure({ x: 8, y: 8 });
+    s().setPlaying(true);
+    s().setTool("demolish");
+    s().commitStructure({ x: 9, y: 9 });
+    expect([...s().grid.structures.values()].some((x) => x.def === "slop-pit")).toBe(true);
+    expect(s().notice?.text).toMatch(/slop pit stays/);
+  });
+});

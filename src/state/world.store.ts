@@ -1283,6 +1283,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // ONLY ON THE COMPANY'S OWN LAND does anything come down, either. @see world/land
     const land = useSessionStore.getState().land;
     if (st.playing && demolishing && land && !ownsTile(st.grid, land, c.x, c.y)) { refuse("Not your land: buy it first"); return; }
+    // THE SLOP PIT is not the company's to fill in: it is where the slop goes.
+    if (st.playing && demolishing && st.grid.structures.get(under)?.def === SLOP_PIT.id) { refuse("The slop pit stays: drain it instead"); return; }
     // A DERELICT costs to clear. @see DERELICT
     if (st.playing && demolishing && st.grid.structures.get(under)?.def === "derelict") {
       const price = new Decimal(clearingPrice());
