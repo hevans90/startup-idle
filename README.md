@@ -68,10 +68,19 @@ Every company builds a town (`world/play/company-map.tsx`). **First-run hints** 
   - the slop pit within 6 tiles costs −8 to −20 as it fills;
   - a dense house (III or a tower) with no park −6;
   - a wonder within 10 tiles +5;
+  - sludge at the door −15;
   - all capped at ±40.
 - **Satisfaction leans on it:** each kind's satisfaction target shifts by its houses' average mood, weighted by residents, through a registered reader, so sims, tests and the phone layout are unaffected.
 - **People leave:** a house at −25 or worse loses a resident every 60 s. They stay hired, and new arrivals won't move into it; the beds row says "(their homes are miserable)" when that's why they're waiting.
 - **Seen:** house labels show the mood and what weighs on it most ("Unhappy (−12): long commute"), and merged labels the weighted average. The build bar's **Mood** toggle tints every house green, pale green, amber or red. A hint points at it when a house turns unhappy.
+
+**Map events** (`world/events/`): things that happen to the town, each with a warning, a countdown, a pulsing ring on the map and a card of choices (`world/play/event-cards.tsx`, under the hints).
+
+- **Slop overflow:** at 90% full the card warns, with a countdown to 100%. When full, sludge pours out of the rim as real fluid and runs downhill (`events/sludge.ts`). The choices:
+  - Drain it now, for 40 vibe coder morale;
+  - Send sludge trucks, for 20 s of income: three trucks drive from the pit, each taking 12% away;
+  - Let it spill.
+- It ends below 95%, and the sludge then dries up over time.
 
 **Prices follow the economy** (`game/build-cost.ts`). Each is the larger of a fixed floor and a live share:
 

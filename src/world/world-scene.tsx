@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, lotLine, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { drainDirty, lotLine, sludgeTruckBack, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -77,8 +77,11 @@ import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution } from "./agents/services";
-import { liveMoods, moodTint, stepMood, type Unrest } from "./agents/mood";
-import { SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
+import { liveMoods, moodTint, setSludged, stepMood, type Unrest } from "./agents/mood";
+import { stepEvents } from "./events/events";
+import { dryUp, overflow, sludgedHouses, stepHaulers } from "./events/sludge";
+import { SLOP_PIT } from "./structures/def";
+import { FILL_RATE_PER_CODER, SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
 import { perMinute, recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
@@ -227,6 +230,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const portRateAt = useRef(performance.now() + 55_000);
   /** How long each miserable house has been so. @see stepMood */
   const unrestRef = useRef<Unrest>(new Map());
+  /** The events director's clock, the sludge's, and the next event's number. @see stepEvents */
+  const eventClock = useRef(0);
+  const sludgeClock = useRef(0);
+  const eventIds = useRef(1);
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -2203,6 +2210,40 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // THE SLOP PIT, opening up beside the studio once there are enough
         // vibe coders to fill it. @see SLOP_PIT
         if (st.playing && (ownedNow().vibe_coder ?? 0) >= SLOP_PIT_UNLOCK_COUNT) st.openSlopPit();
+        // EVENTS, in the game: the sludge trucks' loads, the director's look
+        // twice a second, and what an event under way does to the map.
+        // @see world/events
+        if (st.playing) {
+          stepHaulers(getTown(), st.grid, net, (p) => useSlopPitStore.getState().haul(p), sludgeTruckBack);
+          const pit = [...st.grid.structures.values()].find((s) => s.def === SLOP_PIT.id);
+          const field = st.getWaterField();
+          eventClock.current += dt;
+          if (eventClock.current >= 0.5) {
+            eventClock.current = 0;
+            const fill = useSlopPitStore.getState().fill;
+            const vibe = ownedNow().vibe_coder ?? 0;
+            const now = Date.now();
+            const next = stepEvents(st.events, {
+              now,
+              slop: pit ? {
+                x: pit.x + 1, y: pit.y + 1, fill,
+                rate: vibe >= SLOP_PIT_UNLOCK_COUNT ? vibe * FILL_RATE_PER_CODER : 0,
+                trucks: sludgeTrucksOut(), truckPrice: sludgeTruckPrice(),
+              } : null,
+            }, () => eventIds.current++);
+            if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
+          }
+          const overflowing = st.events.some((e) => e.kind === "slop-overflow" && e.phase === "active");
+          if (pit && field) {
+            if (overflowing) overflow(field, st.grid, pit, dt);
+            sludgeClock.current += dt;
+            if (sludgeClock.current >= 2) {
+              if (!overflowing) dryUp(field, st.grid, pit, sludgeClock.current);
+              setSludged(sludgedHouses(field, st.grid));
+              sludgeClock.current = 0;
+            }
+          }
+        }
         // PEOPLE LEAVING MISERABLE HOUSES, in the game, one now and then.
         // @see stepMood
         if (st.playing) {

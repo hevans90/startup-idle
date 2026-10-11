@@ -7,7 +7,7 @@ const LOCAL_STORAGE_KEY = "slop-pit";
 /** Vibe coder headcount required before the pit appears and starts filling. */
 export const SLOP_PIT_UNLOCK_COUNT = 50;
 
-const FILL_RATE_PER_CODER = 0.002; // % per second per vibe coder
+export const FILL_RATE_PER_CODER = 0.002; // % per second per vibe coder
 const PENALTY_THRESHOLD = 0.5;     // fill fraction below which no penalty applies
 const PENALTY_AT_FULL = 0.15;      // money mult at 100% fill (85% income lost)
 const DRAIN_SATISFACTION_HIT = -40;
@@ -18,6 +18,8 @@ type SlopPitState = {
   getMoneyPenaltyMult: () => number;
   tick: (vibeCoderCount: number, seconds: number) => void;
   drain: () => void;
+  /** Take some sludge away — a truck's load, say — with no morale cost. */
+  haul: (percent: number) => void;
   reset: () => void;
 };
 
@@ -53,6 +55,8 @@ export const useSlopPitStore = create<SlopPitState>()(
           }));
         });
       },
+
+      haul: (percent) => set((s) => ({ fill: Math.max(0, s.fill - percent) })),
 
       reset: () => set({ fill: 0 }),
     }),

@@ -16,6 +16,9 @@ import { createExports, type Exports } from "../world/boats/exports";
 import { createTown, type Town } from "../world/agents/town";
 import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
 import { createEvolution, serviceOf, type Evolution } from "../world/agents/services";
+import type { GameEvent } from "../world/events/events";
+import { sendSludgeTrucks } from "../world/events/sludge";
+import { useSlopPitStore } from "./slop-pit.store";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
@@ -243,6 +246,14 @@ function recordBuild(cmd: Command, refund: number) {
   }
 }
 
+/** Sludge trucks on their way to the pit, or back. @see sendSludgeTrucks */
+let haulersOut = 0;
+export const sludgeTrucksOut = () => haulersOut;
+export const sludgeTruckBack = () => { haulersOut = Math.max(0, haulersOut - 1); };
+/** How many trucks a call sends, and what the call costs: seconds of income, never under a floor. */
+export const SLUDGE_TRUCKS = 3;
+export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
+
 /** When a spot for the slop pit was last looked for. @see openSlopPit */
 let slopTriedAt = -Infinity;
 
@@ -437,6 +448,11 @@ type WorldState = {
   lastBuild: { at: number; refund: number } | null;
   /** Take back the last build, if it is recent and nothing has been done since, and refund it. */
   undoLastBuild: () => void;
+  /** What is happening to the town, and coming. @see world/events */
+  events: GameEvent[];
+  setEvents: (events: GameEvent[]) => void;
+  /** Answer an event with one of its choices. @see slopChoices */
+  respondToEvent: (id: number, choice: string) => void;
   /** Whether houses are tinted by how happy they are. @see moodTint */
   moodOverlay: boolean;
   setMoodOverlay: (on: boolean) => void;
@@ -688,6 +704,28 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   labels: true,
   setLabels: (on) => set({ labels: on }),
+  events: [],
+  setEvents: (events) => set({ events }),
+  respondToEvent: (id, choice) => {
+    const st = get();
+    const ev = st.events.find((e) => e.id === id);
+    if (!ev || ev.phase === "over") return;
+    if (ev.kind === "slop-overflow") {
+      if (choice === "drain") useSlopPitStore.getState().drain();
+      if (choice === "trucks") {
+        const pit = [...st.grid.structures.values()].find((s) => s.def === "slop-pit");
+        if (!pit || haulersOut > 0 || !network) return;
+        const price = sludgeTruckPrice();
+        if (useMoneyStore.getState().money.lt(price)) {
+          set({ notice: { text: `Not enough money for the sludge trucks: ${formatCurrency(price)}`, at: Date.now() } });
+          return;
+        }
+        useMoneyStore.getState().spendMoney(price);
+        haulersOut += sendSludgeTrucks(town, st.grid, network, pit, SLUDGE_TRUCKS);
+      }
+    }
+    set({ events: get().events.map((e) => (e.id === id ? { ...e, chosen: choice } : e)) });
+  },
   moodOverlay: false,
   setMoodOverlay: (moodOverlay) => set({ moodOverlay }),
   wondersOpen: false,
