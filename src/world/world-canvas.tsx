@@ -36,6 +36,7 @@ import { openDevice, type HeldGpu } from "./render/device";
 import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
 import { evacuatedAway } from "./events/flood";
+import { cleanupAway } from "./events/cleanup";
 
 /**
  * Which renderer to ask for: WebGPU, unless `?webgl=1` says otherwise.
@@ -193,6 +194,9 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       // EVACUATED from a flood, for as long as their homes are under water.
       // @see evacuatedAway
       for (const [id, n] of Object.entries(evacuatedAway(st.grid))) away[id as GeneratorId] = (away[id as GeneratorId] ?? 0) + n;
+      // MOPPING UP SLUDGE that ran out of the slop pit. @see stepCleanup
+      const mopping = cleanupAway();
+      if (mopping) away.vibe_coder = Math.min(ownedNow().vibe_coder ?? 0, (away.vibe_coder ?? 0) + mopping);
       // AT A HACKATHON, every vibe coder, for as long as it runs.
       if (st.events.some((e) => e.kind === "hackathon" && e.phase === "active" && e.chosen === "host")) {
         away.vibe_coder = ownedNow().vibe_coder ?? 0;

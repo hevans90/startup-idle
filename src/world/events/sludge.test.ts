@@ -44,7 +44,7 @@ describe("the sludge", () => {
     const { g, pit, field } = pitMap(studio, house);
     syncPit(null, field, pit, 100);
     for (let k = 0; k < 30 * 8; k++) {
-      overflow(field, pit, 1 / 30);
+      overflow(field, pit, 20, 1 / 30);
       stepWater(field, 1 / 30);
     }
     expect(sludgeAt(field, 7, 9)).toBeGreaterThan(SLUDGED);
@@ -52,6 +52,16 @@ describe("the sludge", () => {
     // Nothing stands on the studio's roof: to the water it is a wall.
     for (let y = 8; y < 10; y++) for (let x = 11; x < 14; x++) expect(sludgeAt(field, x, y)).toBe(0);
     expect([...sludgedHouses(field, g)]).toEqual([3]);
+  });
+
+  test("spills what is coming in, not a flood: a trickle, with few at their desks", () => {
+    const { pit, field } = pitMap();
+    syncPit(null, field, pit, 100);
+    const before = field.columns.depth.reduce((n, d) => n + d, 0);
+    overflow(field, pit, 0, 1);
+    const poured = field.columns.depth.reduce((n, d) => n + d, 0) - before;
+    // SPILL_MIN, 2% of the pit a second: 3 half steps a column, 9 tiles of 16.
+    expect(poured).toBeCloseTo(0.02 * 3 * 9 * 16, 3);
   });
 });
 

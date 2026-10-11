@@ -19,8 +19,11 @@ import { COLUMNS_PER_TILE, drainAt, pourAt, type WaterField } from "../water/fie
 export const HAUL_LOAD = 12;
 /** Seconds between one sludge truck setting off and the next. */
 const TRUCK_GAP = 2.5;
-/** Sludge poured into the full pit, half steps a second for each tile of it, while it overflows. */
-export const OVERFLOW_RATE = 0.6;
+/**
+ * The least an overflowing pit spills, % of the pit a second, however few are
+ * at their desks: enough to be seen, and to want mopping up.
+ */
+export const SPILL_MIN = 2;
 /** How fast it dries once it has stopped, half steps a second, and how near the pit it is looked for. */
 const DRY_RATE = 0.04;
 const DRY_REACH = 16;
@@ -131,13 +134,15 @@ export function syncPit(was: PitLevel, field: WaterField, pit: Structure, fill: 
 }
 
 /**
- * THE OVERFLOW, for `dt` seconds of it: more sludge into a pit that is full
- * already, so it brims over the rim and runs out by itself, wherever the
- * ground round it is open — never over a building, which to the water is a
- * wall.
+ * THE OVERFLOW, for `dt` seconds of it: what is still coming in — `rate`, %
+ * of the pit a second — poured into a pit that is full already, so it brims
+ * over the rim and runs out by itself wherever the ground round it is open.
+ * Never over a building, which to the water is a wall. It was a fixed flood
+ * once, many times what anybody made, and it covered the map. @see SPILL_MIN
  */
-export function overflow(field: WaterField, pit: Structure, dt: number) {
-  for (const t of footprint(pit)) pourAt(field, t.x, t.y, OVERFLOW_RATE * dt, SLOP());
+export function overflow(field: WaterField, pit: Structure, rate: number, dt: number) {
+  const each = ((structureDef(pit.def)?.basin ?? 0) * Math.max(SPILL_MIN, rate) * dt) / 100;
+  for (const t of footprint(pit)) pourAt(field, t.x, t.y, each, SLOP());
 }
 
 /** How deep the sludge on a tile is, half steps, on the ground storey: its deepest column. */
@@ -159,7 +164,7 @@ export function fluidAt(field: WaterField, x: number, y: number, material: numbe
 }
 
 /** Whether a tile is in a pit, whose sludge belongs there. */
-const inPit = (g: Grid, x: number, y: number) => {
+export const inPit = (g: Grid, x: number, y: number) => {
   const s = g.structures.get(structureAt(g, x, y));
   return !!s && (structureDef(s.def)?.basin ?? 0) > 0;
 };

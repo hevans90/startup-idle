@@ -78,6 +78,7 @@ import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution } from "./agents/services";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
+import { cleanupAway, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { dryUp, overflow, sludgedHouses, stepHaulers, syncPit, type PitLevel } from "./events/sludge";
 import {
   convoyTally, createPacing, endedBetween, HACKATHON_CODERS, isDue, repace, tallyCall, tickPacing, townMood,
@@ -244,6 +245,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const eventIds = useRef(1);
   /** What the slop pit's sludge in the water was last filled to. @see syncPit */
   const pitLevel = useRef<PitLevel>(null);
+  /** The crew mopping up sludge. @see stepCleanup */
+  const cleanup = useRef(createCleanup());
   // WHEN EACH EVENT IS NEXT DUE, and for a flood the water against each
   // building before it, how far the river is risen, and what it has reached.
   // @see world/events/flood
@@ -2300,8 +2303,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
           }
           const overflowing = st.events.some((e) => e.kind === "slop-overflow" && e.phase === "active");
+          // MOPPING UP what has run out of the pit: vibe coders off work,
+          // walking to it and draining it by hand. @see stepCleanup
+          // (In development, `__fakeHires` counts: a crew to watch with nobody hired.)
+          const vibes = (ownedNow().vibe_coder ?? 0) + (import.meta.env.DEV ? window.__fakeHires?.vibe_coder ?? 0 : 0);
+          const workplaces = [...st.grid.structures.values()].filter((s) => (s.def === "studio" || s.def === "office-vibe") && !s.build).map((s) => s.id);
+          setCleanupAway(pit && field ? stepCleanup(cleanup.current, getTown(), st.grid, net, field, pit, vibes, workplaces, dt) : 0);
           if (pit && field) {
-            if (overflowing) overflow(field, pit, dt);
+            // It spills what is still coming in: the vibe coders at their desks.
+            if (overflowing) overflow(field, pit, Math.max(0, vibes - cleanupAway()) * FILL_RATE_PER_CODER, dt);
             sludgeClock.current += dt;
             if (sludgeClock.current >= 2) {
               if (!overflowing) dryUp(field, st.grid, pit, sludgeClock.current);

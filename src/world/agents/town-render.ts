@@ -20,7 +20,7 @@ import { Graphics } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
-import { HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
+import { atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
 
 /** A car, tiles long and wide, and its body and cabin heights in half steps. */
 const CAR_L = 0.38;
@@ -115,7 +115,7 @@ export function createTownLayer(bands: BandLayer): TownLayer {
 export function drawMover(g: Graphics, m: Mover, s: number, bandsN: number): number {
   const ch = Math.cos(m.heading), sh = Math.sin(m.heading);
   // The body is highest mid-stride, over a straight leg, and lowest between.
-  const bob = m.kind === "person" && m.job?.role !== "working" ? Math.abs(Math.cos(m.phase)) * 0.05 : 0;
+  const bob = m.kind === "person" && !atWork(m) ? Math.abs(Math.cos(m.phase)) * 0.05 : 0;
   /** `l` along the heading and `w` across it, tiles, `up` half steps over the road. */
   const at = (l: number, w: number, up: number) => {
     const u = m.x + l * ch - w * sh;
@@ -237,7 +237,7 @@ function drawPerson(g: Graphics, m: Mover, s: number, at: At, prism: Prism) {
   };
   const xy = (p: { px: number; py: number }): [number, number] => [p.px, p.py];
 
-  const working = m.job?.role === "working";
+  const working = atWork(m);
   const parts = (side: number) => {
     // AT WORK: feet planted, and a hammer arm — the near one — beating.
     if (working) {

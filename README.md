@@ -46,7 +46,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 
 **Map events** (`world/events/`, `play/event-cards.tsx`): a warning with a countdown, a ring on the map, and a card of choices. One at a time, each kind paced in play time (`PACING`); off with "no events" on a card or in Settings. In dev, `window.__eventNow = "convoy"` brings one forward.
 
-- **Slop overflow** (`events/sludge.ts`): warned at 90%; at 100% more sludge pours into the pit and brims over its rim onto open ground until under 95%. Drain (−40 vibe coder morale), sludge trucks (20 s of income, three loads of 12%), or let it spill. Sludge dries up after.
+- **Slop overflow** (`events/sludge.ts`): warned at 90%; at 100% what the vibe coders still at work produce (at least 2% of the pit a second) brims over the rim onto open ground until under 95%. **Mopping up** (`events/cleanup.ts`): 2 vibe coders a wet tile leave work (counted away), walk out and drain it by hand, then go back. Drain (−40 vibe coder morale), sludge trucks (20 s of income, three loads of 12%), or let it spill. Sludge dries up after.
 - **River flood** (`events/flood.ts`): the river's inflow rises just over its lowest nearby bank for a minute. Buildings with water higher against them than before are flooded. Sandbags (30 s of income), evacuate (flooded homes away), or brace (−20 mood, ports shut). Leftover water soaks away.
 - **Convoy** (with a port): calls pay double for a minute; extra hands (20 s) halve call time.
 - **Investor tour** (garage, town hall or HQ): pays 30 s of income + 1.5 s a point of town mood (0–90 s); tidying (10 s) counts +10 mood.

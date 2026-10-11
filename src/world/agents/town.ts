@@ -44,7 +44,7 @@ export type Mover = {
    * job are not the town's trips: they are counted apart, reported when they
    * arrive, and a builder at work stands where it is. @see world/projects
    */
-  job?: { site: number; role: "builder" | "home" | "working" | "truck" | "arrive" | "leave" | "moving-in" | "haul" | "haul-back" };
+  job?: { site: number; role: "builder" | "home" | "working" | "truck" | "arrive" | "leave" | "moving-in" | "haul" | "haul-back" | "clean-go" | "clean" | "cleaning" | "clean-back" };
   /**
    * Seconds to stand where it is before going on: a bus at a stop, letting
    * its passengers off. @see world/agents/arrivals
@@ -396,7 +396,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   // MOVING.
   for (const m of t.movers) {
     // AT WORK on a site: standing, swinging a hammer. @see town-render
-    if (m.job?.role === "working") { m.phase += h * WORK_RATE; continue; }
+    if (atWork(m)) { m.phase += h * WORK_RATE; continue; }
     // AT A STOP: standing, then on its way.
     if (m.wait && m.wait > 0) { m.wait -= h; m.speed = 0; continue; }
     const limit = Math.min(lineLimit(m), drives(m) ? trafficLimit(m, cars) : Infinity);
@@ -431,7 +431,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
 
   // ARRIVING, and the road going from under somebody.
   t.movers = t.movers.filter((m) => {
-    if (m.job?.role === "working") return true;     // the site lets them go. @see stepWorks
+    if (atWork(m)) return true;     // the site lets them go. @see stepWorks, stepCleanup
     if (m.s >= m.at[m.at.length - 1] - 0.01) {
       if (m.job) t.arrived.push(m);
       return false;
@@ -441,6 +441,9 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     return isPaved(g, c.x, c.y);
   });
 }
+
+/** Standing at work, a builder on a site or a vibe coder mopping up sludge: not going anywhere. */
+export const atWork = (m: Mover) => m.job?.role === "working" || m.job?.role === "cleaning";
 
 /** Swings of a hammer a second, in phase, for a builder at work. */
 const WORK_RATE = 9;
