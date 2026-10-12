@@ -277,7 +277,7 @@ export function BuildBar({ className }: { className?: string }) {
         <div className="flex items-stretch overflow-x-auto">
           {TOOLS.filter((t) => t.id !== "buyLand" || forSale).map((t) => (
             <button key={t.id} type="button" title={t.hint} onClick={() => choose(t.id)}
-              data-hint={t.id === "placeStructure" ? "build" : undefined}
+              data-hint={t.id === "placeStructure" ? "build" : t.id === "buyLand" ? "land" : undefined}
               className={twMerge(TOOL, tool === t.id && TOOL_ON)}>
               {ICONS[t.id]}
               <span className="@max-3xl:hidden">{t.label}</span>

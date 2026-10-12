@@ -30,6 +30,16 @@ export type HintState = {
   /** The unhappiest lived-in house's mood; 0 for none. @see world/agents/mood */
   worstMood: number;
   moodShown: boolean;
+  /** Empty cells by a road on the company's own land; Infinity when it owns the whole map. @see world/land */
+  freeFrontage: number;
+  /** Whether there is land for sale, and how many parcels have been bought. */
+  landForSale: boolean;
+  parcelsBought: number;
+  /** R&D labs and flood walls standing. */
+  labs: number;
+  levees: number;
+  /** Whether a flood has been announced and not yet struck. */
+  floodWarning: boolean;
 };
 
 export type Hint = {
@@ -105,6 +115,27 @@ export const HINTS: readonly Hint[] = [
     target: "mood",
     when: (s) => s.worstMood <= -10,
     done: (s) => s.moodShown,
+  },
+  {
+    id: "land",
+    text: "Your roadside land is nearly full. Land on the build bar buys the parcel next to yours.",
+    target: "land",
+    when: (s) => s.landForSale && s.freeFrontage < 6,
+    done: (s) => s.parcelsBought > 0,
+  },
+  {
+    id: "labs",
+    text: "A Lab, in the 10x devs' row, raises innovation — twice as much beside the campus.",
+    target: "build",
+    when: (s) => s.built.has("campus"),
+    done: (s) => s.labs > 0,
+  },
+  {
+    id: "flood-walls",
+    text: "A flood is coming. Flood walls, under Defences in Build, hold the water back.",
+    target: "build",
+    when: (s) => s.floodWarning,
+    done: (s) => s.levees > 0,
   },
   {
     id: "wonders",
