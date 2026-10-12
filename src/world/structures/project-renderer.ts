@@ -1,55 +1,35 @@
 /**
  * World v2 — a project's building, drawn going up, and drawn finished.
  *
- * WHILE IT IS A SITE (`Structure.build`), in stages by how far the work is:
- *  - a fence round the plot, the ground stripped to earth, and the materials
- *    on hand stacked on pallets — one stack a delivery not yet used;
- *  - the FOUNDATIONS, a slab rising out of the ground;
- *  - the WALLS, rising inside a SCAFFOLD that stands a little above them;
- *  - the ROOF, going on at the last.
- * FINISHED, the building it was: for the studio, a glass box on a concrete
- * plinth with a neon sign on the roof. @see game/projects, world/projects
+ * Each building is a MODEL — its masses, the skin on each, its roofs, its
+ * grounds and fit-out — and the site going up is that same model as far as
+ * each trade has got: a pit, a plinth, a concrete frame a floor at a time,
+ * the cladding following it up inside a netted scaffold, the roof, the
+ * scaffold struck, and the building it was always going to be.
+ * @see projects/looks, projects/schedule, projects/site
  *
- * Drawn like the seaport — boxes in the tile plane, projected, a Graphics per
- * column of the footprint in that column's front band — and redrawn when the
- * work has moved on enough to see, not every frame. @see seaport-renderer
+ * A Graphics per column of the footprint, in that column's front band, and
+ * one more for the crane's jib in front of them all. Redrawn when the work
+ * has moved on enough to see, not every frame.
  */
 import { Graphics } from "pixi.js";
 
 import { idx, inBounds, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
+import { lookOf } from "./projects/looks";
+import type { Building } from "./projects/model";
+import { makePen } from "./projects/pen";
+import { siteAt } from "./projects/schedule";
+import { craneHeight, craneRest, drawFinished, drawSite, drawSky, jibLength } from "./projects/site";
 import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
-type ProjectHandle = StructureHandle & { columns: Graphics[]; drawn: string };
-
-const FENCE = 0xc9b27a;
-const FENCE_POST = 0x8a6d3b;
-const EARTH = 0x8b6a4a;
-const SLAB = 0xa7a39b;
-const SLAB_SIDE = 0x86827a;
-const SLAB_SHADE = 0x6e6a63;
-const WALL_RAW = 0xbab4a8;
-const WALL_RAW_SHADE = 0x938d81;
-const SCAFFOLD = 0xd4a01e;
-const PLANK = 0x8a6a42;
-const PALLET = 0x9c7a4c;
-const BRICKS = 0xb3563f;
-const BRICKS_SHADE = 0x8c4030;
-
-const GLASS = 0x6cc3c7;
-const GLASS_SHADE = 0x3f8f96;
-const GLASS_TOP = 0x2f3a42;
-const MULLION = 0xe8f4f4;
-const PARAPET = 0x4a525b;
-const DOOR = 0x23292f;
-const NEON = 0xff4fa3;
-const NEON_DARK = 0xb02f71;
-
-/** Heights in half steps. */
-const PLINTH = 0.35;
-const BODY = 3.2;
-const SCAFFOLD_ABOVE = 0.7;
-const INSET = 0.1;
+type ProjectHandle = StructureHandle & {
+  columns: Graphics[];
+  /** The crane's jib and hook, in front of every column. */
+  sky: Graphics;
+  model: Building;
+  drawn: string;
+};
 
 /** What a column of a building draws with: projection, and boxes clipped to the column. */
 export function pen(g: Graphics, s: Structure, ctx: RenderCtx, c: number) {
@@ -87,596 +67,83 @@ export function pen(g: Graphics, s: Structure, ctx: RenderCtx, c: number) {
   return { P, quad, box, line, cu0, cu1, sc };
 }
 
-/** Draw column `c` of a project's building, at whatever stage it is. */
-function draw(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  g.clear();
-  const { box, line, quad, P, cu0, cu1 } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  const b = s.build;
-
-  const look = LOOKS[s.def] ?? LOOKS.studio;
-  if (!b) {
-    look.finished(g, s, ctx, c);
-    return;
-  }
-
-  const p = Math.min(1, b.done / b.need);
-  // THE PLOT: stripped to earth, inside a fence.
-  quad([P(Math.max(x0, cu0), y0, 0.02), P(Math.min(x1, cu1), y0, 0.02), P(Math.min(x1, cu1), y1, 0.02), P(Math.max(x0, cu0), y1, 0.02)], EARTH);
-  for (let u = x0; u <= x1 + 1e-6; u += 0.5) {
-    if (u < cu0 - 1e-6 || u > cu1 + 1e-6) continue;
-    for (const v of [y0, y1]) box(u - 0.02, v - 0.02, u + 0.02, v + 0.02, 0, 0.9, FENCE_POST, FENCE_POST, FENCE_POST);
-  }
-  for (const v of [y0, y1]) {
-    line([[x0, v, 0.75], [x1, v, 0.75]], FENCE, 1.6);
-    line([[x0, v, 0.35], [x1, v, 0.35]], FENCE, 1.6);
-  }
-
-  // THE FOUNDATIONS, rising to the plinth over the first quarter.
-  const slab = PLINTH * Math.min(1, p / 0.25);
-  if (slab > 0.01) box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, slab, SLAB, SLAB_SIDE, SLAB_SHADE);
-
-  // THE WALLS, rising through the middle, in a scaffold a little above them.
-  const rise = Math.max(0, Math.min(1, (p - 0.25) / 0.6));
-  const wall = PLINTH + (look.body - PLINTH) * rise;
-  if (rise > 0) {
-    box(x0 + INSET + 0.08, y0 + INSET + 0.08, x1 - INSET - 0.08, y1 - INSET - 0.08, PLINTH, wall, WALL_RAW, WALL_RAW, WALL_RAW_SHADE);
-    const top = wall + SCAFFOLD_ABOVE;
-    const su0 = x0 + 0.06, su1 = x1 - 0.06, sv0 = y0 + 0.06, sv1 = y1 - 0.06;
-    for (let u = su0; u <= su1 + 1e-6; u += (su1 - su0) / (s.w * 2)) {
-      for (const v of [sv0, sv1]) line([[u, v, PLINTH], [u, v, top]], SCAFFOLD, 1.3);
-    }
-    for (let z = PLINTH + 0.9; z < top; z += 0.9) {
-      for (const v of [sv0, sv1]) line([[su0, v, z], [su1, v, z]], PLANK, 2);
-    }
-  }
-  // THE ROOF, going on at the last.
-  if (p > 0.85) {
-    const r = (p - 0.85) / 0.15;
-    box(x0 + INSET, y0 + INSET, x0 + INSET + (x1 - x0 - 2 * INSET) * r, y1 - INSET, look.body, look.body + 0.2, PARAPET, PARAPET, PARAPET);
-  }
-
-  // A CRANE over it until the roof is on: a mast at the back corner, a jib
-  // across the site, and a hook let down to the work.
-  if (p < 0.95) {
-    const mu = x0 + 0.22, mv = y0 + 0.22, mast = look.body + 3;
-    for (const [du, dv] of [[-0.05, -0.05], [0.05, -0.05], [-0.05, 0.05], [0.05, 0.05]]) line([[mu + du, mv + dv, 0], [mu + du, mv + dv, mast]], CRANE, 1.4);
-    for (let z = 0.6; z < mast; z += 0.6) line([[mu - 0.05, mv + 0.05, z], [mu + 0.05, mv + 0.05, z + 0.6]], CRANE_SHADE, 1);
-    const reach = Math.min(s.w, 3) - 0.35;
-    // Cut where the columns meet: each column draws only what falls within
-    // it, and a line with both ends outside a column is left out of it.
-    const cuts = [mu - 0.5];
-    for (let k = Math.ceil(mu - 0.5 - (s.x - 0.5)); s.x - 0.5 + k < mu + reach; k++) if (s.x - 0.5 + k > mu - 0.5) cuts.push(s.x - 0.5 + k);
-    cuts.push(mu + reach);
-    for (let k = 0; k + 1 < cuts.length; k++) line([[cuts[k], mv, mast], [cuts[k + 1], mv, mast]], CRANE, 2.4);
-    box(mu - 0.6, mv - 0.08, mu - 0.4, mv + 0.08, mast - 0.35, mast, CRANE_WEIGHT, CRANE_WEIGHT, CRANE_WEIGHT);
-    const hook = Math.max(wall + 0.8, 1.2);
-    line([[mu + reach * 0.8, mv, mast], [mu + reach * 0.8, mv, hook]], CABLE, 1);
-    box(mu + reach * 0.8 - 0.04, mv - 0.04, mu + reach * 0.8 + 0.04, mv + 0.04, hook - 0.15, hook, CABLE, CABLE, CABLE);
-  }
-
-  // MATERIALS ON HAND: a stack for every delivery not yet built into it.
-  const onHand = Math.max(0, b.delivered - Math.floor(p * b.deliveries + 1e-6));
-  for (let k = 0; k < Math.min(onHand, 4); k++) {
-    const u = x1 - 0.35 - (k % 2) * 0.3, v = y1 - 0.3 - Math.floor(k / 2) * 0.28;
-    box(u - 0.12, v - 0.1, u + 0.12, v + 0.1, 0.02, 0.12, PALLET, PALLET, PALLET);
-    box(u - 0.1, v - 0.08, u + 0.1, v + 0.08, 0.12, 0.62, BRICKS, BRICKS, BRICKS_SHADE);
-  }
-}
-
-const CRANE = 0xf2c230, CRANE_SHADE = 0xc79a1c, CRANE_WEIGHT = 0x4b5259, CABLE = 0x26292d;
-
-/** The finished studio: a glass box on a plinth, a flat roof, a door, a neon sign. */
-function drawStudio(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line, quad, P } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const g0 = x0 + 0.2, g1 = x1 - 0.2, h0 = y0 + 0.2, h1 = y1 - 0.2;
-  box(g0, h0, g1, h1, PLINTH, BODY, GLASS_TOP, GLASS, GLASS_SHADE);
-  // Mullions on the two faces the camera sees.
-  for (let u = g0 + 0.25; u < g1 - 0.05; u += 0.25) line([[u, h1, PLINTH], [u, h1, BODY]], MULLION, 1);
-  for (let v = h0 + 0.25; v < h1 - 0.05; v += 0.25) line([[g1, v, PLINTH], [g1, v, BODY]], MULLION, 1);
-  for (const z of [PLINTH + 1.4, BODY - 0.05]) {
-    line([[g0, h1, z], [g1, h1, z]], MULLION, 1.2);
-    line([[g1, h0, z], [g1, h1, z]], MULLION, 1.2);
-  }
-  // A parapet round the roof.
-  box(g0, h0, g1, h0 + 0.06, BODY, BODY + 0.25, PARAPET, PARAPET, PARAPET);
-  box(g0, h1 - 0.06, g1, h1, BODY, BODY + 0.25, PARAPET, PARAPET, PARAPET);
-  // The door, in the middle of the front.
-  const mid = (x0 + x1) / 2;
-  if (mid >= s.x + c - 0.5 && mid <= s.x + c + 0.5) {
-    quad([P(mid - 0.18, h1, PLINTH + 1.3), P(mid + 0.18, h1, PLINTH + 1.3), P(mid + 0.18, h1, PLINTH), P(mid - 0.18, h1, PLINTH)], DOOR);
-  }
-  // THE SIGN, standing on the roof.
-  const su = x1 - 0.9;
-  box(su, h0 + 0.3, su + 0.6, h0 + 0.36, BODY + 0.25, BODY + 1.35, NEON_DARK, NEON, NEON_DARK);
-  line([[su + 0.1, h0 + 0.37, BODY + 0.6], [su + 0.5, h0 + 0.37, BODY + 0.6]], 0xffd1e8, 1.6);
-  line([[su + 0.1, h0 + 0.37, BODY + 1.0], [su + 0.5, h0 + 0.37, BODY + 1.0]], 0xffd1e8, 1.6);
-}
-
-/**
- * THE FINISHED HQ: a podium of dark glass with an entrance canopy, a glass
- * tower stepped back on it banded floor by floor, and a lit sign and a mast on
- * the roof.
- */
-function drawHq(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line, quad, P } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
-  // The podium: the lobby floors, dark glass.
-  const p0 = x0 + 0.2, p1 = x1 - 0.2, q0 = y0 + 0.2, q1 = y1 - 0.2;
-  box(p0, q0, p1, q1, PLINTH, PODIUM, PODIUM_TOP, LOBBY, LOBBY_SHADE);
-  // The canopy over the front door.
-  const mid = (x0 + x1) / 2;
-  box(mid - 0.45, q1, mid + 0.45, q1 + 0.35, PODIUM - 0.45, PODIUM - 0.3, CANOPY, CANOPY, CANOPY_SHADE);
-  if (mid >= s.x + c - 0.5 && mid <= s.x + c + 0.5) {
-    quad([P(mid - 0.22, q1, PLINTH + 0.9), P(mid + 0.22, q1, PLINTH + 0.9), P(mid + 0.22, q1, PLINTH), P(mid - 0.22, q1, PLINTH)], DOOR);
-  }
-  // The tower, stepped back from the podium's edges.
-  const t0 = x0 + 0.68, t1 = x1 - 0.68, u0 = y0 + 0.68, u1 = y1 - 0.68;
-  box(t0, u0, t1, u1, PODIUM, TOWER, GLASS_TOP, TOWER_GLASS, TOWER_SHADE);
-  for (let z = PODIUM + 0.9; z < TOWER - 0.2; z += 0.9) {
-    line([[t0, u1, z], [t1, u1, z]], MULLION, 1.2);
-    line([[t1, u0, z], [t1, u1, z]], MULLION, 1.2);
-  }
-  for (let u = t0 + 0.3; u < t1 - 0.05; u += 0.3) line([[u, u1, PODIUM], [u, u1, TOWER]], MULLION, 0.8);
-  for (let v = u0 + 0.3; v < u1 - 0.05; v += 0.3) line([[t1, v, PODIUM], [t1, v, TOWER]], MULLION, 0.8);
-  // The crown: a parapet, the company's sign, a mast.
-  box(t0, u0, t1, u1, TOWER, TOWER + 0.3, PARAPET, PARAPET, PARAPET);
-  box(t0 + 0.2, u1 - 0.08, t1 - 0.2, u1 - 0.02, TOWER + 0.3, TOWER + 1.1, SIGN_DARK, SIGN, SIGN);
-  line([[t0 + 0.35, u1, TOWER + 0.7], [t1 - 0.35, u1, TOWER + 0.7]], 0xfff1c9, 2);
-  const cx = (t0 + t1) / 2, cy = (u0 + u1) / 2;
-  line([[cx, cy, TOWER + 0.3], [cx, cy, TOWER + 2.6]], PARAPET, 1.4);
-}
-
-/**
- * THE FINISHED GARAGE: a breeze-block box with a roller door in its front, a
- * flat roof lipped over the walls, and a hand-painted sign above the door.
- */
-function drawGarage(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line, quad, P } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, 0.15, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const w0 = x0 + 0.18, w1 = x1 - 0.18, v0 = y0 + 0.18, v1 = y1 - 0.18;
-  box(w0, v0, w1, v1, 0.15, GARAGE_WALL, BLOCK_TOP, BLOCK, BLOCK_SHADE);
-  // Courses of block on the two faces the camera sees.
-  for (let z = 0.6; z < GARAGE_WALL; z += 0.45) {
-    line([[w0, v1, z], [w1, v1, z]], BLOCK_LINE, 0.8);
-    line([[w1, v0, z], [w1, v1, z]], BLOCK_LINE, 0.8);
-  }
-  // The roller door, ribbed, in the front.
-  const d0 = w0 + 0.25, d1 = w1 - 0.25, top = GARAGE_WALL - 0.5;
-  if (d1 > s.x + c - 0.5 && d0 < s.x + c + 0.5) {
-    const a = Math.max(d0, s.x + c - 0.5), b = Math.min(d1, s.x + c + 0.5);
-    quad([P(a, v1, top), P(b, v1, top), P(b, v1, 0.15), P(a, v1, 0.15)], DOOR_ROLL);
-    for (let z = 0.35; z < top; z += 0.22) line([[a, v1, z], [b, v1, z]], DOOR_RIB, 0.8);
-  }
-  // A flat roof lipped over the walls, and the sign.
-  box(w0 - 0.05, v0 - 0.05, w1 + 0.05, v1 + 0.05, GARAGE_WALL, GARAGE_WALL + 0.18, ROOF_FLAT, ROOF_EDGE, ROOF_EDGE);
-  box(d0 + 0.1, v1 + 0.01, d1 - 0.1, v1 + 0.03, top + 0.12, GARAGE_WALL - 0.08, SIGN_BOARD, SIGN_BOARD, SIGN_BOARD);
-  line([[d0 + 0.2, v1 + 0.04, top + 0.3], [d1 - 0.2, v1 + 0.04, top + 0.3]], SIGN_PAINT, 1.4);
-}
-
-/** Heights of the garage, in half steps, and its colours. */
-const GARAGE_WALL = 2.4;
-const BLOCK = 0xd8d2c4;
-const BLOCK_SHADE = 0xb3ac9c;
-const BLOCK_TOP = 0xc9c2b2;
-const BLOCK_LINE = 0xa39c8c;
-const DOOR_ROLL = 0x9aa3ab;
-const DOOR_RIB = 0x7a838b;
-const ROOF_FLAT = 0x50565d;
-const ROOF_EDGE = 0x3c4147;
-const SIGN_BOARD = 0x2f6d4f;
-const SIGN_PAINT = 0xf3eed8;
-
-/** Heights of the HQ, in half steps, and its colours. */
-const PODIUM = 1.7;
-const TOWER = 14;
-const PODIUM_TOP = 0x3a4048;
-const LOBBY = 0x3f6273;
-const LOBBY_SHADE = 0x2c4652;
-const CANOPY = 0xd9dde2;
-const CANOPY_SHADE = 0xa9aeb5;
-const TOWER_GLASS = 0x8fb7cf;
-const TOWER_SHADE = 0x5f87a0;
-const SIGN = 0xf2b43c;
-const SIGN_DARK = 0xb97f17;
-
-/**
- * THE FINISHED BOARDROOM TOWER: slim and very tall, dark bronze glass on a
- * stone podium, ribbed with gold fins, a gold crown, and a spire.
- */
-function drawBoardroom(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
-  box(x0 + 0.3, y0 + 0.3, x1 - 0.3, y1 - 0.3, PLINTH, BR_PODIUM, STONE_TOP, STONE, STONE_SHADE);
-  const t0 = x0 + 0.8, t1 = x1 - 0.8, u0 = y0 + 0.8, u1 = y1 - 0.8;
-  box(t0, u0, t1, u1, BR_PODIUM, BR_TOWER, BRONZE_TOP, BRONZE, BRONZE_SHADE);
-  for (let u = t0 + 0.2; u < t1 - 0.05; u += 0.2) line([[u, u1, BR_PODIUM], [u, u1, BR_TOWER]], GOLD_FIN, 1);
-  for (let v = u0 + 0.2; v < u1 - 0.05; v += 0.2) line([[t1, v, BR_PODIUM], [t1, v, BR_TOWER]], GOLD_FIN, 1);
-  box(t0 - 0.03, u0 - 0.03, t1 + 0.03, u1 + 0.03, BR_TOWER, BR_TOWER + 0.5, GOLD, GOLD, GOLD_SHADE);
-  box(t0 + 0.25, u0 + 0.25, t1 - 0.25, u1 - 0.25, BR_TOWER + 0.5, BR_TOWER + 1.3, BRONZE_TOP, BRONZE, BRONZE_SHADE);
-  const cx = (t0 + t1) / 2, cy = (u0 + u1) / 2;
-  line([[cx, cy, BR_TOWER + 1.3], [cx, cy, BR_TOWER + 4]], GOLD, 1.6);
-}
-
-/** Heights of the boardroom tower, in half steps, and its colours. */
-const BR_PODIUM = 1.3;
-const BR_TOWER = 19;
-const STONE = 0xc9c0ad;
-const STONE_SHADE = 0xa59c89;
-const STONE_TOP = 0xb8af9c;
-const BRONZE = 0x6b6258;
-const BRONZE_SHADE = 0x4a433c;
-const BRONZE_TOP = 0x3a352f;
-const GOLD = 0xd8b04a;
-const GOLD_SHADE = 0xa9852c;
-const GOLD_FIN = 0xc9a24a;
-
-/**
- * THE FINISHED CAMPUS: low and white, a long block across the back and a wing
- * down one side, window bands along both, gardens on the roof, and a
- * courtyard of grass and trees in the corner they make.
- */
-function drawCampus(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line, quad, P } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const mid = y0 + 1.9, split = x0 + 2.2;
-  // The courtyard, before what stands round it.
-  quad([P(Math.max(x0 + 0.2, s.x + c - 0.5), mid, PLINTH + 0.02), P(Math.min(split, s.x + c + 0.5), mid, PLINTH + 0.02),
-    P(Math.min(split, s.x + c + 0.5), y1 - 0.2, PLINTH + 0.02), P(Math.max(x0 + 0.2, s.x + c - 0.5), y1 - 0.2, PLINTH + 0.02)], LAWN);
-  // The long block across the back, and the wing down the side.
-  const blocks: [number, number, number, number, number][] = [
-    [x0 + 0.2, y0 + 0.2, x1 - 0.2, mid, CAMPUS_TALL],
-    [split, mid, x1 - 0.2, y1 - 0.2, CAMPUS_LOW],
-  ];
-  for (const [a0, b0, a1, b1, h] of blocks) {
-    box(a0, b0, a1, b1, PLINTH, h, ROOF_GARDEN, WHITE_PANEL, WHITE_SHADE);
-    for (let z = PLINTH + 0.7; z < h - 0.3; z += 1.1) {
-      line([[a0, b1, z], [a1, b1, z]], CAMPUS_GLASS, 3);
-      line([[a1, b0, z], [a1, b1, z]], CAMPUS_GLASS, 3);
-    }
-  }
-  // Trees in the courtyard.
-  for (const [tu, tv] of [[x0 + 0.8, y1 - 0.8], [x0 + 1.6, y1 - 1.3]]) {
-    box(tu - 0.04, tv - 0.04, tu + 0.04, tv + 0.04, PLINTH, PLINTH + 1, TRUNK, TRUNK, TRUNK);
-    box(tu - 0.28, tv - 0.28, tu + 0.28, tv + 0.28, PLINTH + 1, PLINTH + 2.1, LEAVES_TOP, LEAVES, LEAVES_SHADE);
-  }
-}
-
-/** Heights of the campus, in half steps, and its colours. */
-const CAMPUS_TALL = 4.6;
-const CAMPUS_LOW = 3.2;
-const WHITE_PANEL = 0xeeeee8;
-const WHITE_SHADE = 0xc8c8c0;
-const ROOF_GARDEN = 0x7fae5c;
-const CAMPUS_GLASS = 0x6c9fb8;
-const LAWN = 0x8cc46a;
-const TRUNK = 0x6d4a2a;
-const LEAVES = 0x5c9a46;
-const LEAVES_SHADE = 0x467a35;
-const LEAVES_TOP = 0x6db254;
-
-/**
- * THE CAFÉ: a little brick shop with a striped awning over its window, and a
- * table and two chairs out front.
- */
-function drawCafe(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, 0.12, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const w0 = x0 + 0.25, w1 = x1 - 0.2, v0 = y0 + 0.15, v1 = y1 - 0.45;
-  box(w0, v0, w1, v1, 0.12, CAFE_BODY, CAFE_ROOF, CAFE_BRICK, CAFE_BRICK_SHADE);
-  // The window and the awning over it, on the street face.
-  line([[w0 + 0.15, v1 + 0.005, 0.5], [w1 - 0.15, v1 + 0.005, 0.5]], GLASS, 6);
-  for (let u = w0; u < w1 - 1e-6; u += 0.2) {
-    box(u, v1, Math.min(w1, u + 0.2), v1 + 0.22, 1.1, 1.25, ((u - w0) / 0.2) % 2 < 1 ? AWNING : AWNING_WHITE, AWNING, AWNING_SHADE);
-  }
-  // A table and two chairs on the pavement side.
-  const tu = s.x + 0.35, tv = y1 - 0.2;
-  box(tu - 0.06, tv - 0.06, tu + 0.06, tv + 0.06, 0.12, 0.45, TABLE, TABLE, TABLE_SHADE);
-  for (const du of [-0.14, 0.14]) box(tu + du - 0.04, tv - 0.04, tu + du + 0.04, tv + 0.04, 0.12, 0.3, CHAIR, CHAIR, CHAIR);
-}
-
-/** A FLOOD WALL: a tile-wide block of concrete with a band of sandbags along its top. */
-const LEVEE_TALL = 1.3;
-const LEVEE_TOP = 0xc9c4b8, LEVEE_SIDE = 0xa8a294, LEVEE_SHADE = 0x86806f, SANDBAG = 0xb59a62, SANDBAG_SHADE = 0x8c7547;
-function drawLevee(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + 0.5, y0 = s.y - 0.5, y1 = s.y + 0.5;
-  box(x0, y0, x1, y1, 0, LEVEE_TALL, LEVEE_TOP, LEVEE_SIDE, LEVEE_SHADE);
-  box(x0 + 0.15, y0 + 0.15, x1 - 0.15, y1 - 0.15, LEVEE_TALL, LEVEE_TALL + 0.35, SANDBAG, SANDBAG, SANDBAG_SHADE);
-}
-
-/** THE PARK: lawn, a gravel path across it, trees, and a bench. */
-function drawPark(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, quad, P } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  const cu0 = Math.max(x0, s.x + c - 0.5), cu1 = Math.min(x1, s.x + c + 0.5);
-  const flat = (a0: number, b0: number, a1: number, b1: number, z: number, col: number) => {
-    const u0 = Math.max(a0, cu0), u1 = Math.min(a1, cu1);
-    if (u1 > u0) quad([P(u0, b0, z), P(u1, b0, z), P(u1, b1, z), P(u0, b1, z)], col);
-  };
-  flat(x0 + 0.04, y0 + 0.04, x1 - 0.04, y1 - 0.04, 0.03, LAWN);
-  // A path corner to corner, in two legs.
-  const mu = (x0 + x1) / 2, mv = (y0 + y1) / 2;
-  flat(x0 + 0.04, mv - 0.1, x1 - 0.04, mv + 0.1, 0.04, GRAVEL);
-  flat(mu - 0.1, y0 + 0.04, mu + 0.1, y1 - 0.04, 0.04, GRAVEL);
-  // Trees in three of the quarters, a bench in the fourth.
-  // A tree is a trunk and a stepped crown, narrower as it goes up.
-  for (const [tu, tv] of [[x0 + 0.5, y0 + 0.5], [x1 - 0.5, y0 + 0.5], [x0 + 0.5, y1 - 0.5]]) {
-    box(tu - 0.035, tv - 0.035, tu + 0.035, tv + 0.035, 0.03, 0.9, TRUNK, TRUNK, TRUNK);
-    box(tu - 0.24, tv - 0.24, tu + 0.24, tv + 0.24, 0.9, 1.7, LEAVES_TOP, LEAVES, LEAVES_SHADE);
-    box(tu - 0.16, tv - 0.16, tu + 0.16, tv + 0.16, 1.7, 2.3, LEAVES_TOP, LEAVES, LEAVES_SHADE);
-    box(tu - 0.07, tv - 0.07, tu + 0.07, tv + 0.07, 2.3, 2.6, LEAVES_TOP, LEAVES, LEAVES_SHADE);
-  }
-  const bu = x1 - 0.5, bv = y1 - 0.45;
-  box(bu - 0.22, bv - 0.06, bu + 0.22, bv + 0.06, 0.03, 0.35, TABLE, TABLE, TABLE_SHADE);
-}
-
-/** THE GYM: a plain grey shed with tall windows, and a dumbbell sign on the roof. */
-function drawGym(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const w0 = x0 + 0.2, w1 = x1 - 0.2, v0 = y0 + 0.2, v1 = y1 - 0.2;
-  box(w0, v0, w1, v1, PLINTH, GYM_BODY, GYM_ROOF, GYM_WALL, GYM_WALL_SHADE);
-  for (let u = w0 + 0.25; u < w1 - 0.1; u += 0.35) line([[u, v1 + 0.005, PLINTH + 0.4], [u, v1 + 0.005, GYM_BODY - 0.5]], GLASS, 4);
-  for (let v = v0 + 0.25; v < v1 - 0.1; v += 0.35) line([[w1 + 0.005, v, PLINTH + 0.4], [w1 + 0.005, v, GYM_BODY - 0.5]], GLASS, 4);
-  // The dumbbell: a bar and two weights, on posts.
-  const mu = (w0 + w1) / 2, mv = (v0 + v1) / 2;
-  line([[mu - 0.35, mv, GYM_BODY + 0.9], [mu + 0.35, mv, GYM_BODY + 0.9]], DUMBBELL, 3);
-  for (const du of [-0.33, 0.33]) box(mu + du - 0.05, mv - 0.12, mu + du + 0.05, mv + 0.12, GYM_BODY + 0.55, GYM_BODY + 1.25, DUMBBELL, DUMBBELL, DUMBBELL_SHADE);
-  line([[mu, mv, GYM_BODY], [mu, mv, GYM_BODY + 0.9]], DUMBBELL_SHADE, 2);
-}
-
-/** A DERELICT BUILDING: grimy walls, boarded windows, a roof fallen in at one corner. */
-const DERELICT_BODY = 1.9;
-const GRIME = 0x8a8478, GRIME_SIDE = 0x6f6a60, GRIME_SHADE = 0x58534b, BOARD = 0x7a5a3a, ROOF_HOLE = 0x2b2622;
-function drawDerelict(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line, quad, P } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  const w0 = x0 + 0.15, w1 = x1 - 0.15, v0 = y0 + 0.15, v1 = y1 - 0.15;
-  box(w0, v0, w1, v1, 0, DERELICT_BODY, GRIME, GRIME_SIDE, GRIME_SHADE);
-  for (const u of [w0 + 0.35, w0 + 0.95]) line([[u, v1 + 0.005, 0.7], [u + 0.3, v1 + 0.005, 1.2]], BOARD, 4);
-  for (const v of [v0 + 0.35, v0 + 0.95]) line([[w1 + 0.005, v, 0.7], [w1 + 0.005, v + 0.3, 1.2]], BOARD, 4);
-  const cu0 = Math.max(w0, s.x + c - 0.5), cu1 = Math.min(w0 + 0.7, s.x + c + 0.5);
-  if (cu1 > cu0) quad([P(cu0, v0 + 0.05, DERELICT_BODY + 0.01), P(cu1, v0 + 0.05, DERELICT_BODY + 0.01), P(cu1, v0 + 0.6, DERELICT_BODY + 0.01), P(cu0, v0 + 0.6, DERELICT_BODY + 0.01)], ROOF_HOLE);
-}
-
-/** AN R&D LAB: a white block with a band of glass, and a dish on the roof. */
-const LAB_BODY = 2.4;
-const LAB_WALL = 0xe9ecef, LAB_WALL_SHADE = 0xc3c9cf, LAB_ROOF = 0x6b7680, DISH = 0xdfe3e6, DISH_SHADE = 0xa9b0b6;
-function drawLab(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const w0 = x0 + 0.2, w1 = x1 - 0.2, v0 = y0 + 0.2, v1 = y1 - 0.2;
-  box(w0, v0, w1, v1, PLINTH, LAB_BODY, LAB_ROOF, LAB_WALL, LAB_WALL_SHADE);
-  line([[w0 + 0.1, v1 + 0.005, LAB_BODY * 0.6], [w1 - 0.1, v1 + 0.005, LAB_BODY * 0.6]], GLASS, 7);
-  line([[w1 + 0.005, v0 + 0.1, LAB_BODY * 0.6], [w1 + 0.005, v1 - 0.1, LAB_BODY * 0.6]], GLASS, 7);
-  const mu = w0 + 0.4, mv = v0 + 0.4;
-  line([[mu, mv, LAB_BODY], [mu, mv, LAB_BODY + 0.6]], DISH_SHADE, 2);
-  box(mu - 0.18, mv - 0.18, mu + 0.18, mv + 0.18, LAB_BODY + 0.6, LAB_BODY + 0.75, DISH, DISH, DISH_SHADE);
-}
-
-/**
- * THE TOWN HALL: pale stone on a stepped base, a row of columns across its
- * front under a pediment band, and a clock in a little tower on the roof.
- */
-function drawTownHall(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, 0.25, STONE_TOP, STONE, STONE_SHADE);
-  box(x0 + 0.2, y0 + 0.2, x1 - 0.2, y1 - 0.2, 0.25, 0.45, STONE_TOP, STONE, STONE_SHADE);
-  const w0 = x0 + 0.3, w1 = x1 - 0.3, v0 = y0 + 0.3, v1 = y1 - 0.55;
-  box(w0, v0, w1, v1, 0.45, HALL_BODY, HALL_ROOF, HALL_WALL, HALL_WALL_SHADE);
-  // The columns along the front, under a band across their tops.
-  for (let u = w0 + 0.12; u < w1 - 0.05; u += 0.3) box(u - 0.04, v1 + 0.08, u + 0.04, v1 + 0.16, 0.45, HALL_BODY - 0.35, STONE_TOP, STONE, STONE_SHADE);
-  box(w0, v1, w1, v1 + 0.22, HALL_BODY - 0.35, HALL_BODY, STONE_TOP, STONE, STONE_SHADE);
-  // The clock tower.
-  const mu = (w0 + w1) / 2, mv = (v0 + v1) / 2;
-  box(mu - 0.2, mv - 0.2, mu + 0.2, mv + 0.2, HALL_BODY, HALL_BODY + 1.6, HALL_ROOF, HALL_WALL, HALL_WALL_SHADE);
-  line([[mu - 0.1, mv + 0.201, HALL_BODY + 1.1], [mu + 0.1, mv + 0.201, HALL_BODY + 1.1]], CLOCK, 5);
-  box(mu - 0.24, mv - 0.24, mu + 0.24, mv + 0.24, HALL_BODY + 1.6, HALL_BODY + 1.8, HALL_ROOF, HALL_ROOF, HALL_ROOF);
-}
-
-/** THE HARBOUR OFFICE: a red-brick office with a white trim, and a flagpole. */
-function drawHarbour(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, 0.12, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const w0 = x0 + 0.25, w1 = x1 - 0.35, v0 = y0 + 0.25, v1 = y1 - 0.25;
-  box(w0, v0, w1, v1, 0.12, HARBOUR_BODY, HARBOUR_ROOF, CAFE_BRICK, CAFE_BRICK_SHADE);
-  box(w0 - 0.02, v0 - 0.02, w1 + 0.02, v1 + 0.02, HARBOUR_BODY, HARBOUR_BODY + 0.15, AWNING_WHITE, AWNING_WHITE, STONE_SHADE);
-  for (let u = w0 + 0.2; u < w1 - 0.1; u += 0.3) line([[u, v1 + 0.005, 0.6], [u, v1 + 0.005, HARBOUR_BODY - 0.4]], GLASS, 5);
-  // The flagpole, beside it, flying a blue flag.
-  const fu = x1 - 0.18, fv = y1 - 0.2;
-  line([[fu, fv, 0.12], [fu, fv, HARBOUR_BODY + 2]], POLE, 1.5);
-  box(fu, fv - 0.01, fu + 0.3, fv + 0.01, HARBOUR_BODY + 1.4, HARBOUR_BODY + 1.95, FLAG, FLAG, FLAG);
-}
-
-/**
- * THE DATA CENTRE: a long low windowless block in dark grey, cooling units in
- * a row on its roof, and a strip of status lights along its face.
- */
-function drawDataCentre(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const w0 = x0 + 0.2, w1 = x1 - 0.2, v0 = y0 + 0.2, v1 = y1 - 0.2;
-  box(w0, v0, w1, v1, PLINTH, DC_BODY, DC_ROOF, DC_WALL, DC_WALL_SHADE);
-  // Status lights, in rows, on the faces the camera sees.
-  for (const z of [1.2, 1.8, 2.4]) {
-    line([[w0 + 0.15, v1 + 0.005, z], [w1 - 0.15, v1 + 0.005, z]], DC_LIGHT, 1.5);
-    line([[w1 + 0.005, v0 + 0.15, z], [w1 + 0.005, v1 - 0.15, z]], DC_LIGHT, 1.5);
-  }
-  // Cooling units on the roof.
-  for (let u = w0 + 0.3; u < w1 - 0.25; u += 0.55) {
-    for (let v = v0 + 0.3; v < v1 - 0.25; v += 0.55) box(u, v, u + 0.35, v + 0.35, DC_BODY, DC_BODY + 0.45, DC_FAN, DC_UNIT, DC_UNIT_SHADE);
-  }
-}
-
-/**
- * THE CONFERENCE CENTRE: a wide glass hall under a curved-looking stepped
- * roof, with banners down its front.
- */
-function drawConference(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const w0 = x0 + 0.2, w1 = x1 - 0.2, v0 = y0 + 0.2, v1 = y1 - 0.2;
-  box(w0, v0, w1, v1, PLINTH, CONF_BODY, GLASS_TOP, GLASS, GLASS_SHADE);
-  // The roof, in steps, like a shallow vault.
-  box(w0 - 0.05, v0 - 0.05, w1 + 0.05, v1 + 0.05, CONF_BODY, CONF_BODY + 0.3, CONF_ROOF, CONF_ROOF, CONF_ROOF_SHADE);
-  box(w0 + 0.3, v0 + 0.3, w1 - 0.3, v1 - 0.3, CONF_BODY + 0.3, CONF_BODY + 0.65, CONF_ROOF, CONF_ROOF, CONF_ROOF_SHADE);
-  box(w0 + 0.7, v0 + 0.7, w1 - 0.7, v1 - 0.7, CONF_BODY + 0.65, CONF_BODY + 0.9, CONF_ROOF, CONF_ROOF, CONF_ROOF_SHADE);
-  // Banners down the front, in turn.
-  let k = 0;
-  for (let u = w0 + 0.3; u < w1 - 0.1; u += 0.5) {
-    line([[u, v1 + 0.01, CONF_BODY - 0.3], [u, v1 + 0.01, PLINTH + 0.8]], k++ % 2 ? NEON : BANNER, 6);
-  }
-}
-
-/**
- * THE IPO TOWER: very tall, gold glass in bands, a stock ticker running round
- * it near the top, and a beacon on the roof.
- */
-function drawIpo(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
-  const { box, line } = pen(g, s, ctx, c);
-  const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
-  box(x0 + INSET, y0 + INSET, x1 - INSET, y1 - INSET, 0, PLINTH, SLAB, SLAB_SIDE, SLAB_SHADE);
-  const t0 = x0 + 0.5, t1 = x1 - 0.5, u0 = y0 + 0.5, u1 = y1 - 0.5;
-  box(x0 + 0.25, y0 + 0.25, x1 - 0.25, y1 - 0.25, PLINTH, 2, LOBBY, LOBBY, LOBBY_SHADE);
-  box(t0, u0, t1, u1, 2, IPO_BODY, GOLD, GOLD, GOLD_SHADE);
-  for (let z = 3; z < IPO_BODY - 0.5; z += 1.2) {
-    line([[t0, u1 + 0.005, z], [t1, u1 + 0.005, z]], IPO_BAND, 2);
-    line([[t1 + 0.005, u0, z], [t1 + 0.005, u1, z]], IPO_BAND, 2);
-  }
-  // The ticker: a dark band with green numbers in it.
-  box(t0 - 0.02, u0 - 0.02, t1 + 0.02, u1 + 0.02, IPO_BODY - 2.2, IPO_BODY - 1.6, TICKER, TICKER, TICKER);
-  line([[t0 + 0.1, u1 + 0.025, IPO_BODY - 1.9], [t1 - 0.1, u1 + 0.025, IPO_BODY - 1.9]], TICKER_TEXT, 2);
-  // The beacon.
-  const mu = (t0 + t1) / 2, mv = (u0 + u1) / 2;
-  line([[mu, mv, IPO_BODY], [mu, mv, IPO_BODY + 2.5]], GOLD_SHADE, 2);
-  box(mu - 0.06, mv - 0.06, mu + 0.06, mv + 0.06, IPO_BODY + 2.5, IPO_BODY + 2.7, BEACON, BEACON, BEACON);
-}
-
-const DC_BODY = 3;
-const DC_WALL = 0x50565d;
-const DC_WALL_SHADE = 0x3c4146;
-const DC_ROOF = 0x2e3236;
-const DC_LIGHT = 0x3fe0a8;
-const DC_UNIT = 0x9aa3ad;
-const DC_UNIT_SHADE = 0x77808a;
-const DC_FAN = 0x6b737c;
-const CONF_BODY = 3.2;
-const CONF_ROOF = 0xe8e4da;
-const CONF_ROOF_SHADE = 0xc4bfb2;
-const BANNER = 0x2e6fb5;
-const IPO_BODY = 24;
-const IPO_BAND = 0xfff1b8;
-const TICKER = 0x15181c;
-const TICKER_TEXT = 0x3fe07a;
-const BEACON = 0xff5a4f;
-
-const HALL_BODY = 2.6;
-const HALL_WALL = 0xe6dfcf;
-const HALL_WALL_SHADE = 0xc2bba9;
-const HALL_ROOF = 0x5b6670;
-const CLOCK = 0xf4f0e2;
-const HARBOUR_BODY = 2.2;
-const HARBOUR_ROOF = 0x3d4a57;
-const POLE = 0xd8dde3;
-const FLAG = 0x2e6fb5;
-
-const CAFE_BODY = 2.2;
-const CAFE_BRICK = 0xb46a4c;
-const CAFE_BRICK_SHADE = 0x8e5039;
-const CAFE_ROOF = 0x4b3a33;
-const AWNING = 0x2f8f6b;
-const AWNING_WHITE = 0xf2efe6;
-const AWNING_SHADE = 0x22694e;
-const TABLE = 0x9a7349;
-const TABLE_SHADE = 0x6e5233;
-const CHAIR = 0x333a40;
-const GRAVEL = 0xd9cfb4;
-const GYM_BODY = 2.8;
-const GYM_WALL = 0x9aa3ad;
-const GYM_WALL_SHADE = 0x77808a;
-const GYM_ROOF = 0x4b5259;
-const DUMBBELL = 0x26292d;
-const DUMBBELL_SHADE = 0x141618;
-
-/**
- * Each project's building: how tall its walls go up while it is a site, and
- * how it is drawn finished.
- */
-const LOOKS: Record<string, { body: number; finished: typeof drawStudio }> = {
-  garage: { body: GARAGE_WALL, finished: drawGarage },
-  studio: { body: BODY, finished: drawStudio },
-  hq: { body: TOWER, finished: drawHq },
-  // Offices, drawn as the buildings that first opened their kind of work.
-  "office-intern": { body: GARAGE_WALL, finished: drawGarage },
-  "office-vibe": { body: BODY, finished: drawStudio },
-  "office-10x": { body: TOWER, finished: drawHq },
-  townhall: { body: HALL_BODY, finished: drawTownHall },
-  datacentre: { body: DC_BODY, finished: drawDataCentre },
-  conference: { body: CONF_BODY, finished: drawConference },
-  ipo: { body: IPO_BODY, finished: drawIpo },
-  harbour: { body: HARBOUR_BODY, finished: drawHarbour },
-  // Services. @see world/agents/services
-  cafe: { body: CAFE_BODY, finished: drawCafe },
-  park: { body: 0.2, finished: drawPark },
-  gym: { body: GYM_BODY, finished: drawGym },
-  boardroom: { body: BR_TOWER, finished: drawBoardroom },
-  campus: { body: CAMPUS_TALL, finished: drawCampus },
-  levee: { body: LEVEE_TALL, finished: drawLevee },
-  lab: { body: LAB_BODY, finished: drawLab },
-  derelict: { body: DERELICT_BODY, finished: drawDerelict },
-};
-
 /** The band of a column's front cell. */
 const bandOfColumn = (s: Structure, c: number) => s.x + c + s.y + s.h - 1;
 
+/** The band of a site's front corner, where the crane's jib is filed. */
+const frontBand = (s: Structure, ctx: RenderCtx) =>
+  Math.max(0, Math.min(ctx.bands.structureOf.length - 1, bandOfColumn(s, s.w - 1)));
+
 /** What a drawing depends on, so it is redrawn only when that changes enough to see. */
 const stateOf = (s: Structure) =>
-  s.build ? `${Math.floor((s.build.done / s.build.need) * 200)}:${s.build.delivered}` : "done";
+  s.build ? `${Math.floor((s.build.done / s.build.need) * 400)}:${s.build.delivered}` : "done";
+
+/** Loads delivered and not yet built into the work: stacked in the yard. */
+const stockOf = (s: Structure) => {
+  const b = s.build;
+  if (!b) return 0;
+  const p = Math.min(1, b.done / b.need);
+  return Math.max(0, b.delivered - Math.floor(p * b.deliveries + 1e-6));
+};
+
+/** Draw every column of a project, and the crane over it. */
+function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
+  const ground = inBounds(ctx.grid, s.x, s.y) ? ctx.grid.height[idx(ctx.grid, s.x, s.y)] : 0;
+  const f = { w: s.w, h: s.h };
+  const b = s.build;
+  const site = b ? siteAt(h.model, Math.min(1, b.done / b.need)) : null;
+  h.columns.forEach((g, c) => {
+    g.clear();
+    const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, c);
+    if (site) drawSite(p, h.model, f, site, stockOf(s));
+    else drawFinished(p, h.model, f);
+  });
+  h.sky.clear();
+  if (site && h.model.crane === "tower" && site.framing && site.strike < 1) {
+    const p = makePen(h.sky, s.x - 0.5, s.y - 0.5, ground, ctx.scale, null);
+    // The hook a floor above where the frame has got to, a pallet on it
+    // while there are walls still to go up.
+    drawSky(p, f, craneHeight(site.top), {
+      heading: craneRest(f), reach: jibLength(f) * 0.7,
+      hook: site.frame + 1.2, load: site.clad < site.top - 1e-6,
+    });
+  }
+}
 
 function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const columns: Graphics[] = [];
   for (let c = 0; c < s.w; c++) {
     const g = new Graphics();
     g.eventMode = "none";
-    draw(g, s, ctx, c);
     const band = Math.max(0, Math.min(ctx.bands.structureOf.length - 1, bandOfColumn(s, c)));
     ctx.bands.structureOf[band].addChild(g);
     columns.push(g);
   }
-  return {
-    columns,
-    drawn: stateOf(s),
-    destroy: () => { for (const g of columns) { g.parent?.removeChild(g); g.destroy(); } },
+  const sky = new Graphics();
+  sky.eventMode = "none";
+  ctx.bands.structureOf[frontBand(s, ctx)].addChild(sky);
+  const handle: ProjectHandle = {
+    columns, sky, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
+    destroy: () => { for (const g of [...columns, sky]) { g.parent?.removeChild(g); g.destroy(); } },
   };
+  draw(handle, s, ctx);
+  return handle;
 }
 
 registerCustomRenderer("project", {
   mount,
   update(h, s, _def, ctx) {
     const handle = h as ProjectHandle;
-    handle.columns.forEach((g, c) => draw(g, s, ctx, c));
+    handle.model = lookOf(s.def, { w: s.w, h: s.h });
+    draw(handle, s, ctx);
     handle.drawn = stateOf(s);
   },
-  // GOING UP: redrawn as the work moves on, half a percent at a time.
+  // GOING UP: redrawn as the work moves on, a quarter of a percent at a time.
   tick(h, s, _def, ctx) {
     const handle = h as ProjectHandle;
     const now = stateOf(s);
     if (now === handle.drawn) return;
-    handle.columns.forEach((g, c) => draw(g, s, ctx, c));
+    draw(handle, s, ctx);
     handle.drawn = now;
   },
   unmount(h) { h.destroy(); },
