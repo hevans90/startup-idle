@@ -812,7 +812,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           if (!gen || units <= 0) return 0;
           const m = get()._buildModifiers();
           const out = get().getEmployeeOutputMults(id);
-          return calcGeneratorPerSecond(gen, m, out, units).money;
+          // AND THE SLOP PIT'S CUT, as the tick takes it: without it the rate
+          // shown — and every price set in seconds of income — was up to six
+          // times what was really coming in. @see getMoneyPenaltyMult
+          return calcGeneratorPerSecond(gen, m, out, units).money * useSlopPitStore.getState().getMoneyPenaltyMult();
         },
         // Sum each generator's full-chain output (single source of truth: the
         // employee-tab popovers and this getter stay in lockstep).
@@ -839,6 +842,7 @@ export const useGeneratorStore = create<GeneratorState>()(
               modKey: "mandateMoney",
             },
             { label: "Vape juice", mult: m.juiceMoney, modKey: "juiceMoney" },
+            { label: "Slop pit", mult: useSlopPitStore.getState().getMoneyPenaltyMult() },
             {
               label: "Headcount synergy",
               mult: m.headcountMoney,
