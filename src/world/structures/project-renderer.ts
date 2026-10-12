@@ -23,8 +23,10 @@ import { crewAt } from "./projects/crew";
 import { lookOf } from "./projects/looks";
 import type { Building } from "./projects/model";
 import { makePen } from "./projects/pen";
-import { siteAt, type Site } from "./projects/schedule";
-import { craneHeight, cranePose, craneRest, drawFinished, drawSite, drawSky, jibLength } from "./projects/site";
+import { siteAt, topOf, type Site } from "./projects/schedule";
+import {
+  OPENING, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky, jibLength,
+} from "./projects/site";
 import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
 type ProjectHandle = StructureHandle & {
@@ -42,6 +44,8 @@ type ProjectHandle = StructureHandle & {
   crew: Graphics[];
   /** Seconds the crane has been working, which is where it is in its lift. */
   t: number;
+  /** Seconds since it opened, while the confetti is still falling; else -1. */
+  opened: number;
   /** The site as last drawn, for the crane to work over. */
   site: Site | null;
 };
@@ -91,7 +95,7 @@ const frontBand = (s: Structure, ctx: RenderCtx) =>
 
 /** What a drawing depends on, so it is redrawn only when that changes enough to see. */
 const stateOf = (s: Structure) =>
-  s.build ? `${Math.floor((s.build.done / s.build.need) * 400)}:${s.build.delivered}` : "done";
+  s.build ? `${Math.floor((s.build.done / s.build.need) * 400)}:${s.build.delivered}:${s.build.priority === 0}` : "done";
 
 /** Loads delivered and not yet built into the work: stacked in the yard. */
 const stockOf = (s: Structure) => {
@@ -113,6 +117,16 @@ function crewOn(s: Structure): number {
 }
 const working = (s: Structure) => crewOn(s) > 0;
 
+/**
+ * Whether a site is waiting for a load it cannot pay for: the crew stand
+ * about and the crane stops, until the money comes or they go home.
+ * @see stepWorks, STALL_GRACE
+ */
+const stalled = (s: Structure) => !startedOnFixture() && getWorks().stalled.has(s.id);
+
+/** Whether a site is laid up: paused, nobody called to it. */
+const laidUp = (s: Structure) => s.build?.priority === 0;
+
 /** Hi-vis, and the foreman in a white shirt. */
 const VESTS = [0xf47b20, 0xc8dc32, 0xf47b20, 0xe8e23a];
 const FOREMAN = 0xf2f2f2;
@@ -120,7 +134,7 @@ const FOREMAN = 0xf2f2f2;
 /** The crew where the work is, each drawn as the town draws a person. */
 function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number): void {
   const site = h.site;
-  const crew = site ? crewAt(h.model, { w: s.w, h: s.h }, site, crewOn(s), h.t) : [];
+  const crew = site ? crewAt(h.model, { w: s.w, h: s.h }, site, crewOn(s), h.t, stalled(s)) : [];
   const band = frontBand(s, ctx);
   while (h.crew.length < crew.length) {
     const g = new Graphics();
@@ -161,7 +175,7 @@ function drawCrane(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numbe
   const f = { w: s.w, h: s.h };
   const p = makePen(h.sky, s.x - 0.5, s.y - 0.5, ground, ctx.scale, null);
   // At rest, its hook up and empty, when nobody is working.
-  const pose = working(s)
+  const pose = working(s) && !stalled(s)
     ? cranePose(f, h.model, site, h.t)
     : { heading: craneRest(f), reach: jibLength(f) * 0.6, hook: craneHeight(site.top) - 0.6, load: false };
   drawSky(p, f, craneHeight(site.top), pose);
@@ -180,7 +194,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
   h.columns.forEach((g, c) => {
     g.clear();
     const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, c);
-    if (site) drawSite(p, h.model, f, site, stockOf(s));
+    if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
     else drawFinished(p, h.model, f);
   });
   drawCrane(h, s, ctx, ground);
@@ -204,7 +218,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const handle: ProjectHandle = {
     columns, sky, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null, crew: [],
+    t: s.id * 3.7, site: null, crew: [], opened: -1,
     destroy: () => { for (const g of [...columns, sky, ...handle.crew]) { g.parent?.removeChild(g); g.destroy(); } },
   };
   draw(handle, s, ctx);
@@ -225,15 +239,27 @@ registerCustomRenderer("project", {
     const handle = h as ProjectHandle;
     const now = stateOf(s);
     if (now !== handle.drawn) {
+      // IT HAS OPENED: a site last frame, a building this one.
+      if (handle.site && !s.build) handle.opened = 0;
       draw(handle, s, ctx);
       handle.drawn = now;
     }
+    const ground = groundOf(s, ctx);
     if (handle.site && working(s)) {
-      handle.t += dt;
-      const ground = groundOf(s, ctx);
+      // The crane's clock stops while the site waits for a load.
+      if (!stalled(s)) handle.t += dt;
       if (handle.model.crane === "tower") drawCrane(handle, s, ctx, ground);
       drawCrew(handle, s, ctx, ground);
-    } else if (handle.crew.length) drawCrew(handle, s, ctx, groundOf(s, ctx));
+    } else if (handle.crew.length) drawCrew(handle, s, ctx, ground);
+    if (handle.opened >= 0) {
+      handle.opened += dt;
+      handle.sky.clear();
+      if (handle.opened > OPENING) handle.opened = -1;
+      else {
+        const p = makePen(handle.sky, s.x - 0.5, s.y - 0.5, ground, ctx.scale, null);
+        drawConfetti(p, { w: s.w, h: s.h }, topOf(handle.model), handle.opened);
+      }
+    }
   },
   unmount(h) { h.destroy(); },
 });

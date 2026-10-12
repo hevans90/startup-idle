@@ -61,7 +61,21 @@ function active(b: Building, site: Site): Mass | null {
  * in a fixed order — a foreman, then fixers, cladders and carriers in turn —
  * so the same worker keeps the same job from one frame to the next.
  */
-export function crewAt(b: Building, f: Footprint, site: Site, n: number, t: number): Worker[] {
+export function crewAt(b: Building, f: Footprint, site: Site, n: number, t: number, idle = false): Worker[] {
+  const out = place(b, f, site, n, t);
+  // STOOD ABOUT, waiting for the next load: where their work is, not at it.
+  if (idle) {
+    for (const w of out) {
+      w.working = false;
+      w.carrying = false;
+      w.phase = 0;
+      if (w.role === "carrier") { w.u = 0.3 + (w.u % 0.6); w.heading = Math.PI / 4; }
+    }
+  }
+  return out;
+}
+
+function place(b: Building, f: Footprint, site: Site, n: number, t: number): Worker[] {
   const count = Math.min(MAX_DRAWN, Math.max(0, Math.floor(n)));
   if (count === 0) return [];
   const m = site.framing ? active(b, site) : null;

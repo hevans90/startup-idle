@@ -12,7 +12,8 @@ import { bays, floorsOf, wholeFloors, type Building, type Footprint } from "./mo
 import { makePen } from "./pen";
 import { PIT, STAGES, siteAt, topOf } from "./schedule";
 import {
-  LIFT_CYCLE, MAST, craneHeight, cranePose, craneRest, drawFinished, drawSite, drawSky, jibLength,
+  LIFT_CYCLE, MAST, OPENING, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky,
+  jibLength,
 } from "./site";
 import { OFFICES, PROJECT_BUILDINGS, SERVICES, LAB, LEVEE, DERELICT } from "../def";
 
@@ -226,5 +227,31 @@ describe("the crew work where the work is", () => {
       expect(w.z).toBeCloseTo(wholeFloors(tower, site.clad), 6);
       expect(w.u > tower.u1 || w.v > tower.v1).toBe(true);
     }
+  });
+});
+
+describe("a site waiting for materials stands about", () => {
+  test("nobody at work, nobody carrying, and everyone where they were", () => {
+    const f = { w: 3, h: 3 }, b = lookOf("hq", f), site = siteAt(b, 0.5);
+    const busy = crewAt(b, f, site, 10, 2);
+    const idle = crewAt(b, f, site, 10, 2, true);
+    expect(idle.map((w) => w.role)).toEqual(busy.map((w) => w.role));
+    for (const w of idle) {
+      expect(w.working).toBe(false);
+      expect(w.carrying).toBe(false);
+    }
+  });
+});
+
+describe("it opens with confetti, and then stops", () => {
+  test("pieces fall while it lasts, and none after", () => {
+    const count = (t: number) => {
+      const r = recorder();
+      drawConfetti(makePen(r.g, 0, 0, 0, 1, null), { w: 3, h: 3 }, 10, t);
+      expect(r.bad()).toBe(0);
+      return r.polys();
+    };
+    expect(count(0.5)).toBeGreaterThan(0);
+    expect(count(OPENING + 0.1)).toBe(0);
   });
 });

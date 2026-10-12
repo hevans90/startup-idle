@@ -124,7 +124,7 @@ function drawCabin(p: Pen) {
  * The SCAFFOLD on a mass's two front faces, from its foot to `top`, netted
  * from `net0` to `net1` where the work is.
  */
-function drawScaffold(p: Pen, m: Mass, top: number, net0: number, net1: number) {
+function drawScaffold(p: Pen, m: Mass, top: number, net0: number, net1: number, wrapped = false) {
   if (top <= m.z0 + 0.2) return;
   const lift = floorsOf(m).h;
   const fu = m.u1, fv = m.v1;
@@ -158,8 +158,9 @@ function drawScaffold(p: Pen, m: Mass, top: number, net0: number, net1: number) 
   for (let k = 0; k + 1 < us.length; k += 2) {
     p.strut([us[k], fv + SC_OUT, m.z0], [us[k + 1], fv + SC_OUT, Math.min(top, m.z0 + lift * 2)], 0.012, tone(POLE, 0.85));
   }
-  // The netting where the work is, so it shows where the building has got to.
-  const n0 = Math.max(m.z0, net0), n1 = Math.min(top, net1);
+  // The netting where the work is, so it shows where the building has got to
+  // — or the whole height, sheeted against the weather, on a site laid up.
+  const n0 = wrapped ? m.z0 : Math.max(m.z0, net0), n1 = wrapped ? top : Math.min(top, net1);
   if (n1 > n0 + 0.05) {
     p.onV(fv + SC_OUT + 0.005, m.u0 - SC_OUT, fu + SC_OUT, n0, n1, NET, 0.42);
     p.onU(fu + SC_OUT + 0.005, m.v0 - SC_OUT, fv + SC_OUT, n0, n1, tone(NET, 0.76), 0.42);
@@ -378,7 +379,7 @@ function weightBox(u: number, v: number, du: number, dv: number, C: number, z: n
 /**
  * ONE COLUMN OF A SITE. `stock` is the loads on hand, stacked in the yard.
  */
-export function drawSite(p: Pen, b: Building, f: Footprint, site: Site, stock: number) {
+export function drawSite(p: Pen, b: Building, f: Footprint, site: Site, stock: number, laidUp = false) {
   drawPlot(p, f);
   drawHoarding(p, f);
   const crane = b.crane === "tower" && site.framing && site.strike < 1;
@@ -416,12 +417,41 @@ export function drawSite(p: Pen, b: Building, f: Footprint, site: Site, stock: n
       const sTop = Math.min(m.z1 + 0.5, Math.max(frame, clad) + 0.5);
       const done = Math.max(site.strike, Math.max(0, Math.min(1, (site.clad - m.z1) / (floorsOf(m).h * 2))));
       const top = m.z0 + (sTop - m.z0) * (1 - done);
-      drawScaffold(p, m, top, clad, frame + 0.5);
+      drawScaffold(p, m, top, clad, frame + 0.5, laidUp);
     }
     if (site.fit > 0.5 && b.details) b.details(p, f);
   }
   drawYard(p, f, b, stock);
   drawFence(p, f);
+}
+
+/** Seconds the confetti falls for when a building opens. */
+export const OPENING = 3.2;
+
+const CONFETTI = [0xff4fa3, 0xf2c230, 0x3fa7e0, 0x5ac46a, 0xffffff, 0xf26b3a];
+
+/**
+ * IT OPENS: confetti over the new building, burst from above its roof and
+ * fluttering down past it, `t` seconds after it opened. Pieces of it, each
+ * a scrap turning as it falls, so it glints.
+ */
+export function drawConfetti(p: Pen, f: Footprint, top: number, t: number) {
+  if (t < 0 || t > OPENING) return;
+  const fade = Math.min(1, (OPENING - t) / 0.8);
+  for (let k = 0; k < 90; k++) {
+    const r1 = ((k * 0.6180339) % 1), r2 = ((k * 0.7548776) % 1), r3 = ((k * 0.5698403) % 1);
+    // Thrown up and out from over the middle, then falling and drifting.
+    const ang = r1 * Math.PI * 2, out = 0.4 + r2 * Math.min(f.w, f.h) * 0.55;
+    const spread = Math.min(1, t * 2.2);
+    const u = f.w / 2 + Math.cos(ang) * out * spread + Math.sin(t * 3 + k) * 0.06;
+    const v = f.h / 2 + Math.sin(ang) * out * spread;
+    const z = top + 1.5 + r3 * 1.5 + 3.2 * t - 2.6 * t * t * 0.55;
+    if (z < 0) continue;
+    // Chunky, for a game seen from a distance: a scrap a tenth of a tile,
+    // its width flickering as it turns.
+    const w = 0.025 + 0.05 * Math.abs(Math.sin(t * 9 + k));
+    p.box(u - w, v - 0.03, u + w, v + 0.03, z, z + 0.16, CONFETTI[k % CONFETTI.length], { alpha: fade });
+  }
 }
 
 /** A finished building: its grounds, plinth, masses and fit-out. */
