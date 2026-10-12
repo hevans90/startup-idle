@@ -9,7 +9,9 @@
 import { DIR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { commit, createHistory } from "../edit/commands";
-import { SEAPORTS, type StructureDef } from "../structures/def";
+import {
+  DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, SEAPORTS, SERVICES, type StructureDef,
+} from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
 import { derivedRamp } from "../roads/ramp-derive";
 import { layPipe } from "../water/pipes";
@@ -23,7 +25,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad";
+  | "firstRoad" | "projects";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -940,7 +942,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -952,7 +954,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad",
+  "firstRoad", "projects",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -980,5 +982,60 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "plunge": buildPlunge(g, material); recomputeHeightRange(g); return;
     case "waterfall": buildWaterfall(g, material); recomputeHeightRange(g); return;
     case "brink": buildBrink(g, material); recomputeHeightRange(g); return;
+    case "projects": buildProjects(g, material); recomputeHeightRange(g); return;
+  }
+}
+
+/**
+ * How far through its work each site in the `projects` gallery stands, left
+ * to right. The last is FINISHED — no build record at all.
+ */
+export const GALLERY_STAGES = [0.04, 0.14, 0.3, 0.5, 0.7, 0.86, 0.95, 1] as const;
+
+/**
+ * EVERY BUILDING A PROJECT DRAWS, AT EVERY STAGE OF GOING UP: a row per
+ * project, a column per stage, and everything sold finished — offices,
+ * services, the lab, the flood wall, the derelict — in a block of its own.
+ *
+ * A site on the real map is wherever its crew happens to have got, and looking
+ * at one stage means waiting for it. Here every stage stands still: no road,
+ * so no crew is ever called and the work never moves; every load already
+ * delivered, so nothing is ever bought. @see stepWorks
+ */
+export function buildProjects(g: Grid, material: number) {
+  clear(g, material);
+  const history = createHistory();
+  const put = (def: StructureDef, x: number, y: number, p: number) => {
+    // WITHOUT ITS SITING RULES: the harbour office wants a river, and this is
+    // a gallery of how buildings look, not of where they may go.
+    const cmd = placeCommand(g, { ...def, placement: undefined }, x, y);
+    if (!cmd) return;
+    commit(g, history, cmd);
+    const s = cmd.structures?.added[0];
+    const live = s && g.structures.get(s.id);
+    if (!live || p >= 1) return;
+    live.build = {
+      done: p * 100, need: 100, delivered: 8, deliveries: 8, cost: 0, priority: 2,
+      // NOW, or the time-away catch-up works every site to the end on load.
+      updatedAt: Date.now(),
+    };
+  };
+  const GAP = 2;
+  let y = 2;
+  for (const def of PROJECT_BUILDINGS) {
+    let x = 2;
+    for (const p of GALLERY_STAGES) {
+      put(def, x, y, p);
+      x += 4 + GAP;
+    }
+    y += def.footprint.h + GAP;
+  }
+  // AND WHAT IS SOLD FINISHED, in a block to the right.
+  const rest = [...OFFICES, ...SERVICES, LAB, LEVEE, DERELICT];
+  let rx = 2 + GALLERY_STAGES.length * (4 + GAP) + 2, ry = 2;
+  for (const def of rest) {
+    put(def, rx, ry, 1);
+    rx += def.footprint.w + GAP;
+    if (rx > g.w - 6) { rx = 2 + GALLERY_STAGES.length * (4 + GAP) + 2; ry += 4 + GAP; }
   }
 }
