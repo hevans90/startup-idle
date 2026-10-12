@@ -1635,6 +1635,15 @@ export function stepFlow(f: ColumnField, dt: number) {
   const plan = substepsFor(f, dt);
   const whole = plan.reduce((a, b) => a + b, 0);
   for (let n = 0; n < plan.length; n++) substep(f, plan[n], n === 0 ? whole : 0);
+  // AND THE BOUNDARY ONCE MORE, AT THE END, so the frame that gets drawn has
+  // its rim at the rim's own values. `spill` runs at the TOP of each substep,
+  // so between frames the ring held whatever flowed into it during the last
+  // one — and that is a different amount on every frame, because each frame
+  // is cut into different substeps. Drawn, it was the ends of a river's
+  // inflow flickering, where a held column pours into an emptied one. The
+  // next substep would have done exactly this first, so the water's motion
+  // is unchanged; only what is seen between frames is. @see spill
+  if (f.openEdge && plan.length > 0) spill(f);
 }
 
 /**

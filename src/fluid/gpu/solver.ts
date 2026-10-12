@@ -1476,6 +1476,10 @@ export function createGpuWater(
       }
       if (on("landings")) passes.landings.encode(sub, state);
     }
+    // AND THE RIM AT ITS OWN VALUES BEFORE ANYTHING READS THE FRAME, on the
+    // last substep's constants. @see stepFlow in columns.ts, which does the
+    // same and says why.
+    if (slot > 0 && field.openEdge && on("spill")) passes.spill.encode(enc, state);
     // THE CARRIED FIELDS, once, after the water has finished moving — they
     // are advected on the flow this frame ended with, exactly as the host did
     // it at the top of `drawGpuWater`.

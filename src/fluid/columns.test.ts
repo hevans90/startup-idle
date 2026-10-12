@@ -1406,9 +1406,8 @@ describe("the rim", () => {
 
   test("a held rim FEEDS the map, and an unheld one drains it", () => {
     // The two halves of one expression, tested by what they do rather than by
-    // the depth on the rim itself: the boundary runs at the top of a substep
-    // and the flux pass then moves that water on, so the held column is never
-    // sitting at its level by the time a step has finished. @see NO_INFLOW
+    // the depth on the rim itself, which is the boundary's own value between
+    // frames and so proves nothing about the water. @see NO_INFLOW
     const flat = () => {
       const f = createColumnField(12, 12, { ...FLOW_DEFAULTS, wind: 0 });
       setOpenEdge(f, true);
@@ -1440,13 +1439,33 @@ describe("the rim", () => {
     // And stopping the hold stops the FEEDING, which is the claim that can be
     // made cleanly. Not that the map then drains — what came in is a puddle on
     // a flat plane now, and a flat plane keeps its puddles, since below
-    // `minSlope` nothing moves at all. Nor that the rim goes to nought after a
-    // step: the ring is cleared at the top of a substep and the flux pass then
-    // runs water back into it on its way off the map, which is what an
-    // absorbing edge looks like from the inside.
+    // `minSlope` nothing moves at all.
     const had = totalWater(fed);
     setRim(fed, null);
     for (let n = 0; n < 60 * 5; n++) stepFlow(fed, 1 / 60);
     expect(totalWater(fed)).toBeLessThanOrEqual(had);
+  });
+
+  test("between frames the rim stands at the boundary's own values", () => {
+    // WHAT GETS DRAWN. The boundary runs at the top of every substep, so
+    // without a last pass the ring held whatever flowed into it during the
+    // final one — a different amount each frame, as frames are cut into
+    // different substeps — and the ends of a river's inflow, where a held
+    // column pours into an emptied one, flickered.
+    const f = createColumnField(12, 12, { ...FLOW_DEFAULTS, wind: 0 });
+    setOpenEdge(f, true);
+    f.ground.fill(0);
+    const rim = new Float32Array(rimLength(f.nx, f.ny)).fill(-1e9);
+    for (let k = 5; k <= 7; k++) rim[k] = 3;
+    setRim(f, rim);
+    for (let n = 0; n < 30; n++) {
+      // Uneven frames, so the substeps differ from one to the next.
+      stepFlow(f, n % 2 ? 1 / 30 : 1 / 90);
+      for (let k = 0; k < rimLength(f.nx, f.ny); k++) {
+        expect(f.depth[rimAt(f.nx, f.ny, k)]).toBe(k >= 5 && k <= 7 ? 3 : 0);
+      }
+    }
+    // And the water beside the held run is real: the map is being fed.
+    expect(totalWater(f)).toBeGreaterThan(0);
   });
 });
