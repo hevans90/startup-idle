@@ -10,7 +10,9 @@ import { LOOKS, lookOf } from "./looks";
 import { bays, floorsOf, wholeFloors, type Building, type Footprint } from "./model";
 import { makePen } from "./pen";
 import { PIT, STAGES, siteAt, topOf } from "./schedule";
-import { drawFinished, drawSite, drawSky, jibLength, craneHeight, craneRest } from "./site";
+import {
+  LIFT_CYCLE, MAST, craneHeight, cranePose, craneRest, drawFinished, drawSite, drawSky, jibLength,
+} from "./site";
 import { OFFICES, PROJECT_BUILDINGS, SERVICES, LAB, LEVEE, DERELICT } from "../def";
 
 const FOOTPRINTS: [string, Footprint][] = [...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, LAB, LEVEE, DERELICT]
@@ -134,5 +136,53 @@ describe("every building draws at every stage", () => {
       polys += r.polys();
     }
     expect(polys).toBeGreaterThan(0);
+  });
+});
+
+describe("the crane lifts from the yard to the work and back", () => {
+  const f = { w: 3, h: 3 };
+  const b = lookOf("hq", f);
+  const site = siteAt(b, 0.5);
+  const hookAt = (t: number) => {
+    const q = cranePose(f, b, site, t);
+    return { u: MAST.u + Math.cos(q.heading) * q.reach, v: MAST.v + Math.sin(q.heading) * q.reach, ...q };
+  };
+
+  test("it picks up at the gate, down on the ground", () => {
+    const q = hookAt(2);
+    expect(q.u).toBeCloseTo(f.w / 2, 1);
+    expect(q.v).toBeCloseTo(f.h - 0.35, 1);
+    expect(q.hook).toBeLessThan(1);
+    expect(hookAt(2.6).load).toBe(true);
+  });
+
+  test("and sets down on the floor being built, then lets go", () => {
+    const q = hookAt(10.5);
+    expect(q.hook).toBeCloseTo(site.frame + 0.55, 5);
+    expect(q.load).toBe(true);
+    expect(hookAt(11.2).load).toBe(false);
+    // Over the building, not over the yard.
+    expect(q.v).toBeLessThan(f.h - 0.6);
+  });
+
+  test("it moves smoothly and goes round for ever", () => {
+    let last = hookAt(0);
+    for (let t = 0.01; t <= LIFT_CYCLE; t += 0.01) {
+      const q = hookAt(t);
+      expect(Math.abs(q.hook - last.hook)).toBeLessThan(0.2);
+      expect(Math.hypot(q.u - last.u, q.v - last.v)).toBeLessThan(0.05);
+      last = q;
+    }
+    const a = hookAt(0.3), z = hookAt(LIFT_CYCLE + 0.3);
+    expect(z.hook).toBeCloseTo(a.hook, 6);
+    expect(z.heading).toBeCloseTo(a.heading, 6);
+  });
+
+  test("its hook never leaves the jib", () => {
+    for (let t = 0; t < LIFT_CYCLE; t += 0.25) {
+      const q = cranePose(f, b, site, t);
+      expect(q.reach).toBeLessThanOrEqual(jibLength(f));
+      expect(q.hook).toBeLessThan(craneHeight(site.top));
+    }
   });
 });

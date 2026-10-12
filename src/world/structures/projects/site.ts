@@ -259,6 +259,63 @@ export function craneRest(_f: Footprint): number {
 /** The jib's length: across the site, never past the plot by much. */
 export const jibLength = (f: Footprint) => Math.min(3.6, Math.hypot(f.w - MAST.u, f.h - MAST.v) * 0.82);
 
+/** Seconds in one lift, yard to work and back. @see cranePose */
+export const LIFT_CYCLE = 16.5;
+
+const ease = (k: number) => {
+  const c = Math.max(0, Math.min(1, k));
+  return c * c * (3 - 2 * c);
+};
+
+/** The shortest way round from one heading to another, `k` of the way. */
+function turn(a: number, b: number, k: number): number {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * k;
+}
+
+/**
+ * WHAT THE CRANE IS DOING `t` seconds into its work: a lift, round and round.
+ *
+ * Down to the yard by the gate, a pallet hooked on, hoisted, slewed over the
+ * building, lowered to where the frame has got to, unhooked, raised, and
+ * slewed back. Heading and reach are worked out from where the hook has to
+ * be, so the jib turns to the work wherever the work is. Pure, and its own
+ * function so a test can drive it without a canvas.
+ */
+export function cranePose(f: Footprint, b: Building, site: Site, t: number): CranePose {
+  const L = jibLength(f);
+  const H = craneHeight(site.top);
+  const aim = (u: number, v: number) => ({
+    heading: Math.atan2(v - MAST.v, u - MAST.u),
+    reach: Math.min(L - 0.1, Math.hypot(u - MAST.u, v - MAST.v)),
+  });
+  const yard = aim(f.w * 0.5, f.h - 0.35);
+  // Over the highest mass still going up, a little toward its front.
+  const going = b.masses.filter((m) => site.frame > m.z0 - 1e-6 && site.clad < m.z1 - 1e-6);
+  const m = going.length ? going[going.length - 1] : b.masses[b.masses.length - 1];
+  const wu = m ? (m.u0 + m.u1) / 2 + (m.u1 - m.u0) * 0.2 : f.w / 2;
+  const wv = m ? (m.v0 + m.v1) / 2 + (m.v1 - m.v0) * 0.15 : f.h / 2;
+  const work = aim(wu, wv);
+  const high = H - 0.6, yardZ = 0.55, workZ = Math.min(high - 0.3, site.frame + 0.55);
+  const c = ((t % LIFT_CYCLE) + LIFT_CYCLE) % LIFT_CYCLE;
+  const between = (a: number, b2: number) => ease((c - a) / (b2 - a));
+  const lerp = (a: number, b2: number, k: number) => a + (b2 - a) * k;
+  if (c < 1.5) return { ...yard, hook: lerp(high, yardZ, between(0, 1.5)), load: false };
+  if (c < 3) return { ...yard, hook: yardZ, load: c > 2.4 };
+  if (c < 5) return { ...yard, hook: lerp(yardZ, high, between(3, 5)), load: true };
+  if (c < 8.5) {
+    const k = between(5, 8.5);
+    return { heading: turn(yard.heading, work.heading, k), reach: lerp(yard.reach, work.reach, k), hook: high, load: true };
+  }
+  if (c < 10) return { ...work, hook: lerp(high, workZ, between(8.5, 10)), load: true };
+  if (c < 11.5) return { ...work, hook: workZ, load: c < 10.9 };
+  if (c < 13) return { ...work, hook: lerp(workZ, high, between(11.5, 13)), load: false };
+  const k = between(13, LIFT_CYCLE);
+  return { heading: turn(work.heading, yard.heading, k), reach: lerp(work.reach, yard.reach, k), hook: high, load: false };
+}
+
 /**
  * THE CRANE ABOVE THE MAST: the slewing ring and cab, the jib and the
  * counter-jib with its weights, the ties from the peak, and the trolley,
