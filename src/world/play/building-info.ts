@@ -33,6 +33,8 @@ export type InfoContext = {
   coverage: ReadonlyMap<number, ReadonlySet<ServiceId>>;
   /** Each house's commute, by its id. Missing: nobody worked it out (no roads yet). */
   commutes: ReadonlyMap<number, Commute>;
+  /** Each workplace's desks: taken, and how many. @see seat */
+  desks?: ReadonlyMap<number, { used: number; of: number }>;
   /** What each seaport has earned in the last minute, by its id. */
   earning: ReadonlyMap<number, number>;
   /** Project sites stalled for want of money, by id. */
@@ -50,7 +52,7 @@ export type InfoLine = { text: string; tone?: "good" | "warn" | "dim" };
  * without anything lost. @see collate
  */
 export type Fact =
-  | { type: "home"; who: GeneratorId; residents: number; beds: number; earns?: number; coming: number; mood?: number }
+  | { type: "home"; who: GeneratorId; residents: number; beds: number; earns?: number; coming: number; mood?: number; deskless?: number }
   | { type: "site"; name: string; pct: number; stalled: boolean; paused: boolean }
   | { type: "project"; name: string }
   | { type: "port"; berths: number; alongside: number; waiting: number; earning: number };
@@ -73,11 +75,11 @@ const KIND_NAME: Record<GeneratorId, [string, string]> = {
 export const KIND_COLOUR: Record<GeneratorId, number> = { intern: 0xf2b51d, vibe_coder: 0xff4fa3, "10x_dev": 0x2fb8a8 };
 const TAB_NAME = { employees: "Employees", innovation: "Innovation", valuation: "Valuation" } as const;
 
-/** How many commute to a workplace: everyone living where it is the nearest. */
-function workforce(id: number, ctx: InfoContext): number {
-  let n = 0;
-  for (const [house, c] of ctx.commutes) if (c.to === id) n += ctx.residents.get(house) ?? 0;
-  return n;
+/** A workplace's desks, as a label line: taken of how many, amber once full. */
+function deskLine(id: number, ctx: InfoContext): InfoLine | null {
+  const d = ctx.desks?.get(id);
+  if (!d) return null;
+  return { text: `${d.used}/${d.of} desks`, tone: d.used >= d.of ? "warn" : undefined };
 }
 
 /** What a project opens, in a few words: "Opens hiring vibe coders". */
@@ -151,6 +153,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
       lines.push(commute.tiles === null
         ? { text: "No road to work", tone: "warn" }
         : { text: `${commute.tiles}-tile commute${eff < 1 ? ` · ${Math.round(eff * 100)}%` : ""}`, tone: eff < 0.75 ? "warn" : "dim" });
+      if (commute.deskless > 0) lines.push({ text: `${commute.deskless} without a desk`, tone: "warn" });
     }
     if (coming > 0) lines.push({ text: `${coming} on the way`, tone: "good" });
     else if (here < h.slots) lines.push({ text: `${h.slots - here} beds free`, tone: "dim" });
@@ -162,6 +165,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
       facts: [{
         type: "home", who: h.id, residents: here, beds: h.slots, earns: rate === undefined ? undefined : here * rate * eff, coming,
         ...(mood && here > 0 ? { mood: mood.total } : {}),
+        ...(commute?.deskless ? { deskless: commute.deskless } : {}),
       }],
     };
   }
@@ -181,8 +185,8 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
       };
     }
     const lines: InfoLine[] = [];
-    const staff = workforce(s.id, ctx);
-    if (workplaceKind(s.def)) lines.push({ text: `${staff} work here` });
+    const desks = workplaceKind(s.def) ? deskLine(s.id, ctx) : null;
+    if (desks) lines.push(desks);
     if (p.bonus) lines.push({ text: opensText(p).replace(/, for good$/, ""), tone: "good" });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
@@ -217,10 +221,10 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
   // AN OFFICE: who works there.
   const office = workplaceKind(s.def);
   if (office) {
-    const staff = workforce(s.id, ctx);
+    const d = ctx.desks?.get(s.id);
     return {
-      title: def.name, accent: KIND_COLOUR[office], brief: [`${staff} at work`],
-      lines: [{ text: `${staff} ${KIND_NAME[office][1]} work here` }],
+      title: def.name, accent: KIND_COLOUR[office], brief: [d ? `${d.used}/${d.of}` : def.name],
+      lines: [deskLine(s.id, ctx) ?? { text: `${KIND_NAME[office][1]} work here` }],
       facts: [{ type: "project", name: def.name }],
     };
   }
@@ -264,6 +268,8 @@ export function collate(infos: readonly BuildingInfo[], money: (n: number) => st
     lines.push({ text: `${name}s: ${res}/${beds} in ${homes.length} ${homes.length === 1 ? "home" : "homes"}` });
     if (known.length && res > 0) lines.push({ text: `  earn ${money(known.reduce((n, f) => n + f.earns!, 0))}/s`, tone: "good" });
     if (coming) lines.push({ text: `  ${coming} on the way`, tone: "good" });
+    const deskless = homes.reduce((n, f) => n + (f.deskless ?? 0), 0);
+    if (deskless) lines.push({ text: `  ${deskless} without a desk`, tone: "warn" });
     // Their mood, weighted by who lives where. @see moodOffsets
     const felt = homes.filter((f) => f.mood !== undefined && f.residents > 0);
     if (felt.length) {

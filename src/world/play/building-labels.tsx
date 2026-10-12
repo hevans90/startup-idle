@@ -31,7 +31,7 @@ import { useGeneratorStore, type GeneratorId } from "../../state/generators.stor
 import { getArrivals, getExports, getFleet, getNetwork, getTraffic, getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { perMinute } from "../boats/exports";
-import { liveCommutes } from "../agents/commute";
+import { liveSeating } from "../agents/commute";
 import { liveCoverage } from "../agents/services";
 import { liveMoods } from "../agents/mood";
 import { useSlopPitStore } from "../../state/slop-pit.store";
@@ -91,11 +91,13 @@ function gather(): InfoContext {
   const st = useWorldStore.getState(), net = getNetwork();
   const residents = new Map<number, number>();
   for (const s of st.grid.structures.values()) if (housedBy(s.def)) residents.set(s.id, residentsIn(s));
-  const commutes = net ? liveCommutes(st.grid, net) : new Map();
+  const seating = net ? liveSeating(st.grid, net) : null;
+  const commutes = seating?.commutes ?? new Map();
+  const desks = seating?.desks;
   const coverage = net ? liveCoverage(st.grid, net) : new Map();
   const moods = net ? liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100) : new Map();
   const labsNear = new Set([...st.grid.structures.values()].filter((s) => s.def === "lab" && nearHub(st.grid, s)).map((s) => s.id));
-  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, money: (n) => formatCurrency(n) };
+  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, desks, money: (n) => formatCurrency(n) };
 }
 
 /**

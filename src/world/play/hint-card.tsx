@@ -40,7 +40,7 @@ function snapshot(): HintState {
   const residents = housingResidents(grid);
   const away = awaitingArrival(owned, useSessionStore.getState().remoteBeds ?? {}, residents);
   const net = getNetwork();
-  let worstCommute = 1, worstMood = 0;
+  let worstCommute = 1, worstMood = 0, deskless = 0;
   if (net) {
     for (const [house, m] of liveMoods(grid, net, useSlopPitStore.getState().fill / 100)) {
       const s = grid.structures.get(house);
@@ -50,7 +50,9 @@ function snapshot(): HintState {
   if (net) {
     for (const [house, c] of liveCommutes(grid, net)) {
       const s = grid.structures.get(house);
-      if (s && (s.residents ?? 1) > 0) worstCommute = Math.min(worstCommute, c.eff);
+      deskless += c.deskless;
+      // The walk alone: a house short of desks is the desks hint's to tell.
+      if (s && (s.residents ?? 1) > 0 && !c.deskless) worstCommute = Math.min(worstCommute, c.eff);
     }
   }
   return {
@@ -61,6 +63,7 @@ function snapshot(): HintState {
     worstMood, moodShown: useWorldStore.getState().moodOverlay,
     ...landState(),
     labs, levees,
+    deskless,
     floodWarning: useWorldStore.getState().events.some((e) => e.kind === "river-flood" && e.phase === "warning"),
   };
 }

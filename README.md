@@ -42,7 +42,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 - **They wait** for a free bed and a road from the edge; the beds row says why. Rides aren't saved: loading moves everyone in (`settleHousing`).
 - **Remote beds:** 2 intern beds off-map to start; a company with staff before its map keeps them (`foundingRemoteBeds`). Max hiring stops at the free beds.
 
-**Commuting** (`agents/commute.ts`): each kind works at the building that opened it or an **office** of its kind (bought from the picker). Up to 8 road tiles is free, then −1.25% a tile to 50%; no road at all is 25%. The average multiplies into output (`commuteFactor`).
+**Commuting and desks** (`agents/commute.ts`): each kind works at the building that opened it or an **office** of its kind (bought from the picker). Each has **desks**: garage 20, Studio 30, Campus 10; intern and vibe offices 40, 10x offices 10. People take the nearest free desk, nearest house and workplace first, overflowing to the next (`seat`); past the last desk they work at 35%. Up to 8 road tiles is free, then −1.25% a tile to 50%; no road at all is 25%. Workplace labels show desks taken, houses and the beds row who has none; the average multiplies into output (`commuteFactor`).
 
 **R&D labs** (`world/projects/labs.ts`): sold in the 10x devs row (2×2). Each standing adds 10% to innovation, 20% within 10 tiles of the campus or Data Centre (`labBonus`, through the project reader). A minute of income (≥ $100,000), ×1.5 for each already built.
 

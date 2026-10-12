@@ -6,7 +6,7 @@ const state = (over: Partial<HintState> = {}): HintState => ({
   owned: { intern: 0, vibe_coder: 0, "10x_dev": 0 },
   built: new Set(), sites: new Set(), ready: new Set(["garage"]),
   lots: 0, residents: 0, awaiting: 0, services: 0, offices: 0, worstCommute: 1, wondersOpened: false, worstMood: 0, moodShown: false,
-  freeFrontage: Infinity, landForSale: false, parcelsBought: 0, labs: 0, levees: 0, floodWarning: false,
+  freeFrontage: Infinity, landForSale: false, parcelsBought: 0, labs: 0, levees: 0, floodWarning: false, deskless: 0,
   ...over,
 });
 
@@ -50,5 +50,10 @@ describe("first-run hints", () => {
     expect(nextHint(state({ ...settled, built: new Set(["garage", "townhall", "campus"]) }), new Set()).show?.id).toBe("labs");
     expect(nextHint(state({ ...settled, floodWarning: true }), new Set()).show?.id).toBe("flood-walls");
     expect(nextHint(state({ ...settled, floodWarning: true, levees: 3 }), new Set()).show).toBeNull();
+  });
+
+  test("people without desks are told an office adds some", () => {
+    const s = state({ ready: new Set(), built: new Set(["garage", "townhall"]), lots: 12, residents: 30, services: 2, owned: { intern: 30, vibe_coder: 0, "10x_dev": 0 }, deskless: 6 });
+    expect(nextHint(s, new Set()).show?.id).toBe("desks");
   });
 });

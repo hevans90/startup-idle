@@ -7,7 +7,7 @@ import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import {
-  FREE, STRANDED, WORST, commuteEfficiency, commuteFactor, commutesOf, liveCommutes,
+  DESKLESS, DESKS, FREE, STRANDED, WORST, commuteEfficiency, commuteFactor, commutesOf, liveCommutes, seat,
 } from "./commute";
 import { placesOf } from "./roads";
 
@@ -49,7 +49,7 @@ describe("the way to work", () => {
 
   test("is not to another kind's workplace, and with no road there it is stranded", () => {
     const { commutes, ids } = street([["studio", 2], ["kit:intern.t0", 20]]);
-    expect(commutes.get(ids[1])).toEqual({ tiles: null, eff: STRANDED, to: null });
+    expect(commutes.get(ids[1])).toEqual({ tiles: null, eff: STRANDED, to: null, deskless: 0 });
     const cut = street([["garage", 2], ["kit:intern.t0", 20]], 10);
     expect(cut.commutes.get(cut.ids[1])!.tiles).toBeNull();
   });
@@ -80,3 +80,28 @@ describe("the way to work", () => {
     expect(liveCommutes(g, net).get(ids[1])!.tiles).not.toBeNull();
   });
 });
+
+describe("desks", () => {
+  test("the nearest take them first; past the last desk, people work without one", () => {
+    // The garage at the west end, and twelve houses of two along the street: 24 people, 20 desks.
+    const { g, net, ids } = street([["garage", 1], ...Array.from({ length: 12 }, (_, k) => ["kit:intern.t0", 5 + k * 2] as [string, number])]);
+    const { commutes, desks } = seat(g, placesOf(g, net));
+    expect(desks.get(ids[0])).toEqual({ used: DESKS.garage, of: DESKS.garage });
+    // The nearest ten houses are seated; the farthest two are not.
+    expect(commutes.get(ids[1])!.deskless).toBe(0);
+    expect(commutes.get(ids[12])!.deskless).toBe(2);
+    expect(commutes.get(ids[12])!.eff).toBeCloseTo(DESKLESS, 6);
+  });
+
+  test("an office takes the overflow, nearest first", () => {
+    const things: [string, number][] = [["garage", 1], ...Array.from({ length: 12 }, (_, k) => ["kit:intern.t0", 5 + k * 2] as [string, number]), ["office-intern", 32]];
+    const { g, net, ids } = street(things);
+    const { commutes, desks } = seat(g, placesOf(g, net));
+    const office = ids[ids.length - 1];
+    expect(desks.get(office)!.used).toBeGreaterThan(0);
+    for (const id of ids.slice(1, 13)) expect(commutes.get(id)!.deskless).toBe(0);
+    // The far end's people sit at the office beside them, not the garage.
+    expect(commutes.get(ids[12])!.to).toBe(office);
+  });
+});
+

@@ -27,10 +27,10 @@ import { addBeds, housedBy, housingCapacity } from "../../game/housing";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
-import { UNDO_WINDOW_MS, getArrivals, parcelPrice, useWorldStore } from "../../state/world.store";
+import { UNDO_WINDOW_MS, getArrivals, getNetwork, parcelPrice, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
-import { workplaceKind } from "../agents/commute";
+import { DESKS, liveSeating, workplaceKind } from "../agents/commute";
 import { RANGE, serviceOf } from "../agents/services";
 import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
@@ -114,7 +114,7 @@ const tileName = (def: StructureDef) =>
 function tileNote(def: StructureDef): string {
   const h = housedBy(def.id);
   if (h) return `${h.slots} beds · grows`;
-  if (workplaceKind(def.id)) return "workplace";
+  if (workplaceKind(def.id)) return `${DESKS[def.id] ?? 0} desks`;
   if (serviceOf(def.id)) return `serves ${RANGE} tiles`;
   if (def.port) return `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}`;
   if (def.id === "levee") return "drag along a bank";
@@ -183,6 +183,15 @@ export function BuildBar({ className }: { className?: string }) {
   // Beds change with what is built, so with the revision as well as the grid.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const beds = useMemo(() => addBeds(housingCapacity(grid), remote ?? {}), [grid, revision, remote]);
+  // WITHOUT A DESK, by kind: who the workplaces could not seat. @see seat
+  const net = getNetwork();
+  const deskless: Partial<Record<GeneratorId, number>> = {};
+  if (net) {
+    for (const [house, c] of liveSeating(grid, net).commutes) {
+      const kind = housedBy(grid.structures.get(house)?.def ?? "")?.id;
+      if (kind && c.deskless) deskless[kind] = (deskless[kind] ?? 0) + c.deskless;
+    }
+  }
 
   const choose = (id: ToolId) => {
     setTool(id);
@@ -262,6 +271,11 @@ export function BuildBar({ className }: { className?: string }) {
                 <span className={full ? "text-red-700 dark:text-red-400" : undefined}>
                   {KIND_TITLE[id]} {g.amount}/{have}
                 </span>
+                {deskless[id] ? (
+                  <span className="text-amber-700 dark:text-amber-400" title="Every desk of theirs is taken: an Office adds more">
+                    {deskless[id]} without a desk
+                  </span>
+                ) : null}
                 {st?.riding ? <span className="text-emerald-700 dark:text-emerald-400" title={`On the way ${by}`}>+{st.riding} {by}</span> : null}
                 {st?.waiting ? (
                   <span className={st.blocked ? "text-amber-700 dark:text-amber-400" : "text-primary-600 dark:text-primary-400"}>

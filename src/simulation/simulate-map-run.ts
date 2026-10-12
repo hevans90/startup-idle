@@ -28,6 +28,7 @@ import { structureDef } from "../world/structures/def";
 import { STALL_GRACE } from "../world/projects/works";
 import { landPrice, STARTING_PARCELS } from "../world/land";
 import { LAB_SHARE } from "../world/projects/labs";
+import { DESKLESS, DESKS } from "../world/agents/commute";
 import { useSlopPitStore } from "../state/slop-pit.store";
 import { HAUL_LOAD } from "../world/events/sludge";
 import { MOOD, MOOD_LIMIT } from "../world/agents/mood";
@@ -77,6 +78,9 @@ export type MapRunReport = {
   spentOnLand: number;
   /** When the core upgrades were done, seconds from the start. */
   coreAt: number | null;
+  /** Offices bought, and what they cost. @see seat */
+  offices: number;
+  spentOnOffices: number;
   /** R&D labs bought, and what they cost. @see world/projects/labs */
   labs: number;
   spentOnLabs: number;
@@ -166,8 +170,25 @@ export function simulateMapRun(
   const stopBeds = setHousingReader(() => ({ ...beds }));
   // R&D LABS, half of them near the campus. @see labReading
   let labs = 0;
+  /**
+   * DESKS: each kind's at the building that opened it, once it stands, and
+   * at the offices bought for it. Those living on the map past the desks
+   * work without one. @see seat
+   */
+  const offices: Record<GeneratorId, number> = { intern: 0, vibe_coder: 0, "10x_dev": 0 };
+  const FIRST: Record<GeneratorId, [ProjectId, string]> = { intern: ["garage", "garage"], vibe_coder: ["studio", "studio"], "10x_dev": ["campus", "campus"] };
+  const OFFICE_OF: Record<GeneratorId, string> = { intern: "office-intern", vibe_coder: "office-vibe", "10x_dev": "office-10x" };
+  const desksOf = (id: GeneratorId) => (built.has(FIRST[id][0]) ? DESKS[FIRST[id][1]] : 0) + offices[id] * DESKS[OFFICE_OF[id]];
+  /** Of a kind's people, those who live on the map (the first two interns live off it). */
+  const onMap = (id: GeneratorId) => Math.max(0, (owned()[id] ?? 0) - (id === "intern" ? 2 : 0));
+  const commuteOf = (id: GeneratorId) => {
+    const total = owned()[id] ?? 0, here = onMap(id);
+    if (!total) return commute;
+    const seated = Math.min(here, desksOf(id)), without = here - seated;
+    return ((total - here) + seated * commute + without * DESKLESS) / total;
+  };
   const stopProjects = setProjectReader(() => ({
-    built, away: away(), commute: { intern: commute, vibe_coder: commute, "10x_dev": commute },
+    built, away: away(), commute: { intern: commuteOf("intern"), vibe_coder: commuteOf("vibe_coder"), "10x_dev": commuteOf("10x_dev") },
     labs: { count: labs, mult: 1 + labs * LAB_SHARE * 1.5 },
   }));
   /**
@@ -200,7 +221,7 @@ export function simulateMapRun(
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
     spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
-    parcels: 0, spentOnLand: 0, coreAt: null, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0,
+    parcels: 0, spentOnLand: 0, coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
@@ -290,7 +311,7 @@ export function simulateMapRun(
     for (let k = pending.length - 1; k >= 0; k--) if (pending[k].at <= t) pending.splice(k, 1);
   };
 
-  type Next = { kind: "gen" | "upgrade" | "lot" | "grow" | "lab"; id: string; cost: number };
+  type Next = { kind: "gen" | "upgrade" | "lot" | "grow" | "lab" | "office"; id: string; cost: number };
   const cheapest = (): Next | null => {
     syncAvailableUpgrades();
     const have = new Set(useUpgradeStore.getState().unlockedUpgradeIds);
@@ -303,7 +324,9 @@ export function simulateMapRun(
     if (built.has("campus")) consider({ kind: "lab", id: "lab", cost: buildCost("lab")!.toNumber() });
     for (const g of useGeneratorStore.getState().generators) {
       const id = g.id as GeneratorId;
-      if (roomFor(id, g.amount) >= 1) consider({ kind: "gen", id, cost: getGeneratorCost(id, 1).toNumber() });
+      // NO DESK for the next: an office first, as a lot when there is no bed.
+      if (onMap(id) + 1 > desksOf(id) && built.has(FIRST[id][0])) consider({ kind: "office", id, cost: buildCost(OFFICE_OF[id])!.toNumber() });
+      else if (roomFor(id, g.amount) >= 1) consider({ kind: "gen", id, cost: getGeneratorCost(id, 1).toNumber() });
       else {
         // No bed: the next of them costs a lot, or a service, first.
         const way = bestBeds(id);
@@ -355,6 +378,10 @@ export function simulateMapRun(
           streets[id][way.street].tier++;
         }
         beds[id] = (id === "intern" ? 2 : 0) + streets[id].reduce((n, st) => n + st.lots * TIER_SLOTS[st.tier], 0);
+      } else if (next.kind === "office") {
+        spend(next.cost);
+        report.spentOnOffices += next.cost; report.offices++;
+        offices[next.id as GeneratorId]++;
       } else if (next.kind === "lab") {
         spend(next.cost);
         report.spentOnLabs += next.cost; report.labs++;

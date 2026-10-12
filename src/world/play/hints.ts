@@ -40,6 +40,8 @@ export type HintState = {
   levees: number;
   /** Whether a flood has been announced and not yet struck. */
   floodWarning: boolean;
+  /** People living on the map with no desk to go to. @see seat */
+  deskless: number;
 };
 
 export type Hint = {
@@ -101,6 +103,13 @@ export const HINTS: readonly Hint[] = [
     target: "build",
     when: (s) => s.built.has("townhall"),
     done: (s) => s.services > 0,
+  },
+  {
+    id: "desks",
+    text: "Your people have outgrown their desks, and working without one costs you. An Office, in their row of Build, adds desks.",
+    target: "build",
+    when: (s) => s.deskless > 0,
+    done: (s) => s.offices > 0,
   },
   {
     id: "commute",

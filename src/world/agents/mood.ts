@@ -88,7 +88,8 @@ export function moodsOf(
     const c = working.has(housedBy(s.def)!.id) ? commutes.get(s.id) : undefined;
     if (c) {
       if (c.tiles === null) parts.push({ why: "no road to work", points: MOOD.stranded });
-      else if (c.eff < 1) parts.push({ why: "long commute", points: Math.round(((1 - c.eff) * 10) * MOOD.perTenthLost) });
+      // Without a desk, it is that more than the walk that weighs. @see DESKLESS
+      else if (c.eff < 1) parts.push({ why: c.deskless > 0 ? "no desk" : "long commute", points: Math.round(((1 - c.eff) * 10) * MOOD.perTenthLost) });
     }
     const have = coverage.get(s.id);
     if (!have?.size) parts.push({ why: "no services", points: MOOD.noServices });

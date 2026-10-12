@@ -12,6 +12,12 @@
  *  - and no road to any workplace at all, `STRANDED`.
  * So where housing goes, and where offices go, is a choice the economy feels:
  * a sprawling town with one office at the end of it works at half speed.
+ *
+ * AND EVERY WORKPLACE HAS SO MANY DESKS. People take the nearest free desk:
+ * the closest house and workplace fill first, and a house whose nearest is
+ * full commutes on to the next. When every desk of a kind is taken, the rest
+ * work without one, at `DESKLESS`. So a growing company needs desks as it
+ * needs beds — an office is room to work as well as a shorter walk.
  * @see commuteFactor, attendance
  *
  * People living off the map work remotely, and lose nothing.
@@ -37,6 +43,15 @@ export function workplaceKind(defId: string): GeneratorId | null {
   return null;
 }
 
+/** Desks at each kind of workplace. @see seat */
+export const DESKS: Record<string, number> = {
+  garage: 20, "office-intern": 40,
+  studio: 30, "office-vibe": 40,
+  campus: 10, "office-10x": 10,
+};
+/** What people manage with no desk to go to: perched wherever they can. */
+export const DESKLESS = 0.35;
+
 /** Tiles of commute that cost nothing, what each one past them costs, and the least a commute leaves. */
 export const FREE = 8;
 export const PER_TILE = 0.0125;
@@ -48,8 +63,12 @@ export const STRANDED = 0.25;
 export const commuteEfficiency = (tiles: number | null): number =>
   tiles === null ? STRANDED : Math.max(WORST, Math.min(1, 1 - (tiles - FREE) * PER_TILE));
 
-/** One house's commute: how far, what it leaves of the work, and where to. */
-export type Commute = { tiles: number | null; eff: number; to: number | null };
+/**
+ * One house's commute: how far its people go (to the desk most of them
+ * have), what it leaves of their work — the commute for those with a desk,
+ * DESKLESS for those without — where to, and how many found no desk.
+ */
+export type Commute = { tiles: number | null; eff: number; to: number | null; deskless: number };
 
 const DIRS = ["N", "E", "S", "W"] as const;
 
@@ -60,60 +79,123 @@ const DIRS = ["N", "E", "S", "W"] as const;
  * there are.
  */
 export function commutesOf(g: Grid, places: readonly Place[]): Map<number, Commute> {
-  const doorOf = new Map<number, Place>();
-  for (const p of places) if (p.kind === "door" && p.structure !== undefined) doorOf.set(p.structure, p);
-  const out = new Map<number, Commute>();
-  for (const who of Object.keys(WORKPLACES) as GeneratorId[]) {
-    const houses = [...g.structures.values()].filter((s) => housedBy(s.def)?.id === who);
-    if (!houses.length) continue;
-    const dist = new Int32Array(g.w * g.h).fill(-1);
-    const from = new Int32Array(g.w * g.h).fill(-1);
-    const queue: number[] = [];
-    for (const s of g.structures.values()) {
-      if (s.build || workplaceKind(s.def) !== who) continue;
-      const d = doorOf.get(s.id);
-      if (!d) continue;
-      const i = idx(g, d.x, d.y);
-      if (dist[i] >= 0) continue;
-      dist[i] = 0; from[i] = s.id; queue.push(i);
-    }
-    for (let q = 0; q < queue.length; q++) {
-      const i = queue[q], x = i % g.w, y = (i - x) / g.w;
-      for (const dir of DIRS) {
-        if (!connects(g, x, y, dir)) continue;
-        const [dx, dy] = NEIGHBOUR[dir];
-        const j = idx(g, x + dx, y + dy);
-        if (dist[j] >= 0) continue;
-        dist[j] = dist[i] + 1; from[j] = from[i]; queue.push(j);
-      }
-    }
-    for (const s of houses) {
-      const d = doorOf.get(s.id);
-      const i = d ? idx(g, d.x, d.y) : -1;
-      const tiles = i >= 0 && dist[i] >= 0 ? dist[i] : null;
-      out.set(s.id, { tiles, eff: commuteEfficiency(tiles), to: tiles === null ? null : from[i] });
-    }
-  }
-  return out;
+  return seat(g, places).commutes;
 }
 
-let memo: { g: Grid | null; rev: number; sites: number; value: Map<number, Commute> } = { g: null, rev: -1, sites: -1, value: new Map() };
+/** Every house's commute, and how full each workplace is: desks taken, and desks. */
+export type Seating = { commutes: Map<number, Commute>; desks: Map<number, { used: number; of: number }> };
+
+/** Tiles along the roads from one door to every cell, -1 where there is no way. */
+function roadsFrom(g: Grid, start: number): Int32Array {
+  const dist = new Int32Array(g.w * g.h).fill(-1);
+  const queue = [start];
+  dist[start] = 0;
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q], x = i % g.w, y = (i - x) / g.w;
+    for (const dir of DIRS) {
+      if (!connects(g, x, y, dir)) continue;
+      const [dx, dy] = NEIGHBOUR[dir];
+      const j = idx(g, x + dx, y + dy);
+      if (dist[j] >= 0) continue;
+      dist[j] = dist[i] + 1;
+      queue.push(j);
+    }
+  }
+  return dist;
+}
 
 /**
- * Every house's commute on this map now, worked out again only when the map
- * has been edited — roads and buildings are what it depends on. Shared by the
- * economy, which asks every tick, and the labels. @see Grid.rev
+ * WHO SITS WHERE: each kind's people living on the map, given desks at its
+ * finished workplaces, the nearest pairs of house and workplace first. A
+ * search along the roads from each workplace's door — a town has a handful
+ * of workplaces of a kind, and the roads are a few thousand cells.
  */
-export function liveCommutes(g: Grid, net: Network): Map<number, Commute> {
+export function seat(g: Grid, places: readonly Place[]): Seating {
+  const doorOf = new Map<number, Place>();
+  for (const p of places) if (p.kind === "door" && p.structure !== undefined) doorOf.set(p.structure, p);
+  const commutes = new Map<number, Commute>();
+  const desks = new Map<number, { used: number; of: number }>();
+  for (const who of Object.keys(WORKPLACES) as GeneratorId[]) {
+    const houses = [...g.structures.values()].filter((s) => housedBy(s.def)?.id === who);
+    const works = [...g.structures.values()].filter((s) => !s.build && workplaceKind(s.def) === who);
+    for (const w of works) desks.set(w.id, { used: 0, of: DESKS[w.def] ?? 0 });
+    if (!houses.length) continue;
+    // Every house and workplace a road joins, nearest first.
+    const pairs: { house: number; work: number; tiles: number }[] = [];
+    for (const w of works) {
+      const wd = doorOf.get(w.id);
+      if (!wd) continue;
+      const dist = roadsFrom(g, idx(g, wd.x, wd.y));
+      for (const h of houses) {
+        const hd = doorOf.get(h.id);
+        const t = hd ? dist[idx(g, hd.x, hd.y)] : -1;
+        if (t >= 0) pairs.push({ house: h.id, work: w.id, tiles: t });
+      }
+    }
+    pairs.sort((a, b) => a.tiles - b.tiles || a.house - b.house);
+    const left = new Map(houses.map((h) => [h.id, residentsIn(h)]));
+    const sat = new Map<number, { work: number; tiles: number; n: number }[]>();
+    for (const p of pairs) {
+      const want = left.get(p.house) ?? 0, room = desks.get(p.work)!;
+      const n = Math.min(want, room.of - room.used);
+      if (n <= 0) continue;
+      room.used += n;
+      left.set(p.house, want - n);
+      const list = sat.get(p.house) ?? [];
+      list.push({ work: p.work, tiles: p.tiles, n });
+      sat.set(p.house, list);
+    }
+    const reachable = new Set(pairs.map((p) => p.house));
+    for (const h of houses) {
+      const n = residentsIn(h), list = sat.get(h.id) ?? [], deskless = left.get(h.id) ?? 0;
+      if (!reachable.has(h.id)) {
+        // No road to anywhere its people could work.
+        commutes.set(h.id, { tiles: null, eff: STRANDED, to: null, deskless: 0 });
+        continue;
+      }
+      // An empty house: the commute its people would have, to the nearest.
+      const nearest = pairs.find((p) => p.house === h.id)!;
+      if (n === 0) {
+        commutes.set(h.id, { tiles: nearest.tiles, eff: commuteEfficiency(nearest.tiles), to: nearest.work, deskless: 0 });
+        continue;
+      }
+      const main = list.reduce<{ work: number; tiles: number; n: number } | null>((m, x) => (!m || x.n > m.n ? x : m), null);
+      const work = list.reduce((sum, x) => sum + x.n * commuteEfficiency(x.tiles), 0) + deskless * DESKLESS;
+      commutes.set(h.id, {
+        tiles: main?.tiles ?? nearest.tiles, eff: work / n, to: main?.work ?? nearest.work, deskless,
+      });
+    }
+  }
+  return { commutes, desks };
+}
+
+let memo: { g: Grid | null; rev: number; sites: number; people: string; value: Seating } = {
+  g: null, rev: -1, sites: -1, people: "", value: { commutes: new Map(), desks: new Map() },
+};
+
+/**
+ * Who sits where on this map now, worked out again only when the map has
+ * been edited, a site has opened, or people have moved in or out — roads,
+ * buildings and residents are what it depends on. Shared by the economy,
+ * which asks every tick, and the labels. @see Grid.rev
+ */
+export function liveSeating(g: Grid, net: Network): Seating {
   // And the sites still going up: one opening is a new workplace, though
   // finishing a build is not an edit of the map.
-  let sites = 0;
-  for (const st of g.structures.values()) if (st.build) sites++;
-  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites) {
-    memo = { g, rev: g.rev, sites, value: commutesOf(g, placesOf(g, net)) };
+  let sites = 0, a = 0, b = 0;
+  for (const st of g.structures.values()) {
+    if (st.build) sites++;
+    if (housedBy(st.def)) { const n = residentsIn(st); a += n; b = (b * 31 + n * st.id) | 0; }
+  }
+  const people = `${a}:${b}`;
+  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.people !== people) {
+    memo = { g, rev: g.rev, sites, people, value: seat(g, placesOf(g, net)) };
   }
   return memo.value;
 }
+
+/** Every house's commute on this map now. @see liveSeating */
+export const liveCommutes = (g: Grid, net: Network): Map<number, Commute> => liveSeating(g, net).commutes;
 
 /**
  * WHAT COMMUTING LEAVES of each kind's work: the share of a full day's work
