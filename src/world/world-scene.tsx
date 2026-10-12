@@ -142,6 +142,8 @@ import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
 import { buyable, PARCELS, parcelOf } from "./land";
+import { busyness, darkness, dayPhase, NIGHT_COLOUR } from "./daylight";
+import { useGlobalSettingsStore } from "../state/global-settings.store";
 
 // Required: <pixiContainer> is only a known element once Container is
 // registered with @pixi/react, and without it `rootRef` never populates.
@@ -290,6 +292,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // NOT DRAWN while out of sight: the stage goes dark, the ticks go on. @see mapHidden
   const mapHidden = useWorldStore((s) => s.mapHidden);
   useEffect(() => { app.stage.visible = !mapHidden; }, [app, mapHidden]);
+  // NIGHT over the map in the game: one translucent sheet the size of the
+  // screen, darker as the day turns. @see world/daylight
+  const night = useRef<Graphics | null>(null);
+  useEffect(() => {
+    const g = new Graphics();
+    g.eventMode = "none";
+    g.zIndex = 1e9;
+    app.stage.sortableChildren = true;
+    app.stage.addChild(g);
+    night.current = g;
+    return () => { g.parent?.removeChild(g); g.destroy(); night.current = null; };
+  }, [app]);
 
   // Build the scene whenever the grid identity changes (new/resized map).
   useEffect(() => {
@@ -2452,6 +2466,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   useTick((ticker) => {
     const sl = slRef.current, bl = blRef.current, tex = texRef.current;
     const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
+    // THE HOUR, in the game: the night over the map, and how busy the streets
+    // are. Off, or in the editor, a plain bright noon. @see world/daylight
+    {
+      const on = useWorldStore.getState().playing && useGlobalSettingsStore.getState().dayNight;
+      const phase = dayPhase(Date.now());
+      getTown().busy = on ? busyness(phase) : undefined;
+      const g = night.current;
+      if (g) {
+        const a = on ? darkness(phase) : 0;
+        g.clear();
+        if (a > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: NIGHT_COLOUR, alpha: a });
+      }
+    }
     // The water runs every frame, and the mesh is rebuilt from it every frame:
     // the surface changes everywhere at once, so there is no incremental
     // version of drawing it.

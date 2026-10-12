@@ -79,6 +79,11 @@ export type Mover = {
 };
 
 export type Town = {
+  /**
+   * How busy the streets are at this hour, against an ordinary one, and the
+   * share of trips that are to work and home. Set by the scene. @see busyness
+   */
+  busy?: { traffic: number; commute: number };
   movers: Mover[];
   /** Movers on a job that arrived since the last look. @see stepWorks */
   arrived: Mover[];
@@ -372,7 +377,9 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   }
 
   // SETTING OFF, one at a time, while the town is short.
-  const want = wanted(t.places.filter((p) => !p.building));
+  const base = wanted(t.places.filter((p) => !p.building));
+  const busy = t.busy ?? { traffic: 1, commute: COMMUTE_SHARE };
+  const want = { cars: Math.round(base.cars * busy.traffic), people: Math.round(base.people * busy.traffic) };
   // Everything that drives keeps its distance from everything else that does;
   // only the town's own trips count towards how many trips it has.
   const cars = t.movers.filter(drives);
@@ -381,14 +388,14 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   t.untilCar -= h;
   if (t.untilCar <= 0 && tripCars < want.cars) {
     t.untilCar = CAR_EVERY;
-    const trip = (rand(t) < COMMUTE_SHARE ? commuteTrip(t, g, net, "car") : null) ?? tripFor(t, "car");
+    const trip = (rand(t) < busy.commute ? commuteTrip(t, g, net, "car") : null) ?? tripFor(t, "car");
     const m = trip && setOff(t, g, "car", ...trip);
     if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR)) t.movers.push(m);
   }
   t.untilPerson -= h;
   if (t.untilPerson <= 0 && people < want.people) {
     t.untilPerson = PERSON_EVERY;
-    const trip = (rand(t) < COMMUTE_SHARE ? commuteTrip(t, g, net, "person") : null) ?? tripFor(t, "person");
+    const trip = (rand(t) < busy.commute ? commuteTrip(t, g, net, "person") : null) ?? tripFor(t, "person");
     const m = trip && setOff(t, g, "person", ...trip);
     if (m) t.movers.push(m);
   }

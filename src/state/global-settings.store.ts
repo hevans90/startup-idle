@@ -12,6 +12,9 @@ export type SidebarTab =
 type GlobalSettingsStore = {
   sidebarTab: SidebarTab;
   setSidebarTab: (tab: SidebarTab) => void;
+  /** Whether the company's map has a day and a night. @see world/daylight */
+  dayNight: boolean;
+  setDayNight: (on: boolean) => void;
 };
 
 export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
@@ -21,6 +24,8 @@ export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
       setSidebarTab: (tab: SidebarTab) => {
         set({ sidebarTab: tab });
       },
+      dayNight: true,
+      setDayNight: (dayNight) => set({ dayNight }),
     }),
     {
       name: "global-settings", // name of item in localStorage

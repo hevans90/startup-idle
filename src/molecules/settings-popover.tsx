@@ -7,6 +7,7 @@ import {
   PopoverTrigger,
 } from "../ui/Popover";
 import { MapEventsToggle } from "./map-events-toggle";
+import { DayNightToggle } from "./day-night-toggle";
 import { ResetButton } from "./reset-button";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -40,6 +41,7 @@ export const SettingsPopover = ({
           <ResetButton />
           <ThemeToggle />
           <MapEventsToggle />
+          <DayNightToggle />
         </div>
       </PopoverContent>
     </Popover>
