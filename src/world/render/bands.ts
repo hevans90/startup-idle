@@ -148,7 +148,12 @@ export function createBandLayer(w: number, h: number): BandLayer {
     const under = new Container();       // water beneath a deck. @see underOf
     const paved = new Container();   // one sprite per cell, so order is moot
     const structures = new Container();  // tall, so above the ground and roads
-    const dyn = new Container();
+    // MOVERS IN A RENDER GROUP OF THEIR OWN: they re-sort and change band
+    // every frame, and each of those is a change to the structure of the
+    // group they are in. In the chunk's group, that rebuilt the draw list of
+    // every tile and building in the chunk, every frame — a town's worth of
+    // batching for a few cars. In their own, only theirs. @see town-render
+    const dyn = new Container({ isRenderGroup: true });
     dyn.sortableChildren = true;         // movers sort by frac(x + y)
 
     band.addChild(cliff);                // columns, terrain, roads, builds, movers
