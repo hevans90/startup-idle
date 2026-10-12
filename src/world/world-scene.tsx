@@ -336,6 +336,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // the host. @see createGpuWaterLayer
       const onGpu = waterOnGpu();
       rendererRef.current = app?.renderer ?? null;
+      // THE RENDERER'S DEVICE, for the water solver to run on. It was handed
+      // over inside the development-only block of console hooks, so a
+      // production build — and any page where something in that block threw
+      // first — never had one, and the CPU stepped the water every frame on
+      // a machine with a perfectly good GPU. @see heldDevice
+      holdDevice((app?.renderer as unknown as { gpu?: { device: GPUDevice } } | undefined)?.gpu?.device ?? null);
       // NO GARBAGE COLLECTION. Pixi's frees the GPU data of anything it has
       // not drawn for a minute — and the map is cached in render groups, a
       // chunk of bands each, whose instructions still point at that data when
@@ -1186,8 +1192,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // solvers do. It is slow on purpose — the whole field goes up and comes
         // back every time — and it points at your own terrain, which is where
         // the faults have all come from.
-        holdDevice((app.renderer as unknown as { gpu?: { device: GPUDevice } })
-          .gpu?.device ?? null);
         window.__gpuCheck = async () => {
           const device = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
             .gpu?.device;
@@ -2023,6 +2027,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // textures are views over. @see Carried
     const layer = gpuRef.current;
     solverField.current = field.columns;
+    try {
     solverRef.current = createGpuWater(
       device, field.columns,
       layer
@@ -2035,6 +2040,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         ? deviceSinks(layer, rendererRef.current)
         : [],
     );
+    } catch (e) {
+      // A SOLVER THAT WOULD NOT BUILD on a device that is there: said, with
+      // the error, rather than leaving the CPU to step the water unexplained.
+      solverRef.current = null;
+      noSolver.current = `the GPU solver failed to build: ${e instanceof Error ? e.message : String(e)}`;
+      console.error("WATER: the GPU solver failed to build —", e);
+      sayWaterSolver("cpu", noSolver.current);
+      return;
+    }
+    noSolver.current = null;
     // AND THE GATHERING, which only runs while the device owns the water: it
     // reads the depth and ground TEXTURES, and those are only filled ahead of
     // it by the solver's own copy. @see gatherQuads
@@ -2086,6 +2101,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     return () => {
       solverRef.current?.destroy();
       solverRef.current = null;
+      noSolver.current = "the scene is being rebuilt (sceneEpoch or the water toggle changed); the GPU solver goes with it";
       // BACK TO THE IDENTITY. The list holds a gathering that will not be
       // refreshed once the device stops, and a stale gathering is water drawn
       // where it no longer is. @see quadCap
@@ -2118,6 +2134,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    */
   /** The band cull, as the tick runs it and the bench calls it. */
   const cullBandsRef = useRef<(() => void) | null>(null);
+  /** Why there is no GPU solver just now, and how many CPU frames that has cost. @see sayWaterSolver */
+  const noSolver = useRef<string | null>("not built yet");
+  const cpuFrames = useRef(0);
+  const cpuSaid = useRef(0);
   const waterFrameRef = useRef<((dt: number) => { solve: number; build: number } | null) | null>(null);
   waterFrameRef.current = (dt: number) => {
     // THE BANDS ON SCREEN FIRST, so the water draws for this frame's view and
@@ -2172,7 +2192,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         solverRef.current.destroy();
         solverRef.current = null;
         gpuWaterSaw(null);
-        sayWaterSolver("cpu", "the water field was replaced (a new map, a resize or a first bridge); the GPU solver is rebuilding");
+        noSolver.current = "the water field was replaced (a new map, a resize or a first bridge); the GPU solver is rebuilding";
+        sayWaterSolver("cpu", noSolver.current);
       }
       solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);
@@ -2191,7 +2212,25 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         solver.step(field.columns, dt);
         gpuWaterSaw(solver.last());
       }
-      else stepWater(field, dt);
+      else {
+        // THE CPU STEPPING WHILE A DEVICE IS HELD is the case nobody can see:
+        // said every few seconds while it lasts, with the state and the last
+        // thing that took the solver away. @see noSolver
+        if (heldDevice()) {
+          cpuFrames.current++;
+          const now = performance.now();
+          // The first frames of a scene step on the CPU while the solver effect is still to run.
+          if (cpuFrames.current > 10 && now - cpuSaid.current > 5000) {
+            cpuSaid.current = now;
+            console.warn("WATER: the CPU solver is stepping although a WebGPU device is held —", {
+              frames: cpuFrames.current, gpuWater: useWorldStore.getState().gpuWater,
+              lost: deviceLost(), why: noSolver.current ?? "no solver was built yet (the solver effect has not run since the device came)",
+              sceneEpoch, fieldMatches: solverField.current === field.columns,
+            });
+          }
+        }
+        stepWater(field, dt);
+      }
       const t1 = performance.now();
       // THE QUADS THIS FRAME IS WORTH DRAWING, gathered before the mesh is
       // told how many to draw. On the device's own path that is after the
