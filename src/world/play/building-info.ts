@@ -318,33 +318,57 @@ export function gatherLabels(
   items: readonly { id: number; x: number; y: number; band: number; info: BuildingInfo }[],
   full: boolean, money: (n: number) => string, gap = 4,
 ): { ids: number[]; x: number; y: number; info: BuildingInfo }[] {
-  let groups = [...items].sort((p, q) => q.band - p.band).map((it) => ({
-    ids: [it.id], pts: [{ x: it.x, y: it.y }], infos: [it.info], info: it.info,
+  type Group = { ids: number[]; infos: BuildingInfo[]; info: BuildingInfo; sx: number; n: number; top: number };
+  let groups: Group[] = [...items].sort((p, q) => q.band - p.band).map((it) => ({
+    ids: [it.id], infos: [it.info], info: it.info, sx: it.x, n: 1, top: it.y,
   }));
-  const anchor = (g: (typeof groups)[number]) => ({
-    x: g.pts.reduce((n, p) => n + p.x, 0) / g.pts.length,
-    y: Math.min(...g.pts.map((p) => p.y)),
-  });
-  const box = (g: (typeof groups)[number]) => {
+  // Over the middle of its buildings, at the top of the highest.
+  const anchor = (g: Group) => ({ x: g.sx / g.n, y: g.top });
+  const box = (g: Group) => {
     const a = anchor(g), s = sizeOf(g.info, full);
     return { x: a.x - s.w / 2 - gap / 2, y: a.y - s.h - gap, w: s.w + gap, h: s.h + gap };
   };
-  for (let merged = true; merged;) {
-    merged = false;
-    const boxes = groups.map(box);
-    outer: for (let i = 0; i < groups.length; i++) {
-      for (let j = i + 1; j < groups.length; j++) {
-        const a = boxes[i], b = boxes[j];
-        if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) {
-          const g = groups[i], o = groups[j];
-          g.ids.push(...o.ids); g.pts.push(...o.pts); g.infos.push(...o.infos);
-          g.info = collate(g.infos, money);
-          groups = groups.filter((_, k) => k !== j);
-          merged = true;
-          break outer;
-        }
-      }
+  type Box = ReturnType<typeof box>;
+  const meet = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  // ANY TWO THAT MEET BECOME ONE, the nearer the camera keeping the other —
+  // and the one that grew is looked at again at once, since its box has
+  // moved and grown. Neighbours through a grid of fixed cells, so each look
+  // is local: it was every pair, a merge at a time, and on a big town that
+  // held the page for seconds. @see BuildingLabels
+  const CELL = 192;
+  const boxes = groups.map(box);
+  const cells = new Map<number, number[]>();
+  const key = (cx: number, cy: number) => cx * 73856093 ^ cy * 19349663;
+  const each = (b: Box, f: (k: number) => void) => {
+    for (let cx = Math.floor(b.x / CELL); cx <= Math.floor((b.x + b.w) / CELL); cx++) {
+      for (let cy = Math.floor(b.y / CELL); cy <= Math.floor((b.y + b.h) / CELL); cy++) f(key(cx, cy));
     }
+  };
+  const file = (k: number) => each(boxes[k], (c) => { const l = cells.get(c); if (l) l.push(k); else cells.set(c, [k]); });
+  groups.forEach((_, k) => file(k));
+  const gone = new Uint8Array(groups.length);
+  const queue = groups.map((_, k) => groups.length - 1 - k);
+  while (queue.length) {
+    const i = queue.pop()!;
+    if (gone[i]) continue;
+    let other = -1;
+    each(boxes[i], (c) => {
+      if (other >= 0) return;
+      for (const j of cells.get(c) ?? []) {
+        if (j !== i && !gone[j] && meet(boxes[i], boxes[j])) { other = j; return; }
+      }
+    });
+    if (other < 0) continue;
+    const a = Math.min(i, other), b = Math.max(i, other);
+    const g = groups[a], o = groups[b];
+    g.ids.push(...o.ids); g.infos.push(...o.infos);
+    g.sx += o.sx; g.n += o.n; g.top = Math.min(g.top, o.top);
+    g.info = collate(g.infos, money);
+    gone[b] = 1;
+    boxes[a] = box(g);
+    file(a);
+    queue.push(a);
   }
+  groups = groups.filter((_, k) => !gone[k]);
   return groups.map((g) => ({ ids: g.ids, ...anchor(g), info: g.info }));
 }

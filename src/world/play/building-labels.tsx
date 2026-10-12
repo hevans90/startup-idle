@@ -37,7 +37,9 @@ import { liveMoods } from "../agents/mood";
 import { useSlopPitStore } from "../../state/slop-pit.store";
 import { nearHub } from "../projects/labs";
 import { housedBy, residentsIn } from "../../game/housing";
-import { drawnTop, shownStructures } from "../structures/layer";
+import { drawnTop, shownStructures, type StructureLayer } from "../structures/layer";
+import type { Structure } from "../grid";
+import type { Viewport } from "pixi-viewport";
 import { gatherLabels, infoFor, type BuildingInfo, type InfoContext } from "./building-info";
 
 /** Below this zoom, a line a group rather than everything. */
@@ -46,6 +48,10 @@ export const DETAIL_FROM = 0.45;
 const READ_EVERY = 400;
 /** A change of zoom by more than this share gathers them again at once. */
 const REZOOM = 0.04;
+/** And a pan by more than this many screen pixels. */
+const REPAN = 160;
+/** How far off the screen, px, a building's label is still gathered. */
+const OFF = 300;
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
@@ -92,6 +98,29 @@ function gather(): InfoContext {
   return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, money: (n) => formatCurrency(n) };
 }
 
+/**
+ * WHERE A BUILDING'S LABEL GOES, on the screen: the top of what is drawn of
+ * it. Measured once in the world and kept, keyed on what changes the drawing
+ * — and only projected after that. Measuring is a `getBounds` on every
+ * sprite of the building, and on a big town doing it for every one at every
+ * look held the page for half a second. @see drawnTop
+ */
+const tops = new WeakMap<object, { key: string; x: number; y: number }>();
+function topOf(sl: StructureLayer, s: Structure, vp: Viewport): { x: number; y: number } | null {
+  const handle = sl.mounted.get(s.id)?.handle;
+  if (!handle) return null;
+  const key = `${s.def}:${s.residents ?? "-"}:${s.build ? Math.floor((s.build.done / s.build.need) * 20) : "done"}`;
+  let at = tops.get(handle);
+  if (!at || at.key !== key) {
+    const screen = drawnTop(sl, s.id);
+    if (!screen) return null;
+    const w = vp.toWorld(screen.x, screen.y);
+    at = { key, x: w.x, y: w.y };
+    tops.set(handle, at);
+  }
+  return vp.toScreen(at.x, at.y);
+}
+
 /** One label on the screen: the buildings it speaks for, and what it says. */
 type Group = { key: string; ids: number[]; info: BuildingInfo };
 
@@ -104,6 +133,7 @@ export function BuildingLabels({ className }: { className?: string }) {
   /** Each group's point in the world, and the zoom they were gathered at. */
   const anchors = useRef(new Map<string, { x: number; y: number }>());
   const gatheredAt = useRef(0);
+  const gatheredCentre = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!on) return;
@@ -118,8 +148,11 @@ export function BuildingLabels({ className }: { className?: string }) {
       const items: Parameters<typeof gatherLabels>[0][number][] = [];
       for (const s of st.grid.structures.values()) {
         const info = infoFor(s, ctx);
-        const top = info && drawnTop(sl, s.id);
+        const top = info && topOf(sl, s, vp);
         if (!info || !top) continue;
+        // ON THE SCREEN, or near it: a label nobody can see is not worth
+        // gathering, nor a node in the page. A pan gathers again. @see frame
+        if (top.x < -OFF || top.y < -OFF || top.x > vp.screenWidth + OFF || top.y > vp.screenHeight + OFF) continue;
         items.push({ id: s.id, x: top.x, y: top.y, band: s.x + s.w + s.y + s.h, info });
       }
       const out = gatherLabels(items, detail, ctx.money);
@@ -133,6 +166,7 @@ export function BuildingLabels({ className }: { className?: string }) {
       });
       anchors.current = next;
       gatheredAt.current = scale;
+      gatheredCentre.current = { x: vp.center.x, y: vp.center.y };
       setFull(detail);
       setGroups(list);
     };
@@ -145,7 +179,10 @@ export function BuildingLabels({ className }: { className?: string }) {
       raf = requestAnimationFrame(frame);
       const vp = useWorldStore.getState().viewport;
       if (!vp) return;
-      if (Math.abs(vp.scale.x / (gatheredAt.current || 1) - 1) > REZOOM) read();
+      // A ZOOM, or a pan far enough to bring others on: gathered again at once.
+      const c = gatheredCentre.current;
+      const panned = c ? Math.hypot(vp.center.x - c.x, vp.center.y - c.y) * vp.scale.x > REPAN : false;
+      if (Math.abs(vp.scale.x / (gatheredAt.current || 1) - 1) > REZOOM || panned) read();
       for (const [key, el] of els.current) {
         const w = anchors.current.get(key);
         if (!w) { el.style.visibility = "hidden"; continue; }

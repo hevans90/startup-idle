@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 
 import type { Structure } from "../grid";
 import { collate, gatherLabels, infoFor, type InfoContext } from "./building-info";
@@ -74,6 +74,18 @@ describe("labels too close to show apart", () => {
     // Four hundred apart: one each.
     const far = items.map((it) => ({ ...it, x: it.id * 400 }));
     expect(gatherLabels(far, true, String).map((g) => g.ids.length)).toEqual([1, 1, 1]);
+  });
+
+  test("a big town gathers in moments: no two labels left overlapping, and fast", () => {
+    jest.useRealTimers();
+    // Rows of houses forty pixels apart, as a dense town is on the screen.
+    const items = Array.from({ length: 3000 }, (_, k) => ({
+      id: k, x: (k % 100) * 40 - Math.floor(k / 100) * 30, y: (k % 100) * 20 + Math.floor(k / 100) * 25, band: k, info: house(k, 1),
+    }));
+    const t0 = performance.now();
+    const groups = gatherLabels(items, true, String);
+    expect(performance.now() - t0).toBeLessThan(250);
+    expect(groups.flatMap((g) => g.ids).length).toBe(3000);
   });
 
   test("nothing is ever left out", () => {
