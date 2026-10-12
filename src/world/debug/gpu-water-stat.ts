@@ -115,3 +115,28 @@ export function gpuWaterAlarm(): string | null {
   return `clamp ate ${clampEver.toFixed(2)} over ${clampFrames}`
     + ` frame${clampFrames === 1 ? "" : "s"}, from readback ${clampFirst}`;
 }
+
+/**
+ * WHICH SOLVER IS STEPPING THE WATER, and why, said in the console every time
+ * it changes. The CPU solver is the reference and is slow on a big map; when
+ * it runs because something declined the device — no WebGPU, a lost device,
+ * the toggle — that has to be findable without a debugger.
+ * `window.__waterSolver()` answers it at any time, with what it was before.
+ */
+let saidSolver = "";
+let current: { solver: "gpu" | "cpu"; why: string | null } = { solver: "cpu", why: "not decided yet" };
+const history: string[] = [];
+export function sayWaterSolver(solver: "gpu" | "cpu", why: string | null): void {
+  current = { solver, why };
+  history.push(`${Math.round(performance.now())}ms ${solver}${why ? `: ${why}` : ""}`);
+  if (history.length > 20) history.shift();
+  const line = solver === "gpu" ? "GPU solver (WebGPU compute)" : `CPU solver — ${why ?? "no reason recorded"}`;
+  if (line === saidSolver) return;
+  saidSolver = line;
+  if (solver === "gpu") console.info("WATER:", line);
+  else console.warn("WATER:", line);
+}
+export const waterSolverNow = () => current;
+if (typeof window !== "undefined") {
+  (window as unknown as { __waterSolver?: () => unknown }).__waterSolver = () => ({ ...current, history: [...history] });
+}

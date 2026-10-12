@@ -155,6 +155,7 @@ src/
 - **World editor:** `?world=1`, every terrain, road, water and structure tool, with undo, fixtures and overlays.
 - **URL flags:** `?fixture=<name>` (a test map, not saved), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck` / `?gpuwhy`.
 - **Window hooks in dev:** `__world`, `__town()`, `__structures`, `__net`; `__waterBench(n, true)` drives frames; `__fakeHires = { intern: 9 }` sends hires nobody made; `__eventNow` brings an event forward. Use these, not `import()`, which loads a second copy of each module.
+- **Which water solver runs, and why**, is logged once per change (`WATER: GPU solver` / `WATER: CPU solver — <reason>`, and `GPU:` lines for the device); `window.__waterSolver()` gives it with its history.
 - **A hidden tab or pane pauses `requestAnimationFrame`**, so its frame numbers mean nothing.
 - **Labeller** (`dev/roadlabel.html`) authors `building-kits.json`, `road-labels.json` and `slope-labels.json`: hand-authored data, never overwritten by code.
 - **The DEV panel** (cheats) exists only in development builds (`import.meta.env.DEV`).

@@ -125,7 +125,7 @@ import {
 import {
   SPRAY_BOUNDS, WIND_BOUNDS, checkPour, checkPourLive, compareFrames, flat,
 } from "../fluid/gpu/compare-frames";
-import { gpuWaterHeldBack, gpuWaterSaw } from "./debug/gpu-water-stat";
+import { gpuWaterHeldBack, gpuWaterSaw, sayWaterSolver } from "./debug/gpu-water-stat";
 import { flushStamps, holdStamps, stampsNow } from "./debug/gpu-stamps";
 import {
   createGpuFallLayer, destroyGpuFallLayer, drawGpuFalls, type GpuFallLayer,
@@ -133,7 +133,7 @@ import {
 import { COLUMNS_PER_TILE } from "./water/field";
 import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { heldDevice } from "./debug/gpu-device";
-import { deviceLost, onDeviceLost } from "./render/device";
+import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
 import {
   compareAccelerate, compareCliffs, pour as pourScene,
   scene as accelScene, spanned, spannedDry, spannedFull, spray,
@@ -1985,6 +1985,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         : !device || deviceLost() !== null ? "no device"
           : null,
     );
+    // SAID IN THE CONSOLE, with the reason, every time it changes. @see sayWaterSolver
+    // Not while the device is still being asked for: that is a moment, not a fall-back.
+    if (field && (device || deviceWhy() !== null || deviceLost() !== null || !gpuWater)) {
+      const lost = deviceLost();
+      sayWaterSolver(gpuWater && device && lost === null ? "gpu" : "cpu",
+        lost !== null ? `the GPU device was lost (${lost}); the CPU solver took over`
+          : !device ? `no WebGPU device: ${deviceWhy()}`
+            : !gpuWater ? "the GPU water toggle is off"
+              : null);
+    }
     if (!gpuWater || !field || !device || deviceLost() !== null) {
       solverRef.current?.destroy();
       solverRef.current = null;
@@ -2162,6 +2172,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         solverRef.current.destroy();
         solverRef.current = null;
         gpuWaterSaw(null);
+        sayWaterSolver("cpu", "the water field was replaced (a new map, a resize or a first bridge); the GPU solver is rebuilding");
       }
       solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);

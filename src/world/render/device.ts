@@ -46,6 +46,15 @@ let held: HeldGpu | null = null;
 export const heldGpu = (): HeldGpu | null => held;
 
 /**
+ * WHY THERE IS NO DEVICE, when there is none: no WebGPU in this browser, no
+ * adapter, or a device the adapter would not give. Null while one is held or
+ * none has been asked for. It was silent — a machine without WebGPU fell
+ * back to the CPU water with nothing in the console to say so. @see whyCpuWater
+ */
+let noDevice: string | null = null;
+export const deviceWhy = (): string | null => noDevice;
+
+/**
  * Why the device went, or null while it is still there.
  *
  * A device can be lost at any moment and for reasons that have nothing to do
@@ -216,10 +225,18 @@ export function openDevice(): Promise<HeldGpu | null> {
   if (opened) return opened;
   opened = (async () => {
     const gpu = (navigator as unknown as { gpu?: GPU }).gpu;
-    if (!gpu) return null;
+    if (!gpu) {
+      noDevice = "this browser has no WebGPU (navigator.gpu is missing: an old browser, an insecure origin, or WebGPU switched off)";
+      console.warn("GPU:", noDevice);
+      return null;
+    }
     try {
       const adapter = await gpu.requestAdapter();
-      if (!adapter) return null;
+      if (!adapter) {
+        noDevice = "the browser offered no GPU adapter (requestAdapter() gave null: WebGPU blocked for this GPU or driver, or chrome://gpu says it is disabled)";
+        console.warn("GPU:", noDevice);
+        return null;
+      }
       const wanted = [TIMING, ...PIXI_WANTS]
         .filter((f) => adapter.features.has(f)) as GPUFeatureName[];
       // AND THE TEXTURE SIZE THE ADAPTER ALREADY HAS.
@@ -276,10 +293,14 @@ export function openDevice(): Promise<HeldGpu | null> {
       });
       if (whyWanted()) watchCreation(device);
       held = { adapter, device };
+      const info = (adapter as unknown as { info?: { vendor?: string; architecture?: string; description?: string } }).info;
+      console.info("GPU: WebGPU device opened —", [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(" ") || "adapter details hidden");
       return held;
-    } catch {
+    } catch (e) {
       // No WebGPU, or an adapter that will not give a device. Pixi makes its
       // own and falls back to WebGL exactly as it did before this existed.
+      noDevice = `the adapter would not give a device: ${e instanceof Error ? e.message : String(e)}`;
+      console.warn("GPU:", noDevice);
       return null;
     }
   })();
