@@ -33,10 +33,11 @@ describe("the map's pacing", () => {
       });
       console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, services: map.services, spentOnServices: map.spentOnServices, stalled: map.stalledSeconds, parcels: map.parcels, spentOnLand: map.spentOnLand });
     }
-    // PACING GUARDS, from the balance passes (2026-10-11: core 1.45 h
-    // ungated, 1.33 h on a town with an 85% commute, 72 lots and 9 services
-    // with one lot a kind that grows; the Data Centre built on the way at 48
-    // minutes, the later wonders past the core run). Wide enough for tuning,
+    // PACING GUARDS, from the balance passes (2026-10-12: core 1.45 h
+    // ungated, 1.25 h on a town with an 85% commute, ~50 lots and 10 services
+    // with one lot a kind that grows, the slop pit trucked when nearly full;
+    // the Data Centre built on the way at 48 minutes, the later wonders past
+    // the core run). Wide enough for tuning,
     // tight enough to catch a wall.
     expect(map.totalSeconds).toBeLessThan(base.totalSeconds * 1.5);
     expect(map.tenth.intern!).toBeLessThan(5 * 60);
@@ -50,5 +51,38 @@ describe("the map's pacing", () => {
     // LAND is room to grow into, not a toll on the way: a parcel or two at most, cheap against hiring. @see world/land
     expect(map.parcels).toBeLessThanOrEqual(2);
     expect(map.spentOnLand).toBeLessThan(map.spentOnHires * 0.05);
+  });
+});
+
+describe("the late game", () => {
+  test("three hours past the core: the wonders built, the town content, nothing running away", () => {
+    const tick = jest.advanceTimersByTime.bind(jest);
+    const run = simulateMapRun(tick, { maxSimulatedSeconds: 86400 * 7, afterCore: 3 * 3600 });
+    if (process.env.BALANCE) {
+      console.table({
+        "core complete": fmt(run.coreAt ?? undefined),
+        "data centre": fmt(run.opened.datacentre),
+        "conference centre": fmt(run.opened.conference),
+        "IPO tower": fmt(run.opened.ipo),
+      });
+      console.log({
+        labs: run.labs, spentOnLabs: run.spentOnLabs, lots: run.lots, services: run.services, parcels: run.parcels,
+        mood: run.mood, townBonus: run.townBonus, income: run.income, spentOnHires: run.spentOnHires,
+        slopTrucked: run.slopTrucked, slopDrained: run.slopDrained,
+      });
+      console.table(run.headcount.map((h) => ({ at: fmt(h.at), ...h.owned })));
+    }
+    // LATE-GAME GUARDS (2026-10-12: conference centre at 1.8 h; the IPO
+    // tower, at 15 10x devs, out of a first run's reach — 10x devs stall at
+    // eight as their price passes twenty minutes of income; a wonder for a
+    // company with prestige behind it).
+    expect(run.coreAt).not.toBeNull();
+    expect(run.opened.conference!).toBeLessThan(3 * 3600);
+    // The pit seen to with trucks, mostly: a drain is the fallback.
+    expect(run.slopDrained).toBeLessThan(run.slopTrucked);
+    // Income never collapses: the last half hour still earns.
+    expect(run.income).toBeGreaterThan(0);
+    // No kind's town is miserable on a well-served map.
+    for (const m of Object.values(run.mood)) expect(m!).toBeGreaterThan(-15);
   });
 });

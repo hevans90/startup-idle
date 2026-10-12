@@ -27,6 +27,13 @@ import { getGeneratorCost } from "../utils/generator-utils";
 import { structureDef } from "../world/structures/def";
 import { STALL_GRACE } from "../world/projects/works";
 import { landPrice, STARTING_PARCELS } from "../world/land";
+import { LAB_SHARE } from "../world/projects/labs";
+import { useSlopPitStore } from "../state/slop-pit.store";
+import { HAUL_LOAD } from "../world/events/sludge";
+import { MOOD, MOOD_LIMIT } from "../world/agents/mood";
+import { setTownMoodReader } from "../game/town-mood";
+import { PER_GROWN, PER_SERVICE, PER_WONDER } from "../world/projects/town-worth";
+import { TOWN_BONUS_CAP } from "../game/acquisition";
 import { syncUnlockedGenerators } from "../state/generators.store";
 import { advanceGameplayOneSecond } from "./run-sim";
 import { resetAllGameStores } from "./reset-game-stores";
@@ -42,6 +49,8 @@ export type MapRunOptions = {
   founderDrive?: number;
   /** Seconds a load takes to arrive once paid for. */
   truck?: number;
+  /** Seconds to go on playing once the core upgrades are done: the late game. */
+  afterCore?: number;
 };
 
 export type MapRunReport = {
@@ -66,6 +75,22 @@ export type MapRunReport = {
   /** Parcels of land bought, and what they cost. @see world/land */
   parcels: number;
   spentOnLand: number;
+  /** When the core upgrades were done, seconds from the start. */
+  coreAt: number | null;
+  /** R&D labs bought, and what they cost. @see world/projects/labs */
+  labs: number;
+  spentOnLabs: number;
+  /** Each kind's mood at the end, as the town leans its satisfaction. @see moodOffsets */
+  mood: Partial<Record<GeneratorId, number>>;
+  /** What the town would add to the Equity offer at the end. @see townBonusOf */
+  townBonus: number;
+  /** Income a second at the end. */
+  income: number;
+  /** Times the slop pit was emptied by sludge trucks, and drained outright. */
+  slopTrucked: number;
+  slopDrained: number;
+  /** Headcount by kind, every half hour of the run. */
+  headcount: { at: number; owned: Partial<Record<GeneratorId, number>> }[];
 };
 
 const GATES: readonly ProjectId[] = ["garage", "townhall", "studio", "campus", "datacentre", "conference", "ipo"];
@@ -139,9 +164,35 @@ export function simulateMapRun(
     return out;
   };
   const stopBeds = setHousingReader(() => ({ ...beds }));
+  // R&D LABS, half of them near the campus. @see labReading
+  let labs = 0;
   const stopProjects = setProjectReader(() => ({
     built, away: away(), commute: { intern: commute, vibe_coder: commute, "10x_dev": commute },
+    labs: { count: labs, mult: 1 + labs * LAB_SHARE * 1.5 },
   }));
+  /**
+   * MOOD, a street at a time, as the game scores each of its houses: the
+   * commute, and its services or the want of them. Weighted by beds, as
+   * `moodOffsets` weights by residents. @see moodsOf
+   */
+  const streetMood = (tier: number) => {
+    let m = Math.round((1 - commute) * 10 * MOOD.perTenthLost);
+    if (tier === 0) m += MOOD.noServices;
+    if (tier >= 1) m += MOOD.cafe;
+    if (tier >= 2) m += MOOD.park;
+    if (tier >= 3) m += MOOD.gym;
+    return Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, m));
+  };
+  const moodNow = (): Partial<Record<GeneratorId, number>> => {
+    const out: Partial<Record<GeneratorId, number>> = {};
+    for (const [id, list] of Object.entries(streets) as [GeneratorId, { lots: number; tier: number }[]][]) {
+      let sum = 0, n = 0;
+      for (const st of list) { const b = st.lots * TIER_SLOTS[st.tier]; sum += streetMood(st.tier) * b; n += b; }
+      if (n) out[id] = sum / n;
+    }
+    return out;
+  };
+  const stopMood = setTownMoodReader(moodNow);
   // The roster as the gates now see it: no interns before the garage.
   syncUnlockedGenerators();
   useMoneyStore.getState().increaseMoney(getGeneratorCost("intern", 1).toNumber() || 5);
@@ -149,7 +200,7 @@ export function simulateMapRun(
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
     spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
-    parcels: 0, spentOnLand: 0,
+    parcels: 0, spentOnLand: 0, coreAt: null, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
@@ -188,6 +239,14 @@ export function simulateMapRun(
 
   /** One second of the town: projects started, worked, supplied and opened; hires arriving. */
   const stepTown = () => {
+    // THE SLOP PIT, seen to as a player would when it is about to overflow:
+    // trucks if they can be paid for, a drain if not. @see respondToEvent
+    const pit = useSlopPitStore.getState();
+    if (pit.fill >= 95) {
+      const trucks = Math.max(200, useGeneratorStore.getState().getMoneyPerSecond() * 20);
+      if (money() >= trucks) { spend(trucks); pit.haul(3 * HAUL_LOAD); report.slopTrucked++; }
+      else { pit.drain(); report.slopDrained++; }
+    }
     const o = owned();
     const unlocked = new Set(Object.entries(useInnovationStore.getState().unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
     // ONE PROJECT AT A TIME, as in the game: the first ready, in order. @see projectUnderWay
@@ -231,7 +290,7 @@ export function simulateMapRun(
     for (let k = pending.length - 1; k >= 0; k--) if (pending[k].at <= t) pending.splice(k, 1);
   };
 
-  type Next = { kind: "gen" | "upgrade" | "lot" | "grow"; id: string; cost: number };
+  type Next = { kind: "gen" | "upgrade" | "lot" | "grow" | "lab"; id: string; cost: number };
   const cheapest = (): Next | null => {
     syncAvailableUpgrades();
     const have = new Set(useUpgradeStore.getState().unlockedUpgradeIds);
@@ -240,6 +299,8 @@ export function simulateMapRun(
     for (const u of useUpgradeStore.getState().availableUpgrades) {
       if (coreIds.has(u.id) && !have.has(u.id)) consider({ kind: "upgrade", id: u.id, cost: u.cost });
     }
+    // A LAB, once the campus stands. @see world/projects/labs
+    if (built.has("campus")) consider({ kind: "lab", id: "lab", cost: buildCost("lab")!.toNumber() });
     for (const g of useGeneratorStore.getState().generators) {
       const id = g.id as GeneratorId;
       if (roomFor(id, g.amount) >= 1) consider({ kind: "gen", id, cost: getGeneratorCost(id, 1).toNumber() });
@@ -254,7 +315,17 @@ export function simulateMapRun(
 
   const coreComplete = () => UPGRADES_CORE.every((u) => useUpgradeStore.getState().unlockedUpgradeIds.includes(u.id));
   try {
-    while (!coreComplete() && t < maxSim) {
+    const afterCore = options.afterCore ?? 0;
+    while (t < maxSim) {
+      // THE CORE DONE, and then as long again as the late game is asked for.
+      if (report.coreAt === null && coreComplete()) report.coreAt = t;
+      if (report.coreAt !== null && t >= report.coreAt + afterCore) break;
+      if (t >= report.headcount.length * 1800) {
+        const o = owned(), income = Math.max(1e-9, useGeneratorStore.getState().getMoneyPerSecond());
+        // And what the next of each costs, in seconds of income.
+        const wait = Object.fromEntries(Object.keys(o).map((id) => [`${id}·s`, Math.round(getGeneratorCost(id as GeneratorId, 1).toNumber() / income)]));
+        report.headcount.push({ at: t, owned: { ...o, ...wait } as Partial<Record<GeneratorId, number>> });
+      }
       const next = cheapest();
       if (!next) { advanceGameplayOneSecond(advanceTimersByTime); t++; stepTown(); continue; }
       if (money() < next.cost) {
@@ -284,6 +355,10 @@ export function simulateMapRun(
           streets[id][way.street].tier++;
         }
         beds[id] = (id === "intern" ? 2 : 0) + streets[id].reduce((n, st) => n + st.lots * TIER_SLOTS[st.tier], 0);
+      } else if (next.kind === "lab") {
+        spend(next.cost);
+        report.spentOnLabs += next.cost; report.labs++;
+        labs++;
       } else if (next.kind === "gen") {
         const id = next.id as GeneratorId;
         useGeneratorStore.getState().purchaseGenerator(id, 1);
@@ -296,10 +371,21 @@ export function simulateMapRun(
         useUpgradeStore.getState().unlockUpgrade(next.id);
       }
     }
+    // WHERE IT ENDED UP: the town's mood, its worth at a sale, and income.
+    report.mood = moodNow();
+    let worth = 0;
+    for (const list of Object.values(streets)) {
+      for (const st of list) worth += st.lots * st.tier * PER_GROWN + st.tier * PER_SERVICE;
+    }
+    worth += PROJECTS.filter((p) => p.bonus && built.has(p.id)).length * PER_WONDER;
+    report.townBonus = Math.min(TOWN_BONUS_CAP, worth);
+    report.income = useGeneratorStore.getState().getMoneyPerSecond();
   } finally {
     stopBeds();
     stopProjects();
+    stopMood();
   }
-  report.totalSeconds = t;
+  // The core run's length, as it always was; the late game is extra.
+  report.totalSeconds = report.coreAt ?? t;
   return report;
 }
