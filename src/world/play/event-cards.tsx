@@ -18,7 +18,7 @@ const CARD =
   "w-[min(24rem,calc(100vw-1rem))] border px-3 py-2 text-xs shadow-md "
   + "bg-primary-50/95 text-primary-900 dark:bg-primary-900/95 dark:text-primary-100";
 const BTN =
-  "flex cursor-pointer flex-col items-start border border-primary-400 px-2 py-1 text-left hover:bg-primary-200 "
+  "flex cursor-pointer flex-col items-start border border-primary-400 px-2 py-1 text-left hover:bg-primary-200 pointer-coarse:min-h-11 "
   + "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-primary-600 dark:hover:bg-primary-800";
 
 function EventCard({ e }: { e: GameEvent }) {

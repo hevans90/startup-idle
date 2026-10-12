@@ -27,7 +27,7 @@ A satirical idle game about scaling a tech startup by any means necessary: hire 
 
 Every company builds a town (`world/play/company-map.tsx`). Buildings need **road frontage** and cost money. **First-run hints** (`play/hints.ts`) explain it a tip at a time, land, labs and flood walls included as they come up, with the thing they're about glowing (`data-hint`); they can be dismissed or switched off.
 
-**On a phone** (width ≤ 768): a Map and a Company tab under the money. The map stays mounted on either, so the gates hold as on a desktop; its panels fit the width and the tools are icons. One finger builds with a tool in hand, two pan and pinch.
+**On a phone** (width ≤ 768): a Map and a Company tab under the money. The map stays mounted on either, so the gates hold as on a desktop; its panels fit the width and the tools are icons. One finger builds with a tool in hand, two pan and pinch. On touch screens the map's buttons are at least 44 px.
 
 - **Build bar** (`build-bar.tsx`): beds per district; the tools (Look, Road, Lift, Build, Demolish, Land, Wonders, Mood, Labels); and a picker with a row per hireable kind (Lot, Office), then Services and Ports once unlocked. No scrolling.
 - **Undo** for 15 s after a build, road stroke or row of lots, money included (`undoLastBuild`). Refusals say why in a notice.

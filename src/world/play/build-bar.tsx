@@ -129,7 +129,7 @@ const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
 const PANEL = "border border-primary-300 bg-primary-50/95 shadow-md dark:border-primary-700 dark:bg-primary-900/95";
 const TOOL =
-  "flex cursor-pointer items-center gap-1 whitespace-nowrap px-2 py-1 text-xs text-primary-800 hover:bg-primary-200 "
+  "flex cursor-pointer items-center gap-1 whitespace-nowrap px-2 py-1 text-xs text-primary-800 hover:bg-primary-200 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center "
   + "dark:text-primary-200 dark:hover:bg-primary-800";
 const TOOL_ON = "bg-primary-800 text-primary-50 hover:bg-primary-800 dark:bg-primary-200 dark:text-primary-900 dark:hover:bg-primary-200";
 

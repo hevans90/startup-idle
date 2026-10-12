@@ -30,7 +30,7 @@ const CARD =
   "w-72 border border-primary-400 bg-primary-50/95 p-2 text-xs text-primary-900 shadow "
   + "dark:border-primary-600 dark:bg-primary-900/95 dark:text-primary-100";
 const BTN =
-  "cursor-pointer border border-primary-400 px-2 py-1 hover:bg-primary-200 "
+  "cursor-pointer border border-primary-400 px-2 py-1 hover:bg-primary-200 pointer-coarse:min-h-11 "
   + "dark:border-primary-600 dark:hover:bg-primary-800";
 const ON = "bg-primary-300 dark:bg-primary-700";
 
@@ -204,7 +204,7 @@ const SMALL =
   "w-56 border border-primary-400 bg-primary-50/95 px-2 py-1 text-[11px] text-primary-900 shadow "
   + "dark:border-primary-600 dark:bg-primary-900/95 dark:text-primary-100";
 const BTN_SMALL =
-  "cursor-pointer border border-primary-400 px-1.5 hover:bg-primary-200 disabled:cursor-default disabled:opacity-40 "
+  "cursor-pointer border border-primary-400 px-1.5 hover:bg-primary-200 disabled:cursor-default disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-3 "
   + "dark:border-primary-600 dark:hover:bg-primary-800";
 
 /** One project's card: its site to choose, or how it is going. */
