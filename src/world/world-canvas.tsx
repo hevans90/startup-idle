@@ -38,6 +38,7 @@ import { WorldViewport } from "./world-viewport";
 import { evacuatedAway } from "./events/flood";
 import { cleanupAway } from "./events/cleanup";
 import { startingLand } from "./land";
+import { markWorldGone, markWorldReady } from "../game/world-ready";
 import { labReading } from "./projects/labs";
 
 /**
@@ -233,6 +234,13 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;
       return { built, away, commute, labs };
     });
+  }, [play]);
+  // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is
+  // credited under the town's rules. Last, so it runs after them. @see whenWorldReady
+  useEffect(() => {
+    if (!play) return;
+    markWorldReady();
+    return markWorldGone;
   }, [play]);
 }
 

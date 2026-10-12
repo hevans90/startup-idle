@@ -15,6 +15,7 @@ import { GameStageTicker } from "./molecules/game-stage-ticker";
 import { Generators } from "./molecules/generators";
 import { InnovationCounter } from "./molecules/innovation-counter";
 import { OfflineSummaryModal } from "./molecules/offline-summary";
+import { whenWorldReady } from "./game/world-ready";
 import { PurchaseModeToggle } from "./molecules/purchase-mode-toggle";
 import { SellTransitionProvider } from "./molecules/sell-transition";
 import { SettingsPopover } from "./molecules/settings-popover";
@@ -93,15 +94,25 @@ function App() {
   }, [theme]);
 
   // Credit offline progression once, BEFORE the live loop starts ticking (it
-  // resets globalLastTick to now, so the first live tick can't double-count).
+  // resets globalLastTick to now, so the first live tick can't double-count)
+  // — and, with a company, once its map is up, so the time away is played by
+  // the town's rules: its beds, wonders, labs and who is away. @see whenWorldReady
+  const [offlineDone, setOfflineDone] = useState(false);
   useEffect(() => {
-    const summary = computeOfflineProgress();
-    if (summary) setOfflineSummary(summary);
+    const run = () => {
+      const summary = computeOfflineProgress();
+      if (summary) setOfflineSummary(summary);
+      setOfflineDone(true);
+    };
+    if (useFounderStore.getState().selectedFounderId == null) { run(); return; }
+    return whenWorldReady(run, 8000);
   }, []);
 
   // Mark presence so the next visit can measure time away: periodically and
   // whenever the tab is hidden/closed (the most reliable last-write before exit).
   useEffect(() => {
+    // Not before the time away is credited: a touch would erase it.
+    if (!offlineDone) return;
     const touch = () => useSessionStore.getState().touch();
     const id = setInterval(touch, 5000);
     const onHide = () => {
@@ -114,10 +125,10 @@ function App() {
       document.removeEventListener("visibilitychange", onHide);
       window.removeEventListener("pagehide", touch);
     };
-  }, []);
+  }, [offlineDone]);
 
   useEffect(() => {
-    if (founderId == null) return;
+    if (founderId == null || !offlineDone) return;
 
     // Grant any already-met achievements (e.g. from a loaded save) immediately
     // rather than waiting for the first throttled tick.
@@ -134,7 +145,7 @@ function App() {
       }
     }, 16);
     return () => clearInterval(id);
-  }, [founderId]);
+  }, [founderId, offlineDone]);
 
   return (
     <FloatingTree>

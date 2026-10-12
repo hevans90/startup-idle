@@ -140,7 +140,7 @@ src/
 ## Architecture
 
 - **State:** a Zustand store per system, persisted; `Decimal`s go through `decimalReplacer`/`decimalReviver`. Bumping the major or minor of `CURRENT_VERSION` wipes progress.
-- **Game loop:** an interval in `App.tsx`; per-second getters mirror the tick's multipliers, so shown rates match earnings.
+- **Game loop:** an interval in `App.tsx`; per-second getters mirror the tick's multipliers, so shown rates match earnings. Time away is credited once the map's readers are in (`whenWorldReady`), so it's played by the town's rules.
 - **The world reads, the economy listens:** `game/` never imports `world/` at runtime; the mounted map registers readers (beds, projects, mood, town worth).
 - **Grid:** dense typed arrays indexed `y*w+x`. Edits mark cells dirty and the renderer redraws only those.
 - **Bands:** one container per diagonal `x+y`, so nothing sorts; tall things are split per column. Bands are cached render groups, so **Pixi's GC is off** (`stopGarbageCollection`): it freed buffers cached chunks still drew.
