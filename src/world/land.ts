@@ -43,7 +43,7 @@ export const ownsTile = (g: Grid, land: readonly number[] | null, x: number, y: 
  * street runs through most, the middle one on a tie. Somewhere to put a
  * garage on a road is the one thing it must have.
  */
-export function startingLand(g: Grid): number[] {
+export function startingLand(g: Grid, extra = 0): number[] {
   let best: number[] = [], bestScore = -Infinity;
   for (let py = 0; py < PARCELS - 1; py++) {
     for (let px = 0; px < PARCELS - 1; px++) {
@@ -58,6 +58,20 @@ export function startingLand(g: Grid): number[] {
       const score = road - off * 0.5;
       if (score > bestScore) { bestScore = score; best = block; }
     }
+  }
+  // AND MORE, for a company whose founders have done this before: the parcels
+  // beside it with the most road, one at a time. @see EXTRA_PARCELS
+  for (let k = 0; k < extra; k++) {
+    let pick = -1, most = -1;
+    for (let p = 0; p < PARCELS * PARCELS; p++) {
+      if (!buyable(best, p)) continue;
+      const r = parcelRect(g, p);
+      let road = 0;
+      for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) if (g.paved[y * g.w + x]) road++;
+      if (road > most) { most = road; pick = p; }
+    }
+    if (pick < 0) break;
+    best = [...best, pick];
   }
   return best.sort((a, b) => a - b);
 }

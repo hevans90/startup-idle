@@ -69,6 +69,7 @@ import {
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { buildCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { useSessionStore } from "./session.store";
+import { usePrestigeStore } from "./prestige.store";
 import { buyable, landPrice, ownsTile, PARCELS, parcelOf, parcelRect, STARTING_PARCELS } from "../world/land";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
@@ -267,7 +268,13 @@ export const SLUDGE_TRUCKS = 3;
 /** What clearing a derelict building costs: fifteen seconds of income. @see DERELICT */
 export const clearingPrice = () => Math.max(200, Math.round(incomeNow() * 15));
 /** What the next parcel of land costs. @see landPrice */
-export const parcelPrice = () => landPrice(Math.max(0, (useSessionStore.getState().land?.length ?? 0) - STARTING_PARCELS), incomeNow());
+export const parcelPrice = () => {
+  // Counted from what a company starts with, its founders' extra included,
+  // and cheaper for those who have learned where to buy. @see EXTRA_PARCELS, CHEAP_LAND_MULT
+  const m = usePrestigeStore.getState().modifiers;
+  const bought = Math.max(0, (useSessionStore.getState().land?.length ?? 0) - STARTING_PARCELS - m.startingParcels);
+  return Math.round(landPrice(bought, incomeNow()) * m.landCostMult);
+};
 export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
 /** What sandbagging the riverside against a flood costs: half a minute of income. */
 export const sandbagPrice = () => Math.max(300, Math.round(incomeNow() * 30));
@@ -505,6 +512,8 @@ type WorldState = {
    * edit to undo. @see DERELICT
    */
   placeDerelicts: (land: readonly number[], seed: number) => void;
+  /** A café by the road on the company's own land, free: a founding gift. @see foundingCafe */
+  foundCafe: () => void;
   /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
   housingMoved: (ids: readonly number[]) => void;
   lastTouched: Cell[];
@@ -802,6 +811,18 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   mapHidden: false,
   setMapHidden: (mapHidden) => set({ mapHidden }),
+  foundCafe: () => {
+    const st = get();
+    const def = structureDef("cafe");
+    const spot = def && nearestSpot(st.grid, def, playRules(st.grid));
+    const cmd = spot && placeCommand(st.grid, def!, spot.x, spot.y, playRules(st.grid));
+    if (!cmd) return;
+    commit(st.grid, history, cmd);
+    if (water && touchesSurface(cmd)) syncGround(water, st.grid);
+    if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
+    history = createHistory();
+    set({ revision: get().revision + 1, ...historyMeta(), ...netMeta() });
+  },
   placeDerelicts: (land, seed) => {
     const st = get();
     let r = seed >>> 0;

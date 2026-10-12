@@ -46,6 +46,13 @@ describe("mopping up", () => {
     expect(town.movers.some((m) => m.job?.role === "cleaning")).toBe(false);
   });
 
+  test("a Clean Sweep needs half the people", () => {
+    const { g, studio, pit, field } = spill();
+    const net = createNetwork(g), town = createTown();
+    expect(stepCleanup(createCleanup(), town, g, net, field, pit, 60, [studio.id], 1 / 30)).toBe(8);
+    expect(stepCleanup(createCleanup(), town, g, net, field, pit, 60, [studio.id], 1 / 30, 1)).toBe(4);
+  });
+
   test("never more away than there are", () => {
     const { g, studio, pit, field } = spill();
     const net = createNetwork(g), town = createTown(), c = createCleanup();

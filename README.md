@@ -17,7 +17,7 @@ A satirical idle game about scaling a tech startup by any means necessary: hire 
 - **AI singularity:** a meter that creeps up when vibe coders are miserable.
 - **Founders:** six archetypes (Hacker, Bootstrapper, Visionary, Hustler, Agentic Delusionist, NEET). Each has a bonus that grows with every exit made as that founder. NEET starts with $5 and doubles money output per exit.
 - **Offline progress:** the real tick is replayed over the time away (capped at 2 days), with a "welcome back" summary.
-- **Acquisition (prestige):** sell the company for permanent **Equity**, start a fresh company, and spend Equity in a procedurally laid out skill tree of about 330 nodes.
+- **Acquisition (prestige):** sell the company for permanent **Equity**, start a fresh company, and spend Equity in a procedurally laid out skill tree of about 330 nodes. Four notables shape the next town: Company Town (+2 starting parcels), Cheap Real Estate (land −40%), Hometown Hero (a founding café) and Clean Sweep (half the mopping-up crew).
 
 ### Founding
 

@@ -80,7 +80,8 @@ import { liveCoverage, stepEvolution } from "./agents/services";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, stepLeaders } from "./agents/leaders";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
-import { cleanupAway, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
+import { CLEANERS_PER_TILE, cleanupAway, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
+import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, overflow, sludgedHouses, stepHaulers, syncPit, type PitLevel } from "./events/sludge";
 import {
   convoyTally, createPacing, endedBetween, HACKATHON_CODERS, isDue, repace, tallyCall, tickPacing, townMood,
@@ -2357,7 +2358,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // (In development, `__fakeHires` counts: a crew to watch with nobody hired.)
           const vibes = (ownedNow().vibe_coder ?? 0) + (import.meta.env.DEV ? window.__fakeHires?.vibe_coder ?? 0 : 0);
           const workplaces = [...st.grid.structures.values()].filter((s) => (s.def === "studio" || s.def === "office-vibe") && !s.build).map((s) => s.id);
-          setCleanupAway(pit && field ? stepCleanup(cleanup.current, getTown(), st.grid, net, field, pit, vibes, workplaces, dt) : 0);
+          setCleanupAway(pit && field ? stepCleanup(cleanup.current, getTown(), st.grid, net, field, pit, vibes, workplaces, dt, CLEANERS_PER_TILE * usePrestigeStore.getState().modifiers.cleanupMult) : 0);
           if (pit && field) {
             // It spills what is still coming in: the vibe coders at their desks.
             if (overflowing) overflow(field, pit, Math.max(0, vibes - cleanupAway()) * FILL_RATE_PER_CODER, dt);

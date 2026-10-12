@@ -340,3 +340,15 @@ describe("canRemoveWithoutOrphan", () => {
     expect(nodeById(SKILL_TREE).size).toBe(SKILL_TREE.nodes.length);
   });
 });
+
+describe("town perks", () => {
+  test("four notables shape a company's town, keeping their bonuses", () => {
+    const byTitle = new Map(SKILL_TREE.nodes.map((n) => [n.title, n]));
+    const m = resolvePrestigeModifiers(["Company Town", "Cheap Real Estate", "Hometown Hero", "Clean Sweep"].map((t) => byTitle.get(t)!.id));
+    expect(m.startingParcels).toBe(2);
+    expect(m.landCostMult).toBeCloseTo(0.6, 6);
+    expect(m.foundingCafe).toBe(true);
+    expect(m.cleanupMult).toBe(0.5);
+    expect(byTitle.get("Company Town")!.grants).toEqual([{ stat: "managerSpeed", kind: "pct", value: 12 }]);
+  });
+});

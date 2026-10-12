@@ -38,6 +38,7 @@ import { WorldViewport } from "./world-viewport";
 import { evacuatedAway } from "./events/flood";
 import { cleanupAway } from "./events/cleanup";
 import { startingLand } from "./land";
+import { usePrestigeStore } from "../state/prestige.store";
 import { markWorldGone, markWorldReady } from "../game/world-ready";
 import { labReading } from "./projects/labs";
 
@@ -122,8 +123,11 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   useEffect(() => {
     if (slot !== "run" || generatedKey !== `${slot}:${useSessionStore.getState().incorporatedAt}`) return;
     generatedKey = null;
-    const land = startingLand(useWorldStore.getState().grid);
+    const perks = usePrestigeStore.getState().modifiers;
+    const land = startingLand(useWorldStore.getState().grid, perks.startingParcels);
     useSessionStore.getState().setLand(land);
+    // A CAFÉ to begin with, for founders who have done this before. @see foundingCafe
+    if (perks.foundingCafe) useWorldStore.getState().foundCafe();
     // AND THE OLD BUILDINGS on the land still for sale. @see placeDerelicts
     useWorldStore.getState().placeDerelicts(land, useSessionStore.getState().incorporatedAt);
   }, [slot]);

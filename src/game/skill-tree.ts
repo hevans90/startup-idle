@@ -42,11 +42,19 @@ export type KeystoneSpecial =
   | "neutralizeSatisfaction" // Crunch Mode — satisfaction effects fully off
   | "dampSatisfaction" // Enshittify — positive satisfaction bonuses halved
   | "internsCrippled" // AGI-Pilled — interns produce a fraction of normal
-  | "freeStartingLevels"; // Permanent Acqui-hire — free generator levels on a new run
+  | "freeStartingLevels" // Permanent Acqui-hire — free generator levels on a new run
+  // THE TOWN, on notables: what a company's map starts with and costs. @see world/land
+  | "extraLand" // Company Town — two more parcels to start with
+  | "cheapLand" // Cheap Real Estate — land costs less
+  | "foundingCafe" // Hometown Hero — a new company's map comes with a café
+  | "lightCleanup"; // Clean Sweep — mopping up sludge takes half the people
 
 /** Free generator (intern) levels granted at the start of each run while the
  * "Permanent Acqui-hire" keystone is allocated — the upside offsetting its halved Equity. */
 export const ACQUIHIRE_FREE_LEVELS = 25;
+/** Town perks: parcels a new company starts with on top, and what land costs. */
+export const EXTRA_PARCELS = 2;
+export const CHEAP_LAND_MULT = 0.6;
 /** Interns' output multiplier under "AGI-Pilled". */
 export const AGI_INTERN_OUTPUT_MULT = 0.1;
 /** How much "Enshittify" scales the POSITIVE side of satisfaction multipliers. */
@@ -135,6 +143,10 @@ const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
   dampSatisfaction: { label: "Positive satisfaction halved", tone: "bad" },
   internsCrippled: { label: "Interns produce 10× less", tone: "bad" },
   freeStartingLevels: { label: `+${ACQUIHIRE_FREE_LEVELS} starting interns`, tone: "good" },
+  extraLand: { label: `+${EXTRA_PARCELS} parcels of land to start`, tone: "good" },
+  cheapLand: { label: `Land ${Math.round((1 - CHEAP_LAND_MULT) * 100)}% cheaper`, tone: "good" },
+  foundingCafe: { label: "Every new town starts with a café", tone: "good" },
+  lightCleanup: { label: "Mopping up sludge takes half the people", tone: "good" },
 };
 
 /** Full signed breakdown for a node: one row per grant, plus its structural
@@ -231,7 +243,7 @@ type ClusterDef = {
   /** Per-minor bonus (each minor node grants this). */
   minorBonus: BonusGrant[];
   /** Signature notables — trunk first, then branch pods; extras get generic names. */
-  notables: { title: string; effect: string; bonus: BonusGrant[] }[];
+  notables: { title: string; effect: string; bonus: BonusGrant[]; special?: KeystoneSpecial }[];
   keystone?: { title: string; effect: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
   shape: ClusterShape;
 };
@@ -271,7 +283,10 @@ const CLUSTERS: ClusterDef[] = [
     name: "Lean Startup",
     minor: "−1.2% hire cost",
     minorBonus: [pct("hireCost", -1.2)],
-    notables: [{ title: "Ramen Profitable", effect: "−10% hire cost on all generators.", bonus: [pct("hireCost", -10)] }],
+    notables: [
+      { title: "Ramen Profitable", effect: "−10% hire cost on all generators.", bonus: [pct("hireCost", -10)] },
+      { title: "Cheap Real Estate", effect: "−4.8% hire cost, and land costs 40% less.", bonus: [pct("hireCost", -4.8)], special: "cheapLand" },
+    ],
     keystone: { title: "Bootstrapped", effect: "Money ×4 and hire cost −25%, but managers and auto-buy are disabled.", bonus: [mult("money", 4), pct("hireCost", -25), mult("autoBuy", 0)], special: "disableManagers" },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
@@ -280,7 +295,10 @@ const CLUSTERS: ClusterDef[] = [
     name: "Crunch Culture",
     minor: "+2.5% employee output",
     minorBonus: [pct("employeeOutput", 2.5)],
-    notables: [{ title: "996", effect: "+40% employee output, but satisfaction rises 50% slower.", bonus: [pct("employeeOutput", 40), pct("satisfactionGain", -50)] }],
+    notables: [
+      { title: "996", effect: "+40% employee output, but satisfaction rises 50% slower.", bonus: [pct("employeeOutput", 40), pct("satisfactionGain", -50)] },
+      { title: "Clean Sweep", effect: "+10% employee output, and mopping up sludge takes half the people.", bonus: [pct("employeeOutput", 10)], special: "lightCleanup" },
+    ],
     keystone: { title: "Crunch Mode", effect: "Employee output ×2.5, but all satisfaction effects are switched off.", bonus: [mult("employeeOutput", 2.5)], special: "neutralizeSatisfaction" },
     shape: { trunkMinors: 4, travelPerGap: 4, branches: [{ offset: -27, pods: 1, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
@@ -301,6 +319,7 @@ const CLUSTERS: ClusterDef[] = [
     notables: [
       { title: "Headcount Is Strategy", effect: "+0.4% money per total employee.", bonus: [pct("headcount", 0.4)] },
       { title: "Conglomerate", effect: "+4% money and +4% innovation (≥50 of a type).", bonus: [pct("money", 4), pct("innovation", 4)] },
+      { title: "Company Town", effect: `+12% manager speed, and every company starts with ${EXTRA_PARCELS} more parcels of land.`, bonus: [pct("managerSpeed", 12)], special: "extraLand" },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
   },
@@ -332,6 +351,7 @@ const CLUSTERS: ClusterDef[] = [
     notables: [
       { title: "Founder Worship", effect: "+5% money and +5% innovation (founder modifiers +50%).", bonus: [pct("money", 5), pct("innovation", 5)] },
       { title: "Cult of Personality", effect: "+30% valuation / sec (as The Hustler).", bonus: [pct("valuation", 30)] },
+      { title: "Hometown Hero", effect: "+6% money and +6% innovation, and every new town starts with a café.", bonus: [pct("money", 6), pct("innovation", 6)], special: "foundingCafe" },
     ],
     shape: { trunkMinors: 4, travelPerGap: 2, branches: [{ offset: -27, pods: 1, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
@@ -435,7 +455,7 @@ export function buildTree(seed: number): SkillTree {
     name: string;
     minor: string;
     minorBonus: BonusGrant[];
-    end: { title: string; effect: string; bonus: BonusGrant[] };
+    end: { title: string; effect: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
   };
   type Keystone = { id: string; x: number; y: number; cluster: string; title: string; effect: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
   const hubs: Hub[] = [];
@@ -575,7 +595,7 @@ export function buildTree(seed: number): SkillTree {
     }
     const tail = addv(h, unit(a0 + wind), SP_ROUT);
     const endId = `${h.id}_n`;
-    add({ id: endId, x: tail.x, y: tail.y, title: h.end.title, kind: "notable", cluster: h.cluster, effect: h.end.effect, grants: h.end.bonus });
+    add({ id: endId, x: tail.x, y: tail.y, title: h.end.title, kind: "notable", cluster: h.cluster, effect: h.end.effect, grants: h.end.bonus, ...(h.end.special ? { special: h.end.special } : {}) });
     link(prev, endId);
   });
 
@@ -692,6 +712,15 @@ export type PrestigeModifiers = {
   internOutputMult: number;
   /** Permanent Acqui-hire: free generator levels granted on each new run. */
   freeStartingLevels: number;
+  // ── The town ──
+  /** Company Town: parcels a new company starts with on top of its block. */
+  startingParcels: number;
+  /** Cheap Real Estate: what land costs (1 normal). */
+  landCostMult: number;
+  /** Hometown Hero: a new company's map comes with a café. */
+  foundingCafe: boolean;
+  /** Clean Sweep: the share of the usual mopping-up crew needed (1 normal). */
+  cleanupMult: number;
 };
 
 export const NEUTRAL_PRESTIGE_MODIFIERS: PrestigeModifiers = {
@@ -711,6 +740,10 @@ export const NEUTRAL_PRESTIGE_MODIFIERS: PrestigeModifiers = {
   satisfactionPositiveMult: 1,
   internOutputMult: 1,
   freeStartingLevels: 0,
+  startingParcels: 0,
+  landCostMult: 1,
+  foundingCafe: false,
+  cleanupMult: 1,
 };
 
 const NODE_INDEX = nodeById(SKILL_TREE);
@@ -742,6 +775,18 @@ export function resolvePrestigeModifiers(
         break;
       case "freeStartingLevels":
         out.freeStartingLevels = ACQUIHIRE_FREE_LEVELS;
+        break;
+      case "extraLand":
+        out.startingParcels = EXTRA_PARCELS;
+        break;
+      case "cheapLand":
+        out.landCostMult = CHEAP_LAND_MULT;
+        break;
+      case "foundingCafe":
+        out.foundingCafe = true;
+        break;
+      case "lightCleanup":
+        out.cleanupMult = 0.5;
         break;
     }
   }

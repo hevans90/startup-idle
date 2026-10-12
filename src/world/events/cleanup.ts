@@ -83,10 +83,10 @@ function walkOver(m: Mover, g: Grid, to: { x: number; y: number }): void {
  */
 export function stepCleanup(
   c: Cleanup, town: Town, g: Grid, net: Network, field: WaterField, pit: Structure,
-  owned: number, workplaces: readonly number[], dt: number,
+  owned: number, workplaces: readonly number[], dt: number, perTile = CLEANERS_PER_TILE,
 ): number {
   const wet = wetTiles(field, g, pit);
-  c.away = Math.min(owned, wet.length * CLEANERS_PER_TILE);
+  c.away = Math.min(owned, Math.ceil(wet.length * perTile));
   const places = placesOf(g, net);
 
   // ARRIVED at the door nearest the sludge: off the road, over to it.

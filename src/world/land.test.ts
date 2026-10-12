@@ -20,6 +20,16 @@ describe("land", () => {
     expect(startingLand(createGrid(64, 64))).toEqual([5, 6, 9, 10]);
   });
 
+  test("a founder who has done this before starts with more, beside the block, by the road", () => {
+    const g = createGrid(64, 64);
+    for (let x = 0; x < 64; x++) g.paved[idx(g, x, 10)] = 1;
+    const more = startingLand(g, 2);
+    expect(more.length).toBe(6);
+    expect(more).toEqual(expect.arrayContaining([1, 2, 5, 6]));
+    // Along the street, not off it: the top row's ends.
+    expect(more).toEqual(expect.arrayContaining([0, 3]));
+  });
+
   test("owns its own land, all of it with no list, and buys only next to what it has", () => {
     const g = createGrid(64, 64);
     expect(ownsTile(g, [5], 20, 20)).toBe(true);
