@@ -142,7 +142,7 @@ import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
 import { buyable, PARCELS, parcelOf } from "./land";
-import { busyness, darkness, dayPhase, NIGHT_COLOUR } from "./daylight";
+import { busyness, darkness, dayPhase, drawRain, NIGHT_COLOUR } from "./daylight";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 
 // Required: <pixiContainer> is only a known element once Container is
@@ -295,14 +295,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // NIGHT over the map in the game: one translucent sheet the size of the
   // screen, darker as the day turns. @see world/daylight
   const night = useRef<Graphics | null>(null);
+  // AND RAIN over it while a flood is coming or here. @see drawRain
+  const rain = useRef<Graphics | null>(null);
   useEffect(() => {
-    const g = new Graphics();
+    const g = new Graphics(), r = new Graphics();
     g.eventMode = "none";
+    r.eventMode = "none";
     g.zIndex = 1e9;
+    r.zIndex = 1e9 + 1;
     app.stage.sortableChildren = true;
-    app.stage.addChild(g);
+    app.stage.addChild(g, r);
     night.current = g;
-    return () => { g.parent?.removeChild(g); g.destroy(); night.current = null; };
+    rain.current = r;
+    return () => {
+      for (const x of [g, r]) { x.parent?.removeChild(x); x.destroy(); }
+      night.current = null;
+      rain.current = null;
+    };
   }, [app]);
 
   // Build the scene whenever the grid identity changes (new/resized map).
@@ -2477,6 +2486,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const a = on ? darkness(phase) : 0;
         g.clear();
         if (a > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: NIGHT_COLOUR, alpha: a });
+      }
+      const r = rain.current;
+      if (r) {
+        r.clear();
+        const st = useWorldStore.getState();
+        const flood = st.playing && st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
+        if (flood) drawRain(r, app.screen.width, app.screen.height, performance.now() / 1000, flood.phase === "active" ? 1 : 0.5);
       }
     }
     // The water runs every frame, and the mesh is rebuilt from it every frame:

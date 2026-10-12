@@ -1,9 +1,11 @@
 /**
- * World v2 — DAY AND NIGHT on the map: a day every ten minutes, the town a
+ * World v2 — DAY AND NIGHT on the map, and the weather: a day every ten minutes, the town a
  * little darker at night and busier at the rush hours. Read off the clock,
  * so every view of the town agrees on the time of day. Only the look of it
  * and the traffic: the economy keeps no hours. @see world-scene, stepTown
  */
+
+import type { Graphics } from "pixi.js";
 
 /** Seconds a day lasts. */
 export const DAY_SECONDS = 600;
@@ -36,4 +38,25 @@ export function busyness(phase: number): { traffic: number; commute: number } {
   const rush = Math.max(bump(phase, 8 / 24, 0.05), bump(phase, 18 / 24, 0.05));
   const night = bump(phase, 0, 0.12);
   return { traffic: 1 + 0.6 * rush - 0.5 * night, commute: 0.6 + 0.3 * rush };
+}
+
+/** Rain streaks over the whole screen at full strength, and how fast they fall, px a second. */
+const DROPS = 140;
+const FALL = 900;
+
+/**
+ * RAIN, over the map: short slanting streaks in screen space, falling. While
+ * a flood is coming at half strength, and in full once it is here — the
+ * forecast on the map, not only on its card. @see stepFlood
+ */
+export function drawRain(g: Graphics, w: number, h: number, t: number, strength: number): void {
+  const n = Math.round(DROPS * strength);
+  for (let k = 0; k < n; k++) {
+    // A drop's own place and speed, the same each frame, so it falls rather than flickers.
+    const sx = (k * 0.618034) % 1, sp = 0.7 + ((k * 0.414214) % 1) * 0.6;
+    const y = ((t * FALL * sp + k * 97) % (h + 60)) - 30;
+    const x = (sx * (w + 80) - 40 + y * 0.25) % (w + 80);
+    g.moveTo(x, y).lineTo(x - 4, y + 16);
+  }
+  if (n) g.stroke({ color: 0xa9c4e0, alpha: 0.35, width: 1 });
 }
