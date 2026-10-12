@@ -52,12 +52,14 @@ function canopy(p: Pen, m: Mass, a: number, w: number, z: number, colour: number
   }
 }
 
-/** A tree: a trunk and a crown in three steps, `s` its size. */
+/** A tree: a trunk and a round crown, shadowed underneath and lit on top, `s` its size. */
 export function tree(p: Pen, u: number, v: number, z: number, s = 1) {
-  p.box(u - 0.035 * s, v - 0.035 * s, u + 0.035 * s, v + 0.035 * s, z, z + 0.7 * s, TRUNK);
-  p.box(u - 0.24 * s, v - 0.24 * s, u + 0.24 * s, v + 0.24 * s, z + 0.6 * s, z + 1.35 * s, LEAF, { top: tone(LEAF, 1.18) });
-  p.box(u - 0.17 * s, v - 0.17 * s, u + 0.17 * s, v + 0.17 * s, z + 1.35 * s, z + 1.9 * s, LEAF, { top: tone(LEAF, 1.2) });
-  p.box(u - 0.08 * s, v - 0.08 * s, u + 0.08 * s, v + 0.08 * s, z + 1.9 * s, z + 2.15 * s, LEAF, { top: tone(LEAF, 1.22) });
+  p.box(u - 0.035 * s, v - 0.035 * s, u + 0.035 * s, v + 0.035 * s, z, z + 0.9 * s, TRUNK);
+  const c = z + 1.45 * s;
+  p.dot(u, v, c - 0.12 * s, 0.27 * s, tone(LEAF, 0.72));
+  p.dot(u, v, c, 0.25 * s, LEAF);
+  p.dot(u - 0.07 * s, v - 0.02 * s, c + 0.18 * s, 0.15 * s, tone(LEAF, 1.18));
+  p.dot(u - 0.1 * s, v - 0.03 * s, c + 0.28 * s, 0.07 * s, tone(LEAF, 1.32));
 }
 
 /** A planter with a shrub in it. */

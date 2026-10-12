@@ -81,9 +81,12 @@ function place(b: Building, f: Footprint, site: Site, n: number, t: number): Wor
   const m = site.framing ? active(b, site) : null;
   const out: Worker[] = [];
   const cladding = m !== null && wholeFloors(m, site.clad) < m.z1 - 1e-6 && site.clad > m.z0 + 1e-6;
-  const roles: Role[] = ["foreman"];
+  // A FOREMAN only on a site with a crew to watch: the founder building the
+  // garage alone is working, not supervising.
+  const lead = count >= 4 ? 1 : 0;
+  const roles: Role[] = lead ? ["foreman"] : [];
   const cycle: Role[] = cladding ? ["fixer", "cladder", "carrier", "fixer", "cladder"] : ["fixer", "carrier", "fixer"];
-  for (let k = 1; k < count; k++) roles.push(cycle[(k - 1) % cycle.length]);
+  for (let k = lead; k < count; k++) roles.push(cycle[(k - lead) % cycle.length]);
   const of = (r: Role) => roles.filter((x) => x === r).length;
   const index = (k: number) => roles.slice(0, k).filter((x) => x === roles[k]).length;
 

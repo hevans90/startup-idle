@@ -204,6 +204,11 @@ describe("the crew work where the work is", () => {
     }
   });
 
+  test("a lone builder works rather than supervises", () => {
+    const f = { w: 2, h: 1 }, b = lookOf("garage", f), site = siteAt(b, 0.5);
+    expect(crewAt(b, f, site, 1, 0).map((w) => w.role)).toEqual(["fixer"]);
+  });
+
   test("no more drawn than a site's worth, and none with nobody there", () => {
     const f = { w: 3, h: 3 }, b = lookOf("hq", f), site = siteAt(b, 0.5);
     expect(crewAt(b, f, site, 200, 0)).toHaveLength(MAX_DRAWN);
