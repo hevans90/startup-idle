@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { convoyHandsPrice, drainDirty, playRules, lotLine, sandbagPrice, tidyPrice, sludgeTruckBack, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { companyLand, convoyHandsPrice, drainDirty, playRules, lotLine, sandbagPrice, tidyPrice, sludgeTruckBack, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -1555,7 +1555,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const draw = () => {
       const g = landGfx.current;
       if (!g) return;
-      const st = useWorldStore.getState(), land = useSessionStore.getState().land;
+      const st = useWorldStore.getState(), land = companyLand();
       if (!st.playing || !land) { if (key) g.clear(); key = ""; return; }
       const buying = st.tool === "buyLand";
       const forSale = new Set(buying ? [...Array(PARCELS * PARCELS).keys()].filter((p) => buyable(land, p)) : []);

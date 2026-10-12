@@ -17,7 +17,7 @@ import {
   DIRT, GRASS, INITIAL_TERRAIN_PALETTE, SAND, WOODS, drainDirty, getNetwork, readoutFromUrl, startAutosave,
   useWorldStore,
 } from "./world.store";
-import { loadSaved } from "../world/io/world-save";
+import { loadSaved, setSaveSlot } from "../world/io/world-save";
 import { createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
 import { componentCount } from "../world/roads/network";
 import { DEFAULT_GEN, GEN_SLIDERS } from "../world/gen/params";
@@ -726,6 +726,8 @@ describe("projects under play rules", () => {
 });
 
 describe("land under play rules", () => {
+  // The company's own map: the editor's is nobody's land. @see companyLand
+  beforeEach(() => setSaveSlot("run"));
   /** A 64² map, a road along row 20, owning the top-left two by two parcels. */
   const owned = () => {
     const g = createGrid(64, 64);
@@ -735,7 +737,7 @@ describe("land under play rules", () => {
     useSessionStore.getState().setLand([0, 1, 4, 5]);
     s().setPlaying(true);
   };
-  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); });
+  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); setSaveSlot("editor"); });
 
   test("builds on its own land, and not off it", () => {
     owned();
@@ -787,7 +789,8 @@ describe("flood walls under play rules", () => {
 });
 
 describe("derelict buildings", () => {
-  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); });
+  beforeEach(() => setSaveSlot("run"));
+  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); setSaveSlot("editor"); });
 
   /** A 64² map with a road across every parcel row, owning the middle block. */
   const roads = () => {
@@ -841,5 +844,23 @@ describe("the slop pit under play rules", () => {
     s().commitStructure({ x: 9, y: 9 });
     expect([...s().grid.structures.values()].some((x) => x.def === "slop-pit")).toBe(true);
     expect(s().notice?.text).toMatch(/slop pit stays/);
+  });
+});
+
+describe("the editor's map in play", () => {
+  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); });
+  test("is nobody's land: the company's parcels do not bind it", () => {
+    setSaveSlot("editor");
+    const g = createGrid(64, 64);
+    fillTerrain(g, 1);
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 20)] = 1;
+    s().loadGrid(g);
+    useSessionStore.getState().setLand([0]);
+    s().setPlaying(true);
+    useMoneyStore.setState({ money: new Decimal(1e6) });
+    s().setTool("placeStructure");
+    s().setStructureDef("kit:intern.t0");
+    s().commitStructure({ x: 40, y: 19 });
+    expect(s().grid.structures.size).toBe(1);
   });
 });

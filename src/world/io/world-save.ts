@@ -41,6 +41,9 @@ export function setSaveSlot(slot: SaveSlot): void {
   KEY = SLOTS[slot];
 }
 
+/** Whether the map up is a company's own, rather than the editor's. */
+export const onRunMap = () => KEY === SLOTS.run;
+
 /**
  * Saving held off, while a map is in memory that must not be written: the
  * one a sold company left behind, between its exit and the next company's

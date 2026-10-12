@@ -66,7 +66,7 @@ import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
-import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
+import { clearSaved, hasSaved, onRunMap, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { buildCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { useSessionStore } from "./session.store";
 import { usePrestigeStore } from "./prestige.store";
@@ -226,8 +226,14 @@ export const getWorks = () => works;
  * THE GAME'S PLACEMENT RULES: frontage, and the company's own land. The
  * editor has none of them. @see PlaceRules, world/land
  */
+/**
+ * THE COMPANY'S LAND, on the company's map: the editor's map is nobody's to
+ * own, and its play mode builds anywhere. Null for all of it. @see world/land
+ */
+export const companyLand = (): number[] | null => (onRunMap() ? useSessionStore.getState().land : null);
+
 export function playRules(g: Grid): PlaceRules {
-  const land = useSessionStore.getState().land;
+  const land = companyLand();
   return { needsRoad: true, ...(land ? { owned: (x: number, y: number) => ownsTile(g, land, x, y) } : {}) };
 }
 
@@ -851,7 +857,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   buyParcel: (c) => {
     const st = get();
-    const land = useSessionStore.getState().land;
+    const land = companyLand();
     if (!st.playing || !land) return;
     const p = parcelOf(st.grid, c.x, c.y);
     if (land.includes(p)) return;
@@ -1143,7 +1149,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       // ROAD COSTS MONEY in the game, a tile at a time — new tiles only, and
       // the whole stroke or none of it. Lifting road is free. @see roadCost
       // AND ONLY ON THE COMPANY'S OWN LAND, laid or lifted. @see world/land
-      const land = useSessionStore.getState().land;
+      const land = companyLand();
       if (st.playing && land && cells.some((c) => !ownsTile(st.grid, land, c.x, c.y))) {
         set({ stroke: null, notice: { text: "Not your land: buy it first", at: Date.now() } });
         return;
@@ -1302,7 +1308,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       return;
     }
     // ONLY ON THE COMPANY'S OWN LAND does anything come down, either. @see world/land
-    const land = useSessionStore.getState().land;
+    const land = companyLand();
     if (st.playing && demolishing && land && !ownsTile(st.grid, land, c.x, c.y)) { refuse("Not your land: buy it first"); return; }
     // THE SLOP PIT is not the company's to fill in: it is where the slop goes.
     if (st.playing && demolishing && st.grid.structures.get(under)?.def === SLOP_PIT.id) { refuse("The slop pit stays: drain it instead"); return; }
