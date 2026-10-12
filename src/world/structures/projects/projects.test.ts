@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Graphics } from "pixi.js";
 
+import { MAX_DRAWN, crewAt, insideBuilt } from "./crew";
 import { LOOKS, lookOf } from "./looks";
 import { bays, floorsOf, wholeFloors, type Building, type Footprint } from "./model";
 import { makePen } from "./pen";
@@ -183,6 +184,47 @@ describe("the crane lifts from the yard to the work and back", () => {
       const q = cranePose(f, b, site, t);
       expect(q.reach).toBeLessThanOrEqual(jibLength(f));
       expect(q.hook).toBeLessThan(craneHeight(site.top));
+    }
+  });
+});
+
+describe("the crew work where the work is", () => {
+  test.each(FOOTPRINTS.filter(([id]) => PROJECT_BUILDINGS.some((d) => d.id === id)))("%s: nobody inside a wall", (id, f) => {
+    const b = lookOf(id, f);
+    for (const p of [0.05, 0.15, 0.3, 0.45, 0.6, 0.75, 0.86, 0.95]) {
+      const site = siteAt(b, p);
+      for (const w of crewAt(b, f, site, 40, 3.3)) {
+        expect(insideBuilt(b, site, w.u, w.v, w.z)).toBe(false);
+        expect(w.u).toBeGreaterThanOrEqual(0);
+        expect(w.u).toBeLessThanOrEqual(f.w);
+        expect(w.v).toBeGreaterThanOrEqual(0);
+        expect(w.v).toBeLessThanOrEqual(f.h);
+      }
+    }
+  });
+
+  test("no more drawn than a site's worth, and none with nobody there", () => {
+    const f = { w: 3, h: 3 }, b = lookOf("hq", f), site = siteAt(b, 0.5);
+    expect(crewAt(b, f, site, 200, 0)).toHaveLength(MAX_DRAWN);
+    expect(crewAt(b, f, site, 0, 0)).toHaveLength(0);
+  });
+
+  test("each keeps their job from one moment to the next", () => {
+    const f = { w: 3, h: 3 }, b = lookOf("hq", f), site = siteAt(b, 0.5);
+    const a = crewAt(b, f, site, 10, 1).map((w) => w.role);
+    const z = crewAt(b, f, site, 10, 7.5).map((w) => w.role);
+    expect(z).toEqual(a);
+    expect(a[0]).toBe("foreman");
+    expect(a).toContain("cladder");
+    expect(a).toContain("carrier");
+  });
+
+  test("the cladders stand on the boards at the floor being clad", () => {
+    const f = { w: 3, h: 3 }, b = lookOf("hq", f), site = siteAt(b, 0.5);
+    const tower = b.masses[1];
+    for (const w of crewAt(b, f, site, 14, 0).filter((x) => x.role === "cladder")) {
+      expect(w.z).toBeCloseTo(wholeFloors(tower, site.clad), 6);
+      expect(w.u > tower.u1 || w.v > tower.v1).toBe(true);
     }
   });
 });

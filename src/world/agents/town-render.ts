@@ -79,6 +79,10 @@ export function createTownLayer(bands: BandLayer): TownLayer {
   const draw = (town: Town, scale: number) => {
     const live = new Set<number>();
     for (const m of town.movers) {
+      // A BUILDER AT WORK is drawn by the site, where the work is: on the
+      // frame, on the scaffold, in the yard. Here they would only be stood
+      // wherever they were put down. @see projects/crew
+      if (m.job?.role === "working") continue;
       live.add(m.id);
       let d = drawn.get(m.id);
       if (!d) {

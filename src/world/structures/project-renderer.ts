@@ -15,8 +15,11 @@
 import { Graphics } from "pixi.js";
 
 import { getWorks, startedOnFixture } from "../../state/world.store";
+import { drawMover } from "../agents/town-render";
+import type { Mover } from "../agents/town";
 import { idx, inBounds, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
+import { crewAt } from "./projects/crew";
 import { lookOf } from "./projects/looks";
 import type { Building } from "./projects/model";
 import { makePen } from "./projects/pen";
@@ -35,6 +38,8 @@ type ProjectHandle = StructureHandle & {
   sky: Graphics;
   model: Building;
   drawn: string;
+  /** The crew, one Graphics each, in the same group as the crane. @see crewAt */
+  crew: Graphics[];
   /** Seconds the crane has been working, which is where it is in its lift. */
   t: number;
   /** The site as last drawn, for the crane to work over. */
@@ -97,14 +102,55 @@ const stockOf = (s: Structure) => {
 };
 
 /**
- * Whether anybody is working a site: the crane only moves with a crew on it.
- * A fixture's sites have nobody — no road, so nobody comes — and are worked
- * anyway, so that what they look like at work can be looked at. @see buildProjects
+ * How many are working a site: the crane only moves, and the crew is only
+ * drawn, with somebody on it. A fixture's sites have nobody — no road, so
+ * nobody comes — and are worked anyway, so that what they look like at work
+ * can be looked at. @see buildProjects
  */
-function working(s: Structure): boolean {
-  if (startedOnFixture()) return true;
-  const w = getWorks();
-  return (w.crews.get(s.id)?.working ?? 0) > 0;
+function crewOn(s: Structure): number {
+  if (startedOnFixture()) return Math.min(12, s.w * s.h * 2);
+  return getWorks().crews.get(s.id)?.working ?? 0;
+}
+const working = (s: Structure) => crewOn(s) > 0;
+
+/** Hi-vis, and the foreman in a white shirt. */
+const VESTS = [0xf47b20, 0xc8dc32, 0xf47b20, 0xe8e23a];
+const FOREMAN = 0xf2f2f2;
+
+/** The crew where the work is, each drawn as the town draws a person. */
+function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number): void {
+  const site = h.site;
+  const crew = site ? crewAt(h.model, { w: s.w, h: s.h }, site, crewOn(s), h.t) : [];
+  const band = frontBand(s, ctx);
+  while (h.crew.length < crew.length) {
+    const g = new Graphics();
+    g.eventMode = "none";
+    ctx.bands.dynamicOf[band].addChild(g);
+    h.crew.push(g);
+  }
+  while (h.crew.length > crew.length) {
+    const g = h.crew.pop()!;
+    g.parent?.removeChild(g);
+    g.destroy();
+  }
+  crew.forEach((w, k) => {
+    const g = h.crew[k];
+    const m = {
+      id: s.id * 64 + k, kind: "person", x: s.x - 0.5 + w.u, y: s.y - 0.5 + w.v, z: ground + w.z,
+      heading: w.heading, phase: w.phase, pitch: 0,
+      colour: w.role === "foreman" ? FOREMAN : VESTS[k % VESTS.length],
+      job: { site: s.id, role: w.working ? "working" : "builder" },
+    } as unknown as Mover;
+    drawMover(g, m, ctx.scale, ctx.bands.bands.length);
+    if (w.carrying) {
+      const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, null);
+      const du = Math.cos(w.heading) * 0.07, dv = Math.sin(w.heading) * 0.07;
+      p.box(w.u + du - 0.05, w.v + dv - 0.05, w.u + du + 0.05, w.v + dv + 0.05, w.z + 0.55, w.z + 0.78, 0xb3563f);
+    }
+    // Nearer the camera drawn later, all of them in front of the site and
+    // under the crane.
+    g.zIndex = 1 + (w.u + w.v) / 100 + w.z / 10000;
+  });
 }
 
 /** The crane over a site, where it is in its lift. */
@@ -138,6 +184,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
     else drawFinished(p, h.model, f);
   });
   drawCrane(h, s, ctx, ground);
+  drawCrew(h, s, ctx, ground);
 }
 
 function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
@@ -157,8 +204,8 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const handle: ProjectHandle = {
     columns, sky, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null,
-    destroy: () => { for (const g of [...columns, sky]) { g.parent?.removeChild(g); g.destroy(); } },
+    t: s.id * 3.7, site: null, crew: [],
+    destroy: () => { for (const g of [...columns, sky, ...handle.crew]) { g.parent?.removeChild(g); g.destroy(); } },
   };
   draw(handle, s, ctx);
   return handle;
@@ -181,10 +228,12 @@ registerCustomRenderer("project", {
       draw(handle, s, ctx);
       handle.drawn = now;
     }
-    if (handle.site && handle.model.crane === "tower" && working(s)) {
+    if (handle.site && working(s)) {
       handle.t += dt;
-      drawCrane(handle, s, ctx, groundOf(s, ctx));
-    }
+      const ground = groundOf(s, ctx);
+      if (handle.model.crane === "tower") drawCrane(handle, s, ctx, ground);
+      drawCrew(handle, s, ctx, ground);
+    } else if (handle.crew.length) drawCrew(handle, s, ctx, groundOf(s, ctx));
   },
   unmount(h) { h.destroy(); },
 });
