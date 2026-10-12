@@ -136,6 +136,25 @@ function draw(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
     box(x0 + INSET, y0 + INSET, x0 + INSET + (x1 - x0 - 2 * INSET) * r, y1 - INSET, look.body, look.body + 0.2, PARAPET, PARAPET, PARAPET);
   }
 
+  // A CRANE over it until the roof is on: a mast at the back corner, a jib
+  // across the site, and a hook let down to the work.
+  if (p < 0.95) {
+    const mu = x0 + 0.22, mv = y0 + 0.22, mast = look.body + 3;
+    for (const [du, dv] of [[-0.05, -0.05], [0.05, -0.05], [-0.05, 0.05], [0.05, 0.05]]) line([[mu + du, mv + dv, 0], [mu + du, mv + dv, mast]], CRANE, 1.4);
+    for (let z = 0.6; z < mast; z += 0.6) line([[mu - 0.05, mv + 0.05, z], [mu + 0.05, mv + 0.05, z + 0.6]], CRANE_SHADE, 1);
+    const reach = Math.min(s.w, 3) - 0.35;
+    // Cut where the columns meet: each column draws only what falls within
+    // it, and a line with both ends outside a column is left out of it.
+    const cuts = [mu - 0.5];
+    for (let k = Math.ceil(mu - 0.5 - (s.x - 0.5)); s.x - 0.5 + k < mu + reach; k++) if (s.x - 0.5 + k > mu - 0.5) cuts.push(s.x - 0.5 + k);
+    cuts.push(mu + reach);
+    for (let k = 0; k + 1 < cuts.length; k++) line([[cuts[k], mv, mast], [cuts[k + 1], mv, mast]], CRANE, 2.4);
+    box(mu - 0.6, mv - 0.08, mu - 0.4, mv + 0.08, mast - 0.35, mast, CRANE_WEIGHT, CRANE_WEIGHT, CRANE_WEIGHT);
+    const hook = Math.max(wall + 0.8, 1.2);
+    line([[mu + reach * 0.8, mv, mast], [mu + reach * 0.8, mv, hook]], CABLE, 1);
+    box(mu + reach * 0.8 - 0.04, mv - 0.04, mu + reach * 0.8 + 0.04, mv + 0.04, hook - 0.15, hook, CABLE, CABLE, CABLE);
+  }
+
   // MATERIALS ON HAND: a stack for every delivery not yet built into it.
   const onHand = Math.max(0, b.delivered - Math.floor(p * b.deliveries + 1e-6));
   for (let k = 0; k < Math.min(onHand, 4); k++) {
@@ -144,6 +163,8 @@ function draw(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
     box(u - 0.1, v - 0.08, u + 0.1, v + 0.08, 0.12, 0.62, BRICKS, BRICKS, BRICKS_SHADE);
   }
 }
+
+const CRANE = 0xf2c230, CRANE_SHADE = 0xc79a1c, CRANE_WEIGHT = 0x4b5259, CABLE = 0x26292d;
 
 /** The finished studio: a glass box on a plinth, a flat roof, a door, a neon sign. */
 function drawStudio(g: Graphics, s: Structure, ctx: RenderCtx, c: number): void {
