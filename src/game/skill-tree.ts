@@ -47,7 +47,10 @@ export type KeystoneSpecial =
   | "extraLand" // Company Town — two more parcels to start with
   | "cheapLand" // Cheap Real Estate — land costs less
   | "foundingCafe" // Hometown Hero — a new company's map comes with a café
-  | "lightCleanup"; // Clean Sweep — mopping up sludge takes half the people
+  | "lightCleanup" // Clean Sweep — mopping up sludge takes half the people
+  | "foundingRoute" // Conglomerate — every company starts with a regular shipping route
+  | "fastRepairs" // Open Core — flood damage is repaired twice as fast
+  | "extraTermSheet"; // Founder Worship — a fourth term sheet at founding
 
 /** Free generator (intern) levels granted at the start of each run while the
  * "Permanent Acqui-hire" keystone is allocated — the upside offsetting its halved Equity. */
@@ -147,6 +150,9 @@ const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
   cheapLand: { label: `Land ${Math.round((1 - CHEAP_LAND_MULT) * 100)}% cheaper`, tone: "good" },
   foundingCafe: { label: "Every new town starts with a café", tone: "good" },
   lightCleanup: { label: "Mopping up sludge takes half the people", tone: "good" },
+  foundingRoute: { label: "Every company starts with a regular shipping route", tone: "good" },
+  fastRepairs: { label: "Flood damage repaired twice as fast", tone: "good" },
+  extraTermSheet: { label: "A fourth term sheet at founding", tone: "good" },
 };
 
 /** Full signed breakdown for a node: one row per grant, plus its structural
@@ -318,7 +324,7 @@ const CLUSTERS: ClusterDef[] = [
     minorBonus: [pct("managerSpeed", 3)],
     notables: [
       { title: "Headcount Is Strategy", effect: "+0.4% money per total employee.", bonus: [pct("headcount", 0.4)] },
-      { title: "Conglomerate", effect: "+4% money and +4% innovation (≥50 of a type).", bonus: [pct("money", 4), pct("innovation", 4)] },
+      { title: "Conglomerate", effect: "+4% money and +4% innovation, and every company starts with a regular shipping route.", bonus: [pct("money", 4), pct("innovation", 4)], special: "foundingRoute" },
       { title: "Company Town", effect: `+12% manager speed, and every company starts with ${EXTRA_PARCELS} more parcels of land.`, bonus: [pct("managerSpeed", 12)], special: "extraLand" },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
@@ -329,7 +335,7 @@ const CLUSTERS: ClusterDef[] = [
     minor: "+2.5% innovation",
     minorBonus: [pct("innovation", 2.5)],
     notables: [
-      { title: "Open Core", effect: "+6% money (convert 15% of innovation rate to money).", bonus: [pct("money", 6)] },
+      { title: "Open Core", effect: "+6% money, and flood damage is repaired twice as fast.", bonus: [pct("money", 6)], special: "fastRepairs" },
       { title: "Foundation Grant", effect: "+20% innovation and +10% valuation.", bonus: [pct("innovation", 20), pct("valuation", 10)] },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 1, minors: 6 }, { offset: 27, pods: 1, minors: 5 }] },
@@ -349,7 +355,7 @@ const CLUSTERS: ClusterDef[] = [
     minor: "+1.5% money, +1.5% innovation",
     minorBonus: [pct("money", 1.5), pct("innovation", 1.5)],
     notables: [
-      { title: "Founder Worship", effect: "+5% money and +5% innovation (founder modifiers +50%).", bonus: [pct("money", 5), pct("innovation", 5)] },
+      { title: "Founder Worship", effect: "+5% money and +5% innovation, and a fourth term sheet to choose from at founding.", bonus: [pct("money", 5), pct("innovation", 5)], special: "extraTermSheet" },
       { title: "Cult of Personality", effect: "+30% valuation / sec (as The Hustler).", bonus: [pct("valuation", 30)] },
       { title: "Hometown Hero", effect: "+6% money and +6% innovation, and every new town starts with a café.", bonus: [pct("money", 6), pct("innovation", 6)], special: "foundingCafe" },
     ],
@@ -721,6 +727,12 @@ export type PrestigeModifiers = {
   foundingCafe: boolean;
   /** Clean Sweep: the share of the usual mopping-up crew needed (1 normal). */
   cleanupMult: number;
+  /** Conglomerate: regular shipping routes a new company starts with. @see ROUTE_BONUS */
+  startingRoutes: number;
+  /** Open Core: how fast flood damage is repaired (1 normal). @see stepRepairs */
+  repairMult: number;
+  /** Founder Worship: term sheets offered at founding. @see termSheetsFor */
+  termSheets: number;
 };
 
 export const NEUTRAL_PRESTIGE_MODIFIERS: PrestigeModifiers = {
@@ -744,6 +756,9 @@ export const NEUTRAL_PRESTIGE_MODIFIERS: PrestigeModifiers = {
   landCostMult: 1,
   foundingCafe: false,
   cleanupMult: 1,
+  startingRoutes: 0,
+  repairMult: 1,
+  termSheets: 3,
 };
 
 const NODE_INDEX = nodeById(SKILL_TREE);
@@ -787,6 +802,15 @@ export function resolvePrestigeModifiers(
         break;
       case "lightCleanup":
         out.cleanupMult = 0.5;
+        break;
+      case "foundingRoute":
+        out.startingRoutes = 1;
+        break;
+      case "fastRepairs":
+        out.repairMult = 2;
+        break;
+      case "extraTermSheet":
+        out.termSheets = 4;
         break;
     }
   }

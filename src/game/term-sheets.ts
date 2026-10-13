@@ -67,8 +67,8 @@ export const TERM_SHEETS: readonly TermSheet[] = [
 
 export const termSheet = (id: string | null | undefined): TermSheet | null => TERM_SHEETS.find((t) => t.id === id) ?? null;
 
-/** The three offered for a seed: the same land, the same three. */
-export function termSheetsFor(seed: number): TermSheet[] {
+/** The `n` offered for a seed: the same land, the same ones. */
+export function termSheetsFor(seed: number, n = 3): TermSheet[] {
   const all = [...TERM_SHEETS];
   // mulberry32: a neighbouring seed is a different three.
   let s = seed >>> 0;
@@ -82,7 +82,7 @@ export function termSheetsFor(seed: number): TermSheet[] {
     const j = Math.floor(rand() * (i + 1));
     [all[i], all[j]] = [all[j], all[i]];
   }
-  return all.slice(0, 3);
+  return all.slice(0, n);
 }
 
 let reader: (() => TermReading) | null = null;

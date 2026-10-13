@@ -1,10 +1,12 @@
 /**
- * FOUNDING, THE LAST STEP: three investors' term sheets, one to sign. Each a
+ * FOUNDING, THE LAST STEP: three investors' term sheets (four with Founder
+ * Worship), one to sign. Each a
  * goal for the run and what meeting it adds to the sale. @see game/term-sheets
  */
 import { twMerge } from "tailwind-merge";
 
 import { termSheetsFor } from "../game/term-sheets";
+import { usePrestigeStore } from "../state/prestige.store";
 import { Button } from "../ui/Button";
 
 type Props = {
@@ -15,14 +17,15 @@ type Props = {
 };
 
 export function TermSheetSelect({ seed, onBack, onSign }: Props) {
-  const sheets = termSheetsFor(seed);
+  // Founder Worship brings a fourth. @see PrestigeModifiers.termSheets
+  const sheets = termSheetsFor(seed, usePrestigeStore.getState().modifiers.termSheets);
   return (
     <div className="flex h-full w-full flex-col overflow-y-auto bg-primary-100 px-6 py-8 text-primary-900 dark:bg-primary-900 dark:text-primary-50">
       <div className="mb-6 text-center">
         <h1 className="text-3xl font-bold sm:text-4xl">Sign a term sheet</h1>
         <p className="mt-2 text-sm opacity-70">Meet its goal when you sell and the sale pays more Equity.</p>
       </div>
-      <div className="mx-auto grid w-full max-w-4xl grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className={twMerge("mx-auto grid w-full max-w-4xl grid-cols-1 gap-3", sheets.length > 3 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3")}>
         {sheets.map((t) => (
           <button key={t.id} type="button" onClick={() => onSign(t.id)}
             className={twMerge(

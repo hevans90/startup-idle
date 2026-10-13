@@ -17,7 +17,7 @@ A satirical idle game about scaling a tech startup by any means necessary: hire 
 - **AI singularity:** a meter that creeps up when vibe coders are miserable.
 - **Founders:** six archetypes (Hacker, Bootstrapper, Visionary, Hustler, Agentic Delusionist, NEET). Each has a bonus that grows with every exit made as that founder. NEET starts with $5 and doubles money output per exit. Four also play by **one rule on the map** (`FounderDef.rule`, `game/founder-rules.ts`): the Bootstrapper builds 35% cheaper but pays double for land; the Hacker's labs count double; the Visionary's Data Centre needs half the headcount; the Hustler's map events come twice as often. A founder held to one kind (the Agentic Delusionist) is gated on that kind alone.
 - **Offline progress:** the real tick is replayed over the time away (capped at 2 days), with a "welcome back" summary.
-- **Acquisition (prestige):** sell the company for permanent **Equity**, start a fresh company, and spend Equity in a procedurally laid out skill tree of about 330 nodes. Four notables shape the next town: Company Town (+2 starting parcels), Cheap Real Estate (land −40%), Hometown Hero (a founding café) and Clean Sweep (half the mopping-up crew).
+- **Acquisition (prestige):** sell the company for permanent **Equity**, start a fresh company, and spend Equity in a procedurally laid out skill tree of about 330 nodes. Seven notables shape the next town: Company Town (+2 starting parcels), Cheap Real Estate (land −40%), Hometown Hero (a founding café), Clean Sweep (half the mopping-up crew), Conglomerate (a regular shipping route to start), Open Core (flood damage repaired twice as fast) and Founder Worship (a fourth term sheet).
 
 ### Founding
 

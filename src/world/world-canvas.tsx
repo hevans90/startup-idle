@@ -19,6 +19,7 @@ import { getNetwork, getWorks, startAutosave, startedOnFixture, useWorldStore } 
 import { housedBy, residentsIn } from "../game/housing";
 import { projectForStructure, setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
 import { setTermReader } from "../game/term-sheets";
+import { MAX_ROUTES } from "./events/events";
 import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
@@ -132,6 +133,8 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     useSessionStore.getState().setLand(land);
     // A CAFÉ to begin with, for founders who have done this before. @see foundingCafe
     if (perks.foundingCafe) useWorldStore.getState().foundCafe();
+    // A SHIPPING ROUTE to begin with, likewise. @see ROUTE_BONUS
+    for (let k = 0; k < perks.startingRoutes; k++) useSessionStore.getState().addRoute(MAX_ROUTES);
     // AND THE OLD BUILDINGS on the land still for sale. @see placeDerelicts
     useWorldStore.getState().placeDerelicts(land, useSessionStore.getState().incorporatedAt);
   }, [slot]);

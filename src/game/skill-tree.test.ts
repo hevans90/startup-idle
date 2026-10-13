@@ -351,4 +351,11 @@ describe("town perks", () => {
     expect(m.cleanupMult).toBe(0.5);
     expect(byTitle.get("Company Town")!.grants).toEqual([{ stat: "managerSpeed", kind: "pct", value: 12 }]);
   });
+
+  test("three more bring rules: a shipping route, quick repairs, a fourth term sheet", () => {
+    const byTitle = new Map(SKILL_TREE.nodes.map((n) => [n.title, n]));
+    expect(resolvePrestigeModifiers([])).toMatchObject({ startingRoutes: 0, repairMult: 1, termSheets: 3 });
+    const m = resolvePrestigeModifiers(["Conglomerate", "Open Core", "Founder Worship"].map((t) => byTitle.get(t)!.id));
+    expect(m).toMatchObject({ startingRoutes: 1, repairMult: 2, termSheets: 4 });
+  });
 });

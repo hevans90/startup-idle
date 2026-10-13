@@ -2557,7 +2557,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
         }
         // THE REPAIR CREW, round the damaged buildings once the water is down.
-        if (st.playing) stepRepairs(st.grid, dt, !!floodBase.current);
+        if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult, !!floodBase.current);
         // PEOPLE LEAVING MISERABLE HOUSES, in the game, one now and then.
         // @see stepMood
         if (st.playing) {
