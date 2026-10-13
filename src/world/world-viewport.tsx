@@ -5,13 +5,69 @@
  */
 import { extend, useApplication } from "@pixi/react";
 import { Viewport } from "pixi-viewport";
-import { Text } from "pixi.js";
+import { Text, type Ticker } from "pixi.js";
 import { useCallback, useEffect, useRef } from "react";
 
 import { applyViewportControls } from "../utils/viewport-controls";
 import { useWorldStore } from "../state/world.store";
 
 extend({ Viewport, Text });
+
+/** How fast the arrow keys pan, in screen pixels a second, at any zoom. */
+const KEY_PAN = 900;
+
+/** Which way each arrow pans the camera, on screen. */
+const ARROWS: Record<string, [number, number]> = {
+  ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+};
+
+/**
+ * THE ARROW KEYS PAN THE MAP, for as long as they are held: at a steady speed
+ * on screen whatever the zoom, so the map moves the same distance under the
+ * eye zoomed in or out, and on the ticker rather than on key repeat, which
+ * starts after a pause and stutters. Not while typing in a field, and not
+ * with a modifier held, which leaves the browser's own shortcuts alone.
+ */
+function useArrowPan(vp: React.RefObject<Viewport | null>, ticker: Ticker | undefined) {
+  useEffect(() => {
+    if (!ticker) return;
+    const held = new Set<string>();
+    const typing = (ev: KeyboardEvent) => {
+      const t = ev.target as HTMLElement | null;
+      return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    };
+    const down = (ev: KeyboardEvent) => {
+      if (!(ev.key in ARROWS) || typing(ev) || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      ev.preventDefault();
+      held.add(ev.key);
+    };
+    const up = (ev: KeyboardEvent) => held.delete(ev.key);
+    // A key let go while the window was not looking would pan for ever.
+    const blur = () => held.clear();
+    const step = (t: Ticker) => {
+      const v = vp.current;
+      // Nor while the map is out of sight behind another tab.
+      if (!v || held.size === 0 || v.destroyed || useWorldStore.getState().mapHidden) return;
+      let dx = 0, dy = 0;
+      for (const k of held) { dx += ARROWS[k][0]; dy += ARROWS[k][1]; }
+      if (dx === 0 && dy === 0) return;
+      const len = Math.hypot(dx, dy);
+      const px = (KEY_PAN * Math.min(t.deltaMS, 100)) / 1000;
+      const c = v.center;
+      v.moveCenter(c.x + (dx / len) * px / v.scale.x, c.y + (dy / len) * px / v.scale.y);
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    ticker.add(step);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", blur);
+      ticker.remove(step);
+    };
+  }, [vp, ticker]);
+}
 
 export function WorldViewport({
   children,
@@ -27,6 +83,7 @@ export function WorldViewport({
   const pixiApp = useApplication();
   const events = pixiApp?.app.renderer?.events;
   const ticker = pixiApp?.app.ticker;
+  useArrowPan(ref, ticker);
 
   const init = useCallback(() => {
     const vp = ref.current;
