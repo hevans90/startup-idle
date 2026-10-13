@@ -254,7 +254,7 @@ export function floodChoices(w: NonNullable<EventWorld["river"]>): EventChoice[]
   return [
     { id: "sandbags", label: "Sandbag the riverside", cost: `${people(w.sandbagCrew, "intern")} filling sandbags until it passes` },
     { id: "evacuate", label: "Evacuate", cost: "flooded homes stop work until it passes" },
-    { id: "brace", label: "Brace for it", cost: "flooded homes miserable, flooded ports shut" },
+    { id: "brace", label: "Brace for it", cost: "whatever the water reaches is damaged: idle until repaired, one at a time" },
   ];
 }
 
@@ -265,7 +265,7 @@ function floodOutcome(e: GameEvent): string {
   const what = `${n} building${n === 1 ? "" : "s"}`;
   if (e.chosen === "sandbags") return `The sandbags held: ${what} kept dry.`;
   if (e.chosen === "evacuate") return `${what} cleared in time; everyone is back.`;
-  return `The water reached ${what}. It is going down.`;
+  return `The water reached ${what}. They are idle until the repair crew has been round each.`;
 }
 
 /** The river's flood, moved along. */

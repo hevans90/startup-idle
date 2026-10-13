@@ -146,8 +146,8 @@ export type FloodShield = "sandbags" | "evacuate" | null;
 let state: { flooded: ReadonlySet<number>; shield: FloodShield } = { flooded: new Set(), shield: null };
 export const setFloodState = (flooded: ReadonlySet<number>, shield: FloodShield) => { state = { flooded, shield }; };
 
-/** Whether a port is shut by the water: flooded, and no sandbags. */
-export const portShut = (id: number) => state.shield !== "sandbags" && state.flooded.has(id);
+/** Whether a port is shut: flooded with no sandbags, or damaged by a flood. @see damage */
+export const portShut = (id: number) => (state.shield !== "sandbags" && state.flooded.has(id)) || isDamaged(id);
 
 /** Houses miserable for it: flooded, with nothing done. @see MOOD.flooded */
 export const floodMisery = (): ReadonlySet<number> => (state.shield ? new Set() : state.flooded);
@@ -157,6 +157,68 @@ export function evacuatedAway(g: Grid): Partial<Record<GeneratorId, number>> {
   const out: Partial<Record<GeneratorId, number>> = {};
   if (state.shield !== "evacuate") return out;
   for (const id of state.flooded) {
+    const s = g.structures.get(id), h = s && housedBy(s.def);
+    if (h) out[h.id] = (out[h.id] ?? 0) + residentsIn(s);
+  }
+  return out;
+}
+
+/** Seconds the repair crew takes over each damaged building, one at a time. */
+export const REPAIR_SECONDS = 40;
+
+/**
+ * DAMAGED BY A FLOOD nobody did anything about: the houses and ports the water
+ * reached, each producing nothing — its people off work, its quays shut —
+ * until the repair crew has been round. One crew, one building at a time, in
+ * the order the water reached them, and only once the water is down; so a
+ * flood that reached a dozen leaves a street idle for minutes. Live state; not
+ * saved. @see stepRepairs
+ */
+const damaged = new Map<number, number>();
+/** The map the damage is on: another map has none. */
+let damagedOn: Grid | null = null;
+
+/** The buildings a flood reached, with nothing kept dry, marked damaged. */
+export function damage(g: Grid, ids: Iterable<number>) {
+  if (damagedOn !== g) { damaged.clear(); damagedOn = g; }
+  for (const id of ids) if (!damaged.has(id)) damaged.set(id, REPAIR_SECONDS);
+}
+
+/**
+ * The crew's work for `dt` seconds, on the first damaged building still
+ * standing; none while `flooding`. Returns the ids repaired.
+ */
+export function stepRepairs(g: Grid, dt: number, flooding: boolean): number[] {
+  const done: number[] = [];
+  if (damagedOn !== g) damaged.clear();
+  for (const id of damaged.keys()) if (!g.structures.has(id)) damaged.delete(id);
+  if (flooding) return done;
+  for (const [id, left] of damaged) {
+    const t = left - dt;
+    if (t > 0) { damaged.set(id, t); break; }
+    damaged.delete(id);
+    done.push(id);
+    dt = -t;
+  }
+  return done;
+}
+
+/** Seconds until a building is repaired, its place in the queue counted; null when it is not damaged. */
+export function repairedIn(id: number): number | null {
+  let t = 0;
+  for (const [d, left] of damaged) {
+    t += left;
+    if (d === id) return t;
+  }
+  return null;
+}
+
+export const isDamaged = (id: number) => damaged.has(id);
+
+/** Residents off work for their homes being damaged, by kind. */
+export function damagedAway(g: Grid): Partial<Record<GeneratorId, number>> {
+  const out: Partial<Record<GeneratorId, number>> = {};
+  for (const id of damaged.keys()) {
     const s = g.structures.get(id), h = s && housedBy(s.def);
     if (h) out[h.id] = (out[h.id] ?? 0) + residentsIn(s);
   }

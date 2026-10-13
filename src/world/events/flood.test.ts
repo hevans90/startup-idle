@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { FLOOD_HOLD, FLOOD_OVER, FLOOD_SECONDS, FLOOD_UP, floodPeak, riseAt, riverHead } from "./flood";
+import {
+  FLOOD_HOLD, FLOOD_OVER, FLOOD_SECONDS, FLOOD_UP, REPAIR_SECONDS, damage, damagedAway, floodPeak, isDamaged, portShut, repairedIn, riseAt, riverHead, stepRepairs,
+} from "./flood";
 import { createGrid, setInflow } from "../grid";
 
 describe("a flood's rise", () => {
@@ -29,5 +31,32 @@ describe("the river's head", () => {
     setInflow(g, 0, 3, 2);
     setInflow(g, 0, 5, 2);
     expect(riverHead(g)).toEqual({ x: 0, y: 4 });
+  });
+});
+
+describe("flood damage", () => {
+  test("idles a house and shuts a port until the crew has been round each, one at a time, once the water is down", () => {
+    const g = createGrid(12, 12);
+    g.structures.set(1, { id: 1, def: "kit:intern.t0", x: 1, y: 1, w: 1, h: 1, residents: 2 });
+    g.structures.set(2, { id: 2, def: "seaport", x: 5, y: 5, w: 2, h: 2 });
+    damage(g, [1, 2]);
+    expect(damagedAway(g)).toEqual({ intern: 2 });
+    expect(portShut(2)).toBe(true);
+    expect(repairedIn(2)).toBe(2 * REPAIR_SECONDS);
+    expect(stepRepairs(g, REPAIR_SECONDS, true)).toEqual([]);
+    expect(stepRepairs(g, REPAIR_SECONDS + 1, false)).toEqual([1]);
+    expect(isDamaged(1)).toBe(false);
+    expect(repairedIn(2)).toBe(REPAIR_SECONDS - 1);
+    expect(stepRepairs(g, REPAIR_SECONDS, false)).toEqual([2]);
+    expect(portShut(2)).toBe(false);
+  });
+
+  test("is not carried onto another map", () => {
+    const g = createGrid(4, 4), other = createGrid(4, 4);
+    g.structures.set(1, { id: 1, def: "kit:intern.t0", x: 1, y: 1, w: 1, h: 1 });
+    other.structures.set(1, { id: 1, def: "kit:intern.t0", x: 1, y: 1, w: 1, h: 1 });
+    damage(g, [1]);
+    stepRepairs(other, 0, false);
+    expect(isDamaged(1)).toBe(false);
   });
 });

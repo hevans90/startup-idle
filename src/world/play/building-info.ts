@@ -46,6 +46,8 @@ export type InfoContext = {
   labsNear?: ReadonlySet<number>;
   /** AI racks within the Data Centre's reach. @see world/projects/racks */
   racksPowered?: ReadonlySet<number>;
+  /** Seconds until a flood-damaged building is repaired; null when it is not damaged. @see damage */
+  repairedIn?: (id: number) => number | null;
 };
 
 export type InfoLine = { text: string; tone?: "good" | "warn" | "dim" };
@@ -117,6 +119,12 @@ export function saleName(def: StructureDef): string {
   return housingName(def.id, true) ?? def.name.replace(/^seaport/, "Seaport");
 }
 
+/** A flood-damaged building's line: idle until the repair crew has been. */
+function damageLine(s: Structure, ctx: InfoContext): InfoLine | null {
+  const t = ctx.repairedIn?.(s.id);
+  return t == null ? null : { text: `Flood damaged · repaired in ${Math.ceil(t)}s`, tone: "warn" };
+}
+
 /** What a building's label says, or null for one with nothing to say. */
 export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
   const def = structureDef(s.def);
@@ -134,7 +142,9 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const commute = ctx.commutes.get(s.id);
     const eff = commute?.eff ?? 1;
     const lines: InfoLine[] = [{ text: `${here}/${h.slots} ${plural} living here` }];
-    if (here > 0 && rate !== undefined) lines.push({ text: `Earns ${ctx.money(here * rate * eff)}/s`, tone: "good" });
+    const broken = damageLine(s, ctx);
+    if (broken) lines.push(broken);
+    else if (here > 0 && rate !== undefined) lines.push({ text: `Earns ${ctx.money(here * rate * eff)}/s`, tone: "good" });
     // GROWING: how much more desirable it must get, or that it is growing.
     // @see GROW_AT
     const short = growthShort(s, ctx.moods.get(s.id));
@@ -166,7 +176,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
       brief: [coming > 0 ? `${here}/${h.slots} · +${coming}` : `${here}/${h.slots}`],
       lines,
       facts: [{
-        type: "home", who: h.id, residents: here, beds: h.slots, earns: rate === undefined ? undefined : here * rate * eff, coming,
+        type: "home", who: h.id, residents: here, beds: h.slots, earns: rate === undefined ? undefined : broken ? 0 : here * rate * eff, coming,
         ...(mood && here > 0 ? { mood: mood.total } : {}),
         ...(commute?.deskless ? { deskless: commute.deskless } : {}),
       }],
@@ -254,6 +264,8 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const lines: InfoLine[] = [
       { text: `${along}/${def.port.berths} alongside${waiting ? ` · ${waiting} waiting` : ""}`, tone: along ? undefined : "dim" },
     ];
+    const broken = damageLine(s, ctx);
+    if (broken) lines.push(broken);
     if (earning > 0) lines.push({ text: `Earning ${ctx.money(earning)}/min`, tone: "good" });
     return {
       title: saleName(def), accent: 0x4a90c8,

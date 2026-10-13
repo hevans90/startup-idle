@@ -75,6 +75,8 @@ import {
  * columns, which stack and so multiply their own alpha.
  */
 const XRAY_GROUND = 0.26;
+/** A flood-damaged building's tint: mud. @see damage */
+const DAMAGED_TINT = 0x9a8466;
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
@@ -91,7 +93,7 @@ import {
   convoyTally, createPacing, endedBetween, HACKATHON_CODERS, isDue, repace, tallyCall, tickPacing, townMood,
 } from "./events/town-events";
 import {
-  floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
+  damage, floodBaseline, isDamaged, floodedNow, floodMisery, floodPeak, portShut, stepRepairs, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
 import { CREW_SHARE, FLOOD_MS, HACKATHON_MORALE, stepEvents, tourReward } from "./events/events";
 import { SLOP_PIT } from "./structures/def";
@@ -1805,7 +1807,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const moods = liveMoods(g, net, useSlopPitStore.getState().fill / 100);
       for (const [id, m] of sl.mounted) {
         const mood = moods.get(id);
-        if (!mood) continue;
+        if (!mood || isDamaged(id)) continue;
         const h = m.handle as { sprites?: { tint: number; destroyed?: boolean }[] };
         for (const sp of h.sprites ?? []) { sp.tint = moodTint(mood.total); tinted.add(sp); }
       }
@@ -1817,6 +1819,29 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       for (const sp of tinted) if (!sp.destroyed) sp.tint = 0xffffff;
     };
   }, [moodOverlay]);
+
+  // FLOOD DAMAGE SHOWN: a damaged building's sprites muddied until the repair
+  // crew has been, looked at every second. @see damage
+  useEffect(() => {
+    const muddied = new Map<number, { tint: number; destroyed?: boolean }[]>();
+    const paint = () => {
+      const sl = slRef.current;
+      if (!sl) return;
+      for (const [id, sprites] of muddied) {
+        if (isDamaged(id)) continue;
+        for (const sp of sprites) if (!sp.destroyed) sp.tint = 0xffffff;
+        muddied.delete(id);
+      }
+      for (const [id, m] of sl.mounted) {
+        if (!isDamaged(id)) continue;
+        const sprites = (m.handle as { sprites?: { tint: number; destroyed?: boolean }[] }).sprites ?? [];
+        for (const sp of sprites) sp.tint = DAMAGED_TINT;
+        muddied.set(id, sprites);
+      }
+    };
+    const id = setInterval(paint, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // Painting takes the left button, so panning moves to middle/right while a
   // paint tool is active — otherwise a paint drag and a camera drag collide.
@@ -2511,6 +2536,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             floodedCount.current = wet.size;
             setFloodState(wet, floodShield.current);
             setFlooded(floodMisery());
+            // NOTHING DONE: what the water reaches is damaged. @see damage
+            if (flood && !floodShield.current) damage(st.grid, wet);
             // OVER: what is left on dry ground soaking away, and once it has,
             // put away until the next one.
             const left = flood ? 1 : soakAway(field, st.grid, floodBase.current.dry, 2);
@@ -2520,6 +2547,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             }
           }
         }
+        // THE REPAIR CREW, round the damaged buildings once the water is down.
+        if (st.playing) stepRepairs(st.grid, dt, !!floodBase.current);
         // PEOPLE LEAVING MISERABLE HOUSES, in the game, one now and then.
         // @see stepMood
         if (st.playing) {

@@ -36,7 +36,7 @@ import { loadSaved, setSaveSlot, type SaveSlot } from "./io/world-save";
 import { openDevice, type HeldGpu } from "./render/device";
 import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
-import { evacuatedAway } from "./events/flood";
+import { damagedAway, evacuatedAway } from "./events/flood";
 import { cleanupAway } from "./events/cleanup";
 import { startingLand } from "./land";
 import { usePrestigeStore } from "../state/prestige.store";
@@ -230,6 +230,8 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       // EVACUATED from a flood, for as long as their homes are under water.
       // @see evacuatedAway
       for (const [id, n] of Object.entries(evacuatedAway(st.grid))) away[id as GeneratorId] = (away[id as GeneratorId] ?? 0) + n;
+      // OUT OF HOMES A FLOOD DAMAGED, until the repair crew has been. @see damage
+      for (const [id, n] of Object.entries(damagedAway(st.grid))) away[id as GeneratorId] = (away[id as GeneratorId] ?? 0) + n;
       // MOPPING UP SLUDGE that ran out of the slop pit. @see stepCleanup
       const mopping = cleanupAway();
       if (mopping) away.vibe_coder = Math.min(ownedNow().vibe_coder ?? 0, (away.vibe_coder ?? 0) + mopping);
