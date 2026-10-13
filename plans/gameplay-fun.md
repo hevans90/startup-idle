@@ -270,3 +270,23 @@ And a playtest script per phase: a fresh run to the first sale, noting every mom
    mood rules; houses grow and fill by it, and it is shown as a heat map while placing.
 3. **Project forks: yes.** At each stage one of two projects, so each run commits to a
    direction.
+
+## Status (2026-10-13)
+
+Built, phase by phase — everything above except where noted:
+
+- **0** — upgrade gates for every project, headcount gates for every wonder, shown as chips and bars.
+- **A** — AI agents in racks; the sale as the run's end with an acquirer's offer event; the
+  longest flat stretch guarded in the sim. *Not built:* promotion between kinds.
+- **B** — one desirability score, the placing heat map and its readout, houses growing and
+  filling by it; workplaces' "+$X" floaters.
+- **C** — sandbags, extra hands and tidying cost crew time; an ignored flood leaves damage a
+  repair crew works through; a served convoy becomes a regular route; the Conference Centre
+  or a Hackerspace. *Not built:* a failed tour lowering the next offer, a skipped hackathon's
+  lasting mood.
+- **D** — term sheets at founding; four founders with a rule each on the map; hilly land
+  cheap with climbing commutes, and the land screen saying what the land means; three more
+  rule notables (a starting route, quick repairs, a fourth term sheet).
+- **E** — workplaces dim when empty; team leaders lead the workplace nearest the best home
+  of their kind (+25% at its desks); agents speed the singularity, and at 90% they decide
+  things — pull the plug, sell on their terms, or lose half the money to compute.
