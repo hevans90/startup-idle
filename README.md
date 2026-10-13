@@ -59,6 +59,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 - **Convoy** (with a port): calls pay double for a minute; extra hands (a quarter of the interns off work while it's in) halve call time, and a convoy served so comes back as a **regular route**: +20% on every port call for good, up to five (`session.routes`).
 - **Investor tour** (garage, town hall or HQ): pays 30 s of income + 1.5 s a point of town mood (0–90 s); tidying (half the vibe coders off work until they come) counts +10 mood.
 - **Hackathon** (studio, 10 vibe coders): host it and they're away a minute, then +15 satisfaction.
+- **The agents decide things** (with AI agents running, at the Data Centre): each agent speeds the singularity meter 4%; at 90% pull the plug (every agent off, meter to 50%) or let them buy the company at 2× Equity, or they spend half the money on compute (meter left at 75%).
 - **Acquisition offer** (once the company can be sold): an offer on the table for two minutes pays +25% Equity (`OFFER_PREMIUM`); "Look at the offer" opens the sale's confirmation, "Hold out" lets it go. A first company can be sold about 2.3 h in.
 
 **Prices follow the economy** (`game/build-cost.ts`), each the larger of a floor and a live share: lots a quarter of the next hire a bed (≥ $15); offices four hires; services seconds of income; seaports 10 s of income per boat a minute; road max($2, 0.25 s of income) a tile, lifting free.

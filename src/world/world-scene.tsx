@@ -94,6 +94,8 @@ import { liveSeating } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
+import { useAgentsStore } from "../state/agents.store";
+import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { CLEANERS_PER_TILE, cleanupAway, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, overflow, sludgedHouses, stepHaulers, syncPit, type PitLevel } from "./events/sludge";
@@ -103,7 +105,9 @@ import {
 import {
   damage, floodBaseline, isDamaged, floodedNow, floodMisery, floodPeak, portShut, stepRepairs, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
-import { CREW_SHARE, FLOOD_MS, HACKATHON_MORALE, MAX_ROUTES, ROUTE_BONUS, routeWon, stepEvents, tourReward } from "./events/events";
+import {
+  AI_SPEND, AI_TERMS, CREW_SHARE, FLOOD_MS, HACKATHON_MORALE, LEFT_AT, MAX_ROUTES, ROUTE_BONUS, SINGULARITY_AT, routeWon, stepEvents, tourReward,
+} from "./events/events";
 import { SLOP_PIT } from "./structures/def";
 import { FILL_RATE_PER_CODER, SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
 import { perMinute, recordCall } from "./boats/exports";
@@ -2473,7 +2477,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // door, the studio — each only once built.
             const built = (ids: string[]) => [...st.grid.structures.values()].find((s) => ids.includes(s.def) && !s.build);
             const port = getTraffic().ports.size ? [...st.grid.structures.values()].find((s) => getTraffic().ports.has(s.id)) : undefined;
-            const door = built(["hq", "townhall", "garage"]), studio = built(["studio"]);
+            const door = built(["hq", "townhall", "garage"]), studio = built(["studio"]), dc = built(["datacentre"]);
             const front = built(["ipo", "hq", "townhall", "garage"]);
             const income = useGeneratorStore.getState().getMoneyPerSecond();
             const tour = st.events.find((e) => e.kind === "investor-tour" && e.phase !== "over");
@@ -2501,6 +2505,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 const equity = Math.floor(pendingEquity().toNumber());
                 return { x: front.x + 1, y: front.y, due: isDue(pace, "offer"), equity, withPremium: Math.floor(equity * OFFER_PREMIUM) };
               })() : null,
+              // THE AGENTS, at the Data Centre, once any run. @see SINGULARITY_AT
+              singularity: dc && useAgentsStore.getState().agents > 0 ? (() => {
+                const equity = Math.floor(pendingEquity().toNumber());
+                return {
+                  x: dc.x + 1, y: dc.y + 1, due: useAiSingularityStore.getState().value >= SINGULARITY_AT,
+                  equity, onTheirTerms: Math.floor(equity * AI_TERMS),
+                };
+              })() : null,
               enabled: !useSessionStore.getState().mapEventsOff,
             }, () => eventIds.current++);
             repace(pace, st.events, next);
@@ -2509,6 +2521,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             for (const e of endedBetween(st.events, next)) {
               if (e.kind === "investor-tour" && reward > 0) useMoneyStore.getState().increaseMoney(reward);
               if (routeWon(e, tally.calls)) useSessionStore.getState().addRoute(MAX_ROUTES);
+              // THE AGENTS HAD THEIR WAY: money on compute, and the meter left high. @see AI_SPEND
+              if (e.kind === "singularity" && e.chosen !== "plug") {
+                useMoneyStore.setState((m) => ({ money: m.money.times(1 - AI_SPEND) }));
+                useAiSingularityStore.setState({ value: LEFT_AT });
+              }
               if (e.kind === "hackathon" && e.chosen === "host") {
                 useGeneratorStore.setState((g) => ({
                   satisfactionScores: {

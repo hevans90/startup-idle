@@ -30,3 +30,21 @@ describe("ai-singularity persistence", () => {
     expect(useAiSingularityStore.getState().value).toBe(0);
   });
 });
+
+describe("the agents and the singularity", () => {
+  test("every agent running brings it on faster", async () => {
+    const { useAgentsStore } = await import("./agents.store");
+    const { SINGULARITY_PER_AGENT } = await import("./ai-singularity.store");
+    useAiSingularityStore.setState({ value: 0 });
+    useAgentsStore.setState({ agents: 0 });
+    useAiSingularityStore.getState().tick(10, -50, true);
+    const alone = useAiSingularityStore.getState().value;
+    expect(alone).toBeGreaterThan(0);
+    useAiSingularityStore.setState({ value: 0 });
+    useAgentsStore.setState({ agents: 10 });
+    useAiSingularityStore.getState().tick(10, -50, true);
+    expect(useAiSingularityStore.getState().value).toBeCloseTo(alone * (1 + 10 * SINGULARITY_PER_AGENT));
+    useAgentsStore.setState({ agents: 0 });
+    useAiSingularityStore.setState({ value: 0 });
+  });
+});
