@@ -66,6 +66,87 @@ Everything below serves one of these, and anything that serves none is cut.
   what a good strategy is.
 - **P5 — See the town earn.** Money and trouble visibly come from places on the map.
 
+## Phase 0 — Upgrades and headcounts are the gates (P1, P3)
+
+Today every project is gated by a headcount ("needs 10 interns") and the Boardroom by
+Employee Management. The ladder is invisible until you reach a rung, and hiring is the
+only lever. Instead:
+
+- **Every project after the Garage needs an employee upgrade bought.** The upgrade is
+  already a milestone the player chases on the Employees tab, so the two ladders become
+  one: buy *Micromanagement*, and the Town Hall can be sited. Buying it is a choice (spend
+  on the gate now, or on hires), which a headcount never was.
+- **Every wonder needs headcounts of several kinds at once**, shown as progress in the
+  wonders panel, so the late game reads as a target ("interns 342/350, vibe coders 88/150,
+  10x devs 3/8") rather than a sentence.
+- **The Garage stays ungated:** it is what makes hiring possible, so nothing can come
+  before it.
+
+### The gates
+
+Chosen so each project still arrives in the order it does now, at about the time it does
+now (sim timings in brackets), and so each upgrade fits what the building is for.
+
+| Project | Today | New gate | Upgrade becomes buyable at |
+| --- | --- | --- | --- |
+| Founder's Garage | — | — | — |
+| Town Hall | 6 interns (≈1.5 min) | **Micromanagement** ($400) | 15 interns |
+| Vibe Coder Studio | 10 interns (5.6 min) | **Mandatory Weekend Work** ($2.2k) | 25 interns |
+| Harbour Office | 5 vibe coders | **Focus Vibing** ($7.5k) | 10 vibe coders |
+| Company HQ | 10 vibe coders | **JUULing** ($30k) | 20 vibe coders |
+| Boardroom Tower | Employee Management | **Upward Management** ($200k) — and Employee Management, as now | 100 interns + 35 vibe coders |
+| Campus | 20 vibe coders (18 min) | **Intern Promotion** ($200k) | 40 vibe coders |
+
+| Wonder | Today | New gate (all at once) |
+| --- | --- | --- |
+| Data Centre ★ | 3 10x devs (44 min) | 150 interns · 60 vibe coders · 3 10x devs |
+| Conference Centre ★ | 8 10x devs (1.67 h) | 250 interns · 100 vibe coders · 6 10x devs |
+| IPO Tower ★ | 15 10x devs (never) | 350 interns · 150 vibe coders · 8 10x devs |
+
+The wonder counts are drawn from the sim's late run (342 · 88 · 3 at 1 h; 382 · 171 · 7 at
+1.5 h) and are **re-tuned in Phase A** once the 10x dev curve and AI agents change what a
+late company employs. The IPO Tower's 15 10x devs is unreachable today; this makes it
+reachable.
+
+### Gates as data, not code
+
+`ProjectDef.ready` and `readyWhen` are a function and a sentence; nothing can show
+progress toward either. Replace them with data both the gate check and the UI read:
+
+```ts
+gate?: { upgrade?: string; feature?: string; staff?: Partial<Record<GeneratorId, number>> }
+```
+
+`ready` becomes one function over that (upgrade bought, feature unlocked, every count
+met), and the sentence is generated from it.
+
+### The UI
+
+- **Projects log:** a locked project shows its gate as an icon chip — the upgrade's
+  name, and a padlock, a "buy now" mark or a tick. Hovering (or tapping, on a phone) opens
+  a popover: what the upgrade does (its description), its price, when it becomes buyable
+  ("at 25 interns: you have 18"), and what it opens here. A button in the popover jumps
+  to the upgrade on the Employees tab.
+- **Employees tab:** an upgrade that gates a project carries a small tag, "Opens: Town
+  Hall", with its own popover — so the link is visible from both ends, and the player
+  learns why the upgrade matters before the project log ever mentions it.
+- **Wonders panel:** each wonder lists its counts with a bar per kind, in the kind's
+  colour, green when met; a popover on each count says how many more and what each costs
+  at today's prices.
+- Same popover component as the people row (`Stat` in `build-bar.tsx`), lifted into a
+  shared one that opens on tap as well as hover (it is hover-only today).
+
+### Done when
+
+- Every project but the Garage has a gate; every gate names a real upgrade or count
+  (a test walks `PROJECTS` and checks).
+- The order holds: each project's gate is buyable no later than the next project's.
+- The balance sim buys a gate's upgrade when it is the next thing in the way (the greedy
+  player must know the gate exists), and its guards hold: 10 interns < 5 min, Campus
+  < 30 min; and new guards: Data Centre < 1 h, IPO Tower reachable in the late run.
+- Hints, the README's projects table and the event that checks for the HQ/Town Hall
+  ("investor tour") still read correctly.
+
 ## Phase A — Break the wall (P1)
 
 The shortest path to more fun: the game currently stops being a game at 90 minutes.
@@ -174,6 +255,7 @@ And a playtest script per phase: a fresh run to the first sale, noting every mom
 
 | Phase | Why this order | Size |
 | --- | --- | --- |
+| 0 — Upgrades and headcounts as gates | small, visible, and it sets the ladder A re-tunes | S–M |
 | A — Break the wall | the game currently ends at 90 min; nothing else matters until it doesn't | M |
 | B — Placement is the puzzle | the map is the game's identity and currently decorative | L |
 | C — Real choices | cheap once B exists: costs can be paid in mood, land, crews | M |
