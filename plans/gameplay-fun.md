@@ -180,11 +180,11 @@ And a playtest script per phase: a fresh run to the first sale, noting every mom
 | D — Different runs | needs A–C to have strategies worth varying | M |
 | E — People on the map | polish of B and C, best last | M |
 
-## Decisions needed before starting
+## Decisions (2026-10-13)
 
-1. **The fourth employee kind** — AI agents in racks (recommended), or no new kind and
-   promotion only?
-2. **Desirability replacing the service-tier and mood rules** — one unified number
-   (recommended, simpler to read and to tune), or layered on top of what exists?
-3. **Exclusive project forks** — in (recommended: they are what makes runs differ), or
-   keep one chain everyone builds?
+1. **The fourth employee kind: AI agents**, opened by the Data Centre, housed in racks,
+   paid in power and innovation.
+2. **Placement: one desirability score** per tile, replacing the separate service-tier and
+   mood rules; houses grow and fill by it, and it is shown as a heat map while placing.
+3. **Project forks: yes.** At each stage one of two projects, so each run commits to a
+   direction.
