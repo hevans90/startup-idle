@@ -1,12 +1,16 @@
 import Decimal from "break_infinity.js";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   accruedForEquity,
   ACQUISITION_THRESHOLD,
+  canAcquire,
   equityForAccrued,
+  offerPremiumNow,
+  offerPremiumUntil,
   townBonusNow,
   performAcquisition,
 } from "../game/acquisition";
+import { useTicking } from "../hooks/use-ticking";
 import { SKILL_TREE } from "../game/skill-tree";
 import { useShallow } from "zustand/shallow";
 import { useGeneratorStore } from "../state/generators.store";
@@ -239,6 +243,17 @@ export const AcquisitionTab = () => {
   const { triggerSell } = useSellTransition();
   const [treeOpen, setTreeOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // AN ACQUIRER'S OFFER, looked at from the map: straight to the confirmation. @see answerOffer
+  useEffect(() => {
+    const ask = () => { if (canAcquire()) setConfirming(true); };
+    window.addEventListener("startup:confirm-sale", ask);
+    return () => window.removeEventListener("startup:confirm-sale", ask);
+  }, []);
+  useTicking(1000);
+  const premium = offerPremiumNow();
+  const premiumUntil = offerPremiumUntil();
+  // WITH AN ACQUIRER'S PREMIUM, while their offer is on the table. @see OFFER_PREMIUM
+  const paid = premium > 1 ? offer.mul(premium).floor() : offer;
 
   return (
     <div className="flex w-full flex-col items-center gap-4 p-3">
@@ -315,9 +330,15 @@ export const AcquisitionTab = () => {
                   : "opacity-40"
               }`}
             >
-              {eligible ? `+${plain(offer)} Equity` : "—"}
+              {eligible ? `+${plain(paid)} Equity` : "—"}
             </span>
           </div>
+          {eligible && premium > 1 && premiumUntil !== null && (
+            <p className="text-[11px] tabular-nums text-amber-700 dark:text-amber-400">
+              An acquirer's premium of +{Math.round((premium - 1) * 100)}% (against +{plain(offer)} without),
+              for {formatDuration(Math.max(0, premiumUntil - Date.now()))} more
+            </p>
+          )}
           {townBonusNow() > 0 && (
             <p className="text-[11px] tabular-nums text-emerald-700 dark:text-emerald-400"
               title="Houses grown, services and wonders on your map. Up to +50%.">
@@ -337,7 +358,7 @@ export const AcquisitionTab = () => {
             onClick={() => setConfirming(true)}
           >
             {eligible
-              ? `Sell for +${plain(offer)} Equity`
+              ? `Sell for +${plain(paid)} Equity`
               : "Not enough valuation yet"}
           </Button>
         </div>
@@ -347,7 +368,7 @@ export const AcquisitionTab = () => {
       {treeOpen && <SkillTreeOverlay onClose={() => setTreeOpen(false)} />}
       {confirming && (
         <AcquireConfirm
-          offer={offer}
+          offer={paid}
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
             triggerSell(() => performAcquisition());

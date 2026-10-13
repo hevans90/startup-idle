@@ -88,6 +88,12 @@ describe("the late game", () => {
     expect(run.coreAt).not.toBeNull();
     expect(run.opened.conference!).toBeLessThan(3 * 3600);
     expect(run.opened.ipo!).toBeLessThan(3 * 3600);
+    // THE SALE AS THE RUN'S END (2026-10-13): valuation accrues 2.5× what it
+    // did and the IPO tower doubles it, so a first company can be sold about
+    // 2.3 h in — where at 4 h it still could not. @see OFFER_PREMIUM
+    const firstSale = run.headcount.find((h) => ((h.owned as Record<string, number>).equity ?? 0) > 0);
+    expect(firstSale).toBeDefined();
+    expect(firstSale!.at).toBeLessThanOrEqual(2.5 * 3600 + 60);
     // The pit seen to with trucks, mostly: a drain is the fallback.
     expect(run.slopDrained).toBeLessThan(run.slopTrucked);
     // Income never collapses: the last half hour still earns.

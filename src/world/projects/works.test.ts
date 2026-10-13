@@ -323,7 +323,8 @@ describe("the wonders", () => {
     expect(wonderBonus("money")).toBe(1);
     stop();
     const stop2 = setProjectReader(() => ({ built: new Set(["datacentre", "conference", "ipo"]), away: {} }));
-    expect(wonderBonus("valuation")).toBe(1.5);
+    // The conference centre's ×1.5, and the IPO tower's ×2.
+    expect(wonderBonus("valuation")).toBe(3);
     expect(wonderBonus("money")).toBe(1.5);
     stop2();
   });

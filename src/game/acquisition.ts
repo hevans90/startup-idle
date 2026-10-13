@@ -120,11 +120,31 @@ function executeAcquisition(equityMultiplier = 1): Decimal {
 }
 
 /**
- * Accept the acquisition offer: bank the Equity, then soft-reset the run.
- * No-op if not eligible. Returns the Equity banked (0 if it didn't fire).
+ * AN ACQUIRER AT THE DOOR: a premium on top of the offer for a sale agreed
+ * while the offer is on the table — the run's climax as a decision, take it
+ * now or hold out for a bigger company. Live state, set by the offer event and
+ * gone when it lapses. @see world/events "offer"
+ */
+export const OFFER_PREMIUM = 1.25;
+let premium: { mult: number; until: number } | null = null;
+export function setOfferPremium(mult: number, until: number): void { premium = { mult, until }; }
+export function clearOfferPremium(): void { premium = null; }
+/** The premium a sale agreed now would carry: 1 for none. */
+export function offerPremiumNow(now = Date.now()): number {
+  return premium && now < premium.until ? premium.mult : 1;
+}
+/** When the premium on the table lapses, ms since the epoch, or null for none. */
+export const offerPremiumUntil = (now = Date.now()) => (premium && now < premium.until ? premium.until : null);
+
+/**
+ * Accept the acquisition offer: bank the Equity, then soft-reset the run —
+ * with an acquirer's premium, if one is on the table. No-op if not eligible.
+ * Returns the Equity banked (0 if it didn't fire).
  */
 export function performAcquisition(): Decimal {
-  return executeAcquisition(1);
+  const mult = offerPremiumNow();
+  premium = null;
+  return executeAcquisition(mult);
 }
 
 /**

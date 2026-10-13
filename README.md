@@ -57,6 +57,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 - **Convoy** (with a port): calls pay double for a minute; extra hands (20 s) halve call time.
 - **Investor tour** (garage, town hall or HQ): pays 30 s of income + 1.5 s a point of town mood (0–90 s); tidying (10 s) counts +10 mood.
 - **Hackathon** (studio, 10 vibe coders): host it and they're away a minute, then +15 satisfaction.
+- **Acquisition offer** (once the company can be sold): an offer on the table for two minutes pays +25% Equity (`OFFER_PREMIUM`); "Look at the offer" opens the sale's confirmation, "Hold out" lets it go. A first company can be sold about 2.3 h in.
 
 **Prices follow the economy** (`game/build-cost.ts`), each the larger of a floor and a live share: lots a quarter of the next hire a bed (≥ $15); offices four hires; services seconds of income; seaports 10 s of income per boat a minute; road max($2, 0.25 s of income) a tile, lifting free.
 
@@ -73,7 +74,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 | Campus | JUULing | interns + vibe | 6,000 | 2 min (≥ $40,000) | 4×4 | 10x devs |
 | Data Centre ★ | 120 interns · 50 vibe · 3 10x | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2 |
 | Conference Centre ★ | 250 · 100 · 6 | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | valuation ×1.5 |
-| IPO Tower ★ | 350 · 150 · 8 | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5 |
+| IPO Tower ★ | 350 · 150 · 8 | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5, valuation ×2 |
 
 ★ Wonders have their own menu (`play/wonders-panel.tsx`). The **projects log** (`projects-panel.tsx`) is a foldable quest log that pulses when something new is available (`Session.seenProjects`). Gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`); sims and tests are never gated.
 

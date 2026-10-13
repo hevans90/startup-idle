@@ -15,7 +15,7 @@
 import { FLOOD_SECONDS } from "./flood";
 
 
-export type EventKind = "slop-overflow" | "river-flood" | "convoy" | "investor-tour" | "hackathon";
+export type EventKind = "slop-overflow" | "river-flood" | "convoy" | "investor-tour" | "hackathon" | "offer";
 
 export type EventChoice = {
   id: string;
@@ -66,6 +66,12 @@ export type EventWorld = {
   tour: { x: number; y: number; due: boolean; reward: number; tidyPrice: number } | null;
   /** The vibe coders' studio, with enough of them in it for a hackathon, and whether one is due. */
   hackathon: { x: number; y: number; due: boolean } | null;
+  /**
+   * An ACQUIRER, once the company can be sold: where its front door is,
+   * whether an offer is due, and the Equity a sale pays now and with the
+   * acquirer's premium. Null while there is nothing to sell. @see OFFER_PREMIUM
+   */
+  offer: { x: number; y: number; due: boolean; equity: number; withPremium: number } | null;
   /** Whether events happen at all: false, and every one is put away. */
   enabled: boolean;
 };
@@ -80,6 +86,8 @@ export const PACING = {
   convoy: { first: 10 * 60, between: [15 * 60, 25 * 60] },
   "investor-tour": { first: 20 * 60, between: [25 * 60, 40 * 60] },
   hackathon: { first: 8 * 60, between: [20 * 60, 30 * 60] },
+  // The first as soon as there is a company worth buying; then now and again.
+  offer: { first: 60, between: [15 * 60, 25 * 60] },
 } as const satisfies Partial<Record<EventKind, { first: number; between: readonly [number, number] }>>;
 export type PacedKind = keyof typeof PACING;
 
@@ -174,6 +182,20 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
       const r = w.tour?.reward ?? 0;
       return r > 0 ? `The investors liked what they saw: ${money(r)}.` : "The investors were not impressed.";
     },
+  },
+  offer: {
+    warnMs: 20_000, activeMs: 120_000,
+    warning: { title: "An acquirer is circling", text: "Someone wants to buy the company. An offer is coming." },
+    active: { title: "An offer is on the table", text: "Sell now and they pay a premium. Hold out, and the company — and the next offer — may grow." },
+    of: (w) => w.offer && {
+      ...w.offer,
+      choices: [
+        { id: "accept", label: "Look at the offer", cost: `+${w.offer.withPremium} Equity, against ${w.offer.equity} without them · sells the company` },
+        { id: "hold", label: "Hold out", cost: "the premium goes with them" },
+      ],
+    },
+    // A sale ends the company, and this with it; still here, it lapsed.
+    outcome: (e) => (e.chosen === "accept" ? "The offer lapsed before you signed. Another may come." : "The acquirer has walked away. Another may come."),
   },
   hackathon: {
     warnMs: 45_000, activeMs: 60_000,

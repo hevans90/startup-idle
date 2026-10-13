@@ -5,6 +5,7 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
+import { OFFER_PREMIUM, canAcquire, pendingEquity } from "../game/acquisition";
 import { heldHidden } from "./render/hold";
 import type { Renderer } from "pixi.js";
 import { nappeStepsAt } from "./render/nappe";
@@ -2387,6 +2388,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const built = (ids: string[]) => [...st.grid.structures.values()].find((s) => ids.includes(s.def) && !s.build);
             const port = getTraffic().ports.size ? [...st.grid.structures.values()].find((s) => getTraffic().ports.has(s.id)) : undefined;
             const door = built(["hq", "townhall", "garage"]), studio = built(["studio"]);
+            const front = built(["ipo", "hq", "townhall", "garage"]);
             const income = useGeneratorStore.getState().getMoneyPerSecond();
             const tour = st.events.find((e) => e.kind === "investor-tour" && e.phase !== "over");
             const convoy = st.events.find((e) => e.kind === "convoy" && e.phase !== "over");
@@ -2407,6 +2409,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               } : null,
               tour: door ? { x: door.x + 1, y: door.y, due: isDue(pace, "investor-tour"), reward, tidyPrice: tidyPrice() } : null,
               hackathon: studio && vibe >= HACKATHON_CODERS ? { x: studio.x + 1, y: studio.y + 1, due: isDue(pace, "hackathon") } : null,
+              // AN ACQUIRER, at the company's grandest door, once it can be sold.
+              offer: front && canAcquire() ? (() => {
+                const equity = Math.floor(pendingEquity().toNumber());
+                return { x: front.x + 1, y: front.y, due: isDue(pace, "offer"), equity, withPremium: Math.floor(equity * OFFER_PREMIUM) };
+              })() : null,
               enabled: !useSessionStore.getState().mapEventsOff,
             }, () => eventIds.current++);
             repace(pace, st.events, next);

@@ -257,14 +257,14 @@ export const PROJECTS: readonly ProjectDef[] = [
   {
     id: "ipo",
     name: "IPO Tower",
-    pitch: "A gold tower with your ticker on it. All income half as much again, for good.",
+    pitch: "A gold tower with your ticker on it. All income half as much again, and the company valued twice as fast: buyers start calling.",
     structure: "ipo",
     builders: ["vibe_coder", "10x_dev"],
     work: 20_000,
     incomeSeconds: 300,
     floor: 2_000_000,
     deliveries: 20,
-    bonus: { money: 1.5 },
+    bonus: { money: 1.5, valuation: 2 },
     ...needs({ staff: { intern: 350, vibe_coder: 150, "10x_dev": 8 } }),
   },
 ];

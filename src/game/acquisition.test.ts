@@ -13,7 +13,10 @@ import {
   accruedForEquity,
   canAcquire,
   equityForAccrued,
+  OFFER_PREMIUM,
+  offerPremiumNow,
   performAcquisition,
+  setOfferPremium,
   setTownBonusReader,
   townBonusNow,
 } from "./acquisition";
@@ -113,6 +116,30 @@ describe("performAcquisition", () => {
     expect(useValuationStore.getState().accruedThisRun.toNumber()).toBe(0);
     expect(useMoneyStore.getState().money.toNumber()).toBe(0);
     expect(useFounderStore.getState().selectedFounderId).toBeNull(); // re-pick
+  });
+});
+
+describe("an acquirer's premium", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetAllGameStores();
+    useFounderStore.getState().chooseFounder("bootstrapper");
+  });
+
+  test("a sale while their offer is on the table pays the premium, once", () => {
+    useValuationStore.getState().increaseValuation(ACQUISITION_THRESHOLD * 4);
+    const offer = equityForAccrued(useValuationStore.getState().accruedThisRun).toNumber();
+    setOfferPremium(OFFER_PREMIUM, Date.now() + 60_000);
+    expect(offerPremiumNow()).toBe(OFFER_PREMIUM);
+    expect(performAcquisition().toNumber()).toBe(Math.floor(offer * OFFER_PREMIUM));
+    expect(offerPremiumNow()).toBe(1);
+  });
+
+  test("and none once it has lapsed", () => {
+    useValuationStore.getState().increaseValuation(ACQUISITION_THRESHOLD * 4);
+    const offer = equityForAccrued(useValuationStore.getState().accruedThisRun).toNumber();
+    setOfferPremium(OFFER_PREMIUM, Date.now() - 1);
+    expect(performAcquisition().toNumber()).toBe(offer);
   });
 });
 

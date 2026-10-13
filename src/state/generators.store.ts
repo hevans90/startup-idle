@@ -968,7 +968,7 @@ export const useGeneratorStore = create<GeneratorState>()(
 
           // Mirror of the accrual in tickGenerators: a sub-linear function of $/sec,
           // scaled by board (sales), intern satisfaction, founder, and skill-tree modifiers.
-          const base = Math.pow(Math.max(1, mps), 0.38) * 4e-5;
+          const base = Math.pow(Math.max(1, mps), 0.38) * 1e-4;
           const factors = [
             {
               label: "Sales managers",

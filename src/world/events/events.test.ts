@@ -3,10 +3,10 @@ import { describe, expect, test } from "bun:test";
 import { FLOOD_MS, FLOOD_WARN_MS, OVER_SHOWN_MS, SLOP_WARN_AT, stepEvents, tourReward, type EventWorld, type GameEvent } from "./events";
 
 const world = (fill: number, now = 0, rate = 0.1): EventWorld => ({
-  now, slop: { x: 5, y: 5, fill, rate, trucks: 0, truckPrice: 300 }, river: null, convoy: null, tour: null, hackathon: null, enabled: true,
+  now, slop: { x: 5, y: 5, fill, rate, trucks: 0, truckPrice: 300 }, river: null, convoy: null, tour: null, hackathon: null, offer: null, enabled: true,
 });
 const river = (now: number, due: boolean, flooded = 0): EventWorld => ({
-  now, slop: null, river: { x: 0, y: 9, due, flooded, sandbagPrice: 500 }, convoy: null, tour: null, hackathon: null, enabled: true,
+  now, slop: null, river: { x: 0, y: 9, due, flooded, sandbagPrice: 500 }, convoy: null, tour: null, hackathon: null, offer: null, enabled: true,
 });
 let n = 1;
 const next = () => n++;
@@ -83,7 +83,7 @@ describe("a river flood", () => {
 });
 
 describe("opportunities", () => {
-  const base = (now: number): EventWorld => ({ now, slop: null, river: null, convoy: null, tour: null, hackathon: null, enabled: true });
+  const base = (now: number): EventWorld => ({ now, slop: null, river: null, convoy: null, tour: null, hackathon: null, offer: null, enabled: true });
 
   test("a convoy is warned of, comes in, and says what it earned", () => {
     const w = (now: number, due: boolean, calls = 0, earned = 0) => ({
@@ -109,5 +109,32 @@ describe("opportunities", () => {
     expect(tourReward(10, 0, true)).toBe(450);
     expect(tourReward(10, -40, false)).toBe(0);
     expect(tourReward(10, 40, true)).toBe(900);
+  });
+});
+
+describe("an acquirer's offer", () => {
+  const at = (now: number, due: boolean, equity = 16): EventWorld => ({
+    now, slop: null, river: null, convoy: null, tour: null, hackathon: null, enabled: true,
+    offer: { x: 4, y: 4, due, equity, withPremium: Math.floor(equity * 1.25) },
+  });
+
+  test("comes when due and the company can be sold, is on the table a while, and lapses", () => {
+    expect(stepEvents([], { ...at(0, true), offer: null }, next)).toEqual([]);
+    let evs = stepEvents([], at(0, true), next);
+    expect(evs[0].kind).toBe("offer");
+    expect(evs[0].phase).toBe("warning");
+    expect(evs[0].choices.map((c) => c.id)).toEqual(["accept", "hold"]);
+    expect(evs[0].choices[0].cost).toContain("+20 Equity, against 16");
+    evs = stepEvents(evs, at(20_000, false), next);
+    expect(evs[0].phase).toBe("active");
+    evs = stepEvents(evs, at(20_000 + 120_000, false), next);
+    expect(evs[0].phase).toBe("over");
+    expect(evs[0].outcome).toMatch(/walked away/);
+  });
+
+  test("is called off if the company can no longer be sold", () => {
+    const evs = stepEvents([], at(0, true), next);
+    const after = stepEvents(evs, { ...at(1000, false), offer: null }, next);
+    expect(after[0].phase).toBe("over");
   });
 });

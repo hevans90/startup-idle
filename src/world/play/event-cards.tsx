@@ -13,6 +13,8 @@ import { useWorldStore } from "../../state/world.store";
 import { cellToWorld } from "../iso";
 import { idx, inBounds } from "../grid";
 import type { GameEvent } from "../events/events";
+import { OFFER_PREMIUM, clearOfferPremium, setOfferPremium } from "../../game/acquisition";
+import { useGlobalSettingsStore } from "../../state/global-settings.store";
 
 const CARD =
   "w-[min(24rem,calc(100vw-1rem))] border px-3 py-2 text-xs shadow-md "
@@ -20,6 +22,23 @@ const CARD =
 const BTN =
   "flex cursor-pointer flex-col items-start border border-primary-400 px-2 py-1 text-left hover:bg-primary-200 pointer-coarse:min-h-11 "
   + "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-primary-600 dark:hover:bg-primary-800";
+
+/**
+ * AN ACQUIRER'S OFFER, answered: looking at it puts their premium on the sale
+ * for as long as the offer is on the table, and opens the sale — with its
+ * confirmation, so nothing is sold by one click on the map. Holding out lets
+ * the premium go. @see OFFER_PREMIUM, AcquisitionTab
+ */
+function answerOffer(e: GameEvent, choice: string) {
+  if (e.kind !== "offer") return;
+  if (choice === "hold") { clearOfferPremium(); return; }
+  if (choice !== "accept") return;
+  const until = e.endsAt ?? (e.strikesAt ?? Date.now()) + 120_000;
+  setOfferPremium(OFFER_PREMIUM, until);
+  useGlobalSettingsStore.getState().setSidebarTab("acquisition");
+  window.dispatchEvent(new CustomEvent("startup:show-company"));
+  window.dispatchEvent(new CustomEvent("startup:confirm-sale"));
+}
 
 function EventCard({ e }: { e: GameEvent }) {
   const respond = useWorldStore((s) => s.respondToEvent);
@@ -40,7 +59,7 @@ function EventCard({ e }: { e: GameEvent }) {
         <div className="mt-1.5 flex flex-wrap gap-1">
           {e.choices.map((c) => (
             <button key={c.id} type="button" disabled={!!c.unavailable}
-              onClick={() => respond(e.id, c.id)}
+              onClick={() => { respond(e.id, c.id); answerOffer(e, c.id); }}
               className={twMerge(BTN, e.chosen === c.id && "bg-primary-200 dark:bg-primary-800")}
               title={c.unavailable}>
               <span className="font-bold">{c.label}</span>

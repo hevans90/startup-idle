@@ -22,6 +22,7 @@ import {
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
+import { useValuationStore } from "../state/valuation.store";
 import { syncAvailableUpgrades, UPGRADES_CORE, useUpgradeStore } from "../state/upgrades.store";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { structureDef } from "../world/structures/def";
@@ -34,7 +35,7 @@ import { HAUL_LOAD } from "../world/events/sludge";
 import { MOOD, MOOD_LIMIT } from "../world/agents/mood";
 import { setTownMoodReader } from "../game/town-mood";
 import { PER_GROWN, PER_SERVICE, PER_WONDER } from "../world/projects/town-worth";
-import { TOWN_BONUS_CAP } from "../game/acquisition";
+import { TOWN_BONUS_CAP, pendingEquity } from "../game/acquisition";
 import { syncUnlockedGenerators } from "../state/generators.store";
 import { advanceGameplayOneSecond } from "./run-sim";
 import { resetAllGameStores } from "./reset-game-stores";
@@ -370,7 +371,10 @@ export function simulateMapRun(
         const o = owned(), income = Math.max(1e-9, useGeneratorStore.getState().getMoneyPerSecond());
         // And what the next of each costs, in seconds of income.
         const wait = Object.fromEntries(Object.keys(o).map((id) => [`${id}·s`, Math.round(getGeneratorCost(id as GeneratorId, 1).toNumber() / income)]));
-        report.headcount.push({ at: t, owned: { ...o, ...wait } as Partial<Record<GeneratorId, number>> });
+        // And what selling would pay now, in Equity. @see equityForAccrued
+        const equity = Math.round(pendingEquity().toNumber());
+        const valuation = Math.round(useValuationStore.getState().accruedThisRun.toNumber());
+        report.headcount.push({ at: t, owned: { ...o, ...wait, valuation, equity } as Partial<Record<GeneratorId, number>> });
       }
       const next = cheapest();
       if (!next) { advanceGameplayOneSecond(advanceTimersByTime); t++; stepTown(); continue; }
