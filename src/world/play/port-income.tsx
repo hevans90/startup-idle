@@ -11,9 +11,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
-import { getExports, getNetwork, useWorldStore } from "../../state/world.store";
-import { liveSeating, workplaceKind } from "../agents/commute";
+import { getExports, useWorldStore } from "../../state/world.store";
+import { payday } from "./payday";
 import { formatCurrency } from "../../utils/money-utils";
 import { drawnTop, shownStructures } from "../structures/layer";
 
@@ -22,32 +21,6 @@ const LIFE = 1600;
 const RISE = 28;
 /** How often each workplace says what it earned, ms. */
 const PAYDAY = 5000;
-
-/**
- * What each workplace's people earned in `ms`: their kind's income, shared
- * out by the desks taken at each. @see liveSeating
- */
-export function payday(ms: number): { structure: number; amount: number }[] {
-  const st = useWorldStore.getState(), net = getNetwork();
-  if (!net || !st.playing) return [];
-  const desks = liveSeating(st.grid, net).desks;
-  const gens = useGeneratorStore.getState();
-  const seated: Partial<Record<GeneratorId, number>> = {};
-  for (const [id, d] of desks) {
-    const who = workplaceKind(st.grid.structures.get(id)?.def ?? "");
-    if (who) seated[who] = (seated[who] ?? 0) + d.used;
-  }
-  const out: { structure: number; amount: number }[] = [];
-  for (const [id, d] of desks) {
-    const who = workplaceKind(st.grid.structures.get(id)?.def ?? "");
-    const all = who ? seated[who] ?? 0 : 0;
-    if (!who || !d.used || !all) continue;
-    const owned = gens.generators.find((g) => g.id === who)?.amount ?? 0;
-    const amount = gens.getGeneratorMoneyPerSecond(who, owned) * (d.used / all) * (ms / 1000);
-    if (amount > 0) out.push({ structure: id, amount });
-  }
-  return out;
-}
 
 type Float = { key: number; amount: number; at: number; wx: number; wy: number };
 

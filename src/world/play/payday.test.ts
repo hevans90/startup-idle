@@ -7,7 +7,7 @@ import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx } from "../grid";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
-import { payday } from "./port-income";
+import { payday } from "./payday";
 
 describe("payday", () => {
   beforeEach(() => { localStorage.clear(); resetAllGameStores(); });
