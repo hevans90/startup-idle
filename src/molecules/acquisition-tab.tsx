@@ -10,6 +10,7 @@ import {
   townBonusNow,
   performAcquisition,
 } from "../game/acquisition";
+import { termStatus } from "../game/term-sheets";
 import { useTicking } from "../hooks/use-ticking";
 import { SKILL_TREE } from "../game/skill-tree";
 import { useShallow } from "zustand/shallow";
@@ -252,6 +253,7 @@ export const AcquisitionTab = () => {
   useTicking(1000);
   const premium = offerPremiumNow();
   const premiumUntil = offerPremiumUntil();
+  const term = termStatus();
   // WITH AN ACQUIRER'S PREMIUM, while their offer is on the table. @see OFFER_PREMIUM
   const paid = premium > 1 ? offer.mul(premium).floor() : offer;
 
@@ -343,6 +345,13 @@ export const AcquisitionTab = () => {
             <p className="text-[11px] tabular-nums text-emerald-700 dark:text-emerald-400"
               title="Houses grown, services and wonders on your map. Up to +50%.">
               Includes a town bonus of +{Math.round(townBonusNow() * 100)}%
+            </p>
+          )}
+          {term && (
+            <p className={`text-[11px] tabular-nums ${term.progress.met ? "text-emerald-700 dark:text-emerald-400" : "opacity-70"}`}
+              title={`${term.sheet.investor}'s term sheet: +${Math.round(term.sheet.bonus * 100)}% Equity if it is met when you sell.`}>
+              Term sheet: {term.sheet.goal} · {term.progress.text}
+              {term.progress.met ? ` · includes +${Math.round(term.sheet.bonus * 100)}%` : ""}
             </p>
           )}
           <Bar frac={frac} />

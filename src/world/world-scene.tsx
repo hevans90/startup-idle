@@ -2487,6 +2487,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
           }
           const overflowing = st.events.some((e) => e.kind === "slop-overflow" && e.phase === "active");
+          // Kept for the run: a clean run is a term sheet's goal. @see game/term-sheets
+          if (overflowing) useSessionStore.getState().markOverflowed();
           // MOPPING UP what has run out of the pit: vibe coders off work,
           // walking to it and draining it by hand. @see stepCleanup
           // (In development, `__fakeHires` counts: a crew to watch with nobody hired.)

@@ -16,7 +16,9 @@ import {
 } from "../game/housing";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { getNetwork, getWorks, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
-import { setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
+import { housedBy, residentsIn } from "../game/housing";
+import { projectForStructure, setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
+import { setTermReader } from "../game/term-sheets";
 import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
@@ -174,6 +176,19 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   useEffect(() => {
     if (!play) return;
     return setTownBonusReader(() => townBonusOf(useWorldStore.getState().grid));
+  }, [play]);
+  /** THE MAP'S SIDE OF THE TERM SHEET: houses lived in, wonders standing. @see game/term-sheets */
+  useEffect(() => {
+    if (!play) return;
+    return setTermReader(() => {
+      let houses = 0, wonders = 0;
+      for (const s of useWorldStore.getState().grid.structures.values()) {
+        if (s.build) continue;
+        if (housedBy(s.def) && residentsIn(s) > 0) houses++;
+        if (projectForStructure(s.def)?.bonus) wonders++;
+      }
+      return { houses, wonders };
+    });
   }, [play]);
   /** THE GAME'S RULES, while the game is the one showing the map. @see playing */
   useEffect(() => {

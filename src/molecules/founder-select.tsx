@@ -9,6 +9,7 @@ import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { CURRENT_VERSION } from "../state/version.store";
 import { fmtMult } from "../ui/BonusRow";
 import { Button } from "../ui/Button";
+import { TermSheetSelect } from "./term-sheet-select";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -83,9 +84,11 @@ function PanelRow({
 export const FounderSelect = () => {
   const chooseFounder = useFounderStore((s) => s.chooseFounder);
   const [selected, setSelected] = useState<string | null>(null);
-  // FOUNDING IS TWO STEPS: who, then where. @see MapSetup
-  const [step, setStep] = useState<"founder" | "land">("founder");
+  // FOUNDING IS THREE STEPS: who, where, then on what terms. @see MapSetup, TermSheetSelect
+  const [step, setStep] = useState<"founder" | "land" | "terms">("founder");
+  const [land, setLand] = useState<{ seed: number; params: Record<string, number> } | null>(null);
   const setMapChoice = useSessionStore((s) => s.setMapChoice);
+  const setTermSheet = useSessionStore((s) => s.setTermSheet);
 
   const equity = usePrestigeStore((s) => s.equity);
   const exits = usePrestigeStore((s) => s.exits);
@@ -159,13 +162,20 @@ export const FounderSelect = () => {
         <MapSetup
           founder={FOUNDERS.find((f) => f.id === selected)?.name ?? "you"}
           onBack={() => setStep("founder")}
-          onFound={(choice) => {
-            // The land first, so the company's map is made from it when it mounts.
-            setMapChoice({ seed: choice.seed, params: { ...choice.params } });
-            chooseFounder(selected);
-          }}
+          onFound={(choice) => { setLand({ seed: choice.seed, params: { ...choice.params } }); setStep("terms"); }}
         />
       </Suspense>
+    );
+  }
+  if (step === "terms" && selected && land) {
+    return (
+      <TermSheetSelect seed={land.seed} onBack={() => setStep("land")}
+        onSign={(id) => {
+          // The land first, so the company's map is made from it when it mounts.
+          setMapChoice(land);
+          setTermSheet(id);
+          chooseFounder(selected);
+        }} />
     );
   }
 

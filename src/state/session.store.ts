@@ -62,6 +62,12 @@ type SessionState = {
   /** Regular routes won by serving convoys: each adds to every port call. @see ROUTE_BONUS */
   routes: number;
   addRoute: (max: number) => void;
+  /** The investors' term sheet chosen at founding, by id. @see game/term-sheets */
+  termSheet: string | null;
+  setTermSheet: (id: string | null) => void;
+  /** Whether the slop pit has overflowed this run. */
+  overflowed: boolean;
+  markOverflowed: () => void;
   setMapEventsOff: (off: boolean) => void;
   setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
@@ -100,6 +106,10 @@ export const useSessionStore = create<SessionState>()(
       setEventPacing: (eventPacing) => set({ eventPacing }),
       routes: 0,
       addRoute: (max) => set((s) => ({ routes: Math.min(max, (s.routes ?? 0) + 1) })),
+      termSheet: null,
+      setTermSheet: (termSheet) => set({ termSheet }),
+      overflowed: false,
+      markOverflowed: () => set((s) => (s.overflowed ? s : { overflowed: true })),
       setMapEventsOff: (mapEventsOff) => set({ mapEventsOff }),
       setHintsOff: (hintsOff) => set({ hintsOff }),
       portIncomePerSecond: 0,
@@ -110,7 +120,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0,
+        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false,
       }),
     }),
     {
@@ -130,6 +140,8 @@ export const useSessionStore = create<SessionState>()(
         land: s.land,
         eventPacing: s.eventPacing,
         routes: s.routes,
+        termSheet: s.termSheet,
+        overflowed: s.overflowed,
       }),
     },
   ),

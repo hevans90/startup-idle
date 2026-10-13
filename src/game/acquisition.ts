@@ -6,6 +6,7 @@ import { useFounderStore } from "../state/founder.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useValuationStore } from "../state/valuation.store";
 import { computeEquityMultipliers } from "./modifiers";
+import { termBonusNow } from "./term-sheets";
 
 /**
  * Company Acquisition (prestige) economics. You "sell" the company once you've
@@ -55,7 +56,7 @@ export function equityForAccrued(accrued: Decimal): Decimal {
   const eq = computeEquityMultipliers();
   const mandateEquityBoost = useValuationStore.getState().getEconomyMultipliers().equityBoost;
   return new Decimal(
-    Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP) * eq.prestige * (1 + eq.juice) * mandateEquityBoost * (1 + townBonusNow())),
+    Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP) * eq.prestige * (1 + eq.juice) * mandateEquityBoost * (1 + townBonusNow()) * (1 + termBonusNow())),
   );
 }
 
@@ -68,7 +69,7 @@ export function accruedForEquity(targetEquity: number): Decimal {
   if (targetEquity <= 0) return new Decimal(0);
   const eq = computeEquityMultipliers();
   const ratio = Math.pow(
-    targetEquity / (EQUITY_BASE * eq.prestige * (1 + eq.juice) * (1 + townBonusNow())),
+    targetEquity / (EQUITY_BASE * eq.prestige * (1 + eq.juice) * (1 + townBonusNow()) * (1 + termBonusNow())),
     1 / EQUITY_EXP,
   );
   return new Decimal(ACQUISITION_THRESHOLD * ratio);
