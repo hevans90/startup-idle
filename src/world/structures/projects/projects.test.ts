@@ -6,6 +6,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Graphics } from "pixi.js";
 
+import { HW } from "../../iso";
+
 import { MAX_DRAWN, crewAt, insideBuilt } from "./crew";
 import { LOOKS, lookOf } from "./looks";
 import { bays, floorsOf, wholeFloors, type Building, type Footprint } from "./model";
@@ -19,6 +21,10 @@ import { OFFICES, PROJECT_BUILDINGS, SERVICES, LAB, LEVEE, DERELICT } from "../d
 
 const FOOTPRINTS: [string, Footprint][] = [...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, LAB, LEVEE, DERELICT]
   .map((d) => [d.id, { w: d.footprint.w, h: d.footprint.h }]);
+
+/** Every tile of a footprint, as a pen's cell. */
+const tilesOf = (f: Footprint) =>
+  Array.from({ length: f.w * f.h }, (_, k) => ({ c: k % f.w, r: Math.floor(k / f.w) }));
 
 /** A Graphics that only counts what it was asked to fill, and checks it is finite. */
 function recorder() {
@@ -114,9 +120,9 @@ describe("every building draws at every stage", () => {
     for (const p of [0, 0.04, 0.14, 0.3, 0.5, 0.7, 0.86, 0.95, 0.999]) {
       const site = siteAt(b, p);
       let polys = 0;
-      for (let c = 0; c < f.w; c++) {
+      for (const cell of tilesOf(f)) {
         const r = recorder();
-        drawSite(makePen(r.g, 10, 10, 2, 1, c), b, f, site, 2);
+        drawSite(makePen(r.g, 10, 10, 2, 1, cell), b, f, site, 2);
         expect(r.bad()).toBe(0);
         polys += r.polys();
       }
@@ -131,13 +137,41 @@ describe("every building draws at every stage", () => {
       }
     }
     let polys = 0;
-    for (let c = 0; c < f.w; c++) {
+    for (const cell of tilesOf(f)) {
       const r = recorder();
-      drawFinished(makePen(r.g, 10, 10, 2, 1, c), b, f);
+      drawFinished(makePen(r.g, 10, 10, 2, 1, cell), b, f);
       expect(r.bad()).toBe(0);
       polys += r.polys();
     }
     expect(polys).toBeGreaterThan(0);
+  });
+});
+
+describe("a building is drawn a tile at a time", () => {
+  /**
+   * WHAT MAKES THAT RIGHT: everything a tile draws stays inside its own strip
+   * of the screen, so drawing the tiles band by band draws them back to front
+   * — and a house beside the back of a deep building is drawn over the part
+   * it stands in front of, not under it. Within a stroke's width.
+   */
+  test.each(FOOTPRINTS)("%s: nothing a tile draws strays out of its strip", (id, f) => {
+    const b = lookOf(id, f);
+    for (const p of [0.05, 0.15, 0.5, 0.86, 0.95, 1]) {
+      const site = p < 1 ? siteAt(b, p) : null;
+      for (const cell of tilesOf(f)) {
+        const xs: number[] = [];
+        const g = {
+          poly: (pts: number[]) => { for (let k = 0; k < pts.length; k += 2) xs.push(pts[k]); return g; },
+          circle: (x: number, _y: number, rad: number) => { xs.push(x - rad, x + rad); return g; },
+          fill: () => g,
+        } as unknown as Graphics;
+        const pen = makePen(g, 0, 0, 0, 1, cell);
+        if (site) drawSite(pen, b, f, site, 3);
+        else drawFinished(pen, b, f);
+        const mid = (cell.c + 0.5 - (cell.r + 0.5)) * HW;
+        for (const x of xs) expect(Math.abs(x - mid)).toBeLessThanOrEqual(HW + 6);
+      }
+    }
   });
 });
 

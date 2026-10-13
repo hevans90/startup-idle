@@ -30,7 +30,9 @@ import {
 import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
 type ProjectHandle = StructureHandle & {
+  /** A Graphics a TILE of the footprint, each in its tile's band; `cells` says which. @see makePen */
   columns: Graphics[];
+  cells: { c: number; r: number }[];
   /**
    * The crane's jib and hook, in front of every column — IN THE MOVERS' RENDER
    * GROUP, because it is redrawn every frame it is working and a Graphics
@@ -89,6 +91,10 @@ export function pen(g: Graphics, s: Structure, ctx: RenderCtx, c: number) {
 /** The band of a column's front cell. */
 const bandOfColumn = (s: Structure, c: number) => s.x + c + s.y + s.h - 1;
 
+/** The band of the tile at column `c`, row `r` of a footprint. */
+const bandOfTile = (s: Structure, ctx: RenderCtx, c: number, r: number) =>
+  Math.max(0, Math.min(ctx.bands.structureOf.length - 1, s.x + c + s.y + r));
+
 /** The band of a site's front corner, where the crane's jib is filed. */
 const frontBand = (s: Structure, ctx: RenderCtx) =>
   Math.max(0, Math.min(ctx.bands.structureOf.length - 1, bandOfColumn(s, s.w - 1)));
@@ -135,11 +141,9 @@ const FOREMAN = 0xf2f2f2;
 function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number): void {
   const site = h.site;
   const crew = site ? crewAt(h.model, { w: s.w, h: s.h }, site, crewOn(s), h.t, stalled(s)) : [];
-  const band = frontBand(s, ctx);
   while (h.crew.length < crew.length) {
     const g = new Graphics();
     g.eventMode = "none";
-    ctx.bands.dynamicOf[band].addChild(g);
     h.crew.push(g);
   }
   while (h.crew.length > crew.length) {
@@ -161,8 +165,12 @@ function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number
       const du = Math.cos(w.heading) * 0.07, dv = Math.sin(w.heading) * 0.07;
       p.box(w.u + du - 0.05, w.v + dv - 0.05, w.u + du + 0.05, w.v + dv + 0.05, w.z + 0.55, w.z + 0.78, 0xb3563f);
     }
-    // Nearer the camera drawn later, all of them in front of the site and
-    // under the crane.
+    // IN THE BAND OF THE TILE THEY STAND ON, over that tile's share of the
+    // building — they stand at its front faces — and under anything in
+    // front of it. Nearer the camera drawn later within it.
+    const c = Math.max(0, Math.min(s.w - 1, Math.floor(w.u))), r = Math.max(0, Math.min(s.h - 1, Math.floor(w.v)));
+    const band = ctx.bands.dynamicOf[bandOfTile(s, ctx, c, r)];
+    if (g.parent !== band) { g.parent?.removeChild(g); band.addChild(g); }
     g.zIndex = 1 + (w.u + w.v) / 100 + w.z / 10000;
   });
 }
@@ -191,9 +199,9 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
   const b = s.build;
   const site = b ? siteAt(h.model, Math.min(1, b.done / b.need)) : null;
   h.site = site;
-  h.columns.forEach((g, c) => {
+  h.columns.forEach((g, k) => {
     g.clear();
-    const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, c);
+    const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k]);
     if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
     else drawFinished(p, h.model, f);
   });
@@ -203,12 +211,15 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
 
 function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const columns: Graphics[] = [];
-  for (let c = 0; c < s.w; c++) {
-    const g = new Graphics();
-    g.eventMode = "none";
-    const band = Math.max(0, Math.min(ctx.bands.structureOf.length - 1, bandOfColumn(s, c)));
-    ctx.bands.structureOf[band].addChild(g);
-    columns.push(g);
+  const cells: { c: number; r: number }[] = [];
+  for (let r = 0; r < s.h; r++) {
+    for (let c = 0; c < s.w; c++) {
+      const g = new Graphics();
+      g.eventMode = "none";
+      ctx.bands.structureOf[bandOfTile(s, ctx, c, r)].addChild(g);
+      columns.push(g);
+      cells.push({ c, r });
+    }
   }
   const sky = new Graphics();
   sky.eventMode = "none";
@@ -216,7 +227,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   sky.zIndex = 2;
   ctx.bands.dynamicOf[frontBand(s, ctx)].addChild(sky);
   const handle: ProjectHandle = {
-    columns, sky, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
+    columns, cells, sky, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
     t: s.id * 3.7, site: null, crew: [], opened: -1,
     destroy: () => { for (const g of [...columns, sky, ...handle.crew]) { g.parent?.removeChild(g); g.destroy(); } },
