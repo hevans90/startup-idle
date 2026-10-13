@@ -10,7 +10,7 @@ import { DIR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { commit, createHistory } from "../edit/commands";
 import {
-  DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, SEAPORTS, SERVICES, type StructureDef,
+  DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, SEAPORTS, SERVICES, structureDef, type StructureDef,
 } from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
 import { derivedRamp } from "../roads/ramp-derive";
@@ -994,8 +994,9 @@ export const GALLERY_STAGES = [0.04, 0.14, 0.3, 0.5, 0.7, 0.86, 0.95, 1] as cons
 
 /**
  * EVERY BUILDING A PROJECT DRAWS, AT EVERY STAGE OF GOING UP: a row per
- * project, a column per stage, and everything sold finished — offices,
- * services, the lab, the flood wall, the derelict — in a block of its own.
+ * project, a column per stage, each with a house against its back corner and
+ * one in front, and everything sold finished — offices, services, the lab,
+ * the flood wall, the derelict — in a block of its own.
  *
  * A site on the real map is wherever its crew happens to have got, and looking
  * at one stage means waiting for it. Here every stage stands still: no road,
@@ -1013,6 +1014,8 @@ export function buildProjects(g: Grid, material: number) {
     commit(g, history, cmd);
     const s = cmd.structures?.added[0];
     const live = s && g.structures.get(s.id);
+    // A house full, so it is drawn as one rather than as an empty lot.
+    if (live && p >= 1) delete live.residents;
     if (!live || p >= 1) return;
     live.build = {
       done: p * 100, need: 100, delivered: 8, deliveries: 8, cost: 0, priority: 2,
@@ -1022,10 +1025,18 @@ export function buildProjects(g: Grid, material: number) {
   };
   const GAP = 2;
   let y = 2;
+  // A HOUSE BESIDE EACH, against its back corner and in front of it: a
+  // building is drawn among the town's, and where the two meet is where the
+  // drawing goes wrong if it does. @see makePen
+  const house = structureDef("kit:intern.t2") ?? structureDef("kit:intern.t1");
   for (const def of PROJECT_BUILDINGS) {
     let x = 2;
     for (const p of GALLERY_STAGES) {
       put(def, x, y, p);
+      if (house) {
+        put(house, x + def.footprint.w, y, 1);
+        put(house, x + def.footprint.w - 1, y + def.footprint.h, 1);
+      }
       x += 4 + GAP;
     }
     y += def.footprint.h + GAP;

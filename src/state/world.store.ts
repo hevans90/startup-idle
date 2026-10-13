@@ -892,6 +892,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     set({ revision: st.revision + 1, lastTouched: markDirty(st.grid, touched, true), ...historyMeta(), ...netMeta() });
   },
   settleHousing: (owned, remote) => {
+    // A FIXTURE'S HOUSES ARE AS IT BUILT THEM. It is a rig, not the company's
+    // town, and spreading the company's six interns over it emptied every
+    // house in the gallery back to a lot. @see startedOnFixture, buildProjects
+    if (startedOnFixture()) return;
     get().housingMoved(settleHousing(get().grid, owned, remote));
   },
   housingMoved: (ids) => {
