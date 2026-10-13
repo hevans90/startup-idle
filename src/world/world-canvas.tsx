@@ -41,6 +41,7 @@ import { startingLand } from "./land";
 import { usePrestigeStore } from "../state/prestige.store";
 import { markWorldGone, markWorldReady } from "../game/world-ready";
 import { labReading } from "./projects/labs";
+import { rackReading } from "./projects/racks";
 
 /**
  * Which renderer to ask for: WebGPU, unless `?webgl=1` says otherwise.
@@ -209,6 +210,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     let built: Set<ProjectId> = new Set();
     let residents = housingResidents(useWorldStore.getState().grid);
     let labs = labReading(useWorldStore.getState().grid);
+    let racks = rackReading(useWorldStore.getState().grid);
     return setProjectReader(() => {
       const st = useWorldStore.getState();
       if (st.grid !== seenGrid || st.revision !== seenRev || st.projectRev !== seenProjects) {
@@ -216,6 +218,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
         built = builtProjects(st.grid);
         residents = housingResidents(st.grid);
         labs = labReading(st.grid);
+        racks = rackReading(st.grid);
       }
       // AWAY FROM THEIR DESKS: building, and — hired but not arrived — on
       // their way to the map, or waiting for somewhere to live on it.
@@ -236,7 +239,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const remote = useSessionStore.getState().remoteBeds ?? {};
       const net = getNetwork();
       const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;
-      return { built, away, commute, labs };
+      return { built, away, commute, labs, racks };
     });
   }, [play]);
   // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is

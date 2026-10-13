@@ -37,6 +37,8 @@ export type HintState = {
   parcelsBought: number;
   /** R&D labs and flood walls standing. */
   labs: number;
+  /** AI racks standing. @see game/agents */
+  racks: number;
   levees: number;
   /** Whether a flood has been announced and not yet struck. */
   floodWarning: boolean;
@@ -139,6 +141,14 @@ export const HINTS: readonly Hint[] = [
     target: "land",
     when: (s) => s.landForSale && s.freeFrontage < 6,
     done: (s) => s.parcelsBought > 0,
+  },
+  {
+    // AI AGENTS, once the Data Centre opens them.
+    id: "agents",
+    text: "The Data Centre runs AI agents. Build a Rack near it — in Build's AI agents row — then spin agents up in the Employees tab, for innovation.",
+    target: "build",
+    when: (s) => s.built.has("datacentre"),
+    done: (s) => s.racks > 0,
   },
   {
     id: "labs",

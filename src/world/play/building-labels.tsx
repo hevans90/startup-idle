@@ -36,6 +36,7 @@ import { liveCoverage } from "../agents/services";
 import { liveMoods } from "../agents/mood";
 import { useSlopPitStore } from "../../state/slop-pit.store";
 import { nearHub } from "../projects/labs";
+import { powered as rackPowered } from "../projects/racks";
 import { housedBy, residentsIn } from "../../game/housing";
 import { drawnTop, shownStructures, type StructureLayer } from "../structures/layer";
 import type { Structure } from "../grid";
@@ -97,7 +98,8 @@ function gather(): InfoContext {
   const coverage = net ? liveCoverage(st.grid, net) : new Map();
   const moods = net ? liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100) : new Map();
   const labsNear = new Set([...st.grid.structures.values()].filter((s) => s.def === "lab" && nearHub(st.grid, s)).map((s) => s.id));
-  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, desks, money: (n) => formatCurrency(n) };
+  const racksPowered = new Set([...st.grid.structures.values()].filter((s) => s.def === "rack" && rackPowered(st.grid, s)).map((s) => s.id));
+  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, money: (n) => formatCurrency(n) };
 }
 
 /**

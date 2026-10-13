@@ -14,6 +14,8 @@
  * What it reports is WHEN things happen, to be held against the ungated run.
  * @see setHousingReader, setProjectReader
  */
+import { AGENTS_A_RACK } from "../game/agents";
+import { agentTrade, useAgentsStore } from "../state/agents.store";
 import { buildCost } from "../game/build-cost";
 import { roomFor, setHousingReader } from "../game/housing";
 import {
@@ -104,6 +106,11 @@ export type MapRunReport = {
   milestones: number[];
   /** When the run stopped: the core, plus however long it played on. */
   endedAt: number;
+  /** AI agents spun up, and the racks built for them. @see game/agents */
+  agents: number;
+  racks: number;
+  /** When the first agent was spun up. */
+  firstAgent: number | null;
 };
 
 /**
@@ -191,6 +198,8 @@ export function simulateMapRun(
   const stopBeds = setHousingReader(() => ({ ...beds }));
   // R&D LABS, half of them near the campus. @see labReading
   let labs = 0;
+  // AI RACKS, all of them by the Data Centre. @see game/agents
+  let racks = 0;
   /**
    * DESKS: each kind's at the building that opened it, once it stands, and
    * at the offices bought for it. Those living on the map past the desks
@@ -211,6 +220,7 @@ export function simulateMapRun(
   const stopProjects = setProjectReader(() => ({
     built, away: away(), commute: { intern: commuteOf("intern"), vibe_coder: commuteOf("vibe_coder"), "10x_dev": commuteOf("10x_dev") },
     labs: { count: labs, mult: 1 + labs * LAB_SHARE * 1.5 },
+    racks: { powered: racks * AGENTS_A_RACK, unpowered: 0 },
   }));
   /**
    * MOOD, a street at a time, as the game scores each of its houses: the
@@ -242,7 +252,7 @@ export function simulateMapRun(
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
     spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
-    parcels: 0, spentOnLand: 0, coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0, milestones: [], endedAt: 0,
+    parcels: 0, spentOnLand: 0, coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
@@ -335,7 +345,7 @@ export function simulateMapRun(
     for (let k = pending.length - 1; k >= 0; k--) if (pending[k].at <= t) pending.splice(k, 1);
   };
 
-  type Next = { kind: "gen" | "upgrade" | "lot" | "grow" | "lab" | "office"; id: string; cost: number };
+  type Next = { kind: "gen" | "upgrade" | "lot" | "grow" | "lab" | "office" | "rack"; id: string; cost: number };
   const cheapest = (): Next | null => {
     syncAvailableUpgrades();
     const have = new Set(useUpgradeStore.getState().unlockedUpgradeIds);
@@ -346,6 +356,10 @@ export function simulateMapRun(
     }
     // A LAB, once the campus stands. @see world/projects/labs
     if (built.has("campus")) consider({ kind: "lab", id: "lab", cost: buildCost("lab")!.toNumber() });
+    // A RACK, once the Data Centre stands and the racks are full. @see game/agents
+    if (built.has("datacentre") && useAgentsStore.getState().agents >= racks * AGENTS_A_RACK) {
+      consider({ kind: "rack", id: "rack", cost: buildCost("rack")!.toNumber() });
+    }
     for (const g of useGeneratorStore.getState().generators) {
       const id = g.id as GeneratorId;
       // NO DESK for the next: an office first, as a lot when there is no bed.
@@ -374,7 +388,18 @@ export function simulateMapRun(
         // And what selling would pay now, in Equity. @see equityForAccrued
         const equity = Math.round(pendingEquity().toNumber());
         const valuation = Math.round(useValuationStore.getState().accruedThisRun.toNumber());
-        report.headcount.push({ at: t, owned: { ...o, ...wait, valuation, equity } as Partial<Record<GeneratorId, number>> });
+        const innovation = Number(useInnovationStore.getState().innovation.toNumber().toPrecision(3));
+        const ips = Number(useGeneratorStore.getState().getInnovationPerSecond().toPrecision(3));
+        const mps = Number(income.toPrecision(3));
+        report.headcount.push({ at: t, owned: { ...o, ...wait, valuation, equity, innovation, ips, mps } as Partial<Record<GeneratorId, number>> });
+      }
+      // AN AGENT, whenever the innovation and a rack's room are there and it
+      // is worth it — the innovation it costs is a multiplier too: they cost
+      // innovation, not money, so they are not in the money queue. @see agentTrade
+      if (agentTrade(useAgentsStore.getState().agents).net > 1.001 && useAgentsStore.getState().spinUp()) {
+        report.agents++;
+        report.firstAgent ??= t;
+        report.milestones.push(t);
       }
       const next = cheapest();
       if (!next) { advanceGameplayOneSecond(advanceTimersByTime); t++; stepTown(); continue; }
@@ -409,6 +434,9 @@ export function simulateMapRun(
         spend(next.cost);
         report.spentOnOffices += next.cost; report.offices++;
         offices[next.id as GeneratorId]++;
+      } else if (next.kind === "rack") {
+        spend(next.cost);
+        racks++; report.racks++;
       } else if (next.kind === "lab") {
         spend(next.cost);
         report.spentOnLabs += next.cost; report.labs++;

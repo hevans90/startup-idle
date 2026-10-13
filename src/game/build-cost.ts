@@ -17,6 +17,7 @@ import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { labsBuilt } from "./projects";
+import { racksBuilt } from "./agents";
 
 /** The least a lot costs, whatever the hire prices. */
 const LOT_FLOOR = 15;
@@ -34,6 +35,10 @@ export function buildCost(defId: string): Decimal | null {
   // AN R&D LAB: a minute of income, half as much again for each one standing.
   if (defId === "lab") {
     return Decimal.max(new Decimal(LAB_FLOOR), new Decimal(safeIncome()).times(LAB_SECONDS)).times(LAB_STEP ** labsBuilt()).round();
+  }
+  // AN AI RACK: seconds of income, a little dearer for each standing. @see game/agents
+  if (defId === "rack") {
+    return Decimal.max(new Decimal(RACK_FLOOR), new Decimal(safeIncome()).times(RACK_SECONDS)).times(RACK_STEP ** racksBuilt()).round();
   }
   // A FLOOD WALL: cheap, a tile at a time.
   if (defId === "levee") return Decimal.max(new Decimal(LEVEE_FLOOR), new Decimal(safeIncome()).times(LEVEE_SECONDS)).round();
@@ -77,6 +82,10 @@ const SERVICE_PRICE: Record<string, { seconds: number; floor: number }> = {
   park: { seconds: 8, floor: 400 },
   gym: { seconds: 16, floor: 2000 },
 };
+/** An AI rack: seconds of income, never under a floor, and dearer by this for each one standing. */
+const RACK_SECONDS = 20;
+const RACK_FLOOR = 100_000;
+const RACK_STEP = 1.15;
 /** An R&D lab: seconds of income, never under a floor, and dearer by this for each one built. */
 const LAB_SECONDS = 60;
 const LAB_FLOOR = 100_000;

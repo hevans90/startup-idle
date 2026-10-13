@@ -46,6 +46,8 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 
 **R&D labs** (`world/projects/labs.ts`): sold in the 10x devs row (2×2). Each standing adds 10% to innovation, 20% within 10 tiles of the campus or Data Centre (`labBonus`, through the project reader). A minute of income (≥ $100,000), ×1.5 for each already built.
 
+**AI agents** (`game/agents.ts`, `world/projects/racks.ts`): once the Data Centre stands, agents are spun up on the Employees tab for innovation (2, ×1.25 each) and run in **racks** (Build's AI agents row, 4 a rack, 20 s of income ×1.15 each). Each adds 4% to all income at full power — a rack within 10 tiles of the Data Centre — and half beyond. Innovation is itself an income multiplier, so the row shows the net trade of the next agent (`agentTrade`).
+
 **Services and growth** (`agents/services.ts`): a café, park and gym serve homes within 8 road tiles (4, 8, 16 s of income). A full house served for 20 s grows a tier for free (café → II, + park → III, + gym → tower), and declines after 30 s without. 10x devs only move in with a café and a park.
 
 **Mood** (`agents/mood.ts`, `game/town-mood.ts`): each house's mood is its commute (to −30), services (+4/+6/+4, none −6), the slop pit nearby (−8 to −20), crowding (−6), a wonder (+5), a derelict (−5), sludge (−15) and flooding (−20), capped at ±40. It shifts each kind's satisfaction target; at −25 a house loses a resident a minute. The Mood tool tints houses.
@@ -72,7 +74,7 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 | Company HQ | Focus Vibing | interns + vibe | 2,400 | 60 s (≥ $5,000) | 3×3 | managers |
 | Boardroom Tower | Upward Management + employee management | interns + vibe | 4,000 | 90 s (≥ $20,000) | 3×3 | board mandates |
 | Campus | JUULing | interns + vibe | 6,000 | 2 min (≥ $40,000) | 4×4 | 10x devs |
-| Data Centre ★ | 120 interns · 50 vibe · 3 10x | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2 |
+| Data Centre ★ | 120 interns · 50 vibe · 3 10x | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2, AI agents |
 | Conference Centre ★ | 250 · 100 · 6 | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | valuation ×1.5 |
 | IPO Tower ★ | 350 · 150 · 8 | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5, valuation ×2 |
 

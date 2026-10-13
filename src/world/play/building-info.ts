@@ -6,6 +6,7 @@
  * tested from plain numbers: everything it needs from the live game comes in
  * through `InfoContext`.
  */
+import { AGENTS_A_RACK, RACK_RANGE } from "../../game/agents";
 import { housedBy, residentsIn } from "../../game/housing";
 import { projectForStructure, type ProjectDef } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
@@ -43,6 +44,8 @@ export type InfoContext = {
   money: (n: number) => string;
   /** R&D labs near the campus or Data Centre, by id. @see nearHub */
   labsNear?: ReadonlySet<number>;
+  /** AI racks within the Data Centre's reach. @see world/projects/racks */
+  racksPowered?: ReadonlySet<number>;
 };
 
 export type InfoLine = { text: string; tone?: "good" | "warn" | "dim" };
@@ -202,6 +205,21 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     return {
       title: def.name, accent: 0x8a7fd6, brief: [`+${pct}%`],
       lines: [{ text: `Innovation +${pct}%${near ? ", beside the campus" : ""}`, tone: "good" }],
+      facts: [{ type: "project", name: def.name }],
+    };
+  }
+
+  // AN AI RACK: the agents it runs, and whether at full power. @see game/agents
+  if (s.def === "rack") {
+    const on = ctx.racksPowered?.has(s.id) ?? true;
+    return {
+      title: def.name, accent: 0x6c7cff, brief: [on ? "Powered" : "Half power"],
+      lines: [
+        { text: `Runs ${AGENTS_A_RACK} AI agents` },
+        on
+          ? { text: "Powered by the Data Centre", tone: "good" }
+          : { text: `Half power: more than ${RACK_RANGE} tiles from the Data Centre`, tone: "warn" },
+      ],
       facts: [{ type: "project", name: def.name }],
     };
   }

@@ -10,7 +10,7 @@ import { DIR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { commit, createHistory } from "../edit/commands";
 import {
-  DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, SEAPORTS, SERVICES, structureDef, type StructureDef,
+  DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
 } from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
 import { derivedRamp } from "../roads/ramp-derive";
@@ -1042,7 +1042,7 @@ export function buildProjects(g: Grid, material: number) {
     y += def.footprint.h + GAP;
   }
   // AND WHAT IS SOLD FINISHED, in a block to the right.
-  const rest = [...OFFICES, ...SERVICES, LAB, LEVEE, DERELICT];
+  const rest = [...OFFICES, ...SERVICES, LAB, LEVEE, DERELICT, RACK];
   let rx = 2 + GALLERY_STAGES.length * (4 + GAP) + 2, ry = 2;
   for (const def of rest) {
     put(def, rx, ry, 1);

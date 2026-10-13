@@ -73,6 +73,12 @@ describe("the late game", () => {
         "conference centre": fmt(run.opened.conference),
         "IPO tower": fmt(run.opened.ipo),
         "longest flat, to the core": fmt(longestFlat(run, run.coreAt ?? undefined).seconds),
+        "first AI agent": fmt(run.firstAgent ?? undefined),
+        "longest flat, to the first sale": (() => {
+          const sale = run.headcount.find((h) => ((h.owned as Record<string, number>).equity ?? 0) > 0)?.at;
+          return sale === undefined ? "—" : `${fmt(longestFlat(run, sale).seconds)} (sale ${fmt(sale)})`;
+        })(),
+        "agents · racks": `${run.agents} · ${run.racks}`,
         "longest flat, all run": `${fmt(longestFlat(run).seconds)} from ${fmt(longestFlat(run).from)}`,
       });
       console.log({
@@ -94,6 +100,11 @@ describe("the late game", () => {
     const firstSale = run.headcount.find((h) => ((h.owned as Record<string, number>).equity ?? 0) > 0);
     expect(firstSale).toBeDefined();
     expect(firstSale!.at).toBeLessThanOrEqual(2.5 * 3600 + 60);
+    // NO WALL ON THE WAY TO IT (2026-10-13): AI agents carry the late game,
+    // 18 of them in five racks, the longest stretch with nothing new 11.7 min
+    // where after the IPO tower it was 2.3 h. @see game/agents, longestFlat
+    expect(longestFlat(run, firstSale!.at).seconds).toBeLessThan(15 * 60);
+    expect(run.agents).toBeGreaterThan(5);
     // The pit seen to with trucks, mostly: a drain is the fallback.
     expect(run.slopDrained).toBeLessThan(run.slopTrucked);
     // Income never collapses: the last half hour still earns.

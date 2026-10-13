@@ -39,6 +39,7 @@ import { WondersPanel } from "./wonders-panel";
 import { PARCELS } from "../land";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
+import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
 import { InfoPop } from "../../ui/InfoPop";
 
 /** A small line icon, in the current colour. */
@@ -128,6 +129,9 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
     ];
     if (items.length) out.push({ title: KIND_TITLE[who], colour: KIND_COLOUR[who], items });
   }
+  // AI RACKS, once the Data Centre stands. @see game/agents
+  const racks = all.filter((d) => d.def.id === "rack");
+  if (racks.length && agentsOpen() && hireable.has("10x_dev")) out.push({ title: "AI agents", colour: 0x6c7cff, items: racks });
   // Services and ports once their projects have opened them. @see featureGateOpen
   const services = all.filter((d) => serviceOf(d.def.id)).sort((a, b) => a.price - b.price);
   if (services.length && featureGateOpen("services")) out.push({ title: "Services", colour: 0x2f8f6b, items: services });
@@ -141,7 +145,7 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
 
 /** A tile's name in its row, which already says whose: "Lot", "Office", "Seaport II". */
 const tileName = (def: StructureDef) =>
-  housedBy(def.id) ? "Lot" : workplaceKind(def.id) ? "Office" : def.id === "lab" ? "Lab"
+  housedBy(def.id) ? "Lot" : workplaceKind(def.id) ? "Office" : def.id === "lab" ? "Lab" : def.id === "rack" ? "Rack"
     : def.port ? saleName(def).replace(/^Seaport/, "Port") : saleName(def);
 
 /** What a tile is, in a few words. */
@@ -153,6 +157,7 @@ function tileNote(def: StructureDef): string {
   if (def.port) return `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}`;
   if (def.id === "levee") return "drag along a bank";
   if (def.id === "lab") return `innovation +${LAB_SHARE * 100}%`;
+  if (def.id === "rack") return `${AGENTS_A_RACK} agents · near the Data Centre`;
   return "";
 }
 

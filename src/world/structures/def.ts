@@ -277,8 +277,17 @@ export const DERELICT: StructureDef = {
   id: "derelict", name: "Derelict building", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" },
 };
 
+/**
+ * AN AI RACK: where AI agents run, a few to a rack — at full power within
+ * reach of the Data Centre, at half further off. Sold once the Data Centre
+ * stands. @see game/agents, world/projects/racks
+ */
+export const RACK: StructureDef = {
+  id: "rack", name: "AI rack", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" },
+};
+
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE, LAB, DERELICT].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE, LAB, DERELICT, RACK].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

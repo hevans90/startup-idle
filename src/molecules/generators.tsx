@@ -7,6 +7,7 @@ import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { GeneratorBuyButton } from "./generator-buy-button";
+import { AgentsRow } from "./agents-row";
 
 const PopRow = ({
   label,
@@ -69,6 +70,7 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
           </span>
         </div>
       ))}
+      <AgentsRow isMobile />
     </div>
   ) : (
     <div className="flex flex-col">
@@ -170,6 +172,7 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
           </PopoverContent>
         </Popover>
       ))}
+      <AgentsRow isMobile={false} />
     </div>
   );
 };

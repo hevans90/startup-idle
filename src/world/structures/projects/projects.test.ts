@@ -17,9 +17,9 @@ import {
   LIFT_CYCLE, MAST, OPENING, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky,
   jibLength,
 } from "./site";
-import { OFFICES, PROJECT_BUILDINGS, SERVICES, LAB, LEVEE, DERELICT } from "../def";
+import { OFFICES, PROJECT_BUILDINGS, SERVICES, LAB, LEVEE, DERELICT, RACK } from "../def";
 
-const FOOTPRINTS: [string, Footprint][] = [...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, LAB, LEVEE, DERELICT]
+const FOOTPRINTS: [string, Footprint][] = [...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, LAB, LEVEE, DERELICT, RACK]
   .map((d) => [d.id, { w: d.footprint.w, h: d.footprint.h }]);
 
 /** Every tile of a footprint, as a pen's cell. */

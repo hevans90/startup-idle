@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { agentBonus } from "../game/agents";
+import { useAgentsStore } from "./agents.store";
 import {
   createJSONStorage,
   persist,
@@ -530,9 +532,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AWAY BUILDING: a desk with nobody at it makes nothing. One here,
           // so the live tick and every readout agree. @see attendance
           const here = attendance(id, get().generators.find((g) => g.id === id)?.amount ?? 0);
-          // AND THE WONDERS standing on the map, and its R&D labs. @see wonderBonus, labBonus
+          // AND THE WONDERS standing on the map, its R&D labs, and the AI
+          // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * wonderBonus("money"),
+            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * wonderBonus("money") * agentBonus(useAgentsStore.getState().agents),
             innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * wonderBonus("innovation") * labBonus(),
           };
         },

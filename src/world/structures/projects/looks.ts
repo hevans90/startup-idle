@@ -543,12 +543,43 @@ export function derelict(f: Footprint): Building {
   };
 }
 
+/** AN AI RACK: a dark server house, rows of status lights down its faces, cooling on the roof. */
+export function rack(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, 0.16, 0.15, 2.2), wall: 0x2b3038, storey: 2.05,
+    facade: { kind: "louvres", slat: 0x3f4752, every: 0.16, edge: 0.1 },
+    roof: { kind: "parapet", deck: 0x1f2328, rim: 0x3f4752, h: 0.14 },
+  };
+  return {
+    plinth: { inset: 0.05, h: 0.15, colour: 0x8f949a, top: 0xa9aeb4 }, masses: [m], crane: "none",
+    grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0xa9aeb4),
+    details: (p) => {
+      // Status lights in three rows on both faces, blue and the odd green.
+      for (const [k, z] of [0.7, 1.1, 1.5].entries()) {
+        for (let a = m.u0 + 0.1; a < m.u1 - 0.06; a += 0.09) {
+          const c = (Math.round(a * 100) + k) % 5 === 0 ? 0x3fe0a8 : 0x6c9cff;
+          p.onV(m.v1, a, a + 0.035, z, z + 0.045, c);
+        }
+        for (let b = m.v0 + 0.1; b < m.v1 - 0.06; b += 0.09) {
+          const c = (Math.round(b * 100) + k) % 5 === 0 ? 0x3fe0a8 : 0x6c9cff;
+          p.onU(m.u1, b, b + 0.035, z, z + 0.045, tone(c, 0.85));
+        }
+      }
+      door(p, m, m.u0 + 0.25, 0.2, 0.9, 0x15181c, 0x3f4752);
+      // Cooling on the roof, and the power line in.
+      p.box(m.u0 + 0.15, m.v0 + 0.15, m.u1 - 0.15, m.v1 - 0.25, m.z1, m.z1 + 0.35, 0x9aa3ad);
+      p.dot((m.u0 + m.u1) / 2, (m.v0 + m.v1) / 2 - 0.05, m.z1 + 0.35, 0.12, 0x5b636c);
+      p.box(m.u1 - 0.12, m.v1, m.u1 - 0.04, m.v1 + 0.06, 0.15, 0.6, 0xf2c230);
+    },
+  };
+}
+
 /** Each building by the structure it is drawn for. */
 export const LOOKS: Record<string, (f: Footprint) => Building> = {
   garage, studio, hq, boardroom, campus, townhall, harbour, datacentre, conference, ipo,
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
-  cafe, park, gym, lab, levee, derelict,
+  cafe, park, gym, lab, levee, derelict, rack,
 };
 
 /** The building a structure is drawn as. */

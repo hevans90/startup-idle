@@ -348,9 +348,17 @@ export type ProjectReading = {
   commute?: Partial<Record<GeneratorId, number>>;
   /** The R&D labs standing, and what they multiply innovation by. @see world/projects/labs */
   labs?: { count: number; mult: number };
+  /**
+   * AI agents' racks standing: how many agents can run at full power — near
+   * the Data Centre — and how many at half, further off. @see game/agents
+   */
+  racks?: { powered: number; unpowered: number };
 };
 
 let reader: (() => ProjectReading) | null = null;
+
+/** What the map says, or null when no map is registered. */
+export const projectReading = (): ProjectReading | null => (reader ? reader() : null);
 
 /**
  * Tell the economy how to ask the map about projects, and get back a function
