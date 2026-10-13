@@ -5,6 +5,9 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
+import { housedBy } from "../game/housing";
+import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
+import { liveDesireMaps } from "./agents/desirability";
 import { OFFER_PREMIUM, canAcquire, pendingEquity } from "../game/acquisition";
 import { heldHidden } from "./render/hold";
 import type { Renderer } from "pixi.js";
@@ -77,7 +80,7 @@ import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
-import { liveCoverage, stepEvolution } from "./agents/services";
+import { stepEvolution } from "./agents/services";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, stepLeaders } from "./agents/leaders";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
@@ -232,6 +235,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // held so an edit can re-texture just the cells that changed
   const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
+  /** The placing heat map. @see createDesireHeat */
+  const heatRef = useRef<DesireHeat | null>(null);
   /** The boats, drawn among the movers of the bands. @see world/boats */
   const boatRef = useRef<BoatLayer | null>(null);
   /** The cars and people, drawn among the movers too. @see world/agents */
@@ -1379,6 +1384,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // (above everything) — see edit/cursor.
       if (overlayRoot.current) {
         cursorRef.current = createBuildCursor(overlayRoot.current, bl);
+        heatRef.current = createDesireHeat(overlayRoot.current);
       }
       boatRef.current = createBoatLayer(bl);
       townRef.current = createTownLayer(bl);
@@ -1409,6 +1415,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       cursorRef.current?.destroy();
       cursorRef.current = null;
+      heatRef.current?.destroy();
+      heatRef.current = null;
       boatRef.current?.destroy();
       boatRef.current = null;
       townRef.current?.destroy();
@@ -1836,6 +1844,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const structureDefId = useWorldStore((s) => s.structureDefId);
   // `palette` and `revision` are already selected above, for the terrain
   // layer's copy and the per-cell reconcile respectively.
+
+  /**
+   * THE PLACING HEAT MAP, with a lot in hand: every tile it could go on tinted
+   * by how desirable a house there would be. Drawn again when the map, the
+   * tool or the lot in hand changes. @see createDesireHeat, desireAt
+   */
+  useEffect(() => {
+    const heat = heatRef.current;
+    if (!heat) return;
+    const def = structureDef(structureDefId);
+    const who = tool === "placeStructure" && def ? housedBy(def.id)?.id ?? null : null;
+    const net = getNetwork();
+    if (!who || !net || !useWorldStore.getState().playing) { heat.draw(grid, null, null, () => false, scale, 0); return; }
+    const rules = playRules(grid);
+    heat.draw(grid, liveDesireMaps(grid, net), who, (x, y) => validatePlacement(grid, def!, x, y, rules).ok,
+      scale, useSlopPitStore.getState().fill / 100);
+  }, [tool, structureDefId, grid, revision, scale, sceneEpoch]);
 
   useEffect(() => {
     const cur = cursorRef.current, tex = texRef.current;
@@ -2504,7 +2529,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // THE TOWN EVOLVING, in the game: houses growing round the cafés,
         // parks and gyms that serve them, and declining when they lose them.
         if (st.playing) {
-          const grew = stepEvolution(getEvolution(), st.grid, liveCoverage(st.grid, net), dt);
+          const grew = stepEvolution(getEvolution(), st.grid, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100), dt);
           if (grew.length) useWorldStore.getState().housingMoved(grew);
         }
         const works = getWorks();

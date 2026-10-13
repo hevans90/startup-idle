@@ -11,10 +11,12 @@ const at = (def: string, extra: Partial<Structure> = {}): Structure => ({ id: 7,
 
 describe("a building's label", () => {
   test("a house says who lives there, what they earn, and who is coming", () => {
-    const info = infoFor(at("kit:intern.t1", { residents: 3 }), ctx({ arriving: new Map([[7, 2]]) }))!;
+    const moods = new Map([[7, { total: 4, parts: [{ why: "café", points: 4 }] }]]);
+    const info = infoFor(at("kit:intern.t1", { residents: 3 }), ctx({ arriving: new Map([[7, 2]]), moods }))!;
     expect(info.title).toBe("Intern house II");
     expect(info.brief).toEqual(["3/5 · +2"]);
-    expect(info.lines.map((l) => l.text)).toEqual(["3/5 interns living here", "Earns $6/s", "Grows with a café and park", "2 on the way"]);
+    // III at 10, and with no park its crowding counts against it: 4 − 6.
+    expect(info.lines.map((l) => l.text)).toEqual(["3/5 interns living here", "Earns $6/s", "Grows at +12 more desirability", "Content (+4)", "2 on the way"]);
   });
 
   test("an empty lot is a lot, and says how many beds are free", () => {

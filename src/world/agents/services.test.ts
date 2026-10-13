@@ -8,8 +8,10 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { placesOf } from "./roads";
 import {
-  DECLINE_AFTER, GROW_AFTER, RANGE, coverageOf, createEvolution, growthNeeds, stepEvolution,
+  DECLINE_AFTER, GROW_AFTER, RANGE, coverageOf, createEvolution, growthShort, stepEvolution,
 } from "./services";
+import { moodsOf } from "./mood";
+import { GROW_AT, MOOD } from "./mood-rules";
 
 /** A road along row 5, 40 long; things placed on its north side, houses full. */
 function street(things: [string, number][]) {
@@ -26,9 +28,11 @@ function street(things: [string, number][]) {
   return { g, ids: [...g.structures.values()].map((s) => s.id) };
 }
 const cover = (g: Grid) => coverageOf(g, placesOf(g, createNetwork(g)));
+/** Every house's desirability — no commute here: nobody works anywhere. */
+const moods = (g: Grid) => moodsOf(g, new Map(), cover(g), 0);
 const run = (g: Grid, seconds: number, e = createEvolution()) => {
-  const c = cover(g), changed: number[] = [];
-  for (let k = 0; k < seconds; k++) changed.push(...stepEvolution(e, g, c, 1));
+  const changed: number[] = [];
+  for (let k = 0; k < seconds; k++) changed.push(...stepEvolution(e, g, moods(g), 1));
   return changed;
 };
 
@@ -40,7 +44,7 @@ describe("services", () => {
     expect(c.get(ids[2])).toBeUndefined();
   });
 
-  test("a full house served for the next tier grows, for nothing, and gains beds", () => {
+  test("a full house desirable enough for the next tier grows, for nothing, and gains beds", () => {
     const { g, ids } = street([["cafe", 10], ["kit:intern.t0", 13]]);
     const before = housingCapacity(g).intern, e = createEvolution();
     run(g, GROW_AFTER - 1, e);
@@ -52,16 +56,18 @@ describe("services", () => {
     expect(housingCapacity(g).intern).toBeGreaterThan(before);
   });
 
-  test("a house that is not full does not grow, and says what it lacks", () => {
+  test("a house that is not full does not grow, and says how far it is from it", () => {
     const { g, ids } = street([["cafe", 10], ["kit:intern.t1", 13]]);
     g.structures.get(ids[1])!.residents = 5;
-    expect(growthNeeds(g.structures.get(ids[1])!, cover(g))).toEqual(["park"]);
+    // A café's +4, and the crowding III would bring with no park.
+    const s = g.structures.get(ids[1])!;
+    expect(growthShort(s, moods(g).get(s.id))).toBe(GROW_AT.t2 - (MOOD.cafe + MOOD.crowded));
     g.structures.get(ids[1])!.residents = 1;
     run(g, GROW_AFTER + 5);
     expect(g.structures.get(ids[1])!.def).toBe("kit:intern.t1");
   });
 
-  test("a house that grew declines when its service goes, and its extra people move out", () => {
+  test("a house that grew declines when it is no longer desirable, and its extra people move out", () => {
     const { g, ids } = street([["cafe", 10], ["kit:intern.t0", 13]]);
     const e = createEvolution();
     run(g, GROW_AFTER + 1, e);
@@ -73,6 +79,12 @@ describe("services", () => {
     expect(s.def).toBe("kit:intern.t0");
     expect(s.grown).toBeUndefined();
     expect(s.residents).toBe(2);
+  });
+
+  test("a park takes the crowding away: a dense house beside one is not counted against", () => {
+    const { g, ids } = street([["cafe", 10], ["park", 13], ["kit:intern.t1", 16]]);
+    const s = g.structures.get(ids[2])!;
+    expect(growthShort(s, moods(g).get(s.id))).toBe(Math.max(0, GROW_AT.t2 - (MOOD.cafe + MOOD.park)));
   });
 
   test("a house bought at a tier never declines below it", () => {

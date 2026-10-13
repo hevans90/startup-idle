@@ -25,34 +25,11 @@ import type { Network } from "../roads/network";
 import { liveCommutes, workplaceKind, type Commute } from "./commute";
 import { liveCoverage, tierOf, type Coverage } from "./services";
 
-/** What each thing adds to a house's mood, in satisfaction points. */
-export const MOOD = {
-  perTenthLost: -6,
-  stranded: -30,
-  cafe: 4,
-  park: 6,
-  gym: 4,
-  noServices: -6,
-  slopNear: -8,
-  slopFull: -12,
-  crowded: -6,
-  wonder: 5,
-  sludge: -15,
-  flooded: -20,
-  derelict: -5,
-} as const;
-/** How near the slop pit and a wonder count, in tiles. */
-export const SLOP_REACH = 6;
-export const WONDER_REACH = 10;
-export const DERELICT_REACH = 4;
-/** A house's mood never goes past this, either way. */
-export const MOOD_LIMIT = 40;
-/** At or below this, people start to leave; one every this many seconds. */
-export const MOVE_OUT_AT = -25;
-export const MOVE_OUT_EVERY = 60;
-
-/** What a house's mood is made of, each part signed. */
-export type MoodParts = { total: number; parts: { why: string; points: number }[] };
+export * from "./mood-rules";
+import {
+  DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, SLOP_REACH, WATER_VIEW, WONDER_REACH, type MoodParts,
+} from "./mood-rules";
+import { liveDesireMaps, seesWater } from "./desirability";
 
 /** Tiles between two footprints, the nearer edges, along either axis. */
 function gap(a: Structure, b: Structure): number {
@@ -68,6 +45,7 @@ function gap(a: Structure, b: Structure): number {
 export function moodsOf(
   g: Grid, commutes: ReadonlyMap<number, Commute>, coverage: Coverage, slopFill: number,
   sludged: ReadonlySet<number> = new Set(), flooded: ReadonlySet<number> = new Set(),
+  water: (s: Structure) => boolean = () => false,
 ): Map<number, MoodParts> {
   const pits: Structure[] = [], wonders: Structure[] = [], derelicts: Structure[] = [];
   // Kinds with somewhere to work: with none at all, there is no commute to
@@ -103,6 +81,7 @@ export function moodsOf(
     }
     const tier = tierOf(s.def);
     if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: "crowded", points: MOOD.crowded });
+    if (water(s)) parts.push({ why: "water view", points: WATER_VIEW });
     if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: "near a wonder", points: MOOD.wonder });
     if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: "derelict nearby", points: MOOD.derelict });
     if (sludged.has(s.id)) parts.push({ why: "sludge", points: MOOD.sludge });
@@ -157,7 +136,11 @@ export function liveMoods(g: Grid, net: Network, slopFill: number): Map<number, 
   const fill = Math.round(Math.max(0, Math.min(1, slopFill)) * 20);
   const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",");
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.fill !== fill || memo.sludge !== sludge) {
-    memo = { g, rev: g.rev, sites, fill, sludge, value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), fill / 20, sludged, flooded) };
+    const maps = liveDesireMaps(g, net);
+    memo = {
+      g, rev: g.rev, sites, fill, sludge,
+      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), fill / 20, sludged, flooded, (s) => seesWater(maps, g, s)),
+    };
   }
   return memo.value;
 }

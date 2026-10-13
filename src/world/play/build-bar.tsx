@@ -73,7 +73,7 @@ const ICONS: Record<string, ReactNode> = {
 const BLOCKED: Record<string, { icon: ReactNode; title: string; why: string }> = {
   "no-lot": { icon: ICONS.noLot, title: "No free lot", why: "Every lot is taken. Build more housing for them to move into." },
   "no-road": { icon: ICONS.noRoad, title: "No road in", why: "There's no road from the edge of the map to a free lot." },
-  "no-services": { icon: ICONS.noServices, title: "Want a café and a park", why: "They won't move in until a café and a park serve a free lot." },
+  "no-services": { icon: ICONS.noServices, title: "Nowhere good enough", why: "10x devs only move in where desirability is at least 10: a café, a park, water or a wonder nearby raise it." },
   unhappy: { icon: ICONS.unhappy, title: "Unhappy homes", why: "The free lots are too miserable. Services nearby, and fewer derelicts, cheer them up." },
 };
 

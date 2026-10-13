@@ -14,7 +14,7 @@ import type { Structure } from "../grid";
 import { structureDef, type StructureDef } from "../structures/def";
 import { workplaceKind, type Commute } from "../agents/commute";
 import { moodWord, type MoodParts } from "../agents/mood";
-import { NEEDS, SERVICE_NAME, TIERS, serviceOf, tierOf, type ServiceId } from "../agents/services";
+import { growthShort, serviceOf, type ServiceId } from "../agents/services";
 import { LAB_SHARE } from "../projects/labs";
 
 /** What the live game says, for the labels. */
@@ -135,11 +135,11 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const eff = commute?.eff ?? 1;
     const lines: InfoLine[] = [{ text: `${here}/${h.slots} ${plural} living here` }];
     if (here > 0 && rate !== undefined) lines.push({ text: `Earns ${ctx.money(here * rate * eff)}/s`, tone: "good" });
-    // GROWING: what it lacks for the next tier, or that it is full and served.
-    const t = tierOf(s.def), next = t ? TIERS[TIERS.indexOf(t) + 1] : undefined;
-    if (next && here > 0) {
-      const lack = NEEDS[next].filter((n) => !ctx.coverage.get(s.id)?.has(n));
-      if (lack.length) lines.push({ text: `Grows with a ${lack.map((n) => SERVICE_NAME[n]).join(" and ")}`, tone: "dim" });
+    // GROWING: how much more desirable it must get, or that it is growing.
+    // @see GROW_AT
+    const short = growthShort(s, ctx.moods.get(s.id));
+    if (short !== null && here > 0) {
+      if (short > 0) lines.push({ text: `Grows at +${short} more desirability`, tone: "dim" });
       else if (here >= h.slots) lines.push({ text: "Growing", tone: "good" });
     }
     // ITS MOOD, and what weighs on it most if it is down. @see world/agents/mood

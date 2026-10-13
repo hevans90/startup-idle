@@ -31,7 +31,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import type { Grid, Structure } from "../grid";
 import type { Network } from "../roads/network";
 import type { Place } from "./roads";
-import { MOVE_IN_NEEDS, liveCoverage, meets } from "./services";
+import { MOVE_IN_AT } from "./mood-rules";
 import { liveMoods, tooUnhappy } from "./mood";
 import { useSlopPitStore } from "../../state/slop-pit.store";
 import { sendOnJob, walkInto, type Mover, type Town } from "./town";
@@ -235,12 +235,11 @@ export function stepArrivals(
       return h?.id === who && h.slots - residentsIn(s) - (coming.get(s.id) ?? 0) > 0;
     });
     if (!anyLot) { status.blocked = "no-lot"; continue; }
-    // And somewhere they will LIVE: 10x devs want a café and a park; and
-    // nobody moves into a house people are leaving. @see tooUnhappy
-    const needs = MOVE_IN_NEEDS[who];
-    const coverage = needs ? liveCoverage(g, net) : null;
+    // And somewhere they will LIVE: 10x devs want somewhere desirable; and
+    // nobody moves into a house people are leaving. @see MOVE_IN_AT, tooUnhappy
+    const needs = MOVE_IN_AT[who];
     const moods = liveMoods(g, net, useSlopPitStore.getState().fill / 100);
-    const served = (s: Structure) => !needs || meets(coverage!.get(s.id), needs);
+    const served = (s: Structure) => needs === undefined || (moods.get(s.id)?.total ?? 0) >= needs;
     const suits = (s: Structure) => served(s) && !tooUnhappy(moods.get(s.id));
     const free = (s: Structure) => {
       const h = housedBy(s.def);

@@ -8,6 +8,7 @@
  * The default export, so the game can load it lazily: the map engine is most
  * of the bundle, and the founder screen does not need it.
  */
+import { DesireReadout } from "./desire-readout";
 import { useEffect } from "react";
 
 import { projectForStructure } from "../../game/projects";
@@ -47,6 +48,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
     <div ref={setRef} className="@container absolute inset-0 min-h-0 bg-primary-900">
       <WorldCanvas wrapperRef={wrapperRef} size={size} />
       <BuildingLabels />
+      <DesireReadout />
       <PortIncome />
       <ProjectsPanel className="absolute left-2 top-24 z-10 max-md:top-2 max-md:max-w-[calc(100%-1rem)]" />
       <EventMarkers />

@@ -1,29 +1,27 @@
 /**
- * World v2 — SERVICES, and housing that EVOLVES around them. Caesar's loop.
+ * World v2 — SERVICES, and housing that EVOLVES where it is good to live.
  *
  * A café, a park and a gym each SERVE the homes within `RANGE` tiles of it
- * along the roads — measured from door to door, like a commute. A house that
- * is FULL and served well enough GROWS into the next tier of its kind where it
- * stands — more beds on the same ground, for nothing — once it has been so for
- * `GROW_AFTER` seconds:
- *  - a lot grows to II with a café;
- *  - II to III with a café and a park;
- *  - III to a tower with a café, a park and a gym.
- * A house that GREW and has lost what its tier needs DECLINES a tier after
- * `DECLINE_AFTER` seconds, and whoever no longer has a bed moves out — they
- * are hired still, and come back when there is room. Housing bought at a tier
- * never declines below it: only growth is given back. @see Structure.grown
+ * along the roads — measured from door to door, like a commute — and serving
+ * one is a large part of what makes a house DESIRABLE. A house that is FULL
+ * GROWS into the next tier of its kind where it stands — more beds on the same
+ * ground, for nothing — once it has stood above that tier's desirability for
+ * `GROW_AFTER` seconds; and a house that grew and has fallen well below the
+ * tier it grew to DECLINES one after `DECLINE_AFTER` seconds, whoever no
+ * longer has a bed moving out (hired still; they come back when there is
+ * room). Housing bought at a tier never declines below it. @see GROW_AT,
+ * world/agents/desirability
  *
- * And 10X DEVS ARE PARTICULAR: they move only into a lot served by a café and
- * a park. @see stepArrivals
+ * And 10X DEVS ARE PARTICULAR: they move only into a house desirable enough.
+ * @see MOVE_IN_AT, stepArrivals
  */
 import { housedBy, residentsIn } from "../../game/housing";
 import { NEIGHBOUR } from "../../iso/dir";
-import type { GeneratorId } from "../../state/generators.store";
 import { idx, type Grid, type Structure } from "../grid";
 import { connects } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
+import { DECLINE_MARGIN, GROW_AT, MOOD, type MoodParts } from "./mood-rules";
 
 export type ServiceId = "cafe" | "park" | "gym";
 export const SERVICE_IDS: readonly ServiceId[] = ["cafe", "park", "gym"];
@@ -35,17 +33,9 @@ export const RANGE = 8;
 export const GROW_AFTER = 20;
 export const DECLINE_AFTER = 30;
 
-/** The tiers of housing, in order, and what each needs to grow INTO it. */
+/** The tiers of housing, in order. */
 export const TIERS = ["t0", "t1", "t2", "landmark"] as const;
 export type Tier = (typeof TIERS)[number];
-export const NEEDS: Record<Tier, readonly ServiceId[]> = {
-  t0: [],
-  t1: ["cafe"],
-  t2: ["cafe", "park"],
-  landmark: ["cafe", "park", "gym"],
-};
-/** What a kind needs before it will move in at all. */
-export const MOVE_IN_NEEDS: Partial<Record<GeneratorId, readonly ServiceId[]>> = { "10x_dev": ["cafe", "park"] };
 
 export const tierOf = (defId: string): Tier | null =>
   (/\.(t0|t1|t2|landmark)$/.exec(defId)?.[1] as Tier | undefined) ?? null;
@@ -114,17 +104,28 @@ export function liveCoverage(g: Grid, net: Network): Coverage {
   return memo.value;
 }
 
-/** Whether a set of services meets a list of needs. */
-export const meets = (have: ReadonlySet<ServiceId> | undefined, need: readonly ServiceId[]) =>
-  need.every((n) => have?.has(n));
+/** Tiers dense enough to feel crowded without a park. @see MOOD.crowded */
+const CROWDED: ReadonlySet<Tier> = new Set(["t2", "landmark"]);
 
-/** What a house is short of to grow, or null if it is at the top. */
-export function growthNeeds(s: Structure, coverage: Coverage): ServiceId[] | null {
+/**
+ * A house's desirability AT ANOTHER TIER: crowding comes with density, so a
+ * house growing into III without a park has the crowding to count against it
+ * before it grows — or it would grow, find itself crowded, and decline.
+ */
+export function desirabilityAt(m: MoodParts, from: Tier, to: Tier): number {
+  const park = m.parts.some((p) => p.why === "park");
+  if (park) return m.total;
+  const crowd = (t: Tier) => (CROWDED.has(t) ? MOOD.crowded : 0);
+  return m.total - crowd(from) + crowd(to);
+}
+
+/** How much more desirable a house must get to grow, or null if it is at the top. */
+export function growthShort(s: Structure, m: MoodParts | undefined): number | null {
   const t = tierOf(s.def);
   const k = t ? TIERS.indexOf(t) : -1;
-  if (k < 0 || k >= TIERS.length - 1) return null;
-  const have = coverage.get(s.id);
-  return NEEDS[TIERS[k + 1]].filter((n) => !have?.has(n));
+  if (k < 0 || k >= TIERS.length - 1 || !m) return null;
+  const next = TIERS[k + 1];
+  return Math.max(0, GROW_AT[next] - desirabilityAt(m, t!, next));
 }
 
 /** Seconds each house has been ready to grow, or lacking, by id. Live state; not saved. */
@@ -132,19 +133,19 @@ export type Evolution = { ready: Map<number, number>; lacking: Map<number, numbe
 export const createEvolution = (): Evolution => ({ ready: new Map(), lacking: new Map() });
 
 /**
- * One step of the town evolving: houses that are full and served grow a
- * tier, houses that grew and have lost their services decline one. Returns
- * the houses changed. @see GROW_AFTER, DECLINE_AFTER
+ * One step of the town evolving: full houses desirable enough for the next
+ * tier grow into it, and houses that grew and have fallen well below their
+ * tier decline one. Returns the houses changed. @see GROW_AFTER, DECLINE_AFTER
  */
-export function stepEvolution(e: Evolution, g: Grid, coverage: Coverage, dt: number): number[] {
+export function stepEvolution(e: Evolution, g: Grid, moods: ReadonlyMap<number, MoodParts>, dt: number): number[] {
   const changed: number[] = [];
   for (const s of g.structures.values()) {
-    const h = housedBy(s.def), t = tierOf(s.def);
-    if (!h || !t || s.build) continue;
-    const k = TIERS.indexOf(t), have = coverage.get(s.id);
-    // GROWING: full, and served for the next tier.
+    const h = housedBy(s.def), t = tierOf(s.def), m = moods.get(s.id);
+    if (!h || !t || s.build || !m) continue;
+    const k = TIERS.indexOf(t);
+    // GROWING: full, and desirable enough for the next tier.
     const next = TIERS[k + 1];
-    if (next && residentsIn(s) >= h.slots && meets(have, NEEDS[next])) {
+    if (next && residentsIn(s) >= h.slots && desirabilityAt(m, t, next) >= GROW_AT[next]) {
       const r = (e.ready.get(s.id) ?? 0) + dt;
       e.ready.set(s.id, r);
       if (r >= GROW_AFTER) {
@@ -154,8 +155,8 @@ export function stepEvolution(e: Evolution, g: Grid, coverage: Coverage, dt: num
         changed.push(s.id);
       }
     } else e.ready.delete(s.id);
-    // DECLINING: grown, and no longer served for the tier it grew to.
-    if ((s.grown ?? 0) > 0 && !meets(have, NEEDS[t])) {
+    // DECLINING: grown, and fallen well below the tier it grew to.
+    if ((s.grown ?? 0) > 0 && m.total < GROW_AT[t] - DECLINE_MARGIN) {
       const l = (e.lacking.get(s.id) ?? 0) + dt;
       e.lacking.set(s.id, l);
       if (l >= DECLINE_AFTER) {
