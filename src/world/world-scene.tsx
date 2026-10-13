@@ -20,7 +20,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { companyLand, convoyHandsPrice, drainDirty, playRules, lotLine, sandbagPrice, tidyPrice, sludgeTruckBack, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { companyLand, drainDirty, playRules, lotLine, sludgeTruckBack, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -93,7 +93,7 @@ import {
 import {
   floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
-import { FLOOD_MS, HACKATHON_MORALE, stepEvents, tourReward } from "./events/events";
+import { CREW_SHARE, FLOOD_MS, HACKATHON_MORALE, stepEvents, tourReward } from "./events/events";
 import { SLOP_PIT } from "./structures/def";
 import { FILL_RATE_PER_CODER, SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
 import { perMinute, recordCall } from "./boats/exports";
@@ -2427,12 +2427,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 trucks: sludgeTrucksOut(), truckPrice: sludgeTruckPrice(),
               } : null,
               river: head ? {
-                ...head, due: isDue(pace, "river-flood"), flooded: floodedCount.current, sandbagPrice: sandbagPrice(),
+                ...head, due: isDue(pace, "river-flood"), flooded: floodedCount.current, sandbagCrew: Math.floor((ownedNow().intern ?? 0) * CREW_SHARE.sandbags),
               } : null,
               convoy: port ? {
-                x: port.x, y: port.y, due: isDue(pace, "convoy"), calls: tally.calls, earned: tally.earned, handsPrice: convoyHandsPrice(),
+                x: port.x, y: port.y, due: isDue(pace, "convoy"), calls: tally.calls, earned: tally.earned, handsCrew: Math.floor((ownedNow().intern ?? 0) * CREW_SHARE.hands),
               } : null,
-              tour: door ? { x: door.x + 1, y: door.y, due: isDue(pace, "investor-tour"), reward, tidyPrice: tidyPrice() } : null,
+              tour: door ? { x: door.x + 1, y: door.y, due: isDue(pace, "investor-tour"), reward, tidyCrew: Math.floor(vibe * CREW_SHARE.tidy) } : null,
               hackathon: studio && vibe >= HACKATHON_CODERS ? { x: studio.x + 1, y: studio.y + 1, due: isDue(pace, "hackathon") } : null,
               // AN ACQUIRER, at the company's grandest door, once it can be sold.
               offer: front && canAcquire() ? (() => {

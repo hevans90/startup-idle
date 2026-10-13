@@ -6,7 +6,7 @@ const world = (fill: number, now = 0, rate = 0.1): EventWorld => ({
   now, slop: { x: 5, y: 5, fill, rate, trucks: 0, truckPrice: 300 }, river: null, convoy: null, tour: null, hackathon: null, offer: null, enabled: true,
 });
 const river = (now: number, due: boolean, flooded = 0): EventWorld => ({
-  now, slop: null, river: { x: 0, y: 9, due, flooded, sandbagPrice: 500 }, convoy: null, tour: null, hackathon: null, offer: null, enabled: true,
+  now, slop: null, river: { x: 0, y: 9, due, flooded, sandbagCrew: 6 }, convoy: null, tour: null, hackathon: null, offer: null, enabled: true,
 });
 let n = 1;
 const next = () => n++;
@@ -87,7 +87,7 @@ describe("opportunities", () => {
 
   test("a convoy is warned of, comes in, and says what it earned", () => {
     const w = (now: number, due: boolean, calls = 0, earned = 0) => ({
-      ...base(now), convoy: { x: 1, y: 1, due, calls, earned, handsPrice: 400 },
+      ...base(now), convoy: { x: 1, y: 1, due, calls, earned, handsCrew: 3 },
     });
     let evs = stepEvents([], w(0, true), next);
     expect(evs[0]).toMatchObject({ kind: "convoy", phase: "warning", strikesAt: 30_000 });

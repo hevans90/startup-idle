@@ -59,11 +59,11 @@ export type EventWorld = {
    * The rivers, on a map with any: where they come on, whether a flood is
    * due, the houses and ports it has reached, and what sandbags cost.
    */
-  river: { x: number; y: number; due: boolean; flooded: number; sandbagPrice: number } | null;
+  river: { x: number; y: number; due: boolean; flooded: number; sandbagCrew: number } | null;
   /** The ports, on a map with any: where, whether a convoy is due, and how it is going. */
-  convoy: { x: number; y: number; due: boolean; calls: number; earned: number; handsPrice: number } | null;
+  convoy: { x: number; y: number; due: boolean; calls: number; earned: number; handsCrew: number } | null;
   /** Where investors would be shown round, whether a tour is due, and what it would come to as things are. */
-  tour: { x: number; y: number; due: boolean; reward: number; tidyPrice: number } | null;
+  tour: { x: number; y: number; due: boolean; reward: number; tidyCrew: number } | null;
   /** The vibe coders' studio, with enough of them in it for a hackathon, and whether one is due. */
   hackathon: { x: number; y: number; due: boolean } | null;
   /**
@@ -152,6 +152,16 @@ type Opportunity = {
 };
 
 const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+/** "12 interns", "1 intern". */
+const people = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+/**
+ * WHO A CHOICE TAKES OFF WORK, as a share of a kind: what sandbags, extra
+ * hands at the quays and tidying up for investors cost — people, not money,
+ * so the price grows with the company and never becomes a rounding error.
+ * @see eventAway
+ */
+export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 0.5 } as const;
 
 const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
   convoy: {
@@ -161,7 +171,7 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     of: (w) => w.convoy && {
       ...w.convoy,
       choices: [
-        { id: "hands", label: "Extra hands at the quays", cost: `${money(w.convoy.handsPrice)} · calls take half as long` },
+        { id: "hands", label: "Extra hands at the quays", cost: `${people(w.convoy.handsCrew, "intern")} off work while it is in · calls take half as long` },
         { id: "usual", label: "Business as usual", cost: "free" },
       ],
     },
@@ -174,7 +184,7 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     of: (w) => w.tour && {
       ...w.tour,
       choices: [
-        { id: "tidy", label: "Tidy up first", cost: `${money(w.tour.tidyPrice)} · the town looks ${TIDY_MOOD} mood better` },
+        { id: "tidy", label: "Tidy up first", cost: `${people(w.tour.tidyCrew, "vibe coder")} off work until they come · the town looks ${TIDY_MOOD} mood better` },
         { id: "as-is", label: "Show it as it is", cost: `they would pay ${money(w.tour.reward)} now` },
       ],
     },
@@ -242,7 +252,7 @@ function stepOpportunities(out: GameEvent[], w: EventWorld, next: () => number):
 /** The choices a flood gives. */
 export function floodChoices(w: NonNullable<EventWorld["river"]>): EventChoice[] {
   return [
-    { id: "sandbags", label: "Sandbag the riverside", cost: `$${Math.round(w.sandbagPrice).toLocaleString()}` },
+    { id: "sandbags", label: "Sandbag the riverside", cost: `${people(w.sandbagCrew, "intern")} filling sandbags until it passes` },
     { id: "evacuate", label: "Evacuate", cost: "flooded homes stop work until it passes" },
     { id: "brace", label: "Brace for it", cost: "flooded homes miserable, flooded ports shut" },
   ];

@@ -7,6 +7,7 @@
  * map's lifetime — and differ only in what they put round it.
  * @see App, WorldEditor
  */
+import { CREW_SHARE } from "./events/events";
 import { Application } from "@pixi/react";
 import { useEffect, useState, type RefObject } from "react";
 
@@ -235,6 +236,18 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       // AT A HACKATHON, every vibe coder, for as long as it runs.
       if (st.events.some((e) => e.kind === "hackathon" && e.phase === "active" && e.chosen === "host")) {
         away.vibe_coder = ownedNow().vibe_coder ?? 0;
+      }
+      // AND WHOEVER AN EVENT'S CHOICE TOOK OFF WORK: sandbaggers until the
+      // flood passes, hands at the quays while the convoy is in, tidiers
+      // until the investors come. @see CREW_SHARE
+      const crew = (who: GeneratorId, share: number) => {
+        away[who] = Math.min(ownedNow()[who] ?? 0, (away[who] ?? 0) + Math.floor((ownedNow()[who] ?? 0) * share));
+      };
+      for (const e of st.events) {
+        if (e.phase === "over") continue;
+        if (e.kind === "river-flood" && e.chosen === "sandbags") crew("intern", CREW_SHARE.sandbags);
+        if (e.kind === "convoy" && e.chosen === "hands" && e.phase === "active") crew("intern", CREW_SHARE.hands);
+        if (e.kind === "investor-tour" && e.chosen === "tidy" && e.phase === "warning") crew("vibe_coder", CREW_SHARE.tidy);
       }
       const remote = useSessionStore.getState().remoteBeds ?? {};
       const net = getNetwork();
