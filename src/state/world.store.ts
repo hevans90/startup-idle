@@ -24,7 +24,7 @@ import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
 import { incomeNow } from "../world/projects/economy";
-import { builtProjects, createWorks, nearestSpot, projectUnderWay, siteOf, startSiteCommand, type Works } from "../world/projects/works";
+import { builtProjects, createWorks, nearestSpot, projectUnderWay, ruledOut, siteOf, startSiteCommand, type Works } from "../world/projects/works";
 import { PROJECTS, alreadyEarned, featureGateOpen, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
@@ -750,6 +750,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const busy = p && get().playing ? projectUnderWay(get().grid) : null;
     if (busy && busy.id !== p!.id) {
       set({ notice: { text: `One project at a time: ${busy.name} first`, at: Date.now() } });
+      return;
+    }
+    // A FORK taken the other way. @see ruledOut
+    const rival = p && get().playing ? ruledOut(get().grid, p) : null;
+    if (rival) {
+      set({ notice: { text: `${p!.name} or ${rival.name}: you chose ${rival.name}`, at: Date.now() } });
       return;
     }
     if (p) set({ placingProject: id, tool: "placeStructure", structureDefId: p.structure, brush: "point", brushRadius: 0 });

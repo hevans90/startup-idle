@@ -76,9 +76,10 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 | Campus | JUULing | interns + vibe | 6,000 | 2 min (≥ $40,000) | 4×4 | 10x devs |
 | Data Centre ★ | 120 interns · 50 vibe · 3 10x | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2, AI agents |
 | Conference Centre ★ | 250 · 100 · 6 | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | valuation ×1.5 |
+| *or* Hackerspace ★ | 250 · 100 · 6 | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | income ×1.3 |
 | IPO Tower ★ | 350 · 150 · 8 | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5, valuation ×2 |
 
-★ Wonders have their own menu (`play/wonders-panel.tsx`). The **projects log** (`projects-panel.tsx`) is a foldable quest log that pulses when something new is available (`Session.seenProjects`). Gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`); sims and tests are never gated.
+★ Wonders have their own menu (`play/wonders-panel.tsx`). The Conference Centre and the Hackerspace are a **fork** (`ProjectDef.rival`, `ruledOut`): starting either rules the other out for the run. The **projects log** (`projects-panel.tsx`) is a foldable quest log that pulses when something new is available (`Session.seenProjects`). Gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`); sims and tests are never gated.
 
 **Seaports** (`boats/traffic.ts`): three tiers on river banks (1–3 berths, 20/15/10 s calls), upgraded in place for the difference. Boats queue for a berth; each call pays 0.5/0.75/1 s of income (`portCallFee`), credited offline at the last measured rate.
 

@@ -23,7 +23,7 @@
  */
 import { housedBy } from "../../game/housing";
 import {
-  BUILDERS_PER_TILE, buildersFor, projectCost, projectForStructure, type ProjectDef, type ProjectId,
+  BUILDERS_PER_TILE, buildersFor, projectCost, projectDef, projectForStructure, type ProjectDef, type ProjectId,
 } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
 import { idx, type Build, type Grid, type Structure } from "../grid";
@@ -111,6 +111,17 @@ export function builtProjects(g: Grid): Set<ProjectId> {
 /** The site of a project, if it has been started and is not finished. */
 export const siteOf = (g: Grid, p: ProjectDef): Structure | null =>
   [...g.structures.values()].find((s) => s.def === p.structure && s.build) ?? null;
+
+/**
+ * Whether a project is RULED OUT by its fork: its rival stands, or is being
+ * built. @see ProjectDef.rival
+ */
+export function ruledOut(g: Grid, p: ProjectDef): ProjectDef | null {
+  const r = p.rival ? projectDef(p.rival) : null;
+  if (!r) return null;
+  for (const s of g.structures.values()) if (s.def === r.structure) return r;
+  return null;
+}
 
 /**
  * THE PROJECT UNDER WAY, if any: ONE AT A TIME, so the company's builders

@@ -20,7 +20,7 @@ import type { GeneratorId } from "../state/generators.store";
 
 export type ProjectId =
   | "garage" | "studio" | "hq" | "boardroom" | "campus" | "townhall" | "harbour"
-  | "datacentre" | "conference" | "ipo";
+  | "datacentre" | "conference" | "hackerspace" | "ipo";
 
 /** What a WONDER multiplies, for as long as it stands. @see wonderBonus */
 export type Bonus = { money?: number; innovation?: number; valuation?: number };
@@ -125,6 +125,11 @@ export type ProjectDef = {
    * than anything it opens. @see wonderBonus
    */
   bonus?: Bonus;
+  /**
+   * A FORK: the project this one is instead of. Building either rules out the
+   * other for the run, so a company commits to a direction. @see ruledOut
+   */
+  rival?: ProjectId;
 };
 
 export const PROJECTS: readonly ProjectDef[] = [
@@ -252,6 +257,21 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 500_000,
     deliveries: 18,
     bonus: { valuation: 1.5 },
+    rival: "hackerspace",
+    ...needs({ staff: { intern: 250, vibe_coder: 100, "10x_dev": 6 } }),
+  },
+  {
+    id: "hackerspace",
+    name: "Hackerspace",
+    pitch: "An old warehouse of soldering irons, beanbags and whiteboards. All income a third again, for good.",
+    structure: "hackerspace",
+    builders: ["vibe_coder", "10x_dev"],
+    work: 14_000,
+    incomeSeconds: 240,
+    floor: 500_000,
+    deliveries: 18,
+    bonus: { money: 1.3 },
+    rival: "conference",
     ...needs({ staff: { intern: 250, vibe_coder: 100, "10x_dev": 6 } }),
   },
   {

@@ -14,7 +14,7 @@ import { liveCommutes, workplaceKind } from "../agents/commute";
 import { serviceOf } from "../agents/services";
 import { liveMoods } from "../agents/mood";
 import { useSlopPitStore } from "../../state/slop-pit.store";
-import { builtProjects, sitesOf } from "../projects/works";
+import { builtProjects, ruledOut, sitesOf } from "../projects/works";
 import { projectForStructure } from "../../game/projects";
 import { nextHint, type HintState } from "./hints";
 import { ownsTile, PARCELS, STARTING_PARCELS } from "../land";
@@ -28,7 +28,7 @@ function snapshot(): HintState {
   const grid = useWorldStore.getState().grid;
   const built = builtProjects(grid);
   const sites = new Set(sitesOf(grid).map((s) => projectForStructure(s.def)?.id).filter((id): id is NonNullable<typeof id> => !!id));
-  const ready = new Set(PROJECTS.filter((p) => !built.has(p.id) && !sites.has(p.id) && p.ready(owned, unlocked)).map((p) => p.id));
+  const ready = new Set(PROJECTS.filter((p) => !built.has(p.id) && !sites.has(p.id) && !ruledOut(grid, p) && p.ready(owned, unlocked)).map((p) => p.id));
   let lots = 0, services = 0, offices = 0, labs = 0, levees = 0, racks = 0;
   for (const s of grid.structures.values()) {
     if (s.def === "lab" && !s.build) labs++;

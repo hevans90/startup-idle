@@ -372,6 +372,43 @@ export function conference(f: Footprint): Building {
   };
 }
 
+/** HACKERSPACE: an old brick warehouse, roof lights along it, a roller door open and a neon sign over the yard. */
+export function hackerspace(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, [0.2, 0.2, 0.2, 0.75], 0.15, 3.1), wall: BRICK, storey: 3,
+    facade: { kind: "windows", glass: 0x55707c, frame: 0x3a3f45, w: 0.32, gap: 0.2, sill: 0.9, head: 0.35 },
+    roof: { kind: "parapet", deck: 0x5a5550, rim: tone(BRICK, 0.85), h: 0.22 },
+    cornice: { colour: tone(BRICK, 0.8), h: 0.12, out: 0.03 },
+  };
+  return {
+    plinth: { inset: 0.05, h: 0.15, colour: 0xa7a39b, top: 0xb9b5ab },
+    masses: [m],
+    crane: "tower",
+    grounds: (p) => {
+      // A concrete yard out front.
+      p.flat(0.08, m.v1, f.w - 0.08, f.h - 0.04, 0.004, 0xb9b5ab);
+    },
+    details: (p) => {
+      const mid = (m.u0 + m.u1) / 2;
+      // Roof lights: glazed ridges along the roof, one a bay.
+      for (let v = m.v0 + 0.3; v < m.v1 - 0.25; v += 0.6) {
+        p.box(m.u0 + 0.25, v, m.u1 - 0.25, v + 0.3, m.z1, m.z1 + 0.32, 0x8f8a80, { top: tone(GLASS, 1.1) });
+      }
+      // The roller door, open, the workshop lit inside.
+      p.onV(m.v1, mid - 0.55, mid + 0.55, m.z0, m.z0 + 1.75, 0x3a3f45);
+      p.onV(m.v1, mid - 0.5, mid + 0.5, m.z0, m.z0 + 1.6, 0xffd27a);
+      p.onV(m.v1, mid - 0.5, mid + 0.5, m.z0 + 1.35, m.z0 + 1.6, 0x8a9198);
+      // The neon sign on the roof, toward the yard.
+      roofSign(p, mid - 0.9, mid + 0.9, m.v1 - 0.15, m.z1, 0.9, 0x15181c, 0x3fe0a8);
+      // In the yard: a shipping container, a bench, and a bike rack.
+      p.box(f.w - 1.55, m.v1 + 0.15, f.w - 0.2, m.v1 + 0.6, 0.15, 0.85, 0x2e6fb5);
+      for (let u = f.w - 1.45; u < f.w - 0.3; u += 0.12) p.onV(m.v1 + 0.6, u, u + 0.03, 0.2, 0.8, tone(0x2e6fb5, 0.8));
+      p.box(0.35, m.v1 + 0.25, 1.05, m.v1 + 0.45, 0.15, 0.45, 0x8a5a34, { top: tone(0x8a5a34, 1.2) });
+      for (let u = mid + 0.9; u < mid + 1.4 && u < f.w - 1.6; u += 0.18) p.box(u, m.v1 + 0.3, u + 0.03, m.v1 + 0.5, 0.15, 0.5, 0x4a525b);
+    },
+  };
+}
+
 /** IPO TOWER: very tall, gold glass, a stock ticker round it near the top and a beacon on the roof. */
 export function ipo(f: Footprint): Building {
   const lobby: Mass = {
@@ -576,7 +613,7 @@ export function rack(f: Footprint): Building {
 
 /** Each building by the structure it is drawn for. */
 export const LOOKS: Record<string, (f: Footprint) => Building> = {
-  garage, studio, hq, boardroom, campus, townhall, harbour, datacentre, conference, ipo,
+  garage, studio, hq, boardroom, campus, townhall, harbour, datacentre, conference, hackerspace, ipo,
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
   cafe, park, gym, lab, levee, derelict, rack,

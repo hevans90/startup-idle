@@ -11,7 +11,7 @@ import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import {
-  STALL_GRACE, builtProjects, catchUpWorks, createWorks, projectUnderWay, siteOf, startSiteCommand, stepWorks,
+  STALL_GRACE, builtProjects, catchUpWorks, createWorks, projectUnderWay, ruledOut, siteOf, startSiteCommand, stepWorks,
 } from "./works";
 
 const STUDIO = projectDef("studio")!;
@@ -330,7 +330,7 @@ describe("the wonders", () => {
   });
 
   test("come late, on headcounts of every kind at once, and each has a building", () => {
-    for (const id of ["datacentre", "conference", "ipo"] as const) {
+    for (const id of ["datacentre", "conference", "hackerspace", "ipo"] as const) {
       const p = projectDef(id)!;
       const staff = p.gate.staff!;
       expect(Object.keys(staff).sort()).toEqual(["10x_dev", "intern", "vibe_coder"]);
@@ -365,5 +365,20 @@ describe("one project at a time", () => {
     expect(projectUnderWay(g)?.id).toBe("studio");
     siteOf(g, STUDIO)!.build = undefined;
     expect(projectUnderWay(g)).toBeNull();
+  });
+});
+
+describe("a fork", () => {
+  test("the Conference Centre or the Hackerspace: a site for either rules the other out", () => {
+    const g = createGrid(30, 14);
+    fillTerrain(g, 1);
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 5)] = 1;
+    const history = createHistory(), conf = projectDef("conference")!, hack = projectDef("hackerspace")!;
+    expect(ruledOut(g, hack)).toBeNull();
+    expect(ruledOut(g, conf)).toBeNull();
+    commit(g, history, startSiteCommand(g, hack, 4, 6, { needsRoad: true }, 0)!);
+    expect(ruledOut(g, conf)?.id).toBe("hackerspace");
+    expect(ruledOut(g, hack)).toBeNull();
+    expect(ruledOut(g, projectDef("ipo")!)).toBeNull();
   });
 });

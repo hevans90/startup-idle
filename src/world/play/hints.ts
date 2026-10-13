@@ -173,7 +173,7 @@ export const HINTS: readonly Hint[] = [
   },
 ];
 
-const WONDER_IDS = ["datacentre", "conference", "ipo"];
+const WONDER_IDS = ["datacentre", "conference", "hackerspace", "ipo"];
 
 /**
  * The hint to show now, if any, and the ones that can be put away without

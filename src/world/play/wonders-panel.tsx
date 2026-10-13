@@ -13,7 +13,7 @@ import { useGeneratorStore } from "../../state/generators.store";
 import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
-import { builtProjects, projectUnderWay, siteOf } from "../projects/works";
+import { builtProjects, projectUnderWay, ruledOut, siteOf } from "../projects/works";
 import { opensText } from "./building-info";
 import { useTicking } from "../../hooks/use-ticking";
 import { ProjectCard } from "./projects-panel";
@@ -70,12 +70,24 @@ export function WondersPanel({ className }: { className?: string }) {
             </div>
           );
         }
+        // A FORK TAKEN the other way: what it would have been, struck out. @see ruledOut
+        const rival = ruledOut(grid, w);
+        if (rival) {
+          return (
+            <div key={w.id} className={twMerge(ROW, "text-primary-500 dark:text-primary-500")}>
+              <p className="flex justify-between"><b className="line-through">{w.name}</b><span>{rival.name} instead</span></p>
+            </div>
+          );
+        }
         // Hidden while another project is under way. @see projectUnderWay
         if (busy) return null;
+        const or = w.rival && PROJECTS.find((p) => p.id === w.rival);
+        const fork = or && <p className="text-amber-700 dark:text-amber-400">Or the {or.name}, never both</p>;
         if (w.ready(owned, unlocked)) {
           return (
             <div key={w.id} className={ROW}>
               <ProjectCard next={w} className="w-full border-0 bg-transparent p-0 shadow-none dark:bg-transparent" />
+              {fork}
             </div>
           );
         }
@@ -85,6 +97,7 @@ export function WondersPanel({ className }: { className?: string }) {
             {/* HOW MANY IT NEEDS, a bar a kind, with how many more on hover. @see GateChips */}
             <GateChips project={w} />
             <p>from {formatCurrency(w.floor)}</p>
+            {fork}
           </div>
         );
       })}

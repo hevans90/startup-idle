@@ -214,6 +214,7 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
   // THE WONDERS. @see game/projects
   { id: "datacentre", name: "Data Centre", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
   { id: "conference", name: "Conference Centre", footprint: { w: 4, h: 3 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "hackerspace", name: "Hackerspace", footprint: { w: 4, h: 3 }, render: { kind: "custom", rendererId: "project" } },
   { id: "ipo", name: "IPO Tower", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
 ];
 
