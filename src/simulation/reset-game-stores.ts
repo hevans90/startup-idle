@@ -1,3 +1,4 @@
+import { usePromotionStore } from "../state/promotion.store";
 import { useAgentsStore } from "../state/agents.store";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useSlopPitStore } from "../state/slop-pit.store";
@@ -33,6 +34,7 @@ export function resetRunStores(): void {
   useDirectivesStore.getState().reset();
   useSlopPitStore.getState().reset();
   useAgentsStore.getState().reset();
+  usePromotionStore.getState().reset();
   // And the company's map: a new company founds on new ground. @see retireRunSave
   retireRunSave();
 

@@ -8,6 +8,7 @@ import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { GeneratorBuyButton } from "./generator-buy-button";
 import { AgentsRow } from "./agents-row";
+import { PromotionRow } from "./promotion-row";
 
 const PopRow = ({
   label,
@@ -70,6 +71,7 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
           </span>
         </div>
       ))}
+      <PromotionRow isMobile />
       <AgentsRow isMobile />
     </div>
   ) : (
@@ -172,6 +174,7 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
           </PopoverContent>
         </Popover>
       ))}
+      <PromotionRow isMobile={false} />
       <AgentsRow isMobile={false} />
     </div>
   );
