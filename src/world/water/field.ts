@@ -376,6 +376,10 @@ export function syncGround(field: WaterField, grid: Grid) {
 export function syncSlots(field: WaterField, grid: Grid) {
   const { columns } = field;
   const { nx, ny, cells, layers, ground, roof } = columns;
+  // The water a building has just gone down on, to be put back beside it.
+  const displaced: number[] = [];
+  let volume = 0;
+  const byMaterial = new Map<number, number>();
   for (let cy = 0; cy < ny; cy++) {
     const ty = tileOf(cy);
     for (let cx = 0; cx < nx; cx++) {
@@ -399,15 +403,21 @@ export function syncSlots(field: WaterField, grid: Grid) {
       const sid = structureAt(grid, tx, ty);
       const basin = sid >= 0 ? basinOf(grid, sid) : 0;
       const floor = sid < 0 ? grid.height[t] : basin > 0 ? grid.height[t] - basin : grid.height[t] + SOLID_LIFT;
-      // A BUILDING PUT DOWN IN WATER takes the water's place. Left in the
-      // column it stood on top of the block the building is to the water,
-      // `SOLID_LIFT` up, and went over every side of it at once: a geyser
-      // over the new building and a downpour round it. On the device too,
-      // where the water is. @see emptyColumn
+      // A BUILDING PUT DOWN IN WATER pushes the water out of its way. Left
+      // in the column it stood on top of the block the building is to the
+      // water, `SOLID_LIFT` up, and went over every side of it at once: a
+      // geyser over the new building and a downpour round it. On the device
+      // too, where the water is. @see emptyColumn, displace
       // Only where there may be water: a field being built for the first
       // time finds every building's columns new, and none of them wet — but
       // with the device attached the host cannot know, so it asks anyway.
       if (sid >= 0 && basin === 0 && floor > ground[i] && (columns.depth[i] > 0 || columns.arrivals)) {
+        if (columns.depth[i] > 0) {
+          displaced.push(i);
+          volume += columns.depth[i];
+          const m = columns.material[i];
+          byMaterial.set(m, (byMaterial.get(m) ?? 0) + columns.depth[i]);
+        }
         emptyColumn(columns, i);
         (field.drying ??= new Map()).set(i, DRY_FRAMES);
       }
@@ -428,6 +438,60 @@ export function syncSlots(field: WaterField, grid: Grid) {
       }
     }
   }
+  if (volume > 0) displace(field, grid, displaced, volume, byMaterial);
+}
+
+/** The most the water a building pushes aside raises any one column by, half steps. */
+const DISPLACE_RISE = 0.5;
+/** And the most columns it is spread over, so a building in a sea costs a bounded walk. */
+const DISPLACE_REACH = 8192;
+
+/**
+ * THE WATER A BUILDING DISPLACED, put back round it: spread outward from its
+ * walls over the open columns nearest them, as many as it takes to raise none
+ * by more than {@link DISPLACE_RISE} — so it stands a little higher round the
+ * building and runs off from there, rather than heaping into a ring beside it
+ * and bursting out again. In what there was most of. Through `addWater`, so
+ * the device is told too.
+ *
+ * Nothing open beside it at all — a building filling a basin wall to wall —
+ * and the water has nowhere to go and is lost, which is the only way that
+ * can end.
+ */
+function displace(field: WaterField, grid: Grid, cols: readonly number[], volume: number, byMaterial: Map<number, number>) {
+  const { columns } = field;
+  const { nx, ny } = columns;
+  const seen = new Set(cols);
+  const open = (cx: number, cy: number) => {
+    if (cx < 0 || cy < 0 || cx >= nx || cy >= ny) return false;
+    const tx = tileOf(cx), ty = tileOf(cy);
+    if (!inBounds(grid, tx, ty)) return false;
+    const sid = structureAt(grid, tx, ty);
+    return sid < 0 || basinOf(grid, sid) > 0;
+  };
+  // Outward from the building a ring at a time, until there is room enough.
+  const want = Math.min(DISPLACE_REACH, Math.ceil(volume / DISPLACE_RISE));
+  const into: number[] = [];
+  let ring = [...cols];
+  while (ring.length && into.length < want) {
+    const next: number[] = [];
+    for (const i of ring) {
+      const cx = i % nx, cy = (i / nx) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const j = (cy + dy) * nx + cx + dx;
+        if (seen.has(j) || !open(cx + dx, cy + dy)) continue;
+        seen.add(j);
+        next.push(j);
+      }
+    }
+    into.push(...next);
+    ring = next;
+  }
+  if (into.length === 0) return;
+  let material = 1, most = -1;
+  for (const [m, v] of byMaterial) if (v > most && m) { most = v; material = m; }
+  const each = volume / into.length;
+  for (const j of into) addWater(columns, j % nx, (j / nx) | 0, each, material);
 }
 
 /**

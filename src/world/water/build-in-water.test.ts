@@ -4,6 +4,7 @@
  * To the water a building is a block `SOLID_LIFT` high. The water standing
  * where it went down used to stay in those columns — on top of the block —
  * and went over every side of it at once: a geyser over the new building.
+ * It is pushed out to the sides now, and none of it is lost.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -11,10 +12,11 @@ import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx } from "../grid";
 import { placeCommand } from "../structures/place";
 import { structureDef } from "../structures/def";
+import { totalWater } from "../../fluid/columns";
 import { COLUMNS_PER_TILE, createWaterField, setWaterEdge, stepWater, syncGround } from "./field";
 
 describe("building in water", () => {
-  test("the building's footprint gives up its water, and none is thrown over it", () => {
+  test("the building's footprint gives up its water to the sides, and none is thrown over it", () => {
     const g = createGrid(24, 24);
     fillTerrain(g, 1);
     // A pond three half steps deep across the middle of the map.
@@ -23,6 +25,7 @@ describe("building in water", () => {
     setWaterEdge(f, false);
     for (let n = 0; n < 30; n++) stepWater(f, 1 / 60);
 
+    const had = totalWater(f.columns);
     const def = structureDef("studio")!;
     const cmd = placeCommand(g, def, 10, 10)!;
     commit(g, createHistory(), cmd);
@@ -38,6 +41,8 @@ describe("building in water", () => {
       if (solid(cx, cy) && c.depth[cy * c.nx + cx] > 0) wetOnTop++;
     }
     expect(wetOnTop).toBe(0);
+    // PUSHED ASIDE, not lost: the pond holds what it held.
+    expect(totalWater(c)).toBeCloseTo(had, 3);
 
     // And as the water runs, nothing stands higher than the pond did.
     for (let n = 0; n < 120; n++) {
