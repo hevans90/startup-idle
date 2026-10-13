@@ -18,6 +18,8 @@ import { useMoneyStore } from "../state/money.store";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { labsBuilt } from "./projects";
 import { racksBuilt } from "./agents";
+import { founderIs } from "./founder-rules";
+import { BOOTSTRAP_BUILD } from "./founders.catalog";
 
 /** The least a lot costs, whatever the hire prices. */
 const LOT_FLOOR = 15;
@@ -29,6 +31,13 @@ const LOT_FLOOR = 15;
  * the caller has to be able to tell them apart before it charges anybody.
  */
 export function buildCost(defId: string): Decimal | null {
+  const price = listPrice(defId);
+  // THE BOOTSTRAPPER builds for less. @see BOOTSTRAP_BUILD
+  return price && founderIs("bootstrapper") ? price.times(BOOTSTRAP_BUILD).round() : price;
+}
+
+/** The price before any founder's rule. */
+function listPrice(defId: string): Decimal | null {
   // A SERVICE: seconds of income, never under a floor.
   const service = SERVICE_PRICE[defId];
   if (service) return Decimal.max(new Decimal(service.floor), new Decimal(safeIncome()).times(service.seconds)).round();

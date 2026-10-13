@@ -75,6 +75,8 @@ import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
 import { forgetGenParams, loadGenParams, saveGenParams } from "../world/io/gen-settings";
+import { founderIs } from "../game/founder-rules";
+import { BOOTSTRAP_LAND } from "../game/founders.catalog";
 
 export type Overlays = {
   grid: boolean;
@@ -279,7 +281,8 @@ export const parcelPrice = () => {
   // and cheaper for those who have learned where to buy. @see EXTRA_PARCELS, CHEAP_LAND_MULT
   const m = usePrestigeStore.getState().modifiers;
   const bought = Math.max(0, (useSessionStore.getState().land?.length ?? 0) - STARTING_PARCELS - m.startingParcels);
-  return Math.round(landPrice(bought, incomeNow()) * m.landCostMult);
+  // THE BOOTSTRAPPER pays over the odds for it. @see BOOTSTRAP_LAND
+  return Math.round(landPrice(bought, incomeNow()) * m.landCostMult * (founderIs("bootstrapper") ? BOOTSTRAP_LAND : 1));
 };
 export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
 /** What each choice an event offers costs in money, for those that cost any. Sludge trucks are paid for apart. */

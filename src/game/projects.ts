@@ -17,6 +17,9 @@
  * @see setHousingReader, setProjectReader
  */
 import type { GeneratorId } from "../state/generators.store";
+import { useFounderStore } from "../state/founder.store";
+import { founderIs } from "./founder-rules";
+import { BOOTSTRAP_BUILD, HACKER_LABS, VISIONARY_DATACENTRE } from "./founders.catalog";
 
 export type ProjectId =
   | "garage" | "studio" | "hq" | "boardroom" | "campus" | "townhall" | "harbour"
@@ -50,10 +53,34 @@ export type GatePart =
   | { kind: "feature"; id: string; met: boolean }
   | { kind: "staff"; who: GeneratorId; need: number; have: number; met: boolean };
 
+/**
+ * A gate as this company faces it:
+ *  - THE VISIONARY's Data Centre wants a share of the headcount;
+ *  - a founder HELD TO ONE KIND is gated on that kind alone — no upgrade of
+ *    another kind's, no headcount of people they cannot hire.
+ * @see VISIONARY_DATACENTRE, FounderModifiers.onlyGenerator
+ */
+function gateNow(gate: Gate): Gate {
+  const only = useFounderStore.getState().onlyGenerator;
+  const share = gate === DATACENTRE_GATE && founderIs("visionary") ? VISIONARY_DATACENTRE : 1;
+  if (!only && share === 1) return gate;
+  const out: Gate = { ...gate };
+  if (only && gate.upgrade && !gate.upgrade.startsWith(`${only}_`)) delete out.upgrade;
+  if (gate.staff) {
+    const staff: Partial<Record<GeneratorId, number>> = {};
+    for (const [who, n] of Object.entries(gate.staff) as [GeneratorId, number][]) {
+      if (!only || who === only) staff[who] = Math.ceil(n * share);
+    }
+    out.staff = staff;
+  }
+  return out;
+}
+
 /** Every part of a gate, and whether it is met. */
 export function gateParts(
-  gate: Gate, owned: Partial<Record<GeneratorId, number>>, unlocked: ReadonlySet<string>,
+  given: Gate, owned: Partial<Record<GeneratorId, number>>, unlocked: ReadonlySet<string>,
 ): GatePart[] {
+  const gate = gateNow(given);
   const parts: GatePart[] = [];
   if (gate.upgrade) parts.push({ kind: "upgrade", id: gate.upgrade, met: unlocked.has(gate.upgrade) });
   if (gate.feature) parts.push({ kind: "feature", id: gate.feature, met: unlocked.has(gate.feature) });
@@ -131,6 +158,9 @@ export type ProjectDef = {
    */
   rival?: ProjectId;
 };
+
+/** The Data Centre's gate, kept by name for the Visionary's rule. @see gateNow */
+const DATACENTRE_GATE: Gate = { staff: { intern: 120, vibe_coder: 50, "10x_dev": 3 } };
 
 export const PROJECTS: readonly ProjectDef[] = [
   {
@@ -244,7 +274,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 200_000,
     deliveries: 16,
     bonus: { innovation: 2 },
-    ...needs({ staff: { intern: 120, vibe_coder: 50, "10x_dev": 3 } }),
+    ...needs(DATACENTRE_GATE),
   },
   {
     id: "conference",
@@ -302,7 +332,11 @@ export function wonderBonus(kind: keyof Bonus): number {
 }
 
 /** What the map's R&D labs multiply innovation by. One with no map. */
-export const labBonus = () => (reader ? reader().labs?.mult ?? 1 : 1);
+export const labBonus = () => {
+  const mult = reader ? reader().labs?.mult ?? 1 : 1;
+  // THE HACKER's labs count for more. @see HACKER_LABS
+  return founderIs("hacker") ? 1 + (mult - 1) * HACKER_LABS : mult;
+};
 /** How many R&D labs stand on the map. */
 export const labsBuilt = () => (reader ? reader().labs?.count ?? 0 : 0);
 
@@ -324,7 +358,9 @@ export const labsBuilt = () => (reader ? reader().labs?.count ?? 0 : 0);
  */
 export function projectCost(p: ProjectDef, incomePerSecond: number): number {
   const live = Number.isFinite(incomePerSecond) ? Math.max(0, incomePerSecond) * p.incomeSeconds : 0;
-  return Math.min(Number.MAX_VALUE, Math.max(p.floor, Math.round(live)));
+  // THE BOOTSTRAPPER builds for less. @see BOOTSTRAP_BUILD
+  const k = founderIs("bootstrapper") ? BOOTSTRAP_BUILD : 1;
+  return Math.min(Number.MAX_VALUE, Math.round(Math.max(p.floor, Math.round(live)) * k));
 }
 
 export const projectDef = (id: string): ProjectDef | null => PROJECTS.find((p) => p.id === id) ?? null;

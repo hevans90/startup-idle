@@ -241,6 +241,12 @@ export const FounderSelect = () => {
                     ))}
                   </ul>
 
+                  {f.rule && (
+                    <p className="mt-2 border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-[11px] leading-snug text-sky-700 dark:text-sky-300">
+                      <span className="font-semibold">On the map:</span> {f.rule}
+                    </p>
+                  )}
+
                   <div className="mt-4 border-t border-primary-300 pt-2 text-xs font-semibold tabular-nums text-emerald-700 dark:border-primary-700 dark:text-emerald-400">
                     Starts with ${f.startingCash}
                   </div>

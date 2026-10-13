@@ -5,6 +5,8 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
+import { founderIs } from "../game/founder-rules";
+import { HUSTLER_EVENTS } from "../game/founders.catalog";
 import { housedBy } from "../game/housing";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { liveDesireMaps } from "./agents/desirability";
@@ -2519,7 +2521,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (st.playing) {
           const field = st.getWaterField();
           const flood = st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
-          tickPacing(pacing.current, st.events, dt);
+          // THE HUSTLER's come round faster. @see HUSTLER_EVENTS
+          tickPacing(pacing.current, st.events, founderIs("hustler") ? dt * HUSTLER_EVENTS : dt);
           // KEPT WITH THE COMPANY every few seconds, so short sessions add up. @see Session.eventPacing
           pacingSaved.current += dt;
           if (pacingSaved.current >= 5) { pacingSaved.current = 0; useSessionStore.getState().setEventPacing({ ...pacing.current }); }

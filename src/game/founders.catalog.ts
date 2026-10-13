@@ -65,11 +65,28 @@ export type FounderDef = {
   /** Dynamic perk bullets shown in the founder-select UI. */
   perks: (exits: number) => string[];
   /**
+   * ONE RULE OF THE GAME this founder plays by, on the map — a change to how
+   * the town is played, not another number. @see game/founder-rules
+   */
+  rule?: string;
+  /**
    * If absent the founder is always unlocked. Otherwise the player must
    * satisfy this condition before they can pick this founder.
    */
   unlockCondition?: UnlockCondition;
 };
+
+// ─── the founders' rules ──────────────────────────────────────────────────────
+
+/** The Bootstrapper builds for this share of the price, and pays this many times over for land. */
+export const BOOTSTRAP_BUILD = 0.65;
+export const BOOTSTRAP_LAND = 2;
+/** The share of the Data Centre's headcounts the Visionary needs. */
+export const VISIONARY_DATACENTRE = 0.5;
+/** How much faster the Hustler's map events come round. */
+export const HUSTLER_EVENTS = 2;
+/** How many times over the Hacker's R&D labs count. */
+export const HACKER_LABS = 2;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,6 +121,7 @@ export const FOUNDERS: FounderDef[] = [
   // ── The Bootstrapper (1 exit) ────────────────────────────────────────────────
   {
     id: "bootstrapper",
+    rule: `Everything built ${Math.round((1 - BOOTSTRAP_BUILD) * 100)}% cheaper, projects too; land costs ${BOOTSTRAP_LAND}× as much`,
     name: "The Bootstrapper",
     tagline: "Ramen profitable",
     unlockCondition: {
@@ -129,6 +147,7 @@ export const FOUNDERS: FounderDef[] = [
   // ── The Hacker (2 exits) ─────────────────────────────────────────────────────
   {
     id: "hacker",
+    rule: `R&D labs give ${HACKER_LABS}× the innovation`,
     name: "The Hacker",
     tagline: "Ships product before slides",
     unlockCondition: {
@@ -155,6 +174,7 @@ export const FOUNDERS: FounderDef[] = [
   // ── The Visionary (3 exits + $5k) ───────────────────────────────────────────
   {
     id: "visionary",
+    rule: `The Data Centre needs ${Math.round(VISIONARY_DATACENTRE * 100)}% of the headcount`,
     name: "The Visionary",
     tagline: "Sells the dream",
     unlockCondition: {
@@ -180,6 +200,7 @@ export const FOUNDERS: FounderDef[] = [
   // ── The Hustler (5 exits + $50k) ─────────────────────────────────────────────
   {
     id: "hustler",
+    rule: `Map events come round ${HUSTLER_EVENTS}× as often`,
     name: "The Hustler",
     tagline: "Always be closing",
     unlockCondition: {
