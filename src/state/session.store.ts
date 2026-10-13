@@ -59,6 +59,9 @@ type SessionState = {
   /** Seconds of play until each kind of map event is next due, kept across loads. @see Pacing */
   eventPacing: Record<string, number> | null;
   setEventPacing: (p: Record<string, number>) => void;
+  /** Regular routes won by serving convoys: each adds to every port call. @see ROUTE_BONUS */
+  routes: number;
+  addRoute: (max: number) => void;
   setMapEventsOff: (off: boolean) => void;
   setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
@@ -95,6 +98,8 @@ export const useSessionStore = create<SessionState>()(
       setLand: (land) => set({ land }),
       eventPacing: null,
       setEventPacing: (eventPacing) => set({ eventPacing }),
+      routes: 0,
+      addRoute: (max) => set((s) => ({ routes: Math.min(max, (s.routes ?? 0) + 1) })),
       setMapEventsOff: (mapEventsOff) => set({ mapEventsOff }),
       setHintsOff: (hintsOff) => set({ hintsOff }),
       portIncomePerSecond: 0,
@@ -105,7 +110,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null,
+        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0,
       }),
     }),
     {
@@ -124,6 +129,7 @@ export const useSessionStore = create<SessionState>()(
         mapEventsOff: s.mapEventsOff,
         land: s.land,
         eventPacing: s.eventPacing,
+        routes: s.routes,
       }),
     },
   ),

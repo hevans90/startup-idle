@@ -61,7 +61,7 @@ export type EventWorld = {
    */
   river: { x: number; y: number; due: boolean; flooded: number; sandbagCrew: number } | null;
   /** The ports, on a map with any: where, whether a convoy is due, and how it is going. */
-  convoy: { x: number; y: number; due: boolean; calls: number; earned: number; handsCrew: number } | null;
+  convoy: { x: number; y: number; due: boolean; calls: number; earned: number; handsCrew: number; routes: number } | null;
   /** Where investors would be shown round, whether a tour is due, and what it would come to as things are. */
   tour: { x: number; y: number; due: boolean; reward: number; tidyCrew: number } | null;
   /** The vibe coders' studio, with enough of them in it for a hackathon, and whether one is due. */
@@ -163,6 +163,17 @@ const people = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
  */
 export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 0.5 } as const;
 
+/**
+ * A CONVOY SERVED — extra hands at the quays, and calls made while it was in —
+ * comes back as a regular route: every call at every port pays this much more,
+ * for good, up to `MAX_ROUTES` of them. @see routeWon
+ */
+export const ROUTE_BONUS = 0.2;
+export const MAX_ROUTES = 5;
+/** Whether a convoy, over, was served well enough to become a regular route. */
+export const routeWon = (e: GameEvent, calls: number) => e.kind === "convoy" && e.chosen === "hands" && calls > 0;
+const pct = (k: number) => `+${Math.round(k * 100)}%`;
+
 const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
   convoy: {
     warnMs: 30_000, activeMs: 60_000,
@@ -171,11 +182,18 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     of: (w) => w.convoy && {
       ...w.convoy,
       choices: [
-        { id: "hands", label: "Extra hands at the quays", cost: `${people(w.convoy.handsCrew, "intern")} off work while it is in · calls take half as long` },
+        {
+          id: "hands", label: "Extra hands at the quays",
+          cost: `${people(w.convoy.handsCrew, "intern")} off work while it is in · calls take half as long${w.convoy.routes < MAX_ROUTES ? ` · it becomes a regular route: ${pct(ROUTE_BONUS)} on every call` : ""}`,
+        },
         { id: "usual", label: "Business as usual", cost: "free" },
       ],
     },
-    outcome: (_e, w) => `${w.convoy?.calls ?? 0} calls while it was in, for ${money(w.convoy?.earned ?? 0)}.`,
+    outcome: (e, w) => {
+      const calls = w.convoy?.calls ?? 0, routes = w.convoy?.routes ?? 0;
+      const won = routeWon(e, calls) && routes < MAX_ROUTES;
+      return `${calls} calls while it was in, for ${money(w.convoy?.earned ?? 0)}.${won ? ` It will be back: a regular route, ${pct(ROUTE_BONUS * (routes + 1))} on every call.` : ""}`;
+    },
   },
   "investor-tour": {
     warnMs: 45_000, activeMs: 30_000,

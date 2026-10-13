@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { FLOOD_MS, FLOOD_WARN_MS, OVER_SHOWN_MS, SLOP_WARN_AT, stepEvents, tourReward, type EventWorld, type GameEvent } from "./events";
+import {
+  FLOOD_MS, FLOOD_WARN_MS, MAX_ROUTES, OVER_SHOWN_MS, ROUTE_BONUS, SLOP_WARN_AT, routeWon, stepEvents, tourReward, type EventWorld, type GameEvent,
+} from "./events";
 
 const world = (fill: number, now = 0, rate = 0.1): EventWorld => ({
   now, slop: { x: 5, y: 5, fill, rate, trucks: 0, truckPrice: 300 }, river: null, convoy: null, tour: null, hackathon: null, offer: null, enabled: true,
@@ -86,8 +88,8 @@ describe("opportunities", () => {
   const base = (now: number): EventWorld => ({ now, slop: null, river: null, convoy: null, tour: null, hackathon: null, offer: null, enabled: true });
 
   test("a convoy is warned of, comes in, and says what it earned", () => {
-    const w = (now: number, due: boolean, calls = 0, earned = 0) => ({
-      ...base(now), convoy: { x: 1, y: 1, due, calls, earned, handsCrew: 3 },
+    const w = (now: number, due: boolean, calls = 0, earned = 0, routes = 0) => ({
+      ...base(now), convoy: { x: 1, y: 1, due, calls, earned, handsCrew: 3, routes },
     });
     let evs = stepEvents([], w(0, true), next);
     expect(evs[0]).toMatchObject({ kind: "convoy", phase: "warning", strikesAt: 30_000 });
@@ -95,6 +97,21 @@ describe("opportunities", () => {
     expect(evs[0]).toMatchObject({ phase: "active", endsAt: 90_000 });
     evs = stepEvents(evs, w(90_000, false, 7, 140), next);
     expect(evs[0].outcome).toBe("7 calls while it was in, for $140.");
+  });
+
+  test("a convoy served with extra hands comes back as a regular route, up to the most there can be", () => {
+    const w = (now: number, due: boolean, calls = 0, routes = 1) => ({
+      ...base(now), convoy: { x: 1, y: 1, due, calls, earned: 50, handsCrew: 3, routes },
+    });
+    let evs = stepEvents([], w(0, true), next);
+    expect(evs[0].choices?.[0].cost).toContain("regular route");
+    evs = evs.map((e) => ({ ...e, chosen: "hands" }));
+    evs = stepEvents(stepEvents(evs, w(30_000, false), next), w(90_000, false, 4), next);
+    expect(routeWon(evs[0], 4)).toBe(true);
+    expect(evs[0].outcome).toContain(`regular route, +${Math.round(ROUTE_BONUS * 200)}% on every call`);
+    expect(routeWon({ ...evs[0], chosen: "usual" }, 4)).toBe(false);
+    expect(routeWon(evs[0], 0)).toBe(false);
+    expect(stepEvents([], w(0, true, 0, MAX_ROUTES), next)[0].choices?.[0].cost).not.toContain("regular route");
   });
 
   test("a hackathon nobody hosted never starts", () => {

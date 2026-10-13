@@ -48,6 +48,8 @@ export type InfoContext = {
   racksPowered?: ReadonlySet<number>;
   /** Seconds until a flood-damaged building is repaired; null when it is not damaged. @see damage */
   repairedIn?: (id: number) => number | null;
+  /** What regular routes add to every port call, as a share: 0.4 is +40%. @see ROUTE_BONUS */
+  routeBonus?: number;
 };
 
 export type InfoLine = { text: string; tone?: "good" | "warn" | "dim" };
@@ -266,6 +268,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     ];
     const broken = damageLine(s, ctx);
     if (broken) lines.push(broken);
+    if (ctx.routeBonus) lines.push({ text: `Regular routes: +${Math.round(ctx.routeBonus * 100)}% a call`, tone: "good" });
     if (earning > 0) lines.push({ text: `Earning ${ctx.money(earning)}/min`, tone: "good" });
     return {
       title: saleName(def), accent: 0x4a90c8,

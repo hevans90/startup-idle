@@ -33,6 +33,8 @@ import { formatCurrency } from "../../utils/money-utils";
 import { perMinute } from "../boats/exports";
 import { liveSeating } from "../agents/commute";
 import { liveCoverage } from "../agents/services";
+import { useSessionStore } from "../../state/session.store";
+import { ROUTE_BONUS } from "../events/events";
 import { repairedIn } from "../events/flood";
 import { liveMoods } from "../agents/mood";
 import { useSlopPitStore } from "../../state/slop-pit.store";
@@ -100,7 +102,7 @@ function gather(): InfoContext {
   const moods = net ? liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100) : new Map();
   const labsNear = new Set([...st.grid.structures.values()].filter((s) => s.def === "lab" && nearHub(st.grid, s)).map((s) => s.id));
   const racksPowered = new Set([...st.grid.structures.values()].filter((s) => s.def === "rack" && rackPowered(st.grid, s)).map((s) => s.id));
-  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, money: (n) => formatCurrency(n) };
+  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
 }
 
 /**

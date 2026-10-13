@@ -95,7 +95,7 @@ import {
 import {
   damage, floodBaseline, isDamaged, floodedNow, floodMisery, floodPeak, portShut, stepRepairs, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
-import { CREW_SHARE, FLOOD_MS, HACKATHON_MORALE, stepEvents, tourReward } from "./events/events";
+import { CREW_SHARE, FLOOD_MS, HACKATHON_MORALE, MAX_ROUTES, ROUTE_BONUS, routeWon, stepEvents, tourReward } from "./events/events";
 import { SLOP_PIT } from "./structures/def";
 import { FILL_RATE_PER_CODER, SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
 import { perMinute, recordCall } from "./boats/exports";
@@ -2362,6 +2362,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           let fee = s ? portCallFee(s.def) : null;
           // A PORT UNDER WATER takes no trade. @see portShut
           if (fee === null || portShut(id)) continue;
+          // REGULAR ROUTES, won by serving convoys, add to every call. @see ROUTE_BONUS
+          fee *= 1 + ROUTE_BONUS * (useSessionStore.getState().routes ?? 0);
           // A CONVOY IN pays double, and is counted. @see stepOpportunities
           const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
           if (convoy) { fee *= 2; tallyCall(convoy.id, fee); }
@@ -2456,6 +2458,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               } : null,
               convoy: port ? {
                 x: port.x, y: port.y, due: isDue(pace, "convoy"), calls: tally.calls, earned: tally.earned, handsCrew: Math.floor((ownedNow().intern ?? 0) * CREW_SHARE.hands),
+                routes: useSessionStore.getState().routes ?? 0,
               } : null,
               tour: door ? { x: door.x + 1, y: door.y, due: isDue(pace, "investor-tour"), reward, tidyCrew: Math.floor(vibe * CREW_SHARE.tidy) } : null,
               hackathon: studio && vibe >= HACKATHON_CODERS ? { x: studio.x + 1, y: studio.y + 1, due: isDue(pace, "hackathon") } : null,
@@ -2468,9 +2471,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             }, () => eventIds.current++);
             repace(pace, st.events, next);
             // WHAT AN EVENT LEAVES BEHIND, once over: the investors' money,
-            // the hackathon's good mood. @see stepOpportunities
+            // the hackathon's good mood, a convoy's regular route. @see stepOpportunities
             for (const e of endedBetween(st.events, next)) {
               if (e.kind === "investor-tour" && reward > 0) useMoneyStore.getState().increaseMoney(reward);
+              if (routeWon(e, tally.calls)) useSessionStore.getState().addRoute(MAX_ROUTES);
               if (e.kind === "hackathon" && e.chosen === "host") {
                 useGeneratorStore.setState((g) => ({
                   satisfactionScores: {
