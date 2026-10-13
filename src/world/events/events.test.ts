@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  AI_TERMS, FLOOD_MS, FLOOD_WARN_MS, MAX_ROUTES, OVER_SHOWN_MS, ROUTE_BONUS, SLOP_WARN_AT, routeWon, stepEvents, tourReward, type EventWorld, type GameEvent,
+  AI_TERMS, FLOOD_MS, FLOOD_WARN_MS, HACKATHON_SNUB, MAX_ROUTES, OVER_SHOWN_MS, ROUTE_BONUS, SLOP_WARN_AT, routeWon, stepEvents, tourFailed, tourReward, type EventWorld, type GameEvent,
 } from "./events";
 
 const world = (fill: number, now = 0, rate = 0.1): EventWorld => ({
@@ -132,11 +132,21 @@ describe("opportunities", () => {
     expect(plugged[0]).toMatchObject({ phase: "over", outcome: "The racks are dark. The meter is falling." });
   });
 
+  test("investors paid less than the base thirty seconds leave unimpressed", () => {
+    expect(tourFailed(100, 2999)).toBe(true);
+    expect(tourFailed(100, 3000)).toBe(false);
+    const w = (now: number) => ({ ...base(now), tour: { x: 1, y: 1, due: now === 0, reward: 1000, tidyCrew: 1, income: 100 } });
+    let evs = stepEvents([], w(0), next);
+    evs = stepEvents(evs, w(45_000), next);
+    evs = stepEvents(evs, w(75_000), next);
+    expect(evs[0].outcome).toContain("the next acquirer will offer less");
+  });
+
   test("a hackathon nobody hosted never starts", () => {
     const w = (now: number) => ({ ...base(now), hackathon: { x: 1, y: 1, due: now === 0 } });
     let evs = stepEvents([], w(0), next);
     evs = stepEvents(evs, w(45_000), next);
-    expect(evs[0]).toMatchObject({ phase: "over", outcome: "No hackathon this time." });
+    expect(evs[0]).toMatchObject({ phase: "over", outcome: `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder satisfaction.` });
   });
 
   test("investors pay by the town's mood, and tidying up helps", () => {

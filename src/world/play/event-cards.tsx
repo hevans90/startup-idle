@@ -15,7 +15,7 @@ import { idx, inBounds } from "../grid";
 import { AI_TERMS, PLUGGED_AT, type GameEvent } from "../events/events";
 import { useAgentsStore } from "../../state/agents.store";
 import { useAiSingularityStore } from "../../state/ai-singularity.store";
-import { OFFER_PREMIUM, clearOfferPremium, setOfferPremium } from "../../game/acquisition";
+import { clearOfferPremium, offerPremium, setOfferPremium } from "../../game/acquisition";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
 
 const CARD =
@@ -29,14 +29,14 @@ const BTN =
  * AN ACQUIRER'S OFFER, answered: looking at it puts their premium on the sale
  * for as long as the offer is on the table, and opens the sale — with its
  * confirmation, so nothing is sold by one click on the map. Holding out lets
- * the premium go. @see OFFER_PREMIUM, AcquisitionTab
+ * the premium go. @see offerPremium, AcquisitionTab
  */
 function answerOffer(e: GameEvent, choice: string) {
   if (e.kind !== "offer") return;
   if (choice === "hold") { clearOfferPremium(); return; }
   if (choice !== "accept") return;
   const until = e.endsAt ?? (e.strikesAt ?? Date.now()) + 120_000;
-  setOfferPremium(OFFER_PREMIUM, until);
+  setOfferPremium(offerPremium(), until);
   useGlobalSettingsStore.getState().setSidebarTab("acquisition");
   window.dispatchEvent(new CustomEvent("startup:show-company"));
   window.dispatchEvent(new CustomEvent("startup:confirm-sale"));

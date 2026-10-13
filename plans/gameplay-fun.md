@@ -282,8 +282,8 @@ Built, phase by phase — everything above except where noted:
   filling by it; workplaces' "+$X" floaters.
 - **C** — sandbags, extra hands and tidying cost crew time; an ignored flood leaves damage a
   repair crew works through; a served convoy becomes a regular route; the Conference Centre
-  or a Hackerspace. *Not built:* a failed tour lowering the next offer, a skipped hackathon's
-  lasting mood.
+  or a Hackerspace. A tour that leaves investors unimpressed lowers the next acquirer's
+  premium; a hackathon turned down costs the vibe coders' mood.
 - **D** — term sheets at founding; four founders with a rule each on the map; hilly land
   cheap with climbing commutes, and the land screen saying what the land means; three more
   rule notables (a starting route, quick repairs, a fourth term sheet).

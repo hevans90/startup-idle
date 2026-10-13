@@ -68,6 +68,9 @@ type SessionState = {
   /** Whether the slop pit has overflowed this run. */
   overflowed: boolean;
   markOverflowed: () => void;
+  /** Whether investors left a tour unimpressed, until the next acquirer's offer. @see SNUB */
+  snubbed: boolean;
+  setSnubbed: (snubbed: boolean) => void;
   setMapEventsOff: (off: boolean) => void;
   setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
@@ -110,6 +113,8 @@ export const useSessionStore = create<SessionState>()(
       setTermSheet: (termSheet) => set({ termSheet }),
       overflowed: false,
       markOverflowed: () => set((s) => (s.overflowed ? s : { overflowed: true })),
+      snubbed: false,
+      setSnubbed: (snubbed) => set({ snubbed }),
       setMapEventsOff: (mapEventsOff) => set({ mapEventsOff }),
       setHintsOff: (hintsOff) => set({ hintsOff }),
       portIncomePerSecond: 0,
@@ -120,7 +125,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false,
+        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false,
       }),
     }),
     {
@@ -142,6 +147,7 @@ export const useSessionStore = create<SessionState>()(
         routes: s.routes,
         termSheet: s.termSheet,
         overflowed: s.overflowed,
+        snubbed: s.snubbed,
       }),
     },
   ),

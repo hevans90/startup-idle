@@ -10,7 +10,7 @@ import { HUSTLER_EVENTS } from "../game/founders.catalog";
 import { housedBy } from "../game/housing";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { liveDesireMaps } from "./agents/desirability";
-import { OFFER_PREMIUM, canAcquire, pendingEquity } from "../game/acquisition";
+import { canAcquire, offerPremium, pendingEquity } from "../game/acquisition";
 import { heldHidden } from "./render/hold";
 import type { Renderer } from "pixi.js";
 import { nappeStepsAt } from "./render/nappe";
@@ -106,7 +106,7 @@ import {
   damage, floodBaseline, isDamaged, floodedNow, floodMisery, floodPeak, portShut, stepRepairs, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
 import {
-  AI_SPEND, AI_TERMS, CREW_SHARE, FLOOD_MS, HACKATHON_MORALE, LEFT_AT, MAX_ROUTES, ROUTE_BONUS, SINGULARITY_AT, routeWon, stepEvents, tourReward,
+  AI_SPEND, AI_TERMS, CREW_SHARE, FLOOD_MS, HACKATHON_MORALE, HACKATHON_SNUB, tourFailed, LEFT_AT, MAX_ROUTES, ROUTE_BONUS, SINGULARITY_AT, routeWon, stepEvents, tourReward,
 } from "./events/events";
 import { SLOP_PIT } from "./structures/def";
 import { FILL_RATE_PER_CODER, SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
@@ -114,7 +114,7 @@ import { perMinute, recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
 import { useGeneratorStore } from "../state/generators.store";
-import { SATISFACTION_MAX } from "../game/satisfaction";
+import { SATISFACTION_MAX, SATISFACTION_MIN } from "../game/satisfaction";
 import { useSessionStore } from "../state/session.store";
 import { stepWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -2498,12 +2498,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 x: port.x, y: port.y, due: isDue(pace, "convoy"), calls: tally.calls, earned: tally.earned, handsCrew: Math.floor((ownedNow().intern ?? 0) * CREW_SHARE.hands),
                 routes: useSessionStore.getState().routes ?? 0,
               } : null,
-              tour: door ? { x: door.x + 1, y: door.y, due: isDue(pace, "investor-tour"), reward, tidyCrew: Math.floor(vibe * CREW_SHARE.tidy) } : null,
+              tour: door ? { x: door.x + 1, y: door.y, due: isDue(pace, "investor-tour"), reward, income, tidyCrew: Math.floor(vibe * CREW_SHARE.tidy) } : null,
               hackathon: studio && vibe >= HACKATHON_CODERS ? { x: studio.x + 1, y: studio.y + 1, due: isDue(pace, "hackathon") } : null,
               // AN ACQUIRER, at the company's grandest door, once it can be sold.
               offer: front && canAcquire() ? (() => {
                 const equity = Math.floor(pendingEquity().toNumber());
-                return { x: front.x + 1, y: front.y, due: isDue(pace, "offer"), equity, withPremium: Math.floor(equity * OFFER_PREMIUM) };
+                return { x: front.x + 1, y: front.y, due: isDue(pace, "offer"), equity, withPremium: Math.floor(equity * offerPremium()) };
               })() : null,
               // THE AGENTS, at the Data Centre, once any run. @see SINGULARITY_AT
               singularity: dc && useAgentsStore.getState().agents > 0 ? (() => {
@@ -2520,6 +2520,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // the hackathon's good mood, a convoy's regular route. @see stepOpportunities
             for (const e of endedBetween(st.events, next)) {
               if (e.kind === "investor-tour" && reward > 0) useMoneyStore.getState().increaseMoney(reward);
+              // INVESTORS UNIMPRESSED tell the next acquirer. @see SNUB
+              if (e.kind === "investor-tour") useSessionStore.getState().setSnubbed(tourFailed(income, reward));
+              // An offer made has heard it. @see offerPremium
+              if (e.kind === "offer") useSessionStore.getState().setSnubbed(false);
+              // A HACKATHON TURNED DOWN is remembered. @see HACKATHON_SNUB
+              if (e.kind === "hackathon" && e.chosen !== "host") {
+                useGeneratorStore.setState((g) => ({
+                  satisfactionScores: { ...g.satisfactionScores, vibe_coder: Math.max(SATISFACTION_MIN, g.satisfactionScores.vibe_coder - HACKATHON_SNUB) },
+                }));
+              }
               if (routeWon(e, tally.calls)) useSessionStore.getState().addRoute(MAX_ROUTES);
               // THE AGENTS HAD THEIR WAY: money on compute, and the meter left high. @see AI_SPEND
               if (e.kind === "singularity" && e.chosen !== "plug") {

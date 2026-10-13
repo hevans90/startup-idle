@@ -4,6 +4,7 @@ import { useDirectivesStore } from "../state/directives.store";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { usePrestigeStore } from "../state/prestige.store";
+import { useSessionStore } from "../state/session.store";
 import { useValuationStore } from "../state/valuation.store";
 import { computeEquityMultipliers } from "./modifiers";
 import { termBonusNow } from "./term-sheets";
@@ -127,6 +128,10 @@ function executeAcquisition(equityMultiplier = 1): Decimal {
  * gone when it lapses. @see world/events "offer"
  */
 export const OFFER_PREMIUM = 1.25;
+/** What investors left unimpressed by a tour take off the next offer's premium. @see Session.snubbed */
+export const SNUB = 0.15;
+/** The premium the next acquirer offers: less once investors have been shown a poor town. */
+export const offerPremium = () => OFFER_PREMIUM - (useSessionStore.getState().snubbed ? SNUB : 0);
 let premium: { mult: number; until: number } | null = null;
 export function setOfferPremium(mult: number, until: number): void { premium = { mult, until }; }
 export function clearOfferPremium(): void { premium = null; }

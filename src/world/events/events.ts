@@ -63,7 +63,7 @@ export type EventWorld = {
   /** The ports, on a map with any: where, whether a convoy is due, and how it is going. */
   convoy: { x: number; y: number; due: boolean; calls: number; earned: number; handsCrew: number; routes: number } | null;
   /** Where investors would be shown round, whether a tour is due, and what it would come to as things are. */
-  tour: { x: number; y: number; due: boolean; reward: number; tidyCrew: number } | null;
+  tour: { x: number; y: number; due: boolean; reward: number; tidyCrew: number; income: number } | null;
   /** The vibe coders' studio, with enough of them in it for a hackathon, and whether one is due. */
   hackathon: { x: number; y: number; due: boolean } | null;
   /**
@@ -138,8 +138,11 @@ export function tourReward(income: number, mood: number, tidied: boolean): numbe
 }
 /** Mood points tidying up is worth, to the investors. */
 export const TIDY_MOOD = 10;
-/** Satisfaction a hackathon gives the vibe coders. */
+/** Satisfaction a hackathon gives the vibe coders, and what turning one down costs. */
 export const HACKATHON_MORALE = 15;
+export const HACKATHON_SNUB = 10;
+/** Whether a tour left the investors unimpressed: they paid less than the base 30 s of income. @see SNUB */
+export const tourFailed = (income: number, reward: number) => reward < Math.max(0, income) * 30;
 
 /**
  * AN OPPORTUNITY: announced, then on for a while, then over — something to
@@ -224,7 +227,10 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     },
     outcome: (_e, w) => {
       const r = w.tour?.reward ?? 0;
-      return r > 0 ? `The investors liked what they saw: ${money(r)}.` : "The investors were not impressed.";
+      if (r <= 0) return "The investors were not impressed, and they talk: the next acquirer will offer less.";
+      return w.tour && tourFailed(w.tour.income, r)
+        ? `The investors paid ${money(r)}, unimpressed — the next acquirer will offer less.`
+        : `The investors liked what they saw: ${money(r)}.`;
     },
   },
   offer: {
@@ -269,11 +275,11 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
       ...w.hackathon,
       choices: [
         { id: "host", label: "Host it", cost: `vibe coders off work a minute, then +${HACKATHON_MORALE} satisfaction` },
-        { id: "decline", label: "Not now", cost: "free" },
+        { id: "decline", label: "Not now", cost: `−${HACKATHON_SNUB} vibe coder satisfaction` },
       ],
     },
     goesAhead: (e) => e.chosen === "host",
-    outcome: (e) => (e.chosen === "host" ? `They are back, and happier for it: +${HACKATHON_MORALE} vibe coder satisfaction.` : "No hackathon this time."),
+    outcome: (e) => (e.chosen === "host" ? `They are back, and happier for it: +${HACKATHON_MORALE} vibe coder satisfaction.` : `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder satisfaction.`),
   },
 };
 

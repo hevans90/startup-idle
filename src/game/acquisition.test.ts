@@ -200,3 +200,15 @@ describe("a town's worth at a sale", () => {
     expect(townBonusNow()).toBe(0);
   });
 });
+
+describe("an acquirer's premium", () => {
+  test("is less once investors have left a tour unimpressed, until an offer has heard it", async () => {
+    const { OFFER_PREMIUM, SNUB, offerPremium } = await import("./acquisition");
+    const { useSessionStore } = await import("../state/session.store");
+    expect(offerPremium()).toBe(OFFER_PREMIUM);
+    useSessionStore.getState().setSnubbed(true);
+    expect(offerPremium()).toBeCloseTo(OFFER_PREMIUM - SNUB);
+    useSessionStore.getState().setSnubbed(false);
+    expect(offerPremium()).toBe(OFFER_PREMIUM);
+  });
+});
