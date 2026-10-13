@@ -6,14 +6,15 @@
  * and which band tier a sprite lands in, neither of which needs real art.
  */
 import { describe, expect, test } from "bun:test";
-import { Texture } from "pixi.js";
+import { Texture, type Graphics } from "pixi.js";
 
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx, setHeight, structureOf } from "../grid";
 import { bandOf } from "../iso";
 import { createBandLayer } from "../render/bands";
 import { hidesTerrain } from "../render/terrain";
-import { kitByName, registerStructureDef, structureDef, type StructureDef } from "./def";
+import { SLOP_PIT, kitByName, registerStructureDef, structureDef, type StructureDef } from "./def";
+import "./slop-renderer";
 import {
   clearStructureLayer, createStructureLayer, mountedCount, refreshStructuresAt,
   syncStructures,
@@ -211,3 +212,19 @@ describe("clearsTerrain", () => {
 
 const firstSpriteY = (sl: ReturnType<typeof createStructureLayer>) =>
   ((([...sl.mounted.values()][0].handle) as { sprites: { y: number }[] }).sprites[0].y);
+
+describe("the slop pit", () => {
+  test("its lip is filed a cell at a time, as the ground is: the back strip in the back cells' bands", () => {
+    const { grid, bands, sl, ctx, hist } = setup();
+    commit(grid, hist, placeCommand(grid, SLOP_PIT, 4, 4)!);
+    syncStructures(sl, ctx);
+    const handle = [...sl.mounted.values()][0].handle as unknown as { cells: Graphics[] };
+    // The ring round the middle: eight cells of a three by three.
+    expect(handle.cells).toHaveLength(8);
+    // The back corner's piece is in the back corner's band — not in the band
+    // of its column's front cell, where it painted over a house beside it.
+    const back = bands.structureOf[bandOf(4, 4)];
+    expect(handle.cells.some((g) => g.parent === back)).toBe(true);
+    for (const g of handle.cells) expect(g.parent).not.toBeNull();
+  });
+});
