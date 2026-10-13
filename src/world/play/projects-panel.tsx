@@ -15,12 +15,13 @@ import {
 } from "../../game/projects";
 import { useFounderStore } from "../../state/founder.store";
 import { useGeneratorStore } from "../../state/generators.store";
-import { useInnovationStore } from "../../state/innovation.store";
 import { useSessionStore } from "../../state/session.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../../state/slop-pit.store";
 import { opensText } from "./building-info";
+import { GateChips } from "./gate-chips";
+import { useGateUnlocks } from "./gates";
 import { clock, showMe } from "./map-focus";
 import { builtProjects, materialCap, siteOf, STALL_GRACE } from "../projects/works";
 import { hasRiver } from "../boats/river";
@@ -62,14 +63,13 @@ export function ProjectsPanel({ className }: { className?: string }) {
   const grid = useWorldStore((s) => s.grid);
   const generators = useGeneratorStore((s) => s.generators);
   const only = useFounderStore((s) => s.onlyGenerator);
-  const unlocks = useInnovationStore((s) => s.unlocks);
+  const unlocked = useGateUnlocks();
   const isOpen = useSessionStore((s) => s.projectsOpen);
   const setOpen = useSessionStore((s) => s.setProjectsOpen);
   const seen = useSessionStore((s) => s.seenProjects);
   const markSeen = useSessionStore((s) => s.markProjectsSeen);
   const owned: Record<string, number> = {};
   for (const g of generators) owned[g.id] = g.amount;
-  const unlocked = new Set(Object.entries(unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
   const built = builtProjects(grid);
   // A founder held to one kind of employee hires nothing a project opens:
   // those projects are not theirs to build. @see getUnlockedGeneratorIds
@@ -128,10 +128,10 @@ export function ProjectsPanel({ className }: { className?: string }) {
               </LogSection>}
               {next.length > 0 && <LogSection title="Up next">
                 {next.map((p) => (
-                  <p key={p.id} className="flex justify-between gap-2 text-primary-700 dark:text-primary-300">
+                  <div key={p.id} className="flex items-start justify-between gap-2 text-primary-700 dark:text-primary-300">
                     <span>{p.name}</span>
-                    <span className="text-right text-primary-500">needs {p.readyWhen}</span>
-                  </p>
+                    <GateChips project={p} />
+                  </div>
                 ))}
               </LogSection>}
             </div>

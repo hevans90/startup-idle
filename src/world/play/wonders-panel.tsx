@@ -10,7 +10,6 @@ import { twMerge } from "tailwind-merge";
 
 import { PROJECTS, type ProjectDef } from "../../game/projects";
 import { useGeneratorStore } from "../../state/generators.store";
-import { useInnovationStore } from "../../state/innovation.store";
 import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
@@ -18,6 +17,8 @@ import { builtProjects, projectUnderWay, siteOf } from "../projects/works";
 import { opensText } from "./building-info";
 import { useTicking } from "../../hooks/use-ticking";
 import { ProjectCard } from "./projects-panel";
+import { GateChips } from "./gate-chips";
+import { useGateUnlocks } from "./gates";
 
 export const WONDERS: readonly ProjectDef[] = PROJECTS.filter((p) => p.bonus);
 
@@ -31,7 +32,7 @@ export function WondersPanel({ className }: { className?: string }) {
   const placing = useWorldStore((s) => s.placingProject);
   const grid = useWorldStore((s) => s.grid);
   const generators = useGeneratorStore((s) => s.generators);
-  const unlocks = useInnovationStore((s) => s.unlocks);
+  const unlocked = useGateUnlocks();
   // OPENED, the hint about it has done its job. @see hints
   const markHintsDone = useSessionStore((s) => s.markHintsDone);
   useEffect(() => { if (open) markHintsDone(["wonders"]); }, [open, markHintsDone]);
@@ -42,7 +43,6 @@ export function WondersPanel({ className }: { className?: string }) {
   if (!open) return null;
   const owned: Record<string, number> = {};
   for (const g of generators) owned[g.id] = g.amount;
-  const unlocked = new Set(Object.entries(unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
   const built = builtProjects(grid);
   // ONE PROJECT AT A TIME, wonders with the rest. @see projectUnderWay
   const busy = projectUnderWay(grid);
@@ -81,8 +81,10 @@ export function WondersPanel({ className }: { className?: string }) {
         }
         return (
           <div key={w.id} className={twMerge(ROW, "text-primary-600 dark:text-primary-400")}>
-            <p className="flex justify-between"><b className="text-primary-800 dark:text-primary-200">{w.name}</b><span>needs {w.readyWhen}</span></p>
-            <p>{bonus} · from {formatCurrency(w.floor)}</p>
+            <p className="flex justify-between"><b className="text-primary-800 dark:text-primary-200">{w.name}</b><span>{bonus}</span></p>
+            {/* HOW MANY IT NEEDS, a bar a kind, with how many more on hover. @see GateChips */}
+            <GateChips project={w} />
+            <p>from {formatCurrency(w.floor)}</p>
           </div>
         );
       })}

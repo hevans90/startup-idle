@@ -39,7 +39,7 @@ import { WondersPanel } from "./wonders-panel";
 import { PARCELS } from "../land";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
-import { Popover, PopoverContent, PopoverTrigger } from "../../ui/Popover";
+import { InfoPop } from "../../ui/InfoPop";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -85,18 +85,10 @@ function Stat({ icon, value, tone, title, children }: {
   icon: ReactNode; value?: ReactNode; tone?: string; title: string; children: ReactNode;
 }) {
   return (
-    <Popover openOnHover placement="top" floatOffset={8}>
-      <PopoverTrigger asChild>
-        <span tabIndex={0} className={twMerge("flex cursor-help items-center gap-0.5 outline-none", tone)}>
-          {icon}
-          {value !== undefined && <span>{value}</span>}
-        </span>
-      </PopoverTrigger>
-      <PopoverContent className="z-[110] max-w-56 border border-primary-500 bg-primary-100 px-2 py-1.5 text-xs text-primary-900 shadow-xl outline-none dark:border-primary-500 dark:bg-primary-800 dark:text-primary-100">
-        <p className="font-bold">{title}</p>
-        <p className="text-primary-700 dark:text-primary-300">{children}</p>
-      </PopoverContent>
-    </Popover>
+    <InfoPop className={tone} title={title}
+      trigger={<>{icon}{value !== undefined && <span>{value}</span>}</>}>
+      <p>{children}</p>
+    </InfoPop>
   );
 }
 

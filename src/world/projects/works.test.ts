@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  alreadyEarned, attendance, featureGateOpen, projectCost, projectDef, wonderBonus, projectGateOpen, setProjectReader,
+  PROJECTS, alreadyEarned, attendance, featureGateOpen, projectCost, projectDef, wonderBonus, projectGateOpen, setProjectReader,
 } from "../../game/projects";
+import { UPGRADES } from "../../state/upgrades.store";
 import { createTown, stepTown } from "../agents/town";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx, type Grid } from "../grid";
@@ -135,9 +136,9 @@ describe("the economy's side", () => {
 describe("the HQ", () => {
   const HQ = projectDef("hq")!;
 
-  test("waits on ten vibe coders, and is built by interns and vibe coders both, split by headcount", () => {
-    expect(HQ.ready({ intern: 40, vibe_coder: 9 }, new Set())).toBe(false);
-    expect(HQ.ready({ intern: 40, vibe_coder: 10 }, new Set())).toBe(true);
+  test("waits on Focus Vibing, and is built by interns and vibe coders both, split by headcount", () => {
+    expect(HQ.ready({ intern: 40, vibe_coder: 50 }, new Set())).toBe(false);
+    expect(HQ.ready({}, new Set(["vibe_coder_upgrade_1"]))).toBe(true);
     const { g, history } = town();
     commit(g, history, startSiteCommand(g, HQ, 12, 6, { needsRoad: true }, 0)!);
     const net = createNetwork(g), t = createTown(), w = createWorks();
@@ -205,9 +206,10 @@ describe("the Founder's Garage", () => {
 describe("the Boardroom Tower", () => {
   const BOARDROOM = projectDef("boardroom")!;
 
-  test("waits on employee management, and opens mandates where there is a map", () => {
-    expect(BOARDROOM.ready({ vibe_coder: 100 }, new Set())).toBe(false);
-    expect(BOARDROOM.ready({}, new Set(["employeeManagement"]))).toBe(true);
+  test("waits on Upward Management and employee management both, and opens mandates where there is a map", () => {
+    expect(BOARDROOM.ready({ vibe_coder: 100 }, new Set(["employeeManagement"]))).toBe(false);
+    expect(BOARDROOM.ready({}, new Set(["intern_hybrid_upgrade_1"]))).toBe(false);
+    expect(BOARDROOM.ready({}, new Set(["employeeManagement", "intern_hybrid_upgrade_1"]))).toBe(true);
     const stop = setProjectReader(() => ({ built: new Set(["studio", "hq"]), away: {} }));
     expect(featureGateOpen("mandates")).toBe(false);
     stop();
@@ -226,9 +228,9 @@ describe("the Boardroom Tower", () => {
 describe("the Campus", () => {
   const CAMPUS = projectDef("campus")!;
 
-  test("waits on twenty vibe coders, and gates 10x devs until it stands", () => {
-    expect(CAMPUS.ready({ vibe_coder: 19 }, new Set())).toBe(false);
-    expect(CAMPUS.ready({ vibe_coder: 20 }, new Set())).toBe(true);
+  test("waits on JUULing, and gates 10x devs until it stands", () => {
+    expect(CAMPUS.ready({ vibe_coder: 200 }, new Set())).toBe(false);
+    expect(CAMPUS.ready({}, new Set(["vibe_coder_upgrade_2"]))).toBe(true);
     const stop = setProjectReader(() => ({ built: new Set(["garage", "studio"]), away: {} }));
     expect(projectGateOpen("10x_dev")).toBe(false);
     stop();
@@ -270,9 +272,9 @@ describe("the Town Hall and the Harbour Office", () => {
     const TOWNHALL = projectDef("townhall")!, HARBOUR = projectDef("harbour")!;
     expect(TOWNHALL.grants).toBe("services");
     expect(HARBOUR.grants).toBe("ports");
-    expect(TOWNHALL.ready({ intern: 5 }, new Set())).toBe(false);
-    expect(TOWNHALL.ready({ intern: 6 }, new Set())).toBe(true);
-    expect(HARBOUR.ready({ vibe_coder: 5 }, new Set())).toBe(true);
+    expect(TOWNHALL.ready({ intern: 500 }, new Set())).toBe(false);
+    expect(TOWNHALL.ready({}, new Set(["intern_upgrade_2"]))).toBe(true);
+    expect(HARBOUR.ready({}, new Set(["intern_upgrade_3"]))).toBe(true);
     const stop = setProjectReader(() => ({ built: new Set(["garage"]), away: {} }));
     expect(featureGateOpen("services")).toBe(false);
     expect(featureGateOpen("ports")).toBe(false);
@@ -290,6 +292,29 @@ describe("the Town Hall and the Harbour Office", () => {
   });
 });
 
+describe("every project's gate", () => {
+  test("every project after the garage waits on an employee upgrade that exists, or a wonder on headcounts", () => {
+    for (const p of PROJECTS) {
+      if (p.id === "garage") { expect(p.gate).toEqual({}); continue; }
+      if (p.bonus) expect(Object.keys(p.gate.staff ?? {}).length).toBeGreaterThan(0);
+      else expect(UPGRADES.some((u) => u.id === p.gate.upgrade)).toBe(true);
+    }
+  });
+
+  test("no two projects wait on the same upgrade", () => {
+    const ids = PROJECTS.map((p) => p.gate.upgrade).filter(Boolean);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("the wonders come in order: each needs at least as many of every kind as the one before", () => {
+    const [a, b, c] = ["datacentre", "conference", "ipo"].map((id) => projectDef(id)!.gate.staff!);
+    for (const who of ["intern", "vibe_coder", "10x_dev"] as const) {
+      expect(b[who]!).toBeGreaterThanOrEqual(a[who]!);
+      expect(c[who]!).toBeGreaterThanOrEqual(b[who]!);
+    }
+  });
+});
+
 describe("the wonders", () => {
   test("multiply what they say while they stand, and nothing with no map", () => {
     expect(wonderBonus("innovation")).toBe(1);
@@ -303,11 +328,16 @@ describe("the wonders", () => {
     stop2();
   });
 
-  test("come late, after 10x devs, and each has a building", () => {
-    for (const [id, need] of [["datacentre", 3], ["conference", 8], ["ipo", 15]] as const) {
+  test("come late, on headcounts of every kind at once, and each has a building", () => {
+    for (const id of ["datacentre", "conference", "ipo"] as const) {
       const p = projectDef(id)!;
-      expect(p.ready({ "10x_dev": need - 1 }, new Set())).toBe(false);
-      expect(p.ready({ "10x_dev": need }, new Set())).toBe(true);
+      const staff = p.gate.staff!;
+      expect(Object.keys(staff).sort()).toEqual(["10x_dev", "intern", "vibe_coder"]);
+      expect(p.ready(staff, new Set())).toBe(true);
+      // One short of any kind is not enough.
+      for (const who of Object.keys(staff) as (keyof typeof staff)[]) {
+        expect(p.ready({ ...staff, [who]: staff[who]! - 1 }, new Set())).toBe(false);
+      }
       expect(structureDef(p.structure)).not.toBeNull();
     }
   });

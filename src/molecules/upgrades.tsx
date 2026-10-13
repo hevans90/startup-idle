@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { PROJECTS } from "../game/projects";
 import { GENERATOR_TYPES } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import {
@@ -56,6 +57,31 @@ const nextPerSet = (available: Upgrade[]): Upgrade[] => {
     out.push(u);
   }
   return out;
+};
+
+/** The projects on the map an upgrade opens the way to. @see ProjectDef.gate */
+const opensOf = (upg: Upgrade) => PROJECTS.filter((p) => p.gate.upgrade === upg.id).map((p) => p.name);
+
+/** "Opens: Town Hall", a tag on an upgrade that gates a project. */
+const OpensTag = ({ upg }: { upg: Upgrade }) => {
+  const names = opensOf(upg);
+  if (!names.length) return null;
+  return (
+    <span className="ml-auto shrink-0 border border-amber-600 px-1 text-[10px] text-amber-700 dark:border-amber-400 dark:text-amber-400">
+      Opens: {names.join(", ")}
+    </span>
+  );
+};
+
+/** The same, as a line in an upgrade's popover. */
+const OpensLine = ({ upg }: { upg: Upgrade }) => {
+  const names = opensOf(upg);
+  if (!names.length) return null;
+  return (
+    <div className="responsive-text-xs text-center text-amber-700 dark:text-amber-400">
+      Opens the way to <b>{names.join(", ")}</b>: a project on the map you can site once this is bought.
+    </div>
+  );
 };
 
 const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
@@ -172,6 +198,7 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
               </span>:{" "}
               {formatCurrency(upg.cost)}
             </div>
+            <OpensLine upg={upg} />
             <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow">
               {upg.description}
             </div>
@@ -205,6 +232,7 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
               >
                 <GenLabel id={upg.id} text={upg.name} />
                 <span>: {formatCurrency(upg.cost)}</span>
+                <OpensTag upg={upg} />
               </Button>
             </PopoverTrigger>
 
@@ -213,6 +241,7 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
                 {upg.description}
               </div>
               <UpgradeSummary upg={upg} />
+              <OpensLine upg={upg} />
             </PopoverContent>
           </Popover>
         ))}

@@ -95,7 +95,27 @@ export type MapRunReport = {
   slopDrained: number;
   /** Headcount by kind, every half hour of the run. */
   headcount: { at: number; owned: Partial<Record<GeneratorId, number>> }[];
+  /**
+   * WHEN ANYTHING NEW HAPPENED: an upgrade bought, a project opened, a kind
+   * hired for the first time. The gaps between are the stretches where
+   * nothing new was in reach. @see longestFlat
+   */
+  milestones: number[];
+  /** When the run stopped: the core, plus however long it played on. */
+  endedAt: number;
 };
+
+/**
+ * THE LONGEST STRETCH WITH NOTHING NEW, seconds, from the start to `until`:
+ * the biggest gap between milestones, and from the last one to the end. The
+ * measure of a wall. @see MapRunReport.milestones
+ */
+export function longestFlat(report: MapRunReport, until = report.endedAt): { seconds: number; from: number } {
+  const ms = [0, ...report.milestones.filter((m) => m <= until).sort((a, b) => a - b), until];
+  let best = { seconds: 0, from: 0 };
+  for (let k = 1; k < ms.length; k++) if (ms[k] - ms[k - 1] > best.seconds) best = { seconds: ms[k] - ms[k - 1], from: ms[k - 1] };
+  return best;
+}
 
 const GATES: readonly ProjectId[] = ["garage", "townhall", "studio", "campus", "datacentre", "conference", "ipo"];
 /** Lots a street, beds a lot by tier, and the service each tier grows with. */
@@ -221,7 +241,7 @@ export function simulateMapRun(
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
     spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
-    parcels: 0, spentOnLand: 0, coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0,
+    parcels: 0, spentOnLand: 0, coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0, milestones: [], endedAt: 0,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
@@ -269,7 +289,9 @@ export function simulateMapRun(
       else { pit.drain(); report.slopDrained++; }
     }
     const o = owned();
+    // The innovation unlocks had and the upgrades bought: what a gate is met by. @see Gate
     const unlocked = new Set(Object.entries(useInnovationStore.getState().unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
+    for (const id of useUpgradeStore.getState().unlockedUpgradeIds) unlocked.add(id);
     // ONE PROJECT AT A TIME, as in the game: the first ready, in order. @see projectUnderWay
     for (const id of GATES) {
       if (sites.length) break;
@@ -304,6 +326,7 @@ export function simulateMapRun(
       if (s.done >= s.p.work - 1e-6 && s.delivered >= s.p.deliveries) {
         built.add(s.p.id);
         report.opened[s.p.id] = t;
+        report.milestones.push(t);
         sites.splice(sites.indexOf(s), 1);
         syncUnlockedGenerators();
       }
@@ -392,10 +415,12 @@ export function simulateMapRun(
         report.spentOnHires += next.cost;
         pending.push({ id, at: t + arrivalDelay[id] });
         const n = useGeneratorStore.getState().generators.find((g) => g.id === id)!.amount;
+        if (report.firstHire[id] === undefined) report.milestones.push(t);
         report.firstHire[id] ??= t;
         if (n >= 10) report.tenth[id] ??= t;
       } else {
         useUpgradeStore.getState().unlockUpgrade(next.id);
+        report.milestones.push(t);
       }
     }
     // WHERE IT ENDED UP: the town's mood, its worth at a sale, and income.
@@ -414,5 +439,6 @@ export function simulateMapRun(
   }
   // The core run's length, as it always was; the late game is extra.
   report.totalSeconds = report.coreAt ?? t;
+  report.endedAt = t;
   return report;
 }

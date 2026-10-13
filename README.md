@@ -60,20 +60,20 @@ Every company builds a town (`world/play/company-map.tsx`). Buildings need **roa
 
 **Prices follow the economy** (`game/build-cost.ts`), each the larger of a floor and a live share: lots a quarter of the next hire a bed (≥ $15); offices four hires; services seconds of income; seaports 10 s of income per boat a minute; road max($2, 0.25 s of income) a tile, lifting free.
 
-**Projects** (`game/projects.ts`, `world/projects/works.ts`): milestones make one available; **one at a time** (wonders too, `projectUnderWay`). Pick a site; a crew walks there and is away from its desk; trucks bring materials paid per load (no money stalls it; an idle crew goes home after 6 s); it opens its feature. Materials are seconds of income fixed at siting; time away is caught up (`catchUpWorks`).
+**Projects** (`game/projects.ts`, `world/projects/works.ts`): each after the garage waits on an employee upgrade, each wonder on headcounts of every kind (`ProjectDef.gate`), shown as chips with popovers in the log and bars in the wonders menu, and "Opens:" on the upgrade; **one at a time** (wonders too, `projectUnderWay`). Pick a site; a crew walks there and is away from its desk; trucks bring materials paid per load (no money stalls it; an idle crew goes home after 6 s); it opens its feature. Materials are seconds of income fixed at siting; time away is caught up (`catchUpWorks`).
 
-| Project | Available at | Built by | Work (builder-s) | Materials | Site | Opens |
+| Project | Gate | Built by | Work (builder-s) | Materials | Site | Opens |
 | --- | --- | --- | --- | --- | --- | --- |
-| Founder's Garage | the start | the founder | 30 | free | 2×1 | interns |
-| Town Hall | 6 interns | interns | 300 | 30 s (≥ $120) | 3×2 | services |
-| Vibe Coder Studio | 10 interns | interns | 600 | 45 s (≥ $400) | 3×2 | vibe coders |
-| Harbour Office | 5 vibe coders, river maps | interns + vibe | 900 | 45 s (≥ $1,500) | 2×2, ≤ 3 tiles from a river | seaports |
-| Company HQ | 10 vibe coders | interns + vibe | 2,400 | 60 s (≥ $5,000) | 3×3 | managers |
-| Boardroom Tower | employee management | interns + vibe | 4,000 | 90 s (≥ $20,000) | 3×3 | board mandates |
-| Campus | 20 vibe coders | interns + vibe | 6,000 | 2 min (≥ $40,000) | 4×4 | 10x devs |
-| Data Centre ★ | 3 10x devs | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2 |
-| Conference Centre ★ | 8 10x devs | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | valuation ×1.5 |
-| IPO Tower ★ | 15 10x devs | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5 |
+| Founder's Garage | — | the founder | 30 | free | 2×1 | interns |
+| Town Hall | Mandatory Weekend Work | interns | 300 | 30 s (≥ $120) | 3×2 | services |
+| Vibe Coder Studio | Micromanagement | interns | 600 | 45 s (≥ $400) | 3×2 | vibe coders |
+| Harbour Office | Promotion Griefing, river maps | interns + vibe | 900 | 45 s (≥ $1,500) | 2×2, ≤ 3 tiles from a river | seaports |
+| Company HQ | Focus Vibing | interns + vibe | 2,400 | 60 s (≥ $5,000) | 3×3 | managers |
+| Boardroom Tower | Upward Management + employee management | interns + vibe | 4,000 | 90 s (≥ $20,000) | 3×3 | board mandates |
+| Campus | JUULing | interns + vibe | 6,000 | 2 min (≥ $40,000) | 4×4 | 10x devs |
+| Data Centre ★ | 120 interns · 50 vibe · 3 10x | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2 |
+| Conference Centre ★ | 250 · 100 · 6 | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | valuation ×1.5 |
+| IPO Tower ★ | 350 · 150 · 8 | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5 |
 
 ★ Wonders have their own menu (`play/wonders-panel.tsx`). The **projects log** (`projects-panel.tsx`) is a foldable quest log that pulses when something new is available (`Session.seenProjects`). Gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`); sims and tests are never gated.
 

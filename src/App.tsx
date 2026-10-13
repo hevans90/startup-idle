@@ -80,6 +80,13 @@ function App() {
 
   const isMobile = window.innerWidth <= 768;
   const [phoneTab, setPhoneTab] = useState<"map" | "company">("map");
+  // SENT FROM THE MAP to show the company's side — a project's gate, say, whose
+  // upgrade is bought on the Employees tab. @see showUpgrades
+  useEffect(() => {
+    const show = () => setPhoneTab("company");
+    window.addEventListener("startup:show-company", show);
+    return () => window.removeEventListener("startup:show-company", show);
+  }, []);
 
   const { theme } = useThemeStore();
 

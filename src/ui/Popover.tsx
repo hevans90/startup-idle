@@ -29,6 +29,11 @@ interface PopoverOptions {
   onOpenChange?: (open: boolean) => void;
   openOnHover?: boolean;
   persistOnHoverContent?: boolean;
+  /**
+   * With `openOnHover`, open on a click too: a touch screen has no hover, so a
+   * hover-only popover never opens on a phone.
+   */
+  openOnClick?: boolean;
 }
 
 function usePopover({
@@ -39,6 +44,7 @@ function usePopover({
   onOpenChange: setControlledOpen,
   openOnHover = false,
   persistOnHoverContent = false, // stay open while hovering content
+  openOnClick = false,
 }: PopoverOptions = {}) {
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(initialOpen);
   const [labelId, setLabelId] = React.useState<string | undefined>();
@@ -76,7 +82,7 @@ function usePopover({
   const context = data.context;
 
   // conditionally apply click or hover interaction
-  const click = useClick(context, { enabled: !openOnHover });
+  const click = useClick(context, { enabled: !openOnHover || openOnClick });
   const hover = useHover(context, {
     enabled: openOnHover,
     handleClose: persistOnHoverContent

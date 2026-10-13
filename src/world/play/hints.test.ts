@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { nextHint, type HintState } from "./hints";
+import { projectDef } from "../../game/projects";
+import { UPGRADES } from "../../state/upgrades.store";
+import { HINTS, nextHint, type HintState } from "./hints";
 
 const state = (over: Partial<HintState> = {}): HintState => ({
   owned: { intern: 0, vibe_coder: 0, "10x_dev": 0 },
@@ -26,7 +28,7 @@ describe("first-run hints", () => {
 
   test("an established company is told nothing it has already done, and those are put away unseen", () => {
     const s = state({
-      ready: new Set(), built: new Set(["garage", "townhall"]), lots: 12, residents: 30, services: 2,
+      ready: new Set(), built: new Set(["garage", "townhall", "studio"]), lots: 12, residents: 30, services: 2,
       owned: { intern: 40, vibe_coder: 0, "10x_dev": 0 },
     });
     const { show, settled } = nextHint(s, new Set());
@@ -55,5 +57,20 @@ describe("first-run hints", () => {
   test("people without desks are told an office adds some", () => {
     const s = state({ ready: new Set(), built: new Set(["garage", "townhall"]), lots: 12, residents: 30, services: 2, owned: { intern: 30, vibe_coder: 0, "10x_dev": 0 }, deskless: 6 });
     expect(nextHint(s, new Set()).show?.id).toBe("desks");
+  });
+});
+
+describe("the gate hint", () => {
+  test("comes when the studio is the thing in the way, and goes when it can be started", () => {
+    const s = state({ ready: new Set(), built: new Set(["garage"]), lots: 8, residents: 16, owned: { intern: 16, vibe_coder: 0, "10x_dev": 0 } });
+    expect(nextHint(s, new Set()).show?.id).toBe("gates");
+    expect(nextHint({ ...s, ready: new Set(["studio"]) }, new Set()).show?.id).not.toBe("gates");
+  });
+
+  test("names the studio's own gate", () => {
+    const hint = HINTS.find((h) => h.id === "gates")!;
+    const studio = projectDef("studio")!;
+    const name = UPGRADES.find((u) => u.id === studio.gate.upgrade)!.name;
+    expect(hint.text).toContain(name);
   });
 });

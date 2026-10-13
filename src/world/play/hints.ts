@@ -119,6 +119,14 @@ export const HINTS: readonly Hint[] = [
     done: (s) => s.offices > 0,
   },
   {
+    // PROJECTS WAIT ON UPGRADES: the first time one is the thing in the way.
+    id: "gates",
+    text: "The Vibe Coder Studio waits on an upgrade: buy Micromanagement in the Employees tab. The projects log shows what each project needs.",
+    target: "tab-employees",
+    when: (s) => s.built.has("garage") && s.owned.intern >= 15 && !s.ready.has("studio"),
+    done: (s) => s.ready.has("studio") || s.sites.has("studio") || s.built.has("studio"),
+  },
+  {
     id: "mood",
     text: "Some of your people are unhappy at home, and it costs you. Turn on Mood to see where, and read a house's label for why.",
     target: "mood",

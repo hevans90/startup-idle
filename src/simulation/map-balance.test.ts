@@ -2,7 +2,7 @@ import { describe, expect, jest, test } from "bun:test";
 
 import type { GeneratorId } from "../state/generators.store";
 import { simulateCoreUpgradeRun } from "./simulate-core-run";
-import { simulateMapRun } from "./simulate-map-run";
+import { longestFlat, simulateMapRun } from "./simulate-map-run";
 
 const fmt = (s?: number) => (s === undefined ? "—" : s < 3600 ? `${(s / 60).toFixed(1)} min` : `${(s / 3600).toFixed(2)} h`);
 
@@ -42,10 +42,15 @@ describe("the map's pacing", () => {
     expect(map.totalSeconds).toBeLessThan(base.totalSeconds * 1.5);
     expect(map.tenth.intern!).toBeLessThan(5 * 60);
     expect(map.opened.campus!).toBeLessThan(30 * 60);
+    // GATED BY UPGRADES AND HEADCOUNTS (2026-10-13: studio 7.8 min, campus
+    // 25 min, the Data Centre at 52 min on 120 interns, 50 vibe coders and
+    // three 10x devs). @see ProjectDef.gate
+    expect(map.opened.datacentre!).toBeLessThan(60 * 60);
     // Housing is part of hiring's price, not most of it.
     expect(map.spentOnLots).toBeLessThan(map.spentOnHires * 0.15);
-    // A player places dozens of lots in a run, not hundreds.
-    expect(map.lots).toBeLessThan(80);
+    // A player places dozens of lots in a run, not hundreds. (Eighty since the
+    // Data Centre wants 120 interns housed, 2026-10-13.)
+    expect(map.lots).toBeLessThan(100);
     // And growing them is worth it: services get bought, not skipped.
     expect(map.services).toBeGreaterThan(3);
     // LAND is room to grow into, not a toll on the way: a parcel or two at most, cheap against hiring. @see world/land
@@ -67,6 +72,8 @@ describe("the late game", () => {
         "data centre": fmt(run.opened.datacentre),
         "conference centre": fmt(run.opened.conference),
         "IPO tower": fmt(run.opened.ipo),
+        "longest flat, to the core": fmt(longestFlat(run, run.coreAt ?? undefined).seconds),
+        "longest flat, all run": `${fmt(longestFlat(run).seconds)} from ${fmt(longestFlat(run).from)}`,
       });
       console.log({
         labs: run.labs, spentOnLabs: run.spentOnLabs, lots: run.lots, services: run.services, parcels: run.parcels,
@@ -75,12 +82,12 @@ describe("the late game", () => {
       });
       console.table(run.headcount.map((h) => ({ at: fmt(h.at), ...h.owned })));
     }
-    // LATE-GAME GUARDS (2026-10-12: conference centre at 1.8 h; the IPO
-    // tower, at 15 10x devs, out of a first run's reach — 10x devs stall at
-    // eight as their price passes twenty minutes of income; a wonder for a
-    // company with prestige behind it).
+    // LATE-GAME GUARDS (2026-10-13, the wonders gated by headcounts of every
+    // kind: the conference centre at 1.2 h, the IPO tower at 1.8 h — within a
+    // first run's reach, where at 15 10x devs it never was).
     expect(run.coreAt).not.toBeNull();
     expect(run.opened.conference!).toBeLessThan(3 * 3600);
+    expect(run.opened.ipo!).toBeLessThan(3 * 3600);
     // The pit seen to with trucks, mostly: a drain is the fallback.
     expect(run.slopDrained).toBeLessThan(run.slopTrucked);
     // Income never collapses: the last half hour still earns.

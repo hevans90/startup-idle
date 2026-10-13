@@ -82,31 +82,31 @@ only lever. Instead:
 - **The Garage stays ungated:** it is what makes hiring possible, so nothing can come
   before it.
 
-### The gates
+### The gates (as built, 2026-10-13)
 
-Chosen so each project still arrives in the order it does now, at about the time it does
-now (sim timings in brackets), and so each upgrade fits what the building is for.
+The first choice (Town Hall ← Micromanagement, Studio ← Mandatory Weekend Work, Campus ←
+Intern Promotion) moved the Studio to 12.6 min and the Campus to 1.16 h in the sim. Re-picked
+for pacing, the upgrades that become buyable nearest each project's old headcount:
 
-| Project | Today | New gate | Upgrade becomes buyable at |
+| Project | Was | Gate | Buyable at |
 | --- | --- | --- | --- |
 | Founder's Garage | — | — | — |
-| Town Hall | 6 interns | **Micromanagement** ($400) | 15 interns |
-| Vibe Coder Studio | 10 interns (5.6 min) | **Mandatory Weekend Work** ($2.2k) | 25 interns |
-| Harbour Office | 5 vibe coders | **Focus Vibing** ($7.5k) | 10 vibe coders |
-| Company HQ | 10 vibe coders | **JUULing** ($30k) | 20 vibe coders |
-| Boardroom Tower | Employee Management | **Upward Management** ($200k) — and Employee Management, as now | 100 interns + 35 vibe coders |
-| Campus | 20 vibe coders (18 min) | **Intern Promotion** ($200k) | 40 vibe coders |
+| Vibe Coder Studio | 10 interns | **Micromanagement** ($400) | 15 interns |
+| Town Hall | 6 interns | **Mandatory Weekend Work** ($2.2k) | 25 interns |
+| Harbour Office | 5 vibe coders | **Promotion Griefing** ($10k) | 50 interns |
+| Company HQ | 10 vibe coders | **Focus Vibing** ($7.5k) | 10 vibe coders |
+| Boardroom Tower | Employee Management | **Upward Management** ($200k) + Employee Management | 100 interns + 35 vibe coders |
+| Campus | 20 vibe coders | **JUULing** ($30k) | 20 vibe coders |
 
-| Wonder | Today | New gate (all at once) |
+| Wonder | Was | Gate (all at once) |
 | --- | --- | --- |
-| Data Centre ★ | 3 10x devs (44 min) | 150 interns · 60 vibe coders · 3 10x devs |
-| Conference Centre ★ | 8 10x devs (1.67 h) | 250 interns · 100 vibe coders · 6 10x devs |
-| IPO Tower ★ | 15 10x devs (never) | 350 interns · 150 vibe coders · 8 10x devs |
+| Data Centre ★ | 3 10x devs | 120 interns · 50 vibe coders · 3 10x devs |
+| Conference Centre ★ | 8 10x devs | 250 interns · 100 vibe coders · 6 10x devs |
+| IPO Tower ★ | 15 10x devs | 350 interns · 150 vibe coders · 8 10x devs |
 
-The wonder counts are drawn from the sim's late run (342 · 88 · 3 at 1 h; 382 · 171 · 7 at
-1.5 h) and are **re-tuned in Phase A** once the 10x dev curve and AI agents change what a
-late company employs. The IPO Tower's 15 10x devs is unreachable today; this makes it
-reachable.
+In the sim: Studio 5.6 → 7.8 min, Campus 18 → 25 min, Data Centre 44 → 52 min, Conference
+Centre 1.67 → 1.2 h, IPO Tower never → 1.8 h. Guarded in `map-balance.test.ts`. The Studio
+now comes before the Town Hall.
 
 ### Gates as data, not code
 

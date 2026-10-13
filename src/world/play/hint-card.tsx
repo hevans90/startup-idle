@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { housedBy, housingResidents, awaitingArrival } from "../../game/housing";
 import { PROJECTS } from "../../game/projects";
 import { useGeneratorStore } from "../../state/generators.store";
-import { useInnovationStore } from "../../state/innovation.store";
+import { gateUnlocksNow } from "./gates";
 import { useSessionStore } from "../../state/session.store";
 import { getNetwork, useWorldStore } from "../../state/world.store";
 import { liveCommutes, workplaceKind } from "../agents/commute";
@@ -24,7 +24,7 @@ function snapshot(): HintState {
   const gens = useGeneratorStore.getState().generators;
   const owned = { intern: 0, vibe_coder: 0, "10x_dev": 0 };
   for (const g of gens) owned[g.id as keyof typeof owned] = g.amount;
-  const unlocked = new Set(Object.entries(useInnovationStore.getState().unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
+  const unlocked = gateUnlocksNow();
   const grid = useWorldStore.getState().grid;
   const built = builtProjects(grid);
   const sites = new Set(sitesOf(grid).map((s) => projectForStructure(s.def)?.id).filter((id): id is NonNullable<typeof id> => !!id));

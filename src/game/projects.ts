@@ -28,6 +28,48 @@ export type Bonus = { money?: number; innovation?: number; valuation?: number };
 /** Features of the game a project can open, beyond hiring. @see featureGateOpen */
 export type FeatureId = "managers" | "mandates" | "services" | "ports";
 
+/**
+ * A PROJECT'S GATE. Every project after the garage waits on an EMPLOYEE
+ * UPGRADE — the milestone the player is already chasing on the Employees tab,
+ * so buying it is a choice between the gate and more hires — and every wonder
+ * on HEADCOUNTS of several kinds at once, a target the panel can show
+ * progress toward. @see PROJECTS
+ */
+export type Gate = {
+  /** An upgrade that must have been bought. @see upgrades.store */
+  upgrade?: string;
+  /** An innovation unlock that must be had: "employeeManagement". */
+  feature?: string;
+  /** So many of each kind employed. */
+  staff?: Partial<Record<GeneratorId, number>>;
+};
+
+/** One part of a gate, for whoever shows it. */
+export type GatePart =
+  | { kind: "upgrade"; id: string; met: boolean }
+  | { kind: "feature"; id: string; met: boolean }
+  | { kind: "staff"; who: GeneratorId; need: number; have: number; met: boolean };
+
+/** Every part of a gate, and whether it is met. */
+export function gateParts(
+  gate: Gate, owned: Partial<Record<GeneratorId, number>>, unlocked: ReadonlySet<string>,
+): GatePart[] {
+  const parts: GatePart[] = [];
+  if (gate.upgrade) parts.push({ kind: "upgrade", id: gate.upgrade, met: unlocked.has(gate.upgrade) });
+  if (gate.feature) parts.push({ kind: "feature", id: gate.feature, met: unlocked.has(gate.feature) });
+  for (const [who, need] of Object.entries(gate.staff ?? {}) as [GeneratorId, number][]) {
+    const have = owned[who] ?? 0;
+    parts.push({ kind: "staff", who, need, have, met: have >= need });
+  }
+  return parts;
+}
+
+/** A project's gate and the readiness made from it. */
+const needs = (gate: Gate): Pick<ProjectDef, "gate" | "ready"> => ({
+  gate,
+  ready: (owned, unlocked) => gateParts(gate, owned, unlocked).every((p) => p.met),
+});
+
 export type ProjectDef = {
   id: ProjectId;
   name: string;
@@ -61,12 +103,18 @@ export type ProjectDef = {
   /** Where clicking the finished building takes the player: a sidebar tab. */
   opens?: "employees" | "innovation" | "valuation";
   /**
-   * Whether the company is ready for it, from what it employs and what it has
-   * unlocked — "managers", "employeeManagement" and the like.
+   * WHAT IT WAITS FOR, as data: an employee upgrade bought, a feature of the
+   * game unlocked, and so many of each kind employed — all of them. Data rather
+   * than a function and a sentence, so the projects log and the wonders panel
+   * can show how far along each part of it is. @see gateParts
+   */
+  gate: Gate;
+  /**
+   * Whether the company is ready for it: every part of its gate met. Made from
+   * the gate. `unlocked` holds both the innovation unlocks ("managers",
+   * "employeeManagement") and the ids of the upgrades bought.
    */
   ready: (owned: Partial<Record<GeneratorId, number>>, unlocked: ReadonlySet<string>) => boolean;
-  /** Why not yet, for the card. */
-  readyWhen: string;
   /**
    * What the MAP must have for this project to be offered at all: a river,
    * for a harbour. Asked by whoever shows the projects. @see hasRiver
@@ -94,8 +142,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     deliveries: 1,
     unlocks: "intern",
     opens: "employees",
-    ready: () => true,
-    readyWhen: "nothing",
+    ...needs({}),
   },
   {
     id: "townhall",
@@ -108,8 +155,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 120,
     deliveries: 6,
     grants: "services",
-    ready: (owned) => (owned.intern ?? 0) >= 6,
-    readyWhen: "6 interns",
+    ...needs({ upgrade: "intern_upgrade_2" }),
   },
   {
     id: "studio",
@@ -123,8 +169,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     deliveries: 8,
     unlocks: "vibe_coder",
     opens: "employees",
-    ready: (owned) => (owned.intern ?? 0) >= 10,
-    readyWhen: "10 interns",
+    ...needs({ upgrade: "intern_upgrade_1" }),
   },
   {
     id: "harbour",
@@ -138,8 +183,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     deliveries: 8,
     grants: "ports",
     needsMap: "river",
-    ready: (owned) => (owned.vibe_coder ?? 0) >= 5,
-    readyWhen: "5 vibe coders",
+    ...needs({ upgrade: "intern_upgrade_3" }),
   },
   {
     id: "hq",
@@ -153,8 +197,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     deliveries: 12,
     grants: "managers",
     opens: "innovation",
-    ready: (owned) => (owned.vibe_coder ?? 0) >= 10,
-    readyWhen: "10 vibe coders",
+    ...needs({ upgrade: "vibe_coder_upgrade_1" }),
   },
   {
     id: "boardroom",
@@ -168,8 +211,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     deliveries: 14,
     grants: "mandates",
     opens: "valuation",
-    ready: (_owned, unlocked) => unlocked.has("employeeManagement"),
-    readyWhen: "employee management",
+    ...needs({ upgrade: "intern_hybrid_upgrade_1", feature: "employeeManagement" }),
   },
   {
     id: "campus",
@@ -183,8 +225,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     deliveries: 16,
     unlocks: "10x_dev",
     opens: "employees",
-    ready: (owned) => (owned.vibe_coder ?? 0) >= 20,
-    readyWhen: "20 vibe coders",
+    ...needs({ upgrade: "vibe_coder_upgrade_2" }),
   },
   // THE WONDERS: late, dear, and a bonus for good. @see wonderBonus
   {
@@ -198,8 +239,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 200_000,
     deliveries: 16,
     bonus: { innovation: 2 },
-    ready: (owned) => (owned["10x_dev"] ?? 0) >= 3,
-    readyWhen: "3 10x devs",
+    ...needs({ staff: { intern: 120, vibe_coder: 50, "10x_dev": 3 } }),
   },
   {
     id: "conference",
@@ -212,8 +252,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 500_000,
     deliveries: 18,
     bonus: { valuation: 1.5 },
-    ready: (owned) => (owned["10x_dev"] ?? 0) >= 8,
-    readyWhen: "8 10x devs",
+    ...needs({ staff: { intern: 250, vibe_coder: 100, "10x_dev": 6 } }),
   },
   {
     id: "ipo",
@@ -226,8 +265,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 2_000_000,
     deliveries: 20,
     bonus: { money: 1.5 },
-    ready: (owned) => (owned["10x_dev"] ?? 0) >= 15,
-    readyWhen: "15 10x devs",
+    ...needs({ staff: { intern: 350, vibe_coder: 150, "10x_dev": 8 } }),
   },
 ];
 
