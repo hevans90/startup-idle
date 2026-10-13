@@ -1,7 +1,9 @@
 /**
- * World v2 — "+$X" rising off a seaport each time it is paid for a call, so
- * the trade on the river reads as money without a glance at a counter.
- * @see recordCall
+ * World v2 — "+$X" rising off a seaport each time it is paid for a call, and
+ * off every WORKPLACE every few seconds for what the people at its desks
+ * earned in them — so the town reads as money, and which building carries the
+ * company is something you see, not something you work out from a counter.
+ * @see recordCall, liveSeating
  *
  * HTML over the canvas, like the labels: each starts at the top of what the
  * port drew, is kept as a point in the world so it pans with the map, and
@@ -9,13 +11,43 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { getExports, useWorldStore } from "../../state/world.store";
+import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
+import { getExports, getNetwork, useWorldStore } from "../../state/world.store";
+import { liveSeating, workplaceKind } from "../agents/commute";
 import { formatCurrency } from "../../utils/money-utils";
 import { drawnTop, shownStructures } from "../structures/layer";
 
 /** How long one rises for, ms, and how far, px. */
 const LIFE = 1600;
 const RISE = 28;
+/** How often each workplace says what it earned, ms. */
+const PAYDAY = 5000;
+
+/**
+ * What each workplace's people earned in `ms`: their kind's income, shared
+ * out by the desks taken at each. @see liveSeating
+ */
+export function payday(ms: number): { structure: number; amount: number }[] {
+  const st = useWorldStore.getState(), net = getNetwork();
+  if (!net || !st.playing) return [];
+  const desks = liveSeating(st.grid, net).desks;
+  const gens = useGeneratorStore.getState();
+  const seated: Partial<Record<GeneratorId, number>> = {};
+  for (const [id, d] of desks) {
+    const who = workplaceKind(st.grid.structures.get(id)?.def ?? "");
+    if (who) seated[who] = (seated[who] ?? 0) + d.used;
+  }
+  const out: { structure: number; amount: number }[] = [];
+  for (const [id, d] of desks) {
+    const who = workplaceKind(st.grid.structures.get(id)?.def ?? "");
+    const all = who ? seated[who] ?? 0 : 0;
+    if (!who || !d.used || !all) continue;
+    const owned = gens.generators.find((g) => g.id === who)?.amount ?? 0;
+    const amount = gens.getGeneratorMoneyPerSecond(who, owned) * (d.used / all) * (ms / 1000);
+    if (amount > 0) out.push({ structure: id, amount });
+  }
+  return out;
+}
 
 type Float = { key: number; amount: number; at: number; wx: number; wy: number };
 
@@ -25,12 +57,16 @@ export function PortIncome() {
   const live = useRef<Float[]>([]);
 
   useEffect(() => {
-    let raf = 0, next = 1;
+    let raf = 0, next = 1, paidAt = performance.now();
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const vp = useWorldStore.getState().viewport, sl = shownStructures();
       const now = performance.now();
-      const fresh = getExports().fresh.splice(0);
+      const fresh: { port: number; amount: number }[] = getExports().fresh.splice(0);
+      if (now - paidAt >= PAYDAY) {
+        for (const p of payday(now - paidAt)) fresh.push({ port: p.structure, amount: p.amount });
+        paidAt = now;
+      }
       let changed = false;
       if (vp && sl) {
         for (const p of fresh) {
