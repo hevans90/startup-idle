@@ -90,7 +90,7 @@ now (sim timings in brackets), and so each upgrade fits what the building is for
 | Project | Today | New gate | Upgrade becomes buyable at |
 | --- | --- | --- | --- |
 | Founder's Garage | — | — | — |
-| Town Hall | 6 interns (≈1.5 min) | **Micromanagement** ($400) | 15 interns |
+| Town Hall | 6 interns | **Micromanagement** ($400) | 15 interns |
 | Vibe Coder Studio | 10 interns (5.6 min) | **Mandatory Weekend Work** ($2.2k) | 25 interns |
 | Harbour Office | 5 vibe coders | **Focus Vibing** ($7.5k) | 10 vibe coders |
 | Company HQ | 10 vibe coders | **JUULing** ($30k) | 20 vibe coders |
