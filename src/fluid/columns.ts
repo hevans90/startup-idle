@@ -1093,6 +1093,41 @@ export function note(a: Arrivals, i: number, amount: number, material: number) {
   if (material && amount > 0) a.mat[i] = material;
 }
 
+/**
+ * EMPTY A COLUMN, on the host and on the device: something solid has been put
+ * where its water was. @see syncSlots
+ *
+ * The device's copy can be AHEAD of this one — up to a readback behind, with
+ * water that has arrived since — so what goes up is not "take what the host
+ * thinks is there" but "take everything": far more than any column holds,
+ * which the arrival clamps at nothing. @see gpu/arrive
+ */
+export function emptyColumn(f: ColumnField, i: number) {
+  if (f.arrivals) note(f.arrivals, i, -1e6, 0);
+  f.depth[i] = 0;
+  f.material[i] = 0;
+  // AND THE WATER RUNNING INTO IT STOPS, on all four of its edges. Momentum
+  // lives on the edges, and a flow that was running into this column a moment
+  // ago carried a film up onto the top of the block for a substep before the
+  // head turned it round — water `SOLID_LIFT` up, falling off every side. The
+  // device is told to take off what the host knows was on the edge; its own
+  // copy may be a few frames on from that. @see Arrivals
+  const x = i % f.nx, y = (i / f.nx) | 0;
+  const planes = f.layers * f.layers;
+  const stop = (arr: Float32Array, k: number, axis: 0 | 1) => {
+    for (let p = 0; p < planes; p++) {
+      const e = p * f.cells + k, v = arr[e];
+      if (v === 0) continue;
+      arr[e] = 0;
+      if (p === 0 && f.arrivals) noteFlux(f.arrivals, k, axis === 0 ? -v : 0, axis === 1 ? -v : 0);
+    }
+  };
+  stop(f.fx, i, 0);
+  if (x > 0) stop(f.fx, i - 1, 0);
+  stop(f.fy, i, 1);
+  if (y > 0) stop(f.fy, i - f.nx, 1);
+}
+
 /** The same, for a flux an arrival pushed — see the crater in `splashInto`. */
 export function noteFlux(a: Arrivals, i: number, dx: number, dy: number) {
   if (dx === 0 && dy === 0) return;
