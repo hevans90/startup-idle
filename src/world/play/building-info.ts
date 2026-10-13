@@ -286,8 +286,9 @@ export function collate(infos: readonly BuildingInfo[], money: (n: number) => st
   }
   const done = facts.filter((f): f is Extract<Fact, { type: "project" }> => f.type === "project");
   if (done.length) {
-    lines.push({ text: done.map((f) => f.name).join(", ") });
-    brief.push(done.map((f) => f.name).join(", "));
+    const named = counted(done.map((f) => f.name));
+    lines.push({ text: named });
+    brief.push(named);
   }
   const ports = facts.filter((f): f is Extract<Fact, { type: "port" }> => f.type === "port");
   if (ports.length) {
@@ -304,6 +305,16 @@ export function collate(infos: readonly BuildingInfo[], money: (n: number) => st
     accent: accents.size === 1 ? infos[0].accent : 0x9aa3ad,
     brief, lines, facts,
   };
+}
+
+/**
+ * Names, each once, with how many there are: "Intern office ×4, Café". In the
+ * order each first turns up, so the same buildings read the same way round.
+ */
+export function counted(names: readonly string[]): string {
+  const n = new Map<string, number>();
+  for (const name of names) n.set(name, (n.get(name) ?? 0) + 1);
+  return [...n].map(([name, k]) => (k > 1 ? `${name} ×${k}` : name)).join(", ");
 }
 
 /** Roughly how big a label is on the screen, px, before it is drawn: monospace at 10 px. */

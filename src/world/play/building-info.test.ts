@@ -67,6 +67,14 @@ describe("labels too close to show apart", () => {
     expect(one.facts.length).toBe(5);
   });
 
+  test("the same building more than once is counted, not listed", () => {
+    const office = (id: number) => infoFor({ ...at("office-intern", { w: 2, h: 2 }), id }, ctx())!;
+    const cafe = infoFor({ ...at("cafe", { w: 2, h: 1 }), id: 9 }, ctx())!;
+    const one = collate([office(1), office(2), cafe, office(3), office(4)], String);
+    const name = office(1).title;
+    expect(one.brief).toContain(`${name} ×4, ${cafe.title}`);
+  });
+
   test("gather only where they would overlap, and come apart with room", () => {
     const items = [1, 2, 3].map((id) => ({ id, x: id * 20, y: 100, band: id, info: house(id, 1) }));
     // Twenty pixels apart: one label for all three.
