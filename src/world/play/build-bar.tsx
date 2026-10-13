@@ -39,6 +39,7 @@ import { WondersPanel } from "./wonders-panel";
 import { PARCELS } from "../land";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
+import { Popover, PopoverContent, PopoverTrigger } from "../../ui/Popover";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -56,7 +57,48 @@ const ICONS: Record<string, ReactNode> = {
   wonders: <Icon><path d="M8 1.5l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11l-3.7 2 .8-4.2L2 5.9l4.2-.5z" /></Icon>,
   mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
   undo: <Icon><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" /></Icon>,
+  // The people row. @see Stat
+  people: <Icon><circle cx="6" cy="5" r="2" /><path d="M2.5 13c0-2.2 1.6-3.5 3.5-3.5S9.5 10.8 9.5 13M10.5 3.5a2 2 0 010 3.5M12 9.8c1 .5 1.5 1.6 1.5 3.2" /></Icon>,
+  desk: <Icon><path d="M2 6h12M3.5 6v7M12.5 6v7M3.5 9.5h4M7.5 6v7" /></Icon>,
+  bus: <Icon><rect x="2.5" y="3" width="11" height="8" rx="1" /><path d="M2.5 7.5h11M5 11v1.5M11 11v1.5" /></Icon>,
+  waiting: <Icon><path d="M4 2h8M4 14h8M5 2c0 3 6 3.5 6 6s-6 3-6 6M11 2c0 3-6 3.5-6 6s6 3 6 6" /></Icon>,
+  noLot: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7" /><path d="M6 9l4 4M10 9l-4 4" /></Icon>,
+  noRoad: <Icon><path d="M5 2L3 14M11 2l2 12M6 6l4 4M10 6l-4 4" /></Icon>,
+  noServices: <Icon><path d="M3 6h8v4a3 3 0 01-3 3H6a3 3 0 01-3-3zM11 7h1.5a1.5 1.5 0 010 3H11M5 2.5v2M8 2.5v2" /></Icon>,
+  unhappy: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 11c.7-1 1.5-1.5 2.5-1.5s1.8.5 2.5 1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
 };
+
+/** Why people hired are still waiting to move in: an icon and what it means. */
+const BLOCKED: Record<string, { icon: ReactNode; title: string; why: string }> = {
+  "no-lot": { icon: ICONS.noLot, title: "No free lot", why: "Every lot is taken. Build more housing for them to move into." },
+  "no-road": { icon: ICONS.noRoad, title: "No road in", why: "There's no road from the edge of the map to a free lot." },
+  "no-services": { icon: ICONS.noServices, title: "Want a café and a park", why: "They won't move in until a café and a park serve a free lot." },
+  unhappy: { icon: ICONS.unhappy, title: "Unhappy homes", why: "The free lots are too miserable. Services nearby, and fewer derelicts, cheer them up." },
+};
+
+/**
+ * A FIGURE IN THE PEOPLE ROW: an icon and a number, explained on hover. The
+ * row used to spell each one out — "4 waiting (their homes are miserable)" —
+ * which was a sentence a district and wrapped onto lines of its own.
+ */
+function Stat({ icon, value, tone, title, children }: {
+  icon: ReactNode; value?: ReactNode; tone?: string; title: string; children: ReactNode;
+}) {
+  return (
+    <Popover openOnHover placement="top" floatOffset={8}>
+      <PopoverTrigger asChild>
+        <span tabIndex={0} className={twMerge("flex cursor-help items-center gap-0.5 outline-none", tone)}>
+          {icon}
+          {value !== undefined && <span>{value}</span>}
+        </span>
+      </PopoverTrigger>
+      <PopoverContent className="z-[110] max-w-56 border border-primary-500 bg-primary-100 px-2 py-1.5 text-xs text-primary-900 shadow-xl outline-none dark:border-primary-500 dark:bg-primary-800 dark:text-primary-100">
+        <p className="font-bold">{title}</p>
+        <p className="text-primary-700 dark:text-primary-300">{children}</p>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
@@ -256,31 +298,44 @@ export function BuildBar({ className }: { className?: string }) {
       )}
 
       <div className={twMerge(PANEL, "flex max-w-full flex-col")}>
-        {/* THE BEDS: people against beds, a chip a district. */}
-        <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 border-b border-primary-200 px-2 py-1 text-[11px] tabular-nums dark:border-primary-700"
-          title="People employed against beds — on lots zoned on the map, plus people living off it. You can't hire past your beds. A new hire works once they've arrived and moved in.">
+        {/* THE PEOPLE: a chip a district, its figures as icons. @see Stat */}
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-0.5 border-b border-primary-200 px-2 py-1 text-[11px] tabular-nums dark:border-primary-700">
           {KINDS.filter((id) => hireable.has(id)).map((id) => {
             const g = generators.find((x) => x.id === id)!;
             const have = beds[id] ?? 0;
             const full = g.amount >= have;
             const st = getArrivals().status[id];
-            const by = { bus: "by bus", car: "by car", limo: "by limo" }[VEHICLE[id]];
+            const by = { bus: "bus", car: "car", limo: "limo" }[VEHICLE[id]];
+            const name = KIND_TITLE[id];
+            const blocked = st?.blocked ? BLOCKED[st.blocked] : null;
             return (
-              <span key={id} className="flex items-center gap-1">
+              <span key={id} className="flex items-center gap-1.5">
                 <span className="h-2 w-2" style={{ background: hex(KIND_COLOUR[id]) }} />
-                <span className={full ? "text-red-700 dark:text-red-400" : undefined}>
-                  {KIND_TITLE[id]} {g.amount}/{have}
-                </span>
+                <Stat icon={ICONS.people} value={`${g.amount}/${have}`} tone={full ? "text-red-700 dark:text-red-400" : undefined}
+                  title={`${name}: ${g.amount} employed, ${have} beds`}>
+                  {full
+                    ? "Every bed is taken, so you can't hire more until you build housing for them."
+                    : "People employed against beds, on lots on the map and off it. A new hire works once they've moved in."}
+                </Stat>
                 {deskless[id] ? (
-                  <span className="text-amber-700 dark:text-amber-400" title="Every desk of theirs is taken: an Office adds more">
-                    {deskless[id]} without a desk
-                  </span>
+                  <Stat icon={ICONS.desk} value={deskless[id]} tone="text-amber-700 dark:text-amber-400" title={`${deskless[id]} without a desk`}>
+                    Every desk is taken, so they work at a third of the pace. An office adds desks.
+                  </Stat>
                 ) : null}
-                {st?.riding ? <span className="text-emerald-700 dark:text-emerald-400" title={`On the way ${by}`}>+{st.riding} {by}</span> : null}
+                {st?.riding ? (
+                  <Stat icon={ICONS.bus} value={`+${st.riding}`} tone="text-emerald-700 dark:text-emerald-400" title={`${st.riding} on the way`}>
+                    Hired, and coming in by {by}.
+                  </Stat>
+                ) : null}
                 {st?.waiting ? (
-                  <span className={st.blocked ? "text-amber-700 dark:text-amber-400" : "text-primary-600 dark:text-primary-400"}>
-                    {st.waiting} waiting{st.blocked === "no-lot" ? " for a lot" : st.blocked === "no-road" ? " (no road in)" : st.blocked === "no-services" ? " (want a café & park)" : st.blocked === "unhappy" ? " (their homes are miserable)" : ""}
-                  </span>
+                  <Stat icon={ICONS.waiting} value={st.waiting}
+                    tone={blocked ? "text-amber-700 dark:text-amber-400" : "text-primary-600 dark:text-primary-400"}
+                    title={blocked ? `${st.waiting} waiting: ${blocked.title.toLowerCase()}` : `${st.waiting} waiting`}>
+                    {blocked ? blocked.why : "Hired, and waiting for their ride in."}
+                  </Stat>
+                ) : null}
+                {blocked ? (
+                  <Stat icon={blocked.icon} tone="text-amber-700 dark:text-amber-400" title={blocked.title}>{blocked.why}</Stat>
                 ) : null}
               </span>
             );
