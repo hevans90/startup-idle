@@ -8,7 +8,7 @@ import {
 } from "zustand/middleware";
 import { setEmployeeSatisfactionReaders } from "../game/employee-satisfaction-read";
 import { roomFor } from "../game/housing";
-import { attendance, labBonus, wonderBonus } from "../game/projects";
+import { attendance, labBonus, leadBonus, wonderBonus } from "../game/projects";
 import { townMoodOffsets } from "../game/town-mood";
 import {
   calcGeneratorIncome,
@@ -532,11 +532,13 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AWAY BUILDING: a desk with nobody at it makes nothing. One here,
           // so the live tick and every readout agree. @see attendance
           const here = attendance(id, get().generators.find((g) => g.id === id)?.amount ?? 0);
+          // LED: the people at a team leader's workplace work harder. @see leadShare
+          const lead = leadBonus(id);
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * wonderBonus("money") * agentBonus(useAgentsStore.getState().agents),
-            innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * wonderBonus("innovation") * labBonus(),
+            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * lead * wonderBonus("money") * agentBonus(useAgentsStore.getState().agents),
+            innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * lead * wonderBonus("innovation") * labBonus(),
           };
         },
 

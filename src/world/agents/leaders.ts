@@ -6,11 +6,12 @@
  */
 import type { GeneratorId } from "../../state/generators.store";
 import { housedBy, residentsIn } from "../../game/housing";
-import type { Grid } from "../grid";
+import { idx, type Grid } from "../grid";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
 import { sendOnJob, type Town } from "./town";
-import { WORKPLACES } from "./commute";
+import { WORKPLACES, walkFrom, workplaceKind } from "./commute";
+import type { MoodParts } from "./mood-rules";
 
 /** Seconds a leader spends at work, and at home, before setting off again. */
 export const AT_WORK = 25;
@@ -27,28 +28,93 @@ export const createLeaders = (): Leaders => ({ seats: [], at: new Map() });
 /** A stable number for a string, to pick a leader's home among many. */
 const hash = (s: string) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); };
 
-/** The door of a home of the leader's kind, picked by who they are, so it is the same one each time. */
-function homeOf(g: Grid, places: readonly Place[], seat: LeaderSeat): Place | null {
-  const doors = places.filter((p) => {
-    const s = p.kind === "door" && p.structure !== undefined ? g.structures.get(p.structure) : undefined;
-    return !!s && housedBy(s.def)?.id === seat.role && residentsIn(s) > 0;
-  });
-  return doors.length ? doors[hash(seat.id) % doors.length] : null;
+/** What the people at a led workplace's desks add to their work, a leader; and the most leaders that count at one. */
+export const LEAD_BOOST = 0.25;
+export const LEADS_A_WORKPLACE = 2;
+
+/**
+ * WHERE THE LEADERS LIVE AND WHO THEY LEAD. A leader lives in the most
+ * desirable home of their kind — the best of them, a leader each, round again
+ * once every one has one — and leads the workplace nearest it along the
+ * roads. So a good street beside a big office is where a leader is worth
+ * most: their workplace's desks work `LEAD_BOOST` harder. @see leadShare
+ */
+export type Leadership = {
+  /** Each leader's home and workplace, by leader id: structure ids. */
+  of: Map<string, { home: number; work: number }>;
+  /** Who leads each workplace, by its id: their names. */
+  leads: Map<number, string[]>;
+};
+
+export function leadershipOf(
+  g: Grid, places: readonly Place[], seats: readonly (LeaderSeat & { name?: string })[], moods: ReadonlyMap<number, MoodParts>,
+): Leadership {
+  const out: Leadership = { of: new Map(), leads: new Map() };
+  const doorOf = new Map<number, Place>();
+  for (const p of places) if (p.kind === "door" && p.structure !== undefined && !p.building) doorOf.set(p.structure, p);
+  const k: Partial<Record<GeneratorId, number>> = {};
+  for (const seat of seats) {
+    const homes = [...g.structures.values()]
+      .filter((s) => !s.build && housedBy(s.def)?.id === seat.role && residentsIn(s) > 0 && doorOf.has(s.id))
+      .sort((a, b) => (moods.get(b.id)?.total ?? 0) - (moods.get(a.id)?.total ?? 0) || a.id - b.id);
+    if (!homes.length) continue;
+    const n = k[seat.role] ?? 0;
+    k[seat.role] = n + 1;
+    const home = homes[n % homes.length], door = doorOf.get(home.id)!;
+    const walk = walkFrom(g, [idx(g, door.x, door.y)]);
+    let work: number | null = null, best = Infinity;
+    for (const s of g.structures.values()) {
+      if (s.build || !WORKPLACES[seat.role].includes(s.def)) continue;
+      const d = doorOf.get(s.id), t = d ? walk[idx(g, d.x, d.y)] : -1;
+      if (t >= 0 && t < best) { best = t; work = s.id; }
+    }
+    if (work === null) continue;
+    out.of.set(seat.id, { home: home.id, work });
+    out.leads.set(work, [...(out.leads.get(work) ?? []), seat.name ?? seat.id]);
+  }
+  return out;
 }
 
-/** The door of the first standing workplace of the leader's kind. */
-function workOf(g: Grid, places: readonly Place[], seat: LeaderSeat): Place | null {
-  return places.find((p) => {
-    const s = p.kind === "door" && p.structure !== undefined ? g.structures.get(p.structure) : undefined;
-    return !!s && !s.build && WORKPLACES[seat.role].includes(s.def);
-  }) ?? null;
+/**
+ * Each kind's share of extra work from being led: the people at led
+ * workplaces' desks, `LEAD_BOOST` each a leader (up to `LEADS_A_WORKPLACE`),
+ * over everyone of the kind. 0.1 is +10% to the kind. @see leadBonus
+ */
+export function leadShare(
+  g: Grid, lead: Leadership, desks: ReadonlyMap<number, { used: number }>, owned: Partial<Record<GeneratorId, number>>,
+): Partial<Record<GeneratorId, number>> {
+  const out: Partial<Record<GeneratorId, number>> = {};
+  for (const [work, names] of lead.leads) {
+    const s = g.structures.get(work), who = s && workplaceKind(s.def), used = desks.get(work)?.used ?? 0;
+    if (!who || !used || !(owned[who] ?? 0)) continue;
+    out[who] = (out[who] ?? 0) + (used * LEAD_BOOST * Math.min(LEADS_A_WORKPLACE, names.length)) / owned[who]!;
+  }
+  return out;
 }
+
+let memo: { g: Grid | null; rev: number; seats: string; moods: unknown; value: Leadership } = {
+  g: null, rev: -1, seats: "", moods: null, value: { of: new Map(), leads: new Map() },
+};
+
+/** The leadership on this map now, worked out again when the map, the leaders or the moods change. */
+export function liveLeadership(
+  g: Grid, net: Network, seats: readonly (LeaderSeat & { name?: string })[], moods: ReadonlyMap<number, MoodParts>,
+): Leadership {
+  const key = seats.map((s) => s.id).join();
+  if (memo.g !== g || memo.rev !== g.rev || memo.seats !== key || memo.moods !== moods) {
+    memo = { g, rev: g.rev, seats: key, moods, value: leadershipOf(g, placesOf(g, net), seats, moods) };
+  }
+  return memo.value;
+}
+
+/** A structure's door, among the places. */
+const doorAt = (places: readonly Place[], id: number) => places.find((p) => p.kind === "door" && p.structure === id && !p.building) ?? null;
 
 /**
  * One frame of the leaders. Run before `stepWorks`, which clears arrivals.
  * A leader with no home of their kind, or nowhere to work, stays off the map.
  */
-export function stepLeaders(L: Leaders, town: Town, g: Grid, net: Network, seats: readonly LeaderSeat[], dt: number): void {
+export function stepLeaders(L: Leaders, town: Town, g: Grid, net: Network, seats: readonly LeaderSeat[], lead: Leadership, dt: number): void {
   // WHO IS WHO: a seat a number, for the movers' jobs. Gone leaders leave the map.
   L.seats = seats.map((s) => s.id);
   for (const id of [...L.at.keys()]) if (!L.seats.includes(id)) L.at.delete(id);
@@ -71,7 +137,8 @@ export function stepLeaders(L: Leaders, town: Town, g: Grid, net: Network, seats
     L.at.set(seat.id, here);
     if (here.wait > 0) return;
     places ??= placesOf(g, net);
-    const home = homeOf(g, places, seat), work = workOf(g, places, seat);
+    const at = lead.of.get(seat.id);
+    const home = at ? doorAt(places, at.home) : null, work = at ? doorAt(places, at.work) : null;
     if (!home || !work || home.net !== work.net) { here.wait = AT_HOME; return; }
     const [from, to] = here.place === "home" ? [home, work] : [work, home];
     const m = sendOnJob(town, g, "person", from, to, { site: k, role: "leader" });

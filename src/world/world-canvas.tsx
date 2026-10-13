@@ -19,11 +19,13 @@ import { getNetwork, getWorks, startAutosave, startedOnFixture, useWorldStore } 
 import { housedBy, residentsIn } from "../game/housing";
 import { projectForStructure, setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
 import { setTermReader } from "../game/term-sheets";
+import { leadShare, liveLeadership } from "./agents/leaders";
+import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { MAX_ROUTES } from "./events/events";
 import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
-import { commuteFactor, liveCommutes } from "./agents/commute";
+import { commuteFactor, liveCommutes, liveSeating } from "./agents/commute";
 import { setTownBonusReader } from "../game/acquisition";
 import { setTownMoodReader } from "../game/town-mood";
 import { liveMoods, moodOffsets } from "./agents/mood";
@@ -272,7 +274,13 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const remote = useSessionStore.getState().remoteBeds ?? {};
       const net = getNetwork();
       const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;
-      return { built, away, commute, labs, racks };
+      // LED: the desks at each team leader's workplace. @see leadShare
+      const lead = net ? leadShare(
+        st.grid,
+        liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100)),
+        liveSeating(st.grid, net).desks, ownedNow(),
+      ) : undefined;
+      return { built, away, commute, labs, racks, lead };
     });
   }, [play]);
   // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is

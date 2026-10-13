@@ -92,7 +92,7 @@ import { stepArrivals } from "./agents/arrivals";
 import { stepEvolution } from "./agents/services";
 import { liveSeating } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
-import { createLeaders, stepLeaders } from "./agents/leaders";
+import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { CLEANERS_PER_TILE, cleanupAway, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
@@ -2456,7 +2456,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (st.playing) {
           stepHaulers(getTown(), st.grid, net, (p) => useSlopPitStore.getState().haul(p), sludgeTruckBack);
           // THE TEAM LEADERS, walking between home and work. @see stepLeaders
-          stepLeaders(leaders.current, getTown(), st.grid, net, useTeamLeadersEmployeesStore.getState().employees, dt);
+          const seats = useTeamLeadersEmployeesStore.getState().employees;
+          stepLeaders(leaders.current, getTown(), st.grid, net, seats,
+            liveLeadership(st.grid, net, seats, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100)), dt);
           const pit = [...st.grid.structures.values()].find((s) => s.def === SLOP_PIT.id);
           const field = st.getWaterField();
           eventClock.current += dt;

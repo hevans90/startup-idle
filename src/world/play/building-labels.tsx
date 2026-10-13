@@ -36,6 +36,8 @@ import { liveCoverage } from "../agents/services";
 import { useSessionStore } from "../../state/session.store";
 import { ROUTE_BONUS } from "../events/events";
 import { repairedIn } from "../events/flood";
+import { liveLeadership } from "../agents/leaders";
+import { useTeamLeadersEmployeesStore } from "../../state/team-leaders.store";
 import { liveMoods } from "../agents/mood";
 import { useSlopPitStore } from "../../state/slop-pit.store";
 import { nearHub } from "../projects/labs";
@@ -102,7 +104,8 @@ function gather(): InfoContext {
   const moods = net ? liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100) : new Map();
   const labsNear = new Set([...st.grid.structures.values()].filter((s) => s.def === "lab" && nearHub(st.grid, s)).map((s) => s.id));
   const racksPowered = new Set([...st.grid.structures.values()].filter((s) => s.def === "rack" && rackPowered(st.grid, s)).map((s) => s.id));
-  return { perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
+  const leads = net ? liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, moods).leads : undefined;
+  return { leads, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
 }
 
 /**

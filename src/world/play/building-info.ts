@@ -13,6 +13,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import type { Structure } from "../grid";
 import { structureDef, type StructureDef } from "../structures/def";
 import { workplaceKind, type Commute } from "../agents/commute";
+import { LEAD_BOOST, LEADS_A_WORKPLACE } from "../agents/leaders";
 import { moodWord, type MoodParts } from "../agents/mood";
 import { growthShort, serviceOf, type ServiceId } from "../agents/services";
 import { LAB_SHARE } from "../projects/labs";
@@ -44,6 +45,8 @@ export type InfoContext = {
   money: (n: number) => string;
   /** R&D labs near the campus or Data Centre, by id. @see nearHub */
   labsNear?: ReadonlySet<number>;
+  /** The team leaders leading each workplace, by its id: their names. @see leadershipOf */
+  leads?: ReadonlyMap<number, readonly string[]>;
   /** AI racks within the Data Centre's reach. @see world/projects/racks */
   racksPowered?: ReadonlySet<number>;
   /** Seconds until a flood-damaged building is repaired; null when it is not damaged. @see damage */
@@ -87,6 +90,14 @@ function deskLine(id: number, ctx: InfoContext): InfoLine | null {
   const d = ctx.desks?.get(id);
   if (!d) return null;
   return { text: `${d.used}/${d.of} desks`, tone: d.used >= d.of ? "warn" : undefined };
+}
+
+/** Who leads a workplace, as a label line, and what it is worth: "Led by Ada · +25%". @see LEAD_BOOST */
+function leadLine(id: number, ctx: InfoContext): InfoLine | null {
+  const names = ctx.leads?.get(id);
+  if (!names?.length) return null;
+  const pct = Math.round(LEAD_BOOST * Math.min(LEADS_A_WORKPLACE, names.length) * 100);
+  return { text: `Led by ${names.join(" & ")} · +${pct}%`, tone: "good" };
 }
 
 /** What a project opens, in a few words: "Opens hiring vibe coders". */
@@ -202,6 +213,8 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const lines: InfoLine[] = [];
     const desks = workplaceKind(s.def) ? deskLine(s.id, ctx) : null;
     if (desks) lines.push(desks);
+    const led = leadLine(s.id, ctx);
+    if (led) lines.push(led);
     if (p.bonus) lines.push({ text: opensText(p).replace(/, for good$/, ""), tone: "good" });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
@@ -254,7 +267,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const d = ctx.desks?.get(s.id);
     return {
       title: def.name, accent: KIND_COLOUR[office], brief: [d ? `${d.used}/${d.of}` : def.name],
-      lines: [deskLine(s.id, ctx) ?? { text: `${KIND_NAME[office][1]} work here` }],
+      lines: [deskLine(s.id, ctx) ?? { text: `${KIND_NAME[office][1]} work here` }, ...[leadLine(s.id, ctx)].filter((l): l is InfoLine => !!l)],
       facts: [{ type: "project", name: def.name }],
     };
   }
