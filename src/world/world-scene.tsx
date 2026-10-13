@@ -77,6 +77,11 @@ import {
  * columns, which stack and so multiply their own alpha.
  */
 const XRAY_GROUND = 0.26;
+/** A workplace's tint, by the share of its desks taken: dim when empty, as drawn when full. */
+const deskTint = (share: number) => {
+  const k = Math.round(255 * (0.55 + 0.45 * Math.max(0, Math.min(1, share))));
+  return (k << 16) | (k << 8) | Math.min(255, k + 12);
+};
 /** A flood-damaged building's tint: mud. @see damage */
 const DAMAGED_TINT = 0x9a8466;
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
@@ -85,6 +90,7 @@ import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { stepEvolution } from "./agents/services";
+import { liveSeating } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, stepLeaders } from "./agents/leaders";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
@@ -1839,6 +1845,30 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const sprites = (m.handle as { sprites?: { tint: number; destroyed?: boolean }[] }).sprites ?? [];
         for (const sp of sprites) sp.tint = DAMAGED_TINT;
         muddied.set(id, sprites);
+      }
+    };
+    const id = setInterval(paint, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // A WORKPLACE AS FULL AS IT LOOKS: lit by the share of its desks taken —
+  // a busy office bright, an empty one dark. Looked at every second, and
+  // retinted only when the share has moved. @see seat
+  useEffect(() => {
+    // By the handle as well: a building redrawn from scratch is new graphics.
+    const shown = new Map<number, { h: unknown; tint: number }>();
+    const paint = () => {
+      const sl = slRef.current, net = getNetwork(), st = useWorldStore.getState();
+      if (!sl || !net || !st.playing) return;
+      const desks = liveSeating(st.grid, net).desks;
+      for (const [id, m] of sl.mounted) {
+        const d = desks.get(id);
+        if (!d || !d.of) continue;
+        const tint = deskTint(d.used / d.of), was = shown.get(id);
+        if (was && was.h === m.handle && was.tint === tint) continue;
+        shown.set(id, { h: m.handle, tint });
+        const h = m.handle as { columns?: { tint: number }[]; sprites?: { tint: number }[] };
+        for (const g of h.columns ?? h.sprites ?? []) g.tint = tint;
       }
     };
     const id = setInterval(paint, 1000);
