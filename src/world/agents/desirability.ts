@@ -18,7 +18,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { connects, isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
-import { commuteEfficiency, WORKPLACES } from "./commute";
+import { commuteEfficiency, walkFrom, WORKPLACES } from "./commute";
 import { DERELICT_REACH, MOOD, MOOD_LIMIT, SLOP_REACH, WATER_REACH, WATER_VIEW, WONDER_REACH, type MoodParts } from "./mood-rules";
 import { placesOf, type Place } from "./roads";
 import { RANGE, SERVICE_IDS, serviceOf, type ServiceId } from "./services";
@@ -76,7 +76,8 @@ export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
   const work: Partial<Record<GeneratorId, Int32Array>> = {};
   for (const [who, defs] of Object.entries(WORKPLACES) as [GeneratorId, readonly string[]][]) {
     const doors = doorsOf((s) => defs.includes(s.def));
-    if (doors.length) work[who] = roadsFrom(g, doors);
+    // The walk to work, climbs and all, as the commute counts it. @see walkFrom
+    if (doors.length) work[who] = walkFrom(g, doors);
   }
   const pits: Structure[] = [], derelicts: Structure[] = [], wonders: Structure[] = [];
   for (const s of g.structures.values()) {

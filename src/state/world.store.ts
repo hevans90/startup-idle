@@ -70,7 +70,7 @@ import { clearSaved, hasSaved, onRunMap, saveNow, scheduleSave, suspendSaving } 
 import { buildCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { useSessionStore } from "./session.store";
 import { usePrestigeStore } from "./prestige.store";
-import { buyable, landPrice, ownsTile, PARCELS, parcelOf, parcelRect, STARTING_PARCELS } from "../world/land";
+import { buyable, landDiscount, landPrice, ownsTile, PARCELS, parcelOf, parcelRect, STARTING_PARCELS } from "../world/land";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
@@ -282,7 +282,9 @@ export const parcelPrice = () => {
   const m = usePrestigeStore.getState().modifiers;
   const bought = Math.max(0, (useSessionStore.getState().land?.length ?? 0) - STARTING_PARCELS - m.startingParcels);
   // THE BOOTSTRAPPER pays over the odds for it. @see BOOTSTRAP_LAND
-  return Math.round(landPrice(bought, incomeNow()) * m.landCostMult * (founderIs("bootstrapper") ? BOOTSTRAP_LAND : 1));
+  // HILLY LAND comes cheap. @see landDiscount
+  const hills = 1 - landDiscount(useWorldStore.getState().grid);
+  return Math.round(landPrice(bought, incomeNow()) * m.landCostMult * hills * (founderIs("bootstrapper") ? BOOTSTRAP_LAND : 1));
 };
 export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
 /** What each choice an event offers costs in money, for those that cost any. Sludge trucks are paid for apart. */

@@ -85,24 +85,41 @@ export function commutesOf(g: Grid, places: readonly Place[]): Map<number, Commu
 /** Every house's commute, and how full each workplace is: desks taken, and desks. */
 export type Seating = { commutes: Map<number, Commute>; desks: Map<number, { used: number; of: number }> };
 
-/** Tiles along the roads from one door to every cell, -1 where there is no way. */
-function roadsFrom(g: Grid, start: number): Int32Array {
+/** What a step of road up or down a level — onto a ramp — counts for on the way to work: a hill town's walk is longer. */
+export const CLIMB = 2;
+
+/**
+ * The walk along the roads from some doors to every cell, in tiles — a ramp
+ * counting `CLIMB` — and -1 where there is no way.
+ */
+export function walkFrom(g: Grid, starts: readonly number[]): Int32Array {
   const dist = new Int32Array(g.w * g.h).fill(-1);
-  const queue = [start];
-  dist[start] = 0;
-  for (let q = 0; q < queue.length; q++) {
-    const i = queue[q], x = i % g.w, y = (i - x) / g.w;
-    for (const dir of DIRS) {
-      if (!connects(g, x, y, dir)) continue;
-      const [dx, dy] = NEIGHBOUR[dir];
-      const j = idx(g, x + dx, y + dy);
-      if (dist[j] >= 0) continue;
-      dist[j] = dist[i] + 1;
-      queue.push(j);
+  // Steps of one or two: a bucket a distance, worked through in order.
+  const buckets: number[][] = [[]];
+  for (const i of starts) if (dist[i] < 0) { dist[i] = 0; buckets[0].push(i); }
+  for (let d = 0; d < buckets.length; d++) {
+    const bucket = buckets[d];
+    if (!bucket) continue;
+    for (let q = 0; q < bucket.length; q++) {
+      const i = bucket[q];
+      if (dist[i] !== d) continue;
+      const x = i % g.w, y = (i - x) / g.w;
+      for (const dir of DIRS) {
+        if (!connects(g, x, y, dir)) continue;
+        const [dx, dy] = NEIGHBOUR[dir];
+        const j = idx(g, x + dx, y + dy);
+        // Onto a ramp is up or down a level. @see Grid.ramp
+        const nd = d + (g.ramp[j] && !g.deck[j] ? CLIMB : 1);
+        if (dist[j] >= 0 && dist[j] <= nd) continue;
+        dist[j] = nd;
+        (buckets[nd] ??= []).push(j);
+      }
     }
   }
   return dist;
 }
+
+const roadsFrom = (g: Grid, start: number) => walkFrom(g, [start]);
 
 /**
  * WHO SITS WHERE: each kind's people living on the map, given desks at its

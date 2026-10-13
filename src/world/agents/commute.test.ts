@@ -2,12 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { attendance, setProjectReader } from "../../game/projects";
 import { commit, createHistory } from "../edit/commands";
-import { createGrid, fillTerrain, idx } from "../grid";
+import { RAMP, createGrid, fillTerrain, idx, packRamp } from "../grid";
 import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import {
-  DESKLESS, DESKS, FREE, STRANDED, WORST, commuteEfficiency, commuteFactor, commutesOf, liveCommutes, seat,
+  CLIMB, DESKLESS, DESKS, FREE, STRANDED, WORST, commuteEfficiency, walkFrom, commuteFactor, commutesOf, liveCommutes, seat,
 } from "./commute";
 import { placesOf } from "./roads";
 
@@ -105,3 +105,19 @@ describe("desks", () => {
   });
 });
 
+
+describe("a hill town's walk", () => {
+  test("counts every step of road up or down a level as CLIMB", () => {
+    const g = createGrid(30, 10);
+    fillTerrain(g, 1);
+    for (let x = 0; x < g.w; x++) {
+      g.paved[idx(g, x, 5)] = 1;
+      g.height[idx(g, x, 5)] = x >= 10 ? 1 : 0;
+    }
+    // The ramp up at 9, rising toward +x (the grid's south).
+    g.ramp[idx(g, 9, 5)] = packRamp(RAMP.S, 1);
+    const walk = walkFrom(g, [idx(g, 0, 5)]);
+    expect(walk[idx(g, 8, 5)]).toBe(8);
+    expect(walk[idx(g, 20, 5)]).toBe(20 + CLIMB - 1);
+  });
+});

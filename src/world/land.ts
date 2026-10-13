@@ -96,3 +96,44 @@ export function landPrice(bought: number, income: number): number {
   const live = Math.max(0, income) * 45 * 1.5 ** bought;
   return Math.round(Math.max(floor, live));
 }
+
+/** The most hilly land takes off a parcel's price. @see landDiscount */
+export const HILL_DISCOUNT = 0.4;
+/** Ruggedness at which hills start to take something off, and take all they can. */
+const RUGGED_FROM = 0.5, RUGGED_TO = 0.7;
+
+/**
+ * HOW RUGGED A MAP IS: the share of its dry ground that is not level with all
+ * four neighbours — a slope, a terrace edge, a cliff. Flat meadow is near 0.
+ */
+export function ruggedness(g: Grid): number {
+  let dry = 0, rough = 0;
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const i = y * g.w + x;
+      if (g.pool[i]) continue;
+      dry++;
+      const h = g.height[i];
+      if ((x > 0 && g.height[i - 1] !== h) || (x < g.w - 1 && g.height[i + 1] !== h)
+        || (y > 0 && g.height[i - g.w] !== h) || (y < g.h - 1 && g.height[i + g.w] !== h)) rough++;
+    }
+  }
+  return dry ? rough / dry : 0;
+}
+
+const discounts = new WeakMap<Grid, { rev: number; value: number }>();
+
+/**
+ * WHAT HILLS TAKE OFF THE LAND: hilly ground is cheap — it is harder to build
+ * on, and its roads climb, which makes the walk to work longer. Up to
+ * `HILL_DISCOUNT`, by how rugged the map is. @see ruggedness, CLIMB
+ */
+export function landDiscount(g: Grid): number {
+  const seen = discounts.get(g);
+  if (seen && seen.rev === g.rev) return seen.value;
+  // From the usual map's half (road cuts and banks make even flat land some
+  // way rough) to the mountains' 0.7.
+  const value = Math.min(HILL_DISCOUNT, Math.max(0, ((ruggedness(g) - RUGGED_FROM) / (RUGGED_TO - RUGGED_FROM)) * HILL_DISCOUNT));
+  discounts.set(g, { rev: g.rev, value });
+  return value;
+}

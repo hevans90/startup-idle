@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createGrid, idx } from "./grid";
-import { buyable, landPrice, ownsTile, parcelOf, parcelRect, startingLand } from "./land";
+import { HILL_DISCOUNT, buyable, landDiscount, landPrice, ownsTile, parcelOf, parcelRect, ruggedness, startingLand } from "./land";
 
 describe("land", () => {
   test("a map is four by four parcels, the last row and column taking what is left", () => {
@@ -45,5 +45,17 @@ describe("land", () => {
     expect(landPrice(1, 0)).toBe(1000);
     expect(landPrice(0, 100)).toBe(4500);
     expect(landPrice(2, 100)).toBeGreaterThan(landPrice(1, 100));
+  });
+});
+
+describe("hilly land", () => {
+  test("level ground is full price, and the more rugged, the cheaper, up to the most hills take off", () => {
+    const g = createGrid(20, 20);
+    expect(ruggedness(g)).toBe(0);
+    expect(landDiscount(g)).toBe(0);
+    for (let i = 0; i < g.height.length; i++) g.height[i] = (i % 2) * 2;
+    g.rev++;
+    expect(ruggedness(g)).toBe(1);
+    expect(landDiscount(g)).toBe(HILL_DISCOUNT);
   });
 });

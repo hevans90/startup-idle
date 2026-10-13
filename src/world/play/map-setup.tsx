@@ -15,6 +15,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { DIRT, GRASS, SAND, WOODS } from "../../state/world.store";
+import { WATER_VIEW } from "../agents/mood-rules";
+import { landDiscount } from "../land";
 import { Button } from "../../ui/Button";
 import { generatePlayableMap, type GenReport } from "../gen/generate-map";
 import { DEFAULT_GEN, GEN_SLIDERS, type GenParams } from "../gen/params";
@@ -126,7 +128,9 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
     if (!map) return null;
     let water = 0;
     for (let i = 0; i < map.grid.pool.length; i++) if (map.grid.pool[i] > 0) water++;
-    return { plots: map.report.frontage, road: map.report.road, water };
+    let river = false;
+    for (let i = 0; i < map.grid.inflow.length && !river; i++) river = map.grid.inflow[i] > 0;
+    return { plots: map.report.frontage, road: map.report.road, water, river, hills: landDiscount(map.grid) };
   }, [map]);
 
   return (
@@ -149,6 +153,14 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
               <span><b>{stats.road}</b> road tiles</span>
               <span><b>{stats.water}</b> tiles of water</span>
             </div>
+          )}
+          {/* WHAT THIS LAND MEANS: each kind of ground's reason to pick it, and its cost. */}
+          {stats && (stats.river || stats.water > 0 || stats.hills > 0) && (
+            <ul className="flex flex-col gap-0.5 text-xs opacity-80">
+              {stats.river && <li><b>River:</b> seaports trade on it, and it floods.</li>}
+              {stats.water > 0 && <li><b>Water:</b> houses in sight of it +{WATER_VIEW} desirability.</li>}
+              {stats.hills > 0 && <li><b>Hills:</b> land {Math.round(stats.hills * 100)}% cheaper, but every ramp on the road to work counts double.</li>}
+            </ul>
           )}
         </div>
 

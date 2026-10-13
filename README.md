@@ -21,7 +21,7 @@ A satirical idle game about scaling a tech startup by any means necessary: hire 
 
 ### Founding
 
-**Who**, **where**, then **terms** (`founder-select.tsx`, `map-setup.tsx`): "Choose your land" previews the real generator live — seed, size (48/64/96), hills, rivers, lakes, woods, and every setting behind "All settings" — and you found on exactly the map you saw (`Session.mapChoice`). Then **on what terms** (`term-sheet-select.tsx`, `game/term-sheets.ts`): three of five investors' term sheets, by seed — sell inside 2 h 30, 40 lived-in houses, never overflow the slop pit, two wonders, or 12 AI agents — each +20–30% Equity if met at the sale (shown in the Acquisition tab).
+**Who**, **where**, then **terms** (`founder-select.tsx`, `map-setup.tsx`): "Choose your land" previews the real generator live — seed, size (48/64/96), hills, rivers, lakes, woods, and every setting behind "All settings" — and you found on exactly the map you saw (`Session.mapChoice`). It says what the land means: rivers trade and flood, water gives a view, and **hills** make land up to 40% cheaper (`landDiscount`, by `ruggedness`) while every road ramp counts double on the walk to work (`CLIMB`, `walkFrom`). Then **on what terms** (`term-sheet-select.tsx`, `game/term-sheets.ts`): three of five investors' term sheets, by seed — sell inside 2 h 30, 40 lived-in houses, never overflow the slop pit, two wonders, or 12 AI agents — each +20–30% Equity if met at the sale (shown in the Acquisition tab).
 
 ### The company's map
 
