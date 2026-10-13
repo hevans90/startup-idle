@@ -129,7 +129,10 @@ fn fluxAt(old: f32, e: Edge, wind: f32) -> f32 {
   let band = minHead() * clamp((${BAND_GONE}.0 - e.carry) / (${BAND_GONE - BAND_FULL}.0), 0.0, 1.0);
   let push = e.carry > 0.0 && abs(e.head) > band;
   let q = select(old * e.drag, (old + gain() * e.carry * e.head) * e.drag, push);
-  if (e.carry <= 0.0) { return q; }
+  // NOTHING WHERE NOTHING STANDS ABOVE THE SILL, on either side: water below
+  // a sill cannot cross it, and kept momentum here lifted a lake up onto a
+  // building put down in it. The twin of accelerate in fluid/columns.
+  if (e.carry <= 0.0) { return 0.0; }
   // THE SQUARE OF A DENORMAL DEPTH IS NOUGHT IN f32, AND THIS IS A DIVISION.
   //
   // The bed drag is a ratio over the carry squared, and a carry of 1e-37 —

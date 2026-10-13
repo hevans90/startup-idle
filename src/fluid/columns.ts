@@ -1106,26 +1106,6 @@ export function emptyColumn(f: ColumnField, i: number) {
   if (f.arrivals) note(f.arrivals, i, -1e6, 0);
   f.depth[i] = 0;
   f.material[i] = 0;
-  // AND THE WATER RUNNING INTO IT STOPS, on all four of its edges. Momentum
-  // lives on the edges, and a flow that was running into this column a moment
-  // ago carried a film up onto the top of the block for a substep before the
-  // head turned it round — water `SOLID_LIFT` up, falling off every side. The
-  // device is told to take off what the host knows was on the edge; its own
-  // copy may be a few frames on from that. @see Arrivals
-  const x = i % f.nx, y = (i / f.nx) | 0;
-  const planes = f.layers * f.layers;
-  const stop = (arr: Float32Array, k: number, axis: 0 | 1) => {
-    for (let p = 0; p < planes; p++) {
-      const e = p * f.cells + k, v = arr[e];
-      if (v === 0) continue;
-      arr[e] = 0;
-      if (p === 0 && f.arrivals) noteFlux(f.arrivals, k, axis === 0 ? -v : 0, axis === 1 ? -v : 0);
-    }
-  };
-  stop(f.fx, i, 0);
-  if (x > 0) stop(f.fx, i - 1, 0);
-  stop(f.fy, i, 1);
-  if (y > 0) stop(f.fy, i - f.nx, 1);
 }
 
 /** The same, for a flux an arrival pushed — see the crater in `splashInto`. */
@@ -1999,13 +1979,20 @@ export function accelerate(f: ColumnField, c: PassConsts) {
               const q = push ? (fx[p] + gain * carry * head) * k : fx[p] * k;
               // The wind is added AFTER the drag, so it is this step's push
               // rather than something the drag has already taken a bite out
-              // of, and only where there is water to push: on a dry edge the
-              // limiter would stop anything moving anyway, but the flux
-              // itself would wind up.
-              fx[p] = floored(carry > 0
-                ? q / (1 + bedGain * Math.abs(q) / (carry * carry))
-                  + wxs * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1)
-                : q);
+              // of, and only where there is water to push.
+              //
+              // AND NOTHING AT ALL WHERE NOTHING STANDS ABOVE THE SILL, on
+              // either side. That edge used to keep its momentum, dragged, and
+              // the limiter only asks whether the column a flux leaves has
+              // water — not whether that water is above the sill — so a flow
+              // that had been running into a column carried on lifting water
+              // up into it however high its floor now stood: a building put
+              // down in a lake went on being wetted from below, SOLID_LIFT
+              // up, for seconds. Water below a sill cannot cross it.
+              fx[p] = carry > 0
+                ? floored(q / (1 + bedGain * Math.abs(q) / (carry * carry))
+                  + wxs * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1))
+                : 0;
             }
           } else {
             fx[p] = 0;                          // the map edge is a wall
@@ -2035,10 +2022,11 @@ export function accelerate(f: ColumnField, c: PassConsts) {
               const k = keepOf[material[head > 0 ? ia : jb]];
               const push = carry > 0 && Math.abs(head) > deadBand(minHead, carry);
               const q = push ? (fy[p] + gain * carry * head) * k : fy[p] * k;
-              fy[p] = floored(carry > 0
-                ? q / (1 + bedGain * Math.abs(q) / (carry * carry))
-                  + wys * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1)
-                : q);
+              // Nothing where nothing stands above the sill. @see fx above
+              fy[p] = carry > 0
+                ? floored(q / (1 + bedGain * Math.abs(q) / (carry * carry))
+                  + wys * (carry < WIND_DEPTH ? carry * INV_WIND_DEPTH : 1))
+                : 0;
             }
           } else {
             fy[p] = 0;

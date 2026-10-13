@@ -133,13 +133,6 @@ export type WaterField = {
    * `grid.rev` says the map has changed and kept until it changes again.
    */
   taps: CellList;
-  /**
-   * COLUMNS A BUILDING HAS JUST GONE DOWN ON, and the frames each is still to
-   * be kept dry. Emptying one once is not enough on the device: the flow on
-   * its edges there is a few frames on from the host's, and carries a film up
-   * onto the block until it has turned round. @see syncSlots, keepDry
-   */
-  drying?: Map<number, number>;
 };
 
 /** A list of cell indices built off the grid, and the `rev` it was built at. */
@@ -419,7 +412,6 @@ export function syncSlots(field: WaterField, grid: Grid) {
           byMaterial.set(m, (byMaterial.get(m) ?? 0) + columns.depth[i]);
         }
         emptyColumn(columns, i);
-        (field.drying ??= new Map()).set(i, DRY_FRAMES);
       }
       ground[i] = floor;
       const decked = layers > 1 && grid.deck[t] !== 0;
@@ -738,25 +730,7 @@ export function stepWater(field: WaterField, dt: number) {
  * them. Dividing it among them would make the tap run slower the finer the
  * grid got.
  */
-/** Frames a column a building has just gone down on is kept dry: half a second. */
-export const DRY_FRAMES = 30;
-
-/**
- * Keep the columns a building has just gone down on dry, until whatever was
- * flowing into them has turned round. @see WaterField.drying
- */
-export function keepDry(field: WaterField) {
-  const d = field.drying;
-  if (!d || d.size === 0) return;
-  for (const [i, left] of d) {
-    emptyColumn(field.columns, i);
-    if (left <= 1) d.delete(i);
-    else d.set(i, left - 1);
-  }
-}
-
 export function runSources(field: WaterField, grid: Grid, dt: number) {
-  keepDry(field);
   const { source } = grid;
   const taps = findTaps(field, grid);
   for (let k = 0; k < taps.n; k++) {
