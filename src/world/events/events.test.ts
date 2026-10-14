@@ -152,7 +152,7 @@ describe("opportunities", () => {
     const w = (now: number) => ({ ...base(now), hackathon: { x: 1, y: 1, due: now === 0 } });
     let evs = stepEvents([], w(0), next);
     evs = stepEvents(evs, w(45_000), next);
-    expect(evs[0]).toMatchObject({ phase: "over", outcome: `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder satisfaction.` });
+    expect(evs[0]).toMatchObject({ phase: "over", outcome: `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder satisfaction for a day.` });
   });
 
   test("investors pay by the town's mood, and tidying up helps", () => {

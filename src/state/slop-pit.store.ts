@@ -10,7 +10,7 @@ export const SLOP_PIT_UNLOCK_COUNT = 50;
 export const FILL_RATE_PER_CODER = 0.002; // % per second per vibe coder
 const PENALTY_THRESHOLD = 0.5;     // fill fraction below which no penalty applies
 const PENALTY_AT_FULL = 0.15;      // money mult at 100% fill (85% income lost)
-const DRAIN_SATISFACTION_HIT = -40;
+export const DRAIN_SATISFACTION_HIT = -40;
 
 type SlopPitState = {
   fill: number; // 0–100 (percent full)

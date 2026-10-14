@@ -10,6 +10,7 @@ import { setEmployeeSatisfactionReaders } from "../game/employee-satisfaction-re
 import { roomFor } from "../game/housing";
 import { attendance, deskBonus, labBonus, wonderBonus } from "../game/projects";
 import { townMoodOffsets } from "../game/town-mood";
+import { moraleOffsets } from "../game/morale";
 import {
   calcGeneratorIncome,
   calcGeneratorPerSecond,
@@ -446,8 +447,11 @@ function tickSatisfaction(
   const satOffsets = { ...computeTeamLeaderEmpSatOffsets(employees) };
   // AND THE TOWN: each kind leans toward the mood of the houses it lives in.
   // @see townMoodOffsets
-  for (const [id, n] of Object.entries(townMoodOffsets())) {
-    satOffsets[id as GeneratorId] = (satOffsets[id as GeneratorId] ?? 0) + (n ?? 0);
+  // AND WHAT EVENTS LEFT BEHIND, for as long as it is felt. @see addMorale
+  for (const offsets of [townMoodOffsets(), moraleOffsets()]) {
+    for (const [id, n] of Object.entries(offsets)) {
+      satOffsets[id as GeneratorId] = (satOffsets[id as GeneratorId] ?? 0) + (n ?? 0);
+    }
   }
   let driftMult = 1;
   for (const emp of employees) {

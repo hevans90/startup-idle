@@ -24,7 +24,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { companyLand, drainDirty, playRules, lotLine, sludgeTruckBack, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { companyLand, drainDirty, playRules, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -106,18 +106,18 @@ import {
   convoyTally, createPacing, endedBetween, HACKATHON_CODERS, isDue, repace, tallyCall, tickPacing, townMood,
 } from "./events/town-events";
 import {
-  damage, floodBaseline, isDamaged, floodedNow, floodMisery, floodPeak, portShut, stepRepairs, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
+  damage, evacuatedAway, floodBaseline, isDamaged, floodedNow, floodMisery, floodPeak, portShut, stepRepairs, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
 import {
-  AI_SPEND, AI_TERMS, CREW_SHARE, FLOOD_MS, HACKATHON_MORALE, HACKATHON_SNUB, tourFailed, LEFT_AT, MAX_ROUTES, ROUTE_BONUS, SINGULARITY_AT, routeWon, stepEvents, tourReward,
+  AI_SPEND, AI_TERMS, CREW_SHARE, EVACUEE_MORALE, FLOOD_MS, HACKATHON_MORALE, HACKATHON_SNUB, tourFailed, LEFT_AT, MAX_ROUTES, ROUTE_BONUS, SINGULARITY_AT, routeWon, stepEvents, tourReward,
 } from "./events/events";
 import { SLOP_PIT } from "./structures/def";
 import { FILL_RATE_PER_CODER, SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
 import { perMinute, recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
-import { useGeneratorStore } from "../state/generators.store";
-import { SATISFACTION_MAX, SATISFACTION_MIN } from "../game/satisfaction";
+import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
+import { addMorale } from "../game/morale";
 import { useSessionStore } from "../state/session.store";
 import { stepWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -286,6 +286,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const pacing = useRef(createPacing(useSessionStore.getState().eventPacing));
   const pacingSaved = useRef(0);
   const floodBase = useRef<FloodBase | null>(null);
+  /** The kinds a flood's evacuation has put out of their homes. @see EVACUEE_MORALE */
+  const evacuees = useRef(new Set<GeneratorId>());
   const floodRise = useRef(0);
   const floodShield = useRef<FloodShield>(null);
   const floodClock = useRef(0);
@@ -2521,7 +2523,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 routes: useSessionStore.getState().routes ?? 0,
               } : null,
               tour: door ? { x: door.x + 1, y: door.y, due: isDue(pace, "investor-tour"), reward, income, tidyCrew: Math.floor(vibe * CREW_SHARE.tidy) } : null,
-              hackathon: studio && vibe >= HACKATHON_CODERS ? { x: studio.x + 1, y: studio.y + 1, due: isDue(pace, "hackathon") } : null,
+              hackathon: studio && vibe >= HACKATHON_CODERS ? { x: studio.x + 1, y: studio.y + 1, due: isDue(pace, "hackathon"), pizza: pizzaPrice() } : null,
               // AN ACQUIRER, at the company's grandest door, once it can be sold.
               offer: front && canAcquire() ? (() => {
                 const equity = Math.floor(pendingEquity().toNumber());
@@ -2550,26 +2552,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               if (e.kind === "investor-tour") useSessionStore.getState().setSnubbed(tourFailed(income, reward));
               // An offer made has heard it. @see offerPremium
               if (e.kind === "offer") useSessionStore.getState().setSnubbed(false);
-              // A HACKATHON TURNED DOWN is remembered. @see HACKATHON_SNUB
-              if (e.kind === "hackathon" && e.chosen !== "host") {
-                useGeneratorStore.setState((g) => ({
-                  satisfactionScores: { ...g.satisfactionScores, vibe_coder: Math.max(SATISFACTION_MIN, g.satisfactionScores.vibe_coder - HACKATHON_SNUB) },
-                }));
-              }
               if (routeWon(e, tally.calls)) useSessionStore.getState().addRoute(MAX_ROUTES);
               // THE AGENTS HAD THEIR WAY: money on compute, and the meter left high. @see AI_SPEND
               if (e.kind === "singularity" && e.chosen !== "plug") {
                 useMoneyStore.setState((m) => ({ money: m.money.times(1 - AI_SPEND) }));
                 useAiSingularityStore.setState({ value: LEFT_AT });
               }
-              if (e.kind === "hackathon" && e.chosen === "host") {
-                useGeneratorStore.setState((g) => ({
-                  satisfactionScores: {
-                    ...g.satisfactionScores,
-                    vibe_coder: Math.min(SATISFACTION_MAX, g.satisfactionScores.vibe_coder + HACKATHON_MORALE),
-                  },
-                }));
+              // EVACUEES, put out for a day. @see EVACUEE_MORALE
+              if (e.kind === "river-flood") {
+                if (e.chosen === "evacuate") for (const who of evacuees.current) addMorale(who, -EVACUEE_MORALE);
+                evacuees.current.clear();
               }
+              // A HACKATHON, hosted or turned down, is felt for a day. @see addMorale
+              if (e.kind === "hackathon") addMorale("vibe_coder", e.chosen === "host" ? HACKATHON_MORALE : -HACKATHON_SNUB);
             }
             if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
           }
@@ -2630,6 +2625,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             floodedCount.current = wet.size;
             setFloodState(wet, floodShield.current);
             setFlooded(floodMisery());
+            // WHO WAS PUT OUT, for their mood once it is over. @see EVACUEE_MORALE
+            for (const who of Object.keys(evacuatedAway(st.grid))) evacuees.current.add(who as GeneratorId);
             // NOTHING DONE: what the water reaches is damaged. @see damage
             if (flood && !floodShield.current) damage(st.grid, wet);
             // OVER: what is left on dry ground soaking away, and once it has,

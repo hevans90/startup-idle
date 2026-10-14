@@ -17,7 +17,7 @@ import { createExports, type Exports } from "../world/boats/exports";
 import { createTown, type Town } from "../world/agents/town";
 import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
 import { createEvolution, serviceOf, type Evolution } from "../world/agents/services";
-import type { GameEvent } from "../world/events/events";
+import { HACKATHON_PIZZA, type GameEvent } from "../world/events/events";
 import { sendSludgeTrucks } from "../world/events/sludge";
 import { useSlopPitStore } from "./slop-pit.store";
 import { housedBy } from "../game/housing";
@@ -288,7 +288,9 @@ export const parcelPrice = () => {
 };
 export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
 /** What each choice an event offers costs in money, for those that cost any. Sludge trucks are paid for apart. */
-const CHOICE_PRICE: Record<string, () => number> = {};
+const CHOICE_PRICE: Record<string, () => number> = { host: () => pizzaPrice() };
+/** What a hackathon's pizza costs: seconds of income, never under a floor. @see HACKATHON_PIZZA */
+export const pizzaPrice = () => Math.max(50, Math.round(incomeNow() * HACKATHON_PIZZA));
 
 /** When a spot for the slop pit was last looked for. @see openSlopPit */
 let slopTriedAt = -Infinity;

@@ -300,5 +300,12 @@ Built, phase by phase — everything above except where noted:
   with desks for nearly everyone — inside the target. Short of desks it is ~5%: "no desk"
   weighs on every home alike and swamps where it is. Desks are the first lesson of
   placement, and the gap only opens once a player has learned it.
-- *Not measured yet:* dominant choices per event, and run spread across term sheets and
-  founders — the abstract map sim has no events or term sheets to play.
+- **Dominant choices** (`dominant-choices.test.ts`, a model of each choice over ten minutes
+  of income, 4,000 random companies). First measured: evacuate 78%, tidy 97%, decline the
+  hackathon 100%, drain 93% — event morale was a bump the score lost in a minute, so it
+  cost and gave next to nothing. Now morale holds for a day, the hackathon costs pizza
+  (20 s of income), tidying takes every vibe coder, evacuees are −5 for a day: flood
+  33/32/35, convoy 54/46, tour 38/62, hackathon 57/43. *Open:* the pit's drain is still
+  best 80% of the time (the core game's own one-off hit); leaving the agents be is meant
+  to lose.
+- *Not measured yet:* run spread across term sheets and founders.

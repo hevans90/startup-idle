@@ -65,7 +65,7 @@ export type EventWorld = {
   /** Where investors would be shown round, whether a tour is due, and what it would come to as things are. */
   tour: { x: number; y: number; due: boolean; reward: number; tidyCrew: number; income: number } | null;
   /** The vibe coders' studio, with enough of them in it for a hackathon, and whether one is due. */
-  hackathon: { x: number; y: number; due: boolean } | null;
+  hackathon: { x: number; y: number; due: boolean; pizza: number } | null;
   /**
    * An ACQUIRER, once the company can be sold: where its front door is,
    * whether an offer is due, and the Equity a sale pays now and with the
@@ -141,6 +141,10 @@ export const TIDY_MOOD = 10;
 /** Satisfaction a hackathon gives the vibe coders, and what turning one down costs. */
 export const HACKATHON_MORALE = 15;
 export const HACKATHON_SNUB = 10;
+/** The pizza for a hackathon, in seconds of income. @see pizzaPrice */
+export const HACKATHON_PIZZA = 20;
+/** What being evacuated puts a flooded home's people out, in satisfaction for a day. */
+export const EVACUEE_MORALE = 5;
 /** Whether a tour left the investors unimpressed: they paid less than the base 30 s of income. @see SNUB */
 export const tourFailed = (income: number, reward: number) => reward < Math.max(0, income) * 30;
 
@@ -170,7 +174,7 @@ const people = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
  * so the price grows with the company and never becomes a rounding error.
  * @see eventAway
  */
-export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 0.5 } as const;
+export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 1 } as const;
 
 /** At this singularity, with agents running, they start deciding things. */
 export const SINGULARITY_AT = 90;
@@ -276,12 +280,12 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     of: (w) => w.hackathon && {
       ...w.hackathon,
       choices: [
-        { id: "host", label: "Host it", cost: `vibe coders off work a minute, then +${HACKATHON_MORALE} satisfaction` },
-        { id: "decline", label: "Not now", cost: `−${HACKATHON_SNUB} vibe coder satisfaction` },
+        { id: "host", label: "Host it", cost: `${money(w.hackathon.pizza)} of pizza, vibe coders off work a minute, then +${HACKATHON_MORALE} satisfaction for a day` },
+        { id: "decline", label: "Not now", cost: `−${HACKATHON_SNUB} vibe coder satisfaction for a day` },
       ],
     },
     goesAhead: (e) => e.chosen === "host",
-    outcome: (e) => (e.chosen === "host" ? `They are back, and happier for it: +${HACKATHON_MORALE} vibe coder satisfaction.` : `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder satisfaction.`),
+    outcome: (e) => (e.chosen === "host" ? `They are back, and happier for it: +${HACKATHON_MORALE} vibe coder satisfaction for a day.` : `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder satisfaction for a day.`),
   },
 };
 
@@ -315,7 +319,7 @@ function stepOpportunities(out: GameEvent[], w: EventWorld, next: () => number):
 export function floodChoices(w: NonNullable<EventWorld["river"]>): EventChoice[] {
   return [
     { id: "sandbags", label: "Sandbag the riverside", cost: `${people(w.sandbagCrew, "intern")} filling sandbags until it passes` },
-    { id: "evacuate", label: "Evacuate", cost: "flooded homes stop work until it passes" },
+    { id: "evacuate", label: "Evacuate", cost: `flooded homes stop work until it passes, and are put out: −${EVACUEE_MORALE} satisfaction for a day` },
     { id: "brace", label: "Brace for it", cost: "whatever the water reaches is damaged: idle until repaired, one at a time" },
   ];
 }
