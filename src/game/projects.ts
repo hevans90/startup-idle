@@ -279,7 +279,7 @@ export const PROJECTS: readonly ProjectDef[] = [
   {
     id: "conference",
     name: "Conference Centre",
-    pitch: "Keynotes, lanyards and a stage. Valuation grows half as fast again, for good.",
+    pitch: "Keynotes, lanyards and a stage. Valuation grows half as fast again, for good, and convoys pay treble at seaports near it.",
     structure: "conference",
     builders: ["vibe_coder", "10x_dev"],
     work: 14_000,

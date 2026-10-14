@@ -13,6 +13,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import type { Structure } from "../grid";
 import { structureDef, type StructureDef } from "../structures/def";
 import { workplaceKind, type Commute } from "../agents/commute";
+import { NEAR_CONFERENCE_PAYS } from "../events/convoy";
 import { moodWord, type MoodParts } from "../agents/mood";
 import { growthShort, serviceOf, type ServiceId } from "../agents/services";
 import { LAB_SHARE } from "../projects/labs";
@@ -52,6 +53,8 @@ export type InfoContext = {
   repairedIn?: (id: number) => number | null;
   /** What regular routes add to every port call, as a share: 0.4 is +40%. @see ROUTE_BONUS */
   routeBonus?: number;
+  /** Seaports near a standing Conference Centre, by id. @see convoyPays */
+  nearConference?: ReadonlySet<number>;
 };
 
 export type InfoLine = { text: string; tone?: "good" | "warn" | "dim" };
@@ -275,6 +278,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     ];
     const broken = damageLine(s, ctx);
     if (broken) lines.push(broken);
+    if (ctx.nearConference?.has(s.id)) lines.push({ text: `Conference Centre nearby: convoys ×${NEAR_CONFERENCE_PAYS}`, tone: "good" });
     if (ctx.routeBonus) lines.push({ text: `Regular routes: +${Math.round(ctx.routeBonus * 100)}% a call`, tone: "good" });
     if (earning > 0) lines.push({ text: `Earning ${ctx.money(earning)}/min`, tone: "good" });
     return {

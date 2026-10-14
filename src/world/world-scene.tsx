@@ -93,6 +93,7 @@ import { stepEvolution } from "./agents/services";
 import { liveSeating } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
+import { CONVOY_PAYS, convoyPays } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { useAgentsStore } from "../state/agents.store";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
@@ -2402,7 +2403,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           fee *= 1 + ROUTE_BONUS * (useSessionStore.getState().routes ?? 0);
           // A CONVOY IN pays double, and is counted. @see stepOpportunities
           const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
-          if (convoy) { fee *= 2; tallyCall(convoy.id, fee); }
+          // Treble at a port by the Conference Centre. @see convoyPays
+          if (convoy) { fee *= s ? convoyPays(st.grid, s) : CONVOY_PAYS; tallyCall(convoy.id, fee); }
           if (st.playing) useMoneyStore.getState().increaseMoney(fee);
           recordCall(getExports(), id, fee, now);
         }

@@ -4,7 +4,7 @@
  * map says where; this says why. @see createDesireHeat, desireAt
  *
  * And with a café in hand, the workplaces next door whose desks it would
- * serve. @see CAFE_BOOST
+ * serve; with the Conference Centre, the seaports near it. @see CAFE_BOOST, convoyPays
  */
 import { useRef } from "react";
 import { twMerge } from "tailwind-merge";
@@ -17,6 +17,7 @@ import { useCellAnchorFollow } from "../anchors/use-cell-anchor";
 import { liveDesireMaps, desireAt } from "../agents/desirability";
 import { GROW_AT } from "../agents/mood-rules";
 import { CAFE_BOOST, CAFE_REACH, servedByCafe } from "../agents/desk-perks";
+import { CONFERENCE_REACH, NEAR_CONFERENCE_PAYS, portsNear } from "../events/convoy";
 import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
 
@@ -37,13 +38,18 @@ export function DesireReadout({ className }: { className?: string }) {
   const tier = d ? growsTo(d.total) : null;
   // A CAFÉ IN HAND: the workplaces next door it would serve. @see CAFE_BOOST
   const cafeOk = !!(def?.id === "cafe" && tool === "placeStructure" && hover && playing && validatePlacement(grid, def, hover.x, hover.y, playRules(grid)).ok);
+  // THE CONFERENCE CENTRE IN HAND: the seaports near enough for convoys to pay treble. @see convoyPays
+  const confOk = !!(def?.id === "conference" && tool === "placeStructure" && hover && playing && validatePlacement(grid, def, hover.x, hover.y, playRules(grid)).ok);
+  const ports = confOk
+    ? portsNear(grid, { id: -1, def: "conference", x: hover!.x, y: hover!.y, w: def!.footprint.w, h: def!.footprint.h }, (s) => !!structureDef(s.def)?.port)
+    : [];
   const served = cafeOk ? servedByCafe(grid, { id: -1, def: "cafe", x: hover!.x, y: hover!.y, w: def!.footprint.w, h: def!.footprint.h }) : [];
   return (
     <div ref={ref} className={twMerge(
       "pointer-events-none invisible absolute left-0 top-0 -translate-x-1/2 -translate-y-full whitespace-nowrap",
       "border border-primary-500 bg-primary-50/95 px-1.5 py-1 text-[10px] leading-[13px] text-primary-900 shadow",
       "dark:bg-primary-900/95 dark:text-primary-100",
-      !d && !cafeOk && "hidden",
+      !d && !cafeOk && !confOk && "hidden",
       className,
     )}>
       {cafeOk && (
@@ -53,6 +59,11 @@ export function DesireReadout({ className }: { className?: string }) {
             {served.map((w) => <p key={w.id} className="text-emerald-700 dark:text-emerald-400">{structureDef(w.def)?.name ?? w.def}</p>)}
           </>
           : <p className="opacity-70">No workplace within {CAFE_REACH} tiles</p>
+      )}
+      {confOk && (
+        ports.length
+          ? <p className="font-bold">Convoys ×{NEAR_CONFERENCE_PAYS} at {ports.length} seaport{ports.length === 1 ? "" : "s"} nearby</p>
+          : <p className="opacity-70">No seaport within {CONFERENCE_REACH} tiles</p>
       )}
       {d && (
         <>

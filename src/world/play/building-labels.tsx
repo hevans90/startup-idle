@@ -38,6 +38,8 @@ import { ROUTE_BONUS } from "../events/events";
 import { repairedIn } from "../events/flood";
 import { liveLeadership } from "../agents/leaders";
 import { deskPerks } from "../agents/desk-perks";
+import { conferenceNear } from "../events/convoy";
+import { structureDef } from "../structures/def";
 import { workplaceKind } from "../agents/commute";
 import { useTeamLeadersEmployeesStore } from "../../state/team-leaders.store";
 import { liveMoods } from "../agents/mood";
@@ -116,7 +118,8 @@ function gather(): InfoContext {
       if (why.length) perks.set(s.id, why);
     }
   }
-  return { perks, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
+  const nearConference = new Set([...st.grid.structures.values()].filter((s) => structureDef(s.def)?.port && conferenceNear(st.grid, s)).map((s) => s.id));
+  return { perks, nearConference, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
 }
 
 /**
