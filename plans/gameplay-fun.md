@@ -280,7 +280,9 @@ Built, phase by phase — everything above except where noted:
   longest flat stretch guarded in the sim. Promotion of interns to vibe coders for innovation, dearer each time. *Not built:*
   vibe coder → 10x dev promotion, which would sidestep the 10x devs' scarcity.
 - **B** — one desirability score, the placing heat map and its readout, houses growing and
-  filling by it; workplaces' "+$X" floaters.
+  filling by it; workplaces' "+$X" floaters; adjacency — a café next door +10% at a
+  workplace's desks, the Conference Centre treble convoys at seaports near it, both on the
+  ghost. *Not built:* the "what's earning" street overlay, the sale naming the best street.
 - **C** — sandbags, extra hands and tidying cost crew time; an ignored flood leaves damage a
   repair crew works through; a served convoy becomes a regular route; the Conference Centre
   or a Hackerspace. A tour that leaves investors unimpressed lowers the next acquirer's
@@ -298,3 +300,5 @@ Built, phase by phase — everything above except where noted:
   with desks for nearly everyone — inside the target. Short of desks it is ~5%: "no desk"
   weighs on every home alike and swamps where it is. Desks are the first lesson of
   placement, and the gap only opens once a player has learned it.
+- *Not measured yet:* dominant choices per event, and run spread across term sheets and
+  founders — the abstract map sim has no events or term sheets to play.
