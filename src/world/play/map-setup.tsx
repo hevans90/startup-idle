@@ -239,7 +239,7 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
               // The REPORTED seed: the generator rerolls a map with too little
               // to build on, and the one shown is the one to make again.
               onClick={() => map && onFound({ seed: map.report.seed, params })}>
-              Found here →
+              Next: sign a term sheet →
             </Button>
           </div>
         </div>

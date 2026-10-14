@@ -1,17 +1,22 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
+import { termStatus } from "../game/term-sheets";
+import { useTicking } from "../hooks/use-ticking";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 
 /**
  * Toolbar badge showing the chosen founder; hovering reveals their tagline,
- * perks and starting cash. Hidden until a founder is picked.
+ * perks, rule on the map, the run's term sheet and starting cash. Hidden until a founder is picked.
  */
 export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
   const founderId = useFounderStore((s) => s.selectedFounderId);
   const exitCount = useExitsStore((s) => s.exits[founderId ?? ""]?.count ?? 0);
   const founder = FOUNDERS.find((f) => f.id === founderId);
+  // Ticking, so the term sheet's clock moves while the popover is open.
+  useTicking(1000);
+  const term = termStatus();
   if (!founder) return null;
 
   const Icon = founder.icon;
@@ -47,6 +52,23 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
             </li>
           ))}
         </ul>
+
+        {founder.rule && (
+          <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
+            <span className="font-semibold">On the map:</span> {founder.rule}
+          </p>
+        )}
+
+        {/* THE TERM SHEET SIGNED, and where it stands. @see game/term-sheets */}
+        {term && (
+          <div className="mt-2 border-t border-primary-400/40 pt-2 text-xs">
+            <p className="font-semibold">{term.sheet.investor}: +{Math.round(term.sheet.bonus * 100)}% Equity</p>
+            <p>{term.sheet.goal}</p>
+            <p className={twMerge("tabular-nums", term.progress.met ? "text-emerald-700 dark:text-emerald-400" : "opacity-70")}>
+              {term.progress.text}
+            </p>
+          </div>
+        )}
 
         <div className="mt-2 border-t border-primary-400/40 pt-2 text-xs text-emerald-700 dark:text-emerald-400">
           Founded with ${founder.startingCash}
