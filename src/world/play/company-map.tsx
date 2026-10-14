@@ -8,6 +8,7 @@
  * The default export, so the game can load it lazily: the map engine is most
  * of the bundle, and the founder screen does not need it.
  */
+import { TopStreets } from "./top-streets";
 import { DesireReadout } from "./desire-readout";
 import { useEffect } from "react";
 
@@ -50,6 +51,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
       <BuildingLabels />
       <DesireReadout />
       <PortIncome />
+      <TopStreets className="absolute bottom-24 right-2 z-10" />
       <ProjectsPanel className="absolute left-2 top-24 z-10 max-md:top-2 max-md:max-w-[calc(100%-1rem)]" />
       <EventMarkers />
       <LeaderTags />

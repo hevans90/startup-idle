@@ -282,7 +282,7 @@ Built, phase by phase — everything above except where noted:
 - **B** — one desirability score, the placing heat map and its readout, houses growing and
   filling by it; workplaces' "+$X" floaters; adjacency — a café next door +10% at a
   workplace's desks, the Conference Centre treble convoys at seaports near it, both on the
-  ghost. *Not built:* the "what's earning" street overlay, the sale naming the best street.
+  ghost. The Earnings overlay ranks streets, and the acquirer's offer names the best.
 - **C** — sandbags, extra hands and tidying cost crew time; an ignored flood leaves damage a
   repair crew works through; a served convoy becomes a regular route; the Conference Centre
   or a Hackerspace. A tour that leaves investors unimpressed lowers the next acquirer's

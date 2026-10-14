@@ -142,6 +142,12 @@ describe("opportunities", () => {
     expect(evs[0].outcome).toContain("the next acquirer will offer less");
   });
 
+  test("an acquirer names the street that caught their eye", () => {
+    const w = (street?: string) => ({ ...base(0), offer: { x: 1, y: 1, due: true, equity: 5, withPremium: 6, ...(street ? { street } : {}) } });
+    expect(stepEvents([], w("the street by the Studio"), next)[0].text).toContain("walking the street by the Studio");
+    expect(stepEvents([], w(), next)[0].text).toBe("Someone wants to buy the company. An offer is coming.");
+  });
+
   test("a hackathon nobody hosted never starts", () => {
     const w = (now: number) => ({ ...base(now), hackathon: { x: 1, y: 1, due: now === 0 } });
     let evs = stepEvents([], w(0), next);

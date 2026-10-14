@@ -492,6 +492,9 @@ type WorldState = {
   /** Whether houses are tinted by how happy they are. @see moodTint */
   moodOverlay: boolean;
   setMoodOverlay: (on: boolean) => void;
+  /** Whether the streets are tinted by what they earn. @see liveStreetEarnings */
+  earningsOverlay: boolean;
+  setEarningsOverlay: (on: boolean) => void;
   /** Whether the wonders menu is open. @see WondersPanel */
   wondersOpen: boolean;
   setWondersOpen: (open: boolean) => void;
@@ -803,6 +806,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   moodOverlay: false,
   setMoodOverlay: (moodOverlay) => set({ moodOverlay }),
+  earningsOverlay: false,
+  setEarningsOverlay: (earningsOverlay) => set({ earningsOverlay }),
   wondersOpen: false,
   setWondersOpen: (wondersOpen) => set({ wondersOpen }),
   notice: null,

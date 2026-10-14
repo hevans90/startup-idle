@@ -71,7 +71,7 @@ export type EventWorld = {
    * whether an offer is due, and the Equity a sale pays now and with the
    * acquirer's premium. Null while there is nothing to sell. @see OFFER_PREMIUM
    */
-  offer: { x: number; y: number; due: boolean; equity: number; withPremium: number } | null;
+  offer: { x: number; y: number; due: boolean; equity: number; withPremium: number; street?: string } | null;
   /**
    * THE AGENTS, once any run: at the Data Centre, whether the singularity
    * meter is high enough for them to start deciding things, and what a sale
@@ -153,8 +153,8 @@ type Opportunity = {
   activeMs: number;
   warning: { title: string; text: string };
   active: { title: string; text: string };
-  /** Where it is, whether one is due, and its choices, or null when there can be none. */
-  of: (w: EventWorld) => { x: number; y: number; due: boolean; choices: EventChoice[] } | null;
+  /** Where it is, whether one is due, and its choices — and its warning's text, where that depends on the town — or null when there can be none. */
+  of: (w: EventWorld) => { x: number; y: number; due: boolean; choices: EventChoice[]; text?: string } | null;
   /** Whether it goes ahead when it strikes, given what was chosen. */
   goesAhead?: (e: GameEvent) => boolean;
   outcome: (e: GameEvent, w: EventWorld) => string;
@@ -239,6 +239,8 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     active: { title: "An offer is on the table", text: "Sell now and they pay a premium. Hold out, and the company — and the next offer — may grow." },
     of: (w) => w.offer && {
       ...w.offer,
+      // THE BEST STREET is what caught their eye. @see liveStreetEarnings
+      ...(w.offer.street ? { text: `Someone wants to buy the company — they have been walking ${w.offer.street}. An offer is coming.` } : {}),
       choices: [
         { id: "accept", label: "Look at the offer", cost: `+${w.offer.withPremium} Equity, against ${w.offer.equity} without them · sells the company` },
         { id: "hold", label: "Hold out", cost: "the premium goes with them" },
@@ -291,7 +293,7 @@ function stepOpportunities(out: GameEvent[], w: EventWorld, next: () => number):
     if (!ev) {
       if (!at?.due || out.some((e) => e.phase !== "over")) continue;
       out = [...out, {
-        id: next(), kind, phase: "warning", ...o.warning,
+        id: next(), kind, phase: "warning", ...o.warning, ...(at.text ? { text: at.text } : {}),
         where: { x: at.x, y: at.y }, strikesAt: w.now + o.warnMs, choices: at.choices,
       }];
       continue;

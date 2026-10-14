@@ -9,6 +9,8 @@ import { founderIs } from "../game/founder-rules";
 import { HUSTLER_EVENTS } from "../game/founders.catalog";
 import { housedBy } from "../game/housing";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
+import { createStreetHeat, type StreetHeat } from "./render/street-heat";
+import { liveStreetEarnings, liveStreets, streetName } from "./play/street-earnings";
 import { liveDesireMaps } from "./agents/desirability";
 import { canAcquire, offerPremium, pendingEquity } from "../game/acquisition";
 import { heldHidden } from "./render/hold";
@@ -250,6 +252,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // held so an edit can re-texture just the cells that changed
   const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
+  /** The earnings overlay. @see createStreetHeat */
+  const streetHeatRef = useRef<StreetHeat | null>(null);
   /** The placing heat map. @see createDesireHeat */
   const heatRef = useRef<DesireHeat | null>(null);
   /** The boats, drawn among the movers of the bands. @see world/boats */
@@ -1400,6 +1404,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (overlayRoot.current) {
         cursorRef.current = createBuildCursor(overlayRoot.current, bl);
         heatRef.current = createDesireHeat(overlayRoot.current);
+        streetHeatRef.current = createStreetHeat(overlayRoot.current);
       }
       boatRef.current = createBoatLayer(bl);
       townRef.current = createTownLayer(bl);
@@ -1432,6 +1437,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cursorRef.current = null;
       heatRef.current?.destroy();
       heatRef.current = null;
+      streetHeatRef.current?.destroy();
+      streetHeatRef.current = null;
       boatRef.current?.destroy();
       boatRef.current = null;
       townRef.current?.destroy();
@@ -1923,6 +1930,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     heat.draw(grid, liveDesireMaps(grid, net), who, (x, y) => validatePlacement(grid, def!, x, y, rules).ok,
       scale, useSlopPitStore.getState().fill / 100);
   }, [tool, structureDefId, grid, revision, scale, sceneEpoch]);
+
+  /** THE EARNINGS OVERLAY: the streets tinted by what they earn, every two seconds while it is on. */
+  const earningsOverlay = useWorldStore((s) => s.earningsOverlay);
+  useEffect(() => {
+    const heat = streetHeatRef.current;
+    if (!heat) return;
+    if (!earningsOverlay) { heat.draw(grid, null, [], scale); return; }
+    const paint = () => heat.draw(grid, liveStreets()?.streets ?? null, liveStreetEarnings(), scale);
+    paint();
+    const id = setInterval(paint, 2000);
+    // Cleared through the ref: the scene going down destroys the overlay first.
+    return () => { clearInterval(id); streetHeatRef.current?.draw(grid, null, [], scale); };
+  }, [earningsOverlay, grid, scale, sceneEpoch]);
 
   useEffect(() => {
     const cur = cursorRef.current, tex = texRef.current;
@@ -2505,7 +2525,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               // AN ACQUIRER, at the company's grandest door, once it can be sold.
               offer: front && canAcquire() ? (() => {
                 const equity = Math.floor(pendingEquity().toNumber());
-                return { x: front.x + 1, y: front.y, due: isDue(pace, "offer"), equity, withPremium: Math.floor(equity * offerPremium()) };
+                const best = isDue(pace, "offer") ? liveStreetEarnings()[0] : undefined;
+                return {
+                  x: front.x + 1, y: front.y, due: isDue(pace, "offer"), equity, withPremium: Math.floor(equity * offerPremium()),
+                  ...(best ? { street: streetName(best) } : {}),
+                };
               })() : null,
               // THE AGENTS, at the Data Centre, once any run. @see SINGULARITY_AT
               singularity: dc && useAgentsStore.getState().agents > 0 ? (() => {
