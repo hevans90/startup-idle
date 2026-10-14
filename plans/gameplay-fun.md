@@ -291,3 +291,10 @@ Built, phase by phase — everything above except where noted:
 - **E** — workplaces dim when empty; team leaders lead the workplace nearest the best home
   of their kind (+25% at its desks); agents speed the singularity, and at 90% they decide
   things — pull the plug, sell on their terms, or lose half the money to compute.
+
+### Measured
+
+- **Placement gap** (`placement-gap.test.ts`): ~33% on three 64-tile maps, sixty lots each,
+  with desks for nearly everyone — inside the target. Short of desks it is ~5%: "no desk"
+  weighs on every home alike and swamps where it is. Desks are the first lesson of
+  placement, and the gap only opens once a player has learned it.
