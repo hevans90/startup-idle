@@ -308,4 +308,12 @@ Built, phase by phase — everything above except where noted:
   33/32/35, convoy 54/46, tour 38/62, hackathon 57/43. *Open:* the pit's drain is still
   best 80% of the time (the core game's own one-off hit); leaving the agents be is meant
   to lose.
-- *Not measured yet:* run spread across term sheets and founders.
+- **Run spread** (`run-spread.test.ts`, five founders in the map sim, milestones on each
+  run's own clock to the core): ~9%. The Visionary's Data Centre comes at 36 min not 52,
+  the Hustler does everything sooner; the Bootstrapper and the Hacker play the NEET's run
+  within a few percent — their rules are about the map (build prices, labs), which the
+  abstract sim barely sees. Term sheets are not in the sim at all.
+- **Found on the way: the IPO Tower is a wall for some founders.** The Visionary and the
+  Hustler end the sim's four hours with 344 and 324 interns, short of the IPO's 350, and
+  never build it: a fixed intern headcount on the last wonder shuts out founders whose
+  economy leans away from interns. *Open.*

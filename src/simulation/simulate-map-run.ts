@@ -21,6 +21,7 @@ import { roomFor, setHousingReader } from "../game/housing";
 import {
   PROJECTS, buildersFor, projectCost, setProjectReader, type ProjectDef, type ProjectId,
 } from "../game/projects";
+import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
@@ -55,6 +56,8 @@ export type MapRunOptions = {
   truck?: number;
   /** Seconds to go on playing once the core upgrades are done: the late game. */
   afterCore?: number;
+  /** Who founds it, by id: their modifiers and their rule on the map, at no exits. @see FOUNDERS */
+  founder?: string;
 };
 
 export type MapRunReport = {
@@ -155,6 +158,7 @@ export function simulateMapRun(
   const coreIds = new Set(UPGRADES_CORE.map((u) => u.id));
 
   resetAllGameStores();
+  if (options.founder) useFounderStore.getState().chooseFounder(options.founder);
   const now = Date.now();
   useGeneratorStore.setState({ globalLastTick: now });
   useInnovationStore.setState({ globalLastTick: now });
