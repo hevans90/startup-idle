@@ -20,7 +20,8 @@ import { housedBy, residentsIn } from "../game/housing";
 import { projectForStructure, setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
 import { setTermReader } from "../game/term-sheets";
 import { setPromotionMoveOut } from "../state/promotion.store";
-import { leadShare, liveLeadership } from "./agents/leaders";
+import { liveLeadership } from "./agents/leaders";
+import { deskShare } from "./agents/desk-perks";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { MAX_ROUTES } from "./events/events";
 import { useInnovationStore } from "../state/innovation.store";
@@ -292,13 +293,13 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const remote = useSessionStore.getState().remoteBeds ?? {};
       const net = getNetwork();
       const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;
-      // LED: the desks at each team leader's workplace. @see leadShare
-      const lead = net ? leadShare(
+      // AT THEIR DESKS: a team leader leading them, a café next door. @see deskShare
+      const desks = net ? deskShare(
         st.grid,
         liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100)),
         liveSeating(st.grid, net).desks, ownedNow(),
       ) : undefined;
-      return { built, away, commute, labs, racks, lead };
+      return { built, away, commute, labs, racks, desks };
     });
   }, [play]);
   // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is

@@ -37,6 +37,8 @@ import { useSessionStore } from "../../state/session.store";
 import { ROUTE_BONUS } from "../events/events";
 import { repairedIn } from "../events/flood";
 import { liveLeadership } from "../agents/leaders";
+import { deskPerks } from "../agents/desk-perks";
+import { workplaceKind } from "../agents/commute";
 import { useTeamLeadersEmployeesStore } from "../../state/team-leaders.store";
 import { liveMoods } from "../agents/mood";
 import { useSlopPitStore } from "../../state/slop-pit.store";
@@ -104,8 +106,17 @@ function gather(): InfoContext {
   const moods = net ? liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100) : new Map();
   const labsNear = new Set([...st.grid.structures.values()].filter((s) => s.def === "lab" && nearHub(st.grid, s)).map((s) => s.id));
   const racksPowered = new Set([...st.grid.structures.values()].filter((s) => s.def === "rack" && rackPowered(st.grid, s)).map((s) => s.id));
-  const leads = net ? liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, moods).leads : undefined;
-  return { leads, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
+  // WHAT EACH WORKPLACE'S DESKS GET: a leader, a café next door. @see deskPerks
+  const lead = net ? liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, moods) : null;
+  const perks = new Map<number, string[]>();
+  if (lead) {
+    for (const s of st.grid.structures.values()) {
+      if (s.build || !workplaceKind(s.def)) continue;
+      const { why } = deskPerks(st.grid, lead, s);
+      if (why.length) perks.set(s.id, why);
+    }
+  }
+  return { perks, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
 }
 
 /**

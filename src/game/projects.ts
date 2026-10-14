@@ -337,8 +337,11 @@ export const labBonus = () => {
   // THE HACKER's labs count for more. @see HACKER_LABS
   return founderIs("hacker") ? 1 + (mult - 1) * HACKER_LABS : mult;
 };
-/** What the team leaders on the map multiply a kind's work by. One with no map. @see leadShare */
-export const leadBonus = (id: GeneratorId) => 1 + (reader ? reader().lead?.[id] ?? 0 : 0);
+/**
+ * What the map does for a kind's work AT ITS DESKS — team leaders leading
+ * them, cafés next door — as a multiplier. One with no map. @see deskShare
+ */
+export const deskBonus = (id: GeneratorId) => 1 + (reader ? reader().desks?.[id] ?? 0 : 0);
 
 /** How many R&D labs stand on the map. */
 export const labsBuilt = () => (reader ? reader().labs?.count ?? 0 : 0);
@@ -412,8 +415,8 @@ export type ProjectReading = {
    * the Data Centre — and how many at half, further off. @see game/agents
    */
   racks?: { powered: number; unpowered: number };
-  /** What being led adds to each kind's work, as a share: 0.1 is +10%. @see leadShare */
-  lead?: Partial<Record<GeneratorId, number>>;
+  /** What leaders and cafés add to each kind's work at its desks, as a share: 0.1 is +10%. @see deskShare */
+  desks?: Partial<Record<GeneratorId, number>>;
 };
 
 let reader: (() => ProjectReading) | null = null;

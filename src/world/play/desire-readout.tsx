@@ -2,6 +2,9 @@
  * World v2 — WHAT A LOT HERE WOULD GET: with a lot in hand, the tile under the
  * pointer's desirability and what it is made of, beside the cursor. The heat
  * map says where; this says why. @see createDesireHeat, desireAt
+ *
+ * And with a café in hand, the workplaces next door whose desks it would
+ * serve. @see CAFE_BOOST
  */
 import { useRef } from "react";
 import { twMerge } from "tailwind-merge";
@@ -13,6 +16,7 @@ import { getNetwork, playRules, useWorldStore } from "../../state/world.store";
 import { useCellAnchorFollow } from "../anchors/use-cell-anchor";
 import { liveDesireMaps, desireAt } from "../agents/desirability";
 import { GROW_AT } from "../agents/mood-rules";
+import { CAFE_BOOST, CAFE_REACH, servedByCafe } from "../agents/desk-perks";
 import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
 
@@ -31,14 +35,25 @@ export function DesireReadout({ className }: { className?: string }) {
   const ok = !!(who && hover && net && playing && def && validatePlacement(grid, def, hover.x, hover.y, playRules(grid)).ok);
   const d = ok ? desireAt(grid, liveDesireMaps(grid, net!), hover!.x, hover!.y, who!, useSlopPitStore.getState().fill / 100) : null;
   const tier = d ? growsTo(d.total) : null;
+  // A CAFÉ IN HAND: the workplaces next door it would serve. @see CAFE_BOOST
+  const cafeOk = !!(def?.id === "cafe" && tool === "placeStructure" && hover && playing && validatePlacement(grid, def, hover.x, hover.y, playRules(grid)).ok);
+  const served = cafeOk ? servedByCafe(grid, { id: -1, def: "cafe", x: hover!.x, y: hover!.y, w: def!.footprint.w, h: def!.footprint.h }) : [];
   return (
     <div ref={ref} className={twMerge(
       "pointer-events-none invisible absolute left-0 top-0 -translate-x-1/2 -translate-y-full whitespace-nowrap",
       "border border-primary-500 bg-primary-50/95 px-1.5 py-1 text-[10px] leading-[13px] text-primary-900 shadow",
       "dark:bg-primary-900/95 dark:text-primary-100",
-      !d && "hidden",
+      !d && !cafeOk && "hidden",
       className,
     )}>
+      {cafeOk && (
+        served.length
+          ? <>
+            <p className="font-bold">Desks next door +{Math.round(CAFE_BOOST * 100)}%</p>
+            {served.map((w) => <p key={w.id} className="text-emerald-700 dark:text-emerald-400">{structureDef(w.def)?.name ?? w.def}</p>)}
+          </>
+          : <p className="opacity-70">No workplace within {CAFE_REACH} tiles</p>
+      )}
       {d && (
         <>
           <p className="font-bold tabular-nums">

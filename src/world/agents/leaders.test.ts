@@ -5,7 +5,8 @@ import { createGrid, fillTerrain, idx } from "../grid";
 import { createNetwork } from "../roads/network";
 import { placeCommand } from "../structures/place";
 import { structureDef } from "../structures/def";
-import { AT_WORK, LEAD_BOOST, createLeaders, leadShare, leadershipOf, stepLeaders } from "./leaders";
+import { AT_WORK, LEAD_BOOST, createLeaders, leadershipOf, stepLeaders } from "./leaders";
+import { CAFE_BOOST, deskPerks, deskShare } from "./desk-perks";
 import { placesOf } from "./roads";
 import { createTown, stepTown } from "./town";
 
@@ -73,7 +74,19 @@ describe("who the leaders lead", () => {
     const { g, net, id } = street();
     const lead = leadershipOf(g, placesOf(g, net), [{ id: "tl_1", role: "intern" as const }], new Map());
     const work = lead.of.get("tl_1")!.work;
-    const share = leadShare(g, lead, new Map([[work, { used: 4 }], [id("garage", 0) === work ? id("office-intern", 17) : id("garage", 0), { used: 6 }]]), { intern: 10 });
+    const other = id("garage", 0) === work ? id("office-intern", 17) : id("garage", 0);
+    const share = deskShare(g, lead, new Map([[work, { used: 4 }], [other, { used: 6 }]]), { intern: 10 });
     expect(share.intern).toBeCloseTo((4 * LEAD_BOOST) / 10);
+  });
+
+  test("a café next door is a tenth more at a workplace's desks, and says so", () => {
+    const { g, id } = street();
+    const office = g.structures.get(id("office-intern", 17))!;
+    const none = { of: new Map(), leads: new Map() };
+    expect(deskPerks(g, none, office)).toEqual({ share: 0, why: [] });
+    const history = createHistory();
+    commit(g, history, placeCommand(g, structureDef("cafe")!, 20, 4)!);
+    expect(deskPerks(g, none, office)).toEqual({ share: CAFE_BOOST, why: ["Café next door · +10%"] });
+    expect(deskPerks(g, none, g.structures.get(id("garage", 0))!).share).toBe(0);
   });
 });

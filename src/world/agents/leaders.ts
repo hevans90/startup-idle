@@ -10,7 +10,7 @@ import { idx, type Grid } from "../grid";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
 import { sendOnJob, type Town } from "./town";
-import { WORKPLACES, walkFrom, workplaceKind } from "./commute";
+import { WORKPLACES, walkFrom } from "./commute";
 import type { MoodParts } from "./mood-rules";
 
 /** Seconds a leader spends at work, and at home, before setting off again. */
@@ -71,23 +71,6 @@ export function leadershipOf(
     if (work === null) continue;
     out.of.set(seat.id, { home: home.id, work });
     out.leads.set(work, [...(out.leads.get(work) ?? []), seat.name ?? seat.id]);
-  }
-  return out;
-}
-
-/**
- * Each kind's share of extra work from being led: the people at led
- * workplaces' desks, `LEAD_BOOST` each a leader (up to `LEADS_A_WORKPLACE`),
- * over everyone of the kind. 0.1 is +10% to the kind. @see leadBonus
- */
-export function leadShare(
-  g: Grid, lead: Leadership, desks: ReadonlyMap<number, { used: number }>, owned: Partial<Record<GeneratorId, number>>,
-): Partial<Record<GeneratorId, number>> {
-  const out: Partial<Record<GeneratorId, number>> = {};
-  for (const [work, names] of lead.leads) {
-    const s = g.structures.get(work), who = s && workplaceKind(s.def), used = desks.get(work)?.used ?? 0;
-    if (!who || !used || !(owned[who] ?? 0)) continue;
-    out[who] = (out[who] ?? 0) + (used * LEAD_BOOST * Math.min(LEADS_A_WORKPLACE, names.length)) / owned[who]!;
   }
   return out;
 }
