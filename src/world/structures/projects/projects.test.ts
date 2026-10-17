@@ -14,7 +14,7 @@ import { bays, floorsOf, wholeFloors, type Building, type Footprint } from "./mo
 import { makePen } from "./pen";
 import { PIT, STAGES, siteAt, topOf } from "./schedule";
 import {
-  LIFT_CYCLE, MAST, OPENING, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky,
+  LIFT_CYCLE, OPENING, mastOf, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky,
   jibLength,
 } from "./site";
 import { OFFICES, PROJECT_BUILDINGS, SERVICES, LAB, LEVEE, DERELICT, RACK } from "../def";
@@ -181,7 +181,8 @@ describe("the crane lifts from the yard to the work and back", () => {
   const site = siteAt(b, 0.5);
   const hookAt = (t: number) => {
     const q = cranePose(f, b, site, t);
-    return { u: MAST.u + Math.cos(q.heading) * q.reach, v: MAST.v + Math.sin(q.heading) * q.reach, ...q };
+    const m = mastOf(f);
+    return { u: m.u + Math.cos(q.heading) * q.reach, v: m.v + Math.sin(q.heading) * q.reach, ...q };
   };
 
   test("it picks up at the gate, down on the ground", () => {
@@ -292,5 +293,25 @@ describe("it opens with confetti, and then stops", () => {
     };
     expect(count(0.5)).toBeGreaterThan(0);
     expect(count(OPENING + 0.1)).toBe(0);
+  });
+});
+
+describe("the crane's jib", () => {
+  test("never points down the camera's line, on any building with a tower crane", () => {
+    // The camera looks down +u +v: a jib along it, either way, is a stick over its own mast.
+    const offLine = (h: number) => {
+      const d = Math.abs(Math.atan2(Math.sin(h - Math.PI / 4), Math.cos(h - Math.PI / 4)));
+      return Math.min(d, Math.PI - d);
+    };
+    for (const def of PROJECT_BUILDINGS) {
+      const f = { w: def.footprint.w, h: def.footprint.h };
+      const b = lookOf(def.id, f);
+      if (b.crane !== "tower") continue;
+      expect(offLine(craneRest(f))).toBeGreaterThan(Math.PI / 6);
+      for (const k of [0.3, 0.6, 0.9]) {
+        const site = siteAt(b, k);
+        for (let t = 0; t < LIFT_CYCLE; t += 0.25) expect(offLine(cranePose(f, b, site, t).heading)).toBeGreaterThan(Math.PI / 9);
+      }
+    }
   });
 });

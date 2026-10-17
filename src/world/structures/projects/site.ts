@@ -41,8 +41,14 @@ const CAB_GLASS = 0x7fb6c9;
 /** How far out from a wall the scaffold stands: its inner and outer rows. */
 const SC_IN = 0.035, SC_OUT = 0.15;
 
-/** Where the crane's mast stands: the back corner. */
-export const MAST = { u: 0.16, v: 0.16, r: 0.065 };
+/**
+ * WHERE THE CRANE'S MAST STANDS: the plot's left corner, low `u` and high
+ * `v`. Not the back corner, where it stood: from there the jib turned to the
+ * work points down the camera's own line, foreshortened to a stick along the
+ * mast with the rope hanging beside it, and swinging either side of that line.
+ * From the left corner the work and the yard are both across the screen.
+ */
+export const mastOf = (f: Footprint) => ({ u: 0.16, v: f.h - 0.16, r: 0.065 });
 
 /** The plot as a building site, under everything else. */
 function drawPlot(p: Pen, f: Footprint) {
@@ -175,7 +181,8 @@ function drawYard(p: Pen, f: Footprint, b: Building, stock: number) {
   const d = Math.min(0.13, room / 2 - 0.01), v = front + room / 2;
   const kinds = [BRICKS, BLOCKS, BRICKS, BLOCKS];
   for (let k = 0; k < Math.min(stock, 4); k++) {
-    const u = 0.35 + k * 0.42;
+    // Clear of the crane's mast in the left corner. @see mastOf
+    const u = 0.55 + k * 0.42;
     if (u + d > f.w - 0.1 || Math.abs(u - f.w / 2) < 0.4) continue;
     p.box(u - d, v - d, u + d, v + d, 0, 0.07, PALLET);
     p.box(u - d + 0.02, v - d + 0.02, u + d - 0.02, v + d - 0.02, 0.07, 0.45, kinds[k]);
@@ -223,8 +230,8 @@ function drawFence(p: Pen, f: Footprint) {
 export const craneHeight = (top: number) => top + 3.2;
 
 /** The crane's mast: a lattice of four legs and the braces between them. */
-function drawMast(p: Pen, H: number) {
-  const { u, v, r } = MAST;
+function drawMast(p: Pen, f: Footprint, H: number) {
+  const { u, v, r } = mastOf(f);
   const legs: [number, number][] = [[u - r, v - r], [u + r, v - r], [u - r, v + r], [u + r, v + r]];
   const LEG = 0.02;
   const leg = ([a, b]: [number, number], c: number) => p.box(a - LEG, b - LEG, a + LEG, b + LEG, 0, H, c);
@@ -249,16 +256,20 @@ function drawMast(p: Pen, H: number) {
 export type CranePose = { heading: number; reach: number; hook: number; load: boolean };
 
 /**
- * Where the jib points by default: mostly along the plot's width, a little
- * toward the front. Not at the far corner, which is straight at the camera —
- * a jib pointed there is foreshortened to nothing over its own mast.
+ * Where the jib points by default: along the plot's width, a little toward
+ * the back — across the screen. Never down the line of `u + v`, which is
+ * straight at the camera: a jib pointed there is foreshortened to nothing over
+ * its own mast.
  */
 export function craneRest(_f: Footprint): number {
-  return Math.atan2(0.28, 1);
+  return Math.atan2(-0.4, 1);
 }
 
-/** The jib's length: across the site, never past the plot by much. */
-export const jibLength = (f: Footprint) => Math.min(3.6, Math.hypot(f.w - MAST.u, f.h - MAST.v) * 0.82);
+/** The jib's length: across the site to its far corner, never past the plot by much. */
+export const jibLength = (f: Footprint) => {
+  const m = mastOf(f);
+  return Math.min(3.6, Math.hypot(f.w - m.u, m.v) * 0.82);
+};
 
 /** Seconds in one lift, yard to work and back. @see cranePose */
 export const LIFT_CYCLE = 16.5;
@@ -288,9 +299,10 @@ function turn(a: number, b: number, k: number): number {
 export function cranePose(f: Footprint, b: Building, site: Site, t: number): CranePose {
   const L = jibLength(f);
   const H = craneHeight(site.top);
+  const M = mastOf(f);
   const aim = (u: number, v: number) => ({
-    heading: Math.atan2(v - MAST.v, u - MAST.u),
-    reach: Math.min(L - 0.1, Math.hypot(u - MAST.u, v - MAST.v)),
+    heading: Math.atan2(v - M.v, u - M.u),
+    reach: Math.min(L - 0.1, Math.hypot(u - M.u, v - M.v)),
   });
   const yard = aim(f.w * 0.5, f.h - 0.35);
   // Over the highest mass still going up, a little toward its front.
@@ -323,7 +335,7 @@ export function cranePose(f: Footprint, b: Building, site: Site, t: number): Cra
  * cable and hook — with a pallet on it when it is lifting one.
  */
 export function drawSky(p: Pen, f: Footprint, H: number, pose: CranePose) {
-  const { u, v } = MAST;
+  const { u, v } = mastOf(f);
   const L = jibLength(f), C = 0.85;
   const du = Math.cos(pose.heading), dv = Math.sin(pose.heading);
   const nu = -dv, nv = du;
@@ -335,9 +347,11 @@ export function drawSky(p: Pen, f: Footprint, H: number, pose: CranePose) {
   // The far chord, the counter-jib's weights, then the near chord and top.
   p.strut(at(-C, -W * near, z), at(L, -W * near, z), 0.03, CRANE_DARK);
   p.box(...weightBox(u, v, du, dv, C, z), WEIGHT);
-  // The slewing ring and the cab under the jib, on the side of the mast.
+  // The slewing ring and the cab under the jib, on the side of the mast —
+  // ALWAYS THE SAME SIDE of the jib, as a cab is. On whichever side was nearer
+  // the camera, it jumped across as the jib turned past the camera's line.
   p.box(u - 0.08, v - 0.08, u + 0.08, v + 0.08, H - 0.05, H + 0.12, CRANE_DARK);
-  const cu = u + nu * 0.12 * near, cv = v + nv * 0.12 * near;
+  const cu = u + nu * 0.12, cv = v + nv * 0.12;
   p.box(cu - 0.06, cv - 0.06, cu + 0.06, cv + 0.06, H - 0.35, H, CRANE, { top: tone(CRANE, 1.06) });
   p.onV(cv + 0.06, cu - 0.05, cu + 0.05, H - 0.3, H - 0.08, CAB_GLASS);
   p.onU(cu + 0.06, cv - 0.05, cv + 0.05, H - 0.3, H - 0.08, tone(CAB_GLASS, 0.76));
@@ -383,7 +397,7 @@ export function drawSite(p: Pen, b: Building, f: Footprint, site: Site, stock: n
   drawPlot(p, f);
   drawHoarding(p, f);
   const crane = b.crane === "tower" && site.framing && site.strike < 1;
-  if (crane) drawMast(p, craneHeight(site.top));
+  if (crane) drawMast(p, f, craneHeight(site.top));
   // The pit, dug and filled in, then the plinth on it.
   const pi = b.plinth.inset;
   // THE CABIN in the back corner while the ground is being worked, and the
