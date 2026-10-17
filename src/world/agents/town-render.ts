@@ -285,12 +285,13 @@ function drawPerson(g: Graphics, m: Mover, s: number, at: At, prism: Prism) {
     g.circle(h.px, h.py, px(0.012));
     g.fill({ color: c });
   }
-  // THE HEAD, and hair over the top and back of it.
+  // THE HEAD, and hair over the top of it — centred on the head on screen: a
+  // cap set back along the heading slides sideways in this view, off the head.
   const head = at(0, 0, HEAD), r = px(0.034);
   g.circle(head.px, head.py, r);
   g.fill({ color: skin });
-  const back = at(-0.012, 0, HEAD + 0.02);
-  g.moveTo(back.px - r, back.py).arc(back.px, back.py, r, Math.PI, 0).closePath();
+  const top = head.py - r * 0.2;
+  g.moveTo(head.px - r, top).arc(head.px, top, r, Math.PI, 0).closePath();
   g.fill({ color: hair });
   return torso;
 }
