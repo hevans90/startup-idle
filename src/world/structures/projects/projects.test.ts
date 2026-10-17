@@ -10,7 +10,8 @@ import { HW } from "../../iso";
 
 import { MAX_DRAWN, crewAt, insideBuilt } from "./crew";
 import { LOOKS, lookOf } from "./looks";
-import { bays, floorsOf, wholeFloors, type Building, type Footprint } from "./model";
+import { bays, drawRoof, floorsOf, wholeFloors, type Building, type Footprint, type Mass } from "./model";
+import type { Pen } from "./pen";
 import { makePen } from "./pen";
 import { PIT, STAGES, siteAt, topOf } from "./schedule";
 import {
@@ -313,5 +314,22 @@ describe("the crane's jib", () => {
         for (let t = 0; t < LIFT_CYCLE; t += 0.25) expect(offLine(cranePose(f, b, site, t).heading)).toBeGreaterThan(Math.PI / 9);
       }
     }
+  });
+});
+
+describe("a parapet", () => {
+  test("draws its front length, which owns the near corner, after the right one, so nothing is drawn over the corner", () => {
+    const boxes: number[][] = [];
+    const pen = { box: (...a: number[]) => { boxes.push(a.slice(0, 6)); } } as unknown as Pen;
+    const m = {
+      u0: 0, v0: 0, u1: 2, v1: 3, z0: 0, z1: 4, wall: 0, storey: 1,
+      facade: { kind: "plain" }, roof: { kind: "parapet", deck: 0, rim: 0, t: 0.1, h: 0.2 },
+    } as unknown as Mass;
+    drawRoof(pen, m);
+    const last = boxes[boxes.length - 1];
+    // The last box is the front length: the full width, at the front edge.
+    expect([last[0], last[2], last[3]]).toEqual([0, 2, 3]);
+    // Every other rim box stops short of the near corner.
+    for (const b of boxes.slice(0, -1)) expect(b[2] < 2 - 1e-9 || b[3] < 3 - 1e-9).toBe(true);
   });
 });

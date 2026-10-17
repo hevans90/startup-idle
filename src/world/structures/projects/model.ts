@@ -213,8 +213,11 @@ export function drawRoof(p: Pen, m: Mass) {
       }
     }
   }
-  p.box(m.u0, m.v1 - t, m.u1, m.v1, z, z + hh, rim);
+  // The right length before the front one, which runs the full width and
+  // owns the corner: drawn after it, the right length's end — a face turned
+  // to the camera — painted over the corner's top, a notch in the near vertex.
   p.box(m.u1 - t, m.v0, m.u1, m.v1 - t, z, z + hh, rim);
+  p.box(m.u0, m.v1 - t, m.u1, m.v1, z, z + hh, rim);
 }
 
 /** The finished mass. */
