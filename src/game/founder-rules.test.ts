@@ -9,9 +9,9 @@ const as = (id: string | null) => useFounderStore.setState({ selectedFounderId: 
 afterEach(() => as(null));
 
 describe("the founders' rules", () => {
-  test("every founder but the NEET and the Agentic Delusionist plays by one", () => {
+  test("every founder but the NEET and the Agentic Delusionist plays by one (The Model's is AI mode)", () => {
     const ruled = FOUNDERS.filter((f) => f.rule).map((f) => f.id).sort();
-    expect(ruled).toEqual(["bootstrapper", "hacker", "hustler", "visionary"]);
+    expect(ruled).toEqual(["bootstrapper", "hacker", "hustler", "model", "visionary"]);
   });
 
   test("the Bootstrapper builds for less, projects too", () => {

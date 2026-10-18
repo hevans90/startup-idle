@@ -16,7 +16,9 @@ import { Graphics, type Container } from "pixi.js";
 
 import { NEIGHBOUR } from "../../iso/dir";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { idx, inBounds, type Grid, type Structure } from "../grid";
+import { idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
+import { structureDef } from "../structures/def";
+import type { Masterplan } from "./masterplan/plan";
 import { isPaved } from "../roads/mask";
 import { powered as rackPowered } from "../projects/racks";
 import { lookOf } from "../structures/projects/looks";
@@ -46,6 +48,8 @@ export type AiView = {
   ascension: number;
   /** The AI's drones aloft, and whether each is scanning its spot. @see stepAi */
   drones?: readonly { x: number; y: number; scanning: boolean }[];
+  /** AI mode's masterplan, to show as a ghost of the town to come. @see autopilot */
+  plan?: Masterplan | null;
 };
 
 type Hologram = { x: number; y: number; fx: number; fy: number; tx: number; ty: number; k: number; seed: number };
@@ -84,10 +88,39 @@ export function createAiLayer(overlay: Container): AiLayer {
     h.tx = n.x; h.ty = n.y; h.k = 0;
   };
 
+  /** The town to come: what is not built yet of the plan. */
+  const drawPlan = (g: Grid, sc: number, plan: Masterplan) => {
+    const tile = (x: number, y: number, z: number) =>
+      [...P(sc, x - 0.5, y - 0.5, z), ...P(sc, x + 0.5, y - 0.5, z), ...P(sc, x + 0.5, y + 0.5, z), ...P(sc, x - 0.5, y + 0.5, z)];
+    for (const s of plan.steps) {
+      if (s.kind === "road") {
+        for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) {
+          for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) {
+            if (!inBounds(g, x, y) || isPaved(g, x, y)) continue;
+            gfx.poly(tile(x, y, ground(g, x, y)));
+            gfx.fill({ color: 0x2b2f36, alpha: 0.45 });
+          }
+        }
+        continue;
+      }
+      const d = structureDef(s.def);
+      if (!d || structureAt(g, s.at.x, s.at.y) >= 0) continue;
+      // Lots violet, the AI's own colour; offices blue; services gold. Outlined whole.
+      const colour = s.def.startsWith("kit:") ? 0xa78bfa : s.def.startsWith("office") ? 0x4f8cff : 0xf2c230;
+      const { w, h } = d.footprint;
+      const z = ground(g, s.at.x, s.at.y);
+      gfx.poly([...P(sc, s.at.x - 0.45, s.at.y - 0.45, z), ...P(sc, s.at.x + w - 0.55, s.at.y - 0.45, z), ...P(sc, s.at.x + w - 0.55, s.at.y + h - 0.55, z), ...P(sc, s.at.x - 0.45, s.at.y + h - 0.55, z)]);
+      gfx.fill({ color: colour, alpha: 0.4 });
+      gfx.stroke({ color: colour, width: Math.max(1, sc), alpha: 0.9 });
+    }
+  };
+
   return {
     draw: (g, sc, view, dt, now) => {
       gfx.clear();
       const structures = [...g.structures.values()];
+      // THE MASTERPLAN: planned streets outlined, planned buildings a tint on the ground.
+      if (view.plan) drawPlan(g, sc, view.plan);
       const dc = structures.find((s) => s.def === "datacentre" && !s.build);
       if (!dc) { holos = []; return; }
       if (!dcTop || dcTop.def !== dc.def) dcTop = { def: dc.def, z: topOf(lookOf(dc.def, { w: dc.w, h: dc.h })) };

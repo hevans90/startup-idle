@@ -71,8 +71,12 @@ export function fusionOf(traits: readonly TraitId[]): FusionEffects {
 }
 
 /** The traits fused into a founder. */
-export const fusedInto = (founder: string | null | undefined): TraitId[] =>
-  (founder ? useGenerationStore.getState().fused[founder] : undefined) ?? [];
+export const fusedInto = (founder: string | null | undefined): TraitId[] => {
+  const g = useGenerationStore.getState();
+  // THE MODEL carries every trait the generations before it ended with.
+  if (founder === "model") return g.past.map((p) => p.trait);
+  return (founder ? g.fused[founder] : undefined) ?? [];
+};
 
 /** What the founder of this company carries, now. */
 export const fusionNow = (): FusionEffects => fusionOf(fusedInto(useFounderStore.getState().selectedFounderId));

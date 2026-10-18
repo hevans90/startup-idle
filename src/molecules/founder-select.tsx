@@ -94,6 +94,7 @@ export const FounderSelect = () => {
   const setMapChoice = useSessionStore((s) => s.setMapChoice);
   const setTermSheet = useSessionStore((s) => s.setTermSheet);
   const announce = useGenerationStore((s) => s.announce);
+  const generation = useGenerationStore((s) => s.generation);
 
   const equity = usePrestigeStore((s) => s.equity);
   const exits = usePrestigeStore((s) => s.exits);
@@ -219,7 +220,9 @@ export const FounderSelect = () => {
               const isUnlocked =
                 !f.unlockCondition ||
                 f.unlockCondition.check(exits, bestExitValuation) ||
-                fusedInto(f.id).length > 0;
+                fusedInto(f.id).length > 0 ||
+                // THE MODEL, from the first Ascension. @see plans/singularity.md §4b
+                (f.id === "model" && generation > 1);
 
               return (
                 <button

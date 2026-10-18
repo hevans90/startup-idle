@@ -46,7 +46,9 @@ export type AiAction =
   | { kind: "flatten"; from: Cell; to: Cell; why: string }
   | { kind: "pond"; at: Cell; why: string }
   | { kind: "hire"; who: GeneratorId; why: string }
-  | { kind: "upgrade"; id: string; why: string };
+  | { kind: "upgrade"; id: string; why: string }
+  /** Nothing: a drone sent for the look of it, AI mode's work being done already. @see autopilot */
+  | { kind: "noop"; at: Cell; why: string };
 
 /** Where on the map an action happens, for its drone; null for one done at a desk. */
 export function targetOf(a: AiAction): Cell | null {
@@ -286,6 +288,7 @@ export function perform(a: AiAction): boolean {
       useUpgradeStore.getState().unlockUpgrade(a.id);
       return useUpgradeStore.getState().unlockedUpgradeIds.includes(a.id);
     }
+    case "noop": return false;
   }
 }
 

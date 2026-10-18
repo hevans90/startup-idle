@@ -77,6 +77,15 @@ type SessionState = {
   /** The stages the AI has announced arriving at, this company. @see ARRIVALS */
   aiSaid: string[];
   markAiSaid: (stage: string) => void;
+  /**
+   * THE MODEL'S AI MODE: whether the town builds itself, the most of the
+   * money it may spend at once, and whether its masterplan is shown.
+   * @see world/ai/autopilot
+   */
+  aiMode: boolean;
+  aiBudget: number;
+  showPlan: boolean;
+  setAiMode: (patch: Partial<{ aiMode: boolean; aiBudget: number; showPlan: boolean }>) => void;
   setMapEventsOff: (off: boolean) => void;
   setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
@@ -123,6 +132,10 @@ export const useSessionStore = create<SessionState>()(
       setSnubbed: (snubbed) => set({ snubbed }),
       aiAt: null,
       setAiAt: (aiAt) => set({ aiAt }),
+      aiMode: false,
+      aiBudget: 0.8,
+      showPlan: true,
+      setAiMode: (patch) => set(patch),
       aiSaid: [],
       markAiSaid: (stage) => set((s) => ({ aiSaid: [...(s.aiSaid ?? []), stage] })),
       setMapEventsOff: (mapEventsOff) => set({ mapEventsOff }),
@@ -135,7 +148,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [],
+        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false,
       }),
     }),
     {
@@ -160,6 +173,9 @@ export const useSessionStore = create<SessionState>()(
         snubbed: s.snubbed,
         aiAt: s.aiAt,
         aiSaid: s.aiSaid,
+        aiMode: s.aiMode,
+        aiBudget: s.aiBudget,
+        showPlan: s.showPlan,
       }),
     },
   ),

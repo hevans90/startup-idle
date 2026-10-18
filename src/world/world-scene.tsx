@@ -13,6 +13,7 @@ import { createStreetHeat, type StreetHeat } from "./render/street-heat";
 import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
 import { sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
 import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos } from "./ai/ai-runner";
+import { currentPlan, stepAutopilot } from "./ai/autopilot";
 import { useFounderStore } from "../state/founder.store";
 import { showMe } from "./play/map-focus";
 import { runningAgents, useAgentsStore } from "../state/agents.store";
@@ -2647,6 +2648,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult * (training() === "river" ? 3 : 1), !!floodBase.current);
         // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
         if (st.playing) useTrainingStore.getState().tick();
+        // AI MODE, on The Model's own runs: the town building itself, its
+        // drones flown out for the look of it. @see stepAutopilot
+        if (st.playing && !startedOnFixture() && useFounderStore.getState().selectedFounderId === "model") {
+          stepAutopilot(st.grid, dt);
+          stepAi(getAiRunner(), st.grid, { stage: "tool", running: 0, agents: 0 }, dt, Date.now());
+        }
         // THE COMPANY'S AI AT WORK, from the Colleague stage on — not in a
         // fixture, and not on The Model's own runs. @see stepAi
         if (st.playing && !startedOnFixture() && useFounderStore.getState().selectedFounderId !== "model") {
@@ -2737,12 +2744,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const ai = aiLayerRef.current;
       // In development, `__aiPreview` shows it in the editor at any stage.
       const preview = import.meta.env.DEV ? window.__aiPreview : undefined;
-      if (ai && (playing || preview)) {
+      const modelRun = playing && useFounderStore.getState().selectedFounderId === "model";
+      if (ai && (playing || preview || modelRun)) {
         const v = preview?.value ?? meter;
         ai.draw(useWorldStore.getState().grid, scale, {
           stage: stageOf(v).stage, value: v, running: preview ? 1 : runningAgents(), training: preview?.training ?? training() !== null,
           night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
           drones: getAiRunner().jobs.map(droneAt),
+          plan: preview?.plan ?? (useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? currentPlan() : null),
         }, raw, now);
       } else ai?.clear();
       const r = rain.current;

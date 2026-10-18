@@ -5,8 +5,8 @@ import { FOUNDERS } from "./founders.catalog";
 const GEN_IDS = new Set(GENERATOR_TYPES.map((g) => g.id));
 
 describe("FOUNDERS catalog", () => {
-  test("6 founders with unique ids", () => {
-    expect(FOUNDERS.length).toBe(6);
+  test("7 founders with unique ids: six, and The Model", () => {
+    expect(FOUNDERS.length).toBe(7);
     expect(new Set(FOUNDERS.map((f) => f.id)).size).toBe(FOUNDERS.length);
   });
 
@@ -67,8 +67,8 @@ describe("FOUNDERS catalog", () => {
     }
   });
 
-  test("scaling is strictly stronger at exits=3 than exits=0 for each founder", () => {
-    for (const f of FOUNDERS) {
+  test("scaling is strictly stronger at exits=3 than exits=0 for each founder (The Model's is its traits)", () => {
+    for (const f of FOUNDERS.filter((f) => f.id !== "model")) {
       const m0 = f.scalingModifier.compute(0, 0);
       const m3 = f.scalingModifier.compute(3, 0);
 
