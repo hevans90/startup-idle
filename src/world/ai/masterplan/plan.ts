@@ -297,7 +297,32 @@ function centreOf(g: Grid, style: Style): Cell {
   return { x: Math.round(ws.reduce((n, s) => n + s.x, 0) / ws.length), y: Math.round(ws.reduce((n, s) => n + s.y, 0) / ws.length) };
 }
 
-const near = (a: Cell, b: Cell, r: number) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= r;
+/** Cells as a grid of ones. */
+function markOf(g: Grid, cells: Cell[]): Uint8Array {
+  const m = new Uint8Array(g.w * g.h);
+  for (const c of cells) m[idx(g, c.x, c.y)] = 1;
+  return m;
+}
+/** How many marked cells are within `r` steps of a cell, by the streets' measure (Manhattan). */
+function countNear(g: Grid, m: Uint8Array, c: Cell, r: number): number {
+  let n = 0;
+  for (let dy = -r; dy <= r; dy++) {
+    const y = c.y + dy;
+    if (y < 0 || y >= g.h) continue;
+    const span = r - Math.abs(dy), row = y * g.w;
+    for (let x = Math.max(0, c.x - span); x <= Math.min(g.w - 1, c.x + span); x++) n += m[row + x];
+  }
+  return n;
+}
+/** Unmark every cell within `r` steps of one. */
+function clearNear(g: Grid, m: Uint8Array, c: Cell, r: number) {
+  for (let dy = -r; dy <= r; dy++) {
+    const y = c.y + dy;
+    if (y < 0 || y >= g.h) continue;
+    const span = r - Math.abs(dy), row = y * g.w;
+    for (let x = Math.max(0, c.x - span); x <= Math.min(g.w - 1, c.x + span); x++) m[row + x] = 0;
+  }
+}
 
 export function planTown(source: Grid, given: PlanOptions): Masterplan {
   const style = given.style ?? PLAIN;
@@ -318,17 +343,17 @@ export function planTown(source: Grid, given: PlanOptions): Masterplan {
   const placed: { def: string; at: Cell }[] = [];
   if (o.services) {
     for (const def of ["cafe", "park", "gym"]) {
-      const front = frontage(g, rules, kind0);
-      const served = new Set<number>();
+      // The frontage not yet served, as a grid: counted within reach of each spot.
+      const unserved = markOf(g, frontage(g, rules, kind0));
       for (let n = 0; n < 6; n++) {
         let best: Cell | null = null, most = 0;
         for (const c of spotsFor(g, def, rules)) {
-          const reach = front.filter((f, k) => !served.has(k) && near(f, c, 7)).length;
+          const reach = countNear(g, unserved, c, 7);
           if (reach > most) { most = reach; best = c; }
         }
         if (!best || most < style.serve || !put(g, def, best, rules)) break;
         placed.push({ def, at: best });
-        front.forEach((f, k) => { if (near(f, best!, 7)) served.add(k); });
+        clearNear(g, unserved, best, 7);
       }
     }
   }
@@ -344,10 +369,10 @@ export function planTown(source: Grid, given: PlanOptions): Masterplan {
       // Lots shared between the kinds; a grown lot sleeps about five.
       const need = (lotsAhead / o.kinds.length) * 5 - desks;
       for (let n = 0; n < Math.ceil(need / (DESKS[def] ?? 40)) && n < MAX_OFFICES; n++) {
-        const front = frontage(g, rules, who);
+        const front = markOf(g, frontage(g, rules, who));
         let best: Cell | null = null, most = -1;
         for (const c of spotsFor(g, def, rules)) {
-          const thick = front.filter((f) => near(f, c, 8)).length;
+          const thick = countNear(g, front, c, 8);
           if (thick > most) { most = thick; best = c; }
         }
         if (!best || !put(g, def, best, rules)) break;
