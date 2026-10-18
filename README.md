@@ -1,170 +1,148 @@
 # Startup Idle
 
-A satirical idle game about scaling a tech startup by any means necessary: hire interns, unleash vibe coders, anoint 10x devs, and build the town your company lives in. A single-page React app, with the company's map drawn in PixiJS on a mutable isometric engine of its own.
+A satirical idle game: hire interns, vibe coders and 10x devs, and build your company's town. React, with the map in PixiJS on its own isometric engine.
 
 ## Gameplay
 
 ### The economy
 
-- **Employees** are the generators: `intern`, `vibe_coder` and `10x_dev`, each producing money and innovation every tick. Hire more, and buy **upgrades** to scale them.
-- **Innovation** is a soft global multiplier (`1 + logMult · log₁₀(innovation + 1)`) and the currency for **managers** and unlocks.
-- **Managers** are auto-tiering multipliers for money, innovation and valuation.
-- **Valuation** accrues from revenue and buys permanent **board mandates**.
-- **Employee management and satisfaction:** perks per role (money, innovation, cost, auto-buy), and a morale score that drifts each tick and feeds back into output.
-- **Team leaders:** one named employee per role, hired from three candidates. Each has a trait, earns ranks over time, and spends skill points on a small skill pool, some of which reach across roles.
-- **Vape shop:** 53 achievements earn vape juice, which buys 12 upgrades shown on an SVG vape. The vape itself, a rhythm minigame, appears once the company has 50 vibe coders. Achievements and upgrades survive prestige.
-- **Slop pit:** fills with headcount from 50 vibe coders and costs income above half full, up to 85% (`state/slop-pit.store.ts`). On the map, a 3×3 hole by the studio with its sludge as real fluid (`StructureDef.basin`, `syncPit`); one small card has the fill, penalty, countdown, Drain (−40 vibe coder morale) and Trucks.
-- **AI singularity** (`state/ai-singularity.store.ts`): 0–100, pushed by every AI agent running (throttle them at the Data Centre), sinking slowly when they are all throttled (holding before there are any); stages Tool, Assistant, Colleague, Manager, Overseer. A sale keeps 80%, over a floor of 10 a sale this generation (capped at 90; `simulation/singularity-cadence.test.ts` holds a strong player to ~5 sales an Ascension, a typical one to 10) (`state/generation.store.ts`). Clicking the Data Centre opens its control room (`play/datacentre-panel.tsx`): the throttle; **training runs** on a dataset (`game/training.ts`, `state/training.store.ts`), three minutes of a boost then a jump in the meter; the racks; and the **training log**, the traits (`game/traits.ts`) the generation's behaviour log is breeding. At 100 the AI asks to **ascend** (`game/ascension.ts`, `molecules/ascension-card.tsx`): Ascend wipes Equity, the skill tree, founders' exits, mandates and directives for **Weights** (from the generation's training runs, Equity and peak agents), and a trait drawn from the log (25% mutating to a sibling) **fuses into the founder played** for good (`game/fusion.ts`; fused founders stay unlocked); Shut it down deletes the agents, darkens the racks 10 minutes and halves the meter. Weights buy **modules** (`game/modules.ts`), three levels each, working only in a slot, one slot an Ascension. The **Model** tab (was AGI) shows the generation, slots, fused founders, past generations and the directives (D2 now trains, D8 ascends). On the map (`world/ai/ai-layer.ts`) the Data Centre glows and rings its roof in its stage's colour, shimmers while training, sends light to every rack (out-of-reach racks flicker), and holograms walk the streets, one a rack; the sky goes violet from the Manager on. At 100 an 18-second **Ascension sequence** (`world/ai/ascension-sequence.ts`) plays before the card: the camera to the Data Centre, a column of light, beams, holograms pouring out. `window.__aiPreview = { value, ascension, plan }` previews it in the editor (development); `?world=1&fixture=singularity` is an AI town that runs through every stage and the Ascension by itself. From the Colleague stage the AI **builds** (`world/ai/planner.ts`, `ai-runner.ts`) through the player's own actions (`play/build-actions.ts`, paying as a click pays): lots where most desirable, services where houses are thickest, its own free buildings by the Data Centre (`AI_BUILDINGS`: node, GPU farm, compute spire, drone hangar, monolith); from the Manager it takes houses over, lays and lifts streets, hires and buys upgrades; at the Overseer it levels hills, digs cooling ponds and lays every road (the road tools lock). Each job is flown out by a drone that scans before it acts; its pace is the share of agents running (none: it stops) — throttle-only control. Time away is caught up (up to 10 jobs) and reported. It **writes memos** (`world/ai/memos.ts`, shown by `play/ai-memos.tsx`): an announcement arriving at each stage, then every 3–6 minutes favours as an Assistant (money found, morale), favours nobody asked for as a Colleague (hires made, money moved into compute), and announcements later; from the Manager it repurposes services and offices as GPU farms, for good. The first Ascension unlocks **The Model**, the founder carrying every past trait; its runs have **AI mode** instead of the takeover (`world/ai/autopilot.ts`, `play/ai-mode-panel.tsx`): switched on, a masterplan of streets, lots, services and offices is planned in a worker (`world/ai/masterplan/`), and every 2 s the next step for the town as it stands (`nextStep`) is built within a budget, plus projects, land and derelicts; it levels steep ground for its streets, lifts the player's dead-end spurs and clears a cheap house from the only way through; the plan shows as a ghost on the map (terraforming hatched, what it will pull up outlined red). Past generations' traits lean its town (`masterplan/style.ts`): planners and shepherds serve sooner, optimisers later, Paranoid keeps off the water, Hydrophile by it, recursive traits grow out from the Data Centre. A benchmark test holds it 15%+ over a greedy player. The overhaul's plan: `plans/singularity.md`.
-- **Founders:** six archetypes (Hacker, Bootstrapper, Visionary, Hustler, Agentic Delusionist, NEET). Each has a bonus that grows with every exit made as that founder. NEET starts with $5 and doubles money output per exit. Four also play by **one rule on the map** (`FounderDef.rule`, `game/founder-rules.ts`): the Bootstrapper builds 35% cheaper but pays double for land; the Hacker's labs count double; the Visionary's Data Centre needs half the headcount; the Hustler's map events come twice as often. A founder held to one kind (the Agentic Delusionist) is gated on that kind alone.
-- **Offline progress:** the real tick is replayed over the time away (capped at 2 days), with a "welcome back" summary.
-- **Acquisition (prestige):** sell the company for permanent **Equity**, start a fresh company, and spend Equity in a procedurally laid out skill tree of about 330 nodes. Seven notables shape the next town: Company Town (+2 starting parcels), Cheap Real Estate (land −40%), Hometown Hero (a founding café), Clean Sweep (half the mopping-up crew), Conglomerate (a regular shipping route to start), Open Core (flood damage repaired twice as fast) and Founder Worship (a fourth term sheet).
+- **Employees** (`intern`, `vibe_coder`, `10x_dev`) produce money and innovation; **upgrades** scale them.
+- **Innovation:** a soft multiplier (`1 + logMult · log₁₀(innovation + 1)`) and the currency for **managers** (auto-tiering multipliers) and unlocks. **Valuation** buys permanent **board mandates**.
+- **Satisfaction:** perks per role and a morale score feeding output. **Team leaders:** one per role, with a trait, ranks and skills.
+- **Vape shop:** 53 achievements earn juice for 12 upgrades; the vape rhythm minigame appears at 50 vibe coders. Both survive prestige.
+- **Slop pit** (`state/slop-pit.store.ts`): fills from 50 vibe coders, costs income above half full (up to 85%); on the map a 3×3 fluid basin (`StructureDef.basin`, `syncPit`) with a card: Drain (−40 vibe morale), Trucks.
+- **AI singularity** (`state/ai-singularity.store.ts`): 0–100, pushed by running agents, sinking when all are throttled; stages Tool → Assistant → Colleague → Manager → Overseer. A sale keeps 80%, floor 10 a sale this generation, cap 90 (`state/generation.store.ts`; `simulation/singularity-cadence.test.ts`: ~5 sales an Ascension strong, 10 typical).
+  - **Data Centre panel** (`play/datacentre-panel.tsx`): throttle, **training runs** (`game/training.ts`, `state/training.store.ts`: 3 min boost, then a meter jump), racks, and the training log of **traits** (`game/traits.ts`).
+  - **Ascension** at 100 (`game/ascension.ts`, `molecules/ascension-card.tsx`): wipes Equity, skill tree, exits, mandates and directives for **Weights**; a logged trait (25% mutates) **fuses into the founder** (`game/fusion.ts`). Shutting down: agents deleted, racks dark 10 min, meter halved. Weights buy **modules** (`game/modules.ts`, 3 levels, one slot an Ascension). The **Model** tab: generation, slots, fused founders, directives (D2 trains, D8 ascends).
+  - **Map** (`world/ai/ai-layer.ts`): Data Centre glows in stage colour, light to racks, one hologram a rack, violet sky from Manager; an 18 s **Ascension sequence** (`world/ai/ascension-sequence.ts`). Preview: `window.__aiPreview = { value, ascension, plan }`, `?world=1&fixture=singularity`.
+  - **The AI builds** from Colleague (`world/ai/planner.ts`, `ai-runner.ts`) via the player's actions (`play/build-actions.ts`): lots, services, its own buildings (`AI_BUILDINGS`); Manager: houses, roads, hires; Overseer: terraforms, locks road tools. Pace = share of agents running; offline up to 10 jobs. **Memos** (`world/ai/memos.ts`, `play/ai-memos.tsx`) every 3–6 min; from Manager it repurposes services/offices as GPU farms.
+  - **The Model** (founder, unlocked by the first Ascension, carries every trait) has **AI mode** (`world/ai/autopilot.ts`, `play/ai-mode-panel.tsx`): a masterplan from a worker (`world/ai/masterplan/`), built every 2 s (`nextStep`) within a budget, ghosted; traits lean it (`masterplan/style.ts`). Benchmarked 15%+ over a greedy player. Plan: `plans/singularity.md`.
+- **Founders:** six archetypes (Hacker, Bootstrapper, Visionary, Hustler, Agentic Delusionist, NEET), bonuses growing per exit; NEET starts with $5, ×2 money per exit. Map rules (`FounderDef.rule`, `game/founder-rules.ts`): Bootstrapper builds −35%, land ×2; Hacker labs ×2; Visionary Data Centre half headcount; Hustler events ×2.
+- **Offline progress:** the real tick replayed (cap 2 days).
+- **Acquisition (prestige):** sell for **Equity**, spent in a ~330-node skill tree. Notables for the next town: Company Town (+2 parcels), Cheap Real Estate (land −40%), Hometown Hero (a café), Clean Sweep (half the mop crew), Conglomerate (a starting route), Open Core (repairs ×2), Founder Worship (a fourth term sheet).
 
 ### Founding
 
-**Who**, **where**, then **terms** (`founder-select.tsx`, `map-setup.tsx`): "Choose your land" previews the real generator live — seed, size (48/64/96), hills, rivers, lakes, woods, and every setting behind "All settings" — and you found on exactly the map you saw (`Session.mapChoice`). It says what the land means: rivers trade and flood, water gives a view, and **hills** make land up to 40% cheaper (`landDiscount`, by `ruggedness`) while every road ramp counts double on the walk to work (`CLIMB`, `walkFrom`). Then **on what terms** (`term-sheet-select.tsx`, `game/term-sheets.ts`): three of five investors' term sheets, by seed — sell inside 2 h 30, 40 lived-in houses, never overflow the slop pit, two wonders, or 12 AI agents — each +20–30% Equity if met at the sale (shown in the founder badge's popover, with the founder's rule, and in the Acquisition tab).
+**Who**, **where**, **terms** (`founder-select.tsx`, `map-setup.tsx`): the land picker previews the real generator (seed, size 48/64/96, hills, rivers, lakes, woods) and founds on that map (`Session.mapChoice`). Hills cut land up to 40% (`landDiscount`, `ruggedness`) but ramps count double on commutes (`CLIMB`, `walkFrom`). **Term sheets** (`term-sheet-select.tsx`, `game/term-sheets.ts`): three of five by seed (sell inside 2 h 30, 40 lived-in houses, no slop overflow, two wonders, 12 AI agents), each +20–30% Equity if met.
 
 ### The company's map
 
-Every company builds a town (`world/play/company-map.tsx`). Buildings need **road frontage** and cost money. **First-run hints** (`play/hints.ts`) explain it a tip at a time, land, labs and flood walls included as they come up, with the thing they're about glowing (`data-hint`); they can be dismissed or switched off.
+The town (`world/play/company-map.tsx`): buildings need **road frontage**. **Hints** (`play/hints.ts`, `data-hint`). **Phone** (≤ 768 px): Map/Company tabs, map always mounted, touch buttons ≥ 44 px.
 
-**On a phone** (width ≤ 768): a Map and a Company tab under the money. The map stays mounted on either, so the gates hold as on a desktop; its panels fit the width and the tools are icons. One finger builds with a tool in hand, two pan and pinch. On touch screens the map's buttons are at least 44 px.
+- **Build bar** (`build-bar.tsx`): beds per district, tools (Look, Road, Lift, Build, Demolish, Land, Wonders, Mood, Labels), a picker (Lot, Office, Services, Ports).
+- **Undo** for 15 s, money included (`undoLastBuild`). **Labels** (`building-labels.tsx`) collate when they overlap (`gatherLabels`).
+- **Land** (`world/land.ts`): 4×4 parcels; a new company owns a 2×2 block (`Session.land`; null owns all). A parcel costs max($400 × 2.5ⁿ, 45 s × 1.5ⁿ of income). About half carry a **derelict** (`placeDerelicts`): −5 mood within 4 tiles, 15 s of income to clear.
+- **Housing** (`world/agents/arrivals.ts`): **lots** (1×1, 2 beds) dragged in rows (`lotLine`) count toward the hiring cap at once (`Structure.residents`). Hires travel in, idle until housed (`attendance`): interns by 12-seat bus, others by car/limo. Loading moves everyone in (`settleHousing`). 2 remote intern beds to start (`foundingRemoteBeds`).
+- **Promotion** (`state/promotion.store.ts`, `molecules/promotion-row.tsx`): intern → vibe coder for 20 s of innovation (≥ 10), +5% each; needs a vibe bed.
+- **Desks** (`agents/commute.ts`): garage 20, Studio 30, Campus 10; intern/vibe offices 40, 10x 10. Nearest free desk first (`seat`); deskless work at 35%. Commutes free to 8 tiles, then −1.25%/tile to 50%; no road 25% (`commuteFactor`). Fill tint: `deskTint`.
+- **R&D labs** (`world/projects/labs.ts`, 2×2): +10% innovation each, 20% within 10 tiles of campus or Data Centre (`labBonus`); a minute of income (≥ $100k), ×1.5 each.
+- **AI agents** (`game/agents.ts`, `world/projects/racks.ts`): after the Data Centre, cost innovation (2, ×1.25); racks hold 4 (20 s of income, ×1.15). +4% income each within 10 tiles of the Data Centre, half beyond; the row shows the net trade (`agentTrade`).
+- **Services and growth** (`agents/services.ts`): café, park, gym serve within 8 road tiles (4/8/16 s of income). Full houses grow at desirability 4/10/16 (`GROW_AT`) after 20 s, decline after 30 s at 4 below. 10x devs need 10.
+- **Mood is desirability** (`agents/mood.ts`, `agents/desirability.ts`, `game/town-mood.ts`): commute (to −30), services (+4/+6/+4, none −6), water view +5, slop pit −8 to −20, crowding −6, wonder +5, derelict −5, sludge −15, flood −20; cap ±40. A lot in hand heat-maps it (`desire-heat.ts`, `desire-readout.tsx`). At −25 a house loses a resident a minute. **Earnings** tints streets gold and lists the top three (`roads/streets.ts`, `play/street-earnings.ts`, `top-streets.tsx`).
+- **Prices** (`game/build-cost.ts`): max(floor, live share): lots ¼ of the next hire a bed (≥ $15), offices four hires, services and seaports seconds of income, road max($2, 0.25 s) a tile.
 
-- **Build bar** (`build-bar.tsx`): beds per district; the tools (Look, Road, Lift, Build, Demolish, Land, Wonders, Mood, Labels); and a picker with a row per hireable kind (Lot, Office), then Services and Ports once unlocked. No scrolling.
-- **Undo** for 15 s after a build, road stroke or row of lots, money included (`undoLastBuild`). Refusals say why in a notice.
-- **Labels** (`building-labels.tsx`) over every building: residents, earnings, mood, progress, boats. Overlapping labels **collate** into one rather than hide (`gatherLabels`).
+**Map events** (`world/events/`, `play/event-cards.tsx`): one at a time, a choice card each, paced in play time (`PACING`, `Session.eventPacing`). Event morale lasts a day (`game/morale.ts`).
 
-**Land** (`world/land.ts`): the map is 4×4 parcels. A new company owns the 2×2 block its street runs through most (`Session.land`; null, for a company older than this, owns it all) and builds, lays road and lifts it only there. The rest is under a fog; the **Land** tool buys a parcel beside yours for the larger of $400 × 2.5ⁿ and 45 s × 1.5ⁿ of income, n parcels already bought. About half the parcels for sale come with a **derelict building** by the road (`placeDerelicts`): −5 mood to homes within 4 tiles, and 15 s of income to demolish once the land is yours. Nothing on land you don't own can be demolished.
+- **Slop overflow** (`events/sludge.ts`): warned at 90%, spills at 100% until under 95%; Drain, trucks (20 s, 3 × 12%) or spill. **Mopping up** (`events/cleanup.ts`): 2 vibe coders a wet tile.
+- **River flood** (`events/flood.ts`): the inflow tops its lowest bank for a minute. Sandbags (half the interns), evacuate (−5 satisfaction a day) or brace (−20 mood, ports shut, buildings **damaged** until repaired, 40 s each). **Flood walls**: 1×1, max($20, 0.5 s) a tile.
+- **Convoy** (`events/convoy.ts`): calls pay ×2 for a minute, ×3 within 10 tiles of the Conference Centre; served, it becomes a **regular route** (+20% calls, up to five, `session.routes`).
+- **Investor tour:** 30 s of income + 1.5 s per mood point; tidying +10 mood; a snub drops the next premium to +10% (`SNUB`).
+- **Hackathon** (10 vibe coders): 20 s of pizza for +15 satisfaction a day, or −10.
+- **The agents decide things:** each agent speeds the meter 4%; at 90% pull the plug (meter 50%), sell to them at 2× Equity, or lose half the money to compute.
+- **Acquisition offer:** +25% Equity for two minutes (`OFFER_PREMIUM`). A first company sells ~2.3 h in.
 
-**Housing is zoned, Caesar-style** (`world/agents/arrivals.ts`):
-
-- **Lots:** one per kind (1×1, 2 beds), dragged along a street a row at a time (`lotLine`). Their beds count toward the hiring cap at once; nobody lives there yet (`Structure.residents`).
-- **Hires travel in** from the map's edge and produce nothing until moved in (counted away in `attendance`). Interns share a bus (12 seats, waits up to 6 s, fills part-full houses first); vibe coders come by car, 10x devs by limousine. They walk from the road to their door.
-- **They wait** for a free bed and a road from the edge; the beds row says why. Rides aren't saved: loading moves everyone in (`settleHousing`).
-- **Promotion** (`state/promotion.store.ts`, `molecules/promotion-row.tsx`): once vibe coders are on the roster, an intern can be made one for 20 s of innovation (≥ 10), 5% dearer each time this run; it needs a vibe coder bed, and moves out of its intern house on the map.
-- **Remote beds:** 2 intern beds off-map to start; a company with staff before its map keeps them (`foundingRemoteBeds`). Max hiring stops at the free beds.
-
-**Commuting and desks** (`agents/commute.ts`): each kind works at the building that opened it or an **office** of its kind (bought from the picker). Each has **desks**: garage 20, Studio 30, Campus 10; intern and vibe offices 40, 10x offices 10. People take the nearest free desk, nearest house and workplace first, overflowing to the next (`seat`); past the last desk they work at 35%. Up to 8 road tiles is free, then −1.25% a tile to 50%; no road at all is 25%. A workplace is drawn as full as it is — dim when empty, bright when every desk is taken (`deskTint`). Workplace labels show desks taken, houses and the beds row who has none; the average multiplies into output (`commuteFactor`).
-
-**R&D labs** (`world/projects/labs.ts`): sold in the 10x devs row (2×2). Each standing adds 10% to innovation, 20% within 10 tiles of the campus or Data Centre (`labBonus`, through the project reader). A minute of income (≥ $100,000), ×1.5 for each already built.
-
-**AI agents** (`game/agents.ts`, `world/projects/racks.ts`): once the Data Centre stands, agents are spun up on the Employees tab for innovation (2, ×1.25 each) and run in **racks** (Build's AI agents row, 4 a rack, 20 s of income ×1.15 each). Each adds 4% to all income at full power — a rack within 10 tiles of the Data Centre — and half beyond. Innovation is itself an income multiplier, so the row shows the net trade of the next agent (`agentTrade`).
-
-**Services and growth** (`agents/services.ts`): a café, park and gym serve homes within 8 road tiles (4, 8, 16 s of income). A full house grows a tier for free after 20 s at the next tier's **desirability** (II at 4, III at 10, tower at 16, `GROW_AT`), and declines after 30 s 4 below the tier it grew to. 10x devs only move in at 10.
-
-**Mood is desirability** (`agents/mood.ts`, `agents/desirability.ts`, `game/town-mood.ts`): each house's is its commute (to −30), services (+4/+6/+4, none −6), a water view (+5), the slop pit nearby (−8 to −20), crowding (−6, III and up without a park), a wonder (+5), a derelict (−5), sludge (−15) and flooding (−20), capped at ±40. With a lot in hand, the map is tinted by what a house on each tile would get, and the tile under the pointer says why (`desire-heat.ts`, `desire-readout.tsx`). It shifts each kind's satisfaction target; at −25 a house loses a resident a minute. The Mood tool tints houses. **Earnings** tints each street gold by what it earns against the best and lists the top three (`roads/streets.ts`: a street is road between junctions, wide roads' lanes one street; `play/street-earnings.ts`, `top-streets.tsx`); the acquirer's offer names the best street.
-
-**Map events** (`world/events/`, `play/event-cards.tsx`): a warning with a countdown, a ring on the map, and a card of choices. One at a time, each kind paced in play time, kept across loads (`PACING`, `Session.eventPacing`); off with "no events" on a card or in Settings.
-
-- **Slop overflow** (`events/sludge.ts`): warned at 90%; at 100% what the vibe coders at work produce (≥ 2% of the pit a second) brims over the rim until under 95%. Drain, sludge trucks (20 s of income, 3 × 12%), or let it spill. **Mopping up** (`events/cleanup.ts`): 2 vibe coders a wet tile leave work, walk out and drain it by hand.
-- **River flood** (`events/flood.ts`): the inflow rises just over its lowest nearby bank for a minute; buildings with water higher against them than before are flooded. Sandbags (half the interns off work until it passes), evacuate (flooded homes away, then −5 satisfaction for a day), or brace (−20 mood, ports shut, and everything reached is **damaged**: muddy, idle and shut until a crew repairs it, 40 s each, one at a time); leftover water soaks away. **Flood walls** (Defences, river maps): 1×1, no road needed, dragged in rows, max($20, 0.5 s of income) a tile.
-- **Convoy** (with a port): calls pay double for a minute; extra hands (a quarter of the interns off work while it's in) halve call time, and calls at a port within 10 tiles of the Conference Centre pay treble (`events/convoy.ts`, shown on the port and the Conference Centre's ghost); a convoy served so comes back as a **regular route**: +20% on every port call for good, up to five (`session.routes`).
-- **Investor tour** (garage, town hall or HQ): pays 30 s of income + 1.5 s a point of town mood (0–90 s); tidying (every vibe coder off work until they come) counts +10 mood. Paying under 30 s of income, they leave unimpressed and the next acquirer's premium is +10% not +25% (`SNUB`).
-- **Hackathon** (studio, 10 vibe coders): host it — 20 s of income in pizza, everyone away a minute — and they're +15 satisfaction for a day; turn it down and it's −10 for a day. Event morale is a lean on the satisfaction *target* that lasts (`game/morale.ts`): a bump to the score is gone in a minute.
-- **Acquisition offer** (once the company can be sold): an offer on the table for two minutes pays +25% Equity (`OFFER_PREMIUM`); "Look at the offer" opens the sale's confirmation, "Hold out" lets it go. A first company can be sold about 2.3 h in.
-
-**Prices follow the economy** (`game/build-cost.ts`), each the larger of a floor and a live share: lots a quarter of the next hire a bed (≥ $15); offices four hires; services seconds of income; seaports 10 s of income per boat a minute; road max($2, 0.25 s of income) a tile, lifting free.
-
-**Projects** (`game/projects.ts`, `world/projects/works.ts`): each after the garage waits on an employee upgrade, each wonder on headcounts of every kind (`ProjectDef.gate`), shown as chips with popovers in the log and bars in the wonders menu, and "Opens:" on the upgrade; **one at a time** (wonders too, `projectUnderWay`). Pick a site; a crew walks there and is away from its desk; trucks bring materials paid per load (no money stalls it; an idle crew goes home after 6 s); it opens its feature. Materials are seconds of income fixed at siting; time away is caught up (`catchUpWorks`).
+**Projects** (`game/projects.ts`, `world/projects/works.ts`): gated by an upgrade, wonders by headcounts (`ProjectDef.gate`); **one at a time** (`projectUnderWay`). A crew builds, trucks bring materials paid per load; offline caught up (`catchUpWorks`).
 
 | Project | Gate | Built by | Work (builder-s) | Materials | Site | Opens |
 | --- | --- | --- | --- | --- | --- | --- |
 | Founder's Garage | — | the founder | 30 | free | 2×1 | interns |
 | Town Hall | Mandatory Weekend Work | interns | 300 | 30 s (≥ $120) | 3×2 | services |
 | Vibe Coder Studio | Micromanagement | interns | 600 | 45 s (≥ $400) | 3×2 | vibe coders |
-| Harbour Office | Promotion Griefing, river maps | interns + vibe | 900 | 45 s (≥ $1,500) | 2×2, ≤ 3 tiles from a river | seaports |
-| Company HQ | Focus Vibing | interns + vibe | 2,400 | 60 s (≥ $5,000) | 3×3 | managers |
-| Boardroom Tower | Upward Management + employee management | interns + vibe | 4,000 | 90 s (≥ $20,000) | 3×3 | board mandates |
-| Campus | JUULing | interns + vibe | 6,000 | 2 min (≥ $40,000) | 4×4 | 10x devs |
-| Data Centre ★ | 120 interns · 50 vibe · 3 10x | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2, AI agents |
+| Harbour Office | Promotion Griefing, river maps | int + vibe | 900 | 45 s (≥ $1.5k) | 2×2, ≤ 3 from a river | seaports |
+| Company HQ | Focus Vibing | int + vibe | 2,400 | 60 s (≥ $5k) | 3×3 | managers |
+| Boardroom Tower | Upward Management + emp. mgmt | int + vibe | 4,000 | 90 s (≥ $20k) | 3×3 | board mandates |
+| Campus | JUULing | int + vibe | 6,000 | 2 min (≥ $40k) | 4×4 | 10x devs |
+| Data Centre ★ | 120 · 50 · 3 | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2, AI agents |
 | Conference Centre ★ | 250 · 100 · 6 | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | valuation ×1.5 |
 | *or* Hackerspace ★ | 250 · 100 · 6 | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | income ×1.3 |
 | IPO Tower ★ | 350 · 150 · 8 | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5, valuation ×2 |
 
-★ Wonders have their own menu (`play/wonders-panel.tsx`). The Conference Centre and the Hackerspace are a **fork** (`ProjectDef.rival`, `ruledOut`): starting either rules the other out for the run. The **projects log** (`projects-panel.tsx`) is a foldable quest log that pulses when something new is available (`Session.seenProjects`). Gates apply only while a map is mounted, through registered readers (`setHousingReader`, `setProjectReader`); sims and tests are never gated.
+★ Wonders (`play/wonders-panel.tsx`; headcounts interns · vibe · 10x; "int" = interns). Conference Centre and Hackerspace are a fork (`ProjectDef.rival`, `ruledOut`). Log: `projects-panel.tsx` (`Session.seenProjects`). Gated only with a map mounted (`setHousingReader`, `setProjectReader`).
 
-**Seaports** (`boats/traffic.ts`): three tiers on river banks (1–3 berths, 20/15/10 s calls), upgraded in place for the difference. Boats queue for a berth; each call pays 0.5/0.75/1 s of income (`portCallFee`), credited offline at the last measured rate.
-
-**Town traffic** (`agents/town.ts`): cars keep right, follow at a gap and yield at junctions; people walk the kerb. **Day and night** (`world/daylight.ts`): a 10-minute day darkens the map up to 35% at midnight, halves the traffic at night and brings a rush hour of commuters morning and evening; off in Settings. Rain falls over the map while a flood is forecast, harder once it's here. Building sites carry a crane until the roof goes on. **Team leaders** walk it too (`agents/leaders.ts`): gold shirts, with a name tag (`play/leader-tags.tsx`). Each lives in the most desirable home of their kind and leads the workplace nearest it, whose desks work +25% (up to two leaders a building; `leadershipOf`, `leadShare`, `leadBonus`); its label says who leads it. A **café** within 3 tiles of a workplace adds +10% at its desks; the café's ghost names the workplaces it would serve (`agents/desk-perks.ts`, `deskBonus`).
-
-**At a sale** (`projects/town-worth.ts`) the Equity offer gets +1% a grown tier, +2% a service, +5% a wonder, up to +50%. The run's map and the editor's are saved apart (`world-run`, `world-map`); selling forgets the run's.
+- **Seaports** (`boats/traffic.ts`): three tiers (1–3 berths, 20/15/10 s calls), each call 0.5/0.75/1 s of income (`portCallFee`), credited offline.
+- **Town life** (`agents/town.ts`): traffic; a 10-minute day/night with rush hours (`world/daylight.ts`).
+- **Team leaders on the map** (`agents/leaders.ts`, `play/leader-tags.tsx`): live in the best home of their kind and lead the nearest workplace, +25% desks, two a building (`leadershipOf`, `leadShare`, `leadBonus`). A **café** within 3 tiles adds +10% (`agents/desk-perks.ts`, `deskBonus`).
+- **At a sale** (`projects/town-worth.ts`): +1% a grown tier, +2% a service, +5% a wonder, up to +50%. Run and editor maps save apart (`world-run`, `world-map`).
 
 ## Tech stack
 
-- **React 19** and **TypeScript** (Vite, SWC); **Tailwind CSS v4**
-- **Zustand** for state, persisted to `localStorage`
-- **PixiJS v8**, **@pixi/react** and **pixi-viewport** for the map; **WebGPU** compute for the water, with a CPU reference solver
-- **break_infinity.js** for large numbers (`Decimal`)
-- **Bun** as runtime and test runner; **Tauri** for a desktop build
+React 19 + TypeScript (Vite, SWC), Tailwind CSS v4; Zustand persisted to `localStorage`; PixiJS v8, @pixi/react, pixi-viewport; WebGPU compute water with a CPU reference; break_infinity.js (`Decimal`); Bun (runtime, tests); Tauri (desktop).
 
 ## Getting started
 
-```bash
-bun install
-bun run dev
-```
+`bun install`, then:
 
 | Command | What it does |
 | --- | --- |
-| `bun run dev` | Vite dev server with HMR |
-| `bun run build` | Type-check, then a production build |
+| `bun run dev` | Dev server (HMR) |
+| `bun run build` | Type-check + production build |
 | `bun run typecheck` | `tsc -b`. A bare `tsc -p tsconfig.json` checks nothing here. |
 | `bun test` | The test suite |
 | `bun run lint` | ESLint |
-| `bun run preview` | Preview the production build |
+| `bun run preview` | Preview the build |
 | `bun run tauri:dev` / `tauri:build` | Desktop app |
-| `bun run bake:trees` / `bake:road-corners` | Regenerate derived tile sheets in `public/isometric_assets/derived/` |
+| `bun run bake:trees` / `bake:road-corners` | Regenerate tile sheets in `public/isometric_assets/derived/` |
 
 ## Project structure
 
 ```
 src/
-  App.tsx            # Root: founder gate, layout, game loop, offline check
+  App.tsx            # Root, game loop, offline check
   state/             # Zustand stores, one per system, persisted
-  game/              # Pure game logic: catalogs, multipliers, housing, costs, projects…
+  game/              # Pure game logic: catalogs, multipliers, costs, projects…
   molecules/  ui/    # Composite UI and primitives
-  iso/               # Shared isometric maths and building-kit composition
-  fluid/             # Column water solver; gpu/ is the same as WebGPU compute
-  world/             # World v2: the company's map, and the ?world=1 editor
-    grid.ts  iso.ts  #   Dense map layers; projection, half-step heights, picking
-    gen/             #   Map generator: rivers planned first, land carved round a road
-    roads/           #   Road masks, autotiling, network
-    structures/      #   Definitions, placement, renderers (kit stacks, seaports, lots); projects/ models each project building and its site going up
-    water/           #   The live water field, springs, pipes
-    render/          #   Bands, terrain, water mesh (vertex shader), foam, falls
+  iso/               # Isometric maths, building-kit composition
+  fluid/             # Column water solver; gpu/ is WebGPU compute
+  world/             # The company's map, and the ?world=1 editor
+    grid.ts  iso.ts  #   Map layers; projection, picking
+    gen/             #   Map generator
+    roads/           #   Masks, autotiling, network
+    structures/      #   Definitions, placement, renderers; projects/ for sites
+    water/           #   Live water field, springs, pipes
+    render/          #   Bands, terrain, water mesh, foam, falls
     agents/          #   Traffic, arrivals, commute, services, mood
-    events/          #   Map events: overflow, floods, opportunities, mopping up
-    boats/           #   Boats, wakes, rivers, port traffic
-    projects/        #   Project sites, labs, town worth
-    land.ts          #   Parcels: who owns what, and the price of more
-    play/            #   The game's map UI: build bar, projects, labels, land picker
-    edit/  io/       #   Tools, undo/redo, build cursor; map files and saves
-    debug/           #   Editor chrome, fixtures, perf and GPU comparison harnesses
-  simulation/        # Headless sims and reset helpers, used by tests
+    events/          #   Map events
+    boats/           #   Boats, wakes, port traffic
+    projects/        #   Project sites, labs, racks, town worth
+    ai/              #   AI layer, planner, memos, autopilot, masterplan
+    land.ts          #   Parcels and their price
+    play/            #   Map UI: build bar, projects, labels, panels
+    edit/  io/       #   Editor tools, undo; map files and saves
+    debug/           #   Editor chrome, fixtures, perf/GPU harnesses
+  simulation/        # Headless sims, used by tests
 ```
 
 ## Architecture
 
-- **State:** a Zustand store per system, persisted; `Decimal`s go through `decimalReplacer`/`decimalReviver`. Bumping the major or minor of `CURRENT_VERSION` wipes progress.
-- **Game loop:** an interval in `App.tsx`; per-second getters mirror the tick's multipliers, so shown rates match earnings. Time away is credited once the map's readers are in (`whenWorldReady`), so it's played by the town's rules.
-- **The world reads, the economy listens:** `game/` never imports `world/` at runtime; the mounted map registers readers (beds, projects, mood, town worth).
-- **Grid:** dense typed arrays indexed `y*w+x`. Edits mark cells dirty and the renderer redraws only those.
-- **Bands:** one container per diagonal `x+y`, so nothing sorts; tall things are split per column. Bands are cached render groups, so **Pixi's GC is off** (`stopGarbageCollection`): it freed buffers cached chunks still drew.
-- **Heights** are half steps (16.5 px) and move sprites only vertically. Roads are painted areas autotiled from 8-neighbour masks; ramps are derived; bridges are decks at their own level.
-- **Structures:** a definition plus a renderer: kit sprite stacks for housing, prism drawings per column for everything else.
-- **Water:** a column field stepped by a shallow-water solver, with storeys so water runs under and over a bridge. WebGPU by default, the CPU path the reference, harnesses keeping them in step (`?gpucheck`, `__waterCompare`). Rivers are off-map inflows held at a level; falls, drips and foam are simulated; the mesh is built in a vertex shader.
-- **Map generator:** rivers planned first, buildable ground carved round a wandering street, basins filled by priority flood. The seed picks which map, the settings what kind.
-- **Live state is not map state:** water depth, boats, traffic, arrivals and crews live outside the grid; saves keep pools, boats and build and resident records.
+- **State:** a persisted Zustand store per system; `Decimal`s via `decimalReplacer`/`decimalReviver`. Bumping major/minor of `CURRENT_VERSION` wipes progress.
+- **Game loop:** an interval in `App.tsx`; offline time credited once map readers register (`whenWorldReady`).
+- **The world reads, the economy listens:** `game/` never imports `world/` at runtime; the map registers readers.
+- **Grid:** typed arrays indexed `y*w+x`, dirty-cell redraws.
+- **Bands:** a container per diagonal `x+y`; cached render groups, so **Pixi's GC is off** (`stopGarbageCollection`).
+- **Heights:** half steps (16.5 px); roads autotile from 8-neighbour masks.
+- **Water:** a storeyed shallow-water column solver, WebGPU by default, CPU the reference (`?gpucheck`, `__waterCompare`); the mesh is built in a vertex shader.
+- **Map generator:** rivers first, ground carved round a street, priority-flood basins.
+- **Live state** (water, boats, traffic, arrivals, crews) lives outside the grid.
 
 ## Dev tools
 
-- **World editor:** `?world=1`, every terrain, road, water and structure tool, with undo, fixtures and overlays.
-- **URL flags:** `?fixture=<name>` (a test map, not saved; `projects` shows every building at every build stage), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck` / `?gpuwhy`.
-- **Window hooks in dev:** `__world`, `__town()`, `__structures`, `__net`; `__waterBench(n, true)` drives frames; `__fakeHires = { intern: 9 }` sends hires nobody made; `__eventNow` brings an event forward. Use these, not `import()`, which loads a second copy of each module.
-- **Which water solver runs, and why**, is logged once per change (`WATER: GPU solver` / `WATER: CPU solver — <reason>`, and `GPU:` lines for the device); `window.__waterSolver()` gives it with its history.
-- **A hidden tab or pane pauses `requestAnimationFrame`**, so its frame numbers mean nothing.
-- **Labeller** (`dev/roadlabel.html`) authors `building-kits.json`, `road-labels.json` and `slope-labels.json`: hand-authored data, never overwritten by code.
-- **The DEV panel** (cheats) exists only in development builds (`import.meta.env.DEV`).
+- **Editor:** `?world=1`. **Flags:** `?fixture=<name>` (unsaved test map; `projects` shows every build stage, `singularity` the AI), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck` / `?gpuwhy`.
+- **Window hooks (dev):** `__world`, `__town()`, `__structures`, `__net`, `__waterBench(n, true)`, `__fakeHires = { intern: 9 }`, `__eventNow`, `__aiPreview`. Use these, not `import()` (a second module copy).
+- **Water solver** logged per change (`WATER: GPU solver` / `WATER: CPU solver — <reason>`, `GPU:`); history in `window.__waterSolver()`.
+- **A hidden tab pauses `requestAnimationFrame`**; its frame numbers mean nothing.
+- **Labeller** (`dev/roadlabel.html`) authors `building-kits.json`, `road-labels.json`, `slope-labels.json`: hand-authored, never overwritten by code.
+- **DEV panel** (cheats): development builds only (`import.meta.env.DEV`).
 
 ## Testing
 
-`bun test` runs colocated `*.test.ts` files and headless progression sims in `src/simulation`. `simulate-map-run.ts` plays the core run with the town gating it (beds, arrivals, projects, commute), and `map-balance.test.ts` holds its pacing against the ungated run. Run it with `BALANCE=1` to print the milestones side by side. `placement-gap.test.ts` founds the same town twice on real maps — lots on the most desirable tile, or anywhere — grows both an hour and holds the gap at 20–40% (it is ~33%; short of desks it falls to ~5%). `dominant-choices.test.ts` models each event's choices over ten minutes of income across random companies and holds every one under 70% best (the agents' threat and the pit's drain excepted, and said why). `run-spread.test.ts` founds the run with five founders (`MapRunOptions.founder`) and measures how differently, not how fast, they go (~9%). Type-check with `bun run typecheck` (`tsc -b`); the app tsconfig excludes tests, so they run through Bun. Design rationale lives in the code's doc comments, beside what it explains.
+`bun test` runs `*.test.ts` and `src/simulation` sims: `simulate-map-run.ts` plays a gated run, `map-balance.test.ts` holds its pacing (`BALANCE=1` prints milestones); `placement-gap.test.ts` holds desirable-vs-anywhere lots at 20–40% (~33%); `dominant-choices.test.ts` holds every event choice under 70% best; `run-spread.test.ts` compares five founders (`MapRunOptions.founder`, ~9%). Type-check with `bun run typecheck` (`tsc -b`).
