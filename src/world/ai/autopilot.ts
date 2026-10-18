@@ -25,6 +25,8 @@ import { getAiRunner } from "./ai-runner";
 import type { Masterplan, PlanStep } from "./masterplan/plan";
 import { planTown } from "./masterplan/plan";
 import { nextStep, roadTiles } from "./masterplan/schedule";
+import { styleOf } from "./masterplan/style";
+import { fusedInto } from "../../game/fusion";
 import type { PlanRequest } from "./masterplan/masterplan.worker";
 
 /** Seconds between the autopilot's steps; seconds before a plan is planned again regardless. */
@@ -36,6 +38,9 @@ const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock
 
 /** The plan now, for the overlay and the panel; null until one is made. */
 export const currentPlan = () => state.plan;
+/** How The Model leans: the traits the generations before it ended with. @see styleOf */
+export const modelStyle = () => styleOf(fusedInto("model"));
+
 /** Steps the autopilot has taken this company. */
 export const stepsTaken = () => state.done;
 /** What it built last, in words; null before its first step. */
@@ -83,9 +88,10 @@ function requestPlan(g: Grid) {
   const land = companyLand();
   const kinds = kindsByNeed();
   const services = featureGateOpen("services"), offices = true;
+  const style = modelStyle();
   state.asked = Date.now();
   if (inline) {
-    state.plan = planTown(g, { owned: (x, y) => ownsTile(g, land, x, y), kinds, services, offices });
+    state.plan = planTown(g, { owned: (x, y) => ownsTile(g, land, x, y), kinds, services, offices, style });
     state.plannedAt = Date.now();
     return;
   }
@@ -95,7 +101,7 @@ function requestPlan(g: Grid) {
     state.plan = e.data.plan;
     state.plannedAt = Date.now();
   };
-  const req: PlanRequest = { id: state.asked, file: serializeWorld(g, { terrain: [], paved: [null] }), land, kinds, services, offices };
+  const req: PlanRequest = { id: state.asked, file: serializeWorld(g, { terrain: [], paved: [null] }), land, kinds, services, offices, style };
   state.worker.postMessage(req);
 }
 
@@ -134,6 +140,7 @@ function act(g: Grid, budget: number): boolean {
   const s = state.plan && nextStep(g, state.plan, {
     rules: playRules(g), kinds: kindsByNeed(), services: featureGateOpen("services"), offices: true,
     skip: (p) => state.failed.has(keyOf(p)),
+    style: modelStyle(),
   });
   if (s) {
     if (priceOf(g, s) > spend) return false;

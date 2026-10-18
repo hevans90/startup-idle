@@ -2,14 +2,16 @@
  * World v2 — AI MODE's controls, on The Model's runs: the switch, the budget
  * — the most of the money it may spend on a step — whether to show the
  * masterplan, and how it is getting on: the town it is building toward
- * against the town now, its steps, and its last. @see stepAutopilot
+ * against the town now, its steps, its last, and the traits it leans on.
+ * @see stepAutopilot, styleOf
  */
 import { twMerge } from "tailwind-merge";
 
 import { useTicking } from "../../hooks/use-ticking";
 import { useFounderStore } from "../../state/founder.store";
 import { useSessionStore } from "../../state/session.store";
-import { currentPlan, lastStep, stepsTaken } from "../ai/autopilot";
+import { currentPlan, lastStep, modelStyle, stepsTaken } from "../ai/autopilot";
+import { trait } from "../../game/traits";
 
 const PANEL = "border border-primary-300 bg-primary-50/95 shadow-md dark:border-primary-700 dark:bg-primary-900/95";
 
@@ -24,6 +26,7 @@ export function AiModePanel({ className }: { className?: string }) {
   const plan = on ? currentPlan() : null;
   const gain = plan && plan.now > 0 ? Math.round((plan.predicted / plan.now - 1) * 100) : null;
   const last = lastStep();
+  const leans = modelStyle().from.map((t) => trait(t).name);
   return (
     <div className={twMerge(PANEL, "flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 text-xs text-primary-900 dark:text-primary-100", className)}>
       <label className="flex cursor-pointer items-center gap-1 font-bold text-violet-700 dark:text-violet-300">
@@ -47,6 +50,11 @@ export function AiModePanel({ className }: { className?: string }) {
               ? <>Plan {gain !== null ? `${gain >= 0 ? "+" : "−"}${Math.abs(gain)}% on now` : "ready"} · {stepsTaken()} steps{last && <> · last: {last}</>}</>
               : "Planning…"}
           </span>
+          {leans.length > 0 && (
+            <span className="text-violet-700 dark:text-violet-300" title="The traits past generations ended with, and so how it lays out a town">
+              Leans {leans.join(", ")}
+            </span>
+          )}
         </>
       )}
     </div>

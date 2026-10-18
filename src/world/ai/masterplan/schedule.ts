@@ -4,7 +4,7 @@
  *  0. A SPUR LIFTED, of those the plan lifts, while it still goes nowhere;
  *  1. AN OFFICE, when the lots' grown beds outrun the desks — one of the
  *     plan's, or, failing that, wherever the houses are thickest;
- *  2. A SERVICE, of whichever kind leaves `SERVED_LOTS` or more built lots
+ *  2. A SERVICE, of whichever kind leaves the style's `serve` or more built lots
  *     unserved, where it reaches the most of them;
  *  3. A LOT, on the most desirable frontage there is now;
  *  4. otherwise THE NEXT PIECE OF PLANNED STREET, joined to road already laid
@@ -27,6 +27,7 @@ import { DESKS, WORKPLACES } from "../../agents/commute";
 import { desireAt, desireMapsOf } from "../../agents/desirability";
 import { placesOf } from "../../agents/roads";
 import type { Masterplan, PlanStep } from "./plan";
+import { PLAIN, nearWater, type Style } from "./style";
 
 type Cell = { x: number; y: number };
 type Road = Extract<PlanStep, { kind: "road" }>;
@@ -34,12 +35,10 @@ type Level = Extract<PlanStep, { kind: "level" }>;
 type Clear = Extract<PlanStep, { kind: "clear" }>;
 const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
-/** Built lots a kind of service has to be missing for before one is built; how far one reaches. */
-export const SERVED_LOTS = 6;
+/** How far a service reaches. (How many lots it waits for is the style's.) @see Style */
 const REACH = 7;
-/** Beds a lot grows to, and desks to spare before another office. */
+/** Beds a lot grows to. */
 const GROWN_BEDS = 5;
-const SPARE_DESKS = 10;
 
 export type Wants = {
   rules: PlaceRules;
@@ -49,6 +48,8 @@ export type Wants = {
   offices: boolean;
   /** Steps not to take: ones that failed when tried. */
   skip?: (s: PlanStep) => boolean;
+  /** How the generations before lean it. @see styleOf */
+  style?: Style;
 };
 
 const OFFICE_FOR: Partial<Record<GeneratorId, string>> = { intern: "office-intern", vibe_coder: "office-vibe", "10x_dev": "office-10x" };
@@ -85,7 +86,12 @@ const joined = (g: Grid, r: Road) => {
 };
 
 /** The next step for the town as it stands, or null with nothing left to do. */
-export function nextStep(g: Grid, plan: Masterplan, w: Wants): PlanStep | null {
+export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | null {
+  const style = given.style ?? PLAIN;
+  // PARANOID: no building within reach of the water.
+  const w: Wants = style.dryMargin
+    ? { ...given, rules: { ...given.rules, owned: (x, y) => (given.rules.owned?.(x, y) ?? true) && !nearWater(g, x, y, style.dryMargin) } }
+    : given;
   const skip = w.skip ?? (() => false);
   // 0. A SPUR, while it is still a dead end with nothing beside it.
   for (const s of plan.steps) {
@@ -100,7 +106,7 @@ export function nextStep(g: Grid, plan: Masterplan, w: Wants): PlanStep | null {
   for (const s of structures) if (!s.build && Object.values(WORKPLACES).some((d) => (d as readonly string[]).includes(s.def))) desks += DESKS[s.def] ?? 0;
 
   // 1. AN OFFICE, for the kind most short of desks.
-  if (w.offices && lots.length * GROWN_BEDS > desks + SPARE_DESKS) {
+  if (w.offices && lots.length * GROWN_BEDS > desks + style.spareDesks) {
     for (const who of w.kinds) {
       const def = OFFICE_FOR[who];
       if (!def) continue;
@@ -124,13 +130,13 @@ export function nextStep(g: Grid, plan: Masterplan, w: Wants): PlanStep | null {
     for (const def of ["park", "cafe", "gym"]) {
       const have = structures.filter((s) => s.def === def && !s.build);
       const unserved = lots.filter((l) => !have.some((h) => manhattan(l, h) <= REACH));
-      if (unserved.length < SERVED_LOTS) continue;
+      if (unserved.length < style.serve) continue;
       let best: Cell | null = null, most = 0;
       for (const c of spots(g, def, w.rules)) {
         const n = unserved.filter((l) => manhattan(l, c) <= REACH).length;
         if (n > most) { most = n; best = c; }
       }
-      if (best && most >= SERVED_LOTS) return { kind: "build", def, at: best, value: 0 };
+      if (best && most >= style.serve) return { kind: "build", def, at: best, value: 0 };
     }
   }
 
@@ -142,7 +148,8 @@ export function nextStep(g: Grid, plan: Masterplan, w: Wants): PlanStep | null {
       const maps = desireMapsOf(g, placesOf(g, createNetwork(g)));
       let best = free[0], top = -Infinity;
       for (const c of free) {
-        const d = desireAt(g, maps, c.x, c.y, who)?.total ?? -Infinity;
+        // HYDROPHILE: by the water, the better.
+        const d = (desireAt(g, maps, c.x, c.y, who)?.total ?? -Infinity) + (style.wetPull && nearWater(g, c.x, c.y, 2) ? style.wetPull : 0);
         if (d > top) { top = d; best = c; }
       }
       return { kind: "build", def: `kit:${who}.t0`, at: best, value: top };

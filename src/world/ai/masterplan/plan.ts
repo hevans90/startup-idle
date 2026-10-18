@@ -35,6 +35,7 @@ import { desireAt, desireMapsOf } from "../../agents/desirability";
 import { placesOf } from "../../agents/roads";
 import { createNetwork } from "../../roads/network";
 import { cloneGrid, settledTown } from "./town-model";
+import { PLAIN, nearWater, type Style } from "./style";
 
 type Cell = { x: number; y: number };
 
@@ -67,6 +68,8 @@ export type PlanOptions = {
   offices: boolean;
   /** Passes moving services about; more is better and slower. */
   passes?: number;
+  /** How the generations before lean it. @see styleOf */
+  style?: Style;
 };
 
 /** Tiles between connecting streets. */
@@ -285,7 +288,10 @@ function put(g: Grid, def: string, at: Cell, rules: PlaceRules): boolean {
 const frontage = (g: Grid, rules: PlaceRules, kind: GeneratorId) => spotsFor(g, `kit:${kind}.t0`, rules);
 
 /** The middle of the town's workplaces, or of the map with none. */
-function centreOf(g: Grid): Cell {
+function centreOf(g: Grid, style: Style): Cell {
+  // RECURSIVE: out from the Data Centre, where there is one.
+  const dc = style.centre === "datacentre" && [...g.structures.values()].find((s) => s.def === "datacentre");
+  if (dc) return { x: dc.x + (dc.w >> 1), y: dc.y + (dc.h >> 1) };
   const ws = [...g.structures.values()].filter((s) => Object.values(WORKPLACES).some((d) => (d as readonly string[]).includes(s.def)));
   if (!ws.length) return { x: Math.floor(g.w / 2), y: Math.floor(g.h / 2) };
   return { x: Math.round(ws.reduce((n, s) => n + s.x, 0) / ws.length), y: Math.round(ws.reduce((n, s) => n + s.y, 0) / ws.length) };
@@ -293,14 +299,19 @@ function centreOf(g: Grid): Cell {
 
 const near = (a: Cell, b: Cell, r: number) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= r;
 
-export function planTown(source: Grid, o: PlanOptions): Masterplan {
+export function planTown(source: Grid, given: PlanOptions): Masterplan {
+  const style = given.style ?? PLAIN;
+  // PARANOID: nothing of the plan's within reach of the water.
+  const o: PlanOptions = style.dryMargin
+    ? { ...given, owned: (x, y) => given.owned(x, y) && !nearWater(source, x, y, style.dryMargin) }
+    : given;
   const now = settledTown(cloneGrid(source)).work;
   const g = cloneGrid(source);
   const rules: PlaceRules = { needsRoad: true, owned: o.owned };
   const { on, row } = patternOf(g, o);
   const steps: PlanStep[] = [...spurs(g, o, on), ...planStreets(g, o, on, row)];
   const kind0 = o.kinds[0];
-  const centre = centreOf(source);
+  const centre = centreOf(source, style);
   if (!kind0) return { steps, predicted: now, now, centre };
 
   // SERVICES: each where it reaches the most frontage not yet served.
@@ -315,7 +326,7 @@ export function planTown(source: Grid, o: PlanOptions): Masterplan {
           const reach = front.filter((f, k) => !served.has(k) && near(f, c, 7)).length;
           if (reach > most) { most = reach; best = c; }
         }
-        if (!best || most < 6 || !put(g, def, best, rules)) break;
+        if (!best || most < style.serve || !put(g, def, best, rules)) break;
         placed.push({ def, at: best });
         front.forEach((f, k) => { if (near(f, best!, 7)) served.add(k); });
       }
