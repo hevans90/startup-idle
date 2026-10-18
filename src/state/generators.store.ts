@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { agentBonus } from "../game/agents";
-import { useAgentsStore } from "./agents.store";
+import { runningAgents } from "./agents.store";
 import {
   createJSONStorage,
   persist,
@@ -541,7 +541,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * agentBonus(useAgentsStore.getState().agents),
+            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * agentBonus(runningAgents()),
             innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * atDesks * wonderBonus("innovation") * labBonus(),
           };
         },
@@ -749,12 +749,8 @@ export const useGeneratorStore = create<GeneratorState>()(
           const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
           const m = computeModifiers({ totalEmployees, emUnlocked, rawScores: satisfactionScores });
 
-          // ── 3. AI singularity ─────────────────────────────────────────────────
-          if (emUnlocked) {
-            useAiSingularityStore
-              .getState()
-              .tick(seconds, m.effectiveScores["vibe_coder"] ?? 0, emUnlocked);
-          }
+          // ── 3. AI singularity: the agents running push it. @see singularityRate
+          useAiSingularityStore.getState().tick(seconds);
 
           // ── 4. Income accrual (side effects only) ────────────────────────────
           // Slop pit fills from vibe coders and penalises all income when full.

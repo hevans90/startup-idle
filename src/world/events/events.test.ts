@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  AI_TERMS, FLOOD_MS, FLOOD_WARN_MS, HACKATHON_SNUB, MAX_ROUTES, OVER_SHOWN_MS, ROUTE_BONUS, SLOP_WARN_AT, routeWon, stepEvents, tourFailed, tourReward, type EventWorld, type GameEvent,
+  FLOOD_MS, FLOOD_WARN_MS, HACKATHON_SNUB, MAX_ROUTES, OVER_SHOWN_MS, ROUTE_BONUS, SLOP_WARN_AT, routeWon, stepEvents, tourFailed, tourReward, type EventWorld, type GameEvent,
 } from "./events";
 
 const world = (fill: number, now = 0, rate = 0.1): EventWorld => ({
@@ -112,24 +112,6 @@ describe("opportunities", () => {
     expect(routeWon({ ...evs[0], chosen: "usual" }, 4)).toBe(false);
     expect(routeWon(evs[0], 0)).toBe(false);
     expect(stepEvents([], w(0, true, 0, MAX_ROUTES), next)[0].choices?.[0].cost).not.toContain("regular route");
-  });
-
-  test("the agents, past the mark, decide things unless the plug is pulled", () => {
-    const w = (now: number, due: boolean, equity = 10) => ({
-      ...base(now), singularity: { x: 1, y: 1, due, equity, onTheirTerms: equity * AI_TERMS },
-    });
-    let evs = stepEvents([], w(0, true), next);
-    expect(evs[0]).toMatchObject({ kind: "singularity", phase: "warning" });
-    expect(evs[0].choices.map((c) => c.id)).toEqual(["plug", "sell"]);
-    expect(stepEvents([], w(0, true, 0), next)[0].choices[1].unavailable).toBeDefined();
-    // Left to it: they act.
-    const left = stepEvents(stepEvents(evs, w(60_000, false), next), w(60_010, false), next);
-    expect(left[0]).toMatchObject({ phase: "over" });
-    expect(left[0].outcome).toContain("compute");
-    // The plug pulled: they do not.
-    evs = evs.map((e) => ({ ...e, chosen: "plug" }));
-    const plugged = stepEvents(evs, w(60_000, false), next);
-    expect(plugged[0]).toMatchObject({ phase: "over", outcome: "The racks are dark. The meter is falling." });
   });
 
   test("investors paid less than the base thirty seconds leave unimpressed", () => {

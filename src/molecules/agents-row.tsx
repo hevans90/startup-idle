@@ -9,7 +9,7 @@ import {
   AGENT_BOOST, AGENTS_A_RACK, RACK_RANGE, UNPOWERED_SHARE, agentBonus, agentCost, agentsAtWork, agentsOpen, rackRoom,
 } from "../game/agents";
 import { useTicking } from "../hooks/use-ticking";
-import { agentTrade, useAgentsStore } from "../state/agents.store";
+import { agentTrade, runningAgents, useAgentsStore } from "../state/agents.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { InfoPop } from "../ui/InfoPop";
 
@@ -31,13 +31,15 @@ export function AgentsRow({ isMobile }: { isMobile: boolean }) {
   if (!agentsOpen()) return null;
   const room = rackRoom();
   const cost = agentCost(agents);
-  const { powered, unpowered } = agentsAtWork(agents);
-  const boost = Math.round((agentBonus(agents) - 1) * 100);
+  // THE ONES RUNNING: the Data Centre may have throttled some. @see runningAgents
+  const running = runningAgents();
+  const { powered, unpowered } = agentsAtWork(running);
+  const boost = Math.round((agentBonus(running) - 1) * 100);
   // WHAT THE NEXT IS WORTH: what it adds, against what its innovation takes
   // off the innovation multiplier. @see agentTrade
   const trade = agentTrade(agents);
   const pct = (k: number) => `${k >= 1 ? "+" : "−"}${Math.abs((k - 1) * 100).toFixed(1)}%`;
-  const roomText = Number.isFinite(room) ? `${agents}/${room}` : `${agents}`;
+  const roomText = (Number.isFinite(room) ? `${agents}/${room}` : `${agents}`) + (running < agents ? ` · ${running} on` : "");
   return (
     <div className={twMerge(
       "flex items-center justify-between gap-2 border-t border-primary-300 px-2 py-1 dark:border-primary-700",

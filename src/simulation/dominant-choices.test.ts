@@ -20,7 +20,7 @@ import { SATISFACTION_MAX, SATISFACTION_MIN } from "../game/satisfaction";
 import { DRAIN_SATISFACTION_HIT } from "../state/slop-pit.store";
 import { CLEANERS_PER_TILE } from "../world/events/cleanup";
 import {
-  AI_SPEND, CREW_SHARE, EVACUEE_MORALE, HACKATHON_MORALE, HACKATHON_PIZZA, HACKATHON_SNUB, ROUTE_BONUS, TIDY_MOOD,
+  CREW_SHARE, EVACUEE_MORALE, HACKATHON_MORALE, HACKATHON_PIZZA, HACKATHON_SNUB, ROUTE_BONUS, TIDY_MOOD,
 } from "../world/events/events";
 import { FLOOD_SECONDS, REPAIR_SECONDS } from "../world/events/flood";
 
@@ -90,11 +90,6 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
     host: (c) => HACKATHON_PIZZA + c.vibe * 60 - c.vibe * leanSeconds(HACKATHON_MORALE, c.vibeScore),
     decline: (c) => c.vibe * leanSeconds(HACKATHON_SNUB, c.vibeScore),
   },
-  singularity: {
-    // Every agent's boost gone for the window, against half the money in hand.
-    plug: (c) => WINDOW * (1 - 1 / (1 + AGENT_BOOST * c.agents)),
-    ignore: (c) => AI_SPEND * c.money,
-  },
   "slop-overflow": {
     // The core game's own drain: a one-off hit, back in a minute.
     drain: (c) => c.vibe * bumpSeconds(-DRAIN_SATISFACTION_HIT, c.vibeScore),
@@ -107,12 +102,10 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
 
 /**
  * NOT HELD TO THE BAR, and why:
- *  - the agents: leaving them to it is meant to be the worst, a threat; the
- *    real choice is the plug or a sale, and a sale is not ten minutes' income;
  *  - the slop pit: draining is the core game's own, a hit to morale that is
  *    back in a minute, so it is nearly always cheapest. Left as it is for now.
  */
-const KNOWN = { singularity: "a threat, not a trade", "slop-overflow": "draining's hit is gone in a minute" };
+const KNOWN = { "slop-overflow": "draining's hit is gone in a minute" };
 
 /** Each event's choices, and the share of companies each is best for. */
 export function dominance(draws = 4000, seed = 7): Record<string, Record<string, number>> {

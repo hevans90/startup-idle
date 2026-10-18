@@ -5,7 +5,7 @@
  * quick sale, a big town, a clean one, the wonders, the agents — and three of
  * them are offered, a different three for different land. @see termBonusNow
  */
-import { useAgentsStore } from "../state/agents.store";
+import { runningAgents } from "../state/agents.store";
 import { useSessionStore } from "../state/session.store";
 
 /** What the map says, for the goals that are about it. @see setTermReader */
@@ -99,7 +99,7 @@ export function termNow(): TermNow {
   return {
     ...(reader?.() ?? { houses: 0, wonders: 0 }),
     secondsIn: (Date.now() - s.incorporatedAt) / 1000,
-    agents: useAgentsStore.getState().agents,
+    agents: runningAgents(),
     overflowed: !!s.overflowed,
   };
 }

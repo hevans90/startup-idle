@@ -10,6 +10,7 @@ import { equityForAccrued } from "../game/acquisition";
 import { computeModifiers } from "../game/modifiers";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { resetRunStores } from "../simulation/reset-game-stores";
+import { useAgentsStore } from "./agents.store";
 import { useAiSingularityStore } from "./ai-singularity.store";
 import { useGeneratorStore } from "./generators.store";
 import { useInnovationStore } from "./innovation.store";
@@ -171,9 +172,12 @@ describe("prestige modifiers are wired to the economy", () => {
   });
 
   test("a singularity node speeds AI-singularity accrual", () => {
+    // The agents running push it; the node pushes it harder. @see singularityRate
     const run = () => {
+      useAgentsStore.setState({ agents: 10, running: null });
       useAiSingularityStore.setState({ value: 0 });
-      useAiSingularityStore.getState().tick(1, -100, true);
+      useAiSingularityStore.getState().tick(100);
+      useAgentsStore.setState({ agents: 0, running: null });
       return useAiSingularityStore.getState().value;
     };
     applyNodes([]);

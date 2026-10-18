@@ -12,9 +12,7 @@ import { clock, showMe } from "./map-focus";
 import { useWorldStore } from "../../state/world.store";
 import { cellToWorld } from "../iso";
 import { idx, inBounds } from "../grid";
-import { AI_TERMS, PLUGGED_AT, type GameEvent } from "../events/events";
-import { useAgentsStore } from "../../state/agents.store";
-import { useAiSingularityStore } from "../../state/ai-singularity.store";
+import type { GameEvent } from "../events/events";
 import { clearOfferPremium, offerPremium, setOfferPremium } from "../../game/acquisition";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
 
@@ -42,25 +40,6 @@ function answerOffer(e: GameEvent, choice: string) {
   window.dispatchEvent(new CustomEvent("startup:confirm-sale"));
 }
 
-/**
- * THE AGENTS, answered: the plug pulled shuts every one down and lets the
- * meter fall; letting them buy the company opens the sale on their terms,
- * with its confirmation, as an acquirer's offer does. @see AI_TERMS
- */
-function answerAgents(e: GameEvent, choice: string) {
-  if (e.kind !== "singularity") return;
-  if (choice === "plug") {
-    useAgentsStore.setState({ agents: 0 });
-    useAiSingularityStore.setState((s) => ({ value: Math.min(s.value, PLUGGED_AT) }));
-    return;
-  }
-  if (choice !== "sell") return;
-  setOfferPremium(AI_TERMS, (e.strikesAt ?? Date.now()) + 60_000);
-  useGlobalSettingsStore.getState().setSidebarTab("acquisition");
-  window.dispatchEvent(new CustomEvent("startup:show-company"));
-  window.dispatchEvent(new CustomEvent("startup:confirm-sale"));
-}
-
 function EventCard({ e }: { e: GameEvent }) {
   const respond = useWorldStore((s) => s.respondToEvent);
   const setOff = useSessionStore((s) => s.setMapEventsOff);
@@ -80,7 +59,7 @@ function EventCard({ e }: { e: GameEvent }) {
         <div className="mt-1.5 flex flex-wrap gap-1">
           {e.choices.map((c) => (
             <button key={c.id} type="button" disabled={!!c.unavailable}
-              onClick={() => { respond(e.id, c.id); answerOffer(e, c.id); answerAgents(e, c.id); }}
+              onClick={() => { respond(e.id, c.id); answerOffer(e, c.id); }}
               className={twMerge(BTN, e.chosen === c.id && "bg-primary-200 dark:bg-primary-800")}
               title={c.unavailable}>
               <span className="font-bold">{c.label}</span>
