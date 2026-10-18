@@ -11,6 +11,8 @@ import { useTicking } from "../hooks/use-ticking";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useFounderStore } from "../state/founder.store";
 import { useGenerationStore } from "../state/generation.store";
+import { useWorldStore } from "../state/world.store";
+import { sequenceDone } from "../world/ai/ascension-sequence";
 
 const BTN = "flex-1 cursor-pointer border px-3 py-2 text-sm font-bold";
 
@@ -21,6 +23,8 @@ export function AscensionCard({ className }: { className?: ClassNameValue }) {
   const generation = useGenerationStore((s) => s.generation);
   const founder = useFounderStore((s) => s.selectedFounderId);
   if (value < 100 || !founder) return null;
+  // On the map, the sequence plays first. @see stepSequence
+  if (useWorldStore.getState().playing && !sequenceDone(Date.now())) return null;
   const likely = traitForecast(log, 1)[0];
   return (
     <div role="dialog" aria-label="The Ascension" className={twMerge(

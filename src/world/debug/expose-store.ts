@@ -33,6 +33,8 @@ declare global {
     __fakeHires?: Record<string, number>;
     /** Set to bring the next event of a kind forward to now. @see PACING */
     __eventNow?: import("../events/events").PacedKind;
+    /** A look at the AI's map layer without a late game: the meter, and the Ascension's intensity. @see createAiLayer */
+    __aiPreview?: { value: number; ascension?: number; training?: boolean };
     /**
      * The live water field, for the same reason.
      *

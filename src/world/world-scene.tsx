@@ -10,6 +10,11 @@ import { HUSTLER_EVENTS } from "../game/founders.catalog";
 import { housedBy } from "../game/housing";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { createStreetHeat, type StreetHeat } from "./render/street-heat";
+import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
+import { sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
+import { showMe } from "./play/map-focus";
+import { runningAgents } from "../state/agents.store";
+import { stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
 import { liveStreetEarnings, liveStreets, streetName } from "./play/street-earnings";
 import { liveDesireMaps } from "./agents/desirability";
 import { canAcquire, offerPremium, pendingEquity } from "../game/acquisition";
@@ -164,7 +169,7 @@ import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
 import { buyable, PARCELS, parcelOf } from "./land";
-import { busyness, darkness, dayPhase, drawRain, NIGHT_COLOUR } from "./daylight";
+import { busyness, darkness, dayPhase, drawRain, NIGHT_COLOUR, NIGHT_DARK } from "./daylight";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 
 // Required: <pixiContainer> is only a known element once Container is
@@ -253,6 +258,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // held so an edit can re-texture just the cells that changed
   const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
+  /** The AI on the map: the Data Centre's glow, the links, the holograms. @see createAiLayer */
+  const aiLayerRef = useRef<AiLayer | null>(null);
   /** The earnings overlay. @see createStreetHeat */
   const streetHeatRef = useRef<StreetHeat | null>(null);
   /** The placing heat map. @see createDesireHeat */
@@ -1408,6 +1415,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         cursorRef.current = createBuildCursor(overlayRoot.current, bl);
         heatRef.current = createDesireHeat(overlayRoot.current);
         streetHeatRef.current = createStreetHeat(overlayRoot.current);
+        aiLayerRef.current = createAiLayer(overlayRoot.current);
       }
       boatRef.current = createBoatLayer(bl);
       townRef.current = createTownLayer(bl);
@@ -1442,6 +1450,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       heatRef.current = null;
       streetHeatRef.current?.destroy();
       streetHeatRef.current = null;
+      aiLayerRef.current?.destroy();
+      aiLayerRef.current = null;
       boatRef.current?.destroy();
       boatRef.current = null;
       townRef.current?.destroy();
@@ -2676,11 +2686,34 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const phase = dayPhase(Date.now());
       getTown().busy = on ? busyness(phase) : undefined;
       const g = night.current;
+      const now = Date.now();
+      const playing = useWorldStore.getState().playing;
+      const meter = playing ? useAiSingularityStore.getState().value : 0;
+      // THE ASCENSION SEQUENCE: begun when the meter is full; the camera to the Data Centre. @see stepSequence
+      if (playing && stepSequence(meter, now)) {
+        const dc = [...useWorldStore.getState().grid.structures.values()].find((x) => x.def === "datacentre" && !x.build);
+        if (dc) showMe({ x: dc.x + dc.w / 2, y: dc.y + dc.h / 2 });
+      }
+      const ascension = playing ? sequenceIntensity(now) : 0;
       if (g) {
         const a = on ? darkness(phase) : 0;
         g.clear();
         if (a > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: NIGHT_COLOUR, alpha: a });
+        // THE SKY TURNS as the AI rises: a violet cast from the Manager on, and at the Ascension.
+        const tint = (meter >= 80 ? 0.08 : meter >= 60 ? 0.04 : 0) + 0.3 * ascension;
+        if (tint > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: STAGE_COLOUR.overseer, alpha: tint });
       }
+      // THE AI ON THE MAP. @see createAiLayer
+      const ai = aiLayerRef.current;
+      // In development, `__aiPreview` shows it in the editor at any stage.
+      const preview = import.meta.env.DEV ? window.__aiPreview : undefined;
+      if (ai && (playing || preview)) {
+        const v = preview?.value ?? meter;
+        ai.draw(useWorldStore.getState().grid, scale, {
+          stage: stageOf(v).stage, value: v, running: preview ? 1 : runningAgents(), training: preview?.training ?? training() !== null,
+          night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
+        }, raw, now);
+      } else ai?.clear();
       const r = rain.current;
       if (r) {
         r.clear();
