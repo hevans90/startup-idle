@@ -15,7 +15,7 @@ export const AiSingularityReadout = ({ className }: { className?: ClassNameValue
   const agents = useAgentsStore((s) => s.agents);
   const pct = Math.min(100, Math.max(0, value));
   if (pct <= 0 && agents <= 0) return null;
-  const rate = singularityRate(runningAgents(), singularityMult());
+  const rate = singularityRate(runningAgents(), singularityMult(), agents);
   const stage = stageOf(pct);
 
   return (

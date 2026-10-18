@@ -28,7 +28,7 @@ export const TRAINING_STEP = 1.3;
 
 /** While it runs: houses' desirability, income, satisfaction, port calls, agents' boost. */
 export const TOWN_DESIRE = 8;
-export const MONEY_MULT = 1.25;
+export const MONEY_MULT = 1.15;
 export const PEOPLE_MORALE = 15;
 export const RIVER_PORTS = 1.5;
 export const ITSELF_AGENTS = 1.5;

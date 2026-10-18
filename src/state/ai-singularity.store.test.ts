@@ -49,7 +49,11 @@ describe("the singularity", () => {
     // Running all of them again is no throttle at all.
     useAgentsStore.getState().setRunning(10);
     expect(useAgentsStore.getState().running).toBeNull();
+    // With no agents at all — no Data Centre yet — it holds.
     useAgentsStore.setState({ agents: 0, running: null });
+    useAiSingularityStore.setState({ value: 30 });
+    useAiSingularityStore.getState().tick(100);
+    expect(useAiSingularityStore.getState().value).toBe(30);
     useAiSingularityStore.setState({ value: 0 });
   });
 

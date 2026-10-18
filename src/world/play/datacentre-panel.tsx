@@ -36,7 +36,7 @@ export function DataCentrePanel({ className }: { className?: string }) {
   const running = runningAgents();
   const mult = singularityMult();
   // Nothing to sink from at nought.
-  const rate = value <= 0 ? Math.max(0, singularityRate(running, mult)) : singularityRate(running, mult);
+  const rate = value <= 0 ? Math.max(0, singularityRate(running, mult, agents)) : singularityRate(running, mult, agents);
   const stage = stageOf(value);
   const boost = Math.round((agentBonus(running) - 1) * 100);
   return (

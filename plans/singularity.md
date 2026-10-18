@@ -297,6 +297,8 @@ Takeover events are announcements, not choices (throttle-only control), but each
 
 ## 9. Phases (each a few atomic commits; tests, tsc and eslint at each)
 
+**Status:** all eight phases built on `singularity-overhaul` (PR #8). Phase 8 retuned the meter: 0.0005 an agent, decay only while agents are throttled (it holds before the Data Centre), a sale keeps 80% over a floor of 10 a sale capped at 90 — a strong player ascends in 5 sales, a typical one in 10, a half-throttled one not until they push (`simulation/singularity-cadence.test.ts`); The money's boost cut to ×1.15 so no dataset is best for over 70% of companies (`dominant-choices.test.ts`).
+
 1. **Meter and throttle.** Rewrite the meter (agents running, decay, carry and floor, stages); add the throttle in `agents.store`; remove the vibe source and the 90% event; give the Data Centre a click and a panel shell with the throttle.
 2. **Training runs and the behaviour log.** Datasets, costs, jumps; the generation store; the training log and trait forecast in the panel; the agent roster.
 3. **Ascension.** The sequence (a basic version first), Ascend versus Shut it down, Weights, the reset, the Model tab, slots and modules, trait sampling and mutation, founder fusion on cards; fold in the AGI tab, D2, D8 and the 5× sale.

@@ -21,14 +21,19 @@ import { fusionNow } from "../game/fusion";
 export const singularityMult = () =>
   usePrestigeStore.getState().modifiers.singularityMult * QUIET_MODEL[moduleLevel("quiet-model")] * fusionNow().meterMult;
 
-/** Points a second each agent running adds: ~30 over a strong run's hour and a half with fifteen. */
-export const RATE_PER_AGENT = 0.00037;
-/** Points a second the meter sinks with no agent running. */
+/** Points a second each agent running adds: ~15 over a strong run's last hour, ramping to sixteen. */
+export const RATE_PER_AGENT = 0.0005;
+/** Points a second the meter sinks with agents and none running: the throttle pulled right down. */
 export const DECAY = 0.002;
-/** The share of it a sale keeps, and the floor under that: so much a sale this generation, up to a cap. */
-export const CARRY = 0.4;
-export const FLOOR_PER_SALE = 5;
-export const FLOOR_CAP = 60;
+/**
+ * The share of it a sale keeps, and the floor under that: so much a sale this
+ * generation, up to a cap. Tuned so a strong player ascends in about 5 sales,
+ * a typical one in about 10, and one who runs half the agents not until they
+ * push. @see singularity-cadence.test.ts
+ */
+export const CARRY = 0.8;
+export const FLOOR_PER_SALE = 10;
+export const FLOOR_CAP = 90;
 
 export type Stage = "tool" | "assistant" | "colleague" | "manager" | "overseer" | "ascension";
 /** Where each stage begins. */
@@ -53,9 +58,9 @@ export function afterSale(value: number, sales: number): number {
   return Math.min(100, Math.max(value * CARRY, Math.min(FLOOR_CAP, sales * FLOOR_PER_SALE)));
 }
 
-/** Points a second the meter moves by, with `running` agents running. */
-export function singularityRate(running: number, mult = 1): number {
-  return running > 0 ? running * RATE_PER_AGENT * mult : -DECAY;
+/** Points a second the meter moves by, with `running` of `owned` agents running: before there are any, it holds. */
+export function singularityRate(running: number, mult = 1, owned = running): number {
+  return running > 0 ? running * RATE_PER_AGENT * mult : owned > 0 ? -DECAY : 0;
 }
 
 type AiSingularityState = {
@@ -79,7 +84,7 @@ export const useAiSingularityStore = create<AiSingularityState>()(
         if (agents > 0) useGenerationStore.getState().recordRunning(seconds, running < agents, running);
         // The skill tree's AI Hype passives and AGI-Pilled bring it on faster.
         // And the Quiet Model module, and the founder's fused tempers. @see QUIET_MODEL, game/fusion
-        const rate = singularityRate(running, singularityMult());
+        const rate = singularityRate(running, singularityMult(), agents);
         const cur = Math.min(100, Math.max(0, get().value));
         const next = Math.min(100, Math.max(0, cur + rate * seconds));
         if (next === cur) return;
