@@ -31,3 +31,18 @@ export const sequenceIntensity = (now: number) => Math.min(1, sequenceProgress(n
 
 /** Whether it has played to the end, so the card can ask. */
 export const sequenceDone = (now: number) => started !== null && now - started >= SEQUENCE_MS;
+
+/** Seconds the `singularity` fixture takes over each stage, and over the Ascension at the end. */
+export const FIXTURE_STAGE_SECONDS = 15;
+export const FIXTURE_ASCENSION_SECONDS = 18;
+
+/**
+ * THE `singularity` FIXTURE'S PREVIEW: the meter run up through every stage,
+ * `FIXTURE_STAGE_SECONDS` each, then the Ascension played out, and round again.
+ * `t` in seconds. @see buildSingularity
+ */
+export function aiFixturePreview(t: number): { value: number; ascension: number; training: boolean; plan?: undefined } {
+  const rise = 5 * FIXTURE_STAGE_SECONDS, k = t % (rise + FIXTURE_ASCENSION_SECONDS);
+  if (k < rise) return { value: (k / rise) * 100, ascension: 0, training: Math.floor(k / FIXTURE_STAGE_SECONDS) % 2 === 1 };
+  return { value: 100, ascension: (k - rise) / FIXTURE_ASCENSION_SECONDS, training: false };
+}

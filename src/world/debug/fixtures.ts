@@ -10,7 +10,7 @@ import { DIR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { commit, createHistory } from "../edit/commands";
 import {
-  DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
+  AI_BUILDINGS, DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
 } from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
 import { derivedRamp } from "../roads/ramp-derive";
@@ -25,7 +25,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects";
+  | "firstRoad" | "projects" | "singularity";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -954,7 +954,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects",
+  "firstRoad", "projects", "singularity",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -983,6 +983,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "waterfall": buildWaterfall(g, material); recomputeHeightRange(g); return;
     case "brink": buildBrink(g, material); recomputeHeightRange(g); return;
     case "projects": buildProjects(g, material); recomputeHeightRange(g); return;
+    case "singularity": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
   }
 }
 
@@ -1049,4 +1050,41 @@ export function buildProjects(g: Grid, material: number) {
     rx += def.footprint.w + GAP;
     if (rx > g.w - 6) { rx = 2 + GALLERY_STAGES.length * (4 + GAP) + 2; ry += 4 + GAP; }
   }
+}
+
+/**
+ * THE AI'S TOWN, to look at the singularity on: streets in a ring, a finished
+ * Data Centre on the middle one with racks in reach, the AI's own buildings
+ * along the south street, and houses on the rest. Opened on it, the AI's
+ * preview runs through every stage and into the Ascension. @see aiFixturePreview
+ */
+export function buildSingularity(g: Grid, material: number, cx: number, cy: number) {
+  clear(g, material);
+  const history = createHistory();
+  const put = (def: StructureDef | null | undefined, x: number, y: number) => {
+    if (!def) return;
+    const cmd = placeCommand(g, { ...def, placement: undefined }, x, y);
+    if (!cmd) return;
+    commit(g, history, cmd);
+    const live = cmd.structures?.added[0] && g.structures.get(cmd.structures.added[0].id);
+    if (live) delete live.residents;
+  };
+  const x0 = Math.max(2, cx - 14), x1 = Math.min(g.w - 3, cx + 14);
+  const rows = [cy - 6, cy, cy + 6];
+  for (const y of rows) for (let x = x0; x <= x1; x++) g.paved[idx(g, x, y)] = 1;
+  for (const x of [x0, x1]) for (let y = rows[0]; y <= rows[2]; y++) g.paved[idx(g, x, y)] = 1;
+  edited(g);
+  // THE DATA CENTRE, north of the middle street, and racks either side of it.
+  put(structureDef("datacentre"), cx - 1, cy - 3);
+  for (const x of [cx - 7, cx - 5, cx + 3, cx + 5]) put(RACK, x, cy - 2);
+  for (const x of [cx - 6, cx - 3, cx + 2, cx + 5]) put(RACK, x, cy + 1);
+  // ITS OWN BUILDINGS, along the south street.
+  let x = x0 + 2;
+  for (const def of AI_BUILDINGS) {
+    put(def, x, rows[2] + 1);
+    x += def.footprint.w + 1;
+  }
+  // HOUSES on the north street, both sides, for the holograms to walk past.
+  const house = structureDef("kit:intern.t1");
+  for (let hx = x0 + 1; hx < x1; hx += 2) { put(house, hx, rows[0] - 1); put(house, hx, rows[0] + 1); }
 }

@@ -11,7 +11,7 @@ import { housedBy } from "../game/housing";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { createStreetHeat, type StreetHeat } from "./render/street-heat";
 import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
-import { sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
+import { aiFixturePreview, sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
 import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos } from "./ai/ai-runner";
 import { currentPlan, stepAutopilot } from "./ai/autopilot";
 import { useFounderStore } from "../state/founder.store";
@@ -32,7 +32,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { companyLand, drainDirty, playRules, startedOnFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { companyLand, drainDirty, playRules, startedOnFixture, startFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -2743,7 +2743,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // THE AI ON THE MAP. @see createAiLayer
       const ai = aiLayerRef.current;
       // In development, `__aiPreview` shows it in the editor at any stage.
-      const preview = import.meta.env.DEV ? window.__aiPreview : undefined;
+      // And on the `singularity` fixture it runs through every stage by itself. @see aiFixturePreview
+      const preview = import.meta.env.DEV
+        ? window.__aiPreview ?? (startFixture() === "singularity" ? aiFixturePreview(performance.now() / 1000) : undefined)
+        : undefined;
       const modelRun = playing && useFounderStore.getState().selectedFounderId === "model";
       if (ai && (playing || preview || modelRun)) {
         const v = preview?.value ?? meter;

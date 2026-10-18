@@ -716,6 +716,8 @@ const START_FIXTURE = fixtureFromUrl();
  * rig can never write over the map somebody built. @see startAutosave
  */
 export const startedOnFixture = () => START_FIXTURE !== null;
+/** The fixture this session opened on, if any. */
+export const startFixture = () => START_FIXTURE;
 /**
  * The generator's settings as they were left. @see loadGenParams
  *
