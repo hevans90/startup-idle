@@ -162,6 +162,9 @@ import {
 } from "./render/falls-gpu";
 import { COLUMNS_PER_TILE } from "./water/field";
 import { pointerRead, type PointerAt } from "./debug/pointer-at";
+import { clickTakesOver, opensSomething } from "./play/opens";
+import { drawOpenHighlight } from "./render/open-highlight";
+import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
 import {
@@ -189,10 +192,11 @@ const ROAD_TABLE = buildRoadTable("landscape");
  * The structure drawn under a point on the screen, the frontmost if several
  * overlap there — by the bounds of what its renderer drew. Null for none.
  */
-function structureHitAt(sl: StructureLayer | null, gx: number, gy: number): Structure | null {
+function structureHitAt(sl: StructureLayer | null, gx: number, gy: number, only?: (s: Structure) => boolean): Structure | null {
   if (!sl) return null;
   let best: Structure | null = null, bestBand = -Infinity;
   for (const m of sl.mounted.values()) {
+    if (only && !only(m.s)) continue;
     const h = m.handle as { sprites?: Container[]; columns?: Container[]; g?: Container };
     const drawn = h.sprites ?? h.columns ?? (h.g ? [h.g] : []);
     const band = m.s.x + m.s.w - 1 + m.s.y + m.s.h - 1;
@@ -1515,6 +1519,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const gapGfx = useRef<Graphics | null>(null);
   const originGfx = useRef<Graphics | null>(null);
   const hoverGfx = useRef<Graphics | null>(null);
+  const openGfx = useRef<Graphics | null>(null);
   const crossGfx = useRef<Graphics | null>(null);
   const landGfx = useRef<Graphics | null>(null);
   const overlays = useWorldStore((s) => s.overlays);
@@ -1586,10 +1591,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // created later (it needs the band layer) and must stay on top of these
     // however the two effects happen to interleave.
     root.sortableChildren = true;
-    const refs = [landGfx, bandGfx, tintGfx, netGfx, maskGfx, gapGfx, gridGfx, originGfx, hoverGfx, crossGfx];
+    const refs = [landGfx, bandGfx, tintGfx, netGfx, maskGfx, gapGfx, gridGfx, originGfx, hoverGfx, crossGfx, openGfx];
     const made = refs.map((r, i) => {
       const g = new Graphics();
-      g.zIndex = i;              // land, stripes, tint, net, mask, grid, origin, hover, crosshair
+      g.zIndex = i;              // land, stripes, tint, net, mask, grid, origin, hover, crosshair, what opens
       root.addChild(g);
       r.current = g;
       return g;
@@ -1674,9 +1679,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const onMove = (e: FederatedPointerEvent) => {
       const p = vp.toWorld(e.global.x, e.global.y);
       repick(p.x, p.y);
+      // A BUILDING THAT OPENS SOMETHING under the pointer, in the game and not
+      // mid-stroke: tested only against those, by what they drew. @see opensSomething
+      const st = useWorldStore.getState();
+      const open = st.playing && !st.stroke && clickTakesOver(st.tool)
+        ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => opensSomething(s.def, s.build))
+        : null;
+      st.setHoverOpen(open?.id ?? null);
     };
     const onLeave = () => {
       const st = useWorldStore.getState();
+      st.setHoverOpen(null);
       st.setHover(null);
       st.setPointer(null);
       st.cancelStroke();
@@ -1688,7 +1701,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // WITH THE LOOK TOOL, a press that is let go where it was pressed is a
     // CLICK on the cell under it — a building, say, to open what it is for —
     // and one dragged away is the camera panning. @see WorldState.lookedAt
-    let lookFrom: { x: number; y: number; cell: { x: number; y: number } | null } | null = null;
+    // OVER A BUILDING THAT OPENS SOMETHING, any tool's press is such a click
+    // on it: the building takes the click. @see clickTakesOver
+    let lookFrom: { x: number; y: number; cell: { x: number; y: number } | null; open?: boolean } | null = null;
     // FINGERS DOWN: a second one makes it a pinch, not a stroke.
     const touches = new Set<number>();
     const onDown = (e: FederatedPointerEvent) => {
@@ -1698,6 +1713,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       if (e.button !== 0) return;
       const st = useWorldStore.getState();
+      // Tested where the press lands, not taken from the hover: a finger has no hover, and the last one may be stale.
+      const open = st.playing && clickTakesOver(st.tool)
+        ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => opensSomething(s.def, s.build))
+        : null;
+      if (open) {
+        lookFrom = { x: e.global.x, y: e.global.y, cell: { x: open.x, y: open.y }, open: true };
+        return;
+      }
       if (st.tool === "inspect") {
         lookFrom = { x: e.global.x, y: e.global.y, cell: cellAt(e) };
         return;
@@ -1712,9 +1735,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       touches.delete(e.pointerId);
       if (pinching) return;
       const st = useWorldStore.getState();
-      if (lookFrom && st.tool === "inspect") {
+      if (lookFrom && (st.tool === "inspect" || lookFrom.open)) {
         const moved = Math.hypot(e.global.x - lookFrom.x, e.global.y - lookFrom.y);
-        if (moved <= LOOK_CLICK_SLOP) {
+        if (moved <= LOOK_CLICK_SLOP && lookFrom.open) st.lookAt(lookFrom.cell!);
+        else if (moved <= LOOK_CLICK_SLOP) {
           // THE BUILDING UNDER THE POINTER, by what is drawn, before the
           // ground: a click on a tower's side is on the tower, though the cell
           // picked under it is the ground well behind. @see structureHitAt
@@ -1747,10 +1771,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // @see the build cursor below, which does the same
   useEffect(() => {
     const draw = () => {
-      if (hoverGfx.current) drawHover(hoverGfx.current, grid, useWorldStore.getState().hover, scale);
+      const st = useWorldStore.getState();
+      // Over a building that opens something, the building is what is lit, not the tile.
+      if (hoverGfx.current) drawHover(hoverGfx.current, grid, st.hoverOpen === null ? st.hover : null, scale);
     };
     draw();
-    return useWorldStore.subscribe((s, was) => { if (s.hover !== was.hover) draw(); });
+    return useWorldStore.subscribe((s, was) => { if (s.hover !== was.hover || s.hoverOpen !== was.hoverOpen) draw(); });
   }, [grid, scale]);
 
   // Calibration: changing the offset re-picks at the last pointer position, so
@@ -1771,6 +1797,31 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    * thing it draws has actually moved. @see pointerSaw
    */
   const crossAt = useRef<PointerAt | null>(null);
+
+  /**
+   * WHAT OPENS, LIT: the building under the pointer that a click would open,
+   * framed and pulsing every frame it is there, and the pointer a hand.
+   * @see drawOpenHighlight
+   */
+  const openShown = useRef<number | null>(null);
+  useTick(() => {
+    const g = openGfx.current;
+    if (!g) return;
+    const st = useWorldStore.getState();
+    const s = st.hoverOpen !== null ? st.grid.structures.get(st.hoverOpen) : undefined;
+    const id = s?.id ?? null, was = openShown.current;
+    if (id !== was) app.canvas.style.cursor = id !== null ? "pointer" : "";
+    openShown.current = id;
+    if (!s) { if (was !== null) g.clear(); return; }
+    const sl = slRef.current, b = sl ? drawnBounds(sl, s.id) : null;
+    let drawn: { x: number; y: number; w: number; h: number } | null = null;
+    if (b && g.parent) {
+      const a = g.parent.toLocal({ x: b.x, y: b.y }), c = g.parent.toLocal({ x: b.x + b.w, y: b.y + b.h });
+      drawn = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
+    }
+    drawOpenHighlight(g, st.grid, s, st.scale, drawn, performance.now() / 1000);
+  });
+
   useTick(() => {
     const p = pointerRead();
     if (p === crossAt.current) return;
@@ -1968,7 +2019,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (!cur || !tex) return;
 
     const draw = () => {
-      const { stroke, hover: hoverForBrush } = useWorldStore.getState();
+      const { stroke, hover: hoverForBrush, hoverOpen } = useWorldStore.getState();
+      // Over a building that opens something, the tool is put down: no cursor. @see opensSomething
+      if (!stroke && hoverOpen !== null) { cur.clear(); return; }
       // A live drag takes over; otherwise the hover stands in as a one-cell
       // anchor so the brush size is visible before pressing rather than
       // discovered after.
@@ -2036,7 +2089,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     draw();
     return useWorldStore.subscribe((s, was) => {
       // And on an edit: an upgrade changes what is under a cursor that has not moved.
-      if (s.stroke !== was.stroke || s.hover !== was.hover || s.revision !== was.revision) draw();
+      if (s.stroke !== was.stroke || s.hover !== was.hover || s.hoverOpen !== was.hoverOpen || s.revision !== was.revision) draw();
     });
   }, [
     brushRadius, tool, material, palette, structureDefId,
@@ -2743,9 +2796,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // THE AI ON THE MAP. @see createAiLayer
       const ai = aiLayerRef.current;
       // In development, `__aiPreview` shows it in the editor at any stage.
-      // And on the `singularity` fixture it runs through every stage by itself. @see aiFixturePreview
+      // And on the `singularity` fixture, in the editor, it runs through every stage by itself. @see aiFixturePreview
       const preview = import.meta.env.DEV
-        ? window.__aiPreview ?? (startFixture() === "singularity" ? aiFixturePreview(performance.now() / 1000) : undefined)
+        ? window.__aiPreview ?? (startFixture() === "singularity" && !playing ? aiFixturePreview(performance.now() / 1000) : undefined)
         : undefined;
       const modelRun = playing && useFounderStore.getState().selectedFounderId === "model";
       if (ai && (playing || preview || modelRun)) {

@@ -346,6 +346,8 @@ type WorldState = {
   viewport: Viewport | null;
   /** Cell under the pointer, or null when off-map. */
   hover: Cell | null;
+  /** The building under the pointer that opens something when clicked, by id; null for none. @see opensSomething */
+  hoverOpen: number | null;
   /** Bands currently drawn, for the debug readout. */
   drawnBands: number;
   /** Tiles holding water, and the total volume — mirrored for the readout. */
@@ -552,6 +554,7 @@ type WorldState = {
   pickNudge: number;
   setViewport: (v: Viewport) => void;
   setHover: (c: Cell | null) => void;
+  setHoverOpen: (id: number | null) => void;
   /** Where the pointer is, latched rather than stored. @see pointerSaw */
   setPointer: (p: PointerAt | null) => void;
   setDrawnBands: (n: number) => void;
@@ -739,6 +742,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   scale: 1,
   viewport: null,
   hover: null,
+  hoverOpen: null,
   drawnBands: 0,
   openEdge: OPEN_EDGE_DEFAULT,
   gpuWater: true,
@@ -979,6 +983,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   pickNudge: 0,
   setViewport: (viewport) => set({ viewport }),
   setHover: (hover) => set({ hover }),
+  setHoverOpen: (hoverOpen) => { if (get().hoverOpen !== hoverOpen) set({ hoverOpen }); },
   // A LATCH, not a `set`: this fires on every pointer move with a fresh
   // object, and a store write is a React root pass. @see pointerSaw
   setPointer: (pointer) => pointerSaw(pointer),
@@ -1035,7 +1040,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
-      grid, hover: null, stroke: null,
+      grid, hover: null, hoverOpen: null, stroke: null,
       revision: 0, lastTouched: [], ...historyMeta(), ...netMeta(),
     });
   },
