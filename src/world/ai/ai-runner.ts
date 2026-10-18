@@ -15,6 +15,7 @@ import { DRONE_SWARM, moduleLevel } from "../../game/modules";
 import type { Stage } from "../../state/ai-singularity.store";
 import type { Grid, Structure } from "../grid";
 import { INTERVAL, chooseAction, perform, targetOf, type AiAction } from "./planner";
+import { ARRIVALS, nextMemoIn, pickMemo } from "./memos";
 
 /** Drones aloft at once; tiles a second a drone flies; seconds it scans before the job is done. */
 export const MAX_DRONES = 6;
@@ -30,8 +31,28 @@ type Cell = { x: number; y: number };
 export type DroneJob = { action: AiAction; from: Cell; to: Cell; t: number; fly: number };
 export type AiMemo = { text: string; at: number };
 
-export type AiRunner = { clock: number; jobs: DroneJob[]; log: AiMemo[]; lastAt: number | null };
-export const createAiRunner = (): AiRunner => ({ clock: 0, jobs: [], log: [], lastAt: null });
+export type AiRunner = { clock: number; jobs: DroneJob[]; log: AiMemo[]; lastAt: number | null; memoIn: number | null };
+export const createAiRunner = (): AiRunner => ({ clock: 0, jobs: [], log: [], lastAt: null, memoIn: null });
+
+/**
+ * THE AI'S MEMOS, moved on: a stage arrived at is announced, once a company;
+ * otherwise, every few minutes, a memo — and what it says, done. Returns
+ * what it said, or null. @see world/ai/memos
+ */
+export function stepMemos(r: AiRunner, stage: Stage, dt: number, said: readonly string[], rand: () => number = Math.random): { text: string; arrived?: Stage } | null {
+  if (stage === "tool") { r.memoIn = null; return null; }
+  const arrival = ARRIVALS[stage];
+  if (arrival && !said.includes(stage)) return { text: arrival, arrived: stage };
+  if (r.memoIn === null) r.memoIn = nextMemoIn(rand);
+  r.memoIn -= dt;
+  if (r.memoIn > 0) return null;
+  r.memoIn = nextMemoIn(rand);
+  const m = pickMemo(stage, rand);
+  if (!m) return null;
+  const text = m.text();
+  m.apply?.();
+  return { text };
+}
 
 /** What the runner needs to know of the company, this frame. */
 export type AiNow = { stage: Stage; running: number; agents: number };

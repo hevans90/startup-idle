@@ -74,6 +74,9 @@ type SessionState = {
   /** When the company's AI last worked, for what it did while nobody watched. @see catchUpAi */
   aiAt: number | null;
   setAiAt: (at: number) => void;
+  /** The stages the AI has announced arriving at, this company. @see ARRIVALS */
+  aiSaid: string[];
+  markAiSaid: (stage: string) => void;
   setMapEventsOff: (off: boolean) => void;
   setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
@@ -120,6 +123,8 @@ export const useSessionStore = create<SessionState>()(
       setSnubbed: (snubbed) => set({ snubbed }),
       aiAt: null,
       setAiAt: (aiAt) => set({ aiAt }),
+      aiSaid: [],
+      markAiSaid: (stage) => set((s) => ({ aiSaid: [...(s.aiSaid ?? []), stage] })),
       setMapEventsOff: (mapEventsOff) => set({ mapEventsOff }),
       setHintsOff: (hintsOff) => set({ hintsOff }),
       portIncomePerSecond: 0,
@@ -130,7 +135,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null,
+        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [],
       }),
     }),
     {
@@ -154,6 +159,7 @@ export const useSessionStore = create<SessionState>()(
         overflowed: s.overflowed,
         snubbed: s.snubbed,
         aiAt: s.aiAt,
+        aiSaid: s.aiSaid,
       }),
     },
   ),

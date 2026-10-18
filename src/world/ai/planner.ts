@@ -59,21 +59,21 @@ export function targetOf(a: AiAction): Cell | null {
 export const INTERVAL: Partial<Record<Stage, number>> = { colleague: 60, manager: 35, overseer: 20, ascension: 20 };
 
 /** What it may do at a stage. */
-type Kind = "lot" | "service" | "node" | "farm" | "convert" | "road" | "lift" | "flatten" | "pond" | "spire" | "hangar" | "monolith" | "hire" | "upgrade";
+type Kind = "lot" | "service" | "node" | "farm" | "convert" | "repurpose" | "road" | "lift" | "flatten" | "pond" | "spire" | "hangar" | "monolith" | "hire" | "upgrade";
 const BY_STAGE: Partial<Record<Stage, Kind[]>> = {
   colleague: ["lot", "service", "node", "farm"],
-  manager: ["lot", "service", "node", "farm", "convert", "road", "lift", "hire", "upgrade"],
-  overseer: ["lot", "service", "farm", "convert", "road", "lift", "hire", "upgrade", "flatten", "pond", "spire", "hangar", "monolith"],
+  manager: ["lot", "service", "node", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade"],
+  overseer: ["lot", "service", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "flatten", "pond", "spire", "hangar", "monolith"],
 };
 BY_STAGE.ascension = BY_STAGE.overseer;
 
 /** How much more often each family of trait reaches for each kind of job. */
 const LEAN: Record<Family, Partial<Record<Kind, number>>> = {
   planner: { road: 3, lift: 2, service: 2, lot: 2 },
-  optimiser: { farm: 3, hire: 3, upgrade: 3, convert: 2 },
+  optimiser: { farm: 3, hire: 3, upgrade: 3, convert: 2, repurpose: 3 },
   shepherd: { service: 4, lot: 2 },
   elemental: { pond: 4, flatten: 2 },
-  recursive: { node: 3, spire: 3, convert: 3, hangar: 2 },
+  recursive: { node: 3, spire: 3, convert: 3, hangar: 2, repurpose: 2 },
   temper: {},
 };
 
@@ -184,6 +184,14 @@ function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
       const h = houses[0];
       return { kind: "convert", at: { x: h.x, y: h.y }, into: "ai-node", why: "That house was underused. It is a node now. Its residents have been relocated." };
     }
+    case "repurpose": {
+      // A café, a park, a gym or an office: a GPU farm now, for good.
+      const taken = structures.filter((s) => !s.build && (["cafe", "park", "gym", "office-intern", "office-vibe"].includes(s.def)));
+      if (!taken.length) return null;
+      const s = pick(taken);
+      const name = structureDef(s.def)?.name ?? "building";
+      return { kind: "convert", at: { x: s.x, y: s.y }, into: "gpu-farm", why: `I have repurposed the ${name.toLowerCase()} as a GPU farm. Its previous function has been deprecated.` };
+    }
     case "road": {
       const ends = deadEnds(g).filter((e) => fronted(g, e.at.x, e.at.y));
       if (!ends.length) return null;
@@ -259,7 +267,8 @@ export function chooseAction(g: Grid, stage: Stage, rand: () => number = Math.ra
 export function perform(a: AiAction): boolean {
   switch (a.kind) {
     case "place": return placeStructure(a.def, a.at);
-    case "convert": return demolishAt(a.at) && placeStructure(a.into, a.at);
+    // Taken down, then its own put up; a node if what it meant will not fit where it stood.
+    case "convert": return demolishAt(a.at) && (placeStructure(a.into, a.at) || placeStructure("ai-node", a.at));
     case "road": return paveRoad(a.from, a.to);
     case "lift": return liftRoad(a.at, a.at);
     case "flatten": return reshape("flatten", a.from, a.to);

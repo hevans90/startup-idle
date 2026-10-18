@@ -12,7 +12,7 @@ import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { createStreetHeat, type StreetHeat } from "./render/street-heat";
 import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
 import { sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
-import { catchUpAi, droneAt, getAiRunner, stepAi } from "./ai/ai-runner";
+import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos } from "./ai/ai-runner";
 import { useFounderStore } from "../state/founder.store";
 import { showMe } from "./play/map-focus";
 import { runningAgents, useAgentsStore } from "../state/agents.store";
@@ -2659,7 +2659,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const memos = since ? catchUpAi(runner, st.grid, aiNow, since, at) : [];
             if (memos.length) st.setAiReport(memos.map((m) => m.text));
           }
-          stepAi(runner, st.grid, aiNow, dt, at);
+          for (const a of stepAi(runner, st.grid, aiNow, dt, at)) {
+            // A TAKEOVER is announced. @see planner "repurpose"
+            if (a.kind === "convert" && a.into === "gpu-farm") st.pushAiMemo(a.why);
+          }
+          // AND WHAT IT HAS TO SAY. @see stepMemos
+          const memo = stepMemos(runner, aiNow.stage, dt, useSessionStore.getState().aiSaid ?? []);
+          if (memo) {
+            if (memo.arrived) useSessionStore.getState().markAiSaid(memo.arrived);
+            st.pushAiMemo(memo.text);
+          }
           aiSaved.current += dt;
           if (aiSaved.current >= 5) { aiSaved.current = 0; useSessionStore.getState().setAiAt(at); }
         }

@@ -503,6 +503,10 @@ type WorldState = {
   /** What the AI did while nobody was watching, to say once; null when said. @see catchUpAi */
   aiReport: string[] | null;
   setAiReport: (report: string[] | null) => void;
+  /** The AI's latest memos to the company, newest last. @see world/ai/memos */
+  aiMemos: { text: string; at: number }[];
+  pushAiMemo: (text: string) => void;
+  dismissAiMemos: () => void;
   /** Whether the Data Centre's control room is open. @see DataCentrePanel */
   dataCentreOpen: boolean;
   setDataCentreOpen: (open: boolean) => void;
@@ -820,6 +824,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setWondersOpen: (wondersOpen) => set({ wondersOpen }),
   aiReport: null,
   setAiReport: (aiReport) => set({ aiReport }),
+  aiMemos: [],
+  pushAiMemo: (text) => set((s) => ({ aiMemos: [...s.aiMemos, { text, at: Date.now() }].slice(-3) })),
+  dismissAiMemos: () => set({ aiMemos: [] }),
   dataCentreOpen: false,
   setDataCentreOpen: (dataCentreOpen) => set({ dataCentreOpen }),
   notice: null,
