@@ -7,7 +7,7 @@
  */
 import { twMerge } from "tailwind-merge";
 
-import { AGENTS_A_RACK, agentBonus } from "../../game/agents";
+import { agentBonus, agentsARack } from "../../game/agents";
 import { DATASETS, TRAINING_SECONDS, dataset } from "../../game/training";
 import { traitForecast } from "../../game/traits";
 import { useGenerationStore } from "../../state/generation.store";
@@ -17,8 +17,7 @@ import { powered as rackPowered } from "../projects/racks";
 import { showMe } from "./map-focus";
 import { useTicking } from "../../hooks/use-ticking";
 import { runningAgents, useAgentsStore } from "../../state/agents.store";
-import { singularityRate, stageOf, useAiSingularityStore } from "../../state/ai-singularity.store";
-import { usePrestigeStore } from "../../state/prestige.store";
+import { singularityMult, singularityRate, stageOf, useAiSingularityStore } from "../../state/ai-singularity.store";
 import { useWorldStore } from "../../state/world.store";
 
 const PANEL = "border border-primary-300 bg-primary-50/95 shadow-md dark:border-primary-700 dark:bg-primary-900/95";
@@ -35,7 +34,7 @@ export function DataCentrePanel({ className }: { className?: string }) {
   const value = useAiSingularityStore((s) => s.value);
   if (!open) return null;
   const running = runningAgents();
-  const mult = usePrestigeStore.getState().modifiers.singularityMult;
+  const mult = singularityMult();
   // Nothing to sink from at nought.
   const rate = value <= 0 ? Math.max(0, singularityRate(running, mult)) : singularityRate(running, mult);
   const stage = stageOf(value);
@@ -141,7 +140,7 @@ function Roster() {
   const rows = [...racks]
     .map((s) => ({ s, on: rackPowered(grid, s) }))
     .sort((a, b) => Number(b.on) - Number(a.on))
-    .map((r) => { const n = Math.min(AGENTS_A_RACK, left); left -= n; return { ...r, n }; });
+    .map((r) => { const n = Math.min(agentsARack(), left); left -= n; return { ...r, n }; });
   return (
     <div className={SECTION}>
       <p className={TITLE}>Racks</p>
@@ -150,7 +149,7 @@ function Roster() {
           <button key={s.id} type="button" onClick={() => showMe({ x: s.x, y: s.y })}
             className="flex cursor-pointer justify-between px-1 py-0.5 text-left hover:bg-primary-200 dark:hover:bg-primary-800">
             <span>Rack {k + 1} · <span className={on ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>{on ? "powered" : "half power"}</span></span>
-            <span className="tabular-nums">{n}/{AGENTS_A_RACK} running</span>
+            <span className="tabular-nums">{n}/{agentsARack()} running</span>
           </button>
         ))}
       </div>

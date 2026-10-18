@@ -19,6 +19,7 @@
 import type { GeneratorId } from "../state/generators.store";
 import { useFounderStore } from "../state/founder.store";
 import { founderIs } from "./founder-rules";
+import { BLUEPRINT_CACHE, moduleLevel } from "./modules";
 import { BOOTSTRAP_BUILD, HACKER_LABS, VISIONARY_DATACENTRE } from "./founders.catalog";
 
 export type ProjectId =
@@ -62,7 +63,8 @@ export type GatePart =
  */
 function gateNow(gate: Gate): Gate {
   const only = useFounderStore.getState().onlyGenerator;
-  const share = gate === DATACENTRE_GATE && founderIs("visionary") ? VISIONARY_DATACENTRE : 1;
+  // The Visionary, and the Blueprint Cache module. @see BLUEPRINT_CACHE
+  const share = gate === DATACENTRE_GATE ? (founderIs("visionary") ? VISIONARY_DATACENTRE : 1) * BLUEPRINT_CACHE[moduleLevel("blueprint-cache")] : 1;
   if (!only && share === 1) return gate;
   const out: Gate = { ...gate };
   if (only && gate.upgrade && !gate.upgrade.startsWith(`${only}_`)) delete out.upgrade;

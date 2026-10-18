@@ -19,6 +19,7 @@
  */
 import { TOWN_DESIRE } from "../../game/training";
 import { training } from "../../state/training.store";
+import { fusionNow } from "../../game/fusion";
 import { housedBy, residentsIn } from "../../game/housing";
 import { projectForStructure } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
@@ -29,7 +30,7 @@ import { liveCoverage, tierOf, type Coverage } from "./services";
 
 export * from "./mood-rules";
 import {
-  DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, SLOP_REACH, WATER_VIEW, WONDER_REACH, type MoodParts,
+  DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, SLOP_REACH, WONDER_REACH, type MoodParts,
 } from "./mood-rules";
 import { liveDesireMaps, seesWater } from "./desirability";
 
@@ -85,7 +86,7 @@ export function moodsOf(
     }
     const tier = tierOf(s.def);
     if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: "crowded", points: MOOD.crowded });
-    if (water(s)) parts.push({ why: "water view", points: WATER_VIEW });
+    if (water(s)) parts.push({ why: "water view", points: fusionNow().waterView });
     if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: "near a wonder", points: MOOD.wonder });
     if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: "derelict nearby", points: MOOD.derelict });
     if (sludged.has(s.id)) parts.push({ why: "sludge", points: MOOD.sludge });
@@ -139,7 +140,8 @@ export function liveMoods(g: Grid, net: Network, slopFill: number): Map<number, 
   let sites = 0;
   for (const s of g.structures.values()) if (s.build) sites++;
   const fill = Math.round(Math.max(0, Math.min(1, slopFill)) * 20);
-  const planning = training() === "town" ? TOWN_DESIRE : 0;
+  // The AI trained on the town, and a Zoner fused into the founder. @see game/fusion
+  const planning = (training() === "town" ? TOWN_DESIRE : 0) + fusionNow().houseDesire;
   const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + planning;
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.fill !== fill || memo.sludge !== sludge) {
     const maps = liveDesireMaps(g, net);

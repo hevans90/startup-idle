@@ -16,6 +16,8 @@
  * simulation, a test) every agent is at full power and there is room for all.
  */
 import { projectReading } from "./projects";
+import { fusionNow } from "./fusion";
+import { moduleLevel } from "./modules";
 
 /** Income each agent at full power adds, as a share. */
 export const AGENT_BOOST = 0.04;
@@ -30,7 +32,10 @@ export const AGENT_BASE_COST = 2;
 export const AGENT_COST_GROWTH = 1.25;
 
 /** What the next agent costs, in innovation, with `owned` already running. */
-export const agentCost = (owned: number): number => AGENT_BASE_COST * Math.pow(AGENT_COST_GROWTH, owned);
+export const agentCost = (owned: number): number => AGENT_BASE_COST * Math.pow(AGENT_COST_GROWTH, owned) * fusionNow().agentCostMult;
+
+/** Agents a rack runs: four, and more for a Hivemind fused in and the Rack Density module. @see game/fusion, game/modules */
+export const agentsARack = (): number => AGENTS_A_RACK + fusionNow().agentsPerRack + moduleLevel("rack-density");
 
 /** Whether agents can be spun up at all: the Data Centre stands, or there is no map to ask. */
 export function agentsOpen(): boolean {
@@ -55,11 +60,11 @@ export function agentsAtWork(agents: number): { powered: number; unpowered: numb
 /** What the agents running multiply income by. */
 export function agentBonus(agents: number): number {
   const { powered, unpowered } = agentsAtWork(agents);
-  return 1 + AGENT_BOOST * (powered + UNPOWERED_SHARE * unpowered);
+  return 1 + AGENT_BOOST * fusionNow().agentBoostMult * (powered + UNPOWERED_SHARE * unpowered);
 }
 
 /** How many racks stand, from the agents they can run. */
 export function racksBuilt(): number {
   const r = projectReading()?.racks;
-  return r ? Math.round((r.powered + r.unpowered) / AGENTS_A_RACK) : 0;
+  return r ? Math.round((r.powered + r.unpowered) / agentsARack()) : 0;
 }

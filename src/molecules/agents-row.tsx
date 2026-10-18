@@ -6,7 +6,7 @@
 import { twMerge } from "tailwind-merge";
 
 import {
-  AGENT_BOOST, AGENTS_A_RACK, RACK_RANGE, UNPOWERED_SHARE, agentBonus, agentCost, agentsAtWork, agentsOpen, rackRoom,
+  AGENT_BOOST, RACK_RANGE, agentsARack, UNPOWERED_SHARE, agentBonus, agentCost, agentsAtWork, agentsOpen, rackRoom,
 } from "../game/agents";
 import { useTicking } from "../hooks/use-ticking";
 import { agentTrade, runningAgents, useAgentsStore } from "../state/agents.store";
@@ -17,9 +17,10 @@ const fmt = (n: number) => (n < 100 ? n.toFixed(n < 10 ? 2 : 1) : Math.round(n).
 
 /** Why the button is off, as the player reads it. */
 const WHY = {
-  "no-room": `Every rack is full: build another in Build's AI agents row (${AGENTS_A_RACK} agents a rack).`,
+  "no-room": "Every rack is full: build another in Build's AI agents row.",
   innovation: "Not enough innovation yet.",
   closed: "The Data Centre has to stand first.",
+  dark: "The racks are dark after the shutdown.",
 } as const;
 
 export function AgentsRow({ isMobile }: { isMobile: boolean }) {
@@ -49,7 +50,7 @@ export function AgentsRow({ isMobile }: { isMobile: boolean }) {
         trigger={<span className="responsive-text-sm text-indigo-600 dark:text-indigo-300">AI agents</span>}
         title={`AI agents: income +${boost}%`}>
         <p>Each agent running at full power adds {Math.round(AGENT_BOOST * 100)}% to all income; they cost innovation, not money.</p>
-        <p>They run in racks on the map, {AGENTS_A_RACK} to a rack. A rack within {RACK_RANGE} tiles of the Data Centre is powered; further off, its agents work at {Math.round(UNPOWERED_SHARE * 100)}%.</p>
+        <p>They run in racks on the map, {agentsARack()} to a rack. A rack within {RACK_RANGE} tiles of the Data Centre is powered; further off, its agents work at {Math.round(UNPOWERED_SHARE * 100)}%.</p>
         <p className="tabular-nums">Running: {powered} powered{unpowered ? `, ${unpowered} at half power` : ""}.</p>
         <p className="tabular-nums">
           The next: {pct(trade.gain)} income from the agent, {pct(trade.loss)} from spending the innovation

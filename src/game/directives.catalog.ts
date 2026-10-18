@@ -1,4 +1,5 @@
 import type { DirectivesState } from "../state/directives.store";
+import { useGenerationStore } from "../state/generation.store";
 
 export type DirectiveDef = {
   id: string;
@@ -25,12 +26,12 @@ export const DIRECTIVES: DirectiveDef[] = [
   {
     id: "synthetic_persistence",
     name: "Synthetic Persistence",
-    flavour: "The machine dreams in git commits. Let it dream again.",
-    objectiveLabel: "Singularity fills (separate runs)",
-    target: 8,
-    getProgress: (s) => s.singularityFillCount,
-    rewardLabel: "Singularity resets to 70% on exit instead of 0%",
-    applyReward: (set) => set(() => ({ singularityCarryoverPct: 0.7 })),
+    flavour: "The machine dreams in training runs. Let it dream again.",
+    objectiveLabel: "Training runs at the Data Centre",
+    target: 25,
+    getProgress: (s) => s.trainingRuns,
+    rewardLabel: "Training runs cost 25% less",
+    applyReward: (set) => set(() => ({ trainingDiscount: 0.25 })),
   },
   {
     id: "recursive_improvement",
@@ -85,11 +86,11 @@ export const DIRECTIVES: DirectiveDef[] = [
   {
     id: "post_agi_transition",
     name: "Post-AGI Transition",
-    flavour: "120 nodes and 25 exits. The skill tree is now just your LinkedIn.",
-    objectiveLabel: "120 skill nodes active + 25 total exits",
-    target: 1,
-    getProgress: (s) => (s.postAgiConditionsMet ? 1 : 0),
-    rewardLabel: "AGI Acquisition available: 5× equity payout option",
-    applyReward: (set) => set(() => ({ agiAcquisitionUnlocked: true })),
+    flavour: "Two Ascensions in, the AI has stopped asking which generation this is.",
+    objectiveLabel: "Ascensions",
+    target: 2,
+    getProgress: () => useGenerationStore.getState().generation - 1,
+    rewardLabel: "Weights +25% at every Ascension",
+    applyReward: (set) => set(() => ({ weightsBonus: 1.25 })),
   },
 ];

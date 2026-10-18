@@ -10,6 +10,10 @@ import { CURRENT_VERSION } from "../state/version.store";
 import { fmtMult } from "../ui/BonusRow";
 import { Button } from "../ui/Button";
 import { TermSheetSelect } from "./term-sheet-select";
+import { FusedTraits } from "./fused-traits";
+import { fusedInto } from "../game/fusion";
+import { trait } from "../game/traits";
+import { useGenerationStore } from "../state/generation.store";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -89,6 +93,7 @@ export const FounderSelect = () => {
   const [land, setLand] = useState<{ seed: number; params: Record<string, number> } | null>(null);
   const setMapChoice = useSessionStore((s) => s.setMapChoice);
   const setTermSheet = useSessionStore((s) => s.setTermSheet);
+  const announce = useGenerationStore((s) => s.announce);
 
   const equity = usePrestigeStore((s) => s.equity);
   const exits = usePrestigeStore((s) => s.exits);
@@ -174,6 +179,8 @@ export const FounderSelect = () => {
           // The land first, so the company's map is made from it when it mounts.
           setMapChoice(land);
           setTermSheet(id);
+          // Announced; a new company is under way.
+          useGenerationStore.setState({ announce: null });
           chooseFounder(selected);
         }} />
     );
@@ -192,6 +199,15 @@ export const FounderSelect = () => {
           </p>
         </div>
 
+        {/* THE ASCENSION JUST MADE, said once. @see ascend */}
+        {announce && (
+          <div className="mx-auto mb-4 w-full max-w-4xl border border-violet-500 bg-violet-500/10 px-3 py-2 text-sm text-violet-800 dark:text-violet-200">
+            Generation {announce.generation} ascended: the AI became <b>{trait(announce.trait).name}</b>
+            {announce.mutated ? " (it mutated)" : ""}, fused into <b>{FOUNDERS.find((x) => x.id === announce.founder)?.name ?? announce.founder}</b>.
+            {" "}+{announce.weights} Weights. Generation {announce.generation + 1} begins.
+          </div>
+        )}
+
         <div className="mx-auto w-full max-w-4xl flex-1">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 [grid-auto-rows:1fr]">
             {FOUNDERS.map((f) => {
@@ -199,9 +215,11 @@ export const FounderSelect = () => {
               const isSel = selected === f.id;
               const exitRecord = founderExits[f.id];
               const exitCount = exitRecord?.count ?? 0;
+              // A founder fused with the AI is always playable. @see game/fusion
               const isUnlocked =
                 !f.unlockCondition ||
-                f.unlockCondition.check(exits, bestExitValuation);
+                f.unlockCondition.check(exits, bestExitValuation) ||
+                fusedInto(f.id).length > 0;
 
               return (
                 <button
@@ -246,6 +264,7 @@ export const FounderSelect = () => {
                       <span className="font-semibold">On the map:</span> {f.rule}
                     </p>
                   )}
+                  <FusedTraits founder={f.id} />
 
                   <div className="mt-4 border-t border-primary-300 pt-2 text-xs font-semibold tabular-nums text-emerald-700 dark:border-primary-700 dark:text-emerald-400">
                     Starts with ${f.startingCash}

@@ -7,7 +7,8 @@ import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import Tabs from "../ui/Tabs";
 import { AcquisitionTab } from "./acquisition-tab";
 import { AchievementsTab } from "./achievements-tab";
-import { DirectivesTab } from "./directives-tab";
+import { ModelTab } from "./model-tab";
+import { useGenerationStore } from "../state/generation.store";
 import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation/innovation-managers";
 import { InnovationSummary } from "./innovation/innovation-summary";
@@ -27,7 +28,9 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   );
   const accruedThisRun = useValuationStore((s) => s.accruedThisRun);
   const acquisitionVisible = accruedThisRun.gte(100);
-  const agiVisible = useAiSingularityStore((s) => s.everCompleted);
+  // THE MODEL: once the AI has first reached the singularity, or any Ascension has been made.
+  const generation = useGenerationStore((s) => s.generation);
+  const agiVisible = useAiSingularityStore((s) => s.everCompleted) || generation > 1;
 
   const tabs: { id: SidebarTab; label: string }[] = [
     { id: "employees", label: "Employees" },
@@ -35,7 +38,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
     ...(employeeMgmtUnlocked ? [{ id: "valuation" as SidebarTab, label: "Valuation" }] : []),
     ...(acquisitionVisible ? [{ id: "acquisition" as SidebarTab, label: "Acquisition" }] : []),
     ...(vapeVisible ? [{ id: "achievements" as SidebarTab, label: "Vape shop" }] : []),
-    ...(agiVisible ? [{ id: "agi" as SidebarTab, label: "AGI" }] : []),
+    ...(agiVisible ? [{ id: "agi" as SidebarTab, label: "Model" }] : []),
   ];
 
   return (
@@ -66,7 +69,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
           valuation: <ValuationTab />,
           acquisition: <AcquisitionTab />,
           achievements: <AchievementsTab />,
-          agi: <DirectivesTab />,
+          agi: <ModelTab />,
         }}
       </Tabs>
     </div>

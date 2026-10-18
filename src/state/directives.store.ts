@@ -7,6 +7,8 @@ export type DirectivesState = {
   everUnlocked: boolean;
   activeIndex: number;
   singularityFillCount: number;
+  /** Training runs finished, in all. @see useTrainingStore */
+  trainingRuns: number;
   lifetimeDev10xHired: number;
   lifetimeVibeCoderHired: number;
   lifetimeInnovation: number;
@@ -14,24 +16,26 @@ export type DirectivesState = {
   lifetimeEquity: number;
   lifetimeMoney: number;
   completedIds: string[];
-  postAgiConditionsMet: boolean;
 
   // Automation flags set permanently on directive completion
   autoInternUpgrades: boolean;        // D1
-  singularityCarryoverPct: number;    // D2: 0 → 0.7
+  trainingDiscount: number;          // D2: 0 → 0.25
   autoInnovationUnlocks: boolean;     // D3
   mandateCostGrowthReduction: number; // D4: 0 → 0.25
   autoVibeUpgrades: boolean;          // D5
   freeStartingEnabled: boolean;       // D6
   mandateCostGrowthCap: number;    // D7
-  agiAcquisitionUnlocked: boolean;    // D8
+  weightsBonus: number;              // D8: 1 → 1.25
 
   onSingularityCompleted: () => void;
   onHired: (genId: GeneratorId, amount: number) => void;
   onInnovationTick: (delta: number) => void;
   onMoneyTick: (delta: number) => void;
   onExit: (valuationAccrued: number, equityEarned: number) => void;
-  checkPostAgiConditions: (allocatedNodes: number, totalExits: number) => void;
+  /** A training run finished. */
+  onTraining: () => void;
+  /** An Ascension: the last directive's goal may be met. */
+  onAscension: () => void;
   reset: () => void;
   clearAll: () => void;
 };
@@ -72,16 +76,16 @@ export const useDirectivesStore = create<DirectivesState>()(
       lifetimeEquity: 0,
       lifetimeMoney: 0,
       completedIds: [],
-      postAgiConditionsMet: false,
+      trainingRuns: 0,
 
       autoInternUpgrades: false,
-      singularityCarryoverPct: 0,
+      trainingDiscount: 0,
       autoInnovationUnlocks: false,
       mandateCostGrowthReduction: 0,
       autoVibeUpgrades: false,
       freeStartingEnabled: false,
       mandateCostGrowthCap: 0,
-      agiAcquisitionUnlocked: false,
+      weightsBonus: 1,
 
       onSingularityCompleted: () => {
         if (!get().everUnlocked) {
@@ -122,14 +126,13 @@ export const useDirectivesStore = create<DirectivesState>()(
         tryCompleteActive(get(), set);
       },
 
-      checkPostAgiConditions: (allocatedNodes, totalExits) => {
+      onTraining: () => {
         if (!get().everUnlocked) return;
-        const met = allocatedNodes >= 120 && totalExits >= 25;
-        if (met !== get().postAgiConditionsMet) {
-          set(() => ({ postAgiConditionsMet: met }));
-          if (met) tryCompleteActive(get(), set);
-        }
+        set((s) => ({ trainingRuns: s.trainingRuns + 1 }));
+        tryCompleteActive(get(), set);
       },
+
+      onAscension: () => tryCompleteActive(get(), set),
 
       reset: () => {
         // no-op: all directives progress persists across runs
@@ -147,15 +150,15 @@ export const useDirectivesStore = create<DirectivesState>()(
           lifetimeEquity: 0,
           lifetimeMoney: 0,
           completedIds: [],
-          postAgiConditionsMet: false,
+          trainingRuns: 0,
           autoInternUpgrades: false,
-          singularityCarryoverPct: 0,
+          trainingDiscount: 0,
           autoInnovationUnlocks: false,
           mandateCostGrowthReduction: 0,
           autoVibeUpgrades: false,
           freeStartingEnabled: false,
           mandateCostGrowthCap: 0,
-          agiAcquisitionUnlocked: false,
+          weightsBonus: 1,
         }));
         useDirectivesStore.persist.clearStorage();
       },
@@ -174,15 +177,15 @@ export const useDirectivesStore = create<DirectivesState>()(
         lifetimeEquity: s.lifetimeEquity,
         lifetimeMoney: s.lifetimeMoney,
         completedIds: s.completedIds,
-        postAgiConditionsMet: s.postAgiConditionsMet,
+        trainingRuns: s.trainingRuns,
         autoInternUpgrades: s.autoInternUpgrades,
-        singularityCarryoverPct: s.singularityCarryoverPct,
+        trainingDiscount: s.trainingDiscount,
         autoInnovationUnlocks: s.autoInnovationUnlocks,
         mandateCostGrowthReduction: s.mandateCostGrowthReduction,
         autoVibeUpgrades: s.autoVibeUpgrades,
         freeStartingEnabled: s.freeStartingEnabled,
         mandateCostGrowthCap: s.mandateCostGrowthCap,
-        agiAcquisitionUnlocked: s.agiAcquisitionUnlocked,
+        weightsBonus: s.weightsBonus,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<DirectivesState>;

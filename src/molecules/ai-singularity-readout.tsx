@@ -2,8 +2,7 @@ import { ClassNameValue, twMerge } from "tailwind-merge";
 
 import { useTicking } from "../hooks/use-ticking";
 import { runningAgents, useAgentsStore } from "../state/agents.store";
-import { singularityRate, stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
-import { usePrestigeStore } from "../state/prestige.store";
+import { singularityMult, singularityRate, stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
 
 /**
  * THE SINGULARITY, top left: its stage and how far through, and which way it
@@ -16,7 +15,7 @@ export const AiSingularityReadout = ({ className }: { className?: ClassNameValue
   const agents = useAgentsStore((s) => s.agents);
   const pct = Math.min(100, Math.max(0, value));
   if (pct <= 0 && agents <= 0) return null;
-  const rate = singularityRate(runningAgents(), usePrestigeStore.getState().modifiers.singularityMult);
+  const rate = singularityRate(runningAgents(), singularityMult());
   const stage = stageOf(pct);
 
   return (

@@ -19,6 +19,7 @@ import { getGeneratorCost } from "../utils/generator-utils";
 import { labsBuilt } from "./projects";
 import { racksBuilt } from "./agents";
 import { founderIs } from "./founder-rules";
+import { fusionNow } from "./fusion";
 import { BOOTSTRAP_BUILD } from "./founders.catalog";
 
 /** The least a lot costs, whatever the hire prices. */
@@ -31,9 +32,21 @@ const LOT_FLOOR = 15;
  * the caller has to be able to tell them apart before it charges anybody.
  */
 export function buildCost(defId: string): Decimal | null {
-  const price = listPrice(defId);
+  const listed = listPrice(defId);
+  // WHAT THE FOUNDER'S FUSED TRAITS DO TO PRICES. @see game/fusion
+  const price = listed && listed.times(fusedPriceMult(defId)).round();
   // THE BOOTSTRAPPER builds for less. @see BOOTSTRAP_BUILD
   return price && founderIs("bootstrapper") ? price.times(BOOTSTRAP_BUILD).round() : price;
+}
+
+/** What the founder's fused traits multiply a building's price by. */
+function fusedPriceMult(defId: string): number {
+  const f = fusionNow();
+  if (SERVICE_PRICE[defId]) return f.servicesCostMult;
+  if (OFFICE_FOR[defId]) return f.officeCostMult;
+  if (defId === "rack") return f.rackCostMult;
+  if (housedBy(defId)) return f.lotCostMult;
+  return 1;
 }
 
 /** The price before any founder's rule. */

@@ -14,6 +14,7 @@ import { roomFor } from "../game/housing";
 import { attendance, deskBonus, labBonus, wonderBonus } from "../game/projects";
 import { townMoodOffsets } from "../game/town-mood";
 import { moraleOffsets } from "../game/morale";
+import { fusionNow } from "../game/fusion";
 import {
   calcGeneratorIncome,
   calcGeneratorPerSecond,
@@ -454,7 +455,10 @@ function tickSatisfaction(
   // AND THE TOWN: each kind leans toward the mood of the houses it lives in.
   // @see townMoodOffsets
   // AND WHAT EVENTS LEFT BEHIND, for as long as it is felt. @see addMorale
-  for (const offsets of [townMoodOffsets(), moraleOffsets()]) {
+  // And the founder's fused traits: a Ruthless or a Nanny leans everyone. @see game/fusion
+  const lean = fusionNow().moraleLean;
+  const fused: Partial<Record<GeneratorId, number>> = lean ? { intern: lean, vibe_coder: lean, "10x_dev": lean } : {};
+  for (const offsets of [townMoodOffsets(), moraleOffsets(), fused]) {
     for (const [id, n] of Object.entries(offsets)) {
       satOffsets[id as GeneratorId] = (satOffsets[id as GeneratorId] ?? 0) + (n ?? 0);
     }
@@ -547,7 +551,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * trainedAgentBonus() * (training() === "money" ? MONEY_MULT : 1),
+            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * trainedAgentBonus() * (training() === "money" ? MONEY_MULT : 1) * fusionNow().incomeMult,
             innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * atDesks * wonderBonus("innovation") * labBonus(),
           };
         },

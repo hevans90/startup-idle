@@ -34,8 +34,10 @@ type AgentsState = {
    */
   running: number | null;
   setRunning: (n: number | null) => void;
+  /** Until when the racks are dark, after the AI was shut down: none can be spun up. @see shutDown */
+  darkUntil: number;
   /** Why another cannot be spun up now, or null if it can. */
-  blocked: () => "closed" | "no-room" | "innovation" | null;
+  blocked: () => "closed" | "dark" | "no-room" | "innovation" | null;
   /** Spin up one more, for its price in innovation. Whether it happened. */
   spinUp: () => boolean;
   reset: () => void;
@@ -47,6 +49,7 @@ export const useAgentsStore = create<AgentsState>()(
       agents: 0,
       blocked: () => {
         if (!agentsOpen()) return "closed";
+        if (Date.now() < get().darkUntil) return "dark";
         if (get().agents >= rackRoom()) return "no-room";
         if (useInnovationStore.getState().innovation.lt(agentCost(get().agents))) return "innovation";
         return null;
@@ -58,13 +61,14 @@ export const useAgentsStore = create<AgentsState>()(
         return true;
       },
       running: null,
+      darkUntil: 0,
       setRunning: (n) => set((s) => ({ running: n === null || n >= s.agents ? null : Math.max(0, Math.floor(n)) })),
-      reset: () => set({ agents: 0, running: null }),
+      reset: () => set({ agents: 0, running: null, darkUntil: 0 }),
     }),
     {
       name: "agents",
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ agents: s.agents, running: s.running }),
+      partialize: (s) => ({ agents: s.agents, running: s.running, darkUntil: s.darkUntil }),
     },
   ),
 );

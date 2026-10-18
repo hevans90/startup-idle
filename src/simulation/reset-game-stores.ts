@@ -1,4 +1,6 @@
 import { usePromotionStore } from "../state/promotion.store";
+import { emptyLog, useGenerationStore } from "../state/generation.store";
+import { SEED_ROUND, moduleLevel } from "../game/modules";
 import { useTrainingStore } from "../state/training.store";
 import { clearMorale } from "../game/morale";
 import { useAgentsStore } from "../state/agents.store";
@@ -46,6 +48,10 @@ export function resetRunStores(): void {
   useInnovationStore.setState({ globalLastTick: now });
   useGeneratorStore.setState({ globalLastTick: now });
 
+  // THE SEED ROUND module: money to start with. @see SEED_ROUND
+  const seed = SEED_ROUND[moduleLevel("seed-round")];
+  if (seed > 0) useMoneyStore.getState().increaseMoney(seed);
+
   // Skill-tree "Permanent Acqui-hire": start the new company with free intern
   // levels (reads prestige, which is preserved across a run reset).
   const freeLevels = usePrestigeStore.getState().modifiers.freeStartingLevels;
@@ -70,6 +76,20 @@ export function resetRunStores(): void {
  * (handled in `src/test/setup.ts`).
  */
 export function resetAllGameStores(): void {
+  resetForAscension();
+  useVapeAchievementsStore.getState().clearAll();
+  // And the generations: a true new game begins at the first. @see useGenerationStore
+  useGenerationStore.setState({
+    generation: 1, sales: 0, log: emptyLog(), equity: 0, peakAgents: 0, weights: 0, modules: {}, slotted: [], fused: {}, past: [], announce: null,
+  });
+}
+
+/**
+ * AN ASCENSION'S WIPE: a run reset plus prestige — Equity, the skill tree,
+ * founders' exits, board mandates and directives — keeping the generation's
+ * own store and the achievements. @see game/ascension
+ */
+export function resetForAscension(): void {
   // Wipe prestige FIRST so the run reset below sees neutral modifiers (no free
   // Acqui-hire levels granted on a total wipe).
   usePrestigeStore.getState().reset();
@@ -77,7 +97,6 @@ export function resetAllGameStores(): void {
   // Board mandates persist across runs, so the run reset keeps them — clear them
   // explicitly here for a true full wipe.
   useValuationStore.getState().clearMandates();
-  useVapeAchievementsStore.getState().clearAll();
   useExitsStore.getState().clearAll();
   useDirectivesStore.getState().clearAll();
 }

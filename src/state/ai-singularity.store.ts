@@ -14,6 +14,12 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { usePrestigeStore } from "./prestige.store";
 import { runningAgents, useAgentsStore } from "./agents.store";
 import { useGenerationStore } from "./generation.store";
+import { QUIET_MODEL, moduleLevel } from "../game/modules";
+import { fusionNow } from "../game/fusion";
+
+/** Everything that makes the singularity come faster or slower, multiplied. */
+export const singularityMult = () =>
+  usePrestigeStore.getState().modifiers.singularityMult * QUIET_MODEL[moduleLevel("quiet-model")] * fusionNow().meterMult;
 
 /** Points a second each agent running adds: ~30 over a strong run's hour and a half with fifteen. */
 export const RATE_PER_AGENT = 0.00037;
@@ -70,9 +76,10 @@ export const useAiSingularityStore = create<AiSingularityState>()(
       tick: (seconds) => {
         // HOW HARD THE AGENTS ARE RUN, for the behaviour log. @see BehaviourLog
         const { agents } = useAgentsStore.getState(), running = runningAgents();
-        if (agents > 0) useGenerationStore.getState().recordRunning(seconds, running < agents);
+        if (agents > 0) useGenerationStore.getState().recordRunning(seconds, running < agents, running);
         // The skill tree's AI Hype passives and AGI-Pilled bring it on faster.
-        const rate = singularityRate(running, usePrestigeStore.getState().modifiers.singularityMult);
+        // And the Quiet Model module, and the founder's fused tempers. @see QUIET_MODEL, game/fusion
+        const rate = singularityRate(running, singularityMult());
         const cur = Math.min(100, Math.max(0, get().value));
         const next = Math.min(100, Math.max(0, cur + rate * seconds));
         if (next === cur) return;

@@ -116,6 +116,7 @@ import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { addMorale } from "../game/morale";
+import { fusionNow } from "../game/fusion";
 import { RIVER_PORTS } from "../game/training";
 import { training, useTrainingStore } from "../state/training.store";
 import { useSessionStore } from "../state/session.store";
@@ -2617,7 +2618,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // WHO WAS PUT OUT, for their mood once it is over. @see EVACUEE_MORALE
             for (const who of Object.keys(evacuatedAway(st.grid))) evacuees.current.add(who as GeneratorId);
             // NOTHING DONE: what the water reaches is damaged. @see damage
-            if (flood && !floodShield.current) damage(st.grid, wet);
+            if (flood && !floodShield.current && fusionNow().floodsDamage) damage(st.grid, wet);
             // OVER: what is left on dry ground soaking away, and once it has,
             // put away until the next one.
             const left = flood ? 1 : soakAway(field, st.grid, floodBase.current.dry, 2);

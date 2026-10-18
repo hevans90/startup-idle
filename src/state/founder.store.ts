@@ -2,10 +2,14 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { FOUNDERS, type FounderModifiers } from "../game/founders.catalog";
 import { useExitsStore } from "./exits.store";
+import { useGenerationStore } from "./generation.store";
 import { useMoneyStore } from "./money.store";
 import { useSessionStore } from "./session.store";
 
 /** Neutral (no-op) modifier values — read by every chokepoint when no founder is active. */
+/** Exits a Mirror fused into a founder counts on top of theirs. @see FUSIONS.mirror */
+export const MIRROR_EXITS = 2;
+
 export const NEUTRAL: Required<FounderModifiers> = {
   costExponentReduction: 0,
   innovationLogMult: 1,
@@ -30,7 +34,11 @@ function deriveModifiers(founderId: string): Required<FounderModifiers> {
   const def = FOUNDERS.find((f) => f.id === founderId);
   if (!def) return NEUTRAL;
   const record = useExitsStore.getState().getExitsForFounder(founderId);
-  const mods = def.scalingModifier.compute(record.count, record.totalValuation);
+  // A Mirror fused into the founder counts exits it has not made. @see game/fusion
+  // Read straight from the generation, not through game/fusion: this runs as the
+  // store loads, and fusion loads this store. @see FUSIONS.mirror
+  const mirrors = (useGenerationStore.getState().fused[founderId] ?? []).filter((t) => t === "mirror").length;
+  const mods = def.scalingModifier.compute(record.count + MIRROR_EXITS * mirrors, record.totalValuation);
   return { ...NEUTRAL, ...mods };
 }
 
