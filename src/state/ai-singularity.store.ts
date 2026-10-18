@@ -12,7 +12,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { usePrestigeStore } from "./prestige.store";
-import { runningAgents } from "./agents.store";
+import { runningAgents, useAgentsStore } from "./agents.store";
 import { useGenerationStore } from "./generation.store";
 
 /** Points a second each agent running adds: ~30 over a strong run's hour and a half with fifteen. */
@@ -68,8 +68,11 @@ export const useAiSingularityStore = create<AiSingularityState>()(
       everCompleted: false,
 
       tick: (seconds) => {
+        // HOW HARD THE AGENTS ARE RUN, for the behaviour log. @see BehaviourLog
+        const { agents } = useAgentsStore.getState(), running = runningAgents();
+        if (agents > 0) useGenerationStore.getState().recordRunning(seconds, running < agents);
         // The skill tree's AI Hype passives and AGI-Pilled bring it on faster.
-        const rate = singularityRate(runningAgents(), usePrestigeStore.getState().modifiers.singularityMult);
+        const rate = singularityRate(running, usePrestigeStore.getState().modifiers.singularityMult);
         const cur = Math.min(100, Math.max(0, get().value));
         const next = Math.min(100, Math.max(0, cur + rate * seconds));
         if (next === cur) return;

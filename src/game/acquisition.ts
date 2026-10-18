@@ -119,7 +119,7 @@ function executeAcquisition(equityMultiplier = 1): Decimal {
   useDirectivesStore.getState().checkPostAgiConditions(allocated.length, exits);
 
   // One more company this generation: the singularity keeps more of itself. @see afterSale
-  useGenerationStore.getState().recordSale();
+  useGenerationStore.getState().recordSale(founderId);
   resetRunStores();
   return equityGain;
 }
