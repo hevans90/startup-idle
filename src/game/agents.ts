@@ -21,6 +21,9 @@ import { moduleLevel } from "./modules";
 
 /** Income each agent at full power adds, as a share. */
 export const AGENT_BOOST = 0.04;
+/** What each compute spire adds to every agent's boost, and the most that count. */
+export const SPIRE_BOOST = 0.1;
+export const MAX_SPIRES = 3;
 /** Agents a rack runs. */
 export const AGENTS_A_RACK = 4;
 /** What an agent in a rack out of the Data Centre's reach is worth. */
@@ -60,7 +63,9 @@ export function agentsAtWork(agents: number): { powered: number; unpowered: numb
 /** What the agents running multiply income by. */
 export function agentBonus(agents: number): number {
   const { powered, unpowered } = agentsAtWork(agents);
-  return 1 + AGENT_BOOST * fusionNow().agentBoostMult * (powered + UNPOWERED_SHARE * unpowered);
+  // Compute spires the AI put up add to every agent's boost. @see SPIRE_BOOST
+  const spires = Math.min(MAX_SPIRES, projectReading()?.spires ?? 0);
+  return 1 + AGENT_BOOST * fusionNow().agentBoostMult * (1 + SPIRE_BOOST * spires) * (powered + UNPOWERED_SHARE * unpowered);
 }
 
 /** How many racks stand, from the agents they can run. */

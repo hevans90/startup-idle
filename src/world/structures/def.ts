@@ -287,8 +287,26 @@ export const RACK: StructureDef = {
   id: "rack", name: "AI rack", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" },
 };
 
+/**
+ * THE AI'S OWN BUILDINGS: never for sale, put up by the company's AI for
+ * itself as it takes the town over. @see world/ai/planner, plans/singularity.md
+ *  - a NODE, a house it took: agents and no people;
+ *  - a GPU FARM: twice a rack's agents;
+ *  - a COMPUTE SPIRE: every agent's boost the more;
+ *  - a DRONE HANGAR: its drones work faster;
+ *  - THE MONOLITH: one a map, where the Ascension looks.
+ */
+export const AI_BUILDINGS: readonly StructureDef[] = [
+  { id: "ai-node", name: "AI node", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "gpu-farm", name: "GPU farm", footprint: { w: 2, h: 1 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "compute-spire", name: "Compute spire", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "drone-hangar", name: "Drone hangar", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "monolith", name: "The Monolith", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" } },
+];
+export const isAiBuilding = (defId: string) => AI_BUILDINGS.some((d) => d.id === defId);
+
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE, LAB, DERELICT, RACK].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE, LAB, DERELICT, RACK, ...AI_BUILDINGS].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

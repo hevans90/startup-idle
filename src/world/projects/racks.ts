@@ -21,9 +21,11 @@ export function rackReading(g: Grid): { powered: number; unpowered: number } {
   let on = 0, off = 0;
   const each = agentsARack();
   for (const s of g.structures.values()) {
-    if (s.def !== "rack" || s.build) continue;
-    if (powered(g, s)) on += each;
-    else off += each;
+    // A rack, an AI node, and a GPU farm at twice. @see AI_BUILDINGS
+    const room = s.def === "rack" || s.def === "ai-node" ? each : s.def === "gpu-farm" ? 2 * each : 0;
+    if (!room || s.build) continue;
+    if (powered(g, s)) on += room;
+    else off += room;
   }
   return { powered: on, unpowered: off };
 }

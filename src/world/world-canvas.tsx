@@ -299,7 +299,9 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
         liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100)),
         liveSeating(st.grid, net).desks, ownedNow(),
       ) : undefined;
-      return { built, away, commute, labs, racks, desks };
+      let spires = 0;
+      for (const s of st.grid.structures.values()) if (s.def === "compute-spire" && !s.build) spires++;
+      return { built, away, commute, labs, racks, desks, spires };
     });
   }, [play]);
   // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is

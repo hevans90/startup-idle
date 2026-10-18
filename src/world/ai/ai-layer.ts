@@ -44,6 +44,8 @@ export type AiView = {
   night: number;
   /** 0 until the Ascension sequence starts, rising to 1 at its height. @see ascension-sequence */
   ascension: number;
+  /** The AI's drones aloft, and whether each is scanning its spot. @see stepAi */
+  drones?: readonly { x: number; y: number; scanning: boolean }[];
 };
 
 type Hologram = { x: number; y: number; fx: number; fy: number; tx: number; ty: number; k: number; seed: number };
@@ -151,6 +153,26 @@ export function createAiLayer(overlay: Container): AiLayer {
         const w = (12 + 30 * asc) * sc;
         gfx.poly([x - w / 2, y, x + w / 2, y, x + w / 4, y - 2000 * sc, x - w / 4, y - 2000 * sc]);
         gfx.fill({ color: STAGE_COLOUR.ascension, alpha: 0.25 + 0.4 * asc });
+      }
+
+      // THE DRONES: a dark body and a violet light, high up; a beam down while they scan.
+      for (const [k, d] of (view.drones ?? []).entries()) {
+        const z = ground(g, Math.round(d.x), Math.round(d.y));
+        const hover = 5 + Math.sin(t * 6 + k) * 0.15;
+        const [x, y] = P(sc, d.x, d.y, z + hover);
+        if (d.scanning) {
+          const [bx, by] = P(sc, d.x, d.y, z);
+          gfx.poly([x - 2 * sc, y, x + 2 * sc, y, bx + 14 * sc, by, bx - 14 * sc, by]);
+          gfx.fill({ color: STAGE_COLOUR.overseer, alpha: 0.18 + 0.12 * Math.sin(t * 10) });
+        }
+        gfx.ellipse(x, y, 6 * sc, 2.4 * sc);
+        gfx.fill({ color: 0x1b1530, alpha: 0.95 });
+        for (const s of [-1, 1]) {
+          gfx.ellipse(x + s * 6 * sc, y - 1.5 * sc, 3.5 * sc, 1 * sc);
+          gfx.fill({ color: 0x8a86a0, alpha: 0.5 + 0.3 * Math.sin(t * 40 + s) });
+        }
+        gfx.circle(x, y - 0.5 * sc, 1.4 * sc);
+        gfx.fill({ color: STAGE_COLOUR.overseer, alpha: 0.9 });
       }
 
       // HOLOGRAMS: one a rack from the Assistant on, more at the Ascension.

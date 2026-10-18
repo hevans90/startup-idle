@@ -417,6 +417,8 @@ export type ProjectReading = {
    * the Data Centre — and how many at half, further off. @see game/agents
    */
   racks?: { powered: number; unpowered: number };
+  /** Compute spires the AI has put up. @see SPIRE_BOOST */
+  spires?: number;
   /** What leaders and cafés add to each kind's work at its desks, as a share: 0.1 is +10%. @see deskShare */
   desks?: Partial<Record<GeneratorId, number>>;
 };

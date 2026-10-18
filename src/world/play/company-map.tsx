@@ -9,6 +9,7 @@
  * of the bundle, and the founder screen does not need it.
  */
 import { TopStreets } from "./top-streets";
+import { AiReport } from "./ai-report";
 import { DesireReadout } from "./desire-readout";
 import { useEffect } from "react";
 
@@ -57,7 +58,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
       <ProjectsPanel className="absolute left-2 top-24 z-10 max-md:top-2 max-md:max-w-[calc(100%-1rem)]" />
       <EventMarkers />
       <LeaderTags />
-      <div className="absolute left-[19.5rem] right-2 top-14 z-20 flex flex-col items-start gap-2 max-md:left-2 max-md:top-auto max-md:bottom-28"><HintCard /><EventCards /></div>
+      <div className="absolute left-[19.5rem] right-2 top-14 z-20 flex flex-col items-start gap-2 max-md:left-2 max-md:top-auto max-md:bottom-28"><HintCard /><AiReport /><EventCards /></div>
       <BuildBar className="absolute bottom-3 left-1/2 z-10 max-w-[calc(100%-1rem)] -translate-x-1/2 items-center" />
     </div>
   );

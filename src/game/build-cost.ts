@@ -12,7 +12,7 @@
 import Decimal from "break_infinity.js";
 
 import { housedBy } from "./housing";
-import { structureDef } from "../world/structures/def";
+import { isAiBuilding, structureDef } from "../world/structures/def";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { getGeneratorCost } from "../utils/generator-utils";
@@ -51,6 +51,8 @@ function fusedPriceMult(defId: string): number {
 
 /** The price before any founder's rule. */
 function listPrice(defId: string): Decimal | null {
+  // THE AI'S OWN: put up for nothing, by itself. @see AI_BUILDINGS
+  if (isAiBuilding(defId)) return new Decimal(0);
   // A SERVICE: seconds of income, never under a floor.
   const service = SERVICE_PRICE[defId];
   if (service) return Decimal.max(new Decimal(service.floor), new Decimal(safeIncome()).times(service.seconds)).round();

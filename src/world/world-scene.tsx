@@ -12,8 +12,10 @@ import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { createStreetHeat, type StreetHeat } from "./render/street-heat";
 import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
 import { sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
+import { catchUpAi, droneAt, getAiRunner, stepAi } from "./ai/ai-runner";
+import { useFounderStore } from "../state/founder.store";
 import { showMe } from "./play/map-focus";
-import { runningAgents } from "../state/agents.store";
+import { runningAgents, useAgentsStore } from "../state/agents.store";
 import { stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
 import { liveStreetEarnings, liveStreets, streetName } from "./play/street-earnings";
 import { liveDesireMaps } from "./agents/desirability";
@@ -29,7 +31,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { companyLand, drainDirty, playRules, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { companyLand, drainDirty, playRules, startedOnFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -294,6 +296,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const pacing = useRef(createPacing(useSessionStore.getState().eventPacing));
   const pacingSaved = useRef(0);
   const floodBase = useRef<FloodBase | null>(null);
+  /** Whether the AI has been caught up on time away, and when it last said where it was. @see catchUpAi */
+  const aiPrimed = useRef(false);
+  const aiSaved = useRef(0);
   /** The kinds a flood's evacuation has put out of their homes. @see EVACUEE_MORALE */
   const evacuees = useRef(new Set<GeneratorId>());
   const floodRise = useRef(0);
@@ -2642,6 +2647,22 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult * (training() === "river" ? 3 : 1), !!floodBase.current);
         // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
         if (st.playing) useTrainingStore.getState().tick();
+        // THE COMPANY'S AI AT WORK, from the Colleague stage on — not in a
+        // fixture, and not on The Model's own runs. @see stepAi
+        if (st.playing && !startedOnFixture() && useFounderStore.getState().selectedFounderId !== "model") {
+          const runner = getAiRunner(), at = Date.now();
+          const aiNow = { stage: stageOf(useAiSingularityStore.getState().value).stage, running: runningAgents(), agents: useAgentsStore.getState().agents };
+          // WHILE YOU WERE AWAY, once, on the first look. @see catchUpAi
+          if (!aiPrimed.current) {
+            aiPrimed.current = true;
+            const since = useSessionStore.getState().aiAt;
+            const memos = since ? catchUpAi(runner, st.grid, aiNow, since, at) : [];
+            if (memos.length) st.setAiReport(memos.map((m) => m.text));
+          }
+          stepAi(runner, st.grid, aiNow, dt, at);
+          aiSaved.current += dt;
+          if (aiSaved.current >= 5) { aiSaved.current = 0; useSessionStore.getState().setAiAt(at); }
+        }
         // PEOPLE LEAVING MISERABLE HOUSES, in the game, one now and then.
         // @see stepMood
         if (st.playing) {
@@ -2712,6 +2733,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         ai.draw(useWorldStore.getState().grid, scale, {
           stage: stageOf(v).stage, value: v, running: preview ? 1 : runningAgents(), training: preview?.training ?? training() !== null,
           night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
+          drones: getAiRunner().jobs.map(droneAt),
         }, raw, now);
       } else ai?.clear();
       const r = rain.current;

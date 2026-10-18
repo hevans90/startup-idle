@@ -71,6 +71,9 @@ type SessionState = {
   /** Whether investors left a tour unimpressed, until the next acquirer's offer. @see SNUB */
   snubbed: boolean;
   setSnubbed: (snubbed: boolean) => void;
+  /** When the company's AI last worked, for what it did while nobody watched. @see catchUpAi */
+  aiAt: number | null;
+  setAiAt: (at: number) => void;
   setMapEventsOff: (off: boolean) => void;
   setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
@@ -115,6 +118,8 @@ export const useSessionStore = create<SessionState>()(
       markOverflowed: () => set((s) => (s.overflowed ? s : { overflowed: true })),
       snubbed: false,
       setSnubbed: (snubbed) => set({ snubbed }),
+      aiAt: null,
+      setAiAt: (aiAt) => set({ aiAt }),
       setMapEventsOff: (mapEventsOff) => set({ mapEventsOff }),
       setHintsOff: (hintsOff) => set({ hintsOff }),
       portIncomePerSecond: 0,
@@ -125,7 +130,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false,
+        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null,
       }),
     }),
     {
@@ -148,6 +153,7 @@ export const useSessionStore = create<SessionState>()(
         termSheet: s.termSheet,
         overflowed: s.overflowed,
         snubbed: s.snubbed,
+        aiAt: s.aiAt,
       }),
     },
   ),

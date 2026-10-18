@@ -35,6 +35,11 @@ import { RANGE, serviceOf } from "../agents/services";
 import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
+import { useAiSingularityStore } from "../../state/ai-singularity.store";
+import { runningAgents } from "../../state/agents.store";
+import { useFounderStore } from "../../state/founder.store";
+import { getAiRunner } from "../ai/ai-runner";
+import { useTicking } from "../../hooks/use-ticking";
 import { WondersPanel } from "./wonders-panel";
 import { DataCentrePanel } from "./datacentre-panel";
 import { PARCELS } from "../land";
@@ -94,6 +99,9 @@ function Stat({ icon, value, tone, title, children }: {
     </InfoPop>
   );
 }
+
+/** The tools the AI takes over at the Overseer stage. */
+const ROAD_TOOLS = new Set<ToolId>(["paintRoad", "eraseRoad"]);
 
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
@@ -236,6 +244,14 @@ export function BuildBar({ className }: { className?: string }) {
     }
   }
 
+  // THE AI AT WORK: from the Colleague on, while agents run; at the Overseer it lays every road. @see stepAi
+  useTicking(1000);
+  const aiValue = useAiSingularityStore((s) => s.value);
+  const notModel = useFounderStore((s) => s.selectedFounderId) !== "model";
+  const aiBuilding = notModel && aiValue >= 40 && runningAgents() > 0;
+  const aiRoads = notModel && aiValue >= 80;
+  const aiLog = getAiRunner().log;
+  const aiMemo = aiLog[aiLog.length - 1]?.text;
   const choose = (id: ToolId) => {
     setTool(id);
     // Road goes down in a line, as a road does; everything else is a click.
@@ -347,9 +363,10 @@ export function BuildBar({ className }: { className?: string }) {
         {/* THE TOOLS. */}
         <div className="flex items-stretch overflow-x-auto">
           {TOOLS.filter((t) => t.id !== "buyLand" || forSale).map((t) => (
-            <button key={t.id} type="button" title={t.hint} onClick={() => choose(t.id)}
+            <button key={t.id} type="button" title={aiRoads && ROAD_TOOLS.has(t.id) ? "Your input is no longer required for roads." : t.hint}
+              onClick={() => choose(t.id)} disabled={aiRoads && ROAD_TOOLS.has(t.id)}
               data-hint={t.id === "placeStructure" ? "build" : t.id === "buyLand" ? "land" : undefined}
-              className={twMerge(TOOL, tool === t.id && TOOL_ON)}>
+              className={twMerge(TOOL, tool === t.id && TOOL_ON, "disabled:cursor-default disabled:opacity-40")}>
               {ICONS[t.id]}
               <span className="@max-3xl:hidden">{t.label}</span>
               {t.id === "placeStructure" && chosen && tool === t.id && (
@@ -360,6 +377,14 @@ export function BuildBar({ className }: { className?: string }) {
               )}
             </button>
           ))}
+          {/* THE AI IS BUILDING: its latest memo on hover. @see stepAi */}
+          {aiBuilding && (
+            <span title={aiMemo ?? "The AI is working on the town."}
+              className="flex items-center gap-1 px-2 text-[10px] font-bold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-600 dark:bg-violet-400" />
+              <span className="@max-3xl:hidden">The AI is building</span>
+            </span>
+          )}
           {canUndo && (
             <button type="button" title="Take back the last build and get its money back"
               onClick={undoLastBuild} className={twMerge(TOOL, "text-amber-800 dark:text-amber-300")}>

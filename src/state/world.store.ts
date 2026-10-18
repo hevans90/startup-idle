@@ -500,6 +500,9 @@ type WorldState = {
   /** Whether the wonders menu is open. @see WondersPanel */
   wondersOpen: boolean;
   setWondersOpen: (open: boolean) => void;
+  /** What the AI did while nobody was watching, to say once; null when said. @see catchUpAi */
+  aiReport: string[] | null;
+  setAiReport: (report: string[] | null) => void;
   /** Whether the Data Centre's control room is open. @see DataCentrePanel */
   dataCentreOpen: boolean;
   setDataCentreOpen: (open: boolean) => void;
@@ -815,6 +818,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setEarningsOverlay: (earningsOverlay) => set({ earningsOverlay }),
   wondersOpen: false,
   setWondersOpen: (wondersOpen) => set({ wondersOpen }),
+  aiReport: null,
+  setAiReport: (aiReport) => set({ aiReport }),
   dataCentreOpen: false,
   setDataCentreOpen: (dataCentreOpen) => set({ dataCentreOpen }),
   notice: null,
