@@ -500,6 +500,9 @@ type WorldState = {
   /** Whether the wonders menu is open. @see WondersPanel */
   wondersOpen: boolean;
   setWondersOpen: (open: boolean) => void;
+  /** Whether the Data Centre's control room is open. @see DataCentrePanel */
+  dataCentreOpen: boolean;
+  setDataCentreOpen: (open: boolean) => void;
   /** Whether each building wears a label of what it is and how it is doing. @see BuildingLabels */
   labels: boolean;
   setLabels: (on: boolean) => void;
@@ -812,6 +815,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setEarningsOverlay: (earningsOverlay) => set({ earningsOverlay }),
   wondersOpen: false,
   setWondersOpen: (wondersOpen) => set({ wondersOpen }),
+  dataCentreOpen: false,
+  setDataCentreOpen: (dataCentreOpen) => set({ dataCentreOpen }),
   notice: null,
   lastBuild: null,
   undoLastBuild: () => {

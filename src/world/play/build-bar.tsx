@@ -36,6 +36,7 @@ import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
 import { WondersPanel } from "./wonders-panel";
+import { DataCentrePanel } from "./datacentre-panel";
 import { PARCELS } from "../land";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
@@ -262,6 +263,7 @@ export function BuildBar({ className }: { className?: string }) {
         </p>
       )}
       <WondersPanel />
+      <DataCentrePanel />
       {picking && !wondersOpen && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>

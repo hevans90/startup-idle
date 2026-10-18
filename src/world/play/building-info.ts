@@ -214,6 +214,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     lines.push(...perkLines(s.id, ctx));
     if (p.bonus) lines.push({ text: opensText(p).replace(/, for good$/, ""), tone: "good" });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
+    if (p.id === "datacentre") lines.push({ text: "Click for the control room", tone: "dim" });
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
   }
 
