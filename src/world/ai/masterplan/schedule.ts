@@ -1,13 +1,16 @@
 /**
  * World v2 — THE MODEL'S NEXT MOVE: one step at a time, decided on the town
  * as it stands, with the masterplan for its streets. In order:
+ *  0. A SPUR LIFTED, of those the plan lifts, while it still goes nowhere;
  *  1. AN OFFICE, when the lots' grown beds outrun the desks — one of the
  *     plan's, or, failing that, wherever the houses are thickest;
  *  2. A SERVICE, of whichever kind leaves `SERVED_LOTS` or more built lots
  *     unserved, where it reaches the most of them;
  *  3. A LOT, on the most desirable frontage there is now;
  *  4. otherwise THE NEXT PIECE OF PLANNED STREET, joined to road already laid
- *     and nearest the middle — which makes new frontage for the next lot.
+ *     and nearest the middle — which makes new frontage for the next lot —
+ *     its ground levelled first, or the house in its way cleared, if the plan
+ *     says so; a piece blocked any other way waits.
  * Deciding on the town as it is, rather than on the plan's picture of it
  * finished, is what makes it grow well at every step; the plan's streets are
  * what make its frontage dense and its roads short. Pure: a grid in, a step
@@ -15,7 +18,7 @@
  */
 import { housedBy } from "../../../game/housing";
 import type { GeneratorId } from "../../../state/generators.store";
-import { idx, inBounds, type Grid } from "../../grid";
+import { idx, inBounds, structureAt, type Grid } from "../../grid";
 import { isPaved } from "../../roads/mask";
 import { createNetwork } from "../../roads/network";
 import { structureDef } from "../../structures/def";
@@ -27,6 +30,9 @@ import type { Masterplan, PlanStep } from "./plan";
 
 type Cell = { x: number; y: number };
 type Road = Extract<PlanStep, { kind: "road" }>;
+type Level = Extract<PlanStep, { kind: "level" }>;
+type Clear = Extract<PlanStep, { kind: "clear" }>;
+const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
 /** Built lots a kind of service has to be missing for before one is built; how far one reaches. */
 export const SERVED_LOTS = 6;
@@ -41,6 +47,8 @@ export type Wants = {
   kinds: GeneratorId[];
   services: boolean;
   offices: boolean;
+  /** Steps not to take: ones that failed when tried. */
+  skip?: (s: PlanStep) => boolean;
 };
 
 const OFFICE_FOR: Partial<Record<GeneratorId, string>> = { intern: "office-intern", vibe_coder: "office-vibe", "10x_dev": "office-10x" };
@@ -53,6 +61,14 @@ function spots(g: Grid, def: string, rules: PlaceRules): Cell[] {
   return out;
 }
 const manhattan = (a: Cell, b: Cell) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+
+/** The tiles of a line, from-to. */
+const lineCells = (r: { from: Cell; to: Cell }): Cell[] => {
+  const out: Cell[] = [];
+  for (let y = Math.min(r.from.y, r.to.y); y <= Math.max(r.from.y, r.to.y); y++)
+    for (let x = Math.min(r.from.x, r.to.x); x <= Math.max(r.from.x, r.to.x); x++) out.push({ x, y });
+  return out;
+};
 
 /** Whether a piece of road is laid already, every tile of it. */
 const laid = (g: Grid, r: Road) => {
@@ -70,6 +86,14 @@ const joined = (g: Grid, r: Road) => {
 
 /** The next step for the town as it stands, or null with nothing left to do. */
 export function nextStep(g: Grid, plan: Masterplan, w: Wants): PlanStep | null {
+  const skip = w.skip ?? (() => false);
+  // 0. A SPUR, while it is still a dead end with nothing beside it.
+  for (const s of plan.steps) {
+    if (s.kind !== "lift" || skip(s) || !inBounds(g, s.at.x, s.at.y) || !isPaved(g, s.at.x, s.at.y)) continue;
+    const sides = SIDES.filter(([dx, dy]) => inBounds(g, s.at.x + dx, s.at.y + dy) && isPaved(g, s.at.x + dx, s.at.y + dy)).length;
+    const beside = SIDES.some(([dx, dy]) => inBounds(g, s.at.x + dx, s.at.y + dy) && structureAt(g, s.at.x + dx, s.at.y + dy) >= 0);
+    if (sides <= 1 && !beside) return s;
+  }
   const structures = [...g.structures.values()];
   const lots = structures.filter((s) => housedBy(s.def) && !s.build);
   let desks = 0;
@@ -126,11 +150,41 @@ export function nextStep(g: Grid, plan: Masterplan, w: Wants): PlanStep | null {
   }
 
   // 4. THE NEXT PIECE OF PLANNED STREET, joined on and nearest the middle.
-  const pieces = plan.steps.filter((s): s is Road => s.kind === "road" && !laid(g, s) && joined(g, s));
+  const pieces = plan.steps.filter((s): s is Road => s.kind === "road" && !skip(s) && !laid(g, s) && joined(g, s));
   if (!pieces.length) return null;
   const mid = (r: Road): Cell => ({ x: (r.from.x + r.to.x) / 2, y: (r.from.y + r.to.y) / 2 });
   pieces.sort((a, b) => manhattan(mid(a), plan.centre) - manhattan(mid(b), plan.centre));
-  return pieces[0];
+  // What stands in a piece's way, and what the plan does about it.
+  const levels = new Map<number, Level>(), clears = new Map<number, Clear>();
+  for (const s of plan.steps) {
+    if (s.kind === "level") for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) levels.set(idx(g, x, y), s);
+    if (s.kind === "clear") clears.set(idx(g, s.at.x, s.at.y), s);
+  }
+  next: for (const r of pieces) {
+    const tiles: Cell[] = [];
+    for (let y = Math.min(r.from.y, r.to.y); y <= Math.max(r.from.y, r.to.y); y++)
+      for (let x = Math.min(r.from.x, r.to.x); x <= Math.max(r.from.x, r.to.x); x++) tiles.push({ x, y });
+    // In the way: the plan's to clear, or it waits. Every tile first, so no
+    // ground is levelled under a building further along. (Not lots put there
+    // since: the best frontage is worth more to a small town than a clear
+    // street, and a lot cleared would only be put back. Measured: keeping the
+    // streets clear of lots took the benchmark from +22% to −11%.)
+    for (const t of tiles) {
+      if (structureAt(g, t.x, t.y) < 0) continue;
+      const c = clears.get(idx(g, t.x, t.y));
+      if (c && !skip(c)) return c;
+      continue next;
+    }
+    for (const t of tiles) {
+      const i = idx(g, t.x, t.y), l = levels.get(i);
+      if (!l || g.height[i] === l.z) continue;
+      // Its whole line free of buildings too, or it waits.
+      if (skip(l) || lineCells(l).some((c) => structureAt(g, c.x, c.y) >= 0)) continue next;
+      return l;
+    }
+    return r;
+  }
+  return null;
 }
 
 /** Tiles of road a step lays. */

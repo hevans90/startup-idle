@@ -20,7 +20,8 @@ import { createNetwork } from "../../roads/network";
 import { connects, isPaved } from "../../roads/mask";
 import { derivedRamp } from "../../roads/ramp-derive";
 import { structureDef } from "../../structures/def";
-import { placeCommand, validatePlacement } from "../../structures/place";
+import { demolishCommand, placeCommand, validatePlacement } from "../../structures/place";
+import { heightWrites } from "../../edit/height-tools";
 import { desireAt, desireMapsOf } from "../../agents/desirability";
 import { placesOf } from "../../agents/roads";
 import { NEIGHBOUR } from "../../../iso/dir";
@@ -73,6 +74,17 @@ function aiMode(seed: number): number {
       if (cost > left) break;
       pave(g, s.from, s.to);
       left -= cost;
+    } else if (s.kind === "level") {
+      const cells = [];
+      for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) cells.push({ x, y });
+      for (const w of heightWrites(g, cells, "flatten")) g.height[idx(g, w.x, w.y)] = w.value;
+    } else if (s.kind === "lift") {
+      g.paved[idx(g, s.at.x, s.at.y)] = 0;
+    } else if (s.kind === "clear") {
+      const id = g.structureAt[idx(g, s.at.x, s.at.y)];
+      const cmd = id >= 0 ? demolishCommand(g, id) : null;
+      if (cmd) commit(g, createHistory(), cmd);
+      else break;
     } else {
       if (costOf(s.def) > left || !put(g, s.def, s.at)) break;
       left -= costOf(s.def);
@@ -150,7 +162,8 @@ describe("AI mode", () => {
     }
     const mean = gains.reduce((a, b) => a + b, 0) / gains.length;
     if (process.env.BALANCE) console.log(`mean ${(mean * 100).toFixed(0)}%`);
-    // Measured 2026-10-18: +52%, +17%, +7%, mean +25%. The plan's target is +15%.
+    // Measured 2026-10-18: +52%, +17%, −5%, mean +22%. (It read +7% on the third
+    // while this loop paved streets under houses, which the game does not.) The plan's target is +15%.
     expect(mean).toBeGreaterThan(0.15);
   }, 300_000);
 });

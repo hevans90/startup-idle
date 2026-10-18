@@ -103,6 +103,26 @@ export function createAiLayer(overlay: Container): AiLayer {
         }
         continue;
       }
+      // TERRAFORMING hatched; what it will pull up or down, outlined red.
+      if (s.kind === "level") {
+        for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) {
+          for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) {
+            if (!inBounds(g, x, y) || g.height[idx(g, x, y)] === s.z) continue;
+            const z = ground(g, x, y);
+            gfx.moveTo(...P(sc, x - 0.4, y - 0.4, z)).lineTo(...P(sc, x + 0.4, y + 0.4, z));
+            gfx.moveTo(...P(sc, x + 0.4, y - 0.4, z)).lineTo(...P(sc, x - 0.4, y + 0.4, z));
+            gfx.stroke({ color: 0xb07a3c, width: Math.max(1, sc), alpha: 0.85 });
+          }
+        }
+        continue;
+      }
+      if (s.kind === "lift" || s.kind === "clear") {
+        const there = s.kind === "lift" ? isPaved(g, s.at.x, s.at.y) : structureAt(g, s.at.x, s.at.y) >= 0;
+        if (!there) continue;
+        gfx.poly(tile(s.at.x, s.at.y, ground(g, s.at.x, s.at.y)));
+        gfx.stroke({ color: 0xef4444, width: Math.max(1, 1.5 * sc), alpha: 0.9 });
+        continue;
+      }
       const d = structureDef(s.def);
       if (!d || structureAt(g, s.at.x, s.at.y) >= 0) continue;
       // Lots violet, the AI's own colour; offices blue; services gold. Outlined whole.

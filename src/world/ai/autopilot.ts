@@ -20,7 +20,7 @@ import { builtProjects, nearestSpot, projectUnderWay } from "../projects/works";
 import { structureDef } from "../structures/def";
 import { saleName } from "../play/building-info";
 import type { Grid } from "../grid";
-import { buyParcelAt, demolishAt, paveRoad, placeStructure, startProject } from "../play/build-actions";
+import { buyParcelAt, demolishAt, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
 import { getAiRunner } from "./ai-runner";
 import type { Masterplan, PlanStep } from "./masterplan/plan";
 import { planTown } from "./masterplan/plan";
@@ -31,8 +31,8 @@ import type { PlanRequest } from "./masterplan/masterplan.worker";
 export const AUTOPILOT_EVERY = 2;
 export const REPLAN_EVERY = 180;
 
-type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null };
-const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null };
+type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string> };
+const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set() };
 
 /** The plan now, for the overlay and the panel; null until one is made. */
 export const currentPlan = () => state.plan;
@@ -43,7 +43,28 @@ export const lastStep = () => state.last;
 
 /** A step, in words. */
 const named = (s: PlanStep) =>
-  s.kind === "road" ? "a piece of street" : s.def.startsWith("kit:") ? "a lot" : (structureDef(s.def) ? saleName(structureDef(s.def)!) : s.def).toLowerCase();
+  s.kind === "road" ? "a piece of street"
+    : s.kind === "level" ? "ground levelled for a street"
+      : s.kind === "lift" ? "a spur that went nowhere, lifted"
+        : s.kind === "clear" ? "a house cleared for a street"
+          : s.def.startsWith("kit:") ? "a lot" : (structureDef(s.def) ? saleName(structureDef(s.def)!) : s.def).toLowerCase();
+
+/** A step, as a key: to remember the ones that failed. */
+const keyOf = (s: PlanStep) => JSON.stringify(s.kind === "build" ? { k: s.def, at: s.at } : s);
+
+/** Where a step happens, for its drone. */
+const whereOf = (s: PlanStep) => (s.kind === "road" || s.kind === "level" ? s.to : s.at);
+
+/** Take a step through the player's own actions. Whether it went. */
+function take(s: PlanStep): boolean {
+  switch (s.kind) {
+    case "road": return paveRoad(s.from, s.to);
+    case "level": return reshape("flatten", s.from, s.to);
+    case "lift": return liftRoad(s.at, s.at);
+    case "clear": return demolishAt(s.at);
+    case "build": return placeStructure(s.def, s.at);
+  }
+}
 
 /** The kinds it can house, the one most short of beds first. */
 function kindsByNeed(): GeneratorId[] {
@@ -80,7 +101,9 @@ function requestPlan(g: Grid) {
 
 /** What a step would cost now. */
 function priceOf(g: Grid, s: PlanStep): number {
+  // Levelling, lifting road and pulling a house down are free, to a player too.
   if (s.kind === "road") return roadCost(roadTiles(g, s)).toNumber();
+  if (s.kind !== "build") return 0;
   return buildCost(s.def)?.toNumber() ?? Infinity;
 }
 
@@ -108,11 +131,16 @@ function act(g: Grid, budget: number): boolean {
       if (at && startProject(p.id, at)) { fly(at, g); state.last = p.name; return true; }
     }
   }
-  const s = state.plan && nextStep(g, state.plan, { rules: playRules(g), kinds: kindsByNeed(), services: featureGateOpen("services"), offices: true });
+  const s = state.plan && nextStep(g, state.plan, {
+    rules: playRules(g), kinds: kindsByNeed(), services: featureGateOpen("services"), offices: true,
+    skip: (p) => state.failed.has(keyOf(p)),
+  });
   if (s) {
     if (priceOf(g, s) > spend) return false;
-    const ok = s.kind === "road" ? paveRoad(s.from, s.to) : placeStructure(s.def, s.at);
-    if (ok) { fly(s.kind === "road" ? s.to : s.at, g); state.last = named(s); }
+    const ok = take(s);
+    if (ok) { fly(whereOf(s), g); state.last = named(s); }
+    // REFUSED with the money there: not tried again this plan.
+    else state.failed.add(keyOf(s));
     return ok;
   }
   // NOTHING LEFT TO BUILD ON: clear a derelict, or buy the next parcel, and plan again.
@@ -135,7 +163,7 @@ export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
   if (!s.aiMode) return;
   const landKey = (companyLand() ?? []).join();
   const stale = !state.plan || landKey !== state.landKey || now - state.plannedAt > REPLAN_EVERY * 1000;
-  if (stale && (state.asked === null || now - state.asked > 5_000)) { state.landKey = landKey; requestPlan(g); }
+  if (stale && (state.asked === null || now - state.asked > 5_000)) { state.landKey = landKey; state.failed.clear(); requestPlan(g); }
   state.clock += dt;
   if (state.clock < AUTOPILOT_EVERY) return;
   state.clock = 0;
@@ -144,7 +172,7 @@ export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
 
 /** A new company: a new plan. */
 export function resetAutopilot() {
-  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null;
+  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear();
 }
 
 /** Re-plan now: the map changed under it. */

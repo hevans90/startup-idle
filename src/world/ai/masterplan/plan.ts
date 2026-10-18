@@ -3,9 +3,14 @@
  * on the land the company owns, as a list of steps to build it. Pure: a grid
  * and what the company can build in, a plan out. @see settledTown, AI mode
  *
+ *  0. REBUILDING: short dead-end spurs the player laid that front nothing are
+ *     lifted, to be built on; @see spurs
  *  1. STREETS: rows three tiles apart — a lot either side of every road — and
  *     connectors every `CONNECT` tiles, laid only where the ground is dry,
- *     free and not a cliff, and kept only where they join the roads there are;
+ *     free and not a cliff, and kept only where they join the roads there are.
+ *     TERRAFORMED where the ground is too steep: a piece levelled, if that
+ *     makes it roadable; REBUILT where a cheap house is in the way, cleared if
+ *     the street through it opens `CLEAR_GAIN` tiles or more;
  *  2. SERVICES: cafés, parks and gyms, each where it reaches the most frontage
  *     not yet served;
  *  3. OFFICES: enough desks for the lots, where the frontage is thickest;
@@ -22,6 +27,7 @@ import { commit, createHistory } from "../../edit/commands";
 import { idx, inBounds, structureAt, type Grid } from "../../grid";
 import { isPaved } from "../../roads/mask";
 import { derivedRamp, type SurfaceReader } from "../../roads/ramp-derive";
+import { heightWrites } from "../../edit/height-tools";
 import { structureDef } from "../../structures/def";
 import { placeCommand, validatePlacement, type PlaceRules } from "../../structures/place";
 import { DESKS, WORKPLACES } from "../../agents/commute";
@@ -34,7 +40,13 @@ type Cell = { x: number; y: number };
 
 export type PlanStep =
   | { kind: "road"; from: Cell; to: Cell }
-  | { kind: "build"; def: string; at: Cell; value: number };
+  | { kind: "build"; def: string; at: Cell; value: number }
+  /** Flatten the ground along a line to `z`, as the flatten tool does: before a street over it. */
+  | { kind: "level"; from: Cell; to: Cell; z: number }
+  /** Lift a tile of road: a spur that goes nowhere. */
+  | { kind: "lift"; at: Cell }
+  /** Pull down the house in a planned street's way. */
+  | { kind: "clear"; at: Cell };
 
 export type Masterplan = {
   steps: PlanStep[];
@@ -63,19 +75,103 @@ export const CONNECT = 8;
 const MAX_OFFICES = 24;
 /** The steepest step between neighbours a planned road may cross, half steps. */
 const STEEP = 2;
+/** Tiles of street a cleared house must open up; the longest spur lifted. */
+export const CLEAR_GAIN = 6;
+const SPUR = 3;
 
 const OFFICE_FOR: Partial<Record<GeneratorId, string>> = { intern: "office-intern", vibe_coder: "office-vibe", "10x_dev": "office-10x" };
 
-/** Whether a tile could take road: owned, dry, free, and not up a cliff. */
-function roadable(g: Grid, o: PlanOptions, x: number, y: number): boolean {
+const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
+/** Whether a tile is ground the company could build road on, steep or not: owned, dry, unpaved, free. */
+function free(g: Grid, o: PlanOptions, x: number, y: number): boolean {
   if (!inBounds(g, x, y) || !o.owned(x, y)) return false;
-  const i = idx(g, x, y);
-  if (g.pool[i] || isPaved(g, x, y) || structureAt(g, x, y) >= 0) return false;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    if (inBounds(g, x + dx, y + dy) && Math.abs(g.height[idx(g, x + dx, y + dy)] - g.height[i]) > STEEP) return false;
-  }
+  return !g.pool[idx(g, x, y)] && !isPaved(g, x, y) && structureAt(g, x, y) < 0;
+}
+/** Whether no neighbour is a cliff away. */
+function level(g: Grid, x: number, y: number): boolean {
+  const h = g.height[idx(g, x, y)];
+  for (const [dx, dy] of SIDES) if (inBounds(g, x + dx, y + dy) && Math.abs(g.height[idx(g, x + dx, y + dy)] - h) > STEEP) return false;
   return true;
 }
+/** Whether a tile could take road: free, and not up a cliff. */
+const roadable = (g: Grid, o: PlanOptions, x: number, y: number) => free(g, o, x, y) && level(g, x, y);
+
+/** Take a building off the plan's grid. */
+function unbuild(g: Grid, id: number) {
+  g.structures.delete(id);
+  for (let i = 0; i < g.structureAt.length; i++) if (g.structureAt[i] === id) g.structureAt[i] = -1;
+}
+
+/** The streets' pattern: rows three apart, connectors every `CONNECT`, in phase with a road already there. */
+type Pattern = (x: number, y: number) => boolean;
+function patternOf(g: Grid, o: PlanOptions): { on: Pattern; row: (y: number) => boolean } {
+  let ry = 0, rx = 0;
+  outer: for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (isPaved(g, x, y) && o.owned(x, y)) { ry = y % 3; rx = x % CONNECT; break outer; }
+  return { on: (x, y) => y % 3 === ry || x % CONNECT === rx, row: (y) => y % 3 === ry };
+}
+
+const paved = (g: Grid, x: number, y: number) => inBounds(g, x, y) && isPaved(g, x, y);
+const pavedSides = (g: Grid, x: number, y: number) => SIDES.filter(([dx, dy]) => paved(g, x + dx, y + dy)).length;
+
+/**
+ * SPURS: road the player laid that goes nowhere — up to `SPUR` tiles from a
+ * dead end back to a junction, owned, off the pattern, away from the map's
+ * edge and the water, with nothing beside it that needs it. Lifted on the
+ * plan's grid; a step each.
+ */
+function spurs(g: Grid, o: PlanOptions, on: Pattern): PlanStep[] {
+  const steps: PlanStep[] = [];
+  const touches = (x: number, y: number) => SIDES.some(([dx, dy]) => inBounds(g, x + dx, y + dy) && structureAt(g, x + dx, y + dy) >= 0);
+  for (let y = 1; y < g.h - 1; y++) {
+    for (let x = 1; x < g.w - 1; x++) {
+      if (!paved(g, x, y) || pavedSides(g, x, y) !== 1) continue;
+      const chain: Cell[] = [];
+      let cur: Cell | null = { x, y }, prev: Cell | null = null, ok = true;
+      while (cur) {
+        const c: Cell = cur;
+        const i = idx(g, c.x, c.y);
+        if (c.x <= 0 || c.y <= 0 || c.x >= g.w - 1 || c.y >= g.h - 1 || !o.owned(c.x, c.y) || g.pool[i] || g.ramp[i] || on(c.x, c.y) || touches(c.x, c.y)) { ok = false; break; }
+        chain.push(c);
+        const next: Cell[] = SIDES.map(([dx, dy]) => ({ x: c.x + dx, y: c.y + dy })).filter((n) => paved(g, n.x, n.y) && !(prev && n.x === prev.x && n.y === prev.y));
+        if (next.length !== 1) { ok = false; break; }
+        const n = next[0];
+        // Back at a junction: the spur is what came before.
+        if (pavedSides(g, n.x, n.y) >= 3) break;
+        if (chain.length >= SPUR) { ok = false; break; }
+        prev = c; cur = n;
+      }
+      if (!ok || !chain.length) continue;
+      for (const c of chain) {
+        g.paved[idx(g, c.x, c.y)] = 0;
+        g.ramp[idx(g, c.x, c.y)] = 0;
+        steps.push({ kind: "lift", at: c });
+      }
+    }
+  }
+  return steps;
+}
+
+/** Grown out from the roads there are, a tile at a time, through the tiles wanted. */
+function grow(g: Grid, want: Set<number>): Set<number> {
+  const kept = new Set<number>();
+  const queue: number[] = [];
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (isPaved(g, x, y)) queue.push(idx(g, x, y));
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q], x = i % g.w, y = (i - x) / g.w;
+    for (const [dx, dy] of SIDES) {
+      if (!inBounds(g, x + dx, y + dy)) continue;
+      const j = idx(g, x + dx, y + dy);
+      if (!want.has(j) || kept.has(j)) continue;
+      kept.add(j);
+      queue.push(j);
+    }
+  }
+  return kept;
+}
+
+/** A house cheap to pull down: a lot not grown past its first tier. */
+const cheapHouse = (def: string) => !!housedBy(def) && /\.t[01]$/.test(def);
 
 /** Runs of road along a row or a column, as from-to pairs. */
 function runs(cells: Cell[], along: "x" | "y"): { from: Cell; to: Cell }[] {
@@ -105,36 +201,53 @@ function pieces(r: { from: Cell; to: Cell }): { from: Cell; to: Cell }[] {
   return out;
 }
 
-/** THE STREETS: rows and connectors, joined to the roads there are. */
-function planStreets(g: Grid, o: PlanOptions): PlanStep[] {
-  // The grid's phase from a road already there, so new rows run beside it.
-  let ry = 0, rx = 0;
-  outer: for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (isPaved(g, x, y) && o.owned(x, y)) { ry = y % 3; rx = x % CONNECT; break outer; }
+/** THE STREETS: rows and connectors, joined to the roads there are — levelled, and cleared, where that pays. */
+function planStreets(g: Grid, o: PlanOptions, on: Pattern, row: (y: number) => boolean): PlanStep[] {
+  const steps: PlanStep[] = [];
+  // TERRAFORMING: a piece of the pattern on free ground too steep for road,
+  // flattened as the flatten tool would, and kept if that makes it roadable.
+  const tried = new Set<number>();
+  const level1 = (r: { from: Cell; to: Cell }) => {
+    const cells: Cell[] = [];
+    for (let y = r.from.y; y <= r.to.y; y++) for (let x = r.from.x; x <= r.to.x; x++) cells.push({ x, y });
+    if (cells.every((c) => level(g, c.x, c.y)) || cells.some((c) => tried.has(idx(g, c.x, c.y)))) return;
+    for (const c of cells) tried.add(idx(g, c.x, c.y));
+    const was = cells.map((c) => g.height[idx(g, c.x, c.y)]);
+    const writes = heightWrites(g, cells, "flatten");
+    for (const w of writes) g.height[idx(g, w.x, w.y)] = w.value;
+    if (writes.length && cells.every((c) => level(g, c.x, c.y))) steps.push({ kind: "level", from: r.from, to: r.to, z: writes[0].value });
+    else cells.forEach((c, k) => { g.height[idx(g, c.x, c.y)] = was[k]; });
+  };
+  const freeCells: Cell[] = [];
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (on(x, y) && free(g, o, x, y)) freeCells.push({ x, y });
+  for (const r of runs(freeCells.filter((c) => row(c.y)), "x")) for (const p of pieces(r)) level1(p);
+  for (const r of runs(freeCells.filter((c) => !row(c.y)), "y")) for (const p of pieces(r)) level1(p);
+
   const want = new Set<number>();
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (on(x, y) && roadable(g, o, x, y)) want.add(idx(g, x, y));
+  let kept = grow(g, want);
+
+  // REBUILDING: a cheap house on the pattern, pulled down if the street through it opens enough.
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
-      if ((y % 3 === ry || x % CONNECT === rx) && roadable(g, o, x, y)) want.add(idx(g, x, y));
+      const id = structureAt(g, x, y);
+      const st = id >= 0 ? g.structures.get(id) : undefined;
+      if (!st || !on(x, y) || !o.owned(x, y) || st.w !== 1 || st.h !== 1 || !cheapHouse(st.def) || g.pool[idx(g, x, y)] || !level(g, x, y)) continue;
+      const i = idx(g, x, y);
+      const trial = new Set(want).add(i);
+      const more = grow(g, trial);
+      if (more.size - kept.size < CLEAR_GAIN) continue;
+      unbuild(g, id);
+      want.add(i);
+      kept = more;
+      steps.push({ kind: "clear", at: { x, y } });
     }
   }
-  // KEPT WHERE THEY JOIN: grown out from the roads there are, a tile at a time.
-  const kept = new Set<number>();
-  const queue: number[] = [];
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (isPaved(g, x, y)) queue.push(idx(g, x, y));
-  for (let q = 0; q < queue.length; q++) {
-    const i = queue[q], x = i % g.w, y = (i - x) / g.w;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      if (!inBounds(g, x + dx, y + dy)) continue;
-      const j = idx(g, x + dx, y + dy);
-      if (!want.has(j) || kept.has(j)) continue;
-      kept.add(j);
-      queue.push(j);
-    }
-  }
+
   const cells = [...kept].map((i) => ({ x: i % g.w, y: (i - (i % g.w)) / g.w }));
   // Rows first, then what the rows did not take as columns.
-  const rows = runs(cells.filter((c) => c.y % 3 === ry), "x");
-  const cols = runs(cells.filter((c) => c.y % 3 !== ry), "y");
-  const steps: PlanStep[] = [];
+  const rows = runs(cells.filter((c) => row(c.y)), "x");
+  const cols = runs(cells.filter((c) => !row(c.y)), "y");
   // IN PIECES of a few tiles, so a lot buys only the road in front of it. @see buildOrder
   for (const whole of [...rows, ...cols]) for (const r of pieces(whole)) {
     steps.push({ kind: "road", from: r.from, to: r.to });
@@ -184,7 +297,8 @@ export function planTown(source: Grid, o: PlanOptions): Masterplan {
   const now = settledTown(cloneGrid(source)).work;
   const g = cloneGrid(source);
   const rules: PlaceRules = { needsRoad: true, owned: o.owned };
-  const steps: PlanStep[] = planStreets(g, o);
+  const { on, row } = patternOf(g, o);
+  const steps: PlanStep[] = [...spurs(g, o, on), ...planStreets(g, o, on, row)];
   const kind0 = o.kinds[0];
   const centre = centreOf(source);
   if (!kind0) return { steps, predicted: now, now, centre };
@@ -252,8 +366,7 @@ export function planTown(source: Grid, o: PlanOptions): Masterplan {
         const trial = cloneGrid(g);
         const id = structureAt(trial, p.at.x, p.at.y);
         if (id < 0) continue;
-        trial.structures.delete(id);
-        for (let y = 0; y < trial.h; y++) for (let x = 0; x < trial.w; x++) if (trial.structureAt[idx(trial, x, y)] === id) trial.structureAt[idx(trial, x, y)] = -1;
+        unbuild(trial, id);
         const to = { x: p.at.x + dx, y: p.at.y + dy };
         if (!put(trial, p.def, to, rules)) continue;
         const s2 = settledTown(cloneGrid(trial)).work;
