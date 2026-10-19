@@ -2173,14 +2173,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // THE HOLOGRAM of what the click puts down: the building itself, red where it cannot go. @see createHolograms
       const holos: HoloSpec[] = [];
       if (s0.tool === "placeStructure") {
-        if (plan) holos.push({ key: "place:upgrade", def: plan.to.id, x: plan.x, y: plan.y, ok: plan.cells.every((c) => c.ok) });
+        if (plan) holos.push({ key: "place:upgrade", def: plan.to.id, x: plan.x, y: plan.y, ok: plan.cells.every((c) => c.ok), steady: true });
         else if (lotLine(useWorldStore.getState(), s0)) {
-          for (const c of lotLine(useWorldStore.getState(), s0)!) holos.push({ key: `place:${c.x},${c.y}`, def: structureDefId, x: c.x, y: c.y, ok: valid?.(grid, c.x, c.y).ok ?? true });
+          for (const c of lotLine(useWorldStore.getState(), s0)!) holos.push({ key: `place:${c.x},${c.y}`, def: structureDefId, x: c.x, y: c.y, ok: valid?.(grid, c.x, c.y).ok ?? true, steady: true });
         } else {
           const def = structureDef(structureDefId);
           if (def) {
             const fp = structureFootprint(def, s0.anchor, s0.head);
-            holos.push({ key: "place", def: def.id, x: fp.x, y: fp.y, ok: validatePlacement(grid, def, fp.x, fp.y, rules).ok });
+            holos.push({ key: "place", def: def.id, x: fp.x, y: fp.y, ok: validatePlacement(grid, def, fp.x, fp.y, rules).ok, steady: true });
           }
         }
       }

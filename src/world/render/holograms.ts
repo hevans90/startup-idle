@@ -22,9 +22,10 @@ import { rendererFor, type RenderCtx, type StructureHandle, type StructureRender
  * One hologram: what, where, and whether it could go there. `key` keeps it
  * the same one between frames. `planned`: part of AI mode's masterplan, not
  * yet under way — dimmer and steady, and drawn without scan lines, so a town's
- * worth costs nothing a frame.
+ * worth costs nothing a frame. `steady`: the build tool's — lit, with its
+ * footprint, but no flicker and no warp-in, which is the AI building.
  */
-export type HoloSpec = { key: string; def: string; x: number; y: number; ok: boolean; planned?: boolean };
+export type HoloSpec = { key: string; def: string; x: number; y: number; ok: boolean; planned?: boolean; steady?: boolean };
 
 export const HOLO_OK = 0x5fe3ff;
 export const HOLO_BLOCKED = 0xff5a5a;
@@ -34,6 +35,8 @@ export const MAX_HOLOGRAMS = 260;
 export const PLAN_HOLOGRAMS = 200;
 /** How a planned building looks: fainter than one on its way. */
 const PLANNED_ALPHA = 0.45;
+/** How the build tool's hologram looks: steady, and clear. */
+const STEADY_ALPHA = 0.62;
 
 type Shown = { spec: HoloSpec; s: Structure; handle: StructureHandle; renderer: StructureRenderer; styled: boolean };
 
@@ -83,7 +86,7 @@ export function createHolograms(): Holograms {
       for (const [key, m] of shown) {
         const w = want.get(key);
         if (!w || w.def !== m.spec.def || w.x !== m.spec.x || w.y !== m.spec.y) unmount(key);
-        else { if (w.planned !== m.spec.planned || w.ok !== m.spec.ok) m.styled = false; m.spec = w; }
+        else { if (w.planned !== m.spec.planned || w.steady !== m.spec.steady || w.ok !== m.spec.ok) m.styled = false; m.spec = w; }
       }
       for (const [key, spec] of want) {
         if (shown.has(key)) continue;
@@ -111,7 +114,21 @@ export function createHolograms(): Holograms {
           m.styled = true;
           continue;
         }
-        // A slow breath, and now and then a stutter.
+        // THE BUILD TOOL'S: lit and still, its footprint on the ground — no flicker, no warp-in.
+        if (m.spec.steady) {
+          if (!m.styled) {
+            for (const p of partsOf(m.handle)) {
+              (p as Container & { tint: number }).tint = colour;
+              p.blendMode = "add";
+              p.alpha = STEADY_ALPHA;
+            }
+            m.styled = true;
+          }
+          const foot = footOf(m.s, scan);
+          if (foot) { scan.poly(foot); scan.fill({ color: colour, alpha: 0.22 }); scan.poly(foot); scan.stroke({ color: colour, width: 1.5, alpha: 0.8 }); }
+          continue;
+        }
+        // THE AI BUILDING: a slow breath, and now and then a stutter.
         const seed = m.s.id * 0.37;
         const stutter = Math.sin(t * 23 + seed * 7) > 0.93 ? 0.45 : 1;
         const alpha = (0.62 + 0.12 * Math.sin(t * 3 + seed)) * stutter;
