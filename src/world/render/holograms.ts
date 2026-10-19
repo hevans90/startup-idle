@@ -35,8 +35,8 @@ export const MAX_HOLOGRAMS = 260;
 export const PLAN_HOLOGRAMS = 200;
 /** How a planned building looks: fainter than one on its way. */
 const PLANNED_ALPHA = 0.45;
-/** How the build tool's hologram looks: steady, and clear. */
-const STEADY_ALPHA = 0.62;
+/** How the build tool's hologram looks: steady glass, a touch clearer than a planned one. */
+const STEADY_ALPHA = 0.55;
 
 type Shown = { spec: HoloSpec; s: Structure; handle: StructureHandle; renderer: StructureRenderer; styled: boolean };
 
@@ -114,18 +114,19 @@ export function createHolograms(): Holograms {
           m.styled = true;
           continue;
         }
-        // THE BUILD TOOL'S: lit and still, its footprint on the ground — no flicker, no warp-in.
+        // THE BUILD TOOL'S: tinted glass, still, its footprint outlined on the
+        // ground — no glow, no flicker, no warp-in.
         if (m.spec.steady) {
           if (!m.styled) {
             for (const p of partsOf(m.handle)) {
               (p as Container & { tint: number }).tint = colour;
-              p.blendMode = "add";
+              p.blendMode = "normal";
               p.alpha = STEADY_ALPHA;
             }
             m.styled = true;
           }
           const foot = footOf(m.s, scan);
-          if (foot) { scan.poly(foot); scan.fill({ color: colour, alpha: 0.22 }); scan.poly(foot); scan.stroke({ color: colour, width: 1.5, alpha: 0.8 }); }
+          if (foot) { scan.poly(foot); scan.fill({ color: colour, alpha: 0.1 }); scan.poly(foot); scan.stroke({ color: colour, width: 1.5, alpha: 0.6 }); }
           continue;
         }
         // THE AI BUILDING: a slow breath, and now and then a stutter.
