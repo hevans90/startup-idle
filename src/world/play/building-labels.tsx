@@ -197,8 +197,15 @@ export function BuildingLabels({ className }: { className?: string }) {
     read();
     const id = setInterval(read, READ_EVERY);
 
-    /** WHERE THEY ARE, every frame; and gathered again at once on a zoom. */
+    /**
+     * WHERE THEY ARE, every frame; and gathered again at once on a zoom. Only
+     * WRITTEN when they move: a still camera and the same labels is no work at
+     * all, and a label whose place rounds to the same pixel is not touched —
+     * each write to a style is the browser's to lay out again.
+     */
     let raf = 0;
+    let seen = "", seenAnchors: unknown = null;
+    const wrote = new WeakMap<HTMLElement, string>();
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const vp = useWorldStore.getState().viewport;
@@ -207,12 +214,17 @@ export function BuildingLabels({ className }: { className?: string }) {
       const c = gatheredCentre.current;
       const panned = c ? Math.hypot(vp.center.x - c.x, vp.center.y - c.y) * vp.scale.x > REPAN : false;
       if (Math.abs(vp.scale.x / (gatheredAt.current || 1) - 1) > REZOOM || panned) read();
+      const view = `${vp.x},${vp.y},${vp.scale.x},${els.current.size}`;
+      if (view === seen && anchors.current === seenAnchors) return;
+      seen = view; seenAnchors = anchors.current;
       for (const [key, el] of els.current) {
         const w = anchors.current.get(key);
-        if (!w) { el.style.visibility = "hidden"; continue; }
-        const p = vp.toScreen(w.x, w.y);
+        const next = w ? (() => { const p = vp.toScreen(w.x, w.y); return `translate(${Math.round(p.x)}px, ${Math.round(p.y - 4)}px) translate(-50%, -100%)`; })() : "hidden";
+        if (wrote.get(el) === next) continue;
+        wrote.set(el, next);
+        if (next === "hidden") { el.style.visibility = "hidden"; continue; }
         el.style.visibility = "visible";
-        el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y - 4)}px) translate(-50%, -100%)`;
+        el.style.transform = next;
       }
     };
     frame();
