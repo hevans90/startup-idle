@@ -5,6 +5,9 @@ import { resetAllGameStores } from "../../simulation/reset-game-stores";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
+import { useGeneratorStore } from "../../state/generators.store";
+import { syncAvailableUpgrades, useUpgradeStore } from "../../state/upgrades.store";
+import { projectDef } from "../../game/projects";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx } from "../grid";
 import { structureDef } from "../structures/def";
@@ -63,6 +66,18 @@ describe("AI mode", () => {
     run(g, 6);
     expect([...g.structures.values()].some((s) => s.def.startsWith("kit:"))).toBe(false);
     expect(useMoneyStore.getState().money.toNumber()).toBe(1);
+  });
+
+  test("buys the employee upgrade the next project waits on, as the Employees tab offers it", () => {
+    const g = town();
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    useGeneratorStore.getState().increaseGenerator("intern", 60);
+    syncAvailableUpgrades();
+    useSessionStore.getState().setAiMode({ aiMode: true });
+    const gate = projectDef("townhall")!.gate.upgrade!;
+    expect(useUpgradeStore.getState().unlockedUpgradeIds).not.toContain(gate);
+    for (let k = 0; k < 10 && !useUpgradeStore.getState().unlockedUpgradeIds.includes(gate); k++) { run(g, 1); syncAvailableUpgrades(); }
+    expect(useUpgradeStore.getState().unlockedUpgradeIds).toContain(gate);
   });
 
   test("forgets its plan for a new company", () => {

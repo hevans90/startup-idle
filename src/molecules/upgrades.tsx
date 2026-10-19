@@ -1,6 +1,7 @@
 import { IconBuildingCommunity } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { PROJECTS } from "../game/projects";
+import { nextPerSet } from "../game/upgrade-sets";
 import { GENERATOR_TYPES } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import {
@@ -29,36 +30,6 @@ function GenLabel({
   if (id.includes("10x_dev")) return <TenXDevText text={text} static={isStatic} />;
   return <>{text}</>;
 }
-
-/**
- * Which progression "set" an upgrade belongs to (by id prefix). Within a set we
- * only ever surface the next (cheapest available) upgrade, so a generator's
- * upgrades reveal one at a time instead of dumping the whole tier list at once.
- */
-const upgradeSet = (u: Upgrade): string => {
-  if (u.id.startsWith("10x_dev")) return "10x_dev";
-  if (u.id.startsWith("vibe_coder")) return "vibe_coder";
-  if (u.id.startsWith("cross")) return "cross";
-  if (u.id.startsWith("intern")) return "intern";
-  return u.id;
-};
-
-/**
- * Keep only the cheapest available upgrade per set. `availableUpgrades` is
- * already cost-sorted ascending, so the first one seen per set is the next to
- * reveal; the rest stay hidden until it's purchased.
- */
-const nextPerSet = (available: Upgrade[]): Upgrade[] => {
-  const seen = new Set<string>();
-  const out: Upgrade[] = [];
-  for (const u of available) {
-    const set = upgradeSet(u);
-    if (seen.has(set)) continue;
-    seen.add(set);
-    out.push(u);
-  }
-  return out;
-};
 
 /** The projects on the map an upgrade opens the way to. @see ProjectDef.gate */
 const opensOf = (upg: Upgrade) => PROJECTS.filter((p) => p.gate.upgrade === upg.id).map((p) => p.name);

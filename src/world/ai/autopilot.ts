@@ -9,7 +9,9 @@
  */
 import { buildCost, roadCost } from "../../game/build-cost";
 import { roomFor } from "../../game/housing";
-import { PROJECTS, featureGateOpen } from "../../game/projects";
+import { PROJECTS, featureGateOpen, gateParts } from "../../game/projects";
+import { nextPerSet, upgradeSet } from "../../game/upgrade-sets";
+import { useUpgradeStore } from "../../state/upgrades.store";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
@@ -136,6 +138,26 @@ function fly(to: { x: number; y: number }, g: Grid) {
 function act(g: Grid, budget: number): boolean {
   const money = useMoneyStore.getState().money.toNumber();
   const spend = money * budget;
+  // THE UPGRADE THE NEXT PROJECT WAITS ON, bought as the Employees tab offers
+  // it: the next of its set, which may be one on the way to it. Not
+  // affordable yet, and the rest of the work goes on. @see gateParts, nextPerSet
+  if (!projectUnderWay(g)) {
+    const built = builtProjects(g);
+    const ups = useUpgradeStore.getState();
+    const unlocked = new Set(ups.unlockedUpgradeIds);
+    const owned = Object.fromEntries(useGeneratorStore.getState().generators.map((x) => [x.id, x.amount])) as Partial<Record<GeneratorId, number>>;
+    for (const p of PROJECTS) {
+      if (built.has(p.id) || p.bonus) continue;
+      const want = gateParts(p.gate, owned, unlocked).find((x): x is Extract<typeof x, { kind: "upgrade" }> => x.kind === "upgrade" && !x.met);
+      if (!want) continue;
+      const buy = nextPerSet(ups.availableUpgrades).find((u) => upgradeSet(u) === upgradeSet({ id: want.id }));
+      if (buy && buy.cost <= spend) {
+        ups.unlockUpgrade(buy.id);
+        if (useUpgradeStore.getState().unlockedUpgradeIds.includes(buy.id)) { state.last = `${buy.name}, for the ${p.name}`; return true; }
+      }
+      break;
+    }
+  }
   // THE PROJECTS, as they open: the next one ready, at the nearest good spot. @see nearestSpot
   if (!projectUnderWay(g)) {
     const built = builtProjects(g);
