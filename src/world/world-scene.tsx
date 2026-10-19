@@ -138,7 +138,7 @@ import "./structures/slop-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { footprintCells, structureAt, surfaceSampler, type Grid, type Structure } from "./grid";
+import { footprintCells, idx, inBounds, structureAt, surfaceHeightAt, surfaceSampler, type Grid, type Structure } from "./grid";
 import { HEIGHT_UNIT, HH, HW, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
@@ -166,7 +166,7 @@ import { COLUMNS_PER_TILE } from "./water/field";
 import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { clickTakesOver, opensSomething } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
-import { PLAN_HOLOGRAMS, createHolograms, type HoloSpec, type Holograms } from "./render/holograms";
+import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
@@ -301,6 +301,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** Holograms: what a placement would put down, and what AI mode's drones are about to. @see createHolograms */
   const holoRef = useRef<Holograms | null>(null);
   const holoScanRef = useRef<Graphics | null>(null);
+  const tileHoloRef = useRef<TileHolograms | null>(null);
   const placeHolos = useRef<HoloSpec[]>([]);
   /** The masterplan's buildings shown as holograms, so its flat ghost leaves them out. */
   const planHoloKeys = useRef<ReadonlySet<string>>(new Set());
@@ -1474,6 +1475,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         aiLayerRef.current = createAiLayer(overlayRoot.current);
         // HOLOGRAMS mount in the bands, at true depth; their scan lines go over everything.
         holoRef.current = createHolograms();
+        tileHoloRef.current = createTileHolograms();
         const scan = new Graphics();
         scan.eventMode = "none";
         scan.zIndex = 1001;
@@ -1511,6 +1513,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cursorRef.current = null;
       holoRef.current?.clear();
       holoRef.current = null;
+      tileHoloRef.current?.clear();
+      tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
       holoScanRef.current?.destroy();
       holoScanRef.current = null;
@@ -1877,21 +1881,71 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       holos.push({ key: `ai:${def}@${x},${y}`, def, x, y, ok: true });
     }
     const ss = useSessionStore.getState(), st = useWorldStore.getState();
-    const plan = ss.showPlan && ss.aiMode && st.playing ? currentPlan() : null;
-    const sig = `${[...flying].join("|")}#${plan ? planId(plan) : -1}#${st.revision}`;
+    const show = ss.showPlan && ss.aiMode && st.playing;
+    const plan = show ? currentPlan() : null;
+    const pipe = show ? pendingPipe() : null;
+    const sig = `${[...flying].join("|")}#${plan ? planId(plan) : -1}#${pipe ? planId(pipe) : -1}#${st.revision}`;
     if (sig !== aiHoloSig.current) {
       aiHoloSig.current = sig;
+      const g = st.grid;
+      const tiles: TileHolo[] = [];
       if (plan) {
+        // ITS BUILDINGS, every one not up nor under way, nearest the middle first.
         const builds = plan.steps
           .filter((s): s is Extract<typeof s, { kind: "build" }> => s.kind === "build")
-          .filter((s) => !flying.has(`${s.def}@${s.at.x},${s.at.y}`) && structureAt(st.grid, s.at.x, s.at.y) < 0)
+          .filter((s) => !flying.has(`${s.def}@${s.at.x},${s.at.y}`) && structureAt(g, s.at.x, s.at.y) < 0)
           .sort((a, b) => Math.abs(a.at.x - plan.centre.x) + Math.abs(a.at.y - plan.centre.y) - Math.abs(b.at.x - plan.centre.x) - Math.abs(b.at.y - plan.centre.y))
           .slice(0, PLAN_HOLOGRAMS);
         for (const s of builds) holos.push({ key: `plan:${s.def}@${s.at.x},${s.at.y}`, def: s.def, x: s.at.x, y: s.at.y, ok: true, planned: true });
+        // ITS STREETS, as the tiles they will be: each one's road art worked
+        // out as if every planned street were laid, so they join up.
+        const ghost = { ...g, paved: Uint16Array.from(g.paved) };
+        const streets: { x: number; y: number }[] = [];
+        for (const s of plan.steps) {
+          if (s.kind !== "road") continue;
+          for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) {
+            for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) {
+              if (!inBounds(g, x, y) || isPaved(g, x, y)) continue;
+              ghost.paved[idx(g, x, y)] = 1;
+              streets.push({ x, y });
+            }
+          }
+        }
+        for (const c of streets) {
+          const frame = roadSpriteFor(ROAD_TABLE, maskAt(ghost, c.x, c.y)).frame;
+          if (frame) tiles.push({ key: `road:${c.x},${c.y}`, x: c.x, y: c.y, z: surfaceHeightAt(g, c.x, c.y), frame, colour: HOLO_OK, alpha: 0.5 });
+        }
+        for (const s of plan.steps) {
+          // ITS GROUND LEVELLED: each tile's own terrain at the height it will be.
+          if (s.kind === "level") {
+            for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) {
+              for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) {
+                if (!inBounds(g, x, y) || g.height[idx(g, x, y)] === s.z) continue;
+                const frame = st.palette[g.terrain[idx(g, x, y)]];
+                if (frame) tiles.push({ key: `level:${x},${y}`, x, y, z: s.z, frame, colour: HOLO_OK, alpha: 0.55 });
+              }
+            }
+          }
+          // ITS ROAD TO LIFT, red over the road that is there.
+          if (s.kind === "lift" && isPaved(g, s.at.x, s.at.y)) {
+            const frame = roadSpriteFor(ROAD_TABLE, maskAt(g, s.at.x, s.at.y)).frame;
+            if (frame) tiles.push({ key: `lift:${s.at.x},${s.at.y}`, x: s.at.x, y: s.at.y, z: surfaceHeightAt(g, s.at.x, s.at.y), frame, colour: HOLO_BLOCKED, alpha: 0.6 });
+          }
+          // ITS HOUSE TO CLEAR, red glass over the house.
+          if (s.kind === "clear") {
+            const id = structureAt(g, s.at.x, s.at.y);
+            const there = id >= 0 ? g.structures.get(id) : undefined;
+            if (there) holos.push({ key: `clear:${there.id}`, def: there.def, x: there.x, y: there.y, ok: false, planned: true });
+          }
+        }
       }
+      // AND THE PUMP HOUSE OF A PIPE IT MEANS TO LAY.
+      if (pipe?.pump) holos.push({ key: `pump:${pipe.pump.x},${pipe.pump.y}`, def: "pump", x: pipe.pump.x, y: pipe.pump.y, ok: true, planned: true });
       planHoloKeys.current = new Set(holos.filter((h) => h.planned).map((h) => `${h.def}@${h.x},${h.y}`));
       aiHolos.current = holos;
       showHolos();
+      const bl = blRef.current, tex = texRef.current;
+      if (tileHoloRef.current && bl && tex) tileHoloRef.current.set(tiles, { bands: bl, textures: tex, grid: g, scale: st.scale });
     }
     const h = holoRef.current, scan = holoScanRef.current;
     if (h && scan) h.tick(performance.now() / 1000, scan);
@@ -2923,7 +2977,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           stage: stageOf(v).stage, value: v, running: preview ? 1 : runningAgents(), training: preview?.training ?? training() !== null,
           night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
           drones: getAiRunner().jobs.map(droneAt),
-          plan: preview?.plan ?? (useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? currentPlan() : null),
+          // The game's masterplan is holograms; the flat ghost is the editor's preview's alone. @see createTileHolograms
+          plan: preview?.plan ?? null,
           ...dcCooling(useWorldStore.getState().grid),
           planHolos: planHoloKeys.current,
           pipe: useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? pendingPipe() : null,
