@@ -72,6 +72,26 @@ export type PlanOptions = {
   style?: Style;
 };
 
+/** A rectangle of tiles, inclusive. */
+export type Box = { x0: number; y0: number; x1: number; y1: number };
+export const inBox = (b: Box | null | undefined, x: number, y: number) => !b || (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1);
+
+/**
+ * THE SECTION TO PLAN: the town's buildings (or, with none, its roads) boxed,
+ * and `margin` tiles round that — not the whole map, so the town grows a
+ * section at a time and the plan on show is the next of it. @see AI mode
+ */
+export function sectionOf(g: Grid, margin: number): Box {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const take = (x: number, y: number) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
+  for (const s of g.structures.values()) if (s.def !== "derelict") { take(s.x, s.y); take(s.x + s.w - 1, s.y + s.h - 1); }
+  if (!Number.isFinite(x0)) for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (isPaved(g, x, y)) take(x, y);
+  if (!Number.isFinite(x0)) { take(g.w >> 1, g.h >> 1); }
+  return { x0: Math.max(0, x0 - margin), y0: Math.max(0, y0 - margin), x1: Math.min(g.w - 1, x1 + margin), y1: Math.min(g.h - 1, y1 + margin) };
+}
+/** Whether a box takes in the whole map. */
+export const wholeMap = (g: Grid, b: Box) => b.x0 <= 0 && b.y0 <= 0 && b.x1 >= g.w - 1 && b.y1 >= g.h - 1;
+
 /** Tiles between connecting streets. */
 export const CONNECT = 8;
 /** Offices of a kind a plan puts up at most. */

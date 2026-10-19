@@ -9,15 +9,16 @@ import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx } from "../grid";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
-import { AUTOPILOT_EVERY, currentPlan, lastStep, planInline, resetAutopilot, stepAutopilot, stepsTaken } from "./autopilot";
+import { AUTOPILOT_EVERY, SECTION, currentPlan, lastStep, planInline, resetAutopilot, stepAutopilot, stepsTaken } from "./autopilot";
+import { inBox, sectionOf } from "./masterplan/plan";
 
 planInline();
 
 /** Flat ground, a street across the middle and a garage on it, loaded into the game. */
-function town() {
-  const g = createGrid(32, 32);
+function town(size = 32) {
+  const g = createGrid(size, size);
   fillTerrain(g, 1);
-  for (let x = 4; x < 28; x++) g.paved[idx(g, x, 16)] = 1;
+  for (let x = 4; x < size - 4; x++) g.paved[idx(g, x, 16)] = 1;
   commit(g, createHistory(), placeCommand(g, structureDef("garage")!, 14, 13)!);
   useWorldStore.getState().loadGrid(g, [null]);
   useWorldStore.setState({ playing: true });
@@ -72,5 +73,31 @@ describe("AI mode", () => {
     resetAutopilot();
     expect(currentPlan()).toBeNull();
     expect(stepsTaken()).toBe(0);
+  });
+
+  test("plans a section round the town, not the whole map", () => {
+    const g = town(64);
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    useSessionStore.getState().setAiMode({ aiMode: true });
+    run(g, 1);
+    const box = sectionOf(g, SECTION);
+    const plan = currentPlan()!;
+    expect(plan.steps.length).toBeGreaterThan(0);
+    for (const s of plan.steps) {
+      const c = s.kind === "road" || s.kind === "level" ? s.to : s.at;
+      expect(inBox(box, c.x, c.y)).toBe(true);
+    }
+    expect(box.x1 - box.x0).toBeLessThan(g.w - 1);
+  });
+});
+
+describe("a section", () => {
+  test("is the town's buildings boxed, a margin round them, inside the map", () => {
+    const g = createGrid(40, 40);
+    fillTerrain(g, 1);
+    commit(g, createHistory(), placeCommand(g, structureDef("garage")!, 10, 12)!);
+    const s = structureDef("garage")!.footprint;
+    expect(sectionOf(g, 4)).toEqual({ x0: 6, y0: 8, x1: 10 + s.w - 1 + 4, y1: 12 + s.h - 1 + 4 });
+    expect(sectionOf(g, 30)).toEqual({ x0: 0, y0: 0, x1: 39, y1: 39 });
   });
 });
