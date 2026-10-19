@@ -72,7 +72,8 @@ function useArrowPan(vp: React.RefObject<Viewport | null>, ticker: Ticker | unde
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
       window.removeEventListener("blur", blur);
-      ticker.remove(step);
+      // The app can be torn down first — a company sold — and a destroyed ticker throws on remove.
+      if ((ticker as unknown as { _head: unknown })._head) ticker.remove(step);
     };
   }, [vp, ticker]);
 }

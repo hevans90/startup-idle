@@ -17,6 +17,7 @@ import type { RenderCtx, StructureHandle } from "../structures/render";
 import { TIERS, tierOf } from "../agents/services";
 import { partsOf } from "./holograms";
 import { EASE, createTweens } from "./tween";
+import { sfx } from "../../audio/sound";
 
 /** How far a new building drops, screen pixels at scale 1, and over how long. */
 const DROP_PX = 14;
@@ -113,7 +114,7 @@ export function createJuice(): Juice {
           tweens.add({ from: -DROP_PX * ctx.scale, to: 0, ms: DROP_MS, ease: EASE.outBack, set: (v) => { p.y = y + v; }, alive: live(p) });
           tweens.add({ from: 0, to: a, ms: DROP_MS * 0.6, ease: EASE.outCubic, set: (v) => { p.alpha = v; }, alive: live(p) });
         }
-        tweens.add({ from: 0, to: 1, ms: DROP_MS * 0.8, ease: EASE.linear, set: () => {}, done: () => puff(ctx, s, 8 + 2 * s.w * s.h, DUST) });
+        tweens.add({ from: 0, to: 1, ms: DROP_MS * 0.8, ease: EASE.linear, set: () => {}, done: () => { puff(ctx, s, 8 + 2 * s.w * s.h, DUST); sfx("build"); } });
       } else if (grew(was.def, s.def)) {
         // HOP: up and down again, and a sparkle off the roof.
         for (const p of parts) {
@@ -121,11 +122,13 @@ export function createJuice(): Juice {
           tweens.add({ from: 0, to: -HOP_PX * ctx.scale, ms: HOP_MS, ease: EASE.hop, set: (v) => { p.y = y + v; }, alive: live(p) });
         }
         puff(ctx, s, 7, SPARKLE, 40);
+        sfx("pop");
       }
     },
     gone(s, ctx) {
       // PUFF, where it stood.
       puff(ctx, s, 10 + 3 * s.w * s.h, DUST);
+      sfx("crumble");
     },
     tick(dtMs) {
       tweens.step(dtMs);

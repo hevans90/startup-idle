@@ -134,10 +134,14 @@ src/
 - **Water:** a storeyed shallow-water column solver, WebGPU by default, CPU the reference (`?gpucheck`, `__waterCompare`); the mesh is built in a vertex shader.
 - **Map generator:** rivers first, ground carved round a street, priority-flood basins.
 - **Live state** (water, boats, traffic, arrivals, crews) lives outside the grid.
+- **Atlases:** padded re-packs (`bun run bake:padded`), mipmapped: `nearest` up close, filtered zoomed out (`crispUpClose`; `?nomips` for the old sheets).
+- **Feel:** camera inertia, eased wheel and arrows, fly-to (`showMe`); `render/juice.ts` drops new buildings in, hops grown houses, puffs dust (tweens: `render/tween.ts`).
+- **Sound:** `src/audio/sound.ts`, synthesised in Web Audio (effects, a town hum, birds, crickets); level and mute in settings.
+- **Engine plan:** `plans/engine-polish.md`.
 
 ## Dev tools
 
-- **Editor:** `?world=1`. **Flags:** `?fixture=<name>` (unsaved test map; `projects` shows every build stage, `singularity` the AI), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck` / `?gpuwhy`.
+- **Editor:** `?world=1`. **Flags:** `?fixture=<name>` (unsaved test map; `projects` shows every build stage, `singularity` the AI), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck` / `?gpuwhy`, `?perf` (frame meter in play: town, fx, draws, Graphics redrawn; `__perf()`).
 - **Window hooks (dev):** `__world`, `__town()`, `__structures`, `__net`, `__waterBench(n, true)`, `__fakeHires = { intern: 9 }`, `__eventNow`, `__aiPreview`. Use these, not `import()` (a second module copy).
 - **Water solver** logged per change (`WATER: GPU solver` / `WATER: CPU solver — <reason>`, `GPU:`); history in `window.__waterSolver()`.
 - **A hidden tab pauses `requestAnimationFrame`**; its frame numbers mean nothing.

@@ -15,6 +15,10 @@ type GlobalSettingsStore = {
   /** Whether the company's map has a day and a night. @see world/daylight */
   dayNight: boolean;
   setDayNight: (on: boolean) => void;
+  /** The sound's level, 0–1, and whether it is muted. @see audio/sound */
+  volume: number;
+  muted: boolean;
+  setSound: (s: { volume?: number; muted?: boolean }) => void;
 };
 
 export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
@@ -26,6 +30,9 @@ export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
       },
       dayNight: true,
       setDayNight: (dayNight) => set({ dayNight }),
+      volume: 0.6,
+      muted: false,
+      setSound: (s) => set(s),
     }),
     {
       name: "global-settings", // name of item in localStorage

@@ -167,6 +167,10 @@ import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { clickTakesOver, opensSomething } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
 import { createJuice, type Juice } from "./render/juice";
+import { ambience, sfx } from "../audio/sound";
+
+/** Movers on the map at which the town sounds as busy as it gets. */
+const TOWN_FULL = 80;
 import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
@@ -303,6 +307,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const holoRef = useRef<Holograms | null>(null);
   /** A building dropping into place, a house hopping as it grows, dust where one came down. @see createJuice */
   const juiceRef = useRef<Juice | null>(null);
+  const soundClock = useRef(0);
   const holoScanRef = useRef<Graphics | null>(null);
   const tileHoloRef = useRef<TileHolograms | null>(null);
   const placeHolos = useRef<HoloSpec[]>([]);
@@ -2686,7 +2691,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
           // Treble at a port by the Conference Centre. @see convoyPays
           if (convoy) { fee *= s ? convoyPays(st.grid, s) : CONVOY_PAYS; tallyCall(convoy.id, fee); }
-          if (st.playing) useMoneyStore.getState().increaseMoney(fee);
+          if (st.playing) { useMoneyStore.getState().increaseMoney(fee); sfx("coin"); }
           recordCall(getExports(), id, fee, now);
         }
       }
@@ -2961,6 +2966,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
     const tFx = performance.now();
     juiceRef.current?.tick(raw * 1000);
+    // THE TOWN'S AMBIENCE, a few times a second: its hum by its size, birds by day, crickets by night. @see ambience
+    soundClock.current += raw;
+    if (soundClock.current > 0.25) {
+      soundClock.current = 0;
+      const st = useWorldStore.getState();
+      const night = st.playing && useGlobalSettingsStore.getState().dayNight ? darkness(dayPhase(Date.now())) / NIGHT_DARK : 0;
+      ambience(st.playing ? Math.min(1, getTown().movers.length / TOWN_FULL) : 0, night);
+    }
     // THE HOUR, in the game: the night over the map, and how busy the streets
     // are. Off, or in the editor, a plain bright noon. @see world/daylight
     {

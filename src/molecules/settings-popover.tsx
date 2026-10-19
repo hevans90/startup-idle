@@ -8,6 +8,7 @@ import {
 } from "../ui/Popover";
 import { MapEventsToggle } from "./map-events-toggle";
 import { DayNightToggle } from "./day-night-toggle";
+import { SoundControls } from "./sound-controls";
 import { ResetButton } from "./reset-button";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -42,6 +43,7 @@ export const SettingsPopover = ({
           <ThemeToggle />
           <MapEventsToggle />
           <DayNightToggle />
+          <SoundControls />
         </div>
       </PopoverContent>
     </Popover>
