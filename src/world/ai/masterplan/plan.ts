@@ -49,7 +49,9 @@ export type PlanStep =
   /** Lift a tile of road: a spur that goes nowhere. */
   | { kind: "lift"; at: Cell }
   /** Pull down the house in a planned street's way. */
-  | { kind: "clear"; at: Cell };
+  | { kind: "clear"; at: Cell }
+  /** A REBUILD: the starter lots at `clears` pulled down and `def` put up in their place, as it pays back. @see replacementFor */
+  | { kind: "replace"; def: string; at: Cell; clears: Cell[]; value: number };
 
 export type Masterplan = {
   steps: PlanStep[];
@@ -72,6 +74,8 @@ export type PlanOptions = {
   passes?: number;
   /** How the generations before lean it. @see styleOf */
   style?: Style;
+  /** Which of the park's best hearts to take, 0 the best: a variant for the look-ahead. @see chooseBlock */
+  heart?: number;
 };
 
 /** A rectangle of tiles, inclusive. */
@@ -93,7 +97,15 @@ export function blockAt(
   g: Grid, owned: (x: number, y: number) => boolean, centre: Cell,
   tried: ReadonlySet<number> = new Set(), wet: (x: number, y: number) => boolean = (x, y) => g.pool[idx(g, x, y)] > 0,
 ): Box | null {
-  let best: Cell | null = null, near = Infinity;
+  return blocksAt(g, owned, centre, tried, 1, wet)[0] ?? null;
+}
+
+/** The `n` nearest blocks, as `blockAt` picks them, their anchors a block apart. @see chooseBlock */
+export function blocksAt(
+  g: Grid, owned: (x: number, y: number) => boolean, centre: Cell, tried: ReadonlySet<number> = new Set(), n = 1,
+  wet: (x: number, y: number) => boolean = (x, y) => g.pool[idx(g, x, y)] > 0,
+): Box[] {
+  const anchors: { at: Cell; d: number }[] = [];
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
       if (!isPaved(g, x, y) || !owned(x, y) || tried.has(idx(g, x, y))) continue;
@@ -102,15 +114,20 @@ export function blockAt(
         return inBounds(g, nx, ny) && owned(nx, ny) && !isPaved(g, nx, ny) && !wet(nx, ny) && structureAt(g, nx, ny) < 0;
       });
       if (!room) continue;
-      const d = Math.abs(x - centre.x) + Math.abs(y - centre.y);
-      if (d < near) { near = d; best = { x, y }; }
+      anchors.push({ at: { x, y }, d: Math.abs(x - centre.x) + Math.abs(y - centre.y) });
     }
   }
-  if (!best) return null;
-  return {
-    x0: Math.max(0, best.x - BLOCK), y0: Math.max(0, best.y - BLOCK),
-    x1: Math.min(g.w - 1, best.x + BLOCK), y1: Math.min(g.h - 1, best.y + BLOCK),
-  };
+  anchors.sort((a, b) => a.d - b.d);
+  const out: Cell[] = [];
+  for (const a of anchors) {
+    if (out.length >= n) break;
+    if (out.some((b) => Math.max(Math.abs(a.at.x - b.x), Math.abs(a.at.y - b.y)) <= BLOCK)) continue;
+    out.push(a.at);
+  }
+  return out.map((b) => ({
+    x0: Math.max(0, b.x - BLOCK), y0: Math.max(0, b.y - BLOCK),
+    x1: Math.min(g.w - 1, b.x + BLOCK), y1: Math.min(g.h - 1, b.y + BLOCK),
+  }));
 }
 
 /** The town's middle: its workplaces', or the map's; the Data Centre, for a style that grows from it. @see Style */
@@ -400,11 +417,13 @@ export function planTown(source: Grid, given: PlanOptions): Masterplan {
       const unserved = frontage(g, rules, kind0).filter((c) => !desireAt(g, maps, c.x, c.y, kind0)?.parts.some((p) => p.why === (sv === "cafe" ? "café" : sv)));
       if (unserved.length < style.serve) continue;
       const left = markOf(g, unserved);
-      let best: Cell | null = null, most = 0;
-      for (const c of spotsFor(g, sv, rules)) {
-        const reach = countNear(g, left, c, REACH);
-        if (reach > most) { most = reach; best = c; }
-      }
+      // The best spots by reach; the park at the variant's, a café or gym at the best.
+      const ranked = spotsFor(g, sv, rules)
+        .map((c) => ({ c, reach: countNear(g, left, c, REACH) }))
+        .filter((r) => r.reach > 0)
+        .sort((a, b) => b.reach - a.reach);
+      const pick = sv === "park" ? Math.min(o.heart ?? 0, ranked.length - 1) : 0;
+      const best = ranked[pick]?.c ?? null;
       if (best && put(g, sv, best, rules)) placed.push({ def: sv, at: best });
     }
   }

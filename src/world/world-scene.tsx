@@ -99,7 +99,7 @@ import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
-import { stepEvolution } from "./agents/services";
+import { stepEvolution, withTier } from "./agents/services";
 import { liveSeating } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
@@ -1896,7 +1896,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           .filter((s) => !flying.has(`${s.def}@${s.at.x},${s.at.y}`) && structureAt(g, s.at.x, s.at.y) < 0)
           .sort((a, b) => Math.abs(a.at.x - plan.centre.x) + Math.abs(a.at.y - plan.centre.y) - Math.abs(b.at.x - plan.centre.x) - Math.abs(b.at.y - plan.centre.y))
           .slice(0, PLAN_HOLOGRAMS);
-        for (const s of builds) holos.push({ key: `plan:${s.def}@${s.at.x},${s.at.y}`, def: s.def, x: s.at.x, y: s.at.y, ok: true, planned: true });
+        // A lot as the house it is planned to grow to: the district it builds toward. (It starts at I.)
+        for (const s of builds) holos.push({ key: `plan:${s.def}@${s.at.x},${s.at.y}`, def: s.tier && structureDef(withTier(s.def, s.tier)) ? withTier(s.def, s.tier) : s.def, x: s.at.x, y: s.at.y, ok: true, planned: true });
         // ITS STREETS, as the tiles they will be: each one's road art worked
         // out as if every planned street were laid, so they join up.
         const ghost = { ...g, paved: Uint16Array.from(g.paved) };
@@ -1936,6 +1937,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const id = structureAt(g, s.at.x, s.at.y);
             const there = id >= 0 ? g.structures.get(id) : undefined;
             if (there) holos.push({ key: `clear:${there.id}`, def: there.def, x: there.x, y: there.y, ok: false, planned: true });
+          }
+          // ITS REBUILD: what goes up in glass, the lots it pulls down red under it.
+          if (s.kind === "replace" && !flying.has(`${s.def}@${s.at.x},${s.at.y}`)) {
+            holos.push({ key: `plan:${s.def}@${s.at.x},${s.at.y}`, def: s.def, x: s.at.x, y: s.at.y, ok: true, planned: true });
+            for (const c of s.clears) {
+              const id = structureAt(g, c.x, c.y);
+              const there = id >= 0 ? g.structures.get(id) : undefined;
+              if (there) holos.push({ key: `clear:${there.id}`, def: there.def, x: there.x, y: there.y, ok: false, planned: true });
+            }
           }
         }
       }

@@ -1,8 +1,8 @@
 /**
  * AI MODE AGAINST A GREEDY PLAYER: the same land, the same garage, the same
  * budget in build units (a lot 1, a service 3, an office 4, a tile of road
- * 0.2). AI mode works as it does in the game, A BLOCK AT A TIME: the patch by
- * the street nearest the middle with room (`blockAt`), planned, its steps
+ * 0.2). AI mode works as it does in the game, A BLOCK AT A TIME: the best of
+ * the nearest few, looked ahead at (`chooseBlock`; `LOOK=0` the nearest), its steps
  * taken on the town as it stands (`nextStep`) till it is done, then the next;
  * a block that came to nothing passed over. The greedy player puts each
  * lot on the most desirable spot there is, a service every six lots and an
@@ -28,8 +28,10 @@ import { desireAt, desireMapsOf } from "../../agents/desirability";
 import { placesOf } from "../../agents/roads";
 import { NEIGHBOUR } from "../../../iso/dir";
 import { blockAt, inBox, planTown, townCentre } from "./plan";
+import { chooseBlock } from "./lookahead";
 import { nextStep, roadTiles } from "./schedule";
 import { cloneGrid, settledTown } from "./town-model";
+import { PLAIN, styleOf, type Style } from "./style";
 
 const BUDGET = 90;
 const COST: Record<string, number> = { cafe: 3, park: 3, gym: 3, "office-intern": 4 };
@@ -63,16 +65,30 @@ const put = (g: Grid, def: string, at: { x: number; y: number }) => {
   return !!cmd;
 };
 
-function aiMode(seed: number): number {
+/** What a town comes to: its settled income, and the beds it has before anything grows. */
+type Result = { income: number; beds: number; tiers: string };
+function resultOf(g: Grid): Result {
+  const t = settledTown(cloneGrid(g));
+  const lots = [...g.structures.values()].filter((s) => housedBy(s.def));
+  const n: Record<string, number> = {};
+  for (const tier of t.tiers.values()) n[tier] = (n[tier] ?? 0) + 1;
+  return { income: t[process.env.SCORE === "work" ? "work" : "income"], beds: lots.length * 2, tiers: JSON.stringify(n) };
+}
+
+function aiMode(seed: number, style: Style = PLAIN): Result {
   const g = founded(seed);
   const tried = new Set<number>();
   let left = BUDGET, steps = 0;
   blocks: for (let b = 0; b < 200 && left > 0.2; b++) {
-    const box = blockAt(g, owned, townCentre(g), tried);
-    if (!box) break;
+    // The best of several blocks, looked ahead at (`LOOK=0`: the nearest, unlooked).
+    const o = { kinds: ["intern" as const], services: true, offices: true, style };
+    const chosen = process.env.LOOK === "0"
+      ? (() => { const b = blockAt(g, owned, townCentre(g), tried); return b && { box: b, plan: planTown(g, { ...o, owned: (x, y) => owned(x, y) && inBox(b, x, y) }) }; })()
+      : chooseBlock(g, owned, townCentre(g), tried, o);
+    if (!chosen) break;
+    const { box, plan } = chosen;
     const mine = (x: number, y: number) => owned(x, y) && inBox(box, x, y);
-    const plan = planTown(g, { owned: mine, kinds: ["intern"], services: true, offices: true });
-    const wants = { rules: { needsRoad: true, owned: mine }, kinds: ["intern" as const], services: true, offices: true };
+    const wants = { rules: { needsRoad: true, owned: mine }, kinds: ["intern" as const], services: true, offices: true, style };
     const before = steps;
     for (let k = 0; k < 200 && left > 0.2; k++) {
       const s = nextStep(g, plan, wants);
@@ -84,7 +100,7 @@ function aiMode(seed: number): number {
     if (steps === before) for (let y = box.y0; y <= box.y1; y++) for (let x = box.x0; x <= box.x1; x++) if (isPaved(g, x, y)) tried.add(idx(g, x, y));
   }
   if (process.env.DEBUG) describeTown("ai", g);
-  return settledTown(cloneGrid(g))[process.env.SCORE === "work" ? "work" : "income"];
+  return resultOf(g);
 
   /** Take a step, paying for it out of `left`; whether it could be. */
   function take(g: Grid, s: NonNullable<ReturnType<typeof nextStep>>): boolean {
@@ -122,7 +138,7 @@ function describeTown(who: string, g: Grid) {
   console.log(who, "road", road, "beds", t.beds, "work", t.work.toFixed(0), JSON.stringify(n));
 }
 
-function greedy(seed: number): number {
+function greedy(seed: number): Result {
   const g = founded(seed);
   let left = BUDGET, lots = 0, k = 0;
   const services = ["cafe", "park", "gym"];
@@ -167,24 +183,32 @@ function greedy(seed: number): number {
     if (!pushed) break;
   }
   if (process.env.DEBUG) describeTown("greedy", g);
-  return settledTown(cloneGrid(g))[process.env.SCORE === "work" ? "work" : "income"];
+  return resultOf(g);
 }
 
 describe("AI mode", () => {
-  test("builds a town that earns more, settled, than a greedy player's, for the same budget", () => {
-    const gains: number[] = [];
+  test("tall earns more, settled, than a greedy player and than wide; wide puts down more beds at once", () => {
+    const TALL = styleOf(["aesthete"]), WIDE = styleOf(["hivemind"]);
+    const gains: number[] = [], overWide: number[] = [], bedsWide: number[] = [];
     for (const seed of [11, 22, 33]) {
-      const ai = aiMode(seed), gr = greedy(seed);
-      gains.push(ai / gr - 1);
-      if (process.env.BALANCE) console.log(`seed ${seed}: AI mode ${ai.toFixed(0)} · greedy ${gr.toFixed(0)} · ${((ai / gr - 1) * 100).toFixed(0)}%`);
+      const tall = aiMode(seed, TALL), wide = aiMode(seed, WIDE), gr = greedy(seed);
+      gains.push(tall.income / gr.income - 1);
+      overWide.push(tall.income / wide.income - 1);
+      bedsWide.push(wide.beds / tall.beds - 1);
+      if (process.env.BALANCE) {
+        const pc = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(0)}%`;
+        console.log(`seed ${seed}: income tall ${tall.income.toFixed(0)} · wide ${wide.income.toFixed(0)} · greedy ${gr.income.toFixed(0)} — tall ${pc(tall.income / gr.income - 1)} over greedy, ${pc(tall.income / wide.income - 1)} over wide; beds at once tall ${tall.beds} · wide ${wide.beds}`);
+        console.log(`  tiers tall ${tall.tiers} · wide ${wide.tiers} · greedy ${gr.tiers}`);
+      }
     }
-    const mean = gains.reduce((a, b) => a + b, 0) / gains.length;
-    if (process.env.BALANCE) console.log(`mean ${(mean * 100).toFixed(0)}%`);
-    // Measured 2026-10-19, on settled income, planning tall — a park first, a
-    // café and a gym where they reach the most, lots only where they grow to
-    // III, offices nearest their houses: +123%, +102%, +28%, mean +84% (work:
-    // +42%, +44%, −8%, mean +26%). It read +4% planning wide, the old way.
-    // @see plans/ai-planning.md
-    expect(mean).toBeGreaterThan(0.15);
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    if (process.env.BALANCE) console.log(`mean: tall ${(mean(gains) * 100).toFixed(0)}% over greedy, ${(mean(overWide) * 100).toFixed(0)}% over wide; wide ${(mean(bedsWide) * 100).toFixed(0)}% more beds at once`);
+    // Measured 2026-10-19: tall +123%, +67%, +54% over greedy (mean +81%) and
+    // +85% over wide; wide 94% more beds at once. Tall towns settle at III,
+    // a few towers; wide half at I. (The old wide-only planner: +4%.) Held at
+    // the plan's bars. @see plans/ai-planning.md
+    expect(mean(gains)).toBeGreaterThan(0.15);
+    expect(mean(overWide)).toBeGreaterThan(0);
+    expect(mean(bedsWide)).toBeGreaterThan(0);
   }, 300_000);
 });

@@ -27,7 +27,9 @@ import type { Grid } from "../grid";
 import { buyParcelAt, demolishAt, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
 import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "./ai-runner";
 import type { Masterplan, PlanStep } from "./masterplan/plan";
-import { blockAt, inBox, planTown, townCentre, type Box } from "./masterplan/plan";
+import { inBox, townCentre, type Box } from "./masterplan/plan";
+import { type Choice, type Chosen, type Prices } from "./masterplan/lookahead";
+import { WORKPLACES } from "../agents/commute";
 import { idx } from "../grid";
 import { isPaved } from "../roads/mask";
 import { nextStep, roadTiles } from "./masterplan/schedule";
@@ -35,17 +37,19 @@ import { layRoute, neededPipe } from "./cooling-ai";
 import type { PipeRoute } from "./pipe-route";
 import { styleOf } from "./masterplan/style";
 import { fusedInto } from "../../game/fusion";
-import type { PlanRequest } from "./masterplan/masterplan.worker";
+import { chooseWithRebuild, type PlanReply, type PlanRequest } from "./masterplan/choose";
 
 /** Seconds between the autopilot's steps; seconds before a plan is planned again regardless. */
 export const AUTOPILOT_EVERY = 2;
 export const REPLAN_EVERY = 180;
 
-type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; tried: Set<number>; doneAtPlan: number; box: Box | null; pipe: PipeRoute | null; flying: Set<string> };
-const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), tried: new Set(), doneAtPlan: 0, box: null, pipe: null, flying: new Set() };
+type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; tried: Set<number>; doneAtPlan: number; box: Box | null; choice: Choice | null; pipe: PipeRoute | null; flying: Set<string> };
+const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), tried: new Set(), doneAtPlan: 0, box: null, choice: null, pipe: null, flying: new Set() };
 
 /** The plan now, for the overlay and the panel; null until one is made. */
 export const currentPlan = () => state.plan;
+/** Why the block in hand was taken, of the ones looked at; null without one. @see chooseBlock */
+export const currentChoice = () => state.choice;
 /** How The Model leans: the traits the generations before it ended with. @see styleOf */
 export const modelStyle = () => styleOf(fusedInto("model"));
 
@@ -63,6 +67,7 @@ const named = (s: PlanStep) =>
     : s.kind === "level" ? "ground levelled for a street"
       : s.kind === "lift" ? "a spur that went nowhere, lifted"
         : s.kind === "clear" ? "a house cleared for a street"
+          : s.kind === "replace" ? `${(structureDef(s.def) ? saleName(structureDef(s.def)!) : s.def).toLowerCase()}, in place of ${s.clears.length === 1 ? "a lot" : `${s.clears.length} lots`}`
           : s.def.startsWith("kit:") ? "a lot" : (structureDef(s.def) ? saleName(structureDef(s.def)!) : s.def).toLowerCase();
 
 /** A step, as a key: to remember the ones that failed. */
@@ -79,6 +84,8 @@ function take(s: PlanStep): boolean {
     case "lift": return liftRoad(s.at, s.at);
     case "clear": return demolishAt(s.at);
     case "build": return placeStructure(s.def, s.at);
+    // Pulled down, then put up: free to pull down, to a player too.
+    case "replace": return s.clears.every((c) => demolishAt(c)) && placeStructure(s.def, s.at);
   }
 }
 
@@ -94,25 +101,39 @@ function kindsByNeed(): GeneratorId[] {
 let inline = typeof Worker === "undefined";
 export const planInline = () => { inline = true; };
 
-/** Ask for a plan: in a worker, or here. */
+/** What the buildings a block plan might put up cost now, and road by the tile: for the look-ahead. */
+function pricesNow(kinds: GeneratorId[]): Prices {
+  const defs: Record<string, number> = {};
+  for (const def of ["park", "cafe", "gym", ...kinds.map((k) => `kit:${k}.t0`), ...kinds.flatMap((k) => WORKPLACES[k] ?? [])]) {
+    const c = buildCost(def);
+    if (c) defs[def] = c.toNumber();
+  }
+  return { defs, road: roadCost(1).toNumber() };
+}
+
+/** Ask for the next block: chosen of several, looked ahead at, in a worker or here. @see chooseBlock */
 function requestPlan(g: Grid) {
   const land = companyLand();
   const kinds = kindsByNeed();
   const services = featureGateOpen("services"), offices = true;
   const style = modelStyle();
-  // A BLOCK AT A TIME: a small patch by a street, nearest the middle. @see blockAt
-  const box = blockAt(g, (x, y) => ownsTile(g, land, x, y), townCentre(g, style), state.tried);
+  const centre = townCentre(g, style);
+  const prices = pricesNow(kinds);
   state.asked = Date.now();
-  state.box = box;
-  const arrived = (plan: Masterplan) => { state.plan = plan; state.plannedAt = Date.now(); state.doneAtPlan = state.done; };
-  // NOWHERE TO GROW: an empty plan, so the work goes on to land and derelicts.
-  if (!box) { arrived({ steps: [], predicted: 0, now: 0, centre: townCentre(g, style) }); return; }
-  const owned = (x: number, y: number) => ownsTile(g, land, x, y) && inBox(box, x, y);
-  if (inline) { arrived(planTown(g, { owned, kinds, services, offices, style })); return; }
+  const arrived = (c: Chosen | null) => {
+    // NOWHERE TO GROW: an empty plan, so the work goes on to land and derelicts.
+    state.plan = c?.plan ?? { steps: [], predicted: 0, now: 0, centre };
+    state.box = c?.box ?? null;
+    state.choice = c?.choice ?? null;
+    state.plannedAt = Date.now(); state.doneAtPlan = state.done;
+  };
+  const income = useGeneratorStore.getState().getMoneyPerSecond();
+  const here = () => chooseWithRebuild(g, land, centre, [...state.tried], kinds, services, offices, style, prices, income);
+  if (inline) { arrived(here()); return; }
   state.worker ??= new Worker(new URL("./masterplan/masterplan.worker.ts", import.meta.url), { type: "module" });
-  state.worker.onmessage = (e: MessageEvent<{ id: number; plan: Masterplan }>) => {
+  state.worker.onmessage = (e: MessageEvent<PlanReply>) => {
     if (e.data.id !== state.asked) return;
-    arrived(e.data.plan);
+    arrived(e.data.chosen);
   };
   // A WORKER THAT FAILS is not "Planning…" for ever: said, and planned here from now on.
   state.worker.onerror = (e) => {
@@ -120,9 +141,9 @@ function requestPlan(g: Grid) {
     state.worker?.terminate();
     state.worker = null;
     inline = true;
-    arrived(planTown(g, { owned, kinds, services, offices, style }));
+    arrived(here());
   };
-  const req: PlanRequest = { id: state.asked, file: serializeWorld(g, { terrain: [], paved: [null] }), land, kinds, services, offices, style, box };
+  const req: PlanRequest = { id: state.asked, file: serializeWorld(g, { terrain: [], paved: [null] }), land, kinds, services, offices, style, centre, tried: [...state.tried], prices, income };
   state.worker.postMessage(req);
 }
 
@@ -130,7 +151,7 @@ function requestPlan(g: Grid) {
 function priceOf(g: Grid, s: PlanStep): number {
   // Levelling, lifting road and pulling a house down are free, to a player too.
   if (s.kind === "road") return roadCost(roadTiles(g, s)).toNumber();
-  if (s.kind !== "build") return 0;
+  if (s.kind !== "build" && s.kind !== "replace") return 0;
   return buildCost(s.def)?.toNumber() ?? Infinity;
 }
 
@@ -165,7 +186,7 @@ function send(g: Grid, s: PlanStep): boolean {
     else state.failed.add(key);
     return ok;
   };
-  const holo = s.kind === "build" ? { def: s.def, x: s.at.x, y: s.at.y } : undefined;
+  const holo = s.kind === "build" || s.kind === "replace" ? { def: s.def, x: s.at.x, y: s.at.y } : undefined;
   r.jobs.push({ action: { kind: "deferred", at: to, why: "", run, holo }, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / DRONE_SPEED });
   state.last = `${named(s)}, on its way`;
   return true;
@@ -317,7 +338,7 @@ export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
 
 /** A new company: a new plan. */
 export function resetAutopilot() {
-  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.tried.clear(); state.doneAtPlan = 0; state.box = null; state.pipe = null; state.flying.clear();
+  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.tried.clear(); state.doneAtPlan = 0; state.box = null; state.choice = null; state.pipe = null; state.flying.clear();
   // Its drones' jobs belong to the company that sent them.
   const r = getAiRunner();
   r.jobs = r.jobs.filter((j) => j.action.kind !== "deferred");

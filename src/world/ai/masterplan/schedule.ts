@@ -2,6 +2,7 @@
  * World v2 — THE MODEL'S NEXT MOVE: one step at a time, decided on the town
  * as it stands, with the masterplan for its streets. In order:
  *  0. A SPUR LIFTED, of those the plan lifts, while it still goes nowhere;
+ *     and A REBUILD the plan found pays back, while its lots still stand;
  *  1. AN OFFICE for the kind most short of desks: people living on the map
  *     with no desk to go to now, or — looking ahead — its lots' grown beds
  *     outrunning its desks; one of the plan's, or wherever its houses are
@@ -31,6 +32,7 @@ import { placesOf } from "../../agents/roads";
 import type { Masterplan, PlanStep } from "./plan";
 import { PLAIN, nearWater, type Style } from "./style";
 import { atLeast, projectTier } from "./town-model";
+import { stillStands } from "./replace";
 import type { Tier } from "../../agents/services";
 
 type Cell = { x: number; y: number };
@@ -106,6 +108,8 @@ export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | nu
     const beside = SIDES.some(([dx, dy]) => inBounds(g, s.at.x + dx, s.at.y + dy) && structureAt(g, s.at.x + dx, s.at.y + dy) >= 0);
     if (sides <= 1 && !beside) return s;
   }
+  // 0b. A REBUILD the plan found pays back, while its lots still stand. @see replacementFor
+  for (const s of plan.steps) if (s.kind === "replace" && !skip(s) && stillStands(g, s)) return s;
   const structures = [...g.structures.values()];
   const lots = structures.filter((s) => housedBy(s.def) && !s.build);
 
