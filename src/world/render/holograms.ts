@@ -18,15 +18,24 @@ import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { structureDef } from "../structures/def";
 import { rendererFor, type RenderCtx, type StructureHandle, type StructureRenderer } from "../structures/render";
 
-/** One hologram: what, where, and whether it could go there. `key` keeps it the same one between frames. */
-export type HoloSpec = { key: string; def: string; x: number; y: number; ok: boolean };
+/**
+ * One hologram: what, where, and whether it could go there. `key` keeps it
+ * the same one between frames. `planned`: part of AI mode's masterplan, not
+ * yet under way — dimmer and steady, and drawn without scan lines, so a town's
+ * worth costs nothing a frame.
+ */
+export type HoloSpec = { key: string; def: string; x: number; y: number; ok: boolean; planned?: boolean };
 
 export const HOLO_OK = 0x5fe3ff;
 export const HOLO_BLOCKED = 0xff5a5a;
-/** The most shown at once: a dragged row of lots, the AI's drones. */
-export const MAX_HOLOGRAMS = 32;
+/** The most shown at once: a dragged row of lots, the AI's drones, and the masterplan's nearest. */
+export const MAX_HOLOGRAMS = 260;
+/** The masterplan's buildings shown as holograms at most; the rest stay a tint on the ground. */
+export const PLAN_HOLOGRAMS = 200;
+/** How a planned building looks: fainter than one on its way. */
+const PLANNED_ALPHA = 0.45;
 
-type Shown = { spec: HoloSpec; s: Structure; handle: StructureHandle; renderer: StructureRenderer };
+type Shown = { spec: HoloSpec; s: Structure; handle: StructureHandle; renderer: StructureRenderer; styled: boolean };
 
 export type Holograms = {
   /** Show exactly these, mounting what is new and unmounting what is gone. */
@@ -71,7 +80,7 @@ export function createHolograms(): Holograms {
       for (const [key, m] of shown) {
         const w = want.get(key);
         if (!w || w.def !== m.spec.def || w.x !== m.spec.x || w.y !== m.spec.y) unmount(key);
-        else m.spec = w;
+        else { if (w.planned !== m.spec.planned || w.ok !== m.spec.ok) m.styled = false; m.spec = w; }
       }
       for (const [key, spec] of want) {
         if (shown.has(key)) continue;
@@ -79,7 +88,7 @@ export function createHolograms(): Holograms {
         const renderer = def ? rendererFor(def) : null;
         if (!def || !renderer) continue;
         const s: Structure = { id: nextId--, def: def.id, x: spec.x, y: spec.y, w: def.footprint.w, h: def.footprint.h };
-        shown.set(key, { spec, s, handle: renderer.mount(s, def, ctx), renderer });
+        shown.set(key, { spec, s, handle: renderer.mount(s, def, ctx), renderer, styled: false });
       }
     },
 
@@ -87,6 +96,18 @@ export function createHolograms(): Holograms {
       scan.clear();
       for (const m of shown.values()) {
         const colour = m.spec.ok ? HOLO_OK : HOLO_BLOCKED;
+        // PLANNED: styled once, and left — no flicker, no scan lines.
+        if (m.spec.planned) {
+          if (m.styled) continue;
+          // Glass, not light: tinted over what is under it, so it stays cyan on grass.
+          for (const p of partsOf(m.handle)) {
+            (p as Container & { tint: number }).tint = colour;
+            p.blendMode = "normal";
+            p.alpha = PLANNED_ALPHA;
+          }
+          m.styled = true;
+          continue;
+        }
         // A slow breath, and now and then a stutter.
         const seed = m.s.id * 0.37;
         const stutter = Math.sin(t * 23 + seed * 7) > 0.93 ? 0.45 : 1;

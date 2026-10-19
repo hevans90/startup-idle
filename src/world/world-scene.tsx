@@ -166,7 +166,7 @@ import { COLUMNS_PER_TILE } from "./water/field";
 import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { clickTakesOver, opensSomething } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
-import { createHolograms, type HoloSpec, type Holograms } from "./render/holograms";
+import { PLAN_HOLOGRAMS, createHolograms, type HoloSpec, type Holograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
@@ -228,6 +228,15 @@ function dcCooling(g: Grid): { cooled: number; tank: number } {
   }
   return { cooled: 1, tank: 1 };
 }
+
+/** A number for each masterplan seen, to tell a new one from the last. */
+const planIds = new WeakMap<object, number>();
+let planSeq = 0;
+const planId = (plan: object) => {
+  let id = planIds.get(plan);
+  if (id === undefined) { id = ++planSeq; planIds.set(plan, id); }
+  return id;
+};
 
 /** Pump houses paid from the company's money, a second's upkeep at a time. @see pumpUpkeep */
 const PAID_PUMPS = {
@@ -293,6 +302,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const holoRef = useRef<Holograms | null>(null);
   const holoScanRef = useRef<Graphics | null>(null);
   const placeHolos = useRef<HoloSpec[]>([]);
+  /** The masterplan's buildings shown as holograms, so its flat ghost leaves them out. */
+  const planHoloKeys = useRef<ReadonlySet<string>>(new Set());
   const aiHolos = useRef<HoloSpec[]>([]);
   /** Show the holograms asked for now: the build tool's and AI mode's. */
   const showHolos = useCallback(() => {
@@ -1852,16 +1863,36 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    */
   // THE HOLOGRAMS' FLICKER AND SCAN LINES, every frame they are up; and AI
   // mode's, one a drone carrying a building, kept to the jobs out. @see send
+  // And THE MASTERPLAN'S buildings not yet up nor under way, the nearest the
+  // town's middle first, steady and faint. Worked out again only when the
+  // plan, the map or the drones change. @see PLAN_HOLOGRAMS
   const aiHoloSig = useRef("");
   useTick(() => {
     const holos: HoloSpec[] = [];
+    const flying = new Set<string>();
     for (const j of getAiRunner().jobs) {
       if (j.action.kind !== "deferred" || !j.action.holo) continue;
       const { def, x, y } = j.action.holo;
+      flying.add(`${def}@${x},${y}`);
       holos.push({ key: `ai:${def}@${x},${y}`, def, x, y, ok: true });
     }
-    const sig = holos.map((h) => h.key).join("|");
-    if (sig !== aiHoloSig.current) { aiHoloSig.current = sig; aiHolos.current = holos; showHolos(); }
+    const ss = useSessionStore.getState(), st = useWorldStore.getState();
+    const plan = ss.showPlan && ss.aiMode && st.playing ? currentPlan() : null;
+    const sig = `${[...flying].join("|")}#${plan ? planId(plan) : -1}#${st.revision}`;
+    if (sig !== aiHoloSig.current) {
+      aiHoloSig.current = sig;
+      if (plan) {
+        const builds = plan.steps
+          .filter((s): s is Extract<typeof s, { kind: "build" }> => s.kind === "build")
+          .filter((s) => !flying.has(`${s.def}@${s.at.x},${s.at.y}`) && structureAt(st.grid, s.at.x, s.at.y) < 0)
+          .sort((a, b) => Math.abs(a.at.x - plan.centre.x) + Math.abs(a.at.y - plan.centre.y) - Math.abs(b.at.x - plan.centre.x) - Math.abs(b.at.y - plan.centre.y))
+          .slice(0, PLAN_HOLOGRAMS);
+        for (const s of builds) holos.push({ key: `plan:${s.def}@${s.at.x},${s.at.y}`, def: s.def, x: s.at.x, y: s.at.y, ok: true, planned: true });
+      }
+      planHoloKeys.current = new Set(holos.filter((h) => h.planned).map((h) => `${h.def}@${h.x},${h.y}`));
+      aiHolos.current = holos;
+      showHolos();
+    }
     const h = holoRef.current, scan = holoScanRef.current;
     if (h && scan) h.tick(performance.now() / 1000, scan);
   });
@@ -2894,6 +2925,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           drones: getAiRunner().jobs.map(droneAt),
           plan: preview?.plan ?? (useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? currentPlan() : null),
           ...dcCooling(useWorldStore.getState().grid),
+          planHolos: planHoloKeys.current,
           pipe: useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? pendingPipe() : null,
         }, raw, now);
       } else ai?.clear();

@@ -52,6 +52,8 @@ export type AiView = {
   drones?: readonly { x: number; y: number; scanning: boolean }[];
   /** AI mode's masterplan, to show as a ghost of the town to come. @see autopilot */
   plan?: Masterplan | null;
+  /** The masterplan's buildings shown as holograms, as `def@x,y`: the flat ghost leaves them out. */
+  planHolos?: ReadonlySet<string>;
   /** A pipe AI mode means to lay and cannot yet pay for: cyan, its pump a square. @see pendingPipe */
   pipe?: PipeRoute | null;
   /** How well the Data Centre is cooled, 0–1, and how full its tank is; both 1 by default. @see game/cooling */
@@ -105,7 +107,7 @@ export function createAiLayer(overlay: Container): AiLayer {
   };
 
   /** The town to come: what is not built yet of the plan. */
-  const drawPlan = (g: Grid, sc: number, plan: Masterplan) => {
+  const drawPlan = (g: Grid, sc: number, plan: Masterplan, holos?: ReadonlySet<string>) => {
     const tile = (x: number, y: number, z: number) =>
       [...P(sc, x - 0.5, y - 0.5, z), ...P(sc, x + 0.5, y - 0.5, z), ...P(sc, x + 0.5, y + 0.5, z), ...P(sc, x - 0.5, y + 0.5, z)];
     for (const s of plan.steps) {
@@ -140,7 +142,7 @@ export function createAiLayer(overlay: Container): AiLayer {
         continue;
       }
       const d = structureDef(s.def);
-      if (!d || structureAt(g, s.at.x, s.at.y) >= 0) continue;
+      if (!d || structureAt(g, s.at.x, s.at.y) >= 0 || holos?.has(`${s.def}@${s.at.x},${s.at.y}`)) continue;
       // Lots violet, the AI's own colour; offices blue; services gold. Outlined whole.
       const colour = s.def.startsWith("kit:") ? 0xa78bfa : s.def.startsWith("office") ? 0x4f8cff : 0xf2c230;
       const { w, h } = d.footprint;
@@ -156,7 +158,7 @@ export function createAiLayer(overlay: Container): AiLayer {
       gfx.clear();
       const structures = [...g.structures.values()];
       // THE MASTERPLAN: planned streets outlined, planned buildings a tint on the ground.
-      if (view.plan) drawPlan(g, sc, view.plan);
+      if (view.plan) drawPlan(g, sc, view.plan, view.planHolos);
       // AND THE PIPE IT MEANS TO LAY, cyan; its pump house a square.
       if (view.pipe) {
         for (const c of view.pipe.pipe) {
