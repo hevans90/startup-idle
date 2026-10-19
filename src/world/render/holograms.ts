@@ -126,17 +126,22 @@ export function createHolograms(): Holograms {
         if (!Number.isFinite(x0) || !scan.parent) continue;
         // SCAN LINES, in the overlay's space: faint rules, and a bright one running up.
         const a = scan.parent.toLocal({ x: x0, y: y0 }), c = scan.parent.toLocal({ x: x1, y: y1 });
-        const h = c.y - a.y, w = c.x - a.x;
+        const w = c.x - a.x;
         // Its footprint lit on the ground beneath it.
         const foot = footOf(m.s, scan);
         if (foot) { scan.poly(foot); scan.fill({ color: colour, alpha: 0.22 * stutter }); scan.poly(foot); scan.stroke({ color: colour, width: 1.5, alpha: 0.8 * stutter }); }
-        const step = Math.max(2.5, h / 26);
-        for (let y = a.y + ((t * 12) % step); y < c.y; y += step) {
+        // FROM ITS FOOT, not the bottom of what it drew: an iso building's
+        // lowest pixel is the front corner of its footprint, well below where
+        // its walls meet the ground. The footprint's middle is the base.
+        const base = foot ? Math.min(c.y, (foot[1] + foot[5]) / 2) : c.y;
+        const tall = base - a.y;
+        const step = Math.max(2.5, tall / 26);
+        for (let y = a.y + ((t * 12) % step); y < base; y += step) {
           scan.moveTo(a.x, y).lineTo(c.x, y);
         }
         scan.stroke({ color: colour, width: 1, alpha: 0.22 * stutter });
         // And a bright band running up it, twice a second-and-a-half.
-        const run = c.y - ((t * 0.6 + seed) % 1) * h;
+        const run = base - ((t * 0.6 + seed) % 1) * tall;
         scan.rect(a.x - w * 0.04, run - 2, w * 1.08, 4);
         scan.fill({ color: colour, alpha: 0.25 * stutter });
         scan.moveTo(a.x - w * 0.04, run).lineTo(c.x + w * 0.04, run);
