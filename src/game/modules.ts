@@ -12,7 +12,7 @@ export type ModuleId =
 export type Module = {
   id: ModuleId;
   name: string;
-  /** What each level does, as the Model tab says it. */
+  /** What each level does, as the Model's shop says it. */
   levels: readonly [string, string, string];
   /** Weights each level costs. */
   costs: readonly [number, number, number];

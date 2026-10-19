@@ -87,7 +87,7 @@ const KIND_NAME: Record<GeneratorId, [string, string]> = {
   "10x_dev": ["10x dev", "10x devs"],
 };
 export const KIND_COLOUR: Record<GeneratorId, number> = { intern: 0xf2b51d, vibe_coder: 0xff4fa3, "10x_dev": 0x2fb8a8 };
-const TAB_NAME = { employees: "Employees", innovation: "Innovation", valuation: "Valuation" } as const;
+const TAB_NAME = { employees: "Employees", innovation: "Innovation", valuation: "Valuation", ai: "the AI" } as const;
 
 /** A workplace's desks, as a label line: taken of how many, amber once full. */
 function deskLine(id: number, ctx: InfoContext): InfoLine | null {
@@ -219,7 +219,6 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     if (p.id === "datacentre") {
       const c = coolingLine(s.id);
       if (c) lines.push(c);
-      lines.push({ text: "Click for the control room", tone: "dim" });
     }
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
   }

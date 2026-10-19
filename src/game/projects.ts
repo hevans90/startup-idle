@@ -130,7 +130,7 @@ export type ProjectDef = {
   /** A feature of the game it opens, if any. */
   grants?: FeatureId;
   /** Where clicking the finished building takes the player: a sidebar tab. */
-  opens?: "employees" | "innovation" | "valuation";
+  opens?: "employees" | "innovation" | "valuation" | "ai";
   /**
    * WHAT IT WAITS FOR, as data: an employee upgrade bought, a feature of the
    * game unlocked, and so many of each kind employed — all of them. Data rather
@@ -276,6 +276,8 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 200_000,
     deliveries: 16,
     bonus: { innovation: 2 },
+    // Its control room is the AI tab. @see AiTab
+    opens: "ai",
     ...needs(DATACENTRE_GATE),
   },
   {

@@ -7,7 +7,8 @@ import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import Tabs from "../ui/Tabs";
 import { AcquisitionTab } from "./acquisition-tab";
 import { AchievementsTab } from "./achievements-tab";
-import { ModelTab } from "./model-tab";
+import { AiTab } from "./ai-tab";
+import { projectReading } from "../game/projects";
 import { useGenerationStore } from "../state/generation.store";
 import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation/innovation-managers";
@@ -28,9 +29,9 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   );
   const accruedThisRun = useValuationStore((s) => s.accruedThisRun);
   const acquisitionVisible = accruedThisRun.gte(100);
-  // THE MODEL: once the AI has first reached the singularity, or any Ascension has been made.
+  // THE AI: once the Data Centre stands, the AI has reached the singularity, or any Ascension has been made.
   const generation = useGenerationStore((s) => s.generation);
-  const agiVisible = useAiSingularityStore((s) => s.everCompleted) || generation > 1;
+  const aiVisible = useAiSingularityStore((s) => s.everCompleted) || generation > 1 || (projectReading()?.built.has("datacentre") ?? false);
 
   const tabs: { id: SidebarTab; label: string }[] = [
     { id: "employees", label: "Employees" },
@@ -38,7 +39,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
     ...(employeeMgmtUnlocked ? [{ id: "valuation" as SidebarTab, label: "Valuation" }] : []),
     ...(acquisitionVisible ? [{ id: "acquisition" as SidebarTab, label: "Acquisition" }] : []),
     ...(vapeVisible ? [{ id: "achievements" as SidebarTab, label: "Vape shop" }] : []),
-    ...(agiVisible ? [{ id: "agi" as SidebarTab, label: "Model" }] : []),
+    ...(aiVisible ? [{ id: "ai" as SidebarTab, label: "AI" }] : []),
   ];
 
   return (
@@ -69,7 +70,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
           valuation: <ValuationTab />,
           acquisition: <AcquisitionTab />,
           achievements: <AchievementsTab />,
-          agi: <ModelTab />,
+          ai: <AiTab />,
         }}
       </Tabs>
     </div>

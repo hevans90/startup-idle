@@ -30,7 +30,7 @@ export type BehaviourLog = {
 
 export const emptyLog = (): BehaviourLog => ({ datasets: {}, full: 0, throttled: 0, founders: {}, shutdowns: 0 });
 
-/** A generation past, as the Model tab remembers it. */
+/** A generation past, as the Model's shop remembers it. */
 export type PastGeneration = { generation: number; trait: TraitId; mutated: boolean; founder: string; weights: number };
 
 type GenerationState = {

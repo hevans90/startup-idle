@@ -511,9 +511,6 @@ type WorldState = {
   aiMemos: { text: string; at: number }[];
   pushAiMemo: (text: string) => void;
   dismissAiMemos: () => void;
-  /** Whether the Data Centre's control room is open. @see DataCentrePanel */
-  dataCentreOpen: boolean;
-  setDataCentreOpen: (open: boolean) => void;
   /** Whether each building wears a label of what it is and how it is doing. @see BuildingLabels */
   labels: boolean;
   setLabels: (on: boolean) => void;
@@ -835,8 +832,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   aiMemos: [],
   pushAiMemo: (text) => set((s) => ({ aiMemos: [...s.aiMemos, { text, at: Date.now() }].slice(-3) })),
   dismissAiMemos: () => set({ aiMemos: [] }),
-  dataCentreOpen: false,
-  setDataCentreOpen: (dataCentreOpen) => set({ dataCentreOpen }),
   notice: null,
   lastBuild: null,
   undoLastBuild: () => {

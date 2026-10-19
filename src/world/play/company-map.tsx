@@ -45,8 +45,6 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
     if (!st.lookedAt || st.lookedAt === was.lookedAt) return;
     const s = structureOf(st.grid, st.lookedAt.x, st.lookedAt.y);
     const p = s && !s.build ? projectForStructure(s.def) : null;
-    // THE DATA CENTRE opens its control room, on the map. @see DataCentrePanel
-    if (p?.id === "datacentre") st.setDataCentreOpen(true);
     if (p?.opens) useGlobalSettingsStore.getState().setSidebarTab(p.opens);
   }), []);
   return (

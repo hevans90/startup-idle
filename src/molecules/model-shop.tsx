@@ -1,8 +1,8 @@
 /**
- * THE MODEL TAB: the second prestige, between Ascensions. Which generation
- * this is, the Weights to spend, the slots and the modules for them, the
- * founders fused with the AI, and the generations past.
- * @see game/ascension, game/modules
+ * THE MODEL'S SHOP: the second prestige's spending, between companies — on
+ * the founder screen, before a run starts. Which generation this is, the
+ * Weights to spend, the slots and the modules for them, the founders fused
+ * with the AI, and the generations past. @see game/ascension, game/modules
  */
 import { twMerge } from "tailwind-merge";
 
@@ -15,7 +15,7 @@ import { slotCount, useGenerationStore } from "../state/generation.store";
 const SECTION = "border-t border-primary-300 p-2 dark:border-primary-700";
 const TITLE = "mb-1 text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400";
 
-export function ModelTab() {
+export function ModelShop() {
   const g = useGenerationStore();
   const slots = slotCount();
   const founderName = (id: string) => FOUNDERS.find((f) => f.id === id)?.name ?? id;

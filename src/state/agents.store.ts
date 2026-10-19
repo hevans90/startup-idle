@@ -30,7 +30,7 @@ type AgentsState = {
   /**
    * THE THROTTLE: how many of them are running, or null for all of them. An
    * agent not running earns nothing and pushes the singularity not at all.
-   * Set at the Data Centre. @see runningAgents, DataCentrePanel
+   * Set in the AI tab's throttle. @see runningAgents, DataCentre
    */
   running: number | null;
   setRunning: (n: number | null) => void;

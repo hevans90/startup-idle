@@ -41,7 +41,6 @@ import { useFounderStore } from "../../state/founder.store";
 import { getAiRunner } from "../ai/ai-runner";
 import { useTicking } from "../../hooks/use-ticking";
 import { WondersPanel } from "./wonders-panel";
-import { DataCentrePanel } from "./datacentre-panel";
 import { AiModePanel } from "./ai-mode-panel";
 import { PARCELS } from "../land";
 import { hasRiver } from "../boats/river";
@@ -287,7 +286,6 @@ export function BuildBar({ className }: { className?: string }) {
         </p>
       )}
       <WondersPanel />
-      <DataCentrePanel />
       <AiModePanel />
       {picking && !wondersOpen && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
