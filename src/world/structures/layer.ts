@@ -76,15 +76,26 @@ export const createStructureLayer = (): StructureLayer => ({
   unrenderable: 0,
 });
 
-function mountOne(sl: StructureLayer, ctx: RenderCtx, s: Structure): void {
+function mountOne(sl: StructureLayer, ctx: RenderCtx, s: Structure): StructureHandle | null {
   const def = structureDef(s.def);
   const renderer = def ? rendererFor(def) : null;
   if (!def || !renderer) {
     sl.unrenderable++;
-    return;
+    return null;
   }
-  sl.mounted.set(s.id, { handle: renderer.mount(s, def, ctx), renderer, s });
+  const handle = renderer.mount(s, def, ctx);
+  sl.mounted.set(s.id, { handle, renderer, s });
+  return handle;
 }
+
+/**
+ * Told what a reconcile changed, for the motions that go with it: a structure
+ * mounted (with the record it replaced, if any), and one gone. @see Juice
+ */
+export type SyncWatch = {
+  mounted?: (s: Structure, handle: StructureHandle, ctx: RenderCtx, was?: Structure) => void;
+  gone?: (s: Structure, ctx: RenderCtx) => void;
+};
 
 function unmountOne(sl: StructureLayer, id: number): void {
   const m = sl.mounted.get(id);
@@ -102,15 +113,21 @@ function unmountOne(sl: StructureLayer, id: number): void {
  * when structures changed — is exactly the kind of seam that let Phase 4's
  * component count go stale.
  */
-export function syncStructures(sl: StructureLayer, ctx: RenderCtx): void {
+export function syncStructures(sl: StructureLayer, ctx: RenderCtx, watch?: SyncWatch): void {
   sl.unrenderable = 0;
   for (const [id, m] of sl.mounted) {
     const live = ctx.grid.structures.get(id);
-    if (!live) unmountOne(sl, id);
-    else if (live !== m.s) { unmountOne(sl, id); mountOne(sl, ctx, live); }
+    if (!live) { unmountOne(sl, id); watch?.gone?.(m.s, ctx); }
+    else if (live !== m.s) {
+      unmountOne(sl, id);
+      const h = mountOne(sl, ctx, live);
+      if (h) watch?.mounted?.(live, h, ctx, m.s);
+    }
   }
   for (const s of ctx.grid.structures.values()) {
-    if (!sl.mounted.has(s.id)) mountOne(sl, ctx, s);
+    if (sl.mounted.has(s.id)) continue;
+    const h = mountOne(sl, ctx, s);
+    if (h) watch?.mounted?.(s, h, ctx);
   }
 }
 

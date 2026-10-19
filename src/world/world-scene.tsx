@@ -166,6 +166,7 @@ import { COLUMNS_PER_TILE } from "./water/field";
 import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { clickTakesOver, opensSomething } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
+import { createJuice, type Juice } from "./render/juice";
 import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
@@ -300,6 +301,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const cursorRef = useRef<BuildCursor | null>(null);
   /** Holograms: what a placement would put down, and what AI mode's drones are about to. @see createHolograms */
   const holoRef = useRef<Holograms | null>(null);
+  /** A building dropping into place, a house hopping as it grows, dust where one came down. @see createJuice */
+  const juiceRef = useRef<Juice | null>(null);
   const holoScanRef = useRef<Graphics | null>(null);
   const tileHoloRef = useRef<TileHolograms | null>(null);
   const placeHolos = useRef<HoloSpec[]>([]);
@@ -1476,6 +1479,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // HOLOGRAMS mount in the bands, at true depth; their scan lines go over everything.
         holoRef.current = createHolograms();
         tileHoloRef.current = createTileHolograms();
+        juiceRef.current = createJuice();
         const scan = new Graphics();
         scan.eventMode = "none";
         scan.zIndex = 1001;
@@ -1513,6 +1517,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cursorRef.current = null;
       holoRef.current?.clear();
       holoRef.current = null;
+      juiceRef.current?.clear();
+      juiceRef.current = null;
       tileHoloRef.current?.clear();
       tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
@@ -2036,7 +2042,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // record map (tens of entries) while `refreshStructuresAt` only re-draws
     // the ones the edit actually stood on.
     const ctx: RenderCtx = { bands: bl, textures: tex, grid, scale };
-    syncStructures(sl, ctx);
+    // What changed while the map is up gets its motion; what it loaded with does not. @see createJuice
+    syncStructures(sl, ctx, juiceRef.current ?? undefined);
     refreshStructuresAt(sl, ctx, touched);
 
     // an edit can change the height range, so overlays may need redrawing
@@ -2953,6 +2960,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const sl = slRef.current, bl = blRef.current, tex = texRef.current;
     const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
     const tFx = performance.now();
+    juiceRef.current?.tick(raw * 1000);
     // THE HOUR, in the game: the night over the map, and how busy the streets
     // are. Off, or in the editor, a plain bright noon. @see world/daylight
     {
