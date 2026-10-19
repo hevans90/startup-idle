@@ -15,6 +15,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { AUTOPILOT_EVERY, SECTION, currentPlan, lastStep, planInline, resetAutopilot, stepAutopilot, stepsTaken } from "./autopilot";
 import { inBox, sectionOf } from "./masterplan/plan";
+import { getAiRunner, stepAi } from "./ai-runner";
 
 planInline();
 
@@ -32,9 +33,15 @@ function town(size = 32, beds = BEDS) {
 }
 const BEDS = 4;
 let unhouse = () => {};
+/** AI mode for so many of its steps, its drones flown as the scene flies them, and then landed. */
 const run = (g: ReturnType<typeof town>, steps: number) => {
-  for (let k = 0; k < steps; k++) stepAutopilot(g, AUTOPILOT_EVERY, Date.now());
+  for (let k = 0; k < steps; k++) {
+    stepAutopilot(g, AUTOPILOT_EVERY, Date.now());
+    stepAi(getAiRunner(), g, IDLE, AUTOPILOT_EVERY, Date.now());
+  }
+  for (let k = 0; k < 60 && getAiRunner().jobs.length; k++) stepAi(getAiRunner(), g, IDLE, 1, Date.now());
 };
+const IDLE = { stage: "tool" as const, running: 0, agents: 0 };
 
 afterEach(() => {
   unhouse();
@@ -139,5 +146,23 @@ describe("a section", () => {
     const s = structureDef("garage")!.footprint;
     expect(sectionOf(g, 4)).toEqual({ x0: 6, y0: 8, x1: 10 + s.w - 1 + 4, y1: 12 + s.h - 1 + 4 });
     expect(sectionOf(g, 30)).toEqual({ x0: 0, y0: 0, x1: 39, y1: 39 });
+  });
+});
+
+describe("AI mode's drones", () => {
+  test("carry its building out, a hologram till they land, and only then is it built", () => {
+    const g = town();
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    useSessionStore.getState().setAiMode({ aiMode: true });
+    const before = g.structures.size;
+    // Steps taken, drones not yet landed: holograms out, nothing built.
+    for (let k = 0; k < 6; k++) stepAutopilot(g, AUTOPILOT_EVERY, Date.now());
+    const carrying = getAiRunner().jobs.filter((j) => j.action.kind === "deferred" && j.action.holo);
+    expect(carrying.length).toBeGreaterThan(0);
+    const built = [...g.structures.values()].filter((s) => s.def.startsWith("kit:") || s.def.startsWith("office")).length;
+    // Landed.
+    for (let k = 0; k < 60 && getAiRunner().jobs.length; k++) stepAi(getAiRunner(), g, { stage: "tool", running: 0, agents: 0 }, 1, Date.now());
+    expect(g.structures.size).toBeGreaterThan(before);
+    expect([...g.structures.values()].filter((s) => s.def.startsWith("kit:") || s.def.startsWith("office")).length).toBeGreaterThan(built);
   });
 });

@@ -52,7 +52,12 @@ export type AiAction =
   /** A pipe to water, and a pump house where one is needed, for a building that drinks. @see neededPipe */
   | { kind: "pipe"; route: PipeRoute; at: Cell; why: string }
   /** Nothing: a drone sent for the look of it, AI mode's work being done already. @see autopilot */
-  | { kind: "noop"; at: Cell; why: string };
+  | { kind: "noop"; at: Cell; why: string }
+  /**
+   * AI MODE'S STEP, carried out by the drone when it has scanned: `run` does
+   * it; `holo` is the building to show as a hologram till then. @see autopilot
+   */
+  | { kind: "deferred"; at: Cell; why: string; run: () => boolean; holo?: { def: string; x: number; y: number } };
 
 /** Where on the map an action happens, for its drone; null for one done at a desk. */
 export function targetOf(a: AiAction): Cell | null {
@@ -282,6 +287,7 @@ export function chooseAction(g: Grid, stage: Stage, rand: () => number = Math.ra
 export function perform(a: AiAction): boolean {
   switch (a.kind) {
     case "place": return placeStructure(a.def, a.at);
+    case "deferred": return a.run();
     case "pipe": return layRoute(a.route);
     // Taken down, then its own put up; a node if what it meant will not fit where it stood.
     case "convert": return demolishAt(a.at) && (placeStructure(a.into, a.at) || placeStructure("ai-node", a.at));

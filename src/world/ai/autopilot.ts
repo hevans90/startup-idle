@@ -25,7 +25,7 @@ import { structureDef } from "../structures/def";
 import { saleName } from "../play/building-info";
 import type { Grid } from "../grid";
 import { buyParcelAt, demolishAt, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
-import { getAiRunner } from "./ai-runner";
+import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "./ai-runner";
 import type { Masterplan, PlanStep } from "./masterplan/plan";
 import { inBox, planTown, sectionOf, wholeMap, type Box } from "./masterplan/plan";
 import { nextStep, roadTiles } from "./masterplan/schedule";
@@ -41,8 +41,8 @@ export const REPLAN_EVERY = 180;
 /** Tiles round the town a section's plan reaches, and how much further each one it can do nothing with. @see sectionOf */
 export const SECTION = 8;
 
-type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; margin: number; doneAtPlan: number; box: Box | null; pipe: PipeRoute | null };
-const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), margin: SECTION, doneAtPlan: 0, box: null, pipe: null };
+type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; margin: number; doneAtPlan: number; box: Box | null; pipe: PipeRoute | null; flying: Set<string> };
+const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), margin: SECTION, doneAtPlan: 0, box: null, pipe: null, flying: new Set() };
 
 /** The plan now, for the overlay and the panel; null until one is made. */
 export const currentPlan = () => state.plan;
@@ -134,11 +134,39 @@ function priceOf(g: Grid, s: PlanStep): number {
 
 /** A drone, for the look of it: the job is done when it is sent. @see stepAi */
 function fly(to: { x: number; y: number }, g: Grid) {
-  const dc = [...g.structures.values()].find((s) => s.def === "datacentre" && !s.build)
-    ?? [...g.structures.values()].find((s) => s.def === "garage");
-  if (!dc) return;
-  const from = { x: dc.x + dc.w / 2, y: dc.y + dc.h / 2 };
-  getAiRunner().jobs.push({ action: { kind: "noop", at: to, why: "" }, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / 5 });
+  const from = droneHome(g);
+  if (!from) return;
+  getAiRunner().jobs.push({ action: { kind: "noop", at: to, why: "" }, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / DRONE_SPEED });
+}
+
+/** Where AI mode's drones fly from: the Data Centre, or the garage before there is one. */
+function droneHome(g: Grid): { x: number; y: number } | null {
+  const home = [...g.structures.values()].find((s) => s.def === "datacentre" && !s.build)
+    ?? [...g.structures.values()].find((s) => s.def === "garage" && !s.build);
+  return home ? { x: home.x + home.w / 2, y: home.y + home.h / 2 } : null;
+}
+
+/**
+ * A STEP SENT BY DRONE: done when the drone has scanned the spot, a hologram
+ * of what it puts up shown there till then. Whether it was sent — not with
+ * nowhere to fly from, nor with every drone already out.
+ */
+function send(g: Grid, s: PlanStep): boolean {
+  const from = droneHome(g), r = getAiRunner();
+  if (!from || r.jobs.length >= MAX_DRONES) return false;
+  const key = keyOf(s), to = whereOf(s);
+  state.flying.add(key);
+  const run = () => {
+    state.flying.delete(key);
+    const ok = take(s);
+    if (ok) state.last = named(s);
+    else state.failed.add(key);
+    return ok;
+  };
+  const holo = s.kind === "build" ? { def: s.def, x: s.at.x, y: s.at.y } : undefined;
+  r.jobs.push({ action: { kind: "deferred", at: to, why: "", run, holo }, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / DRONE_SPEED });
+  state.last = `${named(s)}, on its way`;
+  return true;
 }
 
 /** The most it hires in one step. */
@@ -202,12 +230,11 @@ function act(g: Grid, budget: number): boolean {
   const hired = hire(spend);
   if (hired) { state.last = hired; return true; }
   // COOLING: a pipe to water for a building that drinks and runs short —
-  // ahead of any lot. Shown as a ghost while it cannot be paid for.
-  // @see neededPipe
+  // ahead of any lot when it can be paid for; shown as a ghost, and the rest
+  // of the work going on, while it cannot. @see neededPipe
   const pipe = neededPipe(g);
   state.pipe = pipe?.route ?? null;
-  if (pipe && !state.failed.has(`pipe:${pipe.s.id}`)) {
-    if (pipe.price > spend) return false;
+  if (pipe && !state.failed.has(`pipe:${pipe.s.id}`) && pipe.price <= spend) {
     if (layRoute(pipe.route)) {
       fly(pipe.route.pipe[pipe.route.pipe.length - 1], g);
       state.last = pipe.route.pump ? "a pump house and a pipe, for cooling" : "a pipe, for cooling";
@@ -229,13 +256,16 @@ function act(g: Grid, budget: number): boolean {
   }
   const s = state.plan && nextStep(g, state.plan, {
     rules: playRules(g), kinds: kindsByNeed(), services: featureGateOpen("services"), offices: true,
-    skip: (p) => state.failed.has(keyOf(p)),
+    skip: (p) => state.failed.has(keyOf(p)) || state.flying.has(keyOf(p)),
     style: modelStyle(),
   });
   if (s) {
     if (priceOf(g, s) > spend) return false;
+    // BY DRONE: it flies out and scans, the building shown as a hologram, and
+    // then it is done. With nowhere for a drone to fly from, done at once.
+    if (send(g, s)) return true;
     const ok = take(s);
-    if (ok) { fly(whereOf(s), g); state.last = named(s); }
+    if (ok) state.last = named(s);
     // REFUSED with the money there: not tried again this plan.
     else state.failed.add(keyOf(s));
     return ok;
@@ -276,7 +306,10 @@ export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
 
 /** A new company: a new plan. */
 export function resetAutopilot() {
-  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.margin = SECTION; state.doneAtPlan = 0; state.box = null; state.pipe = null;
+  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.margin = SECTION; state.doneAtPlan = 0; state.box = null; state.pipe = null; state.flying.clear();
+  // Its drones' jobs belong to the company that sent them.
+  const r = getAiRunner();
+  r.jobs = r.jobs.filter((j) => j.action.kind !== "deferred");
 }
 
 /** Re-plan now: the map changed under it. */

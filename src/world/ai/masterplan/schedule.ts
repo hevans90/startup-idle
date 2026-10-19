@@ -2,8 +2,10 @@
  * World v2 — THE MODEL'S NEXT MOVE: one step at a time, decided on the town
  * as it stands, with the masterplan for its streets. In order:
  *  0. A SPUR LIFTED, of those the plan lifts, while it still goes nowhere;
- *  1. AN OFFICE, when the lots' grown beds outrun the desks — one of the
- *     plan's, or, failing that, wherever the houses are thickest;
+ *  1. AN OFFICE for the kind most short of desks: people living on the map
+ *     with no desk to go to now, or — looking ahead — its lots' grown beds
+ *     outrunning its desks; one of the plan's, or wherever its houses are
+ *     thickest;
  *  2. A SERVICE, of whichever kind leaves the style's `serve` or more built lots
  *     unserved, where it reaches the most of them;
  *  3. A LOT, on the most desirable frontage there is now;
@@ -102,14 +104,28 @@ export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | nu
   }
   const structures = [...g.structures.values()];
   const lots = structures.filter((s) => housedBy(s.def) && !s.build);
-  let desks = 0;
-  for (const s of structures) if (!s.build && Object.values(WORKPLACES).some((d) => (d as readonly string[]).includes(s.def))) desks += DESKS[s.def] ?? 0;
 
-  // 1. AN OFFICE, for the kind most short of desks.
-  if (w.offices && lots.length * GROWN_BEDS > desks + style.spareDesks) {
-    for (const who of w.kinds) {
-      const def = OFFICE_FOR[who];
-      if (!def) continue;
+  // 1. AN OFFICE, for the kind most short of desks: who lives on the map with
+  // no desk to go to now, and, looking ahead, what its lots will sleep grown.
+  const short = (Object.keys(OFFICE_FOR) as GeneratorId[])
+    .filter((who) => w.kinds.includes(who))
+    .map((who) => {
+      let residents = 0, grown = 0, have = 0;
+      for (const s of structures) {
+        if (s.build) continue;
+        const h = housedBy(s.def);
+        if (h?.id === who) { residents += s.residents ?? 0; grown += GROWN_BEDS; }
+        if ((WORKPLACES[who] as readonly string[]).includes(s.def)) have += DESKS[s.def] ?? 0;
+      }
+      const now = residents - have, ahead = grown - have - style.spareDesks;
+      return { who, need: Math.max(now, ahead) };
+    })
+    .filter((k) => k.need > 0)
+    .sort((a, b) => b.need - a.need);
+  if (w.offices && short.length) {
+    for (const { who } of short) {
+      const def = OFFICE_FOR[who]!;
+      const mine = lots.filter((l) => housedBy(l.def)?.id === who);
       const d = structureDef(def)!;
       const fits = plan.steps
         .filter((s): s is Extract<PlanStep, { kind: "build" }> => s.kind === "build" && s.def === def)
@@ -118,7 +134,7 @@ export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | nu
       if (fits.length) return { kind: "build", def, at: fits[0].at, value: 0 };
       let best: Cell | null = null, most = -1;
       for (const c of spots(g, def, w.rules)) {
-        const near = lots.filter((l) => manhattan(l, c) <= 8).length;
+        const near = mine.filter((l) => manhattan(l, c) <= 8).length;
         if (near > most) { most = near; best = c; }
       }
       if (best) return { kind: "build", def, at: best, value: 0 };

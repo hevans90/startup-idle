@@ -166,6 +166,7 @@ import { COLUMNS_PER_TILE } from "./water/field";
 import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { clickTakesOver, opensSomething } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
+import { createHolograms, type HoloSpec, type Holograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
@@ -288,6 +289,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // held so an edit can re-texture just the cells that changed
   const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
+  /** Holograms: what a placement would put down, and what AI mode's drones are about to. @see createHolograms */
+  const holoRef = useRef<Holograms | null>(null);
+  const holoScanRef = useRef<Graphics | null>(null);
+  const placeHolos = useRef<HoloSpec[]>([]);
+  const aiHolos = useRef<HoloSpec[]>([]);
+  /** Show the holograms asked for now: the build tool's and AI mode's. */
+  const showHolos = useCallback(() => {
+    const h = holoRef.current, bl = blRef.current, tex = texRef.current;
+    if (!h || !bl || !tex) return;
+    h.set([...placeHolos.current, ...aiHolos.current], { bands: bl, textures: tex, grid: useWorldStore.getState().grid, scale: useWorldStore.getState().scale });
+  }, []);
   /** The AI on the map: the Data Centre's glow, the links, the holograms. @see createAiLayer */
   const aiLayerRef = useRef<AiLayer | null>(null);
   /** The earnings overlay. @see createStreetHeat */
@@ -1449,6 +1461,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         heatRef.current = createDesireHeat(overlayRoot.current);
         streetHeatRef.current = createStreetHeat(overlayRoot.current);
         aiLayerRef.current = createAiLayer(overlayRoot.current);
+        // HOLOGRAMS mount in the bands, at true depth; their scan lines go over everything.
+        holoRef.current = createHolograms();
+        const scan = new Graphics();
+        scan.eventMode = "none";
+        scan.zIndex = 1001;
+        overlayRoot.current.addChild(scan);
+        holoScanRef.current = scan;
       }
       boatRef.current = createBoatLayer(bl);
       townRef.current = createTownLayer(bl);
@@ -1479,6 +1498,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       cursorRef.current?.destroy();
       cursorRef.current = null;
+      holoRef.current?.clear();
+      holoRef.current = null;
+      holoScanRef.current?.parent?.removeChild(holoScanRef.current);
+      holoScanRef.current?.destroy();
+      holoScanRef.current = null;
       heatRef.current?.destroy();
       heatRef.current = null;
       streetHeatRef.current?.destroy();
@@ -1826,6 +1850,22 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    * framed and pulsing every frame it is there, and the pointer a hand.
    * @see drawOpenHighlight
    */
+  // THE HOLOGRAMS' FLICKER AND SCAN LINES, every frame they are up; and AI
+  // mode's, one a drone carrying a building, kept to the jobs out. @see send
+  const aiHoloSig = useRef("");
+  useTick(() => {
+    const holos: HoloSpec[] = [];
+    for (const j of getAiRunner().jobs) {
+      if (j.action.kind !== "deferred" || !j.action.holo) continue;
+      const { def, x, y } = j.action.holo;
+      holos.push({ key: `ai:${def}@${x},${y}`, def, x, y, ok: true });
+    }
+    const sig = holos.map((h) => h.key).join("|");
+    if (sig !== aiHoloSig.current) { aiHoloSig.current = sig; aiHolos.current = holos; showHolos(); }
+    const h = holoRef.current, scan = holoScanRef.current;
+    if (h && scan) h.tick(performance.now() / 1000, scan);
+  });
+
   const openShown = useRef<number | null>(null);
   useTick(() => {
     const g = openGfx.current;
@@ -2044,7 +2084,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const draw = () => {
       const { stroke, hover: hoverForBrush, hoverOpen } = useWorldStore.getState();
       // Over a building that opens something, the tool is put down: no cursor. @see opensSomething
-      if (!stroke && hoverOpen !== null) { cur.clear(); return; }
+      const unplace = () => { cur.clear(); if (placeHolos.current.length) { placeHolos.current = []; showHolos(); } };
+      if (!stroke && hoverOpen !== null) { unplace(); return; }
       // A live drag takes over; otherwise the hover stands in as a one-cell
       // anchor so the brush size is visible before pressing rather than
       // discovered after.
@@ -2053,7 +2094,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           ? { tool, brush: "point", anchor: hoverForBrush, head: hoverForBrush }
           : null
       );
-      if (!s0) { cur.clear(); return; }
+      if (!s0) { unplace(); return; }
 
       // A STRUCTURE tool previews its footprint, not a brush: the same function
       // the commit uses, so the rect you drag out is the rect you get.
@@ -2098,6 +2139,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
       }
 
+      // THE HOLOGRAM of what the click puts down: the building itself, red where it cannot go. @see createHolograms
+      const holos: HoloSpec[] = [];
+      if (s0.tool === "placeStructure") {
+        if (plan) holos.push({ key: "place:upgrade", def: plan.to.id, x: plan.x, y: plan.y, ok: plan.cells.every((c) => c.ok) });
+        else if (lotLine(useWorldStore.getState(), s0)) {
+          for (const c of lotLine(useWorldStore.getState(), s0)!) holos.push({ key: `place:${c.x},${c.y}`, def: structureDefId, x: c.x, y: c.y, ok: valid?.(grid, c.x, c.y).ok ?? true });
+        } else {
+          const def = structureDef(structureDefId);
+          if (def) {
+            const fp = structureFootprint(def, s0.anchor, s0.head);
+            holos.push({ key: "place", def: def.id, x: fp.x, y: fp.y, ok: validatePlacement(grid, def, fp.x, fp.y, rules).ok });
+          }
+        }
+      }
+      placeHolos.current = holos;
+      showHolos();
+
       cur.update(grid, {
         valid,
         cells,
@@ -2115,7 +2173,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (s.stroke !== was.stroke || s.hover !== was.hover || s.hoverOpen !== was.hoverOpen || s.revision !== was.revision) draw();
     });
   }, [
-    brushRadius, tool, material, palette, structureDefId,
+    brushRadius, tool, material, palette, structureDefId, showHolos,
     grid, scale, revision, sceneEpoch,
   ]);
 
