@@ -8,6 +8,7 @@ import { useWorldStore } from "../../state/world.store";
 import { useGeneratorStore } from "../../state/generators.store";
 import { syncAvailableUpgrades, useUpgradeStore } from "../../state/upgrades.store";
 import { projectDef } from "../../game/projects";
+import { roomFor, setHousingReader } from "../../game/housing";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx } from "../grid";
 import { structureDef } from "../structures/def";
@@ -18,20 +19,25 @@ import { inBox, sectionOf } from "./masterplan/plan";
 planInline();
 
 /** Flat ground, a street across the middle and a garage on it, loaded into the game. */
-function town(size = 32) {
+function town(size = 32, beds = BEDS) {
   const g = createGrid(size, size);
   fillTerrain(g, 1);
   for (let x = 4; x < size - 4; x++) g.paved[idx(g, x, 16)] = 1;
   commit(g, createHistory(), placeCommand(g, structureDef("garage")!, 14, 13)!);
   useWorldStore.getState().loadGrid(g, [null]);
   useWorldStore.setState({ playing: true });
+  // BEDS, as a map counts them: a few for interns, so hiring has an end.
+  unhouse = setHousingReader(() => ({ intern: beds, vibe_coder: 0, "10x_dev": 0 }));
   return useWorldStore.getState().grid;
 }
+const BEDS = 4;
+let unhouse = () => {};
 const run = (g: ReturnType<typeof town>, steps: number) => {
   for (let k = 0; k < steps; k++) stepAutopilot(g, AUTOPILOT_EVERY, Date.now());
 };
 
 afterEach(() => {
+  unhouse();
   useWorldStore.setState({ playing: false });
   resetAllGameStores();
 });
@@ -69,7 +75,7 @@ describe("AI mode", () => {
   });
 
   test("buys the employee upgrade the next project waits on, as the Employees tab offers it", () => {
-    const g = town();
+    const g = town(32, 60);
     useMoneyStore.setState({ money: new Decimal(1e9) });
     useGeneratorStore.getState().increaseGenerator("intern", 60);
     syncAvailableUpgrades();
@@ -78,6 +84,25 @@ describe("AI mode", () => {
     expect(useUpgradeStore.getState().unlockedUpgradeIds).not.toContain(gate);
     for (let k = 0; k < 10 && !useUpgradeStore.getState().unlockedUpgradeIds.includes(gate); k++) { run(g, 1); syncAvailableUpgrades(); }
     expect(useUpgradeStore.getState().unlockedUpgradeIds).toContain(gate);
+  });
+
+  test("hires into the beds standing empty, and never past them", () => {
+    const g = town();
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    useSessionStore.getState().setAiMode({ aiMode: true });
+    const interns = () => useGeneratorStore.getState().generators.find((x) => x.id === "intern")?.amount ?? 0;
+    run(g, 1);
+    expect(lastStep()).toMatch(/hired/);
+    expect(interns()).toBe(BEDS);
+    expect(roomFor("intern", interns())).toBe(0);
+  });
+
+  test("hires nobody it cannot pay for within its budget", () => {
+    const g = town();
+    useMoneyStore.setState({ money: new Decimal(0.01) });
+    useSessionStore.getState().setAiMode({ aiMode: true });
+    run(g, 3);
+    expect(useGeneratorStore.getState().generators.find((x) => x.id === "intern")?.amount ?? 0).toBe(0);
   });
 
   test("forgets its plan for a new company", () => {

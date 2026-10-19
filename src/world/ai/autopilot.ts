@@ -3,8 +3,9 @@
  * builds itself: a MASTERPLAN of its streets worked out off the main thread,
  * and every couple of seconds the next step for the town as it stands — an
  * office, a service, a lot, the next piece of street — built through the
- * player's own actions, within the budget, a drone flying each out. It starts
- * the projects as they open and buys land when the plan runs out of room, and
+ * player's own actions, within the budget, a drone flying each out. It hires
+ * into empty beds, buys the employee upgrade the next project waits on, starts
+ * the projects as they open, buys land when the plan runs out of room, and
  * clears derelicts in its way. @see nextStep, planTown, plans/singularity.md §4b
  */
 import { buildCost, roadCost } from "../../game/build-cost";
@@ -12,6 +13,7 @@ import { roomFor } from "../../game/housing";
 import { PROJECTS, featureGateOpen, gateParts } from "../../game/projects";
 import { nextPerSet, upgradeSet } from "../../game/upgrade-sets";
 import { useUpgradeStore } from "../../state/upgrades.store";
+import { getGeneratorCost } from "../../utils/generator-utils";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
@@ -134,6 +136,39 @@ function fly(to: { x: number; y: number }, g: Grid) {
   getAiRunner().jobs.push({ action: { kind: "noop", at: to, why: "" }, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / 5 });
 }
 
+/** The most it hires in one step. */
+const MAX_HIRE = 1000;
+
+/**
+ * HIRING, as the Employees tab hires: into beds standing empty, of the kind
+ * whose next hire earns the most for what it costs, as many as the beds take
+ * and `spend` pays for. What was done, in words, or null. @see purchaseGenerator
+ */
+function hire(spend: number): string | null {
+  const gens = useGeneratorStore.getState();
+  let best: { id: GeneratorId; name: string; worth: number; room: number } | null = null;
+  for (const gen of gens.generators) {
+    const id = gen.id as GeneratorId;
+    // Beds can be unlimited where no map counts them: a hire at a time is still bounded. @see roomFor
+    const room = Math.min(MAX_HIRE, Math.floor(roomFor(id, gen.amount)));
+    const one = getGeneratorCost(id, 1).toNumber();
+    if (room <= 0 || !(one > 0) || one > spend) continue;
+    const worth = gens.getGeneratorMoneyPerSecond(id, 1) / one;
+    if (!best || worth > best.worth) best = { id, name: gen.name, worth, room };
+  }
+  if (!best) return null;
+  // As many as the budget pays for: the price of n rises with n.
+  let lo = 1, hi = best.room;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2);
+    if (getGeneratorCost(best.id, mid).toNumber() <= spend) lo = mid; else hi = mid - 1;
+  }
+  const before = gens.generators.find((x) => x.id === best.id)?.amount ?? 0;
+  gens.purchaseGenerator(best.id, lo);
+  const n = (useGeneratorStore.getState().generators.find((x) => x.id === best.id)?.amount ?? 0) - before;
+  return n > 0 ? `${n} ${best.name.toLowerCase()}${n === 1 ? "" : "s"} hired` : null;
+}
+
 /** Take one step. Whether anything was built. */
 function act(g: Grid, budget: number): boolean {
   const money = useMoneyStore.getState().money.toNumber();
@@ -158,6 +193,9 @@ function act(g: Grid, budget: number): boolean {
       break;
     }
   }
+  // HIRING, into the beds standing empty. @see hire
+  const hired = hire(spend);
+  if (hired) { state.last = hired; return true; }
   // THE PROJECTS, as they open: the next one ready, at the nearest good spot. @see nearestSpot
   if (!projectUnderWay(g)) {
     const built = builtProjects(g);
