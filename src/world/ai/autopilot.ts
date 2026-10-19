@@ -101,6 +101,15 @@ function requestPlan(g: Grid) {
     state.plan = e.data.plan;
     state.plannedAt = Date.now();
   };
+  // A WORKER THAT FAILS is not "Planning…" for ever: said, and planned here from now on.
+  state.worker.onerror = (e) => {
+    console.warn("AI mode: the planning worker failed; planning on the main thread", e.message);
+    state.worker?.terminate();
+    state.worker = null;
+    inline = true;
+    state.plan = planTown(g, { owned: (x, y) => ownsTile(g, land, x, y), kinds, services, offices, style });
+    state.plannedAt = Date.now();
+  };
   const req: PlanRequest = { id: state.asked, file: serializeWorld(g, { terrain: [], paved: [null] }), land, kinds, services, offices, style };
   state.worker.postMessage(req);
 }

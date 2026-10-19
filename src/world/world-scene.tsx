@@ -2702,8 +2702,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
         if (st.playing) useTrainingStore.getState().tick();
         // AI MODE, on The Model's own runs: the town building itself, its
-        // drones flown out for the look of it. @see stepAutopilot
-        if (st.playing && !startedOnFixture() && useFounderStore.getState().selectedFounderId === "model") {
+        // drones flown out for the look of it. On a fixture too: a fixture
+        // played works on a copy of the save. @see stepAutopilot, fixture-sandbox
+        if (st.playing && useFounderStore.getState().selectedFounderId === "model") {
           stepAutopilot(st.grid, dt);
           stepAi(getAiRunner(), st.grid, { stage: "tool", running: 0, agents: 0 }, dt, Date.now());
         }
