@@ -1,3 +1,4 @@
+import { IconBuildingCommunity } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { PROJECTS } from "../game/projects";
 import { GENERATOR_TYPES } from "../state/generators.store";
@@ -62,24 +63,27 @@ const nextPerSet = (available: Upgrade[]): Upgrade[] => {
 /** The projects on the map an upgrade opens the way to. @see ProjectDef.gate */
 const opensOf = (upg: Upgrade) => PROJECTS.filter((p) => p.gate.upgrade === upg.id).map((p) => p.name);
 
-/** "Opens: Town Hall", a tag on an upgrade that gates a project. */
-const OpensTag = ({ upg }: { upg: Upgrade }) => {
+/** A small building in the button's corner: this upgrade opens a project on the map. (Its button wants `relative`.) */
+const OpensMark = ({ upg }: { upg: Upgrade }) => {
   const names = opensOf(upg);
   if (!names.length) return null;
   return (
-    <span className="ml-auto shrink-0 border border-amber-600 px-1 text-[10px] text-amber-700 dark:border-amber-400 dark:text-amber-400">
-      Opens: {names.join(", ")}
-    </span>
+    <IconBuildingCommunity
+      size={14}
+      aria-label={`Opens ${names.join(", ")}`}
+      className="pointer-events-none absolute right-1 bottom-1 text-amber-600 dark:text-amber-400"
+    />
   );
 };
 
-/** The same, as a line in an upgrade's popover. */
+/** What it opens, by name beside the building: in the popover, and on a phone's card. */
 const OpensLine = ({ upg }: { upg: Upgrade }) => {
   const names = opensOf(upg);
   if (!names.length) return null;
   return (
-    <div className="responsive-text-xs text-center text-amber-700 dark:text-amber-400">
-      Opens the way to <b>{names.join(", ")}</b>: a project on the map you can site once this is bought.
+    <div className="responsive-text-xs flex items-center justify-center gap-1 text-amber-700 dark:text-amber-400">
+      <IconBuildingCommunity size={12} className="shrink-0" />
+      <b>{names.join(", ")}</b>
     </div>
   );
 };
@@ -189,9 +193,10 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
           <Button
             disabled={money.lt(upg.cost)}
             key={upg.id}
-            className="flex flex-col gap-2 w-full p-4"
+            className="relative flex flex-col gap-2 w-full p-4"
             onClick={() => unlockUpgrade(upg.id)}
           >
+            <OpensMark upg={upg} />
             <div className="responsive-text mb-1">
               <span className="underline-offset-2 underline">
                 <GenLabel id={upg.id} text={upg.name} inline />
@@ -227,12 +232,12 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
               <Button
                 disabled={money.lt(upg.cost)}
                 key={upg.id}
-                className="flex w-full p-4 responsive-text-sm"
+                className="relative flex w-full p-4 responsive-text-sm"
                 onClick={() => unlockUpgrade(upg.id)}
               >
                 <GenLabel id={upg.id} text={upg.name} />
                 <span>: {formatCurrency(upg.cost)}</span>
-                <OpensTag upg={upg} />
+                <OpensMark upg={upg} />
               </Button>
             </PopoverTrigger>
 
