@@ -13,6 +13,18 @@ export const DAY_SECONDS = 600;
 export const NIGHT_DARK = 0.35;
 /** The colour of the night. */
 export const NIGHT_COLOUR = 0x0b1030;
+/**
+ * What midnight MULTIPLIES the map by: a grade, not a sheet laid over it —
+ * darker and bluer, with the town's lights over it bright. @see createLights
+ */
+export const NIGHT_GRADE = 0x6a74b0;
+
+/** `a` toward `b` by `t`, channel by channel. */
+export function mixColour(a: number, b: number, t: number): number {
+  const k = Math.max(0, Math.min(1, t));
+  const ch = (s: number) => Math.round(((a >> s) & 255) + ((((b >> s) & 255) - ((a >> s) & 255)) * k));
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
 
 /** Where in the day it is, 0 to 1: midnight at 0, noon at a half. */
 export const dayPhase = (nowMs: number) => ((nowMs / 1000) % DAY_SECONDS) / DAY_SECONDS;

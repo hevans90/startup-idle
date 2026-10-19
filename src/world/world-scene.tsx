@@ -169,6 +169,9 @@ import { drawOpenHighlight } from "./render/open-highlight";
 import { createJuice, type Juice } from "./render/juice";
 import { ambience, sfx } from "../audio/sound";
 
+/** The time of day, 0–1 from midnight; `__dayPhase` holds it, in development, to look at an hour. @see dayPhase */
+const phaseNow = () => (import.meta.env.DEV ? (window as unknown as { __dayPhase?: number }).__dayPhase : undefined) ?? dayPhase(Date.now());
+
 /** Movers on the map at which the town sounds as busy as it gets. */
 const TOWN_FULL = 80;
 import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
@@ -183,7 +186,8 @@ import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
 import { buyable, PARCELS, parcelOf } from "./land";
-import { busyness, darkness, dayPhase, drawRain, NIGHT_COLOUR, NIGHT_DARK } from "./daylight";
+import { busyness, darkness, dayPhase, drawRain, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
+import { createLights, type Lights } from "./render/lights";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 
 // Required: <pixiContainer> is only a known element once Container is
@@ -395,6 +399,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // NIGHT over the map in the game: one translucent sheet the size of the
   // screen, darker as the day turns. @see world/daylight
   const night = useRef<Graphics | null>(null);
+  const nightKey = useRef("");
+  const lightsRef = useRef<Lights | null>(null);
+  const lightsAt = useRef<{ grid: unknown; rev: number }>({ grid: null, rev: -1 });
   // AND RAIN over it while a flood is coming or here. @see drawRain
   const rain = useRef<Graphics | null>(null);
   useEffect(() => {
@@ -403,13 +410,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     r.eventMode = "none";
     g.zIndex = 1e9;
     r.zIndex = 1e9 + 1;
+    // MULTIPLIED IN: a grade over everything, the water's own shaders included. @see NIGHT_GRADE
+    g.blendMode = "multiply";
     app.stage.sortableChildren = true;
     app.stage.addChild(g, r);
     night.current = g;
     rain.current = r;
+    // THE TOWN'S LIGHTS, over the night and under the rain. @see createLights
+    lightsRef.current = createLights(app.stage, 1e9 + 0.5);
     return () => {
       for (const x of [g, r]) { x.parent?.removeChild(x); x.destroy(); }
       night.current = null;
+      lightsRef.current?.destroy();
+      lightsRef.current = null;
       rain.current = null;
     };
   }, [app]);
@@ -2971,14 +2984,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (soundClock.current > 0.25) {
       soundClock.current = 0;
       const st = useWorldStore.getState();
-      const night = st.playing && useGlobalSettingsStore.getState().dayNight ? darkness(dayPhase(Date.now())) / NIGHT_DARK : 0;
+      const night = st.playing && useGlobalSettingsStore.getState().dayNight ? darkness(phaseNow()) / NIGHT_DARK : 0;
       ambience(st.playing ? Math.min(1, getTown().movers.length / TOWN_FULL) : 0, night);
     }
     // THE HOUR, in the game: the night over the map, and how busy the streets
     // are. Off, or in the editor, a plain bright noon. @see world/daylight
     {
       const on = useWorldStore.getState().playing && useGlobalSettingsStore.getState().dayNight;
-      const phase = dayPhase(Date.now());
+      const phase = phaseNow();
       getTown().busy = on ? busyness(phase) : undefined;
       const g = night.current;
       const now = Date.now();
@@ -2990,13 +3003,29 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (dc) showMe({ x: dc.x + dc.w / 2, y: dc.y + dc.h / 2 });
       }
       const ascension = playing ? sequenceIntensity(now) : 0;
+      const nightNow = on ? darkness(phase) / NIGHT_DARK : 0;
       if (g) {
-        const a = on ? darkness(phase) : 0;
-        g.clear();
-        if (a > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: NIGHT_COLOUR, alpha: a });
         // THE SKY TURNS as the AI rises: a violet cast from the Manager on, and at the Ascension.
         const tint = (meter >= 80 ? 0.08 : meter >= 60 ? 0.04 : 0) + 0.3 * ascension;
-        if (tint > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: STAGE_COLOUR.overseer, alpha: tint });
+        const colour = mixColour(mixColour(0xffffff, NIGHT_GRADE, nightNow), STAGE_COLOUR.overseer, tint);
+        // Redrawn only when it changes: a colour a step at a time, or the screen's size.
+        const key = `${colour}|${app.screen.width}x${app.screen.height}`;
+        if (key !== nightKey.current) {
+          nightKey.current = key;
+          g.clear();
+          if (colour !== 0xffffff) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: colour });
+        }
+      }
+      const blNow = blRef.current;
+      if (lightsRef.current && blNow) {
+        // Put where the map is now whenever it has changed — whichever of the
+        // scene and the lights was made first. @see createLights
+        const st = useWorldStore.getState();
+        if (nightNow > 0.02 && (lightsAt.current.grid !== st.grid || lightsAt.current.rev !== st.revision)) {
+          lightsAt.current = { grid: st.grid, rev: st.revision };
+          lightsRef.current.sync(st.grid, scale);
+        }
+        lightsRef.current.tick(nightNow, blNow.root.worldTransform, now / 1000);
       }
       // THE AI ON THE MAP. @see createAiLayer
       const ai = aiLayerRef.current;
