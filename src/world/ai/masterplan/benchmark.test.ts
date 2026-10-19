@@ -84,7 +84,7 @@ function aiMode(seed: number): number {
     if (steps === before) for (let y = box.y0; y <= box.y1; y++) for (let x = box.x0; x <= box.x1; x++) if (isPaved(g, x, y)) tried.add(idx(g, x, y));
   }
   if (process.env.DEBUG) describeTown("ai", g);
-  return settledTown(cloneGrid(g)).work;
+  return settledTown(cloneGrid(g))[process.env.SCORE === "work" ? "work" : "income"];
 
   /** Take a step, paying for it out of `left`; whether it could be. */
   function take(g: Grid, s: NonNullable<ReturnType<typeof nextStep>>): boolean {
@@ -167,11 +167,11 @@ function greedy(seed: number): number {
     if (!pushed) break;
   }
   if (process.env.DEBUG) describeTown("greedy", g);
-  return settledTown(cloneGrid(g)).work;
+  return settledTown(cloneGrid(g))[process.env.SCORE === "work" ? "work" : "income"];
 }
 
 describe("AI mode", () => {
-  test("builds a town that does more work than a greedy player's, for the same budget", () => {
+  test("builds a town that earns more, settled, than a greedy player's, for the same budget", () => {
     const gains: number[] = [];
     for (const seed of [11, 22, 33]) {
       const ai = aiMode(seed), gr = greedy(seed);
@@ -180,10 +180,11 @@ describe("AI mode", () => {
     }
     const mean = gains.reduce((a, b) => a + b, 0) / gains.length;
     if (process.env.BALANCE) console.log(`mean ${(mean * 100).toFixed(0)}%`);
-    // Measured 2026-10-19 with the town model made faithful — crowding, desks
-    // fed back, a tier at a time: +11%, +1%, 0%, mean +4%. (It had read +22%
-    // when the model let houses grow past t1 with no park.) Held at not losing
-    // for now; tall planning is to bring it back over +15%. @see plans/ai-planning.md
-    expect(mean).toBeGreaterThan(0);
+    // Measured 2026-10-19, on settled income, planning tall — a park first, a
+    // café and a gym where they reach the most, lots only where they grow to
+    // III, offices nearest their houses: +123%, +102%, +28%, mean +84% (work:
+    // +42%, +44%, −8%, mean +26%). It read +4% planning wide, the old way.
+    // @see plans/ai-planning.md
+    expect(mean).toBeGreaterThan(0.15);
   }, 300_000);
 });

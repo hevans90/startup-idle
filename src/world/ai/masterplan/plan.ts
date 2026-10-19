@@ -34,14 +34,16 @@ import { DESKS, WORKPLACES } from "../../agents/commute";
 import { desireAt, desireMapsOf } from "../../agents/desirability";
 import { placesOf } from "../../agents/roads";
 import { createNetwork } from "../../roads/network";
-import { cloneGrid, settledTown } from "./town-model";
+import { atLeast, cloneGrid, projectTier, settledTown } from "./town-model";
+import type { Tier } from "../../agents/services";
 import { PLAIN, nearWater, type Style } from "./style";
 
 type Cell = { x: number; y: number };
 
 export type PlanStep =
   | { kind: "road"; from: Cell; to: Cell }
-  | { kind: "build"; def: string; at: Cell; value: number }
+  /** `tier`: for a lot, the tier it is planned to grow to. */
+  | { kind: "build"; def: string; at: Cell; value: number; tier?: Tier }
   /** Flatten the ground along a line to `z`, as the flatten tool does: before a street over it. */
   | { kind: "level"; from: Cell; to: Cell; z: number }
   /** Lift a tile of road: a spur that goes nowhere. */
@@ -113,6 +115,12 @@ export function blockAt(
 
 /** The town's middle: its workplaces', or the map's; the Data Centre, for a style that grows from it. @see Style */
 export const townCentre = (g: Grid, style: Style = PLAIN): Cell => centreOf(g, style);
+
+/** Beds a lot is planned to sleep: tall plans for III, wide for about II. */
+const TALL_BEDS = 12;
+const WIDE_BEDS = 5;
+/** How far a service reaches, as the plan counts it: the road range, near enough. @see RANGE */
+const REACH = 7;
 
 /** Tiles between connecting streets. */
 export const CONNECT = 8;
@@ -372,7 +380,7 @@ export function planTown(source: Grid, given: PlanOptions): Masterplan {
   const o: PlanOptions = style.dryMargin
     ? { ...given, owned: (x, y) => given.owned(x, y) && !nearWater(source, x, y, style.dryMargin) }
     : given;
-  const now = settledTown(cloneGrid(source)).work;
+  const now = settledTown(cloneGrid(source)).income;
   const g = cloneGrid(source);
   const rules: PlaceRules = { needsRoad: true, owned: o.owned };
   const { on, row } = patternOf(g, o);
@@ -381,9 +389,27 @@ export function planTown(source: Grid, given: PlanOptions): Masterplan {
   const centre = centreOf(source, style);
   if (!kind0) return { steps, predicted: now, now, centre };
 
-  // SERVICES: each where it reaches the most frontage not yet served.
   const placed: { def: string; at: Cell }[] = [];
-  if (o.services) {
+  const tall = style.parkFirst && o.services;
+  // TALL: SERVICES FIRST — a park, then a café and a gym — each where it
+  // reaches the most of the block's frontage that one of its kind does not
+  // already. They are what grows a house past II. @see projectTier
+  if (tall) {
+    for (const sv of ["park", "cafe", "gym"] as const) {
+      const maps = desireMapsOf(g, placesOf(g, createNetwork(g)));
+      const unserved = frontage(g, rules, kind0).filter((c) => !desireAt(g, maps, c.x, c.y, kind0)?.parts.some((p) => p.why === (sv === "cafe" ? "café" : sv)));
+      if (unserved.length < style.serve) continue;
+      const left = markOf(g, unserved);
+      let best: Cell | null = null, most = 0;
+      for (const c of spotsFor(g, sv, rules)) {
+        const reach = countNear(g, left, c, REACH);
+        if (reach > most) { most = reach; best = c; }
+      }
+      if (best && put(g, sv, best, rules)) placed.push({ def: sv, at: best });
+    }
+  }
+  // WIDE: services only where enough frontage has gone without, each where it reaches the most.
+  if (o.services && !tall) {
     for (const def of ["cafe", "park", "gym"]) {
       // The frontage not yet served, as a grid: counted within reach of each spot.
       const unserved = markOf(g, frontage(g, rules, kind0));
@@ -409,13 +435,21 @@ export function planTown(source: Grid, given: PlanOptions): Masterplan {
       let desks = 0;
       for (const s of g.structures.values()) if ((WORKPLACES[who] as readonly string[]).includes(s.def)) desks += DESKS[s.def] ?? 0;
       // Lots shared between the kinds; a grown lot sleeps about five.
-      const need = (lotsAhead / o.kinds.length) * 5 - desks;
+      // Tall plans for houses grown to III, twelve to a lot; wide for about five.
+      const need = (lotsAhead / o.kinds.length) * (tall ? TALL_BEDS : WIDE_BEDS) - desks;
       for (let n = 0; n < Math.ceil(need / (DESKS[def] ?? 40)) && n < MAX_OFFICES; n++) {
-        const front = markOf(g, frontage(g, rules, who));
-        let best: Cell | null = null, most = -1;
+        const cells = frontage(g, rules, who);
+        const front = markOf(g, cells);
+        let best: Cell | null = null, most = -1, nearest = Infinity;
         for (const c of spotsFor(g, def, rules)) {
-          const thick = countNear(g, front, c, 8);
-          if (thick > most) { most = thick; best = c; }
+          if (tall) {
+            // TALL: where the walk from its lots is shortest, so nobody's commute costs them a tier.
+            const walk = cells.reduce((sum, f) => sum + Math.abs(f.x - c.x) + Math.abs(f.y - c.y), 0) / Math.max(1, cells.length);
+            if (walk < nearest) { nearest = walk; best = c; }
+          } else {
+            const thick = countNear(g, front, c, 8);
+            if (thick > most) { most = thick; best = c; }
+          }
         }
         if (!best || !put(g, def, best, rules)) break;
         placed.push({ def, at: best });
@@ -428,16 +462,28 @@ export function planTown(source: Grid, given: PlanOptions): Masterplan {
     const who = (Object.keys(WORKPLACES) as GeneratorId[]).find((k) => (WORKPLACES[k] as readonly string[]).includes(s.def));
     return who && o.kinds.includes(who) ? [{ who, at: { x: s.x, y: s.y } }] : [];
   });
-  for (const c of frontage(g, rules, kind0)) {
+  // TALL: only frontage where a house would grow to the tier it plans for —
+  // or, where none would (no services open yet), all of it, so the block grows.
+  const lotMaps = desireMapsOf(g, placesOf(g, createNetwork(g)));
+  const want = atLeast(style.targetTier, "t2") ? "t2" : style.targetTier;
+  const tierAt = (c: Cell, who: GeneratorId) => {
+    const m = desireAt(g, lotMaps, c.x, c.y, who);
+    return m ? projectTier(m) : "t0";
+  };
+  const allFront = frontage(g, rules, kind0);
+  const growing = style.reachOnly ? allFront.filter((c) => atLeast(tierAt(c, kind0), want)) : allFront;
+  const tiers = new Map<string, Tier>();
+  for (const c of growing.length ? growing : allFront) {
     const w = workplaces.length
       ? workplaces.reduce((a, b) => (Math.abs(b.at.x - c.x) + Math.abs(b.at.y - c.y) < Math.abs(a.at.x - c.x) + Math.abs(a.at.y - c.y) ? b : a)).who
       : kind0;
     const def = `kit:${w}.t0`;
-    if (put(g, def, c, rules)) placed.push({ def, at: c });
+    const t = tierAt(c, w);
+    if (put(g, def, c, rules)) { placed.push({ def, at: c }); tiers.set(`${c.x},${c.y}`, t); }
   }
 
   // PASSES: each service tried a few tiles off, kept where the settled town does more.
-  let score = settledTown(cloneGrid(g)).work;
+  let score = settledTown(cloneGrid(g)).income;
   for (let pass = 0; pass < (o.passes ?? 1); pass++) {
     for (const p of placed.filter((x) => ["cafe", "park", "gym"].includes(x.def))) {
       for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) {
@@ -447,7 +493,7 @@ export function planTown(source: Grid, given: PlanOptions): Masterplan {
         unbuild(trial, id);
         const to = { x: p.at.x + dx, y: p.at.y + dy };
         if (!put(trial, p.def, to, rules)) continue;
-        const s2 = settledTown(cloneGrid(trial)).work;
+        const s2 = settledTown(cloneGrid(trial)).income;
         if (s2 > score) { score = s2; p.at = to; g.structures = trial.structures; g.structureAt.set(trial.structureAt); }
       }
     }
@@ -459,7 +505,7 @@ export function planTown(source: Grid, given: PlanOptions): Masterplan {
   for (const p of placed) {
     const h = housedBy(p.def);
     const value = h ? desireAt(g, maps, p.at.x, p.at.y, h.id)?.total ?? 0 : score / lots;
-    steps.push({ kind: "build", def: p.def, at: p.at, value });
+    steps.push({ kind: "build", def: p.def, at: p.at, value, ...(h ? { tier: tiers.get(`${p.at.x},${p.at.y}`) ?? "t0" } : {}) });
   }
   return { steps, predicted: score, now, centre };
 }

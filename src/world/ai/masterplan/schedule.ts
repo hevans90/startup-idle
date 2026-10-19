@@ -30,6 +30,8 @@ import { desireAt, desireMapsOf } from "../../agents/desirability";
 import { placesOf } from "../../agents/roads";
 import type { Masterplan, PlanStep } from "./plan";
 import { PLAIN, nearWater, type Style } from "./style";
+import { atLeast, projectTier } from "./town-model";
+import type { Tier } from "../../agents/services";
 
 type Cell = { x: number; y: number };
 type Road = Extract<PlanStep, { kind: "road" }>;
@@ -39,8 +41,9 @@ const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
 /** How far a service reaches. (How many lots it waits for is the style's.) @see Style */
 const REACH = 7;
-/** Beds a lot grows to. */
+/** Beds a lot grows to: III's twelve when the style plans tall, about II's five when wide. */
 const GROWN_BEDS = 5;
+const TALL_BEDS = 12;
 
 export type Wants = {
   rules: PlaceRules;
@@ -55,6 +58,7 @@ export type Wants = {
 };
 
 const OFFICE_FOR: Partial<Record<GeneratorId, string>> = { intern: "office-intern", vibe_coder: "office-vibe", "10x_dev": "office-10x" };
+const OFFICE_DEFS = new Set(Object.values(WORKPLACES).flat() as string[]);
 
 function spots(g: Grid, def: string, rules: PlaceRules): Cell[] {
   const d = structureDef(def);
@@ -114,7 +118,7 @@ export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | nu
       for (const s of structures) {
         if (s.build) continue;
         const h = housedBy(s.def);
-        if (h?.id === who) { residents += s.residents ?? 0; grown += GROWN_BEDS; }
+        if (h?.id === who) { residents += s.residents ?? 0; grown += style.parkFirst ? TALL_BEDS : GROWN_BEDS; }
         if ((WORKPLACES[who] as readonly string[]).includes(s.def)) have += DESKS[s.def] ?? 0;
       }
       const now = residents - have, ahead = grown - have - style.spareDesks;
@@ -132,8 +136,14 @@ export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | nu
         .filter((p) => validatePlacement(g, d, p.at.x, p.at.y, w.rules).ok)
         .sort((a, b) => manhattan(a.at, plan.centre) - manhattan(b.at, plan.centre));
       if (fits.length) return { kind: "build", def, at: fits[0].at, value: 0 };
-      let best: Cell | null = null, most = -1;
+      let best: Cell | null = null, most = -1, nearest = Infinity;
       for (const c of spots(g, def, w.rules)) {
+        if (style.parkFirst && mine.length) {
+          // TALL: where its houses' walk is shortest, so no commute costs them a tier.
+          const walk = mine.reduce((sum, l) => sum + manhattan(l, c), 0) / mine.length;
+          if (walk < nearest) { nearest = walk; best = c; }
+          continue;
+        }
         const near = mine.filter((l) => manhattan(l, c) <= 8).length;
         if (near > most) { most = near; best = c; }
       }
@@ -141,6 +151,13 @@ export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | nu
     }
   }
 
+  // 2a. TALL: THE PLAN'S SERVICES FIRST, ahead of the lots they will grow.
+  if (w.services && style.parkFirst) {
+    for (const s of plan.steps) {
+      if (s.kind !== "build" || housedBy(s.def) || OFFICE_DEFS.has(s.def) || skip(s)) continue;
+      if (validatePlacement(g, structureDef(s.def)!, s.at.x, s.at.y, w.rules).ok) return s;
+    }
+  }
   // 2. A SERVICE, where it reaches the most built lots not yet served by its kind.
   if (w.services) {
     for (const def of ["park", "cafe", "gym"]) {
@@ -159,9 +176,16 @@ export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | nu
   // 3. A LOT, on the most desirable frontage there is now.
   const who = w.kinds[0];
   if (who) {
-    const free = spots(g, `kit:${who}.t0`, w.rules);
-    if (free.length) {
-      const maps = desireMapsOf(g, placesOf(g, createNetwork(g)));
+    const all = spots(g, `kit:${who}.t0`, w.rules);
+    const maps = all.length ? desireMapsOf(g, placesOf(g, createNetwork(g))) : null;
+    // TALL: only frontage a house would grow on to the tier it plans for —
+    // or, where none would yet, any. @see projectTier
+    const want: Tier = atLeast(style.targetTier, "t2") ? "t2" : style.targetTier;
+    const growing = style.reachOnly && maps
+      ? all.filter((c) => { const m = desireAt(g, maps, c.x, c.y, who); return !!m && atLeast(projectTier(m), want); })
+      : all;
+    const free = growing.length ? growing : all;
+    if (free.length && maps) {
       let best = free[0], top = -Infinity;
       for (const c of free) {
         // HYDROPHILE: by the water, the better.

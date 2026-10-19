@@ -6,14 +6,36 @@ import { structureDef } from "../../structures/def";
 import { placeCommand } from "../../structures/place";
 import { planTown } from "./plan";
 import { nextStep } from "./schedule";
-import { DRY_MARGIN, PLAIN, SERVE_KIND, SERVE_LEAN, SERVE_PLAIN, nearWater, styleOf } from "./style";
+import { DRY_MARGIN, PLAIN, SERVE_TALL, SERVE_WIDE, nearWater, styleOf, tallness } from "./style";
 
 describe("The Model's style", () => {
-  test("is plain with no past, and each family pulls its own way", () => {
+  test("leans tall with no past at all, and Hivemind alone makes it wide", () => {
     expect(styleOf([])).toEqual(PLAIN);
-    expect(styleOf(["aesthete"]).serve).toBe(SERVE_KIND);
-    expect(styleOf(["ruthless"]).serve).toBe(SERVE_LEAN);
-    expect(styleOf(["aesthete", "ruthless"]).serve).toBe(SERVE_PLAIN);
+    expect(PLAIN.tall).toBeGreaterThan(0.5);
+    expect(PLAIN.parkFirst).toBe(true);
+    expect(tallness(["hivemind"])).toBe(0);
+    const wide = styleOf(["hivemind"]);
+    expect(wide.parkFirst || wide.reachOnly || wide.rebuild).toBe(false);
+    expect(wide.serve).toBe(SERVE_WIDE);
+    expect(wide.commuteCap).toBeNull();
+  });
+
+  test("quality traits push it to the top; a mixed lineage lands between", () => {
+    expect(tallness(["aesthete"])).toBe(1);
+    expect(styleOf(["aesthete"]).serve).toBe(SERVE_TALL);
+    expect(styleOf(["aesthete", "patient"]).targetTier).toBe("landmark");
+    const mixed = tallness(["hivemind", "aesthete", "patient"]);
+    expect(mixed).toBeGreaterThan(0);
+    expect(mixed).toBeLessThan(1);
+  });
+
+  test("the services it waits for fall the taller it is", () => {
+    const order = [["hivemind"], ["hivemind", "aesthete"], [], ["aesthete"]] as const;
+    const serve = order.map((t) => styleOf(t).serve);
+    for (let k = 1; k < serve.length; k++) expect(serve[k]).toBeLessThanOrEqual(serve[k - 1]);
+  });
+
+  test("and the old pulls stay", () => {
     expect(styleOf(["nanny"]).spareDesks).toBeGreaterThan(PLAIN.spareDesks);
     expect(styleOf(["paranoid"]).dryMargin).toBe(DRY_MARGIN);
     expect(styleOf(["hydrophile"]).wetPull).toBeGreaterThan(0);
@@ -44,13 +66,24 @@ describe("a town planned in a style", () => {
     expect(dry.some((c) => nearWater(g, c.x, c.y, DRY_MARGIN))).toBe(false);
   });
 
-  test("planner traits plan more services than optimisers", () => {
+  test("TALL: a park before any lot, and every lot planned to grow to III", () => {
     const g = town();
-    const services = (traits: Parameters<typeof styleOf>[0]) =>
-      planTown(g, { ...base, owned: (x, y) => x >= 2 && x <= 12 && y >= 6 && y <= 18, style: styleOf(traits) }).steps.filter((s) => s.kind === "build" && ["cafe", "park", "gym"].includes(s.def)).length;
-    expect(services(["aesthete"])).toBeGreaterThanOrEqual(services([]));
-    expect(services([])).toBeGreaterThanOrEqual(services(["ruthless"]));
-    expect(services(["aesthete"])).toBeGreaterThan(services(["ruthless"]));
+    const box = { owned: (x: number, y: number) => x >= 2 && x <= 12 && y >= 6 && y <= 18 };
+    const builds = planTown(g, { ...base, ...box, style: styleOf(["aesthete"]) }).steps.filter((s) => s.kind === "build");
+    const park = builds.findIndex((s) => s.def === "park");
+    const lots = builds.filter((s) => s.def.startsWith("kit:"));
+    expect(park).toBeGreaterThanOrEqual(0);
+    expect(lots.length).toBeGreaterThan(0);
+    expect(builds.findIndex((s) => s.def.startsWith("kit:"))).toBeGreaterThan(park);
+    for (const l of lots) expect(l.tier).toBe("t2");
+  });
+
+  test("WIDE: lots on all the frontage, and no park first", () => {
+    const g = town();
+    const box = { owned: (x: number, y: number) => x >= 2 && x <= 12 && y >= 6 && y <= 18 };
+    const lots = (traits: Parameters<typeof styleOf>[0]) =>
+      planTown(g, { ...base, ...box, style: styleOf(traits) }).steps.filter((s) => s.kind === "build" && s.def.startsWith("kit:")).length;
+    expect(lots(["hivemind"])).toBeGreaterThan(lots(["aesthete"]));
   });
 
   test("RECURSIVE: grows out from the Data Centre", () => {

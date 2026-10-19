@@ -40,6 +40,22 @@ export type Settled = {
   tiers: Map<number, Tier>;
 };
 
+/**
+ * THE TIER A HOUSE'S MOOD WOULD GROW IT TO, from `from`: up a tier at a time
+ * while the mood holds the next one's, crowding counted. @see desirabilityAt
+ */
+export function projectTier(m: MoodParts, from: Tier = "t0"): Tier {
+  let t = from;
+  for (let k = TIERS.indexOf(from) + 1; k < TIERS.length; k++) {
+    const next = TIERS[k];
+    if (desirabilityAt(m, t, next) < GROW_AT[next]) break;
+    t = next;
+  }
+  return t;
+}
+/** Whether one tier is at least another. */
+export const atLeast = (t: Tier, want: Tier) => TIERS.indexOf(t) >= TIERS.indexOf(want);
+
 /** Rounds of a tier at a time: three to grow from nought to a tower, and some to settle. */
 const ROUNDS = 8;
 
