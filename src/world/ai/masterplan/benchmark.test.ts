@@ -1,8 +1,10 @@
 /**
  * AI MODE AGAINST A GREEDY PLAYER: the same land, the same garage, the same
  * budget in build units (a lot 1, a service 3, an office 4, a tile of road
- * 0.2). AI mode takes the steps its schedule picks on the town as it stands,
- * with its masterplan's streets (`nextStep`); the greedy player puts each
+ * 0.2). AI mode works as it does in the game, A BLOCK AT A TIME: the patch by
+ * the street nearest the middle with room (`blockAt`), planned, its steps
+ * taken on the town as it stands (`nextStep`) till it is done, then the next;
+ * a block that came to nothing passed over. The greedy player puts each
  * lot on the most desirable spot there is, a service every six lots and an
  * office every eight, and pushes a dead-end road on when the frontage runs
  * out. What each town does once settled is compared. @see planTown
@@ -25,7 +27,7 @@ import { heightWrites } from "../../edit/height-tools";
 import { desireAt, desireMapsOf } from "../../agents/desirability";
 import { placesOf } from "../../agents/roads";
 import { NEIGHBOUR } from "../../../iso/dir";
-import { planTown } from "./plan";
+import { blockAt, inBox, planTown, townCentre } from "./plan";
 import { nextStep, roadTiles } from "./schedule";
 import { cloneGrid, settledTown } from "./town-model";
 
@@ -63,15 +65,32 @@ const put = (g: Grid, def: string, at: { x: number; y: number }) => {
 
 function aiMode(seed: number): number {
   const g = founded(seed);
-  const plan = planTown(g, { owned, kinds: ["intern"], services: true, offices: true });
-  const wants = { rules, kinds: ["intern" as const], services: true, offices: true };
-  let left = BUDGET;
-  for (let k = 0; k < 400 && left > 0.2; k++) {
-    const s = nextStep(g, plan, wants);
-    if (!s) break;
+  const tried = new Set<number>();
+  let left = BUDGET, steps = 0;
+  blocks: for (let b = 0; b < 200 && left > 0.2; b++) {
+    const box = blockAt(g, owned, townCentre(g), tried);
+    if (!box) break;
+    const mine = (x: number, y: number) => owned(x, y) && inBox(box, x, y);
+    const plan = planTown(g, { owned: mine, kinds: ["intern"], services: true, offices: true });
+    const wants = { rules: { needsRoad: true, owned: mine }, kinds: ["intern" as const], services: true, offices: true };
+    const before = steps;
+    for (let k = 0; k < 200 && left > 0.2; k++) {
+      const s = nextStep(g, plan, wants);
+      if (!s) break;
+      if (!take(g, s)) break blocks;
+      steps++;
+    }
+    // Came to nothing: its streets passed over from now on.
+    if (steps === before) for (let y = box.y0; y <= box.y1; y++) for (let x = box.x0; x <= box.x1; x++) if (isPaved(g, x, y)) tried.add(idx(g, x, y));
+  }
+  if (process.env.DEBUG) describeTown("ai", g);
+  return settledTown(cloneGrid(g)).work;
+
+  /** Take a step, paying for it out of `left`; whether it could be. */
+  function take(g: Grid, s: NonNullable<ReturnType<typeof nextStep>>): boolean {
     if (s.kind === "road") {
       const cost = roadTiles(g, s) * ROAD;
-      if (cost > left) break;
+      if (cost > left) return false;
       pave(g, s.from, s.to);
       left -= cost;
     } else if (s.kind === "level") {
@@ -83,15 +102,14 @@ function aiMode(seed: number): number {
     } else if (s.kind === "clear") {
       const id = g.structureAt[idx(g, s.at.x, s.at.y)];
       const cmd = id >= 0 ? demolishCommand(g, id) : null;
-      if (cmd) commit(g, createHistory(), cmd);
-      else break;
+      if (!cmd) return false;
+      commit(g, createHistory(), cmd);
     } else {
-      if (costOf(s.def) > left || !put(g, s.def, s.at)) break;
+      if (costOf(s.def) > left || !put(g, s.def, s.at)) return false;
       left -= costOf(s.def);
     }
+    return true;
   }
-  if (process.env.DEBUG) describeTown("ai", g);
-  return settledTown(cloneGrid(g)).work;
 }
 
 /** What a town has in it, for the printout. */
@@ -162,8 +180,9 @@ describe("AI mode", () => {
     }
     const mean = gains.reduce((a, b) => a + b, 0) / gains.length;
     if (process.env.BALANCE) console.log(`mean ${(mean * 100).toFixed(0)}%`);
-    // Measured 2026-10-18: +52%, +17%, −5%, mean +22%. (It read +7% on the third
-    // while this loop paved streets under houses, which the game does not.) The plan's target is +15%.
+    // Measured 2026-10-19, a block at a time as AI mode now plans: +48%, +15%,
+    // +4%, mean +22%. Planning all the land at once had read +52%, +17%, −5% —
+    // the same mean, the worst map better in blocks. The plan's target is +15%.
     expect(mean).toBeGreaterThan(0.15);
   }, 300_000);
 });
