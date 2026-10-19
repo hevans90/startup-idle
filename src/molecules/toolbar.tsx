@@ -38,8 +38,8 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
       <SettingsPopover className="border-none w-10 @lg:w-14 h-full shrink-0" />
 
       <ResourceCounter
-        value={formatCurrency(money)}
-        rate={`${formatCurrency(mps)}/s`}
+        value={formatCurrency(money, { steady: true })}
+        rate={`${formatCurrency(mps, { steady: true })}/s`}
         popover={<MoneySummary />}
         className={COUNTER}
         rateClassName={RATE}

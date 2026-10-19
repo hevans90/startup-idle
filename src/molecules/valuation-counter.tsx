@@ -23,7 +23,7 @@ export const ToolbarValuationCounter = ({
       value={
         <>
           <span className="opacity-60">V</span>{" "}
-          {formatCurrency(valuation, { showDollarSign: false })}
+          {formatCurrency(valuation, { showDollarSign: false, steady: true })}
         </>
       }
       rate={formatRate(vps).formatted}
