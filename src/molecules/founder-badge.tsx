@@ -32,7 +32,8 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
           )}
         >
           <Icon size={18} className="shrink-0 opacity-80" />
-          <span className="text-sm font-medium whitespace-nowrap">
+          {/* The name where there is room for it; the icon alone, and the name on hover, where not. */}
+          <span className="hidden max-w-[10rem] truncate text-sm font-medium whitespace-nowrap @2xl:inline">
             {founder.name}
           </span>
         </div>

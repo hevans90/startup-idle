@@ -11,6 +11,11 @@ import { MoneySummary } from "./money-summary";
 import { SettingsPopover } from "./settings-popover";
 import { ToolbarValuationCounter } from "./valuation-counter";
 
+/** A counter's cell: as wide as it likes up to a point, and giving way when the bar is short. */
+const COUNTER = "min-w-0 shrink basis-[9.5rem] px-1 @lg:px-2";
+/** The rate beneath it, gone when the bar is very short. */
+const RATE = "@max-md:hidden";
+
 export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
   const money = useMoneyStore((state) => state.money);
   const mps = useGeneratorStore((state) => state.getMoneyPerSecond());
@@ -19,30 +24,35 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
     (state) => state.unlocks.managers?.unlocked ?? false,
   );
 
+  // SIZED TO ITSELF, not the window: it is two thirds of one beside the
+  // sidebar, so it asks its own width what fits. The counters give way first,
+  // then their rates, the company's clock, and the founder's name — never
+  // spilling over the sidebar.
   return (
     <div
       className={twMerge(
-        "w-full h-13 bg-primary-200 dark:bg-primary-900 flex items-center gap-2 sm:gap-5",
+        "@container w-full h-13 min-w-0 overflow-hidden bg-primary-200 dark:bg-primary-900 flex items-center gap-1 @lg:gap-3 @3xl:gap-5",
         className,
       )}
     >
-      <SettingsPopover className="border-none w-14 h-full shrink-0" />
+      <SettingsPopover className="border-none w-10 @lg:w-14 h-full shrink-0" />
 
       <ResourceCounter
         value={formatCurrency(money)}
         rate={`${formatCurrency(mps)}/s`}
         popover={<MoneySummary />}
-        className="min-w-[9.5rem] shrink-0"
+        className={COUNTER}
+        rateClassName={RATE}
       />
 
-      <ToolbarInnovationCounter className="min-w-[9.5rem] shrink-0" />
+      <ToolbarInnovationCounter className={COUNTER} rateClassName={RATE} />
 
       {valuationUnlocked && (
-        <ToolbarValuationCounter className="min-w-[9.5rem] shrink-0" />
+        <ToolbarValuationCounter className={COUNTER} rateClassName={RATE} />
       )}
 
-      <CompanyTimer className="ml-auto shrink-0 hidden md:flex" />
-      <FounderBadge className="ml-auto mr-2 shrink-0 md:ml-3" />
+      <CompanyTimer className="ml-auto shrink-0 hidden @3xl:flex" />
+      <FounderBadge className="ml-auto mr-1 shrink-0 @lg:mr-2 @3xl:ml-3" />
     </div>
   );
 };
