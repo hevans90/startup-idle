@@ -1,6 +1,5 @@
 import Decimal from "break_infinity.js";
 import { resetRunStores } from "../simulation/reset-game-stores";
-import { useDirectivesStore } from "../state/directives.store";
 import { useExitsStore } from "../state/exits.store";
 import { useGenerationStore } from "../state/generation.store";
 import { useFounderStore } from "../state/founder.store";
@@ -104,7 +103,6 @@ function executeAcquisition(equityMultiplier = 1): Decimal {
   const equityGain = equityMultiplier !== 1 ? gain.mul(equityMultiplier).floor() : gain;
   useExitsStore.getState().recordExit(founderId, accrued.toNumber());
   usePrestigeStore.getState().bankAcquisition(equityGain);
-  useDirectivesStore.getState().onExit(accrued.toNumber(), equityGain.toNumber());
 
 
   // One more company this generation: the singularity keeps more of itself. @see afterSale

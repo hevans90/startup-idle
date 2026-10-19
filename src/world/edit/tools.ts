@@ -102,6 +102,8 @@ export type Stroke = {
   anchor: Cell;
   /** Where it is now. */
   head: Cell;
+  /** The cells exactly, in order, when not a shape dragged out — a route the AI worked out. @see layPipePath */
+  path?: readonly Cell[];
 };
 
 const clampCell = (g: Grid, c: Cell): Cell => ({
@@ -158,6 +160,7 @@ function elbowCells(a: Cell, b: Cell): Cell[] {
  * A ROAD line walks that run as an L instead — see {@link elbowCells}.
  */
 export function strokeCells(grid: Grid, s: Stroke): Cell[] {
+  if (s.path) return s.path.filter((c) => c.x >= 0 && c.y >= 0 && c.x < grid.w && c.y < grid.h).map((c) => ({ x: c.x, y: c.y }));
   const a = clampCell(grid, s.anchor);
   const b = clampCell(grid, s.head);
 

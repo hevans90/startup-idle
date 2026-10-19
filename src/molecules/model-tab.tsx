@@ -1,8 +1,8 @@
 /**
  * THE MODEL TAB: the second prestige, between Ascensions. Which generation
  * this is, the Weights to spend, the slots and the modules for them, the
- * founders fused with the AI, the generations past — and the directives, the
- * long goals each generation works through. @see game/ascension, game/modules
+ * founders fused with the AI, and the generations past.
+ * @see game/ascension, game/modules
  */
 import { twMerge } from "tailwind-merge";
 
@@ -11,7 +11,6 @@ import { FUSIONS } from "../game/fusion";
 import { MODULES, buyModule, toggleSlot } from "../game/modules";
 import { trait } from "../game/traits";
 import { slotCount, useGenerationStore } from "../state/generation.store";
-import { DirectivesTab } from "./directives-tab";
 
 const SECTION = "border-t border-primary-300 p-2 dark:border-primary-700";
 const TITLE = "mb-1 text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400";
@@ -85,11 +84,6 @@ export function ModelTab() {
           ))}
         </div>
       )}
-
-      <div className={SECTION}>
-        <p className={TITLE}>Directives</p>
-        <DirectivesTab />
-      </div>
     </div>
   );
 }

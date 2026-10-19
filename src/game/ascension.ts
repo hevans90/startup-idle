@@ -1,7 +1,7 @@
 /**
  * THE ASCENSION: when the singularity reaches 100, the company's AI asks to
  * go. Let it, and everything is wiped — Equity, the skill tree, the founders'
- * exits, mandates and directives — for WEIGHTS, and a trait drawn from how it
+ * exits and mandates — for WEIGHTS, and a trait drawn from how it
  * was brought up fuses into the founder you played. Shut it down instead, and
  * the run goes on with its agents deleted, its racks dark for a while and the
  * meter halved; and it remembers. @see plans/singularity.md
@@ -11,7 +11,6 @@ import Decimal from "break_infinity.js";
 import { resetForAscension } from "../simulation/reset-game-stores";
 import { useAgentsStore } from "../state/agents.store";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
-import { useDirectivesStore } from "../state/directives.store";
 import { useFounderStore } from "../state/founder.store";
 import { emptyLog, useGenerationStore, type BehaviourLog } from "../state/generation.store";
 import { usePrestigeStore } from "../state/prestige.store";
@@ -25,15 +24,15 @@ export const DARK_MS = 10 * 60_000;
 export const SHUTDOWN_AT = 50;
 
 /** WEIGHTS a generation's work earns: its training runs, the Equity its companies sold for, the most agents it ran. */
-export function weightsFor(log: BehaviourLog, equity: number, peakAgents: number, bonus = 1): number {
+export function weightsFor(log: BehaviourLog, equity: number, peakAgents: number): number {
   const runs = Object.values(log.datasets).reduce((n, k) => n + (k ?? 0), 0);
-  return Math.max(1, Math.round((2 * runs + 3 * Math.sqrt(Math.max(0, equity)) + peakAgents / 2) * bonus));
+  return Math.max(1, Math.round(2 * runs + 3 * Math.sqrt(Math.max(0, equity)) + peakAgents / 2));
 }
 
 /** What an Ascension now would bank. */
 export function weightsNow(): number {
   const g = useGenerationStore.getState();
-  return weightsFor(g.log, g.equity, g.peakAgents, useDirectivesStore.getState().weightsBonus);
+  return weightsFor(g.log, g.equity, g.peakAgents);
 }
 
 /**
@@ -75,8 +74,6 @@ export function ascend(rand: () => number = Math.random): AscensionResult | null
     past: [...g.past, { generation: g.generation, trait: t, mutated, founder, weights }],
     announce: { generation: g.generation, trait: t, mutated, founder, weights },
   });
-  // The last directive may count Ascensions. @see post_agi_transition
-  useDirectivesStore.getState().onAscension();
   useAiSingularityStore.setState({ value: 0 });
   if (kept.gt(0)) usePrestigeStore.setState({ equity: new Decimal(kept) });
   return { trait: t, mutated, founder, weights, generation: g.generation + 1 };

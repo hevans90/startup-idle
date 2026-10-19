@@ -29,6 +29,8 @@ import { getAiRunner } from "./ai-runner";
 import type { Masterplan, PlanStep } from "./masterplan/plan";
 import { inBox, planTown, sectionOf, wholeMap, type Box } from "./masterplan/plan";
 import { nextStep, roadTiles } from "./masterplan/schedule";
+import { layRoute, neededPipe } from "./cooling-ai";
+import type { PipeRoute } from "./pipe-route";
 import { styleOf } from "./masterplan/style";
 import { fusedInto } from "../../game/fusion";
 import type { PlanRequest } from "./masterplan/masterplan.worker";
@@ -39,13 +41,16 @@ export const REPLAN_EVERY = 180;
 /** Tiles round the town a section's plan reaches, and how much further each one it can do nothing with. @see sectionOf */
 export const SECTION = 8;
 
-type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; margin: number; doneAtPlan: number; box: Box | null };
-const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), margin: SECTION, doneAtPlan: 0, box: null };
+type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; margin: number; doneAtPlan: number; box: Box | null; pipe: PipeRoute | null };
+const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), margin: SECTION, doneAtPlan: 0, box: null, pipe: null };
 
 /** The plan now, for the overlay and the panel; null until one is made. */
 export const currentPlan = () => state.plan;
 /** How The Model leans: the traits the generations before it ended with. @see styleOf */
 export const modelStyle = () => styleOf(fusedInto("model"));
+
+/** The pipe it means to lay and cannot yet pay for, for the ghost. @see neededPipe */
+export const pendingPipe = () => state.pipe;
 
 /** Steps the autopilot has taken this company. */
 export const stepsTaken = () => state.done;
@@ -196,6 +201,21 @@ function act(g: Grid, budget: number): boolean {
   // HIRING, into the beds standing empty. @see hire
   const hired = hire(spend);
   if (hired) { state.last = hired; return true; }
+  // COOLING: a pipe to water for a building that drinks and runs short —
+  // ahead of any lot. Shown as a ghost while it cannot be paid for.
+  // @see neededPipe
+  const pipe = neededPipe(g);
+  state.pipe = pipe?.route ?? null;
+  if (pipe && !state.failed.has(`pipe:${pipe.s.id}`)) {
+    if (pipe.price > spend) return false;
+    if (layRoute(pipe.route)) {
+      fly(pipe.route.pipe[pipe.route.pipe.length - 1], g);
+      state.last = pipe.route.pump ? "a pump house and a pipe, for cooling" : "a pipe, for cooling";
+      state.pipe = null;
+      return true;
+    }
+    state.failed.add(`pipe:${pipe.s.id}`);
+  }
   // THE PROJECTS, as they open: the next one ready, at the nearest good spot. @see nearestSpot
   if (!projectUnderWay(g)) {
     const built = builtProjects(g);
@@ -256,7 +276,7 @@ export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
 
 /** A new company: a new plan. */
 export function resetAutopilot() {
-  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.margin = SECTION; state.doneAtPlan = 0; state.box = null;
+  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.margin = SECTION; state.doneAtPlan = 0; state.box = null; state.pipe = null;
 }
 
 /** Re-plan now: the map changed under it. */

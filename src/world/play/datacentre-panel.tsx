@@ -14,6 +14,9 @@ import { useGenerationStore } from "../../state/generation.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import { useTrainingStore } from "../../state/training.store";
 import { powered as rackPowered } from "../projects/racks";
+import { allTanks, hotAgents } from "../projects/cooling";
+import { pumpUpkeep } from "../../game/cooling";
+import { useGeneratorStore } from "../../state/generators.store";
 import { showMe } from "./map-focus";
 import { useTicking } from "../../hooks/use-ticking";
 import { runningAgents, useAgentsStore } from "../../state/agents.store";
@@ -75,6 +78,7 @@ export function DataCentrePanel({ className }: { className?: string }) {
         )}
       </div>
 
+      <Cooling />
       <Training />
       <Roster />
       <Forecast />
@@ -88,6 +92,51 @@ const BTN = twMerge(
   "flex w-full cursor-pointer flex-col items-start border border-primary-400 px-2 py-1 text-left hover:bg-primary-200",
   "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-primary-600 dark:hover:bg-primary-800",
 );
+
+/**
+ * COOLING: every building that drinks, how well it is cooled and what it
+ * wants; how many agents are running hot for want of water; the pump houses
+ * and what they cost to run. @see game/cooling
+ */
+function Cooling() {
+  const grid = useWorldStore((s) => s.grid);
+  const tanks = [...allTanks().entries()].map(([id, t]) => ({ id, t, s: grid.structures.get(id) })).filter((r) => r.s);
+  if (!tanks.length) return null;
+  const hot = Math.round(hotAgents());
+  const pumps = [...grid.structures.values()].filter((s) => s.def === "pump" && !s.build).length;
+  const upkeep = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond());
+  const name = (def: string) => ({ datacentre: "Data Centre", "ai-node": "AI node", "gpu-farm": "GPU farm", "compute-spire": "Compute spire" } as Record<string, string>)[def] ?? def;
+  return (
+    <div className={SECTION}>
+      <p className={TITLE}>Cooling</p>
+      {hot > 0 && (
+        <p className="mb-1 text-amber-700 dark:text-amber-400">
+          Running hot: {hot} agent{hot === 1 ? "" : "s"} at half power. Pipe water in from a river or lake with the Pipe tool.
+        </p>
+      )}
+      <div className="flex max-h-32 flex-col overflow-y-auto">
+        {tanks.map(({ id, t, s }) => (
+          <button key={id} type="button" onClick={() => showMe({ x: s!.x, y: s!.y })}
+            className="cursor-pointer px-1 py-0.5 text-left hover:bg-primary-200 dark:hover:bg-primary-800">
+            <span className="flex justify-between gap-2">
+              <span>{name(t.def)} · <span className={t.share > 0.95 ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>
+                {Math.round(t.share * 100)}% cooled</span></span>
+              <span className="tabular-nums">{t.demand.toFixed(2)} a second</span>
+            </span>
+            <span className="mt-0.5 block h-1 w-full overflow-hidden bg-primary-200 dark:bg-primary-800">
+              <span className="block h-full bg-sky-600 dark:bg-sky-400" style={{ width: `${Math.min(100, (t.level / t.capacity) * 100)}%` }} />
+            </span>
+          </button>
+        ))}
+      </div>
+      {pumps > 0 && (
+        <p className="mt-1 tabular-nums text-primary-600 dark:text-primary-400">
+          {pumps} pump house{pumps === 1 ? "" : "s"} · ${Math.round(upkeep).toLocaleString()} a second each while pumping
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** TRAINING RUNS: one at a time, on a dataset, for innovation. @see game/training */
 function Training() {

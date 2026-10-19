@@ -44,6 +44,9 @@ export type HintState = {
   floodWarning: boolean;
   /** People living on the map with no desk to go to. @see seat */
   deskless: number;
+  /** Agents running hot for want of cooling water, and pipe tiles laid. @see game/cooling */
+  hot: number;
+  pipes: number;
 };
 
 export type Hint = {
@@ -149,6 +152,14 @@ export const HINTS: readonly Hint[] = [
     target: "build",
     when: (s) => s.built.has("datacentre"),
     done: (s) => s.racks > 0,
+  },
+  {
+    // COOLING, the first time the Data Centre runs hot.
+    id: "cooling",
+    text: "The Data Centre needs cooling water: past two agents, the rest run at half power. Lay a Pipe from a river or lake to it — a Pump house lifts water uphill.",
+    target: "build",
+    when: (s) => s.hot > 0,
+    done: (s) => s.pipes > 0 && s.hot === 0,
   },
   {
     id: "labs",

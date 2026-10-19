@@ -19,8 +19,10 @@ import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { structureDef } from "../structures/def";
 import type { Masterplan } from "./masterplan/plan";
+import type { PipeRoute } from "./pipe-route";
 import { isPaved } from "../roads/mask";
 import { powered as rackPowered } from "../projects/racks";
+import { tankFor } from "../projects/cooling";
 import { lookOf } from "../structures/projects/looks";
 import { topOf } from "../structures/projects/schedule";
 import type { Stage } from "../../state/ai-singularity.store";
@@ -50,6 +52,20 @@ export type AiView = {
   drones?: readonly { x: number; y: number; scanning: boolean }[];
   /** AI mode's masterplan, to show as a ghost of the town to come. @see autopilot */
   plan?: Masterplan | null;
+  /** A pipe AI mode means to lay and cannot yet pay for: cyan, its pump a square. @see pendingPipe */
+  pipe?: PipeRoute | null;
+  /** How well the Data Centre is cooled, 0–1, and how full its tank is; both 1 by default. @see game/cooling */
+  cooled?: number;
+  tank?: number;
+};
+
+/** The colour a Data Centre running dry turns. */
+const HOT = 0xff5a2a;
+/** Two colours mixed, `k` of the way from `a` to `b`. */
+const mix = (a: number, b: number, k: number) => {
+  const ch = (c: number, s: number) => (c >> s) & 255;
+  const m = (s: number) => Math.round(ch(a, s) + (ch(b, s) - ch(a, s)) * k) << s;
+  return m(16) | m(8) | m(0);
 };
 
 type Hologram = { x: number; y: number; fx: number; fy: number; tx: number; ty: number; k: number; seed: number };
@@ -141,12 +157,28 @@ export function createAiLayer(overlay: Container): AiLayer {
       const structures = [...g.structures.values()];
       // THE MASTERPLAN: planned streets outlined, planned buildings a tint on the ground.
       if (view.plan) drawPlan(g, sc, view.plan);
+      // AND THE PIPE IT MEANS TO LAY, cyan; its pump house a square.
+      if (view.pipe) {
+        for (const c of view.pipe.pipe) {
+          const z = ground(g, c.x, c.y);
+          gfx.poly([...P(sc, c.x - 0.18, c.y - 0.18, z), ...P(sc, c.x + 0.18, c.y - 0.18, z), ...P(sc, c.x + 0.18, c.y + 0.18, z), ...P(sc, c.x - 0.18, c.y + 0.18, z)]);
+          gfx.fill({ color: 0x22d3ee, alpha: 0.7 });
+        }
+        if (view.pipe.pump) {
+          const c = view.pipe.pump, z = ground(g, c.x, c.y);
+          gfx.poly([...P(sc, c.x - 0.4, c.y - 0.4, z), ...P(sc, c.x + 0.4, c.y - 0.4, z), ...P(sc, c.x + 0.4, c.y + 0.4, z), ...P(sc, c.x - 0.4, c.y + 0.4, z)]);
+          gfx.stroke({ color: 0x22d3ee, width: Math.max(1, 1.5 * sc), alpha: 0.9 });
+        }
+      }
       const dc = structures.find((s) => s.def === "datacentre" && !s.build);
       if (!dc) { holos = []; return; }
       if (!dcTop || dcTop.def !== dc.def) dcTop = { def: dc.def, z: topOf(lookOf(dc.def, { w: dc.w, h: dc.h })) };
-      const colour = STAGE_COLOUR[view.stage];
       const t = now / 1000;
       const asc = view.ascension;
+      // RUNNING DRY it turns orange-red, and pulses slow, as if labouring; its links dim. @see game/cooling
+      const cooled = asc > 0 ? 1 : Math.max(0, Math.min(1, view.cooled ?? 1));
+      const heat = (1 - cooled) * (0.75 + 0.25 * Math.sin(t * 1.2));
+      const colour = heat > 0.01 ? mix(STAGE_COLOUR[view.stage], HOT, heat) : STAGE_COLOUR[view.stage];
       const base = ground(g, dc.x, dc.y);
       const cu = dc.x - 0.5 + dc.w / 2, cv = dc.y - 0.5 + dc.h / 2;
 
@@ -182,6 +214,27 @@ export function createAiLayer(overlay: Container): AiLayer {
         }
       }
 
+      // VAPOUR off the roof while it is cooled with water to spare: thin puffs, rising and fading.
+      if (cooled > 0.95 && (view.tank ?? 1) > 0.5 && asc === 0) {
+        for (let k = 0; k < 3; k++) {
+          const rise = (t * 0.3 + k / 3) % 1;
+          const [x, y] = P(sc, cu + (k - 1) * 0.35, cv, roof + 0.4 + rise * 2.5);
+          gfx.circle(x, y, (3 + rise * 6) * sc);
+          gfx.fill({ color: 0xe8eef4, alpha: 0.28 * (1 - rise) });
+        }
+      }
+
+      // THE AI'S OWN, RUNNING DRY: an orange outline on the ground, flickering. @see game/cooling
+      for (const s of structures) {
+        if (s.build || (s.def !== "gpu-farm" && s.def !== "ai-node" && s.def !== "compute-spire")) continue;
+        const share = tankFor(s.id)?.share ?? 1;
+        if (share > 0.6) continue;
+        const on = Math.sin(t * 11 + s.id) > 0 ? 1 : 0.35;
+        const z = ground(g, s.x, s.y);
+        gfx.poly([...P(sc, s.x - 0.5, s.y - 0.5, z), ...P(sc, s.x + s.w - 0.5, s.y - 0.5, z), ...P(sc, s.x + s.w - 0.5, s.y + s.h - 0.5, z), ...P(sc, s.x - 0.5, s.y + s.h - 0.5, z)]);
+        gfx.stroke({ color: HOT, width: Math.max(1, 1.5 * sc), alpha: (0.9 - share) * on });
+      }
+
       // DATA LINKS to every rack: a faint line, and light running out along it.
       const racks = structures.filter((s) => s.def === "rack" && !s.build);
       const from = P(sc, cu, cv, roof + 0.3);
@@ -190,12 +243,12 @@ export function createAiLayer(overlay: Container): AiLayer {
         const to = P(sc, r.x, r.y, ground(g, r.x, r.y) + 2.2);
         const flick = on ? 1 : 0.4 + 0.6 * (Math.sin(t * 13 + k * 2.1) > 0.3 ? 1 : 0.2);
         gfx.moveTo(from[0], from[1]).lineTo(to[0], to[1]);
-        gfx.stroke({ color: colour, width: Math.max(1, (1 + asc * 3) * sc), alpha: (0.18 + asc * 0.5) * flick });
+        gfx.stroke({ color: colour, width: Math.max(1, (1 + asc * 3) * sc), alpha: (0.18 + asc * 0.5) * flick * (0.4 + 0.6 * cooled) });
         if (view.running > 0 || asc > 0) {
           for (let p = 0; p < 3; p++) {
             const f = (t * (0.35 + asc) + p / 3 + k * 0.13) % 1;
             gfx.circle(from[0] + (to[0] - from[0]) * f, from[1] + (to[1] - from[1]) * f, Math.max(1.2, 2.2 * sc));
-            gfx.fill({ color: 0xffffff, alpha: 0.7 * flick });
+            gfx.fill({ color: 0xffffff, alpha: 0.7 * flick * (0.4 + 0.6 * cooled) });
           }
         }
       }

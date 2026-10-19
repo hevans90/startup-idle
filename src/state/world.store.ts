@@ -36,9 +36,9 @@ import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { DERELICT, SLOP_PIT, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
-import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
+import { facingFor, gamePipeRun, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
 import {
-  OPEN_EDGE_DEFAULT, POUR_AMOUNT, SOURCE_RATE, createWaterField, drainAt, pourAt,
+  OPEN_EDGE_DEFAULT, POUR_AMOUNT, SOURCE_RATE, createWaterField, depthAt, drainAt, pourAt,
   setWaterEdge, syncGround, totalVolume,
   wetTiles, type WaterField,
 } from "../world/water/field";
@@ -67,7 +67,7 @@ import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
 import { clearSaved, hasSaved, onRunMap, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
-import { buildCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { buildCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { useSessionStore } from "./session.store";
 import { usePrestigeStore } from "./prestige.store";
 import { buyable, landDiscount, landPrice, ownsTile, PARCELS, parcelOf, parcelRect, STARTING_PARCELS } from "../world/land";
@@ -199,6 +199,8 @@ let network: Network | null = null;
  * an approximation. @see stroke, where the pour is made.
  */
 let water: WaterField | null = null;
+/** Half steps of water a tile needs standing on it to count as water, for a pipe to face. */
+const WET_DEPTH = 1;
 
 /** The live water field, for the renderer and the debug hook. */
 export const getWater = () => water;
@@ -1144,6 +1146,34 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         b.set("source", c.x, c.y, s0.tool === "spring" ? SOURCE_RATE : -SOURCE_RATE);
         if (s0.tool === "spring") b.set("fluid", c.x, c.y, st.fluidMaterial);
       }
+    } else if (isPipeTool(s0.tool) && st.playing) {
+      // THE PIPE TOOL, in the game: a run on the company's own land, paid a
+      // tile at a time for the new tiles, all or none, every end facing what
+      // it should. @see gamePipeRun, pipeCost
+      const land = companyLand();
+      if (land && cells.some((c) => !ownsTile(st.grid, land, c.x, c.y))) {
+        set({ stroke: null, notice: { text: "Not your land: buy it first", at: Date.now() } });
+        return;
+      }
+      const from = s0.anchor;
+      // Water as it stands now, where the map is running it. @see depthAt
+      const wet = (x: number, y: number) => st.grid.pool[idx(st.grid, x, y)] > 0 || (!!water && depthAt(water, x, y) > WET_DEPTH);
+      // In order along the stroke: a route as given, a line from where it went down.
+      const ordered = s0.path ? cells : [...cells].sort((a, b) => Math.abs(a.x - from.x) + Math.abs(a.y - from.y) - Math.abs(b.x - from.x) - Math.abs(b.y - from.y));
+      const run = gamePipeRun(st.grid, ordered, wet);
+      if ("refused" in run) { set({ stroke: null, notice: { text: run.refused, at: Date.now() } }); return; }
+      const fresh = run.filter((c) => !st.grid.pipe[idx(st.grid, c.x, c.y)]).length;
+      const price = pipeCost(fresh);
+      if (fresh > 0 && !spendForBuild(price)) {
+        set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of pipe: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
+        return;
+      }
+      for (const c of run) {
+        const had = st.grid.pipe[idx(st.grid, c.x, c.y)];
+        b.set("pipe", c.x, c.y, c.facing);
+        b.set("fluid", c.x, c.y, st.fluidMaterial);
+        if (!had) b.set("pipeZ", c.x, c.y, c.z);
+      }
     } else if (isPipeTool(s0.tool)) {
       // A facing, not a rate. Placed pointing at the LOWEST neighbour, which is
       // the side it would actually drip off — a pipe pointing into a hillside
@@ -1204,6 +1234,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         if (fresh > 0) roadPaid = price.toNumber();
       }
       for (const c of cells) b.set("paved", c.x, c.y, value);
+      // THE LIFT TOOL LIFTS PIPE TOO, in the game: its water goes back on the
+      // ground. @see spillOrphaned
+      if (st.playing && s0.tool === "eraseRoad") {
+        for (const c of cells) if (st.grid.pipe[idx(st.grid, c.x, c.y)]) b.set("pipe", c.x, c.y, 0);
+      }
     } else {
       const value = s0.tool === "erase" ? VOID_MATERIAL : st.material;
       for (const c of cells) b.set("terrain", c.x, c.y, value);

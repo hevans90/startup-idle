@@ -40,7 +40,6 @@ import {
   getUnlockedGeneratorIds,
 } from "../utils/generator-utils";
 import { useAiSingularityStore } from "./ai-singularity.store";
-import { useDirectivesStore } from "./directives.store";
 import { useFounderStore } from "./founder.store";
 import { getManagementTierTotal, useInnovationStore } from "./innovation.store";
 import { useMoneyStore } from "./money.store";
@@ -489,11 +488,6 @@ function accrueGeneratorIncome(
   const { money, innovation } = calcGeneratorIncome(gen, m, out, ticks);
   useMoneyStore.getState().increaseMoney(money * moneyMult);
   useInnovationStore.getState().increaseInnovation(innovation);
-  const dir = useDirectivesStore.getState();
-  if (dir.everUnlocked) {
-    if (money > 0) dir.onMoneyTick(money);
-    if (innovation > 0) dir.onInnovationTick(innovation);
-  }
 }
 
 export const useGeneratorStore = create<GeneratorState>()(
@@ -512,7 +506,6 @@ export const useGeneratorStore = create<GeneratorState>()(
           let frac = (acc[gen.id] ?? 0) + rate * seconds;
           const maxIter = 500;
           let iter = 0;
-          let autoBought = 0;
           while (frac >= 1 && iter < maxIter) {
             const cost = getGeneratorCost(gen.id, 1);
             const money = useMoneyStore.getState().money;
@@ -521,10 +514,6 @@ export const useGeneratorStore = create<GeneratorState>()(
             get().increaseGenerator(gen.id, 1);
             frac -= 1;
             iter += 1;
-            autoBought += 1;
-          }
-          if (autoBought > 0) {
-            useDirectivesStore.getState().onHired(gen.id as GeneratorId, autoBought);
           }
           acc[gen.id] = frac;
         }
@@ -818,7 +807,6 @@ export const useGeneratorStore = create<GeneratorState>()(
             get().increaseGenerator(id, amount);
             syncUnlockedGenerators();
             syncAvailableUpgrades();
-            useDirectivesStore.getState().onHired(id as GeneratorId, amount);
           }
         },
 

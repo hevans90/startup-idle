@@ -9,7 +9,6 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { addMorale } from "../game/morale";
 import { TRAINING_SECONDS, dataset, trainingCost, PEOPLE_MORALE, type DatasetId } from "../game/training";
 import { useAiSingularityStore } from "./ai-singularity.store";
-import { useDirectivesStore } from "./directives.store";
 import { PRE_TRAINED, moduleLevel } from "../game/modules";
 import { fusionNow } from "../game/fusion";
 import { useGenerationStore } from "./generation.store";
@@ -35,9 +34,9 @@ export const useTrainingStore = create<TrainingState>()(
   persist(
     (set, get) => ({
       current: null,
-      // Cheaper with the D2 directive, the Pre-trained module and Ego fused in.
+      // Cheaper with the Pre-trained module and Ego fused in.
       cost: () => trainingCost(useGeneratorStore.getState().getInnovationPerSecond(), runsSoFar())
-        * (1 - useDirectivesStore.getState().trainingDiscount) * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingCostMult,
+        * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingCostMult,
       blocked: () => {
         if (get().current) return "running";
         if (useInnovationStore.getState().innovation.lt(get().cost())) return "innovation";
@@ -60,7 +59,6 @@ export const useTrainingStore = create<TrainingState>()(
         const d = dataset(c.dataset);
         if (d) useAiSingularityStore.setState((s) => ({ value: Math.min(100, s.value + d.jump * fusionNow().trainingJumpMult) }));
         useGenerationStore.getState().recordTraining(c.dataset);
-        useDirectivesStore.getState().onTraining();
       },
       reset: () => set({ current: null }),
     }),

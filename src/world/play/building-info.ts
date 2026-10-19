@@ -6,6 +6,8 @@
  * tested from plain numbers: everything it needs from the live game comes in
  * through `InfoContext`.
  */
+import { tankFor } from "../projects/cooling";
+import { PUMP_HEAD } from "../../game/cooling";
 import { AGENTS_A_RACK, RACK_RANGE } from "../../game/agents";
 import { housedBy, residentsIn } from "../../game/housing";
 import { projectForStructure, type ProjectDef } from "../../game/projects";
@@ -214,7 +216,11 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     lines.push(...perkLines(s.id, ctx));
     if (p.bonus) lines.push({ text: opensText(p).replace(/, for good$/, ""), tone: "good" });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
-    if (p.id === "datacentre") lines.push({ text: "Click for the control room", tone: "dim" });
+    if (p.id === "datacentre") {
+      const c = coolingLine(s.id);
+      if (c) lines.push(c);
+      lines.push({ text: "Click for the control room", tone: "dim" });
+    }
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
   }
 
@@ -228,6 +234,28 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     return {
       title: def.name, accent: 0x8a7fd6, brief: [`+${pct}%`],
       lines: [{ text: `Innovation +${pct}%${near ? ", beside the campus" : ""}`, tone: "good" }],
+      facts: [{ type: "project", name: def.name }],
+    };
+  }
+
+  // THE AI'S OWN THAT DRINK: how well they are cooled. @see game/cooling
+  if (s.def === "ai-node" || s.def === "gpu-farm" || s.def === "compute-spire") {
+    const c = coolingLine(s.id);
+    return {
+      title: def.name, accent: 0xb44aff, brief: [def.name],
+      lines: c ? [c] : [],
+      facts: [{ type: "project", name: def.name }],
+    };
+  }
+
+  // A PUMP HOUSE: how far it lifts, and what it costs to run. @see PUMP
+  if (s.def === "pump") {
+    return {
+      title: def.name, accent: 0x4a90c8, brief: ["Pump"],
+      lines: [
+        { text: `Lifts water ${PUMP_HEAD / 2} slabs up the pipe that meets it` },
+        { text: `Costs money a second while it pumps`, tone: "dim" },
+      ],
       facts: [{ type: "project", name: def.name }],
     };
   }
@@ -433,4 +461,12 @@ export function gatherLabels(
   }
   groups = groups.filter((_, k) => !gone[k]);
   return groups.map((g) => ({ ids: g.ids, ...anchor(g), info: g.info }));
+}
+
+/** What a building that drinks is drinking, and how well cooled it is. @see game/cooling */
+function coolingLine(id: number): InfoLine | null {
+  const t = tankFor(id);
+  if (!t) return null;
+  const pct = Math.round(t.share * 100);
+  return { text: `Drinks ${t.demand.toFixed(2)} a second · ${pct}% cooled`, tone: pct >= 95 ? "good" : "warn" };
 }

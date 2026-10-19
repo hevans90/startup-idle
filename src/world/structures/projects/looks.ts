@@ -611,6 +611,26 @@ export function rack(f: Footprint): Building {
   };
 }
 
+/** A PUMP HOUSE: a little brick house by the water, a wheel on its side and a pipe out. @see PUMP */
+export function pump(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, 0.2, 0.2, 1.2), wall: 0x9a4e3c, storey: 1.2,
+    facade: { kind: "plain" },
+    roof: { kind: "parapet", deck: 0x4b5560, rim: 0x6e3528, h: 0.12 },
+  };
+  return {
+    plinth: { inset: 0.08, h: 0.1, colour: 0x8f949a, top: 0xa9aeb4 }, masses: [m], crane: "none",
+    grounds: (p) => p.flat(0.04, 0.04, f.w - 0.04, f.h - 0.04, 0.004, 0x8f949a),
+    details: (p) => {
+      door(p, m, m.u0 + 0.2, 0.18, 0.75, 0x2b2f36, 0x5b636c);
+      // The wheel on the water side, and the pipe out the back.
+      p.dot(m.u1 + 0.02, (m.v0 + m.v1) / 2, 0.55, 0.22, 0x5b636c);
+      p.dot(m.u1 + 0.03, (m.v0 + m.v1) / 2, 0.55, 0.08, 0x9aa3ad);
+      p.box(m.u0 - 0.12, (m.v0 + m.v1) / 2 - 0.05, m.u0, (m.v0 + m.v1) / 2 + 0.05, 0.1, 0.2, 0x6f7a86);
+    },
+  };
+}
+
 // ─── THE AI'S OWN ───────────────────────────────────────────────────────────
 // What the company's AI puts up for itself: black glass, violet light, and no
 // door anyone would use. @see AI_BUILDINGS, world/ai/planner
@@ -709,7 +729,7 @@ export const LOOKS: Record<string, (f: Footprint) => Building> = {
   garage, studio, hq, boardroom, campus, townhall, harbour, datacentre, conference, hackerspace, ipo,
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
-  cafe, park, gym, lab, levee, derelict, rack,
+  cafe, park, gym, lab, levee, derelict, rack, pump,
   "ai-node": aiNode, "gpu-farm": gpuFarm, "compute-spire": computeSpire, "drone-hangar": droneHangar, monolith,
 };
 

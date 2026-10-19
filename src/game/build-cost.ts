@@ -64,6 +64,8 @@ function listPrice(defId: string): Decimal | null {
   if (defId === "rack") {
     return Decimal.max(new Decimal(RACK_FLOOR), new Decimal(safeIncome()).times(RACK_SECONDS)).times(RACK_STEP ** racksBuilt()).round();
   }
+  // A PUMP HOUSE: seconds of income, never under a floor. @see PUMP
+  if (defId === "pump") return Decimal.max(new Decimal(PUMP_FLOOR), new Decimal(safeIncome()).times(PUMP_SECONDS)).round();
   // A FLOOD WALL: cheap, a tile at a time.
   if (defId === "levee") return Decimal.max(new Decimal(LEVEE_FLOOR), new Decimal(safeIncome()).times(LEVEE_SECONDS)).round();
   // AN OFFICE: so many hires' worth of the people who will work there.
@@ -106,6 +108,9 @@ const SERVICE_PRICE: Record<string, { seconds: number; floor: number }> = {
   park: { seconds: 8, floor: 400 },
   gym: { seconds: 16, floor: 2000 },
 };
+/** A pump house: seconds of income, never under a floor. */
+const PUMP_SECONDS = 15;
+const PUMP_FLOOR = 25_000;
 /** An AI rack: seconds of income, never under a floor, and dearer by this for each one standing. */
 const RACK_SECONDS = 20;
 const RACK_FLOOR = 100_000;
@@ -180,6 +185,12 @@ export function roadCost(tiles: number): Decimal {
 }
 const ROAD_FLOOR = 2;
 const ROAD_INCOME_SECONDS = 0.25;
+
+/** WHAT PIPE COSTS: as road, a tile at a time, at twice the price — it is dug in. @see the Pipe tool */
+export function pipeCost(tiles: number): Decimal {
+  return roadCost(tiles).times(PIPE_PER_ROAD);
+}
+export const PIPE_PER_ROAD = 2;
 
 /**
  * What upgrading one building into another costs, or null if it is not sold:

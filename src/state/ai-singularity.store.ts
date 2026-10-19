@@ -89,13 +89,7 @@ export const useAiSingularityStore = create<AiSingularityState>()(
         const next = Math.min(100, Math.max(0, cur + rate * seconds));
         if (next === cur) return;
         set({ value: next });
-        if (next >= 100 && cur < 100) {
-          if (!get().everCompleted) set({ everCompleted: true });
-          // Lazy import avoids a circular dep at module load time.
-          import("./directives.store").then(({ useDirectivesStore }) => {
-            useDirectivesStore.getState().onSingularityCompleted();
-          });
-        }
+        if (next >= 100 && cur < 100 && !get().everCompleted) set({ everCompleted: true });
       },
 
       // A SALE: part of it kept, over a floor this generation's sales have built.

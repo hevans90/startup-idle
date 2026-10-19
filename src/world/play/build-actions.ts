@@ -45,6 +45,13 @@ function stroke(tool: ToolId, from: Cell, to: Cell): boolean {
     () => useWorldStore.getState().endStroke());
 }
 
+/** Lay pipe along a route, cell by cell in order, as the Pipe tool lays it and paid for alike. @see gamePipeRun */
+export const layPipePath = (cells: readonly Cell[]): boolean =>
+  cells.length > 0 && withTool(
+    { tool: "pipe", brush: "line", brushRadius: 0, placingProject: null, stroke: { tool: "pipe", brush: "line", anchor: cells[0], head: cells[cells.length - 1], path: cells } },
+    () => useWorldStore.getState().endStroke(),
+  );
+
 /** Lay road along a straight line, each new tile paid for. */
 export const paveRoad = (from: Cell, to: Cell) => stroke("paintRoad", from, to);
 /** Lift road along a straight line. */

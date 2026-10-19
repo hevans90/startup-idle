@@ -47,6 +47,7 @@ import { PARCELS } from "../land";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
 import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
+import { PUMP_HEAD } from "../../game/cooling";
 import { InfoPop } from "../../ui/InfoPop";
 
 /** A small line icon, in the current colour. */
@@ -58,6 +59,7 @@ const ICONS: Record<string, ReactNode> = {
   inspect: <Icon><path d="M3 2l9 5-4 1-1 4z" /></Icon>,
   paintRoad: <Icon><path d="M5 2L3 14M11 2l2 12M8 3v2M8 7v2M8 11v2" /></Icon>,
   eraseRoad: <Icon><path d="M5 2L3 14M11 2l2 12M6 6l4 4M10 6l-4 4" /></Icon>,
+  pipe: <Icon><path d="M2 6h7a3 3 0 0 1 3 3v5M2 10h7M8 14h8" /></Icon>,
   placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
   buyLand: <Icon><path d="M4 14V2M4 2.5h8l-2 2.5 2 2.5H4" /></Icon>,
@@ -107,7 +109,8 @@ const ROAD_TOOLS = new Set<ToolId>(["paintRoad", "eraseRoad"]);
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
-  { id: "eraseRoad", label: "Lift", hint: "Drag to take road up" },
+  { id: "eraseRoad", label: "Lift", hint: "Drag to take road or pipe up" },
+  { id: "pipe", label: "Pipe", hint: "Drag to lay pipe: from water to the Data Centre, to cool it" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down" },
   { id: "buyLand", label: "Land", hint: "Click land beside yours to buy it" },
@@ -141,7 +144,8 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
     if (items.length) out.push({ title: KIND_TITLE[who], colour: KIND_COLOUR[who], items });
   }
   // AI RACKS, once the Data Centre stands. @see game/agents
-  const racks = all.filter((d) => d.def.id === "rack");
+  // And the pump house that cools them, by the water. @see PUMP
+  const racks = all.filter((d) => d.def.id === "rack" || d.def.id === "pump");
   if (racks.length && agentsOpen() && hireable.has("10x_dev")) out.push({ title: "AI agents", colour: 0x6c7cff, items: racks });
   // Services and ports once their projects have opened them. @see featureGateOpen
   const services = all.filter((d) => serviceOf(d.def.id)).sort((a, b) => a.price - b.price);
@@ -156,7 +160,7 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
 
 /** A tile's name in its row, which already says whose: "Lot", "Office", "Seaport II". */
 const tileName = (def: StructureDef) =>
-  housedBy(def.id) ? "Lot" : workplaceKind(def.id) ? "Office" : def.id === "lab" ? "Lab" : def.id === "rack" ? "Rack"
+  housedBy(def.id) ? "Lot" : workplaceKind(def.id) ? "Office" : def.id === "lab" ? "Lab" : def.id === "rack" ? "Rack" : def.id === "pump" ? "Pump"
     : def.port ? saleName(def).replace(/^Seaport/, "Port") : saleName(def);
 
 /** What a tile is, in a few words. */
@@ -169,6 +173,7 @@ function tileNote(def: StructureDef): string {
   if (def.id === "levee") return "drag along a bank";
   if (def.id === "lab") return `innovation +${LAB_SHARE * 100}%`;
   if (def.id === "rack") return `${AGENTS_A_RACK} agents · near the Data Centre`;
+  if (def.id === "pump") return `lifts water ${PUMP_HEAD / 2} slabs · by the water`;
   return "";
 }
 
@@ -256,7 +261,7 @@ export function BuildBar({ className }: { className?: string }) {
   const choose = (id: ToolId) => {
     setTool(id);
     // Road goes down in a line, as a road does; everything else is a click.
-    setBrush(id === "paintRoad" || id === "eraseRoad" ? "line" : "point");
+    setBrush(id === "paintRoad" || id === "eraseRoad" || id === "pipe" ? "line" : "point");
     setBrushRadius(0);
     setPicking(id === "placeStructure" ? !(tool === id && picking) : false);
     // Something on offer in hand, not whatever was last: a lot for people the
@@ -270,6 +275,8 @@ export function BuildBar({ className }: { className?: string }) {
   // LAND FOR SALE, while any is left: the next parcel's price. @see world/land
   const land = useSessionStore((s) => s.land);
   const forSale = !!land && land.length < PARCELS * PARCELS;
+  // PIPE, once there is a Data Centre to cool. @see game/cooling
+  const pipesOpen = agentsOpen();
   const landNext = parcelPrice();
 
   return (
@@ -364,7 +371,7 @@ export function BuildBar({ className }: { className?: string }) {
 
         {/* THE TOOLS. */}
         <div className="flex items-stretch overflow-x-auto">
-          {TOOLS.filter((t) => t.id !== "buyLand" || forSale).map((t) => (
+          {TOOLS.filter((t) => (t.id !== "buyLand" || forSale) && (t.id !== "pipe" || pipesOpen)).map((t) => (
             <button key={t.id} type="button" title={aiRoads && ROAD_TOOLS.has(t.id) ? "Your input is no longer required for roads." : t.hint}
               onClick={() => choose(t.id)} disabled={aiRoads && ROAD_TOOLS.has(t.id)}
               data-hint={t.id === "placeStructure" ? "build" : t.id === "buyLand" ? "land" : undefined}

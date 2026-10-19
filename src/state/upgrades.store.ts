@@ -4,7 +4,6 @@ import {
   persist,
   type StateStorage,
 } from "zustand/middleware";
-import { useDirectivesStore } from "./directives.store";
 import {
   GeneratorId,
   MIN_GENERATOR_COST_EXPONENT,
@@ -1238,7 +1237,6 @@ export const syncAvailableUpgrades = () => {
   );
 
   const unlockedIds = useUpgradeStore.getState().unlockedUpgradeIds;
-  const directives = useDirectivesStore.getState();
 
   const available = UPGRADES.filter((upg) => {
     const satisfied = upg.unlockConditions.every((cond) => {
@@ -1249,20 +1247,6 @@ export const syncAvailableUpgrades = () => {
   }).sort((a, b) => a.cost - b.cost);
 
   useUpgradeStore.setState({ availableUpgrades: available });
-
-  // D1 / D5: auto-unlock intern/vibe upgrades whose conditions are already met.
-  if (directives.autoInternUpgrades || directives.autoVibeUpgrades) {
-    const money = useMoneyStore.getState().money;
-    for (const upg of available) {
-      const isIntern = INTERN_UPGRADES.some((u) => u.id === upg.id);
-      const isVibe = VIBE_CODER_UPGRADES.some((u) => u.id === upg.id);
-      if ((isIntern && directives.autoInternUpgrades) || (isVibe && directives.autoVibeUpgrades)) {
-        if (money.gte(upg.cost)) {
-          useUpgradeStore.getState().unlockUpgrade(upg.id);
-        }
-      }
-    }
-  }
 };
 
 type UpgradeStoreState = {

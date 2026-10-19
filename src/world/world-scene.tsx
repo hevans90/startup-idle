@@ -13,7 +13,7 @@ import { createStreetHeat, type StreetHeat } from "./render/street-heat";
 import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
 import { aiFixturePreview, sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
 import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos } from "./ai/ai-runner";
-import { currentPlan, stepAutopilot } from "./ai/autopilot";
+import { currentPlan, pendingPipe, stepAutopilot } from "./ai/autopilot";
 import { useFounderStore } from "../state/founder.store";
 import { showMe } from "./play/map-focus";
 import { runningAgents, useAgentsStore } from "../state/agents.store";
@@ -138,11 +138,13 @@ import "./structures/slop-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { footprintCells, structureAt, surfaceSampler, type Structure } from "./grid";
+import { footprintCells, structureAt, surfaceSampler, type Grid, type Structure } from "./grid";
 import { HEIGHT_UNIT, HH, HW, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
 import { runPipes } from "./water/pipes";
+import { stepCooling, tankFor } from "./projects/cooling";
+import { pumpUpkeep } from "../game/cooling";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
 import {
   createFallLayer, destroyFallLayer, drawFalls, type FallLayer,
@@ -215,6 +217,27 @@ function stopGarbageCollection(renderer: unknown) {
   const r = renderer as { gc?: { enabled: boolean } };
   if (r.gc) r.gc.enabled = false;
 }
+
+/** How well the Data Centre is cooled and how full its tank, for the AI layer. @see AiView */
+function dcCooling(g: Grid): { cooled: number; tank: number } {
+  for (const s of g.structures.values()) {
+    if (s.def !== "datacentre" || s.build) continue;
+    const t = tankFor(s.id);
+    return t ? { cooled: t.share, tank: t.capacity > 0 ? t.level / t.capacity : 1 } : { cooled: 1, tank: 1 };
+  }
+  return { cooled: 1, tank: 1 };
+}
+
+/** Pump houses paid from the company's money, a second's upkeep at a time. @see pumpUpkeep */
+const PAID_PUMPS = {
+  pay: (seconds: number) => {
+    const cost = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond()) * seconds;
+    const money = useMoneyStore.getState();
+    if (money.money.lt(cost)) return false;
+    money.spendMoney(cost);
+    return true;
+  },
+};
 
 /** A look-tool press let go within this many px of where it went down is a click, not a pan. */
 const LOOK_CLICK_SLOP = 5;
@@ -2377,7 +2400,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);
-      runPipes(field, grid, dt);
+      // PUMP HOUSES are paid for while they run, in the game. @see runPumps
+      runPipes(field, grid, dt, useWorldStore.getState().playing ? PAID_PUMPS : undefined);
       // The columns the boats will read, asked for before the step uploads
       // the list. @see wantFleet
       wantFleet(getFleet(), field.columns);
@@ -2701,6 +2725,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult * (training() === "river" ? 3 : 1), !!floodBase.current);
         // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
         if (st.playing) useTrainingStore.getState().tick();
+        // THE DRINKERS DRINK: the Data Centre and the AI's own buildings, from their tanks. @see stepCooling
+        if (st.playing) stepCooling(st.grid, runningAgents(), training() === "river", dt);
         // AI MODE, on The Model's own runs: the town building itself, its
         // drones flown out for the look of it. On a fixture too: a fixture
         // played works on a copy of the save. @see stepAutopilot, fixture-sandbox
@@ -2809,6 +2835,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
           drones: getAiRunner().jobs.map(droneAt),
           plan: preview?.plan ?? (useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? currentPlan() : null),
+          ...dcCooling(useWorldStore.getState().grid),
+          pipe: useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? pendingPipe() : null,
         }, raw, now);
       } else ai?.clear();
       const r = rain.current;

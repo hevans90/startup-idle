@@ -4,10 +4,10 @@ import { SEED_ROUND, moduleLevel } from "../game/modules";
 import { useTrainingStore } from "../state/training.store";
 import { clearMorale } from "../game/morale";
 import { resetAutopilot } from "../world/ai/autopilot";
+import { resetCooling } from "../world/projects/cooling";
 import { useAgentsStore } from "../state/agents.store";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useSlopPitStore } from "../state/slop-pit.store";
-import { useDirectivesStore } from "../state/directives.store";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
@@ -36,13 +36,13 @@ export function resetRunStores(): void {
   useAiSingularityStore.getState().reset();
   useFounderStore.getState().reset();
   useSessionStore.getState().reset();
-  useDirectivesStore.getState().reset();
   useSlopPitStore.getState().reset();
   useAgentsStore.getState().reset();
   usePromotionStore.getState().reset();
   useTrainingStore.getState().reset();
   clearMorale();
   resetAutopilot();
+  resetCooling();
   // And the company's map: a new company founds on new ground. @see retireRunSave
   retireRunSave();
 
@@ -59,16 +59,6 @@ export function resetRunStores(): void {
   const freeLevels = usePrestigeStore.getState().modifiers.freeStartingLevels;
   if (freeLevels > 0) {
     useGeneratorStore.getState().increaseGenerator("intern", freeLevels);
-  }
-
-  // D6 "Compound Growth" reward: free starting headcount based on total exits.
-  const directives = useDirectivesStore.getState();
-  if (directives.freeStartingEnabled) {
-    const totalExits = usePrestigeStore.getState().exits;
-    const freeInterns = Math.floor(totalExits * 5);
-    const freeVibe = Math.floor(totalExits);
-    if (freeInterns > 0) useGeneratorStore.getState().increaseGenerator("intern", freeInterns);
-    if (freeVibe > 0) useGeneratorStore.getState().increaseGenerator("vibe_coder", freeVibe);
   }
 }
 
@@ -88,7 +78,7 @@ export function resetAllGameStores(): void {
 
 /**
  * AN ASCENSION'S WIPE: a run reset plus prestige — Equity, the skill tree,
- * founders' exits, board mandates and directives — keeping the generation's
+ * founders' exits and board mandates — keeping the generation's
  * own store and the achievements. @see game/ascension
  */
 export function resetForAscension(): void {
@@ -100,5 +90,4 @@ export function resetForAscension(): void {
   // explicitly here for a true full wipe.
   useValuationStore.getState().clearMandates();
   useExitsStore.getState().clearAll();
-  useDirectivesStore.getState().clearAll();
 }

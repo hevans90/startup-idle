@@ -35,6 +35,8 @@ import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
 import { demolishAt, liftRoad, paveRoad, placeStructure, pour, reshape } from "../play/build-actions";
 import { useSlopPitStore } from "../../state/slop-pit.store";
+import { layRoute, neededPipe } from "./cooling-ai";
+import type { PipeRoute } from "./pipe-route";
 
 type Cell = { x: number; y: number };
 
@@ -47,6 +49,8 @@ export type AiAction =
   | { kind: "pond"; at: Cell; why: string }
   | { kind: "hire"; who: GeneratorId; why: string }
   | { kind: "upgrade"; id: string; why: string }
+  /** A pipe to water, and a pump house where one is needed, for a building that drinks. @see neededPipe */
+  | { kind: "pipe"; route: PipeRoute; at: Cell; why: string }
   /** Nothing: a drone sent for the look of it, AI mode's work being done already. @see autopilot */
   | { kind: "noop"; at: Cell; why: string };
 
@@ -61,11 +65,11 @@ export function targetOf(a: AiAction): Cell | null {
 export const INTERVAL: Partial<Record<Stage, number>> = { colleague: 60, manager: 35, overseer: 20, ascension: 20 };
 
 /** What it may do at a stage. */
-type Kind = "lot" | "service" | "node" | "farm" | "convert" | "repurpose" | "road" | "lift" | "flatten" | "pond" | "spire" | "hangar" | "monolith" | "hire" | "upgrade";
+type Kind = "lot" | "service" | "node" | "farm" | "convert" | "repurpose" | "road" | "lift" | "flatten" | "pond" | "spire" | "hangar" | "monolith" | "hire" | "upgrade" | "pipe";
 const BY_STAGE: Partial<Record<Stage, Kind[]>> = {
-  colleague: ["lot", "service", "node", "farm"],
-  manager: ["lot", "service", "node", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade"],
-  overseer: ["lot", "service", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "flatten", "pond", "spire", "hangar", "monolith"],
+  colleague: ["lot", "service", "node", "farm", "pipe"],
+  manager: ["lot", "service", "node", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "pipe"],
+  overseer: ["lot", "service", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "flatten", "pond", "spire", "hangar", "monolith", "pipe"],
 };
 BY_STAGE.ascension = BY_STAGE.overseer;
 
@@ -74,7 +78,7 @@ const LEAN: Record<Family, Partial<Record<Kind, number>>> = {
   planner: { road: 3, lift: 2, service: 2, lot: 2 },
   optimiser: { farm: 3, hire: 3, upgrade: 3, convert: 2, repurpose: 3 },
   shepherd: { service: 4, lot: 2 },
-  elemental: { pond: 4, flatten: 2 },
+  elemental: { pond: 4, flatten: 2, pipe: 3 },
   recursive: { node: 3, spire: 3, convert: 3, hangar: 2, repurpose: 2 },
   temper: {},
 };
@@ -231,6 +235,15 @@ function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
       }
       return null;
     }
+    case "pipe": {
+      // COOLING: a building that drinks, short of water and not yet piped. @see neededPipe
+      const need = neededPipe(g);
+      if (!need || useMoneyStore.getState().money.lt(need.price)) return null;
+      const at = need.route.pipe[need.route.pipe.length - 1];
+      return { kind: "pipe", route: need.route, at, why: need.route.pump
+        ? "I have piped the river to my servers, and built a pump house to make it climb. They were thirsty."
+        : "I have piped water to my servers. They were thirsty." };
+    }
     case "hire": {
       const gens = useGeneratorStore.getState().generators;
       const money = useMoneyStore.getState().money;
@@ -269,6 +282,7 @@ export function chooseAction(g: Grid, stage: Stage, rand: () => number = Math.ra
 export function perform(a: AiAction): boolean {
   switch (a.kind) {
     case "place": return placeStructure(a.def, a.at);
+    case "pipe": return layRoute(a.route);
     // Taken down, then its own put up; a node if what it meant will not fit where it stood.
     case "convert": return demolishAt(a.at) && (placeStructure(a.into, a.at) || placeStructure("ai-node", a.at));
     case "road": return paveRoad(a.from, a.to);

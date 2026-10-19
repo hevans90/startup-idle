@@ -255,15 +255,6 @@ export const useInnovationStore = create<InnovationState>()(
         set((state) => ({
           innovation: state.innovation.add(increment),
         }));
-        // D3 reward: auto-trigger innovation unlocks when conditions are met.
-        import("./directives.store").then(({ useDirectivesStore }) => {
-          if (!useDirectivesStore.getState().autoInnovationUnlocks) return;
-          const { canUnlock, unlock } = get();
-          const keys: UnlockKeys[] = ["managers", "employeeManagement"];
-          for (const key of keys) {
-            if (canUnlock(key)) unlock(key);
-          }
-        });
       },
 
       spendInnovation: (decrement: number) => {
