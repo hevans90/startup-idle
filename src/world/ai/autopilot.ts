@@ -27,7 +27,9 @@ import type { Grid } from "../grid";
 import { buyParcelAt, demolishAt, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
 import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "./ai-runner";
 import type { Masterplan, PlanStep } from "./masterplan/plan";
-import { inBox, planTown, sectionOf, wholeMap, type Box } from "./masterplan/plan";
+import { blockAt, inBox, planTown, townCentre, type Box } from "./masterplan/plan";
+import { idx } from "../grid";
+import { isPaved } from "../roads/mask";
 import { nextStep, roadTiles } from "./masterplan/schedule";
 import { layRoute, neededPipe } from "./cooling-ai";
 import type { PipeRoute } from "./pipe-route";
@@ -38,11 +40,9 @@ import type { PlanRequest } from "./masterplan/masterplan.worker";
 /** Seconds between the autopilot's steps; seconds before a plan is planned again regardless. */
 export const AUTOPILOT_EVERY = 2;
 export const REPLAN_EVERY = 180;
-/** Tiles round the town a section's plan reaches, and how much further each one it can do nothing with. @see sectionOf */
-export const SECTION = 8;
 
-type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; margin: number; doneAtPlan: number; box: Box | null; pipe: PipeRoute | null; flying: Set<string> };
-const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), margin: SECTION, doneAtPlan: 0, box: null, pipe: null, flying: new Set() };
+type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; tried: Set<number>; doneAtPlan: number; box: Box | null; pipe: PipeRoute | null; flying: Set<string> };
+const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), tried: new Set(), doneAtPlan: 0, box: null, pipe: null, flying: new Set() };
 
 /** The plan now, for the overlay and the panel; null until one is made. */
 export const currentPlan = () => state.plan;
@@ -100,12 +100,14 @@ function requestPlan(g: Grid) {
   const kinds = kindsByNeed();
   const services = featureGateOpen("services"), offices = true;
   const style = modelStyle();
-  // A SECTION AT A TIME: the town and a margin round it. @see sectionOf
-  const box = sectionOf(g, state.margin);
-  const owned = (x: number, y: number) => ownsTile(g, land, x, y) && inBox(box, x, y);
+  // A BLOCK AT A TIME: a small patch by a street, nearest the middle. @see blockAt
+  const box = blockAt(g, (x, y) => ownsTile(g, land, x, y), townCentre(g, style), state.tried);
   state.asked = Date.now();
   state.box = box;
   const arrived = (plan: Masterplan) => { state.plan = plan; state.plannedAt = Date.now(); state.doneAtPlan = state.done; };
+  // NOWHERE TO GROW: an empty plan, so the work goes on to land and derelicts.
+  if (!box) { arrived({ steps: [], predicted: 0, now: 0, centre: townCentre(g, style) }); return; }
+  const owned = (x: number, y: number) => ownsTile(g, land, x, y) && inBox(box, x, y);
   if (inline) { arrived(planTown(g, { owned, kinds, services, offices, style })); return; }
   state.worker ??= new Worker(new URL("./masterplan/masterplan.worker.ts", import.meta.url), { type: "module" });
   state.worker.onmessage = (e: MessageEvent<{ id: number; plan: Masterplan }>) => {
@@ -254,8 +256,11 @@ function act(g: Grid, budget: number): boolean {
       if (at && startProject(p.id, at)) { fly(at, g); state.last = p.name; return true; }
     }
   }
-  const s = state.plan && nextStep(g, state.plan, {
-    rules: playRules(g), kinds: kindsByNeed(), services: featureGateOpen("services"), offices: true,
+  // Within the block, all of it: its lots, its office, its services. @see blockAt
+  const rules = playRules(g), box = state.box;
+  const s = state.plan && box && nextStep(g, state.plan, {
+    rules: { ...rules, owned: (x, y) => (rules.owned?.(x, y) ?? true) && inBox(box, x, y) },
+    kinds: kindsByNeed(), services: featureGateOpen("services"), offices: true,
     skip: (p) => state.failed.has(keyOf(p)) || state.flying.has(keyOf(p)),
     style: modelStyle(),
   });
@@ -270,22 +275,25 @@ function act(g: Grid, budget: number): boolean {
     else state.failed.add(keyOf(s));
     return ok;
   }
-  // THE SECTION DONE: the next, round the town as it now stands — further out
-  // if this one gave it nothing to do — till a section is the whole map.
-  if (state.plan && state.box && !wholeMap(g, state.box)) {
-    state.margin = state.done > state.doneAtPlan ? SECTION : state.margin + SECTION;
+  // THE BLOCK DONE: on to the next. One that came to nothing is not tried again
+  // — none of its streets — till the company has more land.
+  if (state.plan && state.box) {
+    if (state.done === state.doneAtPlan) {
+      const b = state.box;
+      for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) if (isPaved(g, x, y)) state.tried.add(idx(g, x, y));
+    }
     state.plan = null;
     return false;
   }
   // NOTHING LEFT TO BUILD ON: clear a derelict, or buy the next parcel, and plan again.
   const land = companyLand();
   const derelict = [...g.structures.values()].find((d) => d.def === "derelict" && ownsTile(g, land, d.x, d.y));
-  if (derelict && clearingPrice() <= spend && demolishAt({ x: derelict.x, y: derelict.y })) { state.plan = null; state.last = "a derelict cleared"; return true; }
+  if (derelict && clearingPrice() <= spend && demolishAt({ x: derelict.x, y: derelict.y })) { state.plan = null; state.tried.clear(); state.last = "a derelict cleared"; return true; }
   if (land && parcelPrice() <= spend) {
     for (let p = 0; p < PARCELS * PARCELS; p++) {
       if (!buyable(land, p)) continue;
       const r = parcelRect(g, p);
-      if (buyParcelAt({ x: (r.x0 + r.x1) >> 1, y: (r.y0 + r.y1) >> 1 })) { state.plan = null; state.last = "a parcel of land"; return true; }
+      if (buyParcelAt({ x: (r.x0 + r.x1) >> 1, y: (r.y0 + r.y1) >> 1 })) { state.plan = null; state.tried.clear(); state.last = "a parcel of land"; return true; }
     }
   }
   return false;
@@ -297,7 +305,10 @@ export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
   if (!s.aiMode) return;
   const landKey = (companyLand() ?? []).join();
   const stale = !state.plan || landKey !== state.landKey || now - state.plannedAt > REPLAN_EVERY * 1000;
-  if (stale && (state.asked === null || now - state.asked > 5_000)) { state.landKey = landKey; state.failed.clear(); requestPlan(g); }
+  if (stale && (state.asked === null || now - state.asked > 1_000)) {
+    if (landKey !== state.landKey) state.tried.clear();
+    state.landKey = landKey; state.failed.clear(); requestPlan(g);
+  }
   state.clock += dt;
   if (state.clock < AUTOPILOT_EVERY) return;
   state.clock = 0;
@@ -306,7 +317,7 @@ export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
 
 /** A new company: a new plan. */
 export function resetAutopilot() {
-  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.margin = SECTION; state.doneAtPlan = 0; state.box = null; state.pipe = null; state.flying.clear();
+  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.tried.clear(); state.doneAtPlan = 0; state.box = null; state.pipe = null; state.flying.clear();
   // Its drones' jobs belong to the company that sent them.
   const r = getAiRunner();
   r.jobs = r.jobs.filter((j) => j.action.kind !== "deferred");

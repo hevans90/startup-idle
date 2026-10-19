@@ -76,21 +76,43 @@ export type PlanOptions = {
 export type Box = { x0: number; y0: number; x1: number; y1: number };
 export const inBox = (b: Box | null | undefined, x: number, y: number) => !b || (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1);
 
+/** Tiles either side of a block's anchor: a block is this many each way, so nine across. */
+export const BLOCK = 4;
+
 /**
- * THE SECTION TO PLAN: the town's buildings (or, with none, its roads) boxed,
- * and `margin` tiles round that — not the whole map, so the town grows a
- * section at a time and the plan on show is the next of it. @see AI mode
+ * THE NEXT BLOCK TO PLAN: a small patch of the company's land, not the town —
+ * so AI mode plans a little at a time, and what it shows is what it is about
+ * to do. Anchored on a street tile with free, dry ground of the company's
+ * beside it — room to build on — the nearest the town's middle, passing over
+ * `tried` (tiles of blocks that came to nothing). Null with nowhere to grow.
+ * @see AI mode
  */
-export function sectionOf(g: Grid, margin: number): Box {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  const take = (x: number, y: number) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
-  for (const s of g.structures.values()) if (s.def !== "derelict") { take(s.x, s.y); take(s.x + s.w - 1, s.y + s.h - 1); }
-  if (!Number.isFinite(x0)) for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (isPaved(g, x, y)) take(x, y);
-  if (!Number.isFinite(x0)) { take(g.w >> 1, g.h >> 1); }
-  return { x0: Math.max(0, x0 - margin), y0: Math.max(0, y0 - margin), x1: Math.min(g.w - 1, x1 + margin), y1: Math.min(g.h - 1, y1 + margin) };
+export function blockAt(
+  g: Grid, owned: (x: number, y: number) => boolean, centre: Cell,
+  tried: ReadonlySet<number> = new Set(), wet: (x: number, y: number) => boolean = (x, y) => g.pool[idx(g, x, y)] > 0,
+): Box | null {
+  let best: Cell | null = null, near = Infinity;
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      if (!isPaved(g, x, y) || !owned(x, y) || tried.has(idx(g, x, y))) continue;
+      const room = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+        const nx = x + dx, ny = y + dy;
+        return inBounds(g, nx, ny) && owned(nx, ny) && !isPaved(g, nx, ny) && !wet(nx, ny) && structureAt(g, nx, ny) < 0;
+      });
+      if (!room) continue;
+      const d = Math.abs(x - centre.x) + Math.abs(y - centre.y);
+      if (d < near) { near = d; best = { x, y }; }
+    }
+  }
+  if (!best) return null;
+  return {
+    x0: Math.max(0, best.x - BLOCK), y0: Math.max(0, best.y - BLOCK),
+    x1: Math.min(g.w - 1, best.x + BLOCK), y1: Math.min(g.h - 1, best.y + BLOCK),
+  };
 }
-/** Whether a box takes in the whole map. */
-export const wholeMap = (g: Grid, b: Box) => b.x0 <= 0 && b.y0 <= 0 && b.x1 >= g.w - 1 && b.y1 >= g.h - 1;
+
+/** The town's middle: its workplaces', or the map's; the Data Centre, for a style that grows from it. @see Style */
+export const townCentre = (g: Grid, style: Style = PLAIN): Cell => centreOf(g, style);
 
 /** Tiles between connecting streets. */
 export const CONNECT = 8;

@@ -13,8 +13,8 @@ import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx } from "../grid";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
-import { AUTOPILOT_EVERY, SECTION, currentPlan, lastStep, planInline, resetAutopilot, stepAutopilot, stepsTaken } from "./autopilot";
-import { inBox, sectionOf } from "./masterplan/plan";
+import { AUTOPILOT_EVERY, currentPlan, lastStep, planInline, resetAutopilot, stepAutopilot, stepsTaken } from "./autopilot";
+import { BLOCK, blockAt } from "./masterplan/plan";
 import { getAiRunner, stepAi } from "./ai-runner";
 
 planInline();
@@ -122,30 +122,38 @@ describe("AI mode", () => {
     expect(stepsTaken()).toBe(0);
   });
 
-  test("plans a section round the town, not the whole map", () => {
+  test("plans one small block at a time, by a street", () => {
     const g = town(64);
     useMoneyStore.setState({ money: new Decimal(1e9) });
     useSessionStore.getState().setAiMode({ aiMode: true });
     run(g, 1);
-    const box = sectionOf(g, SECTION);
     const plan = currentPlan()!;
     expect(plan.steps.length).toBeGreaterThan(0);
-    for (const s of plan.steps) {
-      const c = s.kind === "road" || s.kind === "level" ? s.to : s.at;
-      expect(inBox(box, c.x, c.y)).toBe(true);
-    }
-    expect(box.x1 - box.x0).toBeLessThan(g.w - 1);
+    const xs = plan.steps.map((s) => (s.kind === "road" || s.kind === "level" ? s.to : s.at));
+    expect(Math.max(...xs.map((c) => c.x)) - Math.min(...xs.map((c) => c.x))).toBeLessThanOrEqual(2 * BLOCK);
+    expect(Math.max(...xs.map((c) => c.y)) - Math.min(...xs.map((c) => c.y))).toBeLessThanOrEqual(2 * BLOCK);
+  });
+
+  test("moves on to the next block when one is built", () => {
+    const g = town(64);
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    useSessionStore.getState().setAiMode({ aiMode: true });
+    run(g, 1);
+    const first = currentPlan();
+    run(g, 40);
+    expect(currentPlan()).not.toBe(first);
   });
 });
 
-describe("a section", () => {
-  test("is the town's buildings boxed, a margin round them, inside the map", () => {
+describe("a block", () => {
+  test("is nine tiles about the street tile nearest the middle with room beside it, and none without room", () => {
     const g = createGrid(40, 40);
     fillTerrain(g, 1);
-    commit(g, createHistory(), placeCommand(g, structureDef("garage")!, 10, 12)!);
-    const s = structureDef("garage")!.footprint;
-    expect(sectionOf(g, 4)).toEqual({ x0: 6, y0: 8, x1: 10 + s.w - 1 + 4, y1: 12 + s.h - 1 + 4 });
-    expect(sectionOf(g, 30)).toEqual({ x0: 0, y0: 0, x1: 39, y1: 39 });
+    for (let x = 5; x < 35; x++) g.paved[idx(g, x, 20)] = 1;
+    expect(blockAt(g, () => true, { x: 30, y: 20 })).toEqual({ x0: 30 - BLOCK, y0: 20 - BLOCK, x1: 30 + BLOCK, y1: 20 + BLOCK });
+    // Tried already: the next nearest.
+    expect(blockAt(g, () => true, { x: 30, y: 20 }, new Set([idx(g, 30, 20)]))?.x0).not.toBe(30 - BLOCK);
+    expect(blockAt(g, (x) => x > 100, { x: 30, y: 20 })).toBeNull();
   });
 });
 
@@ -166,3 +174,4 @@ describe("AI mode's drones", () => {
     expect([...g.structures.values()].filter((s) => s.def.startsWith("kit:") || s.def.startsWith("office")).length).toBeGreaterThan(built);
   });
 });
+

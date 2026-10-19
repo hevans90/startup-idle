@@ -1,8 +1,8 @@
 /**
  * World v2 — AI MODE's controls, on The Model's runs: the switch, the budget
- * — the most of the money it may spend on a step — whether to show the
- * masterplan, and how it is getting on: the town it is building toward
- * against the town now, its steps, its last, and the traits it leans on.
+ * — the most of the money it may spend on a step — whether to show its plan
+ * for the block it is building, and how it is getting on: its steps, its
+ * last, and the traits it leans on.
  * @see stepAutopilot, styleOf
  */
 import { twMerge } from "tailwind-merge";
@@ -24,7 +24,6 @@ export function AiModePanel({ className }: { className?: string }) {
   const set = useSessionStore((s) => s.setAiMode);
   if (!model) return null;
   const plan = on ? currentPlan() : null;
-  const gain = plan && plan.now > 0 ? Math.round((plan.predicted / plan.now - 1) * 100) : null;
   const last = lastStep();
   const leans = modelStyle().from.map((t) => trait(t).name);
   return (
@@ -43,12 +42,12 @@ export function AiModePanel({ className }: { className?: string }) {
           </label>
           <label className="flex cursor-pointer items-center gap-1">
             <input type="checkbox" checked={showPlan} onChange={(e) => set({ showPlan: e.target.checked })} className="accent-violet-600 dark:accent-violet-400" />
-            Masterplan
+            Show plans
           </label>
           <span className="tabular-nums text-primary-600 dark:text-primary-400">
             {plan
-              ? <>Plan {gain !== null ? `${gain >= 0 ? "+" : "−"}${Math.abs(gain)}% on now` : "ready"} · {stepsTaken()} steps{last && <> · last: {last}</>}</>
-              : "Planning…"}
+              ? <>{plan.steps.length ? "Building a block" : "Looking for room"} · {stepsTaken()} steps{last && <> · last: {last}</>}</>
+              : "Planning the next block…"}
           </span>
           {leans.length > 0 && (
             <span className="text-violet-700 dark:text-violet-300" title="The traits past generations ended with, and so how it lays out a town">
