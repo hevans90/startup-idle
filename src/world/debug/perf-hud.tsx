@@ -64,6 +64,8 @@ export function PerfHud() {
       </div>
       {row("solve", p.solve)}
       {row("build", p.build)}
+      {row("town", p.town)}
+      {row("fx", p.fx)}
       {row("present*", p.present)}
       <div className="my-1 border-t border-gray-700 dark:border-gray-700" />
       {/* `present` is left out of this on purpose: it is mostly the wait on
@@ -71,6 +73,10 @@ export function PerfHud() {
           See `perf.ts` — it goes DOWN as the frame fills up. */}
       {row("js", p.js, bar(p.js))}
       {row("frame", p.frame, bar(p.frame))}
+      <div className="my-1 border-t border-gray-700 dark:border-gray-700" />
+      {/* Counts, not times: draw calls submitted, and Graphics cleared to be drawn again. */}
+      <div className="flex justify-between gap-3"><span className="text-gray-400 dark:text-gray-500">draws</span><span className="tabular-nums">{p.draws.toFixed(0).padStart(5, " ")}</span></div>
+      <div className="flex justify-between gap-3"><span className="text-gray-400 dark:text-gray-500">gfx</span><span className="tabular-nums">{p.gfx.toFixed(0).padStart(5, " ")}</span></div>
       {g && g.frames > 0 && (
         <>
           <div className="my-1 border-t border-gray-700 dark:border-gray-700" />

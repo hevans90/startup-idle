@@ -33,7 +33,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
 import { companyLand, drainDirty, playRules, startedOnFixture, startFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
-import { perfAdd, perfFrame } from "./debug/perf";
+import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
   type BandLayer,
@@ -1872,6 +1872,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // plan, the map or the drones change. @see PLAN_HOLOGRAMS
   const aiHoloSig = useRef("");
   useTick(() => {
+    const tHolo = performance.now();
     const holos: HoloSpec[] = [];
     const flying = new Set<string>();
     for (const j of getAiRunner().jobs) {
@@ -1959,6 +1960,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     }
     const h = holoRef.current, scan = holoScanRef.current;
     if (h && scan) h.tick(performance.now() / 1000, scan);
+    perfAdd("fx", performance.now() - tHolo);
   });
 
   const openShown = useRef<number | null>(null);
@@ -2494,7 +2496,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const noSolver = useRef<string | null>("not built yet");
   const cpuFrames = useRef(0);
   const cpuSaid = useRef(0);
-  const waterFrameRef = useRef<((dt: number) => { solve: number; build: number } | null) | null>(null);
+  const waterFrameRef = useRef<((dt: number) => { solve: number; build: number; town?: number } | null) | null>(null);
   waterFrameRef.current = (dt: number) => {
     // THE BANDS ON SCREEN FIRST, so the water draws for this frame's view and
     // not the last one's. The cull is its own tick and runs after this one,
@@ -2654,6 +2656,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (drRef.current) drawGpuDrips(drRef.current, field, bl, grid, overlays.xray);
       // THE BOATS, on the water this frame left: bob, tilt, drift, then drawn.
       // @see world/boats
+      const tTown = performance.now();
       const fleet = getFleet();
       // The rivers' traffic first: boats in from a ported river's inflow, and
       // off at its exit. Then every boat, the ones under way steered for it.
@@ -2940,7 +2943,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       useWorldStore.getState().refreshWaterMeta(
         tally ? { wet: tally.wet, water: tally.water } : undefined,
       );
-      return { solve: t1 - t0, build: t2 - t1 };
+      return { solve: t1 - t0, build: tTown - t1, town: t2 - tTown };
   };
 
   // Animated structures — the fluid in an excavation. Costs one Map walk per
@@ -2949,6 +2952,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   useTick((ticker) => {
     const sl = slRef.current, bl = blRef.current, tex = texRef.current;
     const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
+    const tFx = performance.now();
     // THE HOUR, in the game: the night over the map, and how busy the streets
     // are. Off, or in the editor, a plain bright noon. @see world/daylight
     {
@@ -3002,6 +3006,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (flood) drawRain(r, app.screen.width, app.screen.height, performance.now() / 1000, flood.phase === "active" ? 1 : 0.5);
       }
     }
+    perfAdd("fx", performance.now() - tFx);
     // The water runs every frame, and the mesh is rebuilt from it every frame:
     // the surface changes everywhere at once, so there is no incremental
     // version of drawing it.
@@ -3030,6 +3035,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (spent) {
       perfAdd("solve", spent.solve);
       perfAdd("build", spent.build);
+      perfAdd("town", spent.town ?? 0);
       if (import.meta.env.DEV) {
         const w = (window as unknown as { __waterMs?: { solve: number; draw: number; n: number } });
         const acc = w.__waterMs ?? (w.__waterMs = { solve: 0, draw: 0, n: 0 });
@@ -3107,11 +3113,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // and the GPU's clocks are copied out here for the same reason: a resolve
     // only sees queries the commands before it wrote, and the renderer has
     // just submitted. @see flushStamps
+    // AND COUNTED: draw calls the encoder submits, and Graphics cleared to be
+    // drawn again — the two numbers a scene's batching and immediate-mode
+    // drawing show in. @see perfCount
+    const enc = (renderer as unknown as { encoder?: { draw?: (...a: unknown[]) => unknown } }).encoder;
+    const realDraw = enc?.draw?.bind(enc);
+    if (enc && realDraw) enc.draw = (...a: unknown[]) => { perfCount("draws"); return realDraw(...a); };
+    const realClear = Graphics.prototype.clear;
+    Graphics.prototype.clear = function (this: Graphics) { perfCount("gfx"); return realClear.call(this); };
     const done = () => { flushStamps(device); perfFrame(); };
     app.ticker.add(done, null, UPDATE_PRIORITY.LOW - 1);
     return () => {
       renderer.render = real as typeof renderer.render;
       if (encoder && realBegin) encoder.beginRenderPass = realBegin;
+      if (enc && realDraw) enc.draw = realDraw;
+      Graphics.prototype.clear = realClear;
       // The app can already be torn down by now, when the whole map unmounts.
       app.ticker?.remove(done, null);
     };
