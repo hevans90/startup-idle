@@ -61,6 +61,9 @@ function footOf(s: Structure, _scan: Graphics): number[] | null {
   return [...P(s.x - 0.5, s.y - 0.5), ...P(s.x + s.w - 0.5, s.y - 0.5), ...P(s.x + s.w - 0.5, s.y + s.h - 0.5), ...P(s.x - 0.5, s.y + s.h - 0.5)];
 }
 
+/** The part after the point, 0–1, whatever the sign. */
+const frac = (x: number) => x - Math.floor(x);
+
 export function createHolograms(): Holograms {
   const shown = new Map<string, Shown>();
   let nextId = -1_000_000;
@@ -125,27 +128,27 @@ export function createHolograms(): Holograms {
         }
         if (!Number.isFinite(x0) || !scan.parent) continue;
         // SCAN LINES, in the overlay's space: faint rules, and a bright one running up.
-        const a = scan.parent.toLocal({ x: x0, y: y0 }), c = scan.parent.toLocal({ x: x1, y: y1 });
-        const w = c.x - a.x;
+        const a = scan.parent.toLocal({ x: x0, y: y0 });
         // Its footprint lit on the ground beneath it.
         const foot = footOf(m.s, scan);
         if (foot) { scan.poly(foot); scan.fill({ color: colour, alpha: 0.22 * stutter }); scan.poly(foot); scan.stroke({ color: colour, width: 1.5, alpha: 0.8 * stutter }); }
-        // FROM ITS FOOT, not the bottom of what it drew: an iso building's
-        // lowest pixel is the front corner of its footprint, well below where
-        // its walls meet the ground. The footprint's middle is the base.
-        const base = foot ? Math.min(c.y, (foot[1] + foot[5]) / 2) : c.y;
-        const tall = base - a.y;
-        const step = Math.max(2.5, tall / 26);
-        for (let y = a.y + ((t * 12) % step); y < base; y += step) {
-          scan.moveTo(a.x, y).lineTo(c.x, y);
-        }
-        scan.stroke({ color: colour, width: 1, alpha: 0.22 * stutter });
-        // And a bright band running up it, twice a second-and-a-half.
-        const run = base - ((t * 0.6 + seed) % 1) * tall;
-        scan.rect(a.x - w * 0.04, run - 2, w * 1.08, 4);
-        scan.fill({ color: colour, alpha: 0.25 * stutter });
-        scan.moveTo(a.x - w * 0.04, run).lineTo(c.x + w * 0.04, run);
-        scan.stroke({ color: 0xffffff, width: 1.5, alpha: 0.7 * stutter });
+        // SLICES THROUGH IT, not lines across the screen: the footprint's
+        // outline lifted from the ground to the roof, so a scan follows its
+        // walls at every height and never shows below it. Its height is how
+        // far the back of the footprint has to rise to reach the top of what
+        // it drew. Faint ones every so often, and a bright one running up.
+        if (!foot) continue;
+        const rise = Math.max(0, foot[1] - a.y);
+        const slice = (up: number) => foot.map((v, k) => (k % 2 ? v - up : v));
+        const rules = 7;
+        for (let k = 1; k < rules; k++) scan.poly(slice(((k + frac(t * 0.4)) / rules) * rise));
+        scan.stroke({ color: colour, width: 1, alpha: 0.2 * stutter });
+        // A fraction always 0–1: holograms' ids are negative, and `%` keeps the sign.
+        const run = frac(t * 0.6 + seed) * rise;
+        scan.poly(slice(run));
+        scan.stroke({ color: colour, width: 4, alpha: 0.25 * stutter });
+        scan.poly(slice(run));
+        scan.stroke({ color: 0xffffff, width: 1.5, alpha: 0.75 * stutter });
       }
     },
 
