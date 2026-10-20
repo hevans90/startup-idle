@@ -28,6 +28,9 @@
   --color-primary-700: #313840;
   --color-primary-800: #272e35;
   --color-primary-900: #1b1f23;
+  /* The darkest: dark mode's panels over the map. Missing, every `primary-950`
+     class quietly drew nothing — the Ascension card stayed light in dark mode. */
+  --color-primary-950: #111417;
 }
 
 @keyframes news-line-in {

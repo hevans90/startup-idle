@@ -604,6 +604,8 @@ Small, quick, frequent enough to keep the AI present, never blocking. Each has t
 
 ## 6. The Ascension popover and light/dark
 
+**Fixed (2026-10-21):** the palette had no `primary-950`, so `dark:bg-primary-950/95` drew nothing and the card kept its light background under dark mode's light text. The shade is defined now (`src/index.css`), which also fixes the AI meter readout, the dev panel, the founder select and the achievements tab's `primary-950` classes. The rest of this section stands for the new AI surfaces.
+
 - **What was found:** the Ascension card (`molecules/ascension-card.tsx`) pairs its colours with `dark:` variants. The AI meter readout (`molecules/ai-singularity-readout.tsx`) is the one AI surface that's always dark (`bg-primary-900/85`) in light mode.
 - **First, reproduce:** open `?fixture=singularity` in both themes at 100% and screenshot:
   - the card;
