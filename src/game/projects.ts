@@ -19,6 +19,7 @@
 import type { GeneratorId } from "../state/generators.store";
 import { useFounderStore } from "../state/founder.store";
 import { founderIs } from "./founder-rules";
+import { BLUEPRINT_CACHE, moduleLevel } from "./modules";
 import { BOOTSTRAP_BUILD, HACKER_LABS, VISIONARY_DATACENTRE } from "./founders.catalog";
 
 export type ProjectId =
@@ -62,7 +63,8 @@ export type GatePart =
  */
 function gateNow(gate: Gate): Gate {
   const only = useFounderStore.getState().onlyGenerator;
-  const share = gate === DATACENTRE_GATE && founderIs("visionary") ? VISIONARY_DATACENTRE : 1;
+  // The Visionary, and the Blueprint Cache module. @see BLUEPRINT_CACHE
+  const share = gate === DATACENTRE_GATE ? (founderIs("visionary") ? VISIONARY_DATACENTRE : 1) * BLUEPRINT_CACHE[moduleLevel("blueprint-cache")] : 1;
   if (!only && share === 1) return gate;
   const out: Gate = { ...gate };
   if (only && gate.upgrade && !gate.upgrade.startsWith(`${only}_`)) delete out.upgrade;
@@ -128,7 +130,7 @@ export type ProjectDef = {
   /** A feature of the game it opens, if any. */
   grants?: FeatureId;
   /** Where clicking the finished building takes the player: a sidebar tab. */
-  opens?: "employees" | "innovation" | "valuation";
+  opens?: "employees" | "innovation" | "valuation" | "ai";
   /**
    * WHAT IT WAITS FOR, as data: an employee upgrade bought, a feature of the
    * game unlocked, and so many of each kind employed — all of them. Data rather
@@ -274,6 +276,8 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 200_000,
     deliveries: 16,
     bonus: { innovation: 2 },
+    // Its control room is the AI tab. @see AiTab
+    opens: "ai",
     ...needs(DATACENTRE_GATE),
   },
   {
@@ -415,6 +419,8 @@ export type ProjectReading = {
    * the Data Centre — and how many at half, further off. @see game/agents
    */
   racks?: { powered: number; unpowered: number };
+  /** Compute spires the AI has put up. @see SPIRE_BOOST */
+  spires?: number;
   /** What leaders and cafés add to each kind's work at its desks, as a share: 0.1 is +10%. @see deskShare */
   desks?: Partial<Record<GeneratorId, number>>;
 };

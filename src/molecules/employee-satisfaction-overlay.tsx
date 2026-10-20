@@ -12,7 +12,6 @@ import {
   SATISFACTION_REVENUE_MULT_NEUTRAL,
   satisfactionRevenueMultiplier,
   type SatisfactionScores,
-  vibeSingularityAccrualRatePerSecond,
 } from "../game/satisfaction";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGeneratorStore } from "../state/generators.store";
@@ -148,9 +147,6 @@ function SatisfactionCurrentEffects({
   const revVibe = satisfactionRevenueMultiplier(scores.vibe_coder);
   const rev10x = satisfactionRevenueMultiplier(scores["10x_dev"]);
   const expDelta = dev10xSatisfactionExponentDelta(scores["10x_dev"]);
-  const singularityRate = vibeSingularityAccrualRatePerSecond(
-    scores.vibe_coder,
-  );
 
   return (
     <div className="mb-3 border-b border-primary-300 pb-3 text-left dark:border-primary-600">
@@ -182,19 +178,7 @@ function SatisfactionCurrentEffects({
           <p className="text-primary-700 dark:text-primary-300">
             <ModifierTag modKey="satisfactionRevenue.vibe_coder">$</ModifierTag>{" "}
             {formatMult(revVibe)}
-            {scores.vibe_coder >= 0 ? (
-              <>
-                {" "}
-                · No singularity accrual (score ≥ 0). Meter stays at{" "}
-                {singularityPct.toFixed(1)}%.
-              </>
-            ) : (
-              <>
-                {" "}
-                · Singularity +{singularityRate.toFixed(4)} %/s · meter{" "}
-                {singularityPct.toFixed(1)}%
-              </>
-            )}
+            {" "}· AI singularity {singularityPct.toFixed(1)}% (pushed by the AI agents running, not by mood)
           </p>
         </div>
         <div>

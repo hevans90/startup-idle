@@ -17,7 +17,7 @@ import { useInnovationStore } from "./innovation.store";
  * trade: above one, the agent is worth it. @see getMultiplier
  */
 export function agentTrade(agents: number): { gain: number; loss: number; net: number } {
-  const gain = agentBonus(agents + 1) / agentBonus(agents);
+  const gain = agentBonus(agents + 1) / agentBonus(agents);  // `agents` is the running count. @see runningAgents
   const have = useInnovationStore.getState().innovation.toNumber();
   const logMult = useFounderStore.getState().innovationLogMult;
   const mult = (x: number) => 1 + logMult * Math.log10(Math.max(0, x) + 1);
@@ -27,8 +27,17 @@ export function agentTrade(agents: number): { gain: number; loss: number; net: n
 
 type AgentsState = {
   agents: number;
+  /**
+   * THE THROTTLE: how many of them are running, or null for all of them. An
+   * agent not running earns nothing and pushes the singularity not at all.
+   * Set in the AI tab's throttle. @see runningAgents, DataCentre
+   */
+  running: number | null;
+  setRunning: (n: number | null) => void;
+  /** Until when the racks are dark, after the AI was shut down: none can be spun up. @see shutDown */
+  darkUntil: number;
   /** Why another cannot be spun up now, or null if it can. */
-  blocked: () => "closed" | "no-room" | "innovation" | null;
+  blocked: () => "closed" | "dark" | "no-room" | "innovation" | null;
   /** Spin up one more, for its price in innovation. Whether it happened. */
   spinUp: () => boolean;
   reset: () => void;
@@ -40,6 +49,7 @@ export const useAgentsStore = create<AgentsState>()(
       agents: 0,
       blocked: () => {
         if (!agentsOpen()) return "closed";
+        if (Date.now() < get().darkUntil) return "dark";
         if (get().agents >= rackRoom()) return "no-room";
         if (useInnovationStore.getState().innovation.lt(agentCost(get().agents))) return "innovation";
         return null;
@@ -50,12 +60,21 @@ export const useAgentsStore = create<AgentsState>()(
         set((s) => ({ agents: s.agents + 1 }));
         return true;
       },
-      reset: () => set({ agents: 0 }),
+      running: null,
+      darkUntil: 0,
+      setRunning: (n) => set((s) => ({ running: n === null || n >= s.agents ? null : Math.max(0, Math.floor(n)) })),
+      reset: () => set({ agents: 0, running: null, darkUntil: 0 }),
     }),
     {
       name: "agents",
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ agents: s.agents }),
+      partialize: (s) => ({ agents: s.agents, running: s.running, darkUntil: s.darkUntil }),
     },
   ),
 );
+
+/** The agents running now: all of them, unless the Data Centre has throttled some. */
+export function runningAgents(): number {
+  const { agents, running } = useAgentsStore.getState();
+  return running === null ? agents : Math.min(running, agents);
+}

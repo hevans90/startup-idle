@@ -187,6 +187,16 @@ export function validatePlacement(
     };
   }
 
+  // BESIDE STANDING WATER, likewise: a footprint cell's neighbour is pool.
+  if (placementOf(def).waterside && !waterBeside(grid, ox, oy, w, h)) {
+    return {
+      ok: false,
+      cells: verdicts.map(() => ({ ok: false, reason: "not beside water" })),
+      reason: "not beside water",
+      groundHeight,
+    };
+  }
+
   // Uneven ground is a property of the FOOTPRINT, so it can only be judged
   // here — and only matters when nothing is going to level it.
   if (!placementOf(def).autoFlatten && new Set(heights).size > 1) {
@@ -323,4 +333,17 @@ export function upgradeCommand(grid: Grid, id: number, rules: PlaceRules = NO_RU
   b.removeStructure(from);
   b.addStructure(next);
   return b.build(`upgrade ${from.def} to ${to.name}`);
+}
+
+/** Whether standing water lies beside a footprint, on any side. @see Placement.waterside */
+export function waterBeside(grid: Grid, ox: number, oy: number, w: number, h: number): boolean {
+  for (let y = oy - 1; y <= oy + h; y++) {
+    for (let x = ox - 1; x <= ox + w; x++) {
+      const inside = x >= ox && x < ox + w && y >= oy && y < oy + h;
+      const corner = (x === ox - 1 || x === ox + w) && (y === oy - 1 || y === oy + h);
+      if (inside || corner || !inBounds(grid, x, y)) continue;
+      if (grid.pool[idx(grid, x, y)]) return true;
+    }
+  }
+  return false;
 }

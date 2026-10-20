@@ -9,8 +9,9 @@
  *    from the moment they are called. They walk there from their homes along
  *    the roads, as people, and work only once they arrive: a site far from
  *    where its builders live is a slow site. @see buildersFor
- *  - ITS MATERIALS come a truckload at a time, from where a road leaves the
- *    map, and each load is PAID FOR WHEN IT IS SENT. Work can run only as far
+ *  - ITS MATERIALS come a truckload at a time, from the Founder's Garage —
+ *    or, before it stands or off its roads, from where a road leaves the
+ *    map — and each load is PAID FOR WHEN IT IS SENT. @see depotFor Work can run only as far
  *    as the materials on site allow, so a company that cannot pay for the next
  *    load STALLS — and a crew stood idle for a while walks home, which at least
  *    puts them back at their desks. @see STALL_GRACE
@@ -249,7 +250,7 @@ export function stepWorks(
 
     // MATERIALS: kept a little ahead of the work — the next load sent while
     // fewer than `STOCK` loads are on hand unused — because a truck from the
-    // edge of the map takes longer than a crew takes to use a load, and
+    // garage or the map's edge takes longer than a crew takes to use a load, and
     // ordering only once half of one was left stood every crew idle for most
     // of every journey. Sent, it is paid; unpaid, the site waits.
     const inFlight = w.trucks.get(s.id) ?? 0;
@@ -259,9 +260,9 @@ export function stepWorks(
       if (spend(b.cost / b.deliveries)) {
         w.trucks.set(s.id, 1);
         w.stalled.delete(s.id);
-        const from = door && pickGateway(places, door.net);
-        // With no road out of the map in its network, a load comes by
-        // means unseen — it still has to be paid for.
+        const from = door && depotFor(g, places, s, door.net);
+        // With no garage or road out of the map in its network, a load comes
+        // by means unseen — it still has to be paid for.
         if (!door || !from || !sendOnJob(town, g, "truck", from, door, { site: s.id, role: "truck" })) {
           w.trucks.set(s.id, 0);
           b.delivered++;
@@ -322,6 +323,20 @@ export function stepWorks(
 /** A road out of the map on a network, for a load to come in by. */
 function pickGateway(places: readonly Place[], net: number): Place | null {
   return places.find((pl) => pl.kind === "gateway" && pl.net === net) ?? null;
+}
+
+/**
+ * WHERE A SITE'S LOADS COME FROM: the Founder's Garage, finished and on the
+ * site's roads — the company's yard — or, failing that (the garage's own
+ * build, or a site its roads do not reach), where a road leaves the map.
+ */
+export function depotFor(g: Grid, places: readonly Place[], site: Structure, net: number): Place | null {
+  for (const st of g.structures.values()) {
+    if (st.def !== "garage" || st.build || st.id === site.id) continue;
+    const yard = places.find((pl) => pl.structure === st.id && pl.net === net);
+    if (yard) return yard;
+  }
+  return pickGateway(places, net);
 }
 
 /** Shirts for a crew found already on site. */

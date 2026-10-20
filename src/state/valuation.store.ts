@@ -7,7 +7,6 @@ import {
   decimalReviver,
 } from "./_break_infinity.decimals";
 import { featureGateOpen } from "../game/projects";
-import { useDirectivesStore } from "./directives.store";
 import { useFounderStore } from "./founder.store";
 
 const LOCAL_STORAGE_KEY = "valuation";
@@ -156,12 +155,7 @@ export const useValuationStore = create<ValuationState>()(
         const def = MANDATES.find((m) => m.id === id)!;
         const level = get().mandateLevels[id];
         const founderReduction = useFounderStore.getState().mandateCostGrowthReduction;
-        const dir = useDirectivesStore.getState();
-        // D4: multiplicative 25% reduction on cost growth.
-        const afterD4 = def.costGrowth * (1 - dir.mandateCostGrowthReduction) - founderReduction;
-        // D7: hard cap — buying dozens of levels becomes practical without becoming free.
-        const cap = dir.mandateCostGrowthCap > 0 ? dir.mandateCostGrowthCap : Infinity;
-        const growth = Math.min(cap, Math.max(1.01, afterD4));
+        const growth = Math.max(1.01, def.costGrowth - founderReduction);
         return new Decimal(def.baseCost).mul(Decimal.pow(growth, level));
       },
 

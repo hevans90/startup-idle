@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { twMerge } from "tailwind-merge";
 
 type TabDefinition<T extends string> = {
@@ -47,6 +47,13 @@ export default function Tabs<T extends string>({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // THE CHOSEN TAB IN SIGHT, where the row scrolls: one opened from elsewhere — the
+  // Data Centre opening the AI tab — may be off the end of it.
+  const headers = useRef<Partial<Record<T, HTMLButtonElement | null>>>({});
+  useEffect(() => {
+    if (activeTab !== undefined) headers.current[activeTab]?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [activeTab]);
+
   const handleTabChange = (tabId: T) => {
     if (selectedTab === undefined) {
       setInternalTab(tabId);
@@ -56,17 +63,19 @@ export default function Tabs<T extends string>({
 
   return (
     <div className="flex h-full w-full select-none flex-col">
-      {/* Tab Headers */}
-      <div className="flex border-primary-300 dark:border-primary-600 h-[53px]">
+      {/* Tab Headers: a label a line each, tighter where the row is narrow, and
+          scrolling sideways — a thin bar says so — rather than wrapping when there are too many. */}
+      <div className="@container flex h-[53px] shrink-0 overflow-x-auto overflow-y-hidden border-primary-300 [scrollbar-width:thin] dark:border-primary-600">
         {visibleTabs.map((tab) => (
           <button
             key={tab.id}
+            ref={(el) => { headers.current[tab.id] = el; }}
             // A handle for first-run hints to point at. @see HintCard
             data-hint={`tab-${tab.id}`}
             onClick={() => !tab.disabled && handleTabChange(tab.id)}
             disabled={tab.disabled}
             className={twMerge(
-              "flex-1 px-4 py-2 text-center text-sm font-medium transition-colors cursor-pointer border-b border-primary-300 dark:border-primary-600 text-primary-400 dark:text-primary-300",
+              "flex-auto shrink-0 whitespace-nowrap px-1.5 py-2 text-center text-[11px] font-medium transition-colors cursor-pointer border-b border-primary-300 dark:border-primary-600 text-primary-400 dark:text-primary-300 @xs:px-2 @xs:text-xs @md:px-4 @md:text-sm",
               tab.disabled &&
                 "cursor-not-allowed text-primary-300 dark:text-primary-600",
               activeTab === tab.id &&

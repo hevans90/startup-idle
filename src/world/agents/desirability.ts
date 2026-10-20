@@ -19,7 +19,8 @@ import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { connects, isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { commuteEfficiency, walkFrom, WORKPLACES } from "./commute";
-import { DERELICT_REACH, MOOD, MOOD_LIMIT, SLOP_REACH, WATER_REACH, WATER_VIEW, WONDER_REACH, type MoodParts } from "./mood-rules";
+import { DERELICT_REACH, MOOD, MOOD_LIMIT, SLOP_REACH, WATER_REACH, WONDER_REACH, type MoodParts } from "./mood-rules";
+import { fusionNow } from "../../game/fusion";
 import { placesOf, type Place } from "./roads";
 import { RANGE, SERVICE_IDS, serviceOf, type ServiceId } from "./services";
 
@@ -140,7 +141,9 @@ export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: G
   const have = SERVICE_IDS.filter((sv) => best(maps.service[sv]) >= 0);
   if (!have.length) parts.push({ why: "no services", points: MOOD.noServices });
   for (const sv of have) parts.push({ why: sv === "cafe" ? "café" : sv, points: MOOD[sv] });
-  if (maps.water[idx(g, x, y)]) parts.push({ why: "water view", points: WATER_VIEW });
+  if (maps.water[idx(g, x, y)]) parts.push({ why: "water view", points: fusionNow().waterView });
+  // A Zoner fused into the founder, for every house. @see game/fusion
+  if (fusionNow().houseDesire) parts.push({ why: "AI-planned", points: fusionNow().houseDesire });
   if (maps.pits.some((p) => gapTo(x, y, p) <= SLOP_REACH)) {
     parts.push({ why: "slop pit", points: Math.round(MOOD.slopNear + MOOD.slopFull * Math.max(0, Math.min(1, slopFill))) });
   }

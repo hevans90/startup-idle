@@ -1,6 +1,7 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
 import { termStatus } from "../game/term-sheets";
+import { FusedTraits } from "./fused-traits";
 import { useTicking } from "../hooks/use-ticking";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
@@ -31,7 +32,8 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
           )}
         >
           <Icon size={18} className="shrink-0 opacity-80" />
-          <span className="text-sm font-medium whitespace-nowrap">
+          {/* The name where there is room for it; the icon alone, and the name on hover, where not. */}
+          <span className="hidden max-w-[10rem] truncate text-sm font-medium whitespace-nowrap @2xl:inline">
             {founder.name}
           </span>
         </div>
@@ -58,6 +60,7 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
             <span className="font-semibold">On the map:</span> {founder.rule}
           </p>
         )}
+        <FusedTraits founder={founder.id} />
 
         {/* THE TERM SHEET SIGNED, and where it stands. @see game/term-sheets */}
         {term && (

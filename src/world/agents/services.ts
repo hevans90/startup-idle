@@ -39,7 +39,7 @@ export type Tier = (typeof TIERS)[number];
 
 export const tierOf = (defId: string): Tier | null =>
   (/\.(t0|t1|t2|landmark)$/.exec(defId)?.[1] as Tier | undefined) ?? null;
-const withTier = (defId: string, t: Tier) => defId.replace(/\.(t0|t1|t2|landmark)$/, `.${t}`);
+export const withTier = (defId: string, t: Tier) => defId.replace(/\.(t0|t1|t2|landmark)$/, `.${t}`);
 
 /** Which service a structure is, if it is one. */
 export const serviceOf = (defId: string): ServiceId | null =>

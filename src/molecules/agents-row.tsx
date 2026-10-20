@@ -6,10 +6,10 @@
 import { twMerge } from "tailwind-merge";
 
 import {
-  AGENT_BOOST, AGENTS_A_RACK, RACK_RANGE, UNPOWERED_SHARE, agentBonus, agentCost, agentsAtWork, agentsOpen, rackRoom,
+  AGENT_BOOST, RACK_RANGE, agentsARack, UNPOWERED_SHARE, agentBonus, agentCost, agentsAtWork, agentsOpen, rackRoom,
 } from "../game/agents";
 import { useTicking } from "../hooks/use-ticking";
-import { agentTrade, useAgentsStore } from "../state/agents.store";
+import { agentTrade, runningAgents, useAgentsStore } from "../state/agents.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { InfoPop } from "../ui/InfoPop";
 
@@ -17,9 +17,10 @@ const fmt = (n: number) => (n < 100 ? n.toFixed(n < 10 ? 2 : 1) : Math.round(n).
 
 /** Why the button is off, as the player reads it. */
 const WHY = {
-  "no-room": `Every rack is full: build another in Build's AI agents row (${AGENTS_A_RACK} agents a rack).`,
+  "no-room": "Every rack is full: build another in Build's AI agents row.",
   innovation: "Not enough innovation yet.",
   closed: "The Data Centre has to stand first.",
+  dark: "The racks are dark after the shutdown.",
 } as const;
 
 export function AgentsRow({ isMobile }: { isMobile: boolean }) {
@@ -31,13 +32,15 @@ export function AgentsRow({ isMobile }: { isMobile: boolean }) {
   if (!agentsOpen()) return null;
   const room = rackRoom();
   const cost = agentCost(agents);
-  const { powered, unpowered } = agentsAtWork(agents);
-  const boost = Math.round((agentBonus(agents) - 1) * 100);
+  // THE ONES RUNNING: the Data Centre may have throttled some. @see runningAgents
+  const running = runningAgents();
+  const { powered, unpowered } = agentsAtWork(running);
+  const boost = Math.round((agentBonus(running) - 1) * 100);
   // WHAT THE NEXT IS WORTH: what it adds, against what its innovation takes
   // off the innovation multiplier. @see agentTrade
   const trade = agentTrade(agents);
   const pct = (k: number) => `${k >= 1 ? "+" : "−"}${Math.abs((k - 1) * 100).toFixed(1)}%`;
-  const roomText = Number.isFinite(room) ? `${agents}/${room}` : `${agents}`;
+  const roomText = (Number.isFinite(room) ? `${agents}/${room}` : `${agents}`) + (running < agents ? ` · ${running} on` : "");
   return (
     <div className={twMerge(
       "flex items-center justify-between gap-2 border-t border-primary-300 px-2 py-1 dark:border-primary-700",
@@ -47,7 +50,7 @@ export function AgentsRow({ isMobile }: { isMobile: boolean }) {
         trigger={<span className="responsive-text-sm text-indigo-600 dark:text-indigo-300">AI agents</span>}
         title={`AI agents: income +${boost}%`}>
         <p>Each agent running at full power adds {Math.round(AGENT_BOOST * 100)}% to all income; they cost innovation, not money.</p>
-        <p>They run in racks on the map, {AGENTS_A_RACK} to a rack. A rack within {RACK_RANGE} tiles of the Data Centre is powered; further off, its agents work at {Math.round(UNPOWERED_SHARE * 100)}%.</p>
+        <p>They run in racks on the map, {agentsARack()} to a rack. A rack within {RACK_RANGE} tiles of the Data Centre is powered; further off, its agents work at {Math.round(UNPOWERED_SHARE * 100)}%.</p>
         <p className="tabular-nums">Running: {powered} powered{unpowered ? `, ${unpowered} at half power` : ""}.</p>
         <p className="tabular-nums">
           The next: {pct(trade.gain)} income from the agent, {pct(trade.loss)} from spending the innovation

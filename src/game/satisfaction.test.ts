@@ -8,7 +8,6 @@ import {
   satisfactionRevenueMultiplier,
   satisfactionTargetForRole,
   stepSatisfactionScores,
-  vibeSingularityAccrualRatePerSecond,
 } from "./satisfaction";
 
 const zeroPerks = {
@@ -41,13 +40,6 @@ describe("satisfaction curves", () => {
     expect(dev10xSatisfactionExponentDelta(100)).toBeCloseTo(-0.35, 5);
     expect(dev10xSatisfactionExponentDelta(-100)).toBeCloseTo(0.35, 5);
     expect(dev10xSatisfactionExponentDelta(0)).toBe(0);
-  });
-
-  test("vibe singularity: no accrual unless negative; slow %/s scale", () => {
-    expect(vibeSingularityAccrualRatePerSecond(0)).toBe(0);
-    expect(vibeSingularityAccrualRatePerSecond(10)).toBe(0);
-    expect(vibeSingularityAccrualRatePerSecond(-100)).toBeCloseTo(0.012, 6);
-    expect(vibeSingularityAccrualRatePerSecond(-50)).toBeCloseTo(0.006, 6);
   });
 
   test("revenue mult: piecewise linear, 0 is 1x, clamp", () => {

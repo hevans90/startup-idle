@@ -11,8 +11,9 @@ import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import {
-  STALL_GRACE, builtProjects, catchUpWorks, createWorks, projectUnderWay, ruledOut, siteOf, startSiteCommand, stepWorks,
+  STALL_GRACE, builtProjects, catchUpWorks, createWorks, depotFor, projectUnderWay, ruledOut, siteOf, startSiteCommand, stepWorks,
 } from "./works";
+import { placesOf } from "../agents/roads";
 
 const STUDIO = projectDef("studio")!;
 
@@ -380,5 +381,23 @@ describe("a fork", () => {
     expect(ruledOut(g, conf)?.id).toBe("hackerspace");
     expect(ruledOut(g, hack)).toBeNull();
     expect(ruledOut(g, projectDef("ipo")!)).toBeNull();
+  });
+});
+
+describe("a site's loads", () => {
+  test("come from the Founder's Garage when it stands on the site's roads, else from the map's edge", () => {
+    const { g, history } = town();
+    commit(g, history, startSiteCommand(g, STUDIO, 12, 6, { needsRoad: true }, 0)!);
+    const site = siteOf(g, STUDIO)!;
+    const door = () => placesOf(g, createNetwork(g)).find((pl) => pl.structure === site.id)!;
+    const depot = () => depotFor(g, placesOf(g, createNetwork(g)), site, door().net);
+    expect(depot()?.kind).toBe("gateway");
+    const garage = structureDef("garage")!;
+    commit(g, history, placeCommand(g, garage, 20, 5 - garage.footprint.h, { needsRoad: true })!);
+    const id = [...g.structures.values()].find((s) => s.def === "garage")!.id;
+    expect(depot()?.structure).toBe(id);
+    // Not while the garage is itself still going up.
+    g.structures.get(id)!.build = { done: 0, need: 1, delivered: 0, deliveries: 1, cost: 0, priority: 2, updatedAt: 0 };
+    expect(depot()?.kind).toBe("gateway");
   });
 });

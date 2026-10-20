@@ -1,7 +1,7 @@
 import Decimal from "break_infinity.js";
 import { resetRunStores } from "../simulation/reset-game-stores";
-import { useDirectivesStore } from "../state/directives.store";
 import { useExitsStore } from "../state/exits.store";
+import { useGenerationStore } from "../state/generation.store";
 import { useFounderStore } from "../state/founder.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useSessionStore } from "../state/session.store";
@@ -86,14 +86,6 @@ export function canAcquire(): boolean {
   return pendingEquity().gt(0);
 }
 
-/** Whether the D8 AGI Acquisition (5× equity) option is available. */
-export function canAGIAcquire(): boolean {
-  return (
-    canAcquire() &&
-    useDirectivesStore.getState().agiAcquisitionUnlocked
-  );
-}
-
 /**
  * Accept the acquisition offer: bank the Equity, then soft-reset the run
  * (founder cleared → the app drops back to founder-select for the next
@@ -111,12 +103,10 @@ function executeAcquisition(equityMultiplier = 1): Decimal {
   const equityGain = equityMultiplier !== 1 ? gain.mul(equityMultiplier).floor() : gain;
   useExitsStore.getState().recordExit(founderId, accrued.toNumber());
   usePrestigeStore.getState().bankAcquisition(equityGain);
-  useDirectivesStore.getState().onExit(accrued.toNumber(), equityGain.toNumber());
 
-  // Check D8 post-AGI conditions after banking exits.
-  const { allocated, exits } = usePrestigeStore.getState();
-  useDirectivesStore.getState().checkPostAgiConditions(allocated.length, exits);
 
+  // One more company this generation: the singularity keeps more of itself. @see afterSale
+  useGenerationStore.getState().recordSale(founderId, equityGain.toNumber());
   resetRunStores();
   return equityGain;
 }
@@ -153,10 +143,3 @@ export function performAcquisition(): Decimal {
   return executeAcquisition(mult);
 }
 
-/**
- * AGI Acquisition (D8 reward): same as a normal acquisition but pays 5× equity.
- */
-export function performAGIAcquisition(): Decimal {
-  if (!canAGIAcquire()) return new Decimal(0);
-  return executeAcquisition(5);
-}

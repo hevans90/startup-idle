@@ -611,12 +611,126 @@ export function rack(f: Footprint): Building {
   };
 }
 
+/** A PUMP HOUSE: a little brick house by the water, a wheel on its side and a pipe out. @see PUMP */
+export function pump(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, 0.2, 0.2, 1.2), wall: 0x9a4e3c, storey: 1.2,
+    facade: { kind: "plain" },
+    roof: { kind: "parapet", deck: 0x4b5560, rim: 0x6e3528, h: 0.12 },
+  };
+  return {
+    plinth: { inset: 0.08, h: 0.1, colour: 0x8f949a, top: 0xa9aeb4 }, masses: [m], crane: "none",
+    grounds: (p) => p.flat(0.04, 0.04, f.w - 0.04, f.h - 0.04, 0.004, 0x8f949a),
+    details: (p) => {
+      door(p, m, m.u0 + 0.2, 0.18, 0.75, 0x2b2f36, 0x5b636c);
+      // The wheel on the water side, and the pipe out the back.
+      p.dot(m.u1 + 0.02, (m.v0 + m.v1) / 2, 0.55, 0.22, 0x5b636c);
+      p.dot(m.u1 + 0.03, (m.v0 + m.v1) / 2, 0.55, 0.08, 0x9aa3ad);
+      p.box(m.u0 - 0.12, (m.v0 + m.v1) / 2 - 0.05, m.u0, (m.v0 + m.v1) / 2 + 0.05, 0.1, 0.2, 0x6f7a86);
+    },
+  };
+}
+
+// ─── THE AI'S OWN ───────────────────────────────────────────────────────────
+// What the company's AI puts up for itself: black glass, violet light, and no
+// door anyone would use. @see AI_BUILDINGS, world/ai/planner
+
+const AI_GLASS = 0x1b1530;
+const AI_LIGHT = 0xb44aff;
+
+/** A row of violet light along both lit faces of a mass, at a height. */
+function aiBand(p: Pen, m: Mass, z: number) {
+  p.onV(m.v1 + 0.005, m.u0 + 0.04, m.u1 - 0.04, z, z + 0.06, AI_LIGHT);
+  p.onU(m.u1 + 0.005, m.v0 + 0.04, m.v1 - 0.04, z, z + 0.06, tone(AI_LIGHT, 0.8));
+}
+
+/** AN AI NODE: a house it took, its windows panelled over, humming. */
+export function aiNode(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, 0.18, 0.15, 2.0), wall: 0x2a2440, storey: 1.85,
+    facade: { kind: "louvres", slat: 0x3b3358, every: 0.12, edge: 0.1 },
+    roof: { kind: "flat", deck: 0x17131f },
+  };
+  return {
+    plinth: { inset: 0.05, h: 0.15, colour: 0x5d5770, top: 0x6f6984 }, masses: [m], crane: "none",
+    grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0x3b3651),
+    details: (p) => { aiBand(p, m, 0.9); aiBand(p, m, 1.6); },
+  };
+}
+
+/** A GPU FARM: a long black shed, fans along its roof. */
+export function gpuFarm(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, 0.12, 0.15, 1.6), wall: AI_GLASS, storey: 1.45,
+    facade: { kind: "fins", glass: 0x251d3d, fin: 0x3b3358, every: 0.14 },
+    roof: { kind: "flat", deck: 0x110d19 },
+  };
+  return {
+    plinth: { inset: 0.04, h: 0.15, colour: 0x5d5770, top: 0x6f6984 }, masses: [m], crane: "none",
+    grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0x3b3651),
+    details: (p) => {
+      aiBand(p, m, 1.0);
+      for (let u = m.u0 + 0.25; u < m.u1 - 0.15; u += 0.4) p.dot(u, (m.v0 + m.v1) / 2, m.z1 + 0.02, 0.1, 0x3b3358);
+    },
+  };
+}
+
+/** A COMPUTE SPIRE: a black obelisk, a violet seam up it. */
+export function computeSpire(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, 0.3, 0.15, 6.5), wall: AI_GLASS, storey: 6.35,
+    facade: { kind: "plain" }, roof: { kind: "flat", deck: AI_LIGHT },
+  };
+  return {
+    plinth: { inset: 0.12, h: 0.15, colour: 0x2a2440, top: 0x3b3358 }, masses: [m], crane: "none",
+    grounds: (p) => p.flat(0.06, 0.06, f.w - 0.06, f.h - 0.06, 0.004, 0x2a2440),
+    details: (p) => {
+      const mid = (m.u0 + m.u1) / 2, midv = (m.v0 + m.v1) / 2;
+      p.onV(m.v1 + 0.005, mid - 0.02, mid + 0.02, m.z0 + 0.3, m.z1 - 0.1, AI_LIGHT);
+      p.onU(m.u1 + 0.005, midv - 0.02, midv + 0.02, m.z0 + 0.3, m.z1 - 0.1, tone(AI_LIGHT, 0.8));
+    },
+  };
+}
+
+/** A DRONE HANGAR: a low vault, its door open on the dark inside. */
+export function droneHangar(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, 0.15, 0.15, 1.5), wall: 0x2a2440, storey: 1.35,
+    facade: { kind: "plain", lines: 0x3b3358, every: 0.3 },
+    roof: { kind: "flat", deck: 0x3b3358 },
+  };
+  const vault: Mass = { ...inside(f, 0.3, m.z1, m.z1 + 0.4), wall: 0x3b3358, storey: 1, facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x463d68 } };
+  return {
+    plinth: { inset: 0.05, h: 0.15, colour: 0x5d5770, top: 0x6f6984 }, masses: [m, vault], crane: "none",
+    grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0x3b3651),
+    details: (p) => {
+      const mid = (m.u0 + m.u1) / 2;
+      p.onV(m.v1, mid - 0.45, mid + 0.45, m.z0, m.z0 + 1.0, 0x0b0910);
+      aiBand(p, m, 1.15);
+    },
+  };
+}
+
+/** THE MONOLITH: a slab of nothing, taller than it is wide. */
+export function monolith(f: Footprint): Building {
+  const m: Mass = {
+    u0: f.w / 2 - 0.12, v0: f.h / 2 - 0.3, u1: f.w / 2 + 0.12, v1: f.h / 2 + 0.3, z0: 0, z1: 4.5,
+    wall: 0x050407, storey: 4.5, facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x0b0910 },
+  };
+  return {
+    plinth: { inset: 0.3, h: 0.02, colour: 0x050407, top: 0x0b0910 }, masses: [m], crane: "none",
+    grounds: (p) => p.flat(0.1, 0.1, f.w - 0.1, f.h - 0.1, 0.004, 0x2a2440),
+    details: () => {},
+  };
+}
+
 /** Each building by the structure it is drawn for. */
 export const LOOKS: Record<string, (f: Footprint) => Building> = {
   garage, studio, hq, boardroom, campus, townhall, harbour, datacentre, conference, hackerspace, ipo,
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
-  cafe, park, gym, lab, levee, derelict, rack,
+  cafe, park, gym, lab, levee, derelict, rack, pump,
+  "ai-node": aiNode, "gpu-farm": gpuFarm, "compute-spire": computeSpire, "drone-hangar": droneHangar, monolith,
 };
 
 /** The building a structure is drawn as. */

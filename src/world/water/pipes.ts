@@ -42,7 +42,9 @@
 import { FALL_GRAVITY } from "../../fluid/falls";
 import { addWater, surfaceAt, wantDepth, type ColumnField } from "../../fluid/columns";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { edited, heightAt, inBounds, idx, type Grid } from "../grid";
+import { edited, heightAt, inBounds, idx, structureAt, type Grid } from "../grid";
+import { PUMP_HEAD, PUMP_RATE, isDrinker } from "../../game/cooling";
+import { fillTank } from "../projects/cooling";
 import { resetMouths, runMouth } from "../../fluid/drips";
 import { COLUMNS_PER_TILE, columnOf, type WaterField } from "./field";
 import { findPipeNets } from "./pipe-net";
@@ -139,6 +141,98 @@ export function pipeAcross(grid: Grid, x: number, y: number, facing: number): bo
   if (!name) return false;
   const [dx, dy] = NEIGHBOUR[name];
   return inBounds(grid, x + dx, y + dy) && grid.pipe[idx(grid, x + dx, y + dy)] !== 0;
+}
+
+/**
+ * The building that drinks which this pipe end opens onto, by id, or -1: a
+ * finished Data Centre, AI node, GPU farm or compute spire. @see game/cooling
+ */
+export function intakeOf(grid: Grid, x: number, y: number, facing: number): number {
+  const name = FACING_OF[facing];
+  if (!name) return -1;
+  const [dx, dy] = NEIGHBOUR[name];
+  if (!inBounds(grid, x + dx, y + dy)) return -1;
+  const id = structureAt(grid, x + dx, y + dy);
+  const s = id >= 0 ? grid.structures.get(id) : undefined;
+  return s && !s.build && isDrinker(s.def) ? id : -1;
+}
+
+/** The facing that points from one tile at its neighbour, or 0 if they are not neighbours. */
+export function facingToward(from: { x: number; y: number }, to: { x: number; y: number }): number {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  for (const [name, [nx, ny]] of Object.entries(NEIGHBOUR) as [keyof typeof DIR, [number, number]][]) {
+    if (nx === dx && ny === dy) return DIR[name];
+  }
+  return 0;
+}
+
+/**
+ * A RUN OF PIPE LAID IN THE GAME: every cell faces along the run, so nothing
+ * opens on the way; each END faces — in this order — a building that drinks
+ * (to feed it), a pump house (to be filled by it), water (to draw from it), or
+ * pipe already laid (to join it),
+ * and otherwise is CAPPED, facing back into the run. A game pipe never spills
+ * onto the ground. Refused through a building or on water, and a lone tile
+ * with nothing to face. `cells` in order along the stroke. Pure.
+ * @see the Pipe tool, plans/datacentre-water.md §3
+ */
+export function gamePipeRun(
+  grid: Grid, cells: readonly { x: number; y: number }[],
+  /** Whether water stands on a tile now; by default, water the map started with. */
+  wet: (x: number, y: number) => boolean = (x, y) => grid.pool[idx(grid, x, y)] > 0,
+):
+  { x: number; y: number; facing: number; z: number }[] | { refused: string } {
+  if (!cells.length) return { refused: "Drag to lay pipe" };
+  for (const c of cells) {
+    if (structureAt(grid, c.x, c.y) >= 0) return { refused: "Pipe can't go through a building" };
+    if (wet(c.x, c.y)) return { refused: "Pipe goes beside water, not in it" };
+  }
+  const inRun = new Set(cells.map((c) => idx(grid, c.x, c.y)));
+  /** What an end should face, beyond the run: a drinker, water, or pipe already there. */
+  const endFacing = (c: { x: number; y: number }): number => {
+    const sides = (Object.keys(NEIGHBOUR) as (keyof typeof DIR)[])
+      .map((n) => ({ n, x: c.x + NEIGHBOUR[n][0], y: c.y + NEIGHBOUR[n][1] }))
+      .filter((s) => inBounds(grid, s.x, s.y) && !inRun.has(idx(grid, s.x, s.y)));
+    const drinker = sides.find((s) => intakeOf(grid, c.x, c.y, DIR[s.n]) >= 0);
+    if (drinker) return DIR[drinker.n];
+    const pump = sides.find((s) => pumpAt(grid, c.x, c.y, DIR[s.n]) >= 0);
+    if (pump) return DIR[pump.n];
+    const water = sides.find((s) => wet(s.x, s.y));
+    if (water) return DIR[water.n];
+    const pipe = sides.find((s) => grid.pipe[idx(grid, s.x, s.y)] !== 0);
+    return pipe ? DIR[pipe.n] : 0;
+  };
+  const ground = (c: { x: number; y: number }) => grid.height[idx(grid, c.x, c.y)];
+  const out = cells.map((c, k) => {
+    const next = cells[k + 1] ?? cells[k - 1];
+    return { x: c.x, y: c.y, facing: next ? facingToward(c, next) : 0, z: ground(c) };
+  });
+  const first = endFacing(cells[0]);
+  if (first) out[0].facing = first;
+  if (cells.length > 1) {
+    const last = endFacing(cells[cells.length - 1]);
+    if (last) out[out.length - 1].facing = last;
+  }
+  if (out.some((c) => !c.facing)) return { refused: "A pipe has to run from somewhere to somewhere" };
+  // THE END IN THE WATER GOES DOWN TO ITS FLOOR — a bank stands above the
+  // water, and an end laid on it draws nothing — and the run keeps that depth,
+  // buried, until the ground falls below it: a pipe never climbs. So water
+  // runs down it to wherever stands lower than the water. @see pipeGrade
+  const floorOf = (c: { x: number; y: number; facing: number }) => {
+    const name = FACING_OF[c.facing];
+    if (!name) return null;
+    const [dx, dy] = NEIGHBOUR[name];
+    return inBounds(grid, c.x + dx, c.y + dy) && wet(c.x + dx, c.y + dy) ? grid.height[idx(grid, c.x + dx, c.y + dy)] : null;
+  };
+  const grade = (order: typeof out) => {
+    let z = order[0].z;
+    for (const c of order.slice(1)) { z = Math.min(z, c.z); c.z = z; }
+  };
+  const head = floorOf(out[0]), tail = out.length > 1 ? floorOf(out[out.length - 1]) : null;
+  // The end on the water's floor whatever its own ground — below it, its mouth would open onto rock.
+  if (head !== null) { out[0].z = head; grade(out); }
+  else if (tail !== null) { out[out.length - 1].z = tail; grade([...out].reverse()); }
+  return out;
 }
 
 /** Whether this cell's facing opens on the world rather than into the run. */
@@ -245,7 +339,7 @@ export function layPipe(grid: Grid, x: number, y: number, facing: number, z?: nu
  * carries rather than water the simulation is holding, and both have to be
  * given their moment before the solver takes its step.
  */
-export function runPipes(field: WaterField, grid: Grid, dt: number): void {
+export function runPipes(field: WaterField, grid: Grid, dt: number, pumps: Pumps = FREE_PUMPS): void {
   const { columns } = field;
   // The hanging drops are a VIEW of the mouths, rebuilt every frame, so the
   // list starts empty and every mouth that runs puts itself back on it.
@@ -277,6 +371,32 @@ export function runPipes(field: WaterField, grid: Grid, dt: number): void {
       if (!facing || pipeAcross(grid, x, y, facing)) continue;
       const mouth = pipeMouth(grid, x, y, facing);
       if (!mouth) continue;
+
+      // AN END AT A PUMP HOUSE is the pump's to fill, not an opening. @see runPumps
+      if (pumpAt(grid, x, y, facing) >= 0) continue;
+
+      // AN INTAKE: an end opening onto a building that drinks pours into its
+      // tank — through the same orifice, as into the open, but only as much as
+      // the tank has room for. Full, it is a capped end and the run backs up.
+      // The water has to stand as high as the building's floor to get in: a
+      // buried main feeds a building above it only under that much pressure.
+      // @see fillTank, game/cooling
+      const into = intakeOf(grid, x, y, facing);
+      if (into >= 0) {
+        const bite = dt / PORT_BITES;
+        const [ox, oy] = NEIGHBOUR[FACING_OF[facing]];
+        const sill = Math.max(invertOf(grid, i), heightAt(grid, x + ox, y + oy) ?? 0);
+        for (let b = 0; b < PORT_BITES; b++) {
+          const head = invertOf(grid, i) + pipeDepth(field.pipe[i]) - sill;
+          if (head <= 0) break;
+          let move = PIPE_CD * PIPE_PORT * Math.sqrt(2 * FALL_GRAVITY * head) * bite;
+          if (move > field.pipe[i]) move = field.pipe[i];
+          const took = fillTank(into, move);
+          if (took <= 0) break;
+          field.pipe[i] -= took;
+        }
+        continue;
+      }
 
       const j = mouth.cy * columns.nx + mouth.cx;
       // THIS CELL'S DEPTH IS READ EVERY BITE, and while the device owns the
@@ -368,10 +488,69 @@ export function runPipes(field: WaterField, grid: Grid, dt: number): void {
     }
 
   }
+  runPumps(field, grid, dt, pumps);
   // Anything left standing in a cell that is no longer pipe goes back on the
   // ground it was lying on. Deleting a run has to put its water somewhere.
   spillOrphaned(field, grid);
 }
+
+/** How pump houses are paid: for `seconds` of running, whether it was. In the editor, free. */
+export type Pumps = { pay: (seconds: number) => boolean };
+const FREE_PUMPS: Pumps = { pay: () => true };
+
+/** The pump house a pipe end faces, by id, or -1. */
+export function pumpAt(grid: Grid, x: number, y: number, facing: number): number {
+  const name = FACING_OF[facing];
+  if (!name) return -1;
+  const [dx, dy] = NEIGHBOUR[name];
+  if (!inBounds(grid, x + dx, y + dy)) return -1;
+  const id = structureAt(grid, x + dx, y + dy);
+  const s = id >= 0 ? grid.structures.get(id) : undefined;
+  return s && !s.build && s.def === "pump" ? id : -1;
+}
+
+/**
+ * THE PUMP HOUSES: each pushes water from the pool beside it into the pipe
+ * ends that face it, as if that pool stood `PUMP_HEAD` higher — so up a run
+ * as far as that, and no further — at most `PUMP_RATE` a second. A second's
+ * running is paid for each frame it moves anything; unpaid, it stands still.
+ */
+function runPumps(field: WaterField, grid: Grid, dt: number, pumps: Pumps): void {
+  const { columns } = field;
+  const mid = Math.floor(COLUMNS_PER_TILE / 2);
+  pump: for (const s of grid.structures.values()) {
+    if (s.def !== "pump" || s.build) continue;
+    // Its water: the deepest water beside it, as it stands now. Its pipe: the ends facing it.
+    let j = -1, wx = 0, wy = 0, deepest = 0;
+    const ends: number[] = [];
+    for (const [name, [dx, dy]] of Object.entries(NEIGHBOUR) as [keyof typeof DIR, [number, number]][]) {
+      const x = s.x + dx, y = s.y + dy;
+      if (!inBounds(grid, x, y)) continue;
+      const i = idx(grid, x, y);
+      const cx = columnOf(x) + mid, cy = columnOf(y) + mid, c = cy * columns.nx + cx;
+      wantDepth(columns, c);
+      if (columns.depth[c] > deepest) { deepest = columns.depth[c]; wx = cx; wy = cy; j = c; }
+      const back = DIR[OPPOSITE[name]];
+      if (grid.pipe[i] === back) ends.push(i);
+    }
+    if (j < 0 || !ends.length) continue;
+    let paid = false;
+    for (const i of ends) {
+      const inside = invertOf(grid, i) + pipeDepth(field.pipe[i]);
+      const head = surfaceAt(columns, j) + PUMP_HEAD - inside;
+      if (head <= 0) continue;
+      let move = Math.min(PIPE_CD * PIPE_PORT * Math.sqrt(2 * FALL_GRAVITY * head) * dt, PUMP_RATE * dt / ends.length);
+      move = Math.min(move, columns.depth[j], pipeVolume(PIPE_D + PIPE_HEAD) - field.pipe[i]);
+      if (move <= 0) continue;
+      if (!paid && !pumps.pay(dt)) continue pump;
+      paid = true;
+      field.pipe[i] += move;
+      addWater(columns, wx, wy, -move);
+    }
+  }
+}
+
+const OPPOSITE: Record<keyof typeof DIR, keyof typeof DIR> = { N: "S", S: "N", E: "W", W: "E" };
 
 /** Where the water in one cell of pipe stands, in half steps. For readouts. */
 export const pipeLevelAt = (grid: Grid, field: WaterField, x: number, y: number) =>

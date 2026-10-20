@@ -9,8 +9,10 @@ import { ValuationSummary } from "./valuation-summary";
 
 export const ToolbarValuationCounter = ({
   className,
+  rateClassName,
 }: {
   className?: ClassNameValue;
+  rateClassName?: ClassNameValue;
 }) => {
   const valuation = useValuationStore((s) => s.valuation);
   const vps = useGeneratorStore((s) => s.getValuationPerSecond());
@@ -21,13 +23,14 @@ export const ToolbarValuationCounter = ({
       value={
         <>
           <span className="opacity-60">V</span>{" "}
-          {formatCurrency(valuation, { showDollarSign: false })}
+          {formatCurrency(valuation, { showDollarSign: false, steady: true })}
         </>
       }
       rate={formatRate(vps).formatted}
       onClick={() => setSidebarTab("valuation")}
       popover={<ValuationSummary />}
       className={className}
+      rateClassName={rateClassName}
     />
   );
 };

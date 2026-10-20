@@ -1,3 +1,5 @@
+// First, before any store reads the save: a fixture session works on a copy. @see fixture-sandbox
+import './fixture-sandbox'
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
@@ -18,6 +20,12 @@ if (isWorldV2) {
   // The world editor, a separate route. A dynamic import keeps it out of
   // the game's bundle.
   void import('./world/world-editor.tsx').then(({ WorldEditor }) => mount(<WorldEditor />))
+} else if (new URLSearchParams(window.location.search).has('fixture')) {
+  // A fixture opened in the game: its company, seeded in the copy. @see seedFixtureCompany
+  void import('./world/debug/fixture-company.ts').then(({ seedFixtureCompany }) => {
+    seedFixtureCompany()
+    mount(<App />)
+  })
 } else {
   mount(<App />)
 }

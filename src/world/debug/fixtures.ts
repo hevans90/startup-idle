@@ -10,11 +10,11 @@ import { DIR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { commit, createHistory } from "../edit/commands";
 import {
-  DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
+  AI_BUILDINGS, DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, PUMP, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
 } from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
 import { derivedRamp } from "../roads/ramp-derive";
-import { layPipe } from "../water/pipes";
+import { gamePipeRun, layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
   edited, fillTerrain, idx, inBounds, recomputeHeightRange, setDeck, setInflow, setSource, type Grid,
@@ -25,7 +25,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects";
+  | "firstRoad" | "projects" | "singularity";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -954,7 +954,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects",
+  "firstRoad", "projects", "singularity",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -983,6 +983,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "waterfall": buildWaterfall(g, material); recomputeHeightRange(g); return;
     case "brink": buildBrink(g, material); recomputeHeightRange(g); return;
     case "projects": buildProjects(g, material); recomputeHeightRange(g); return;
+    case "singularity": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
   }
 }
 
@@ -1048,5 +1049,89 @@ export function buildProjects(g: Grid, material: number) {
     put(def, rx, ry, 1);
     rx += def.footprint.w + GAP;
     if (rx > g.w - 6) { rx = 2 + GALLERY_STAGES.length * (4 + GAP) + 2; ry += 4 + GAP; }
+  }
+}
+
+/**
+ * THE AI'S TOWN, to look at the singularity on: streets in a ring, a finished
+ * Data Centre on the middle one with racks in reach, the AI's own buildings
+ * along the south street, and houses on the rest. Opened on it, the AI's
+ * preview runs through every stage and into the Ascension. @see aiFixturePreview
+ *
+ * AND ITS WATER: a pond on a terrace to the north-west, piped down to the Data
+ * Centre by gravity; a canal along the south, spring-fed and running off the
+ * map's edge, with a pump house lifting it up to the GPU farm, and a second
+ * pump's run to the compute spire left a tile short, for the Pipe tool to
+ * finish. @see game/cooling, plans/datacentre-water.md §7
+ */
+export function buildSingularity(g: Grid, material: number, cx: number, cy: number) {
+  clear(g, material);
+  // THE TERRACE, three slabs up, and the pond dug into it.
+  const T = { x0: 3, y0: 3, x1: 13, y1: 20 }, P = { x0: 5, y0: 5, x1: 11, y1: 12 };
+  for (let y = T.y0; y <= T.y1; y++) for (let x = T.x0; x <= T.x1; x++) set(g, x, y, 6);
+  for (let y = P.y0; y <= P.y1; y++) for (let x = P.x0; x <= P.x1; x++) set(g, x, y, 1);
+  pond(g, 5, 1, P.x0, P.y0, P.x1, P.y1);
+  // THE CANAL along the south: fed at its east end, off the west edge.
+  const C = { y0: g.h - 14, y1: g.h - 11 };
+  for (let y = C.y0; y <= C.y1; y++) for (let x = 0; x < g.w; x++) set(g, x, y, -4);
+  pond(g, -1, 1, 0, C.y0, g.w - 1, C.y1);
+  for (let y = C.y0; y <= C.y1; y++) tap(g, g.w - 1, y, SPRING / 4);
+  const history = createHistory();
+  const put = (def: StructureDef | null | undefined, x: number, y: number) => {
+    if (!def) return;
+    const cmd = placeCommand(g, { ...def, placement: undefined }, x, y);
+    if (!cmd) return;
+    commit(g, history, cmd);
+    const live = cmd.structures?.added[0] && g.structures.get(cmd.structures.added[0].id);
+    if (live) delete live.residents;
+  };
+  const x0 = Math.max(2, cx - 14), x1 = Math.min(g.w - 3, cx + 14);
+  const rows = [cy - 6, cy, cy + 6];
+  for (const y of rows) for (let x = x0; x <= x1; x++) g.paved[idx(g, x, y)] = 1;
+  for (const x of [x0, x1]) for (let y = rows[0]; y <= rows[2]; y++) g.paved[idx(g, x, y)] = 1;
+  edited(g);
+  // THE DATA CENTRE, north of the middle street, and racks either side of it.
+  put(structureDef("datacentre"), cx - 1, cy - 3);
+  for (const x of [cx - 7, cx - 5, cx + 3, cx + 5]) put(RACK, x, cy - 2);
+  for (const x of [cx - 6, cx - 3, cx + 2, cx + 5]) put(RACK, x, cy + 1);
+  // ITS OWN BUILDINGS, along the south street.
+  let x = x0 + 2;
+  for (const def of AI_BUILDINGS) {
+    put(def, x, rows[2] + 1);
+    x += def.footprint.w + 1;
+  }
+  // HOUSES on the north street, both sides, for the holograms to walk past.
+  const house = structureDef("kit:intern.t1");
+  for (let hx = x0 + 1; hx < x1; hx += 2) { put(house, hx, rows[0] - 1); put(house, hx, rows[0] + 1); }
+
+  // THE PIPES, laid as the Pipe tool lays them: each end facing what it should.
+  const lay = (cells: { x: number; y: number }[]) => {
+    const run = gamePipeRun(g, cells);
+    if ("refused" in run) return;
+    for (const c of run) layPipe(g, c.x, c.y, c.facing, c.z);
+  };
+  const line = (x0: number, y0: number, x1: number, y1: number) => {
+    const out: { x: number; y: number }[] = [];
+    const dx = Math.sign(x1 - x0), dy = Math.sign(y1 - y0);
+    for (let x = x0, y = y0; ; x += dx, y += dy) { out.push({ x, y }); if (x === x1 && y === y1) break; }
+    return out;
+  };
+  // From the pond, east along the terrace and down its edge, then south into the Data Centre.
+  const dc = [...g.structures.values()].find((s) => s.def === "datacentre");
+  if (dc) {
+    const px = dc.x + 1, py = P.y0 + 3;
+    lay([...line(P.x1 + 1, py, px, py), ...line(px, py + 1, px, dc.y - 1)]);
+  }
+  // From the canal, a pump house each, north to the GPU farm — and to a tile short of the spire.
+  const farm = [...g.structures.values()].find((s) => s.def === "gpu-farm");
+  const spire = [...g.structures.values()].find((s) => s.def === "compute-spire");
+  const bank = C.y0 - 1;
+  if (farm) {
+    put(PUMP, farm.x + 1, bank);
+    lay(line(farm.x + 1, bank - 1, farm.x + 1, farm.y + 1));
+  }
+  if (spire) {
+    put(PUMP, spire.x, bank);
+    lay(line(spire.x, bank - 1, spire.x, spire.y + 2));
   }
 }

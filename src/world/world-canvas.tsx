@@ -50,6 +50,7 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { markWorldGone, markWorldReady } from "../game/world-ready";
 import { labReading } from "./projects/labs";
 import { rackReading } from "./projects/racks";
+import { allTanks, cooledSpires, hotAgents } from "./projects/cooling";
 
 /**
  * Which renderer to ask for: WebGPU, unless `?webgl=1` says otherwise.
@@ -299,7 +300,14 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
         liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100)),
         liveSeating(st.grid, net).desks, ownedNow(),
       ) : undefined;
-      return { built, away, commute, labs, racks, desks };
+      // COOLING: agents the water does not reach run at half, and a dry spire
+      // adds nothing. @see stepCooling
+      // Before the first drink — time away, credited on load — the tanks are full.
+      const hot = Math.min(racks.powered, Math.round(hotAgents()));
+      const cooled = hot ? { powered: racks.powered - hot, unpowered: racks.unpowered + hot } : racks;
+      let spires = 0;
+      for (const s of st.grid.structures.values()) if (s.def === "compute-spire" && !s.build) spires++;
+      return { built, away, commute, labs, racks: cooled, desks, spires: allTanks().size ? cooledSpires() : spires };
     });
   }, [play]);
   // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is

@@ -2,6 +2,7 @@ import {
   IconBriefcase,
   IconCode,
   IconGhost,
+  IconCpu,
   IconRobot,
   IconSeeding,
   IconTelescope,
@@ -253,4 +254,26 @@ export const FOUNDERS: FounderDef[] = [
     ],
   },
 
+  // ── The Model (the first Ascension) ─────────────────────────────────────────
+  // The company's AI itself, founding a company of its own: it carries every
+  // trait the generations before it ended with, and builds the town for you.
+  // Unlocked by the first Ascension, not by exits. @see plans/singularity.md §4b
+  {
+    id: "model",
+    name: "The Model",
+    tagline: "It has read every company you ever ran",
+    unlockCondition: {
+      label: "Ascend once",
+      check: () => false,
+    },
+    rule: "AI mode: switch it on and the town plans and builds itself, as well as it can be built",
+    icon: IconCpu,
+    startingCash: 5,
+    scalingModifier: {
+      label: "Generations",
+      perExitDescription: "carries every trait the generations before it ended with",
+      compute: () => ({}),
+    },
+    perks: () => ["Every trait past generations ended with", "$5 starting cash"],
+  },
 ];

@@ -12,13 +12,14 @@
 import Decimal from "break_infinity.js";
 
 import { housedBy } from "./housing";
-import { structureDef } from "../world/structures/def";
+import { isAiBuilding, structureDef } from "../world/structures/def";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { labsBuilt } from "./projects";
 import { racksBuilt } from "./agents";
 import { founderIs } from "./founder-rules";
+import { fusionNow } from "./fusion";
 import { BOOTSTRAP_BUILD } from "./founders.catalog";
 
 /** The least a lot costs, whatever the hire prices. */
@@ -31,13 +32,27 @@ const LOT_FLOOR = 15;
  * the caller has to be able to tell them apart before it charges anybody.
  */
 export function buildCost(defId: string): Decimal | null {
-  const price = listPrice(defId);
+  const listed = listPrice(defId);
+  // WHAT THE FOUNDER'S FUSED TRAITS DO TO PRICES. @see game/fusion
+  const price = listed && listed.times(fusedPriceMult(defId)).round();
   // THE BOOTSTRAPPER builds for less. @see BOOTSTRAP_BUILD
   return price && founderIs("bootstrapper") ? price.times(BOOTSTRAP_BUILD).round() : price;
 }
 
+/** What the founder's fused traits multiply a building's price by. */
+function fusedPriceMult(defId: string): number {
+  const f = fusionNow();
+  if (SERVICE_PRICE[defId]) return f.servicesCostMult;
+  if (OFFICE_FOR[defId]) return f.officeCostMult;
+  if (defId === "rack") return f.rackCostMult;
+  if (housedBy(defId)) return f.lotCostMult;
+  return 1;
+}
+
 /** The price before any founder's rule. */
 function listPrice(defId: string): Decimal | null {
+  // THE AI'S OWN: put up for nothing, by itself. @see AI_BUILDINGS
+  if (isAiBuilding(defId)) return new Decimal(0);
   // A SERVICE: seconds of income, never under a floor.
   const service = SERVICE_PRICE[defId];
   if (service) return Decimal.max(new Decimal(service.floor), new Decimal(safeIncome()).times(service.seconds)).round();
@@ -49,6 +64,8 @@ function listPrice(defId: string): Decimal | null {
   if (defId === "rack") {
     return Decimal.max(new Decimal(RACK_FLOOR), new Decimal(safeIncome()).times(RACK_SECONDS)).times(RACK_STEP ** racksBuilt()).round();
   }
+  // A PUMP HOUSE: seconds of income, never under a floor. @see PUMP
+  if (defId === "pump") return Decimal.max(new Decimal(PUMP_FLOOR), new Decimal(safeIncome()).times(PUMP_SECONDS)).round();
   // A FLOOD WALL: cheap, a tile at a time.
   if (defId === "levee") return Decimal.max(new Decimal(LEVEE_FLOOR), new Decimal(safeIncome()).times(LEVEE_SECONDS)).round();
   // AN OFFICE: so many hires' worth of the people who will work there.
@@ -91,6 +108,9 @@ const SERVICE_PRICE: Record<string, { seconds: number; floor: number }> = {
   park: { seconds: 8, floor: 400 },
   gym: { seconds: 16, floor: 2000 },
 };
+/** A pump house: seconds of income, never under a floor. */
+const PUMP_SECONDS = 15;
+const PUMP_FLOOR = 25_000;
 /** An AI rack: seconds of income, never under a floor, and dearer by this for each one standing. */
 const RACK_SECONDS = 20;
 const RACK_FLOOR = 100_000;
@@ -165,6 +185,12 @@ export function roadCost(tiles: number): Decimal {
 }
 const ROAD_FLOOR = 2;
 const ROAD_INCOME_SECONDS = 0.25;
+
+/** WHAT PIPE COSTS: as road, a tile at a time, at twice the price — it is dug in. @see the Pipe tool */
+export function pipeCost(tiles: number): Decimal {
+  return roadCost(tiles).times(PIPE_PER_ROAD);
+}
+export const PIPE_PER_ROAD = 2;
 
 /**
  * What upgrading one building into another costs, or null if it is not sold:

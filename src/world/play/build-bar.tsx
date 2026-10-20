@@ -35,11 +35,18 @@ import { RANGE, serviceOf } from "../agents/services";
 import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
+import { useAiSingularityStore } from "../../state/ai-singularity.store";
+import { runningAgents } from "../../state/agents.store";
+import { useFounderStore } from "../../state/founder.store";
+import { getAiRunner } from "../ai/ai-runner";
+import { useTicking } from "../../hooks/use-ticking";
 import { WondersPanel } from "./wonders-panel";
+import { AiModePanel } from "./ai-mode-panel";
 import { PARCELS } from "../land";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
 import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
+import { PUMP_HEAD } from "../../game/cooling";
 import { InfoPop } from "../../ui/InfoPop";
 
 /** A small line icon, in the current colour. */
@@ -51,6 +58,7 @@ const ICONS: Record<string, ReactNode> = {
   inspect: <Icon><path d="M3 2l9 5-4 1-1 4z" /></Icon>,
   paintRoad: <Icon><path d="M5 2L3 14M11 2l2 12M8 3v2M8 7v2M8 11v2" /></Icon>,
   eraseRoad: <Icon><path d="M5 2L3 14M11 2l2 12M6 6l4 4M10 6l-4 4" /></Icon>,
+  pipe: <Icon><path d="M2 6h7a3 3 0 0 1 3 3v5M2 10h7M8 14h8" /></Icon>,
   placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
   buyLand: <Icon><path d="M4 14V2M4 2.5h8l-2 2.5 2 2.5H4" /></Icon>,
@@ -94,10 +102,14 @@ function Stat({ icon, value, tone, title, children }: {
   );
 }
 
+/** The tools the AI takes over at the Overseer stage. */
+const ROAD_TOOLS = new Set<ToolId>(["paintRoad", "eraseRoad"]);
+
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
-  { id: "eraseRoad", label: "Lift", hint: "Drag to take road up" },
+  { id: "eraseRoad", label: "Lift", hint: "Drag to take road or pipe up" },
+  { id: "pipe", label: "Pipe", hint: "Drag to lay pipe: from water to the Data Centre, to cool it" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down" },
   { id: "buyLand", label: "Land", hint: "Click land beside yours to buy it" },
@@ -131,7 +143,8 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
     if (items.length) out.push({ title: KIND_TITLE[who], colour: KIND_COLOUR[who], items });
   }
   // AI RACKS, once the Data Centre stands. @see game/agents
-  const racks = all.filter((d) => d.def.id === "rack");
+  // And the pump house that cools them, by the water. @see PUMP
+  const racks = all.filter((d) => d.def.id === "rack" || d.def.id === "pump");
   if (racks.length && agentsOpen() && hireable.has("10x_dev")) out.push({ title: "AI agents", colour: 0x6c7cff, items: racks });
   // Services and ports once their projects have opened them. @see featureGateOpen
   const services = all.filter((d) => serviceOf(d.def.id)).sort((a, b) => a.price - b.price);
@@ -146,7 +159,7 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
 
 /** A tile's name in its row, which already says whose: "Lot", "Office", "Seaport II". */
 const tileName = (def: StructureDef) =>
-  housedBy(def.id) ? "Lot" : workplaceKind(def.id) ? "Office" : def.id === "lab" ? "Lab" : def.id === "rack" ? "Rack"
+  housedBy(def.id) ? "Lot" : workplaceKind(def.id) ? "Office" : def.id === "lab" ? "Lab" : def.id === "rack" ? "Rack" : def.id === "pump" ? "Pump"
     : def.port ? saleName(def).replace(/^Seaport/, "Port") : saleName(def);
 
 /** What a tile is, in a few words. */
@@ -159,6 +172,7 @@ function tileNote(def: StructureDef): string {
   if (def.id === "levee") return "drag along a bank";
   if (def.id === "lab") return `innovation +${LAB_SHARE * 100}%`;
   if (def.id === "rack") return `${AGENTS_A_RACK} agents · near the Data Centre`;
+  if (def.id === "pump") return `lifts water ${PUMP_HEAD / 2} slabs · by the water`;
   return "";
 }
 
@@ -235,10 +249,18 @@ export function BuildBar({ className }: { className?: string }) {
     }
   }
 
+  // THE AI AT WORK: from the Colleague on, while agents run; at the Overseer it lays every road. @see stepAi
+  useTicking(1000);
+  const aiValue = useAiSingularityStore((s) => s.value);
+  const notModel = useFounderStore((s) => s.selectedFounderId) !== "model";
+  const aiBuilding = notModel && aiValue >= 40 && runningAgents() > 0;
+  const aiRoads = notModel && aiValue >= 80;
+  const aiLog = getAiRunner().log;
+  const aiMemo = aiLog[aiLog.length - 1]?.text;
   const choose = (id: ToolId) => {
     setTool(id);
     // Road goes down in a line, as a road does; everything else is a click.
-    setBrush(id === "paintRoad" || id === "eraseRoad" ? "line" : "point");
+    setBrush(id === "paintRoad" || id === "eraseRoad" || id === "pipe" ? "line" : "point");
     setBrushRadius(0);
     setPicking(id === "placeStructure" ? !(tool === id && picking) : false);
     // Something on offer in hand, not whatever was last: a lot for people the
@@ -252,6 +274,8 @@ export function BuildBar({ className }: { className?: string }) {
   // LAND FOR SALE, while any is left: the next parcel's price. @see world/land
   const land = useSessionStore((s) => s.land);
   const forSale = !!land && land.length < PARCELS * PARCELS;
+  // PIPE, once there is a Data Centre to cool. @see game/cooling
+  const pipesOpen = agentsOpen();
   const landNext = parcelPrice();
 
   return (
@@ -262,6 +286,7 @@ export function BuildBar({ className }: { className?: string }) {
         </p>
       )}
       <WondersPanel />
+      <AiModePanel />
       {picking && !wondersOpen && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
@@ -344,10 +369,11 @@ export function BuildBar({ className }: { className?: string }) {
 
         {/* THE TOOLS. */}
         <div className="flex items-stretch overflow-x-auto">
-          {TOOLS.filter((t) => t.id !== "buyLand" || forSale).map((t) => (
-            <button key={t.id} type="button" title={t.hint} onClick={() => choose(t.id)}
+          {TOOLS.filter((t) => (t.id !== "buyLand" || forSale) && (t.id !== "pipe" || pipesOpen)).map((t) => (
+            <button key={t.id} type="button" title={aiRoads && ROAD_TOOLS.has(t.id) ? "Your input is no longer required for roads." : t.hint}
+              onClick={() => choose(t.id)} disabled={aiRoads && ROAD_TOOLS.has(t.id)}
               data-hint={t.id === "placeStructure" ? "build" : t.id === "buyLand" ? "land" : undefined}
-              className={twMerge(TOOL, tool === t.id && TOOL_ON)}>
+              className={twMerge(TOOL, tool === t.id && TOOL_ON, "disabled:cursor-default disabled:opacity-40")}>
               {ICONS[t.id]}
               <span className="@max-3xl:hidden">{t.label}</span>
               {t.id === "placeStructure" && chosen && tool === t.id && (
@@ -358,6 +384,14 @@ export function BuildBar({ className }: { className?: string }) {
               )}
             </button>
           ))}
+          {/* THE AI IS BUILDING: its latest memo on hover. @see stepAi */}
+          {aiBuilding && (
+            <span title={aiMemo ?? "The AI is working on the town."}
+              className="flex items-center gap-1 px-2 text-[10px] font-bold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-600 dark:bg-violet-400" />
+              <span className="@max-3xl:hidden">The AI is building</span>
+            </span>
+          )}
           {canUndo && (
             <button type="button" title="Take back the last build and get its money back"
               onClick={undoLastBuild} className={twMerge(TOOL, "text-amber-800 dark:text-amber-300")}>

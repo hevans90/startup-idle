@@ -15,7 +15,7 @@
 import { FLOOD_SECONDS } from "./flood";
 
 
-export type EventKind = "slop-overflow" | "river-flood" | "convoy" | "investor-tour" | "hackathon" | "offer" | "singularity";
+export type EventKind = "slop-overflow" | "river-flood" | "convoy" | "investor-tour" | "hackathon" | "offer";
 
 export type EventChoice = {
   id: string;
@@ -72,12 +72,6 @@ export type EventWorld = {
    * acquirer's premium. Null while there is nothing to sell. @see OFFER_PREMIUM
    */
   offer: { x: number; y: number; due: boolean; equity: number; withPremium: number; street?: string } | null;
-  /**
-   * THE AGENTS, once any run: at the Data Centre, whether the singularity
-   * meter is high enough for them to start deciding things, and what a sale
-   * on their terms would pay. Null with none running. @see AI_TERMS
-   */
-  singularity?: { x: number; y: number; due: boolean; equity: number; onTheirTerms: number } | null;
   /** Whether events happen at all: false, and every one is put away. */
   enabled: boolean;
 };
@@ -176,15 +170,6 @@ const people = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
  */
 export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 1 } as const;
 
-/** At this singularity, with agents running, they start deciding things. */
-export const SINGULARITY_AT = 90;
-/** What a sale on the agents' terms multiplies the Equity by. */
-export const AI_TERMS = 2;
-/** The share of the company's money the agents spend on compute, left to it. */
-export const AI_SPEND = 0.5;
-/** Where the meter is left after the plug is pulled, and after the agents have had their way. */
-export const PLUGGED_AT = 50;
-export const LEFT_AT = 75;
 
 /**
  * A CONVOY SERVED — extra hands at the quays, and calls made while it was in —
@@ -252,26 +237,6 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     },
     // A sale ends the company, and this with it; still here, it lapsed.
     outcome: (e) => (e.chosen === "accept" ? "The offer lapsed before you signed. Another may come." : "The acquirer has walked away. Another may come."),
-  },
-  singularity: {
-    warnMs: 60_000, activeMs: 1,
-    warning: { title: "The agents are deciding things", text: "The AI agents have stopped asking. Pull the plug, or let them buy the company on their terms — left to it, they will spend your money on compute." },
-    active: { title: "The agents have decided", text: "Half the company's money is going on compute." },
-    of: (w) => w.singularity ? {
-      ...w.singularity,
-      choices: [
-        { id: "plug", label: "Pull the plug", cost: `every agent shut down · the meter back to ${PLUGGED_AT}%` },
-        {
-          id: "sell", label: "Let them buy the company",
-          cost: `+${w.singularity.onTheirTerms} Equity, against ${w.singularity.equity} · sells the company`,
-          ...(w.singularity.equity > 0 ? {} : { unavailable: "Not worth buying yet" }),
-        },
-      ],
-    } : null,
-    goesAhead: (e) => e.chosen !== "plug",
-    outcome: (e) => (e.chosen === "plug"
-      ? "The racks are dark. The meter is falling."
-      : `The agents decided: ${Math.round(AI_SPEND * 100)}% of the money went on compute.`),
   },
   hackathon: {
     warnMs: 45_000, activeMs: 60_000,

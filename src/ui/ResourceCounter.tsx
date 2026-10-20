@@ -14,6 +14,7 @@ export const ResourceCounter = ({
   popover,
   title,
   className,
+  rateClassName,
 }: {
   value: ReactNode;
   /** Per-second line shown beneath the value. */
@@ -24,6 +25,8 @@ export const ResourceCounter = ({
   popover?: ReactNode;
   title?: string;
   className?: ClassNameValue;
+  /** Classes for the per-second line: to hide it where room is short, say. */
+  rateClassName?: ClassNameValue;
 }) => {
   const cls = twMerge(
     "flex min-w-[6.5rem] flex-col items-center rounded px-2 leading-tight",
@@ -34,9 +37,9 @@ export const ResourceCounter = ({
 
   const body = (
     <>
-      <span className="font-bold tabular-nums whitespace-nowrap">{value}</span>
+      <span className="max-w-full truncate font-bold tabular-nums whitespace-nowrap">{value}</span>
       {rate != null && (
-        <span className="text-xs tabular-nums whitespace-nowrap opacity-60">
+        <span className={twMerge("max-w-full truncate text-xs tabular-nums whitespace-nowrap opacity-60", rateClassName)}>
           {rate}
         </span>
       )}

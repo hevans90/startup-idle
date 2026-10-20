@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { agentBonus } from "../game/agents";
-import { useAgentsStore } from "./agents.store";
+import { runningAgents } from "./agents.store";
+import { training } from "./training.store";
+import { ITSELF_AGENTS, MONEY_MULT } from "../game/training";
+
 import {
   createJSONStorage,
   persist,
@@ -11,6 +14,7 @@ import { roomFor } from "../game/housing";
 import { attendance, deskBonus, labBonus, wonderBonus } from "../game/projects";
 import { townMoodOffsets } from "../game/town-mood";
 import { moraleOffsets } from "../game/morale";
+import { fusionNow } from "../game/fusion";
 import {
   calcGeneratorIncome,
   calcGeneratorPerSecond,
@@ -36,7 +40,6 @@ import {
   getUnlockedGeneratorIds,
 } from "../utils/generator-utils";
 import { useAiSingularityStore } from "./ai-singularity.store";
-import { useDirectivesStore } from "./directives.store";
 import { useFounderStore } from "./founder.store";
 import { getManagementTierTotal, useInnovationStore } from "./innovation.store";
 import { useMoneyStore } from "./money.store";
@@ -48,6 +51,9 @@ import {
 import { syncAvailableUpgrades } from "./upgrades.store";
 import { useSlopPitStore } from "./slop-pit.store";
 import { useValuationStore } from "./valuation.store";
+
+/** What the agents running add to income — more while training on themselves. @see ITSELF_AGENTS */
+const trainedAgentBonus = () => 1 + (agentBonus(runningAgents()) - 1) * (training() === "itself" ? ITSELF_AGENTS : 1);
 
 export type UnlockCondition = {
   requiredId: GeneratorId;
@@ -448,7 +454,10 @@ function tickSatisfaction(
   // AND THE TOWN: each kind leans toward the mood of the houses it lives in.
   // @see townMoodOffsets
   // AND WHAT EVENTS LEFT BEHIND, for as long as it is felt. @see addMorale
-  for (const offsets of [townMoodOffsets(), moraleOffsets()]) {
+  // And the founder's fused traits: a Ruthless or a Nanny leans everyone. @see game/fusion
+  const lean = fusionNow().moraleLean;
+  const fused: Partial<Record<GeneratorId, number>> = lean ? { intern: lean, vibe_coder: lean, "10x_dev": lean } : {};
+  for (const offsets of [townMoodOffsets(), moraleOffsets(), fused]) {
     for (const [id, n] of Object.entries(offsets)) {
       satOffsets[id as GeneratorId] = (satOffsets[id as GeneratorId] ?? 0) + (n ?? 0);
     }
@@ -479,11 +488,6 @@ function accrueGeneratorIncome(
   const { money, innovation } = calcGeneratorIncome(gen, m, out, ticks);
   useMoneyStore.getState().increaseMoney(money * moneyMult);
   useInnovationStore.getState().increaseInnovation(innovation);
-  const dir = useDirectivesStore.getState();
-  if (dir.everUnlocked) {
-    if (money > 0) dir.onMoneyTick(money);
-    if (innovation > 0) dir.onInnovationTick(innovation);
-  }
 }
 
 export const useGeneratorStore = create<GeneratorState>()(
@@ -502,7 +506,6 @@ export const useGeneratorStore = create<GeneratorState>()(
           let frac = (acc[gen.id] ?? 0) + rate * seconds;
           const maxIter = 500;
           let iter = 0;
-          let autoBought = 0;
           while (frac >= 1 && iter < maxIter) {
             const cost = getGeneratorCost(gen.id, 1);
             const money = useMoneyStore.getState().money;
@@ -511,10 +514,6 @@ export const useGeneratorStore = create<GeneratorState>()(
             get().increaseGenerator(gen.id, 1);
             frac -= 1;
             iter += 1;
-            autoBought += 1;
-          }
-          if (autoBought > 0) {
-            useDirectivesStore.getState().onHired(gen.id as GeneratorId, autoBought);
           }
           acc[gen.id] = frac;
         }
@@ -541,7 +540,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * agentBonus(useAgentsStore.getState().agents),
+            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * trainedAgentBonus() * (training() === "money" ? MONEY_MULT : 1) * fusionNow().incomeMult,
             innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * atDesks * wonderBonus("innovation") * labBonus(),
           };
         },
@@ -749,12 +748,8 @@ export const useGeneratorStore = create<GeneratorState>()(
           const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
           const m = computeModifiers({ totalEmployees, emUnlocked, rawScores: satisfactionScores });
 
-          // ── 3. AI singularity ─────────────────────────────────────────────────
-          if (emUnlocked) {
-            useAiSingularityStore
-              .getState()
-              .tick(seconds, m.effectiveScores["vibe_coder"] ?? 0, emUnlocked);
-          }
+          // ── 3. AI singularity: the agents running push it. @see singularityRate
+          useAiSingularityStore.getState().tick(seconds);
 
           // ── 4. Income accrual (side effects only) ────────────────────────────
           // Slop pit fills from vibe coders and penalises all income when full.
@@ -812,7 +807,6 @@ export const useGeneratorStore = create<GeneratorState>()(
             get().increaseGenerator(id, amount);
             syncUnlockedGenerators();
             syncAvailableUpgrades();
-            useDirectivesStore.getState().onHired(id as GeneratorId, amount);
           }
         },
 

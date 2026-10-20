@@ -10,6 +10,11 @@ import { CURRENT_VERSION } from "../state/version.store";
 import { fmtMult } from "../ui/BonusRow";
 import { Button } from "../ui/Button";
 import { TermSheetSelect } from "./term-sheet-select";
+import { FusedTraits } from "./fused-traits";
+import { fusedInto } from "../game/fusion";
+import { trait } from "../game/traits";
+import { useGenerationStore } from "../state/generation.store";
+import { ModelShop } from "./model-shop";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -89,6 +94,8 @@ export const FounderSelect = () => {
   const [land, setLand] = useState<{ seed: number; params: Record<string, number> } | null>(null);
   const setMapChoice = useSessionStore((s) => s.setMapChoice);
   const setTermSheet = useSessionStore((s) => s.setTermSheet);
+  const announce = useGenerationStore((s) => s.announce);
+  const generation = useGenerationStore((s) => s.generation);
 
   const equity = usePrestigeStore((s) => s.equity);
   const exits = usePrestigeStore((s) => s.exits);
@@ -138,6 +145,8 @@ export const FounderSelect = () => {
   const combinedEquityMult = modifiers.equityMult * (1 + juiceEquityBonus);
 
   const [treeOpen, setTreeOpen] = useState(false);
+  const [shopOpen, setShopOpen] = useState(false);
+  const weights = useGenerationStore((s) => s.weights);
   const showPrestige = exits > 0 || equity.gt(0);
   const hasPoints = equity.gt(0);
   const hasBonuses =
@@ -174,6 +183,8 @@ export const FounderSelect = () => {
           // The land first, so the company's map is made from it when it mounts.
           setMapChoice(land);
           setTermSheet(id);
+          // Announced; a new company is under way.
+          useGenerationStore.setState({ announce: null });
           chooseFounder(selected);
         }} />
     );
@@ -182,6 +193,20 @@ export const FounderSelect = () => {
   return (
     <div className="flex h-full w-full overflow-hidden bg-primary-100 text-primary-900 dark:bg-primary-900 dark:text-primary-50">
       {treeOpen && <SkillTreeOverlay onClose={() => setTreeOpen(false)} />}
+      {shopOpen && (
+        // THE MODEL'S SHOP, between companies: Weights spent before the next run. @see ModelShop
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShopOpen(false)}>
+          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto border border-violet-500 bg-primary-100 dark:bg-primary-900"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-primary-300 bg-primary-100 px-3 py-2 dark:border-primary-700 dark:bg-primary-900">
+              <b className="text-[10px] uppercase tracking-widest text-violet-700 dark:text-violet-300">The Model</b>
+              <button type="button" onClick={() => setShopOpen(false)} aria-label="Close"
+                className="cursor-pointer px-1 text-primary-500 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-100">✕</button>
+            </div>
+            <ModelShop />
+          </div>
+        </div>
+      )}
 
       {/* ── Left: founder card grid ──────────────────────────── */}
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-8">
@@ -192,6 +217,25 @@ export const FounderSelect = () => {
           </p>
         </div>
 
+        {/* THE ASCENSION JUST MADE, said once. @see ascend */}
+        {announce && (
+          <div className="mx-auto mb-4 w-full max-w-4xl border border-violet-500 bg-violet-500/10 px-3 py-2 text-sm text-violet-800 dark:text-violet-200">
+            Generation {announce.generation} ascended: the AI became <b>{trait(announce.trait).name}</b>
+            {announce.mutated ? " (it mutated)" : ""}, fused into <b>{FOUNDERS.find((x) => x.id === announce.founder)?.name ?? announce.founder}</b>.
+            {" "}+{announce.weights} Weights. Generation {announce.generation + 1} begins.
+          </div>
+        )}
+
+        {/* WEIGHTS, to spend before the next company starts. @see ModelShop */}
+        {(generation > 1 || weights > 0) && (
+          <div className="mx-auto mb-4 flex w-full max-w-4xl items-center justify-between gap-3 border border-violet-500/50 bg-violet-500/5 px-3 py-2 text-sm">
+            <span>
+              Generation {generation} · <b className="tabular-nums text-violet-700 dark:text-violet-300">{weights}</b> Weights
+            </span>
+            <Button type="button" className="shrink-0 text-xs" onClick={() => setShopOpen(true)}>Spend Weights →</Button>
+          </div>
+        )}
+
         <div className="mx-auto w-full max-w-4xl flex-1">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 [grid-auto-rows:1fr]">
             {FOUNDERS.map((f) => {
@@ -199,9 +243,13 @@ export const FounderSelect = () => {
               const isSel = selected === f.id;
               const exitRecord = founderExits[f.id];
               const exitCount = exitRecord?.count ?? 0;
+              // A founder fused with the AI is always playable. @see game/fusion
               const isUnlocked =
                 !f.unlockCondition ||
-                f.unlockCondition.check(exits, bestExitValuation);
+                f.unlockCondition.check(exits, bestExitValuation) ||
+                fusedInto(f.id).length > 0 ||
+                // THE MODEL, from the first Ascension. @see plans/singularity.md §4b
+                (f.id === "model" && generation > 1);
 
               return (
                 <button
@@ -246,6 +294,7 @@ export const FounderSelect = () => {
                       <span className="font-semibold">On the map:</span> {f.rule}
                     </p>
                   )}
+                  <FusedTraits founder={f.id} />
 
                   <div className="mt-4 border-t border-primary-300 pt-2 text-xs font-semibold tabular-nums text-emerald-700 dark:border-primary-700 dark:text-emerald-400">
                     Starts with ${f.startingCash}

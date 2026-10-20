@@ -2,6 +2,7 @@
  * World v2 — the first-run HINT on the map: one tip at a time, with the thing
  * it is about glowing, until its goal is met or it is dismissed. @see hints
  */
+import { hotAgents } from "../projects/cooling";
 import { useEffect, useState } from "react";
 
 import { housedBy, housingResidents, awaitingArrival } from "../../game/housing";
@@ -65,6 +66,8 @@ function snapshot(): HintState {
     ...landState(),
     labs, levees, racks,
     deskless,
+    hot: Math.round(hotAgents()),
+    pipes: grid.pipe.reduce((n, p) => n + (p ? 1 : 0), 0),
     floodWarning: useWorldStore.getState().events.some((e) => e.kind === "river-flood" && e.phase === "warning"),
   };
 }

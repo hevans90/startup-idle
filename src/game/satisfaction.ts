@@ -100,11 +100,3 @@ export function dev10xSatisfactionExponentDelta(score: number): number {
   if (score === 0) return 0;
   return (-score / SATISFACTION_MAX) * 0.35;
 }
-
-/** Percentage points per second (0–100 scale) when vibe satisfaction is negative. Intentionally slow. */
-export function vibeSingularityAccrualRatePerSecond(vibeScore: number): number {
-  if (vibeScore >= 0) return 0;
-  const intensity = -vibeScore / SATISFACTION_MAX;
-  return intensity * 0.012;
-}
-

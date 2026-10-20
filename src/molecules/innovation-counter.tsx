@@ -42,8 +42,10 @@ export const InnovationCounter = ({
 
 export const ToolbarInnovationCounter = ({
   className,
+  rateClassName,
 }: {
   className?: ClassNameValue;
+  rateClassName?: ClassNameValue;
 }) => {
   const { innovation } = useInnovationStore();
 
@@ -62,6 +64,7 @@ export const ToolbarInnovationCounter = ({
       onClick={() => setSidebarTab("innovation")}
       popover={<InnovationSummary />}
       className={className}
+      rateClassName={rateClassName}
     />
   );
 };

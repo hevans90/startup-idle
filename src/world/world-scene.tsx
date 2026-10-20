@@ -10,6 +10,14 @@ import { HUSTLER_EVENTS } from "../game/founders.catalog";
 import { housedBy } from "../game/housing";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { createStreetHeat, type StreetHeat } from "./render/street-heat";
+import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
+import { aiFixturePreview, sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
+import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos } from "./ai/ai-runner";
+import { currentPlan, pendingPipe, stepAutopilot } from "./ai/autopilot";
+import { useFounderStore } from "../state/founder.store";
+import { showMe } from "./play/map-focus";
+import { runningAgents, useAgentsStore } from "../state/agents.store";
+import { stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
 import { liveStreetEarnings, liveStreets, streetName } from "./play/street-earnings";
 import { liveDesireMaps } from "./agents/desirability";
 import { canAcquire, offerPremium, pendingEquity } from "../game/acquisition";
@@ -24,7 +32,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { companyLand, drainDirty, playRules, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { companyLand, drainDirty, playRules, startedOnFixture, startFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfFrame } from "./debug/perf";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
@@ -91,14 +99,12 @@ import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
-import { stepEvolution } from "./agents/services";
+import { stepEvolution, withTier } from "./agents/services";
 import { liveSeating } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
 import { CONVOY_PAYS, convoyPays } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
-import { useAgentsStore } from "../state/agents.store";
-import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { CLEANERS_PER_TILE, cleanupAway, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, overflow, sludgedHouses, stepHaulers, syncPit, type PitLevel } from "./events/sludge";
@@ -109,7 +115,7 @@ import {
   damage, evacuatedAway, floodBaseline, isDamaged, floodedNow, floodMisery, floodPeak, portShut, stepRepairs, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
 import {
-  AI_SPEND, AI_TERMS, CREW_SHARE, EVACUEE_MORALE, FLOOD_MS, HACKATHON_MORALE, HACKATHON_SNUB, tourFailed, LEFT_AT, MAX_ROUTES, ROUTE_BONUS, SINGULARITY_AT, routeWon, stepEvents, tourReward,
+  CREW_SHARE, EVACUEE_MORALE, FLOOD_MS, HACKATHON_MORALE, HACKATHON_SNUB, tourFailed, MAX_ROUTES, ROUTE_BONUS, routeWon, stepEvents, tourReward,
 } from "./events/events";
 import { SLOP_PIT } from "./structures/def";
 import { FILL_RATE_PER_CODER, SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
@@ -118,6 +124,9 @@ import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { addMorale } from "../game/morale";
+import { fusionNow } from "../game/fusion";
+import { RIVER_PORTS } from "../game/training";
+import { training, useTrainingStore } from "../state/training.store";
 import { useSessionStore } from "../state/session.store";
 import { stepWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -129,11 +138,13 @@ import "./structures/slop-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { footprintCells, structureAt, surfaceSampler, type Structure } from "./grid";
+import { footprintCells, idx, inBounds, structureAt, surfaceHeightAt, surfaceSampler, type Grid, type Structure } from "./grid";
 import { HEIGHT_UNIT, HH, HW, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
 import { runPipes } from "./water/pipes";
+import { stepCooling, tankFor } from "./projects/cooling";
+import { pumpUpkeep } from "../game/cooling";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
 import {
   createFallLayer, destroyFallLayer, drawFalls, type FallLayer,
@@ -153,6 +164,10 @@ import {
 } from "./render/falls-gpu";
 import { COLUMNS_PER_TILE } from "./water/field";
 import { pointerRead, type PointerAt } from "./debug/pointer-at";
+import { clickTakesOver, opensSomething } from "./play/opens";
+import { drawOpenHighlight } from "./render/open-highlight";
+import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
+import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
 import {
@@ -163,7 +178,7 @@ import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
 import { buyable, PARCELS, parcelOf } from "./land";
-import { busyness, darkness, dayPhase, drawRain, NIGHT_COLOUR } from "./daylight";
+import { busyness, darkness, dayPhase, drawRain, NIGHT_COLOUR, NIGHT_DARK } from "./daylight";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 
 // Required: <pixiContainer> is only a known element once Container is
@@ -180,10 +195,11 @@ const ROAD_TABLE = buildRoadTable("landscape");
  * The structure drawn under a point on the screen, the frontmost if several
  * overlap there — by the bounds of what its renderer drew. Null for none.
  */
-function structureHitAt(sl: StructureLayer | null, gx: number, gy: number): Structure | null {
+function structureHitAt(sl: StructureLayer | null, gx: number, gy: number, only?: (s: Structure) => boolean): Structure | null {
   if (!sl) return null;
   let best: Structure | null = null, bestBand = -Infinity;
   for (const m of sl.mounted.values()) {
+    if (only && !only(m.s)) continue;
     const h = m.handle as { sprites?: Container[]; columns?: Container[]; g?: Container };
     const drawn = h.sprites ?? h.columns ?? (h.g ? [h.g] : []);
     const band = m.s.x + m.s.w - 1 + m.s.y + m.s.h - 1;
@@ -202,6 +218,36 @@ function stopGarbageCollection(renderer: unknown) {
   const r = renderer as { gc?: { enabled: boolean } };
   if (r.gc) r.gc.enabled = false;
 }
+
+/** How well the Data Centre is cooled and how full its tank, for the AI layer. @see AiView */
+function dcCooling(g: Grid): { cooled: number; tank: number } {
+  for (const s of g.structures.values()) {
+    if (s.def !== "datacentre" || s.build) continue;
+    const t = tankFor(s.id);
+    return t ? { cooled: t.share, tank: t.capacity > 0 ? t.level / t.capacity : 1 } : { cooled: 1, tank: 1 };
+  }
+  return { cooled: 1, tank: 1 };
+}
+
+/** A number for each masterplan seen, to tell a new one from the last. */
+const planIds = new WeakMap<object, number>();
+let planSeq = 0;
+const planId = (plan: object) => {
+  let id = planIds.get(plan);
+  if (id === undefined) { id = ++planSeq; planIds.set(plan, id); }
+  return id;
+};
+
+/** Pump houses paid from the company's money, a second's upkeep at a time. @see pumpUpkeep */
+const PAID_PUMPS = {
+  pay: (seconds: number) => {
+    const cost = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond()) * seconds;
+    const money = useMoneyStore.getState();
+    if (money.money.lt(cost)) return false;
+    money.spendMoney(cost);
+    return true;
+  },
+};
 
 /** A look-tool press let go within this many px of where it went down is a click, not a pan. */
 const LOOK_CLICK_SLOP = 5;
@@ -252,6 +298,22 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // held so an edit can re-texture just the cells that changed
   const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
+  /** Holograms: what a placement would put down, and what AI mode's drones are about to. @see createHolograms */
+  const holoRef = useRef<Holograms | null>(null);
+  const holoScanRef = useRef<Graphics | null>(null);
+  const tileHoloRef = useRef<TileHolograms | null>(null);
+  const placeHolos = useRef<HoloSpec[]>([]);
+  /** The masterplan's buildings shown as holograms, so its flat ghost leaves them out. */
+  const planHoloKeys = useRef<ReadonlySet<string>>(new Set());
+  const aiHolos = useRef<HoloSpec[]>([]);
+  /** Show the holograms asked for now: the build tool's and AI mode's. */
+  const showHolos = useCallback(() => {
+    const h = holoRef.current, bl = blRef.current, tex = texRef.current;
+    if (!h || !bl || !tex) return;
+    h.set([...placeHolos.current, ...aiHolos.current], { bands: bl, textures: tex, grid: useWorldStore.getState().grid, scale: useWorldStore.getState().scale });
+  }, []);
+  /** The AI on the map: the Data Centre's glow, the links, the holograms. @see createAiLayer */
+  const aiLayerRef = useRef<AiLayer | null>(null);
   /** The earnings overlay. @see createStreetHeat */
   const streetHeatRef = useRef<StreetHeat | null>(null);
   /** The placing heat map. @see createDesireHeat */
@@ -286,6 +348,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const pacing = useRef(createPacing(useSessionStore.getState().eventPacing));
   const pacingSaved = useRef(0);
   const floodBase = useRef<FloodBase | null>(null);
+  /** Whether the AI has been caught up on time away, and when it last said where it was. @see catchUpAi */
+  const aiPrimed = useRef(false);
+  const aiSaved = useRef(0);
   /** The kinds a flood's evacuation has put out of their homes. @see EVACUEE_MORALE */
   const evacuees = useRef(new Set<GeneratorId>());
   const floodRise = useRef(0);
@@ -1407,6 +1472,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         cursorRef.current = createBuildCursor(overlayRoot.current, bl);
         heatRef.current = createDesireHeat(overlayRoot.current);
         streetHeatRef.current = createStreetHeat(overlayRoot.current);
+        aiLayerRef.current = createAiLayer(overlayRoot.current);
+        // HOLOGRAMS mount in the bands, at true depth; their scan lines go over everything.
+        holoRef.current = createHolograms();
+        tileHoloRef.current = createTileHolograms();
+        const scan = new Graphics();
+        scan.eventMode = "none";
+        scan.zIndex = 1001;
+        overlayRoot.current.addChild(scan);
+        holoScanRef.current = scan;
       }
       boatRef.current = createBoatLayer(bl);
       townRef.current = createTownLayer(bl);
@@ -1437,10 +1511,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       cursorRef.current?.destroy();
       cursorRef.current = null;
+      holoRef.current?.clear();
+      holoRef.current = null;
+      tileHoloRef.current?.clear();
+      tileHoloRef.current = null;
+      holoScanRef.current?.parent?.removeChild(holoScanRef.current);
+      holoScanRef.current?.destroy();
+      holoScanRef.current = null;
       heatRef.current?.destroy();
       heatRef.current = null;
       streetHeatRef.current?.destroy();
       streetHeatRef.current = null;
+      aiLayerRef.current?.destroy();
+      aiLayerRef.current = null;
       boatRef.current?.destroy();
       boatRef.current = null;
       townRef.current?.destroy();
@@ -1498,6 +1581,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const gapGfx = useRef<Graphics | null>(null);
   const originGfx = useRef<Graphics | null>(null);
   const hoverGfx = useRef<Graphics | null>(null);
+  const openGfx = useRef<Graphics | null>(null);
   const crossGfx = useRef<Graphics | null>(null);
   const landGfx = useRef<Graphics | null>(null);
   const overlays = useWorldStore((s) => s.overlays);
@@ -1569,10 +1653,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // created later (it needs the band layer) and must stay on top of these
     // however the two effects happen to interleave.
     root.sortableChildren = true;
-    const refs = [landGfx, bandGfx, tintGfx, netGfx, maskGfx, gapGfx, gridGfx, originGfx, hoverGfx, crossGfx];
+    const refs = [landGfx, bandGfx, tintGfx, netGfx, maskGfx, gapGfx, gridGfx, originGfx, hoverGfx, crossGfx, openGfx];
     const made = refs.map((r, i) => {
       const g = new Graphics();
-      g.zIndex = i;              // land, stripes, tint, net, mask, grid, origin, hover, crosshair
+      g.zIndex = i;              // land, stripes, tint, net, mask, grid, origin, hover, crosshair, what opens
       root.addChild(g);
       r.current = g;
       return g;
@@ -1657,9 +1741,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const onMove = (e: FederatedPointerEvent) => {
       const p = vp.toWorld(e.global.x, e.global.y);
       repick(p.x, p.y);
+      // A BUILDING THAT OPENS SOMETHING under the pointer, in the game and not
+      // mid-stroke: tested only against those, by what they drew. @see opensSomething
+      const st = useWorldStore.getState();
+      const open = st.playing && !st.stroke && clickTakesOver(st.tool)
+        ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => opensSomething(s.def, s.build))
+        : null;
+      st.setHoverOpen(open?.id ?? null);
     };
     const onLeave = () => {
       const st = useWorldStore.getState();
+      st.setHoverOpen(null);
       st.setHover(null);
       st.setPointer(null);
       st.cancelStroke();
@@ -1671,7 +1763,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // WITH THE LOOK TOOL, a press that is let go where it was pressed is a
     // CLICK on the cell under it — a building, say, to open what it is for —
     // and one dragged away is the camera panning. @see WorldState.lookedAt
-    let lookFrom: { x: number; y: number; cell: { x: number; y: number } | null } | null = null;
+    // OVER A BUILDING THAT OPENS SOMETHING, any tool's press is such a click
+    // on it: the building takes the click. @see clickTakesOver
+    let lookFrom: { x: number; y: number; cell: { x: number; y: number } | null; open?: boolean } | null = null;
     // FINGERS DOWN: a second one makes it a pinch, not a stroke.
     const touches = new Set<number>();
     const onDown = (e: FederatedPointerEvent) => {
@@ -1681,6 +1775,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       if (e.button !== 0) return;
       const st = useWorldStore.getState();
+      // Tested where the press lands, not taken from the hover: a finger has no hover, and the last one may be stale.
+      const open = st.playing && clickTakesOver(st.tool)
+        ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => opensSomething(s.def, s.build))
+        : null;
+      if (open) {
+        lookFrom = { x: e.global.x, y: e.global.y, cell: { x: open.x, y: open.y }, open: true };
+        return;
+      }
       if (st.tool === "inspect") {
         lookFrom = { x: e.global.x, y: e.global.y, cell: cellAt(e) };
         return;
@@ -1695,9 +1797,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       touches.delete(e.pointerId);
       if (pinching) return;
       const st = useWorldStore.getState();
-      if (lookFrom && st.tool === "inspect") {
+      if (lookFrom && (st.tool === "inspect" || lookFrom.open)) {
         const moved = Math.hypot(e.global.x - lookFrom.x, e.global.y - lookFrom.y);
-        if (moved <= LOOK_CLICK_SLOP) {
+        if (moved <= LOOK_CLICK_SLOP && lookFrom.open) st.lookAt(lookFrom.cell!);
+        else if (moved <= LOOK_CLICK_SLOP) {
           // THE BUILDING UNDER THE POINTER, by what is drawn, before the
           // ground: a click on a tower's side is on the tower, though the cell
           // picked under it is the ground well behind. @see structureHitAt
@@ -1730,10 +1833,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // @see the build cursor below, which does the same
   useEffect(() => {
     const draw = () => {
-      if (hoverGfx.current) drawHover(hoverGfx.current, grid, useWorldStore.getState().hover, scale);
+      const st = useWorldStore.getState();
+      // Over a building that opens something, the building is what is lit, not the tile.
+      if (hoverGfx.current) drawHover(hoverGfx.current, grid, st.hoverOpen === null ? st.hover : null, scale);
     };
     draw();
-    return useWorldStore.subscribe((s, was) => { if (s.hover !== was.hover) draw(); });
+    return useWorldStore.subscribe((s, was) => { if (s.hover !== was.hover || s.hoverOpen !== was.hoverOpen) draw(); });
   }, [grid, scale]);
 
   // Calibration: changing the offset re-picks at the last pointer position, so
@@ -1754,6 +1859,127 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    * thing it draws has actually moved. @see pointerSaw
    */
   const crossAt = useRef<PointerAt | null>(null);
+
+  /**
+   * WHAT OPENS, LIT: the building under the pointer that a click would open,
+   * framed and pulsing every frame it is there, and the pointer a hand.
+   * @see drawOpenHighlight
+   */
+  // THE HOLOGRAMS' FLICKER AND SCAN LINES, every frame they are up; and AI
+  // mode's, one a drone carrying a building, kept to the jobs out. @see send
+  // And THE MASTERPLAN'S buildings not yet up nor under way, the nearest the
+  // town's middle first, steady and faint. Worked out again only when the
+  // plan, the map or the drones change. @see PLAN_HOLOGRAMS
+  const aiHoloSig = useRef("");
+  useTick(() => {
+    const holos: HoloSpec[] = [];
+    const flying = new Set<string>();
+    for (const j of getAiRunner().jobs) {
+      if (j.action.kind !== "deferred" || !j.action.holo) continue;
+      const { def, x, y } = j.action.holo;
+      flying.add(`${def}@${x},${y}`);
+      holos.push({ key: `ai:${def}@${x},${y}`, def, x, y, ok: true });
+    }
+    const ss = useSessionStore.getState(), st = useWorldStore.getState();
+    const show = ss.showPlan && ss.aiMode && st.playing;
+    const plan = show ? currentPlan() : null;
+    const pipe = show ? pendingPipe() : null;
+    const sig = `${[...flying].join("|")}#${plan ? planId(plan) : -1}#${pipe ? planId(pipe) : -1}#${st.revision}`;
+    if (sig !== aiHoloSig.current) {
+      aiHoloSig.current = sig;
+      const g = st.grid;
+      const tiles: TileHolo[] = [];
+      if (plan) {
+        // ITS BUILDINGS, every one not up nor under way, nearest the middle first.
+        const builds = plan.steps
+          .filter((s): s is Extract<typeof s, { kind: "build" }> => s.kind === "build")
+          .filter((s) => !flying.has(`${s.def}@${s.at.x},${s.at.y}`) && structureAt(g, s.at.x, s.at.y) < 0)
+          .sort((a, b) => Math.abs(a.at.x - plan.centre.x) + Math.abs(a.at.y - plan.centre.y) - Math.abs(b.at.x - plan.centre.x) - Math.abs(b.at.y - plan.centre.y))
+          .slice(0, PLAN_HOLOGRAMS);
+        // A lot as the house it is planned to grow to: the district it builds toward. (It starts at I.)
+        for (const s of builds) holos.push({ key: `plan:${s.def}@${s.at.x},${s.at.y}`, def: s.tier && structureDef(withTier(s.def, s.tier)) ? withTier(s.def, s.tier) : s.def, x: s.at.x, y: s.at.y, ok: true, planned: true });
+        // ITS STREETS, as the tiles they will be: each one's road art worked
+        // out as if every planned street were laid, so they join up.
+        const ghost = { ...g, paved: Uint16Array.from(g.paved) };
+        const streets: { x: number; y: number }[] = [];
+        for (const s of plan.steps) {
+          if (s.kind !== "road") continue;
+          for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) {
+            for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) {
+              if (!inBounds(g, x, y) || isPaved(g, x, y)) continue;
+              ghost.paved[idx(g, x, y)] = 1;
+              streets.push({ x, y });
+            }
+          }
+        }
+        for (const c of streets) {
+          const frame = roadSpriteFor(ROAD_TABLE, maskAt(ghost, c.x, c.y)).frame;
+          if (frame) tiles.push({ key: `road:${c.x},${c.y}`, x: c.x, y: c.y, z: surfaceHeightAt(g, c.x, c.y), frame, colour: HOLO_OK, alpha: 0.5 });
+        }
+        for (const s of plan.steps) {
+          // ITS GROUND LEVELLED: each tile's own terrain at the height it will be.
+          if (s.kind === "level") {
+            for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) {
+              for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) {
+                if (!inBounds(g, x, y) || g.height[idx(g, x, y)] === s.z) continue;
+                const frame = st.palette[g.terrain[idx(g, x, y)]];
+                if (frame) tiles.push({ key: `level:${x},${y}`, x, y, z: s.z, frame, colour: HOLO_OK, alpha: 0.55 });
+              }
+            }
+          }
+          // ITS ROAD TO LIFT, red over the road that is there.
+          if (s.kind === "lift" && isPaved(g, s.at.x, s.at.y)) {
+            const frame = roadSpriteFor(ROAD_TABLE, maskAt(g, s.at.x, s.at.y)).frame;
+            if (frame) tiles.push({ key: `lift:${s.at.x},${s.at.y}`, x: s.at.x, y: s.at.y, z: surfaceHeightAt(g, s.at.x, s.at.y), frame, colour: HOLO_BLOCKED, alpha: 0.6 });
+          }
+          // ITS HOUSE TO CLEAR, red glass over the house.
+          if (s.kind === "clear") {
+            const id = structureAt(g, s.at.x, s.at.y);
+            const there = id >= 0 ? g.structures.get(id) : undefined;
+            if (there) holos.push({ key: `clear:${there.id}`, def: there.def, x: there.x, y: there.y, ok: false, planned: true });
+          }
+          // ITS REBUILD: what goes up in glass, the lots it pulls down red under it.
+          if (s.kind === "replace" && !flying.has(`${s.def}@${s.at.x},${s.at.y}`)) {
+            holos.push({ key: `plan:${s.def}@${s.at.x},${s.at.y}`, def: s.def, x: s.at.x, y: s.at.y, ok: true, planned: true });
+            for (const c of s.clears) {
+              const id = structureAt(g, c.x, c.y);
+              const there = id >= 0 ? g.structures.get(id) : undefined;
+              if (there) holos.push({ key: `clear:${there.id}`, def: there.def, x: there.x, y: there.y, ok: false, planned: true });
+            }
+          }
+        }
+      }
+      // AND THE PUMP HOUSE OF A PIPE IT MEANS TO LAY.
+      if (pipe?.pump) holos.push({ key: `pump:${pipe.pump.x},${pipe.pump.y}`, def: "pump", x: pipe.pump.x, y: pipe.pump.y, ok: true, planned: true });
+      planHoloKeys.current = new Set(holos.filter((h) => h.planned).map((h) => `${h.def}@${h.x},${h.y}`));
+      aiHolos.current = holos;
+      showHolos();
+      const bl = blRef.current, tex = texRef.current;
+      if (tileHoloRef.current && bl && tex) tileHoloRef.current.set(tiles, { bands: bl, textures: tex, grid: g, scale: st.scale });
+    }
+    const h = holoRef.current, scan = holoScanRef.current;
+    if (h && scan) h.tick(performance.now() / 1000, scan);
+  });
+
+  const openShown = useRef<number | null>(null);
+  useTick(() => {
+    const g = openGfx.current;
+    if (!g) return;
+    const st = useWorldStore.getState();
+    const s = st.hoverOpen !== null ? st.grid.structures.get(st.hoverOpen) : undefined;
+    const id = s?.id ?? null, was = openShown.current;
+    if (id !== was) app.canvas.style.cursor = id !== null ? "pointer" : "";
+    openShown.current = id;
+    if (!s) { if (was !== null) g.clear(); return; }
+    const sl = slRef.current, b = sl ? drawnBounds(sl, s.id) : null;
+    let drawn: { x: number; y: number; w: number; h: number } | null = null;
+    if (b && g.parent) {
+      const a = g.parent.toLocal({ x: b.x, y: b.y }), c = g.parent.toLocal({ x: b.x + b.w, y: b.y + b.h });
+      drawn = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
+    }
+    drawOpenHighlight(g, st.grid, s, st.scale, drawn, performance.now() / 1000);
+  });
+
   useTick(() => {
     const p = pointerRead();
     if (p === crossAt.current) return;
@@ -1951,7 +2177,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (!cur || !tex) return;
 
     const draw = () => {
-      const { stroke, hover: hoverForBrush } = useWorldStore.getState();
+      const { stroke, hover: hoverForBrush, hoverOpen } = useWorldStore.getState();
+      // Over a building that opens something, the tool is put down: no cursor. @see opensSomething
+      const unplace = () => { cur.clear(); if (placeHolos.current.length) { placeHolos.current = []; showHolos(); } };
+      if (!stroke && hoverOpen !== null) { unplace(); return; }
       // A live drag takes over; otherwise the hover stands in as a one-cell
       // anchor so the brush size is visible before pressing rather than
       // discovered after.
@@ -1960,7 +2189,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           ? { tool, brush: "point", anchor: hoverForBrush, head: hoverForBrush }
           : null
       );
-      if (!s0) { cur.clear(); return; }
+      if (!s0) { unplace(); return; }
 
       // A STRUCTURE tool previews its footprint, not a brush: the same function
       // the commit uses, so the rect you drag out is the rect you get.
@@ -2005,6 +2234,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
       }
 
+      // THE HOLOGRAM of what the click puts down: the building itself, red where it cannot go. @see createHolograms
+      const holos: HoloSpec[] = [];
+      if (s0.tool === "placeStructure") {
+        if (plan) holos.push({ key: "place:upgrade", def: plan.to.id, x: plan.x, y: plan.y, ok: plan.cells.every((c) => c.ok), steady: true });
+        else if (lotLine(useWorldStore.getState(), s0)) {
+          for (const c of lotLine(useWorldStore.getState(), s0)!) holos.push({ key: `place:${c.x},${c.y}`, def: structureDefId, x: c.x, y: c.y, ok: valid?.(grid, c.x, c.y).ok ?? true, steady: true });
+        } else {
+          const def = structureDef(structureDefId);
+          if (def) {
+            const fp = structureFootprint(def, s0.anchor, s0.head);
+            holos.push({ key: "place", def: def.id, x: fp.x, y: fp.y, ok: validatePlacement(grid, def, fp.x, fp.y, rules).ok, steady: true });
+          }
+        }
+      }
+      placeHolos.current = holos;
+      showHolos();
+
       cur.update(grid, {
         valid,
         cells,
@@ -2019,10 +2265,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     draw();
     return useWorldStore.subscribe((s, was) => {
       // And on an edit: an upgrade changes what is under a cursor that has not moved.
-      if (s.stroke !== was.stroke || s.hover !== was.hover || s.revision !== was.revision) draw();
+      if (s.stroke !== was.stroke || s.hover !== was.hover || s.hoverOpen !== was.hoverOpen || s.revision !== was.revision) draw();
     });
   }, [
-    brushRadius, tool, material, palette, structureDefId,
+    brushRadius, tool, material, palette, structureDefId, showHolos,
     grid, scale, revision, sceneEpoch,
   ]);
 
@@ -2307,7 +2553,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);
-      runPipes(field, grid, dt);
+      // PUMP HOUSES are paid for while they run, in the game. @see runPumps
+      runPipes(field, grid, dt, useWorldStore.getState().playing ? PAID_PUMPS : undefined);
       // The columns the boats will read, asked for before the step uploads
       // the list. @see wantFleet
       wantFleet(getFleet(), field.columns);
@@ -2423,6 +2670,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (fee === null || portShut(id)) continue;
           // REGULAR ROUTES, won by serving convoys, add to every call. @see ROUTE_BONUS
           fee *= 1 + ROUTE_BONUS * (useSessionStore.getState().routes ?? 0);
+          // THE AI TRAINED ON THE RIVER pays the quays more while it runs. @see RIVER_PORTS
+          if (training() === "river") fee *= RIVER_PORTS;
           // A CONVOY IN pays double, and is counted. @see stepOpportunities
           const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
           // Treble at a port by the Conference Centre. @see convoyPays
@@ -2501,7 +2750,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // door, the studio — each only once built.
             const built = (ids: string[]) => [...st.grid.structures.values()].find((s) => ids.includes(s.def) && !s.build);
             const port = getTraffic().ports.size ? [...st.grid.structures.values()].find((s) => getTraffic().ports.has(s.id)) : undefined;
-            const door = built(["hq", "townhall", "garage"]), studio = built(["studio"]), dc = built(["datacentre"]);
+            const door = built(["hq", "townhall", "garage"]), studio = built(["studio"]);
             const front = built(["ipo", "hq", "townhall", "garage"]);
             const income = useGeneratorStore.getState().getMoneyPerSecond();
             const tour = st.events.find((e) => e.kind === "investor-tour" && e.phase !== "over");
@@ -2533,14 +2782,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                   ...(best ? { street: streetName(best) } : {}),
                 };
               })() : null,
-              // THE AGENTS, at the Data Centre, once any run. @see SINGULARITY_AT
-              singularity: dc && useAgentsStore.getState().agents > 0 ? (() => {
-                const equity = Math.floor(pendingEquity().toNumber());
-                return {
-                  x: dc.x + 1, y: dc.y + 1, due: useAiSingularityStore.getState().value >= SINGULARITY_AT,
-                  equity, onTheirTerms: Math.floor(equity * AI_TERMS),
-                };
-              })() : null,
               enabled: !useSessionStore.getState().mapEventsOff,
             }, () => eventIds.current++);
             repace(pace, st.events, next);
@@ -2553,11 +2794,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               // An offer made has heard it. @see offerPremium
               if (e.kind === "offer") useSessionStore.getState().setSnubbed(false);
               if (routeWon(e, tally.calls)) useSessionStore.getState().addRoute(MAX_ROUTES);
-              // THE AGENTS HAD THEIR WAY: money on compute, and the meter left high. @see AI_SPEND
-              if (e.kind === "singularity" && e.chosen !== "plug") {
-                useMoneyStore.setState((m) => ({ money: m.money.times(1 - AI_SPEND) }));
-                useAiSingularityStore.setState({ value: LEFT_AT });
-              }
               // EVACUEES, put out for a day. @see EVACUEE_MORALE
               if (e.kind === "river-flood") {
                 if (e.chosen === "evacuate") for (const who of evacuees.current) addMorale(who, -EVACUEE_MORALE);
@@ -2628,7 +2864,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // WHO WAS PUT OUT, for their mood once it is over. @see EVACUEE_MORALE
             for (const who of Object.keys(evacuatedAway(st.grid))) evacuees.current.add(who as GeneratorId);
             // NOTHING DONE: what the water reaches is damaged. @see damage
-            if (flood && !floodShield.current) damage(st.grid, wet);
+            if (flood && !floodShield.current && fusionNow().floodsDamage) damage(st.grid, wet);
             // OVER: what is left on dry ground soaking away, and once it has,
             // put away until the next one.
             const left = flood ? 1 : soakAway(field, st.grid, floodBase.current.dry, 2);
@@ -2639,7 +2875,43 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
         }
         // THE REPAIR CREW, round the damaged buildings once the water is down.
-        if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult, !!floodBase.current);
+        if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult * (training() === "river" ? 3 : 1), !!floodBase.current);
+        // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
+        if (st.playing) useTrainingStore.getState().tick();
+        // THE DRINKERS DRINK: the Data Centre and the AI's own buildings, from their tanks. @see stepCooling
+        if (st.playing) stepCooling(st.grid, runningAgents(), training() === "river", dt);
+        // AI MODE, on The Model's own runs: the town building itself, its
+        // drones flown out for the look of it. On a fixture too: a fixture
+        // played works on a copy of the save. @see stepAutopilot, fixture-sandbox
+        if (st.playing && useFounderStore.getState().selectedFounderId === "model") {
+          stepAutopilot(st.grid, dt);
+          stepAi(getAiRunner(), st.grid, { stage: "tool", running: 0, agents: 0 }, dt, Date.now());
+        }
+        // THE COMPANY'S AI AT WORK, from the Colleague stage on — not in a
+        // fixture, and not on The Model's own runs. @see stepAi
+        if (st.playing && !startedOnFixture() && useFounderStore.getState().selectedFounderId !== "model") {
+          const runner = getAiRunner(), at = Date.now();
+          const aiNow = { stage: stageOf(useAiSingularityStore.getState().value).stage, running: runningAgents(), agents: useAgentsStore.getState().agents };
+          // WHILE YOU WERE AWAY, once, on the first look. @see catchUpAi
+          if (!aiPrimed.current) {
+            aiPrimed.current = true;
+            const since = useSessionStore.getState().aiAt;
+            const memos = since ? catchUpAi(runner, st.grid, aiNow, since, at) : [];
+            if (memos.length) st.setAiReport(memos.map((m) => m.text));
+          }
+          for (const a of stepAi(runner, st.grid, aiNow, dt, at)) {
+            // A TAKEOVER is announced. @see planner "repurpose"
+            if (a.kind === "convert" && a.into === "gpu-farm") st.pushAiMemo(a.why);
+          }
+          // AND WHAT IT HAS TO SAY. @see stepMemos
+          const memo = stepMemos(runner, aiNow.stage, dt, useSessionStore.getState().aiSaid ?? []);
+          if (memo) {
+            if (memo.arrived) useSessionStore.getState().markAiSaid(memo.arrived);
+            st.pushAiMemo(memo.text);
+          }
+          aiSaved.current += dt;
+          if (aiSaved.current >= 5) { aiSaved.current = 0; useSessionStore.getState().setAiAt(at); }
+        }
         // PEOPLE LEAVING MISERABLE HOUSES, in the game, one now and then.
         // @see stepMood
         if (st.playing) {
@@ -2684,11 +2956,44 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const phase = dayPhase(Date.now());
       getTown().busy = on ? busyness(phase) : undefined;
       const g = night.current;
+      const now = Date.now();
+      const playing = useWorldStore.getState().playing;
+      const meter = playing ? useAiSingularityStore.getState().value : 0;
+      // THE ASCENSION SEQUENCE: begun when the meter is full; the camera to the Data Centre. @see stepSequence
+      if (playing && stepSequence(meter, now)) {
+        const dc = [...useWorldStore.getState().grid.structures.values()].find((x) => x.def === "datacentre" && !x.build);
+        if (dc) showMe({ x: dc.x + dc.w / 2, y: dc.y + dc.h / 2 });
+      }
+      const ascension = playing ? sequenceIntensity(now) : 0;
       if (g) {
         const a = on ? darkness(phase) : 0;
         g.clear();
         if (a > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: NIGHT_COLOUR, alpha: a });
+        // THE SKY TURNS as the AI rises: a violet cast from the Manager on, and at the Ascension.
+        const tint = (meter >= 80 ? 0.08 : meter >= 60 ? 0.04 : 0) + 0.3 * ascension;
+        if (tint > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: STAGE_COLOUR.overseer, alpha: tint });
       }
+      // THE AI ON THE MAP. @see createAiLayer
+      const ai = aiLayerRef.current;
+      // In development, `__aiPreview` shows it in the editor at any stage.
+      // And on the `singularity` fixture, in the editor, it runs through every stage by itself. @see aiFixturePreview
+      const preview = import.meta.env.DEV
+        ? window.__aiPreview ?? (startFixture() === "singularity" && !playing ? aiFixturePreview(performance.now() / 1000) : undefined)
+        : undefined;
+      const modelRun = playing && useFounderStore.getState().selectedFounderId === "model";
+      if (ai && (playing || preview || modelRun)) {
+        const v = preview?.value ?? meter;
+        ai.draw(useWorldStore.getState().grid, scale, {
+          stage: stageOf(v).stage, value: v, running: preview ? 1 : runningAgents(), training: preview?.training ?? training() !== null,
+          night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
+          drones: getAiRunner().jobs.map(droneAt),
+          // The game's masterplan is holograms; the flat ghost is the editor's preview's alone. @see createTileHolograms
+          plan: preview?.plan ?? null,
+          ...dcCooling(useWorldStore.getState().grid),
+          planHolos: planHoloKeys.current,
+          pipe: useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? pendingPipe() : null,
+        }, raw, now);
+      } else ai?.clear();
       const r = rain.current;
       if (r) {
         r.clear();

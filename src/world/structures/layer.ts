@@ -56,6 +56,21 @@ export function drawnTop(sl: StructureLayer, id: number): { x: number; y: number
   return Number.isFinite(y0) ? { x: (x0 + x1) / 2, y: y0 } : null;
 }
 
+/** The box round everything a structure drew, in the canvas's own pixels, or null if it drew nothing. */
+export function drawnBounds(sl: StructureLayer, id: number): { x: number; y: number; w: number; h: number } | null {
+  const m = sl.mounted.get(id);
+  if (!m) return null;
+  const h = m.handle as { sprites?: Container[]; columns?: Container[]; g?: Container };
+  const drawn = h.sprites ?? h.columns ?? (h.g ? [h.g] : []);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const d of drawn) {
+    const b = d.getBounds().rectangle;
+    if (b.width <= 0 && b.height <= 0) continue;
+    x0 = Math.min(x0, b.x); x1 = Math.max(x1, b.x + b.width); y0 = Math.min(y0, b.y); y1 = Math.max(y1, b.y + b.height);
+  }
+  return Number.isFinite(y0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+}
+
 export const createStructureLayer = (): StructureLayer => ({
   mounted: new Map(),
   unrenderable: 0,

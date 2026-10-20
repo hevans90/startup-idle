@@ -7,7 +7,7 @@ export type SidebarTab =
   | "valuation"
   | "acquisition"
   | "achievements"
-  | "agi";
+  | "ai";
 
 type GlobalSettingsStore = {
   sidebarTab: SidebarTab;
@@ -29,6 +29,11 @@ export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
     }),
     {
       name: "global-settings", // name of item in localStorage
+      // The Model tab is the AI tab now: a save left on it opens there.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Omit<Partial<GlobalSettingsStore>, "sidebarTab"> & { sidebarTab?: string };
+        return { ...current, ...p, sidebarTab: (p.sidebarTab === "agi" ? "ai" : p.sidebarTab ?? current.sidebarTab) as SidebarTab };
+      },
     }
   )
 );

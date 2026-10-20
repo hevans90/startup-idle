@@ -2,7 +2,7 @@
  * World v2 — AI RACKS on the map: how many agents they can run, and how many
  * of those at full power — within reach of the Data Centre. @see game/agents
  */
-import { AGENTS_A_RACK, RACK_RANGE } from "../../game/agents";
+import { RACK_RANGE, agentsARack } from "../../game/agents";
 import type { Grid, Structure } from "../grid";
 
 /** Tiles between two footprints, edge to edge. */
@@ -19,10 +19,13 @@ export const powered = (g: Grid, rack: Structure) =>
 /** The agents the racks standing can run, at full power and at half. */
 export function rackReading(g: Grid): { powered: number; unpowered: number } {
   let on = 0, off = 0;
+  const each = agentsARack();
   for (const s of g.structures.values()) {
-    if (s.def !== "rack" || s.build) continue;
-    if (powered(g, s)) on += AGENTS_A_RACK;
-    else off += AGENTS_A_RACK;
+    // A rack, an AI node, and a GPU farm at twice. @see AI_BUILDINGS
+    const room = s.def === "rack" || s.def === "ai-node" ? each : s.def === "gpu-farm" ? 2 * each : 0;
+    if (!room || s.build) continue;
+    if (powered(g, s)) on += room;
+    else off += room;
   }
   return { powered: on, unpowered: off };
 }
