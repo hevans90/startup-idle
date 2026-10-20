@@ -16,7 +16,7 @@
  * band by how far into it it is, so the ground in front of it covers it and
  * two cars side by side overlap the right way round. @see BandLayer.dynamicOf
  */
-import { Graphics } from "pixi.js";
+import { Graphics, type GraphicsContext } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
@@ -73,8 +73,63 @@ const shade = (c: number, k: number) =>
 
 export type TownLayer = { draw: (town: Town, scale: number) => void; destroy: () => void };
 
+/**
+ * DRAWN ONCE, MOVED EVERY FRAME. Each mover's look — its kind and colour,
+ * its heading to one of `HEADINGS`, a person's stride to one of `STRIDES` and
+ * their outfit — is drawn ONCE, at the origin, into a shared `GraphicsContext`;
+ * a mover's Graphics is put where the mover is, and handed the context for
+ * how it looks now. Nothing is cleared, re-drawn or cut into triangles again
+ * frame after frame — which, for nine hundred movers, was most of a frame —
+ * and the art is the same vector art, crisp at any zoom. @see lookOf
+ */
+export const HEADINGS = { vehicle: 32, person: 16 } as const;
+export const STRIDES = 12;
+/** Looks kept at most; the oldest let go past it. */
+const MAX_LOOKS = 4000;
+
+/** A mover's look, as a key, and the mover to draw it from: at the origin, heading and stride snapped. */
+export function lookOf(m: Mover): { key: string; canon: Mover } {
+  const n = m.kind === "person" ? HEADINGS.person : HEADINGS.vehicle;
+  const step = (Math.PI * 2) / n;
+  const h = ((Math.round(m.heading / step) % n) + n) % n;
+  const pitch = Math.round((m.pitch ?? 0) * 20) / 20;
+  let key = `${m.kind}|${m.colour}|${h}|${pitch}`;
+  let phase = m.phase;
+  if (m.kind === "person") {
+    const p = (((m.phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+    const f = Math.round(p * STRIDES) % STRIDES;
+    phase = (f / STRIDES) * Math.PI * 2;
+    const hat = !!m.job && m.job.role !== "moving-in";
+    key += `|${ofId(m.id, 0x51, SKINS)}|${hat ? "hat" : ofId(m.id, 0x7a, HAIRS)}|${ofId(m.id, 0x33, TROUSERS)}|${atWork(m) ? "w" : ""}${f}`;
+  }
+  return { key, canon: { ...m, x: 0, y: 0, z: 0, heading: h * step, phase, pitch } };
+}
+
+type Look = { ctx: GraphicsContext; front: { u: number; v: number }[] };
+
 export function createTownLayer(bands: BandLayer): TownLayer {
   const drawn = new Map<number, { g: Graphics; band: number }>();
+  const looks = new Map<string, Look>();
+  let lookScale = NaN;
+
+  const lookFor = (m: Mover, scale: number): Look => {
+    // A new scale is a new drawing of every look.
+    if (scale !== lookScale) { for (const l of looks.values()) l.ctx.destroy(); looks.clear(); lookScale = scale; }
+    const { key, canon } = lookOf(m);
+    let look = looks.get(key);
+    if (!look) {
+      if (looks.size >= MAX_LOOKS) {
+        // Let the oldest go — unless a mover still wears it.
+        const worn = new Set([...drawn.values()].map((d) => d.g.context));
+        for (const [k, l] of looks) { if (looks.size < MAX_LOOKS * 0.9) break; if (!worn.has(l.ctx)) { l.ctx.destroy(); looks.delete(k); } }
+      }
+      const g = new Graphics();
+      const front = drawMoverFront(g, canon, scale);
+      look = { ctx: g.context, front };
+      looks.set(key, look);
+    }
+    return look;
+  };
 
   const draw = (town: Town, scale: number) => {
     const live = new Set<number>();
@@ -84,20 +139,25 @@ export function createTownLayer(bands: BandLayer): TownLayer {
       // wherever they were put down. @see projects/crew
       if (m.job?.role === "working") continue;
       live.add(m.id);
+      const look = lookFor(m, scale);
       let d = drawn.get(m.id);
       if (!d) {
-        const g = new Graphics();
+        const g = new Graphics(look.ctx);
         g.eventMode = "none";
         d = { g, band: -1 };
         drawn.set(m.id, d);
-      }
-      const band = drawMover(d.g, m, scale, bands.bands.length);
+      } else if (d.g.context !== look.ctx) d.g.context = look.ctx;
+      d.g.position.set((m.x - m.y) * HW * scale, (m.x + m.y) * HH * scale - m.z * HEIGHT_UNIT * scale);
+      let band = -Infinity;
+      for (const p of look.front) band = Math.max(band, Math.round(m.x + p.u) + Math.round(m.y + p.v));
+      band = Math.max(0, Math.min(bands.bands.length - 1, band));
+      const z = m.x + m.y - band;
       if (band !== d.band) {
         d.g.parent?.removeChild(d.g);
+        d.g.zIndex = z;
         bands.dynamicOf[band].addChild(d.g);
         d.band = band;
-      }
-      d.g.zIndex = m.x + m.y - band;
+      } else if (crosses(d.g, z)) d.g.zIndex = z;
     }
     for (const [id, d] of drawn) {
       if (live.has(id)) continue;
@@ -111,12 +171,35 @@ export function createTownLayer(bands: BandLayer): TownLayer {
     destroy: () => {
       for (const d of drawn.values()) d.g.destroy();
       drawn.clear();
+      for (const l of looks.values()) l.ctx.destroy();
+      looks.clear();
     },
   };
 }
 
+/**
+ * Whether moving a child's depth to `z` would carry it past one of its
+ * siblings: only then is its band's order — and so its draw list — changed.
+ * Set every frame, every mover's band was sorted and rebuilt every frame.
+ */
+function crosses(g: Graphics, z: number): boolean {
+  const from = g.zIndex, lo = Math.min(from, z), hi = Math.max(from, z);
+  if (lo === hi) return false;
+  for (const o of g.parent?.children ?? []) {
+    if (o !== g && o.zIndex >= lo && o.zIndex <= hi) return true;
+  }
+  return false;
+}
+
 /** Draw one; answers the band it belongs in. Exported for a harness to draw one still. */
 export function drawMover(g: Graphics, m: Mover, s: number, bandsN: number): number {
+  let band = -Infinity;
+  for (const p of drawMoverFront(g, m, s)) band = Math.max(band, Math.round(p.u) + Math.round(p.v));
+  return Math.max(0, Math.min(bandsN - 1, band));
+}
+
+/** Draw one; answers the points along its base that decide its band, in tiles. */
+export function drawMoverFront(g: Graphics, m: Mover, s: number): { u: number; v: number }[] {
   const ch = Math.cos(m.heading), sh = Math.sin(m.heading);
   // The body is highest mid-stride, over a straight leg, and lowest between.
   const bob = m.kind === "person" && !atWork(m) ? Math.abs(Math.cos(m.phase)) * 0.05 : 0;
@@ -204,9 +287,7 @@ export function drawMover(g: Graphics, m: Mover, s: number, bandsN: number): num
   } else {
     front = drawPerson(g, m, s, at, prism);
   }
-  let band = -Infinity;
-  for (const p of front) band = Math.max(band, Math.round(p.u) + Math.round(p.v));
-  return Math.max(0, Math.min(bandsN - 1, band));
+  return front.map((p) => ({ u: p.u, v: p.v }));
 }
 
 type At = (l: number, w: number, up: number) => { u: number; v: number; px: number; py: number };
