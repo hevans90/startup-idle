@@ -168,8 +168,10 @@ describe("AI mode's drones", () => {
     const carrying = getAiRunner().jobs.filter((j) => j.action.kind === "deferred" && j.action.holo);
     expect(carrying.length).toBeGreaterThan(0);
     const built = [...g.structures.values()].filter((s) => s.def.startsWith("kit:") || s.def.startsWith("office")).length;
-    // Landed.
+    // Landed — and where, for the scene's flash. @see AiRunner.landed
+    getAiRunner().landed.length = 0;
     for (let k = 0; k < 60 && getAiRunner().jobs.length; k++) stepAi(getAiRunner(), g, { stage: "tool", running: 0, agents: 0 }, 1, Date.now());
+    expect(getAiRunner().landed.length).toBeGreaterThan(0);
     expect(g.structures.size).toBeGreaterThan(before);
     expect([...g.structures.values()].filter((s) => s.def.startsWith("kit:") || s.def.startsWith("office")).length).toBeGreaterThan(built);
   });

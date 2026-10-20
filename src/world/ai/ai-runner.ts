@@ -31,8 +31,11 @@ type Cell = { x: number; y: number };
 export type DroneJob = { action: AiAction; from: Cell; to: Cell; t: number; fly: number };
 export type AiMemo = { text: string; at: number };
 
-export type AiRunner = { clock: number; jobs: DroneJob[]; log: AiMemo[]; lastAt: number | null; memoIn: number | null };
-export const createAiRunner = (): AiRunner => ({ clock: 0, jobs: [], log: [], lastAt: null, memoIn: null });
+/** `landed`: where drones finished a job since the scene last looked, for the flash. @see Juice.landed */
+export type AiRunner = { clock: number; jobs: DroneJob[]; log: AiMemo[]; lastAt: number | null; memoIn: number | null; landed: Cell[] };
+export const createAiRunner = (): AiRunner => ({ clock: 0, jobs: [], log: [], lastAt: null, memoIn: null, landed: [] });
+/** The most landings kept for a scene that is not looking. */
+const LANDED_KEPT = 16;
 
 /**
  * THE AI'S MEMOS, moved on: a stage arrived at is announced, once a company;
@@ -89,6 +92,7 @@ export function stepAi(r: AiRunner, g: Grid, ai: AiNow, dt: number, now: number,
     job.t += dt;
     if (job.t < job.fly + SCAN_SECONDS) continue;
     r.jobs = r.jobs.filter((j) => j !== job);
+    if (r.landed.length < LANDED_KEPT) r.landed.push(job.to);
     if (done(r, job.action, now)) did.push(job.action);
   }
   const interval = INTERVAL[ai.stage];

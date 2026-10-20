@@ -30,6 +30,8 @@ const MOTE_MS = 650;
 const MAX_MOTES = 240;
 const DUST = 0xd8cfb8;
 const SPARKLE = 0xfff3b0;
+/** A drone's light, as it is drawn: the overseer's violet. @see ai-layer */
+const DRONE = 0xb44aff;
 
 type Mote = { s: Sprite; vx: number; vy: number; at: number; life: number; grow: number; alpha: number };
 
@@ -38,6 +40,8 @@ export type Juice = {
   mounted: (s: Structure, handle: StructureHandle, ctx: RenderCtx, was?: Structure) => void;
   /** A structure just taken off the map. */
   gone: (s: Structure, ctx: RenderCtx) => void;
+  /** A drone has landed its job here: a burst of its violet light, rising. */
+  landed: (at: { x: number; y: number }, ctx: RenderCtx) => void;
   /** Step everything on by `dtMs`. */
   tick: (dtMs: number) => void;
   clear: () => void;
@@ -129,6 +133,10 @@ export function createJuice(): Juice {
       // PUFF, where it stood.
       puff(ctx, s, 10 + 3 * s.w * s.h, DUST);
       sfx("crumble");
+    },
+    landed(at, ctx) {
+      const x = Math.round(at.x), y = Math.round(at.y);
+      puff(ctx, { id: -1, def: "", x, y, w: 1, h: 1 }, 9, DRONE, 30);
     },
     tick(dtMs) {
       tweens.step(dtMs);

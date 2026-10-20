@@ -3000,6 +3000,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
     const tFx = performance.now();
     const sFx = section("tick: fx (juice, night, lights, AI layer, rain)");
+    // THE DRONES' LANDINGS, flashed where each job was done. @see AiRunner.landed
+    {
+      const landed = getAiRunner().landed, bl = blRef.current, tex = texRef.current;
+      if (landed.length && juiceRef.current && bl && tex) for (const at of landed) juiceRef.current.landed(at, { bands: bl, textures: tex, grid: useWorldStore.getState().grid, scale });
+      landed.length = 0;
+    }
     juiceRef.current?.tick(raw * 1000);
     // THE TOWN'S AMBIENCE, a few times a second: its hum by its size, birds by day, crickets by night. @see ambience
     soundClock.current += raw;
