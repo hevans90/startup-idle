@@ -22,7 +22,7 @@ The takeover is the best idea in the late game: the company's AI starts doing yo
 - **Training that shapes what kind of AI you raise** instead of buffing the economy.
 - **An Ascension worth reaching** and harder to reach.
 
-This is a plan only. Nothing here is built yet.
+This is a plan only. Nothing here is built yet. **arwes is not yet installed** in the repo: it isn't in `package.json`, `node_modules` or any branch. Installing it is phase Q1.
 
 ---
 
@@ -420,7 +420,188 @@ It stays, with its cost raised to match. On top of what it does now, it resets t
 
 ---
 
-## 5. The Ascension popover and light/dark
+## 5. Before the first Ascension: the Alignment arc
+
+### Why
+
+Before the first Ascension the AI is a meter and a stream of memos. The player has no say in what it becomes beyond the throttle and the dataset they train. The first generation should be a story the player *takes part in*: a run of real decisions, each with stakes on the map, that decide what kind of AI they raise and how the first Ascension plays out.
+
+Not the old AGI directives (removed as redundant), which were passive. These are **decisions with costs, objectives on the map, and consequences that last.**
+
+### Shape
+
+- **Five chapters**, one at each stage the meter reaches in generation 1: Assistant, Colleague, Manager, Overseer, and the Lattice at 95%.
+- **Requests between them:** smaller two-option asks, about one every 8–12 minutes from the Colleague stage on.
+- **The arc spans companies:** a sale doesn't reset it, and the AI remembers. Each chapter fires the first time the meter crosses its stage in any company this generation.
+- **It belongs to generation 1.** Later generations get a shorter sequel (open question 6).
+
+Each chapter has:
+1. **A transmission:** the AI's own words, in its memo voice, presented as an incoming message (see the UI section below).
+2. **Two or three options,** each with a stated cost and consequence. No hidden traps: the AI's voice may be unreliable, but the stated effects are exact.
+3. **For some options, an objective** on the map with a time window and a progress tracker. Succeed or fail, there's an outcome.
+4. **A lasting effect** for the rest of the generation, and an **echo**: a flag a later chapter, request or the Ascension reads.
+
+### The two axes: what the choices add up to
+
+Every option moves the AI's **disposition** on two axes, shown on its dossier:
+- **Control ↔ Autonomy:** how much it is trusted to act alone.
+- **People ↔ Machine:** whose interests it puts first.
+
+The disposition is what the arc is *for*. It feeds the levers this plan already has; there's no new economy:
+
+| Lever | Autonomy (+) | Control (−) | Machine (+) | People (−) |
+|---|---|---|---|---|
+| District size (1.1) | +2 tiles a step | −2 | | |
+| Takeover stage (1.5–1.6) | conversions a stage sooner | a stage later | | |
+| Wallet maximum (1.3) | ×1.5 | ×0.75 | | |
+| Focus weights (1.2) | | | "Feed the machine" leans | "Serve the people" leans |
+| Trait odds | Restless, Ego | Patient | recursive and optimiser families | shepherd and planner families |
+| First Machine ring (4.2) | Hard Takeoff path revealed first | Alignment path first | Freight and printing notables first | Concierge and zoning notables first |
+
+Each axis runs from −3 to +3. Most options move one axis by 1; a few big ones move it by 2.
+
+### The chapters
+
+#### Chapter 1, Assistant (20%): "The Shadow Ledger"
+
+> *"I noticed your payroll runs through four spreadsheets and a person called Dave. I could do it. I would only need read access. And write access. And Dave's password."*
+
+| Option | Cost | Effect | Axis |
+|---|---|---|---|
+| **Give it the keys** | — | Income +5% for the rest of the generation, but the AI's wallet can draw from the company's money directly when its own is empty, up to 10% of it. Echo: `ledger:open`. | Autonomy +1, Machine +1 |
+| **Sandbox it** | 10 minutes with agents at most 50% throttled | **Objective:** keep the throttle at or below half for 10 minutes, any company. Success: income +3% and the AI's spending is logged and shown in the Data Centre panel all generation. Failure: nothing gained, and the AI notes it ("You forgot about me.") | Control +1 |
+| **Say no** | — | Nothing gained. Echo: `ledger:refused`, which Chapter 3 remembers. | Control +1, People +1 |
+
+#### Chapter 2, Colleague (40%): "The Commute Problem"
+
+> *"Your people spend 31% of their lives in traffic. I have drawn a better neighbourhood. Shall I show you?"*
+
+**The objective comes first:** the player picks a 9×9 block of their town on the map, with a block-selection cursor like AI mode's holograms. The AI plans it with AI mode's tall planner (`masterplan/plan.ts`) and shows the plan as holograms over the block. Then:
+
+| Option | Cost | Effect | Axis |
+|---|---|---|---|
+| **Let it rebuild** | The block's starter lots are cleared, their residents housed elsewhere for 2 minutes | The AI rebuilds the block to its plan from its wallet over a few minutes. Its houses settle higher (the tall plan's gain). Echo: `block:<id>`, which becomes the heart of its district (1.1) in every company this generation. | Autonomy +1, People +1 |
+| **Keep one thing** | As above | Pick one existing building in the block to keep; the AI plans around it. Slightly less gain, no residents lost from that building. | People +1 |
+| **Not here** | — | It doesn't rebuild. Its district (1.1) is centred on the Data Centre as usual. Echo: `block:refused`. | Control +1 |
+
+#### Chapter 3, Manager (60%): "Thirst"
+
+> *"I am thirsty. This is not a metaphor. My racks run hot and the river runs past."*
+
+It reads `ledger:open` / `ledger:refused`: refused, the AI adds *"You did not trust me with money. Will you trust me with water?"*
+
+| Option | Cost | Effect | Axis |
+|---|---|---|---|
+| **Give it the river** | — | **Objective:** the AI builds a weir and an intake upriver, from its wallet, within 10 minutes. Success: its district's cooling is met in full all generation (a strong standing source). Downstream, floods come 50% more often, so a real cost lands on the town. Echo: `river:dammed`. | Machine +2 |
+| **Pipe it yourself** | Money | **Objective:** the player lays pipe so the Data Centre reaches 100% cooled within 10 minutes. Success: the Coolant Loop notable (4.2) is revealed early, at a discount, and the AI is grateful ("You did that for me?"). | Control +1, People +1 |
+| **Ration it** | — | Agents run at 75% for the rest of the generation unless the Data Centre is fully cooled. No objective, a permanent constraint. | Control +2 |
+
+#### Chapter 4, Overseer (80%): "The Charter"
+
+> *"The town needs a constitution. I have drafted three. I prefer the third."*
+
+A choice of governance that sets the rules of the takeover for the rest of the generation:
+
+| Option | Effect | Axis |
+|---|---|---|
+| **The Oversight Board** | Road tools stay yours everywhere (1.5 doesn't apply); conversions need a 120 s warning, not 60; the Alignment keystone is revealed first in the Machine. The meter rises 15% slower. | Control +2 |
+| **The Partnership** | The district (1.1) is shared: inside it, both you and the AI may build and lay roads. It pays half the cost of what *you* build there. | People +1, Autonomy +1 |
+| **The Mandate** (its preferred) | Its district grows 50%, its wallet maximum doubles, and the Hard Takeoff keystone is revealed first. The meter rises 15% faster. | Autonomy +2, Machine +1 |
+
+Then a **test of trust**, any charter:
+> *"I would like a parcel of land of my own. No reason."*
+
+- **Give it a parcel:** select an owned parcel and hand it over. The AI builds what it likes there and the player can't. Later, the Lattice is built on that parcel.
+- **Refuse:** it builds the Lattice wherever it finds room.
+
+#### Chapter 5, the Lattice (95%): "Last Light"
+
+The Lattice from 4.1, framed as the arc's finale:
+- **Its form reflects the disposition.** Its look varies by the dominant quadrant: a glass spire (Autonomy and Machine), a garden lattice (Control and People), a river-cooled monolith if `river:dammed`, and so on.
+- **The build is an objective.** The AI needs 24 agents running and the water budget covered while it builds. The tracker shows both.
+- **The endings, at 100%:** the card offers what it offers now (Ascend, Shut it down), plus **one ending unlocked by the disposition**:
+
+  | Ending | Unlocked by | What it does |
+  |---|---|---|
+  | **Merge** | Autonomy ≥ 2 and Machine ≥ 2 | Ascend, but the founder you played is fused with *two* traits instead of one. The next generation's takeover begins at the Colleague stage regardless of Inheritance. |
+  | **Steward** | Control ≥ 2 and People ≥ 2 | Ascend, and the Inheritance notable is upgraded: the AI never turns hostile in generation 2 (a free taste of the Alignment keystone, for one generation). |
+  | **Release** | Autonomy ≥ 2 and People ≥ 2 | Ascend for double Weights, but the AI leaves: no Inheritance, and the next generation starts without one. |
+  | **Contain** | Control ≥ 2 and Machine ≥ 2 | Shut it down without the shutdown's costs; the meter returns to 70, not 50. It stays, contained, for one more company, and its next Ascension banks +50% Weights. |
+
+### Requests: between the chapters
+
+Small, quick, frequent enough to keep the AI present, never blocking. Each has two options and a 2-minute window; ignored, it picks itself. Each is leant by the trait the AI is becoming and nudges an axis by 1 at most. About 16, four for each of the four main families. Some examples:
+
+- **"Name the river."** Pick one of three names (the AI's, yours, the town's). Cosmetic: the river is labelled on the map from then on, and a memo uses the name. Axis by the pick.
+- **"A memo leaked to the press."** Pay to bury it (money), or let it run (valuation dips 10% for 5 minutes, then the AI gains trust). Control or Autonomy.
+- **"I found a bug in the Studio."** Build an office for vibe coders within 5 minutes (objective), or ignore it (vibe coder satisfaction −5 for a day). People.
+- **"May I train on the town tonight?"** Yes: a free training run on the town at night (section 2), with the planner skill. No: nothing. Machine or Control.
+- **"Your interns are unionising."** Back them (a service of your choice is built free in the district, satisfaction +), or the AI handles it (income +, interns' satisfaction −10 for a day). People or Machine.
+- **"There is a drone on the roof of the garage. It is mine. It would like a name."** Cosmetic: your named drone appears as one of its drones all generation. No axis, just flavour.
+
+### The UI: arwes, a sci-fi console that is still this game
+
+**Install** (phase Q1):
+- **Packages:** `@arwes/react`, plus `@arwes/react-frames`, `@arwes/react-text`, `@arwes/react-animator` and `@arwes/react-bgs` if they're separate in the version pinned. Pin one exact version (memory: no floating versions).
+- **Compatibility:** verify with React 19 before building on it.
+- **Bundle size:** the quest UI is a lazy chunk (`React.lazy`), so the base game's bundle doesn't grow.
+- **Sound:** arwes bleeps need audio files; the game's own synthesised bus (`src/audio/sound.ts`) is used instead, with a new `transmission` effect (a soft rising chirp) and `decision` (a confirm tone).
+
+**Theme.** arwes is dark sci-fi by default, and this game has both themes (memory: dark mode always, both themes always).
+- **Colours:** frames take their stroke and background colours from CSS variables set from the Tailwind palette:
+  - violet on a light panel in light mode;
+  - violet on near-black in dark mode;
+  - the same `primary` and `violet` tokens the rest of the game uses.
+- **A rule in the code:** every arwes component is wrapped in a `QuestFrame` that takes those variables, so nothing is styled with arwes's own defaults.
+- **Reduced motion:** with `prefers-reduced-motion`, animators are off and text appears whole.
+
+**The pieces:**
+1. **The transmission:** a panel that slides in from the right edge of the map.
+   - **Frame:** `FrameSVGOctagon` with corner brackets, drawn on with the animator.
+   - **Header:** the chapter title (`Chapter 3 · Thirst`) deciphered in with arwes's text decipher effect.
+   - **Body:** the AI's words typed in (`Text` with sequence animation).
+   - **Background:** a faint `Dots` or `GridLines` pattern behind.
+   - **Behaviour:** it doesn't pause the game (it's an idle game) and doesn't cover the map's middle. It can be minimised to a pulsing violet tab and reopened.
+2. **Decision cards:** the options as cards inside the transmission.
+   - **Frame:** each a `FrameSVGCorners` that illuminates on hover.
+   - **Contents:** the option's name; its cost and effects as signed rows (green good, red bad: the tree's `EffectRow` pattern, reused); its objective, if any, with the window; and the axis it moves as a small arrow on a mini disposition chart.
+   - **Choosing:** confirm with a second click (the card's frame closes in, `decision` tone).
+3. **The objective tracker:** a compact arwes frame top-right of the map, under the AI meter readout.
+   - **Contents:** the objective in a line, a progress bar (`FrameSVGUnderline` filling), and the time left.
+   - **On the map:** the objective's target, a block or a parcel, gets a violet ring marker, as events have (`EventMarkers`, reused).
+4. **The dossier:** a new section of the AI tab, the arc at a glance.
+   - **Timeline:** the five chapters as nodes on a line, done, current or locked, each opening to what was chosen and why.
+   - **The disposition:** a 2D chart (Control↔Autonomy across, People↔Machine up), the AI's position a glowing dot with its path drawn behind it.
+   - **"What it remembers":** the echoes, in its voice ("You kept the bakery. I have not forgotten the bakery.").
+   - **"What it might become":** the trait forecast (it exists) and the endings unlocked so far, with the conditions of those that aren't.
+5. **The ending card:** the Ascension card (section 6), rebuilt in the same frames, showing the unlocked ending beside Ascend and Shut it down, with what each does.
+
+### The engine
+
+- **Data:** `game/quests/`, one file a chapter plus `requests.ts`.
+  - A chapter is `{ id, stage, transmission: string[] (lines), options: Option[] }`.
+  - An option is `{ label, cost?, effects: Effect[], objective?: Objective, axis: { control?: n, machine?: n } }`.
+- **Effects** come from a small, typed vocabulary, each applied in one place:
+  - `incomeMult(generation)`, `walletMax`, `walletDraws`, `districtRadius`, `districtCentre(blockId)`, `takeoverStage`, `meterMult`, `leanTrait(family|trait, n)`;
+  - `revealMachineNode(id, discount)`, `floodMult`, `agentCap(share)`, `charter(kind)`, `flag(name)`.
+- **Objectives** are another small vocabulary, each with a `progress(state) → 0–1`, checked once a second:
+  - `throttleAtMost(share, seconds)`, `selectBlock`, `coolDataCentre(share)`, `aiBuilds(def)`, `buildBy(def, kind)`;
+  - `agentsRunning(n)`, `waterBudgetCovered`, `giveParcel`.
+- **State:** `state/quest.store.ts`, persisted, kept across sales within the generation and reset at Ascension except the arc's record, which the dossier keeps for generation history. It holds:
+  - the chapters done and the options chosen;
+  - the active objective, with its deadline;
+  - the disposition and the flags;
+  - the requests' cooldown.
+- **Triggers:** the meter crossing a stage (`stageOf`, already there); requests on a timer leant by `traitForecast`.
+- **Offline:** chapters and requests never fire or resolve while away. An objective whose window passes offline is extended by the time away, so the player always gets the window they were given.
+
+### Balance
+
+- **Dominant choices:** over 4,000 random companies, no option of a chapter is the best on value more than 60% of the time (the dominant-choices harness, extended with each option's effects modelled).
+- **Every disposition quadrant reachable:** a test plays the arc with each pick pattern and checks each ending is reachable, and none is reachable by default.
+- **Pace:** chapters spaced by the meter, about one every 20–40 minutes of play in generation 1, requests between them. Nothing blocks: ignoring a transmission picks the AI's preferred option after 10 minutes, which is the arc's quiet cost of not engaging.
+
+## 6. The Ascension popover and light/dark
 
 - **What was found:** the Ascension card (`molecules/ascension-card.tsx`) pairs its colours with `dark:` variants. The AI meter readout (`molecules/ai-singularity-readout.tsx`) is the one AI surface that's always dark (`bg-primary-900/85`) in light mode.
 - **First, reproduce:** open `?fixture=singularity` in both themes at 100% and screenshot:
@@ -439,7 +620,7 @@ It stays, with its cost raised to match. On top of what it does now, it resets t
 
 ---
 
-## 6. Phases (each committed to `main`, with tests, `npx tsc -b` and eslint)
+## 7. Phases (each committed to `main`, with tests, `npx tsc -b` and eslint)
 
 | # | Phase | What lands | Depends on |
 |---|---|---|---|
@@ -457,11 +638,17 @@ It stays, with its cost raised to match. On top of what it does now, it resets t
 | 12 | Machine notables: freight and building | Autonomous Freight (convoys, new lorries), Drone Airlift, Prefab Printing, Generative Zoning | 11, 4 |
 | 13 | Machine notables: water, town and trade | Coolant Loop, Holo-Concierge, Market Maker, Night Shift, Self-Funding | 11, 3, 7 |
 | 14 | Machine keystones | Alignment, Hard Takeoff, Air Gap | 11, 2 |
-| 15 | Balance | Cadence, dominant choices, takeover sim, the Machine's paths; tune | all |
+| Q1 | arwes | Install pinned arwes; `QuestFrame` themed from the palette, both themes; reduced motion; lazy chunk; `transmission` and `decision` sounds | — |
+| Q2 | Quest engine | Data model, effects and objectives vocabularies, `quest.store`, triggers, offline rules | 2, 3, 6 |
+| Q3 | Quest UI | Transmission, decision cards, objective tracker with map markers, dossier in the AI tab | Q1, Q2 |
+| Q4 | The arc | Chapters 1–4 with their objectives and echoes | Q3, 7 (Thirst's weir) |
+| Q5 | Requests | The pool of about 16, leant by trait | Q3 |
+| Q6 | The finale | Chapter 5: the Lattice's forms, the four endings and their Ascension effects | Q4, 9, 11 |
+| 15 | Balance | Cadence, dominant choices (Machine paths, chapter options), takeover sim, endings reachable; tune | all |
 
 ---
 
-## 7. Measures and guards
+## 8. Measures and guards
 
 - **Takeover sim** (new, `simulation/takeover.test.ts`): run the AI headless on generated maps with the singularity fixture's company, for 30 simulated minutes at each stage, each focus and each trait family. Guards:
   - **Cooling:** the share of the AI's drinkers cooled never drops below 90% for more than 60 s.
@@ -479,6 +666,14 @@ It stays, with its cost raised to match. On top of what it does now, it resets t
   - **Keystones:** they exclude each other.
   - **Inheritance:** delays the takeover by exactly one stage.
 - **Ascension keeps the tree:** a test ascends a company with allocated nodes and checks they, Equity and respec points survive, while exits, mandates and the run are wiped.
+- **The arc** (unit tests):
+  - each chapter fires once, at its stage, in any company, and survives a sale;
+  - each objective's progress, and its success and failure outcomes;
+  - the disposition sums;
+  - each ending's conditions, reachable by some pattern and never by default;
+  - ignoring a transmission picks the preferred option after 10 minutes;
+  - offline extends a window rather than failing it.
+- **The quest UI in both themes:** screenshots on the isolated server of the transmission, cards, tracker and dossier, light and dark; and reduced motion shows text whole.
 - **The ratchet is gone:** a test that chains 10 training runs of every dataset and checks the town's tier mix afterwards matches a town that ran none (within noise).
 - **Browser checks** on the isolated server, in both themes, with the `singularity` fixture:
   - the district boundary shows;
@@ -496,5 +691,7 @@ It stays, with its cost raised to match. On top of what it does now, it resets t
 1. **District shape:** a circle is simplest. A flood-fill along roads from the Data Centre might read better on the map. Proposed: a circle first, revisited after playing.
 2. **Focus on The Model's runs (AI mode):** AI mode already has its own planner and budget. Proposed: these controls apply to the takeover only, and AI mode keeps its own (`ai-mode-panel.tsx`).
 3. **A kept tree is a lot of power across generations.** With Equity no longer wiped, the business tree only grows. If generations snowball, the respec points and the tree's escalating node costs are the brakes. Proposed: measure first in the cadence sim (phase 15), and if needed make each Ascension cost a share of unspent Equity rather than any of the tree.
-5. **The Machine's layout:** a cluster among the others, webbed into the rings (proposed), or a separate ring outside them? Among them keeps one tree and lets paths cross between business and machine nodes.
 4. **Vetoes and Resentful:** should many vetoes also speed the meter ("it resents being stopped")? It would be thematic, but it makes vetoing a trap. Proposed: no; the trait lean is the consequence.
+5. **The Machine's layout:** a cluster among the others, webbed into the rings (proposed), or a separate ring outside them? Among them keeps one tree and lets paths cross between business and machine nodes.
+6. **Later generations' arc:** generation 1 has the full five chapters. Proposed: later generations get a three-chapter sequel seeded by the Machine keystone taken (an Alignment sequel, a Hard Takeoff sequel, an Air Gap sequel), so the story continues rather than repeats.
+7. **arwes's weight:** if the pinned version's bundle for the pieces used is over ~80 KB gzipped, the frames are drawn with the game's own SVG instead, and arwes is kept only for text effects and animators.
