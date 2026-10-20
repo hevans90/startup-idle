@@ -1,8 +1,8 @@
 import {
   IconBriefcase,
   IconCode,
-  IconGhost,
   IconCpu,
+  IconGhost,
   IconRobot,
   IconSeeding,
   IconTelescope,
@@ -266,14 +266,18 @@ export const FOUNDERS: FounderDef[] = [
       label: "Ascend once",
       check: () => false,
     },
-    rule: "AI mode: switch it on and the town plans and builds itself, as well as it can be built",
+    rule: "AI mode: switch it on and the town plans and builds itself",
     icon: IconCpu,
     startingCash: 5,
     scalingModifier: {
       label: "Generations",
-      perExitDescription: "carries every trait the generations before it ended with",
+      perExitDescription:
+        "carries every trait the generations before it ended with",
       compute: () => ({}),
     },
-    perks: () => ["Every trait past generations ended with", "$5 starting cash"],
+    perks: () => [
+      "Every trait past generations ended with",
+      "$5 starting cash",
+    ],
   },
 ];
