@@ -2581,6 +2581,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         noSolver.current = "the water field was replaced (a new map, a resize or a first bridge); the GPU solver is rebuilding";
         sayWaterSolver("cpu", noSolver.current);
       }
+      let sw = section("water: sync, sources, pipes");
       solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);
       // PUMP HOUSES are paid for while they run, in the game. @see runPumps
@@ -2592,6 +2593,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // and the CPU solver does not run at all — see `gpu/solver`, and the
       // note there about the round trip this still pays for.
       const solver = solverRef.current;
+      sw(); sw = section("water: solve");
       // ONE FIELD, WHOEVER STEPS IT. A bridge is slots in the same columns
       // rather than a storey of its own, so there is no second thing here
       // for the device path to forget about. @see syncSlots
@@ -2619,6 +2621,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         stepWater(field, dt);
       }
       const t1 = performance.now();
+      sw(); sw = section("water: gather");
       // THE QUADS THIS FRAME IS WORTH DRAWING, gathered before the mesh is
       // told how many to draw. On the device's own path that is after the
       // solver has filled the textures it reads; on the host's it is a frame
@@ -2650,6 +2653,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             && !(import.meta.env.DEV && (window as unknown as { __gradOff?: boolean }).__gradOff),
         );
       }
+      sw(); sw = section("water: draw surface");
       if (fl) drawWater(fl, field.columns, bl, dt, overlays.faces);
       else if (gpu) {
         drawGpuWater(gpu, field.columns, bl, dt, overlays.faces, solver !== null);
@@ -2657,6 +2661,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // The foam FIELD, not the solver's raw breaking: the surface is painted
       // from this, so the sheet has to be too or a white lip goes over a
       // cliff and turns blue in the air.
+      sw(); sw = section("water: falls, drips");
       if (faRef.current) {
         const box = activeBox(field.columns);
         const layer = fl ?? gpu;
@@ -2684,6 +2689,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (drRef.current) drawGpuDrips(drRef.current, field, bl, grid, overlays.xray);
       // THE BOATS, on the water this frame left: bob, tilt, drift, then drawn.
       // @see world/boats
+      sw();
       const tTown = performance.now();
       const sBoats = section("tick: boats");
       const fleet = getFleet();
@@ -3130,6 +3136,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (!import.meta.env.DEV || !app?.renderer || !app?.ticker) return;
     const renderer = app.renderer as unknown as { render: (...a: unknown[]) => unknown };
     const real = renderer.render.bind(renderer);
+    // AND INSIDE IT, with `?hitches`: a render group's draw list built again
+    // (a chunk shown, a child added, moved or re-sorted), and the batches
+    // uploaded after — what a moving camera can cost. @see section
+    const groups = (renderer as unknown as { renderGroup?: { _buildInstructions?: (...a: unknown[]) => unknown } }).renderGroup;
+    const realBuild = groups?._buildInstructions?.bind(groups);
+    if (groups && realBuild) groups._buildInstructions = (...a: unknown[]) => { const e = section("pixi: a render group rebuilt"); const out = realBuild(...a); e(); return out; };
+    const batch = (renderer as unknown as { renderPipes?: { batch?: { upload?: (...a: unknown[]) => unknown } } }).renderPipes?.batch;
+    const realUpload = batch?.upload?.bind(batch);
+    if (batch && realUpload) batch.upload = (...a: unknown[]) => { const e = section("pixi: batches uploaded"); const out = realUpload(...a); e(); return out; };
     renderer.render = (...a: unknown[]) => {
       const at = performance.now();
       const e = section("pixi render");
@@ -3200,6 +3215,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       renderer.render = real as typeof renderer.render;
       if (encoder && realBegin) encoder.beginRenderPass = realBegin;
       if (enc && realDraw) enc.draw = realDraw;
+      if (groups && realBuild) groups._buildInstructions = realBuild;
+      if (batch && realUpload) batch.upload = realUpload;
       Graphics.prototype.clear = realClear;
       // The app can already be torn down by now, when the whole map unmounts.
       app.ticker?.remove(done, null);
