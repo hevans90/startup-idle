@@ -22,7 +22,7 @@ The takeover is the best idea in the late game: the company's AI starts doing yo
 - **Training that shapes what kind of AI you raise** instead of buffing the economy.
 - **An Ascension worth reaching** and harder to reach.
 
-This is a plan only. Nothing here is built yet. **arwes is not yet installed** in the repo: it isn't in `package.json`, `node_modules` or any branch. Installing it is phase Q1.
+This is a plan only. Nothing here is built yet. Of Arwes, only `@arwes/text` is installed (for the 10x dev's decipher); Arwes's React components don't work under this app's StrictMode, so the quest UI uses its DOM packages with our own wrappers (phase Q1).
 
 ---
 
@@ -542,10 +542,11 @@ Small, quick, frequent enough to keep the AI present, never blocking. Each has t
 ### The UI: arwes, a sci-fi console that is still this game
 
 **Install** (phase Q1):
-- **Packages:** `@arwes/react`, plus `@arwes/react-frames`, `@arwes/react-text`, `@arwes/react-animator` and `@arwes/react-bgs` if they're separate in the version pinned. Pin one exact version (memory: no floating versions).
-- **Compatibility:** verify with React 19 before building on it.
+- **What's already in:** `@arwes/text` (pinned `1.0.0-next.25020502`) drives the 10x dev's deciphering name (`utils/ten-x-utils.tsx`).
+- **Arwes's React packages don't work here.** `@arwes/react-*` (`Animator`, `Text`, the React frames) set themselves unmounted in an effect's cleanup and never set themselves mounted again, so under React's StrictMode, which this app runs in, the animator never starts and everything stays hidden. They also declare a React 18 peer, and this app is on React 19.
+- **So the quest UI uses Arwes's DOM packages** (`@arwes/text` for decipher and sequence text, `@arwes/frames` for the SVG frames, `@arwes/animated` for timing) through **our own small React wrappers**: refs, and effects that clean up properly under StrictMode, as `ten-x-utils` does. Pin the same version; verify each package has no React peer before adding it. (`@arwes/frames` asks for `motion@10` as a peer: install that pinned too, or draw the frames' SVG with `@arwes/frames`'s path helpers only.)
 - **Bundle size:** the quest UI is a lazy chunk (`React.lazy`), so the base game's bundle doesn't grow.
-- **Sound:** arwes bleeps need audio files; the game's own synthesised bus (`src/audio/sound.ts`) is used instead, with a new `transmission` effect (a soft rising chirp) and `decision` (a confirm tone).
+- **Sound:** Arwes bleeps need audio files; the game's own synthesised bus (`src/audio/sound.ts`) is used instead, with a new `transmission` effect (a soft rising chirp) and `decision` (a confirm tone).
 
 **Theme.** arwes is dark sci-fi by default, and this game has both themes (memory: dark mode always, both themes always).
 - **Colours:** frames take their stroke and background colours from CSS variables set from the Tailwind palette:
@@ -638,7 +639,7 @@ Small, quick, frequent enough to keep the AI present, never blocking. Each has t
 | 12 | Machine notables: freight and building | Autonomous Freight (convoys, new lorries), Drone Airlift, Prefab Printing, Generative Zoning | 11, 4 |
 | 13 | Machine notables: water, town and trade | Coolant Loop, Holo-Concierge, Market Maker, Night Shift, Self-Funding | 11, 3, 7 |
 | 14 | Machine keystones | Alignment, Hard Takeoff, Air Gap | 11, 2 |
-| Q1 | arwes | Install pinned arwes; `QuestFrame` themed from the palette, both themes; reduced motion; lazy chunk; `transmission` and `decision` sounds | — |
+| Q1 | Arwes | Arwes's DOM packages (`@arwes/frames`, `@arwes/animated`, beside `@arwes/text`) behind our own StrictMode-safe wrappers; `QuestFrame` themed from the palette, both themes; reduced motion; lazy chunk; `transmission` and `decision` sounds | — |
 | Q2 | Quest engine | Data model, effects and objectives vocabularies, `quest.store`, triggers, offline rules | 2, 3, 6 |
 | Q3 | Quest UI | Transmission, decision cards, objective tracker with map markers, dossier in the AI tab | Q1, Q2 |
 | Q4 | The arc | Chapters 1–4 with their objectives and echoes | Q3, 7 (Thirst's weir) |
