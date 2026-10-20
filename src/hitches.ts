@@ -9,7 +9,9 @@
  * worst single run. Installed before anything else loads, so it sees them all.
  * @see main.tsx
  */
-type Tally = { n: number; total: number; max: number };
+/** `slow`: runs longer than a frame at sixty — the ones that are felt. */
+type Tally = { n: number; total: number; max: number; slow: number };
+const FRAME_MS = 1000 / 60;
 const tallies = new Map<string, Tally>();
 /** Whether `?hitches` is on: `section` is a no-op without it. */
 let on = false;
@@ -26,8 +28,8 @@ function timed<A extends unknown[]>(where: string, fn: (...a: A) => unknown) {
     const t0 = performance.now();
     try { return fn(...a); } finally {
       const ms = performance.now() - t0;
-      const t = tallies.get(where) ?? { n: 0, total: 0, max: 0 };
-      t.n++; t.total += ms; t.max = Math.max(t.max, ms);
+      const t = tallies.get(where) ?? { n: 0, total: 0, max: 0, slow: 0 };
+      t.n++; t.total += ms; t.max = Math.max(t.max, ms); if (ms > FRAME_MS) t.slow++;
       tallies.set(where, t);
     }
   };
@@ -44,7 +46,7 @@ export function installHitches() {
   w.requestAnimationFrame = (fn: FrameRequestCallback) => raf(timed(`raf ${whence()}`, fn));
   w.__hitches = (top = 15) =>
     [...tallies.entries()]
-      .map(([where, t]) => ({ where, n: t.n, max: Math.round(t.max), mean: Math.round((t.total / t.n) * 10) / 10, total: Math.round(t.total) }))
+      .map(([where, t]) => ({ where, n: t.n, slow: t.slow, max: Math.round(t.max), mean: Math.round((t.total / t.n) * 10) / 10, total: Math.round(t.total) }))
       .sort((a, b) => b.max - a.max)
       .slice(0, top);
   w.__hitchesReset = () => tallies.clear();
@@ -61,8 +63,8 @@ export function section(name: string): () => void {
   const t0 = performance.now();
   return () => {
     const ms = performance.now() - t0;
-    const t = tallies.get(name) ?? { n: 0, total: 0, max: 0 };
-    t.n++; t.total += ms; t.max = Math.max(t.max, ms);
+    const t = tallies.get(name) ?? { n: 0, total: 0, max: 0, slow: 0 };
+    t.n++; t.total += ms; t.max = Math.max(t.max, ms); if (ms > FRAME_MS) t.slow++;
     tallies.set(name, t);
   };
 }
