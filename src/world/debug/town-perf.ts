@@ -7,8 +7,8 @@
  * meter's rolling numbers over a few seconds: the frame, the javascript and
  * its parts, draw calls and Graphics redrawn, and the GPU's passes where the
  * device can time them. Real frames, not a bench: the town's ticks only run
- * on the ticker. So the pane HAS TO BE VISIBLE — a hidden one is throttled to
- * a frame a second, and it refuses rather than report that. @see perfRead
+ * on the ticker. So the page HAS TO BE IN FRONT — a hidden one is throttled, and it refuses rather than report that. A slow one in front is
+ * reported, slow. @see perfRead
  */
 import { useWorldStore, getTown } from "../../state/world.store";
 import { cellToWorld } from "../iso";
@@ -20,7 +20,7 @@ export type TownPerfReport = { ok: boolean; why: string | null; structures: numb
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Frames the browser gives in `ms`: under thirty a second, the pane is throttled. */
+/** Frames the browser gives a second, measured over `ms`. */
 async function framesIn(ms: number): Promise<number> {
   let n = 0;
   const t0 = performance.now();
@@ -38,8 +38,11 @@ export async function runTownPerf(
   const vp = st.viewport;
   const empty = (why: string): TownPerfReport => ({ ok: false, why, structures: st.grid.structures.size, rows: [] });
   if (!vp) return empty("no map on screen");
+  // HIDDEN, the browser throttles the frames and nothing here would mean
+  // anything. (Not focus: the console it is run from has that.) A page in
+  // front that is slow is the finding, not a reason to refuse. @see perfRead
+  if (document.hidden) return empty("the page is hidden: the browser throttles its frames, so nothing here would mean anything — bring it to the front and run again");
   const fps = await framesIn(500);
-  if (fps < 30) return empty(`the browser gives ${fps.toFixed(0)} frames a second: the pane is hidden or throttled, so nothing here would mean anything`);
   const g = st.grid;
   const { wx, wy } = cellToWorld(g.w / 2, g.h / 2, 0, st.scale);
   const rows: TownPerfRow[] = [];
@@ -57,7 +60,7 @@ export async function runTownPerf(
     const gpu = stampsNow()?.says() ?? null;
     rows.push({ ...mean, zoom, movers: getTown().movers.length, gpu: gpu ? { total: Math.round(gpu.total * 100) / 100, ...gpu.of } : null });
   }
-  return { ok: true, why: null, structures: g.structures.size, rows };
+  return { ok: true, why: fps < 30 ? `slow: ${fps.toFixed(0)} frames a second before measuring` : null, structures: g.structures.size, rows };
 }
 
 if (import.meta.env?.DEV && typeof window !== "undefined") {
