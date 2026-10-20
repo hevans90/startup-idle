@@ -142,7 +142,7 @@ src/
 
 ## Dev tools
 
-- **Editor:** `?world=1`. **Flags:** `?fixture=<name>` (unsaved test map; `projects` shows every build stage, `singularity` the AI), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck` / `?gpuwhy`, `?perf` (frame meter in play: town, fx, draws, Graphics redrawn; `__perf()`); `?fixture=bigtown&crowd=2000` is the engine's stress town (~2,100 buildings), measured with `__townPerf()` (real frames: the pane must be visible).
+- **Editor:** `?world=1`. **Flags:** `?fixture=<name>` (unsaved test map; `projects` shows every build stage, `singularity` the AI), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck` / `?gpuwhy`, `?perf` (frame meter in play: town, fx, draws, Graphics redrawn; `__perf()`); `?fixture=bigtown&crowd=2000` is the engine's stress town (~2,100 buildings), measured with `__townPerf()` (real frames: the pane must be visible). `?hitches` times every timer and frame callback by where it was registered: `__hitches()` lists the worst — the meter averages, and hides hitches.
 - **Window hooks (dev):** `__world`, `__town()`, `__structures`, `__net`, `__waterBench(n, true)`, `__fakeHires = { intern: 9 }`, `__eventNow`, `__aiPreview`. Use these, not `import()` (a second module copy).
 - **Water solver** logged per change (`WATER: GPU solver` / `WATER: CPU solver — <reason>`, `GPU:`); history in `window.__waterSolver()`.
 - **A hidden tab pauses `requestAnimationFrame`**; its frame numbers mean nothing.

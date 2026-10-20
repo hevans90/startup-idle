@@ -15,12 +15,16 @@ import { getExports, useWorldStore } from "../../state/world.store";
 import { payday } from "./payday";
 import { formatCurrency } from "../../utils/money-utils";
 import { drawnTop, shownStructures } from "../structures/layer";
+import { cellToWorld } from "../iso";
 
 /** How long one rises for, ms, and how far, px. */
 const LIFE = 1600;
 const RISE = 28;
 /** How often each workplace says what it earned, ms. */
 const PAYDAY = 5000;
+/** The most rising at once; and how far off the screen, px, one still starts. */
+const MAX_FLOATS = 24;
+const MARGIN = 80;
 
 type Float = { key: number; amount: number; at: number; wx: number; wy: number };
 
@@ -41,8 +45,20 @@ export function PortIncome() {
         paidAt = now;
       }
       let changed = false;
-      if (vp && sl) {
-        for (const p of fresh) {
+      if (vp && sl && fresh.length) {
+        // ON THE SCREEN, AND A FEW: placed by the tile first, which is cheap,
+        // and only those in view measured — the biggest first, up to `MAX_FLOATS`
+        // in the air. Every workplace on a big town measured and floated at
+        // once held the page for a fifth of a second every payday.
+        const grid = useWorldStore.getState().grid, scale = useWorldStore.getState().scale;
+        const seen = fresh.filter((p) => {
+          const s = grid.structures.get(p.port);
+          if (!s) return false;
+          const { wx, wy } = cellToWorld(s.x + s.w / 2, s.y + s.h / 2, 0, scale);
+          const at = vp.toScreen(wx, wy);
+          return at.x > -MARGIN && at.y > -MARGIN && at.x < vp.screenWidth + MARGIN && at.y < vp.screenHeight + MARGIN;
+        }).sort((x, y) => y.amount - x.amount).slice(0, Math.max(0, MAX_FLOATS - live.current.length));
+        for (const p of seen) {
           const top = drawnTop(sl, p.port);
           if (!top) continue;
           const w = vp.toWorld(top.x, top.y);

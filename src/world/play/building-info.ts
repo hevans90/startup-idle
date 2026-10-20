@@ -327,55 +327,97 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
  */
 export function collate(infos: readonly BuildingInfo[], money: (n: number) => string): BuildingInfo {
   if (infos.length === 1) return infos[0];
-  const facts = infos.flatMap((i) => i.facts);
-  const lines: InfoLine[] = [], brief: string[] = [];
+  const t = tallyOf(infos[0]);
+  for (let k = 1; k < infos.length; k++) addTally(t, tallyOf(infos[k]));
+  return { ...said(t, money), facts: infos.flatMap((i) => i.facts) };
+}
 
+/**
+ * WHAT A GROUP OF LABELS ADDS UP TO, kept as running totals, so two groups
+ * merge in a few additions rather than by adding up every building in both
+ * again — which, on a big town gathering two thousand labels into a few, was
+ * most of a tenth of a second every time they were gathered. @see gatherLabels
+ */
+type HomeTally = { homes: number; res: number; beds: number; coming: number; known: number; earns: number; deskless: number; felt: number; moodRes: number; feltRes: number };
+export type Tally = {
+  count: number;
+  homes: Map<GeneratorId, HomeTally>;
+  sites: Extract<Fact, { type: "site" }>[];
+  /** Finished projects by name, in the order each first turned up. */
+  done: Map<string, number>;
+  ports: { n: number; along: number; berths: number; waiting: number; earning: number };
+  accents: Set<number>;
+};
+
+/** One building's label, as a tally. */
+export function tallyOf(info: BuildingInfo): Tally {
+  const t: Tally = { count: 1, homes: new Map(), sites: [], done: new Map(), ports: { n: 0, along: 0, berths: 0, waiting: 0, earning: 0 }, accents: new Set([info.accent]) };
+  for (const f of info.facts) {
+    if (f.type === "home") {
+      const h = t.homes.get(f.who) ?? { homes: 0, res: 0, beds: 0, coming: 0, known: 0, earns: 0, deskless: 0, felt: 0, moodRes: 0, feltRes: 0 };
+      h.homes++; h.res += f.residents; h.beds += f.beds; h.coming += f.coming; h.deskless += f.deskless ?? 0;
+      if (f.earns !== undefined) { h.known++; h.earns += f.earns; }
+      if (f.mood !== undefined && f.residents > 0) { h.felt++; h.moodRes += f.mood * f.residents; h.feltRes += f.residents; }
+      t.homes.set(f.who, h);
+    } else if (f.type === "site") t.sites.push(f);
+    else if (f.type === "project") t.done.set(f.name, (t.done.get(f.name) ?? 0) + 1);
+    else { t.ports.n++; t.ports.along += f.alongside; t.ports.berths += f.berths; t.ports.waiting += f.waiting; t.ports.earning += f.earning; }
+  }
+  return t;
+}
+
+/** `b` added into `a`, in that order: what `a` said, then what `b` did. */
+export function addTally(a: Tally, b: Tally): void {
+  a.count += b.count;
+  for (const [who, h] of b.homes) {
+    const x = a.homes.get(who);
+    if (!x) { a.homes.set(who, { ...h }); continue; }
+    for (const k of Object.keys(h) as (keyof HomeTally)[]) x[k] += h[k];
+  }
+  a.sites.push(...b.sites);
+  for (const [name, n] of b.done) a.done.set(name, (a.done.get(name) ?? 0) + n);
+  for (const k of Object.keys(b.ports) as (keyof Tally["ports"])[]) a.ports[k] += b.ports[k];
+  for (const c of b.accents) a.accents.add(c);
+}
+
+/** What a tally says: the title, the lines and the brief of the collated label. */
+export function said(t: Tally, money: (n: number) => string): Omit<BuildingInfo, "facts"> {
+  const lines: InfoLine[] = [], brief: string[] = [];
   for (const who of Object.keys(KIND_NAME) as GeneratorId[]) {
-    const homes = facts.filter((f): f is Extract<Fact, { type: "home" }> => f.type === "home" && f.who === who);
-    if (!homes.length) continue;
-    const res = homes.reduce((n, f) => n + f.residents, 0), beds = homes.reduce((n, f) => n + f.beds, 0);
-    const coming = homes.reduce((n, f) => n + f.coming, 0);
-    const known = homes.filter((f) => f.earns !== undefined);
+    const h = t.homes.get(who);
+    if (!h) continue;
     const [name] = KIND_NAME[who];
-    lines.push({ text: `${name}s: ${res}/${beds} in ${homes.length} ${homes.length === 1 ? "home" : "homes"}` });
-    if (known.length && res > 0) lines.push({ text: `  earn ${money(known.reduce((n, f) => n + f.earns!, 0))}/s`, tone: "good" });
-    if (coming) lines.push({ text: `  ${coming} on the way`, tone: "good" });
-    const deskless = homes.reduce((n, f) => n + (f.deskless ?? 0), 0);
-    if (deskless) lines.push({ text: `  ${deskless} without a desk`, tone: "warn" });
+    lines.push({ text: `${name}s: ${h.res}/${h.beds} in ${h.homes} ${h.homes === 1 ? "home" : "homes"}` });
+    if (h.known && h.res > 0) lines.push({ text: `  earn ${money(h.earns)}/s`, tone: "good" });
+    if (h.coming) lines.push({ text: `  ${h.coming} on the way`, tone: "good" });
+    if (h.deskless) lines.push({ text: `  ${h.deskless} without a desk`, tone: "warn" });
     // Their mood, weighted by who lives where. @see moodOffsets
-    const felt = homes.filter((f) => f.mood !== undefined && f.residents > 0);
-    if (felt.length) {
-      const avg = Math.round(felt.reduce((n, f) => n + f.mood! * f.residents, 0) / felt.reduce((n, f) => n + f.residents, 0));
+    if (h.felt) {
+      const avg = Math.round(h.moodRes / h.feltRes);
       lines.push({ text: `  ${moodWord(avg).toLowerCase()} (${avg > 0 ? "+" : ""}${avg})`, tone: avg >= 0 ? "good" : "warn" });
     }
-    brief.push(`${name}s ${res}/${beds}${coming ? ` +${coming}` : ""}`);
+    brief.push(`${name}s ${h.res}/${h.beds}${h.coming ? ` +${h.coming}` : ""}`);
   }
-  for (const f of facts) {
-    if (f.type !== "site") continue;
+  for (const f of t.sites) {
     const note = f.paused ? " (paused)" : f.stalled ? " (stalled)" : "";
     lines.push({ text: `${f.name}: ${f.pct}% built${note}`, tone: note ? "warn" : undefined });
     brief.push(`${f.name} ${f.pct}%`);
   }
-  const done = facts.filter((f): f is Extract<Fact, { type: "project" }> => f.type === "project");
-  if (done.length) {
-    const named = counted(done.map((f) => f.name));
+  if (t.done.size) {
+    const named = [...t.done].map(([name, k]) => (k > 1 ? `${name} ×${k}` : name)).join(", ");
     lines.push({ text: named });
     brief.push(named);
   }
-  const ports = facts.filter((f): f is Extract<Fact, { type: "port" }> => f.type === "port");
-  if (ports.length) {
-    const along = ports.reduce((n, f) => n + f.alongside, 0), berths = ports.reduce((n, f) => n + f.berths, 0);
-    const waiting = ports.reduce((n, f) => n + f.waiting, 0);
-    const earning = ports.reduce((n, f) => n + f.earning, 0);
-    lines.push({ text: `${ports.length} seaport${ports.length > 1 ? "s" : ""}: ${along}/${berths} alongside${waiting ? `, ${waiting} waiting` : ""}` });
-    if (earning > 0) lines.push({ text: `  earning ${money(earning)}/min`, tone: "good" });
-    brief.push(earning > 0 ? `Ports ${money(earning)}/min` : `Ports ${along}/${berths}`);
+  const p = t.ports;
+  if (p.n) {
+    lines.push({ text: `${p.n} seaport${p.n > 1 ? "s" : ""}: ${p.along}/${p.berths} alongside${p.waiting ? `, ${p.waiting} waiting` : ""}` });
+    if (p.earning > 0) lines.push({ text: `  earning ${money(p.earning)}/min`, tone: "good" });
+    brief.push(p.earning > 0 ? `Ports ${money(p.earning)}/min` : `Ports ${p.along}/${p.berths}`);
   }
-  const accents = new Set(infos.map((i) => i.accent));
   return {
-    title: `${infos.length} buildings`,
-    accent: accents.size === 1 ? infos[0].accent : 0x9aa3ad,
-    brief, lines, facts,
+    title: `${t.count} buildings`,
+    accent: t.accents.size === 1 ? [...t.accents][0] : 0x9aa3ad,
+    brief, lines,
   };
 }
 
@@ -391,7 +433,7 @@ export function counted(names: readonly string[]): string {
 
 /** Roughly how big a label is on the screen, px, before it is drawn: monospace at 10 px. */
 const CHAR_W = 6.2, LINE_H = 13, PAD_W = 14, PAD_H = 6;
-function sizeOf(info: BuildingInfo, full: boolean): { w: number; h: number } {
+function sizeOf(info: Pick<BuildingInfo, "title" | "lines" | "brief">, full: boolean): { w: number; h: number } {
   const rows = full ? [info.title, ...info.lines.map((l) => l.text)] : info.brief;
   const longest = rows.reduce((n, r) => Math.max(n, r.length), 0);
   return { w: longest * CHAR_W + PAD_W, h: rows.length * LINE_H + PAD_H };
@@ -407,9 +449,11 @@ export function gatherLabels(
   items: readonly { id: number; x: number; y: number; band: number; info: BuildingInfo }[],
   full: boolean, money: (n: number) => string, gap = 4,
 ): { ids: number[]; x: number; y: number; info: BuildingInfo }[] {
-  type Group = { ids: number[]; infos: BuildingInfo[]; info: BuildingInfo; sx: number; n: number; top: number };
+  // Each group's label kept as a TALLY while they merge, its text worked out
+  // from that — and the whole label, facts and all, once at the end. @see Tally
+  type Group = { ids: number[]; infos: BuildingInfo[]; tally: Tally | null; info: Omit<BuildingInfo, "facts"> & { facts?: Fact[] }; sx: number; n: number; top: number };
   let groups: Group[] = [...items].sort((p, q) => q.band - p.band).map((it) => ({
-    ids: [it.id], infos: [it.info], info: it.info, sx: it.x, n: 1, top: it.y,
+    ids: [it.id], infos: [it.info], tally: null, info: it.info, sx: it.x, n: 1, top: it.y,
   }));
   // Over the middle of its buildings, at the top of the highest.
   const anchor = (g: Group) => ({ x: g.sx / g.n, y: g.top });
@@ -426,14 +470,18 @@ export function gatherLabels(
   // held the page for seconds. @see BuildingLabels
   const CELL = 192;
   const boxes = groups.map(box);
-  const cells = new Map<number, number[]>();
+  // Each cell's groups as a set, a group taken out of its old cells before it
+  // is filed in its new ones: refiled into lists, a grown group left a copy
+  // behind in every cell it had been in, and every look after scanned them.
+  const cells = new Map<number, Set<number>>();
   const key = (cx: number, cy: number) => cx * 73856093 ^ cy * 19349663;
   const each = (b: Box, f: (k: number) => void) => {
     for (let cx = Math.floor(b.x / CELL); cx <= Math.floor((b.x + b.w) / CELL); cx++) {
       for (let cy = Math.floor(b.y / CELL); cy <= Math.floor((b.y + b.h) / CELL); cy++) f(key(cx, cy));
     }
   };
-  const file = (k: number) => each(boxes[k], (c) => { const l = cells.get(c); if (l) l.push(k); else cells.set(c, [k]); });
+  const file = (k: number) => each(boxes[k], (c) => { const l = cells.get(c); if (l) l.add(k); else cells.set(c, new Set([k])); });
+  const unfile = (k: number) => each(boxes[k], (c) => { cells.get(c)?.delete(k); });
   groups.forEach((_, k) => file(k));
   const gone = new Uint8Array(groups.length);
   const queue = groups.map((_, k) => groups.length - 1 - k);
@@ -450,16 +498,26 @@ export function gatherLabels(
     if (other < 0) continue;
     const a = Math.min(i, other), b = Math.max(i, other);
     const g = groups[a], o = groups[b];
-    g.ids.push(...o.ids); g.infos.push(...o.infos);
+    // The smaller into the larger: which order they are kept in shows nowhere
+    // (the key sorts them, the facts are added up), and copying the bigger
+    // into the smaller, merge after merge, was the rest of the quadratic.
+    // Each side's tally taken first: a group of one has none yet, and makes it from its own label.
+    const mine = g.tally ?? tallyOf(g.infos[0]), theirs = o.tally ?? tallyOf(o.infos[0]);
+    if (o.ids.length > g.ids.length) { [g.ids, o.ids] = [o.ids, g.ids]; [g.infos, o.infos] = [o.infos, g.infos]; }
+    for (const id of o.ids) g.ids.push(id);
+    for (const info of o.infos) g.infos.push(info);
     g.sx += o.sx; g.n += o.n; g.top = Math.min(g.top, o.top);
-    g.info = collate(g.infos, money);
+    addTally(mine, theirs);
+    g.tally = mine;
+    g.info = said(mine, money);
     gone[b] = 1;
+    unfile(a); unfile(b);
     boxes[a] = box(g);
     file(a);
     queue.push(a);
   }
   groups = groups.filter((_, k) => !gone[k]);
-  return groups.map((g) => ({ ids: g.ids, ...anchor(g), info: g.info }));
+  return groups.map((g) => ({ ids: g.ids, ...anchor(g), info: g.infos.length === 1 ? g.infos[0] : { ...(g.info as Omit<BuildingInfo, "facts">), facts: g.infos.flatMap((i) => i.facts) } }));
 }
 
 /** What a building that drinks is drinking, and how well cooled it is. @see game/cooling */
