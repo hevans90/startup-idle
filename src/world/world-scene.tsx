@@ -1506,7 +1506,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         holoScanRef.current = scan;
       }
       boatRef.current = createBoatLayer(bl);
-      townRef.current = createTownLayer(bl);
+      townRef.current = createTownLayer(bl, app.renderer as unknown as Renderer);
       setSceneEpoch((n) => n + 1);
 
       console.info(`WORLD: ${grid.w}×${grid.h}, ${bl.bands.length} bands`);

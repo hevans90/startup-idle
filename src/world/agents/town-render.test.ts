@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Graphics } from "pixi.js";
 
 import type { Mover } from "./town";
-import { HEADINGS, drawMover, lookOf } from "./town-render";
+import { HEADINGS, drawMover, lookOf, outfitOf } from "./town-render";
 
 /** A stand-in for a Graphics that remembers every circle and arc drawn. */
 function recorder() {
@@ -49,10 +49,13 @@ describe("a mover's look, drawn once", () => {
     expect(lookOf(car(0)).key).toBe(lookOf(car(Math.PI * 2)).key);
   });
 
-  test("a person's look follows their stride and outfit, and a builder's hat", () => {
+  test("a person's frames follow their stride; their outfit, a builder's hat too, is a tint on the same frames", () => {
     const a = person(0), b = { ...person(0), phase: 0.4 + Math.PI } as Mover;
     expect(lookOf(a).key).not.toBe(lookOf(b).key);
-    expect(lookOf(a).key).not.toBe(lookOf(person(0, { site: 1, role: "builder" })).key);
+    const builder = person(0, { site: 1, role: "builder" });
+    expect(lookOf(a).key).toBe(lookOf(builder).key);
+    expect(outfitOf(builder).hair).not.toBe(outfitOf(a).hair);
+    expect(lookOf({ ...a, colour: 0x123456 } as Mover).key).toBe(lookOf(a).key);
   });
 
   test("is drawn at the origin, its heading snapped to one of the set", () => {
