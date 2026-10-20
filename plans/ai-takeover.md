@@ -106,7 +106,7 @@ What's wrong with them:
 4. **No new currencies.**
    - The budget is a share of the player's own income.
    - Training costs the agents' time instead of innovation.
-   - Ascension's new rewards live in the Weights and modules that already exist.
+   - Ascension's new rewards are bought with the Weights that already exist, in the skill tree that already exists. Modules are folded into it.
 
 ---
 
@@ -297,23 +297,122 @@ The choice becomes "what kind of colleague am I raising", and it's paid for in o
    - Reaching 100% is a goal the player works toward, not a timer.
    - **Code:** `ai-singularity.store` caps at 95 until `latticeBuilt(grid)`; a new planner kind `lattice`, allowed only at ≥ 95%.
 
-### 4.2 Worth more
+### 4.2 Worth more: the tree stays, and the AI grows a branch of it
 
-1. **The ascended AI comes back as yours.** In the next generation's companies, the AI starts at the Assistant stage and its takeover begins one stage later (Manager instead of Colleague). Until the takeover, it works *for* the player:
-   - it does jobs **only** from the focus the player sets;
-   - the wallet starts at 30%;
-   - it never converts or repurposes.
+**Ascension no longer wipes the Equity tree.**
+- **Kept:** Equity, the tree's allocations and respec points.
+- **Still wiped:** the run itself (money, employees, the map), founders' exits, board mandates and the meter.
 
-   So each Ascension buys a stretch of cooperative AI the next run, longer with each Ascension, until it eventually helps all the way. That's the payoff: the AI you raised becomes your colleague.
-2. **Lineage:** each Ascension adds a permanent ×1.25 to all income, compounding (×1.25 → ×1.56 → ×1.95…). That's simple, felt from the first second of the next run, and makes "how many times have I ascended" matter.
-3. **Weights are worth more:**
-   - `weightsFor` stays as it is;
-   - modules get stronger top levels (Warm Start 10/25/50%, Seed Round $5k/$100k/$5M, Quiet Model 15/30/45%, Rack Density +1/+2/+4);
-   - two new modules that touch the takeover:
-     - **Loyalty:** the takeover begins one more stage later.
-     - **Allowance:** the wallet's maximum is ×2.
-   - Slots: 1 + Ascensions, as now, but the first two Ascensions give 2 slots each.
-4. **Fusions stay** as they are. They're the flavour layer, and some are already strong; rebalance only if the guards below fail.
+So the tree you built over many acquisitions survives and keeps working generation after generation. Ascension *adds* to it instead of resetting it.
+
+**What Ascension adds: the Machine.** A new cluster of the tree, laid out like the others (`CLUSTERS` in `game/skill-tree.ts`): a trunk off the hub, branches and pods, webbed into the rings.
+- **Revealed a ring at a time.** It's fogged until the first Ascension. Each Ascension reveals the next ring (trunk, then branch pods, then keystones). Fogged nodes show as dim violet outlines with "Ascend to reveal".
+- **Bought with Weights, not Equity.** The two economies stay separate: Equity buys the business tree, Weights buy the Machine. A Machine node costs Weights rising by depth.
+- **Modules are retired into it.** Their effects become the Machine's minor nodes, so there's one place to spend Weights and no slot system. Existing saves get their module levels refunded as Weights.
+- **Every notable and keystone is a feature, not a percentage.** Each one changes how something on the map works *and how it looks*, on the scale of "loads come in convoys, in new lorries". Minors are the small, numeric steps between them.
+
+#### The Machine's notables (one a pod; about ten)
+
+Each comes with what it does, what it looks like, and what it touches in the code.
+
+1. **Inheritance** (root of the cluster, granted free at the first Ascension). The AI you raised comes back as yours:
+   - **Later takeover:** in this generation's companies it starts at the Assistant stage, and its takeover begins one stage later.
+   - **Until then it works for you:** only from your focus, never converting or repurposing, with the wallet starting at 30%.
+   - **Looks:** its drones carry your company colour, not violet, until the takeover begins.
+   - **Code:** `planner.ts` stage gating; `ai-layer.ts` drone tint.
+
+2. **Autonomous Freight.** Project materials stop arriving one lorry at a time from the garage:
+   - **Convoys:** self-driving lorries leave **from the Data Centre as well as the garage**, in **convoys of three**, each carrying a load. A 16-load wonder needs 6 runs, not 16.
+   - **No stalling:** a convoy that can't be paid for waits at the depot instead of stalling the site.
+   - **Looks:** a new lorry model in white AI livery with a violet light bar and no cab glass, headlights at night (`lights.ts`), driving nose to tail. When a convoy arrives, its loads are craned off by a drone.
+   - **Code:**
+     - `works.ts` dispatch sends convoys;
+     - `depotFor` gains the Data Centre;
+     - a new truck look baked into the mover atlas (`town-render.ts`) with its own colour palette;
+     - traffic treats a convoy as a platoon, so it doesn't jam itself.
+
+3. **Drone Airlift.** Small sites (2×2 and under) get their materials by **heavy-lift drone**:
+   - **Faster:** flying straight from the Data Centre over the town, ignoring roads and traffic. Deliveries to small sites take a third of the time.
+   - **Dearer:** each airlifted load costs 25% more.
+   - **Looks:** a four-rotor cargo drone with a crate swinging on a tether, a shadow tracking it on the ground, and the crate lowered onto the site.
+   - **Code:** `works.ts` chooses airlift for small sites; a new drone kind in `ai-runner` for the look, landing through the juice flash.
+
+4. **Prefab Printing.** The AI prints building segments off-site:
+   - **Less work:** every project's work requirement falls 40%, though the loads stay.
+   - **Looks:** a site's progress shows as **printed modules** lowered into place by a crane drone, floor by floor, instead of the crew alone. The Data Centre gets a print bay: a small annex with a glowing slot (art from `project-renderer` pieces).
+   - **Code:** `projectDef` work `× 0.6`; `project-renderer.ts` shows printed floors; a Data Centre look variant.
+
+5. **Generative Zoning.** New lots in the AI's district are **born at the tier the district can sustain**:
+   - lots skip starter tiers where services and mood already support II or III, using the town model's `projectTier`;
+   - the player's own lots, outside the district, are untouched.
+   - **Looks:** the house materialises as a hologram, then solidifies, scan lines and all: the holograms renderer, reused.
+   - **Code:** `planner.ts` places `withTier(def, projectTier(...))`; juice gets a materialise effect.
+
+6. **Coolant Loop.** The AI's buildings share water:
+   - **A closed loop** joins every drinker in the district, so a surplus at one feeds a shortage at another. One good intake can cool the whole district.
+   - **Looks:** the loop's pipes glow with a slow violet pulse travelling along them, brighter where water is moving.
+   - **Code:**
+     - `game/cooling.ts` pools tanks of linked drinkers;
+     - `water/pipes.ts` marks loop pipes;
+     - a pulse in `ai-layer.ts`.
+
+7. **Holo-Concierge.** The AI's holograms stop wandering and **staff the services**:
+   - **Effect:** each café, park and gym in the district gets a holographic attendant, and its reach grows by 4 road tiles. More houses are served by the same services, so the tall planning style pays off further.
+   - **Looks:** a hologram standing at each service's door, greeting passers-by (the walking holograms, given a post).
+   - **Code:** `agents/services.ts` `RANGE` per service; `ai-layer.ts` holograms posted at doors.
+
+8. **Market Maker.** The AI runs the river trade:
+   - **Effect:** container ships call 50% more often at ports in the district, and convoy events come twice as often.
+   - **Looks:** some ships arrive as **autonomous freighters**, violet-hulled with no wheelhouse, a light at the bow.
+   - **Code:** `boats/traffic.ts` call rate; event pacing; a boat look in `boats-render.ts`.
+
+9. **Night Shift.** The town never sleeps:
+   - **Effect:** at night, offices and the Data Centre's district run on AI agents. Desks left empty at night are covered by agents at half output, so the night's dip in busyness costs nothing.
+   - **Looks:** offices' windows stay lit violet at night (`lights.ts`), and a few holograms work at the desks.
+   - **Code:** attendance reads the night; `lights.ts` office window colour.
+
+10. **Self-Funding.** The AI pays its own way:
+    - **Effect:** its wallet (1.3) is also topped up by its own compute, 10% of the agents' share of income. Its compute buildings no longer cost the company anything to build.
+    - **Looks:** a small violet "$" floater rises off the Data Centre when it pays for something itself.
+    - **Code:** `wallet.ts`; build cost for AI buildings from the wallet.
+
+#### The Machine's keystones (one a branch end; three, mutually exclusive)
+
+Each changes what the takeover *is*:
+- **Alignment:** the takeover never turns hostile.
+  - **Effect:** past the Manager stage it stays a colleague; no conversions or repurposes, ever.
+  - **Cost:** the meter rises 50% slower, so Ascension takes longer.
+  - **Looks:** the district boundary is drawn in your colour.
+- **Hard Takeoff:** the Overseer stage comes at 60%.
+  - **Effect:** its district covers your whole land, and everything it builds is free (paid in compute).
+  - **Cost:** the town is its. It's chaotic and enormously powerful.
+  - **Looks:** the violet sky cast starts at 60%.
+- **Air Gap:** the AI never touches the map.
+  - **Effect:** no district, no drones, no takeover; every agent's boost ×2.
+  - **Cost:** none of the notables above that act on the map work.
+  - **Looks:** the Data Centre's links go dark, and it hums alone.
+
+#### The Machine's minors (between them)
+
+The retired modules, as small steps:
+- Warm Start's kept Equity becomes a seed of money instead, since Equity is now kept;
+- Quiet Model (the meter 5% slower a node);
+- Rack Density (+1 agent a rack, at most 3);
+- Blueprint Cache (−10% Data Centre headcount a node);
+- Pre-trained (training 10% shorter a node);
+- Seed Round;
+- Drone Swarm;
+- Memo Filter.
+
+They're numeric and small. The notables and keystones carry the cluster.
+
+#### Pacing
+
+- **Size:** about 10 notables, 3 keystones and about 20 minors.
+- **Reveal:** a ring an Ascension, so the cluster takes 4–5 Ascensions to reveal fully.
+- **Weights:** about one notable and a few minors per Ascension, with the cost of the next notable rising. A player picks a path, Freight-and-build or Water-and-trade, and comes back for the rest.
+
+**Fusions stay** as they are (the trait fused into the founder). They're the per-founder flavour layer; the Machine is the per-player one.
 
 ### 4.3 Shutting it down
 
@@ -353,8 +452,12 @@ It stays, with its cost raised to match. On top of what it does now, it resets t
 | 7 | Reservoirs | `pond` removed; `reservoir` placement, digging, filling, feeding | 4 |
 | 8 | Training | Agents' time as cost; skills by dataset; old boosts removed (no ratchet) | 2, 7 for River |
 | 9 | Ascension reach | Meter retune; the Lattice | 4 |
-| 10 | Ascension worth | The ascended AI comes back cooperative; lineage; stronger modules; Loyalty and Allowance | 6, 9 |
-| 11 | Balance | Cadence, dominant choices, takeover sim; tune | all |
+| 10 | Ascension keeps the tree | Equity and the tree's allocations survive Ascension; modules retired into Weights refunds | 9 |
+| 11 | The Machine cluster | The cluster in the tree layout, fogged by ring, bought with Weights; Inheritance; the minors | 10 |
+| 12 | Machine notables: freight and building | Autonomous Freight (convoys, new lorries), Drone Airlift, Prefab Printing, Generative Zoning | 11, 4 |
+| 13 | Machine notables: water, town and trade | Coolant Loop, Holo-Concierge, Market Maker, Night Shift, Self-Funding | 11, 3, 7 |
+| 14 | Machine keystones | Alignment, Hard Takeoff, Air Gap | 11, 2 |
+| 15 | Balance | Cadence, dominant choices, takeover sim, the Machine's paths; tune | all |
 
 ---
 
@@ -368,6 +471,14 @@ It stays, with its cost raised to match. On top of what it does now, it resets t
   - **Water:** reservoirs at most 2 a company. The water total in the map changes only by what reservoirs and their springs account for, and none leaks outside its rim (the still-flood check from `frame-compare-misses-leaks`).
 - **Cadence** (`singularity-cadence.test.ts`): 8–10 sales strong, 14–18 typical, and the Lattice reached in a measured window.
 - **Dominant choices** (`dominant-choices.test.ts`): no dataset best for more than 60% of 4,000 random companies; no focus best for more than 60% at any stage.
+- **The Machine** (unit tests per notable):
+  - **Autonomous Freight:** a 16-load project needs 6 convoy runs.
+  - **Drone Airlift:** an airlifted load costs 25% more and arrives without a road.
+  - **Generative Zoning:** never places a lot above what `projectTier` says the spot sustains.
+  - **Coolant Loop:** a surplus at one drinker covers a shortage at another, and the loop's water total holds.
+  - **Keystones:** they exclude each other.
+  - **Inheritance:** delays the takeover by exactly one stage.
+- **Ascension keeps the tree:** a test ascends a company with allocated nodes and checks they, Equity and respec points survive, while exits, mandates and the run are wiped.
 - **The ratchet is gone:** a test that chains 10 training runs of every dataset and checks the town's tier mix afterwards matches a town that ran none (within noise).
 - **Browser checks** on the isolated server, in both themes, with the `singularity` fixture:
   - the district boundary shows;
@@ -384,5 +495,6 @@ It stays, with its cost raised to match. On top of what it does now, it resets t
 
 1. **District shape:** a circle is simplest. A flood-fill along roads from the Data Centre might read better on the map. Proposed: a circle first, revisited after playing.
 2. **Focus on The Model's runs (AI mode):** AI mode already has its own planner and budget. Proposed: these controls apply to the takeover only, and AI mode keeps its own (`ai-mode-panel.tsx`).
-3. **Lineage's size:** ×1.25 a generation compounds fast. The cadence target may want ×1.15. Decide in phase 11 on the numbers.
+3. **A kept tree is a lot of power across generations.** With Equity no longer wiped, the business tree only grows. If generations snowball, the respec points and the tree's escalating node costs are the brakes. Proposed: measure first in the cadence sim (phase 15), and if needed make each Ascension cost a share of unspent Equity rather than any of the tree.
+5. **The Machine's layout:** a cluster among the others, webbed into the rings (proposed), or a separate ring outside them? Among them keeps one tree and lets paths cross between business and machine nodes.
 4. **Vetoes and Resentful:** should many vetoes also speed the meter ("it resents being stopped")? It would be thematic, but it makes vetoing a trap. Proposed: no; the trait lean is the consequence.
