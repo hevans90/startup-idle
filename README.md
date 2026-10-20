@@ -76,7 +76,7 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**. **Hin
 
 ## Tech stack
 
-React 19 + TypeScript (Vite, SWC), Tailwind CSS v4; Zustand persisted to `localStorage`; PixiJS v8, @pixi/react, pixi-viewport; WebGPU compute water with a CPU reference; break_infinity.js (`Decimal`); Bun (runtime, tests); Tauri (desktop).
+React 19 + TypeScript (Vite, SWC), Tailwind CSS v4; Zustand persisted to `localStorage`; PixiJS v8, @pixi/react, pixi-viewport; WebGPU compute water with a CPU reference; break_infinity.js (`Decimal`); Arwes (`@arwes/text`: the decipher text); Bun (runtime, tests); Tauri (desktop).
 
 ## Getting started
 

@@ -17,6 +17,7 @@
     "bake:padded": "bun run dev/bake-padded-atlases.ts"
   },
   "dependencies": {
+    "@arwes/text": "1.0.0-next.25020502",
     "@floating-ui/react": "^0.27.7",
     "@fontsource/space-mono": "^5.2.5",
     "@headlessui/react": "^2.2.2",

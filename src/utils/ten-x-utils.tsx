@@ -1,26 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+/**
+ * THE 10X DEV'S NAME: green, glowing, and deciphering itself on a loop — with
+ * Arwes's own decipher (`animateTextDecipher` from `@arwes/text`): in over
+ * `ENTER`, held for `HOLD`, out over `EXIT`, and in again. `static` for where
+ * the label must always read (an earned upgrade's chip).
+ *
+ * The animation itself, not Arwes's React `Animator`/`Text` around it: those
+ * mark themselves unmounted in an effect's cleanup and never mark themselves
+ * mounted again, so under React's StrictMode — which mounts, unmounts and
+ * mounts again — the animator never starts and the text stays hidden. The
+ * DOM animation has no React in it to go wrong.
+ */
+import { useEffect, useRef } from "react";
+import { animateTextDecipher } from "@arwes/text";
 
-// Cipher character pool — mirrors Arwes' animateTextDecipher source exactly.
-const CIPHER_CHARS =
-  "    ----____abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-function shuffleIndexes(n: number): number[] {
-  const arr = Array.from({ length: n }, (_, i) => i);
-  for (let i = n - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-function randCipher(): string {
-  return CIPHER_CHARS[Math.floor(Math.random() * CIPHER_CHARS.length)];
-}
-
-const ENTER_MS = 900;
-const HOLD_MS = 2600;
-const EXIT_MS = 450;
-const CYCLE_MS = ENTER_MS + HOLD_MS + EXIT_MS;
+/** Seconds deciphering in, held, and ciphering out. */
+const ENTER = 0.9;
+const HOLD = 2.6;
+const EXIT = 0.45;
 
 export const TENX_GLOW_STYLE: React.CSSProperties = {
   fontFamily: "'Share Tech Mono', 'Space Mono', monospace",
@@ -29,81 +25,49 @@ export const TENX_GLOW_STYLE: React.CSSProperties = {
   letterSpacing: "0.02em",
 };
 
-/** Animated decipher loop — characters scramble in/out on repeat. */
-function TenXDevTextAnimated({
-  text,
-  className = "",
-}: {
-  text: string;
-  className?: string;
-}) {
-  const [displayed, setDisplayed] = useState(() =>
-    text
-      .split("")
-      .map((ch) => (ch === " " ? " " : randCipher()))
-      .join(""),
-  );
+/** Whether the player has asked for less motion: then it reads still. */
+const REDUCED = typeof window !== "undefined" && typeof window.matchMedia === "function"
+  && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  const rafRef = useRef<number>(0);
-  const startRef = useRef(0);
-  const enterIdxRef = useRef<number[]>([]);
-  const exitIdxRef = useRef<number[]>([]);
-
+function TenXDevTextAnimated({ text, className = "" }: { text: string; className?: string }) {
+  const root = useRef<HTMLSpanElement>(null);
+  const content = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    enterIdxRef.current = shuffleIndexes(text.length);
-    exitIdxRef.current = shuffleIndexes(text.length);
-    startRef.current = performance.now();
-
-    const tick = (now: number) => {
-      const elapsed = now - startRef.current;
-      const phase = elapsed % CYCLE_MS;
-
-      if (phase < ENTER_MS) {
-        const progress = phase / ENTER_MS;
-        const revealed = Math.round(text.length * progress);
-        const deciphered = new Set(enterIdxRef.current.slice(0, revealed));
-        setDisplayed(
-          text
-            .split("")
-            .map((ch, i) => (ch === " " ? " " : deciphered.has(i) ? ch : randCipher()))
-            .join(""),
-        );
-        if (elapsed > CYCLE_MS && phase < 16) {
-          exitIdxRef.current = shuffleIndexes(text.length);
-          enterIdxRef.current = shuffleIndexes(text.length);
-        }
-      } else if (phase < ENTER_MS + HOLD_MS) {
-        setDisplayed(text);
-      } else {
-        const progress = (phase - ENTER_MS - HOLD_MS) / EXIT_MS;
-        const scrambledCount = Math.round(text.length * progress);
-        const cipheredSet = new Set(exitIdxRef.current.slice(0, scrambledCount));
-        setDisplayed(
-          text
-            .split("")
-            .map((ch, i) => (ch === " " ? " " : cipheredSet.has(i) ? randCipher() : ch))
-            .join(""),
-        );
+    const rootElement = root.current, contentElement = content.current;
+    if (!rootElement || !contentElement) return;
+    let live = true, running: { cancel: () => void } | null = null, hold = 0;
+    const play = (isEntering: boolean, duration: number) => new Promise<void>((done) => {
+      const a = animateTextDecipher({ rootElement, contentElement, duration, isEntering, hideOnEntered: false, hideOnExited: true });
+      running = a;
+      a.then(() => done());
+    });
+    // In, held, out, again — for as long as it is on the page.
+    (async () => {
+      while (live) {
+        await play(true, ENTER);
+        if (!live) return;
+        await new Promise<void>((r) => { hold = window.setTimeout(r, HOLD * 1000); });
+        if (!live) return;
+        await play(false, EXIT);
       }
-
-      rafRef.current = requestAnimationFrame(tick);
+    })();
+    return () => {
+      live = false;
+      window.clearTimeout(hold);
+      running?.cancel();
     };
-
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
   }, [text]);
-
   return (
-    <span className={className} style={TENX_GLOW_STYLE}>
-      {displayed}
+    <span ref={root} className={className} style={{ ...TENX_GLOW_STYLE, position: "relative" }}>
+      {/* Hidden until the first decipher brings it in: no flash of the plain word. */}
+      <span ref={content} style={{ position: "relative", visibility: "hidden" }}>{text}</span>
     </span>
   );
 }
 
 /**
- * Renders text with the Arwes decipher animation by default.
- * Pass `static` to suppress the animation and show plain glowing text —
- * useful where the label must always be readable (e.g. earned upgrade chips).
+ * The 10x dev's name, deciphering itself — or still, with `static`, or for a
+ * player who asked for less motion.
  */
 export function TenXDevText({
   text,
@@ -114,7 +78,7 @@ export function TenXDevText({
   className?: string;
   static?: boolean;
 }) {
-  if (isStatic) {
+  if (isStatic || REDUCED) {
     return (
       <span className={className} style={TENX_GLOW_STYLE}>
         {text}
