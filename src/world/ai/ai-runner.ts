@@ -13,7 +13,9 @@
  */
 import { DRONE_SWARM, moduleLevel } from "../../game/modules";
 import type { Stage } from "../../state/ai-singularity.store";
-import type { Grid, Structure } from "../grid";
+import { structureAt, type Grid, type Structure } from "../grid";
+import { housedBy } from "../../game/housing";
+import { structureDef } from "../structures/def";
 import { INTERVAL, chooseAction, perform, targetOf, type AiAction } from "./planner";
 import { ARRIVALS, nextMemoIn, pickMemo } from "./memos";
 import { accrueWallet, creditWallet, priceOfAi, spendWallet, walletCovers } from "./wallet";
@@ -32,9 +34,17 @@ type Cell = { x: number; y: number };
 export type DroneJob = { action: AiAction; from: Cell; to: Cell; t: number; fly: number };
 export type AiMemo = { text: string; at: number };
 
-/** `landed`: where drones finished a job since the scene last looked, for the flash. @see Juice.landed */
-export type AiRunner = { clock: number; jobs: DroneJob[]; log: AiMemo[]; lastAt: number | null; memoIn: number | null; landed: Cell[] };
-export const createAiRunner = (): AiRunner => ({ clock: 0, jobs: [], log: [], lastAt: null, memoIn: null, landed: [] });
+/**
+ * `landed`: where drones finished a job since the scene last looked, for the
+ * flash. `pending`: takeovers announced and not yet done — the building it
+ * means to take, until when. `said`: what it has announced since the scene
+ * last looked, for the memos. @see Juice.landed, WARN_MS
+ */
+export type Pending = { action: Extract<AiAction, { kind: "convert" }>; def: string; until: number };
+export type AiRunner = { clock: number; jobs: DroneJob[]; log: AiMemo[]; lastAt: number | null; memoIn: number | null; landed: Cell[]; pending: Pending[]; said: string[] };
+export const createAiRunner = (): AiRunner => ({ clock: 0, jobs: [], log: [], lastAt: null, memoIn: null, landed: [], pending: [], said: [] });
+/** How long a takeover is announced before it is done, ms. */
+export const WARN_MS = 60_000;
 /** The most landings kept for a scene that is not looking. */
 const LANDED_KEPT = 16;
 
@@ -104,14 +114,28 @@ export function stepAi(r: AiRunner, g: Grid, ai: AiNow, dt: number, now: number,
     if (r.landed.length < LANDED_KEPT) r.landed.push(job.to);
     if (done(r, job.action, now, g)) did.push(job.action);
   }
+  // TAKEOVERS ANNOUNCED, their warning over: flown out if the building is
+  // still what it was, and a drone is free. @see announce
+  for (const p of [...r.pending]) {
+    if (now < p.until || r.jobs.length >= MAX_DRONES) continue;
+    r.pending = r.pending.filter((x) => x !== p);
+    const id = structureAt(g, p.action.at.x, p.action.at.y);
+    if (id < 0 || g.structures.get(id)?.def !== p.def) continue;
+    const dc = [...g.structures.values()].find((s) => s.def === "datacentre" && !s.build);
+    if (!dc) continue;
+    const from = centreOf(dc), to = p.action.at;
+    r.jobs.push({ action: p.action, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / speed });
+  }
   const interval = INTERVAL[ai.stage];
   if (!interval) { r.clock = 0; r.lastAt = now; return did; }
   r.clock += aiPace(g, ai, dt);
   r.lastAt = now;
   if (r.clock < interval || r.jobs.length >= MAX_DRONES) return did;
   r.clock = 0;
-  const a = chooseAction(g, ai.stage, rand, (x) => walletCovers(g, x));
+  const a = chooseAction(g, ai.stage, rand, (x) => walletCovers(g, x) && !(x.kind === "convert" && pendingAt(r, x.at)));
   if (!a) return did;
+  // A TAKEOVER is announced first, and done a minute later. @see WARN_MS
+  if (a.kind === "convert") { announce(r, g, a, now); return did; }
   const to = targetOf(a);
   const dc = [...g.structures.values()].find((s) => s.def === "datacentre" && !s.build);
   if (!to || !dc) {
@@ -136,10 +160,28 @@ export function catchUpAi(r: AiRunner, g: Grid, ai: AiNow, since: number, now: n
   // Its allowance for the time away first, up to its cap. @see creditWallet
   creditWallet((now - since) / 1000);
   for (let k = 0; k < n; k++) {
-    const a = chooseAction(g, ai.stage, rand, (x) => walletCovers(g, x));
+    // Never a takeover while away: it has to be announced, and seen. @see announce
+    const a = chooseAction(g, ai.stage, rand, (x) => x.kind !== "convert" && walletCovers(g, x));
     if (a && done(r, a, now, g)) memos.push({ text: a.why, at: now });
   }
   return memos;
+}
+
+/** Whether a takeover of this tile is already announced. */
+const pendingAt = (r: AiRunner, at: Cell) => r.pending.some((p) => p.action.at.x === at.x && p.action.at.y === at.y);
+
+/**
+ * ANNOUNCE A TAKEOVER: the building it means to take named in a memo, and
+ * taken `WARN_MS` later if it still stands. The scene shows it red meanwhile.
+ */
+function announce(r: AiRunner, g: Grid, a: Extract<AiAction, { kind: "convert" }>, now: number): void {
+  const id = structureAt(g, a.at.x, a.at.y);
+  const s = id >= 0 ? g.structures.get(id) : undefined;
+  if (!s) return;
+  r.pending.push({ action: a, def: s.def, until: now + WARN_MS });
+  const what = housedBy(s.def) ? "this house" : `the ${(structureDef(s.def)?.name ?? "building").toLowerCase()}`;
+  const into = (structureDef(a.into)?.name ?? "node").toLowerCase();
+  r.said.push(`In ${Math.round(WARN_MS / 1000)} seconds I will make ${what} a${/^[aeiou]/.test(into) ? "n" : ""} ${into}. It is marked in red.`);
 }
 
 /** Where a drone is, and whether it is scanning, `t` seconds out. */

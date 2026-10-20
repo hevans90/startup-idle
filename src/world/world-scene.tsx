@@ -1912,6 +1912,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       flying.add(`${def}@${x},${y}`);
       holos.push({ key: `ai:${def}@${x},${y}`, def, x, y, ok: true });
     }
+    // A TAKEOVER ANNOUNCED: what the building will become, red over it, till it is done. @see announce
+    for (const p of getAiRunner().pending) {
+      const { into, at } = p.action;
+      flying.add(`take:${into}@${at.x},${at.y}`);
+      holos.push({ key: `take:${into}@${at.x},${at.y}`, def: into, x: at.x, y: at.y, ok: false });
+    }
     const ss = useSessionStore.getState(), st = useWorldStore.getState();
     const show = ss.showPlan && ss.aiMode && st.playing;
     const plan = show ? currentPlan() : null;
@@ -3056,6 +3062,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // A TAKEOVER is announced. @see planner "repurpose"
             if (a.kind === "convert" && a.into === "gpu-farm") st.pushAiMemo(a.why);
           }
+          // And what it means to take, a minute before it does. @see announce
+          for (const text of runner.said.splice(0)) st.pushAiMemo(text);
           // AND WHAT IT HAS TO SAY. @see stepMemos
           const memo = stepMemos(runner, aiNow.stage, dt, useSessionStore.getState().aiSaid ?? []);
           if (memo) {

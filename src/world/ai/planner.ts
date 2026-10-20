@@ -37,6 +37,12 @@ import { demolishAt, liftRoad, paveRoad, placeStructure, pour, reshape } from ".
 import { useSlopPitStore } from "../../state/slop-pit.store";
 import { layRoute, neededPipe } from "./cooling-ai";
 import type { PipeRoute } from "./pipe-route";
+import { isDrinker } from "../../game/cooling";
+import { tankFor } from "../projects/cooling";
+import { SHORT } from "./cooling-ai";
+import { liveSeating } from "../agents/commute";
+import { RANGE } from "../agents/services";
+import type { Network } from "../roads/network";
 import { aiDistrict, inDistrict, type District } from "./district";
 
 type Cell = { x: number; y: number };
@@ -110,6 +116,29 @@ function spots(g: Grid, defId: string, d: District, near?: { at: Cell; within: n
   return out;
 }
 
+/** The jobs that put up something that drinks: none of them while its cooling is short. @see coolingState */
+const DRINKING = new Set<Kind>(["node", "farm", "spire"]);
+/** How full every tank must be before it adds another drinker: water coming in faster than it goes. */
+export const FULL_ENOUGH = 0.8;
+
+/**
+ * HOW ITS COOLING STANDS: `short` with any of its drinkers short of water —
+ * then piping water is its first job, before anything; `full` with every one
+ * met and its tank nearly full — only then is there water to spare for
+ * another; `ok` between. With nothing that drinks, `full`. @see game/cooling
+ */
+export function coolingState(g: Grid): "short" | "ok" | "full" {
+  let full = true;
+  for (const s of g.structures.values()) {
+    if (s.build || !isDrinker(s.def)) continue;
+    const t = tankFor(s.id);
+    if (!t) continue;
+    if (t.demand > 0 && t.share < SHORT) return "short";
+    if (t.level < FULL_ENOUGH * t.capacity) full = false;
+  }
+  return full ? "full" : "ok";
+}
+
 /** What it does at a desk, or to cool what it has: not held to its district. */
 const ANYWHERE = new Set<Kind>(["hire", "upgrade", "pipe"]);
 
@@ -124,6 +153,24 @@ function shortOfBeds(): GeneratorId | null {
     if (room < least) { least = room; best = gen.id as GeneratorId; }
   }
   return best;
+}
+
+/**
+ * HOW MUCH A SERVICE OR OFFICE IS USED, 0 and up: an office, the share of
+ * its desks taken; a service, the houses that have no other of its kind in
+ * reach, by tens. What the AI takes over first is what is used least.
+ */
+function usageOf(g: Grid, net: Network, structures: readonly Structure[]): (s: Structure) => number {
+  const desks = liveSeating(g, net).desks;
+  const houses = structures.filter((h) => housedBy(h.def) && !h.build);
+  const near = (a: Structure, b: Structure) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= RANGE;
+  return (s) => {
+    const d = desks.get(s.id);
+    if (d) return d.of > 0 ? d.used / d.of : 0;
+    const others = structures.filter((o) => o.def === s.def && o.id !== s.id && !o.build);
+    const alone = houses.filter((h) => near(h, s) && !others.some((o) => near(h, o))).length;
+    return alone / 10;
+  };
 }
 
 /** A road tile with one way on: the end of a street. Its way on, too. */
@@ -203,17 +250,21 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       const net2 = getNetwork();
       if (!net2) return null;
       const moods = liveMoods(g, net2, useSlopPitStore.getState().fill / 100);
+      // An EMPTY house first, then one with a single soul in it, the unhappiest of those.
       const houses = structures.filter((s) => mine(s) && housedBy(s.def) && !s.build && s.w === 1 && s.h === 1 && (s.residents ?? 0) <= 1);
       if (!houses.length) return null;
-      houses.sort((a, b) => (moods.get(a.id)?.total ?? 0) - (moods.get(b.id)?.total ?? 0));
+      houses.sort((a, b) => (a.residents ?? 0) - (b.residents ?? 0) || (moods.get(a.id)?.total ?? 0) - (moods.get(b.id)?.total ?? 0));
       const h = houses[0];
       return { kind: "convert", at: { x: h.x, y: h.y }, into: "ai-node", why: "That house was underused. It is a node now. Its residents have been relocated." };
     }
     case "repurpose": {
       // A café, a park, a gym or an office: a GPU farm now, for good.
+      // THE LEAST USED: an office by its desks taken, a service by the houses
+      // relying on it alone — no other of its kind in reach. @see usageOf
       const taken = structures.filter((s) => mine(s) && !s.build && (["cafe", "park", "gym", "office-intern", "office-vibe"].includes(s.def)));
-      if (!taken.length) return null;
-      const s = pick(taken);
+      if (!taken.length || !net) return null;
+      const use = usageOf(g, net, structures);
+      const s = taken.reduce((a, b) => (use(b) < use(a) ? b : a));
       const name = structureDef(s.def)?.name ?? "building";
       return { kind: "convert", at: { x: s.x, y: s.y }, into: "gpu-farm", why: `I have repurposed the ${name.toLowerCase()} as a GPU farm. Its previous function has been deprecated.` };
     }
@@ -294,8 +345,15 @@ export function chooseAction(
   const kinds = BY_STAGE[stage];
   if (!kinds) return null;
   const district = aiDistrict(g, stage);
+  // COOLING FIRST: short of water, piping some is its first job; and it puts
+  // up nothing more that drinks until there is water to spare. @see coolingState
+  const cooling = coolingState(g);
+  if (cooling === "short") {
+    const pipe = candidate("pipe", g, rand, district);
+    if (pipe && affords(pipe)) return pipe;
+  }
   const family = traitForecast(useGenerationStore.getState().log, 1)[0].trait.family;
-  const weighted = kinds.map((k) => ({ k, w: (LEAN[family][k] ?? 1) * rand() }));
+  const weighted = kinds.filter((k) => cooling === "full" || !DRINKING.has(k)).map((k) => ({ k, w: (LEAN[family][k] ?? 1) * rand() }));
   weighted.sort((a, b) => b.w - a.w);
   for (const { k } of weighted) {
     const a = candidate(k, g, rand, district);
