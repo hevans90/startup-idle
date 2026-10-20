@@ -329,6 +329,36 @@ function meeting(m: Mover, o: Mover): number {
   }
   return Infinity;
 }
+/**
+ * THE TRAFFIC'S NEIGHBOURS, a grid of `NEAR_CELL`-tile cells: a car is only
+ * ever held up by one within `2 * LOOK` of it (`meeting`'s reach, the longer
+ * of the two), so it looks only in its own cell and the eight round it. It
+ * looked at every other car, which on a crowded town was most of the town's
+ * time a frame and grew with the square of the cars. Bigger than the reach by
+ * enough for a step's movement — the cars moved before it in the same step
+ * are where they now are — so every car that could hold one up is still
+ * asked, and the traffic goes exactly as it did. @see trafficLimit
+ */
+export const NEAR_CELL = 3;
+export function nearGrid(cars: readonly Mover[]): (m: Mover) => Mover[] {
+  const cells = new Map<number, Mover[]>();
+  const key = (cx: number, cy: number) => cx * 65536 + cy;
+  for (const c of cars) {
+    const k = key(Math.floor(c.x / NEAR_CELL), Math.floor(c.y / NEAR_CELL));
+    const l = cells.get(k);
+    if (l) l.push(c); else cells.set(k, [c]);
+  }
+  return (m) => {
+    const cx = Math.floor(m.x / NEAR_CELL), cy = Math.floor(m.y / NEAR_CELL);
+    const out: Mover[] = [];
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const l = cells.get(key(cx + dx, cy + dy));
+      if (l) for (const o of l) out.push(o);
+    }
+    return out;
+  };
+}
+
 /** How far ahead in time a driver judges, the step it judges in, and the crawl it assumes of a stopped car. */
 const AHEAD = 1.2;
 const STEP = 0.12;
@@ -409,13 +439,14 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     if (m) t.movers.push(m);
   }
 
-  // MOVING.
+  // MOVING, each car minding only the cars near it. @see nearGrid
+  const near = nearGrid(cars);
   for (const m of t.movers) {
     // AT WORK on a site: standing, swinging a hammer. @see town-render
     if (atWork(m)) { m.phase += h * WORK_RATE; continue; }
     // AT A STOP: standing, then on its way.
     if (m.wait && m.wait > 0) { m.wait -= h; m.speed = 0; continue; }
-    const limit = Math.min(lineLimit(m), drives(m) ? trafficLimit(m, cars) : Infinity);
+    const limit = Math.min(lineLimit(m), drives(m) ? trafficLimit(m, near(m)) : Infinity);
     if (m.speed < limit) m.speed = Math.min(limit, m.speed + ACCEL * h);
     else m.speed = Math.max(limit, m.speed - BRAKE * h);
     // PATIENCE: stood still a while with somewhere to be, it pushes on.
