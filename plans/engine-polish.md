@@ -37,8 +37,8 @@ Measured on `?fixture=bigtown` (2,165 buildings) with `__townPerf()` and `?hitch
 | **2, horizontal culling** | dropped | Draw calls were already 25–70 on the big town. |
 | **3, per-frame Graphics** | partly done | The night sheet redraws only on change, and labels are written only when they move. The AI layer (~0.1 ms), hologram scans and hit-testing (2.9 ms a click, 0.3 ms a hover) were measured and are not worth changing. |
 | **4, water draws** | dropped | Water was ~2 ms of GPU on the big town. |
-| **5, fidelity** | in progress | Mipmapped padded atlases and the night grade with lights are done. Contact shadows and pixel snapping are left. |
-| **6, feel** | in progress | Camera, juice and money floaters (payday's) are done. The drone landing flash is left. |
+| **5, fidelity** | done | Mipmapped padded atlases, and the night grade with lights. Contact shadows were dropped at the user's call. Pixel snapping was already in place for all static art (`roundPixels` on terrain, cliffs, roads and buildings); movers are left unsnapped, since they're filtered sprites and snapping would make slow movement step. |
+| **6, feel** | done | Camera inertia, eased wheel and arrows, fly-to, build juice, money floaters (payday's), and drone landings flashing. |
 | **7, sound** | done | |
 
 The mover cap raise is parked in a stash until `plans/traffic-congestion.md` (on branch `traffic-congestion`) decides what busier streets mean.
