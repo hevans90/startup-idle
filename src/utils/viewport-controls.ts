@@ -5,13 +5,11 @@ import type { Viewport } from "pixi-viewport";
  * the acquisition skill tree), so they feel identical:
  *  - left / middle mouse drag to pan
  *  - trackpad pinch to zoom
- *  - mouse wheel to zoom WITHOUT holding ctrl (`wheelZoom: true`), eased over
- *    a few frames (`smooth`) rather than in jumps
+ *  - mouse wheel to zoom WITHOUT holding ctrl (`wheelZoom: true`), at once:
+ *    eased over a few frames it read as lag
  *
  * Only the zoom clamp differs per canvas, so it's passed in.
  */
-/** Frames a notch of the wheel zooms over. */
-const WHEEL_FRAMES = 6;
 
 export function applyViewportControls(
   vp: Viewport,
@@ -23,7 +21,7 @@ export function applyViewportControls(
 ): void {
   vp.drag({ clampWheel: false, mouseButtons: "left-middle" })
     .pinch({ noDrag: false })
-    .wheel({ percent, trackpadPinch: true, wheelZoom: true, smooth: WHEEL_FRAMES })
+    .wheel({ percent, trackpadPinch: true, wheelZoom: true })
     .clampZoom({ minScale, maxScale });
 }
 
