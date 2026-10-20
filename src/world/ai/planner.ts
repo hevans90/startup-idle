@@ -11,7 +11,8 @@
  *    are thickest, its own nodes and GPU farms by the Data Centre;
  *  - MANAGER: takes houses over as nodes, lays streets on and lifts the stubs
  *    nobody uses, buys land, hires and buys upgrades;
- *  - OVERSEER: levels hills, digs cooling ponds, raises spires and a monolith.
+ *  - OVERSEER: levels hills, raises spires and a monolith.
+ *  From the Manager, short of water with no way to it, it digs a reservoir. @see reservoir
  *
  * Throttle-only control: there is no undo for its work. The throttle is the
  * lever — fewer agents running, slower it goes; none, and it stops.
@@ -33,7 +34,7 @@ import { connects, isPaved } from "../roads/mask";
 import { RACK_RANGE } from "../../game/agents";
 import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
-import { demolishAt, liftRoad, paveRoad, placeStructure, pour, reshape } from "../play/build-actions";
+import { demolishAt, liftRoad, paveRoad, placeStructure, reshape } from "../play/build-actions";
 import { useSlopPitStore } from "../../state/slop-pit.store";
 import { layRoute, neededPipe } from "./cooling-ai";
 import type { PipeRoute } from "./pipe-route";
@@ -45,6 +46,7 @@ import { RANGE } from "../agents/services";
 import type { Network } from "../roads/network";
 import { aiDistrict, inDistrict, type District } from "./district";
 import { aiFocus, focusSays, focusWeight } from "./focus";
+import { MAX_RESERVOIRS, digReservoir, reservoirs, siteFor } from "./reservoir";
 
 type Cell = { x: number; y: number };
 
@@ -54,7 +56,8 @@ export type AiAction =
   | { kind: "road"; from: Cell; to: Cell; why: string }
   | { kind: "lift"; at: Cell; why: string }
   | { kind: "flatten"; from: Cell; to: Cell; why: string }
-  | { kind: "pond"; at: Cell; why: string }
+  /** A basin dug and filled by a building short of water, none being in reach. @see reservoir */
+  | { kind: "reservoir"; at: Cell; why: string }
   | { kind: "hire"; who: GeneratorId; why: string }
   | { kind: "upgrade"; id: string; why: string }
   /** A pipe to water, and a pump house where one is needed, for a building that drinks. @see neededPipe */
@@ -78,11 +81,11 @@ export function targetOf(a: AiAction): Cell | null {
 export const INTERVAL: Partial<Record<Stage, number>> = { colleague: 60, manager: 35, overseer: 20, ascension: 20 };
 
 /** What it may do at a stage. */
-type Kind = "lot" | "service" | "node" | "farm" | "convert" | "repurpose" | "road" | "lift" | "flatten" | "pond" | "spire" | "hangar" | "monolith" | "hire" | "upgrade" | "pipe";
+type Kind = "lot" | "service" | "node" | "farm" | "convert" | "repurpose" | "road" | "lift" | "flatten" | "spire" | "hangar" | "monolith" | "hire" | "upgrade" | "pipe";
 const BY_STAGE: Partial<Record<Stage, Kind[]>> = {
   colleague: ["lot", "service", "node", "farm", "pipe"],
   manager: ["lot", "service", "node", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "pipe"],
-  overseer: ["lot", "service", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "flatten", "pond", "spire", "hangar", "monolith", "pipe"],
+  overseer: ["lot", "service", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "flatten", "spire", "hangar", "monolith", "pipe"],
 };
 BY_STAGE.ascension = BY_STAGE.overseer;
 
@@ -91,7 +94,7 @@ const LEAN: Record<Family, Partial<Record<Kind, number>>> = {
   planner: { road: 3, lift: 2, service: 2, lot: 2 },
   optimiser: { farm: 3, hire: 3, upgrade: 3, convert: 2, repurpose: 3 },
   shepherd: { service: 4, lot: 2 },
-  elemental: { pond: 4, flatten: 2, pipe: 3 },
+  elemental: { flatten: 2, pipe: 3 },
   recursive: { node: 3, spire: 3, convert: 3, hangar: 2, repurpose: 2 },
   temper: {},
 };
@@ -138,6 +141,24 @@ export function coolingState(g: Grid): "short" | "ok" | "full" {
     if (t.level < FULL_ENOUGH * t.capacity) full = false;
   }
   return full ? "full" : "ok";
+}
+
+/**
+ * A RESERVOIR, for the building in its district shortest of water — only if
+ * no pipe can reach water from any, and it has dug fewer than its most.
+ */
+function reservoirFor(g: Grid, district: District | null): AiAction | null {
+  if (!district || reservoirs().length >= MAX_RESERVOIRS || neededPipe(g)) return null;
+  const short = [...g.structures.values()]
+    .filter((s) => !s.build && isDrinker(s.def) && inDistrict(district, s.x, s.y))
+    .map((s) => ({ s, t: tankFor(s.id) }))
+    .filter(({ t }) => t && t.demand > 0 && t.share < SHORT)
+    .sort((a, b) => a.t!.share - b.t!.share);
+  for (const { s } of short) {
+    const at = siteFor(g, s, district);
+    if (at) return { kind: "reservoir", at: { x: at.x + 1, y: at.y + 1 }, why: "There was no water within reach, so I have made some. It is a reservoir. It is not for swimming." };
+  }
+  return null;
 }
 
 /** What it does at a desk, or to cool what it has: not held to its district. */
@@ -303,17 +324,6 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       }
       return null;
     }
-    case "pond": {
-      if (!dc) return null;
-      const c = centre(dc);
-      for (let tries = 0; tries < 30; tries++) {
-        const x = c.x + Math.floor(rand() * 13) - 6, y = c.y + Math.floor(rand() * 13) - 6;
-        if (!inBounds(g, x, y) || !inBounds(g, x + 1, y + 1) || !mine({ x, y }) || !mine({ x: x + 1, y: y + 1 })) continue;
-        if ([[0, 0], [1, 0], [0, 1], [1, 1]].some(([dx, dy]) => structureAt(g, x + dx, y + dy) >= 0 || isPaved(g, x + dx, y + dy))) continue;
-        return { kind: "pond", at: { x, y }, why: "I have dug a cooling pond. Please do not swim in it." };
-      }
-      return null;
-    }
     case "pipe": {
       // COOLING: a building that drinks, short of water and not yet piped. @see neededPipe
       const need = neededPipe(g);
@@ -357,6 +367,9 @@ export function chooseAction(
   if (cooling === "short") {
     const pipe = candidate("pipe", g, rand, district);
     if (pipe && affords(pipe)) return pipe;
+    // NO WAY TO WATER at all: a reservoir, the last resort. @see reservoir
+    const dig = stage !== "colleague" ? reservoirFor(g, district) : null;
+    if (dig && affords(dig)) return dig;
   }
   // ITS FOCUS weighs the kinds, nought never; the trait leans it within that. @see focus
   const focus = aiFocus();
@@ -383,11 +396,8 @@ export function perform(a: AiAction): boolean {
     case "road": return paveRoad(a.from, a.to);
     case "lift": return liftRoad(a.at, a.at);
     case "flatten": return reshape("flatten", a.from, a.to);
-    case "pond": {
-      const dug = reshape("lower", a.at, { x: a.at.x + 1, y: a.at.y }) && reshape("lower", { x: a.at.x, y: a.at.y + 1 }, { x: a.at.x + 1, y: a.at.y + 1 });
-      if (dug) { pour(a.at, { x: a.at.x + 1, y: a.at.y }); pour({ x: a.at.x, y: a.at.y + 1 }, { x: a.at.x + 1, y: a.at.y + 1 }); }
-      return dug;
-    }
+    // Its drone over the middle; dug from the corner.
+    case "reservoir": return digReservoir({ x: a.at.x - 1, y: a.at.y - 1 });
     case "hire": {
       const before = useGeneratorStore.getState().generators.find((g) => g.id === a.who)?.amount ?? 0;
       useGeneratorStore.getState().purchaseGenerator(a.who, 1);

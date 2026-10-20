@@ -21,7 +21,7 @@ export const FOCUSES: readonly { id: AiFocus; name: string; blurb: string; says:
  */
 export const FOCUS_WEIGHT: Record<AiFocus, Partial<Record<string, number>>> = {
   grow: { lot: 3, service: 2, road: 3, convert: 0 },
-  machine: { node: 3, farm: 3, spire: 3, hangar: 2, pipe: 3, pond: 2, lot: 0, service: 0.5 },
+  machine: { node: 3, farm: 3, spire: 3, hangar: 2, pipe: 3, lot: 0, service: 0.5 },
   people: { service: 4, upgrade: 2, lot: 2, repurpose: 0, convert: 0, node: 0.5, farm: 0.5, spire: 0.5 },
   "hands-off": { pipe: 1 },
 };

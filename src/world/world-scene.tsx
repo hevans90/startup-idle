@@ -3234,6 +3234,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           planHolos: planHoloKeys.current,
           // WHERE IT TAKES OVER: the company's AI's district, in the game. @see aiDistrict
           district: playing && !modelRun && !preview ? aiDistrict(useWorldStore.getState().grid, stageOf(v).stage) : null,
+          reservoirs: playing ? useSessionStore.getState().aiReservoirs : undefined,
           pipe: useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? pendingPipe() : null,
         }, raw, now);
       } else ai?.clear();

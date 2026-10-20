@@ -21,7 +21,7 @@ function withTool(patch: Record<string, unknown>, act: () => void): boolean {
   const st = useWorldStore.getState();
   const kept = {
     tool: st.tool, structureDefId: st.structureDefId, brush: st.brush, brushRadius: st.brushRadius,
-    placingProject: st.placingProject, stroke: st.stroke, notice: st.notice, lastBuild: st.lastBuild,
+    placingProject: st.placingProject, stroke: st.stroke, notice: st.notice, lastBuild: st.lastBuild, heightStep: st.heightStep,
   };
   const rev = st.revision;
   useWorldStore.setState(patch);
@@ -42,8 +42,8 @@ export const demolishAt = (at: Cell): boolean =>
   withTool({ tool: "demolish", placingProject: null }, () => useWorldStore.getState().commitStructure(at));
 
 /** A stroke of a brush tool along a straight line, as a drag makes one. */
-function stroke(tool: ToolId, from: Cell, to: Cell): boolean {
-  return withTool({ tool, brush: "line", brushRadius: 0, placingProject: null, stroke: { tool, brush: "line", anchor: from, head: to } },
+function stroke(tool: ToolId, from: Cell, to: Cell, extra: Record<string, unknown> = {}): boolean {
+  return withTool({ tool, brush: "line", brushRadius: 0, placingProject: null, stroke: { tool, brush: "line", anchor: from, head: to }, ...extra },
     () => useWorldStore.getState().endStroke());
 }
 
@@ -58,9 +58,10 @@ export const layPipePath = (cells: readonly Cell[]): boolean =>
 export const paveRoad = (from: Cell, to: Cell) => stroke("paintRoad", from, to);
 /** Lift road along a straight line. */
 export const liftRoad = (from: Cell, to: Cell) => stroke("eraseRoad", from, to);
-/** Raise, lower or level the ground along a line. */
-export const reshape = (op: "raise" | "lower" | "flatten", from: Cell, to: Cell) => stroke(op, from, to);
-/** Pour water along a line: the AI's cooling ponds. */
+/** Raise, lower or level the ground along a line; by `step` half steps if given, else the player's. */
+export const reshape = (op: "raise" | "lower" | "flatten", from: Cell, to: Cell, step?: number) =>
+  stroke(op, from, to, step === undefined ? {} : { heightStep: step });
+/** Pour water along a line: the AI's reservoirs. @see POUR_AMOUNT */
 export const pour = (from: Cell, to: Cell) => stroke("pourWater", from, to);
 
 /** Buy the parcel a tile is in. */

@@ -27,6 +27,7 @@ import { lookOf } from "../structures/projects/looks";
 import { topOf } from "../structures/projects/schedule";
 import type { Stage } from "../../state/ai-singularity.store";
 import type { District } from "./district";
+import { RESERVOIR } from "./reservoir";
 
 /** Each stage's colour: green, through amber, to violet. */
 export const STAGE_COLOUR: Record<Stage, number> = {
@@ -62,7 +63,12 @@ export type AiView = {
   tank?: number;
   /** Where the AI takes over: a faint ring on the ground round it. @see aiDistrict */
   district?: District | null;
+  /** The reservoirs it has dug, by their corner: a stone rim round each. @see world/ai/reservoir */
+  reservoirs?: readonly { x: number; y: number }[];
 };
+
+/** A reservoir's stone rim. */
+const RIM = 0xa8a29e;
 
 /** The colour a Data Centre running dry turns. */
 const HOT = 0xff5a2a;
@@ -174,6 +180,19 @@ export function createAiLayer(overlay: Container): AiLayer {
         gfx.fill({ color: STAGE_COLOUR[view.stage], alpha: 0.035 });
         gfx.poly(ring);
         gfx.stroke({ color: STAGE_COLOUR[view.stage], width: Math.max(1, 1.5 * sc), alpha: 0.4 });
+      }
+      // ITS RESERVOIRS, a stone rim on the ring round each basin: built, not a puddle. @see digReservoir
+      for (const r of view.reservoirs ?? []) {
+        const z = ground(g, r.x - 1, r.y - 1);
+        const band = (u0: number, v0: number, u1: number, v1: number) => {
+          gfx.poly([...P(sc, u0, v0, z), ...P(sc, u1, v0, z), ...P(sc, u1, v1, z), ...P(sc, u0, v1, z)]);
+          gfx.fill({ color: RIM, alpha: 0.85 });
+        };
+        const lo = -1.4, hi = RESERVOIR + 0.4, inLo = -0.5, inHi = RESERVOIR - 0.5;
+        band(r.x + lo, r.y + lo, r.x + hi, r.y + inLo);
+        band(r.x + lo, r.y + inHi, r.x + hi, r.y + hi);
+        band(r.x + lo, r.y + inLo, r.x + inLo, r.y + inHi);
+        band(r.x + inHi, r.y + inLo, r.x + hi, r.y + inHi);
       }
       // THE MASTERPLAN: planned streets outlined, planned buildings a tint on the ground.
       if (view.plan) drawPlan(g, sc, view.plan, view.planHolos);
