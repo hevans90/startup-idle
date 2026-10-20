@@ -319,9 +319,24 @@ function conflict(m: Mover, o: Mover): number {
  */
 function meeting(m: Mover, o: Mover): number {
   const rx = o.x - m.x, ry = o.y - m.y;
-  if (rx * rx + ry * ry > (2 * LOOK) ** 2) return Infinity;
+  const d2 = rx * rx + ry * ry;
+  if (d2 > (2 * LOOK) ** 2) return Infinity;
   const vm = Math.max(m.speed, CRAWL), vo = Math.max(o.speed, CRAWL);
+  // TOO FAR TO MEET: neither can cover more than its speed along its line, so
+  // two further apart than both of those and the clearance cannot meet in
+  // the time judged. Exact; most pairs in a slow crowd. @see AHEAD
+  const reach = (vm + vo) * AHEAD + CLEAR;
+  if (d2 > reach * reach) return Infinity;
   const tm = m.at[m.at.length - 1], to = o.at[o.at.length - 1];
+  // DRAWING APART: further apart half way through the time judged than now,
+  // and further again at its end — two cars going their own ways — is not
+  // looked along step by step: three looks, not twenty. @see AHEAD
+  const gap = (t: number) => {
+    const a = along(m, Math.min(tm, m.s + vm * t)), b = along(o, Math.min(to, o.s + vo * t));
+    return (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+  };
+  const mid = gap(AHEAD / 2);
+  if (mid > d2 && gap(AHEAD) > mid) return Infinity;
   for (let t = STEP; t <= AHEAD; t += STEP) {
     const dm = Math.min(tm, m.s + vm * t), dn = Math.min(to, o.s + vo * t);
     const a = along(m, dm), b = along(o, dn);
