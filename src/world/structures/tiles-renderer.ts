@@ -42,12 +42,22 @@ const seedOf = (s: Structure) => s.id;
 function floorsFor(def: StructureDef, s?: Structure): number {
   const kit = kitByName(kitIdOf(def) ?? "");
   if (!kit) return 0;
+  // OUT OF THE WAY of what the player is aiming at: its ground floor and roof. @see cutaway
+  if (s && collapsed.has(s.id)) return 1;
   const want = def.render.kind === "tiles" ? def.render.kit.floors ?? kit.maxFloors : 0;
   const full = Math.max(1, Math.min(want, kit.maxFloors));
   const h = housedBy(def.id);
   if (!s || !h || s.residents === undefined || h.slots <= 0) return full;
   return Math.max(1, Math.ceil((full * residentsIn(s)) / h.slots));
 }
+
+/**
+ * Buildings COLLAPSED to one storey because they stand in front of what the
+ * player is aiming at; set by the scene, read when a stack is built. @see cutaway
+ */
+const collapsed = new Set<number>();
+export const setCollapsed = (id: number, down: boolean) => { if (down) collapsed.add(id); else collapsed.delete(id); };
+export const isCollapsed = (id: number) => collapsed.has(id);
 
 /** District colours, for a lot's sign. */
 const LOT_SIGN: Record<string, number> = { intern: 0xf2b51d, vibe_coder: 0xff4fa3, "10x_dev": 0x2fb8a8 };

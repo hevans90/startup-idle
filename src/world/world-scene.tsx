@@ -69,7 +69,7 @@ import { structureDef } from "./structures/def";
 import { planUpgrade, strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
-import "./structures/tiles-renderer";
+import { setCollapsed } from "./structures/tiles-renderer";
 import { buildRoadTable, roadSpriteFor } from "./roads/table";
 import { isPaved, maskAt, maskDirtyCells } from "./roads/mask";
 import { netIdAt } from "./roads/network";
@@ -168,6 +168,11 @@ import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { clickTakesOver, opensSomething } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
 import { createJuice, type Juice } from "./render/juice";
+import { PLACE_UP, POINT_INSET, createCutaway, occludersOf, type Rect } from "./render/cutaway";
+
+/** How see-through a building out of the way is, when it is not drawn in floors to collapse. */
+const CUT_FADE = 0.28;
+const CUT_OUTLINE = 0xe8eef4;
 import { ambience, sfx } from "../audio/sound";
 
 /** The time of day, 0–1 from midnight; `__dayPhase` holds it, in development, to look at an hour. @see dayPhase */
@@ -175,7 +180,7 @@ const phaseNow = () => (import.meta.env.DEV ? (window as unknown as { __dayPhase
 
 /** Movers on the map at which the town sounds as busy as it gets. */
 const TOWN_FULL = 80;
-import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
+import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, partsOf, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
@@ -2202,6 +2207,94 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     return () => { clearInterval(id); streetHeatRef.current?.draw(grid, null, [], scale); };
   }, [earningsOverlay, grid, scale, sceneEpoch]);
 
+  /**
+   * SEEING BEHIND: what stands in front of the focus collapses to its ground
+   * floor, an outline of its full height left standing, and goes back up a
+   * moment after. Bounds of a building already down are its FULL height, as
+   * measured before — or it would stop being in the way the moment it fell,
+   * and stand, and fall. @see cutaway
+   */
+  const cutaway = useRef(createCutaway());
+  const cutFull = useRef(new Map<number, Rect>());
+  const cutOutline = useRef<Graphics | null>(null);
+  /** Where a building is drawn, in the overlay's space — its full height if it is down. */
+  const cutBounds = useCallback((id: number): Rect | null => {
+    const full = cutFull.current.get(id);
+    if (full) return full;
+    const sl = slRef.current, ov = overlayRoot.current;
+    const b = sl && ov ? drawnBounds(sl, id) : null;
+    if (!b || !ov) return null;
+    const a = ov.toLocal({ x: b.x, y: b.y }), c = ov.toLocal({ x: b.x + b.w, y: b.y + b.h });
+    return { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
+  }, []);
+  /** Down, or up again: a building in floors rebuilt with one or all; anything else faded. */
+  const cutOne = useCallback((id: number, down: boolean) => {
+    const sl = slRef.current, bl = blRef.current, tex = texRef.current;
+    const m = sl?.mounted.get(id);
+    if (!sl || !bl || !tex || !m) { cutFull.current.delete(id); return; }
+    const def = structureDef(m.s.def);
+    if (!def) return;
+    if (down) { const b = cutBounds(id); if (b) cutFull.current.set(id, b); } else cutFull.current.delete(id);
+    if (def.render.kind === "tiles") {
+      setCollapsed(id, down);
+      m.renderer.update(m.handle, m.s, def, { bands: bl, textures: tex, grid: useWorldStore.getState().grid, scale });
+    } else {
+      for (const p of partsOf(m.handle)) p.alpha = down ? CUT_FADE : 1;
+    }
+  }, [cutBounds, scale]);
+  /** The outlines of everything down, its full height standing where it was. */
+  const drawCutOutlines = useCallback(() => {
+    const g = cutOutline.current, sl = slRef.current;
+    if (!g || !sl) return;
+    g.clear();
+    const grid = useWorldStore.getState().grid;
+    for (const [id, full] of cutFull.current) {
+      const s = grid.structures.get(id);
+      if (!s || structureDef(s.def)?.render.kind !== "tiles") continue;
+      const z = inBounds(grid, s.x, s.y) ? grid.height[idx(grid, s.x, s.y)] : 0;
+      const at = (u: number, v: number): [number, number] => [(u - v) * HW * scale, (u + v) * HH * scale - z * HEIGHT_UNIT * scale];
+      const back = at(s.x - 0.5, s.y - 0.5), right = at(s.x + s.w - 0.5, s.y - 0.5);
+      const front = at(s.x + s.w - 0.5, s.y + s.h - 0.5), left = at(s.x - 0.5, s.y + s.h - 0.5);
+      const up = Math.max(0, back[1] - full.y);
+      const top = (p: [number, number]): [number, number] => [p[0], p[1] - up];
+      g.poly([...top(back), ...top(right), ...top(front), ...top(left)]);
+      for (const p of [left, front, right]) g.moveTo(...p).lineTo(...top(p));
+      g.stroke({ color: CUT_OUTLINE, width: 1.5, alpha: 0.45, pixelLine: true });
+    }
+  }, [scale]);
+  /** What the hand is on now: the occluders of it collapsed, those no longer in the way left to stand again. */
+  const cutawayFor = useCallback((focus: readonly { x: number; y: number }[], up = 0, extra: readonly Rect[] = [], inset = 0) => {
+    const st = useWorldStore.getState();
+    const next = st.playing ? occludersOf(st.grid, focus, scale, cutBounds, up, extra, inset) : new Set<number>();
+    const { collapse } = cutaway.current.set(next, performance.now());
+    for (const id of collapse) cutOne(id, true);
+    if (collapse.length) drawCutOutlines();
+  }, [cutBounds, cutOne, drawCutOutlines, scale]);
+  // And up again, once their grace is over.
+  useTick(() => {
+    if (!cutaway.current.size) return;
+    const { raise } = cutaway.current.tick(performance.now());
+    for (const id of raise) cutOne(id, false);
+    if (raise.length) drawCutOutlines();
+  });
+  // The outline layer, over the map, under the cursor.
+  useEffect(() => {
+    const ov = overlayRoot.current;
+    if (!ov) return;
+    const g = new Graphics();
+    g.eventMode = "none";
+    g.zIndex = 994;
+    ov.addChild(g);
+    cutOutline.current = g;
+    const cut = cutaway.current, full = cutFull.current;
+    return () => {
+      for (const id of cut.clear()) setCollapsed(id, false);
+      full.clear();
+      g.parent?.removeChild(g); g.destroy();
+      cutOutline.current = null;
+    };
+  }, [grid, sceneEpoch]);
+
   useEffect(() => {
     const cur = cursorRef.current, tex = texRef.current;
     if (!cur || !tex) return;
@@ -2210,7 +2303,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const { stroke, hover: hoverForBrush, hoverOpen } = useWorldStore.getState();
       // Over a building that opens something, the tool is put down: no cursor. @see opensSomething
       const unplace = () => { cur.clear(); if (placeHolos.current.length) { placeHolos.current = []; showHolos(); } };
-      if (!stroke && hoverOpen !== null) { unplace(); return; }
+      // Over a building that opens something, the player is aiming at IT: nothing gets out of its way.
+      if (!stroke && hoverOpen !== null) { unplace(); cutawayFor([]); return; }
       // A live drag takes over; otherwise the hover stands in as a one-cell
       // anchor so the brush size is visible before pressing rather than
       // discovered after.
@@ -2219,7 +2313,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           ? { tool, brush: "point", anchor: hoverForBrush, head: hoverForBrush }
           : null
       );
-      if (!s0) { unplace(); return; }
+      if (!s0) {
+        unplace();
+        // WITH THE LOOK TOOL, the tile under the pointer is never hidden — and a
+        // building on it kept clear its whole height. Aimed at a tower's wall,
+        // that tile is the ground behind it, so the tower gets out of the way;
+        // aimed at its foot, it is the tower. @see cutaway
+        if (tool !== "inspect" || !hoverForBrush) { cutawayFor([]); return; }
+        const id = structureAt(grid, hoverForBrush.x, hoverForBrush.y);
+        const on = id >= 0 ? grid.structures.get(id) : undefined;
+        const own = on ? cutBounds(on.id) : null;
+        cutawayFor(on ? footprintCells(on.x, on.y, on.w, on.h) : [hoverForBrush], 0, own ? [own] : [], POINT_INSET);
+        return;
+      }
 
       // A STRUCTURE tool previews its footprint, not a brush: the same function
       // the commit uses, so the rect you drag out is the rect you get.
@@ -2280,6 +2386,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       placeHolos.current = holos;
       showHolos();
+      // AND OUT OF THE WAY of what the tool is on: a building placed is taken to be tall. @see cutaway
+      cutawayFor(cells, isStructureTool(s0.tool) ? PLACE_UP : 0);
 
       cur.update(grid, {
         valid,
@@ -2299,7 +2407,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     });
   }, [
     brushRadius, tool, material, palette, structureDefId, showHolos,
-    grid, scale, revision, sceneEpoch,
+    grid, scale, revision, sceneEpoch, cutBounds, cutawayFor,
   ]);
 
   /**
