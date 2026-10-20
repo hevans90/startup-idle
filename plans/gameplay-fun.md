@@ -277,8 +277,8 @@ Built, phase by phase — everything above except where noted:
 
 - **0** — upgrade gates for every project, headcount gates for every wonder, shown as chips and bars.
 - **A** — AI agents in racks; the sale as the run's end with an acquirer's offer event; the
-  longest flat stretch guarded in the sim. Promotion of interns to vibe coders for innovation, dearer each time. *Not built:*
-  vibe coder → 10x dev promotion, which would sidestep the 10x devs' scarcity.
+  longest flat stretch guarded in the sim. (Promotion of interns to vibe coders was built here,
+  then removed on 2026-10-20: it didn't fit the game.)
 - **B** — one desirability score, the placing heat map and its readout, houses growing and
   filling by it; workplaces' "+$X" floaters; adjacency — a café next door +10% at a
   workplace's desks, the Conference Centre treble convoys at seaports near it, both on the

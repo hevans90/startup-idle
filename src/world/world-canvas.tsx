@@ -19,7 +19,6 @@ import { getNetwork, getWorks, startAutosave, startedOnFixture, useWorldStore } 
 import { housedBy, residentsIn } from "../game/housing";
 import { projectForStructure, setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
 import { setTermReader } from "../game/term-sheets";
-import { setPromotionMoveOut } from "../state/promotion.store";
 import { liveLeadership } from "./agents/leaders";
 import { deskShare } from "./agents/desk-perks";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
@@ -184,23 +183,6 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   useEffect(() => {
     if (!play) return;
     return setTownBonusReader(held(() => townBonusOf(useWorldStore.getState().grid)));
-  }, [play]);
-  /**
-   * A PROMOTED INTERN MOVES OUT of an intern house — the fullest — when more
-   * live on the map than are still interns. @see usePromotionStore
-   */
-  useEffect(() => {
-    if (!play) return;
-    return setPromotionMoveOut(() => {
-      const st = useWorldStore.getState();
-      const houses = [...st.grid.structures.values()].filter((s) => housedBy(s.def)?.id === "intern" && residentsIn(s) > 0);
-      const living = houses.reduce((n, s) => n + residentsIn(s), 0);
-      if (living <= (ownedNow().intern ?? 0)) return;
-      const fullest = houses.sort((a, b) => residentsIn(b) - residentsIn(a))[0];
-      if (!fullest || fullest.residents === undefined) return;
-      fullest.residents--;
-      st.housingMoved([fullest.id]);
-    });
   }, [play]);
   /** THE MAP'S SIDE OF THE TERM SHEET: houses lived in, wonders standing. @see game/term-sheets */
   useEffect(() => {

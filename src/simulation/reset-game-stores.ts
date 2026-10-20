@@ -1,4 +1,3 @@
-import { usePromotionStore } from "../state/promotion.store";
 import { emptyLog, useGenerationStore } from "../state/generation.store";
 import { SEED_ROUND, moduleLevel } from "../game/modules";
 import { useTrainingStore } from "../state/training.store";
@@ -38,7 +37,6 @@ export function resetRunStores(): void {
   useSessionStore.getState().reset();
   useSlopPitStore.getState().reset();
   useAgentsStore.getState().reset();
-  usePromotionStore.getState().reset();
   useTrainingStore.getState().reset();
   clearMorale();
   resetAutopilot();
