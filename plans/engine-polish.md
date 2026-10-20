@@ -26,6 +26,23 @@ The user asked for an overall analysis of the rendering and a plan to vastly imp
 - **HTML overlays:** building labels rewrite every transform every frame without checking for a change, and the land-fog subscription fires on every store change.
 - **Missing entirely:** filters and lighting, camera inertia, tweens, a general particle system, audio.
 
+## Status (2026-10-20)
+
+Measured on `?fixture=bigtown` (2,165 buildings) with `__townPerf()` and `?hitches`:
+
+| Phase | Status | What it showed or did |
+|---|---|---|
+| **0, measure** | done | The `?perf` meter, `__townPerf()`, `?hitches`. The lag on a big town was never the renderer: it was HTML overlays and the economy re-scanning the town (labels 105 ms, payday 170 ms, the economy's map readers and rate selectors 41–190 ms). All fixed; a pan or zoom now runs with no frame over 16.7 ms. |
+| **1, movers** | done | Sprites from one baked atlas. A 2,000-mover crowd: render 13 → 4 ms, frame ~45 → ~5 ms. Traffic checks only neighbours (`nearGrid`), and skips pairs too far apart or drawing apart. |
+| **2, horizontal culling** | dropped | Draw calls were already 25–70 on the big town. |
+| **3, per-frame Graphics** | partly done | The night sheet redraws only on change, and labels are written only when they move. The AI layer (~0.1 ms), hologram scans and hit-testing (2.9 ms a click, 0.3 ms a hover) were measured and are not worth changing. |
+| **4, water draws** | dropped | Water was ~2 ms of GPU on the big town. |
+| **5, fidelity** | in progress | Mipmapped padded atlases and the night grade with lights are done. Contact shadows and pixel snapping are left. |
+| **6, feel** | in progress | Camera, juice and money floaters (payday's) are done. The drone landing flash is left. |
+| **7, sound** | done | |
+
+The mover cap raise is parked in a stash until `plans/traffic-congestion.md` (on branch `traffic-congestion`) decides what busier streets mean.
+
 ## Phase 0: Measure (before touching anything)
 
 - **A populated perf scene:** a preset in `world/debug/perf-scene.ts` (`__perfScene`). It is sealed, pinned in view and needs `?nosave`. It builds:
