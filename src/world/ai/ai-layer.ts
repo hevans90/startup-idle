@@ -26,6 +26,7 @@ import { tankFor } from "../projects/cooling";
 import { lookOf } from "../structures/projects/looks";
 import { topOf } from "../structures/projects/schedule";
 import type { Stage } from "../../state/ai-singularity.store";
+import type { District } from "./district";
 
 /** Each stage's colour: green, through amber, to violet. */
 export const STAGE_COLOUR: Record<Stage, number> = {
@@ -59,6 +60,8 @@ export type AiView = {
   /** How well the Data Centre is cooled, 0–1, and how full its tank is; both 1 by default. @see game/cooling */
   cooled?: number;
   tank?: number;
+  /** Where the AI takes over: a faint ring on the ground round it. @see aiDistrict */
+  district?: District | null;
 };
 
 /** The colour a Data Centre running dry turns. */
@@ -80,6 +83,8 @@ export type AiLayer = {
 };
 
 const DIRS = ["N", "E", "S", "W"] as const;
+/** Points round the district's ring. */
+const DISTRICT_SEGMENTS = 72;
 
 export function createAiLayer(overlay: Container): AiLayer {
   const gfx = new Graphics();
@@ -157,6 +162,19 @@ export function createAiLayer(overlay: Container): AiLayer {
     draw: (g, sc, view, dt, now) => {
       gfx.clear();
       const structures = [...g.structures.values()];
+      // ITS DISTRICT, a faint ring on the ground in its stage's colour: where it takes over. @see aiDistrict
+      if (view.district && Number.isFinite(view.district.r)) {
+        const d = view.district, ring: number[] = [];
+        for (let k = 0; k <= DISTRICT_SEGMENTS; k++) {
+          const a = (k / DISTRICT_SEGMENTS) * Math.PI * 2;
+          const u = d.cx + d.r * Math.cos(a), v = d.cy + d.r * Math.sin(a);
+          ring.push(...P(sc, u, v, ground(g, Math.round(u), Math.round(v))));
+        }
+        gfx.poly(ring);
+        gfx.fill({ color: STAGE_COLOUR[view.stage], alpha: 0.035 });
+        gfx.poly(ring);
+        gfx.stroke({ color: STAGE_COLOUR[view.stage], width: Math.max(1, 1.5 * sc), alpha: 0.4 });
+      }
       // THE MASTERPLAN: planned streets outlined, planned buildings a tint on the ground.
       if (view.plan) drawPlan(g, sc, view.plan, view.planHolos);
       // AND THE PIPE IT MEANS TO LAY, cyan; its pump house a square.

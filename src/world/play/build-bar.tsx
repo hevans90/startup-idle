@@ -102,7 +102,7 @@ function Stat({ icon, value, tone, title, children }: {
   );
 }
 
-/** The tools the AI takes over at the Overseer stage. */
+/** The tools the AI takes over in its district at the Overseer stage. @see aiHoldsRoads */
 const ROAD_TOOLS = new Set<ToolId>(["paintRoad", "eraseRoad"]);
 
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
@@ -249,7 +249,7 @@ export function BuildBar({ className }: { className?: string }) {
     }
   }
 
-  // THE AI AT WORK: from the Colleague on, while agents run; at the Overseer it lays every road. @see stepAi
+  // THE AI AT WORK: from the Colleague on, while agents run; at the Overseer its district's streets are its own. @see stepAi, aiHoldsRoads
   useTicking(1000);
   const aiValue = useAiSingularityStore((s) => s.value);
   const notModel = useFounderStore((s) => s.selectedFounderId) !== "model";
@@ -370,8 +370,8 @@ export function BuildBar({ className }: { className?: string }) {
         {/* THE TOOLS. */}
         <div className="flex items-stretch overflow-x-auto">
           {TOOLS.filter((t) => (t.id !== "buyLand" || forSale) && (t.id !== "pipe" || pipesOpen)).map((t) => (
-            <button key={t.id} type="button" title={aiRoads && ROAD_TOOLS.has(t.id) ? "Your input is no longer required for roads." : t.hint}
-              onClick={() => choose(t.id)} disabled={aiRoads && ROAD_TOOLS.has(t.id)}
+            <button key={t.id} type="button" title={aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint}
+              onClick={() => choose(t.id)}
               data-hint={t.id === "placeStructure" ? "build" : t.id === "buyLand" ? "land" : undefined}
               className={twMerge(TOOL, tool === t.id && TOOL_ON, "disabled:cursor-default disabled:opacity-40")}>
               {ICONS[t.id]}

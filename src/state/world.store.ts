@@ -7,6 +7,8 @@
  * would leave a save file holding employees with nowhere to live.
  * @see startAutosave, loadSaved
  */
+import { aiActing, aiDistrict, aiHoldsRoads, inDistrict } from "../world/ai/district";
+import { stageOf, useAiSingularityStore } from "./ai-singularity.store";
 import Decimal from "break_infinity.js";
 import {
   addBoat, createFleet, removeBoatNear, restoreFleet, type Fleet, type SavedBoat,
@@ -1218,6 +1220,16 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if (st.playing && land && cells.some((c) => !ownsTile(st.grid, land, c.x, c.y))) {
         set({ stroke: null, notice: { text: "Not your land: buy it first", at: Date.now() } });
         return;
+      }
+      // THE AI'S STREETS, from the Overseer on: its district's roads are its
+      // to lay and lift, and the player's road tools stop at its edge.
+      // Not on The Model's own runs, nor for the AI itself. @see aiDistrict
+      if (st.playing && !aiActing() && aiHoldsRoads()) {
+        const d = aiDistrict(st.grid, stageOf(useAiSingularityStore.getState().value).stage);
+        if (cells.some((c) => inDistrict(d, c.x, c.y))) {
+          set({ stroke: null, notice: { text: "The AI manages the streets in its district", at: Date.now() } });
+          return;
+        }
       }
       if (st.playing && s0.tool === "paintRoad") {
         const fresh = cells.filter((c) => st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL).length;

@@ -12,6 +12,7 @@
 import type { ProjectId } from "../../game/projects";
 import { useWorldStore } from "../../state/world.store";
 import type { ToolId } from "../edit/tools";
+import { asAi } from "../ai/district";
 
 type Cell = { x: number; y: number };
 
@@ -24,7 +25,8 @@ function withTool(patch: Record<string, unknown>, act: () => void): boolean {
   };
   const rev = st.revision;
   useWorldStore.setState(patch);
-  try { act(); } finally {
+  // As the AI: its own streets are not closed to it. @see asAi
+  try { asAi(act); } finally {
     // The AI's work is not the player's last build to take back. @see undoLastBuild
     useWorldStore.setState(kept);
   }

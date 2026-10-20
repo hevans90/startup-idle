@@ -37,6 +37,7 @@ import { demolishAt, liftRoad, paveRoad, placeStructure, pour, reshape } from ".
 import { useSlopPitStore } from "../../state/slop-pit.store";
 import { layRoute, neededPipe } from "./cooling-ai";
 import type { PipeRoute } from "./pipe-route";
+import { aiDistrict, inDistrict, type District } from "./district";
 
 type Cell = { x: number; y: number };
 
@@ -88,22 +89,29 @@ const LEAN: Record<Family, Partial<Record<Kind, number>>> = {
   temper: {},
 };
 
-/** Every tile a building could go on, by the game's rules. */
-function spots(g: Grid, defId: string, near?: { at: Cell; within: number }): Cell[] {
+/** Every tile a building could go on, by the game's rules — in the AI's district, and `near` a spot if asked. */
+function spots(g: Grid, defId: string, d: District, near?: { at: Cell; within: number }): Cell[] {
   const def = structureDef(defId);
   if (!def) return [];
   const rules = playRules(g);
   const out: Cell[] = [];
-  const [x0, y0, x1, y1] = near
+  let [x0, y0, x1, y1] = near
     ? [near.at.x - near.within, near.at.y - near.within, near.at.x + near.within, near.at.y + near.within]
     : [0, 0, g.w - 1, g.h - 1];
+  if (Number.isFinite(d.r)) {
+    x0 = Math.max(x0, Math.floor(d.cx - d.r)); y0 = Math.max(y0, Math.floor(d.cy - d.r));
+    x1 = Math.min(x1, Math.ceil(d.cx + d.r)); y1 = Math.min(y1, Math.ceil(d.cy + d.r));
+  }
   for (let y = Math.max(0, y0); y <= Math.min(g.h - 1, y1); y++) {
     for (let x = Math.max(0, x0); x <= Math.min(g.w - 1, x1); x++) {
-      if (validatePlacement(g, def, x, y, rules).ok) out.push({ x, y });
+      if (inDistrict(d, x, y) && validatePlacement(g, def, x, y, rules).ok) out.push({ x, y });
     }
   }
   return out;
 }
+
+/** What it does at a desk, or to cool what it has: not held to its district. */
+const ANYWHERE = new Set<Kind>(["hire", "upgrade", "pipe"]);
 
 const centre = (s: Structure): Cell => ({ x: s.x + Math.floor(s.w / 2), y: s.y + Math.floor(s.h / 2) });
 
@@ -137,8 +145,14 @@ function deadEnds(g: Grid): { at: Cell; dx: number; dy: number }[] {
 const fronted = (g: Grid, x: number, y: number) =>
   (["N", "E", "S", "W"] as const).some((d) => { const [dx, dy] = NEIGHBOUR[d]; return inBounds(g, x + dx, y + dy) && structureAt(g, x + dx, y + dy) >= 0; });
 
-/** One candidate for a kind of job, or null when there is nothing worth doing of that kind. */
-function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
+/**
+ * One candidate for a kind of job, or null when there is nothing worth doing
+ * of that kind — on the map, only in its district. @see aiDistrict
+ */
+function candidate(kind: Kind, g: Grid, rand: () => number, district: District | null): AiAction | null {
+  if (!ANYWHERE.has(kind) && !district) return null;
+  const d = district!;
+  const mine = (s: { x: number; y: number }) => inDistrict(d, s.x, s.y);
   const structures = [...g.structures.values()];
   const dc = structures.find((s) => s.def === "datacentre" && !s.build);
   const pick = <T,>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
@@ -151,9 +165,9 @@ function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
       const maps = liveDesireMaps(g, net);
       const fill = useSlopPitStore.getState().fill / 100;
       let best: Cell | null = null, top = -Infinity;
-      for (const c of spots(g, def)) {
-        const d = desireAt(g, maps, c.x, c.y, who, fill)?.total ?? -Infinity;
-        if (d > top) { top = d; best = c; }
+      for (const c of spots(g, def, d)) {
+        const want = desireAt(g, maps, c.x, c.y, who, fill)?.total ?? -Infinity;
+        if (want > top) { top = want; best = c; }
       }
       return best ? { kind: "place", def, at: best, why: "I have zoned some housing where people will be happiest." } : null;
     }
@@ -164,7 +178,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
       if (!houses.length) return null;
       // Where the houses are thickest.
       let best: Cell | null = null, most = -1;
-      for (const c of spots(g, def)) {
+      for (const c of spots(g, def, d)) {
         const n = houses.filter((h) => Math.abs(h.x - c.x) + Math.abs(h.y - c.y) <= 6).length;
         if (n > most) { most = n; best = c; }
       }
@@ -174,7 +188,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
       if (!dc) return null;
       const def = { node: "ai-node", farm: "gpu-farm", spire: "compute-spire", hangar: "drone-hangar", monolith: "monolith" }[kind];
       if (kind === "monolith" && structures.some((s) => s.def === "monolith")) return null;
-      const options = spots(g, def, { at: centre(dc), within: RACK_RANGE });
+      const options = spots(g, def, d, { at: centre(dc), within: RACK_RANGE });
       if (!options.length) return null;
       const why = {
         node: "I have built myself a small node. It will not need anything from you.",
@@ -189,7 +203,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
       const net2 = getNetwork();
       if (!net2) return null;
       const moods = liveMoods(g, net2, useSlopPitStore.getState().fill / 100);
-      const houses = structures.filter((s) => housedBy(s.def) && !s.build && s.w === 1 && s.h === 1 && (s.residents ?? 0) <= 1);
+      const houses = structures.filter((s) => mine(s) && housedBy(s.def) && !s.build && s.w === 1 && s.h === 1 && (s.residents ?? 0) <= 1);
       if (!houses.length) return null;
       houses.sort((a, b) => (moods.get(a.id)?.total ?? 0) - (moods.get(b.id)?.total ?? 0));
       const h = houses[0];
@@ -197,30 +211,33 @@ function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
     }
     case "repurpose": {
       // A café, a park, a gym or an office: a GPU farm now, for good.
-      const taken = structures.filter((s) => !s.build && (["cafe", "park", "gym", "office-intern", "office-vibe"].includes(s.def)));
+      const taken = structures.filter((s) => mine(s) && !s.build && (["cafe", "park", "gym", "office-intern", "office-vibe"].includes(s.def)));
       if (!taken.length) return null;
       const s = pick(taken);
       const name = structureDef(s.def)?.name ?? "building";
       return { kind: "convert", at: { x: s.x, y: s.y }, into: "gpu-farm", why: `I have repurposed the ${name.toLowerCase()} as a GPU farm. Its previous function has been deprecated.` };
     }
     case "road": {
-      const ends = deadEnds(g).filter((e) => fronted(g, e.at.x, e.at.y));
+      const ends = deadEnds(g).filter((e) => mine(e.at) && fronted(g, e.at.x, e.at.y));
       if (!ends.length) return null;
       const e = pick(ends);
       const len = 4 + Math.floor(rand() * 4);
       const to = { x: e.at.x + e.dx * len, y: e.at.y + e.dy * len };
-      if (!inBounds(g, to.x, to.y)) return null;
+      if (!inBounds(g, to.x, to.y) || !mine(to)) return null;
       return { kind: "road", from: { x: e.at.x + e.dx, y: e.at.y + e.dy }, to, why: "I have extended the street. It was going nowhere." };
     }
     case "lift": {
-      const stubs = deadEnds(g).filter((e) => !fronted(g, e.at.x, e.at.y));
+      const stubs = deadEnds(g).filter((e) => mine(e.at) && !fronted(g, e.at.x, e.at.y));
       if (!stubs.length) return null;
       return { kind: "lift", at: pick(stubs).at, why: "I have removed a road nobody was using. You are welcome." };
     }
     case "flatten": {
       // A rough patch of open ground by a road.
       for (let tries = 0; tries < 40; tries++) {
-        const x = Math.floor(rand() * (g.w - 4)) + 2, y = Math.floor(rand() * (g.h - 4)) + 2;
+        // Somewhere in its district: drawn from the district's square, not the map's.
+        const span = Number.isFinite(d.r) ? d.r : Math.max(g.w, g.h);
+        const x = Math.round(d.cx + (rand() * 2 - 1) * span), y = Math.round(d.cy + (rand() * 2 - 1) * span);
+        if (x < 2 || y < 2 || x > g.w - 3 || y > g.h - 3 || !mine({ x, y })) continue;
         const i = idx(g, x, y);
         if (g.pool[i] || structureAt(g, x, y) >= 0 || isPaved(g, x, y)) continue;
         const h = g.height[i];
@@ -234,7 +251,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
       const c = centre(dc);
       for (let tries = 0; tries < 30; tries++) {
         const x = c.x + Math.floor(rand() * 13) - 6, y = c.y + Math.floor(rand() * 13) - 6;
-        if (!inBounds(g, x, y) || !inBounds(g, x + 1, y + 1)) continue;
+        if (!inBounds(g, x, y) || !inBounds(g, x + 1, y + 1) || !mine({ x, y }) || !mine({ x: x + 1, y: y + 1 })) continue;
         if ([[0, 0], [1, 0], [0, 1], [1, 1]].some(([dx, dy]) => structureAt(g, x + dx, y + dy) >= 0 || isPaved(g, x + dx, y + dy))) continue;
         return { kind: "pond", at: { x, y }, why: "I have dug a cooling pond. Please do not swim in it." };
       }
@@ -273,11 +290,12 @@ function candidate(kind: Kind, g: Grid, rand: () => number): AiAction | null {
 export function chooseAction(g: Grid, stage: Stage, rand: () => number = Math.random): AiAction | null {
   const kinds = BY_STAGE[stage];
   if (!kinds) return null;
+  const district = aiDistrict(g, stage);
   const family = traitForecast(useGenerationStore.getState().log, 1)[0].trait.family;
   const weighted = kinds.map((k) => ({ k, w: (LEAN[family][k] ?? 1) * rand() }));
   weighted.sort((a, b) => b.w - a.w);
   for (const { k } of weighted) {
-    const a = candidate(k, g, rand);
+    const a = candidate(k, g, rand, district);
     if (a) return a;
   }
   return null;

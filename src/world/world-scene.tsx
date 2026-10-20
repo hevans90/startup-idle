@@ -168,6 +168,7 @@ import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { clickTakesOver, opensSomething } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
 import { createJuice, type Juice } from "./render/juice";
+import { aiDistrict } from "./ai/district";
 import { PLACE_UP, POINT_INSET, createCutaway, occludersOf, type Rect } from "./render/cutaway";
 
 /** How see-through a building out of the way is, when it is not drawn in floors to collapse. */
@@ -3183,6 +3184,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           plan: preview?.plan ?? null,
           ...dcCooling(useWorldStore.getState().grid),
           planHolos: planHoloKeys.current,
+          // WHERE IT TAKES OVER: the company's AI's district, in the game. @see aiDistrict
+          district: playing && !modelRun && !preview ? aiDistrict(useWorldStore.getState().grid, stageOf(v).stage) : null,
           pipe: useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? pendingPipe() : null,
         }, raw, now);
       } else ai?.clear();
