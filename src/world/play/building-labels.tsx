@@ -61,7 +61,9 @@ export const DETAIL_FROM = 0.45;
  * a read is a dozen milliseconds, and two and a half a second was a hitch each.
  */
 const READ_EVERY = 1000;
-/** A change of zoom by more than this share gathers them again at once. */
+/** How long the camera holds still before the labels are gathered again for where it went, ms. */
+const SETTLE_MS = 120;
+/** A change of zoom by more than this share gathers them again. */
 const REZOOM = 0.04;
 /** And a pan by more than this many screen pixels. */
 const REPAN = 160;
@@ -210,15 +212,21 @@ export function BuildingLabels({ className }: { className?: string }) {
      */
     let raf = 0;
     let seen = "", seenAnchors: unknown = null;
+    let lastView = { x: NaN, y: NaN, s: NaN }, stillSince = 0;
     const wrote = new WeakMap<HTMLElement, string>();
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const vp = useWorldStore.getState().viewport;
       if (!vp) return;
-      // A ZOOM, or a pan far enough to bring others on: gathered again at once.
+      // A ZOOM, or a pan far enough to bring others on: gathered again once
+      // the camera SETTLES — not mid-move, where a gather a frame was a third of
+      // a frame's budget on a big town. Kept in the world, they follow the
+      // camera meanwhile. @see SETTLE_MS
       const c = gatheredCentre.current;
       const panned = c ? Math.hypot(vp.center.x - c.x, vp.center.y - c.y) * vp.scale.x > REPAN : false;
-      if (Math.abs(vp.scale.x / (gatheredAt.current || 1) - 1) > REZOOM || panned) read();
+      const moving = vp.x !== lastView.x || vp.y !== lastView.y || vp.scale.x !== lastView.s;
+      if (moving) { lastView = { x: vp.x, y: vp.y, s: vp.scale.x }; stillSince = performance.now(); }
+      if ((Math.abs(vp.scale.x / (gatheredAt.current || 1) - 1) > REZOOM || panned) && performance.now() - stillSince >= SETTLE_MS) read();
       const view = `${vp.x},${vp.y},${vp.scale.x},${els.current.size}`;
       if (view === seen && anchors.current === seenAnchors) return;
       seen = view; seenAnchors = anchors.current;

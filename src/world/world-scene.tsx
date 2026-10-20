@@ -3132,7 +3132,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const real = renderer.render.bind(renderer);
     renderer.render = (...a: unknown[]) => {
       const at = performance.now();
+      const e = section("pixi render");
       const out = real(...a);
+      e();
       perfAdd("present", performance.now() - at);
       return out;
     };
@@ -3216,14 +3218,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const vp = useWorldStore.getState().viewport;
     if (!bl || !vp) return;
     const { lo, hi } = visibleBandRange(grid, scale, vp.top, vp.bottom);
+    let e = section("tick: band cull");
     setVisibleBands(bl, lo, hi);
+    e();
     if (lo !== bandRange.current.lo || hi !== bandRange.current.hi) {
       bandRange.current = { lo, hi };
+      e = section("tick: overlays redrawn for the band range");
       redrawOverlays();                    // overlays follow the visible range
+      e();
     }
     const n = visibleBandCount(bl);
     if (n !== useWorldStore.getState().drawnBands) {
+      e = section("tick: drawn bands to the store");
       useWorldStore.getState().setDrawnBands(n);
+      e();
     }
   };
   useTick(() => cullBandsRef.current?.());
