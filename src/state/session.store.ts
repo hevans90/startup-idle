@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+/** What the company's AI is told to work at. @see world/ai/focus */
+export type AiFocus = "grow" | "machine" | "people" | "hands-off";
+
 /**
  * Tracks when the player was last present, persisted so we can credit offline
  * progression on the next visit. `touch()` is called periodically and on
@@ -91,6 +94,9 @@ type SessionState = {
   aiShare: number;
   aiWallet: number;
   setAiWallet: (patch: Partial<{ aiShare: number; aiWallet: number }>) => void;
+  /** What the company's AI is to work at. @see world/ai/focus */
+  aiFocus: AiFocus;
+  setAiFocus: (aiFocus: AiFocus) => void;
   showPlan: boolean;
   setAiMode: (patch: Partial<{ aiMode: boolean; aiBudget: number; showPlan: boolean }>) => void;
   setMapEventsOff: (off: boolean) => void;
@@ -144,6 +150,8 @@ export const useSessionStore = create<SessionState>()(
       aiShare: 0.2,
       aiWallet: 0,
       setAiWallet: (patch) => set(patch),
+      aiFocus: "grow",
+      setAiFocus: (aiFocus) => set({ aiFocus }),
       showPlan: true,
       setAiMode: (patch) => set(patch),
       aiSaid: [],
@@ -187,6 +195,7 @@ export const useSessionStore = create<SessionState>()(
         aiBudget: s.aiBudget,
         aiShare: s.aiShare,
         aiWallet: s.aiWallet,
+        aiFocus: s.aiFocus,
         showPlan: s.showPlan,
       }),
     },

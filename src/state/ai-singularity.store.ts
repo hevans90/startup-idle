@@ -14,6 +14,8 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { usePrestigeStore } from "./prestige.store";
 import { runningAgents, useAgentsStore } from "./agents.store";
 import { useGenerationStore } from "./generation.store";
+import { useSessionStore } from "./session.store";
+import { useFounderStore } from "./founder.store";
 import { QUIET_MODEL, moduleLevel } from "../game/modules";
 import { fusionNow } from "../game/fusion";
 
@@ -81,7 +83,9 @@ export const useAiSingularityStore = create<AiSingularityState>()(
       tick: (seconds) => {
         // HOW HARD THE AGENTS ARE RUN, for the behaviour log. @see BehaviourLog
         const { agents } = useAgentsStore.getState(), running = runningAgents();
-        if (agents > 0) useGenerationStore.getState().recordRunning(seconds, running < agents, running);
+        // Told to keep its hands off, it is held back as surely as throttled. @see handsOff
+        const held = useSessionStore.getState().aiFocus === "hands-off" && useFounderStore.getState().selectedFounderId !== "model";
+        if (agents > 0) useGenerationStore.getState().recordRunning(seconds, running < agents || held, running);
         // The skill tree's AI Hype passives and AGI-Pilled bring it on faster.
         // And the Quiet Model module, and the founder's fused tempers. @see QUIET_MODEL, game/fusion
         const rate = singularityRate(running, singularityMult(), agents);

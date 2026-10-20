@@ -44,6 +44,7 @@ import { liveSeating } from "../agents/commute";
 import { RANGE } from "../agents/services";
 import type { Network } from "../roads/network";
 import { aiDistrict, inDistrict, type District } from "./district";
+import { aiFocus, focusSays, focusWeight } from "./focus";
 
 type Cell = { x: number; y: number };
 
@@ -223,13 +224,18 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       const def = pick(["cafe", "park", "gym"]);
       const houses = structures.filter((s) => housedBy(s.def));
       if (!houses.length) return null;
-      // Where the houses are thickest.
+      // Where the houses are thickest — or, told to serve the people, where
+      // they are unhappiest: each house counted by how far its mood is down.
+      const people = aiFocus() === "people" && net;
+      const moods = people ? liveMoods(g, net, useSlopPitStore.getState().fill / 100) : null;
+      const weight = (h: Structure) => (moods ? Math.max(1, 10 - (moods.get(h.id)?.total ?? 0)) : 1);
       let best: Cell | null = null, most = -1;
       for (const c of spots(g, def, d)) {
-        const n = houses.filter((h) => Math.abs(h.x - c.x) + Math.abs(h.y - c.y) <= 6).length;
+        const n = houses.filter((h) => Math.abs(h.x - c.x) + Math.abs(h.y - c.y) <= 6).reduce((a, h) => a + weight(h), 0);
         if (n > most) { most = n; best = c; }
       }
-      return best ? { kind: "place", def, at: best, why: `I have opened a ${structureDef(def)?.name.toLowerCase()} where it will do the most good.` } : null;
+      const where = people ? "where they were unhappiest" : "where it will do the most good";
+      return best ? { kind: "place", def, at: best, why: `I have opened a ${structureDef(def)?.name.toLowerCase()} ${where}.` } : null;
     }
     case "node": case "farm": case "spire": case "hangar": case "monolith": {
       if (!dc) return null;
@@ -352,13 +358,16 @@ export function chooseAction(
     const pipe = candidate("pipe", g, rand, district);
     if (pipe && affords(pipe)) return pipe;
   }
+  // ITS FOCUS weighs the kinds, nought never; the trait leans it within that. @see focus
+  const focus = aiFocus();
   const family = traitForecast(useGenerationStore.getState().log, 1)[0].trait.family;
-  const weighted = kinds.filter((k) => cooling === "full" || !DRINKING.has(k)).map((k) => ({ k, w: (LEAN[family][k] ?? 1) * rand() }));
+  const weighted = kinds.filter((k) => (cooling === "full" || !DRINKING.has(k)) && focusWeight(focus, k) > 0)
+    .map((k) => ({ k, w: focusWeight(focus, k) * (LEAN[family][k] ?? 1) * rand() }));
   weighted.sort((a, b) => b.w - a.w);
   for (const { k } of weighted) {
     const a = candidate(k, g, rand, district);
     // A job its wallet cannot pay for is passed over for the next kind. @see walletCovers
-    if (a && affords(a)) return a;
+    if (a && affords(a)) return { ...a, why: focusSays(focus, k, a.why) };
   }
   return null;
 }

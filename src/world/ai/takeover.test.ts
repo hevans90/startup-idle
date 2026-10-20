@@ -6,6 +6,7 @@ import { emptyLog } from "../../state/generation.store";
 import { traitScores } from "../../game/traits";
 import { resetAllGameStores } from "../../simulation/reset-game-stores";
 import { useMoneyStore } from "../../state/money.store";
+import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx, setHeight, structureAt } from "../grid";
@@ -68,6 +69,8 @@ describe("what it takes over", () => {
     const g = town([["kit:intern.t0", 10, 13], ["kit:intern.t0", 14, 13]]);
     at(g, 10, 13).residents = 1;
     at(g, 14, 13).residents = 0;
+    // Growing the town, it never converts a house. @see FOCUS_WEIGHT
+    useSessionStore.getState().setAiFocus("machine");
     const a = chooseAction(g, "manager", rand, (x) => x.kind === "convert" && x.into === "ai-node");
     expect(a && a.kind === "convert" ? a.at : null).toEqual({ x: 14, y: 13 });
   });

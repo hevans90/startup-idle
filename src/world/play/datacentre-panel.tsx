@@ -6,6 +6,9 @@
  * @see runningAgents, singularityRate, game/training, game/traits
  */
 import { SHARE_MAX, SHARE_STEP, WALLET_MINUTES, walletCap } from "../ai/wallet";
+import { FOCUSES } from "../ai/focus";
+import { aiPace, getAiRunner } from "../ai/ai-runner";
+import { INTERVAL } from "../ai/planner";
 import { useSessionStore } from "../../state/session.store";
 import { useFounderStore } from "../../state/founder.store";
 import { formatCurrency } from "../../utils/money-utils";
@@ -75,6 +78,7 @@ export function DataCentre({ className }: { className?: string }) {
           )}
         </div>
 
+        <Focus />
         <Allowance />
         <Cooling />
         <Training />
@@ -96,6 +100,48 @@ const BTN = twMerge(
   "flex w-full cursor-pointer flex-col items-start border border-primary-400 px-2 py-1 text-left hover:bg-primary-200",
   "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-primary-600 dark:hover:bg-primary-800",
 );
+
+/**
+ * ITS FOCUS: what the company's AI is to work at, one of four; and how it
+ * stands — when its next job is due, and how well what it runs is cooled.
+ * @see world/ai/focus
+ */
+function Focus() {
+  const focus = useSessionStore((s) => s.aiFocus);
+  const setFocus = useSessionStore((s) => s.setAiFocus);
+  const founder = useFounderStore((s) => s.selectedFounderId);
+  const value = useAiSingularityStore((s) => s.value);
+  const grid = useWorldStore((s) => s.grid);
+  const agents = useAgentsStore((s) => s.agents);
+  // The Model's own runs are AI mode's. @see AiModePanel
+  if (founder === "model") return null;
+  const stage = stageOf(value).stage;
+  const interval = INTERVAL[stage];
+  const pace = aiPace(grid, { stage, running: runningAgents(), agents }, 1);
+  const next = !interval ? "It does nothing on the map before the Colleague stage."
+    : pace <= 0 ? "Its next job waits: no agents running."
+    : `Next job in about ${Math.max(1, Math.ceil((interval - getAiRunner().clock) / pace))} s.`;
+  const shares = [...allTanks().values()].map((t) => t.share);
+  const cooled = shares.length ? Math.round(Math.min(...shares) * 100) : null;
+  return (
+    <div className={SECTION}>
+      <p className={TITLE}>Its focus</p>
+      <div className="grid grid-cols-2 gap-1" role="radiogroup" aria-label="The AI's focus">
+        {FOCUSES.map((f) => (
+          <button key={f.id} type="button" role="radio" aria-checked={focus === f.id} title={f.blurb}
+            onClick={() => setFocus(f.id)}
+            className={twMerge(BTN, focus === f.id && "border-violet-600 bg-violet-100 dark:border-violet-400 dark:bg-violet-950")}>
+            <b>{f.name}</b>
+          </button>
+        ))}
+      </div>
+      <p className="mt-1 text-primary-600 dark:text-primary-400">{FOCUSES.find((f) => f.id === focus)?.blurb}</p>
+      <p className="mt-1 tabular-nums">
+        {next}{cooled !== null && <> Its worst-cooled building: <b className={cooled > 95 ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>{cooled}%</b>.</>}
+      </p>
+    </div>
+  );
+}
 
 /**
  * ITS ALLOWANCE: the share of income the company's AI may spend, and what it
