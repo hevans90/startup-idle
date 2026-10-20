@@ -285,9 +285,12 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
 
 /**
  * THE AI'S NEXT JOB: a kind drawn from what its stage allows, leant toward
- * what the trait it is becoming likes, and the first that has anything to do.
+ * what the trait it is becoming likes, and the first that has anything to do
+ * that `affords` says it can pay for.
  */
-export function chooseAction(g: Grid, stage: Stage, rand: () => number = Math.random): AiAction | null {
+export function chooseAction(
+  g: Grid, stage: Stage, rand: () => number = Math.random, affords: (a: AiAction) => boolean = () => true,
+): AiAction | null {
   const kinds = BY_STAGE[stage];
   if (!kinds) return null;
   const district = aiDistrict(g, stage);
@@ -296,7 +299,8 @@ export function chooseAction(g: Grid, stage: Stage, rand: () => number = Math.ra
   weighted.sort((a, b) => b.w - a.w);
   for (const { k } of weighted) {
     const a = candidate(k, g, rand, district);
-    if (a) return a;
+    // A job its wallet cannot pay for is passed over for the next kind. @see walletCovers
+    if (a && affords(a)) return a;
   }
   return null;
 }

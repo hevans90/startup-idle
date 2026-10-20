@@ -84,6 +84,13 @@ type SessionState = {
    */
   aiMode: boolean;
   aiBudget: number;
+  /**
+   * THE COMPANY'S AI'S ALLOWANCE: the share of income it may spend (`aiShare`),
+   * and what it has to spend now (`aiWallet`), in money. @see world/ai/wallet
+   */
+  aiShare: number;
+  aiWallet: number;
+  setAiWallet: (patch: Partial<{ aiShare: number; aiWallet: number }>) => void;
   showPlan: boolean;
   setAiMode: (patch: Partial<{ aiMode: boolean; aiBudget: number; showPlan: boolean }>) => void;
   setMapEventsOff: (off: boolean) => void;
@@ -134,6 +141,9 @@ export const useSessionStore = create<SessionState>()(
       setAiAt: (aiAt) => set({ aiAt }),
       aiMode: false,
       aiBudget: 0.8,
+      aiShare: 0.2,
+      aiWallet: 0,
+      setAiWallet: (patch) => set(patch),
       showPlan: true,
       setAiMode: (patch) => set(patch),
       aiSaid: [],
@@ -148,7 +158,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false,
+        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0,
       }),
     }),
     {
@@ -175,6 +185,8 @@ export const useSessionStore = create<SessionState>()(
         aiSaid: s.aiSaid,
         aiMode: s.aiMode,
         aiBudget: s.aiBudget,
+        aiShare: s.aiShare,
+        aiWallet: s.aiWallet,
         showPlan: s.showPlan,
       }),
     },

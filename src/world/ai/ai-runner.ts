@@ -16,6 +16,7 @@ import type { Stage } from "../../state/ai-singularity.store";
 import type { Grid, Structure } from "../grid";
 import { INTERVAL, chooseAction, perform, targetOf, type AiAction } from "./planner";
 import { ARRIVALS, nextMemoIn, pickMemo } from "./memos";
+import { accrueWallet, creditWallet, priceOfAi, spendWallet, walletCovers } from "./wallet";
 
 /** Drones aloft at once; tiles a second a drone flies; seconds it scans before the job is done. */
 export const MAX_DRONES = 6;
@@ -70,9 +71,15 @@ export function aiPace(g: Grid, now: AiNow, dt: number): number {
   return dt * (now.running / now.agents) * (1 + HANGAR_SPEED * Math.min(MAX_HANGARS, hangars));
 }
 
-/** Do a job and note it. */
-function done(r: AiRunner, a: AiAction, at: number): boolean {
+/**
+ * Do a job and note it — paid for out of the AI's wallet, checked again now,
+ * since other jobs may have spent it since this one was chosen. @see wallet
+ */
+function done(r: AiRunner, a: AiAction, at: number, g: Grid | null = null): boolean {
+  const price = g ? priceOfAi(g, a) : 0;
+  if (g && !walletCovers(g, a)) return false;
   const ok = perform(a);
+  if (ok) spendWallet(price);
   if (ok) {
     r.log.push({ text: a.why, at });
     if (r.log.length > 30) r.log.shift();
@@ -87,13 +94,15 @@ function done(r: AiRunner, a: AiAction, at: number): boolean {
  */
 export function stepAi(r: AiRunner, g: Grid, ai: AiNow, dt: number, now: number, rand: () => number = Math.random): AiAction[] {
   const did: AiAction[] = [];
+  // ITS ALLOWANCE, while it is at work: its share of the income, into its wallet. @see accrueWallet
+  if (INTERVAL[ai.stage]) accrueWallet(dt);
   const speed = DRONE_SPEED * DRONE_SWARM[moduleLevel("drone-swarm")];
   for (const job of [...r.jobs]) {
     job.t += dt;
     if (job.t < job.fly + SCAN_SECONDS) continue;
     r.jobs = r.jobs.filter((j) => j !== job);
     if (r.landed.length < LANDED_KEPT) r.landed.push(job.to);
-    if (done(r, job.action, now)) did.push(job.action);
+    if (done(r, job.action, now, g)) did.push(job.action);
   }
   const interval = INTERVAL[ai.stage];
   if (!interval) { r.clock = 0; r.lastAt = now; return did; }
@@ -101,12 +110,12 @@ export function stepAi(r: AiRunner, g: Grid, ai: AiNow, dt: number, now: number,
   r.lastAt = now;
   if (r.clock < interval || r.jobs.length >= MAX_DRONES) return did;
   r.clock = 0;
-  const a = chooseAction(g, ai.stage, rand);
+  const a = chooseAction(g, ai.stage, rand, (x) => walletCovers(g, x));
   if (!a) return did;
   const to = targetOf(a);
   const dc = [...g.structures.values()].find((s) => s.def === "datacentre" && !s.build);
   if (!to || !dc) {
-    if (done(r, a, now)) did.push(a);
+    if (done(r, a, now, g)) did.push(a);
     return did;
   }
   const from = centreOf(dc);
@@ -124,9 +133,11 @@ export function catchUpAi(r: AiRunner, g: Grid, ai: AiNow, since: number, now: n
   const seconds = aiPace(g, ai, (now - since) / 1000);
   const n = Math.min(CATCH_UP, Math.floor(seconds / interval));
   const memos: AiMemo[] = [];
+  // Its allowance for the time away first, up to its cap. @see creditWallet
+  creditWallet((now - since) / 1000);
   for (let k = 0; k < n; k++) {
-    const a = chooseAction(g, ai.stage, rand);
-    if (a && done(r, a, now)) memos.push({ text: a.why, at: now });
+    const a = chooseAction(g, ai.stage, rand, (x) => walletCovers(g, x));
+    if (a && done(r, a, now, g)) memos.push({ text: a.why, at: now });
   }
   return memos;
 }

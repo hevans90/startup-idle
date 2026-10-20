@@ -5,6 +5,10 @@
  * singularity on; training runs; the racks; and what the AI is turning into.
  * @see runningAgents, singularityRate, game/training, game/traits
  */
+import { SHARE_MAX, SHARE_STEP, WALLET_MINUTES, walletCap } from "../ai/wallet";
+import { useSessionStore } from "../../state/session.store";
+import { useFounderStore } from "../../state/founder.store";
+import { formatCurrency } from "../../utils/money-utils";
 import { twMerge } from "tailwind-merge";
 
 import { agentBonus, agentsARack, agentsOpen } from "../../game/agents";
@@ -71,6 +75,7 @@ export function DataCentre({ className }: { className?: string }) {
           )}
         </div>
 
+        <Allowance />
         <Cooling />
         <Training />
         <Roster />
@@ -91,6 +96,35 @@ const BTN = twMerge(
   "flex w-full cursor-pointer flex-col items-start border border-primary-400 px-2 py-1 text-left hover:bg-primary-200",
   "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-primary-600 dark:hover:bg-primary-800",
 );
+
+/**
+ * ITS ALLOWANCE: the share of income the company's AI may spend, and what it
+ * has to spend now. Everything it does on the map, it pays for from this;
+ * what it cannot pay for, it waits for. @see world/ai/wallet
+ */
+function Allowance() {
+  const share = useSessionStore((s) => s.aiShare);
+  const wallet = useSessionStore((s) => s.aiWallet);
+  const set = useSessionStore((s) => s.setAiWallet);
+  const founder = useFounderStore((s) => s.selectedFounderId);
+  // The Model's own runs are AI mode's, with its own budget. @see AiModePanel
+  if (founder === "model") return null;
+  const cap = walletCap();
+  return (
+    <div className={SECTION}>
+      <p className={TITLE}>Its allowance</p>
+      <label className="flex justify-between tabular-nums" htmlFor="dc-allowance">
+        <span>Share of income it may spend</span><b>{Math.round(share * 100)}%</b>
+      </label>
+      <input id="dc-allowance" type="range" min={0} max={SHARE_MAX} step={SHARE_STEP} value={share}
+        onChange={(e) => set({ aiShare: Number(e.target.value) })}
+        className="mt-1 w-full accent-violet-600 dark:accent-violet-400" />
+      <p className="tabular-nums text-primary-600 dark:text-primary-400">
+        {formatCurrency(wallet)} to spend, of {formatCurrency(cap)} at most ({WALLET_MINUTES} minutes of its share). From the Colleague stage it pays for what it builds from this, and waits when it is empty.
+      </p>
+    </div>
+  );
+}
 
 /**
  * COOLING: every building that drinks, how well it is cooled and what it
