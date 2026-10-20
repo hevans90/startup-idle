@@ -136,6 +136,7 @@ src/
 - **Live state** (water, boats, traffic, arrivals, crews) lives outside the grid.
 - **Atlases:** padded re-packs (`bun run bake:padded`), mipmapped: `nearest` up close, filtered zoomed out (`crispUpClose`; `?nomips` for the old sheets).
 - **Feel:** eased arrow keys, fly-to (`showMe`); `render/juice.ts` drops new buildings in, hops grown houses, puffs dust (tweens: `render/tween.ts`).
+- **Seeing behind:** whatever stands in front of what the hand is on — the tile under the pointer, a build tool's footprint or drag — collapses to its ground floor with an outline of its full height, and stands again a moment after (`render/cutaway.ts`); a building not drawn in floors fades.
 - **Night:** a multiplied grade (`NIGHT_GRADE`) with the town's lights over it (`render/lights.ts`: lit houses, street lamps); `__dayPhase` holds an hour in dev.
 - **Sound:** `src/audio/sound.ts`, synthesised in Web Audio (effects, a town hum, birds, crickets); level and mute in settings.
 - **Engine plan:** `plans/engine-polish.md`.
