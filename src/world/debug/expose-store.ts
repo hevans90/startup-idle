@@ -10,6 +10,7 @@
  */
 import { getNetwork, netComponentAt, useWorldStore } from "../../state/world.store";
 import { useGeneratorStore } from "../../state/generators.store";
+import { getAiRunner } from "../ai/ai-runner";
 
 declare global {
   interface Window {
@@ -188,12 +189,15 @@ declare global {
      * still culled away, and the map looks empty for no reason at all.
      */
     __bands?: unknown;
+    /** The takeover's drones and the takeovers it has announced, outside any store. @see getAiRunner */
+    __aiRunner?: ReturnType<typeof getAiRunner>;
   }
 }
 
 if (import.meta.env.DEV) {
   window.__world = useWorldStore;
   window.__net = { get: getNetwork, at: netComponentAt };
+  window.__aiRunner = getAiRunner();
   // The economy's store, to READ — what a rate costs to work out. Never set from here: it is persisted.
   (window as unknown as { __gens?: typeof useGeneratorStore }).__gens = useGeneratorStore;
 }

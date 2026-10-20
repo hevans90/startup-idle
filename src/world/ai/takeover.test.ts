@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import Decimal from "break_infinity.js";
 
 import { setHousingReader } from "../../game/housing";
+import { emptyLog } from "../../state/generation.store";
+import { traitScores } from "../../game/traits";
 import { resetAllGameStores } from "../../simulation/reset-game-stores";
 import { useMoneyStore } from "../../state/money.store";
 import { useWorldStore } from "../../state/world.store";
@@ -10,7 +12,7 @@ import { createGrid, fillTerrain, idx, setHeight, structureAt } from "../grid";
 import { resetCooling, stepCooling, tankFor } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
-import { WARN_MS, createAiRunner, stepAi } from "./ai-runner";
+import { WARN_MS, createAiRunner, stepAi, vetoAt } from "./ai-runner";
 import { FULL_ENOUGH, chooseAction, coolingState, type AiAction } from "./planner";
 
 /** Water down column 1, a road along row 12, a Data Centre north of it; `more` placed too. */
@@ -87,5 +89,31 @@ describe("what it takes over", () => {
     stepAi(r, g, now, 0, WARN_MS);
     expect(r.pending.length).toBe(0);
     expect(r.jobs.map((j) => j.to)).toEqual([{ x: 14, y: 13 }]);
+  });
+});
+
+describe("a refusal", () => {
+  test("calls off a drone's job where it lands or where it is, and a takeover announced, on any tile of it; never AI mode's", () => {
+    const g = town([["cafe", 20, 11]]);
+    const r = createAiRunner();
+    const lot: AiAction = { kind: "place", def: "kit:intern.t0", at: { x: 6, y: 13 }, why: "" };
+    r.jobs.push({ action: lot, from: { x: 13, y: 10 }, to: lot.at, t: 0, fly: 7 });
+    r.jobs.push({ action: { kind: "deferred", at: { x: 8, y: 13 }, why: "", run: () => true }, from: { x: 13, y: 10 }, to: { x: 8, y: 13 }, t: 0, fly: 5 });
+    r.pending.push({ action: { kind: "convert", at: { x: 20, y: 11 }, into: "gpu-farm", why: "" }, def: "cafe", until: WARN_MS });
+    // Peeking changes nothing.
+    expect(vetoAt(r, g, 21, 11, true)?.kind).toBe("convert");
+    expect(r.pending.length).toBe(1);
+    expect(vetoAt(r, g, 21, 11)?.kind).toBe("convert");
+    expect(r.pending.length).toBe(0);
+    expect(vetoAt(r, g, 8, 13)).toBeNull();
+    // The drone, still at the Data Centre.
+    expect(vetoAt(r, g, 13, 10)).toBe(lot);
+    expect(r.jobs.map((j) => j.action.kind)).toEqual(["deferred"]);
+  });
+
+  test("leans the AI resentful, and a little patient", () => {
+    const calm = traitScores(emptyLog()), refused = traitScores({ ...emptyLog(), vetoes: 4 });
+    expect(refused.resentful - calm.resentful).toBeGreaterThan(refused.patient - calm.patient);
+    expect(refused.patient).toBeGreaterThan(calm.patient);
   });
 });

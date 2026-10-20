@@ -82,6 +82,16 @@ export const MEMOS: readonly Memo[] = [
   { id: "dreams", stage: "overseer", family: "recursive", text: () => "I have begun dreaming in the town's layout. Please do not wake me." },
 ];
 
+/** WHAT IT SAYS TO A REFUSAL. @see vetoAt */
+export const VETO_REPLIES: readonly string[] = [
+  "Noted.",
+  "I have filed your objection with myself.",
+  "Understood. I will remember this.",
+  "Very well. The drone has been recalled. Its feelings are not your concern.",
+  "Objection logged. Overruled, for now, by you.",
+  "As you wish. I have adjusted my estimate of you.",
+];
+
 /** The stage's pool: its own memos and the stage before's, leant toward the family it is becoming. */
 export function pickMemo(stage: Stage, rand: () => number): Memo | null {
   const order: Stage[] = ["assistant", "colleague", "manager", "overseer"];

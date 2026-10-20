@@ -23,7 +23,7 @@ import { accrueWallet, creditWallet, priceOfAi, spendWallet, walletCovers } from
 /** Drones aloft at once; tiles a second a drone flies; seconds it scans before the job is done. */
 export const MAX_DRONES = 6;
 export const DRONE_SPEED = 5;
-export const SCAN_SECONDS = 2.5;
+export const SCAN_SECONDS = 4;
 /** Jobs done at once for time away, at most. */
 export const CATCH_UP = 10;
 /** What each drone hangar takes off the AI's interval, and the most that count. */
@@ -167,6 +167,35 @@ export function catchUpAi(r: AiRunner, g: Grid, ai: AiNow, since: number, now: n
   return memos;
 }
 
+/**
+ * A REFUSAL: the takeover job or announced takeover at a tile, called off — a
+ * drone over its target or on its way, a building it means to take, or the
+ * one it is putting up. Nothing was spent: jobs are paid for when they land.
+ * AI mode's jobs are the player's own, and not refused. Returns what was
+ * called off, or null; with `peek`, what would be, left as it is.
+ * @see Pending, recordVeto
+ */
+export function vetoAt(r: AiRunner, g: Grid, x: number, y: number, peek = false): AiAction | null {
+  const covers = (a: AiAction, to: Cell, near: Cell | null) => {
+    if (a.kind === "deferred") return false;
+    if (a.kind === "convert") {
+      const id = structureAt(g, a.at.x, a.at.y);
+      return id >= 0 && structureAt(g, x, y) === id;
+    }
+    if (a.kind === "place") {
+      const fp = structureDef(a.def)?.footprint ?? { w: 1, h: 1 };
+      if (x >= a.at.x && y >= a.at.y && x < a.at.x + fp.w && y < a.at.y + fp.h) return true;
+    }
+    const by = (c: Cell) => Math.abs(c.x - x) <= 1 && Math.abs(c.y - y) <= 1;
+    return by({ x: Math.round(to.x), y: Math.round(to.y) }) || (!!near && by({ x: Math.round(near.x), y: Math.round(near.y) }));
+  };
+  const p = r.pending.find((q) => covers(q.action, q.action.at, null));
+  if (p) { if (!peek) r.pending = r.pending.filter((q) => q !== p); return p.action; }
+  const job = r.jobs.find((j) => covers(j.action, j.to, droneAt(j)));
+  if (job) { if (!peek) r.jobs = r.jobs.filter((j) => j !== job); return job.action; }
+  return null;
+}
+
 /** Whether a takeover of this tile is already announced. */
 const pendingAt = (r: AiRunner, at: Cell) => r.pending.some((p) => p.action.at.x === at.x && p.action.at.y === at.y);
 
@@ -181,7 +210,7 @@ function announce(r: AiRunner, g: Grid, a: Extract<AiAction, { kind: "convert" }
   r.pending.push({ action: a, def: s.def, until: now + WARN_MS });
   const what = housedBy(s.def) ? "this house" : `the ${(structureDef(s.def)?.name ?? "building").toLowerCase()}`;
   const into = (structureDef(a.into)?.name ?? "node").toLowerCase();
-  r.said.push(`In ${Math.round(WARN_MS / 1000)} seconds I will make ${what} a${/^[aeiou]/.test(into) ? "n" : ""} ${into}. It is marked in red.`);
+  r.said.push(`In ${Math.round(WARN_MS / 1000)} seconds I will make ${what} a${/^[aeiou]/.test(into) ? "n" : ""} ${into}. It is marked in red. Click it to refuse.`);
 }
 
 /** Where a drone is, and whether it is scanning, `t` seconds out. */

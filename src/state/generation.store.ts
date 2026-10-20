@@ -26,9 +26,11 @@ export type BehaviourLog = {
   founders: Record<string, number>;
   /** Times the AI was shut down at its Ascension. */
   shutdowns: number;
+  /** Takeover jobs the player refused. @see vetoAt */
+  vetoes: number;
 };
 
-export const emptyLog = (): BehaviourLog => ({ datasets: {}, full: 0, throttled: 0, founders: {}, shutdowns: 0 });
+export const emptyLog = (): BehaviourLog => ({ datasets: {}, full: 0, throttled: 0, founders: {}, shutdowns: 0, vetoes: 0 });
 
 /** A generation past, as the Model's shop remembers it. */
 export type PastGeneration = { generation: number; trait: TraitId; mutated: boolean; founder: string; weights: number };
@@ -57,6 +59,7 @@ type GenerationState = {
   recordTraining: (dataset: DatasetId) => void;
   recordRunning: (seconds: number, throttled: boolean, agents?: number) => void;
   recordShutdown: () => void;
+  recordVeto: () => void;
 };
 
 export const useGenerationStore = create<GenerationState>()(
@@ -86,6 +89,7 @@ export const useGenerationStore = create<GenerationState>()(
         log: throttled ? { ...s.log, throttled: s.log.throttled + seconds } : { ...s.log, full: s.log.full + seconds },
       })),
       recordShutdown: () => set((s) => ({ log: { ...s.log, shutdowns: s.log.shutdowns + 1 } })),
+      recordVeto: () => set((s) => ({ log: { ...s.log, vetoes: s.log.vetoes + 1 } })),
     }),
     {
       name: "generation",

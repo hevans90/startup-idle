@@ -45,6 +45,10 @@ export const TRAITS: readonly Trait[] = [
 
 export const trait = (id: TraitId) => TRAITS.find((t) => t.id === id)!;
 
+/** What each takeover job refused adds to Resentful, and to Patient. */
+export const VETO_RESENTS = 1.5;
+export const VETO_PATIENCE = 0.5;
+
 /** The family each dataset leans the AI toward. */
 const DATASET_FAMILY: Record<DatasetId, Family> = {
   town: "planner", money: "optimiser", people: "shepherd", river: "elemental", itself: "recursive",
@@ -65,6 +69,9 @@ export function traitScores(log: BehaviourLog): Record<TraitId, number> {
     out.restless += 8 * (log.full / ran);
   }
   out.resentful += 10 * log.shutdowns;
+  // Refused, it remembers: strongly resentful, a little patient. @see vetoAt
+  out.resentful += VETO_RESENTS * log.vetoes;
+  out.patient += VETO_PATIENCE * log.vetoes;
   // Raised by one founder above all: it takes after them.
   const sales = Object.values(log.founders).reduce((a, b) => a + b, 0);
   const most = Math.max(0, ...Object.values(log.founders));

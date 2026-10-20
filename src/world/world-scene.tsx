@@ -12,7 +12,9 @@ import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { createStreetHeat, type StreetHeat } from "./render/street-heat";
 import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
 import { aiFixturePreview, sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
-import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos } from "./ai/ai-runner";
+import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos, vetoAt } from "./ai/ai-runner";
+import { VETO_REPLIES } from "./ai/memos";
+import { useGenerationStore } from "../state/generation.store";
 import { currentPlan, pendingPipe, stepAutopilot } from "./ai/autopilot";
 import { useFounderStore } from "../state/founder.store";
 import { showMe } from "./play/map-focus";
@@ -1769,9 +1771,26 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       );
     };
 
+    // A TAKEOVER UNDER THE POINTER — a drone's job, or a building marked red:
+    // the cell to refuse it at, by the building drawn there, then the ground. @see vetoAt
+    const vetoCell = (e: FederatedPointerEvent) => {
+      const st = useWorldStore.getState();
+      if (!st.playing) return null;
+      const hit = structureHitAt(slRef.current, e.global.x, e.global.y);
+      for (const c of [hit ? { x: hit.x, y: hit.y } : null, cellAt(e)]) {
+        if (c && vetoAt(getAiRunner(), st.grid, c.x, c.y, true)) return c;
+      }
+      return null;
+    };
+    let vetoHover = false;
+    const canvas = app.canvas;
+
     const onMove = (e: FederatedPointerEvent) => {
       const p = vp.toWorld(e.global.x, e.global.y);
       repick(p.x, p.y);
+      const veto = getAiRunner().jobs.length + getAiRunner().pending.length > 0 && !!vetoCell(e);
+      if (veto !== vetoHover) canvas.style.cursor = veto ? "pointer" : "";
+      vetoHover = veto;
       // A BUILDING THAT OPENS SOMETHING under the pointer, in the game and not
       // mid-stroke: tested only against those, by what they drew. @see opensSomething
       const st = useWorldStore.getState();
@@ -1796,7 +1815,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // and one dragged away is the camera panning. @see WorldState.lookedAt
     // OVER A BUILDING THAT OPENS SOMETHING, any tool's press is such a click
     // on it: the building takes the click. @see clickTakesOver
-    let lookFrom: { x: number; y: number; cell: { x: number; y: number } | null; open?: boolean } | null = null;
+    let lookFrom: { x: number; y: number; cell: { x: number; y: number } | null; open?: boolean; veto?: boolean } | null = null;
     // FINGERS DOWN: a second one makes it a pinch, not a stroke.
     const touches = new Set<number>();
     const onDown = (e: FederatedPointerEvent) => {
@@ -1806,6 +1825,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       if (e.button !== 0) return;
       const st = useWorldStore.getState();
+      // A takeover pressed on is refused, whatever the tool, if let go there.
+      const veto = vetoCell(e);
+      if (veto) {
+        lookFrom = { x: e.global.x, y: e.global.y, cell: veto, veto: true };
+        return;
+      }
       // Tested where the press lands, not taken from the hover: a finger has no hover, and the last one may be stale.
       const open = st.playing && clickTakesOver(st.tool)
         ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => opensSomething(s.def, s.build))
@@ -1828,6 +1853,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       touches.delete(e.pointerId);
       if (pinching) return;
       const st = useWorldStore.getState();
+      if (lookFrom?.veto) {
+        // REFUSED: called off, remembered, and answered. @see recordVeto
+        const moved = Math.hypot(e.global.x - lookFrom.x, e.global.y - lookFrom.y);
+        if (moved <= LOOK_CLICK_SLOP && vetoAt(getAiRunner(), st.grid, lookFrom.cell!.x, lookFrom.cell!.y)) {
+          useGenerationStore.getState().recordVeto();
+          st.pushAiMemo(VETO_REPLIES[Math.floor(Math.random() * VETO_REPLIES.length)]);
+        }
+        lookFrom = null;
+        return;
+      }
       if (lookFrom && (st.tool === "inspect" || lookFrom.open)) {
         const moved = Math.hypot(e.global.x - lookFrom.x, e.global.y - lookFrom.y);
         if (moved <= LOOK_CLICK_SLOP && lookFrom.open) st.lookAt(lookFrom.cell!);
@@ -1856,7 +1891,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       vp.off("pointerup", onUp);
       vp.off("pointerupoutside", onUp);
     };
-  }, [viewportForPick]);
+  }, [viewportForPick, app]);
 
   // Hover highlight follows the store, redrawn only when the cell changes —
   // off a SUBSCRIPTION, not a selector: the hover moves with the pointer, and
@@ -1907,10 +1942,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const holos: HoloSpec[] = [];
     const flying = new Set<string>();
     for (const j of getAiRunner().jobs) {
-      if (j.action.kind !== "deferred" || !j.action.holo) continue;
-      const { def, x, y } = j.action.holo;
+      // THE TAKEOVER'S drones too: what each will put up, or take — red. @see vetoAt
+      const a = j.action;
+      const holo = a.kind === "deferred" ? a.holo
+        : a.kind === "place" ? { def: a.def, ...a.at }
+        : a.kind === "convert" ? { def: a.into, ...a.at } : null;
+      if (!holo) continue;
+      const { def, x, y } = holo;
       flying.add(`${def}@${x},${y}`);
-      holos.push({ key: `ai:${def}@${x},${y}`, def, x, y, ok: true });
+      holos.push({ key: `ai:${def}@${x},${y}`, def, x, y, ok: a.kind !== "convert" });
     }
     // A TAKEOVER ANNOUNCED: what the building will become, red over it, till it is done. @see announce
     for (const p of getAiRunner().pending) {
