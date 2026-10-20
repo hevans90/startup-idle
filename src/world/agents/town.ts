@@ -125,6 +125,15 @@ const CARS_FOR_GATEWAYS = 3;
 const CAR_EVERY = 0.4;
 const PERSON_EVERY = 0.3;
 
+/**
+ * THE CAPS IN FORCE: the game's, unless a stress scene raises them — the
+ * `bigtown` fixture with `?crowd=N`, to measure a town far busier than any
+ * the game fields. `every` divides the time between setting off, so a crowd
+ * arrives in seconds rather than minutes. @see seedFixtureCompany
+ */
+export const townCaps = { cars: MAX_CARS, people: MAX_PEOPLE, every: 1 };
+export function setTownCaps(c: Partial<typeof townCaps>) { Object.assign(townCaps, c); }
+
 /** Cruising speeds, tiles a second, and how much they vary one to the next. */
 const CAR_CRUISE = 1.6;
 const TRUCK_CRUISE = 1.15;
@@ -272,8 +281,8 @@ export function wanted(places: readonly Place[]): { cars: number; people: number
   const gateways = places.length - doors;
   if (places.length < 2) return { cars: 0, people: 0 };
   return {
-    cars: Math.min(MAX_CARS, Math.round(doors * CARS_PER_BUILDING + (gateways >= 2 ? CARS_FOR_GATEWAYS : 0))),
-    people: doors ? Math.min(MAX_PEOPLE, Math.round(doors * PEOPLE_PER_BUILDING)) : 0,
+    cars: Math.min(townCaps.cars, Math.round(doors * CARS_PER_BUILDING + (gateways >= 2 ? CARS_FOR_GATEWAYS : 0))),
+    people: doors ? Math.min(townCaps.people, Math.round(doors * PEOPLE_PER_BUILDING)) : 0,
   };
 }
 
@@ -387,14 +396,14 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   const people = t.movers.filter((m) => m.kind === "person" && !m.job).length;
   t.untilCar -= h;
   if (t.untilCar <= 0 && tripCars < want.cars) {
-    t.untilCar = CAR_EVERY;
+    t.untilCar = CAR_EVERY / townCaps.every;
     const trip = (rand(t) < busy.commute ? commuteTrip(t, g, net, "car") : null) ?? tripFor(t, "car");
     const m = trip && setOff(t, g, "car", ...trip);
     if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR)) t.movers.push(m);
   }
   t.untilPerson -= h;
   if (t.untilPerson <= 0 && people < want.people) {
-    t.untilPerson = PERSON_EVERY;
+    t.untilPerson = PERSON_EVERY / townCaps.every;
     const trip = (rand(t) < busy.commute ? commuteTrip(t, g, net, "person") : null) ?? tripFor(t, "person");
     const m = trip && setOff(t, g, "person", ...trip);
     if (m) t.movers.push(m);

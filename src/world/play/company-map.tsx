@@ -33,6 +33,7 @@ import { PerfHud } from "../debug/perf-hud";
 const SHOW_PERF = typeof location !== "undefined" && new URLSearchParams(location.search).has("perf");
 // The stores on `window` in development, as the editor has them. @see expose-store
 import "../debug/expose-store";
+import "../debug/town-perf";
 
 export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
   const { ref: wrapperRef, setRef, size } = useResizeToWrapper();

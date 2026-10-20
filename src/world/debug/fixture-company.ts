@@ -19,6 +19,29 @@ import { useGenerationStore } from "../../state/generation.store";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { startFixture } from "../../state/world.store";
+import { setTownCaps } from "../agents/town";
+
+/** The `bigtown` stress scene's people: enough to fill its houses. @see buildBigTown */
+export const BIGTOWN_STAFF = { intern: 20_000, vibe_coder: 9_000, "10x_dev": 4_000 } as const;
+/** Cars and people with `?crowd` and no number. */
+export const CROWD_DEFAULT = 2000;
+
+/**
+ * THE `bigtown` FIXTURE, PLAYED: a company with the money and the people for a
+ * town of two thousand buildings, every house full; and with `?crowd=N`, the
+ * town's caps on cars and people raised to N between them, setting off fast.
+ */
+function seedBigTown(): void {
+  resetAllGameStores();
+  useFounderStore.setState({ selectedFounderId: "model" });
+  useMoneyStore.setState({ money: new Decimal(1e12) });
+  for (const [id, n] of Object.entries(BIGTOWN_STAFF)) useGeneratorStore.getState().increaseGenerator(id as never, n);
+  const crowd = new URLSearchParams(location.search).get("crowd");
+  if (crowd !== null) {
+    const n = Number(crowd) || CROWD_DEFAULT;
+    setTownCaps({ cars: Math.round(n / 2), people: Math.round(n / 2), every: 40 });
+  }
+}
 
 export const FIXTURE_MONEY = 1e6;
 export const FIXTURE_INTERNS = 40;
@@ -26,6 +49,7 @@ export const FIXTURE_AGENTS = 16;
 export const FIXTURE_METER = 45;
 
 export function seedFixtureCompany(): void {
+  if (startFixture() === "bigtown") { seedBigTown(); return; }
   if (startFixture() !== "singularity") return;
   resetAllGameStores();
   useGenerationStore.setState({
