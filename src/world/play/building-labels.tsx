@@ -54,8 +54,13 @@ import { gatherLabels, infoFor, type BuildingInfo, type InfoContext } from "./bu
 
 /** Below this zoom, a line a group rather than everything. */
 export const DETAIL_FROM = 0.45;
-/** How often what the labels say, and how they gather, is worked out again, ms. */
-const READ_EVERY = 400;
+/**
+ * How often what the labels say, and how they gather, is worked out again, ms.
+ * A pan or zoom gathers them again at once (`frame`), so this is only for what
+ * they say — earnings, arrivals — which a second keeps up with; on a big town
+ * a read is a dozen milliseconds, and two and a half a second was a hitch each.
+ */
+const READ_EVERY = 1000;
 /** A change of zoom by more than this share gathers them again at once. */
 const REZOOM = 0.04;
 /** And a pan by more than this many screen pixels. */

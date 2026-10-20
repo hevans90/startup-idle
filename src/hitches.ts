@@ -11,6 +11,8 @@
  */
 type Tally = { n: number; total: number; max: number };
 const tallies = new Map<string, Tally>();
+/** Whether `?hitches` is on: `section` is a no-op without it. */
+let on = false;
 
 /** Where a callback came from: the first line of the stack that is not this file. */
 function whence(): string {
@@ -32,6 +34,7 @@ function timed<A extends unknown[]>(where: string, fn: (...a: A) => unknown) {
 }
 
 export function installHitches() {
+  on = true;
   const w = window as unknown as Record<string, unknown>;
   const si = window.setInterval.bind(window), st = window.setTimeout.bind(window), raf = window.requestAnimationFrame.bind(window);
   w.setInterval = (fn: TimerHandler, ms?: number, ...a: unknown[]) =>
@@ -46,3 +49,21 @@ export function installHitches() {
       .slice(0, top);
   w.__hitchesReset = () => tallies.clear();
 }
+
+
+/**
+ * A NAMED SECTION of some bigger callback — the scene's tick is one callback
+ * that does everything — timed into the same list as the timers: `section`
+ * at its start, the returned function at its end.
+ */
+export function section(name: string): () => void {
+  if (!on) return noop;
+  const t0 = performance.now();
+  return () => {
+    const ms = performance.now() - t0;
+    const t = tallies.get(name) ?? { n: 0, total: 0, max: 0 };
+    t.n++; t.total += ms; t.max = Math.max(t.max, ms);
+    tallies.set(name, t);
+  };
+}
+const noop = () => {};

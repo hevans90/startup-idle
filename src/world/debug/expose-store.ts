@@ -9,6 +9,7 @@
  * one — the only reliable way to inspect the live map from outside React.
  */
 import { getNetwork, netComponentAt, useWorldStore } from "../../state/world.store";
+import { useGeneratorStore } from "../../state/generators.store";
 
 declare global {
   interface Window {
@@ -193,4 +194,6 @@ declare global {
 if (import.meta.env.DEV) {
   window.__world = useWorldStore;
   window.__net = { get: getNetwork, at: netComponentAt };
+  // The economy's store, to READ — what a rate costs to work out. Never set from here: it is persisted.
+  (window as unknown as { __gens?: typeof useGeneratorStore }).__gens = useGeneratorStore;
 }

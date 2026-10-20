@@ -161,10 +161,10 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       for (const g of useGeneratorStore.getState().generators) owned[g.id] = g.amount;
       useSessionStore.getState().setRemoteBeds(foundingRemoteBeds(owned));
     }
-    return setHousingReader(() => {
+    return setHousingReader(held(() => {
       const built = housingCapacity(useWorldStore.getState().grid);
       return play ? addBeds(built, useSessionStore.getState().remoteBeds ?? {}) : built;
-    });
+    }));
   }, [play]);
   /**
    * HOW THE TOWN FEELS, told to the economy while the map is mounted in the
@@ -172,10 +172,10 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
    */
   useEffect(() => {
     if (!play) return;
-    return setTownMoodReader(() => {
+    return setTownMoodReader(held(() => {
       const net = getNetwork(), g = useWorldStore.getState().grid;
       return net ? moodOffsets(g, liveMoods(g, net, useSlopPitStore.getState().fill / 100)) : {};
-    });
+    }));
   }, [play]);
   /**
    * THE TOWN'S WORTH AT A SALE, told to the acquisition while the map is
@@ -183,7 +183,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
    */
   useEffect(() => {
     if (!play) return;
-    return setTownBonusReader(() => townBonusOf(useWorldStore.getState().grid));
+    return setTownBonusReader(held(() => townBonusOf(useWorldStore.getState().grid)));
   }, [play]);
   /**
    * A PROMOTED INTERN MOVES OUT of an intern house — the fullest — when more
@@ -205,7 +205,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   /** THE MAP'S SIDE OF THE TERM SHEET: houses lived in, wonders standing. @see game/term-sheets */
   useEffect(() => {
     if (!play) return;
-    return setTermReader(() => {
+    return setTermReader(held(() => {
       let houses = 0, wonders = 0;
       for (const s of useWorldStore.getState().grid.structures.values()) {
         if (s.build) continue;
@@ -213,7 +213,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
         if (projectForStructure(s.def)?.bonus) wonders++;
       }
       return { houses, wonders };
-    });
+    }));
   }, [play]);
   /** THE GAME'S RULES, while the game is the one showing the map. @see playing */
   useEffect(() => {
@@ -252,7 +252,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     let residents = housingResidents(useWorldStore.getState().grid);
     let labs = labReading(useWorldStore.getState().grid);
     let racks = rackReading(useWorldStore.getState().grid);
-    return setProjectReader(() => {
+    return setProjectReader(held(() => {
       const st = useWorldStore.getState();
       if (st.grid !== seenGrid || st.revision !== seenRev || st.projectRev !== seenProjects) {
         seenGrid = st.grid; seenRev = st.revision; seenProjects = st.projectRev;
@@ -308,7 +308,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       let spires = 0;
       for (const s of st.grid.structures.values()) if (s.def === "compute-spire" && !s.build) spires++;
       return { built, away, commute, labs, racks: cooled, desks, spires: allTanks().size ? cooledSpires() : spires };
-    });
+    }));
   }, [play]);
   // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is
   // credited under the town's rules. Last, so it runs after them. @see whenWorldReady
@@ -317,6 +317,30 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     markWorldReady();
     return markWorldGone;
   }, [play]);
+}
+
+/** How long, at most, a map reading is kept for the economy, ms. @see held */
+export const HELD_MS = 250;
+
+/**
+ * A MAP READING KEPT for the economy: worked out again when the map changes —
+ * an edit, a project, an event, a hire — and otherwise at most every
+ * `HELD_MS`. The economy asks constantly: every readout of a rate asks, on
+ * every change to its store, and each ask walked a big town's two thousand
+ * buildings several times over — most of a tenth of a second for each second
+ * of the economy's tick. @see setProjectReader, setHousingReader
+ */
+function held<T>(read: () => T): () => T {
+  let grid: unknown = null, rev = -1, projects = -1, events: unknown = null, staff = "", at = -Infinity, value!: T;
+  return () => {
+    const st = useWorldStore.getState(), now = performance.now();
+    const people = useGeneratorStore.getState().generators.map((g) => g.amount).join();
+    if (st.grid !== grid || st.revision !== rev || st.projectRev !== projects || st.events !== events || people !== staff || now - at > HELD_MS) {
+      grid = st.grid; rev = st.revision; projects = st.projectRev; events = st.events; staff = people; at = now;
+      value = read();
+    }
+    return value;
+  };
 }
 
 /**
