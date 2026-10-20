@@ -50,7 +50,7 @@ export type Holograms = {
 };
 
 /** What a renderer drew, to restyle: sprites, columns of graphics, a sky. */
-const partsOf = (h: StructureHandle): Container[] => {
+export const partsOf = (h: StructureHandle): Container[] => {
   const x = h as { sprites?: Container[]; columns?: Container[]; g?: Container; sky?: Container };
   return [...(x.sprites ?? []), ...(x.columns ?? []), ...(x.g ? [x.g] : []), ...(x.sky ? [x.sky] : [])];
 };

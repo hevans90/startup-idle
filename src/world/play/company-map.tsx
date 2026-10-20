@@ -27,8 +27,13 @@ import { ProjectsPanel } from "./projects-panel";
 import { HintCard } from "./hint-card";
 import { EventCards, EventMarkers } from "./event-cards";
 import { LeaderTags } from "./leader-tags";
+import { PerfHud } from "../debug/perf-hud";
+
+/** The frame meter over the play view, with `?perf`: what each part of a frame costs. @see PerfHud */
+const SHOW_PERF = typeof location !== "undefined" && new URLSearchParams(location.search).has("perf");
 // The stores on `window` in development, as the editor has them. @see expose-store
 import "../debug/expose-store";
+import "../debug/town-perf";
 
 export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
   const { ref: wrapperRef, setRef, size } = useResizeToWrapper();
@@ -51,6 +56,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
     <div ref={setRef} className="@container absolute inset-0 min-h-0 bg-primary-900">
       <WorldCanvas wrapperRef={wrapperRef} size={size} />
       <BuildingLabels />
+      {SHOW_PERF && <PerfHud />}
       <DesireReadout />
       <PortIncome />
       <TopStreets className="absolute bottom-24 right-2 z-10" />

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Graphics } from "pixi.js";
 
 import type { Mover } from "./town";
-import { drawMover } from "./town-render";
+import { HEADINGS, drawMover, lookOf, outfitOf } from "./town-render";
 
 /** A stand-in for a Graphics that remembers every circle and arc drawn. */
 function recorder() {
@@ -36,5 +36,32 @@ describe("a person", () => {
         expect(head.y - arcs[0].y).toBeLessThan(head.r);
       }
     }
+  });
+});
+
+describe("a mover's look, drawn once", () => {
+  const car = (heading: number, colour = 0xc0392b) => ({ ...person(heading), kind: "car", colour }) as unknown as Mover;
+  test("two movers that look alike share it; a turn or another colour does not", () => {
+    expect(lookOf(car(0.01)).key).toBe(lookOf(car(-0.01)).key);
+    expect(lookOf(car(0)).key).not.toBe(lookOf(car(Math.PI / 2)).key);
+    expect(lookOf(car(0)).key).not.toBe(lookOf(car(0, 0x2e6fb5)).key);
+    // A whole turn round is the same heading.
+    expect(lookOf(car(0)).key).toBe(lookOf(car(Math.PI * 2)).key);
+  });
+
+  test("a person's frames follow their stride; their outfit, a builder's hat too, is a tint on the same frames", () => {
+    const a = person(0), b = { ...person(0), phase: 0.4 + Math.PI } as Mover;
+    expect(lookOf(a).key).not.toBe(lookOf(b).key);
+    const builder = person(0, { site: 1, role: "builder" });
+    expect(lookOf(a).key).toBe(lookOf(builder).key);
+    expect(outfitOf(builder).hair).not.toBe(outfitOf(a).hair);
+    expect(lookOf({ ...a, colour: 0x123456 } as Mover).key).toBe(lookOf(a).key);
+  });
+
+  test("is drawn at the origin, its heading snapped to one of the set", () => {
+    const { canon } = lookOf(car(0.3));
+    expect([canon.x, canon.y, canon.z]).toEqual([0, 0, 0]);
+    const step = (Math.PI * 2) / HEADINGS.vehicle;
+    expect(canon.heading / step).toBeCloseTo(Math.round(canon.heading / step), 9);
   });
 });

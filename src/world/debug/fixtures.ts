@@ -25,7 +25,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "singularity";
+  | "firstRoad" | "projects" | "singularity" | "bigtown";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -942,7 +942,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, bigtown: 128 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -954,7 +954,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "singularity",
+  "firstRoad", "projects", "singularity", "bigtown",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -984,6 +984,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "brink": buildBrink(g, material); recomputeHeightRange(g); return;
     case "projects": buildProjects(g, material); recomputeHeightRange(g); return;
     case "singularity": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
+    case "bigtown": buildBigTown(g, material); recomputeHeightRange(g); return;
   }
 }
 
@@ -1133,5 +1134,59 @@ export function buildSingularity(g: Grid, material: number, cx: number, cy: numb
   if (spire) {
     put(PUMP, spire.x, bank);
     lay(line(spire.x, bank - 1, spire.x, spire.y + 2));
+  }
+}
+
+/**
+ * A BIG TOWN, TO MEASURE THE ENGINE ON: far bigger than a company builds in a
+ * run — a grid of streets three rows apart over the middle of a 128² map, some two thousand buildings, every lot
+ * between them built on, houses of every kind and tier with offices, parks,
+ * gyms and cafés among them, and a canal along the south. Opened in the game
+ * (`/?fixture=bigtown`, and `&crowd=N` for that many cars and people) it is
+ * the scene the engine's phases are measured against. @see plans/engine-polish.md
+ */
+export function buildBigTown(g: Grid, material: number) {
+  clear(g, material);
+  const m = Math.floor(g.w / 4);
+  const x0 = m, x1 = g.w - m - 1, y0 = m, y1 = g.h - m - 1;
+  if (x1 - x0 < 6 || y1 - y0 < 6) return;
+  // THE CANAL along the south, spring-fed at its east end and off the west edge.
+  const c0 = g.h - 6, c1 = g.h - 4;
+  for (let y = c0; y <= c1; y++) for (let x = 0; x < g.w; x++) set(g, x, y, -4);
+  pond(g, -1, 1, 0, c0, g.w - 1, c1);
+  for (let y = c0; y <= c1; y++) tap(g, g.w - 1, y, SPRING / 4);
+  // THE STREETS: rows three apart, and a cross street every sixteen tiles.
+  const rows: number[] = [];
+  for (let y = y0; y <= y1; y += 3) rows.push(y);
+  for (const y of rows) for (let x = x0; x <= x1; x++) g.paved[idx(g, x, y)] = 1;
+  for (let x = x0; x <= x1; x += 16) for (let y = rows[0]; y <= rows[rows.length - 1]; y++) g.paved[idx(g, x, y)] = 1;
+  edited(g);
+  const history = createHistory();
+  const put = (id: string, x: number, y: number) => {
+    const def = structureDef(id);
+    if (!def) return false;
+    const cmd = placeCommand(g, { ...def, placement: undefined }, x, y);
+    if (!cmd) return false;
+    commit(g, history, cmd);
+    return true;
+  };
+  // EVERY LOT BUILT ON: between two streets, two rows; now and then a 2×2
+  // across both — an office, a park, a gym — or a café in one.
+  const kinds = ["intern", "intern", "intern", "vibe_coder", "vibe_coder", "10x_dev"];
+  const tiers = ["t0", "t1", "t1", "t2", "t2", "landmark"];
+  const big = ["office-intern", "park", "office-vibe", "gym", "office-intern", "park"];
+  let k = 0;
+  for (let r = 0; r + 1 < rows.length; r++) {
+    const top = rows[r] + 1;
+    for (let x = x0; x <= x1; x++) {
+      if (g.paved[idx(g, x, top)]) continue;
+      k++;
+      if (k % 13 === 0 && put(big[(k / 13) % big.length | 0], x, top)) { x++; continue; }
+      if (k % 29 === 0 && put("cafe", x, top)) { x++; continue; }
+      for (const y of [top, top + 1]) {
+        const h = (x * 7 + y * 13 + k) % 997;
+        put(`kit:${kinds[h % kinds.length]}.${tiers[(h >> 2) % tiers.length]}`, x, y);
+      }
+    }
   }
 }

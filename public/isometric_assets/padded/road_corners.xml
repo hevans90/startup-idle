@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="road_corners.png">
+	<SubTexture name="roadCorner_095_SE.png" x="8" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_095_NE.png" x="156" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_088_NW.png" x="304" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_088_NE.png" x="452" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_080_NW.png" x="600" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_080_SW.png" x="748" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_087_SW.png" x="896" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_087_SE.png" x="1044" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_SESWNW.png" x="1192" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_NESWNW.png" x="1340" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_SWNW.png" x="1488" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_NESENW.png" x="1636" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_SENW.png" x="1784" y="8" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_NENW.png" x="8" y="123" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_NW.png" x="156" y="123" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_NESESW.png" x="304" y="123" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_SESW.png" x="452" y="123" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_NESW.png" x="600" y="123" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_SW.png" x="748" y="123" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_NESE.png" x="896" y="123" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_SE.png" x="1044" y="123" width="132" height="99"/>
+	<SubTexture name="roadCorner_081_NE.png" x="1192" y="123" width="132" height="99"/>
+</TextureAtlas>

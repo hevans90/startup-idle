@@ -6,7 +6,7 @@ import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { carLine, placesOf, routeBetween, walkLine } from "./roads";
-import { createTown, stepTown, wanted } from "./town";
+import { createTown, nearGrid, stepTown, wanted, type Mover } from "./town";
 
 const pave = (g: Grid, x: number, y: number) => { g.paved[idx(g, x, y)] = 1; };
 
@@ -120,5 +120,26 @@ describe("the town", () => {
     g.paved.fill(0);
     stepTown(t, g, net, 1, 1 / 30);
     expect(t.movers.length).toBe(0);
+  });
+});
+
+describe("the traffic's neighbours", () => {
+  test("every car that could hold another up is among its neighbours, with room for a step's movement", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+    const cars = Array.from({ length: 600 }, (_, id) => ({ id, x: rnd() * 60, y: rnd() * 60 }) as unknown as Mover);
+    const near = nearGrid(cars);
+    const reach = 2 * 1.2 + 0.4;
+    for (const m of cars) {
+      const got = new Set(near(m));
+      for (const o of cars) if (Math.hypot(o.x - m.x, o.y - m.y) <= reach) expect(got.has(o)).toBe(true);
+    }
+  });
+
+  test("and only those nearby: a crowd is not every car asking every other", () => {
+    const cars = Array.from({ length: 900 }, (_, id) => ({ id, x: (id % 30) * 2, y: Math.floor(id / 30) * 2 }) as unknown as Mover);
+    const near = nearGrid(cars);
+    const mean = cars.reduce((n, m) => n + near(m).length, 0) / cars.length;
+    expect(mean).toBeLessThan(40);
   });
 });

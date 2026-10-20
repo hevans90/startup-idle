@@ -21,11 +21,14 @@ const ARROWS: Record<string, [number, number]> = {
   ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
 };
 
+/** Per second, how quickly the arrow pan takes up the speed asked of it, and lets it go. */
+const KEY_EASE = 10;
+
 /**
- * THE ARROW KEYS PAN THE MAP, for as long as they are held: at a steady speed
+ * THE ARROW KEYS PAN THE MAP, for as long as they are held: easing up to a steady speed
  * on screen whatever the zoom, so the map moves the same distance under the
  * eye zoomed in or out, and on the ticker rather than on key repeat, which
- * starts after a pause and stutters. Not while typing in a field, and not
+ * starts after a pause and stutters; and easing to a stop when let go. Not while typing in a field, and not
  * with a modifier held, which leaves the browser's own shortcuts alone.
  */
 function useArrowPan(vp: React.RefObject<Viewport | null>, ticker: Ticker | undefined) {
@@ -44,17 +47,22 @@ function useArrowPan(vp: React.RefObject<Viewport | null>, ticker: Ticker | unde
     const up = (ev: KeyboardEvent) => held.delete(ev.key);
     // A key let go while the window was not looking would pan for ever.
     const blur = () => held.clear();
+    // The pan's speed now, screen pixels a second, eased toward what the keys ask.
+    let vx = 0, vy = 0;
     const step = (t: Ticker) => {
       const v = vp.current;
       // Nor while the map is out of sight behind another tab.
-      if (!v || held.size === 0 || v.destroyed || useWorldStore.getState().mapHidden) return;
+      if (!v || v.destroyed || useWorldStore.getState().mapHidden) { vx = vy = 0; return; }
       let dx = 0, dy = 0;
       for (const k of held) { dx += ARROWS[k][0]; dy += ARROWS[k][1]; }
-      if (dx === 0 && dy === 0) return;
-      const len = Math.hypot(dx, dy);
-      const px = (KEY_PAN * Math.min(t.deltaMS, 100)) / 1000;
+      const len = Math.hypot(dx, dy) || 1;
+      const dt = Math.min(t.deltaMS, 100) / 1000;
+      const k = 1 - Math.exp(-KEY_EASE * dt);
+      vx += ((dx / len) * KEY_PAN - vx) * k;
+      vy += ((dy / len) * KEY_PAN - vy) * k;
+      if (Math.abs(vx) < 1 && Math.abs(vy) < 1) { vx = vy = 0; return; }
       const c = v.center;
-      v.moveCenter(c.x + (dx / len) * px / v.scale.x, c.y + (dy / len) * px / v.scale.y);
+      v.moveCenter(c.x + (vx * dt) / v.scale.x, c.y + (vy * dt) / v.scale.y);
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
@@ -64,7 +72,8 @@ function useArrowPan(vp: React.RefObject<Viewport | null>, ticker: Ticker | unde
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
       window.removeEventListener("blur", blur);
-      ticker.remove(step);
+      // The app can be torn down first — a company sold — and a destroyed ticker throws on remove.
+      if ((ticker as unknown as { _head: unknown })._head) ticker.remove(step);
     };
   }, [vp, ticker]);
 }

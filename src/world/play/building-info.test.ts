@@ -1,7 +1,7 @@
 import { describe, expect, jest, test } from "bun:test";
 
 import type { Structure } from "../grid";
-import { collate, gatherLabels, infoFor, type InfoContext } from "./building-info";
+import { collate, gatherLabels, infoFor, type Fact, type InfoContext } from "./building-info";
 
 const ctx = (over: Partial<InfoContext> = {}): InfoContext => ({
   perHead: { intern: 2 }, arriving: new Map(), alongside: new Map(), queued: new Map(), stalled: new Set(), earning: new Map(), residents: new Map(), commutes: new Map(), coverage: new Map(), moods: new Map(),
@@ -129,5 +129,28 @@ describe("mood on the labels", () => {
     const a = infoFor({ ...at("kit:intern.t1", { residents: 1 }), id: 1 }, ctx({ moods }))!;
     const b = infoFor({ ...at("kit:intern.t1", { residents: 3 }), id: 2 }, ctx({ moods }))!;
     expect(collate([a, b], String).lines.map((l) => l.text)).toContain("  unhappy (-10)");
+  });
+});
+
+describe("gathering many labels", () => {
+  test("a gathered label says exactly what collating its buildings does, however they merged", () => {
+    const kinds = ["intern", "vibe_coder", "10x_dev"] as const;
+    const items = Array.from({ length: 300 }, (_, i) => {
+      const who = kinds[i % 3];
+      const facts: Fact[] = i % 7 === 0
+        ? [{ type: "project", name: i % 2 ? "Park" : "Intern office" }]
+        : [{ type: "home", who, residents: i % 5, beds: 5, coming: i % 2, earns: i % 4 ? i : undefined, mood: i % 3 ? (i % 11) - 5 : undefined, deskless: i % 6 }];
+      return { id: i, x: (i % 20) * 11, y: Math.floor(i / 20) * 9, band: i, info: { title: "x", accent: i % 2, brief: ["b"], lines: [{ text: "l" }], facts } };
+    });
+    const money = (n: number) => `$${n}`;
+    const out = gatherLabels(items, true, money);
+    expect(out.reduce((n, g) => n + g.ids.length, 0)).toBe(300);
+    for (const g of out) {
+      if (g.ids.length < 2) continue;
+      const own = collate(g.ids.map((id) => items[id].info), money);
+      expect(g.info.title).toBe(own.title);
+      expect(g.info.lines.map((l) => l.text).sort()).toEqual(own.lines.map((l) => l.text).sort());
+      expect(g.info.facts.length).toBe(own.facts.length);
+    }
   });
 });

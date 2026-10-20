@@ -1,5 +1,8 @@
 // First, before any store reads the save: a fixture session works on a copy. @see fixture-sandbox
 import './fixture-sandbox'
+// `?hitches`, in development: every timer and frame callback timed, by where it came from. @see hitches
+import { installHitches } from './hitches'
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('hitches')) installHitches()
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'

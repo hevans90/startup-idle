@@ -41,9 +41,39 @@ const ISO_ATLASES: AtlasDescriptor[] = [
   { dir: "derived", xmlFile: "trees_sheet.xml", pngFile: "trees_sheet.png" },
 ];
 
+/**
+ * CRISP UP CLOSE, SMOOTH ZOOMED OUT: a texel drawn bigger than a pixel is
+ * `nearest`, the pixel art as drawn; drawn smaller, it is MIPMAPPED and
+ * filtered, so a zoomed-out map holds still instead of shimmering as the
+ * camera moves. The sheets loaded are the PADDED ones (`bun run bake:padded`),
+ * every frame with its edge extruded `PAD` texels, so a mip level averages a
+ * frame with itself and not its neighbour — clean down to level `MIP_LEVELS`,
+ * where the sampler stops. @see dev/bake-padded-atlases.ts
+ */
+export const MIP_LEVELS = 4;
+/** `?nomips`: the vendor sheets, `nearest` everywhere, as it was — to compare against. */
+const NO_MIPS = typeof location !== "undefined" && new URLSearchParams(location.search).has("nomips");
+export function crispUpClose(source: TextureSource) {
+  if (NO_MIPS) { source.scaleMode = "nearest"; return; }
+  source.magFilter = "nearest";
+  source.minFilter = "linear";
+  source.mipmapFilter = "linear";
+  source.style.lodMaxClamp = MIP_LEVELS;
+  source.style.update();
+}
+
+/** Each source sheet's padded twin, in `isometric_assets/padded/`. */
+const PADDED: Record<string, string> = {
+  "building_sheet.png": "buildings", "landscape_sheet.png": "landscape", "vehicle_sheet.png": "vehicles",
+  "cityTiles_sheet.png": "city_tiles", "roadCorners_sheet.png": "road_corners", "trees_sheet.png": "trees",
+};
+
 async function loadOneAtlas(
   desc: AtlasDescriptor
 ): Promise<Record<string, Texture<TextureSource>>> {
+  // The padded twin of the sheet, made from it. @see crispUpClose
+  const padded = NO_MIPS ? undefined : PADDED[desc.pngFile];
+  if (padded) desc = { dir: "padded", xmlFile: `${padded}.xml`, pngFile: `${padded}.png` };
   const base = `${ATLAS_BASE}/${desc.dir}`;
   const xmlText = await (await fetch(`${base}/${desc.xmlFile}`)).text();
   const { imageFile, textures } = parseStarlingAtlasXml(xmlText);
@@ -53,8 +83,8 @@ async function loadOneAtlas(
     );
   }
   const pngUrl = `${base}/${desc.pngFile}`;
-  const sheet: Texture = await Assets.load(pngUrl);
-  sheet.source.scaleMode = "nearest";
+  const sheet: Texture = await Assets.load({ src: pngUrl, data: { autoGenerateMipmaps: !NO_MIPS } });
+  crispUpClose(sheet.source);
   const data = starlingTexturesToSpritesheetData(
     textures,
     desc.pngFile,
@@ -81,8 +111,8 @@ async function loadCityDetails(): Promise<
   await Promise.all(
     Array.from({ length: CITY_DETAIL_COUNT }, async (_, i) => {
       const name = `cityDetails_${String(i).padStart(3, "0")}.png`;
-      const tex: Texture = await Assets.load(`${base}/${name}`);
-      tex.source.scaleMode = "nearest";
+      const tex: Texture = await Assets.load({ src: `${base}/${name}`, data: { autoGenerateMipmaps: !NO_MIPS } });
+      crispUpClose(tex.source);
       out[name] = tex;
     }),
   );

@@ -54,9 +54,16 @@ import { gatherLabels, infoFor, type BuildingInfo, type InfoContext } from "./bu
 
 /** Below this zoom, a line a group rather than everything. */
 export const DETAIL_FROM = 0.45;
-/** How often what the labels say, and how they gather, is worked out again, ms. */
-const READ_EVERY = 400;
-/** A change of zoom by more than this share gathers them again at once. */
+/**
+ * How often what the labels say, and how they gather, is worked out again, ms.
+ * A pan or zoom gathers them again at once (`frame`), so this is only for what
+ * they say — earnings, arrivals — which a second keeps up with; on a big town
+ * a read is a dozen milliseconds, and two and a half a second was a hitch each.
+ */
+const READ_EVERY = 1000;
+/** How long the camera holds still before the labels are gathered again for where it went, ms. */
+const SETTLE_MS = 120;
+/** A change of zoom by more than this share gathers them again. */
 const REZOOM = 0.04;
 /** And a pan by more than this many screen pixels. */
 const REPAN = 160;
@@ -197,22 +204,40 @@ export function BuildingLabels({ className }: { className?: string }) {
     read();
     const id = setInterval(read, READ_EVERY);
 
-    /** WHERE THEY ARE, every frame; and gathered again at once on a zoom. */
+    /**
+     * WHERE THEY ARE, every frame; and gathered again at once on a zoom. Only
+     * WRITTEN when they move: a still camera and the same labels is no work at
+     * all, and a label whose place rounds to the same pixel is not touched —
+     * each write to a style is the browser's to lay out again.
+     */
     let raf = 0;
+    let seen = "", seenAnchors: unknown = null;
+    let lastView = { x: NaN, y: NaN, s: NaN }, stillSince = 0;
+    const wrote = new WeakMap<HTMLElement, string>();
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const vp = useWorldStore.getState().viewport;
       if (!vp) return;
-      // A ZOOM, or a pan far enough to bring others on: gathered again at once.
+      // A ZOOM, or a pan far enough to bring others on: gathered again once
+      // the camera SETTLES — not mid-move, where a gather a frame was a third of
+      // a frame's budget on a big town. Kept in the world, they follow the
+      // camera meanwhile. @see SETTLE_MS
       const c = gatheredCentre.current;
       const panned = c ? Math.hypot(vp.center.x - c.x, vp.center.y - c.y) * vp.scale.x > REPAN : false;
-      if (Math.abs(vp.scale.x / (gatheredAt.current || 1) - 1) > REZOOM || panned) read();
+      const moving = vp.x !== lastView.x || vp.y !== lastView.y || vp.scale.x !== lastView.s;
+      if (moving) { lastView = { x: vp.x, y: vp.y, s: vp.scale.x }; stillSince = performance.now(); }
+      if ((Math.abs(vp.scale.x / (gatheredAt.current || 1) - 1) > REZOOM || panned) && performance.now() - stillSince >= SETTLE_MS) read();
+      const view = `${vp.x},${vp.y},${vp.scale.x},${els.current.size}`;
+      if (view === seen && anchors.current === seenAnchors) return;
+      seen = view; seenAnchors = anchors.current;
       for (const [key, el] of els.current) {
         const w = anchors.current.get(key);
-        if (!w) { el.style.visibility = "hidden"; continue; }
-        const p = vp.toScreen(w.x, w.y);
+        const next = w ? (() => { const p = vp.toScreen(w.x, w.y); return `translate(${Math.round(p.x)}px, ${Math.round(p.y - 4)}px) translate(-50%, -100%)`; })() : "hidden";
+        if (wrote.get(el) === next) continue;
+        wrote.set(el, next);
+        if (next === "hidden") { el.style.visibility = "hidden"; continue; }
         el.style.visibility = "visible";
-        el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y - 4)}px) translate(-50%, -100%)`;
+        el.style.transform = next;
       }
     };
     frame();

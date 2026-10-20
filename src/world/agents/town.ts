@@ -125,6 +125,15 @@ const CARS_FOR_GATEWAYS = 3;
 const CAR_EVERY = 0.4;
 const PERSON_EVERY = 0.3;
 
+/**
+ * THE CAPS IN FORCE: the game's, unless a stress scene raises them — the
+ * `bigtown` fixture with `?crowd=N`, to measure a town far busier than any
+ * the game fields. `every` divides the time between setting off, so a crowd
+ * arrives in seconds rather than minutes. @see seedFixtureCompany
+ */
+export const townCaps = { cars: MAX_CARS, people: MAX_PEOPLE, every: 1 };
+export function setTownCaps(c: Partial<typeof townCaps>) { Object.assign(townCaps, c); }
+
 /** Cruising speeds, tiles a second, and how much they vary one to the next. */
 const CAR_CRUISE = 1.6;
 const TRUCK_CRUISE = 1.15;
@@ -272,8 +281,8 @@ export function wanted(places: readonly Place[]): { cars: number; people: number
   const gateways = places.length - doors;
   if (places.length < 2) return { cars: 0, people: 0 };
   return {
-    cars: Math.min(MAX_CARS, Math.round(doors * CARS_PER_BUILDING + (gateways >= 2 ? CARS_FOR_GATEWAYS : 0))),
-    people: doors ? Math.min(MAX_PEOPLE, Math.round(doors * PEOPLE_PER_BUILDING)) : 0,
+    cars: Math.min(townCaps.cars, Math.round(doors * CARS_PER_BUILDING + (gateways >= 2 ? CARS_FOR_GATEWAYS : 0))),
+    people: doors ? Math.min(townCaps.people, Math.round(doors * PEOPLE_PER_BUILDING)) : 0,
   };
 }
 
@@ -310,9 +319,24 @@ function conflict(m: Mover, o: Mover): number {
  */
 function meeting(m: Mover, o: Mover): number {
   const rx = o.x - m.x, ry = o.y - m.y;
-  if (rx * rx + ry * ry > (2 * LOOK) ** 2) return Infinity;
+  const d2 = rx * rx + ry * ry;
+  if (d2 > (2 * LOOK) ** 2) return Infinity;
   const vm = Math.max(m.speed, CRAWL), vo = Math.max(o.speed, CRAWL);
+  // TOO FAR TO MEET: neither can cover more than its speed along its line, so
+  // two further apart than both of those and the clearance cannot meet in
+  // the time judged. Exact; most pairs in a slow crowd. @see AHEAD
+  const reach = (vm + vo) * AHEAD + CLEAR;
+  if (d2 > reach * reach) return Infinity;
   const tm = m.at[m.at.length - 1], to = o.at[o.at.length - 1];
+  // DRAWING APART: further apart half way through the time judged than now,
+  // and further again at its end — two cars going their own ways — is not
+  // looked along step by step: three looks, not twenty. @see AHEAD
+  const gap = (t: number) => {
+    const a = along(m, Math.min(tm, m.s + vm * t)), b = along(o, Math.min(to, o.s + vo * t));
+    return (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+  };
+  const mid = gap(AHEAD / 2);
+  if (mid > d2 && gap(AHEAD) > mid) return Infinity;
   for (let t = STEP; t <= AHEAD; t += STEP) {
     const dm = Math.min(tm, m.s + vm * t), dn = Math.min(to, o.s + vo * t);
     const a = along(m, dm), b = along(o, dn);
@@ -320,6 +344,36 @@ function meeting(m: Mover, o: Mover): number {
   }
   return Infinity;
 }
+/**
+ * THE TRAFFIC'S NEIGHBOURS, a grid of `NEAR_CELL`-tile cells: a car is only
+ * ever held up by one within `2 * LOOK` of it (`meeting`'s reach, the longer
+ * of the two), so it looks only in its own cell and the eight round it. It
+ * looked at every other car, which on a crowded town was most of the town's
+ * time a frame and grew with the square of the cars. Bigger than the reach by
+ * enough for a step's movement — the cars moved before it in the same step
+ * are where they now are — so every car that could hold one up is still
+ * asked, and the traffic goes exactly as it did. @see trafficLimit
+ */
+export const NEAR_CELL = 3;
+export function nearGrid(cars: readonly Mover[]): (m: Mover) => Mover[] {
+  const cells = new Map<number, Mover[]>();
+  const key = (cx: number, cy: number) => cx * 65536 + cy;
+  for (const c of cars) {
+    const k = key(Math.floor(c.x / NEAR_CELL), Math.floor(c.y / NEAR_CELL));
+    const l = cells.get(k);
+    if (l) l.push(c); else cells.set(k, [c]);
+  }
+  return (m) => {
+    const cx = Math.floor(m.x / NEAR_CELL), cy = Math.floor(m.y / NEAR_CELL);
+    const out: Mover[] = [];
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const l = cells.get(key(cx + dx, cy + dy));
+      if (l) for (const o of l) out.push(o);
+    }
+    return out;
+  };
+}
+
 /** How far ahead in time a driver judges, the step it judges in, and the crawl it assumes of a stopped car. */
 const AHEAD = 1.2;
 const STEP = 0.12;
@@ -387,26 +441,27 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   const people = t.movers.filter((m) => m.kind === "person" && !m.job).length;
   t.untilCar -= h;
   if (t.untilCar <= 0 && tripCars < want.cars) {
-    t.untilCar = CAR_EVERY;
+    t.untilCar = CAR_EVERY / townCaps.every;
     const trip = (rand(t) < busy.commute ? commuteTrip(t, g, net, "car") : null) ?? tripFor(t, "car");
     const m = trip && setOff(t, g, "car", ...trip);
     if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR)) t.movers.push(m);
   }
   t.untilPerson -= h;
   if (t.untilPerson <= 0 && people < want.people) {
-    t.untilPerson = PERSON_EVERY;
+    t.untilPerson = PERSON_EVERY / townCaps.every;
     const trip = (rand(t) < busy.commute ? commuteTrip(t, g, net, "person") : null) ?? tripFor(t, "person");
     const m = trip && setOff(t, g, "person", ...trip);
     if (m) t.movers.push(m);
   }
 
-  // MOVING.
+  // MOVING, each car minding only the cars near it. @see nearGrid
+  const near = nearGrid(cars);
   for (const m of t.movers) {
     // AT WORK on a site: standing, swinging a hammer. @see town-render
     if (atWork(m)) { m.phase += h * WORK_RATE; continue; }
     // AT A STOP: standing, then on its way.
     if (m.wait && m.wait > 0) { m.wait -= h; m.speed = 0; continue; }
-    const limit = Math.min(lineLimit(m), drives(m) ? trafficLimit(m, cars) : Infinity);
+    const limit = Math.min(lineLimit(m), drives(m) ? trafficLimit(m, near(m)) : Infinity);
     if (m.speed < limit) m.speed = Math.min(limit, m.speed + ACCEL * h);
     else m.speed = Math.max(limit, m.speed - BRAKE * h);
     // PATIENCE: stood still a while with somewhere to be, it pushes on.

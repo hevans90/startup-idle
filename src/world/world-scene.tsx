@@ -33,7 +33,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
 import { companyLand, drainDirty, playRules, startedOnFixture, startFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
-import { perfAdd, perfFrame } from "./debug/perf";
+import { perfAdd, perfCount, perfFrame } from "./debug/perf";
+import { section } from "../hitches";
 import {
   createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
   type BandLayer,
@@ -166,6 +167,14 @@ import { COLUMNS_PER_TILE } from "./water/field";
 import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { clickTakesOver, opensSomething } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
+import { createJuice, type Juice } from "./render/juice";
+import { ambience, sfx } from "../audio/sound";
+
+/** The time of day, 0–1 from midnight; `__dayPhase` holds it, in development, to look at an hour. @see dayPhase */
+const phaseNow = () => (import.meta.env.DEV ? (window as unknown as { __dayPhase?: number }).__dayPhase : undefined) ?? dayPhase(Date.now());
+
+/** Movers on the map at which the town sounds as busy as it gets. */
+const TOWN_FULL = 80;
 import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
@@ -178,7 +187,8 @@ import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
 import { buyable, PARCELS, parcelOf } from "./land";
-import { busyness, darkness, dayPhase, drawRain, NIGHT_COLOUR, NIGHT_DARK } from "./daylight";
+import { busyness, darkness, dayPhase, drawRain, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
+import { createLights, type Lights } from "./render/lights";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 
 // Required: <pixiContainer> is only a known element once Container is
@@ -300,6 +310,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const cursorRef = useRef<BuildCursor | null>(null);
   /** Holograms: what a placement would put down, and what AI mode's drones are about to. @see createHolograms */
   const holoRef = useRef<Holograms | null>(null);
+  /** A building dropping into place, a house hopping as it grows, dust where one came down. @see createJuice */
+  const juiceRef = useRef<Juice | null>(null);
+  const soundClock = useRef(0);
   const holoScanRef = useRef<Graphics | null>(null);
   const tileHoloRef = useRef<TileHolograms | null>(null);
   const placeHolos = useRef<HoloSpec[]>([]);
@@ -387,6 +400,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // NIGHT over the map in the game: one translucent sheet the size of the
   // screen, darker as the day turns. @see world/daylight
   const night = useRef<Graphics | null>(null);
+  const nightKey = useRef("");
+  const lightsRef = useRef<Lights | null>(null);
+  const lightsAt = useRef<{ grid: unknown; rev: number }>({ grid: null, rev: -1 });
   // AND RAIN over it while a flood is coming or here. @see drawRain
   const rain = useRef<Graphics | null>(null);
   useEffect(() => {
@@ -395,13 +411,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     r.eventMode = "none";
     g.zIndex = 1e9;
     r.zIndex = 1e9 + 1;
+    // MULTIPLIED IN: a grade over everything, the water's own shaders included. @see NIGHT_GRADE
+    g.blendMode = "multiply";
     app.stage.sortableChildren = true;
     app.stage.addChild(g, r);
     night.current = g;
     rain.current = r;
+    // THE TOWN'S LIGHTS, over the night and under the rain. @see createLights
+    lightsRef.current = createLights(app.stage, 1e9 + 0.5);
     return () => {
       for (const x of [g, r]) { x.parent?.removeChild(x); x.destroy(); }
       night.current = null;
+      lightsRef.current?.destroy();
+      lightsRef.current = null;
       rain.current = null;
     };
   }, [app]);
@@ -1476,6 +1498,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // HOLOGRAMS mount in the bands, at true depth; their scan lines go over everything.
         holoRef.current = createHolograms();
         tileHoloRef.current = createTileHolograms();
+        juiceRef.current = createJuice();
         const scan = new Graphics();
         scan.eventMode = "none";
         scan.zIndex = 1001;
@@ -1483,7 +1506,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         holoScanRef.current = scan;
       }
       boatRef.current = createBoatLayer(bl);
-      townRef.current = createTownLayer(bl);
+      townRef.current = createTownLayer(bl, app.renderer as unknown as Renderer);
       setSceneEpoch((n) => n + 1);
 
       console.info(`WORLD: ${grid.w}×${grid.h}, ${bl.bands.length} bands`);
@@ -1513,6 +1536,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cursorRef.current = null;
       holoRef.current?.clear();
       holoRef.current = null;
+      juiceRef.current?.clear();
+      juiceRef.current = null;
       tileHoloRef.current?.clear();
       tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
@@ -1872,6 +1897,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // plan, the map or the drones change. @see PLAN_HOLOGRAMS
   const aiHoloSig = useRef("");
   useTick(() => {
+    const tHolo = performance.now();
     const holos: HoloSpec[] = [];
     const flying = new Set<string>();
     for (const j of getAiRunner().jobs) {
@@ -1959,6 +1985,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     }
     const h = holoRef.current, scan = holoScanRef.current;
     if (h && scan) h.tick(performance.now() / 1000, scan);
+    perfAdd("fx", performance.now() - tHolo);
   });
 
   const openShown = useRef<number | null>(null);
@@ -2006,6 +2033,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const tl = tlRef.current, bl = blRef.current, cl = clRef.current;
     const pl = plRef.current, sl = slRef.current, tex = texRef.current;
     if (!tl || !bl || !cl || !pl || !sl || !tex) return;
+    const sSync = section("effect: reconcile an edit");
     // DRAINED, not read from state: several commits in one React batch collapse
     // into a single re-render, and reading `lastTouched` would show only the
     // last one's cells while the rest stayed in the grid and off the screen.
@@ -2034,11 +2062,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // record map (tens of entries) while `refreshStructuresAt` only re-draws
     // the ones the edit actually stood on.
     const ctx: RenderCtx = { bands: bl, textures: tex, grid, scale };
-    syncStructures(sl, ctx);
+    // What changed while the map is up gets its motion; what it loaded with does not. @see createJuice
+    syncStructures(sl, ctx, juiceRef.current ?? undefined);
     refreshStructuresAt(sl, ctx, touched);
 
     // an edit can change the height range, so overlays may need redrawing
     redrawOverlays();
+    sSync();
   }, [revision, grid, scale, redrawOverlays]);
 
   // THE MOOD SHOWN: every house's own sprites tinted by how happy it is,
@@ -2494,7 +2524,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const noSolver = useRef<string | null>("not built yet");
   const cpuFrames = useRef(0);
   const cpuSaid = useRef(0);
-  const waterFrameRef = useRef<((dt: number) => { solve: number; build: number } | null) | null>(null);
+  const waterFrameRef = useRef<((dt: number) => { solve: number; build: number; town?: number } | null) | null>(null);
   waterFrameRef.current = (dt: number) => {
     // THE BANDS ON SCREEN FIRST, so the water draws for this frame's view and
     // not the last one's. The cull is its own tick and runs after this one,
@@ -2551,6 +2581,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         noSolver.current = "the water field was replaced (a new map, a resize or a first bridge); the GPU solver is rebuilding";
         sayWaterSolver("cpu", noSolver.current);
       }
+      let sw = section("water: sync, sources, pipes");
       solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);
       // PUMP HOUSES are paid for while they run, in the game. @see runPumps
@@ -2562,6 +2593,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // and the CPU solver does not run at all — see `gpu/solver`, and the
       // note there about the round trip this still pays for.
       const solver = solverRef.current;
+      sw(); sw = section("water: solve");
       // ONE FIELD, WHOEVER STEPS IT. A bridge is slots in the same columns
       // rather than a storey of its own, so there is no second thing here
       // for the device path to forget about. @see syncSlots
@@ -2589,6 +2621,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         stepWater(field, dt);
       }
       const t1 = performance.now();
+      sw(); sw = section("water: gather");
       // THE QUADS THIS FRAME IS WORTH DRAWING, gathered before the mesh is
       // told how many to draw. On the device's own path that is after the
       // solver has filled the textures it reads; on the host's it is a frame
@@ -2620,6 +2653,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             && !(import.meta.env.DEV && (window as unknown as { __gradOff?: boolean }).__gradOff),
         );
       }
+      sw(); sw = section("water: draw surface");
       if (fl) drawWater(fl, field.columns, bl, dt, overlays.faces);
       else if (gpu) {
         drawGpuWater(gpu, field.columns, bl, dt, overlays.faces, solver !== null);
@@ -2627,6 +2661,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // The foam FIELD, not the solver's raw breaking: the surface is painted
       // from this, so the sheet has to be too or a white lip goes over a
       // cliff and turns blue in the air.
+      sw(); sw = section("water: falls, drips");
       if (faRef.current) {
         const box = activeBox(field.columns);
         const layer = fl ?? gpu;
@@ -2654,6 +2689,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (drRef.current) drawGpuDrips(drRef.current, field, bl, grid, overlays.xray);
       // THE BOATS, on the water this frame left: bob, tilt, drift, then drawn.
       // @see world/boats
+      sw();
+      const tTown = performance.now();
+      const sBoats = section("tick: boats");
       const fleet = getFleet();
       // The rivers' traffic first: boats in from a ported river's inflow, and
       // off at its exit. Then every boat, the ones under way steered for it.
@@ -2676,7 +2714,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
           // Treble at a port by the Conference Centre. @see convoyPays
           if (convoy) { fee *= s ? convoyPays(st.grid, s) : CONVOY_PAYS; tallyCall(convoy.id, fee); }
-          if (st.playing) useMoneyStore.getState().increaseMoney(fee);
+          if (st.playing) { useMoneyStore.getState().increaseMoney(fee); sfx("coin"); }
           recordCall(getExports(), id, fee, now);
         }
       }
@@ -2694,11 +2732,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
       boatRef.current?.draw(fleet, field.columns, scale, dt);
+      sBoats();
       // THE TOWN: cars and people on their trips round the roads. @see world/agents
       const net = getNetwork();
       if (net) {
         const st = useWorldStore.getState();
-        stepTown(getTown(), st.grid, net, st.revision, dt);
+        { const e = section("tick: stepTown"); stepTown(getTown(), st.grid, net, st.revision, dt); e(); }
         // THE PROJECTS going up: crews walking out, loads trucked in, work
         // done — after the town has moved, so who arrived this frame is known.
         // Paid for out of the company's money under the game's rules; free in
@@ -2713,7 +2752,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const arrivals = getArrivals();
           const owned = ownedNow();
           for (const [id, n] of Object.entries(fake ?? {})) owned[id as keyof typeof owned] = (owned[id as keyof typeof owned] ?? 0) + n;
-          stepArrivals(arrivals, st.grid, net, getTown(), owned, fake ? {} : useSessionStore.getState().remoteBeds ?? {}, dt);
+          { const e = section("tick: arrivals"); stepArrivals(arrivals, st.grid, net, getTown(), owned, fake ? {} : useSessionStore.getState().remoteBeds ?? {}, dt); e(); }
           if (arrivals.moved.length) useWorldStore.getState().housingMoved(arrivals.moved.splice(0));
         }
         // THE SLOP PIT, opening up beside the studio once there are enough
@@ -2730,6 +2769,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // EVENTS, in the game: the sludge trucks' loads, the director's look
         // twice a second, and what an event under way does to the map.
         // @see world/events
+        const sEvents = section("tick: haulers, leaders, events, flood");
         if (st.playing) {
           stepHaulers(getTown(), st.grid, net, (p) => useSlopPitStore.getState().haul(p), sludgeTruckBack);
           // THE TEAM LEADERS, walking between home and work. @see stepLeaders
@@ -2874,6 +2914,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             }
           }
         }
+        sEvents();
+        const sRest = section("tick: repairs, training, cooling");
         // THE REPAIR CREW, round the damaged buildings once the water is down.
         if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult * (training() === "river" ? 3 : 1), !!floodBase.current);
         // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
@@ -2883,6 +2925,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // AI MODE, on The Model's own runs: the town building itself, its
         // drones flown out for the look of it. On a fixture too: a fixture
         // played works on a copy of the save. @see stepAutopilot, fixture-sandbox
+        sRest();
+        const sAi = section("tick: AI");
         if (st.playing && useFounderStore.getState().selectedFounderId === "model") {
           stepAutopilot(st.grid, dt);
           stepAi(getAiRunner(), st.grid, { stage: "tool", running: 0, agents: 0 }, dt, Date.now());
@@ -2912,6 +2956,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           aiSaved.current += dt;
           if (aiSaved.current >= 5) { aiSaved.current = 0; useSessionStore.getState().setAiAt(at); }
         }
+        sAi();
+        const sMood = section("tick: mood, evolution");
         // PEOPLE LEAVING MISERABLE HOUSES, in the game, one now and then.
         // @see stepMood
         if (st.playing) {
@@ -2924,6 +2970,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const grew = stepEvolution(getEvolution(), st.grid, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100), dt);
           if (grew.length) useWorldStore.getState().housingMoved(grew);
         }
+        sMood();
+        const sWorks = section("tick: works");
         const works = getWorks();
         stepWorks(works, st.grid, net, getTown(), ownedNow(), st.playing ? payForLoad : () => true, dt, Date.now());
         if (works.opened.length) announceOpened(works.opened.splice(0));
@@ -2931,7 +2979,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           worksRevRef.current = works.rev;
           useWorldStore.setState({ projectRev: st.projectRev + 1 });
         }
-        townRef.current?.draw(getTown(), scale);
+        sWorks();
+        { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale); e(); }
       }
       const t2 = performance.now();
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the
@@ -2940,7 +2989,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       useWorldStore.getState().refreshWaterMeta(
         tally ? { wet: tally.wet, water: tally.water } : undefined,
       );
-      return { solve: t1 - t0, build: t2 - t1 };
+      return { solve: t1 - t0, build: tTown - t1, town: t2 - tTown };
   };
 
   // Animated structures — the fluid in an excavation. Costs one Map walk per
@@ -2949,11 +2998,28 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   useTick((ticker) => {
     const sl = slRef.current, bl = blRef.current, tex = texRef.current;
     const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
+    const tFx = performance.now();
+    const sFx = section("tick: fx (juice, night, lights, AI layer, rain)");
+    // THE DRONES' LANDINGS, flashed where each job was done. @see AiRunner.landed
+    {
+      const landed = getAiRunner().landed, bl = blRef.current, tex = texRef.current;
+      if (landed.length && juiceRef.current && bl && tex) for (const at of landed) juiceRef.current.landed(at, { bands: bl, textures: tex, grid: useWorldStore.getState().grid, scale });
+      landed.length = 0;
+    }
+    juiceRef.current?.tick(raw * 1000);
+    // THE TOWN'S AMBIENCE, a few times a second: its hum by its size, birds by day, crickets by night. @see ambience
+    soundClock.current += raw;
+    if (soundClock.current > 0.25) {
+      soundClock.current = 0;
+      const st = useWorldStore.getState();
+      const night = st.playing && useGlobalSettingsStore.getState().dayNight ? darkness(phaseNow()) / NIGHT_DARK : 0;
+      ambience(st.playing ? Math.min(1, getTown().movers.length / TOWN_FULL) : 0, night);
+    }
     // THE HOUR, in the game: the night over the map, and how busy the streets
     // are. Off, or in the editor, a plain bright noon. @see world/daylight
     {
       const on = useWorldStore.getState().playing && useGlobalSettingsStore.getState().dayNight;
-      const phase = dayPhase(Date.now());
+      const phase = phaseNow();
       getTown().busy = on ? busyness(phase) : undefined;
       const g = night.current;
       const now = Date.now();
@@ -2965,13 +3031,31 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (dc) showMe({ x: dc.x + dc.w / 2, y: dc.y + dc.h / 2 });
       }
       const ascension = playing ? sequenceIntensity(now) : 0;
+      const nightNow = on ? darkness(phase) / NIGHT_DARK : 0;
       if (g) {
-        const a = on ? darkness(phase) : 0;
-        g.clear();
-        if (a > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: NIGHT_COLOUR, alpha: a });
         // THE SKY TURNS as the AI rises: a violet cast from the Manager on, and at the Ascension.
         const tint = (meter >= 80 ? 0.08 : meter >= 60 ? 0.04 : 0) + 0.3 * ascension;
-        if (tint > 0.005) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: STAGE_COLOUR.overseer, alpha: tint });
+        const colour = mixColour(mixColour(0xffffff, NIGHT_GRADE, nightNow), STAGE_COLOUR.overseer, tint);
+        // Redrawn only when it changes: a colour a step at a time, or the screen's size.
+        const key = `${colour}|${app.screen.width}x${app.screen.height}`;
+        if (key !== nightKey.current) {
+          nightKey.current = key;
+          g.clear();
+          if (colour !== 0xffffff) g.rect(0, 0, app.screen.width, app.screen.height).fill({ color: colour });
+        }
+      }
+      const blNow = blRef.current;
+      if (lightsRef.current && blNow) {
+        // Put where the map is now whenever it has changed — whichever of the
+        // scene and the lights was made first. @see createLights
+        const st = useWorldStore.getState();
+        if (nightNow > 0.02 && (lightsAt.current.grid !== st.grid || lightsAt.current.rev !== st.revision)) {
+          lightsAt.current = { grid: st.grid, rev: st.revision };
+          const e = section("tick: lights sync");
+          lightsRef.current.sync(st.grid, scale);
+          e();
+        }
+        lightsRef.current.tick(nightNow, blNow.root.worldTransform, now / 1000);
       }
       // THE AI ON THE MAP. @see createAiLayer
       const ai = aiLayerRef.current;
@@ -3002,6 +3086,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (flood) drawRain(r, app.screen.width, app.screen.height, performance.now() / 1000, flood.phase === "active" ? 1 : 0.5);
       }
     }
+    perfAdd("fx", performance.now() - tFx);
+    sFx();
     // The water runs every frame, and the mesh is rebuilt from it every frame:
     // the surface changes everywhere at once, so there is no incremental
     // version of drawing it.
@@ -3026,10 +3112,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
      * renderers, and nothing downstream has to know this happened. @see maxStep
      */
     const dt = field ? Math.min(raw, maxStep(field.columns)) : raw;
+    const sWater = section("tick: water frame (all of it)");
     const spent = waterFrameRef.current?.(dt);
+    sWater();
     if (spent) {
       perfAdd("solve", spent.solve);
       perfAdd("build", spent.build);
+      perfAdd("town", spent.town ?? 0);
       if (import.meta.env.DEV) {
         const w = (window as unknown as { __waterMs?: { solve: number; draw: number; n: number } });
         const acc = w.__waterMs ?? (w.__waterMs = { solve: 0, draw: 0, n: 0 });
@@ -3053,9 +3142,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (!import.meta.env.DEV || !app?.renderer || !app?.ticker) return;
     const renderer = app.renderer as unknown as { render: (...a: unknown[]) => unknown };
     const real = renderer.render.bind(renderer);
+    // AND INSIDE IT, with `?hitches`: a render group's draw list built again
+    // (a chunk shown, a child added, moved or re-sorted), and the batches
+    // uploaded after — what a moving camera can cost. @see section
+    const groups = (renderer as unknown as { renderGroup?: { _buildInstructions?: (...a: unknown[]) => unknown } }).renderGroup;
+    const realBuild = groups?._buildInstructions?.bind(groups);
+    if (groups && realBuild) groups._buildInstructions = (...a: unknown[]) => { const e = section("pixi: a render group rebuilt"); const out = realBuild(...a); e(); return out; };
+    const batch = (renderer as unknown as { renderPipes?: { batch?: { upload?: (...a: unknown[]) => unknown } } }).renderPipes?.batch;
+    const realUpload = batch?.upload?.bind(batch);
+    if (batch && realUpload) batch.upload = (...a: unknown[]) => { const e = section("pixi: batches uploaded"); const out = realUpload(...a); e(); return out; };
     renderer.render = (...a: unknown[]) => {
       const at = performance.now();
+      const e = section("pixi render");
       const out = real(...a);
+      e();
       perfAdd("present", performance.now() - at);
       return out;
     };
@@ -3107,11 +3207,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // and the GPU's clocks are copied out here for the same reason: a resolve
     // only sees queries the commands before it wrote, and the renderer has
     // just submitted. @see flushStamps
+    // AND COUNTED: draw calls the encoder submits, and Graphics cleared to be
+    // drawn again — the two numbers a scene's batching and immediate-mode
+    // drawing show in. @see perfCount
+    const enc = (renderer as unknown as { encoder?: { draw?: (...a: unknown[]) => unknown } }).encoder;
+    const realDraw = enc?.draw?.bind(enc);
+    if (enc && realDraw) enc.draw = (...a: unknown[]) => { perfCount("draws"); return realDraw(...a); };
+    const realClear = Graphics.prototype.clear;
+    Graphics.prototype.clear = function (this: Graphics) { perfCount("gfx"); return realClear.call(this); };
     const done = () => { flushStamps(device); perfFrame(); };
     app.ticker.add(done, null, UPDATE_PRIORITY.LOW - 1);
     return () => {
       renderer.render = real as typeof renderer.render;
       if (encoder && realBegin) encoder.beginRenderPass = realBegin;
+      if (enc && realDraw) enc.draw = realDraw;
+      if (groups && realBuild) groups._buildInstructions = realBuild;
+      if (batch && realUpload) batch.upload = realUpload;
+      Graphics.prototype.clear = realClear;
       // The app can already be torn down by now, when the whole map unmounts.
       app.ticker?.remove(done, null);
     };
@@ -3129,14 +3241,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const vp = useWorldStore.getState().viewport;
     if (!bl || !vp) return;
     const { lo, hi } = visibleBandRange(grid, scale, vp.top, vp.bottom);
+    let e = section("tick: band cull");
     setVisibleBands(bl, lo, hi);
+    e();
     if (lo !== bandRange.current.lo || hi !== bandRange.current.hi) {
       bandRange.current = { lo, hi };
+      e = section("tick: overlays redrawn for the band range");
       redrawOverlays();                    // overlays follow the visible range
+      e();
     }
     const n = visibleBandCount(bl);
     if (n !== useWorldStore.getState().drawnBands) {
+      e = section("tick: drawn bands to the store");
       useWorldStore.getState().setDrawnBands(n);
+      e();
     }
   };
   useTick(() => cullBandsRef.current?.());

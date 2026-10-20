@@ -20,13 +20,19 @@ export function payday(ms: number): { structure: number; amount: number }[] {
     const who = workplaceKind(st.grid.structures.get(id)?.def ?? "");
     if (who) seated[who] = (seated[who] ?? 0) + d.used;
   }
+  // Each kind's income worked out ONCE: it is the whole multiplier chain, and
+  // asked again for every workplace it held a big town's page for a tenth of a second.
+  const rate: Partial<Record<GeneratorId, number>> = {};
+  for (const who of Object.keys(seated) as GeneratorId[]) {
+    const owned = gens.generators.find((g) => g.id === who)?.amount ?? 0;
+    rate[who] = gens.getGeneratorMoneyPerSecond(who, owned);
+  }
   const out: { structure: number; amount: number }[] = [];
   for (const [id, d] of desks) {
     const who = workplaceKind(st.grid.structures.get(id)?.def ?? "");
     const all = who ? seated[who] ?? 0 : 0;
     if (!who || !d.used || !all) continue;
-    const owned = gens.generators.find((g) => g.id === who)?.amount ?? 0;
-    const amount = gens.getGeneratorMoneyPerSecond(who, owned) * (d.used / all) * (ms / 1000);
+    const amount = (rate[who] ?? 0) * (d.used / all) * (ms / 1000);
     if (amount > 0) out.push({ structure: id, amount });
   }
   return out;

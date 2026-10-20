@@ -5,10 +5,18 @@ import type { Viewport } from "pixi-viewport";
  * the acquisition skill tree), so they feel identical:
  *  - left / middle mouse drag to pan
  *  - trackpad pinch to zoom
- *  - mouse wheel to zoom WITHOUT holding ctrl (`wheelZoom: true`)
+ *  - mouse wheel to zoom WITHOUT holding ctrl (`wheelZoom: true`), eased over
+ *    a few frames (`smooth`) rather than in jumps
+ *  - a drag let go of glides on and settles (`decelerate`), so the map has
+ *    weight under the hand instead of stopping dead
  *
  * Only the zoom clamp differs per canvas, so it's passed in.
  */
+/** Frames a notch of the wheel zooms over. */
+const WHEEL_FRAMES = 6;
+/** How much of its speed a let-go drag keeps each frame: a short glide, not a skid. */
+const FRICTION = 0.9;
+
 export function applyViewportControls(
   vp: Viewport,
   {
@@ -19,7 +27,8 @@ export function applyViewportControls(
 ): void {
   vp.drag({ clampWheel: false, mouseButtons: "left-middle" })
     .pinch({ noDrag: false })
-    .wheel({ percent, trackpadPinch: true, wheelZoom: true })
+    .wheel({ percent, trackpadPinch: true, wheelZoom: true, smooth: WHEEL_FRAMES })
+    .decelerate({ friction: FRICTION, minSpeed: 0.02 })
     .clampZoom({ minScale, maxScale });
 }
 

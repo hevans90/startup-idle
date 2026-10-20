@@ -38,9 +38,17 @@
  * anyone wants off a readout like this is the shape of the cost, not one
  * sample of it.
  */
-export type PerfSlot = "solve" | "build" | "present";
+/**
+ * TOWN and FX are the rest of the frame's own work: the cars, people and
+ * boats stepped and drawn; and the night, the rain, the AI layer and the
+ * holograms. Counted into `js` like the water's two.
+ */
+export type PerfSlot = "solve" | "build" | "present" | "town" | "fx";
+/** Things counted a frame: draw calls submitted, Graphics cleared to be drawn again. */
+export type PerfCount = "draws" | "gfx";
 
-const SLOTS: PerfSlot[] = ["solve", "build", "present"];
+const SLOTS: PerfSlot[] = ["solve", "build", "present", "town", "fx"];
+const COUNTS: PerfCount[] = ["draws", "gfx"];
 /** Frames in the average. A third of a second at sixty, which reads steady. */
 const WINDOW = 20;
 
@@ -48,10 +56,10 @@ type Ring = { at: number; n: number; of: Float64Array };
 const ring = (): Ring => ({ at: 0, n: 0, of: new Float64Array(WINDOW) });
 
 const rings: Record<string, Ring> = {
-  solve: ring(), build: ring(), present: ring(), frame: ring(),
+  solve: ring(), build: ring(), present: ring(), town: ring(), fx: ring(), frame: ring(), draws: ring(), gfx: ring(),
 };
 /** This frame's totals, gathered until `endFrame` files them. */
-const now: Record<PerfSlot, number> = { solve: 0, build: 0, present: 0 };
+const now: Record<PerfSlot | PerfCount, number> = { solve: 0, build: 0, present: 0, town: 0, fx: 0, draws: 0, gfx: 0 };
 let last = 0;
 
 const put = (r: Ring, v: number) => {
@@ -69,6 +77,10 @@ const mean = (r: Ring) => {
 /** Add to this frame's tally. Called with a measured span, not a timestamp. */
 export function perfAdd(slot: PerfSlot, ms: number) {
   now[slot] += ms;
+}
+/** Count one (or `n`) of something this frame. */
+export function perfCount(what: PerfCount, n = 1) {
+  now[what] += n;
 }
 
 /**
@@ -111,9 +123,9 @@ export function perfFrame() {
   const odd = gap > STALL && rings.frame.n >= WINDOW && gap > seen * OUTLIER;
   if (gap > 0 && !odd) {
     put(rings.frame, gap);
-    for (const s of SLOTS) put(rings[s], now[s]);
+    for (const s of [...SLOTS, ...COUNTS]) put(rings[s], now[s]);
   }
-  for (const s of SLOTS) now[s] = 0;
+  for (const s of [...SLOTS, ...COUNTS]) now[s] = 0;
 }
 
 export type PerfRead = {
@@ -122,17 +134,25 @@ export type PerfRead = {
   solve: number;
   build: number;
   present: number;
-  /** Solve and build: the work this code actually chooses to do. */
+  town: number;
+  fx: number;
+  /** Solve, build, town and fx: the work this code actually chooses to do. */
   js: number;
+  draws: number;
+  gfx: number;
 };
 
 export function perfRead(): PerfRead {
   const frame = mean(rings.frame);
-  const solve = mean(rings.solve), build = mean(rings.build);
+  const solve = mean(rings.solve), build = mean(rings.build), town = mean(rings.town), fx = mean(rings.fx);
   // Present is deliberately NOT in this total: it is mostly waiting, so adding
   // it in would make a quiet frame look busy. @see perf.ts
   return {
     fps: frame > 0 ? 1000 / frame : 0,
-    frame, solve, build, present: mean(rings.present), js: solve + build,
+    frame, solve, build, present: mean(rings.present), town, fx, js: solve + build + town + fx,
+    draws: mean(rings.draws), gfx: mean(rings.gfx),
   };
 }
+
+// `__perf()` in development: the readout's numbers, for a script to read.
+if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __perf?: () => PerfRead }).__perf = perfRead;

@@ -30,6 +30,8 @@ import { useInnovationStore } from "./state/innovation.store";
 import { useMoneyStore } from "./state/money.store";
 import { useSessionStore } from "./state/session.store";
 import { useThemeStore } from "./state/theme.store";
+import { useGlobalSettingsStore } from "./state/global-settings.store";
+import { listen, setLevel } from "./audio/sound";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
 
@@ -134,6 +136,15 @@ function App() {
       window.removeEventListener("pagehide", touch);
     };
   }, [offlineDone]);
+
+  // SOUND: started on the first gesture, buttons click, and the level kept to the player's settings. @see audio/sound
+  useEffect(() => {
+    const stop = listen();
+    const apply = () => { const g = useGlobalSettingsStore.getState(); setLevel(g.volume, g.muted); };
+    apply();
+    const unsub = useGlobalSettingsStore.subscribe(apply);
+    return () => { stop(); unsub(); };
+  }, []);
 
   useEffect(() => {
     if (founderId == null || !offlineDone) return;
