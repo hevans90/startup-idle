@@ -30,7 +30,6 @@ import { syncAvailableUpgrades, UPGRADES_CORE, useUpgradeStore } from "../state/
 import { getGeneratorCost } from "../utils/generator-utils";
 import { structureDef } from "../world/structures/def";
 import { STALL_GRACE } from "../world/projects/works";
-import { landPrice, STARTING_PARCELS } from "../world/land";
 import { LAB_SHARE } from "../world/projects/labs";
 import { DESKLESS, DESKS } from "../world/agents/commute";
 import { useSlopPitStore } from "../state/slop-pit.store";
@@ -79,9 +78,6 @@ export type MapRunReport = {
   stalledSeconds: number;
   /** Seconds the cheapest next thing was a lot rather than a hire or an upgrade. */
   lots: number;
-  /** Parcels of land bought, and what they cost. @see world/land */
-  parcels: number;
-  spentOnLand: number;
   /** When the core upgrades were done, seconds from the start. */
   coreAt: number | null;
   /** Offices bought, and what they cost. @see seat */
@@ -131,12 +127,6 @@ export function longestFlat(report: MapRunReport, until = report.endedAt): { sec
 const GATES: readonly ProjectId[] = ["garage", "townhall", "studio", "campus", "datacentre", "conference", "ipo"];
 /** Lots a street, beds a lot by tier, and the service each tier grows with. */
 const STREET = 6;
-/**
- * LAND: lots a parcel takes, roads, services and sites allowing — a 16-tile
- * parcel with a road through it, both sides. A new lot past what the land
- * owned takes is the next parcel's price on top. @see world/land
- */
-const LOTS_A_PARCEL = 20;
 const TIER_SLOTS = [2, 5, 12, 30];
 const SERVICE_ORDER = ["cafe", "park", "gym"] as const;
 const STOCK = 2;
@@ -256,7 +246,7 @@ export function simulateMapRun(
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
     spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
-    parcels: 0, spentOnLand: 0, coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
+    coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
@@ -277,11 +267,7 @@ export function simulateMapRun(
     const list = streets[id];
     const last = list[list.length - 1];
     const lotTier = last && last.lots < STREET ? last.tier : 0;
-    // Past the land owned, a lot costs the next parcel too.
-    const lotsAll = Object.values(streets).flat().reduce((n, st) => n + st.lots, 0);
-    const landFull = lotsAll >= (STARTING_PARCELS + report.parcels) * LOTS_A_PARCEL;
-    const lotPrice = buildCost(lotDef)!.toNumber()
-      + (landFull ? landPrice(report.parcels, useGeneratorStore.getState().getMoneyPerSecond()) : 0);
+    const lotPrice = buildCost(lotDef)!.toNumber();
     let best = { kind: "lot" as "lot" | "grow", cost: lotPrice, beds: TIER_SLOTS[lotTier], street: -1 };
     // Services only once the Town Hall has opened them.
     if (built.has("townhall")) list.forEach((st, k) => {
@@ -419,12 +405,7 @@ export function simulateMapRun(
         const id = next.id as GeneratorId, way = bestBeds(id);
         spend(next.cost);
         if (way.kind === "lot") {
-          const lotsAll = Object.values(streets).flat().reduce((n, st) => n + st.lots, 0);
-          if (lotsAll >= (STARTING_PARCELS + report.parcels) * LOTS_A_PARCEL) {
-            const land = landPrice(report.parcels, useGeneratorStore.getState().getMoneyPerSecond());
-            report.parcels++; report.spentOnLand += land;
-            report.spentOnLots += next.cost - land;
-          } else report.spentOnLots += next.cost;
+          report.spentOnLots += next.cost;
           report.lots++;
           const list = streets[id], last = list[list.length - 1];
           if (last && last.lots < STREET) last.lots++;

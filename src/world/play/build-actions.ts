@@ -1,6 +1,6 @@
 /**
  * World v2 — THE PLAYER'S BUILD ACTIONS, AS CALLS: put a building down, pull
- * one down, lay or lift road, reshape the ground, buy land, start a project.
+ * one down, lay or lift road, reshape the ground, start a project.
  * Each goes through exactly the store action a click goes through — the same
  * prices, the same rules, the same refusals — so whatever calls these (the
  * company's AI, The Model's autopilot) builds as a player builds and cannot
@@ -63,13 +63,6 @@ export const reshape = (op: "raise" | "lower" | "flatten", from: Cell, to: Cell,
   stroke(op, from, to, step === undefined ? {} : { heightStep: step });
 /** Pour water along a line: the AI's reservoirs. @see POUR_AMOUNT */
 export const pour = (from: Cell, to: Cell) => stroke("pourWater", from, to);
-
-/** Buy the parcel a tile is in. */
-export const buyParcelAt = (at: Cell): boolean => {
-  const before = useWorldStore.getState().revision;
-  withTool({}, () => useWorldStore.getState().buyParcel(at));
-  return useWorldStore.getState().revision !== before;
-};
 
 /** Start a project's site at a tile. */
 export const startProject = (id: ProjectId, at: Cell): boolean =>

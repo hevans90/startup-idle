@@ -79,9 +79,8 @@ export type FounderDef = {
 
 // ─── the founders' rules ──────────────────────────────────────────────────────
 
-/** The Bootstrapper builds for this share of the price, and pays this many times over for land. */
+/** The Bootstrapper builds for this share of the price. */
 export const BOOTSTRAP_BUILD = 0.65;
-export const BOOTSTRAP_LAND = 2;
 /** The share of the Data Centre's headcounts the Visionary needs. */
 export const VISIONARY_DATACENTRE = 0.5;
 /** How much faster the Hustler's map events come round. */
@@ -122,7 +121,7 @@ export const FOUNDERS: FounderDef[] = [
   // ── The Bootstrapper (1 exit) ────────────────────────────────────────────────
   {
     id: "bootstrapper",
-    rule: `Everything built ${Math.round((1 - BOOTSTRAP_BUILD) * 100)}% cheaper, projects too; land costs ${BOOTSTRAP_LAND}× as much`,
+    rule: `Everything built ${Math.round((1 - BOOTSTRAP_BUILD) * 100)}% cheaper, projects too`,
     name: "The Bootstrapper",
     tagline: "Ramen profitable",
     unlockCondition: {

@@ -36,7 +36,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { companyLand, drainDirty, playRules, startedOnFixture, startFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { drainDirty, playRules, startedOnFixture, startFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import {
@@ -79,7 +79,7 @@ import { isPaved, maskAt, maskDirtyCells } from "./roads/mask";
 import { netIdAt } from "./roads/network";
 import { loadIsometricAtlasTextures as _loader } from "../iso/atlas/load-isometric-atlases";
 import {
-  drawBandStripes, drawGrid, drawHeightTint, drawHover, drawLand, drawNetComponents,
+  drawBandStripes, drawGrid, drawHeightTint, drawHover, drawNetComponents,
   drawOrigin, drawPickCrosshair, drawRoadGaps, drawRoadMask,
 } from "./render/overlays";
 
@@ -195,7 +195,6 @@ import {
 import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
-import { buyable, PARCELS, parcelOf } from "./land";
 import { busyness, darkness, dayPhase, drawRain, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
 import { createLights, type Lights } from "./render/lights";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
@@ -1621,7 +1620,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const hoverGfx = useRef<Graphics | null>(null);
   const openGfx = useRef<Graphics | null>(null);
   const crossGfx = useRef<Graphics | null>(null);
-  const landGfx = useRef<Graphics | null>(null);
   const overlays = useWorldStore((s) => s.overlays);
   const gpuWater = useWorldStore((s) => s.gpuWater);
   const bandRange = useRef({ lo: 0, hi: 0 });
@@ -1691,10 +1689,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // created later (it needs the band layer) and must stay on top of these
     // however the two effects happen to interleave.
     root.sortableChildren = true;
-    const refs = [landGfx, bandGfx, tintGfx, netGfx, maskGfx, gapGfx, gridGfx, originGfx, hoverGfx, crossGfx, openGfx];
+    const refs = [bandGfx, tintGfx, netGfx, maskGfx, gapGfx, gridGfx, originGfx, hoverGfx, crossGfx, openGfx];
     const made = refs.map((r, i) => {
       const g = new Graphics();
-      g.zIndex = i;              // land, stripes, tint, net, mask, grid, origin, hover, crosshair, what opens
+      g.zIndex = i;              // stripes, tint, net, mask, grid, origin, hover, crosshair, what opens
       root.addChild(g);
       r.current = g;
       return g;
@@ -1705,31 +1703,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       for (const r of refs) r.current = null;
     };
   }, [redrawOverlays]);
-
-  // LAND NOT OWNED, under a fog, in the game; and with the land tool in hand
-  // what is for sale, and the parcel pointed at. Redrawn when any of that
-  // changes, off subscriptions rather than per frame. @see drawLand
-  useEffect(() => {
-    let key = "";
-    const draw = () => {
-      const g = landGfx.current;
-      if (!g) return;
-      const st = useWorldStore.getState(), land = companyLand();
-      if (!st.playing || !land) { if (key) g.clear(); key = ""; return; }
-      const buying = st.tool === "buyLand";
-      const forSale = new Set(buying ? [...Array(PARCELS * PARCELS).keys()].filter((p) => buyable(land, p)) : []);
-      const at = buying && st.hover ? parcelOf(grid, st.hover.x, st.hover.y) : -1;
-      const lit = forSale.has(at) ? at : -1;
-      const k = `${land.join()}|${buying}|${lit}|${grid.rev}`;
-      if (k === key) return;
-      key = k;
-      drawLand(g, grid, scale, (x, y) => parcelOf(grid, x, y), new Set(land), forSale, lit);
-    };
-    draw();
-    const offWorld = useWorldStore.subscribe(draw);
-    const offSession = useSessionStore.subscribe(draw);
-    return () => { offWorld(); offSession(); };
-  }, [grid, scale, redrawOverlays]);
 
   // ── picking ─────────────────────────────────────────────────────────────
   // Listened on the VIEWPORT rather than a hit plane: the pointer position is

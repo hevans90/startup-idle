@@ -36,7 +36,7 @@ import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
 import { createGrid, fillTerrain, idx, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
-import { DERELICT, SLOP_PIT, structureDef } from "../world/structures/def";
+import { SLOP_PIT, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { facingFor, gamePipeRun, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
 import {
@@ -68,17 +68,12 @@ import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
-import { clearSaved, hasSaved, onRunMap, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
+import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { buildCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
-import { useSessionStore } from "./session.store";
-import { usePrestigeStore } from "./prestige.store";
-import { buyable, landDiscount, landPrice, ownsTile, PARCELS, parcelOf, parcelRect, STARTING_PARCELS } from "../world/land";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
 import { forgetGenParams, loadGenParams, saveGenParams } from "../world/io/gen-settings";
-import { founderIs } from "../game/founder-rules";
-import { BOOTSTRAP_LAND } from "../game/founders.catalog";
 
 export type Overlays = {
   grid: boolean;
@@ -229,18 +224,11 @@ export const getWorks = () => works;
  * click. A straight line from where it went down to where it is. @see endStroke
  */
 /**
- * THE GAME'S PLACEMENT RULES: frontage, and the company's own land. The
- * editor has none of them. @see PlaceRules, world/land
+ * THE GAME'S PLACEMENT RULES: frontage. The editor has none of them.
+ * @see PlaceRules
  */
-/**
- * THE COMPANY'S LAND, on the company's map: the editor's map is nobody's to
- * own, and its play mode builds anywhere. Null for all of it. @see world/land
- */
-export const companyLand = (): number[] | null => (onRunMap() ? useSessionStore.getState().land : null);
-
-export function playRules(g: Grid): PlaceRules {
-  const land = companyLand();
-  return { needsRoad: true, ...(land ? { owned: (x: number, y: number) => ownsTile(g, land, x, y) } : {}) };
+export function playRules(_g: Grid): PlaceRules {
+  return { needsRoad: true };
 }
 
 export function lotLine(st: { tool: string; structureDefId: string; placingProject: unknown; grid: Grid }, s0: Stroke): Cell[] | null {
@@ -279,17 +267,6 @@ export const sludgeTruckBack = () => { haulersOut = Math.max(0, haulersOut - 1);
 export const SLUDGE_TRUCKS = 3;
 /** What clearing a derelict building costs: fifteen seconds of income. @see DERELICT */
 export const clearingPrice = () => Math.max(200, Math.round(incomeNow() * 15));
-/** What the next parcel of land costs. @see landPrice */
-export const parcelPrice = () => {
-  // Counted from what a company starts with, its founders' extra included,
-  // and cheaper for those who have learned where to buy. @see EXTRA_PARCELS, CHEAP_LAND_MULT
-  const m = usePrestigeStore.getState().modifiers;
-  const bought = Math.max(0, (useSessionStore.getState().land?.length ?? 0) - STARTING_PARCELS - m.startingParcels);
-  // THE BOOTSTRAPPER pays over the odds for it. @see BOOTSTRAP_LAND
-  // HILLY LAND comes cheap. @see landDiscount
-  const hills = 1 - landDiscount(useWorldStore.getState().grid);
-  return Math.round(landPrice(bought, incomeNow()) * m.landCostMult * hills * (founderIs("bootstrapper") ? BOOTSTRAP_LAND : 1));
-};
 export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
 /** What each choice an event offers costs in money, for those that cost any. Sludge trucks are paid for apart. */
 const CHOICE_PRICE: Record<string, () => number> = { host: () => pizzaPrice() };
@@ -527,15 +504,7 @@ type WorldState = {
    */
   mapHidden: boolean;
   setMapHidden: (hidden: boolean) => void;
-  /** Buy the parcel of land a cell is in, if it is for sale and affordable. @see world/land */
-  buyParcel: (c: Cell) => void;
-  /**
-   * Old buildings on the land a new company has yet to buy: one on about half
-   * its parcels, by the road, the same each time for the same `seed`. Not an
-   * edit to undo. @see DERELICT
-   */
-  placeDerelicts: (land: readonly number[], seed: number) => void;
-  /** A café by the road on the company's own land, free: a founding gift. @see foundingCafe */
+  /** A café by the road, free: a founding gift. @see foundingCafe */
   foundCafe: () => void;
   /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
   housingMoved: (ids: readonly number[]) => void;
@@ -863,51 +832,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     history = createHistory();
     set({ revision: get().revision + 1, ...historyMeta(), ...netMeta() });
   },
-  placeDerelicts: (land, seed) => {
-    const st = get();
-    let r = seed >>> 0;
-    const rand = () => { r = (r + 0x6d2b79f5) >>> 0; let t = r; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-    let changed = false;
-    for (let p = 0; p < PARCELS * PARCELS; p++) {
-      if (land.includes(p) || rand() < 0.5) continue;
-      const rect = parcelRect(st.grid, p);
-      const rules = { needsRoad: true, owned: (x: number, y: number) => parcelOf(st.grid, x, y) === p };
-      // A few tries at random spots in the parcel; none by a road and it has none.
-      for (let k = 0; k < 40; k++) {
-        const x = rect.x0 + Math.floor(rand() * (rect.x1 - rect.x0)), y = rect.y0 + Math.floor(rand() * (rect.y1 - rect.y0));
-        const cmd = placeCommand(st.grid, DERELICT, x, y, rules);
-        if (!cmd) continue;
-        commit(st.grid, history, cmd);
-        if (water && touchesSurface(cmd)) syncGround(water, st.grid);
-        if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
-        changed = true;
-        break;
-      }
-    }
-    if (changed) {
-      history = createHistory();
-      set({ revision: get().revision + 1, ...historyMeta(), ...netMeta() });
-    }
-  },
-  buyParcel: (c) => {
-    const st = get();
-    const land = companyLand();
-    if (!st.playing || !land) return;
-    const p = parcelOf(st.grid, c.x, c.y);
-    if (land.includes(p)) return;
-    if (!buyable(land, p)) {
-      set({ notice: { text: "Buy the land next to yours first", at: Date.now() } });
-      return;
-    }
-    const price = parcelPrice();
-    if (useMoneyStore.getState().money.lt(price)) {
-      set({ notice: { text: `Not enough money for this land: ${formatCurrency(price)}`, at: Date.now() } });
-      return;
-    }
-    useMoneyStore.getState().spendMoney(price);
-    useSessionStore.getState().setLand([...land, p].sort((a, b) => a - b));
-    set({ revision: st.revision + 1 });
-  },
   openSlopPit: () => {
     const st = get();
     for (const s of st.grid.structures.values()) if (s.def === SLOP_PIT.id) return;
@@ -1087,11 +1011,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // LOTS GO DOWN IN A LINE: dragged along a street, a lot on every cell of
     // the drag that will take one, each paid for, until the money runs out.
     // @see lotLine
-    if (s0.tool === "buyLand") {
-      set({ stroke: null });
-      get().buyParcel(s0.head);
-      return;
-    }
     if (isStructureTool(s0.tool)) {
       const line = lotLine(st, s0);
       if (!line) { get().commitStructure(s0.head); return; }
@@ -1144,14 +1063,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         if (s0.tool === "spring") b.set("fluid", c.x, c.y, st.fluidMaterial);
       }
     } else if (isPipeTool(s0.tool) && st.playing) {
-      // THE PIPE TOOL, in the game: a run on the company's own land, paid a
-      // tile at a time for the new tiles, all or none, every end facing what
-      // it should. @see gamePipeRun, pipeCost
-      const land = companyLand();
-      if (land && cells.some((c) => !ownsTile(st.grid, land, c.x, c.y))) {
-        set({ stroke: null, notice: { text: "Not your land: buy it first", at: Date.now() } });
-        return;
-      }
+      // THE PIPE TOOL, in the game: a run paid a tile at a time for the new
+      // tiles, all or none, every end facing what it should. @see gamePipeRun, pipeCost
       const from = s0.anchor;
       // Water as it stands now, where the map is running it. @see depthAt
       const wet = (x: number, y: number) => st.grid.pool[idx(st.grid, x, y)] > 0 || (!!water && depthAt(water, x, y) > WET_DEPTH);
@@ -1215,12 +1128,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const value = s0.tool === "eraseRoad" ? VOID_MATERIAL : PAVED_MATERIAL;
       // ROAD COSTS MONEY in the game, a tile at a time — new tiles only, and
       // the whole stroke or none of it. Lifting road is free. @see roadCost
-      // AND ONLY ON THE COMPANY'S OWN LAND, laid or lifted. @see world/land
-      const land = companyLand();
-      if (st.playing && land && cells.some((c) => !ownsTile(st.grid, land, c.x, c.y))) {
-        set({ stroke: null, notice: { text: "Not your land: buy it first", at: Date.now() } });
-        return;
-      }
       // THE AI'S STREETS, from the Overseer on: its district's roads are its
       // to lay and lift, and the player's road tools stop at its edge.
       // Not on The Model's own runs, nor for the AI itself. @see aiDistrict
@@ -1389,9 +1296,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       refuse(why ? `Can't build here: ${why}` : "Can't build here");
       return;
     }
-    // ONLY ON THE COMPANY'S OWN LAND does anything come down, either. @see world/land
-    const land = companyLand();
-    if (st.playing && demolishing && land && !ownsTile(st.grid, land, c.x, c.y)) { refuse("Not your land: buy it first"); return; }
     // THE SLOP PIT is not the company's to fill in: it is where the slop goes.
     if (st.playing && demolishing && st.grid.structures.get(under)?.def === SLOP_PIT.id) { refuse("The slop pit stays: drain it instead"); return; }
     // A DERELICT costs to clear. @see DERELICT

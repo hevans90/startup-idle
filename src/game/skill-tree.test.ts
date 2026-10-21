@@ -346,14 +346,14 @@ describe("canRemoveWithoutOrphan", () => {
 });
 
 describe("town perks", () => {
-  test("four notables shape a company's town, keeping their bonuses", () => {
+  test("two notables shape a company's town, keeping their bonuses", () => {
     const byTitle = new Map(SKILL_TREE.nodes.map((n) => [n.title, n]));
-    const m = resolvePrestigeModifiers(["Company Town", "Cheap Real Estate", "Hometown Hero", "Clean Sweep"].map((t) => byTitle.get(t)!.id));
-    expect(m.startingParcels).toBe(2);
-    expect(m.landCostMult).toBeCloseTo(0.6, 6);
+    const m = resolvePrestigeModifiers(["Hometown Hero", "Clean Sweep"].map((t) => byTitle.get(t)!.id));
     expect(m.foundingCafe).toBe(true);
     expect(m.cleanupMult).toBe(0.5);
-    expect(byTitle.get("Company Town")!.grants).toEqual([{ stat: "managerSpeed", kind: "pct", value: 12 }]);
+    // Land is gone: what were its notables are plain bonuses now.
+    expect(byTitle.get("Company Town")!.grants).toEqual([{ stat: "managerSpeed", kind: "pct", value: 25 }]);
+    expect(byTitle.get("Company Town")!.special).toBeUndefined();
   });
 
   test("three more bring rules: a shipping route, quick repairs, a fourth term sheet", () => {

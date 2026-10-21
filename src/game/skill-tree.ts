@@ -45,9 +45,7 @@ export type KeystoneSpecial =
   | "dampSatisfaction" // Enshittify — positive satisfaction bonuses halved
   | "internsCrippled" // AGI-Pilled — interns produce a fraction of normal
   | "freeStartingLevels" // Permanent Acqui-hire — free generator levels on a new run
-  // THE TOWN, on notables: what a company's map starts with and costs. @see world/land
-  | "extraLand" // Company Town — two more parcels to start with
-  | "cheapLand" // Cheap Real Estate — land costs less
+  // THE TOWN, on notables: what a company's map starts with.
   | "foundingCafe" // Hometown Hero — a new company's map comes with a café
   | "lightCleanup" // Clean Sweep — mopping up sludge takes half the people
   | "foundingRoute" // Conglomerate — every company starts with a regular shipping route
@@ -57,9 +55,6 @@ export type KeystoneSpecial =
 /** Free generator (intern) levels granted at the start of each run while the
  * "Permanent Acqui-hire" keystone is allocated — the upside offsetting its halved Equity. */
 export const ACQUIHIRE_FREE_LEVELS = 25;
-/** Town perks: parcels a new company starts with on top, and what land costs. */
-export const EXTRA_PARCELS = 2;
-export const CHEAP_LAND_MULT = 0.6;
 /** Interns' output multiplier under "AGI-Pilled". */
 export const AGI_INTERN_OUTPUT_MULT = 0.1;
 /** How much "Enshittify" scales the POSITIVE side of satisfaction multipliers. */
@@ -148,8 +143,6 @@ const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
   dampSatisfaction: { label: "Positive satisfaction halved", tone: "bad" },
   internsCrippled: { label: "Interns produce 10× less", tone: "bad" },
   freeStartingLevels: { label: `+${ACQUIHIRE_FREE_LEVELS} starting interns`, tone: "good" },
-  extraLand: { label: `+${EXTRA_PARCELS} parcels of land to start`, tone: "good" },
-  cheapLand: { label: `Land ${Math.round((1 - CHEAP_LAND_MULT) * 100)}% cheaper`, tone: "good" },
   foundingCafe: { label: "Every new town starts with a café", tone: "good" },
   lightCleanup: { label: "Mopping up sludge takes half the people", tone: "good" },
   foundingRoute: { label: "Every company starts with a regular shipping route", tone: "good" },
@@ -293,7 +286,7 @@ const CLUSTERS: ClusterDef[] = [
     minorBonus: [pct("hireCost", -1.2)],
     notables: [
       { title: "Ramen Profitable", effect: "−10% hire cost on all generators.", bonus: [pct("hireCost", -10)] },
-      { title: "Cheap Real Estate", effect: "−4.8% hire cost, and land costs 40% less.", bonus: [pct("hireCost", -4.8)], special: "cheapLand" },
+      { title: "Cheap Real Estate", effect: "−12% hire cost on all generators.", bonus: [pct("hireCost", -12)] },
     ],
     keystone: { title: "Bootstrapped", effect: "Money ×4 and hire cost −25%, but managers and auto-buy are disabled.", bonus: [mult("money", 4), pct("hireCost", -25), mult("autoBuy", 0)], special: "disableManagers" },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
@@ -327,7 +320,7 @@ const CLUSTERS: ClusterDef[] = [
     notables: [
       { title: "Headcount Is Strategy", effect: "+0.4% money per total employee.", bonus: [pct("headcount", 0.4)] },
       { title: "Conglomerate", effect: "+4% money and +4% innovation, and every company starts with a regular shipping route.", bonus: [pct("money", 4), pct("innovation", 4)], special: "foundingRoute" },
-      { title: "Company Town", effect: `+12% manager speed, and every company starts with ${EXTRA_PARCELS} more parcels of land.`, bonus: [pct("managerSpeed", 12)], special: "extraLand" },
+      { title: "Company Town", effect: "+25% manager speed.", bonus: [pct("managerSpeed", 25)] },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
   },
@@ -736,10 +729,6 @@ export type PrestigeModifiers = {
   /** Permanent Acqui-hire: free generator levels granted on each new run. */
   freeStartingLevels: number;
   // ── The town ──
-  /** Company Town: parcels a new company starts with on top of its block. */
-  startingParcels: number;
-  /** Cheap Real Estate: what land costs (1 normal). */
-  landCostMult: number;
   /** Hometown Hero: a new company's map comes with a café. */
   foundingCafe: boolean;
   /** Clean Sweep: the share of the usual mopping-up crew needed (1 normal). */
@@ -769,8 +758,6 @@ export const NEUTRAL_PRESTIGE_MODIFIERS: PrestigeModifiers = {
   satisfactionPositiveMult: 1,
   internOutputMult: 1,
   freeStartingLevels: 0,
-  startingParcels: 0,
-  landCostMult: 1,
   foundingCafe: false,
   cleanupMult: 1,
   startingRoutes: 0,
@@ -807,12 +794,6 @@ export function resolvePrestigeModifiers(
         break;
       case "freeStartingLevels":
         out.freeStartingLevels = ACQUIHIRE_FREE_LEVELS;
-        break;
-      case "extraLand":
-        out.startingParcels = EXTRA_PARCELS;
-        break;
-      case "cheapLand":
-        out.landCostMult = CHEAP_LAND_MULT;
         break;
       case "foundingCafe":
         out.foundingCafe = true;

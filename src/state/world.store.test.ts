@@ -9,8 +9,6 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import Decimal from "break_infinity.js";
 
 import { useMoneyStore } from "./money.store";
-import { useSessionStore } from "./session.store";
-import { parcelOf } from "../world/land";
 
 import { deserializeWorld, serializeWorld, toJSON } from "../world/io/serialize";
 import {
@@ -725,42 +723,22 @@ describe("projects under play rules", () => {
   });
 });
 
-describe("land under play rules", () => {
-  // The company's own map: the editor's is nobody's land. @see companyLand
+describe("the company's map under play rules", () => {
   beforeEach(() => setSaveSlot("run"));
-  /** A 64² map, a road along row 20, owning the top-left two by two parcels. */
-  const owned = () => {
+  afterEach(() => { s().setPlaying(false); setSaveSlot("editor"); });
+
+  test("builds anywhere by a road: there is no land to buy", () => {
     const g = createGrid(64, 64);
     fillTerrain(g, 1);
     for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 20)] = 1;
     s().loadGrid(g);
-    useSessionStore.getState().setLand([0, 1, 4, 5]);
     s().setPlaying(true);
-  };
-  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); setSaveSlot("editor"); });
-
-  test("builds on its own land, and not off it", () => {
-    owned();
     useMoneyStore.setState({ money: new Decimal(1e6) });
     s().setTool("placeStructure");
     s().setStructureDef("kit:intern.t0");
     s().commitStructure({ x: 10, y: 19 });
-    expect([...s().grid.structures.values()].map((x) => [x.x, x.y])).toEqual([[10, 19]]);
-    s().commitStructure({ x: 40, y: 19 });
-    expect(s().grid.structures.size).toBe(1);
-    expect(s().notice?.text).toMatch(/not your land/);
-  });
-
-  test("buys the parcel next to its land for its price, and nothing further off", () => {
-    owned();
-    useMoneyStore.setState({ money: new Decimal(1e6) });
-    s().buyParcel({ x: 50, y: 50 });
-    expect(useSessionStore.getState().land).toEqual([0, 1, 4, 5]);
-    expect(s().notice?.text).toMatch(/next to yours/);
-    const before = useMoneyStore.getState().money.toNumber();
-    s().buyParcel({ x: 40, y: 10 });
-    expect(useSessionStore.getState().land).toEqual([0, 1, 2, 4, 5]);
-    expect(before - useMoneyStore.getState().money.toNumber()).toBeGreaterThanOrEqual(400);
+    s().commitStructure({ x: 60, y: 19 });
+    expect([...s().grid.structures.values()].map((x) => [x.x, x.y])).toEqual([[10, 19], [60, 19]]);
   });
 });
 
@@ -789,41 +767,20 @@ describe("flood walls under play rules", () => {
 });
 
 describe("derelict buildings", () => {
-  beforeEach(() => setSaveSlot("run"));
-  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); setSaveSlot("editor"); });
+  afterEach(() => s().setPlaying(false));
 
-  /** A 64² map with a road across every parcel row, owning the middle block. */
-  const roads = () => {
-    const g = createGrid(64, 64);
+  test("cost to clear", () => {
+    const g = createGrid(20, 20);
     fillTerrain(g, 1);
-    for (const y of [8, 24, 40, 56]) for (let x = 0; x < g.w; x++) g.paved[idx(g, x, y)] = 1;
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 8)] = 1;
     s().loadGrid(g);
-    return g;
-  };
-
-  test("stand only on land still for sale, by a road, the same for the same seed", () => {
-    roads();
-    s().placeDerelicts([5, 6, 9, 10], 1234);
-    const at = [...s().grid.structures.values()].filter((x) => x.def === "derelict").map((x) => [x.x, x.y]);
-    expect(at.length).toBeGreaterThan(0);
-    for (const [x, y] of at) expect([5, 6, 9, 10]).not.toContain(parcelOf(s().grid, x, y));
-    roads();
-    s().placeDerelicts([5, 6, 9, 10], 1234);
-    expect([...s().grid.structures.values()].filter((x) => x.def === "derelict").map((x) => [x.x, x.y])).toEqual(at);
-  });
-
-  test("cost to clear once the land is bought, and cannot be touched before", () => {
-    roads();
-    s().placeDerelicts([5, 6, 9, 10], 1234);
+    s().setTool("placeStructure");
+    s().setStructureDef("derelict");
+    s().commitStructure({ x: 5, y: 9 });
     const d = [...s().grid.structures.values()].find((x) => x.def === "derelict")!;
-    useSessionStore.getState().setLand([5, 6, 9, 10]);
     s().setPlaying(true);
     s().setTool("demolish");
     useMoneyStore.setState({ money: new Decimal(1e6) });
-    s().commitStructure({ x: d.x, y: d.y });
-    expect(s().grid.structures.has(d.id)).toBe(true);
-    expect(s().notice?.text).toMatch(/Not your land/);
-    useSessionStore.getState().setLand([...Array(16).keys()]);
     s().commitStructure({ x: d.x, y: d.y });
     expect(s().grid.structures.has(d.id)).toBe(false);
     expect(useMoneyStore.getState().money.toNumber()).toBeLessThanOrEqual(1e6 - 200);
@@ -847,20 +804,4 @@ describe("the slop pit under play rules", () => {
   });
 });
 
-describe("the editor's map in play", () => {
-  afterEach(() => { s().setPlaying(false); useSessionStore.getState().setLand(null); });
-  test("is nobody's land: the company's parcels do not bind it", () => {
-    setSaveSlot("editor");
-    const g = createGrid(64, 64);
-    fillTerrain(g, 1);
-    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 20)] = 1;
-    s().loadGrid(g);
-    useSessionStore.getState().setLand([0]);
-    s().setPlaying(true);
-    useMoneyStore.setState({ money: new Decimal(1e6) });
-    s().setTool("placeStructure");
-    s().setStructureDef("kit:intern.t0");
-    s().commitStructure({ x: 40, y: 19 });
-    expect(s().grid.structures.size).toBe(1);
-  });
-});
+

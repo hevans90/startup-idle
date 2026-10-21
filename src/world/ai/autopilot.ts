@@ -5,8 +5,7 @@
  * office, a service, a lot, the next piece of street — built through the
  * player's own actions, within the budget, a drone flying each out. It hires
  * into empty beds, buys the employee upgrade the next project waits on, starts
- * the projects as they open, buys land when the plan runs out of room, and
- * clears derelicts in its way. @see nextStep, planTown, plans/singularity.md §4b
+ * the projects as they open, and clears derelicts in its way. @see nextStep, planTown, plans/singularity.md §4b
  */
 import { buildCost, roadCost } from "../../game/build-cost";
 import { roomFor } from "../../game/housing";
@@ -17,14 +16,13 @@ import { getGeneratorCost } from "../../utils/generator-utils";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
-import { clearingPrice, companyLand, parcelPrice, playRules } from "../../state/world.store";
+import { clearingPrice, playRules } from "../../state/world.store";
 import { serializeWorld } from "../io/serialize";
-import { PARCELS, buyable, ownsTile, parcelRect } from "../land";
 import { builtProjects, nearestSpot, projectUnderWay } from "../projects/works";
 import { structureDef } from "../structures/def";
 import { saleName } from "../play/building-info";
 import type { Grid } from "../grid";
-import { buyParcelAt, demolishAt, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
+import { demolishAt, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
 import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "./ai-runner";
 import type { Masterplan, PlanStep } from "./masterplan/plan";
 import { inBox, townCentre, type Box } from "./masterplan/plan";
@@ -43,8 +41,8 @@ import { chooseWithRebuild, type PlanReply, type PlanRequest } from "./masterpla
 export const AUTOPILOT_EVERY = 2;
 export const REPLAN_EVERY = 180;
 
-type State = { plan: Masterplan | null; plannedAt: number; landKey: string; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; tried: Set<number>; doneAtPlan: number; box: Box | null; choice: Choice | null; pipe: PipeRoute | null; flying: Set<string> };
-const state: State = { plan: null, plannedAt: 0, landKey: "", asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), tried: new Set(), doneAtPlan: 0, box: null, choice: null, pipe: null, flying: new Set() };
+type State = { plan: Masterplan | null; plannedAt: number; asked: number | null; clock: number; worker: Worker | null; done: number; last: string | null; failed: Set<string>; tried: Set<number>; doneAtPlan: number; box: Box | null; choice: Choice | null; pipe: PipeRoute | null; flying: Set<string> };
+const state: State = { plan: null, plannedAt: 0, asked: null, clock: 0, worker: null, done: 0, last: null, failed: new Set(), tried: new Set(), doneAtPlan: 0, box: null, choice: null, pipe: null, flying: new Set() };
 
 /** The plan now, for the overlay and the panel; null until one is made. */
 export const currentPlan = () => state.plan;
@@ -113,7 +111,6 @@ function pricesNow(kinds: GeneratorId[]): Prices {
 
 /** Ask for the next block: chosen of several, looked ahead at, in a worker or here. @see chooseBlock */
 function requestPlan(g: Grid) {
-  const land = companyLand();
   const kinds = kindsByNeed();
   const services = featureGateOpen("services"), offices = true;
   const style = modelStyle();
@@ -121,14 +118,14 @@ function requestPlan(g: Grid) {
   const prices = pricesNow(kinds);
   state.asked = Date.now();
   const arrived = (c: Chosen | null) => {
-    // NOWHERE TO GROW: an empty plan, so the work goes on to land and derelicts.
+    // NOWHERE TO GROW: an empty plan, so the work goes on to derelicts.
     state.plan = c?.plan ?? { steps: [], predicted: 0, now: 0, centre };
     state.box = c?.box ?? null;
     state.choice = c?.choice ?? null;
     state.plannedAt = Date.now(); state.doneAtPlan = state.done;
   };
   const income = useGeneratorStore.getState().getMoneyPerSecond();
-  const here = () => chooseWithRebuild(g, land, centre, [...state.tried], kinds, services, offices, style, prices, income);
+  const here = () => chooseWithRebuild(g, centre, [...state.tried], kinds, services, offices, style, prices, income);
   if (inline) { arrived(here()); return; }
   state.worker ??= new Worker(new URL("./masterplan/masterplan.worker.ts", import.meta.url), { type: "module" });
   state.worker.onmessage = (e: MessageEvent<PlanReply>) => {
@@ -143,7 +140,7 @@ function requestPlan(g: Grid) {
     inline = true;
     arrived(here());
   };
-  const req: PlanRequest = { id: state.asked, file: serializeWorld(g, { terrain: [], paved: [null] }), land, kinds, services, offices, style, centre, tried: [...state.tried], prices, income };
+  const req: PlanRequest = { id: state.asked, file: serializeWorld(g, { terrain: [], paved: [null] }), kinds, services, offices, style, centre, tried: [...state.tried], prices, income };
   state.worker.postMessage(req);
 }
 
@@ -297,7 +294,7 @@ function act(g: Grid, budget: number): boolean {
     return ok;
   }
   // THE BLOCK DONE: on to the next. One that came to nothing is not tried again
-  // — none of its streets — till the company has more land.
+  // — none of its streets — till a derelict is cleared.
   if (state.plan && state.box) {
     if (state.done === state.doneAtPlan) {
       const b = state.box;
@@ -306,17 +303,9 @@ function act(g: Grid, budget: number): boolean {
     state.plan = null;
     return false;
   }
-  // NOTHING LEFT TO BUILD ON: clear a derelict, or buy the next parcel, and plan again.
-  const land = companyLand();
-  const derelict = [...g.structures.values()].find((d) => d.def === "derelict" && ownsTile(g, land, d.x, d.y));
+  // NOTHING LEFT TO BUILD ON: clear a derelict, and plan again.
+  const derelict = [...g.structures.values()].find((d) => d.def === "derelict");
   if (derelict && clearingPrice() <= spend && demolishAt({ x: derelict.x, y: derelict.y })) { state.plan = null; state.tried.clear(); state.last = "a derelict cleared"; return true; }
-  if (land && parcelPrice() <= spend) {
-    for (let p = 0; p < PARCELS * PARCELS; p++) {
-      if (!buyable(land, p)) continue;
-      const r = parcelRect(g, p);
-      if (buyParcelAt({ x: (r.x0 + r.x1) >> 1, y: (r.y0 + r.y1) >> 1 })) { state.plan = null; state.tried.clear(); state.last = "a parcel of land"; return true; }
-    }
-  }
   return false;
 }
 
@@ -324,11 +313,9 @@ function act(g: Grid, budget: number): boolean {
 export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
   const s = useSessionStore.getState();
   if (!s.aiMode) return;
-  const landKey = (companyLand() ?? []).join();
-  const stale = !state.plan || landKey !== state.landKey || now - state.plannedAt > REPLAN_EVERY * 1000;
+  const stale = !state.plan || now - state.plannedAt > REPLAN_EVERY * 1000;
   if (stale && (state.asked === null || now - state.asked > 1_000)) {
-    if (landKey !== state.landKey) state.tried.clear();
-    state.landKey = landKey; state.failed.clear(); requestPlan(g);
+    state.failed.clear(); requestPlan(g);
   }
   state.clock += dt;
   if (state.clock < AUTOPILOT_EVERY) return;
@@ -338,7 +325,7 @@ export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
 
 /** A new company: a new plan. */
 export function resetAutopilot() {
-  state.plan = null; state.plannedAt = 0; state.landKey = ""; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.tried.clear(); state.doneAtPlan = 0; state.box = null; state.choice = null; state.pipe = null; state.flying.clear();
+  state.plan = null; state.plannedAt = 0; state.asked = null; state.clock = 0; state.done = 0; state.last = null; state.failed.clear(); state.tried.clear(); state.doneAtPlan = 0; state.box = null; state.choice = null; state.pipe = null; state.flying.clear();
   // Its drones' jobs belong to the company that sent them.
   const r = getAiRunner();
   r.jobs = r.jobs.filter((j) => j.action.kind !== "deferred");

@@ -31,7 +31,7 @@ describe("the map's pacing", () => {
         "IPO tower": { base: "—", map: fmt(map.opened.ipo) },
         "core complete": { base: fmt(base.totalSeconds), map: fmt(map.totalSeconds) },
       });
-      console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, services: map.services, spentOnServices: map.spentOnServices, stalled: map.stalledSeconds, parcels: map.parcels, spentOnLand: map.spentOnLand, offices: map.offices, spentOnOffices: map.spentOnOffices });
+      console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, services: map.services, spentOnServices: map.spentOnServices, stalled: map.stalledSeconds, offices: map.offices, spentOnOffices: map.spentOnOffices });
     }
     // PACING GUARDS, from the balance passes (2026-10-12: core 1.45 h
     // ungated, 1.25 h on a town with an 85% commute, ~50 lots and 10 services
@@ -53,9 +53,6 @@ describe("the map's pacing", () => {
     expect(map.lots).toBeLessThan(100);
     // And growing them is worth it: services get bought, not skipped.
     expect(map.services).toBeGreaterThan(3);
-    // LAND is room to grow into, not a toll on the way: a parcel or two at most, cheap against hiring. @see world/land
-    expect(map.parcels).toBeLessThanOrEqual(2);
-    expect(map.spentOnLand).toBeLessThan(map.spentOnHires * 0.05);
     // DESKS are room to work: offices get bought, and cost a share of hiring, not a wall. @see seat
     expect(map.offices).toBeGreaterThan(3);
     expect(map.spentOnOffices).toBeLessThan(map.spentOnHires * 0.2);
@@ -82,7 +79,7 @@ describe("the late game", () => {
         "longest flat, all run": `${fmt(longestFlat(run).seconds)} from ${fmt(longestFlat(run).from)}`,
       });
       console.log({
-        labs: run.labs, spentOnLabs: run.spentOnLabs, lots: run.lots, services: run.services, parcels: run.parcels,
+        labs: run.labs, spentOnLabs: run.spentOnLabs, lots: run.lots, services: run.services,
         mood: run.mood, townBonus: run.townBonus, income: run.income, spentOnHires: run.spentOnHires,
         slopTrucked: run.slopTrucked, slopDrained: run.slopDrained, offices: run.offices, spentOnOffices: run.spentOnOffices,
       });

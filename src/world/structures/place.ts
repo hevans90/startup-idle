@@ -69,7 +69,7 @@ export type PlaceRules = {
    * @see Placement.riverside
    */
   rivers?: RiverMap;
-  /** Whether a cell is the company's to build on, under the game's rules. @see world/land */
+  /** Whether a cell may be built on: the AI keeps its plans to a block, and off the water's edge. @see planTown */
   owned?: (x: number, y: number) => boolean;
 };
 
@@ -82,7 +82,7 @@ function cellVerdict(
   if (!inBounds(grid, x, y)) return { ok: false, reason: "off map" };
   const i = idx(grid, x, y);
   if (grid.terrain[i] === VOID) return { ok: false, reason: "no ground" };
-  if (rules.owned && !rules.owned(x, y)) return { ok: false, reason: "not your land" };
+  if (rules.owned && !rules.owned(x, y)) return { ok: false, reason: "out of bounds" };
   if (structureAt(grid, x, y) >= 0) return { ok: false, reason: "occupied" };
   if (!placementOf(def).allowOnPaved && grid.paved[i] !== VOID) {
     return { ok: false, reason: "on a road" };

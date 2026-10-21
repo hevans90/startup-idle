@@ -6,10 +6,8 @@
  */
 import { buildCost, pipeCost } from "../../game/build-cost";
 import { isDrinker } from "../../game/cooling";
-import { companyLand } from "../../state/world.store";
 import { useWorldStore } from "../../state/world.store";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
-import { ownsTile } from "../land";
 import { tankFor } from "../projects/cooling";
 import { depthAt } from "../water/field";
 import { intakeOf } from "../water/pipes";
@@ -46,7 +44,6 @@ function waterReader(g: Grid) {
 
 /** The building most in need of a pipe, and its route; null if none is short, or none can be reached. */
 export function neededPipe(g: Grid): { s: Structure; route: PipeRoute; price: number } | null {
-  const land = companyLand();
   const { wet, surface } = waterReader(g);
   const short = [...g.structures.values()]
     .filter((s) => !s.build && isDrinker(s.def))
@@ -54,7 +51,7 @@ export function neededPipe(g: Grid): { s: Structure; route: PipeRoute; price: nu
     .filter(({ s, t }) => t && t.demand > 0 && t.share < SHORT && intakesInto(g, s) < MAX_INTAKES)
     .sort((a, b) => a.t!.share - b.t!.share);
   for (const { s } of short) {
-    const owned = (x: number, y: number) => ownsTile(g, land, x, y);
+    const owned = () => true;
     // TRAINED ON THE RIVER, it looks for a gravity run before settling for a pump. @see game/training
     const route = (skillOf("river") >= 1 ? routePipe(g, s, owned, wet, surface, undefined, false) : null)
       ?? routePipe(g, s, owned, wet, surface);

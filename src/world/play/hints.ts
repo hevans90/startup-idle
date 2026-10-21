@@ -30,11 +30,6 @@ export type HintState = {
   /** The unhappiest lived-in house's mood; 0 for none. @see world/agents/mood */
   worstMood: number;
   moodShown: boolean;
-  /** Empty cells by a road on the company's own land; Infinity when it owns the whole map. @see world/land */
-  freeFrontage: number;
-  /** Whether there is land for sale, and how many parcels have been bought. */
-  landForSale: boolean;
-  parcelsBought: number;
   /** R&D labs and flood walls standing. */
   labs: number;
   /** AI racks standing. @see game/agents */
@@ -137,13 +132,6 @@ export const HINTS: readonly Hint[] = [
     target: "mood",
     when: (s) => s.worstMood <= -10,
     done: (s) => s.moodShown,
-  },
-  {
-    id: "land",
-    text: "Your roadside land is nearly full. Land on the build bar buys the parcel next to yours.",
-    target: "land",
-    when: (s) => s.landForSale && s.freeFrontage < 6,
-    done: (s) => s.parcelsBought > 0,
   },
   {
     // AI AGENTS, once the Data Centre opens them.

@@ -44,7 +44,6 @@ import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
 import { damagedAway, evacuatedAway } from "./events/flood";
 import { cleanupAway } from "./events/cleanup";
-import { startingLand } from "./land";
 import { usePrestigeStore } from "../state/prestige.store";
 import { markWorldGone, markWorldReady } from "../game/world-ready";
 import { labReading } from "./projects/labs";
@@ -127,20 +126,15 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     generatedKey = key;
     return true;
   });
-  // A NEW COMPANY OWNS THE MIDDLE OF ITS MAP, and buys the rest — said once
-  // the map is up, not while drawing it. @see world/land
+  // A NEW COMPANY's founding gifts, once the map is up, not while drawing it.
   useEffect(() => {
     if (slot !== "run" || generatedKey !== `${slot}:${useSessionStore.getState().incorporatedAt}`) return;
     generatedKey = null;
     const perks = usePrestigeStore.getState().modifiers;
-    const land = startingLand(useWorldStore.getState().grid, perks.startingParcels);
-    useSessionStore.getState().setLand(land);
     // A CAFÉ to begin with, for founders who have done this before. @see foundingCafe
     if (perks.foundingCafe) useWorldStore.getState().foundCafe();
     // A SHIPPING ROUTE to begin with, likewise. @see ROUTE_BONUS
     for (let k = 0; k < perks.startingRoutes; k++) useSessionStore.getState().addRoute(MAX_ROUTES);
-    // AND THE OLD BUILDINGS on the land still for sale. @see placeDerelicts
-    useWorldStore.getState().placeDerelicts(land, useSessionStore.getState().incorporatedAt);
   }, [slot]);
   // And keep it saved from here on. @see startAutosave
   useEffect(() => startAutosave(), []);

@@ -10,8 +10,7 @@
 import { POUR_AMOUNT, depthAt } from "../water/field";
 import { idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { isPaved } from "../roads/mask";
-import { ownsTile } from "../land";
-import { companyLand, useWorldStore } from "../../state/world.store";
+import { useWorldStore } from "../../state/world.store";
 import { useSessionStore } from "../../state/session.store";
 import { HEIGHT_MIN } from "../edit/height-tools";
 import { pour, reshape } from "../play/build-actions";
@@ -37,15 +36,14 @@ export const reservoirs = (): readonly Cell[] => useSessionStore.getState().aiRe
 
 /**
  * WHERE TO DIG for a building: a 3×3 in its district, with a ring round it,
- * all of it level (within a half step), owned, dry, and clear of road, pipe
+ * all of it level (within a half step), dry, and clear of road, pipe
  * and building — so the water stays in and nothing stands in it; the nearest
  * the building, for the shortest pipe. Null with nowhere fit.
  */
 export function siteFor(g: Grid, s: Structure, d: District | null): Cell | null {
-  const land = companyLand();
   const field = useWorldStore.getState().getWaterField();
   const clear = (x: number, y: number) => {
-    if (!inBounds(g, x, y) || !ownsTile(g, land, x, y)) return false;
+    if (!inBounds(g, x, y)) return false;
     const i = idx(g, x, y);
     return !g.pool[i] && !g.pipe[i] && !isPaved(g, x, y) && structureAt(g, x, y) < 0 && !(field && depthAt(field, x, y) > 0);
   };

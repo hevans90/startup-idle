@@ -8,8 +8,8 @@ import { deserializeWorld } from "../../io/serialize";
 import { chooseWithRebuild, type PlanReply, type PlanRequest } from "./choose";
 
 self.onmessage = (e: MessageEvent<PlanRequest>) => {
-  const { id, file, land, kinds, services, offices, style, centre, tried, prices, income } = e.data;
+  const { id, file, kinds, services, offices, style, centre, tried, prices, income } = e.data;
   const { grid } = deserializeWorld(file);
-  const chosen = chooseWithRebuild(grid, land, centre, tried, kinds, services, offices, style, prices, income);
+  const chosen = chooseWithRebuild(grid, centre, tried, kinds, services, offices, style, prices, income);
   (self as unknown as Worker).postMessage({ id, chosen } satisfies PlanReply);
 };

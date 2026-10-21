@@ -27,7 +27,7 @@ import { addBeds, housedBy, housingCapacity } from "../../game/housing";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
-import { UNDO_WINDOW_MS, getArrivals, getNetwork, parcelPrice, useWorldStore } from "../../state/world.store";
+import { UNDO_WINDOW_MS, getArrivals, getNetwork, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
 import { DESKS, liveSeating, workplaceKind } from "../agents/commute";
@@ -42,7 +42,6 @@ import { getAiRunner } from "../ai/ai-runner";
 import { useTicking } from "../../hooks/use-ticking";
 import { WondersPanel } from "./wonders-panel";
 import { AiModePanel } from "./ai-mode-panel";
-import { PARCELS } from "../land";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
 import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
@@ -61,7 +60,6 @@ const ICONS: Record<string, ReactNode> = {
   pipe: <Icon><path d="M2 6h7a3 3 0 0 1 3 3v5M2 10h7M8 14h8" /></Icon>,
   placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
-  buyLand: <Icon><path d="M4 14V2M4 2.5h8l-2 2.5 2 2.5H4" /></Icon>,
   labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
   wonders: <Icon><path d="M8 1.5l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11l-3.7 2 .8-4.2L2 5.9l4.2-.5z" /></Icon>,
   mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
@@ -112,7 +110,6 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "pipe", label: "Pipe", hint: "Drag to lay pipe: from water to the Data Centre, to cool it" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down" },
-  { id: "buyLand", label: "Land", hint: "Click land beside yours to buy it" },
 ];
 
 const KINDS: GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
@@ -271,12 +268,8 @@ export function BuildBar({ className }: { className?: string }) {
     }
   };
   const chosen = sale.flatMap((s) => s.items).find((d) => d.def.id === structureDefId);
-  // LAND FOR SALE, while any is left: the next parcel's price. @see world/land
-  const land = useSessionStore((s) => s.land);
-  const forSale = !!land && land.length < PARCELS * PARCELS;
   // PIPE, once there is a Data Centre to cool. @see game/cooling
   const pipesOpen = agentsOpen();
-  const landNext = parcelPrice();
 
   return (
     <div className={twMerge("flex flex-col items-center gap-1.5 text-primary-900 dark:text-primary-100", className)}>
@@ -369,18 +362,15 @@ export function BuildBar({ className }: { className?: string }) {
 
         {/* THE TOOLS. */}
         <div className="flex items-stretch overflow-x-auto">
-          {TOOLS.filter((t) => (t.id !== "buyLand" || forSale) && (t.id !== "pipe" || pipesOpen)).map((t) => (
+          {TOOLS.filter((t) => t.id !== "pipe" || pipesOpen).map((t) => (
             <button key={t.id} type="button" title={aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint}
               onClick={() => choose(t.id)}
-              data-hint={t.id === "placeStructure" ? "build" : t.id === "buyLand" ? "land" : undefined}
+              data-hint={t.id === "placeStructure" ? "build" : undefined}
               className={twMerge(TOOL, tool === t.id && TOOL_ON, "disabled:cursor-default disabled:opacity-40")}>
               {ICONS[t.id]}
               <span className="@max-3xl:hidden">{t.label}</span>
               {t.id === "placeStructure" && chosen && tool === t.id && (
                 <span className="ml-0.5 border-l border-current/30 pl-1 opacity-80">{saleName(chosen.def)}</span>
-              )}
-              {t.id === "buyLand" && (
-                <span className={twMerge("tabular-nums", money.lt(landNext) && "text-red-700 dark:text-red-400")}>{formatCurrency(landNext)}</span>
               )}
             </button>
           ))}

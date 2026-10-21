@@ -53,12 +53,6 @@ type SessionState = {
   hintsOff: boolean;
   /** Whether floods, overflows and the like stay away. @see stepEvents */
   mapEventsOff: boolean;
-  /**
-   * The parcels of its map the company owns, or null for all of it — a
-   * company that had its map before land was for sale. @see world/land
-   */
-  land: number[] | null;
-  setLand: (land: number[] | null) => void;
   /** Seconds of play until each kind of map event is next due, kept across loads. @see Pacing */
   eventPacing: Record<string, number> | null;
   setEventPacing: (p: Record<string, number>) => void;
@@ -137,8 +131,6 @@ export const useSessionStore = create<SessionState>()(
       }),
       hintsOff: false,
       mapEventsOff: false,
-      land: null,
-      setLand: (land) => set({ land }),
       eventPacing: null,
       setEventPacing: (eventPacing) => set({ eventPacing }),
       routes: 0,
@@ -176,7 +168,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
+        portIncomePerSecond: 0, hintsDone: [], eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
       }),
     }),
     {
@@ -193,7 +185,6 @@ export const useSessionStore = create<SessionState>()(
         hintsDone: s.hintsDone,
         hintsOff: s.hintsOff,
         mapEventsOff: s.mapEventsOff,
-        land: s.land,
         eventPacing: s.eventPacing,
         routes: s.routes,
         termSheet: s.termSheet,
