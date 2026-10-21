@@ -15,11 +15,10 @@ import { formatCurrency } from "../../utils/money-utils";
 import { twMerge } from "tailwind-merge";
 
 import { agentBonus, agentsARack, agentsOpen } from "../../game/agents";
-import { DATASETS, TRAINING_SECONDS, dataset } from "../../game/training";
+import { DATASETS, MAX_SKILL, dataset } from "../../game/training";
 import { traitForecast } from "../../game/traits";
 import { useGenerationStore } from "../../state/generation.store";
-import { useInnovationStore } from "../../state/innovation.store";
-import { useTrainingStore } from "../../state/training.store";
+import { training, useTrainingStore } from "../../state/training.store";
 import { powered as rackPowered } from "../projects/racks";
 import { allTanks, hotAgents } from "../projects/cooling";
 import { pumpUpkeep } from "../../game/cooling";
@@ -70,7 +69,7 @@ export function DataCentre({ className }: { className?: string }) {
                 onChange={(e) => setRunning(Number(e.target.value))}
                 className="mt-1 w-full accent-violet-600 dark:accent-violet-400" />
               <p className="tabular-nums text-primary-600 dark:text-primary-400">
-                Income +{boost}% from them · the AI {perMinute(rate)}
+                {training() ? "Training: no boost to income till it ends" : `Income +${boost}% from them`} · the AI {perMinute(rate)}
               </p>
             </>
           ) : (
@@ -217,40 +216,51 @@ function Cooling() {
   );
 }
 
-/** TRAINING RUNS: one at a time, on a dataset, for innovation. @see game/training */
+/**
+ * TRAINING RUNS: one at a time, on a dataset, paid for with the agents' boost
+ * to income while it runs; each teaches the AI a level of a skill, for this
+ * company. @see game/training
+ */
 function Training() {
   const current = useTrainingStore((s) => s.current);
   const start = useTrainingStore((s) => s.start);
-  useInnovationStore((s) => s.innovation);
+  const skills = useTrainingStore((s) => s.skills);
   const blocked = useTrainingStore.getState().blocked();
-  const cost = useTrainingStore.getState().cost();
+  const seconds = useTrainingStore.getState().seconds();
   const on = dataset(current?.dataset);
+  const level = on ? skills[on.id] ?? 0 : 0;
   return (
     <div className={SECTION}>
       <p className={TITLE}>Training</p>
       {current && on ? (
         <>
           <p className="flex justify-between"><span>Training on <b>{on.name}</b></span><span className="tabular-nums">{clock(current.endsAt)}</span></p>
-          <p className="text-emerald-700 dark:text-emerald-400">{on.boost}</p>
+          <p className="text-amber-700 dark:text-amber-400">The agents are training, not working: no boost to income till it ends.</p>
+          {level < MAX_SKILL && <p className="text-emerald-700 dark:text-emerald-400">Then: {on.skills[level]}</p>}
           <p className="italic text-primary-600 dark:text-primary-400">“{on.memo}”</p>
           <div className="mt-1 h-1 w-full overflow-hidden bg-primary-200 dark:bg-primary-800">
             <div className="h-full bg-violet-600 dark:bg-violet-400"
-              style={{ width: `${Math.min(100, 100 - ((current.endsAt - Date.now()) / (TRAINING_SECONDS * 1000)) * 100)}%` }} />
+              style={{ width: `${Math.min(100, 100 - ((current.endsAt - Date.now()) / (seconds * 1000)) * 100)}%` }} />
           </div>
         </>
       ) : (
         <>
           <p className="mb-1 tabular-nums text-primary-600 dark:text-primary-400">
-            {Math.round(TRAINING_SECONDS / 60)} minutes, {fmt(cost)} innovation · then the AI jumps
+            {fmtSeconds(seconds)} of the agents' boost to income · teaches the AI a skill for this company, then it jumps
           </p>
           <div className="flex flex-col gap-1">
-            {DATASETS.map((d) => (
-              <button key={d.id} type="button" className={BTN} disabled={!!blocked} onClick={() => start(d.id)}
-                title={blocked === "innovation" ? "Not enough innovation yet" : undefined}>
-                <span className="flex w-full justify-between"><b>{d.name}</b><span className="tabular-nums text-violet-700 dark:text-violet-300">+{d.jump}%</span></span>
-                <span className="text-primary-600 dark:text-primary-400">{d.boost}</span>
-              </button>
-            ))}
+            {DATASETS.map((d) => {
+              const n = skills[d.id] ?? 0;
+              return (
+                <button key={d.id} type="button" className={BTN} disabled={!!blocked} onClick={() => start(d.id)}>
+                  <span className="flex w-full justify-between">
+                    <b>{d.name} <span className="tabular-nums font-normal text-violet-700 dark:text-violet-300" aria-label={`level ${n} of ${MAX_SKILL}`}>{"●".repeat(n)}{"○".repeat(MAX_SKILL - n)}</span></b>
+                    <span className="tabular-nums text-violet-700 dark:text-violet-300">+{d.jump}%</span>
+                  </span>
+                  <span className="text-primary-600 dark:text-primary-400">{n < MAX_SKILL ? `Next: ${d.skills[n]}` : "Learned. Another run still leans it and jumps the AI."}</span>
+                </button>
+              );
+            })}
           </div>
         </>
       )}
@@ -302,7 +312,8 @@ function Forecast() {
   );
 }
 
-const fmt = (n: number) => (n < 100 ? n.toFixed(n < 10 ? 2 : 1) : Math.round(n).toLocaleString());
+/** A length of time, as minutes or seconds. */
+const fmtSeconds = (s: number) => (s >= 60 ? `${+(s / 60).toFixed(1)} minutes` : `${Math.round(s)} seconds`);
 /** Time left until a moment, m:ss. */
 const clock = (at: number) => {
   const s = Math.max(0, Math.ceil((at - Date.now()) / 1000));

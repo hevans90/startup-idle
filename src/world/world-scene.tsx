@@ -128,8 +128,7 @@ import { useMoneyStore } from "../state/money.store";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { addMorale } from "../game/morale";
 import { fusionNow } from "../game/fusion";
-import { RIVER_PORTS } from "../game/training";
-import { training, useTrainingStore } from "../state/training.store";
+import { skillOf, training, useTrainingStore } from "../state/training.store";
 import { useSessionStore } from "../state/session.store";
 import { stepWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -2863,8 +2862,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (fee === null || portShut(id)) continue;
           // REGULAR ROUTES, won by serving convoys, add to every call. @see ROUTE_BONUS
           fee *= 1 + ROUTE_BONUS * (useSessionStore.getState().routes ?? 0);
-          // THE AI TRAINED ON THE RIVER pays the quays more while it runs. @see RIVER_PORTS
-          if (training() === "river") fee *= RIVER_PORTS;
           // A CONVOY IN pays double, and is counted. @see stepOpportunities
           const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
           // Treble at a port by the Conference Centre. @see convoyPays
@@ -3072,11 +3069,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         sEvents();
         const sRest = section("tick: repairs, training, cooling");
         // THE REPAIR CREW, round the damaged buildings once the water is down.
-        if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult * (training() === "river" ? 3 : 1), !!floodBase.current);
+        if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult, !!floodBase.current);
         // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
         if (st.playing) useTrainingStore.getState().tick();
         // THE DRINKERS DRINK: the Data Centre and the AI's own buildings, from their tanks. @see stepCooling
-        if (st.playing) stepCooling(st.grid, runningAgents(), training() === "river", dt);
+        if (st.playing) stepCooling(st.grid, runningAgents(), skillOf("river") >= 3, dt);
         // AI MODE, on The Model's own runs: the town building itself, its
         // drones flown out for the look of it. On a fixture too: a fixture
         // played works on a copy of the save. @see stepAutopilot, fixture-sandbox

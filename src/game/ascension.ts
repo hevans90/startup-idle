@@ -23,10 +23,15 @@ export const MUTATION = 0.25;
 export const DARK_MS = 10 * 60_000;
 export const SHUTDOWN_AT = 50;
 
-/** WEIGHTS a generation's work earns: its training runs, the Equity its companies sold for, the most agents it ran. */
+/**
+ * WEIGHTS a generation's work earns: its training runs — half a Weight each,
+ * a company having room for a dozen — the Equity its companies sold for, the
+ * most agents it ran. @see singularity-cadence.test.ts
+ */
+export const WEIGHTS_A_RUN = 0.5;
 export function weightsFor(log: BehaviourLog, equity: number, peakAgents: number): number {
   const runs = Object.values(log.datasets).reduce((n, k) => n + (k ?? 0), 0);
-  return Math.max(1, Math.round(2 * runs + 3 * Math.sqrt(Math.max(0, equity)) + peakAgents / 2));
+  return Math.max(1, Math.round(WEIGHTS_A_RUN * runs + 3 * Math.sqrt(Math.max(0, equity)) + peakAgents / 2));
 }
 
 /** What an Ascension now would bank. */

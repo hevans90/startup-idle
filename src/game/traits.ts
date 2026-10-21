@@ -60,8 +60,9 @@ const DATASET_FAMILY: Record<DatasetId, Family> = {
  */
 export function traitScores(log: BehaviourLog): Record<TraitId, number> {
   const out = Object.fromEntries(TRAITS.map((t) => [t.id, 1])) as Record<TraitId, number>;
+  // A CURRICULUM: the first run of each dataset counts twice, so a varied upbringing shows.
   for (const [d, n] of Object.entries(log.datasets) as [DatasetId, number][]) {
-    for (const t of TRAITS) if (t.family === DATASET_FAMILY[d]) out[t.id] += 3 * n;
+    for (const t of TRAITS) if (t.family === DATASET_FAMILY[d]) out[t.id] += 3 * (n + Math.min(1, n));
   }
   const ran = log.full + log.throttled;
   if (ran > 0) {

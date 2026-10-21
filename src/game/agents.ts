@@ -18,6 +18,7 @@
 import { projectReading } from "./projects";
 import { fusionNow } from "./fusion";
 import { moduleLevel } from "./modules";
+import { skillOf } from "../state/training.store";
 
 /** Income each agent at full power adds, as a share. */
 export const AGENT_BOOST = 0.04;
@@ -37,8 +38,9 @@ export const AGENT_COST_GROWTH = 1.25;
 /** What the next agent costs, in innovation, with `owned` already running. */
 export const agentCost = (owned: number): number => AGENT_BASE_COST * Math.pow(AGENT_COST_GROWTH, owned) * fusionNow().agentCostMult;
 
-/** Agents a rack runs: four, and more for a Hivemind fused in and the Rack Density module. @see game/fusion, game/modules */
-export const agentsARack = (): number => AGENTS_A_RACK + fusionNow().agentsPerRack + moduleLevel("rack-density");
+/** Agents a rack runs: four, and more for a Hivemind fused in, the Rack Density module, and an AI trained on itself. @see game/fusion, game/modules, game/training */
+export const agentsARack = (): number =>
+  AGENTS_A_RACK + fusionNow().agentsPerRack + moduleLevel("rack-density") + (skillOf("itself") >= 1 ? 1 : 0);
 
 /** Whether agents can be spun up at all: the Data Centre stands, or there is no map to ask. */
 export function agentsOpen(): boolean {

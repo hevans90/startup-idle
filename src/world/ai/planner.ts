@@ -46,7 +46,10 @@ import { RANGE } from "../agents/services";
 import type { Network } from "../roads/network";
 import { aiDistrict, inDistrict, type District } from "./district";
 import { aiFocus, focusSays, focusWeight } from "./focus";
-import { MAX_RESERVOIRS, digReservoir, reservoirs, siteFor } from "./reservoir";
+import { MAX_RESERVOIRS, digReservoir, lowReservoir, refillReservoir, reservoirs, siteFor } from "./reservoir";
+import { skillOf } from "../../state/training.store";
+import { priceOfAi } from "./wallet";
+import { useSessionStore } from "../../state/session.store";
 
 type Cell = { x: number; y: number };
 
@@ -58,6 +61,8 @@ export type AiAction =
   | { kind: "flatten"; from: Cell; to: Cell; why: string }
   /** A basin dug and filled by a building short of water, none being in reach. @see reservoir */
   | { kind: "reservoir"; at: Cell; why: string }
+  /** A reservoir run low, topped up: an AI trained on the river. @see lowReservoir */
+  | { kind: "refill"; at: Cell; why: string }
   | { kind: "hire"; who: GeneratorId; why: string }
   | { kind: "upgrade"; id: string; why: string }
   /** A pipe to water, and a pump house where one is needed, for a building that drinks. @see neededPipe */
@@ -161,6 +166,12 @@ function reservoirFor(g: Grid, district: District | null): AiAction | null {
   return null;
 }
 
+/** Whether a house in the district has no café, park or gym in reach. */
+function unserved(structures: readonly Structure[], mine: (s: Structure) => boolean): boolean {
+  const services = structures.filter((s) => (s.def === "cafe" || s.def === "park" || s.def === "gym") && !s.build);
+  return structures.some((h) => mine(h) && housedBy(h.def) && !h.build && !services.some((s) => Math.abs(h.x - s.x) + Math.abs(h.y - s.y) <= RANGE));
+}
+
 /** What it does at a desk, or to cool what it has: not held to its district. */
 const ANYWHERE = new Set<Kind>(["hire", "upgrade", "pipe"]);
 
@@ -230,7 +241,11 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
     case "lot": {
       const who = shortOfBeds();
       if (!who || !net) return null;
-      const def = `kit:${who}.t0`;
+      // PEOPLE FIRST, for an AI trained on them: no more houses while one in its district has no service in reach.
+      if (skillOf("people") >= 3 && featureGateOpen("services") && unserved(structures, mine)) return null;
+      // A tier up for an AI trained on the town, two at its third level, where the kit has one.
+      const tier = Math.max(0, skillOf("town") - 1);
+      const def = [`kit:${who}.t${tier}`, `kit:${who}.t1`, `kit:${who}.t0`].find((id) => structureDef(id))!;
       const maps = liveDesireMaps(g, net);
       const fill = useSlopPitStore.getState().fill / 100;
       let best: Cell | null = null, top = -Infinity;
@@ -249,10 +264,14 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       // they are unhappiest: each house counted by how far its mood is down.
       const people = aiFocus() === "people" && net;
       const moods = people ? liveMoods(g, net, useSlopPitStore.getState().fill / 100) : null;
-      const weight = (h: Structure) => (moods ? Math.max(1, 10 - (moods.get(h.id)?.total ?? 0)) : 1);
-      let best: Cell | null = null, most = -1;
+      // Trained on the town, it counts only the houses with none of that kind in reach.
+      const kin = structures.filter((s) => s.def === def);
+      const covered = (h: Structure) => kin.some((s) => Math.abs(h.x - s.x) + Math.abs(h.y - s.y) <= RANGE);
+      const planner = skillOf("town") >= 1;
+      const weight = (h: Structure) => (planner && covered(h) ? 0 : 1) * (moods ? Math.max(1, 10 - (moods.get(h.id)?.total ?? 0)) : 1);
+      let best: Cell | null = null, most = planner ? 0 : -1;
       for (const c of spots(g, def, d)) {
-        const n = houses.filter((h) => Math.abs(h.x - c.x) + Math.abs(h.y - c.y) <= 6).reduce((a, h) => a + weight(h), 0);
+        const n = houses.filter((h) => Math.abs(h.x - c.x) + Math.abs(h.y - c.y) <= (planner ? RANGE : 6)).reduce((a, h) => a + weight(h), 0);
         if (n > most) { most = n; best = c; }
       }
       const where = people ? "where they were unhappiest" : "where it will do the most good";
@@ -278,7 +297,9 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       if (!net2) return null;
       const moods = liveMoods(g, net2, useSlopPitStore.getState().fill / 100);
       // An EMPTY house first, then one with a single soul in it, the unhappiest of those.
-      const houses = structures.filter((s) => mine(s) && housedBy(s.def) && !s.build && s.w === 1 && s.h === 1 && (s.residents ?? 0) <= 1);
+      // Trained on the people, it takes none anyone lives in.
+      const most = skillOf("people") >= 1 ? 0 : 1;
+      const houses = structures.filter((s) => mine(s) && housedBy(s.def) && !s.build && s.w === 1 && s.h === 1 && (s.residents ?? 0) <= most);
       if (!houses.length) return null;
       houses.sort((a, b) => (a.residents ?? 0) - (b.residents ?? 0) || (moods.get(a.id)?.total ?? 0) - (moods.get(b.id)?.total ?? 0));
       const h = houses[0];
@@ -290,8 +311,10 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       // relying on it alone — no other of its kind in reach. @see usageOf
       const taken = structures.filter((s) => mine(s) && !s.build && (["cafe", "park", "gym", "office-intern", "office-vibe"].includes(s.def)));
       if (!taken.length || !net) return null;
-      const use = usageOf(g, net, structures);
-      const s = taken.reduce((a, b) => (use(b) < use(a) ? b : a));
+      const usage = usageOf(g, net, structures);
+      const s = taken.reduce((a, b) => (usage(b) < usage(a) ? b : a));
+      // Trained on the people, only what nobody relies on.
+      if (skillOf("people") >= 2 && usage(s) > 0) return null;
       const name = structureDef(s.def)?.name ?? "building";
       return { kind: "convert", at: { x: s.x, y: s.y }, into: "gpu-farm", why: `I have repurposed the ${name.toLowerCase()} as a GPU farm. Its previous function has been deprecated.` };
     }
@@ -371,12 +394,30 @@ export function chooseAction(
     const dig = stage !== "colleague" ? reservoirFor(g, district) : null;
     if (dig && affords(dig)) return dig;
   }
+  // TRAINED ON THE RIVER, a reservoir run low is topped up first. @see lowReservoir
+  const low = skillOf("river") >= 2 ? lowReservoir() : null;
+  if (low) {
+    const refill: AiAction = { kind: "refill", at: { x: low.x + 1, y: low.y + 1 }, why: "My reservoir was running low. I have topped it up." };
+    if (affords(refill)) return refill;
+  }
   // ITS FOCUS weighs the kinds, nought never; the trait leans it within that. @see focus
   const focus = aiFocus();
   const family = traitForecast(useGenerationStore.getState().log, 1)[0].trait.family;
   const weighted = kinds.filter((k) => (cooling === "full" || !DRINKING.has(k)) && focusWeight(focus, k) > 0)
     .map((k) => ({ k, w: focusWeight(focus, k) * (LEAN[family][k] ?? 1) * rand() }));
   weighted.sort((a, b) => b.w - a.w);
+  // TRAINED ON THE MONEY, it weighs every job it could do by what it costs, and does the best value. @see priceOfAi
+  if (skillOf("money") >= 2) {
+    const wallet = Math.max(1, useSessionStore.getState().aiWallet);
+    let best: { a: AiAction; k: Kind; v: number } | null = null;
+    for (const { k, w } of weighted) {
+      const a = candidate(k, g, rand, district);
+      if (!a || !affords(a)) continue;
+      const v = w / (1 + priceOfAi(g, a) / wallet);
+      if (!best || v > best.v) best = { a, k, v };
+    }
+    return best ? { ...best.a, why: focusSays(focus, best.k, best.a.why) } : null;
+  }
   for (const { k } of weighted) {
     const a = candidate(k, g, rand, district);
     // A job its wallet cannot pay for is passed over for the next kind. @see walletCovers
@@ -398,6 +439,7 @@ export function perform(a: AiAction): boolean {
     case "flatten": return reshape("flatten", a.from, a.to);
     // Its drone over the middle; dug from the corner.
     case "reservoir": return digReservoir({ x: a.at.x - 1, y: a.at.y - 1 });
+    case "refill": return refillReservoir({ x: a.at.x - 1, y: a.at.y - 1 });
     case "hire": {
       const before = useGeneratorStore.getState().generators.find((g) => g.id === a.who)?.amount ?? 0;
       useGeneratorStore.getState().purchaseGenerator(a.who, 1);

@@ -71,6 +71,28 @@ export function siteFor(g: Grid, s: Structure, d: District | null): Cell | null 
   return best;
 }
 
+/**
+ * A RESERVOIR RUN LOW — so low a pour will not overtop it — by its corner, or
+ * null. An AI trained on the river tops them up. @see skillOf
+ */
+export function lowReservoir(): Cell | null {
+  const field = useWorldStore.getState().getWaterField();
+  if (!field) return null;
+  for (const r of reservoirs()) {
+    let sum = 0;
+    for (let dy = 0; dy < RESERVOIR; dy++) for (let dx = 0; dx < RESERVOIR; dx++) sum += depthAt(field, r.x + dx, r.y + dy);
+    if (sum / (RESERVOIR * RESERVOIR) < DEPTH - POUR_AMOUNT) return r;
+  }
+  return null;
+}
+
+/** One pour over a reservoir's basin, by its corner. */
+export function refillReservoir(at: Cell): boolean {
+  let ok = false;
+  for (let k = 0; k < RESERVOIR; k++) ok = pour({ x: at.x, y: at.y + k }, { x: at.x + RESERVOIR - 1, y: at.y + k }) || ok;
+  return ok;
+}
+
 /** Dig the basin and fill it to the rim; whether it was dug. Noted as one of its reservoirs. */
 export function digReservoir(at: Cell): boolean {
   const rows = [...Array(RESERVOIR).keys()].map((k) => [{ x: at.x, y: at.y + k }, { x: at.x + RESERVOIR - 1, y: at.y + k }] as const);

@@ -19,6 +19,8 @@ import { structureDef } from "../structures/def";
 import { INTERVAL, chooseAction, perform, targetOf, type AiAction } from "./planner";
 import { ARRIVALS, nextMemoIn, pickMemo } from "./memos";
 import { accrueWallet, creditWallet, priceOfAi, spendWallet, walletCovers } from "./wallet";
+import { skillOf } from "../../state/training.store";
+import { DRONES_FASTER } from "../../game/training";
 
 /** Drones aloft at once; tiles a second a drone flies; seconds it scans before the job is done. */
 export const MAX_DRONES = 6;
@@ -106,10 +108,12 @@ export function stepAi(r: AiRunner, g: Grid, ai: AiNow, dt: number, now: number,
   const did: AiAction[] = [];
   // ITS ALLOWANCE, while it is at work: its share of the income, into its wallet. @see accrueWallet
   if (INTERVAL[ai.stage]) accrueWallet(dt);
-  const speed = DRONE_SPEED * DRONE_SWARM[moduleLevel("drone-swarm")];
+  // Faster for an AI trained on itself. @see DRONES_FASTER
+  const quick = skillOf("itself") >= 2 ? DRONES_FASTER : 1;
+  const speed = DRONE_SPEED * DRONE_SWARM[moduleLevel("drone-swarm")] * quick;
   for (const job of [...r.jobs]) {
     job.t += dt;
-    if (job.t < job.fly + SCAN_SECONDS) continue;
+    if (job.t < job.fly + SCAN_SECONDS / quick) continue;
     r.jobs = r.jobs.filter((j) => j !== job);
     if (r.landed.length < LANDED_KEPT) r.landed.push(job.to);
     if (done(r, job.action, now, g)) did.push(job.action);

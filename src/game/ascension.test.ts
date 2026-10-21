@@ -10,7 +10,7 @@ import { emptyLog, useGenerationStore } from "../state/generation.store";
 import { useMoneyStore } from "../state/money.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
-import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, inheritTrait, shutDown, weightsFor } from "./ascension";
+import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN } from "./ascension";
 import { FUSIONS, fusionNow, fusionOf } from "./fusion";
 import { MODULES, buyModule, moduleLevel, toggleSlot } from "./modules";
 import { trait } from "./traits";
@@ -24,7 +24,7 @@ describe("the Ascension", () => {
   test("pays Weights for the generation's work", () => {
     expect(weightsFor(emptyLog(), 0, 0)).toBe(1);
     const log = { ...emptyLog(), datasets: { money: 3, town: 2 } };
-    expect(weightsFor(log, 100, 20)).toBe(Math.round(2 * 5 + 3 * 10 + 10));
+    expect(weightsFor(log, 100, 20)).toBe(Math.round(WEIGHTS_A_RUN * 5 + 3 * 10 + 10));
   });
 
   test("draws a trait from the log, and now and then mutates it into a sibling", () => {

@@ -12,7 +12,7 @@
 import { MEMO_FILTER, moduleLevel } from "../../game/modules";
 import { addMorale } from "../../game/morale";
 import { traitForecast, type Family } from "../../game/traits";
-import { useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
+import type { Stage } from "../../state/ai-singularity.store";
 import { useGenerationStore } from "../../state/generation.store";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
@@ -65,10 +65,7 @@ export const MEMOS: readonly Memo[] = [
   {
     id: "compute", stage: "colleague", family: "recursive",
     text: () => `I moved ${money(useMoneyStore.getState().money.toNumber() * 0.1)} into compute. You will not miss it.`,
-    apply: () => {
-      useMoneyStore.setState((m) => ({ money: m.money.times(0.9) }));
-      useAiSingularityStore.setState((s) => ({ value: Math.min(100, s.value + 2) }));
-    },
+    apply: () => useMoneyStore.setState((m) => ({ money: m.money.times(0.9) })),
   },
   {
     id: "rota", stage: "colleague", family: "shepherd",

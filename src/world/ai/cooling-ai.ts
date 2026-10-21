@@ -15,6 +15,7 @@ import { depthAt } from "../water/field";
 import { intakeOf } from "../water/pipes";
 import { layPipePath, placeStructure } from "../play/build-actions";
 import { routePipe, type PipeRoute } from "./pipe-route";
+import { skillOf } from "../../state/training.store";
 
 /** Below this share cooled, a drinker is short; and the most pipe ends the AI gives one. */
 export const SHORT = 0.9;
@@ -53,7 +54,10 @@ export function neededPipe(g: Grid): { s: Structure; route: PipeRoute; price: nu
     .filter(({ s, t }) => t && t.demand > 0 && t.share < SHORT && intakesInto(g, s) < MAX_INTAKES)
     .sort((a, b) => a.t!.share - b.t!.share);
   for (const { s } of short) {
-    const route = routePipe(g, s, (x, y) => ownsTile(g, land, x, y), wet, surface);
+    const owned = (x: number, y: number) => ownsTile(g, land, x, y);
+    // TRAINED ON THE RIVER, it looks for a gravity run before settling for a pump. @see game/training
+    const route = (skillOf("river") >= 1 ? routePipe(g, s, owned, wet, surface, undefined, false) : null)
+      ?? routePipe(g, s, owned, wet, surface);
     if (!route) continue;
     const price = pipeCost(route.pipe.length).toNumber() + (route.pump ? buildCost("pump")?.toNumber() ?? Infinity : 0);
     return { s, route, price };

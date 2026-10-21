@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { agentBonus } from "../game/agents";
 import { runningAgents } from "./agents.store";
-import { training } from "./training.store";
-import { ITSELF_AGENTS, MONEY_MULT } from "../game/training";
+import { skillOf, training } from "./training.store";
+import { ITSELF_BOOST } from "../game/training";
 
 import {
   createJSONStorage,
@@ -52,8 +52,12 @@ import { syncAvailableUpgrades } from "./upgrades.store";
 import { useSlopPitStore } from "./slop-pit.store";
 import { useValuationStore } from "./valuation.store";
 
-/** What the agents running add to income — more while training on themselves. @see ITSELF_AGENTS */
-const trainedAgentBonus = () => 1 + (agentBonus(runningAgents()) - 1) * (training() === "itself" ? ITSELF_AGENTS : 1);
+/**
+ * What the agents running add to income: nothing while they train — that is
+ * a training run's price — and more for an AI that has studied itself.
+ * @see game/training, ITSELF_BOOST
+ */
+const trainedAgentBonus = () => training() ? 1 : 1 + (agentBonus(runningAgents()) - 1) * (skillOf("itself") >= 3 ? ITSELF_BOOST : 1);
 
 export type UnlockCondition = {
   requiredId: GeneratorId;
@@ -540,7 +544,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * trainedAgentBonus() * (training() === "money" ? MONEY_MULT : 1) * fusionNow().incomeMult,
+            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult,
             innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * atDesks * wonderBonus("innovation") * labBonus(),
           };
         },

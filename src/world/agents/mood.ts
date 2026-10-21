@@ -17,8 +17,6 @@
  * then: still hired, but gone from there, and new arrivals will not move into
  * it. A neglected street empties; a good one fills. @see stepMood
  */
-import { TOWN_DESIRE } from "../../game/training";
-import { training } from "../../state/training.store";
 import { fusionNow } from "../../game/fusion";
 import { housedBy, residentsIn } from "../../game/housing";
 import { projectForStructure } from "../../game/projects";
@@ -49,7 +47,7 @@ export function moodsOf(
   g: Grid, commutes: ReadonlyMap<number, Commute>, coverage: Coverage, slopFill: number,
   sludged: ReadonlySet<number> = new Set(), flooded: ReadonlySet<number> = new Set(),
   water: (s: Structure) => boolean = () => false,
-  /** What the AI's training on the town adds to every house. @see TOWN_DESIRE */
+  /** What a Zoner fused into the founder adds to every house. @see game/fusion */
   planning = 0,
 ): Map<number, MoodParts> {
   const pits: Structure[] = [], wonders: Structure[] = [], derelicts: Structure[] = [];
@@ -140,8 +138,8 @@ export function liveMoods(g: Grid, net: Network, slopFill: number): Map<number, 
   let sites = 0;
   for (const s of g.structures.values()) if (s.build) sites++;
   const fill = Math.round(Math.max(0, Math.min(1, slopFill)) * 20);
-  // The AI trained on the town, and a Zoner fused into the founder. @see game/fusion
-  const planning = (training() === "town" ? TOWN_DESIRE : 0) + fusionNow().houseDesire;
+  // A Zoner fused into the founder. @see game/fusion
+  const planning = fusionNow().houseDesire;
   const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + planning;
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.fill !== fill || memo.sludge !== sludge) {
     const maps = liveDesireMaps(g, net);

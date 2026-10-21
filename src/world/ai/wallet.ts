@@ -11,6 +11,8 @@ import { useGeneratorStore } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
 import { useUpgradeStore } from "../../state/upgrades.store";
+import { skillOf } from "../../state/training.store";
+import { WALLET_DEEPER, WALLET_FASTER } from "../../game/training";
 import { getGeneratorCost } from "../../utils/generator-utils";
 import { idx, inBounds, type Grid } from "../grid";
 import { isPaved } from "../roads/mask";
@@ -29,7 +31,8 @@ const income = () => {
 };
 
 /** What it may hold at most, now. */
-export const walletCap = (): number => income() * useSessionStore.getState().aiShare * WALLET_MINUTES * 60;
+export const walletCap = (): number =>
+  income() * useSessionStore.getState().aiShare * WALLET_MINUTES * 60 * (skillOf("money") >= 3 ? WALLET_DEEPER : 1);
 
 /**
  * Its share of `seconds` of income, into the wallet, up to the cap. Kept up
@@ -48,7 +51,9 @@ export function accrueWallet(seconds: number): void {
 /** Credit `seconds` of its share at once: time away, or a flush. */
 export function creditWallet(seconds: number): void {
   const s = useSessionStore.getState();
-  const next = Math.min(walletCap(), s.aiWallet + income() * s.aiShare * seconds);
+  // Faster for an AI trained on the money. @see WALLET_FASTER
+  const faster = skillOf("money") >= 1 ? WALLET_FASTER : 1;
+  const next = Math.min(walletCap(), s.aiWallet + income() * s.aiShare * faster * seconds);
   if (next !== s.aiWallet) s.setAiWallet({ aiWallet: Math.max(0, next) });
 }
 

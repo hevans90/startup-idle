@@ -21,7 +21,7 @@ export type FusionEffects = {
   /** How fast the singularity rises. */
   meterMult: number;
   trainingJumpMult: number;
-  trainingCostMult: number;
+  trainingTimeMult: number;
   /** What a rack costs (0 is free), and an agent. */
   rackCostMult: number;
   agentCostMult: number;
@@ -40,7 +40,7 @@ export type FusionEffects = {
 };
 
 export const NO_FUSION: FusionEffects = {
-  incomeMult: 1, moraleLean: 0, hireCostMult: 1, agentBoostMult: 1, meterMult: 1, trainingJumpMult: 1, trainingCostMult: 1,
+  incomeMult: 1, moraleLean: 0, hireCostMult: 1, agentBoostMult: 1, meterMult: 1, trainingJumpMult: 1, trainingTimeMult: 1,
   rackCostMult: 1, agentCostMult: 1, agentsPerRack: 0, waterView: 5, houseDesire: 0, floodsDamage: true,
   servicesCostMult: 1, lotCostMult: 1, officeCostMult: 1, exitsBonus: 0,
 };
@@ -56,7 +56,7 @@ export const FUSIONS: Record<TraitId, { text: string; apply: (e: FusionEffects) 
   paranoid: { text: "Racks free; agents cost double", apply: (e) => { e.rackCostMult = 0; e.agentCostMult *= 2; } },
   hydrophile: { text: "A water view is +10; floods damage nothing", apply: (e) => { e.waterView = 10; e.floodsDamage = false; } },
   hivemind: { text: "+1 agent a rack", apply: (e) => { e.agentsPerRack += 1; } },
-  ego: { text: "Training jumps the AI twice as far, for half the price", apply: (e) => { e.trainingJumpMult *= 2; e.trainingCostMult *= 0.5; } },
+  ego: { text: "Training jumps the AI half as far again, in half the time", apply: (e) => { e.trainingJumpMult *= 1.5; e.trainingTimeMult *= 0.5; } },
   mirror: { text: `The founder's own bonus counts ${MIRROR_EXITS} more exits`, apply: (e) => { e.exitsBonus += MIRROR_EXITS; } },
   patient: { text: "The AI rises 30% slower; each agent +25%", apply: (e) => { e.meterMult *= 0.7; e.agentBoostMult *= 1.25; } },
   restless: { text: "The AI rises 30% faster; each agent +50%", apply: (e) => { e.meterMult *= 1.3; e.agentBoostMult *= 1.5; } },

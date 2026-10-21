@@ -25,11 +25,13 @@ const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
  * The shortest route from `drinker` to water, or null. `wet` is whether water
  * stands on a tile now; `surface` how high its top is there. `avoid` keeps a
  * route off tiles — a Paranoid AI keeps clear of the river. @see styleOf
+ * Without `pumps`, gravity runs only.
  */
 export function routePipe(
   g: Grid, drinker: Structure, owned: (x: number, y: number) => boolean,
   wet: (x: number, y: number) => boolean, surface: (x: number, y: number) => number,
   avoid: (x: number, y: number) => boolean = () => false,
+  pumps = true,
 ): PipeRoute | null {
   const free = (x: number, y: number) =>
     inBounds(g, x, y) && owned(x, y) && !wet(x, y) && structureAt(g, x, y) < 0 && !g.pipe[idx(g, x, y)] && !avoid(x, y);
@@ -56,7 +58,7 @@ export function routePipe(
       for (let k = i; k !== -1; k = from[k]) path.push({ x: k % g.w, y: (k - (k % g.w)) / g.w });
       // `path` runs from the shore to the building already.
       if (top > floor) return { pipe: path, pump: null };
-      if (top + PUMP_HEAD > floor && path.length > 1) return { pipe: path.slice(1), pump: path[0] };
+      if (pumps && top + PUMP_HEAD > floor && path.length > 1) return { pipe: path.slice(1), pump: path[0] };
       // No good here: on along the shore.
     }
     for (const [dx, dy] of SIDES) {

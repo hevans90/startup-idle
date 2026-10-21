@@ -29,12 +29,12 @@ export const RATE_PER_AGENT = 0.0005;
 export const DECAY = 0.002;
 /**
  * The share of it a sale keeps, and the floor under that: so much a sale this
- * generation, up to a cap. Tuned so a strong player ascends in about 5 sales,
- * a typical one in about 10, and one who runs half the agents not until they
- * push. @see singularity-cadence.test.ts
+ * generation, up to a cap. Tuned so a strong player ascends in 8–10 sales, a
+ * typical one in 14–18, and one who runs half the agents later still: the
+ * floor does most of it. @see singularity-cadence.test.ts
  */
-export const CARRY = 0.8;
-export const FLOOR_PER_SALE = 10;
+export const CARRY = 0.5;
+export const FLOOR_PER_SALE = 6;
 export const FLOOR_CAP = 90;
 
 export type Stage = "tool" | "assistant" | "colleague" | "manager" | "overseer" | "ascension";

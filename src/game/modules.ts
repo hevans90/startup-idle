@@ -23,7 +23,7 @@ export const MODULES: readonly Module[] = [
   { id: "quiet-model", name: "Quiet Model", levels: ["The AI rises 15% slower", "30% slower", "45% slower"], costs: [3, 8, 18] },
   { id: "rack-density", name: "Rack Density", levels: ["+1 agent a rack", "+2 agents a rack", "+3 agents a rack"], costs: [5, 12, 26] },
   { id: "blueprint-cache", name: "Blueprint Cache", levels: ["The Data Centre needs 20% less headcount", "40% less", "60% less"], costs: [4, 10, 22] },
-  { id: "pre-trained", name: "Pre-trained", levels: ["Training runs cost 25% less", "50% less", "75% less"], costs: [3, 8, 18] },
+  { id: "pre-trained", name: "Pre-trained", levels: ["Training runs take 25% less time", "50% less", "75% less"], costs: [3, 8, 18] },
   { id: "seed-round", name: "Seed Round", levels: ["Every company starts with $500", "$5,000", "$50,000"], costs: [2, 6, 14] },
   { id: "drone-swarm", name: "Drone Swarm", levels: ["The AI's drones fly 25% faster", "50% faster", "Twice as fast"], costs: [3, 8, 18] },
   { id: "memo-filter", name: "Memo Filter", levels: ["The AI's helpful memos come 50% more often", "Twice as often", "Three times as often"], costs: [3, 8, 18] },

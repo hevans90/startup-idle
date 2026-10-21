@@ -14,9 +14,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { AGENT_BOOST } from "../game/agents";
 import { MORALE_SECONDS } from "../game/morale";
-import { ITSELF_AGENTS, MONEY_MULT, PEOPLE_MORALE, RIVER_PORTS, TOWN_DESIRE, TRAINING_SECONDS } from "../game/training";
 import { SATISFACTION_MAX, SATISFACTION_MIN } from "../game/satisfaction";
 import { DRAIN_SATISFACTION_HIT } from "../state/slop-pit.store";
 import { CLEANERS_PER_TILE } from "../world/events/cleanup";
@@ -91,18 +89,9 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
     host: (c) => HACKATHON_PIZZA + c.vibe * 60 - c.vibe * leanSeconds(HACKATHON_MORALE, c.vibeScore),
     decline: (c) => c.vibe * leanSeconds(HACKATHON_SNUB, c.vibeScore),
   },
-  // A TRAINING RUN's dataset, by what its boost is worth while it runs. Left out:
-  // the meter's jump (Itself's is twice the rest: that is what it is for) and
-  // the traits each leans toward.
-  training: {
-    money: () => -(MONEY_MULT - 1) * TRAINING_SECONDS,
-    itself: (c) => -((1 + AGENT_BOOST * ITSELF_AGENTS * c.agents) / (1 + AGENT_BOOST * c.agents) - 1) * TRAINING_SECONDS,
-    // A lean held for the run, on everyone. @see addMorale
-    people: (c) => -(c.intern * PEOPLE_MORALE * perPoint(c.internScore) + c.vibe * PEOPLE_MORALE * perPoint(c.vibeScore)) * TRAINING_SECONDS,
-    river: (c) => -c.port * (RIVER_PORTS - 1) * TRAINING_SECONDS,
-    // Desirability as the investor tour's mood: 1.5 s of income a point.
-    town: () => -1.5 * TOWN_DESIRE,
-  },
+  // TRAINING RUNS are not here: every dataset costs the same — the agents'
+  // boost for the run — and what each teaches is how the AI acts on the map,
+  // not income to weigh in seconds. @see game/training
   "slop-overflow": {
     // The core game's own drain: a one-off hit, back in a minute.
     drain: (c) => c.vibe * bumpSeconds(-DRAIN_SATISFACTION_HIT, c.vibeScore),

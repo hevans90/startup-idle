@@ -22,9 +22,10 @@ import { afterSale, singularityRate } from "../state/ai-singularity.store";
 type Profile = { minutes: number; dcAt: number; agents: number; throttle: number; runs: DatasetId[]; equity: number };
 
 const PROFILES: Record<string, Profile> = {
-  strong: { minutes: 90, dcAt: 35, agents: 16, throttle: 1, runs: ["itself", "money", "town", "people"], equity: 30 },
-  typical: { minutes: 75, dcAt: 40, agents: 10, throttle: 1, runs: ["money", "town"], equity: 15 },
-  careful: { minutes: 75, dcAt: 40, agents: 10, throttle: 0.5, runs: ["people"], equity: 15 },
+  // Runs cost the agents' time, not innovation: a company has room for 8–15. @see game/training
+  strong: { minutes: 90, dcAt: 35, agents: 16, throttle: 1, runs: ["itself", "itself", "itself", "money", "money", "town", "town", "town", "people", "people", "river", "itself"], equity: 30 },
+  typical: { minutes: 75, dcAt: 40, agents: 10, throttle: 1, runs: ["money", "money", "town", "town", "town", "people", "itself", "river"], equity: 15 },
+  careful: { minutes: 75, dcAt: 40, agents: 10, throttle: 0.5, runs: ["people", "people", "town", "river"], equity: 15 },
 };
 const jump = (id: DatasetId) => DATASETS.find((d) => d.id === id)!.jump;
 
@@ -55,11 +56,11 @@ describe("the Ascension's cadence", () => {
   const out = Object.fromEntries(Object.entries(PROFILES).map(([k, p]) => [k, generation(p)]));
   if (process.env.BALANCE) for (const [k, g] of Object.entries(out)) console.log(`${k.padEnd(8)} ${g ? `${g.sales} sales · ${g.weights} Weights` : "never"}`);
 
-  test("a strong player ascends in about 5 sales, a typical one by 10", () => {
-    expect(out.strong!.sales).toBeGreaterThanOrEqual(4);
-    expect(out.strong!.sales).toBeLessThanOrEqual(6);
-    expect(out.typical!.sales).toBeGreaterThanOrEqual(6);
-    expect(out.typical!.sales).toBeLessThanOrEqual(10);
+  test("a strong player ascends in 8–10 sales, a typical one in 14–18", () => {
+    expect(out.strong!.sales).toBeGreaterThanOrEqual(8);
+    expect(out.strong!.sales).toBeLessThanOrEqual(10);
+    expect(out.typical!.sales).toBeGreaterThanOrEqual(14);
+    expect(out.typical!.sales).toBeLessThanOrEqual(18);
   });
 
   test("running half the agents holds it off: the throttle is a real lever", () => {
