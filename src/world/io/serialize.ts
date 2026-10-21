@@ -106,6 +106,9 @@ export type WorldFile = {
    * every old map, and every old map with a pipe on it is a test fixture.
    */
   pipeZ?: string;
+  /** base64 Uint8Arrays of the WATER MAINS: the sides each joins, and its end fittings. Optional: older maps have none. */
+  main?: string;
+  mainEnd?: string;
   /**
    * Placed structures, as readable JSON — they are few, and worth eyeballing
    * in a diff.
@@ -213,6 +216,8 @@ export function serializeWorld(
     inflow: encodeI8(grid.inflow),
     pipe: encodeU8(grid.pipe),
     pipeZ: encodeI8(grid.pipeZ),
+    // Only where there is a main: most maps have none, and two empty layers are 11KB of nothing.
+    ...(grid.main.some(Boolean) || grid.mainEnd.some(Boolean) ? { main: encodeU8(grid.main), mainEnd: encodeU8(grid.mainEnd) } : {}),
     ramp: encodeU8(grid.ramp),
     structures: [...grid.structures.values()],
     // The boats as they stand, when there is a running world to ask.
@@ -308,6 +313,8 @@ export function deserializeWorld(
   if (typeof f.inflow === "string") grid.inflow.set(decodeI8(f.inflow, n));
   if (typeof f.pipe === "string") grid.pipe.set(decodeU8(f.pipe, n));
   if (typeof f.pipeZ === "string") grid.pipeZ.set(decodeI8(f.pipeZ, n));
+  if (typeof f.main === "string") grid.main.set(decodeU8(f.main, n));
+  if (typeof f.mainEnd === "string") grid.mainEnd.set(decodeU8(f.mainEnd, n));
   grid.structureAt.fill(-1);
   for (const raw of Array.isArray(f.structures) ? f.structures : []) {
     const s = readStructure(raw);

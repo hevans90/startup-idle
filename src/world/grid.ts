@@ -236,6 +236,14 @@ export type Grid = {
    * below the map's own floor.
    */
   pipeZ: Int8Array;
+  /**
+   * A WATER MAIN on a cell, the game's pipe: the sides it joins its
+   * neighbours on, `DIR` bits. Joined only where a stroke joins it — two runs
+   * side by side are two runs. @see world/water/mains
+   */
+  main: Uint8Array;
+  /** The fitting at a main's end: {@link MAIN_END}, or 0 along a run. */
+  mainEnd: Uint8Array;
   /** Structure ID per cell, −1 = empty. An ID, not a list index — see {@link Structure}. */
   structureAt: Int32Array;
   /** Placed structures, by id. */
@@ -295,6 +303,8 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     ramp: new Uint8Array(n),
     pipe: new Uint8Array(n),
     pipeZ: new Int8Array(n),
+    main: new Uint8Array(n),
+    mainEnd: new Uint8Array(n),
     structureAt: new Int32Array(n),
     structures: new Map(),
     nextStructureId: 1,
@@ -335,6 +345,9 @@ export const sourceAt = (g: Grid, x: number, y: number) =>
 /** Which way the pipe on a cell points, or 0 where there is none. */
 export const pipeAt = (g: Grid, x: number, y: number) =>
   inBounds(g, x, y) ? g.pipe[idx(g, x, y)] : 0;
+
+/** A main's end fittings: drawing from water, with a pump, feeding a building, capped. */
+export const MAIN_END = { intake: 1, pump: 2, outlet: 3, cap: 4 } as const;
 
 /** The invert of the pipe on a cell — where its floor is. See {@link Grid.pipeZ}. */
 export const pipeInvertAt = (g: Grid, x: number, y: number) =>
