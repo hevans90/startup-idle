@@ -66,6 +66,9 @@ export function resetRunStores(): void {
  * (handled in `src/test/setup.ts`).
  */
 export function resetAllGameStores(): void {
+  // Prestige FIRST, so the run reset below sees neutral modifiers (no free
+  // Acqui-hire levels granted on a total wipe).
+  usePrestigeStore.getState().reset();
   resetForAscension();
   useVapeAchievementsStore.getState().clearAll();
   // And the generations: a true new game begins at the first. @see useGenerationStore
@@ -75,14 +78,13 @@ export function resetAllGameStores(): void {
 }
 
 /**
- * AN ASCENSION'S WIPE: a run reset plus prestige — Equity, the skill tree,
- * founders' exits and board mandates — keeping the generation's
- * own store and the achievements. @see game/ascension
+ * AN ASCENSION'S WIPE: a run reset plus the founders' exits and board
+ * mandates — keeping Equity and the skill tree, the generation's own store
+ * and the achievements. @see game/ascension
  */
 export function resetForAscension(): void {
-  // Wipe prestige FIRST so the run reset below sees neutral modifiers (no free
-  // Acqui-hire levels granted on a total wipe).
-  usePrestigeStore.getState().reset();
+  // EQUITY AND THE SKILL TREE are kept: the next company starts as one after a
+  // sale does, with the tree's modifiers. @see ascend
   resetRunStores();
   // Board mandates persist across runs, so the run reset keeps them — clear them
   // explicitly here for a true full wipe.

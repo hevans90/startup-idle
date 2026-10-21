@@ -39,7 +39,7 @@ export function AscensionCard({ className }: { className?: ClassNameValue }) {
       </p>
       <div className="mt-3 text-xs">
         <p><b>Ascend:</b> +{weightsNow()} Weights. It will most likely be <b>{likely.trait.name}</b> ({Math.round(likely.odds * 100)}%), fused into this founder for good.</p>
-        <p className="text-primary-600 dark:text-primary-400">Wipes Equity, the skill tree, founders' exits and mandates. Keeps Weights, modules, fused founders and achievements.</p>
+        <p className="text-primary-600 dark:text-primary-400">Wipes the company, founders' exits and mandates. Keeps Equity and the skill tree, Weights, modules, fused founders and achievements.</p>
         <p className="mt-2"><b>Shut it down:</b> every agent deleted, the racks dark for {Math.round(DARK_MS / 60_000)} minutes, the AI back to {SHUTDOWN_AT}%. It will remember.</p>
       </div>
       <div className="mt-3 flex gap-2">

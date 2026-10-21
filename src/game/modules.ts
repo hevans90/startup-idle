@@ -6,7 +6,7 @@
 import { useGenerationStore } from "../state/generation.store";
 
 export type ModuleId =
-  | "warm-start" | "quiet-model" | "rack-density" | "blueprint-cache"
+  | "quiet-model" | "rack-density" | "blueprint-cache"
   | "pre-trained" | "seed-round" | "drone-swarm" | "memo-filter";
 
 export type Module = {
@@ -19,7 +19,6 @@ export type Module = {
 };
 
 export const MODULES: readonly Module[] = [
-  { id: "warm-start", name: "Warm Start", levels: ["Keep 10% of Equity through an Ascension", "Keep 20%", "Keep 30%"], costs: [4, 10, 24] },
   { id: "quiet-model", name: "Quiet Model", levels: ["The AI rises 15% slower", "30% slower", "45% slower"], costs: [3, 8, 18] },
   { id: "rack-density", name: "Rack Density", levels: ["+1 agent a rack", "+2 agents a rack", "+3 agents a rack"], costs: [5, 12, 26] },
   { id: "blueprint-cache", name: "Blueprint Cache", levels: ["The Data Centre needs 20% less headcount", "40% less", "60% less"], costs: [4, 10, 22] },
@@ -38,13 +37,34 @@ export function moduleLevel(id: ModuleId): number {
 }
 
 /** What each module's level is worth, where a number does it. */
-export const WARM_START = [0, 0.1, 0.2, 0.3] as const;
 export const QUIET_MODEL = [1, 0.85, 0.7, 0.55] as const;
 export const BLUEPRINT_CACHE = [1, 0.8, 0.6, 0.4] as const;
 export const PRE_TRAINED = [1, 0.75, 0.5, 0.25] as const;
 export const SEED_ROUND = [0, 500, 5_000, 50_000] as const;
 export const DRONE_SWARM = [1, 1.25, 1.5, 2] as const;
 export const MEMO_FILTER = [1, 1.5, 2, 3] as const;
+
+/**
+ * MODULES RETIRED, and what their levels cost: a save that bought them has
+ * the Weights back, and they leave its slots. Warm Start kept Equity through
+ * an Ascension, which now keeps all of it.
+ */
+const RETIRED: Record<string, readonly number[]> = { "warm-start": [4, 10, 24] };
+export function refundRetired(): void {
+  const g = useGenerationStore.getState();
+  const owned = g.modules as Record<string, number | undefined>;
+  let back = 0;
+  const modules = { ...owned };
+  for (const [id, costs] of Object.entries(RETIRED)) {
+    const level = owned[id] ?? 0;
+    if (!level) continue;
+    back += costs.slice(0, level).reduce((a, b) => a + b, 0);
+    delete modules[id];
+  }
+  if (!back) return;
+  useGenerationStore.setState({ weights: g.weights + back, modules, slotted: g.slotted.filter((m) => !(m in RETIRED)) });
+}
+refundRetired();
 
 /** Buy the next level of a module, if the Weights are there. Whether it was bought. */
 export function buyModule(id: ModuleId): boolean {

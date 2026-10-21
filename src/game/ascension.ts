@@ -1,20 +1,17 @@
 /**
  * THE ASCENSION: when the singularity reaches 100, the company's AI asks to
- * go. Let it, and everything is wiped — Equity, the skill tree, the founders'
- * exits and mandates — for WEIGHTS, and a trait drawn from how it
+ * go. Let it, and the company is wiped, with the founders' exits and mandates
+ * — but not Equity nor the skill tree, which go on growing — for WEIGHTS, and a trait drawn from how it
  * was brought up fuses into the founder you played. Shut it down instead, and
  * the run goes on with its agents deleted, its racks dark for a while and the
  * meter halved; and it remembers. @see plans/singularity.md
  */
-import Decimal from "break_infinity.js";
 
 import { resetForAscension } from "../simulation/reset-game-stores";
 import { useAgentsStore } from "../state/agents.store";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useFounderStore } from "../state/founder.store";
 import { emptyLog, useGenerationStore, type BehaviourLog } from "../state/generation.store";
-import { usePrestigeStore } from "../state/prestige.store";
-import { WARM_START, moduleLevel } from "./modules";
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
 
 /** The chance the trait drawn mutates into a sibling. */
@@ -24,11 +21,11 @@ export const DARK_MS = 10 * 60_000;
 export const SHUTDOWN_AT = 50;
 
 /**
- * WEIGHTS a generation's work earns: its training runs — half a Weight each,
+ * WEIGHTS a generation's work earns: its training runs — 0.4 of a Weight each,
  * a company having room for a dozen — the Equity its companies sold for, the
  * most agents it ran. @see singularity-cadence.test.ts
  */
-export const WEIGHTS_A_RUN = 0.5;
+export const WEIGHTS_A_RUN = 0.4;
 export function weightsFor(log: BehaviourLog, equity: number, peakAgents: number): number {
   const runs = Object.values(log.datasets).reduce((n, k) => n + (k ?? 0), 0);
   return Math.max(1, Math.round(WEIGHTS_A_RUN * runs + 3 * Math.sqrt(Math.max(0, equity)) + peakAgents / 2));
@@ -55,15 +52,13 @@ export function inheritTrait(log: BehaviourLog, rand: () => number): { trait: Tr
 
 export type AscensionResult = { trait: TraitId; mutated: boolean; founder: string; weights: number; generation: number };
 
-/** ASCEND: bank the Weights, fuse the trait, wipe everything but the generation. */
+/** ASCEND: bank the Weights, fuse the trait, wipe everything but the generation and the tree. */
 export function ascend(rand: () => number = Math.random): AscensionResult | null {
   const founder = useFounderStore.getState().selectedFounderId;
   if (!founder) return null;
   const g = useGenerationStore.getState();
   const { trait: t, mutated } = inheritTrait(g.log, rand);
   const weights = weightsNow();
-  // WARM START: some Equity carried through. @see WARM_START
-  const kept = usePrestigeStore.getState().equity.mul(WARM_START[moduleLevel("warm-start")]).floor();
 
   resetForAscension();
 
@@ -80,7 +75,6 @@ export function ascend(rand: () => number = Math.random): AscensionResult | null
     announce: { generation: g.generation, trait: t, mutated, founder, weights },
   });
   useAiSingularityStore.setState({ value: 0 });
-  if (kept.gt(0)) usePrestigeStore.setState({ equity: new Decimal(kept) });
   return { trait: t, mutated, founder, weights, generation: g.generation + 1 };
 }
 

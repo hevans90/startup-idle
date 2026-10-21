@@ -12,7 +12,7 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN } from "./ascension";
 import { FUSIONS, fusionNow, fusionOf } from "./fusion";
-import { MODULES, buyModule, moduleLevel, toggleSlot } from "./modules";
+import { MODULES, buyModule, moduleLevel, refundRetired, toggleSlot } from "./modules";
 import { trait } from "./traits";
 
 afterEach(() => resetAllGameStores());
@@ -38,7 +38,7 @@ describe("the Ascension", () => {
     expect(trait(mutated.trait).family).toBe("elemental");
   });
 
-  test("wipes everything but the generation and the achievements, and fuses the trait into the founder played", () => {
+  test("wipes the company but keeps the generation, the achievements, Equity and the skill tree, and fuses the trait into the founder played", () => {
     useFounderStore.getState().chooseFounder("neet");
     usePrestigeStore.setState({ equity: new Decimal(500), exits: 7, allocated: ["x"] });
     useExitsStore.getState().recordExit("neet", 1000);
@@ -54,8 +54,8 @@ describe("the Ascension", () => {
     expect(g.fused.neet).toEqual([r.trait]);
     expect(g.log).toEqual(emptyLog());
     expect(g.announce?.trait).toBe(r.trait);
-    expect(usePrestigeStore.getState().equity.toNumber()).toBe(0);
-    expect(usePrestigeStore.getState().allocated).toEqual([]);
+    expect(usePrestigeStore.getState().equity.toNumber()).toBe(500);
+    expect(usePrestigeStore.getState().allocated).toEqual(["x"]);
     expect(useExitsStore.getState().exits).toEqual({});
     expect(useFounderStore.getState().selectedFounderId).toBeNull();
     expect(useAiSingularityStore.getState().value).toBe(0);
@@ -63,14 +63,13 @@ describe("the Ascension", () => {
     expect(useVapeAchievementsStore.getState().juiceMpsMultBonus).toBe(0.5);
   });
 
-  test("keeps some Equity through, with Warm Start slotted", () => {
-    useGenerationStore.setState({ generation: 2, weights: 100 });
-    expect(buyModule("warm-start")).toBe(true);
-    expect(toggleSlot("warm-start", 1)).toBe(true);
-    useFounderStore.getState().chooseFounder("neet");
-    usePrestigeStore.setState({ equity: new Decimal(1000) });
-    ascend(seq(0, 0.99));
-    expect(usePrestigeStore.getState().equity.toNumber()).toBe(100);
+  test("a retired module's Weights come back, and it leaves its slot", () => {
+    useGenerationStore.setState({ weights: 1, modules: { "warm-start": 2, "quiet-model": 1 } as never, slotted: ["warm-start", "quiet-model"] as never });
+    refundRetired();
+    const g = useGenerationStore.getState();
+    expect(g.weights).toBe(1 + 4 + 10);
+    expect(g.modules).toEqual({ "quiet-model": 1 });
+    expect(g.slotted).toEqual(["quiet-model"]);
   });
 
   test("shut down: agents deleted, racks dark a while, the AI halved, and remembered", () => {
