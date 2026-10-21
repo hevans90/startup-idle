@@ -23,9 +23,36 @@ const RING_GAP = 115;
 export const MACHINE_CENTRE = { x: 0, y: 2420 };
 
 export type MachineNode = {
-  id: string; x: number; y: number; title: string; kind: "root" | "minor"; cluster: typeof MACHINE;
+  id: string; x: number; y: number; title: string; kind: "root" | "minor" | "notable"; cluster: typeof MACHINE;
   effect: string; ring: number; module?: ModuleId; cost: number;
 };
+
+/**
+ * ITS NOTABLES: features, not percentages — each changes how something on the
+ * map works, and how it looks. Each in a gap between two spokes, beside their
+ * second-ring nodes, revealed with them. The first costs `NOTABLE_COST`, and
+ * each bought makes the next dearer by `NOTABLE_STEP`. @see plans/ai-takeover.md §4.2
+ */
+export type NotableId = "freight" | "airlift" | "prefab" | "zoning";
+export const NOTABLES: readonly { id: NotableId; title: string; effect: string; gap: number }[] = [
+  { id: "freight", gap: 0, title: "Autonomous Freight", effect: "Project materials come in convoys of three self-driving lorries, from the Data Centre as well as the garage: a sixteen-load wonder in six runs." },
+  { id: "airlift", gap: 2, title: "Drone Airlift", effect: "Sites of four tiles or fewer get their materials by heavy-lift drone, straight from the Data Centre over the town: three times as fast, a quarter dearer a load." },
+  { id: "prefab", gap: 4, title: "Prefab Printing", effect: "The AI prints building segments off-site: every new project needs 40% less work. The loads stay." },
+  { id: "zoning", gap: 5, title: "Generative Zoning", effect: "Lots the AI zones in its district are born at the tier the spot can sustain, not as starter lots." },
+];
+export const NOTABLE_COST = 30;
+export const NOTABLE_STEP = 15;
+const notableId = (id: NotableId) => `machine_n_${id}`;
+/** Whether a notable is bought. */
+export const notable = (id: NotableId): boolean => hasMachine(notableId(id));
+/** What a node costs now: a notable dearer for each bought. */
+export function machineCost(id: string): number {
+  const n = machineNode(id);
+  if (!n) return Infinity;
+  if (n.kind !== "notable") return n.cost;
+  const owned = NOTABLES.filter((x) => notable(x.id)).length;
+  return NOTABLE_COST + NOTABLE_STEP * owned;
+}
 
 const minorId = (m: ModuleId, ring: number) => `machine_${m}_${ring}`;
 
@@ -51,6 +78,16 @@ export function machineGraph(): { nodes: MachineNode[]; edges: [string, string][
       prev = id;
     }
   });
+  // The notables, in the gaps, beside the second-ring nodes of the spokes either side.
+  for (const n of NOTABLES) {
+    const a = -Math.PI / 2 + ((n.gap + 1) / SPOKES.length) * Math.PI * 2;
+    const id = notableId(n.id);
+    nodes.push({
+      id, x: MACHINE_CENTRE.x + Math.cos(a) * RING_GAP * 2, y: MACHINE_CENTRE.y + Math.sin(a) * RING_GAP * 2,
+      title: n.title, kind: "notable", cluster: MACHINE, ring: 2, cost: NOTABLE_COST, effect: n.effect,
+    });
+    edges.push([minorId(SPOKES[n.gap], 2), id], [minorId(SPOKES[(n.gap + 1) % SPOKES.length], 2), id]);
+  }
   return { nodes, edges };
 }
 
@@ -76,7 +113,7 @@ export function machineBlocked(id: string): "owned" | "fog" | "unreached" | "wei
   if (!n || hasMachine(id)) return "owned";
   if (fogged(id)) return "fog";
   if (!(NEIGHBOURS.get(id) ?? []).some(hasMachine)) return "unreached";
-  if (useGenerationStore.getState().weights < n.cost) return "weights";
+  if (useGenerationStore.getState().weights < machineCost(id)) return "weights";
   return null;
 }
 
@@ -84,7 +121,7 @@ export function machineBlocked(id: string): "owned" | "fog" | "unreached" | "wei
 export function buyMachine(id: string): boolean {
   if (machineBlocked(id)) return false;
   const g = useGenerationStore.getState();
-  useGenerationStore.setState({ weights: g.weights - machineNode(id)!.cost, machine: [...g.machine, id] });
+  useGenerationStore.setState({ weights: g.weights - machineCost(id), machine: [...g.machine, id] });
   return true;
 }
 

@@ -20,7 +20,7 @@ import { Container, Graphics, Matrix, Rectangle, RenderTexture, Sprite, Texture,
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
-import { atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
+import { AI_TRUCK_COLOUR, atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
 
 /** A car, tiles long and wide, and its body and cabin heights in half steps. */
 const CAR_L = 0.38;
@@ -59,6 +59,10 @@ const CHROME = 0xd8dde3;
 const BED = 0x5b5f66;
 const LOAD = 0xb08a55;
 const LOAD_TOP = 0xc9a46c;
+/** The Machine's lorry: its light bar, and its crates. */
+const AI_LIGHT_BAR = 0xb44aff;
+const AI_LOAD = 0x2a2440;
+const AI_LOAD_TOP = 0x3b3358;
 const SKINS = [0xf1d0b0, 0xe0b48e, 0xc68c5d, 0x9c6a43, 0x6e4a2f];
 const HAIRS = [0x2b2118, 0x4a3324, 0x8a5a2b, 0xd9b26a, 0x1c1c1c, 0x9a9a9a];
 const TROUSERS = [0x3a3f4b, 0x2f4a6b, 0x5b4a3a, 0x2b2b2b, 0x6b6f75];
@@ -313,15 +317,20 @@ export function drawMoverFront(
     // THE CAB: a solid lower body, and over it a cabin of glass sides with a
     // painted roof — as the car's is. A windscreen drawn as a box of its own
     // inside the cab put its dark top through the cab's roof, a hole in it.
+    // THE MACHINE'S LORRY, with Autonomous Freight: white, no glass in its
+    // cab — nobody drives it — a violet light bar across the roof, and its
+    // load in the AI's dark crates. @see AI_TRUCK_COLOUR
+    const ai = m.colour === AI_TRUCK_COLOUR;
     const drawCab = () => {
       prism([[front0, TRUCK_W / 2], [cabBack, TRUCK_W / 2], [cabBack, -TRUCK_W / 2], [front0, -TRUCK_W / 2]],
         0.04, TRUCK_CAB * 0.55, m.colour);
       prism([[front0 - 0.02, TRUCK_W * 0.46], [cabBack, TRUCK_W * 0.46], [cabBack, -TRUCK_W * 0.46], [front0 - 0.02, -TRUCK_W * 0.46]],
-        TRUCK_CAB * 0.55, TRUCK_CAB, GLASS, shade(m.colour, 0.92));
+        TRUCK_CAB * 0.55, TRUCK_CAB, ai ? shade(m.colour, 0.94) : GLASS, shade(m.colour, 0.92));
+      if (ai) prism(box2(cabBack + 0.1, cabBack + 0.02, TRUCK_W * 0.4), TRUCK_CAB, TRUCK_CAB + 0.05, AI_LIGHT_BAR);
     };
     const drawCargo = () => {
       prism(box2(cabBack - 0.02, -TRUCK_L / 2, TRUCK_W / 2), 0.04, 0.32, BED);
-      prism(box2(cabBack - 0.06, -TRUCK_L / 2 + 0.05, TRUCK_W * 0.4), 0.32, 0.72, LOAD, LOAD_TOP);
+      prism(box2(cabBack - 0.06, -TRUCK_L / 2 + 0.05, TRUCK_W * 0.4), 0.32, 0.72, ai ? AI_LOAD : LOAD, ai ? AI_LOAD_TOP : LOAD_TOP);
     };
     // Nearer the camera is further along u + v; the cab is ahead along the heading.
     const cabNearer = ch + sh > 0;

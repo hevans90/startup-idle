@@ -6,6 +6,7 @@ import { setHousingReader } from "../../game/housing";
 import { WALLET_DEEPER, WALLET_FASTER, type DatasetId } from "../../game/training";
 import { resetAllGameStores } from "../../simulation/reset-game-stores";
 import { useGeneratorStore } from "../../state/generators.store";
+import { useGenerationStore } from "../../state/generation.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
 import { useTrainingStore } from "../../state/training.store";
@@ -54,6 +55,15 @@ describe("what training teaches the AI", () => {
     expect(tier()).toBe("t1");
     learn("town", 3);
     expect(tier()).toBe("t2");
+  });
+
+  test("Generative Zoning: a lot born at the tier its spot can carry, where that is higher", () => {
+    const g = town([["cafe", 16, 13], ["park", 20, 13], ["gym", 8, 13]]);
+    const lot = (x: AiAction) => x.kind === "place" && x.def.startsWith("kit:");
+    const tier = () => { const a = chooseAction(g, "manager", rand, lot); return a?.kind === "place" ? a.def.split(".").pop() : null; };
+    expect(tier()).toBe("t0");
+    useGenerationStore.setState({ machine: ["machine_n_zoning"] });
+    expect(["t1", "t2"]).toContain(tier());
   });
 
   test("the people: no house anyone lives in is taken", () => {

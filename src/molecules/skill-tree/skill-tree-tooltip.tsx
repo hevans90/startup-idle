@@ -15,7 +15,7 @@ import {
 } from "../../game/skill-tree";
 import { usePrestigeStore } from "../../state/prestige.store";
 import { useGenerationStore } from "../../state/generation.store";
-import { isMachine, machineBlocked, machineNode } from "../../game/machine";
+import { isMachine, machineBlocked, machineCost, machineNode } from "../../game/machine";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 
 const NODES = nodeById(SKILL_TREE);
@@ -231,12 +231,13 @@ export const SkillTreeTooltip = () => {
 /** A node of the Machine under the cursor: what it does, and what it costs in Weights — or why it cannot be bought yet. */
 function MachineTip({ refEl, id, hovered }: { refEl: React.RefObject<HTMLDivElement | null>; id: string; hovered: { x: number; y: number; r: number } }) {
   const n = machineNode(id)!;
+  const cost = machineCost(id);
   const blocked = machineBlocked(id);
   const status = blocked === "owned" ? { text: "✓ Bought", cls: "text-emerald-600 dark:text-emerald-400" }
     : blocked === "fog" ? { text: n.kind === "root" ? "Ascend to receive" : "Ascend to reveal", cls: "text-violet-600 dark:text-violet-300" }
-    : blocked === "unreached" ? { text: `Buy the node before it first · ${n.cost} Weights`, cls: "text-amber-600 dark:text-amber-400" }
-    : blocked === "weights" ? { text: `Cost: ${n.cost} Weights (can't afford)`, cls: "text-rose-600 dark:text-rose-400" }
-    : { text: `Cost: ${n.cost} Weights`, cls: "text-primary-800 dark:text-primary-100" };
+    : blocked === "unreached" ? { text: `Buy the node before it first · ${cost} Weights`, cls: "text-amber-600 dark:text-amber-400" }
+    : blocked === "weights" ? { text: `Cost: ${cost} Weights (can't afford)`, cls: "text-rose-600 dark:text-rose-400" }
+    : { text: `Cost: ${cost} Weights`, cls: "text-primary-800 dark:text-primary-100" };
   const fog = blocked === "fog" && n.kind !== "root";
   return (
     <div ref={refEl} className="pointer-events-none absolute z-10 w-56"

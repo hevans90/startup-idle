@@ -5,7 +5,7 @@ import { resetAllGameStores } from "../simulation/reset-game-stores";
 import { useGenerationStore } from "../state/generation.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { inherited } from "../world/ai/planner";
-import { INHERITANCE, MACHINE_RINGS, RING_COST, buyMachine, fogged, grantInheritance, machineBlocked, machineGraph } from "./machine";
+import { INHERITANCE, MACHINE_RINGS, NOTABLES, NOTABLE_COST, NOTABLE_STEP, RING_COST, machineCost, notable, buyMachine, fogged, grantInheritance, machineBlocked, machineGraph } from "./machine";
 import { MODULES, moduleLevel } from "./modules";
 
 afterEach(() => resetAllGameStores());
@@ -13,9 +13,9 @@ afterEach(() => resetAllGameStores());
 const node = (m: string, ring: number) => `machine_${m}_${ring}`;
 
 describe("the Machine", () => {
-  test("is a spoke of three minors for every module, round Inheritance", () => {
+  test("is a spoke of three minors for every module, round Inheritance, its notables between", () => {
     const { nodes, edges } = machineGraph();
-    expect(nodes.length).toBe(1 + MODULES.length * MACHINE_RINGS);
+    expect(nodes.length).toBe(1 + MODULES.length * MACHINE_RINGS + NOTABLES.length);
     expect(edges.filter(([a]) => a === INHERITANCE).length).toBe(MODULES.length);
   });
 
@@ -40,6 +40,18 @@ describe("the Machine", () => {
     expect(useGenerationStore.getState().weights).toBe(100 - RING_COST[1] - RING_COST[2]);
     expect(moduleLevel("rack-density")).toBe(2);
     expect(buyMachine(node("rack-density", 2))).toBe(false);
+  });
+
+  test("a notable is bought beside a second-ring node, each dearer than the last", () => {
+    useGenerationStore.setState({ generation: 3, weights: 1000 });
+    grantInheritance();
+    expect(machineBlocked("machine_n_freight")).toBe("unreached");
+    buyMachine(node("quiet-model", 1));
+    buyMachine(node("quiet-model", 2));
+    expect(machineCost("machine_n_freight")).toBe(NOTABLE_COST);
+    expect(buyMachine("machine_n_freight")).toBe(true);
+    expect(notable("freight")).toBe(true);
+    expect(machineCost("machine_n_airlift")).toBe(NOTABLE_COST + NOTABLE_STEP);
   });
 
   test("is never bought with Equity", () => {

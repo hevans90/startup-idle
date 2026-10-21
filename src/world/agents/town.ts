@@ -138,6 +138,8 @@ export function setTownCaps(c: Partial<typeof townCaps>) { Object.assign(townCap
 const CAR_CRUISE = 1.6;
 const TRUCK_CRUISE = 1.15;
 const TRUCK_COLOUR = 0xd98c2b;
+/** The Machine's lorries: white, cabless, a violet light bar. @see Autonomous Freight, drawMoverFront */
+export const AI_TRUCK_COLOUR = 0xeef0f6;
 const BUS_CRUISE = 1.2;
 const BUS_COLOUR = 0xf2b51d;
 const LIMO_CRUISE = 1.45;

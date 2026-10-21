@@ -61,6 +61,8 @@ export type AiView = {
   /** How well the Data Centre is cooled, 0–1, and how full its tank is; both 1 by default. @see game/cooling */
   cooled?: number;
   tank?: number;
+  /** Loads flying to small sites with Drone Airlift: where each is. @see Airlift */
+  airlifts?: readonly { x: number; y: number }[];
   /** Its drones' light, if not its own violet: the player's teal, while an inherited AI works for them. @see inherited */
   droneLight?: number;
   /** Where the AI takes over: a faint ring on the ground round it. @see aiDistrict */
@@ -320,6 +322,32 @@ export function createAiLayer(overlay: Container): AiLayer {
         }
         gfx.circle(x, y - 0.5 * sc, 1.4 * sc);
         gfx.fill({ color: view.droneLight ?? STAGE_COLOUR.overseer, alpha: 0.9 });
+      }
+
+      // THE CARGO DRONES of Drone Airlift: four rotors, a crate swinging on a
+      // tether under them, their shadow tracking along the ground. @see Airlift
+      for (const [k, a] of (view.airlifts ?? []).entries()) {
+        const z = ground(g, Math.round(a.x), Math.round(a.y));
+        const hover = 6.5 + Math.sin(t * 5 + k) * 0.12, sway = Math.sin(t * 3 + k * 1.7) * 0.6;
+        const [x, y] = P(sc, a.x, a.y, z + hover);
+        // Heavy-lift: half as big again as the AI's own drones.
+        const S = 1.5 * sc;
+        const [sx, sy] = P(sc, a.x, a.y, z);
+        gfx.ellipse(sx, sy, 8 * S, 3 * S);
+        gfx.fill({ color: 0x000000, alpha: 0.18 });
+        const cy = y + 9 * S;
+        gfx.moveTo(x, y).lineTo(x + sway * S, cy);
+        gfx.stroke({ color: 0x2a2440, width: Math.max(1, 0.6 * S), alpha: 0.9 });
+        gfx.rect(x + sway * S - 3 * S, cy, 6 * S, 4.5 * S);
+        gfx.fill({ color: 0x9a7b4f, alpha: 1 });
+        gfx.rect(x - 7 * S, y - 1.4 * S, 14 * S, 2.8 * S);
+        gfx.fill({ color: 0x1b1530, alpha: 0.95 });
+        for (const [dx, dy] of [[-7, -2.5], [7, -2.5], [-5, 1.5], [5, 1.5]]) {
+          gfx.ellipse(x + dx * S, y + dy * S, 3.2 * S, 0.9 * S);
+          gfx.fill({ color: 0x8a86a0, alpha: 0.5 + 0.3 * Math.sin(t * 40 + dx) });
+        }
+        gfx.circle(x, y, 1.3 * S);
+        gfx.fill({ color: STAGE_COLOUR.overseer, alpha: 0.9 });
       }
 
       // HOLOGRAMS: one a rack from the Assistant on, more at the Ascension.

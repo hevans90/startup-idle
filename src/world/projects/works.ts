@@ -33,7 +33,8 @@ import { structureDef, type StructureDef } from "../structures/def";
 import type { Command } from "../edit/commands";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
-import { sendOnJob, type Mover, type Town } from "../agents/town";
+import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
+import { notable } from "../../game/machine";
 
 /** Seconds a crew stands idle for want of materials before it walks home. */
 export const STALL_GRACE = 6;
@@ -41,6 +42,20 @@ export const STALL_GRACE = 6;
 const STOCK = 2;
 /** Seconds between one builder setting off and the next, per site. */
 const DISPATCH_EVERY = 0.35;
+/**
+ * THE MACHINE'S NOTABLES, on site: lorries a convoy with Autonomous Freight;
+ * the size of site Drone Airlift serves, how fast its drones fly, tiles a
+ * second, and what a load by air costs more; the work Prefab Printing leaves.
+ * @see game/machine
+ */
+export const CONVOY = 3;
+export const AIRLIFT_TILES = 4;
+export const AIRLIFT_SPEED = 6;
+export const AIRLIFT_PRICE = 1.25;
+export const PREFAB_WORK = 0.6;
+
+/** A load in the air, from the Data Centre to a small site. @see AIRLIFT_TILES */
+export type Airlift = { site: number; from: { x: number; y: number }; to: { x: number; y: number }; t: number; fly: number };
 
 export type Crew = {
   /** On their way there. */
@@ -64,6 +79,8 @@ export type Works = {
   rev: number;
   /** This frame's crews, site by site. @see crewPlan */
   plan: CrewPlan;
+  /** Loads flying in by drone. @see Airlift */
+  airlifts: Airlift[];
 };
 
 /** How many each site's crew is, and how many of each kind. */
@@ -93,7 +110,7 @@ export function crewPlan(
 }
 
 export const createWorks = (): Works => ({
-  crews: new Map(), trucks: new Map(), stalled: new Map(), away: {}, opened: [], rev: 0, plan: new Map(),
+  crews: new Map(), trucks: new Map(), stalled: new Map(), away: {}, opened: [], rev: 0, plan: new Map(), airlifts: [],
 });
 
 /** Every site still going up. */
@@ -140,7 +157,8 @@ export function projectUnderWay(g: Grid): ProjectDef | null {
 
 /** A fresh build record for a project, priced off the company's income now. @see projectCost */
 export const newBuild = (p: ProjectDef, now: number, income = 0): Build => ({
-  done: 0, need: p.work, delivered: 0, deliveries: p.deliveries, cost: projectCost(p, income), priority: 2, updatedAt: now,
+  // Less to do with Prefab Printing: segments printed off-site. @see PREFAB_WORK
+  done: 0, need: p.work * (notable("prefab") ? PREFAB_WORK : 1), delivered: 0, deliveries: p.deliveries, cost: projectCost(p, income), priority: 2, updatedAt: now,
 });
 
 /**
@@ -229,6 +247,17 @@ export function stepWorks(
   }
   town.arrived.length = 0;
 
+  // LOADS BY AIR, landing. @see Airlift
+  for (const a of [...w.airlifts]) {
+    a.t += dt;
+    if (a.t < a.fly) continue;
+    w.airlifts = w.airlifts.filter((x) => x !== a);
+    w.trucks.set(a.site, Math.max(0, (w.trucks.get(a.site) ?? 0) - 1));
+    const s = g.structures.get(a.site);
+    if (s?.build) { s.build.delivered = Math.min(s.build.deliveries, s.build.delivered + 1); w.rev++; }
+  }
+  const dc = [...g.structures.values()].find((st) => st.def === "datacentre" && !st.build);
+
   for (const s of sites) {
     const b = s.build!, p = projectForStructure(s.def);
     if (!p) continue;
@@ -256,7 +285,37 @@ export function stepWorks(
     const inFlight = w.trucks.get(s.id) ?? 0;
     const caughtUp = b.done >= materialCap(b) - 1e-6;
     const onHand = (materialCap(b) - b.done) / (b.need / b.deliveries);
-    if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries) {
+    // BY AIR, a small site with Drone Airlift and a Data Centre to fly from:
+    // straight over the town, dearer a load. @see AIRLIFT_TILES
+    const airlift = notable("airlift") && !!dc && s.w * s.h <= AIRLIFT_TILES;
+    if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries && airlift) {
+      if (spend((b.cost / b.deliveries) * AIRLIFT_PRICE)) {
+        const from = { x: dc!.x + dc!.w / 2, y: dc!.y + dc!.h / 2 }, to = { x: s.x + s.w / 2, y: s.y + s.h / 2 };
+        w.airlifts.push({ site: s.id, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / AIRLIFT_SPEED });
+        w.trucks.set(s.id, 1);
+        w.stalled.delete(s.id);
+        w.rev++;
+      } else if (caughtUp) {
+        if (!w.stalled.has(s.id)) w.rev++;
+        w.stalled.set(s.id, (w.stalled.get(s.id) ?? 0) + dt);
+      }
+    } else if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries && notable("freight")) {
+      // A CONVOY, with Autonomous Freight: up to three lorries at once, each a
+      // load paid for as it is sent — as many as the money runs to. @see CONVOY
+      const from = door && depotFor(g, places, s, door.net, true);
+      let sent = 0, paid = 0;
+      for (let k = Math.min(CONVOY, b.deliveries - b.delivered); k > 0 && spend(b.cost / b.deliveries); k--) {
+        paid++;
+        const m = door && from ? sendOnJob(town, g, "truck", from, door, { site: s.id, role: "truck" }) : null;
+        if (m) { m.colour = AI_TRUCK_COLOUR; sent++; }
+        else b.delivered++;    // by means unseen, as a lone lorry's
+      }
+      if (paid) { w.trucks.set(s.id, sent); w.stalled.delete(s.id); w.rev++; }
+      else if (caughtUp) {
+        if (!w.stalled.has(s.id)) w.rev++;
+        w.stalled.set(s.id, (w.stalled.get(s.id) ?? 0) + dt);
+      }
+    } else if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries) {
       if (spend(b.cost / b.deliveries)) {
         w.trucks.set(s.id, 1);
         w.stalled.delete(s.id);
@@ -329,13 +388,17 @@ function pickGateway(places: readonly Place[], net: number): Place | null {
  * WHERE A SITE'S LOADS COME FROM: the Founder's Garage, finished and on the
  * site's roads — the company's yard — or, failing that (the garage's own
  * build, or a site its roads do not reach), where a road leaves the map.
+ * With Autonomous Freight (`freight`), the Data Centre is a yard too, and
+ * the nearer of the two sends. @see CONVOY
  */
-export function depotFor(g: Grid, places: readonly Place[], site: Structure, net: number): Place | null {
+export function depotFor(g: Grid, places: readonly Place[], site: Structure, net: number, freight = false): Place | null {
+  const yards: { pl: Place; d: number }[] = [];
   for (const st of g.structures.values()) {
-    if (st.def !== "garage" || st.build || st.id === site.id) continue;
+    if ((st.def !== "garage" && !(freight && st.def === "datacentre")) || st.build || st.id === site.id) continue;
     const yard = places.find((pl) => pl.structure === st.id && pl.net === net);
-    if (yard) return yard;
+    if (yard) yards.push({ pl: yard, d: Math.abs(st.x - site.x) + Math.abs(st.y - site.y) });
   }
+  if (yards.length) return yards.sort((a, b) => a.d - b.d)[0].pl;
   return pickGateway(places, net);
 }
 

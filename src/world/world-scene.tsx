@@ -3233,6 +3233,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           stage: stageOf(v).stage, value: v, running: preview ? 1 : runningAgents(), training: preview?.training ?? training() !== null,
           night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
           drones: getAiRunner().jobs.map(droneAt),
+          airlifts: getWorks().airlifts.map((a) => { const k = Math.min(1, a.t / a.fly); return { x: a.from.x + (a.to.x - a.from.x) * k, y: a.from.y + (a.to.y - a.from.y) * k }; }),
           // An inherited AI's drones in the player's teal, till its takeover begins. @see inherited
           droneLight: !modelRun && inherited(stageOf(v).stage) ? STAGE_COLOUR.tool : undefined,
           // The game's masterplan is holograms; the flat ghost is the editor's preview's alone. @see createTileHolograms

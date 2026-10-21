@@ -24,7 +24,8 @@ import { traitForecast, type Family } from "../../game/traits";
 import { LATTICE_AT, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
 import { latticeOf } from "./lattice";
 import { hasMachine, useGenerationStore } from "../../state/generation.store";
-import { INHERITANCE } from "../../game/machine";
+import { INHERITANCE, notable } from "../../game/machine";
+import { projectTier } from "./masterplan/town-model";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useUpgradeStore } from "../../state/upgrades.store";
@@ -265,7 +266,8 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       if (skillOf("people") >= 3 && featureGateOpen("services") && unserved(structures, mine)) return null;
       // A tier up for an AI trained on the town, two at its third level, where the kit has one.
       const tier = Math.max(0, skillOf("town") - 1);
-      const def = [`kit:${who}.t${tier}`, `kit:${who}.t1`, `kit:${who}.t0`].find((id) => structureDef(id))!;
+      const kit = (t: number) => [`kit:${who}.t${t}`, `kit:${who}.t1`, `kit:${who}.t0`].find((id) => structureDef(id))!;
+      const def = kit(tier);
       const maps = liveDesireMaps(g, net);
       const fill = useSlopPitStore.getState().fill / 100;
       let best: Cell | null = null, top = -Infinity;
@@ -273,7 +275,20 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
         const want = desireAt(g, maps, c.x, c.y, who, fill)?.total ?? -Infinity;
         if (want > top) { top = want; best = c; }
       }
-      return best ? { kind: "place", def, at: best, why: "I have zoned some housing where people will be happiest." } : null;
+      if (!best) return null;
+      // GENERATIVE ZONING: born at the tier the spot can sustain, if that is higher. @see projectTier
+      if (notable("zoning")) {
+        const m = desireAt(g, maps, best.x, best.y, who, fill);
+        // A landmark is not zoned: t2 at most.
+        const grown = m ? Math.min(2, ["t0", "t1", "t2", "landmark"].indexOf(projectTier(m))) : -1;
+        if (grown > tier) {
+          const up = kit(grown);
+          if (validatePlacement(g, structureDef(up)!, best.x, best.y, playRules(g)).ok) {
+            return { kind: "place", def: up, at: best, why: "I have zoned housing at the size the street can carry. It skipped the awkward years." };
+          }
+        }
+      }
+      return { kind: "place", def, at: best, why: "I have zoned some housing where people will be happiest." };
     }
     case "service": {
       if (!featureGateOpen("services")) return null;
