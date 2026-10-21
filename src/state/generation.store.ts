@@ -49,6 +49,8 @@ type GenerationState = {
   /** Modules bought, by their level; and the ones in a slot. @see game/modules */
   modules: Partial<Record<ModuleId, number>>;
   slotted: ModuleId[];
+  /** THE MACHINE's nodes bought, by id: the skill tree's AI cluster, kept for good. @see game/machine */
+  machine: string[];
   /** The traits fused into each founder, by founder id. @see game/fusion */
   fused: Record<string, TraitId[]>;
   past: PastGeneration[];
@@ -73,6 +75,7 @@ export const useGenerationStore = create<GenerationState>()(
       weights: 0,
       modules: {},
       slotted: [],
+      machine: [],
       fused: {},
       past: [],
       announce: null,
@@ -96,12 +99,19 @@ export const useGenerationStore = create<GenerationState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         generation: s.generation, sales: s.sales, log: s.log, equity: s.equity, peakAgents: s.peakAgents,
-        weights: s.weights, modules: s.modules, slotted: s.slotted, fused: s.fused, past: s.past, announce: s.announce,
+        weights: s.weights, modules: s.modules, slotted: s.slotted, machine: s.machine, fused: s.fused, past: s.past, announce: s.announce,
       }),
-      merge: (p, current) => ({ ...current, ...(p as object), log: { ...emptyLog(), ...((p as { log?: BehaviourLog } | null)?.log ?? {}) } }),
+      merge: (p, current) => ({
+        ...current, ...(p as object),
+        log: { ...emptyLog(), ...((p as { log?: BehaviourLog } | null)?.log ?? {}) },
+        machine: (p as { machine?: string[] } | null)?.machine ?? [],
+      }),
     },
   ),
 );
 
 /** Slots for modules: one an Ascension. */
 export const slotCount = () => useGenerationStore.getState().generation - 1;
+
+/** Whether a node of the Machine is bought. @see game/machine */
+export const hasMachine = (id: string): boolean => useGenerationStore.getState().machine?.includes(id) ?? false;

@@ -61,6 +61,8 @@ export type AiView = {
   /** How well the Data Centre is cooled, 0–1, and how full its tank is; both 1 by default. @see game/cooling */
   cooled?: number;
   tank?: number;
+  /** Its drones' light, if not its own violet: the player's teal, while an inherited AI works for them. @see inherited */
+  droneLight?: number;
   /** Where the AI takes over: a faint ring on the ground round it. @see aiDistrict */
   district?: District | null;
   /** The reservoirs it has dug, by their corner: a stone rim round each. @see world/ai/reservoir */
@@ -308,7 +310,7 @@ export function createAiLayer(overlay: Container): AiLayer {
         if (d.scanning) {
           const [bx, by] = P(sc, d.x, d.y, z);
           gfx.poly([x - 2 * sc, y, x + 2 * sc, y, bx + 14 * sc, by, bx - 14 * sc, by]);
-          gfx.fill({ color: STAGE_COLOUR.overseer, alpha: 0.18 + 0.12 * Math.sin(t * 10) });
+          gfx.fill({ color: view.droneLight ?? STAGE_COLOUR.overseer, alpha: 0.18 + 0.12 * Math.sin(t * 10) });
         }
         gfx.ellipse(x, y, 6 * sc, 2.4 * sc);
         gfx.fill({ color: 0x1b1530, alpha: 0.95 });
@@ -317,7 +319,7 @@ export function createAiLayer(overlay: Container): AiLayer {
           gfx.fill({ color: 0x8a86a0, alpha: 0.5 + 0.3 * Math.sin(t * 40 + s) });
         }
         gfx.circle(x, y - 0.5 * sc, 1.4 * sc);
-        gfx.fill({ color: STAGE_COLOUR.overseer, alpha: 0.9 });
+        gfx.fill({ color: view.droneLight ?? STAGE_COLOUR.overseer, alpha: 0.9 });
       }
 
       // HOLOGRAMS: one a rack from the Assistant on, more at the Ascension.

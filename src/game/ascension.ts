@@ -9,7 +9,8 @@
 
 import { resetForAscension } from "../simulation/reset-game-stores";
 import { useAgentsStore } from "../state/agents.store";
-import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { inheritedStart, useAiSingularityStore } from "../state/ai-singularity.store";
+import { grantInheritance } from "./machine";
 import { useFounderStore } from "../state/founder.store";
 import { emptyLog, useGenerationStore, type BehaviourLog } from "../state/generation.store";
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
@@ -74,7 +75,9 @@ export function ascend(rand: () => number = Math.random): AscensionResult | null
     past: [...g.past, { generation: g.generation, trait: t, mutated, founder, weights }],
     announce: { generation: g.generation, trait: t, mutated, founder, weights },
   });
-  useAiSingularityStore.setState({ value: 0 });
+  // THE MACHINE: Inheritance, the first Ascension's gift — the AI starts each company at the Assistant. @see game/machine
+  grantInheritance();
+  useAiSingularityStore.setState({ value: inheritedStart() });
   return { trait: t, mutated, founder, weights, generation: g.generation + 1 };
 }
 

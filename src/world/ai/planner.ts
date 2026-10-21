@@ -23,7 +23,8 @@ import { housedBy, roomFor } from "../../game/housing";
 import { traitForecast, type Family } from "../../game/traits";
 import { LATTICE_AT, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
 import { latticeOf } from "./lattice";
-import { useGenerationStore } from "../../state/generation.store";
+import { hasMachine, useGenerationStore } from "../../state/generation.store";
+import { INHERITANCE } from "../../game/machine";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useUpgradeStore } from "../../state/upgrades.store";
@@ -183,6 +184,13 @@ function unserved(structures: readonly Structure[], mine: (s: Structure) => bool
   const services = structures.filter((s) => (s.def === "cafe" || s.def === "park" || s.def === "gym") && !s.build);
   return structures.some((h) => mine(h) && housedBy(h.def) && !h.build && !services.some((s) => Math.abs(h.x - s.x) + Math.abs(h.y - s.y) <= RANGE));
 }
+
+/** The jobs that take what is the player's. */
+const TAKES = new Set<Kind>(["convert", "repurpose"]);
+
+/** Whether the AI, inherited, still works for the player at a stage: before the Overseer. @see INHERITANCE */
+export const inherited = (stage: Stage): boolean =>
+  hasMachine(INHERITANCE) && stage !== "overseer" && stage !== "ascension";
 
 /** What it does at a desk, or to cool what it has: not held to its district. */
 const ANYWHERE = new Set<Kind>(["hire", "upgrade", "pipe"]);
@@ -420,8 +428,10 @@ export function chooseAction(
     if (lat && affords(lat)) return lat;
   }
   const family = traitForecast(useGenerationStore.getState().log, 1)[0].trait.family;
-  const weighted = kinds.filter((k) => (cooling === "full" || !DRINKING.has(k)) && focusWeight(focus, k) > 0)
-    .map((k) => ({ k, w: focusWeight(focus, k) * (LEAN[family][k] ?? 1) * rand() }));
+  // INHERITED, it works for you till the Overseer: nothing taken, and only to your focus. @see game/machine
+  const tame = inherited(stage);
+  const weighted = kinds.filter((k) => (cooling === "full" || !DRINKING.has(k)) && focusWeight(focus, k) > 0 && !(tame && TAKES.has(k)))
+    .map((k) => ({ k, w: focusWeight(focus, k) * (tame ? 1 : LEAN[family][k] ?? 1) * rand() }));
   weighted.sort((a, b) => b.w - a.w);
   // TRAINED ON THE MONEY, it weighs every job it could do by what it costs, and does the best value. @see priceOfAi
   if (skillOf("money") >= 2) {

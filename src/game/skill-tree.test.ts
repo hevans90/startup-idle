@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { INHERITANCE, MACHINE } from "./machine";
 import {
   aggregateGrants,
   buildAdjacency,
@@ -42,8 +43,10 @@ describe("generated skill tree", () => {
 
   test("every node is reachable from a root (no orphans)", () => {
     const adj = buildAdjacency(SKILL_TREE);
-    const seen = new Set(SKILL_TREE.roots);
-    const queue = [...SKILL_TREE.roots];
+    // The Machine hangs from its own root, Inheritance. @see game/machine
+    const roots = [...SKILL_TREE.roots, INHERITANCE];
+    const seen = new Set(roots);
+    const queue = [...roots];
     while (queue.length) {
       const cur = queue.pop()!;
       for (const n of adj.get(cur) ?? []) {
@@ -171,7 +174,8 @@ describe("frontierPath + pathEquityCost", () => {
 
 describe("node bonuses", () => {
   test("every non-root node grants at least one bonus (travel included)", () => {
-    const bearing = SKILL_TREE.nodes.filter((n) => n.kind !== "root");
+    // The Machine's nodes are features, bought with Weights: no Equity-tree grants.
+    const bearing = SKILL_TREE.nodes.filter((n) => n.kind !== "root" && n.cluster !== MACHINE);
     expect(bearing.length).toBeGreaterThan(0);
     for (const n of bearing) {
       expect(n.grants && n.grants.length).toBeGreaterThan(0);

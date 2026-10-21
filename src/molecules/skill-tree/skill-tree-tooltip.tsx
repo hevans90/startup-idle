@@ -14,6 +14,8 @@ import {
   STAT_META,
 } from "../../game/skill-tree";
 import { usePrestigeStore } from "../../state/prestige.store";
+import { useGenerationStore } from "../../state/generation.store";
+import { isMachine, machineBlocked, machineNode } from "../../game/machine";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 
 const NODES = nodeById(SKILL_TREE);
@@ -38,6 +40,9 @@ export const SkillTreeTooltip = () => {
   const allocated = usePrestigeStore((s) => s.allocated);
   const equity = usePrestigeStore((s) => s.equity);
   const respecPoints = usePrestigeStore((s) => s.respecPoints);
+  // Read so the Machine's lines follow what is bought and the Weights. @see MachineTip
+  useGenerationStore((s) => s.machine);
+  useGenerationStore((s) => s.weights);
   const ref = useRef<HTMLDivElement>(null);
 
   // Keep the card inside the canvas bounds (it's positioned absolutely within
@@ -69,6 +74,9 @@ export const SkillTreeTooltip = () => {
   if (!hovered) return null;
   const node = NODES.get(hovered.id);
   if (!node) return null;
+
+  // THE MACHINE: bought with Weights, its own lines. @see game/machine
+  if (isMachine(node.id)) return <MachineTip refEl={ref} id={node.id} hovered={hovered} />;
 
   const effectRows = nodeEffectRows(node);
   const isAllocated = allocated.includes(node.id);
@@ -219,3 +227,28 @@ export const SkillTreeTooltip = () => {
     </div>
   );
 };
+
+/** A node of the Machine under the cursor: what it does, and what it costs in Weights — or why it cannot be bought yet. */
+function MachineTip({ refEl, id, hovered }: { refEl: React.RefObject<HTMLDivElement | null>; id: string; hovered: { x: number; y: number; r: number } }) {
+  const n = machineNode(id)!;
+  const blocked = machineBlocked(id);
+  const status = blocked === "owned" ? { text: "✓ Bought", cls: "text-emerald-600 dark:text-emerald-400" }
+    : blocked === "fog" ? { text: n.kind === "root" ? "Ascend to receive" : "Ascend to reveal", cls: "text-violet-600 dark:text-violet-300" }
+    : blocked === "unreached" ? { text: `Buy the node before it first · ${n.cost} Weights`, cls: "text-amber-600 dark:text-amber-400" }
+    : blocked === "weights" ? { text: `Cost: ${n.cost} Weights (can't afford)`, cls: "text-rose-600 dark:text-rose-400" }
+    : { text: `Cost: ${n.cost} Weights`, cls: "text-primary-800 dark:text-primary-100" };
+  const fog = blocked === "fog" && n.kind !== "root";
+  return (
+    <div ref={refEl} className="pointer-events-none absolute z-10 w-56"
+      style={{ left: hovered.x, top: hovered.y - hovered.r - 12, transform: "translate(-50%, -100%)" }}>
+      <div className="rounded-md border border-violet-500 bg-primary-100/95 px-3 py-2 text-primary-900 shadow-lg backdrop-blur-sm dark:bg-primary-800/95 dark:text-primary-100">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-bold">{fog ? "Unrevealed" : n.title}</span>
+          <span className="text-[10px] uppercase tracking-wide text-violet-700 opacity-80 dark:text-violet-300">The Machine</span>
+        </div>
+        {!fog && <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">{n.effect}</p>}
+        <div className={`mt-2 border-t border-primary-400/40 pt-1.5 text-xs tabular-nums dark:border-primary-600/50 ${status.cls}`}>{status.text}</div>
+      </div>
+    </div>
+  );
+}

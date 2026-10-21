@@ -11,6 +11,7 @@ import { housedBy } from "../game/housing";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { createStreetHeat, type StreetHeat } from "./render/street-heat";
 import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
+import { inherited } from "./ai/planner";
 import { aiFixturePreview, sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
 import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos, vetoAt } from "./ai/ai-runner";
 import { VETO_REPLIES } from "./ai/memos";
@@ -3232,6 +3233,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           stage: stageOf(v).stage, value: v, running: preview ? 1 : runningAgents(), training: preview?.training ?? training() !== null,
           night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
           drones: getAiRunner().jobs.map(droneAt),
+          // An inherited AI's drones in the player's teal, till its takeover begins. @see inherited
+          droneLight: !modelRun && inherited(stageOf(v).stage) ? STAGE_COLOUR.tool : undefined,
           // The game's masterplan is holograms; the flat ghost is the editor's preview's alone. @see createTileHolograms
           plan: preview?.plan ?? null,
           ...dcCooling(useWorldStore.getState().grid),

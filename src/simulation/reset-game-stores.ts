@@ -73,7 +73,7 @@ export function resetAllGameStores(): void {
   useVapeAchievementsStore.getState().clearAll();
   // And the generations: a true new game begins at the first. @see useGenerationStore
   useGenerationStore.setState({
-    generation: 1, sales: 0, log: emptyLog(), equity: 0, peakAgents: 0, weights: 0, modules: {}, slotted: [], fused: {}, past: [], announce: null,
+    generation: 1, sales: 0, log: emptyLog(), equity: 0, peakAgents: 0, weights: 0, modules: {}, slotted: [], machine: [], fused: {}, past: [], announce: null,
   });
 }
 

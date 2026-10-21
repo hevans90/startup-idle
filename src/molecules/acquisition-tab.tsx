@@ -25,9 +25,11 @@ import { SystemPanel } from "../ui/SystemPanel";
 import { formatCurrency } from "../utils/money-utils";
 import { formatDuration } from "../utils/time-utils";
 import { useSellTransition } from "./sell-transition";
+import { MACHINE } from "../game/machine";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
 
-const TOTAL_NODES = SKILL_TREE.nodes.length;
+// The business tree's nodes: the Machine is bought with Weights. @see game/machine
+const TOTAL_NODES = SKILL_TREE.nodes.filter((n) => n.cluster !== MACHINE).length;
 const plain = (n: Decimal) => formatCurrency(n, { showDollarSign: false });
 const trim = (n: number) => Number(n.toFixed(2)).toString();
 

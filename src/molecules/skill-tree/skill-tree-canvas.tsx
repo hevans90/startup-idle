@@ -14,6 +14,8 @@ import {
   treeBounds,
 } from "../../game/skill-tree";
 import { usePrestigeStore } from "../../state/prestige.store";
+import { useGenerationStore } from "../../state/generation.store";
+import { buyMachine, isMachine, machineBlocked } from "../../game/machine";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { useThemeStore } from "../../state/theme.store";
 import { useResizeToWrapper } from "../../hooks/use-resize-to-wrapper";
@@ -48,6 +50,8 @@ const C_EDGE_DIM = 0x3a4258; // dark theme idle edge
 const C_EDGE_DIM_LIGHT = 0xd2d6dd; // light theme idle edge (faint)
 const C_SPOTLIGHT = 0x22d3ee; // bright cyan — search / panel-hover spotlight
 const POP_SCALE = 1.35; // how much a spotlit node grows
+const C_FOG = 0x8b5cf6; // violet — a Machine node not yet revealed: "Ascend to reveal"
+const FOG_ALPHA = 0.35;
 
 // Per-theme disc fills so the 11 clusters read as distinct regions. State
 // (allocated / available / locked) stays on the ring; identity lives on the disc.
@@ -64,6 +68,7 @@ const CLUSTER_FILL_DARK: Record<string, number> = {
   exit: 0x2a1620,
   founder: 0x2b2610,
   enshit: 0x1f2810,
+  machine: 0x1e1433,
 };
 const CLUSTER_FILL_LIGHT: Record<string, number> = {
   growth: 0xd8efdf,
@@ -77,6 +82,7 @@ const CLUSTER_FILL_LIGHT: Record<string, number> = {
   exit: 0xf2dae3,
   founder: 0xf1ebcf,
   enshit: 0xe4eed2,
+  machine: 0xe4d9f5,
 };
 const discTint = (cluster: string, theme: "light" | "dark") =>
   theme === "dark"
@@ -128,6 +134,10 @@ const TreeScene = memo(function TreeScene() {
   // below mutates Pixi objects rather than rebuilding anything).
   const allocated = usePrestigeStore((s) => s.allocated);
   const equity = usePrestigeStore((s) => s.equity);
+  // THE MACHINE's state: what is bought, the Weights, and how much is revealed. @see game/machine
+  const machine = useGenerationStore((s) => s.machine);
+  const weights = useGenerationStore((s) => s.weights);
+  const generation = useGenerationStore((s) => s.generation);
   const respecMode = useSkillTreeUiStore((s) => s.respecMode);
   const hoveredId = useSkillTreeUiStore((s) => s.hovered?.id ?? null);
   const search = useSkillTreeUiStore((s) => s.search);
@@ -222,6 +232,8 @@ const TreeScene = memo(function TreeScene() {
       cont.cursor = "pointer";
       cont.hitArea = new Circle(0, 0, r);
       cont.on("pointertap", () => {
+        // The Machine's nodes are bought with Weights, one at a time. @see buyMachine
+        if (isMachine(node.id)) { buyMachine(node.id); return; }
         const store = usePrestigeStore.getState();
         if (useSkillTreeUiStore.getState().respecMode) store.respecPath(node.id);
         else store.allocatePath(node.id);
@@ -243,6 +255,7 @@ const TreeScene = memo(function TreeScene() {
   // RECONCILE styles whenever allocation / affordability / hover / respec change.
   useEffect(() => {
     const allocatedSet = new Set(allocated);
+    const machineSet = new Set(machine);
     const affordable = equity.gte(nodeCost(allocated.length));
     const hoverNode = hoveredId ? NODES.get(hoveredId) : undefined;
     const cAlloc = theme === "dark" ? C_ALLOC_DARK : C_ALLOC_LIGHT;
@@ -262,7 +275,7 @@ const TreeScene = memo(function TreeScene() {
     const pathEdges = new Set<string>(); // allocate-mode route edges
     let path: string[] = [];
     let respecPreview = false;
-    if (!respecMode && hoverNode && !allocatedSet.has(hoverNode.id)) {
+    if (!respecMode && hoverNode && !allocatedSet.has(hoverNode.id) && !isMachine(hoverNode.id)) {
       path = frontierPath(SKILL_TREE, allocatedSet, hoverNode.id, ADJ);
       for (let i = 0; i < path.length; i++) {
         pathNodes.add(path[i]);
@@ -291,6 +304,21 @@ const TreeScene = memo(function TreeScene() {
     for (const node of SKILL_TREE.nodes) {
       const view = nodeViews.current.get(node.id);
       if (!view) continue;
+      // THE MACHINE: bought, buyable, short of Weights, or under the fog.
+      if (isMachine(node.id)) {
+        const blocked = machineBlocked(node.id);
+        const owned = machineSet.has(node.id);
+        const hotM = blocked === null && node.id === hoveredId;
+        view.disc.tint = discTint(node.cluster, theme);
+        view.ring.tint = owned ? cAlloc : hotM ? cHover : blocked === null ? C_AVAILABLE : blocked === "weights" ? C_REACHABLE : blocked === "fog" ? C_FOG : cLocked;
+        view.cont.alpha = blocked === "fog" ? FOG_ALPHA : 1;
+        view.glow.tint = C_AVAILABLE;
+        view.glow.alpha = 0.3;
+        view.glow.visible = hotM;
+        view.cont.scale.set(1);
+        view.cont.zIndex = 1;
+        continue;
+      }
       const isAlloc = allocatedSet.has(node.id);
       const reachable = isReachable(SKILL_TREE, allocatedSet, node.id, ADJ);
       const available = !isAlloc && reachable && affordable;
@@ -339,7 +367,7 @@ const TreeScene = memo(function TreeScene() {
       const g = edgeViews.current[i];
       if (!g) return;
       const removalEdge = respecPreview && pathNodes.has(a) && pathNodes.has(b);
-      const lit = allocatedSet.has(a) && allocatedSet.has(b);
+      const lit = (allocatedSet.has(a) && allocatedSet.has(b)) || (machineSet.has(a) && machineSet.has(b));
       const allocPreview = !respecMode && pathEdges.has(ekey(a, b));
       if (removalEdge) {
         g.tint = C_EDGE_RESPEC;
@@ -355,7 +383,7 @@ const TreeScene = memo(function TreeScene() {
         g.alpha = theme === "dark" ? 0.55 : 0.55;
       }
     });
-  }, [allocated, equity, respecMode, hoveredId, theme, search, highlightIds]);
+  }, [allocated, equity, machine, weights, generation, respecMode, hoveredId, theme, search, highlightIds]);
 
   // Project the hovered node to screen space each frame for the DOM tooltip.
   useTick(() => {

@@ -14,6 +14,7 @@ import {
   resolvePrestigeModifiers,
   SKILL_TREE,
 } from "../game/skill-tree";
+import { isMachine } from "../game/machine";
 import {
   coerceDecimal,
   decimalReplacer,
@@ -87,7 +88,8 @@ export const usePrestigeStore = create<PrestigeState>()(
       getNextCost: () => nodeCost(get().allocated.length),
 
       canAllocate: (id) => {
-        if (!NODES.has(id)) return false;
+        // The Machine's nodes are bought with Weights. @see game/machine
+        if (!NODES.has(id) || isMachine(id)) return false;
         const allocated = new Set(get().allocated);
         if (!isReachable(SKILL_TREE, allocated, id, ADJACENCY)) return false;
         return get().equity.gte(get().getNextCost());
@@ -108,7 +110,7 @@ export const usePrestigeStore = create<PrestigeState>()(
 
       allocatePath: (id) => {
         const s = get();
-        if (!NODES.has(id)) return;
+        if (!NODES.has(id) || isMachine(id)) return;
         const allocatedSet = new Set(s.allocated);
         if (allocatedSet.has(id)) return;
         const path = frontierPath(SKILL_TREE, allocatedSet, id, ADJACENCY);

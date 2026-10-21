@@ -1,9 +1,10 @@
 /**
- * MODULES: what Weights buy. Each Ascension opens a SLOT; a module bought
- * works only while it sits in one, and modules swap in and out between
- * companies. Each has three levels. @see slotCount, useGenerationStore
+ * MODULES: the Machine's minors — each a spoke of three nodes in the skill
+ * tree's AI cluster, bought with Weights; a module's level is how many of
+ * its nodes are bought. They were once bought here and slotted, one slot an
+ * Ascension; a save that did has the Weights back. @see game/machine
  */
-import { useGenerationStore } from "../state/generation.store";
+import { hasMachine, useGenerationStore } from "../state/generation.store";
 
 export type ModuleId =
   | "quiet-model" | "rack-density" | "blueprint-cache"
@@ -30,10 +31,11 @@ export const MODULES: readonly Module[] = [
 
 export const moduleDef = (id: ModuleId) => MODULES.find((m) => m.id === id)!;
 
-/** The level a module works at now: what was bought of it, if it is in a slot; else nought. */
+/** The level a module works at now: how many of its nodes in the Machine are bought. @see machineLevel */
 export function moduleLevel(id: ModuleId): number {
-  const g = useGenerationStore.getState();
-  return g.slotted.includes(id) ? g.modules[id] ?? 0 : 0;
+  let n = 0;
+  for (let ring = 1; ring <= 3; ring++) if (hasMachine(`machine_${id}_${ring}`)) n++;
+  return n;
 }
 
 /** What each module's level is worth, where a number does it. */
@@ -45,46 +47,20 @@ export const DRONE_SWARM = [1, 1.25, 1.5, 2] as const;
 export const MEMO_FILTER = [1, 1.5, 2, 3] as const;
 
 /**
- * MODULES RETIRED, and what their levels cost: a save that bought them has
- * the Weights back, and they leave its slots. Warm Start kept Equity through
- * an Ascension, which now keeps all of it.
+ * MODULES BOUGHT THE OLD WAY, refunded: a save that bought levels has their
+ * Weights back to spend in the Machine, and its slots are emptied. Warm Start,
+ * gone from the list — an Ascension keeps all the Equity now — with them.
  */
-const RETIRED: Record<string, readonly number[]> = { "warm-start": [4, 10, 24] };
+const OLD_COSTS: Record<string, readonly number[]> = {
+  "warm-start": [4, 10, 24], ...Object.fromEntries(MODULES.map((m) => [m.id, m.costs])),
+};
 export function refundRetired(): void {
   const g = useGenerationStore.getState();
-  const owned = g.modules as Record<string, number | undefined>;
   let back = 0;
-  const modules = { ...owned };
-  for (const [id, costs] of Object.entries(RETIRED)) {
-    const level = owned[id] ?? 0;
-    if (!level) continue;
-    back += costs.slice(0, level).reduce((a, b) => a + b, 0);
-    delete modules[id];
+  for (const [id, level] of Object.entries(g.modules as Record<string, number | undefined>)) {
+    back += (OLD_COSTS[id] ?? []).slice(0, level ?? 0).reduce((a, b) => a + b, 0);
   }
-  if (!back) return;
-  useGenerationStore.setState({ weights: g.weights + back, modules, slotted: g.slotted.filter((m) => !(m in RETIRED)) });
+  if (!back && !g.slotted.length) return;
+  useGenerationStore.setState({ weights: g.weights + back, modules: {}, slotted: [] });
 }
 refundRetired();
-
-/** Buy the next level of a module, if the Weights are there. Whether it was bought. */
-export function buyModule(id: ModuleId): boolean {
-  const g = useGenerationStore.getState();
-  const level = g.modules[id] ?? 0;
-  if (level >= 3) return false;
-  const cost = moduleDef(id).costs[level];
-  if (g.weights < cost) return false;
-  useGenerationStore.setState({ weights: g.weights - cost, modules: { ...g.modules, [id]: level + 1 } });
-  return true;
-}
-
-/** Put a bought module in a free slot, or take it out. Whether anything changed. */
-export function toggleSlot(id: ModuleId, slots: number): boolean {
-  const g = useGenerationStore.getState();
-  if (g.slotted.includes(id)) {
-    useGenerationStore.setState({ slotted: g.slotted.filter((m) => m !== id) });
-    return true;
-  }
-  if (!(g.modules[id] ?? 0) || g.slotted.length >= slots) return false;
-  useGenerationStore.setState({ slotted: [...g.slotted, id] });
-  return true;
-}

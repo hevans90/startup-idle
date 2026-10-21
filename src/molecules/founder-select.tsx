@@ -203,7 +203,7 @@ export const FounderSelect = () => {
               <button type="button" onClick={() => setShopOpen(false)} aria-label="Close"
                 className="cursor-pointer px-1 text-primary-500 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-100">✕</button>
             </div>
-            <ModelShop />
+            <ModelShop onOpenTree={() => { setShopOpen(false); setTreeOpen(true); }} />
           </div>
         </div>
       )}

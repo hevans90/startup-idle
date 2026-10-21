@@ -13,7 +13,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { usePrestigeStore } from "./prestige.store";
 import { runningAgents, useAgentsStore } from "./agents.store";
-import { useGenerationStore } from "./generation.store";
+import { hasMachine, useGenerationStore } from "./generation.store";
 import { useSessionStore } from "./session.store";
 import { useFounderStore } from "./founder.store";
 import { QUIET_MODEL, moduleLevel } from "../game/modules";
@@ -70,6 +70,9 @@ export function stageOf(value: number) {
 }
 
 /** What a sale leaves the meter at: a share of it, never under the floor this generation's sales have built. */
+/** Where a company's AI starts, with Inheritance bought: at the Assistant stage. @see game/machine */
+export const inheritedStart = (): number => (hasMachine("machine_root") ? STAGES.find((s) => s.stage === "assistant")!.from : 0);
+
 export function afterSale(value: number, sales: number): number {
   return Math.min(100, Math.max(value * CARRY, Math.min(FLOOR_CAP, sales * FLOOR_PER_SALE)));
 }
@@ -111,7 +114,8 @@ export const useAiSingularityStore = create<AiSingularityState>()(
       },
 
       // A SALE: part of it kept, over a floor this generation's sales have built.
-      reset: () => set({ value: afterSale(get().value, useGenerationStore.getState().sales) }),
+      // A new company: what the sale kept — and, with Inheritance, never under the Assistant. @see game/machine
+      reset: () => set({ value: Math.max(inheritedStart(), afterSale(get().value, useGenerationStore.getState().sales)) }),
     }),
     {
       name: KEY,

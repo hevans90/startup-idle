@@ -12,7 +12,8 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN } from "./ascension";
 import { FUSIONS, fusionNow, fusionOf } from "./fusion";
-import { MODULES, buyModule, moduleLevel, refundRetired, toggleSlot } from "./modules";
+import { refundRetired } from "./modules";
+import { INHERITANCE } from "./machine";
 import { trait } from "./traits";
 
 afterEach(() => resetAllGameStores());
@@ -58,18 +59,27 @@ describe("the Ascension", () => {
     expect(usePrestigeStore.getState().allocated).toEqual(["x"]);
     expect(useExitsStore.getState().exits).toEqual({});
     expect(useFounderStore.getState().selectedFounderId).toBeNull();
-    expect(useAiSingularityStore.getState().value).toBe(0);
+    // Inheritance, granted: the AI starts the next company at the Assistant.
+    expect(useAiSingularityStore.getState().value).toBe(20);
     expect(useMoneyStore.getState().money.toNumber()).toBe(0);
     expect(useVapeAchievementsStore.getState().juiceMpsMultBonus).toBe(0.5);
   });
 
-  test("a retired module's Weights come back, and it leaves its slot", () => {
+  test("modules bought the old way come back as Weights, and the slots empty", () => {
     useGenerationStore.setState({ weights: 1, modules: { "warm-start": 2, "quiet-model": 1 } as never, slotted: ["warm-start", "quiet-model"] as never });
     refundRetired();
     const g = useGenerationStore.getState();
-    expect(g.weights).toBe(1 + 4 + 10);
-    expect(g.modules).toEqual({ "quiet-model": 1 });
-    expect(g.slotted).toEqual(["quiet-model"]);
+    expect(g.weights).toBe(1 + 4 + 10 + 3);
+    expect(g.modules).toEqual({});
+    expect(g.slotted).toEqual([]);
+  });
+
+  test("the first grants Inheritance, and with it the next company's AI starts at the Assistant", () => {
+    useFounderStore.getState().chooseFounder("neet");
+    useAiSingularityStore.setState({ value: 100 });
+    ascend(seq(0, 0.99));
+    expect(useGenerationStore.getState().machine).toContain(INHERITANCE);
+    expect(useAiSingularityStore.getState().value).toBe(20);
   });
 
   test("shut down: agents deleted, racks dark a while, the AI halved, and remembered", () => {
@@ -80,22 +90,6 @@ describe("the Ascension", () => {
     expect(useAgentsStore.getState().darkUntil).toBe(1000 + DARK_MS);
     expect(useAiSingularityStore.getState().value).toBe(SHUTDOWN_AT);
     expect(useGenerationStore.getState().log.shutdowns).toBe(1);
-  });
-});
-
-describe("modules", () => {
-  test("are bought level by level with Weights, and work only in a slot", () => {
-    useGenerationStore.setState({ generation: 2, weights: 1 });
-    expect(buyModule("quiet-model")).toBe(false);
-    useGenerationStore.setState({ weights: 100 });
-    expect(buyModule("quiet-model")).toBe(true);
-    expect(moduleLevel("quiet-model")).toBe(0);
-    expect(toggleSlot("quiet-model", 1)).toBe(true);
-    expect(moduleLevel("quiet-model")).toBe(1);
-    // One slot: a second module will not go in.
-    buyModule("seed-round");
-    expect(toggleSlot("seed-round", 1)).toBe(false);
-    expect(MODULES.every((m) => m.costs[0] < m.costs[1] && m.costs[1] < m.costs[2])).toBe(true);
   });
 });
 

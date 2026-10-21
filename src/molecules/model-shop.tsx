@@ -1,23 +1,23 @@
 /**
  * THE MODEL'S SHOP: the second prestige's spending, between companies — on
  * the founder screen, before a run starts. Which generation this is, the
- * Weights to spend, the slots and the modules for them, the founders fused
- * with the AI, and the generations past. @see game/ascension, game/modules
+ * Weights to spend — in the Machine, the skill tree's AI cluster — the
+ * founders fused with the AI, and the generations past. @see game/ascension, game/machine
  */
-import { twMerge } from "tailwind-merge";
-
 import { FOUNDERS } from "../game/founders.catalog";
 import { FUSIONS } from "../game/fusion";
-import { MODULES, buyModule, toggleSlot } from "../game/modules";
+import { machineGraph } from "../game/machine";
 import { trait } from "../game/traits";
-import { slotCount, useGenerationStore } from "../state/generation.store";
+import { useGenerationStore } from "../state/generation.store";
+
+const MACHINE_SIZE = machineGraph().nodes.length;
 
 const SECTION = "border-t border-primary-300 p-2 dark:border-primary-700";
 const TITLE = "mb-1 text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400";
 
-export function ModelShop() {
+export function ModelShop({ onOpenTree }: { onOpenTree?: () => void }) {
   const g = useGenerationStore();
-  const slots = slotCount();
+  const owned = g.machine.length;
   const founderName = (id: string) => FOUNDERS.find((f) => f.id === id)?.name ?? id;
   return (
     <div className="flex flex-col text-xs text-primary-900 dark:text-primary-100">
@@ -26,37 +26,20 @@ export function ModelShop() {
         <p className="tabular-nums"><b className="text-violet-700 dark:text-violet-300">{g.weights}</b> Weights</p>
       </div>
 
-      {/* THE SLOTS: one an Ascension. */}
+      {/* THE MACHINE: where Weights go — the skill tree's AI cluster. @see game/machine */}
       <div className={SECTION}>
-        <p className={TITLE}>Slots · {g.slotted.length}/{slots}</p>
-        {slots === 0 && <p className="text-primary-600 dark:text-primary-400">The first slot opens at the first Ascension.</p>}
-        <div className="flex flex-col gap-1">
-          {MODULES.map((m) => {
-            const level = g.modules[m.id] ?? 0;
-            const on = g.slotted.includes(m.id);
-            const next = level < 3 ? m.costs[level] : null;
-            return (
-              <div key={m.id} className={twMerge("border px-2 py-1", on ? "border-violet-500 bg-violet-500/10" : "border-primary-300 dark:border-primary-700")}>
-                <p className="flex justify-between"><b>{m.name}</b><span className="tabular-nums">{"●".repeat(level)}{"○".repeat(3 - level)}</span></p>
-                <p className="text-primary-600 dark:text-primary-400">{level ? m.levels[level - 1] : m.levels[0]}</p>
-                <div className="mt-1 flex gap-1">
-                  {next !== null && (
-                    <button type="button" disabled={g.weights < next} onClick={() => buyModule(m.id)}
-                      className="cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 disabled:cursor-default disabled:opacity-40 dark:border-primary-600 dark:hover:bg-primary-800">
-                      {level ? "Upgrade" : "Buy"}: {next} Weights
-                    </button>
-                  )}
-                  {level > 0 && (
-                    <button type="button" disabled={!on && g.slotted.length >= slots} onClick={() => toggleSlot(m.id, slots)}
-                      className="cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 disabled:cursor-default disabled:opacity-40 dark:border-primary-600 dark:hover:bg-primary-800">
-                      {on ? "Take out" : "Slot in"}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <p className={TITLE}>The Machine · {owned} of {MACHINE_SIZE} nodes</p>
+        <p className="text-primary-600 dark:text-primary-400">
+          {g.generation > 1
+            ? "Spend Weights in the Machine: the AI's own cluster of the skill tree, below the rest. A ring more of it shows each Ascension."
+            : "The Machine, the AI's own cluster of the skill tree, opens at the first Ascension."}
+        </p>
+        {onOpenTree && (
+          <button type="button" onClick={onOpenTree}
+            className="mt-1 cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800">
+            Open the skill tree
+          </button>
+        )}
       </div>
 
       {/* THE FOUNDERS FUSED WITH THE AI. */}

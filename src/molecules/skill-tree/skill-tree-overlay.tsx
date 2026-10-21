@@ -1,6 +1,7 @@
 import { IconSearch, IconX } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { usePrestigeStore, RESPECS_PER_EXIT } from "../../state/prestige.store";
+import { useGenerationStore } from "../../state/generation.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { Button } from "../../ui/Button";
 import { formatCurrency } from "../../utils/money-utils";
@@ -18,6 +19,9 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
   const exits = usePrestigeStore((s) => s.exits);
   const respecPoints = usePrestigeStore((s) => s.respecPoints);
   const allocated = usePrestigeStore((s) => s.allocated.length);
+  // THE MACHINE's currency, once there is a Machine to spend it in. @see game/machine
+  const weights = useGenerationStore((s) => s.weights);
+  const ascended = useGenerationStore((s) => s.generation > 1);
   const respecMode = useSkillTreeUiStore((s) => s.respecMode);
   const search = useSkillTreeUiStore((s) => s.search);
 
@@ -70,6 +74,12 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
             <span className="opacity-60">Respecs</span>{" "}
             <span className="font-bold text-rose-500 dark:text-rose-400">{respecPoints}</span>
           </span>
+          {ascended && (
+            <span title="Spent in the Machine, the AI's cluster below the tree">
+              <span className="opacity-60">Weights</span>{" "}
+              <span className="font-bold text-violet-700 dark:text-violet-300">{weights}</span>
+            </span>
+          )}
         </div>
 
         <div className="relative">

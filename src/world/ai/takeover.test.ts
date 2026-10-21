@@ -7,6 +7,7 @@ import { traitScores } from "../../game/traits";
 import { resetAllGameStores } from "../../simulation/reset-game-stores";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
+import { grantInheritance } from "../../game/machine";
 import { useWorldStore } from "../../state/world.store";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx, setHeight, structureAt } from "../grid";
@@ -73,6 +74,16 @@ describe("what it takes over", () => {
     useSessionStore.getState().setAiFocus("machine");
     const a = chooseAction(g, "manager", rand, (x) => x.kind === "convert" && x.into === "ai-node");
     expect(a && a.kind === "convert" ? a.at : null).toEqual({ x: 14, y: 13 });
+  });
+
+  test("inherited, it takes nothing till the Overseer", () => {
+    const g = town([["kit:intern.t0", 14, 13]]);
+    at(g, 14, 13).residents = 0;
+    useSessionStore.getState().setAiFocus("machine");
+    grantInheritance();
+    const take = (x: AiAction) => x.kind === "convert";
+    expect(chooseAction(g, "manager", rand, take)).toBeNull();
+    expect(chooseAction(g, "overseer", rand, take)).not.toBeNull();
   });
 
   test("a service: the one fewest houses rely on", () => {

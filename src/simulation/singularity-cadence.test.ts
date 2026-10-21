@@ -14,7 +14,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { weightsFor } from "../game/ascension";
-import { MODULES } from "../game/modules";
+import { machineGraph } from "../game/machine";
 import { DATASETS, type DatasetId } from "../game/training";
 import { emptyLog } from "../state/generation.store";
 import { afterSale, singularityRate } from "../state/ai-singularity.store";
@@ -67,9 +67,11 @@ describe("the Ascension's cadence", () => {
     expect(out.careful === null || out.careful.sales > out.typical!.sales).toBe(true);
   });
 
-  test("a generation's Weights buy a few modules, not all of them", () => {
-    const all = MODULES.reduce((n, m) => n + m.costs.reduce((a, b) => a + b, 0), 0);
-    const cheapest = Math.min(...MODULES.map((m) => m.costs[0]));
+  test("a generation's Weights buy some of the Machine, not half of it", () => {
+    // What the Machine sells, Inheritance aside. @see game/machine
+    const costs = machineGraph().nodes.map((n) => n.cost).filter((c) => c > 0);
+    const all = costs.reduce((a, b) => a + b, 0);
+    const cheapest = Math.min(...costs);
     for (const g of [out.strong!, out.typical!]) {
       expect(g.weights).toBeGreaterThanOrEqual(cheapest * 3);
       expect(g.weights).toBeLessThanOrEqual(all / 2);
