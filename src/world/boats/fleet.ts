@@ -64,6 +64,8 @@ export type Boat = {
   dockLeft?: number;
   /** Which of that port's berths it has been given, once it has one. */
   berth?: number;
+  /** One of the Machine's freighters: violet, crewless, a light at the bow. @see Market Maker */
+  ai?: boolean;
 };
 
 export type Fleet = { boats: Boat[]; next: number; t: number };

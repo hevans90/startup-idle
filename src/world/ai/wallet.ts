@@ -12,6 +12,9 @@ import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
 import { useUpgradeStore } from "../../state/upgrades.store";
 import { skillOf } from "../../state/training.store";
+import { notable } from "../../game/machine";
+import { agentBonus } from "../../game/agents";
+import { runningAgents } from "../../state/agents.store";
 import { WALLET_DEEPER, WALLET_FASTER } from "../../game/training";
 import { getGeneratorCost } from "../../utils/generator-utils";
 import { idx, inBounds, type Grid } from "../grid";
@@ -29,6 +32,9 @@ const income = () => {
   const n = useGeneratorStore.getState().getMoneyPerSecond();
   return Number.isFinite(n) && n > 0 ? n : 0;
 };
+
+/** The share of what the agents add to income that Self-Funding pays into the wallet. */
+export const SELF_FUNDING = 0.1;
 
 /** What it may hold at most, now. */
 export const walletCap = (): number =>
@@ -53,7 +59,9 @@ export function creditWallet(seconds: number): void {
   const s = useSessionStore.getState();
   // Faster for an AI trained on the money. @see WALLET_FASTER
   const faster = skillOf("money") >= 1 ? WALLET_FASTER : 1;
-  const next = Math.min(walletCap(), s.aiWallet + income() * s.aiShare * faster * seconds);
+  // SELF-FUNDING: a tenth of what the agents add to income, on top. @see game/machine "selffund"
+  const own = notable("selffund") ? income() * (1 - 1 / agentBonus(runningAgents())) * SELF_FUNDING : 0;
+  const next = Math.min(walletCap(), s.aiWallet + (income() * s.aiShare * faster + own) * seconds);
   if (next !== s.aiWallet) s.setAiWallet({ aiWallet: Math.max(0, next) });
 }
 

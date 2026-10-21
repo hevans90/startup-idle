@@ -30,15 +30,20 @@ export type MachineNode = {
 /**
  * ITS NOTABLES: features, not percentages — each changes how something on the
  * map works, and how it looks. Each in a gap between two spokes, beside their
- * second-ring nodes, revealed with them. The first costs `NOTABLE_COST`, and
+ * second-ring nodes (or third, for `ring: 3`), revealed with them. The first costs `NOTABLE_COST`, and
  * each bought makes the next dearer by `NOTABLE_STEP`. @see plans/ai-takeover.md §4.2
  */
-export type NotableId = "freight" | "airlift" | "prefab" | "zoning";
-export const NOTABLES: readonly { id: NotableId; title: string; effect: string; gap: number }[] = [
+export type NotableId = "freight" | "airlift" | "prefab" | "zoning" | "coolant" | "concierge" | "nightshift" | "market" | "selffund";
+export const NOTABLES: readonly { id: NotableId; title: string; effect: string; gap: number; ring?: 3 }[] = [
   { id: "freight", gap: 0, title: "Autonomous Freight", effect: "Project materials come in convoys of three self-driving lorries, from the Data Centre as well as the garage: a sixteen-load wonder in six runs." },
   { id: "airlift", gap: 2, title: "Drone Airlift", effect: "Sites of four tiles or fewer get their materials by heavy-lift drone, straight from the Data Centre over the town: three times as fast, a quarter dearer a load." },
   { id: "prefab", gap: 4, title: "Prefab Printing", effect: "The AI prints building segments off-site: every new project needs 40% less work. The loads stay." },
   { id: "zoning", gap: 5, title: "Generative Zoning", effect: "Lots the AI zones in its district are born at the tier the spot can sustain, not as starter lots." },
+  { id: "coolant", gap: 1, title: "Coolant Loop", effect: "The AI's buildings share their water: a surplus at one tops up a shortage at another, so one good intake can cool them all." },
+  { id: "concierge", gap: 3, title: "Holo-Concierge", effect: "A holographic attendant at every café, park and gym in the AI's district: each serves houses 4 road tiles further away." },
+  { id: "nightshift", gap: 6, title: "Night Shift", effect: "The town never sleeps: employees without a desk work the night shift on the empty ones, at 70% instead of 35%. Offices glow violet at night." },
+  { id: "market", gap: 2, ring: 3, title: "Market Maker", effect: "The AI runs the river trade: ports in its district turn ships round half as fast again, some of them its own violet freighters, and convoys come twice as often." },
+  { id: "selffund", gap: 5, ring: 3, title: "Self-Funding", effect: "The AI pays its own way: a tenth of what the agents add to income goes into its wallet as well." },
 ];
 export const NOTABLE_COST = 30;
 export const NOTABLE_STEP = 15;
@@ -79,14 +84,15 @@ export function machineGraph(): { nodes: MachineNode[]; edges: [string, string][
     }
   });
   // The notables, in the gaps, beside the second-ring nodes of the spokes either side.
+  // Those at the third ring beside its third-ring nodes, revealed with them.
   for (const n of NOTABLES) {
     const a = -Math.PI / 2 + ((n.gap + 1) / SPOKES.length) * Math.PI * 2;
-    const id = notableId(n.id);
+    const id = notableId(n.id), ring = n.ring ?? 2;
     nodes.push({
-      id, x: MACHINE_CENTRE.x + Math.cos(a) * RING_GAP * 2, y: MACHINE_CENTRE.y + Math.sin(a) * RING_GAP * 2,
-      title: n.title, kind: "notable", cluster: MACHINE, ring: 2, cost: NOTABLE_COST, effect: n.effect,
+      id, x: MACHINE_CENTRE.x + Math.cos(a) * RING_GAP * ring, y: MACHINE_CENTRE.y + Math.sin(a) * RING_GAP * ring,
+      title: n.title, kind: "notable", cluster: MACHINE, ring, cost: NOTABLE_COST, effect: n.effect,
     });
-    edges.push([minorId(SPOKES[n.gap], 2), id], [minorId(SPOKES[(n.gap + 1) % SPOKES.length], 2), id]);
+    edges.push([minorId(SPOKES[n.gap], ring), id], [minorId(SPOKES[(n.gap + 1) % SPOKES.length], ring), id]);
   }
   return { nodes, edges };
 }

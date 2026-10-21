@@ -21,6 +21,8 @@ import { idx, type Grid, type Structure } from "../grid";
 import { connects } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
+import { notable } from "../../game/machine";
+import { inAiDistrictNow } from "../ai/district";
 import { DECLINE_MARGIN, GROW_AT, MOOD, type MoodParts } from "./mood-rules";
 
 export type ServiceId = "cafe" | "park" | "gym";
@@ -53,53 +55,69 @@ const DIRS = ["N", "E", "S", "W"] as const;
 /**
  * What serves every house: a breadth-first search along the roads from each
  * kind of service's doors at once, out to `RANGE`, and the houses whose doors
- * it reaches.
+ * it reaches. A service `extra` says reaches further — the Machine's
+ * Holo-Concierge — is searched apart, out to its own reach: one search from
+ * doors of two reaches would number the roads wrong. @see CONCIERGE_REACH
  */
-export function coverageOf(g: Grid, places: readonly Place[]): Coverage {
+export function coverageOf(g: Grid, places: readonly Place[], extra: (s: Structure) => number = () => 0): Coverage {
   const doorOf = new Map<number, Place>();
   for (const p of places) if (p.kind === "door" && p.structure !== undefined) doorOf.set(p.structure, p);
   const out: Coverage = new Map();
   for (const service of SERVICE_IDS) {
-    const dist = new Int32Array(g.w * g.h).fill(-1);
-    const queue: number[] = [];
+    const groups = new Map<number, Structure[]>();
     for (const s of g.structures.values()) {
-      if (s.build || serviceOf(s.def) !== service) continue;
-      const d = doorOf.get(s.id);
-      if (!d) continue;
-      const i = idx(g, d.x, d.y);
-      if (dist[i] < 0) { dist[i] = 0; queue.push(i); }
+      if (s.build || serviceOf(s.def) !== service || !doorOf.has(s.id)) continue;
+      const k = extra(s);
+      groups.set(k, [...(groups.get(k) ?? []), s]);
     }
-    for (let q = 0; q < queue.length; q++) {
-      const i = queue[q], x = i % g.w, y = (i - x) / g.w;
-      if (dist[i] >= RANGE) continue;
-      for (const dir of DIRS) {
-        if (!connects(g, x, y, dir)) continue;
-        const [dx, dy] = NEIGHBOUR[dir];
-        const j = idx(g, x + dx, y + dy);
-        if (dist[j] >= 0) continue;
-        dist[j] = dist[i] + 1; queue.push(j);
+    for (const [more, from] of groups) {
+      const dist = new Int32Array(g.w * g.h).fill(-1);
+      const queue: number[] = [];
+      for (const s of from) {
+        const d = doorOf.get(s.id)!;
+        const i = idx(g, d.x, d.y);
+        if (dist[i] < 0) { dist[i] = 0; queue.push(i); }
       }
-    }
-    for (const s of g.structures.values()) {
-      if (!housedBy(s.def)) continue;
-      const d = doorOf.get(s.id);
-      if (!d || dist[idx(g, d.x, d.y)] < 0) continue;
-      let set = out.get(s.id);
-      if (!set) out.set(s.id, (set = new Set()));
-      set.add(service);
+      for (let q = 0; q < queue.length; q++) {
+        const i = queue[q], x = i % g.w, y = (i - x) / g.w;
+        if (dist[i] >= RANGE + more) continue;
+        for (const dir of DIRS) {
+          if (!connects(g, x, y, dir)) continue;
+          const [dx, dy] = NEIGHBOUR[dir];
+          const j = idx(g, x + dx, y + dy);
+          if (dist[j] >= 0) continue;
+          dist[j] = dist[i] + 1; queue.push(j);
+        }
+      }
+      for (const s of g.structures.values()) {
+        if (!housedBy(s.def)) continue;
+        const d = doorOf.get(s.id);
+        if (!d || dist[idx(g, d.x, d.y)] < 0) continue;
+        let set = out.get(s.id);
+        if (!set) out.set(s.id, (set = new Set()));
+        set.add(service);
+      }
     }
   }
   return out;
 }
 
-let memo: { g: Grid | null; rev: number; sites: number; value: Coverage } = { g: null, rev: -1, sites: -1, value: new Map() };
+/** Road tiles further a Holo-Concierge's service reaches. @see game/machine "concierge" */
+export const CONCIERGE_REACH = 4;
+/** What a service in the AI's district reaches further, with the Holo-Concierge. */
+const concierge = (g: Grid) => (s: Structure) => (notable("concierge") && inAiDistrictNow(g, s.x, s.y) ? CONCIERGE_REACH : 0);
+
+let memo: { g: Grid | null; rev: number; sites: number; reach: string; value: Coverage } = { g: null, rev: -1, sites: -1, reach: "", value: new Map() };
 
 /** What serves every house on this map now, worked out again only when it has changed. @see liveCommutes */
 export function liveCoverage(g: Grid, net: Network): Coverage {
   let sites = 0;
   for (const s of g.structures.values()) if (s.build) sites++;
-  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites) {
-    memo = { g, rev: g.rev, sites, value: coverageOf(g, placesOf(g, net)) };
+  // Which services reach further: the Holo-Concierge's, as the district grows. @see CONCIERGE_REACH
+  const more = concierge(g);
+  const reach = notable("concierge") ? [...g.structures.values()].filter((s) => serviceOf(s.def) && more(s)).map((s) => s.id).join() : "";
+  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.reach !== reach) {
+    memo = { g, rev: g.rev, sites, reach, value: coverageOf(g, placesOf(g, net), more) };
   }
   return memo.value;
 }

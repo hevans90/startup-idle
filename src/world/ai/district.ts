@@ -9,7 +9,7 @@
  * lays cooling pipes to water, and hires and buys upgrades at a desk.
  * @see planner, plans/ai-takeover.md §1.1
  */
-import { STAGES, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
+import { STAGES, stageOf, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
 import { useFounderStore } from "../../state/founder.store";
 import type { Grid } from "../grid";
 
@@ -27,6 +27,10 @@ export function aiDistrict(g: Grid, stage: Stage): District | null {
   if (!dc) return null;
   return { cx: dc.x + (dc.w - 1) / 2, cy: dc.y + (dc.h - 1) / 2, r };
 }
+
+/** Whether a tile is in the district as it stands now, the meter's stage read live. */
+export const inAiDistrictNow = (g: Grid, x: number, y: number): boolean =>
+  inDistrict(aiDistrict(g, stageOf(useAiSingularityStore.getState().value).stage), x, y);
 
 /** Whether a tile is in the district. */
 export const inDistrict = (d: District | null, x: number, y: number): boolean =>

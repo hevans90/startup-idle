@@ -17,8 +17,11 @@ import { idx, inBounds, type Grid } from "../grid";
 import { cellToWorld } from "../iso";
 import { isPaved } from "../roads/mask";
 import { tierOf } from "../agents/services";
+import { DESKS } from "../agents/commute";
+import { notable } from "../../game/machine";
 
 const WINDOW = 0xffc46b;
+const NIGHT_SHIFT_WINDOW = 0xb44aff;
 const LAMP = 0xffe2a0;
 /** How high a building's glow sits over its ground, screen px at scale 1, by tier. */
 const RISE: Record<string, number> = { t0: 18, t1: 28, t2: 46, landmark: 80 };
@@ -51,7 +54,9 @@ function glowTexture(): Texture {
 }
 
 /** Where the lights go: a glow per lit building, a pool per lamp. Pure, for tests. */
-export function lightsOf(g: Grid): { kind: "window" | "lamp"; x: number; y: number; w: number; h: number; rise: number }[] {
+export function lightsOf(g: Grid): { kind: "window" | "lamp"; x: number; y: number; w: number; h: number; rise: number; violet?: boolean }[] {
+  // THE NIGHT SHIFT: workplaces lit violet, the AI at the empty desks. @see game/machine "nightshift"
+  const night = notable("nightshift");
   const out: ReturnType<typeof lightsOf> = [];
   for (const s of g.structures.values()) {
     if (s.build) continue;
@@ -59,7 +64,7 @@ export function lightsOf(g: Grid): { kind: "window" | "lamp"; x: number; y: numb
     // A house with nobody in it is dark.
     if (housed && !residentsIn(s)) continue;
     if (s.def === "derelict") continue;
-    out.push({ kind: "window", x: s.x, y: s.y, w: s.w, h: s.h, rise: RISE[tierOf(s.def) ?? ""] ?? 34 });
+    out.push({ kind: "window", x: s.x, y: s.y, w: s.w, h: s.h, rise: RISE[tierOf(s.def) ?? ""] ?? 34, ...(night && s.def in DESKS ? { violet: true } : {}) });
   }
   const paved = (x: number, y: number) => inBounds(g, x, y) && isPaved(g, x, y);
   for (let y = 0; y < g.h; y++) {
@@ -97,7 +102,7 @@ export function createLights(stage: Container, zIndex: number): Lights {
         s.x = wx;
         s.y = wy - l.rise * scale;
         if (l.kind === "window") {
-          s.tint = WINDOW;
+          s.tint = l.violet ? NIGHT_SHIFT_WINDOW : WINDOW;
           s.scale.set((1.1 + 0.5 * Math.max(l.w, l.h)) * scale);
           s.alpha = 0.55;
         } else {

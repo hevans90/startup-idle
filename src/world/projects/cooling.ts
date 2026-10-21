@@ -12,6 +12,7 @@ import { agentsARack } from "../../game/agents";
 import { cooledOf, demandOf, drink, isDrinker, tankOf, type Drinker } from "../../game/cooling";
 import type { Grid, Structure } from "../grid";
 import { powered } from "./racks";
+import { notable } from "../../game/machine";
 
 export type Tank = { level: number; share: number; capacity: number; demand: number; agents: number; def: Drinker };
 
@@ -51,6 +52,14 @@ export function assignAgents(g: Grid, running: number): Map<number, number> {
  */
 export function stepCooling(g: Grid, running: number, river: boolean, dt: number): void {
   const agents = assignAgents(g, running);
+  // THE COOLANT LOOP: every tank shares its water, each filled to the same
+  // share of what it holds — a surplus at one tops up a shortage at another.
+  // @see game/machine "coolant"
+  if (notable("coolant") && tanks.size > 1) {
+    let level = 0, capacity = 0;
+    for (const t of tanks.values()) { level += t.level; capacity += t.capacity; }
+    if (capacity > 0) for (const t of tanks.values()) t.level = t.capacity * (level / capacity);
+  }
   const live = new Set<number>();
   hot = 0;
   let spires = 0;

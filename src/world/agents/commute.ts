@@ -29,6 +29,7 @@ import { idx, type Grid } from "../grid";
 import { connects } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
+import { notable } from "../../game/machine";
 
 /** Where each kind works: the building that opened them, and their offices. */
 export const WORKPLACES: Record<GeneratorId, readonly string[]> = {
@@ -51,6 +52,9 @@ export const DESKS: Record<string, number> = {
 };
 /** What people manage with no desk to go to: perched wherever they can. */
 export const DESKLESS = 0.35;
+/** And with the Machine's Night Shift: working the empty desks at night. @see game/machine "nightshift" */
+export const NIGHT_SHIFT = 0.7;
+export const desklessShare = (): number => (notable("nightshift") ? NIGHT_SHIFT : DESKLESS);
 
 /** Tiles of commute that cost nothing, what each one past them costs, and the least a commute leaves. */
 export const FREE = 8;
@@ -177,7 +181,7 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
         continue;
       }
       const main = list.reduce<{ work: number; tiles: number; n: number } | null>((m, x) => (!m || x.n > m.n ? x : m), null);
-      const work = list.reduce((sum, x) => sum + x.n * commuteEfficiency(x.tiles), 0) + deskless * DESKLESS;
+      const work = list.reduce((sum, x) => sum + x.n * commuteEfficiency(x.tiles), 0) + deskless * desklessShare();
       commutes.set(h.id, {
         tiles: main?.tiles ?? nearest.tiles, eff: work / n, to: main?.work ?? nearest.work, deskless,
       });

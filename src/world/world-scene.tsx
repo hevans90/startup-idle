@@ -197,6 +197,13 @@ import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
 import { busyness, darkness, dayPhase, drawRain, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
 import { createLights, type Lights } from "./render/lights";
+import { notable } from "../game/machine";
+import { inAiDistrictNow } from "./ai/district";
+import { serviceOf } from "./agents/services";
+
+/** The services a Holo-Concierge stands at: those in the AI's district. @see game/machine "concierge" */
+const conciergesOf = (g: import("./grid").Grid) =>
+  [...g.structures.values()].filter((s) => !s.build && serviceOf(s.def) && inAiDistrictNow(g, s.x, s.y)).map((s) => ({ x: s.x, y: s.y + s.h }));
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 
 // Required: <pixiContainer> is only a known element once Container is
@@ -3206,6 +3213,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           stage: stageOf(v).stage, value: v, running: preview ? 1 : runningAgents(), training: preview?.training ?? training() !== null,
           night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
           drones: getAiRunner().jobs.map(droneAt),
+          // The Machine's Coolant Loop and Holo-Concierges, where bought. @see game/machine
+          coolant: !modelRun && notable("coolant"),
+          concierges: !modelRun && notable("concierge") ? conciergesOf(useWorldStore.getState().grid) : undefined,
           airlifts: getWorks().airlifts.map((a) => { const k = Math.min(1, a.t / a.fly); return { x: a.from.x + (a.to.x - a.from.x) * k, y: a.from.y + (a.to.y - a.from.y) * k }; }),
           // An inherited AI's drones in the player's teal, till its takeover begins. @see inherited
           droneLight: !modelRun && inherited(stageOf(v).stage) ? STAGE_COLOUR.tool : undefined,

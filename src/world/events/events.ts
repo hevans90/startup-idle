@@ -12,6 +12,7 @@
  * event DOES to the map — sludge poured, trucks sent — is the scene's and the
  * store's. @see world-scene, respondToEvent
  */
+import { notable } from "../../game/machine";
 import { FLOOD_SECONDS } from "./flood";
 
 
@@ -94,7 +95,8 @@ export type PacedKind = keyof typeof PACING;
 /** Seconds to the next of a kind, for a roll of the dice in [0, 1). */
 export const nextDueIn = (kind: PacedKind, roll: number) => {
   const [lo, hi] = PACING[kind].between;
-  return lo + roll * (hi - lo);
+  // Convoys twice as often with the Machine's Market Maker. @see game/machine "market"
+  return (lo + roll * (hi - lo)) / (kind === "convoy" && notable("market") ? 2 : 1);
 };
 
 /** At this fill the pit's overflow is announced; at 100 it overflows; below this it is over. */

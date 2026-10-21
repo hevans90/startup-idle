@@ -27,6 +27,7 @@ import { lookOf } from "../structures/projects/looks";
 import { topOf } from "../structures/projects/schedule";
 import type { Stage } from "../../state/ai-singularity.store";
 import type { District } from "./district";
+import { isDrinker } from "../../game/cooling";
 import { RESERVOIR } from "./reservoir";
 
 /** Each stage's colour: green, through amber, to violet. */
@@ -61,6 +62,10 @@ export type AiView = {
   /** How well the Data Centre is cooled, 0–1, and how full its tank is; both 1 by default. @see game/cooling */
   cooled?: number;
   tank?: number;
+  /** THE COOLANT LOOP: whether the AI's drinkers share their water — drawn as a violet loop pulsing out to each. @see game/machine "coolant" */
+  coolant?: boolean;
+  /** Services a Holo-Concierge stands at, by their door's corner. @see game/machine "concierge" */
+  concierges?: readonly { x: number; y: number }[];
   /** Loads flying to small sites with Drone Airlift: where each is. @see Airlift */
   airlifts?: readonly { x: number; y: number }[];
   /** Its drones' light, if not its own violet: the player's teal, while an inherited AI works for them. @see inherited */
@@ -296,6 +301,21 @@ export function createAiLayer(overlay: Container): AiLayer {
         }
       }
 
+      // THE COOLANT LOOP: low along the ground to every drinker, violet, a
+      // slow pulse travelling out along it. @see view.coolant
+      if (view.coolant) {
+        const base = P(sc, cu, cv, ground(g, Math.round(cu), Math.round(cv)) + 0.2);
+        const drinkers = structures.filter((s) => !s.build && s !== dc && isDrinker(s.def));
+        for (const [k, s] of drinkers.entries()) {
+          const to = P(sc, s.x + (s.w - 1) / 2, s.y + (s.h - 1) / 2, ground(g, s.x, s.y) + 0.2);
+          gfx.moveTo(base[0], base[1]).lineTo(to[0], to[1]);
+          gfx.stroke({ color: STAGE_COLOUR.overseer, width: Math.max(1, 1.6 * sc), alpha: 0.35 });
+          const f = (t * 0.25 + k * 0.17) % 1;
+          gfx.circle(base[0] + (to[0] - base[0]) * f, base[1] + (to[1] - base[1]) * f, Math.max(1.4, 2.6 * sc));
+          gfx.fill({ color: STAGE_COLOUR.ascension, alpha: 0.8 });
+        }
+      }
+
       // THE ASCENSION'S COLUMN of light off the Data Centre.
       if (asc > 0) {
         const [x, y] = P(sc, cu, cv, roof);
@@ -322,6 +342,20 @@ export function createAiLayer(overlay: Container): AiLayer {
         }
         gfx.circle(x, y - 0.5 * sc, 1.4 * sc);
         gfx.fill({ color: view.droneLight ?? STAGE_COLOUR.overseer, alpha: 0.9 });
+      }
+
+      // THE HOLO-CONCIERGES, one at each service's door: a violet figure of
+      // light, flickering a little, its head turning to passers-by.
+      for (const [k, c] of (view.concierges ?? []).entries()) {
+        const z = ground(g, c.x, c.y);
+        const flick = 0.55 + 0.25 * Math.sin(t * 7 + k * 3.1);
+        const [fx, fy] = P(sc, c.x, c.y, z);
+        gfx.ellipse(fx, fy, 3 * sc, 1.2 * sc);
+        gfx.fill({ color: STAGE_COLOUR.overseer, alpha: 0.35 });
+        gfx.rect(fx - 1.3 * sc, fy - 7 * sc, 2.6 * sc, 6.5 * sc);
+        gfx.fill({ color: STAGE_COLOUR.ascension, alpha: flick });
+        gfx.circle(fx + Math.sin(t * 0.8 + k) * 0.4 * sc, fy - 8.6 * sc, 1.5 * sc);
+        gfx.fill({ color: STAGE_COLOUR.ascension, alpha: flick });
       }
 
       // THE CARGO DRONES of Drone Airlift: four rotors, a crate swinging on a

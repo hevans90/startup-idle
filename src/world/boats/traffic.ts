@@ -24,6 +24,8 @@ import type { ColumnField } from "../../fluid/columns";
 import type { Grid } from "../grid";
 import { structureDef } from "../structures/def";
 import { addBoat, type Boat, type Fleet, type Steer } from "./fleet";
+import { notable } from "../../game/machine";
+import { inAiDistrictNow } from "../ai/district";
 import {
   berthsBeside, downhill, downstream, isExit, mapRiver, riverAt, stepsFrom, tileDepthOf,
   type BerthSpot, type RiverMap,
@@ -35,6 +37,8 @@ const REMAP_EVERY = 1;
 const SPAWN_FASTEST = 3;
 const SPAWN_SLOWEST = 20;
 const FIRST_SPAWN = 1;
+/** How much faster a port in the AI's district turns ships round, with Market Maker. */
+export const MARKET_TURNROUND = 1.5;
 /** Boats under way on a river: this many, and this many more for every berth on it. */
 const MAX_BASE = 2;
 const MAX_PER_BERTH = 2;
@@ -109,7 +113,8 @@ export function portsOf(g: Grid, r: RiverMap): Map<number, Port> {
     out.set(s.id, {
       id: s.id,
       river: spots[0].river,
-      dock: port.dockSeconds,
+      // MARKET MAKER: a port in the AI's district turns ships round half as fast again. @see game/machine "market"
+      dock: port.dockSeconds / (notable("market") && inAiDistrictNow(g, s.x, s.y) ? MARKET_TURNROUND : 1),
       berths: spots.map((b) => ({ ...b, steps: stepsFrom(r, [{ x: b.tx, y: b.ty }]) })),
       steps: stepsFrom(r, spots.map((b) => ({ x: b.tx, y: b.ty }))),
     });
@@ -277,6 +282,9 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     t.sent++;
     boat.motor = RIVER_MOTOR;
     boat.route = port ? [port.id] : [];
+    // Every other one bound for a Market Maker's port its own freighter.
+    const ps = port ? g.structures.get(port.id) : undefined;
+    if (ps && notable("market") && inAiDistrictNow(g, ps.x, ps.y)) boat.ai = t.sent % 2 === 0;
     const way = downstream(r, s.x, s.y);
     if (way) boat.heading = Math.atan2(way.y, way.x);
   }

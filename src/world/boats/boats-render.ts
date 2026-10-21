@@ -32,6 +32,10 @@ const MAST = 3.4;
 const HULL = 0xf2efe6;
 const HULL_SHADE = 0xc9c3b4;
 const STRIPE = 0xb8463a;
+/** The Machine's freighter: a violet hull, its stripe a light. */
+const AI_HULL = 0x3b3358;
+const AI_HULL_SHADE = 0x2a2440;
+const AI_LIGHT = 0xb44aff;
 const DECK = 0xa9773f;
 const DECK_EDGE = 0x6d4a25;
 const SAIL = 0xfbf8f0;
@@ -172,17 +176,28 @@ function drawBoat(g: Graphics, b: Boat, s: number, bandsN: number): number {
     if (nu + nv <= 0) continue;
     const lit = nu > nv;
     g.poly([a.px, a.py, c.px, c.py, sea[(k + 1) % n].px, sea[(k + 1) % n].py, sea[k].px, sea[k].py]);
-    g.fill({ color: lit ? HULL : HULL_SHADE });
+    g.fill({ color: b.ai ? (lit ? AI_HULL : AI_HULL_SHADE) : lit ? HULL : HULL_SHADE });
     // A stripe under the gunwale.
     const a2 = at(OUTLINE[k][0] * BOAT_LENGTH, OUTLINE[k][1] * BOAT_BEAM, FREEBOARD * 0.62);
     const c2 = at(OUTLINE[(k + 1) % n][0] * BOAT_LENGTH, OUTLINE[(k + 1) % n][1] * BOAT_BEAM, FREEBOARD * 0.62);
     g.poly([a.px, a.py, c.px, c.py, c2.px, c2.py, a2.px, a2.py]);
-    g.fill({ color: STRIPE });
+    g.fill({ color: b.ai ? AI_LIGHT : STRIPE });
   }
   // THE DECK, at the gunwale, and its edge.
   g.poly(rim.flatMap((p) => [p.px, p.py]));
   g.fill({ color: DECK });
   g.stroke({ color: DECK_EDGE, width: Math.max(1, 1.2 * s), alpha: 0.9 });
+
+  // THE MACHINE'S FREIGHTER: no mast, no wheelhouse, nobody aboard — a
+  // light at the bow. @see Boat.ai
+  if (b.ai) {
+    const bow = at(BOAT_LENGTH * 0.46, 0, FREEBOARD + 0.4);
+    g.circle(bow.px, bow.py, Math.max(1.5, 2.2 * s));
+    g.fill({ color: AI_LIGHT, alpha: 0.95 });
+    let front = -Infinity;
+    for (const p of rim) front = Math.max(front, Math.round(p.u) + Math.round(p.v));
+    return Math.max(0, Math.min(bandsN - 1, front));
+  }
 
   // THE MAST and A SAIL off it, toward the stern.
   const foot = at(BOAT_LENGTH * 0.08, 0, FREEBOARD);

@@ -8,7 +8,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { placesOf } from "./roads";
 import {
-  DECLINE_AFTER, GROW_AFTER, RANGE, coverageOf, createEvolution, growthShort, stepEvolution,
+  CONCIERGE_REACH, DECLINE_AFTER, GROW_AFTER, RANGE, coverageOf, createEvolution, growthShort, stepEvolution,
 } from "./services";
 import { moodsOf } from "./mood";
 import { GROW_AT, MOOD } from "./mood-rules";
@@ -40,6 +40,13 @@ describe("services", () => {
   test("serve the homes within reach along the roads, and no further", () => {
     const { g, ids } = street([["cafe", 10], ["kit:intern.t0", 10 + RANGE], ["kit:intern.t0", 10 + RANGE + 4]]);
     const c = cover(g);
+    expect([...(c.get(ids[1]) ?? [])]).toEqual(["cafe"]);
+    expect(c.get(ids[2])).toBeUndefined();
+  });
+
+  test("a service with a Holo-Concierge reaches further — and only that one", () => {
+    const { g, ids } = street([["cafe", 10], ["kit:intern.t0", 10 + RANGE + 3], ["kit:intern.t0", 10 + RANGE + CONCIERGE_REACH + 1]]);
+    const c = coverageOf(g, placesOf(g, createNetwork(g)), (s) => (s.def === "cafe" ? CONCIERGE_REACH : 0));
     expect([...(c.get(ids[1]) ?? [])]).toEqual(["cafe"]);
     expect(c.get(ids[2])).toBeUndefined();
   });
