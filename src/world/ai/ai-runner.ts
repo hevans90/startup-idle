@@ -136,7 +136,7 @@ export function stepAi(r: AiRunner, g: Grid, ai: AiNow, dt: number, now: number,
   r.lastAt = now;
   if (r.clock < interval || r.jobs.length >= MAX_DRONES) return did;
   r.clock = 0;
-  const a = chooseAction(g, ai.stage, rand, (x) => walletCovers(g, x) && !(x.kind === "convert" && pendingAt(r, x.at)));
+  const a = chooseAction(g, ai.stage, rand, (x) => walletCovers(g, x) && !(x.kind === "convert" && pendingAt(r, x.at)) && !(isLattice(x) && r.jobs.some((j) => isLattice(j.action))));
   if (!a) return did;
   // A TAKEOVER is announced first, and done a minute later. @see WARN_MS
   if (a.kind === "convert") { announce(r, g, a, now); return did; }
@@ -199,6 +199,9 @@ export function vetoAt(r: AiRunner, g: Grid, x: number, y: number, peek = false)
   if (job) { if (!peek) r.jobs = r.jobs.filter((j) => j !== job); return job.action; }
   return null;
 }
+
+/** A job putting up the Lattice: one in the air at a time. @see lattice */
+const isLattice = (a: AiAction) => a.kind === "place" && a.def === "lattice";
 
 /** Whether a takeover of this tile is already announced. */
 const pendingAt = (r: AiRunner, at: Cell) => r.pending.some((p) => p.action.at.x === at.x && p.action.at.y === at.y);

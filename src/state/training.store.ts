@@ -9,7 +9,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { MAX_SKILL, TRAINING_SECONDS, dataset, type DatasetId } from "../game/training";
-import { useAiSingularityStore } from "./ai-singularity.store";
+import { meterCap, useAiSingularityStore } from "./ai-singularity.store";
 import { PRE_TRAINED, moduleLevel } from "../game/modules";
 import { fusionNow } from "../game/fusion";
 import { useGenerationStore } from "./generation.store";
@@ -47,7 +47,7 @@ export const useTrainingStore = create<TrainingState>()(
         if (!c || now < c.endsAt) return;
         set((s) => ({ current: null, skills: { ...s.skills, [c.dataset]: Math.min(MAX_SKILL, (s.skills[c.dataset] ?? 0) + 1) } }));
         const d = dataset(c.dataset);
-        if (d) useAiSingularityStore.setState((s) => ({ value: Math.min(100, s.value + d.jump * fusionNow().trainingJumpMult) }));
+        if (d) useAiSingularityStore.setState((s) => ({ value: Math.min(meterCap(s.value), s.value + d.jump * fusionNow().trainingJumpMult) }));
         useGenerationStore.getState().recordTraining(c.dataset);
       },
       reset: () => set({ current: null, skills: {} }),

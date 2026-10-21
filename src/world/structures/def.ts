@@ -306,7 +306,8 @@ export const PUMP: StructureDef = {
  *  - a GPU FARM: twice a rack's agents;
  *  - a COMPUTE SPIRE: every agent's boost the more;
  *  - a DRONE HANGAR: its drones work faster;
- *  - THE MONOLITH: one a map, where the Ascension looks.
+ *  - THE MONOLITH: one a map, where the Ascension looks;
+ *  - THE LATTICE: the last thing it builds; the meter holds at 95% till it is charged. @see world/ai/lattice
  */
 export const AI_BUILDINGS: readonly StructureDef[] = [
   { id: "ai-node", name: "AI node", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" } },
@@ -314,6 +315,7 @@ export const AI_BUILDINGS: readonly StructureDef[] = [
   { id: "compute-spire", name: "Compute spire", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" } },
   { id: "drone-hangar", name: "Drone hangar", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
   { id: "monolith", name: "The Monolith", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "lattice", name: "The Lattice", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
 ];
 export const isAiBuilding = (defId: string) => AI_BUILDINGS.some((d) => d.id === defId);
 

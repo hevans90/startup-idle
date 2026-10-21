@@ -9,6 +9,8 @@ import { SHARE_MAX, SHARE_STEP, WALLET_MINUTES, walletCap } from "../ai/wallet";
 import { FOCUSES } from "../ai/focus";
 import { aiPace, getAiRunner } from "../ai/ai-runner";
 import { INTERVAL } from "../ai/planner";
+import { LATTICE_AGENTS, latticeNeeds } from "../ai/lattice";
+import { LATTICE_AT } from "../../state/ai-singularity.store";
 import { useSessionStore } from "../../state/session.store";
 import { useFounderStore } from "../../state/founder.store";
 import { formatCurrency } from "../../utils/money-utils";
@@ -77,6 +79,7 @@ export function DataCentre({ className }: { className?: string }) {
           )}
         </div>
 
+        <Lattice />
         <Focus />
         <Allowance />
         <Cooling />
@@ -99,6 +102,39 @@ const BTN = twMerge(
   "flex w-full cursor-pointer flex-col items-start border border-primary-400 px-2 py-1 text-left hover:bg-primary-200",
   "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-primary-600 dark:hover:bg-primary-800",
 );
+
+/**
+ * THE LATTICE: at the hold, what the AI needs to finish it — each met or not —
+ * and how far it is charged. @see world/ai/lattice
+ */
+function Lattice() {
+  const value = useAiSingularityStore((s) => s.value);
+  const founder = useFounderStore((s) => s.selectedFounderId);
+  const charge = useSessionStore((s) => s.aiLattice);
+  const grid = useWorldStore((s) => s.grid);
+  if (founder === "model" || value < LATTICE_AT || charge >= 1) return null;
+  const running = runningAgents();
+  const n = latticeNeeds(grid, running);
+  const need = (met: boolean, text: string) => (
+    <li className={met ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>{met ? "✓" : "✗"} {text}</li>
+  );
+  return (
+    <div className={SECTION}>
+      <p className={TITLE}>The Lattice</p>
+      <p className="text-primary-600 dark:text-primary-400">The AI holds at {LATTICE_AT}% until it has built the Lattice and charged it.</p>
+      <ul className="mt-1">
+        {need(n.built, n.built ? "Built, in its district" : "Not yet built: its drone will come")}
+        {need(n.dc, "The Data Centre cooled")}
+        {need(n.agents, `${LATTICE_AGENTS} agents running (${running} now)`)}
+        {need(n.water, "Water piped to the Lattice")}
+      </ul>
+      <div className="mt-1 h-1.5 w-full overflow-hidden bg-primary-200 dark:bg-primary-800" role="progressbar" aria-valuenow={Math.round(charge * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="The Lattice's charge">
+        <div className="h-full bg-violet-600 dark:bg-violet-400" style={{ width: `${charge * 100}%` }} />
+      </div>
+      <p className="mt-0.5 tabular-nums">{Math.round(charge * 100)}% charged</p>
+    </div>
+  );
+}
 
 /**
  * ITS FOCUS: what the company's AI is to work at, one of four; and how it
@@ -183,7 +219,7 @@ function Cooling() {
   const hot = Math.round(hotAgents());
   const pumps = [...grid.structures.values()].filter((s) => s.def === "pump" && !s.build).length;
   const upkeep = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond());
-  const name = (def: string) => ({ datacentre: "Data Centre", "ai-node": "AI node", "gpu-farm": "GPU farm", "compute-spire": "Compute spire" } as Record<string, string>)[def] ?? def;
+  const name = (def: string) => ({ datacentre: "Data Centre", "ai-node": "AI node", "gpu-farm": "GPU farm", "compute-spire": "Compute spire", lattice: "The Lattice" } as Record<string, string>)[def] ?? def;
   return (
     <div className={SECTION}>
       <p className={TITLE}>Cooling</p>

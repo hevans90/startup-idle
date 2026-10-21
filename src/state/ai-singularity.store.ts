@@ -38,6 +38,20 @@ export const FLOOR_PER_SALE = 6;
 export const FLOOR_CAP = 90;
 
 export type Stage = "tool" | "assistant" | "colleague" | "manager" | "overseer" | "ascension";
+
+/**
+ * THE LATTICE'S HOLD: where the meter stops until the AI has built and charged
+ * the Lattice. The map says whether it is done, through a registered reader;
+ * with none — a simulation, a test — nothing holds it. @see world/ai/lattice
+ */
+export const LATTICE_AT = 95;
+let latticeReader: (() => boolean) | null = null;
+export function setLatticeReader(read: () => boolean): () => void {
+  latticeReader = read;
+  return () => { if (latticeReader === read) latticeReader = null; };
+}
+/** The most the meter may reach now: all the way, or, the Lattice unfinished, its hold — never below where it is. */
+export const meterCap = (cur: number): number => (!latticeReader || latticeReader() ? 100 : Math.max(cur, LATTICE_AT));
 /** Where each stage begins. */
 export const STAGES: readonly { stage: Stage; from: number; name: string }[] = [
   { stage: "tool", from: 0, name: "Tool" },
@@ -90,7 +104,7 @@ export const useAiSingularityStore = create<AiSingularityState>()(
         // And the Quiet Model module, and the founder's fused tempers. @see QUIET_MODEL, game/fusion
         const rate = singularityRate(running, singularityMult(), agents);
         const cur = Math.min(100, Math.max(0, get().value));
-        const next = Math.min(100, Math.max(0, cur + rate * seconds));
+        const next = Math.min(meterCap(cur), Math.max(0, cur + rate * seconds));
         if (next === cur) return;
         set({ value: next });
         if (next >= 100 && cur < 100 && !get().everCompleted) set({ everCompleted: true });

@@ -724,13 +724,32 @@ export function monolith(f: Footprint): Building {
   };
 }
 
+/** THE LATTICE: a black frame of four columns round a lit core, braced, taller than anything near it. */
+export function lattice(f: Footprint): Building {
+  const H = 6;
+  const col = (u: number, v: number): Mass => ({
+    u0: u, v0: v, u1: u + 0.28, v1: v + 0.28, z0: 0, z1: H,
+    wall: 0x050407, storey: H, facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x0b0910 },
+  });
+  const cols = [col(0.35, 0.35), col(f.w - 0.63, 0.35), col(0.35, f.h - 0.63), col(f.w - 0.63, f.h - 0.63)];
+  const core: Mass = {
+    ...inside(f, 0.95, 0, H + 0.8), wall: AI_GLASS, storey: 0.6,
+    facade: { kind: "louvres", slat: 0x3b3358, every: 0.2, edge: 0.08 }, roof: { kind: "flat", deck: 0x17131f },
+  };
+  return {
+    plinth: { inset: 0.1, h: 0.2, colour: 0x050407, top: 0x0b0910 }, masses: [core, ...cols], crane: "none",
+    grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0x2a2440),
+    details: (p) => { for (let z = 1; z < H; z += 1.2) aiBand(p, core, z); },
+  };
+}
+
 /** Each building by the structure it is drawn for. */
 export const LOOKS: Record<string, (f: Footprint) => Building> = {
   garage, studio, hq, boardroom, campus, townhall, harbour, datacentre, conference, hackerspace, ipo,
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
   cafe, park, gym, lab, levee, derelict, rack, pump,
-  "ai-node": aiNode, "gpu-farm": gpuFarm, "compute-spire": computeSpire, "drone-hangar": droneHangar, monolith,
+  "ai-node": aiNode, "gpu-farm": gpuFarm, "compute-spire": computeSpire, "drone-hangar": droneHangar, monolith, lattice,
 };
 
 /** The building a structure is drawn as. */

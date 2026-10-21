@@ -21,7 +21,8 @@ import { NEIGHBOUR } from "../../iso/dir";
 import { featureGateOpen } from "../../game/projects";
 import { housedBy, roomFor } from "../../game/housing";
 import { traitForecast, type Family } from "../../game/traits";
-import type { Stage } from "../../state/ai-singularity.store";
+import { LATTICE_AT, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
+import { latticeOf } from "./lattice";
 import { useGenerationStore } from "../../state/generation.store";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
@@ -164,6 +165,17 @@ function reservoirFor(g: Grid, district: District | null): AiAction | null {
     if (at) return { kind: "reservoir", at: { x: at.x + 1, y: at.y + 1 }, why: "There was no water within reach, so I have made some. It is a reservoir. It is not for swimming." };
   }
   return null;
+}
+
+/** Where the Lattice goes: in the district, as near the Data Centre as it fits; null if it stands, or will not fit. */
+function latticeFor(g: Grid, district: District | null): AiAction | null {
+  if (!district || latticeOf(g)) return null;
+  const dc = [...g.structures.values()].find((s) => s.def === "datacentre" && !s.build);
+  if (!dc) return null;
+  const c = centre(dc);
+  const at = spots(g, "lattice", district, { at: c, within: RACK_RANGE })
+    .sort((a, b) => Math.hypot(a.x + 1 - c.x, a.y + 1 - c.y) - Math.hypot(b.x + 1 - c.x, b.y + 1 - c.y))[0];
+  return at ? { kind: "place", def: "lattice", at, why: "I have begun the Lattice. Give it twenty-four agents and water, and it will be finished. So will I." } : null;
 }
 
 /** Whether a house in the district has no café, park or gym in reach. */
@@ -402,6 +414,11 @@ export function chooseAction(
   }
   // ITS FOCUS weighs the kinds, nought never; the trait leans it within that. @see focus
   const focus = aiFocus();
+  // THE LATTICE, its last work, at the hold: before anything but its water — unless told hands off. @see lattice
+  if (useAiSingularityStore.getState().value >= LATTICE_AT && focus !== "hands-off") {
+    const lat = latticeFor(g, district);
+    if (lat && affords(lat)) return lat;
+  }
   const family = traitForecast(useGenerationStore.getState().log, 1)[0].trait.family;
   const weighted = kinds.filter((k) => (cooling === "full" || !DRINKING.has(k)) && focusWeight(focus, k) > 0)
     .map((k) => ({ k, w: focusWeight(focus, k) * (LEAN[family][k] ?? 1) * rand() }));

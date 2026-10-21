@@ -288,7 +288,7 @@ The choice becomes "what kind of colleague am I raising", and it's paid for in o
 
    Re-tune `singularity-cadence.test.ts` to **8–10 sales** for a strong player and **14–18** for a typical one.
 
-   **Done with phase 8:** the numbers above missed the targets (a typical player never ascended), so the sale's keep is `CARRY` 0.5, `FLOOR_PER_SALE` 6, `FLOOR_CAP` 90 — the floor does most of it — with 8–12 runs a company modelled: strong 10 sales, typical 14, careful 16. Weights pay 0.5 a run (was 2), runs being four times as many. The Lattice is still to do.
+   **Done with phase 8:** the numbers above missed the targets (a typical player never ascended), so the sale's keep is `CARRY` 0.5, `FLOOR_PER_SALE` 6, `FLOOR_CAP` 90 — the floor does most of it — with 8–12 runs a company modelled: strong 10 sales, typical 14, careful 16. Weights pay 0.5 a run (was 2), runs being four times as many. **The Lattice, phase 9:** placed by drone, then charged for 3 minutes rather than built by crews; it drinks 1 a second itself, which is its water budget; free like the AI's other buildings.
 2. **A final threshold the AI must build: the Lattice.**
    - **At 95%** the meter holds until the AI completes a final project in its district: a 3×3 Ascension structure (reusing the `monolith` slot and art direction).
    - **It needs:**

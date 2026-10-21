@@ -16,8 +16,9 @@ export const DRY_AGENTS = 2;
 export const TANK_SECONDS = 30;
 /** Demand while the AI trains on the river. */
 export const RIVER_COOLING = 0.5;
-/** What a compute spire drinks, flat. */
+/** What a compute spire drinks, flat; and the Lattice: about twenty agents' worth, a gravity run's. */
 export const SPIRE_WATER = 0.2;
+export const LATTICE_WATER = 1;
 /** Seconds a drinker's share takes to come round to what it is getting. */
 export const SHARE_SECONDS = 3;
 
@@ -32,7 +33,7 @@ export const pumpUpkeep = (incomePerSecond: number) =>
   Math.max(PUMP_UPKEEP_FLOOR, (Number.isFinite(incomePerSecond) ? Math.max(0, incomePerSecond) : 0) * PUMP_UPKEEP_INCOME);
 
 /** The buildings that drink. */
-export const DRINKERS = ["datacentre", "ai-node", "gpu-farm", "compute-spire"] as const;
+export const DRINKERS = ["datacentre", "ai-node", "gpu-farm", "compute-spire", "lattice"] as const;
 export type Drinker = (typeof DRINKERS)[number];
 export const isDrinker = (def: string): def is Drinker => (DRINKERS as readonly string[]).includes(def);
 
@@ -41,7 +42,7 @@ export const allowanceOf = (def: Drinker) => (def === "datacentre" ? DRY_AGENTS 
 
 /** Units a second a drinker wants, cooling `agents` of its own, while training on the river or not. */
 export function demandOf(def: Drinker, agents: number, river = false): number {
-  const base = def === "compute-spire" ? SPIRE_WATER : WATER_PER_AGENT * Math.max(0, agents - allowanceOf(def));
+  const base = def === "compute-spire" ? SPIRE_WATER : def === "lattice" ? LATTICE_WATER : WATER_PER_AGENT * Math.max(0, agents - allowanceOf(def));
   return base * (river ? RIVER_COOLING : 1);
 }
 

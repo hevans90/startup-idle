@@ -97,6 +97,9 @@ type SessionState = {
   /** The reservoirs the company's AI has dug, by their corner. @see world/ai/reservoir */
   aiReservoirs: { x: number; y: number }[];
   setAiReservoirs: (aiReservoirs: { x: number; y: number }[]) => void;
+  /** How far the Lattice is charged, 0–1. @see world/ai/lattice */
+  aiLattice: number;
+  setAiLattice: (aiLattice: number) => void;
   /** What the company's AI is to work at. @see world/ai/focus */
   aiFocus: AiFocus;
   setAiFocus: (aiFocus: AiFocus) => void;
@@ -154,6 +157,8 @@ export const useSessionStore = create<SessionState>()(
       aiWallet: 0,
       setAiWallet: (patch) => set(patch),
       aiReservoirs: [],
+      aiLattice: 0,
+      setAiLattice: (aiLattice) => set({ aiLattice }),
       setAiReservoirs: (aiReservoirs) => set({ aiReservoirs }),
       aiFocus: "grow",
       setAiFocus: (aiFocus) => set({ aiFocus }),
@@ -171,7 +176,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [],
+        portIncomePerSecond: 0, hintsDone: [], land: null, eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
       }),
     }),
     {
@@ -202,6 +207,7 @@ export const useSessionStore = create<SessionState>()(
         aiWallet: s.aiWallet,
         aiFocus: s.aiFocus,
         aiReservoirs: s.aiReservoirs,
+        aiLattice: s.aiLattice,
         showPlan: s.showPlan,
       }),
     },

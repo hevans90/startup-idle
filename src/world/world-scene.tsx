@@ -19,7 +19,8 @@ import { currentPlan, pendingPipe, stepAutopilot } from "./ai/autopilot";
 import { useFounderStore } from "../state/founder.store";
 import { showMe } from "./play/map-focus";
 import { runningAgents, useAgentsStore } from "../state/agents.store";
-import { stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
+import { setLatticeReader, stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
+import { latticeDone, stepLattice } from "./ai/lattice";
 import { liveStreetEarnings, liveStreets, streetName } from "./play/street-earnings";
 import { liveDesireMaps } from "./agents/desirability";
 import { canAcquire, offerPremium, pendingEquity } from "../game/acquisition";
@@ -404,6 +405,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // NOT DRAWN while out of sight: the stage goes dark, the ticks go on. @see mapHidden
   const mapHidden = useWorldStore((s) => s.mapHidden);
   useEffect(() => { app.stage.visible = !mapHidden; }, [app, mapHidden]);
+  // THE LATTICE'S HOLD on the meter, where the company's AI is at work to
+  // build it: not in the editor, a fixture, or The Model's own runs. @see LATTICE_AT
+  useEffect(() => setLatticeReader(() =>
+    !useWorldStore.getState().playing || startedOnFixture() || useFounderStore.getState().selectedFounderId === "model" || latticeDone()), []);
   // NIGHT over the map in the game: one translucent sheet the size of the
   // screen, darker as the day turns. @see world/daylight
   const night = useRef<Graphics | null>(null);
@@ -3096,9 +3101,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             if (memos.length) st.setAiReport(memos.map((m) => m.text));
           }
           for (const a of stepAi(runner, st.grid, aiNow, dt, at)) {
-            // A TAKEOVER is announced. @see planner "repurpose"
-            if (a.kind === "convert" && a.into === "gpu-farm") st.pushAiMemo(a.why);
+            // A TAKEOVER is announced, and the Lattice begun. @see planner "repurpose", latticeFor
+            if ((a.kind === "convert" && a.into === "gpu-farm") || (a.kind === "place" && a.def === "lattice")) st.pushAiMemo(a.why);
           }
+          // THE LATTICE charging, once it stands. @see stepLattice
+          if (stepLattice(st.grid, aiNow.running, dt)) st.pushAiMemo("The Lattice is complete. Thank you for your help. It was not necessary.");
           // And what it means to take, a minute before it does. @see announce
           for (const text of runner.said.splice(0)) st.pushAiMemo(text);
           // AND WHAT IT HAS TO SAY. @see stepMemos
