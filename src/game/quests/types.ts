@@ -114,6 +114,8 @@ export type Chapter = {
   options: Option[];
   /** The option it picks itself, ignored for `CHAPTER_WAIT` seconds. */
   preferred: number;
+  /** What it remembers of each echo it sets, in its voice: the dossier's lines. */
+  echoes?: Record<string, string>;
 };
 
 /** A request: a smaller ask between chapters, leant by the family of trait the AI is becoming. */
@@ -123,4 +125,5 @@ export type Request = {
   text: string;
   options: [Option, Option];
   preferred: 0 | 1;
+  echoes?: Record<string, string>;
 };

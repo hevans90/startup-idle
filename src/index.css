@@ -42,7 +42,28 @@
   }
 }
 
+@keyframes quest-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @layer utilities {
+  /* THE AI'S TRANSMISSION arriving from the right. @see Transmission */
+  .quest-slide-in {
+    animation: quest-slide-in 0.35s ease-out;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .quest-slide-in {
+      animation: none;
+    }
+  }
+
   .news-line-enter {
     animation: news-line-in 0.4s ease-out;
   }
@@ -88,7 +109,7 @@
  * THE AI'S CONSOLE (quest-ui): arwes's frame variables, set from the game's
  * palette and never left at arwes's own — violet on a light panel in light
  * mode, violet on near-black in dark. `data-illuminate` lights a frame on
- * hover: a decision card under the pointer. @see QuestFrame
+ * hover: a decision card under the pointer; `data-lit` lights it outright. @see QuestFrame
  */
 .quest-frame {
   --arwes-frames-bg-color: color-mix(in oklab, var(--color-primary-50) 94%, transparent);
@@ -104,12 +125,14 @@
   --quest-pattern: color-mix(in oklab, var(--color-violet-400) 20%, transparent);
   color: var(--color-primary-100);
 }
-.quest-frame[data-illuminate]:hover {
+.quest-frame[data-illuminate]:hover,
+.quest-frame[data-lit] {
   --arwes-frames-bg-color: color-mix(in oklab, var(--color-violet-100) 94%, transparent);
   --arwes-frames-line-color: var(--color-violet-500);
   --arwes-frames-line-filter: drop-shadow(0 0 3px var(--color-violet-500));
 }
-.dark .quest-frame[data-illuminate]:hover {
+.dark .quest-frame[data-illuminate]:hover,
+.quest-frame[data-lit] {
   --arwes-frames-bg-color: color-mix(in oklab, var(--color-violet-950) 94%, transparent);
   --arwes-frames-line-color: var(--color-violet-300);
   --arwes-frames-line-filter: drop-shadow(0 0 4px var(--color-violet-400));

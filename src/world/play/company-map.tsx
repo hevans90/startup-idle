@@ -28,6 +28,7 @@ import { HintCard } from "./hint-card";
 import { EventCards, EventMarkers } from "./event-cards";
 import { LeaderTags } from "./leader-tags";
 import { PerfHud } from "../debug/perf-hud";
+import { QuestArc, QuestArcMarkers } from "../../quest-ui/arc";
 
 /** The frame meter over the play view, with `?perf`: what each part of a frame costs. @see PerfHud */
 const SHOW_PERF = typeof location !== "undefined" && new URLSearchParams(location.search).has("perf");
@@ -62,8 +63,12 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
       <TopStreets className="absolute bottom-24 right-2 z-10" />
       <ProjectsPanel className="absolute left-2 top-24 z-10 max-md:top-2 max-md:max-w-[calc(100%-1rem)]" />
       <EventMarkers />
+      {/* THE ARC's ring on the map, where an objective has a place. @see QuestArcMarkers */}
+      <QuestArcMarkers />
       <LeaderTags />
-      <div className="absolute left-[19.5rem] right-2 top-14 z-20 flex flex-col items-start gap-2 max-md:left-2 max-md:top-auto max-md:bottom-28"><HintCard /><AiReport /><AiMemos /><EventCards /></div>
+      <div className="absolute left-[19.5rem] right-2 top-14 z-20 flex flex-col items-start gap-2 max-md:left-2 max-md:top-auto max-md:bottom-28">
+        {/* THE ARC first: the objective under way, and what the AI asks. @see QuestArc */}
+        <QuestArc /><HintCard /><AiReport /><AiMemos /><EventCards /></div>
       <BuildBar className="absolute bottom-3 left-1/2 z-10 max-w-[calc(100%-1rem)] -translate-x-1/2 items-center" />
     </div>
   );

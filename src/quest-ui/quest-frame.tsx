@@ -33,10 +33,12 @@ const SETTINGS: Record<QuestFrameKind, () => FrameSettings> = {
 /** Seconds the frame takes to draw on. */
 export const ASSEMBLE = 0.6;
 
-export function QuestFrame({ kind = "octagon", illuminate = false, assemble = true, className, children }: {
+export function QuestFrame({ kind = "octagon", illuminate = false, lit = false, assemble = true, className, children }: {
   kind?: QuestFrameKind;
   /** Lit up on hover: a decision card under the pointer. */
   illuminate?: boolean;
+  /** Lit up outright: a decision card armed. */
+  lit?: boolean;
   /** Drawn on when it appears; otherwise, and with less motion, simply there. */
   assemble?: boolean;
   className?: string;
@@ -57,7 +59,7 @@ export function QuestFrame({ kind = "octagon", illuminate = false, assemble = tr
     };
   }, [kind, assemble, reduced]);
   return (
-    <div className={twMerge("quest-frame relative", className)} data-illuminate={illuminate || undefined}>
+    <div className={twMerge("quest-frame relative", className)} data-illuminate={illuminate || undefined} data-lit={lit || undefined}>
       <svg ref={svg} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" />
       <div className="relative">{children}</div>
     </div>

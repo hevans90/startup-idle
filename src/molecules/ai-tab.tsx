@@ -8,6 +8,7 @@
 import { MODULES } from "../game/modules";
 import { useGenerationStore } from "../state/generation.store";
 import { DataCentre } from "../world/play/datacentre-panel";
+import { QuestDossier } from "../quest-ui/arc";
 
 export function AiTab() {
   const g = useGenerationStore();
@@ -25,6 +26,8 @@ export function AiTab() {
           Slotted: {slotted.map((m) => `${m.name} ${g.modules[m.id] ?? 0}`).join(" · ")}
         </p>
       )}
+      {/* THE ARC at a glance. @see Dossier */}
+      <QuestDossier />
       <DataCentre />
     </div>
   );
