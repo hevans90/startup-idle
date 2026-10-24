@@ -36,7 +36,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { drainDirty, playRules, startedOnFixture, startFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import {
@@ -204,6 +204,20 @@ import { serviceOf } from "./agents/services";
 /** The services a Holo-Concierge stands at: those in the AI's district. @see game/machine "concierge" */
 const conciergesOf = (g: import("./grid").Grid) =>
   [...g.structures.values()].filter((s) => !s.build && serviceOf(s.def) && inAiDistrictNow(g, s.x, s.y)).map((s) => ({ x: s.x, y: s.y + s.h }));
+import { planMain, previewMain, routeMain, runMains } from "./water/mains";
+import { createMainsLayer, type MainsLayer } from "./render/mains-layer";
+
+/** The main being dragged with the Pipe tool, in the game: its route, and whether it will carry water. @see MainCard */
+function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
+  const st = useWorldStore.getState(), s0 = st.stroke;
+  if (!st.playing || !s0 || s0.tool !== "pipe") return [null, true];
+  const wet = mainWet(st.grid);
+  const route = routeMain(st.grid, s0.anchor, s0.head, wet);
+  if (!route) return [null, true];
+  const plan = planMain(st.grid, route, wet);
+  if ("refused" in plan) return [route, false];
+  return [route, !previewMain(st.grid, st.getWaterField(), plan.cells).problem];
+}
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 
 // Required: <pixiContainer> is only a known element once Container is
@@ -348,6 +362,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const heatRef = useRef<DesireHeat | null>(null);
   /** The boats, drawn among the movers of the bands. @see world/boats */
   const boatRef = useRef<BoatLayer | null>(null);
+  /** The water mains, drawn. @see createMainsLayer */
+  const mainsRef = useRef<MainsLayer | null>(null);
   /** The cars and people, drawn among the movers too. @see world/agents */
   const townRef = useRef<TownLayer | null>(null);
   /** The works' revision last told to the store, so autosave hears of progress. */
@@ -1525,6 +1541,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         holoScanRef.current = scan;
       }
       boatRef.current = createBoatLayer(bl);
+      if (overlayRoot.current) mainsRef.current = createMainsLayer(bl, overlayRoot.current);
       townRef.current = createTownLayer(bl, app.renderer as unknown as Renderer);
       setSceneEpoch((n) => n + 1);
 
@@ -1570,6 +1587,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       aiLayerRef.current = null;
       boatRef.current?.destroy();
       boatRef.current = null;
+      mainsRef.current?.destroy();
+      mainsRef.current = null;
       townRef.current?.destroy();
       townRef.current = null;
       if (flRef.current) destroyWaterLayer(flRef.current);
@@ -2367,6 +2386,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             return footprintCells(fp.x, fp.y, fp.w, fp.h);
           })()
         : strokeFootprint(grid, s0, brushRadius);
+      // A MAIN, in the game, shows its route — drawn by the mains layer — not the straight line it is dragged along. @see mainPreview
+      if (s0.tool === "pipe" && useWorldStore.getState().playing) cells = [...(mainPreview()[0] ?? [])];
 
       // A STRUCTURE'S FOOTPRINT is judged whole — on a bank, on level enough
       // ground — and the verdict handed to each of its cells. Against the
@@ -2726,6 +2747,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       runSources(field, grid, dt);
       // PUMP HOUSES are paid for while they run, in the game. @see runPumps
       runPipes(field, grid, dt, useWorldStore.getState().playing ? PAID_PUMPS : undefined);
+      // THE WATER MAINS: the game's pipes, solved and delivered. @see runMains
+      runMains(field, grid, dt, useWorldStore.getState().playing ? PAID_PUMPS : undefined);
       // The columns the boats will read, asked for before the step uploads
       // the list. @see wantFleet
       wantFleet(getFleet(), field.columns);
@@ -2871,6 +2894,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
       boatRef.current?.draw(fleet, field.columns, scale, dt);
       sBoats();
+      // THE WATER MAINS: their tubes where they changed, and the water in them. @see createMainsLayer
+      mainsRef.current?.sync(grid, scale);
+      mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview());
       // THE TOWN: cars and people on their trips round the roads. @see world/agents
       const net = getNetwork();
       if (net) {

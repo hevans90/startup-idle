@@ -7,7 +7,7 @@ import { resetCooling, stepCooling, tankFor } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField } from "./field";
-import { findMains, layMain, mainReportAt, planMain, runMains, solveMain } from "./mains";
+import { findMains, layMain, mainReportAt, pipesToMains, planMain, runMains, solveMain } from "./mains";
 
 afterEach(resetCooling);
 
@@ -95,5 +95,26 @@ describe("a water main", () => {
     expect(mainReportAt(g, 10, 5)!.state).toBe("dry");
     expect([...field.columns.depth].reduce((a, b) => a + b, 0)).toBe(0);
     expect(solveMain(g, field, findMains(g).list[0]).capacity).toBe(0);
+  });
+});
+
+describe("the old pipes", () => {
+  test("become mains joined as they were, each opening fitted as it behaved, a pump house becoming a pump intake", async () => {
+    const { layPipe } = await import("./pipes");
+    const { DIR } = await import("../../iso/dir");
+    const { g } = lakeside(-2);
+    commit(g, createHistory(), placeCommand(g, structureDef("pump")!, 4, 5)!);
+    // On this map N is x−1 and S is x+1: the run faces the pump at its west end, the Data Centre at its east.
+    for (let x = 5; x <= 19; x++) layPipe(g, x, 5, x === 5 ? DIR.N : DIR.S, 0);
+    // A second run touching the first: the old pipes joined it, so the mains do.
+    layPipe(g, 10, 6, DIR.W, 0);
+    expect(pipesToMains(g)).toBe(true);
+    expect(g.pipe.some(Boolean)).toBe(false);
+    expect(g.mainEnd[idx(g, 4, 5)]).toBe(MAIN_END.pump);
+    expect([...g.structures.values()].some((s) => s.def === "pump")).toBe(false);
+    expect(g.mainEnd[idx(g, 19, 5)]).toBe(MAIN_END.outlet);
+    expect(g.mainEnd[idx(g, 10, 6)]).toBe(MAIN_END.cap);
+    expect(findMains(g).list.length).toBe(1);
+    expect(pipesToMains(g)).toBe(false);
   });
 });

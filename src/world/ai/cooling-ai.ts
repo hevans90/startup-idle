@@ -1,32 +1,32 @@
 /**
  * World v2 — THE AI KEEPS ITS DATA CENTRE COOL: which building that drinks
  * is short of water and not yet piped, the route to water for it, and laying
- * it — a pump house first where one is needed — through the player's own
+ * it as a main — a pump at its intake where one is needed — through the player's own
  * actions. AI mode and the company's AI both. @see routePipe, game/cooling
  */
 import { buildCost, pipeCost } from "../../game/build-cost";
 import { isDrinker } from "../../game/cooling";
 import { useWorldStore } from "../../state/world.store";
-import { idx, inBounds, type Grid, type Structure } from "../grid";
+import { MAIN_END, idx, inBounds, type Grid, type Structure } from "../grid";
 import { tankFor } from "../projects/cooling";
 import { depthAt } from "../water/field";
-import { intakeOf } from "../water/pipes";
-import { layPipePath, placeStructure } from "../play/build-actions";
+import { layPipePath } from "../play/build-actions";
 import { routePipe, type PipeRoute } from "./pipe-route";
+import { outletBuilding } from "../water/mains";
 import { skillOf } from "../../state/training.store";
 
 /** Below this share cooled, a drinker is short; and the most pipe ends the AI gives one. */
 export const SHORT = 0.9;
 export const MAX_INTAKES = 2;
 
-/** Pipe ends already feeding a building. */
+/** Mains already feeding a building: their outlets beside it. @see outletBuilding */
 export function intakesInto(g: Grid, s: Structure): number {
   let n = 0;
   for (let y = s.y - 1; y <= s.y + s.h; y++) {
     for (let x = s.x - 1; x <= s.x + s.w; x++) {
       if (!inBounds(g, x, y)) continue;
-      const f = g.pipe[idx(g, x, y)];
-      if (f && intakeOf(g, x, y, f) === s.id) n++;
+      const i = idx(g, x, y);
+      if (g.mainEnd[i] === MAIN_END.outlet && outletBuilding(g, i) === s.id) n++;
     }
   }
   return n;
@@ -62,8 +62,7 @@ export function neededPipe(g: Grid): { s: Structure; route: PipeRoute; price: nu
   return null;
 }
 
-/** Lay a route: its pump house, then its pipe. Whether the pipe went down. */
+/** Lay a route as a main: from its pump — a pump intake at the water — or the water, to the building. Whether it went down. */
 export function layRoute(route: PipeRoute): boolean {
-  if (route.pump && !placeStructure("pump", route.pump)) return false;
-  return layPipePath(route.pipe);
+  return layPipePath(route.pump ? [route.pump, ...route.pipe] : route.pipe, !!route.pump);
 }

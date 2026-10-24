@@ -65,7 +65,7 @@ function snapshot(): HintState {
     labs, levees, racks,
     deskless,
     hot: Math.round(hotAgents()),
-    pipes: grid.pipe.reduce((n, p) => n + (p ? 1 : 0), 0),
+    pipes: grid.main.reduce((n, p) => n + (p ? 1 : 0), 0),
     floodWarning: useWorldStore.getState().events.some((e) => e.kind === "river-flood" && e.phase === "warning"),
   };
 }

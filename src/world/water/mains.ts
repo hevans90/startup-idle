@@ -16,6 +16,7 @@ import { PUMP_MOST, mainFlow, pumpLift } from "../../game/mains";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { MAIN_END, edited, idx, inBounds, structureAt, type Grid } from "../grid";
 import { fillTank, tankRoom } from "../projects/cooling";
+import { structureDef } from "../structures/def";
 import { COLUMNS_PER_TILE, columnOf, type WaterField } from "./field";
 
 const SIDES = ["N", "E", "S", "W"] as const;
@@ -275,4 +276,186 @@ export function layMain(g: Grid, plan: readonly MainCell[]): void {
     if (c.end) g.mainEnd[i] = c.end;
   }
   edited(g);
+}
+
+/**
+ * A MAIN'S ROUTE from one tile to another, as the Pipe tool drags it: tile to
+ * tile, round buildings, off water but for its ends, never across another
+ * main but at its ends — and as straight as it can be, a turn costing half a
+ * tile. Null where there is no way. Pure.
+ */
+export function routeMain(
+  g: Grid, from: { x: number; y: number }, to: { x: number; y: number },
+  wet: (x: number, y: number) => boolean,
+): { x: number; y: number }[] | null {
+  if (!inBounds(g, from.x, from.y) || !inBounds(g, to.x, to.y)) return null;
+  if (from.x === to.x && from.y === to.y) return [from];
+  const n = g.w * g.h, start = idx(g, from.x, from.y), goal = idx(g, to.x, to.y);
+  const free = (i: number) => {
+    const x = i % g.w, y = (i / g.w) | 0;
+    if (structureAt(g, x, y) >= 0) return false;
+    if (i === start || i === goal) return true;
+    return !wet(x, y) && !hasMain(g, i);
+  };
+  if (!free(start) || !free(goal)) return null;
+  // Dijkstra over (cell, heading): a step 1, a turn half more.
+  const cost = new Float64Array(n * 4).fill(Infinity);
+  const prev = new Int32Array(n * 4).fill(-1);
+  // A binary heap of (cost, state): the card asks for a route every move of a drag.
+  const heap: { c: number; k: number }[] = [];
+  const push = (e: { c: number; k: number }) => {
+    heap.push(e);
+    for (let i = heap.length - 1; i > 0;) { const p = (i - 1) >> 1; if (heap[p].c <= heap[i].c) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; }
+  };
+  const pop = () => {
+    const top = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      for (let i = 0; ;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l].c < heap[m].c) m = l;
+        if (r < heap.length && heap[r].c < heap[m].c) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]]; i = m;
+      }
+    }
+    return top;
+  };
+  for (let d = 0; d < 4; d++) { cost[start * 4 + d] = 0; push({ c: 0, k: start * 4 + d }); }
+  let found = -1;
+  while (heap.length) {
+    const { c, k } = pop();
+    if (c > cost[k]) continue;
+    const i = (k / 4) | 0, d = k % 4;
+    if (i === goal) { found = k; break; }
+    const x = i % g.w, y = (i / g.w) | 0;
+    for (let nd = 0; nd < 4; nd++) {
+      const [dx, dy] = NEIGHBOUR[SIDES[nd]];
+      if (!inBounds(g, x + dx, y + dy)) continue;
+      const j = idx(g, x + dx, y + dy);
+      if (!free(j)) continue;
+      const nc = c + 1 + (nd === d || i === start ? 0 : 0.5);
+      const nk = j * 4 + nd;
+      if (nc < cost[nk]) { cost[nk] = nc; prev[nk] = k; push({ c: nc, k: nk }); }
+    }
+  }
+  if (found < 0) return null;
+  const out: { x: number; y: number }[] = [];
+  for (let k = found; k >= 0; k = prev[k]) {
+    const i = (k / 4) | 0;
+    if (!out.length || idx(g, out[out.length - 1].x, out[out.length - 1].y) !== i) out.push({ x: i % g.w, y: (i / g.w) | 0 });
+  }
+  return out.reverse();
+}
+
+/**
+ * WHAT A MAIN WOULD DO, before it is laid, for the tool's card: what it
+ * costs in new tiles, what each end is, and what it would carry — or why
+ * not. Its own ends, or the network it joins, give its water. @see solveMain
+ */
+export function previewMain(g: Grid, field: WaterField | null, plan: readonly MainCell[], pump = false): {
+  fresh: number; flow: number; head: number; ends: string[]; problem: string | null; needsPump: boolean;
+} {
+  const fresh = plan.filter((c) => !hasMain(g, idx(g, c.x, c.y))).length;
+  const nets = findMains(g);
+  const endsOf = [plan[0], plan[plan.length - 1]];
+  // Its water: its own intakes, and those of any network it joins.
+  const sources: { surface: number; pump: boolean }[] = [];
+  let building = -1;
+  const ends: string[] = [];
+  for (const c of endsOf) {
+    const i = idx(g, c.x, c.y);
+    const joinedNet = hasMain(g, i) ? nets.list[nets.of[i]] : undefined;
+    if (joinedNet) {
+      ends.push("Joins a main");
+      if (field) for (const k of joinedNet.intakes) { const w = intakeWater(g, field, k); if (w) sources.push({ surface: w.surface, pump: g.mainEnd[k] === MAIN_END.pump }); }
+      for (const o of joinedNet.outlets) if (building < 0) building = outletBuilding(g, o);
+    } else if (c.end === MAIN_END.outlet) {
+      building = outletBuilding(g, i);
+      const s = g.structures.get(building);
+      ends.push(`Feeds ${s?.def === "lattice" ? "the Lattice" : `the ${structureDef(s?.def ?? "")?.name ?? "building"}`}`);
+    } else if (c.end === MAIN_END.intake || c.end === MAIN_END.pump) {
+      const w = field ? intakeWater(g, field, i) : null;
+      if (w) sources.push({ surface: w.surface, pump: c.end === MAIN_END.pump || pump });
+      ends.push(c.end === MAIN_END.pump || pump ? "Pump at the water" : "Draws from the water");
+    } else ends.push("Goes nowhere");
+  }
+  const sb = building >= 0 ? g.structures.get(building) : undefined;
+  const sill = sb ? g.height[idx(g, sb.x, sb.y)] : null;
+  const gravity = sill === null ? -Infinity : Math.max(-Infinity, ...sources.map((s) => s.surface - sill));
+  const lifted = sill === null ? -Infinity : Math.max(-Infinity, ...sources.map((s) => s.surface - sill + (s.pump ? pumpLift() : 0)));
+  const length = plan.length;
+  const head = Math.max(gravity, lifted);
+  let flow = mainFlow(head, length);
+  if (lifted > gravity && lifted > 0) flow = Math.min(flow, PUMP_MOST);
+  const needsPump = sill !== null && sources.length > 0 && !(gravity > 0) && !sources.some((s) => s.pump) && gravity + pumpLift() > 0;
+  const problem = ends.includes("Goes nowhere") ? "This end goes nowhere: end it at water, a building that drinks, or another main"
+    : sill === null ? "Feeds nothing: end it beside the Data Centre or one of the AI's buildings"
+    : !sources.length ? "Draws from nothing: start it at water"
+    : flow > 0 ? null
+    : needsPump ? `The water ${gravity < 0 ? `is ${Math.round(-gravity) / 2} slabs below` : "is level with"} the building's floor: it needs a pump`
+    : "The water is too far below the building, even for a pump";
+  return { fresh, flow, head: Number.isFinite(head) ? head : 0, ends, problem, needsPump };
+}
+
+/**
+ * THE OLD PIPES, MADE MAINS: a map laid with the game's old pipes — cells
+ * with a facing, joined to whatever pipe touched them — gets mains in their
+ * place, joined exactly as they were (every pair of touching cells), and each
+ * old opening fitted as it behaved: into a building that drinks an outlet, at
+ * a pump house a pump intake, at water an intake, else a cap. The old cells
+ * are cleared. Whether anything changed. @see plans/pipes-overhaul.md §5
+ */
+export function pipesToMains(g: Grid, wet: (x: number, y: number) => boolean = (x, y) => g.pool[idx(g, x, y)] > 0): boolean {
+  let changed = false;
+  for (let i = 0; i < g.pipe.length; i++) {
+    const facing = g.pipe[i];
+    if (!facing) continue;
+    const x = i % g.w, y = (i / g.w) | 0;
+    let mask = 0;
+    for (const side of SIDES) {
+      const [dx, dy] = NEIGHBOUR[side];
+      if (inBounds(g, x + dx, y + dy) && g.pipe[idx(g, x + dx, y + dy)]) mask |= DIR[side];
+    }
+    g.main[i] |= mask;
+    // An opening: a facing with no pipe across it.
+    if (!(mask & facing) && !g.mainEnd[i]) {
+      const side = SIDES.find((s) => DIR[s] === facing)!;
+      const [dx, dy] = NEIGHBOUR[side];
+      const tx = x + dx, ty = y + dy;
+      const id = inBounds(g, tx, ty) ? structureAt(g, tx, ty) : -1;
+      const s = id >= 0 ? g.structures.get(id) : undefined;
+      g.mainEnd[i] = s && isDrinker(s.def) ? MAIN_END.outlet
+        : s?.def === "pump" ? MAIN_END.pump
+        : inBounds(g, tx, ty) && wet(tx, ty) ? MAIN_END.intake
+        : MAIN_END.cap;
+    }
+    changed = true;
+  }
+  // A PUMP HOUSE the old pipes drew through becomes the main's pump intake:
+  // the house comes down, and the main runs on onto its tile, beside its water.
+  if (changed) {
+    for (let i = 0; i < g.mainEnd.length; i++) {
+      if (g.mainEnd[i] !== MAIN_END.pump) continue;
+      const x = i % g.w, y = (i / g.w) | 0;
+      for (const side of SIDES) {
+        const [dx, dy] = NEIGHBOUR[side];
+        const id = inBounds(g, x + dx, y + dy) ? structureAt(g, x + dx, y + dy) : -1;
+        if (id < 0 || g.structures.get(id)?.def !== "pump") continue;
+        g.structures.delete(id);
+        const pi = idx(g, x + dx, y + dy);
+        g.structureAt[pi] = -1;
+        g.main[i] |= DIR[side];
+        g.main[pi] |= DIR[OPPOSITE[side]];
+        g.mainEnd[i] = 0;
+        g.mainEnd[pi] = MAIN_END.pump;
+        break;
+      }
+    }
+    g.pipe.fill(0);
+    g.pipeZ.fill(0);
+    edited(g);
+  }
+  return changed;
 }

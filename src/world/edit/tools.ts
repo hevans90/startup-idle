@@ -103,6 +103,8 @@ export type Stroke = {
   head: Cell;
   /** The cells exactly, in order, when not a shape dragged out — a route the AI worked out. @see layPipePath */
   path?: readonly Cell[];
+  /** A main laid with a pump at its intake. @see planMain */
+  pump?: boolean;
 };
 
 const clampCell = (g: Grid, c: Cell): Cell => ({

@@ -29,6 +29,7 @@ import { showMe } from "./map-focus";
 import { useTicking } from "../../hooks/use-ticking";
 import { runningAgents, useAgentsStore } from "../../state/agents.store";
 import { singularityMult, singularityRate, stageOf, useAiSingularityStore } from "../../state/ai-singularity.store";
+import { MAIN_END } from "../grid";
 import { useWorldStore } from "../../state/world.store";
 
 /** A rate a second as so much a minute, signed. */
@@ -217,7 +218,8 @@ function Cooling() {
   const tanks = [...allTanks().entries()].map(([id, t]) => ({ id, t, s: grid.structures.get(id) })).filter((r) => r.s);
   if (!tanks.length) return null;
   const hot = Math.round(hotAgents());
-  const pumps = [...grid.structures.values()].filter((s) => s.def === "pump" && !s.build).length;
+  // Pumps are mains' now, at their intakes. @see MAIN_END
+  const pumps = grid.mainEnd.reduce((n, e) => n + (e === MAIN_END.pump ? 1 : 0), 0);
   const upkeep = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond());
   const name = (def: string) => ({ datacentre: "Data Centre", "ai-node": "AI node", "gpu-farm": "GPU farm", "compute-spire": "Compute spire", lattice: "The Lattice" } as Record<string, string>)[def] ?? def;
   return (

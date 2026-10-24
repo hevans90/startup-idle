@@ -33,12 +33,14 @@ import { create } from "zustand";
 
 import { waterMetaSaw } from "../world/debug/water-meta";
 import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
-import { createGrid, fillTerrain, idx, type Grid, structureAt } from "../world/grid";
+import { MAIN_END, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { SLOP_PIT, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
-import { facingFor, gamePipeRun, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
+import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
+import { findMains, pipesToMains, planMain, previewMain, routeMain } from "../world/water/mains";
+import { DIR, NEIGHBOUR } from "../iso/dir";
 import {
   OPEN_EDGE_DEFAULT, POUR_AMOUNT, SOURCE_RATE, createWaterField, depthAt, drainAt, pourAt,
   setWaterEdge, syncGround, totalVolume,
@@ -196,8 +198,11 @@ let network: Network | null = null;
  * an approximation. @see stroke, where the pour is made.
  */
 let water: WaterField | null = null;
-/** Half steps of water a tile needs standing on it to count as water, for a pipe to face. */
+/** Half steps of water a tile needs standing on it to count as water, for a main's intake. */
 const WET_DEPTH = 1;
+/** Whether water stands on a tile now, for a main: the map's water, or the live water where it runs. @see planMain */
+export const mainWet = (g: Grid) => (x: number, y: number) =>
+  g.pool[idx(g, x, y)] > 0 || (!!water && depthAt(water, x, y) > WET_DEPTH);
 
 /** The live water field, for the renderer and the debug hook. */
 export const getWater = () => water;
@@ -412,6 +417,20 @@ type WorldState = {
    * artset also has, and the smallest change the height field can express.
    */
   heightStep: number;
+  /** Whether the Lift tool lifts pipe rather than road. @see the Lift tool */
+  liftPipe: boolean;
+  setLiftPipe: (on: boolean) => void;
+  /**
+   * A MAIN JUST LAID that cannot lift its water to the building: where its
+   * intake is, and what a pump there costs — offered, once. @see acceptPump
+   */
+  pumpOffer: { x: number; y: number; price: number; why: string } | null;
+  acceptPump: () => void;
+  dismissPumpOffer: () => void;
+  /** Offer a pump for a main's intake, from its card. @see MainInfo */
+  offerPump: (o: { x: number; y: number; price: number; why: string }) => void;
+  /** Take up the whole main a tile is on, as one undoable edit. */
+  liftMainAt: (c: Cell) => void;
   /** The drag in progress, or null. */
   stroke: Stroke | null;
   /**
@@ -724,7 +743,15 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   seed: null,
   gen: START_GEN,
   playing: false,
-  setPlaying: (playing) => set({ playing }),
+  setPlaying: (playing) => {
+    // INTO PLAY, the old pipes become mains: the game's pipes are mains now,
+    // and the old ones are only the editor's spouts. @see pipesToMains
+    if (playing && pipesToMains(get().grid, mainWet(get().grid))) {
+      set({ playing, revision: get().revision + 1 });
+      return;
+    }
+    set({ playing });
+  },
   palette: [...INITIAL_TERRAIN_PALETTE],
   tool: "paintTerrain",
   structureDefId: "kit:intern.t0",
@@ -733,6 +760,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   brushRadius: 0,
   material: DIRT,
   heightStep: 2,
+  liftPipe: false,
+  pumpOffer: null,
   stroke: null,
   revision: 0,
   boatRev: 0,
@@ -976,6 +1005,37 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setBrushRadius: (brushRadius) => set({ brushRadius }),
   setMaterial: (material) => set({ material }),
   setHeightStep: (heightStep) => set({ heightStep }),
+  setLiftPipe: (liftPipe) => set({ liftPipe }),
+  dismissPumpOffer: () => set({ pumpOffer: null }),
+  offerPump: (pumpOffer) => set({ pumpOffer }),
+  liftMainAt: (c) => {
+    const st = get();
+    if (!inBounds(st.grid, c.x, c.y)) return;
+    const { list, of } = findMains(st.grid);
+    const net = list[of[idx(st.grid, c.x, c.y)]];
+    if (!net) return;
+    const b = new PatchBuilder(st.grid);
+    for (const i of net.cells) {
+      b.set("main", i % st.grid.w, (i / st.grid.w) | 0, 0);
+      b.set("mainEnd", i % st.grid.w, (i / st.grid.w) | 0, 0);
+    }
+    const cmd = b.build("lift main");
+    if (!cmd) return;
+    commit(st.grid, history, cmd);
+    set({ revision: st.revision + 1, lookedAt: null, ...historyMeta() });
+  },
+  acceptPump: () => {
+    const st = get(), o = st.pumpOffer;
+    if (!o) return;
+    const i = idx(st.grid, o.x, o.y);
+    if (st.grid.mainEnd[i] !== MAIN_END.intake) { set({ pumpOffer: null }); return; }
+    if (!spendForBuild(new Decimal(o.price))) { set({ notice: { text: `Not enough money for a pump: ${formatCurrency(o.price)}`, at: Date.now() } }); return; }
+    const b = new PatchBuilder(st.grid);
+    b.set("mainEnd", o.x, o.y, MAIN_END.pump);
+    const cmd = b.build("pump");
+    if (cmd) commit(st.grid, history, cmd);
+    set({ pumpOffer: null, revision: st.revision + 1, ...historyMeta() });
+  },
 
   frameIndex: (frame) => {
     const { palette } = get();
@@ -1006,6 +1066,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (!s0) return;
     // What a road stroke cost, for taking it back. @see undoLastBuild
     let roadPaid = 0;
+    let pumpAfter: WorldState["pumpOffer"] = null;
     // A STRUCTURE is placed at one cell by one command, so it skips the stroke
     // machinery — brush size and drag shape mean nothing to it.
     // LOTS GO DOWN IN A LINE: dragged along a street, a lot on every cell of
@@ -1063,26 +1124,53 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         if (s0.tool === "spring") b.set("fluid", c.x, c.y, st.fluidMaterial);
       }
     } else if (isPipeTool(s0.tool) && st.playing) {
-      // THE PIPE TOOL, in the game: a run paid a tile at a time for the new
-      // tiles, all or none, every end facing what it should. @see gamePipeRun, pipeCost
-      const from = s0.anchor;
-      // Water as it stands now, where the map is running it. @see depthAt
-      const wet = (x: number, y: number) => st.grid.pool[idx(st.grid, x, y)] > 0 || (!!water && depthAt(water, x, y) > WET_DEPTH);
-      // In order along the stroke: a route as given, a line from where it went down.
-      const ordered = s0.path ? cells : [...cells].sort((a, b) => Math.abs(a.x - from.x) + Math.abs(a.y - from.y) - Math.abs(b.x - from.x) - Math.abs(b.y - from.y));
-      const run = gamePipeRun(st.grid, ordered, wet);
-      if ("refused" in run) { set({ stroke: null, notice: { text: run.refused, at: Date.now() } }); return; }
-      const fresh = run.filter((c) => !st.grid.pipe[idx(st.grid, c.x, c.y)]).length;
-      const price = pipeCost(fresh);
-      if (fresh > 0 && !spendForBuild(price)) {
-        set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of pipe: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
+      // THE PIPE TOOL, in the game: a WATER MAIN, routed from where the drag
+      // went down to where it is — or along a route given — its ends fitted
+      // to what they reach, paid a tile at a time for the new tiles and for a
+      // pump if it has one. All or none. @see planMain, routeMain, pipeCost
+      const wet = mainWet(st.grid);
+      const route = s0.path ?? routeMain(st.grid, s0.anchor, s0.head, wet);
+      if (!route) { set({ stroke: null, notice: { text: "No way through for a main: round buildings, off the water", at: Date.now() } }); return; }
+      const plan = planMain(st.grid, route, wet, !!s0.pump);
+      if ("refused" in plan) { set({ stroke: null, notice: { text: plan.refused, at: Date.now() } }); return; }
+      const look = previewMain(st.grid, water, plan.cells, !!s0.pump);
+      const pumpPrice = s0.pump ? buildCost("pump")?.toNumber() ?? 0 : 0;
+      const price = pipeCost(look.fresh).plus(pumpPrice);
+      if (price.gt(0) && !spendForBuild(price)) {
+        set({ stroke: null, notice: { text: `Not enough money for ${look.fresh} tiles of main: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
         return;
       }
-      for (const c of run) {
-        const had = st.grid.pipe[idx(st.grid, c.x, c.y)];
-        b.set("pipe", c.x, c.y, c.facing);
-        b.set("fluid", c.x, c.y, st.fluidMaterial);
-        if (!had) b.set("pipeZ", c.x, c.y, c.z);
+      for (const c of plan.cells) {
+        const i = idx(st.grid, c.x, c.y);
+        b.set("main", c.x, c.y, st.grid.main[i] | c.join);
+        if (c.end) b.set("mainEnd", c.x, c.y, c.end);
+      }
+      // NO HEAD: offered a pump, there and then. @see acceptPump
+      const intake = plan.cells.find((c) => c.end === MAIN_END.intake);
+      if (look.needsPump && intake && !aiActing()) {
+        pumpAfter = { x: intake.x, y: intake.y, price: buildCost("pump")?.toNumber() ?? 0, why: look.problem ?? "" };
+      }
+    } else if (s0.tool === "eraseRoad" && st.playing && st.liftPipe) {
+      // LIFTING PIPE, not road: the mains on these tiles come up, and a
+      // neighbour left with an open end is capped. @see the Lift tool
+      const on = new Set(cells.map((c) => idx(st.grid, c.x, c.y)));
+      for (const c of cells) {
+        const i = idx(st.grid, c.x, c.y);
+        if (!st.grid.main[i] && !st.grid.mainEnd[i]) continue;
+        b.set("main", c.x, c.y, 0);
+        b.set("mainEnd", c.x, c.y, 0);
+        for (const [side, [dx, dy]] of Object.entries(NEIGHBOUR) as [keyof typeof DIR, [number, number]][]) {
+          const nx = c.x + dx, ny = c.y + dy;
+          if (!inBounds(st.grid, nx, ny)) continue;
+          const j = idx(st.grid, nx, ny);
+          // Read as staged: two lifted tiles may share a neighbour.
+          const had = b.peek("main", nx, ny);
+          if (on.has(j) || !had) continue;
+          const back = DIR[({ N: "S", S: "N", E: "W", W: "E" } as const)[side]];
+          if (!(had & back)) continue;
+          b.set("main", nx, ny, had & ~back);
+          if (!b.peek("mainEnd", nx, ny)) b.set("mainEnd", nx, ny, MAIN_END.cap);
+        }
       }
     } else if (isPipeTool(s0.tool)) {
       // A facing, not a rate. Placed pointing at the LOWEST neighbour, which is
@@ -1148,11 +1236,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         if (fresh > 0) roadPaid = price.toNumber();
       }
       for (const c of cells) b.set("paved", c.x, c.y, value);
-      // THE LIFT TOOL LIFTS PIPE TOO, in the game: its water goes back on the
-      // ground. @see spillOrphaned
-      if (st.playing && s0.tool === "eraseRoad") {
-        for (const c of cells) if (st.grid.pipe[idx(st.grid, c.x, c.y)]) b.set("pipe", c.x, c.y, 0);
-      }
     } else {
       const value = s0.tool === "erase" ? VOID_MATERIAL : st.material;
       for (const c of cells) b.set("terrain", c.x, c.y, value);
@@ -1195,6 +1278,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
     const cmd = b.build(strokeLabel(s0, cells.length));
     if (!cmd) { set({ stroke: null }); return; }   // no-op click adds no history
+    if (pumpAfter) set({ pumpOffer: pumpAfter });
     const touched = commit(st.grid, history, cmd);
     if (roadPaid > 0) recordBuild(cmd, roadPaid);
     // The columns stand on the terrain, so the terrain moving moves them. Done

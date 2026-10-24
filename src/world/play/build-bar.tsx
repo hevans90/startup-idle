@@ -46,6 +46,7 @@ import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
 import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
 import { PUMP_HEAD } from "../../game/cooling";
+import { MainCard, MainInfo } from "./main-card";
 import { InfoPop } from "../../ui/InfoPop";
 
 /** A small line icon, in the current colour. */
@@ -106,8 +107,8 @@ const ROAD_TOOLS = new Set<ToolId>(["paintRoad", "eraseRoad"]);
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
-  { id: "eraseRoad", label: "Lift", hint: "Drag to take road or pipe up" },
-  { id: "pipe", label: "Pipe", hint: "Drag to lay pipe: from water to the Data Centre, to cool it" },
+  { id: "eraseRoad", label: "Lift", hint: "Drag to take road up — or pipe, with Pipe chosen beside it" },
+  { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main: it finds its own way" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down" },
 ];
@@ -140,8 +141,8 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
     if (items.length) out.push({ title: KIND_TITLE[who], colour: KIND_COLOUR[who], items });
   }
   // AI RACKS, once the Data Centre stands. @see game/agents
-  // And the pump house that cools them, by the water. @see PUMP
-  const racks = all.filter((d) => d.def.id === "rack" || d.def.id === "pump");
+  // (A pump is a main's, at its intake now: no pump house to place. @see MainCard)
+  const racks = all.filter((d) => d.def.id === "rack");
   if (racks.length && agentsOpen() && hireable.has("10x_dev")) out.push({ title: "AI agents", colour: 0x6c7cff, items: racks });
   // Services and ports once their projects have opened them. @see featureGateOpen
   const services = all.filter((d) => serviceOf(d.def.id)).sort((a, b) => a.price - b.price);
@@ -270,6 +271,8 @@ export function BuildBar({ className }: { className?: string }) {
   const chosen = sale.flatMap((s) => s.items).find((d) => d.def.id === structureDefId);
   // PIPE, once there is a Data Centre to cool. @see game/cooling
   const pipesOpen = agentsOpen();
+  const liftPipe = useWorldStore((s) => s.liftPipe);
+  const setLiftPipe = useWorldStore((s) => s.setLiftPipe);
 
   return (
     <div className={twMerge("flex flex-col items-center gap-1.5 text-primary-900 dark:text-primary-100", className)}>
@@ -280,6 +283,20 @@ export function BuildBar({ className }: { className?: string }) {
       )}
       <WondersPanel />
       <AiModePanel />
+      <MainCard />
+      <MainInfo />
+      {/* LIFT: road, or pipe — never both at once. @see liftPipe */}
+      {tool === "eraseRoad" && pipesOpen && (
+        <div className={twMerge(PANEL, "flex items-center gap-1 px-2 py-1 text-xs")} role="radiogroup" aria-label="What Lift takes up">
+          <span className="text-primary-600 dark:text-primary-400">Lift</span>
+          {([[false, "Road"], [true, "Pipe"]] as const).map(([on, label]) => (
+            <button key={label} type="button" role="radio" aria-checked={liftPipe === on} onClick={() => setLiftPipe(on)}
+              className={twMerge("cursor-pointer border px-2 py-0.5", liftPipe === on ? "border-primary-600 bg-primary-200 dark:border-primary-400 dark:bg-primary-800" : "border-primary-300 hover:bg-primary-200 dark:border-primary-700 dark:hover:bg-primary-800")}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       {picking && !wondersOpen && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>

@@ -47,10 +47,10 @@ function stroke(tool: ToolId, from: Cell, to: Cell, extra: Record<string, unknow
     () => useWorldStore.getState().endStroke());
 }
 
-/** Lay pipe along a route, cell by cell in order, as the Pipe tool lays it and paid for alike. @see gamePipeRun */
-export const layPipePath = (cells: readonly Cell[]): boolean =>
+/** Lay a main along a route, cell by cell in order — with a pump at its intake, if asked — as the Pipe tool lays it and paid for alike. @see planMain */
+export const layPipePath = (cells: readonly Cell[], pump = false): boolean =>
   cells.length > 0 && withTool(
-    { tool: "pipe", brush: "line", brushRadius: 0, placingProject: null, stroke: { tool: "pipe", brush: "line", anchor: cells[0], head: cells[cells.length - 1], path: cells } },
+    { tool: "pipe", brush: "line", brushRadius: 0, placingProject: null, stroke: { tool: "pipe", brush: "line", anchor: cells[0], head: cells[cells.length - 1], path: cells, pump } },
     () => useWorldStore.getState().endStroke(),
   );
 

@@ -8,6 +8,7 @@
  * @see gamePipeRun, runPumps, plans/datacentre-water.md §6
  */
 import { PUMP_HEAD } from "../../game/cooling";
+import { hasMain } from "../water/mains";
 import { idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 
 type Cell = { x: number; y: number };
@@ -34,7 +35,7 @@ export function routePipe(
   pumps = true,
 ): PipeRoute | null {
   const free = (x: number, y: number) =>
-    inBounds(g, x, y) && owned(x, y) && !wet(x, y) && structureAt(g, x, y) < 0 && !g.pipe[idx(g, x, y)] && !avoid(x, y);
+    inBounds(g, x, y) && owned(x, y) && !wet(x, y) && structureAt(g, x, y) < 0 && !hasMain(g, idx(g, x, y)) && !avoid(x, y);
   const floor = g.height[idx(g, drinker.x, drinker.y)];
   // Out from every free tile beside the building, a tile at a time.
   const from = new Int32Array(g.w * g.h).fill(-2);
