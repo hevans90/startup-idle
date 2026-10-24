@@ -14,7 +14,7 @@ import { surfaceAt, wantDepth, addWater } from "../../fluid/columns";
 import { isDrinker } from "../../game/cooling";
 import { PUMP_MOST, mainFlow, pumpLift } from "../../game/mains";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { MAIN_END, edited, idx, inBounds, structureAt, type Grid } from "../grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, edited, idx, inBounds, structureAt, type Grid } from "../grid";
 import { fillTank, tankRoom } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { COLUMNS_PER_TILE, columnOf, type WaterField } from "./field";
@@ -34,8 +34,11 @@ export function joined(g: Grid, x: number, y: number, side: (typeof SIDES)[numbe
 /** Whether a cell carries a main: joined somewhere, or a lone fitting. */
 export const hasMain = (g: Grid, i: number) => g.main[i] !== 0 || g.mainEnd[i] !== 0;
 
-/** One network of mains: its cells, its intakes and outlets by cell, its length in tiles. */
-export type MainNet = { id: number; cells: number[]; intakes: number[]; outlets: number[] };
+/**
+ * One network of mains: its cells, its intakes and outlets by cell; its BORE
+ * — 2 once every tile of it is widened, else 1 — and whether the AI laid it.
+ */
+export type MainNet = { id: number; cells: number[]; intakes: number[]; outlets: number[]; bore: number; ai: boolean };
 
 const nets = new WeakMap<Grid, { rev: number; list: MainNet[]; of: Int32Array }>();
 
@@ -47,12 +50,14 @@ export function findMains(g: Grid): { list: MainNet[]; of: Int32Array } {
   const list: MainNet[] = [];
   for (let start = 0; start < of.length; start++) {
     if (!hasMain(g, start) || of[start] >= 0) continue;
-    const id = list.length, net: MainNet = { id, cells: [], intakes: [], outlets: [] };
+    const id = list.length, net: MainNet = { id, cells: [], intakes: [], outlets: [], bore: 2, ai: false };
     const queue = [start];
     of[start] = id;
     for (let q = 0; q < queue.length; q++) {
       const i = queue[q], x = i % g.w, y = (i / g.w) | 0;
       net.cells.push(i);
+      if (!(g.main[i] & MAIN_BORE)) net.bore = 1;
+      if (g.main[i] & MAIN_AI) net.ai = true;
       const end = g.mainEnd[i];
       if (end === MAIN_END.intake || end === MAIN_END.pump) net.intakes.push(i);
       else if (end === MAIN_END.outlet) net.outlets.push(i);
@@ -73,7 +78,7 @@ export function findMains(g: Grid): { list: MainNet[]; of: Int32Array } {
 }
 
 /** The water an intake draws from: the deepest of its own tile and the four beside it, as a column; or −1 with none. */
-export function intakeWater(g: Grid, field: WaterField, i: number): { column: number; surface: number } | null {
+export function intakeWater(g: Grid, field: WaterField, i: number): { column: number; surface: number; depth: number } | null {
   const { columns } = field;
   const mid = Math.floor(COLUMNS_PER_TILE / 2);
   const x = i % g.w, y = (i / g.w) | 0;
@@ -86,7 +91,7 @@ export function intakeWater(g: Grid, field: WaterField, i: number): { column: nu
     if (depth < INTAKE_WET || (best && depth <= best.depth)) continue;
     best = { column: c, surface: surfaceAt(columns, c), depth };
   }
-  return best && { column: best.column, surface: best.surface };
+  return best;
 }
 
 /** The building that drinks an outlet feeds — any side of it, any tile of the building — by id; −1 with none. */
@@ -118,12 +123,13 @@ export type MainReport = {
   head: number;
   capacity: number;
   flow: number;
-  /** Tiles long. */
+  /** Tiles long; its bore, 1 or 2. */
   length: number;
+  bore: number;
   /** Each outlet's building, what it could take a second, and whether a pump is doing the lifting. */
   outlets: { cell: number; building: number; capacity: number; pumped: boolean }[];
-  /** Each intake's water surface, or null if dry; whether it is a pump. */
-  intakes: { cell: number; surface: number | null; pump: boolean }[];
+  /** Each intake's water surface, or null if dry, and how deep it stands there; whether it is a pump. */
+  intakes: { cell: number; surface: number | null; depth: number; pump: boolean }[];
 };
 
 /**
@@ -136,7 +142,7 @@ export function solveMain(g: Grid, field: WaterField, net: MainNet, pumpsOn = tr
   const length = net.cells.length;
   const intakes = net.intakes.map((cell) => {
     const w = intakeWater(g, field, cell);
-    return { cell, surface: w ? w.surface : null, pump: g.mainEnd[cell] === MAIN_END.pump };
+    return { cell, surface: w ? w.surface : null, depth: w ? w.depth : 0, pump: g.mainEnd[cell] === MAIN_END.pump };
   });
   const live = intakes.filter((k) => k.surface !== null);
   const pumps = live.filter((k) => k.pump).length;
@@ -151,8 +157,9 @@ export function solveMain(g: Grid, field: WaterField, net: MainNet, pumpsOn = tr
       if (gravity > head) { head = gravity; pumped = false; }
       if (k.pump && pumpsOn && gravity + pumpLift() > head) { head = gravity + pumpLift(); pumped = true; }
     }
-    let capacity = building >= 0 ? mainFlow(head, length) : 0;
-    if (pumped) capacity = Math.min(capacity, (PUMP_MOST * pumps) / Math.max(1, net.outlets.length));
+    let capacity = building >= 0 ? mainFlow(head, length, net.bore) : 0;
+    // A pump moves as much again through a widened bore.
+    if (pumped) capacity = Math.min(capacity, (PUMP_MOST * pumps * net.bore) / Math.max(1, net.outlets.length));
     return { cell, building, capacity, pumped, head };
   });
   const capacity = outlets.reduce((n, o) => n + o.capacity, 0);
@@ -162,7 +169,7 @@ export function solveMain(g: Grid, field: WaterField, net: MainNet, pumpsOn = tr
     : !live.length ? "dry"
     : capacity <= 0 ? "no-head"
     : "flowing";
-  return { state, head: Number.isFinite(head) ? head : 0, capacity, flow: 0, length, outlets: outlets.map(({ cell, building, capacity, pumped }) => ({ cell, building, capacity, pumped })), intakes };
+  return { state, head: Number.isFinite(head) ? head : 0, capacity, flow: 0, length, bore: net.bore, outlets: outlets.map(({ cell, building, capacity, pumped }) => ({ cell, building, capacity, pumped })), intakes };
 }
 
 /** How pump intakes are paid: for `seconds` of running, whether it was. In the editor, free. */

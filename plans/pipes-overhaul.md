@@ -1,6 +1,6 @@
 # Pipes, rebuilt: a water main the player can read
 
-**Status:** phases 1–7 built on `main`. Not done: the bore upgrade (§4), the AI's mains in violet, stilts over dips and roads (mains lie just off the ground), a separate Water overlay (the run's card and the flow drawing stand in for it), and re-measuring the cooling cadence in a played run (§6, phase 8).
+**Status:** built on `main`, phases 1–8. Re-measured in `mains-capacity.test.ts`: a gravity main feeds 20 agents as the old pipes did; a pump's fed 18 at `PUMP_RATE`, so `PUMP_MOST` is 0.5 a second, 12 agents; a widened bore 39. The singularity fixture's mains: the pond's 41-tile run 15 agents, the GPU farm's pump 10. Left as proposed: no buried mains, auto-route only (open questions 1–2).
 
 ## Why
 

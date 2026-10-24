@@ -6,13 +6,13 @@
  */
 import { buildCost, pipeCost } from "../../game/build-cost";
 import { isDrinker } from "../../game/cooling";
-import { useWorldStore } from "../../state/world.store";
+import { mainWet, useWorldStore } from "../../state/world.store";
 import { MAIN_END, idx, inBounds, type Grid, type Structure } from "../grid";
 import { tankFor } from "../projects/cooling";
 import { depthAt } from "../water/field";
 import { layPipePath } from "../play/build-actions";
 import { routePipe, type PipeRoute } from "./pipe-route";
-import { outletBuilding } from "../water/mains";
+import { outletBuilding, planMain, previewMain } from "../water/mains";
 import { skillOf } from "../../state/training.store";
 
 /** Below this share cooled, a drinker is short; and the most pipe ends the AI gives one. */
@@ -56,6 +56,11 @@ export function neededPipe(g: Grid): { s: Structure; route: PipeRoute; price: nu
     const route = (skillOf("river") >= 1 ? routePipe(g, s, owned, wet, surface, undefined, false) : null)
       ?? routePipe(g, s, owned, wet, surface);
     if (!route) continue;
+    // WHAT IT WOULD CARRY, by the same sum the tool shows: a route that would carry nothing is not laid.
+    const field = useWorldStore.getState().getWaterField();
+    const cells = route.pump ? [route.pump, ...route.pipe] : route.pipe;
+    const plan = planMain(g, cells, mainWet(g), !!route.pump);
+    if (field && !("refused" in plan) && previewMain(g, field, plan.cells, !!route.pump).flow <= 0) continue;
     const price = pipeCost(route.pipe.length).toNumber() + (route.pump ? buildCost("pump")?.toNumber() ?? Infinity : 0);
     return { s, route, price };
   }

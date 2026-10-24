@@ -191,6 +191,11 @@ export function pipeCost(tiles: number): Decimal {
   return roadCost(tiles).times(PIPE_PER_ROAD);
 }
 export const PIPE_PER_ROAD = 2;
+/** What widening a main's bore costs, for its tiles not yet widened: twice laying them. */
+export function boreCost(tiles: number): Decimal {
+  return pipeCost(tiles).times(BORE_PER_PIPE);
+}
+export const BORE_PER_PIPE = 2;
 
 /**
  * What upgrading one building into another costs, or null if it is not sold:

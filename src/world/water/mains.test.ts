@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { mainFlow } from "../../game/mains";
 import { commit, createHistory } from "../edit/commands";
-import { MAIN_END, createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
+import { MAIN_BORE, MAIN_END, createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
 import { resetCooling, stepCooling, tankFor } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
@@ -31,6 +31,24 @@ const lay = (g: Grid, cells: { x: number; y: number }[], pump = false) => {
 };
 
 describe("a water main", () => {
+  test("widened, carries twice the water through the same run", () => {
+    const { g } = lakeside(5);
+    lay(g, row(5, 4, 19));
+    const field = createWaterField(g);
+    const net = () => findMains(g).list[0];
+    const narrow = solveMain(g, field, net());
+    expect(net().bore).toBe(1);
+    for (const i of net().cells) g.main[i] |= MAIN_BORE;
+    g.rev++;
+    const wide = solveMain(g, field, net());
+    expect(net().bore).toBe(2);
+    expect(wide.capacity).toBeCloseTo(mainFlow(narrow.head, 16, 2), 5);
+    expect(wide.capacity).toBeGreaterThan(narrow.capacity * 1.5);
+    // A new run joined on is narrow, and so is the main it makes.
+    lay(g, [{ x: 12, y: 8 }, { x: 12, y: 7 }, { x: 12, y: 6 }, { x: 12, y: 5 }]);
+    expect(findMains(g).list[findMains(g).of[idx(g, 12, 5)]].bore).toBe(1);
+  });
+
   test("is fitted at its ends: an intake by the water, an outlet by the building, a cap anywhere else", () => {
     const { g } = lakeside(5);
     const p = lay(g, row(5, 4, 19));

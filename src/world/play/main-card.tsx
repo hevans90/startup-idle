@@ -13,9 +13,9 @@ import { formatCurrency } from "../../utils/money-utils";
 import { mainWet, useWorldStore } from "../../state/world.store";
 import { useEffect, useState } from "react";
 
-import { buildCost } from "../../game/build-cost";
+import { boreCost, buildCost } from "../../game/build-cost";
 import { useTicking } from "../../hooks/use-ticking";
-import { MAIN_END, idx, inBounds } from "../grid";
+import { MAIN_BORE, MAIN_END, idx, inBounds } from "../grid";
 import { structureDef } from "../structures/def";
 import { findMains, hasMain, mainReportAt, planMain, previewMain, routeMain, type MainState } from "../water/mains";
 
@@ -92,13 +92,15 @@ export function MainInfo() {
   const say = SAYS[r.state];
   const net = findMains(g).list[findMains(g).of[idx(g, looked.x, looked.y)]];
   const intake = net?.intakes.find((i) => g.mainEnd[i] === MAIN_END.intake);
+  // WIDENING IT: twice the water through the same run, paid for the tiles not yet widened. @see boreCost
+  const narrow = net ? net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length : 0;
   const names = r.outlets.filter((o) => o.building >= 0).map((o) => {
     const s = g.structures.get(o.building);
     return s?.def === "lattice" ? "the Lattice" : structureDef(s?.def ?? "")?.name ?? "a building";
   });
   return (
     <div className={twMerge(CARD, "flex w-80 flex-col gap-0.5")}>
-      <p className="flex justify-between gap-2"><b>Water main · {r.length} tiles</b>
+      <p className="flex justify-between gap-2"><b>{r.bore > 1 ? "Wide water main" : "Water main"} · {r.length} tiles</b>
         <button type="button" onClick={() => setShut(looked.n)} aria-label="Close" className="cursor-pointer px-1 text-primary-500 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-100">✕</button></p>
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums">
@@ -113,6 +115,10 @@ export function MainInfo() {
         {r.state === "no-head" && intake !== undefined && (
           <button type="button" onClick={() => st.offerPump({ x: intake % g.w, y: (intake / g.w) | 0, price: buildCost("pump")?.toNumber() ?? 0, why: say.text })}
             className="cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800">Add a pump…</button>
+        )}
+        {narrow > 0 && (
+          <button type="button" onClick={() => st.widenMainAt(looked)} title="Twice the water through the same run"
+            className="cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800">Widen: {formatCurrency(boreCost(narrow).toNumber())}</button>
         )}
         <button type="button" onClick={() => st.liftMainAt(looked)}
           className="cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800">Lift it</button>

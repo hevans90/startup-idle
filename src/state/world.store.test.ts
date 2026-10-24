@@ -16,7 +16,10 @@ import {
   useWorldStore,
 } from "./world.store";
 import { loadSaved, setSaveSlot } from "../world/io/world-save";
-import { createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
+import { MAIN_AI, MAIN_BORE, createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
+import { findMains } from "../world/water/mains";
+import { asAi } from "../world/ai/district";
+import { boreCost } from "../game/build-cost";
 import { componentCount } from "../world/roads/network";
 import { DEFAULT_GEN, GEN_SLIDERS } from "../world/gen/params";
 import { generatePlayableMap } from "../world/gen/generate-map";
@@ -789,6 +792,48 @@ describe("lifting under play rules", () => {
     // The neighbours left with an open end are capped.
     expect(s().grid.mainEnd[idx(s().grid, 11, 6)]).toBe(4);
     expect(s().grid.mainEnd[idx(s().grid, 14, 6)]).toBe(4);
+  });
+});
+
+describe("mains under play rules", () => {
+  afterEach(() => { s().setPlaying(false); useMoneyStore.setState({ money: new Decimal(0) }); });
+  const field = () => {
+    const g = createGrid(20, 12);
+    fillTerrain(g, 1);
+    s().loadGrid(g);
+    s().setPlaying(true);
+    s().setTool("pipe");
+  };
+
+  test("the AI's are marked as its own; the player's are not", () => {
+    field();
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    useWorldStore.setState({ stroke: { tool: "pipe", brush: "line", anchor: { x: 2, y: 3 }, head: { x: 9, y: 3 } } });
+    s().endStroke();
+    asAi(() => {
+      useWorldStore.setState({ stroke: { tool: "pipe", brush: "line", anchor: { x: 2, y: 8 }, head: { x: 9, y: 8 } } });
+      s().endStroke();
+    });
+    const g = s().grid;
+    expect(g.main[idx(g, 5, 3)] & MAIN_AI).toBe(0);
+    expect(g.main[idx(g, 5, 8)] & MAIN_AI).toBe(MAIN_AI);
+    expect(findMains(g).list.find((n) => n.cells.includes(idx(g, 5, 8)))!.ai).toBe(true);
+  });
+
+  test("widening a main pays for its tiles not yet widened, and widens every one", () => {
+    field();
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    useWorldStore.setState({ stroke: { tool: "pipe", brush: "line", anchor: { x: 2, y: 3 }, head: { x: 9, y: 3 } } });
+    s().endStroke();
+    const before = useMoneyStore.getState().money.toNumber();
+    s().widenMainAt({ x: 5, y: 3 });
+    const g = s().grid;
+    expect(before - useMoneyStore.getState().money.toNumber()).toBeCloseTo(boreCost(8).toNumber(), 3);
+    for (let x = 2; x <= 9; x++) expect(g.main[idx(g, x, 3)] & MAIN_BORE).toBe(MAIN_BORE);
+    // Wide already: nothing more to pay.
+    const after = useMoneyStore.getState().money.toNumber();
+    s().widenMainAt({ x: 5, y: 3 });
+    expect(useMoneyStore.getState().money.toNumber()).toBe(after);
   });
 });
 

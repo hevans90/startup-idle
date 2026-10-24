@@ -33,13 +33,13 @@ import { create } from "zustand";
 
 import { waterMetaSaw } from "../world/debug/water-meta";
 import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
-import { MAIN_END, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { SLOP_PIT, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
-import { findMains, pipesToMains, planMain, previewMain, routeMain } from "../world/water/mains";
+import { findMains, hasMain, pipesToMains, planMain, previewMain, routeMain } from "../world/water/mains";
 import { DIR, NEIGHBOUR } from "../iso/dir";
 import {
   OPEN_EDGE_DEFAULT, POUR_AMOUNT, SOURCE_RATE, createWaterField, depthAt, drainAt, pourAt,
@@ -71,7 +71,7 @@ import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
-import { buildCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { boreCost, buildCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
@@ -431,6 +431,8 @@ type WorldState = {
   offerPump: (o: { x: number; y: number; price: number; why: string }) => void;
   /** Take up the whole main a tile is on, as one undoable edit. */
   liftMainAt: (c: Cell) => void;
+  /** Widen the bore of the whole main a tile is on, paid for its tiles not yet widened. @see boreCost */
+  widenMainAt: (c: Cell) => void;
   /** The drag in progress, or null. */
   stroke: Stroke | null;
   /**
@@ -499,6 +501,9 @@ type WorldState = {
   /** Whether the streets are tinted by what they earn. @see liveStreetEarnings */
   earningsOverlay: boolean;
   setEarningsOverlay: (on: boolean) => void;
+  /** Whether the Water overlay is on — it is, too, while the Pipe tool is in hand. @see createMainsLayer */
+  waterOverlay: boolean;
+  setWaterOverlay: (on: boolean) => void;
   /** Whether the wonders menu is open. @see WondersPanel */
   wondersOpen: boolean;
   setWondersOpen: (open: boolean) => void;
@@ -825,6 +830,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setMoodOverlay: (moodOverlay) => set({ moodOverlay }),
   earningsOverlay: false,
   setEarningsOverlay: (earningsOverlay) => set({ earningsOverlay }),
+  waterOverlay: false,
+  setWaterOverlay: (waterOverlay) => set({ waterOverlay }),
   wondersOpen: false,
   setWondersOpen: (wondersOpen) => set({ wondersOpen }),
   aiReport: null,
@@ -1024,6 +1031,22 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     commit(st.grid, history, cmd);
     set({ revision: st.revision + 1, lookedAt: null, ...historyMeta() });
   },
+  widenMainAt: (c) => {
+    const st = get();
+    if (!inBounds(st.grid, c.x, c.y)) return;
+    const { list, of } = findMains(st.grid);
+    const net = list[of[idx(st.grid, c.x, c.y)]];
+    if (!net) return;
+    const narrow = net.cells.filter((i) => !(st.grid.main[i] & MAIN_BORE));
+    if (!narrow.length) return;
+    const price = boreCost(narrow.length);
+    if (!spendForBuild(price)) { set({ notice: { text: `Not enough money to widen the main: ${formatCurrency(price.toNumber())}`, at: Date.now() } }); return; }
+    const b = new PatchBuilder(st.grid);
+    for (const i of narrow) b.set("main", i % st.grid.w, (i / st.grid.w) | 0, st.grid.main[i] | MAIN_BORE);
+    const cmd = b.build("widen main");
+    if (cmd) commit(st.grid, history, cmd);
+    set({ revision: st.revision + 1, ...historyMeta() });
+  },
   acceptPump: () => {
     const st = get(), o = st.pumpOffer;
     if (!o) return;
@@ -1140,9 +1163,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         set({ stroke: null, notice: { text: `Not enough money for ${look.fresh} tiles of main: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
         return;
       }
+      // The AI's own mains are marked, to be drawn in its violet.
+      const mark = aiActing() ? MAIN_AI : 0;
       for (const c of plan.cells) {
         const i = idx(st.grid, c.x, c.y);
-        b.set("main", c.x, c.y, st.grid.main[i] | c.join);
+        b.set("main", c.x, c.y, st.grid.main[i] | c.join | (hasMain(st.grid, i) ? 0 : mark));
         if (c.end) b.set("mainEnd", c.x, c.y, c.end);
       }
       // NO HEAD: offered a pump, there and then. @see acceptPump

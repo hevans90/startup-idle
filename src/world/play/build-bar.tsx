@@ -63,6 +63,7 @@ const ICONS: Record<string, ReactNode> = {
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
   labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
   wonders: <Icon><path d="M8 1.5l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11l-3.7 2 .8-4.2L2 5.9l4.2-.5z" /></Icon>,
+  water: <Icon><path d="M8 2.5c2.5 3 4 5.2 4 7a4 4 0 0 1-8 0c0-1.8 1.5-4 4-7z" /></Icon>,
   mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
   earnings: <Icon><path d="M8 1.5v13M11 4.5H6.5a2 2 0 000 4h3a2 2 0 010 4H5" /></Icon>,
   undo: <Icon><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" /></Icon>,
@@ -222,6 +223,8 @@ export function BuildBar({ className }: { className?: string }) {
   const setMoodOverlay = useWorldStore((s) => s.setMoodOverlay);
   const earningsOverlay = useWorldStore((s) => s.earningsOverlay);
   const setEarningsOverlay = useWorldStore((s) => s.setEarningsOverlay);
+  const waterOverlay = useWorldStore((s) => s.waterOverlay);
+  const setWaterOverlay = useWorldStore((s) => s.setWaterOverlay);
   const setWondersOpen = useWorldStore((s) => s.setWondersOpen);
 
   // Who the company can hire: the generators it has unlocked. @see getUnlockedGeneratorIds
@@ -423,6 +426,13 @@ export function BuildBar({ className }: { className?: string }) {
             {ICONS.earnings}
             <span className="@max-3xl:hidden">Earnings</span>
           </button>
+          {pipesOpen && (
+            <button type="button" title="Show every water main by what it is doing, each tank, and the water: on too while the Pipe tool is in hand"
+              onClick={() => setWaterOverlay(!waterOverlay)} className={twMerge(TOOL, (waterOverlay || tool === "pipe") && TOOL_ON)}>
+              {ICONS.water}
+              <span className="@max-3xl:hidden">Water</span>
+            </button>
+          )}
           <button type="button" title="Show or hide what each building is and how it is doing"
             onClick={() => setLabels(!labels)} className={twMerge(TOOL, labels && TOOL_ON)}>
             {ICONS.labels}

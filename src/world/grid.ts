@@ -348,6 +348,8 @@ export const pipeAt = (g: Grid, x: number, y: number) =>
 
 /** A main's end fittings: drawing from water, with a pump, feeding a building, capped. */
 export const MAIN_END = { intake: 1, pump: 2, outlet: 3, cap: 4 } as const;
+/** Flags on a main's cell, above its `DIR` joins: its bore widened; laid by the AI. */
+export const MAIN_BORE = 16, MAIN_AI = 32;
 
 /** The invert of the pipe on a cell — where its floor is. See {@link Grid.pipeZ}. */
 export const pipeInvertAt = (g: Grid, x: number, y: number) =>
