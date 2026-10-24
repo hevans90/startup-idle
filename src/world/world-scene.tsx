@@ -197,7 +197,7 @@ import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
 import { busyness, darkness, dayPhase, drawRain, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
 import { createLights, type Lights } from "./render/lights";
-import { notable } from "../game/machine";
+import { keystone, notable } from "../game/machine";
 import { inAiDistrictNow } from "./ai/district";
 import { serviceOf } from "./agents/services";
 
@@ -431,7 +431,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // THE LATTICE'S HOLD on the meter, where the company's AI is at work to
   // build it: not in the editor, a fixture, or The Model's own runs. @see LATTICE_AT
   useEffect(() => setLatticeReader(() =>
-    !useWorldStore.getState().playing || startedOnFixture() || useFounderStore.getState().selectedFounderId === "model" || latticeDone()), []);
+    !useWorldStore.getState().playing || startedOnFixture() || useFounderStore.getState().selectedFounderId === "model" || latticeDone()
+    // Air-gapped, it builds no Lattice to wait on. @see game/machine KEYSTONES
+    || keystone("airgap")), []);
   // NIGHT over the map in the game: one translucent sheet the size of the
   // screen, darker as the day turns. @see world/daylight
   const night = useRef<Graphics | null>(null);
@@ -3203,7 +3205,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const nightNow = on ? darkness(phase) / NIGHT_DARK : 0;
       if (g) {
         // THE SKY TURNS as the AI rises: a violet cast from the Manager on, and at the Ascension.
-        const tint = (meter >= 80 ? 0.08 : meter >= 60 ? 0.04 : 0) + 0.3 * ascension;
+        // By the stage, so Hard Takeoff's early Overseer brings it with it. @see stagesNow
+        const skyStage = stageOf(meter).stage;
+        const tint = (skyStage === "overseer" || skyStage === "ascension" ? 0.08 : skyStage === "manager" ? 0.04 : 0) + 0.3 * ascension;
         const colour = mixColour(mixColour(0xffffff, NIGHT_GRADE, nightNow), STAGE_COLOUR.overseer, tint);
         // Redrawn only when it changes: a colour a step at a time, or the screen's size.
         const key = `${colour}|${app.screen.width}x${app.screen.height}`;
@@ -3252,6 +3256,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           planHolos: planHoloKeys.current,
           // WHERE IT TAKES OVER: the company's AI's district, in the game. @see aiDistrict
           district: playing && !modelRun && !preview ? aiDistrict(useWorldStore.getState().grid, stageOf(v).stage) : null,
+          // ALIGNED, its district drawn in the player's teal; AIR-GAPPED, its links dark. @see game/machine KEYSTONES
+          districtColour: !modelRun && keystone("alignment") ? STAGE_COLOUR.tool : undefined,
+          airGap: !modelRun && !preview && keystone("airgap"),
           reservoirs: playing ? useSessionStore.getState().aiReservoirs : undefined,
           pipe: useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? pendingPipe() : null,
         }, raw, now);

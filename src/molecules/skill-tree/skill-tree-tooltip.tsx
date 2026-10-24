@@ -235,6 +235,7 @@ function MachineTip({ refEl, id, hovered }: { refEl: React.RefObject<HTMLDivElem
   const blocked = machineBlocked(id);
   const status = blocked === "owned" ? { text: "✓ Bought", cls: "text-emerald-600 dark:text-emerald-400" }
     : blocked === "fog" ? { text: n.kind === "root" ? "Ascend to receive" : "Ascend to reveal", cls: "text-violet-600 dark:text-violet-300" }
+    : blocked === "exclusive" ? { text: "Another keystone is bought: they exclude each other", cls: "text-rose-600 dark:text-rose-400" }
     : blocked === "unreached" ? { text: `Buy the node before it first · ${cost} Weights`, cls: "text-amber-600 dark:text-amber-400" }
     : blocked === "weights" ? { text: `Cost: ${cost} Weights (can't afford)`, cls: "text-rose-600 dark:text-rose-400" }
     : { text: `Cost: ${cost} Weights`, cls: "text-primary-800 dark:text-primary-100" };

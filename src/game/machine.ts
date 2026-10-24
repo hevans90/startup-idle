@@ -23,7 +23,7 @@ const RING_GAP = 115;
 export const MACHINE_CENTRE = { x: 0, y: 2420 };
 
 export type MachineNode = {
-  id: string; x: number; y: number; title: string; kind: "root" | "minor" | "notable"; cluster: typeof MACHINE;
+  id: string; x: number; y: number; title: string; kind: "root" | "minor" | "notable" | "keystone"; cluster: typeof MACHINE;
   effect: string; ring: number; module?: ModuleId; cost: number;
 };
 
@@ -48,8 +48,28 @@ export const NOTABLES: readonly { id: NotableId; title: string; effect: string; 
 export const NOTABLE_COST = 30;
 export const NOTABLE_STEP = 15;
 const notableId = (id: NotableId) => `machine_n_${id}`;
-/** Whether a notable is bought. */
-export const notable = (id: NotableId): boolean => hasMachine(notableId(id));
+/** The notables that work on the map: none of them under Air Gap. Self-Funding is the wallet's. @see keystone "airgap" */
+const OFF_MAP: ReadonlySet<NotableId> = new Set(["selffund"]);
+/** Whether a notable is bought, and working. */
+export const notable = (id: NotableId): boolean => hasMachine(notableId(id)) && (OFF_MAP.has(id) || !keystone("airgap"));
+
+/**
+ * ITS KEYSTONES: what the takeover IS — one of three, each the end of a spoke,
+ * past its third ring; one bought, the others are closed. @see plans/ai-takeover.md §4.2
+ */
+export type KeystoneId = "alignment" | "takeoff" | "airgap";
+export const KEYSTONES: readonly { id: KeystoneId; title: string; effect: string; spoke: number }[] = [
+  { id: "alignment", spoke: 0, title: "Alignment", effect: "The takeover never turns hostile: past the Manager it stays a colleague — nothing converted or repurposed, ever, its streets never closed to you, working only to your focus. But the meter rises half as fast. Its district is drawn in your colour." },
+  { id: "takeoff", spoke: 5, title: "Hard Takeoff", effect: "The Overseer comes at 60%. Its district is your whole map, and everything it builds is free, paid in compute. The town is its: chaotic, and enormously powerful. The violet sky comes with it." },
+  { id: "airgap", spoke: 3, title: "Air Gap", effect: "The AI never touches the map: no district, no drones, no takeover, and no Lattice to wait on. Every agent's boost is doubled. None of the Machine's notables that work on the map work. The Data Centre's links go dark; it hums alone." },
+];
+/** Keystones are past the minors' last ring, revealed an Ascension after it; a keystone costs this many Weights. */
+export const KEYSTONE_RING = MACHINE_RINGS + 1;
+export const KEYSTONE_COST = 100;
+const keystoneId = (id: KeystoneId) => `machine_k_${id}`;
+/** Whether a keystone is bought. */
+export const keystone = (id: KeystoneId): boolean => hasMachine(keystoneId(id));
+
 /** What a node costs now: a notable dearer for each bought. */
 export function machineCost(id: string): number {
   const n = machineNode(id);
@@ -68,8 +88,9 @@ export function machineGraph(): { nodes: MachineNode[]; edges: [string, string][
     effect: "The AI you raised comes back as yours. Each company it starts at the Assistant stage; till the Overseer it takes nothing — no house converted, nothing repurposed — and works only to your focus, its drones in your teal.",
   }];
   const edges: [string, string][] = [];
+  const spokeAngle = (i: number) => -Math.PI / 2 + (i / SPOKES.length) * Math.PI * 2 + Math.PI / SPOKES.length;
   SPOKES.forEach((m, i) => {
-    const a = -Math.PI / 2 + (i / SPOKES.length) * Math.PI * 2 + Math.PI / SPOKES.length;
+    const a = spokeAngle(i);
     const def = MODULES.find((d) => d.id === m)!;
     let prev = INHERITANCE;
     for (let ring = 1; ring <= MACHINE_RINGS; ring++) {
@@ -94,6 +115,15 @@ export function machineGraph(): { nodes: MachineNode[]; edges: [string, string][
     });
     edges.push([minorId(SPOKES[n.gap], ring), id], [minorId(SPOKES[(n.gap + 1) % SPOKES.length], ring), id]);
   }
+  // The keystones, each at the end of its spoke.
+  for (const k of KEYSTONES) {
+    const a = spokeAngle(k.spoke), id = keystoneId(k.id);
+    nodes.push({
+      id, x: MACHINE_CENTRE.x + Math.cos(a) * RING_GAP * KEYSTONE_RING, y: MACHINE_CENTRE.y + Math.sin(a) * RING_GAP * KEYSTONE_RING,
+      title: k.title, kind: "keystone", cluster: MACHINE, ring: KEYSTONE_RING, cost: KEYSTONE_COST, effect: k.effect,
+    });
+    edges.push([minorId(SPOKES[k.spoke], MACHINE_RINGS), id]);
+  }
   return { nodes, edges };
 }
 
@@ -114,10 +144,12 @@ export const revealedRing = (): number => useGenerationStore.getState().generati
 export const fogged = (id: string): boolean => (machineNode(id)?.ring ?? 0) > revealedRing() || !hasMachine(INHERITANCE);
 
 /** Why a node cannot be bought now, or null if it can. */
-export function machineBlocked(id: string): "owned" | "fog" | "unreached" | "weights" | null {
+export function machineBlocked(id: string): "owned" | "fog" | "unreached" | "exclusive" | "weights" | null {
   const n = machineNode(id);
   if (!n || hasMachine(id)) return "owned";
   if (fogged(id)) return "fog";
+  // One keystone: the others close. @see KEYSTONES
+  if (n.kind === "keystone" && KEYSTONES.some((k) => keystone(k.id))) return "exclusive";
   if (!(NEIGHBOURS.get(id) ?? []).some(hasMachine)) return "unreached";
   if (useGenerationStore.getState().weights < machineCost(id)) return "weights";
   return null;

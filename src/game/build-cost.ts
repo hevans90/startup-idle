@@ -21,6 +21,8 @@ import { racksBuilt } from "./agents";
 import { founderIs } from "./founder-rules";
 import { fusionNow } from "./fusion";
 import { BOOTSTRAP_BUILD } from "./founders.catalog";
+import { aiActing } from "../world/ai/district";
+import { keystone } from "./machine";
 
 /** The least a lot costs, whatever the hire prices. */
 const LOT_FLOOR = 15;
@@ -224,6 +226,8 @@ export function canAfford(price: Decimal | null): boolean {
  * moves before the thing arrives. A false answer means nothing was taken.
  */
 export function spendForBuild(price: Decimal | null): boolean {
+  // HARD TAKEOFF: what the AI builds is paid in compute. @see game/machine KEYSTONES
+  if (price && aiActing() && keystone("takeoff")) return true;
   if (!canAfford(price) || !price) return false;
   useMoneyStore.getState().spendMoney(price.toNumber());
   return true;

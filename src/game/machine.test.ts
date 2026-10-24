@@ -5,7 +5,7 @@ import { resetAllGameStores } from "../simulation/reset-game-stores";
 import { useGenerationStore } from "../state/generation.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { inherited } from "../world/ai/planner";
-import { INHERITANCE, MACHINE_RINGS, NOTABLES, NOTABLE_COST, NOTABLE_STEP, RING_COST, machineCost, notable, buyMachine, fogged, grantInheritance, machineBlocked, machineGraph } from "./machine";
+import { INHERITANCE, KEYSTONES, KEYSTONE_COST, KEYSTONE_RING, MACHINE_RINGS, NOTABLES, NOTABLE_COST, NOTABLE_STEP, RING_COST, machineCost, notable, buyMachine, fogged, grantInheritance, machineBlocked, machineGraph } from "./machine";
 import { MODULES, moduleLevel } from "./modules";
 
 afterEach(() => resetAllGameStores());
@@ -13,9 +13,9 @@ afterEach(() => resetAllGameStores());
 const node = (m: string, ring: number) => `machine_${m}_${ring}`;
 
 describe("the Machine", () => {
-  test("is a spoke of three minors for every module, round Inheritance, its notables between", () => {
+  test("is a spoke of three minors for every module, round Inheritance, its notables between, keystones at three ends", () => {
     const { nodes, edges } = machineGraph();
-    expect(nodes.length).toBe(1 + MODULES.length * MACHINE_RINGS + NOTABLES.length);
+    expect(nodes.length).toBe(1 + MODULES.length * MACHINE_RINGS + NOTABLES.length + KEYSTONES.length);
     expect(edges.filter(([a]) => a === INHERITANCE).length).toBe(MODULES.length);
   });
 
@@ -69,5 +69,19 @@ describe("the Machine", () => {
     expect(inherited("colleague")).toBe(true);
     expect(inherited("manager")).toBe(true);
     expect(inherited("overseer")).toBe(false);
+  });
+
+  test("its keystones: revealed an Ascension after the last ring, past a third-ring node, and they exclude each other", () => {
+    useGenerationStore.setState({ generation: KEYSTONE_RING, weights: 10_000 });
+    grantInheritance();
+    expect(machineBlocked("machine_k_alignment")).toBe("fog");
+    useGenerationStore.setState({ generation: KEYSTONE_RING + 1 });
+    expect(machineBlocked("machine_k_alignment")).toBe("unreached");
+    for (const m of ["quiet-model", "pre-trained"]) for (let r = 1; r <= MACHINE_RINGS; r++) buyMachine(node(m, r));
+    const before = useGenerationStore.getState().weights;
+    expect(buyMachine("machine_k_alignment")).toBe(true);
+    expect(useGenerationStore.getState().weights).toBe(before - KEYSTONE_COST);
+    expect(machineBlocked("machine_k_airgap")).toBe("exclusive");
+    expect(buyMachine("machine_k_airgap")).toBe(false);
   });
 });

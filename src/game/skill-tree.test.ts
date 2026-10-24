@@ -64,7 +64,7 @@ describe("generated skill tree", () => {
     expect(kinds.has("keystone")).toBe(true);
     expect(kinds.has("notable")).toBe(true);
     expect(kinds.has("travel")).toBe(true);
-    const keystones = SKILL_TREE.nodes.filter((n) => n.kind === "keystone");
+    const keystones = SKILL_TREE.nodes.filter((n) => n.kind === "keystone" && n.cluster !== MACHINE);
     expect(keystones.length).toBe(7); // design doc §4
   });
 

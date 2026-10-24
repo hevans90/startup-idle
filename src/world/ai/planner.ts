@@ -24,7 +24,7 @@ import { traitForecast, type Family } from "../../game/traits";
 import { LATTICE_AT, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
 import { latticeOf } from "./lattice";
 import { hasMachine, useGenerationStore } from "../../state/generation.store";
-import { INHERITANCE, notable } from "../../game/machine";
+import { INHERITANCE, keystone, notable } from "../../game/machine";
 import { projectTier } from "./masterplan/town-model";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
@@ -189,9 +189,9 @@ function unserved(structures: readonly Structure[], mine: (s: Structure) => bool
 /** The jobs that take what is the player's. */
 const TAKES = new Set<Kind>(["convert", "repurpose"]);
 
-/** Whether the AI, inherited, still works for the player at a stage: before the Overseer. @see INHERITANCE */
+/** Whether the AI, inherited, still works for the player at a stage: before the Overseer — and, aligned, always. @see INHERITANCE, keystone */
 export const inherited = (stage: Stage): boolean =>
-  hasMachine(INHERITANCE) && stage !== "overseer" && stage !== "ascension";
+  hasMachine(INHERITANCE) && (keystone("alignment") || (stage !== "overseer" && stage !== "ascension"));
 
 /** What it does at a desk, or to cool what it has: not held to its district. */
 const ANYWHERE = new Set<Kind>(["hire", "upgrade", "pipe"]);
@@ -417,7 +417,8 @@ export function chooseAction(
   g: Grid, stage: Stage, rand: () => number = Math.random, affords: (a: AiAction) => boolean = () => true,
 ): AiAction | null {
   const kinds = BY_STAGE[stage];
-  if (!kinds) return null;
+  // AIR-GAPPED, it never touches the map. @see game/machine KEYSTONES
+  if (!kinds || keystone("airgap")) return null;
   const district = aiDistrict(g, stage);
   // COOLING FIRST: short of water, piping some is its first job; and it puts
   // up nothing more that drinks until there is water to spare. @see coolingState

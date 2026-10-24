@@ -19,6 +19,7 @@ import { projectReading } from "./projects";
 import { fusionNow } from "./fusion";
 import { moduleLevel } from "./modules";
 import { skillOf } from "../state/training.store";
+import { keystone } from "./machine";
 
 /** Income each agent at full power adds, as a share. */
 export const AGENT_BOOST = 0.04;
@@ -63,11 +64,16 @@ export function agentsAtWork(agents: number): { powered: number; unpowered: numb
 }
 
 /** What the agents running multiply income by. */
+/** What the Machine's Air Gap keystone multiplies every agent's boost by. @see game/machine KEYSTONES */
+export const AIR_GAP_BOOST = 2;
+
 export function agentBonus(agents: number): number {
   const { powered, unpowered } = agentsAtWork(agents);
   // Compute spires the AI put up add to every agent's boost. @see SPIRE_BOOST
   const spires = Math.min(MAX_SPIRES, projectReading()?.spires ?? 0);
-  return 1 + AGENT_BOOST * fusionNow().agentBoostMult * (1 + SPIRE_BOOST * spires) * (powered + UNPOWERED_SHARE * unpowered);
+  // AIR-GAPPED, every agent's boost twice over. @see AIR_GAP_BOOST
+  const gap = keystone("airgap") ? AIR_GAP_BOOST : 1;
+  return 1 + AGENT_BOOST * fusionNow().agentBoostMult * gap * (1 + SPIRE_BOOST * spires) * (powered + UNPOWERED_SHARE * unpowered);
 }
 
 /** How many racks stand, from the agents they can run. */

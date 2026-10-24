@@ -12,7 +12,7 @@ import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
 import { useUpgradeStore } from "../../state/upgrades.store";
 import { skillOf } from "../../state/training.store";
-import { notable } from "../../game/machine";
+import { keystone, notable } from "../../game/machine";
 import { agentBonus } from "../../game/agents";
 import { runningAgents } from "../../state/agents.store";
 import { WALLET_DEEPER, WALLET_FASTER } from "../../game/training";
@@ -73,8 +73,12 @@ function freshRoad(g: Grid, from: { x: number; y: number }, to: { x: number; y: 
   return n;
 }
 
+/** The jobs that build: free with Hard Takeoff, paid in compute. @see freeBuilds */
+const BUILDS = new Set<AiAction["kind"]>(["place", "convert", "road", "pipe", "reservoir", "refill", "flatten", "lift", "deferred"]);
+
 /** What a job costs now, in money: nought for what costs a player nothing. */
 export function priceOfAi(g: Grid, a: AiAction): number {
+  if (keystone("takeoff") && BUILDS.has(a.kind)) return 0;
   switch (a.kind) {
     case "place": return buildCost(a.def)?.toNumber() ?? Infinity;
     case "convert": return buildCost(a.into)?.toNumber() ?? 0;

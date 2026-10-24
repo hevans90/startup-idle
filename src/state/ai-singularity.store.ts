@@ -19,9 +19,13 @@ import { useFounderStore } from "./founder.store";
 import { QUIET_MODEL, moduleLevel } from "../game/modules";
 import { fusionNow } from "../game/fusion";
 
+/** How fast the meter rises with the Machine's Alignment keystone: half. @see game/machine KEYSTONES */
+export const ALIGNMENT_METER = 0.5;
+
 /** Everything that makes the singularity come faster or slower, multiplied. */
 export const singularityMult = () =>
-  usePrestigeStore.getState().modifiers.singularityMult * QUIET_MODEL[moduleLevel("quiet-model")] * fusionNow().meterMult;
+  usePrestigeStore.getState().modifiers.singularityMult * QUIET_MODEL[moduleLevel("quiet-model")] * fusionNow().meterMult
+  * (hasMachine("machine_k_alignment") ? ALIGNMENT_METER : 1);
 
 /** Points a second each agent running adds: ~15 over a strong run's last hour, ramping to sixteen. */
 export const RATE_PER_AGENT = 0.0005;
@@ -62,10 +66,21 @@ export const STAGES: readonly { stage: Stage; from: number; name: string }[] = [
   { stage: "ascension", from: 100, name: "Ascension" },
 ];
 
+/** Where the Overseer begins with the Machine's Hard Takeoff keystone: over the Manager, which never comes. @see game/machine KEYSTONES */
+export const HARD_TAKEOFF_AT = 60;
+
+/** Where each stage begins now: the Overseer brought forward by Hard Takeoff. */
+export const stagesNow = (): readonly { stage: Stage; from: number; name: string }[] =>
+  hasMachine("machine_k_takeoff") ? STAGES.map((s) => (s.stage === "overseer" ? { ...s, from: HARD_TAKEOFF_AT } : s)) : STAGES;
+
+/** Where a stage begins now. */
+export const stageFrom = (stage: Stage): number => stagesNow().find((s) => s.stage === stage)!.from;
+
 /** The stage a meter value is in. */
 export function stageOf(value: number) {
-  let at = STAGES[0];
-  for (const s of STAGES) if (value >= s.from) at = s;
+  const stages = stagesNow();
+  let at = stages[0];
+  for (const s of stages) if (value >= s.from) at = s;
   return at;
 }
 

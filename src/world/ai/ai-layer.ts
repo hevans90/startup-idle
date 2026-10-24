@@ -72,6 +72,10 @@ export type AiView = {
   droneLight?: number;
   /** Where the AI takes over: a faint ring on the ground round it. @see aiDistrict */
   district?: District | null;
+  /** The district's colour, if not its stage's: the player's teal, aligned. @see game/machine KEYSTONES */
+  districtColour?: number;
+  /** AIR-GAPPED: the Data Centre's links dark, no holograms — it hums alone. @see game/machine KEYSTONES */
+  airGap?: boolean;
   /** The reservoirs it has dug, by their corner: a stone rim round each. @see world/ai/reservoir */
   reservoirs?: readonly { x: number; y: number }[];
 };
@@ -185,10 +189,11 @@ export function createAiLayer(overlay: Container): AiLayer {
           const u = d.cx + d.r * Math.cos(a), v = d.cy + d.r * Math.sin(a);
           ring.push(...P(sc, u, v, ground(g, Math.round(u), Math.round(v))));
         }
+        const c = view.districtColour ?? STAGE_COLOUR[view.stage];
         gfx.poly(ring);
-        gfx.fill({ color: STAGE_COLOUR[view.stage], alpha: 0.035 });
+        gfx.fill({ color: c, alpha: 0.035 });
         gfx.poly(ring);
-        gfx.stroke({ color: STAGE_COLOUR[view.stage], width: Math.max(1, 1.5 * sc), alpha: 0.4 });
+        gfx.stroke({ color: c, width: Math.max(1, 1.5 * sc), alpha: 0.4 });
       }
       // ITS RESERVOIRS, a stone rim on the ring round each basin: built, not a puddle. @see digReservoir
       for (const r of view.reservoirs ?? []) {
@@ -284,7 +289,7 @@ export function createAiLayer(overlay: Container): AiLayer {
       }
 
       // DATA LINKS to every rack: a faint line, and light running out along it.
-      const racks = structures.filter((s) => s.def === "rack" && !s.build);
+      const racks = view.airGap ? [] : structures.filter((s) => s.def === "rack" && !s.build);
       const from = P(sc, cu, cv, roof + 0.3);
       for (const [k, r] of racks.entries()) {
         const on = rackPowered(g, r);
@@ -385,7 +390,7 @@ export function createAiLayer(overlay: Container): AiLayer {
       }
 
       // HOLOGRAMS: one a rack from the Assistant on, more at the Ascension.
-      const want = view.stage === "tool" && asc === 0 ? 0 : Math.min(HOLOGRAMS, Math.max(1, racks.length) * (asc > 0 ? 3 : 1));
+      const want = view.airGap || (view.stage === "tool" && asc === 0) ? 0 : Math.min(HOLOGRAMS, Math.max(1, racks.length) * (asc > 0 ? 3 : 1));
       while (holos.length > want) holos.pop();
       while (holos.length < want) {
         const r = racks.length ? racks[holos.length % racks.length] : dc;

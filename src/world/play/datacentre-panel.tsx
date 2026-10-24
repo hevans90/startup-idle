@@ -31,6 +31,7 @@ import { runningAgents, useAgentsStore } from "../../state/agents.store";
 import { singularityMult, singularityRate, stageOf, useAiSingularityStore } from "../../state/ai-singularity.store";
 import { MAIN_END } from "../grid";
 import { useWorldStore } from "../../state/world.store";
+import { keystone } from "../../game/machine";
 
 /** A rate a second as so much a minute, signed. */
 const perMinute = (r: number) => `${r >= 0 ? "+" : "−"}${Math.abs(r * 60).toFixed(2)} a minute`;
@@ -151,6 +152,8 @@ function Focus() {
   const agents = useAgentsStore((s) => s.agents);
   // The Model's own runs are AI mode's. @see AiModePanel
   if (founder === "model") return null;
+  // AIR-GAPPED, there is nothing for it to work at. @see game/machine KEYSTONES
+  if (keystone("airgap")) return <div className={SECTION}><p className={TITLE}>Air-gapped</p><p>It never touches the map: no district, no drones, no takeover. Every agent's boost is doubled.</p></div>;
   const stage = stageOf(value).stage;
   const interval = INTERVAL[stage];
   const pace = aiPace(grid, { stage, running: runningAgents(), agents }, 1);
@@ -189,8 +192,8 @@ function Allowance() {
   const wallet = useSessionStore((s) => s.aiWallet);
   const set = useSessionStore((s) => s.setAiWallet);
   const founder = useFounderStore((s) => s.selectedFounderId);
-  // The Model's own runs are AI mode's, with its own budget. @see AiModePanel
-  if (founder === "model") return null;
+  // The Model's own runs are AI mode's, with its own budget; air-gapped, it spends nothing. @see AiModePanel
+  if (founder === "model" || keystone("airgap")) return null;
   const cap = walletCap();
   return (
     <div className={SECTION}>
