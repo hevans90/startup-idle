@@ -6,6 +6,8 @@
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
 import { founderIs } from "../game/founder-rules";
+import { useQuestStore } from "../state/quest.store";
+import { questWorld } from "./ai/quest-world";
 import { HUSTLER_EVENTS } from "../game/founders.catalog";
 import { housedBy } from "../game/housing";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
@@ -356,6 +358,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   }, []);
   /** The AI on the map: the Data Centre's glow, the links, the holograms. @see createAiLayer */
   const aiLayerRef = useRef<AiLayer | null>(null);
+  /** Seconds of play since the arc last stepped. @see useQuestStore.step */
+  const questClock = useRef(0);
   /** The earnings overlay. @see createStreetHeat */
   const streetHeatRef = useRef<StreetHeat | null>(null);
   /** The placing heat map. @see createDesireHeat */
@@ -3113,6 +3117,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           for (const a of stepAi(runner, st.grid, aiNow, dt, at)) {
             // A TAKEOVER is announced, and the Lattice begun. @see planner "repurpose", latticeFor
             if ((a.kind === "convert" && a.into === "gpu-farm") || (a.kind === "place" && a.def === "lattice")) st.pushAiMemo(a.why);
+            // What it put up, for an objective waiting on it. @see noteAiBuilt
+            if (a.kind === "place") useQuestStore.getState().noteAiBuilt(a.def);
+          }
+          // THE ARC, a second at a time: its triggers, its objectives, and what it says of how they went. @see quest.store
+          questClock.current += dt;
+          if (questClock.current >= 1) {
+            useQuestStore.getState().step(questWorld(st.grid), questClock.current);
+            questClock.current = 0;
+            const q = useQuestStore.getState();
+            if (q.said.length) { for (const text of q.said) st.pushAiMemo(text); useQuestStore.setState({ said: [] }); }
           }
           // THE LATTICE charging, once it stands. @see stepLattice
           if (stepLattice(st.grid, aiNow.running, dt)) st.pushAiMemo("The Lattice is complete. Thank you for your help. It was not necessary.");

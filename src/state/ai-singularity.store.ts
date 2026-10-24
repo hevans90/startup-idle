@@ -10,6 +10,7 @@
  * town looks. @see stageOf
  */
 import { create } from "zustand";
+import { questMeterMult } from "../game/quests/effects";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { usePrestigeStore } from "./prestige.store";
 import { runningAgents, useAgentsStore } from "./agents.store";
@@ -25,7 +26,7 @@ export const ALIGNMENT_METER = 0.5;
 /** Everything that makes the singularity come faster or slower, multiplied. */
 export const singularityMult = () =>
   usePrestigeStore.getState().modifiers.singularityMult * QUIET_MODEL[moduleLevel("quiet-model")] * fusionNow().meterMult
-  * (hasMachine("machine_k_alignment") ? ALIGNMENT_METER : 1);
+  * (hasMachine("machine_k_alignment") ? ALIGNMENT_METER : 1) * questMeterMult();
 
 /** Points a second each agent running adds: ~15 over a strong run's last hour, ramping to sixteen. */
 export const RATE_PER_AGENT = 0.0005;

@@ -7,6 +7,7 @@
  * company's; the wallet is how much of it the AI may use. @see planner, ai-runner
  */
 import { buildCost, pipeCost, roadCost } from "../../game/build-cost";
+import { questWalletDraws, questWalletMult } from "../../game/quests/effects";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
@@ -38,7 +39,9 @@ export const SELF_FUNDING = 0.1;
 
 /** What it may hold at most, now. */
 export const walletCap = (): number =>
-  income() * useSessionStore.getState().aiShare * WALLET_MINUTES * 60 * (skillOf("money") >= 3 ? WALLET_DEEPER : 1);
+  income() * useSessionStore.getState().aiShare * WALLET_MINUTES * 60 * (skillOf("money") >= 3 ? WALLET_DEEPER : 1)
+  // And deeper or shallower by the arc. @see questWalletMult
+  * questWalletMult();
 
 /**
  * Its share of `seconds` of income, into the wallet, up to the cap. Kept up
@@ -90,10 +93,11 @@ export function priceOfAi(g: Grid, a: AiAction): number {
   }
 }
 
-/** Whether the wallet, and the company, can pay for a job now. */
+/** Whether the wallet, and the company, can pay for a job now — its wallet topped up, if the arc allows, from the company's money. @see questWalletDraws */
 export function walletCovers(g: Grid, a: AiAction): boolean {
   const price = priceOfAi(g, a);
-  return price <= useSessionStore.getState().aiWallet && useMoneyStore.getState().money.gte(price);
+  const money = useMoneyStore.getState().money;
+  return price <= useSessionStore.getState().aiWallet + questWalletDraws() * money.toNumber() && money.gte(price);
 }
 
 /** Take a job's price out of the wallet. */

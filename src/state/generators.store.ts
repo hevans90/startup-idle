@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { questIncomeMult } from "../game/quests/effects";
 import { agentBonus } from "../game/agents";
 import { runningAgents } from "./agents.store";
 import { skillOf, training } from "./training.store";
@@ -544,7 +545,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult,
+            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
             innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * atDesks * wonderBonus("innovation") * labBonus(),
           };
         },

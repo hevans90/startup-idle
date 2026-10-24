@@ -8,6 +8,7 @@
  */
 
 import { resetForAscension } from "../simulation/reset-game-stores";
+import { useQuestStore } from "../state/quest.store";
 import { useAgentsStore } from "../state/agents.store";
 import { inheritedStart, useAiSingularityStore } from "../state/ai-singularity.store";
 import { grantInheritance } from "./machine";
@@ -62,6 +63,8 @@ export function ascend(rand: () => number = Math.random): AscensionResult | null
   const weights = weightsNow();
 
   resetForAscension();
+  // THE ARC closed: kept in the record, a fresh one for the next generation. @see useQuestStore.closeArc
+  useQuestStore.getState().closeArc();
 
   const fused = { ...g.fused, [founder]: [...(g.fused[founder] ?? []), t] };
   useGenerationStore.setState({

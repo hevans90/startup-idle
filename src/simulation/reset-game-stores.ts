@@ -1,4 +1,5 @@
 import { emptyLog, useGenerationStore } from "../state/generation.store";
+import { useQuestStore } from "../state/quest.store";
 import { SEED_ROUND, moduleLevel } from "../game/modules";
 import { useTrainingStore } from "../state/training.store";
 import { clearMorale } from "../game/morale";
@@ -71,6 +72,8 @@ export function resetAllGameStores(): void {
   usePrestigeStore.getState().reset();
   resetForAscension();
   useVapeAchievementsStore.getState().clearAll();
+  // And the arc, its record with it. @see useQuestStore
+  useQuestStore.getState().reset();
   // And the generations: a true new game begins at the first. @see useGenerationStore
   useGenerationStore.setState({
     generation: 1, sales: 0, log: emptyLog(), equity: 0, peakAgents: 0, weights: 0, modules: {}, slotted: [], machine: [], fused: {}, past: [], announce: null,

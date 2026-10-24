@@ -3,6 +3,7 @@
  * starts the next company with none. @see game/agents
  */
 import { create } from "zustand";
+import { questAgentCap } from "../game/quests/effects";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { agentBonus, agentCost, agentsOpen, rackRoom } from "../game/agents";
@@ -76,5 +77,7 @@ export const useAgentsStore = create<AgentsState>()(
 /** The agents running now: all of them, unless the Data Centre has throttled some. */
 export function runningAgents(): number {
   const { agents, running } = useAgentsStore.getState();
-  return running === null ? agents : Math.min(running, agents);
+  // Held to a share by the arc, unless that is lifted. @see questAgentCap
+  const most = Math.floor(agents * questAgentCap());
+  return Math.min(running === null ? agents : Math.min(running, agents), most);
 }

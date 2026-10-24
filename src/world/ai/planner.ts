@@ -18,6 +18,7 @@
  * lever — fewer agents running, slower it goes; none, and it stops.
  */
 import { NEIGHBOUR } from "../../iso/dir";
+import { questJobLean, questTakeoverShift } from "../../game/quests/effects";
 import { featureGateOpen } from "../../game/projects";
 import { housedBy, roomFor } from "../../game/housing";
 import { traitForecast, type Family } from "../../game/traits";
@@ -192,6 +193,17 @@ const TAKES = new Set<Kind>(["convert", "repurpose"]);
 /** Whether the AI, inherited, still works for the player at a stage: before the Overseer — and, aligned, always. @see INHERITANCE, keystone */
 export const inherited = (stage: Stage): boolean =>
   hasMachine(INHERITANCE) && (keystone("alignment") || (stage !== "overseer" && stage !== "ascension"));
+
+/** The stages in order; and where it starts taking what is yours — the Manager, moved by the arc. @see questTakeoverShift */
+const ORDER: readonly Stage[] = ["tool", "assistant", "colleague", "manager", "overseer", "ascension"];
+export const takesFrom = (): number => Math.max(ORDER.indexOf("colleague"), ORDER.indexOf("manager") + questTakeoverShift());
+/** What it may do at a stage: its stage's kinds, with what it takes added or taken away by where its takeover begins. */
+function kindsAt(stage: Stage): Kind[] | undefined {
+  const kinds = BY_STAGE[stage];
+  if (!kinds) return undefined;
+  const plain = kinds.filter((k) => !TAKES.has(k));
+  return ORDER.indexOf(stage) >= takesFrom() ? [...plain, "convert", "repurpose"] : plain;
+}
 
 /** What it does at a desk, or to cool what it has: not held to its district. */
 const ANYWHERE = new Set<Kind>(["hire", "upgrade", "pipe"]);
@@ -416,7 +428,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
 export function chooseAction(
   g: Grid, stage: Stage, rand: () => number = Math.random, affords: (a: AiAction) => boolean = () => true,
 ): AiAction | null {
-  const kinds = BY_STAGE[stage];
+  const kinds = kindsAt(stage);
   // AIR-GAPPED, it never touches the map. @see game/machine KEYSTONES
   if (!kinds || keystone("airgap")) return null;
   const district = aiDistrict(g, stage);
@@ -447,7 +459,8 @@ export function chooseAction(
   // INHERITED, it works for you till the Overseer: nothing taken, and only to your focus. @see game/machine
   const tame = inherited(stage);
   const weighted = kinds.filter((k) => (cooling === "full" || !DRINKING.has(k)) && focusWeight(focus, k) > 0 && !(tame && TAKES.has(k)))
-    .map((k) => ({ k, w: focusWeight(focus, k) * (tame ? 1 : LEAN[family][k] ?? 1) * rand() }));
+    // And leant by the arc, People to Machine. @see questJobLean
+    .map((k) => ({ k, w: focusWeight(focus, k) * (tame ? 1 : LEAN[family][k] ?? 1) * questJobLean(k) * rand() }));
   weighted.sort((a, b) => b.w - a.w);
   // TRAINED ON THE MONEY, it weighs every job it could do by what it costs, and does the best value. @see priceOfAi
   if (skillOf("money") >= 2) {

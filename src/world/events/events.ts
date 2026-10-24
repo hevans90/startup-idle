@@ -13,6 +13,7 @@
  * store's. @see world-scene, respondToEvent
  */
 import { notable } from "../../game/machine";
+import { questFloodMult } from "../../game/quests/effects";
 import { FLOOD_SECONDS } from "./flood";
 
 
@@ -96,7 +97,8 @@ export type PacedKind = keyof typeof PACING;
 export const nextDueIn = (kind: PacedKind, roll: number) => {
   const [lo, hi] = PACING[kind].between;
   // Convoys twice as often with the Machine's Market Maker. @see game/machine "market"
-  return (lo + roll * (hi - lo)) / (kind === "convoy" && notable("market") ? 2 : 1);
+  // Floods more or less often by the arc. @see questFloodMult
+  return (lo + roll * (hi - lo)) / (kind === "convoy" && notable("market") ? 2 : 1) / (kind === "river-flood" ? questFloodMult() : 1);
 };
 
 /** At this fill the pit's overflow is announced; at 100 it overflows; below this it is over. */

@@ -6,6 +6,7 @@
  * into the founder who was played. @see BehaviourLog, plans/singularity.md
  */
 import type { BehaviourLog } from "../state/generation.store";
+import { questTraitLean } from "./quests/effects";
 import type { DatasetId } from "./training";
 
 export type Family = "planner" | "optimiser" | "shepherd" | "elemental" | "recursive" | "temper";
@@ -77,6 +78,8 @@ export function traitScores(log: BehaviourLog): Record<TraitId, number> {
   const sales = Object.values(log.founders).reduce((a, b) => a + b, 0);
   const most = Math.max(0, ...Object.values(log.founders));
   if (sales >= 2 && most / sales >= 0.75) out.mirror += 6;
+  // THE ARC: what was chosen, and where it has left the AI. @see questTraitLean
+  for (const [t, n] of Object.entries(questTraitLean()) as [TraitId, number][]) out[t] = Math.max(0.1, out[t] + n);
   return out;
 }
 

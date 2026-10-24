@@ -12,6 +12,7 @@
  * @see planner, plans/singularity.md
  */
 import { DRONE_SWARM, moduleLevel } from "../../game/modules";
+import { questCharter } from "../../game/quests/effects";
 import type { Stage } from "../../state/ai-singularity.store";
 import { structureAt, type Grid, type Structure } from "../grid";
 import { housedBy } from "../../game/housing";
@@ -45,8 +46,9 @@ export type AiMemo = { text: string; at: number };
 export type Pending = { action: Extract<AiAction, { kind: "convert" }>; def: string; until: number };
 export type AiRunner = { clock: number; jobs: DroneJob[]; log: AiMemo[]; lastAt: number | null; memoIn: number | null; landed: Cell[]; pending: Pending[]; said: string[] };
 export const createAiRunner = (): AiRunner => ({ clock: 0, jobs: [], log: [], lastAt: null, memoIn: null, landed: [], pending: [], said: [] });
-/** How long a takeover is announced before it is done, ms. */
+/** How long a takeover is announced before it is done, ms; twice as long under the Oversight Board. @see questCharter */
 export const WARN_MS = 60_000;
+export const warnMs = (): number => (questCharter() === "oversight" ? 2 * WARN_MS : WARN_MS);
 /** The most landings kept for a scene that is not looking. */
 const LANDED_KEPT = 16;
 
@@ -214,10 +216,10 @@ function announce(r: AiRunner, g: Grid, a: Extract<AiAction, { kind: "convert" }
   const id = structureAt(g, a.at.x, a.at.y);
   const s = id >= 0 ? g.structures.get(id) : undefined;
   if (!s) return;
-  r.pending.push({ action: a, def: s.def, until: now + WARN_MS });
+  r.pending.push({ action: a, def: s.def, until: now + warnMs() });
   const what = housedBy(s.def) ? "this house" : `the ${(structureDef(s.def)?.name ?? "building").toLowerCase()}`;
   const into = (structureDef(a.into)?.name ?? "node").toLowerCase();
-  r.said.push(`In ${Math.round(WARN_MS / 1000)} seconds I will make ${what} a${/^[aeiou]/.test(into) ? "n" : ""} ${into}. It is marked in red. Click it to refuse.`);
+  r.said.push(`In ${Math.round(warnMs() / 1000)} seconds I will make ${what} a${/^[aeiou]/.test(into) ? "n" : ""} ${into}. It is marked in red. Click it to refuse.`);
 }
 
 /** Where a drone is, and whether it is scanning, `t` seconds out. */

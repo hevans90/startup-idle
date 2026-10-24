@@ -8,6 +8,7 @@
  * @see plans/ai-takeover.md §4.2, game/modules
  */
 import { hasMachine, useGenerationStore } from "../state/generation.store";
+import { questMachineReveal } from "./quests/effects";
 import { MODULES, type ModuleId } from "./modules";
 
 export const MACHINE = "machine";
@@ -74,9 +75,11 @@ export const keystone = (id: KeystoneId): boolean => hasMachine(keystoneId(id));
 export function machineCost(id: string): number {
   const n = machineNode(id);
   if (!n) return Infinity;
-  if (n.kind !== "notable") return n.cost;
+  // Revealed early by the arc, perhaps at a discount. @see questMachineReveal
+  const off = 1 - questMachineReveal(id).discount;
+  if (n.kind !== "notable") return Math.round(n.cost * off);
   const owned = NOTABLES.filter((x) => notable(x.id)).length;
-  return NOTABLE_COST + NOTABLE_STEP * owned;
+  return Math.round((NOTABLE_COST + NOTABLE_STEP * owned) * off);
 }
 
 const minorId = (m: ModuleId, ring: number) => `machine_${m}_${ring}`;
@@ -141,7 +144,8 @@ export const isMachine = (id: string): boolean => BY_ID.has(id);
 /** Rings shown: one an Ascension. */
 export const revealedRing = (): number => useGenerationStore.getState().generation - 1;
 /** Whether a node is still under the fog: "Ascend to reveal". */
-export const fogged = (id: string): boolean => (machineNode(id)?.ring ?? 0) > revealedRing() || !hasMachine(INHERITANCE);
+export const fogged = (id: string): boolean =>
+  ((machineNode(id)?.ring ?? 0) > revealedRing() && !questMachineReveal(id).revealed) || !hasMachine(INHERITANCE);
 
 /** Why a node cannot be bought now, or null if it can. */
 export function machineBlocked(id: string): "owned" | "fog" | "unreached" | "exclusive" | "weights" | null {

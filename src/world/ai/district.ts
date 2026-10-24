@@ -10,6 +10,7 @@
  * @see planner, plans/ai-takeover.md §1.1
  */
 import { stageFrom, stageOf, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
+import { questCharter, questDistrictCentre, questDistrictTiles } from "../../game/quests/effects";
 import { useFounderStore } from "../../state/founder.store";
 import { keystone } from "../../game/machine";
 import type { Grid } from "../grid";
@@ -30,7 +31,12 @@ export function aiDistrict(g: Grid, stage: Stage): District | null {
   let dc = null;
   for (const s of g.structures.values()) if (s.def === "datacentre" && !s.build) { dc = s; break; }
   if (!dc) return null;
-  return { cx: dc.x + (dc.w - 1) / 2, cy: dc.y + (dc.h - 1) / 2, r: keystone("takeoff") ? Infinity : r };
+  // THE ARC moves it, and widens it. @see questDistrictCentre, questDistrictTiles
+  const at = questDistrictCentre();
+  return {
+    cx: at ? at.x : dc.x + (dc.w - 1) / 2, cy: at ? at.y : dc.y + (dc.h - 1) / 2,
+    r: keystone("takeoff") ? Infinity : Math.max(2, r + questDistrictTiles()),
+  };
 }
 
 /** Whether a tile is in the district as it stands now, the meter's stage read live. */
@@ -47,6 +53,8 @@ export const inDistrict = (d: District | null, x: number, y: number): boolean =>
  */
 export const aiHoldsRoads = (): boolean =>
   useFounderStore.getState().selectedFounderId !== "model" && !keystone("alignment") && !keystone("airgap")
+  // The Oversight Board's streets stay yours; the Partnership's are shared. @see questCharter
+  && questCharter() !== "oversight" && questCharter() !== "partnership"
   && useAiSingularityStore.getState().value >= stageFrom("overseer");
 
 /**
