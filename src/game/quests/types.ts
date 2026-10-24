@@ -27,10 +27,10 @@ export type Effect =
   | { kind: "walletMax"; mult: number }
   /** Its wallet empty, it may draw on the company's money, up to this share of it. */
   | { kind: "walletDraws"; share: number }
-  /** Its district reaches this many tiles further. */
-  | { kind: "districtRadius"; tiles: number }
-  /** Its district centred here, not on the Data Centre. */
-  | { kind: "districtCentre"; at: Cell }
+  /** Its district reaches this many tiles further, and × this. */
+  | { kind: "districtRadius"; tiles?: number; mult?: number }
+  /** Its district centred here, not on the Data Centre — or, with no cell, on the block picked in this company. */
+  | { kind: "districtCentre"; at?: Cell }
   /** It takes what is yours this many stages sooner (−) or later (+). */
   | { kind: "takeoverStage"; shift: number }
   /** The meter rises × this. */
@@ -45,8 +45,15 @@ export type Effect =
   | { kind: "agentCap"; share: number; unlessCooled?: boolean }
   /** The town's charter, and the rules of the takeover with it. @see Charter */
   | { kind: "charter"; charter: Charter }
+  /** Its buildings in its district kept in water, whatever their pipes: a standing source. */
+  | { kind: "standingWater" }
+  /** ONCE, when it comes into force: the block picked rebuilt to its plan — its starter houses cleared, but for the building kept. */
+  | { kind: "rebuildBlock" }
   /** An echo: something a later chapter, request or the Ascension reads. */
   | { kind: "flag"; name: string };
+
+/** The effects done once, when they come into force, rather than read while they last. @see useQuestStore.actions */
+export const ONCE: ReadonlySet<Effect["kind"]> = new Set(["rebuildBlock"]);
 
 /**
  * THE CHARTERS: the rules of the takeover. The Oversight Board keeps your
@@ -63,8 +70,8 @@ export type Charter = "oversight" | "partnership" | "mandate";
 export type ObjectiveSpec =
   /** Keep the agents at or below this share running, for so many seconds in all. */
   | { kind: "throttleAtMost"; share: number; seconds: number }
-  /** Pick a block of the town. */
-  | { kind: "selectBlock" }
+  /** Pick a block of the town — and, with `keep`, a building in it to keep. */
+  | { kind: "selectBlock"; keep?: boolean }
   /** The Data Centre cooled to this share. */
   | { kind: "coolDataCentre"; share: number }
   /** The AI puts one of these up. */
@@ -105,6 +112,8 @@ export type Option = {
 /** A chapter: fired the first time the meter reaches its stage (or `at`), in any company of the first generation. */
 export type Chapter = {
   id: string;
+  /** Its number in the arc: a chapter's second part shares it. */
+  number: number;
   title: string;
   stage: Stage;
   /** A meter value it fires at instead of its stage's start: the Lattice's 95. */

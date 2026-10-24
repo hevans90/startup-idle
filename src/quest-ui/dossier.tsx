@@ -52,7 +52,7 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
                       done ? "cursor-pointer border-violet-600 bg-violet-600 text-white dark:border-violet-400 dark:bg-violet-400 dark:text-primary-950"
                         : now ? "animate-pulse border-violet-600 text-violet-700 dark:border-violet-400 dark:text-violet-300"
                           : "border-primary-400 text-primary-500 dark:border-primary-600 dark:text-primary-500",
-                    )}>{i + 1}</button>
+                    )}>{c.number}</button>
                   {i < chapters.length - 1 && <span className={twMerge("h-0.5 flex-1", done ? "bg-violet-600 dark:bg-violet-400" : "bg-primary-300 dark:bg-primary-700")} />}
                 </li>
               );

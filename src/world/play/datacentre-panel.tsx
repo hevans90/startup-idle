@@ -32,6 +32,8 @@ import { singularityMult, singularityRate, stageOf, useAiSingularityStore } from
 import { MAIN_END } from "../grid";
 import { useWorldStore } from "../../state/world.store";
 import { keystone } from "../../game/machine";
+import { questFlag } from "../../game/quests/effects";
+import { walletLedger } from "../ai/wallet";
 
 /** A rate a second as so much a minute, signed. */
 const perMinute = (r: number) => `${r >= 0 ? "+" : "−"}${Math.abs(r * 60).toFixed(2)} a minute`;
@@ -207,6 +209,16 @@ function Allowance() {
       <p className="tabular-nums text-primary-600 dark:text-primary-400">
         {formatCurrency(wallet)} to spend, of {formatCurrency(cap)} at most ({WALLET_MINUTES} minutes of its share). From the Colleague stage it pays for what it builds from this, and waits when it is empty.
       </p>
+      {/* ITS LEDGER, kept for you since the sandbox. @see walletLedger, chapter "ledger" */}
+      {questFlag("ledger:logged") && (
+        <div className="mt-1">
+          <p className="font-bold">Its ledger</p>
+          {walletLedger().length === 0 && <p className="text-primary-600 dark:text-primary-400">Nothing spent yet.</p>}
+          {walletLedger().map((l, i) => (
+            <p key={i} className="flex justify-between gap-2 tabular-nums"><span className="truncate">{l.what}</span><span>{formatCurrency(l.price)}</span></p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

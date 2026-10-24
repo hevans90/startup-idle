@@ -18,8 +18,9 @@ export type QuestWorld = {
   covered: number;
   /** Buildings standing, by kind. */
   counts: Record<string, number>;
-  /** Whether a block has been picked, and a site given. */
+  /** Whether a block has been picked, a building in it kept, and a site given. */
   block: boolean;
+  keep: boolean;
   site: boolean;
 };
 
@@ -32,7 +33,7 @@ export function measure(o: Running, w: QuestWorld, dt: number): { progress: numb
       const held = o.held + (w.agents > 0 && w.running <= s.share * w.agents ? dt : 0);
       return { progress: Math.min(1, held / s.seconds), held };
     }
-    case "selectBlock": return at(w.block ? 1 : 0);
+    case "selectBlock": return at(w.block && (!s.keep || w.keep) ? 1 : w.block ? 0.5 : 0);
     case "giveSite": return at(w.site ? 1 : 0);
     case "coolDataCentre": return at(w.dcCooled / s.share);
     case "aiBuilds": return at(o.aiBuilt ? 1 : 0);

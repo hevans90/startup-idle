@@ -16,7 +16,10 @@ export function effectRow(e: Effect): EffectRow | null {
     case "incomeMult": return { label: `${pct(e.mult)} income`, tone: e.mult >= 1 ? "good" : "bad" };
     case "walletMax": return { label: `Its wallet holds ${pct(e.mult)}`, tone: e.mult >= 1 ? "bad" : "good" };
     case "walletDraws": return { label: `It may draw up to ${Math.round(e.share * 100)}% of your money`, tone: "bad" };
-    case "districtRadius": return { label: `Its district ${e.tiles >= 0 ? "+" : "−"}${Math.abs(e.tiles)} tiles`, tone: e.tiles >= 0 ? "bad" : "good" };
+    case "districtRadius": {
+      const tiles = e.tiles ?? 0, mult = e.mult ?? 1, wider = tiles > 0 || mult > 1;
+      return { label: `Its district ${mult !== 1 ? `${pct(mult)} wider` : `${tiles >= 0 ? "+" : "−"}${Math.abs(tiles)} tiles`}`, tone: wider ? "bad" : "good" };
+    }
     case "districtCentre": return { label: "Its district moves to the block", tone: "bad" };
     case "takeoverStage": return { label: `It takes what is yours a stage ${e.shift < 0 ? "sooner" : "later"}`, tone: e.shift < 0 ? "bad" : "good" };
     case "meterMult": return { label: `The meter rises ${pct(e.mult)}`, tone: e.mult >= 1 ? "good" : "bad" };
@@ -25,6 +28,8 @@ export function effectRow(e: Effect): EffectRow | null {
     case "floodMult": return { label: `Floods ${pct(e.mult)} as often`, tone: e.mult > 1 ? "bad" : "good" };
     case "agentCap": return { label: `Agents run at ${Math.round(e.share * 100)}% at most${e.unlessCooled ? " unless the Data Centre is cooled" : ""}`, tone: "bad" };
     case "charter": return { label: CHARTER[e.charter], tone: "good" };
+    case "standingWater": return { label: "Its buildings never short of water", tone: "good" };
+    case "rebuildBlock": return { label: "The block's starter houses cleared, and built again taller", tone: "good" };
     case "flag": return null;
   }
 }

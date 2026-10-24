@@ -76,6 +76,8 @@ export type AiView = {
   districtColour?: number;
   /** AIR-GAPPED: the Data Centre's links dark, no holograms — it hums alone. @see game/machine KEYSTONES */
   airGap?: boolean;
+  /** What the arc is picking: a block or a site, outlined on the ground. @see questPickBox */
+  pick?: { x: number; y: number; w: number; h: number } | null;
   /** The reservoirs it has dug, by their corner: a stone rim round each. @see world/ai/reservoir */
   reservoirs?: readonly { x: number; y: number }[];
 };
@@ -194,6 +196,17 @@ export function createAiLayer(overlay: Container): AiLayer {
         gfx.fill({ color: c, alpha: 0.035 });
         gfx.poly(ring);
         gfx.stroke({ color: c, width: Math.max(1, 1.5 * sc), alpha: 0.4 });
+      }
+      // WHAT THE ARC IS PICKING: its box on the ground, violet, filled faintly.
+      if (view.pick) {
+        const p = view.pick, z = ground(g, p.x + (p.w >> 1), p.y + (p.h >> 1));
+        const box = [...P(sc, p.x - 0.5, p.y - 0.5, z), ...P(sc, p.x + p.w - 0.5, p.y - 0.5, z), ...P(sc, p.x + p.w - 0.5, p.y + p.h - 0.5, z), ...P(sc, p.x - 0.5, p.y + p.h - 0.5, z)];
+        // Its outline two screen pixels wide however far out the map is: the layer is scaled with it.
+        const px = 1 / (gfx.worldTransform.a || 1);
+        gfx.poly(box);
+        gfx.fill({ color: STAGE_COLOUR.overseer, alpha: 0.2 });
+        gfx.poly(box);
+        gfx.stroke({ color: STAGE_COLOUR.overseer, width: 2 * px, alpha: 0.95 });
       }
       // ITS RESERVOIRS, a stone rim on the ring round each basin: built, not a puddle. @see digReservoir
       for (const r of view.reservoirs ?? []) {

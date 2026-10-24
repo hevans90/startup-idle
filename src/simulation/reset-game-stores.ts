@@ -42,6 +42,8 @@ export function resetRunStores(): void {
   clearMorale();
   resetAutopilot();
   resetCooling();
+  // A new company, a new map: the arc's block and site were the last one's. @see newCompany
+  useQuestStore.getState().newCompany();
   // And the company's map: a new company founds on new ground. @see retireRunSave
   retireRunSave();
 

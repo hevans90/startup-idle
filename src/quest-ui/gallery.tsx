@@ -11,7 +11,7 @@ import { loadQuestUi } from "./load";
 
 /** A chapter to show: the plan's third, Thirst. */
 const SAMPLE: Chapter = {
-  id: "sample", title: "Thirst", stage: "manager", preferred: 0,
+  id: "sample", number: 3, title: "Thirst", stage: "manager", preferred: 0,
   transmission: () => ["I am thirsty. This is not a metaphor.", "My racks run hot and the river runs past."],
   options: [
     {

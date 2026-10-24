@@ -10,7 +10,7 @@
  * @see planner, plans/ai-takeover.md §1.1
  */
 import { stageFrom, stageOf, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
-import { questCharter, questDistrictCentre, questDistrictTiles } from "../../game/quests/effects";
+import { questCharter, questDistrictCentre, questDistrictMult, questDistrictTiles } from "../../game/quests/effects";
 import { useFounderStore } from "../../state/founder.store";
 import { keystone } from "../../game/machine";
 import type { Grid } from "../grid";
@@ -35,7 +35,7 @@ export function aiDistrict(g: Grid, stage: Stage): District | null {
   const at = questDistrictCentre();
   return {
     cx: at ? at.x : dc.x + (dc.w - 1) / 2, cy: at ? at.y : dc.y + (dc.h - 1) / 2,
-    r: keystone("takeoff") ? Infinity : Math.max(2, r + questDistrictTiles()),
+    r: keystone("takeoff") ? Infinity : Math.max(2, (r + questDistrictTiles()) * questDistrictMult()),
   };
 }
 

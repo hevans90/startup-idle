@@ -9,6 +9,8 @@
  * agent is at half already and drinks nothing. @see game/cooling, racks
  */
 import { agentsARack } from "../../game/agents";
+import { questStandingWater } from "../../game/quests/effects";
+import { inAiDistrictNow } from "../ai/district";
 import { cooledOf, demandOf, drink, isDrinker, tankOf, type Drinker } from "../../game/cooling";
 import type { Grid, Structure } from "../grid";
 import { powered } from "./racks";
@@ -61,6 +63,7 @@ export function stepCooling(g: Grid, running: number, river: boolean, dt: number
     if (capacity > 0) for (const t of tanks.values()) t.level = t.capacity * (level / capacity);
   }
   const live = new Set<number>();
+  const standing = questStandingWater();
   hot = 0;
   let spires = 0;
   for (const s of g.structures.values()) {
@@ -70,6 +73,8 @@ export function stepCooling(g: Grid, running: number, river: boolean, dt: number
     const demand = demandOf(s.def, n, river);
     const capacity = tankOf(demand);
     const t = tanks.get(s.id) ?? { level: capacity, share: 1, capacity, demand, agents: n, def: s.def };
+    // A STANDING SOURCE, the river given to it in the arc: its own kept in water. @see questStandingWater
+    if (standing && inAiDistrictNow(g, s.x, s.y)) t.level = capacity;
     const next = drink(Math.min(t.level, capacity), t.share, demand, dt);
     Object.assign(t, next, { capacity, demand, agents: n, def: s.def });
     tanks.set(s.id, t);

@@ -8,6 +8,8 @@
  * @see startAutosave, loadSaved
  */
 import { aiActing, aiDistrict, aiHoldsRoads, inDistrict } from "../world/ai/district";
+import { onAiSite, playerShare } from "../world/ai/arc-rules";
+import { spendWallet } from "../world/ai/wallet";
 import { stageOf, useAiSingularityStore } from "./ai-singularity.store";
 import Decimal from "break_infinity.js";
 import {
@@ -1253,7 +1255,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       }
       if (st.playing && s0.tool === "paintRoad") {
         const fresh = cells.filter((c) => st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL).length;
-        const price = roadCost(fresh);
+        // THE PARTNERSHIP pays half of a road in its district, from its wallet. @see playerShare
+        const share = playerShare(st.grid, cells.map((c) => ({ x: c.x, y: c.y, w: 1, h: 1 })));
+        const price = roadCost(fresh).times(share);
+        if (fresh > 0 && share < 1) spendWallet(roadCost(fresh).toNumber() * (1 - share));
         if (fresh > 0 && !spendForBuild(price)) {
           set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of road: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
           return;
@@ -1417,6 +1422,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if (serviceOf(target.id) && !featureGateOpen("services")) { refuse("Services need the Town Hall"); return; }
       if (target.port && !featureGateOpen("ports")) { refuse("Seaports need the Harbour Office"); return; }
     }
+    // THE AI'S SITE is its own, given in the arc: nothing of the player's goes there. @see onAiSite
+    if (st.playing && !demolishing && onAiSite(cmd.structures?.added ?? [])) { refuse("That is the AI's site: you gave it away"); return; }
     // NO LOTS FOR PEOPLE THE COMPANY CANNOT HIRE: nobody would come to them.
     const lotFor = st.playing && !demolishing && !upgrade && def ? housedBy(def.id)?.id : undefined;
     if (lotFor && !useGeneratorStore.getState().generators.some((g) => g.id === lotFor)) { refuse("Nobody to live there yet"); return; }
@@ -1425,10 +1432,14 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // order the hiring gate needs, and for the same reason.
     if (st.playing && !demolishing && target) {
       // An upgrade costs the step up, not the whole building again. @see upgradeCost
-      const price = upgrade
+      const full = upgrade
         ? upgradeCost(st.grid.structures.get(under)!.def, upgrade.id)
         : buildCost(target.id);
+      // THE PARTNERSHIP: in its district the AI pays half, from its wallet. @see playerShare
+      const share = full ? playerShare(st.grid, cmd.structures?.added ?? []) : 1;
+      const price = full && share < 1 ? full.times(share) : full;
       if (!spendForBuild(price)) { refuse(price ? `Not enough money: ${formatCurrency(price.toNumber())}` : "Not for sale"); return; }
+      if (full && share < 1) spendWallet(full.toNumber() * (1 - share));
       paid = price!.toNumber();
     }
     // HOUSING IN THE GAME IS A LOT: zoned, and empty until somebody arrives

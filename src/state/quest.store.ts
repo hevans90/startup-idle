@@ -20,7 +20,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { AXIS_MOST, type Chapter, type Disposition, type Effect, type Objective, type Option, type Request } from "../game/quests/types";
+import { AXIS_MOST, ONCE, type Chapter, type Disposition, type Effect, type Objective, type Option, type Request } from "../game/quests/types";
 import { CHAPTERS, REQUESTS } from "../game/quests/chapters";
 import { measure, type QuestWorld } from "../game/quests/objectives";
 import type { Family } from "../game/traits";
@@ -63,9 +63,18 @@ type QuestState = {
   effects: Effect[];
   /** Seconds of play to the next request; null till requests begin. */
   requestIn: number | null;
-  /** The player's answers to objectives that ask for a place: a block picked, a site given. */
+  /**
+   * The player's answers to objectives that ask for a place, in this company
+   * (each has its own map): a block picked, by its middle; the building in it
+   * kept, by id; a site given, by its middle. And what the next click on the
+   * map picks, while it is picking.
+   */
   block: { x: number; y: number } | null;
+  keep: number | null;
   site: { x: number; y: number } | null;
+  picking: "block" | "keep" | "site" | null;
+  /** Effects done once, waiting for the map to do them. @see ONCE */
+  actions: Effect[];
   /** What it has to say of how things turned out, for the memos; taken by the scene. */
   said: string[];
   record: ArcRecord[];
@@ -77,7 +86,11 @@ type QuestState = {
   /** The AI put up a building, for an objective that waits on it. */
   noteAiBuilt: (def: string) => void;
   pickBlock: (at: { x: number; y: number }) => void;
+  keepBuilding: (id: number) => void;
   giveSite: (at: { x: number; y: number }) => void;
+  setPicking: (what: QuestState["picking"]) => void;
+  /** A new company: its map's block and site forgotten. */
+  newCompany: () => void;
   /** A second or so of play. */
   step: (world: QuestWorld, dt: number, rand?: () => number, chapters?: readonly Chapter[], requests?: readonly Request[]) => void;
   /** The Ascension: this generation's arc into the record, and a fresh one. */
@@ -87,8 +100,10 @@ type QuestState = {
 
 const fresh = () => ({
   offer: null, chapters: {}, requests: {}, objective: null, disposition: { autonomy: 0, machine: 0 }, path: [],
-  flags: [], effects: [], requestIn: null, block: null, site: null, said: [],
+  flags: [], effects: [], requestIn: null, block: null, keep: null, site: null, picking: null, actions: [], said: [],
 });
+/** Effects split: those read while they last, and those done once. */
+const split = (es: readonly Effect[]) => ({ lasting: es.filter((e) => !ONCE.has(e.kind)), once: es.filter((e) => ONCE.has(e.kind)) });
 
 const clamp = (n: number) => Math.max(-AXIS_MOST, Math.min(AXIS_MOST, n));
 
@@ -129,7 +144,8 @@ export const useQuestStore = create<QuestState>()(
           offer: null,
           [offer.kind === "chapter" ? "chapters" : "requests"]: { ...s[offer.kind === "chapter" ? "chapters" : "requests"], [offer.id]: index },
           disposition, path: [...s.path, disposition],
-          effects: [...s.effects, ...opt.effects],
+          effects: [...s.effects, ...split(opt.effects).lasting],
+          actions: [...s.actions, ...split(opt.effects).once],
           flags: [...new Set([...s.flags, ...opt.effects.flatMap((e) => (e.kind === "flag" ? [e.name] : []))])],
           // One objective at a time: a new one takes the place of one still running, which is let go, not failed.
           objective: opt.objective ? { kind: offer.kind, id: offer.id, option: index, spec: opt.objective, elapsed: 0, progress: 0, held: 0 } : s.objective,
@@ -143,8 +159,9 @@ export const useQuestStore = create<QuestState>()(
         const more = (met ? opt?.success : opt?.failure) ?? [];
         const says = met ? opt?.successSays : opt?.failureSays;
         set({
-          objective: null,
-          effects: [...s.effects, ...more],
+          objective: null, picking: null,
+          effects: [...s.effects, ...split(more).lasting],
+          actions: [...s.actions, ...split(more).once],
           flags: [...new Set([...s.flags, ...more.flatMap((e) => (e.kind === "flag" ? [e.name] : []))])],
           said: says ? [...s.said, says] : s.said,
         });
@@ -159,8 +176,11 @@ export const useQuestStore = create<QuestState>()(
           const o = get().objective;
           if (o && o.spec.kind === "aiBuilds" && o.spec.def === def) set({ objective: { ...o, aiBuilt: true } });
         },
-        pickBlock: (block) => set({ block }),
+        pickBlock: (block) => set({ block, keep: null }),
+        keepBuilding: (keep) => set({ keep }),
         giveSite: (site) => set({ site }),
+        setPicking: (picking) => set({ picking }),
+        newCompany: () => set({ block: null, keep: null, site: null, picking: null }),
 
         step: (world, dt, rand = Math.random, chapters = CHAPTERS, requests = REQUESTS) => {
           if (dt <= 0 || dt > LONGEST_STEP) return;

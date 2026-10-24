@@ -18,6 +18,7 @@
  * lever — fewer agents running, slower it goes; none, and it stops.
  */
 import { NEIGHBOUR } from "../../iso/dir";
+import { aiSite, inRebuiltBlock } from "./arc-rules";
 import { questJobLean, questTakeoverShift } from "../../game/quests/effects";
 import { featureGateOpen } from "../../game/projects";
 import { housedBy, roomFor } from "../../game/housing";
@@ -173,6 +174,11 @@ function reservoirFor(g: Grid, district: District | null): AiAction | null {
 /** Where the Lattice goes: in the district, as near the Data Centre as it fits; null if it stands, or will not fit. */
 function latticeFor(g: Grid, district: District | null): AiAction | null {
   if (!district || latticeOf(g)) return null;
+  // ON ITS SITE, if it was given one and the Lattice fits there. @see aiSite
+  const site = aiSite();
+  if (site && validatePlacement(g, structureDef("lattice")!, site.x, site.y, playRules(g)).ok) {
+    return { kind: "place", def: "lattice", at: { x: site.x, y: site.y }, why: "I have begun the Lattice, on the land you gave me. Give it twenty-four agents and water, and it will be finished. So will I." };
+  }
   const dc = [...g.structures.values()].find((s) => s.def === "datacentre" && !s.build);
   if (!dc) return null;
   const c = centre(dc);
@@ -284,12 +290,13 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       const fill = useSlopPitStore.getState().fill / 100;
       let best: Cell | null = null, top = -Infinity;
       for (const c of spots(g, def, d)) {
-        const want = desireAt(g, maps, c.x, c.y, who, fill)?.total ?? -Infinity;
+        // THE BLOCK IT REBUILDS, first of anywhere. @see inRebuiltBlock
+        const want = (desireAt(g, maps, c.x, c.y, who, fill)?.total ?? -Infinity) + (inRebuiltBlock(c.x, c.y) ? 1e6 : 0);
         if (want > top) { top = want; best = c; }
       }
       if (!best) return null;
-      // GENERATIVE ZONING: born at the tier the spot can sustain, if that is higher. @see projectTier
-      if (notable("zoning")) {
+      // GENERATIVE ZONING: born at the tier the spot can sustain, if that is higher — and in the block it rebuilds. @see projectTier
+      if (notable("zoning") || inRebuiltBlock(best.x, best.y)) {
         const m = desireAt(g, maps, best.x, best.y, who, fill);
         // A landmark is not zoned: t2 at most.
         const grown = m ? Math.min(2, ["t0", "t1", "t2", "landmark"].indexOf(projectTier(m))) : -1;

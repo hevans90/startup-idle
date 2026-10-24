@@ -35,10 +35,18 @@ export const questWalletMult = (): number => {
 export const questWalletDraws = (): number => Math.max(0, ...of("walletDraws").map((e) => e.share));
 
 /** Tiles its district reaches further: its effects, and 2 a step of Autonomy. @see aiDistrict */
-export const questDistrictTiles = (): number => of("districtRadius").reduce((n, e) => n + e.tiles, 0) + 2 * autonomy();
+export const questDistrictTiles = (): number => of("districtRadius").reduce((n, e) => n + (e.tiles ?? 0), 0) + 2 * autonomy();
+/** And × this. @see aiDistrict */
+export const questDistrictMult = (): number => product(of("districtRadius").map((e) => e.mult ?? 1));
 
-/** Where its district is centred instead of the Data Centre, if anywhere: the last chosen. @see aiDistrict */
-export const questDistrictCentre = (): { x: number; y: number } | null => last(of("districtCentre"))?.at ?? null;
+/** Where its district is centred instead of the Data Centre, if anywhere: the last chosen — or the block picked in this company. @see aiDistrict */
+export const questDistrictCentre = (): { x: number; y: number } | null => {
+  const e = last(of("districtCentre"));
+  return e ? e.at ?? state().block : null;
+};
+
+/** Whether its buildings in its district are kept in water whatever their pipes. @see stepCooling */
+export const questStandingWater = (): boolean => of("standingWater").length > 0;
 
 /** Stages sooner (−) or later (+) it takes what is yours. @see chooseAction */
 export const questTakeoverShift = (): number => {

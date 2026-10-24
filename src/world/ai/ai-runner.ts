@@ -85,6 +85,19 @@ export function aiPace(g: Grid, now: AiNow, dt: number): number {
   return dt * (now.running / now.agents) * (1 + HANGAR_SPEED * Math.min(MAX_HANGARS, hangars));
 }
 
+/** A job, in a line of its ledger. @see walletLedger */
+function ledgerLine(a: AiAction): string {
+  switch (a.kind) {
+    case "place": return structureDef(a.def)?.name ?? a.def;
+    case "convert": return `${structureDef(a.into)?.name ?? a.into}, converted`;
+    case "pipe": return "A water main";
+    case "road": return "Road";
+    case "hire": return `A hire: ${a.who}`;
+    case "upgrade": return "An upgrade";
+    default: return a.kind;
+  }
+}
+
 /**
  * Do a job and note it — paid for out of the AI's wallet, checked again now,
  * since other jobs may have spent it since this one was chosen. @see wallet
@@ -93,7 +106,7 @@ function done(r: AiRunner, a: AiAction, at: number, g: Grid | null = null): bool
   const price = g ? priceOfAi(g, a) : 0;
   if (g && !walletCovers(g, a)) return false;
   const ok = perform(a);
-  if (ok) spendWallet(price);
+  if (ok) spendWallet(price, ledgerLine(a));
   if (ok) {
     r.log.push({ text: a.why, at });
     if (r.log.length > 30) r.log.shift();

@@ -6,6 +6,7 @@
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
 import { founderIs } from "../game/founder-rules";
+import { BLOCK, SITE, boxAround, clearBlock } from "./ai/arc-rules";
 import { useQuestStore } from "../state/quest.store";
 import { questWorld } from "./ai/quest-world";
 import { HUSTLER_EVENTS } from "../game/founders.catalog";
@@ -3127,6 +3128,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             questClock.current = 0;
             const q = useQuestStore.getState();
             if (q.said.length) { for (const text of q.said) st.pushAiMemo(text); useQuestStore.setState({ said: [] }); }
+            // WHAT THE ARC DOES ONCE: the block picked, cleared to be built again. @see ONCE, clearBlock
+            if (q.actions.length) {
+              useQuestStore.setState({ actions: [] });
+              for (const e of q.actions) {
+                if (e.kind === "rebuildBlock" && clearBlock(st.grid) > 0) st.pushAiMemo("I have cleared the block. Its residents are staying with friends. I will build it again, properly.");
+              }
+            }
           }
           // THE LATTICE charging, once it stands. @see stepLattice
           if (stepLattice(st.grid, aiNow.running, dt)) st.pushAiMemo("The Lattice is complete. Thank you for your help. It was not necessary.");
@@ -3274,6 +3282,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           districtColour: !modelRun && keystone("alignment") ? STAGE_COLOUR.tool : undefined,
           airGap: !modelRun && !preview && keystone("airgap"),
           reservoirs: playing ? useSessionStore.getState().aiReservoirs : undefined,
+          // WHAT THE ARC IS PICKING, under the pointer; or the block picked. @see useQuestStore.picking
+          pick: playing ? questPickBox() : null,
           pipe: useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? pendingPipe() : null,
         }, raw, now);
       } else ai?.clear();
@@ -3466,4 +3476,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       <pixiContainer ref={overlayRoot} zIndex={10} />
     </pixiContainer>
   );
+}
+
+/** The box the arc is picking under the pointer — a block, a site — or the block picked, while its objective runs. @see QuestLayer */
+function questPickBox(): { x: number; y: number; w: number; h: number } | null {
+  const q = useQuestStore.getState(), hover = useWorldStore.getState().hover;
+  if (q.picking === "block" && hover) return boxAround(hover, BLOCK);
+  if (q.picking === "site" && hover) return boxAround(hover, SITE);
+  if (q.block && q.objective?.spec.kind === "selectBlock") return boxAround(q.block, BLOCK);
+  return null;
 }

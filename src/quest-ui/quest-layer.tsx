@@ -12,7 +12,8 @@ import { sfx } from "../audio/sound";
 import { CHAPTERS, REQUESTS } from "../game/quests/chapters";
 import { CHAPTER_WAIT, REQUEST_WAIT, offered, useQuestStore, type Running } from "../state/quest.store";
 import { useWorldStore } from "../state/world.store";
-import { idx, inBounds, type Grid } from "../world/grid";
+import { idx, inBounds, structureAt, type Grid } from "../world/grid";
+import { BLOCK, SITE, boxAround } from "../world/ai/arc-rules";
 import { cellToWorld } from "../world/iso";
 import { Tracker } from "./tracker";
 import { Transmission } from "./transmission";
@@ -73,6 +74,38 @@ export function QuestLayer() {
   const objective = useQuestStore((s) => s.objective);
   const at = useQuestStore((s) => s.disposition);
   const flags = useQuestStore((s) => s.flags);
+  const picking = useQuestStore((s) => s.picking);
+  const block = useQuestStore((s) => s.block);
+  const keep = useQuestStore((s) => s.keep);
+  // PICKING ON THE MAP: the next look at a tile is the block, the building kept, or the site. @see useQuestStore.picking
+  useEffect(() => useWorldStore.subscribe((st, was) => {
+    if (!st.lookedAt || st.lookedAt === was.lookedAt) return;
+    const q = useQuestStore.getState(), c = st.lookedAt;
+    const say = (text: string) => useWorldStore.setState({ notice: { text, at: Date.now() } });
+    if (q.picking === "block") {
+      q.pickBlock({ x: c.x, y: c.y });
+      q.setPicking(q.objective?.spec.kind === "selectBlock" && q.objective.spec.keep ? "keep" : null);
+    } else if (q.picking === "keep") {
+      const id = structureAt(st.grid, c.x, c.y), b = q.block && boxAround(q.block, BLOCK), s = st.grid.structures.get(id);
+      if (!s || !b || s.x < b.x || s.y < b.y || s.x >= b.x + b.w || s.y >= b.y + b.h) { say("Pick a building in the block"); return; }
+      q.keepBuilding(id);
+      q.setPicking(null);
+    } else if (q.picking === "site") {
+      const b = boxAround({ x: c.x, y: c.y }, SITE);
+      for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) {
+        if (!inBounds(st.grid, x, y) || structureAt(st.grid, x, y) >= 0) { say("Give it open ground: three tiles by three, nothing built"); return; }
+      }
+      q.giveSite({ x: c.x, y: c.y });
+      q.setPicking(null);
+    }
+  }), []);
+  /** What the tracker's button does, for an objective that asks for a place. */
+  const start = (what: "block" | "keep" | "site") => { useWorldStore.getState().setTool("inspect"); useQuestStore.getState().setPicking(what); };
+  const spec = objective?.spec;
+  const action = !spec ? undefined
+    : picking ? { label: picking === "block" ? "Click a block of your town" : picking === "keep" ? "Click the building to keep" : "Click open ground for it", onClick: () => useQuestStore.getState().setPicking(null), busy: true }
+      : spec.kind === "selectBlock" ? (block && spec.keep && keep === null ? { label: "Pick the building to keep", onClick: () => start("keep") } : !block ? { label: "Pick the block", onClick: () => start("block") } : undefined)
+        : spec.kind === "giveSite" ? { label: "Give it a site", onClick: () => start("site") } : undefined;
   // A TRANSMISSION ARRIVING: its tone, once.
   const heard = useRef<string | null>(null);
   useEffect(() => {
@@ -86,12 +119,12 @@ export function QuestLayer() {
   return (
     <>
         {objective && (
-          <Tracker says={objective.spec.says} progress={objective.progress} left={objective.spec.window - objective.elapsed} />
+          <Tracker says={objective.spec.says} progress={objective.progress} left={objective.spec.window - objective.elapsed} action={action} />
         )}
         {offer && q && (chapter || request) && (
           <Transmission
             className="quest-slide-in"
-            kicker={chapter ? `Chapter ${CHAPTERS.indexOf(chapter) + 1}` : "Between chapters"}
+            kicker={chapter ? `Chapter ${chapter.number}` : "Between chapters"}
             title={chapter ? chapter.title : "A request"}
             lines={chapter ? chapter.transmission(new Set(flags)) : [request!.text]}
             options={q.options}

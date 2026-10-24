@@ -100,9 +100,21 @@ export function walletCovers(g: Grid, a: AiAction): boolean {
   return price <= useSessionStore.getState().aiWallet + questWalletDraws() * money.toNumber() && money.gte(price);
 }
 
-/** Take a job's price out of the wallet. */
-export function spendWallet(price: number): void {
+/**
+ * ITS LEDGER: what it has spent, newest first, the last `LEDGER_KEPT` — shown
+ * in the Data Centre panel once the arc has it logged. Not saved: a ledger of
+ * this session's spending. @see questFlag "ledger:logged"
+ */
+export type LedgerLine = { what: string; price: number; at: number };
+export const LEDGER_KEPT = 8;
+const ledger: LedgerLine[] = [];
+export const walletLedger = (): readonly LedgerLine[] => ledger;
+
+/** Take a job's price out of the wallet, and write it down. */
+export function spendWallet(price: number, what = "Half of a build of yours"): void {
   if (price <= 0) return;
+  ledger.unshift({ what, price, at: Date.now() });
+  if (ledger.length > LEDGER_KEPT) ledger.pop();
   const s = useSessionStore.getState();
   s.setAiWallet({ aiWallet: Math.max(0, s.aiWallet - price) });
 }

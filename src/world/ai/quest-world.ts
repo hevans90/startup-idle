@@ -36,6 +36,7 @@ export function questWorld(g: Grid): QuestWorld {
     covered: drinkers ? met / drinkers : 1,
     counts,
     block: !!q.block,
+    keep: q.keep !== null,
     site: !!q.site,
   };
 }
