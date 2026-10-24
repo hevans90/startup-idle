@@ -22,7 +22,7 @@ The takeover is the best idea in the late game: the company's AI starts doing yo
 - **Training that shapes what kind of AI you raise** instead of buffing the economy.
 - **An Ascension worth reaching** and harder to reach.
 
-This is a plan only. Nothing here is built yet. Of Arwes, only `@arwes/text` is installed (for the 10x dev's decipher); Arwes's React components don't work under this app's StrictMode, so the quest UI uses its DOM packages with our own wrappers (phase Q1).
+This is a plan only. Nothing here is built yet. Of Arwes, only `@arwes/text` is installed (for the 10x dev's decipher); Arwes's React components don't work under this app's StrictMode, so the quest UI uses its DOM packages with our own wrappers (phase Q1). **Q1 done:** `src/quest-ui/` — `QuestFrame` (arwes's octagon, corners and underline frames, drawn on with `animateFrameAssembler`, never arwes's animator), `QuestText` (decipher and sequence), `QuestBackground` (dots, grid lines), `useReducedMotion`; colours from `.quest-frame` in `index.css`, a lit variant for hover; loaded only through `loadQuestUi`, and eslint refuses `@arwes/*` and `motion` anywhere else (the 10x dev's decipher excepted). The kit is 23 KB gzipped, so open question 7 is settled: arwes draws the frames. `transmission` and `decision` tones in `audio/sound.ts`. A dev gallery at `?questkit` shows it all in both themes. `@arwes/animated` comes in as the frames' dependency; nothing uses it directly yet.
 
 ---
 

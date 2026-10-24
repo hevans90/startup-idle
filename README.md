@@ -76,7 +76,7 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**. **Hin
 
 ## Tech stack
 
-React 19 + TypeScript (Vite, SWC), Tailwind CSS v4; Zustand persisted to `localStorage`; PixiJS v8, @pixi/react, pixi-viewport; WebGPU compute water with a CPU reference; break_infinity.js (`Decimal`); Arwes (`@arwes/text`: the decipher text); Bun (runtime, tests); Tauri (desktop).
+React 19 + TypeScript (Vite, SWC), Tailwind CSS v4; Zustand persisted to `localStorage`; PixiJS v8, @pixi/react, pixi-viewport; WebGPU compute water with a CPU reference; break_infinity.js (`Decimal`); Arwes (`@arwes/text`: the decipher text; `@arwes/frames`, `@arwes/bgs` with `motion@10`: the AI's console, `src/quest-ui/` — `QuestFrame` octagon/corners/underline themed by `.quest-frame` in `index.css`, `QuestText` decipher/sequence, `QuestBackground` dots/grid, all off under reduced motion; loaded only via `loadQuestUi`, arwes imports elsewhere an eslint error; dev gallery `?questkit`); Bun (runtime, tests); Tauri (desktop).
 
 ## Getting started
 

@@ -5,6 +5,9 @@
     "": {
       "name": "startup-idle",
       "dependencies": {
+        "@arwes/animated": "1.0.0-next.25020502",
+        "@arwes/bgs": "1.0.0-next.25020502",
+        "@arwes/frames": "1.0.0-next.25020502",
         "@arwes/text": "1.0.0-next.25020502",
         "@floating-ui/react": "^0.27.7",
         "@fontsource/space-mono": "^5.2.5",
@@ -20,6 +23,7 @@
         "fast-xml-parser": "^5.5.9",
         "fuse.js": "^7.4.2",
         "mathjs": "^14.4.0",
+        "motion": "10.18.0",
         "pixi-viewport": "^6.0.3",
         "pixi.js": "^8.17.1",
         "react": "^19.0.0",
@@ -53,6 +57,10 @@
     "@arwes/animated": ["@arwes/animated@1.0.0-next.25020502", "", { "dependencies": { "@arwes/animator": "^1.0.0-next.25020502", "csstype": "3", "tslib": "2" }, "peerDependencies": { "motion": "10" } }, "sha512-MCcbapmTP2RPMPXTI3hPivpemPaOp7nnJfXda4biF+jwceF46dm68OBR8Nd9LXEDp6spLcvO9VIDqLX0ZW6pfQ=="],
 
     "@arwes/animator": ["@arwes/animator@1.0.0-next.25020502", "", { "dependencies": { "@arwes/tools": "^1.0.0-next.25020502", "tslib": "2" } }, "sha512-YM83CDFHbXDRCwDkzjJ+GxBURIum9XT58x3ApgL9i9Ob3fKXVsswg/llAIDM1J5dqErmFPRcdKP1SWKN6mEKhQ=="],
+
+    "@arwes/bgs": ["@arwes/bgs@1.0.0-next.25020502", "", { "dependencies": { "@arwes/animated": "^1.0.0-next.25020502", "@arwes/animator": "^1.0.0-next.25020502", "tslib": "2" } }, "sha512-cvhy/mmaLGXXogtZwORYU532J7tw5bBFPjYdXnyEo+kcPbTmxAtfuo+bNaCrrx4xdroSdz2Jtuy1dwRNor/Ieg=="],
+
+    "@arwes/frames": ["@arwes/frames@1.0.0-next.25020502", "", { "dependencies": { "@arwes/animated": "^1.0.0-next.25020502", "@arwes/tools": "^1.0.0-next.25020502", "csstype": "3", "tslib": "2" }, "peerDependencies": { "motion": "10" } }, "sha512-/dh2OklvHlUT8lnP9C9CkBxBI1pDUTWcLP0vxYjI0QJzC+B6ucD8x9kNsJj9MxYuIw4/jkvBnmJZhkNyCwyd4A=="],
 
     "@arwes/text": ["@arwes/text@1.0.0-next.25020502", "", { "dependencies": { "@arwes/animated": "^1.0.0-next.25020502", "@arwes/tools": "^1.0.0-next.25020502", "tslib": "2" } }, "sha512-oL1aemeLFWIZgrpS2FtHmUq5JxxU7A9pVRKEoBxDtEICyT94kHoADbvhN4aJ7AXYJwvECMrmsAPuw7/27bXJvA=="],
 

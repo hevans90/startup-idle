@@ -5,8 +5,9 @@
  *
  *  - EFFECTS (`sfx`): a click for a button, a thud for a building going up, a
  *    pop for a house growing, a coin for a port's fee, a crumble for a
- *    demolition. The same one again within `REPEAT_MS` is dropped, so AI mode
- *    building a block is a patter and not a roar.
+ *    demolition; a soft rising chirp as the AI's transmission comes in, and a
+ *    confirm tone for a decision made. The same one again within `REPEAT_MS`
+ *    is dropped, so AI mode building a block is a patter and not a roar.
  *  - AMBIENCE (`ambience`): a low hum that swells with the town, birds by
  *    day, crickets by night.
  *
@@ -15,7 +16,7 @@
  * old browsers) every call is a no-op. Volume and mute are the player's, in
  * settings. @see SoundControls
  */
-export type Sfx = "click" | "build" | "pop" | "coin" | "crumble";
+export type Sfx = "click" | "build" | "pop" | "coin" | "crumble" | "transmission" | "decision";
 
 /** The same sound again within this long is dropped, ms. */
 export const REPEAT_MS = 70;
@@ -98,6 +99,10 @@ export function sfx(name: Sfx): void {
     case "coin": tone(bus, "square", 988, 988, t, 0.07, 0.06); tone(bus, "square", 1319, 1319, t + 0.07, 0.16, 0.06); break;
     case "build": tone(bus, "sine", 120, 55, t, 0.22, 0.5); burst(bus, t, 0.12, 900, 0.25); break;
     case "crumble": burst(bus, t, 0.45, 600, 0.4); burst(bus, t + 0.08, 0.3, 1800, 0.15); break;
+    // THE AI'S TRANSMISSION: three soft rising chirps, each a little higher. @see quest-ui
+    case "transmission": for (let k = 0; k < 3; k++) tone(bus, "sine", 520 * 1.26 ** k, 780 * 1.26 ** k, t + k * 0.09, 0.14, 0.09); break;
+    // A DECISION: two notes up a fifth, the second held.
+    case "decision": tone(bus, "triangle", 660, 660, t, 0.08, 0.14); tone(bus, "triangle", 990, 990, t + 0.08, 0.24, 0.12); break;
   }
 }
 

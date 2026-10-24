@@ -83,3 +83,34 @@
 @media (prefers-reduced-motion: reduce) {
   .hint-glow { animation: none; }
 }
+
+/*
+ * THE AI'S CONSOLE (quest-ui): arwes's frame variables, set from the game's
+ * palette and never left at arwes's own — violet on a light panel in light
+ * mode, violet on near-black in dark. `data-illuminate` lights a frame on
+ * hover: a decision card under the pointer. @see QuestFrame
+ */
+.quest-frame {
+  --arwes-frames-bg-color: color-mix(in oklab, var(--color-primary-50) 94%, transparent);
+  --arwes-frames-line-color: var(--color-violet-600);
+  --arwes-frames-deco-color: var(--color-violet-500);
+  --quest-pattern: color-mix(in oklab, var(--color-violet-600) 22%, transparent);
+  color: var(--color-primary-900);
+}
+.dark .quest-frame {
+  --arwes-frames-bg-color: color-mix(in oklab, var(--color-primary-950) 94%, transparent);
+  --arwes-frames-line-color: var(--color-violet-400);
+  --arwes-frames-deco-color: var(--color-violet-300);
+  --quest-pattern: color-mix(in oklab, var(--color-violet-400) 20%, transparent);
+  color: var(--color-primary-100);
+}
+.quest-frame[data-illuminate]:hover {
+  --arwes-frames-bg-color: color-mix(in oklab, var(--color-violet-100) 94%, transparent);
+  --arwes-frames-line-color: var(--color-violet-500);
+  --arwes-frames-line-filter: drop-shadow(0 0 3px var(--color-violet-500));
+}
+.dark .quest-frame[data-illuminate]:hover {
+  --arwes-frames-bg-color: color-mix(in oklab, var(--color-violet-950) 94%, transparent);
+  --arwes-frames-line-color: var(--color-violet-300);
+  --arwes-frames-line-filter: drop-shadow(0 0 4px var(--color-violet-400));
+}
