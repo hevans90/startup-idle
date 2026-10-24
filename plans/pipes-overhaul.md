@@ -1,5 +1,7 @@
 # Pipes, rebuilt: a water main the player can read
 
+**Status:** phases 1–7 built on `main`. Not done: the bore upgrade (§4), the AI's mains in violet, stilts over dips and roads (mains lie just off the ground), a separate Water overlay (the run's card and the flow drawing stand in for it), and re-measuring the cooling cadence in a played run (§6, phase 8).
+
 ## Why
 
 Pipes carry the late game. The Data Centre, the AI's buildings and the Lattice all drink, so a pipe that doesn't carry water means agents running hot and lost income. Today the player lays one and can't tell:

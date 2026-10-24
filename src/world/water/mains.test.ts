@@ -7,7 +7,7 @@ import { resetCooling, stepCooling, tankFor } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField } from "./field";
-import { findMains, layMain, mainReportAt, pipesToMains, planMain, runMains, solveMain } from "./mains";
+import { findMains, layMain, mainReportAt, pipesToMains, planMain, previewMain, runMains, solveMain } from "./mains";
 
 afterEach(resetCooling);
 
@@ -116,5 +116,34 @@ describe("the old pipes", () => {
     expect(g.mainEnd[idx(g, 10, 6)]).toBe(MAIN_END.cap);
     expect(findMains(g).list.length).toBe(1);
     expect(pipesToMains(g)).toBe(false);
+  });
+});
+
+describe("the mains' promises", () => {
+  test("what the preview says a main will carry is what it then carries", () => {
+    const { g, dc } = lakeside(5);
+    const field = createWaterField(g);
+    const p = planMain(g, row(5, 4, 19), wetOf(g));
+    if ("refused" in p) throw new Error(p.refused);
+    const promised = previewMain(g, field, p.cells).flow;
+    layMain(g, p.cells);
+    stepCooling(g, 40, false, 0.01);
+    Object.assign(tankFor(dc.id)!, { level: 0 });
+    runMains(field, g, 0.1);
+    expect(mainReportAt(g, 10, 5)!.flow).toBeCloseTo(promised, 2);
+  });
+
+  test("laying a main changes no cell outside its stroke, and joins only where it ends on another", () => {
+    const { g } = lakeside(5);
+    lay(g, row(5, 4, 19));
+    const before = { main: g.main.slice(), end: g.mainEnd.slice() };
+    const cells = row(8, 6, 14);
+    lay(g, cells);
+    const on = new Set(cells.map((c) => idx(g, c.x, c.y)));
+    for (let i = 0; i < g.main.length; i++) {
+      if (on.has(i)) continue;
+      expect(g.main[i]).toBe(before.main[i]);
+      expect(g.mainEnd[i]).toBe(before.end[i]);
+    }
   });
 });

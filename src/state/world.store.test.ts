@@ -766,6 +766,32 @@ describe("flood walls under play rules", () => {
   });
 });
 
+describe("lifting under play rules", () => {
+  afterEach(() => { s().setPlaying(false); s().setLiftPipe(false); });
+
+  test("lifts road, or pipe, never the other", () => {
+    const g = createGrid(20, 12);
+    fillTerrain(g, 1);
+    for (let x = 2; x < 18; x++) { g.paved[idx(g, x, 6)] = 1; g.main[idx(g, x, 6)] = x === 2 ? 4 : x === 17 ? 1 : 5; }
+    g.mainEnd[idx(g, 2, 6)] = 4; g.mainEnd[idx(g, 17, 6)] = 4;
+    s().loadGrid(g);
+    s().setPlaying(true);
+    s().setTool("eraseRoad");
+    useWorldStore.setState({ stroke: { tool: "eraseRoad", brush: "line", anchor: { x: 8, y: 6 }, head: { x: 10, y: 6 } } });
+    s().endStroke();
+    expect(s().grid.paved[idx(s().grid, 9, 6)]).toBe(0);
+    expect(s().grid.main[idx(s().grid, 9, 6)]).not.toBe(0);
+    s().setLiftPipe(true);
+    useWorldStore.setState({ stroke: { tool: "eraseRoad", brush: "line", anchor: { x: 12, y: 6 }, head: { x: 13, y: 6 } } });
+    s().endStroke();
+    expect(s().grid.main[idx(s().grid, 12, 6)]).toBe(0);
+    expect(s().grid.paved[idx(s().grid, 12, 6)]).toBe(1);
+    // The neighbours left with an open end are capped.
+    expect(s().grid.mainEnd[idx(s().grid, 11, 6)]).toBe(4);
+    expect(s().grid.mainEnd[idx(s().grid, 14, 6)]).toBe(4);
+  });
+});
+
 describe("derelict buildings", () => {
   afterEach(() => s().setPlaying(false));
 
