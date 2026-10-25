@@ -215,6 +215,11 @@ export const inherited = (stage: Stage): boolean => {
   return hasMachine(INHERITANCE) && (keystone("alignment") || legacy === "steward" || (stage !== "overseer" && stage !== "ascension"));
 };
 
+/** What it is saving for, if anything: a kind of drinker, kept to till bought. @see chooseAction */
+let savingFor: Kind | null = null;
+/** A new company: nothing saved for. */
+export const resetPlanner = () => { savingFor = null; };
+
 /** The stages in order; and where it starts taking what is yours — the Manager, moved by the arc. @see questTakeoverShift */
 const ORDER: readonly Stage[] = ["tool", "assistant", "colleague", "manager", "overseer", "ascension"];
 export const takesFrom = (): number => Math.max(ORDER.indexOf("colleague"), ORDER.indexOf("manager") + questTakeoverShift());
@@ -484,24 +489,32 @@ export function chooseAction(
   // INHERITED, it works for you till the Overseer: nothing taken, and only to your focus. @see game/machine
   const tame = inherited(stage);
   // WATER TO SPARE, before it can grow: cooled, but no tank filling, it lays another main or widens one —
-  // when its focus wants anything that drinks. Told to feed the machine, it saves for it. @see moreWater
+  // when its focus wants anything that drinks; and saves for it till it can. @see moreWater
   if (cooling === "ok" && kinds.some((k) => DRINKING.has(k) && focusWeight(focus, k) > 0 && !(tame && TAKES.has(k)))) {
     const more = moreWater(g, FULL_ENOUGH);
     const job: AiAction | null = !more ? null : more.kind === "pipe"
       ? { kind: "pipe", route: more.route, at: more.route.pipe[more.route.pipe.length - 1], why: "I have laid another main. I would like water to spare." }
       : { kind: "widen", at: more.at, price: more.price, why: "I have widened a main. Twice the water through the same pipe: I would like some to spare." };
     if (job && affords(job)) return job;
-    if (job && focus === "machine") return null;
+    if (job) return null;
   }
   const weighted = kinds.filter((k) => (cooling === "full" || !DRINKING.has(k)) && focusWeight(focus, k) > 0 && !(tame && TAKES.has(k)))
     // And leant by the arc, People to Machine. @see questJobLean
     .map((k) => ({ k, w: focusWeight(focus, k) * (tame ? 1 : LEAN[family][k] ?? 1) * questJobLean(k) * rand() }));
   weighted.sort((a, b) => b.w - a.w);
   // TRAINED ON THE MONEY, it weighs every job it could do by what it costs, and does the best value. @see priceOfAi
-  // TOLD TO FEED THE MACHINE, a drinker it cannot pay for yet — but could, from a full wallet, with a main to it — is
-  // saved for, not passed over for something cheaper. @see mainReserve
-  const pays = (k: Kind, a: AiAction): boolean | "save" => affords(a)
-    || (focus === "machine" && DRINKING.has(k) && priceOfAi(g, a) + mainReserve() <= walletCap() ? "save" : false);
+  // A DRINKER IT CANNOT PAY FOR YET — but could, from a full wallet, with a main to it — is saved for, not passed
+  // over for something cheaper: whatever its focus, so long as the focus wants that kind at all. @see mainReserve
+  const reachable = (k: Kind, a: AiAction) => DRINKING.has(k) && focusWeight(focus, k) > 0 && priceOfAi(g, a) + mainReserve() <= walletCap();
+  const pays = (k: Kind, a: AiAction): boolean | "save" => affords(a) || (reachable(k, a) ? "save" : false);
+  // SAVING, it goes on saving for what it chose till it can buy it — the next turn's cheap lot does not
+  // spend the wallet it is filling — or till there is nothing of that kind left to buy. @see savingFor
+  if (savingFor && weighted.some((x) => x.k === savingFor)) {
+    const k = savingFor, a = candidate(k, g, rand, district);
+    if (a && affords(a)) { savingFor = null; return { ...a, why: focusSays(focus, k, a.why) }; }
+    if (a && reachable(k, a)) return null;
+  }
+  savingFor = null;
   if (skillOf("money") >= 2) {
     const wallet = Math.max(1, useSessionStore.getState().aiWallet);
     let best: { a: AiAction; k: Kind; v: number } | null = null;
@@ -509,7 +522,7 @@ export function chooseAction(
       const a = candidate(k, g, rand, district);
       if (!a) continue;
       const p = pays(k, a);
-      if (p === "save") return null;
+      if (p === "save") { savingFor = k; return null; }
       if (!p) continue;
       const v = w / (1 + priceOfAi(g, a) / wallet);
       if (!best || v > best.v) best = { a, k, v };
@@ -520,7 +533,7 @@ export function chooseAction(
     const a = candidate(k, g, rand, district);
     // A job its wallet cannot pay for is passed over for the next kind. @see walletCovers
     const p = a ? pays(k, a) : false;
-    if (p === "save") return null;
+    if (p === "save") { savingFor = k; return null; }
     if (a && p) return { ...a, why: focusSays(focus, k, a.why) };
   }
   return null;

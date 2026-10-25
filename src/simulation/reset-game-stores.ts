@@ -5,6 +5,7 @@ import { useTrainingStore } from "../state/training.store";
 import { clearMorale } from "../game/morale";
 import { resetAutopilot } from "../world/ai/autopilot";
 import { resetCooling } from "../world/projects/cooling";
+import { resetPlanner } from "../world/ai/planner";
 import { useAgentsStore } from "../state/agents.store";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useSlopPitStore } from "../state/slop-pit.store";
@@ -42,6 +43,7 @@ export function resetRunStores(): void {
   clearMorale();
   resetAutopilot();
   resetCooling();
+  resetPlanner();
   // A new company, a new map: the arc's block and site were the last one's. @see newCompany
   useQuestStore.getState().newCompany();
   // And the company's map: a new company founds on new ground. @see retireRunSave
