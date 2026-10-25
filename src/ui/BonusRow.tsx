@@ -27,8 +27,8 @@ export const BonusRow = ({
   tone?: BonusTone;
   modKey?: string;
 }) => (
-  <div className="flex items-baseline justify-between gap-3">
-    <span className="truncate opacity-60">
+  <div className="flex items-baseline justify-between gap-3 border-b border-line-quiet py-0.5 last:border-b-0">
+    <span className="truncate text-fg-muted">
       <ModifierTag modKey={modKey}>{label}</ModifierTag>
     </span>
     {value && (
@@ -47,7 +47,7 @@ export const BonusSection = ({
   children: ReactNode;
 }) => (
   <div className="flex min-w-40 flex-1 flex-col gap-2">
-    <p className="text-[10px] font-semibold uppercase tracking-wide opacity-50">
+    <p className="text-[10px] uppercase tracking-widest text-fg-faint">
       {title}
     </p>
     <div className="flex flex-col gap-1 text-xs">{children}</div>

@@ -15,7 +15,7 @@ import { idx, inBounds } from "../grid";
 import type { GameEvent } from "../events/events";
 import { clearOfferPremium, offerPremium, setOfferPremium } from "../../game/acquisition";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
-import { Button, Card, FOCUS } from "../../ui/console";
+import { Button, Card, Tile } from "../../ui/console";
 
 /**
  * AN ACQUIRER'S OFFER, answered: looking at it puts their premium on the sale
@@ -47,22 +47,21 @@ export function EventCard({ e }: { e: GameEvent }) {
       <div role="alert" className="flex flex-col gap-1.5">
         <p className="text-fg-muted">{e.phase === "over" ? e.outcome : e.text}</p>
         {e.phase !== "over" && (
-          <div className="flex flex-wrap gap-1">
+          <div className="grid grid-cols-2 gap-1.5">
             {e.choices.map((c) => (
-              <Button key={c.id} size="sm" variant={e.chosen === c.id ? "primary" : "secondary"} disabled={!!c.unavailable} title={c.unavailable}
-                onClick={() => { respond(e.id, c.id); answerOffer(e, c.id); }} className="flex flex-col items-start text-left pointer-coarse:min-h-11">
+              <Tile key={c.id} selected={e.chosen === c.id} disabled={!!c.unavailable} title={c.unavailable}
+                onClick={() => { respond(e.id, c.id); answerOffer(e, c.id); }} className="flex flex-col items-start gap-0.5 px-2 py-1.5 pointer-coarse:min-h-11">
                 <span className="font-bold">{c.label}</span>
                 <span className="text-[10px] text-fg-muted">{c.unavailable ?? c.cost}</span>
-              </Button>
+              </Tile>
             ))}
           </div>
         )}
         <div className="flex items-center justify-between text-[10px] text-fg-muted">
           <span>{chosen ? `You chose: ${chosen.label.toLowerCase()}` : ""}</span>
-          <span className="flex gap-2">
-            <button type="button" onClick={() => setOff(true)} className={`cursor-pointer underline hover:text-fg ${FOCUS}`}
-              title="No more floods or overflows. Back on in Settings.">no events</button>
-            <button type="button" onClick={() => showMe(e.where)} className={`cursor-pointer underline hover:text-fg ${FOCUS}`}>Show me</button>
+          <span className="flex gap-1">
+            <Button size="sm" variant="quiet" onClick={() => setOff(true)} title="No more floods or overflows. Back on in Settings.">No events</Button>
+            <Button size="sm" variant="secondary" onClick={() => showMe(e.where)}>Show me</Button>
           </span>
         </div>
       </div>

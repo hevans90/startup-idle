@@ -12,6 +12,7 @@ import { AchievementsTab } from "./achievements-tab";
 import { AiTab } from "./ai-tab";
 import { projectReading } from "../game/projects";
 import { useGenerationStore } from "../state/generation.store";
+import { EmployeeSatisfactionOverlay } from "./employee-satisfaction-overlay";
 import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation/innovation-managers";
 import { InnovationSummary } from "./innovation/innovation-summary";
@@ -52,6 +53,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
       <div className="flex flex-col gap-6 p-2">
         <PurchaseModeToggle />
         <Generators />
+        <EmployeeSatisfactionOverlay className="mx-2" />
         <Upgrades />
       </div>
     ),

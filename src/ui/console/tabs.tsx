@@ -44,7 +44,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, label, hint, cla
           <button key={t.id} type="button" role="tab" aria-selected={on} tabIndex={on ? 0 : -1} onClick={() => onChange(t.id)}
             ref={(el) => { if (el) buttons.current.set(t.id, el); else buttons.current.delete(t.id); }}
             data-hint={hint ? `${hint}-${t.id}` : undefined}
-            className={twMerge("relative flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm transition-colors", FOCUS,
+            className={twMerge("relative flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap px-2 py-2 font-display text-[10px] uppercase tracking-wider transition-colors", FOCUS,
               on ? "text-fg" : "text-fg-muted hover:text-fg", fresh.current.has(t.id) && !calm && "ui-tab-in")}>
             {t.icon}
             <span>{t.label}</span>

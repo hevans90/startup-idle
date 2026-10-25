@@ -15,7 +15,7 @@ import { useSessionStore } from "../../state/session.store";
 import { useFounderStore } from "../../state/founder.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { twMerge } from "tailwind-merge";
-import { Panel } from "../../ui/console";
+import { Meter, Panel, Slider } from "../../ui/console";
 
 import { agentBonus, agentsARack, agentsOpen } from "../../game/agents";
 import { DATASETS, MAX_SKILL, dataset } from "../../game/training";
@@ -49,19 +49,12 @@ export function DataCentre({ className }: { className?: string }) {
   const mult = singularityMult();
   // Nothing to sink from at nought.
   const rate = value <= 0 ? Math.max(0, singularityRate(running, mult, agents)) : singularityRate(running, mult, agents);
-  const stage = stageOf(value);
   const boost = Math.round((agentBonus(running) - 1) * 100);
   return (
-    <div className={twMerge("p-2 text-xs text-fg", className)}>
+    <div className={twMerge("text-xs text-fg", className)}>
 
-      {/* THE SINGULARITY: its stage, how far, and which way. */}
-      <p className="flex justify-between tabular-nums">
-        <span>AI: <b className="text-ai">{stage.name}</b></span>
-        <span>{value.toFixed(1)}% · {perMinute(rate)}</span>
-      </p>
-      <div className="mt-1 h-1.5 w-full overflow-hidden bg-surface-2">
-        <div className="h-full bg-ai" style={{ width: `${Math.min(100, value)}%` }} />
-      </div>
+      {/* THE SINGULARITY: how far, and which way. */}
+      <Meter tone="ai" value={value / 100} label="The singularity" detail={<>{value.toFixed(1)}% · {perMinute(rate)}</>} />
 
       {built ? (
         <>
@@ -72,9 +65,8 @@ export function DataCentre({ className }: { className?: string }) {
               <label className="flex justify-between tabular-nums" htmlFor="dc-throttle">
                 <span>Agents running</span><b>{running} of {agents}</b>
               </label>
-              <input id="dc-throttle" type="range" min={0} max={agents} step={1} value={running}
-                onChange={(e) => setRunning(Number(e.target.value))}
-                className="mt-1 w-full accent-[var(--ui-ai)]" />
+              <Slider id="dc-throttle" label="Agents running" tone="ai" min={0} max={agents} step={1} value={running}
+                onChange={setRunning} className="my-1 w-full" />
               <p className="tabular-nums text-fg-muted">
                 {training() ? "Training: no boost to income till it ends" : `Income +${boost}% from them`} · the AI {perMinute(rate)}
               </p>
@@ -201,9 +193,8 @@ function Allowance() {
       <label className="flex justify-between tabular-nums" htmlFor="dc-allowance">
         <span>Share of income it may spend</span><b>{Math.round(share * 100)}%</b>
       </label>
-      <input id="dc-allowance" type="range" min={0} max={SHARE_MAX} step={SHARE_STEP} value={share}
-        onChange={(e) => set({ aiShare: Number(e.target.value) })}
-        className="mt-1 w-full accent-[var(--ui-ai)]" />
+      <Slider id="dc-allowance" label="Share of income it may spend" tone="ai" min={0} max={SHARE_MAX} step={SHARE_STEP} value={share}
+        onChange={(v) => set({ aiShare: v })} className="my-1 w-full" />
       <p className="tabular-nums text-fg-muted">
         {formatCurrency(wallet)} to spend, of {formatCurrency(cap)} at most ({WALLET_MINUTES} minutes of its share). From the Colleague stage it pays for what it builds from this, and waits when it is empty.
       </p>

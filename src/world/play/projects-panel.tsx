@@ -8,6 +8,7 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 
 import { useTicking } from "../../hooks/use-ticking";
+import { Button } from "../../ui/console";
 import { twMerge } from "tailwind-merge";
 
 import {
@@ -27,13 +28,10 @@ import { builtProjects, materialCap, siteOf, STALL_GRACE } from "../projects/wor
 import { hasRiver } from "../boats/river";
 import { structureDef } from "../structures/def";
 
-const CARD =
-  "w-72 border border-line bg-surface-1/95 p-2 text-xs text-fg shadow "
-  + "";
-const BTN =
-  "cursor-pointer border border-line px-2 py-1 hover:bg-surface-2 pointer-coarse:min-h-11 "
-  + "";
-const ON = "bg-surface-3";
+/** The map's docks: a raised surface, a quiet line; buttons as the kit's secondary, the chosen one in the console's colour. */
+const CARD = "w-72 border border-line-quiet bg-surface-1/95 p-2.5 text-xs text-fg shadow-lg backdrop-blur-sm";
+const BTN = "cursor-pointer border border-line bg-surface-2 px-2 py-1 transition-colors hover:border-line-strong pointer-coarse:min-h-11";
+const ON = "border-console bg-console-soft text-console hover:border-console";
 
 /** "45 seconds", "2 minutes". */
 const formatDuration = (s: number) =>
@@ -42,7 +40,7 @@ const formatDuration = (s: number) =>
 
 function Bar({ value, className }: { value: number; className?: string }) {
   return (
-    <div className={twMerge("h-2 w-full bg-surface-2", className)}>
+    <div className={twMerge("h-1 w-full bg-surface-3", className)}>
       <div className="h-full bg-good" style={{ width: `${Math.round(Math.min(1, value) * 100)}%` }} />
     </div>
   );
@@ -150,7 +148,7 @@ const IN_LOG = "w-full border-0 bg-transparent p-0 shadow-none dark:bg-transpare
 function LogSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-fg-muted">{title}</p>
+      <p className="text-[10px] uppercase tracking-widest text-fg-muted">{title}</p>
       {children}
     </section>
   );
@@ -202,12 +200,8 @@ export function SlopPitCard() {
     </div>
   );
 }
-const SMALL =
-  "w-56 border border-line bg-surface-1/95 px-2 py-1 text-[11px] text-fg shadow "
-  + "";
-const BTN_SMALL =
-  "cursor-pointer border border-line px-1.5 hover:bg-surface-2 disabled:cursor-default disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-3 "
-  + "";
+const SMALL = "w-56 border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-[11px] text-fg shadow-lg backdrop-blur-sm";
+const BTN_SMALL = "cursor-pointer border border-line bg-surface-2 px-1.5 transition-colors hover:border-line-strong disabled:cursor-default disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-3";
 
 /** One project's card: its site to choose, or how it is going. */
 export function ProjectCard({ next, className }: { next: ProjectDef; className?: string }) {
@@ -228,7 +222,7 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
     const income = useGeneratorStore.getState().getMoneyPerSecond();
     return (
       <div className={twMerge(CARD, className)}>
-        <p><b>{next.name}</b></p>
+        <p className="font-bold">{next.name}</p>
         <p className="text-fg-muted">{opensText(next)}</p>
         <p className="tabular-nums text-fg-muted"
           title={next.founderBuilds ? undefined
@@ -245,9 +239,9 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
             <button type="button" className={BTN} onClick={() => placeProject(null)}>Cancel</button>
           </div>
         ) : (
-          <button type="button" className={twMerge(BTN, "mt-1.5 w-full font-bold")} onClick={() => placeProject(next.id)}>
+          <Button variant="primary" className="mt-2 w-full font-bold" onClick={() => placeProject(next.id)}>
             Choose a site
-          </button>
+          </Button>
         )}
       </div>
     );

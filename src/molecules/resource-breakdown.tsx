@@ -61,7 +61,7 @@ export const ResourceBreakdownView = ({
         return (
           <div
             key={g.id}
-            className="flex flex-col gap-0.5 border-t border-primary-400/40 pt-1.5 dark:border-primary-600/50"
+            className="flex flex-col gap-0.5 border-t border-line/40 pt-1.5"
           >
             <Row
               label={
@@ -92,7 +92,7 @@ export const ResourceBreakdownView = ({
       })}
 
       {activeGlobals.length > 0 && (
-        <div className="flex flex-col gap-0.5 border-t border-primary-400/40 pt-1.5 dark:border-primary-600/50">
+        <div className="flex flex-col gap-0.5 border-t border-line/40 pt-1.5">
           <p className="text-[10px] uppercase tracking-wide opacity-50">
             Multipliers
           </p>

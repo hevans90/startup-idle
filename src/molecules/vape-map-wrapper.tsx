@@ -3,6 +3,7 @@ import { report } from "../state/comms.store";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { twMerge } from "tailwind-merge";
+import { Button } from "../ui/console";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useAnyPopoverStore } from "../state/modifier-popover.store";
@@ -34,10 +35,10 @@ function getComboMultiplier(combo: number): number {
 }
 
 function multColor(mult: number): string {
-  if (mult >= 4) return "text-rose-400";
-  if (mult >= 3) return "text-orange-400";
-  if (mult >= 2) return "text-yellow-300";
-  return "text-gray-500";
+  if (mult >= 4) return "text-bad";
+  if (mult >= 3) return "text-warn";
+  if (mult >= 2) return "text-warn";
+  return "text-fg-muted";
 }
 
 function comboToBonus(maxCombo: number, totalNotes: number): number {
@@ -121,11 +122,11 @@ const NOTE_SCORE: Record<Judgment, number> = {
 };
 
 const FLASH_DISPLAY: Record<FlashKind, { text: string; className: string }> = {
-  perfect: { text: "PERFECT", className: "text-yellow-300" },
-  good:    { text: "GOOD",    className: "text-emerald-400" },
-  ok:      { text: "OK",      className: "text-sky-400" },
-  miss:    { text: "MISS",    className: "text-rose-500" },
-  break:   { text: "BREAK",   className: "text-rose-600" },
+  perfect: { text: "PERFECT", className: "text-warn" },
+  good:    { text: "GOOD",    className: "text-good" },
+  ok:      { text: "OK",      className: "text-info" },
+  miss:    { text: "MISS",    className: "text-bad" },
+  break:   { text: "BREAK",   className: "text-bad" },
 };
 
 function scoreToMultiplier(score: number, perfectThreshold: number): number {
@@ -319,7 +320,7 @@ function VapeMinigame({
           firstTapDt: bestDt,
         };
         fireStrike("hit");
-        setJudgeFlash({ text: "×2!", className: "text-amber-400", key: judgeKeyRef.current++ });
+        setJudgeFlash({ text: "×2!", className: "text-warn", key: judgeKeyRef.current++ });
         if (judgeTimerRef.current) clearTimeout(judgeTimerRef.current);
         judgeTimerRef.current = setTimeout(() => setJudgeFlash(null), 650);
       } else {
@@ -550,26 +551,26 @@ function VapeMinigame({
         }
       `}</style>
 
-      <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-surface-0/85 backdrop-blur-sm" />
 
       <div
-        className="relative z-10 flex flex-col overflow-hidden rounded-2xl border border-violet-500/30 bg-gray-950 shadow-2xl shadow-violet-900/50"
+        className="relative z-10 flex flex-col overflow-hidden  border border-ai-line bg-surface-0 shadow-2xl"
         style={{ width: TRACK_W + 48 }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
+        <div className="flex items-center justify-between border-b border-line-quiet px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="text-base">💨</span>
-            <span className="text-xs font-bold uppercase tracking-widest text-violet-400">
+            <span className="text-xs font-bold uppercase tracking-widest text-ai">
               Take a puff
             </span>
           </div>
           {started && !done && (
             <div className="flex items-center gap-3">
-              <span className="text-xs font-bold tabular-nums text-violet-300/70">
+              <span className="text-xs font-bold tabular-nums text-ai/70">
                 {(Math.min(1, liveScore) * 100).toFixed(0)}%
               </span>
-              <span className="tabular-nums text-[10px] text-gray-600">
+              <span className="tabular-nums text-[10px] text-fg-muted">
                 {Math.max(0, GAME_SECS - currentSec).toFixed(1)}s
               </span>
             </div>
@@ -587,7 +588,7 @@ function VapeMinigame({
                   className="pointer-events-none absolute left-0 right-0 z-10 flex justify-center animate-bounce"
                   style={{ top: HIT_ZONE_Y - 48 }}
                 >
-                  <div className="flex items-center gap-1.5 rounded-full border border-violet-500/40 bg-gray-950/95 px-3 py-1 text-[10px] font-medium text-violet-300 whitespace-nowrap shadow-lg">
+                  <div className="flex items-center gap-1.5 rounded-full border border-ai/40 bg-surface-0/95 px-3 py-1 text-[10px] font-medium text-ai whitespace-nowrap shadow-lg">
                     Space or click to begin 💨
                   </div>
                 </div>
@@ -595,11 +596,11 @@ function VapeMinigame({
 
               {/* Inner track */}
               <div
-                className="absolute inset-0 overflow-hidden border-x border-white/[0.05]"
+                className="absolute inset-0 overflow-hidden border-x border-fg/[0.05]"
                 style={{ background: 'linear-gradient(to bottom, #0a0a12 0%, #0f0a1a 40%, #0d0814 100%)' }}
               >
-                <div className="absolute top-0 bottom-0 left-1/4 w-px bg-white/[0.03] pointer-events-none" />
-                <div className="absolute top-0 bottom-0 left-3/4 w-px bg-white/[0.03] pointer-events-none" />
+                <div className="absolute top-0 bottom-0 left-1/4 w-px bg-line-quiet pointer-events-none" />
+                <div className="absolute top-0 bottom-0 left-3/4 w-px bg-line-quiet pointer-events-none" />
 
                 <div
                   className="absolute left-0 right-0 pointer-events-none"
@@ -638,7 +639,7 @@ function VapeMinigame({
                 {config.forgiveness > 0 && (
                   <div className="absolute top-2 right-2 flex flex-col gap-1 pointer-events-none">
                     {Array.from({ length: Math.min(2, config.forgiveness) }).map((_, i) => (
-                      <div key={i} className="w-1.5 h-1.5 rounded-full bg-violet-400/60" />
+                      <div key={i} className="w-1.5 h-1.5 rounded-full bg-ai/60" />
                     ))}
                   </div>
                 )}
@@ -652,7 +653,7 @@ function VapeMinigame({
 
                 {/* Progress indicator (right edge) */}
                 <div
-                  className="absolute right-0 top-0 w-0.5 bg-violet-600/20"
+                  className="absolute right-0 top-0 w-0.5 bg-ai/20"
                   style={{ height: `${(elapsed / GAME_MS) * 100}%` }}
                 />
 
@@ -660,12 +661,12 @@ function VapeMinigame({
                 {started && !done && combo > 0 && (
                   <div className="absolute top-3 left-0 right-0 flex flex-col items-center pointer-events-none gap-0.5">
                     <span
-                      className="text-2xl font-black tabular-nums text-white leading-none"
+                      className="text-2xl font-black tabular-nums text-fg leading-none"
                       style={{ textShadow: '0 0 12px rgba(167,139,250,0.7)' }}
                     >
                       {combo}
                     </span>
-                    <span className={twMerge("text-[9px] font-bold uppercase tracking-widest leading-none", multColor(currentMult))}>
+                    <span className={twMerge("text-[10px] font-bold uppercase tracking-widest leading-none", multColor(currentMult))}>
                       ×{currentMult}
                     </span>
                   </div>
@@ -681,7 +682,7 @@ function VapeMinigame({
                       return (
                         <div
                           key={n.id}
-                          className="absolute left-3 right-3 h-6 rounded-full border-2 bg-gray-700/25 border-gray-600/15"
+                          className="absolute left-3 right-3 h-6 rounded-full border-2 bg-surface-3/25 border-line/15"
                           style={{ top: Math.round(headY - 12) }}
                         />
                       );
@@ -691,7 +692,7 @@ function VapeMinigame({
                     return (
                       <div
                         key={n.id}
-                        className="absolute left-3 right-3 h-6 rounded-full bg-cyan-400 border-2 border-white/70 shadow-[0_0_14px_5px_rgba(34,211,238,0.55)]"
+                        className="absolute left-3 right-3 h-6 rounded-full bg-innovation border-2 border-fg/70 shadow-[0_0_14px_5px_rgba(34,211,238,0.55)]"
                         style={{ top: Math.round(headY - 12) }}
                       />
                     );
@@ -711,11 +712,11 @@ function VapeMinigame({
                         <div key={n.id} className="absolute left-3 right-3"
                           style={{ top: Math.round(containerTop), height: Math.round(containerH) }}>
                           {n.tapsDone === 0 && (
-                            <div className="absolute inset-x-2 bg-gray-700/20" style={{ top: 12, bottom: 12 }} />
+                            <div className="absolute inset-x-2 bg-surface-3/20" style={{ top: 12, bottom: 12 }} />
                           )}
-                          <div className="absolute left-0 right-0 top-0 h-6 rounded-full border-2 bg-gray-700/25 border-gray-600/15" />
+                          <div className="absolute left-0 right-0 top-0 h-6 rounded-full border-2 bg-surface-3/25 border-line/15" />
                           {n.tapsDone === 0 && (
-                            <div className="absolute left-0 right-0 bottom-0 h-6 rounded-full border-2 bg-gray-700/25 border-gray-600/15" />
+                            <div className="absolute left-0 right-0 bottom-0 h-6 rounded-full border-2 bg-surface-3/25 border-line/15" />
                           )}
                         </div>
                       );
@@ -728,10 +729,10 @@ function VapeMinigame({
                       return (
                         <div
                           key={n.id}
-                          className="absolute left-3 right-3 h-6 rounded-full border-2 flex items-center justify-center bg-amber-300 border-white/90 shadow-[0_0_20px_8px_rgba(251,191,36,0.85)]"
+                          className="absolute left-3 right-3 h-6 rounded-full border-2 flex items-center justify-center bg-warn border-fg/70 shadow-[0_0_20px_8px_rgba(251,191,36,0.85)]"
                           style={{ top: Math.round(headY2 - 12) }}
                         >
-                          <span className="text-[8px] font-black text-amber-950 leading-none">2</span>
+                          <span className="text-[10px] font-black text-warn leading-none">2</span>
                         </div>
                       );
                     }
@@ -741,14 +742,14 @@ function VapeMinigame({
                       <div key={n.id} className="absolute left-3 right-3"
                         style={{ top: Math.round(containerTop), height: Math.round(containerH) }}>
                         {/* Amber background fill between the two tap heads */}
-                        <div className="absolute inset-x-2 bg-amber-400/30" style={{ top: 12, bottom: 12 }} />
+                        <div className="absolute inset-x-2 bg-warn/30" style={{ top: 12, bottom: 12 }} />
                         {/* Upper pill — second tap target */}
-                        <div className="absolute left-0 right-0 top-0 h-6 rounded-full border-2 flex items-center justify-center bg-amber-400 border-amber-200/80 shadow-[0_0_14px_5px_rgba(251,191,36,0.55)]">
-                          <span className="text-[8px] font-black text-amber-950 leading-none">2</span>
+                        <div className="absolute left-0 right-0 top-0 h-6 rounded-full border-2 flex items-center justify-center bg-warn border-warn-line/80 shadow-[0_0_14px_5px_rgba(251,191,36,0.55)]">
+                          <span className="text-[10px] font-black text-warn leading-none">2</span>
                         </div>
                         {/* Lower pill — first tap target */}
-                        <div className="absolute left-0 right-0 bottom-0 h-6 rounded-full border-2 flex items-center justify-center bg-amber-400 border-amber-200/80 shadow-[0_0_14px_5px_rgba(251,191,36,0.55)]">
-                          <span className="text-[8px] font-black text-amber-950 leading-none">1</span>
+                        <div className="absolute left-0 right-0 bottom-0 h-6 rounded-full border-2 flex items-center justify-center bg-warn border-warn-line/80 shadow-[0_0_14px_5px_rgba(251,191,36,0.55)]">
+                          <span className="text-[10px] font-black text-warn leading-none">1</span>
                         </div>
                       </div>
                     );
@@ -769,8 +770,8 @@ function VapeMinigame({
                     return (
                       <div key={n.id} className="absolute left-3 right-3"
                         style={{ top: Math.round(gTailY), height: Math.round(gH) }}>
-                        <div className="absolute inset-x-2 top-0 bottom-3 rounded-t-md bg-gray-700/20" />
-                        <div className="absolute left-0 right-0 bottom-0 h-6 rounded-full border-2 bg-gray-600/20 border-gray-500/15" />
+                        <div className="absolute inset-x-2 top-0 bottom-3 rounded-t-md bg-surface-3/20" />
+                        <div className="absolute left-0 right-0 bottom-0 h-6 rounded-full border-2 bg-surface-2/20 border-line-strong/15" />
                       </div>
                     );
                   }
@@ -782,17 +783,17 @@ function VapeMinigame({
                       style={{ top: Math.round(tailY), height: Math.round(barH) }}>
                       <div className={twMerge(
                         "absolute inset-x-2 top-0 bottom-3 rounded-t-md",
-                        isDone ? "bg-violet-500/15"
-                        : isActive ? "bg-violet-400/80"
-                        : "bg-violet-600/50",
+                        isDone ? "bg-ai/15"
+                        : isActive ? "bg-ai/80"
+                        : "bg-ai/50",
                       )} />
                       <div className={twMerge(
                         "absolute left-0 right-0 bottom-0 h-6 rounded-full border-2",
                         isDone
-                          ? "bg-gray-600/20 border-gray-500/15"
+                          ? "bg-surface-2/20 border-line-strong/15"
                           : isActive
-                            ? "bg-violet-200 border-white shadow-[0_0_22px_10px_rgba(167,139,250,0.8)]"
-                            : "bg-violet-400 border-violet-200/80 shadow-[0_0_12px_4px_rgba(139,92,246,0.5)]",
+                            ? "bg-ai-soft border-fg shadow-[0_0_22px_10px_rgba(167,139,250,0.8)]"
+                            : "bg-ai border-ai-line/80 shadow-[0_0_12px_4px_rgba(139,92,246,0.5)]",
                       )} />
                     </div>
                   );
@@ -817,12 +818,12 @@ function VapeMinigame({
                   className={twMerge(
                     "absolute left-2 right-2 rounded-full pointer-events-none transition-colors duration-75",
                     strikeFlash === "hit"
-                      ? "bg-yellow-300 shadow-[0_0_24px_10px_rgba(253,224,71,0.75)]"
+                      ? "bg-warn shadow-[0_0_24px_10px_rgba(253,224,71,0.75)]"
                       : strikeFlash === "miss"
-                        ? "bg-rose-500 shadow-[0_0_20px_8px_rgba(239,68,68,0.65)]"
+                        ? "bg-bad shadow-[0_0_20px_8px_rgba(239,68,68,0.65)]"
                         : isHeld
-                          ? "bg-violet-200 shadow-[0_0_18px_7px_rgba(196,181,253,0.6)]"
-                          : "bg-violet-700/80 shadow-[0_0_8px_3px_rgba(109,40,217,0.35)]",
+                          ? "bg-ai-soft shadow-[0_0_18px_7px_rgba(196,181,253,0.6)]"
+                          : "bg-ai/80 shadow-[0_0_8px_3px_rgba(109,40,217,0.35)]",
                   )}
                   style={{ top: HIT_ZONE_Y - 6, height: 12 }}
                 />
@@ -832,12 +833,12 @@ function VapeMinigame({
                   <>
                     <div
                       key={`outer-${burstKey}`}
-                      className="absolute w-20 h-20 rounded-full border-2 border-yellow-300/60 pointer-events-none"
+                      className="absolute w-20 h-20 rounded-full border-2 border-warn-line/60 pointer-events-none"
                       style={{ top: HIT_ZONE_Y, left: '50%', animation: 'burstRing 0.3s ease-out forwards' }}
                     />
                     <div
                       key={`inner-${burstKey}`}
-                      className="absolute w-10 h-10 rounded-full bg-yellow-200/30 pointer-events-none"
+                      className="absolute w-10 h-10 rounded-full bg-warn-soft/30 pointer-events-none"
                       style={{ top: HIT_ZONE_Y, left: '50%', animation: 'burstInner 0.25s ease-out forwards' }}
                     />
                   </>
@@ -849,65 +850,67 @@ function VapeMinigame({
 
         {/* Legend */}
         {!done && (
-          <div className="flex items-center justify-center gap-4 px-4 py-2 text-[9px] uppercase tracking-widest text-gray-700">
+          <div className="flex items-center justify-center gap-4 px-4 py-2 text-[10px] uppercase tracking-widest text-fg-muted">
             <span className="flex items-center gap-1.5">
-              <span className="inline-block w-3 h-2.5 rounded-full bg-cyan-400/50" />
+              <span className="inline-block w-3 h-2.5 rounded-full bg-innovation/50" />
               tap
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="inline-block w-3 h-3 rounded-md bg-violet-500/50" />
+              <span className="inline-block w-3 h-3  bg-ai/50" />
               hold
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="inline-block w-3 h-2.5 rounded-full bg-amber-400/50" />
+              <span className="inline-block w-3 h-2.5 rounded-full bg-warn/50" />
               ×2
             </span>
-            <span className="text-gray-700/50">×{getComboMultiplier(3)} → ×{getComboMultiplier(8)}</span>
+            <span className="text-fg-muted/50">×{getComboMultiplier(3)} → ×{getComboMultiplier(8)}</span>
           </div>
         )}
 
         {/* Result */}
         {done && (
           <div className="flex flex-col items-center gap-3 px-4 py-6">
-            <div className="text-3xl font-black tabular-nums text-violet-200">
+            <div className="text-3xl font-black tabular-nums text-ai">
               {(finalScore * 100).toFixed(0)}%
             </div>
-            <div className="text-sm text-gray-300">
+            <div className="text-sm text-fg-muted">
               {scoreLabel(finalScore, config.perfectThreshold)}
             </div>
-            <div className="w-full rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2 flex flex-col gap-1 text-[10px] tabular-nums">
+            <div className="w-full  bg-line-quiet border border-fg/[0.06] px-3 py-2 flex flex-col gap-1 text-[10px] tabular-nums">
               <div className="flex justify-between items-center">
-                <span className="text-gray-500">accuracy</span>
+                <span className="text-fg-muted">accuracy</span>
                 <span className="flex gap-2">
-                  <span className="text-yellow-300">{perfCount}P</span>
-                  <span className="text-emerald-400">{goodCount}G</span>
-                  <span className="text-sky-400">{okCount}OK</span>
-                  <span className="text-rose-500">{missCount}M</span>
+                  <span className="text-warn">{perfCount}P</span>
+                  <span className="text-good">{goodCount}G</span>
+                  <span className="text-info">{okCount}OK</span>
+                  <span className="text-bad">{missCount}M</span>
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-500">score {(finalScore * 100).toFixed(0)}%</span>
-                <span className="text-gray-300 font-semibold">{scoreMult.toFixed(2)}×</span>
+                <span className="text-fg-muted">score {(finalScore * 100).toFixed(0)}%</span>
+                <span className="text-fg-muted font-semibold">{scoreMult.toFixed(2)}×</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-500">best combo ×{maxCombo}</span>
-                <span className="text-gray-300 font-semibold">{comboBns.toFixed(2)}×</span>
+                <span className="text-fg-muted">best combo ×{maxCombo}</span>
+                <span className="text-fg-muted font-semibold">{comboBns.toFixed(2)}×</span>
               </div>
-              <div className="border-t border-white/[0.06] mt-0.5 pt-0.5 flex justify-between items-center">
-                <span className="text-gray-500">total boost</span>
-                <span className="text-violet-300 font-bold">{(scoreMult * comboBns).toFixed(2)}×</span>
+              <div className="border-t border-fg/[0.06] mt-0.5 pt-0.5 flex justify-between items-center">
+                <span className="text-fg-muted">total boost</span>
+                <span className="text-ai font-bold">{(scoreMult * comboBns).toFixed(2)}×</span>
               </div>
             </div>
-            <div className="text-base font-bold text-violet-300 tabular-nums">
+            <div className="text-base font-bold text-ai tabular-nums">
               +{formatCurrency(new Decimal(totalReward), { showDollarSign: false, exponentBreakpoint: 1e6 })} innovation
             </div>
-            <button
+            <Button
               ref={claimButtonRef}
+              variant="primary"
+              tone="juice"
               onClick={() => onComplete(finalScore, maxCombo, notes.length)}
-              className="mt-1 rounded-lg bg-violet-600 px-6 py-1.5 text-xs font-bold uppercase tracking-widest text-white hover:bg-violet-500 active:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-gray-950"
+              className="mt-1 px-6 font-bold uppercase tracking-widest"
             >
               Claim
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -996,12 +999,12 @@ export function VapeMapWrapper() {
       >
         {ready && (
           <div className="pointer-events-none absolute inset-0 z-10 animate-pulse" aria-hidden>
-            <div className="absolute inset-[-12px] rounded-full bg-violet-400/20 blur-xl" />
-            <div className="absolute inset-[-4px] rounded-full bg-violet-500/15 blur-md" />
+            <div className="absolute inset-[-12px] rounded-full bg-ai/20 blur-xl" />
+            <div className="absolute inset-[-4px] rounded-full bg-ai/15 blur-md" />
           </div>
         )}
         {ready && (
-          <div className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 animate-bounce whitespace-nowrap rounded-full border border-violet-500/40 bg-gray-950/90 px-2.5 py-0.5 text-[10px] font-medium text-violet-300">
+          <div className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 animate-bounce whitespace-nowrap rounded-full border border-ai/40 bg-surface-0/90 px-2.5 py-0.5 text-[10px] font-medium text-ai">
             take a puff 💨
           </div>
         )}

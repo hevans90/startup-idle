@@ -19,7 +19,7 @@ import { useMoneyStore } from "../state/money.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useSessionStore } from "../state/session.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
-import { Button, CountUp, Dialog, Panel, Section } from "../ui/console";
+import { Button, CountUp, Dialog, Panel, Section, Stat, StatGrid } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
 import { formatDuration } from "../utils/time-utils";
@@ -42,7 +42,7 @@ const Bar = ({
   frac: number;
   tone?: "emerald" | "cyan";
 }) => (
-  <div className="h-1.5 w-full overflow-hidden rounded bg-surface-3">
+  <div className="h-1.5 w-full overflow-hidden  bg-surface-3">
     <div
       className={
         tone === "cyan" ? "h-full bg-innovation" : "h-full bg-good"
@@ -232,25 +232,13 @@ export const AcquisitionTab = () => {
   const paid = premium > 1 ? offer.mul(premium).floor() : offer;
 
   return (
-    <div className="flex w-full flex-col items-center gap-4 p-3">
-      {/* Hero: banked Equity */}
-      <div className="flex w-full flex-col items-center gap-1 pb-3">
-        <span className="text-[10px] uppercase tracking-wide opacity-60">
-          Banked Equity
-        </span>
-        <span className="text-3xl font-bold tabular-nums text-good">
-          {plain(equity)}
-        </span>
-        <div className="flex gap-4 text-xs opacity-70 tabular-nums">
-          <span>Exits {exits}</span>
-          <span>
-            Respecs{" "}
-            <span className="font-semibold text-bad">
-              {respecPoints}
-            </span>
-          </span>
-        </div>
-      </div>
+    <div className="flex w-full flex-col gap-3 p-2">
+      {/* WHAT IS BANKED: Equity, the exits made, the respecs to spend. */}
+      <StatGrid className="w-full">
+        <Stat label="Banked equity" value={plain(equity)} role="good" />
+        <Stat label="Exits" value={exits} />
+        <Stat label="Respecs" value={respecPoints} role={respecPoints > 0 ? "bad" : undefined} />
+      </StatGrid>
 
       {/* Skill tree */}
       <Panel

@@ -126,16 +126,17 @@ export function Segmented<T extends string>({ value, options, onChange, label, s
   );
 }
 
-/** A slider, in the console's colour. */
-export function Slider({ value, onChange, min = 0, max = 1, step = 0.05, label, disabled, onCommit }: {
+/** A slider, in the console's colour or its tone's. */
+export function Slider({ value, onChange, min = 0, max = 1, step = 0.05, label, disabled, onCommit, tone = "console", id, className }: {
   value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; label: string; disabled?: boolean;
   /** When the pointer lets go: to hear what it set. */
   onCommit?: () => void;
+  tone?: Tone; id?: string; className?: string;
 }) {
   return (
-    <input type="range" min={min} max={max} step={step} value={value} aria-label={label} disabled={disabled}
-      onChange={(e) => onChange(Number(e.target.value))} onPointerUp={onCommit}
-      className={twMerge("h-1 w-24 cursor-pointer accent-[var(--ui-console)] disabled:cursor-not-allowed disabled:opacity-40", FOCUS)} />
+    <input id={id} type="range" min={min} max={max} step={step} value={value} aria-label={label} disabled={disabled}
+      onChange={(e) => onChange(Number(e.target.value))} onPointerUp={onCommit} style={toneVar(tone)}
+      className={twMerge("h-1 w-24 cursor-pointer accent-[var(--tone)] disabled:cursor-not-allowed disabled:opacity-40", FOCUS, className)} />
   );
 }
 

@@ -7,6 +7,7 @@
  * @see stepAutopilot, styleOf, chooseBlock
  */
 import { twMerge } from "tailwind-merge";
+import { Slider, Toggle } from "../../ui/console";
 
 import { useTicking } from "../../hooks/use-ticking";
 import { useFounderStore } from "../../state/founder.store";
@@ -16,7 +17,7 @@ import { TALL_PULL } from "../ai/masterplan/style";
 import { trait } from "../../game/traits";
 import { formatCurrency } from "../../utils/money-utils";
 
-const PANEL = "border border-line bg-surface-1/95 shadow-md";
+const PANEL = "border border-line-quiet bg-surface-1/95 shadow-lg backdrop-blur-sm";
 
 export function AiModePanel({ className }: { className?: string }) {
   useTicking(1000);
@@ -36,19 +37,20 @@ export function AiModePanel({ className }: { className?: string }) {
   const choice = on ? currentChoice() : null;
   return (
     <div className={twMerge(PANEL, "flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 text-xs text-fg", className)}>
-      <span className="font-bold text-ai">AI mode</span>
+      <span className="flex items-center gap-2 font-display text-xs uppercase tracking-widest text-ai">
+        <span aria-hidden className="h-3 w-0.5 bg-ai" />AI mode
+      </span>
       {on && (
         <>
-          <label className="flex items-center gap-1 tabular-nums" title="The most of the money it may spend on one step">
-            Budget
-            <input type="range" min={0.1} max={1} step={0.05} value={budget}
-              onChange={(e) => set({ aiBudget: Number(e.target.value) })} className="w-20 accent-[var(--ui-ai)]" />
+          <span className="flex items-center gap-2 tabular-nums" title="The most of the money it may spend on one step">
+            <span className="text-fg-muted">Budget</span>
+            <Slider label="AI mode's budget a step" min={0.1} max={1} step={0.05} value={budget} onChange={(v) => set({ aiBudget: v })} />
             <b>{Math.round(budget * 100)}%</b>
-          </label>
-          <label className="flex cursor-pointer items-center gap-1">
-            <input type="checkbox" checked={showPlan} onChange={(e) => set({ showPlan: e.target.checked })} className="accent-[var(--ui-ai)]" />
+          </span>
+          <span className="flex items-center gap-2">
+            <Toggle label="Show plans" on={showPlan} onChange={(on) => set({ showPlan: on })} />
             Show plans
-          </label>
+          </span>
           <span className="tabular-nums text-fg-muted">
             {plan
               ? <>{plan.steps.length ? "Building a block" : "Looking for room"} · {stepsTaken()} steps{last && <> · last: {last}</>}</>

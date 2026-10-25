@@ -15,7 +15,7 @@ import { traitForecast } from "../game/traits";
 import { useGenerationStore } from "../state/generation.store";
 import { useQuestStore } from "../state/quest.store";
 import { DispositionChart } from "./disposition-chart";
-import { Frame } from "../ui/console";
+import { Panel } from "../ui/console";
 
 export type DossierProps = {
   chapters: readonly Chapter[];
@@ -36,9 +36,8 @@ const TITLE = "text-[10px] font-bold uppercase tracking-widest text-ai";
 export function DossierView({ chapters, chosen, current, at, path, remembers, becoming }: DossierProps) {
   const [open, setOpen] = useState<string | null>(null);
   return (
-    <Frame kind="octagon" tone="ai" assemble={false} className="m-2 text-xs">
-      <div className="flex flex-col gap-3 p-3">
-        <p className={TITLE}>The dossier</p>
+    <Panel title="The dossier" tone="ai" className="text-xs">
+      <div className="flex flex-col gap-3">
         {/* THE CHAPTERS on a line. */}
         <div>
           <ol className="flex items-center gap-1" aria-label="The chapters">
@@ -48,7 +47,7 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
                 <li key={c.id} className="flex flex-1 items-center gap-1">
                   <button type="button" disabled={!done} onClick={() => setOpen(open === c.id ? null : c.id)} title={done || now ? c.title : "Still to come"}
                     className={twMerge(
-                      "h-5 w-5 shrink-0 rounded-full border-2 text-[9px] font-bold",
+                      "h-5 w-5 shrink-0 rounded-full border-2 text-[10px] font-bold",
                       done ? "cursor-pointer border-ai bg-ai text-surface-0"
                         : now ? "animate-pulse border-ai text-ai"
                           : "border-line text-fg-faint",
@@ -96,7 +95,7 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
           </ul>
         </div>
       </div>
-    </Frame>
+    </Panel>
   );
 }
 

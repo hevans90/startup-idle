@@ -182,7 +182,7 @@ export const VapeJuiceDisplay = ({
           width="32"
           height="36"
           rx="6"
-          className="fill-primary-400 stroke-primary-600 dark:fill-primary-600 dark:stroke-primary-400"
+          className="fill-fg-muted stroke-line"
           strokeWidth="2"
         />
         <rect
@@ -191,7 +191,7 @@ export const VapeJuiceDisplay = ({
           width="16"
           height="14"
           rx="3"
-          className="fill-primary-500 dark:fill-primary-500"
+          className="fill-fg-muted"
         />
 
         {/* Body */}
@@ -201,7 +201,7 @@ export const VapeJuiceDisplay = ({
           width="84"
           height="192"
           rx="22"
-          className="fill-primary-200/90 stroke-primary-500 dark:fill-primary-800/90 dark:stroke-primary-500"
+          className="fill-surface-2/90 stroke-line-strong"
           strokeWidth="3"
         />
 
@@ -257,7 +257,7 @@ export const VapeJuiceDisplay = ({
               width="15"
               height="36"
               rx="5"
-              className="fill-primary-300 stroke-primary-400 dark:fill-primary-700 dark:stroke-primary-500"
+              className="fill-surface-2 stroke-line"
               strokeWidth="1.5"
             />
             {/* Squonk fill indicator — pulsing purple liquid inside */}
@@ -284,7 +284,7 @@ export const VapeJuiceDisplay = ({
               width="8"
               height="5"
               rx="2"
-              className="fill-primary-400 dark:fill-primary-600"
+              className="fill-fg-muted"
             />
           </g>
         )}
@@ -310,7 +310,7 @@ export const VapeJuiceDisplay = ({
             y={liquidTop - 2}
             width="72"
             height="8"
-            className="fill-white/25"
+            className="fill-fg/25"
           />
 
           {/* Deep steep: slow shimmer sweeping the liquid surface */}
@@ -481,7 +481,7 @@ export const VapeJuiceDisplay = ({
               width="32"
               height="13"
               rx="5"
-              className="fill-amber-100 dark:fill-amber-200"
+              className="fill-warn"
             />
             <rect
               x="54"
@@ -499,7 +499,7 @@ export const VapeJuiceDisplay = ({
               fill="none"
               opacity="0.5"
             />
-            <circle cx="60" cy="213" r="1.7" className="fill-amber-300">
+            <circle cx="60" cy="213" r="1.7" className="fill-warn">
               <animate
                 attributeName="cy"
                 values="211;219"
@@ -605,7 +605,7 @@ export const VapeJuiceDisplay = ({
           height={innerH}
           rx="10"
           fill="none"
-          className="stroke-primary-600/50 dark:stroke-primary-300/40"
+          className="stroke-line/50"
           strokeWidth="2"
         />
 
@@ -635,7 +635,7 @@ export const VapeJuiceDisplay = ({
         {has("juice_cloud_chaser") && (
           <g
             filter={`url(#${id("smoke")})`}
-            className="fill-slate-200/80 dark:fill-slate-100/50"
+            className="fill-surface-2/80"
           >
             {[
               { cx: 70, begin: "0s" },
@@ -716,10 +716,10 @@ export const VapeJuiceDisplay = ({
       {!compact && chargeFill !== undefined ? (
         <p
           className={twMerge(
-            "text-[10px] font-semibold uppercase tracking-wide tabular-nums",
+            "text-[10px] uppercase tracking-widest tabular-nums",
             chargeFill >= 0.999
-              ? "text-violet-400 animate-pulse"
-              : "text-primary-500 dark:text-primary-400",
+              ? "text-ai animate-pulse"
+              : "text-fg-muted",
           )}
         >
           {chargeFill >= 0.999
@@ -728,10 +728,10 @@ export const VapeJuiceDisplay = ({
         </p>
       ) : !compact ? (
         <>
-          <p className="max-w-full truncate text-center text-[10px] font-semibold uppercase tracking-wide text-primary-600 dark:text-primary-300">
+          <p className="max-w-full truncate text-center text-[10px] uppercase tracking-widest text-fg-muted">
             Vape juice
           </p>
-          <p className="tabular-nums text-sm font-bold text-primary-800 dark:text-primary-100">
+          <p className="tabular-nums text-sm font-bold text-fg">
             {formatCurrency(vapeJuice, {
               showDollarSign: false,
               exponentBreakpoint: 1e9,

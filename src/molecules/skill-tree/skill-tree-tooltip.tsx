@@ -189,7 +189,7 @@ export const SkillTreeTooltip = () => {
 
         {(routeTotals.length > 0 || routeStructural.length > 0) && (
           <div className="mt-2 border-t border-line/40 pt-1.5">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-innovation">
+            <p className="mb-1 text-[10px] uppercase tracking-widest text-innovation">
               Route gains
             </p>
             <div className="flex flex-col gap-0.5 text-[11px] tabular-nums">

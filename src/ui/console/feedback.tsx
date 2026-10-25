@@ -50,6 +50,28 @@ export function CountUp<T extends number | Decimal>({ to, format, role, classNam
   return <Num role={role} className={className}>{format(t >= 1 ? to : v)}</Num>;
 }
 
+/** A FIGURE, LABELLED: what it is in small capitals over its value, in its role's colour; a hint on hover. */
+export function Stat({ label, value, role, sub, title, className }: {
+  label: ReactNode; value: ReactNode; role?: Role; sub?: ReactNode; title?: string; className?: string;
+}) {
+  return (
+    <div title={title} className={twMerge("flex min-w-0 flex-col gap-1 px-3 py-2", className)}>
+      <span className="truncate text-[10px] uppercase tracking-[0.18em] text-fg-faint">{label}</span>
+      <Num role={role} className="truncate font-display text-base leading-none">{value}</Num>
+      {sub && <span className="truncate text-[11px] text-fg-muted">{sub}</span>}
+    </div>
+  );
+}
+
+/** Figures side by side, hairlines between them, in a quiet box. */
+export function StatGrid({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={twMerge("grid auto-cols-fr grid-flow-col divide-x divide-line-quiet border border-line-quiet bg-surface-1", className)}>
+      {children}
+    </div>
+  );
+}
+
 /** How far something has come, 0–1: its label and number over a thin bar, filled in its tone. */
 export function Meter({ value, tone = "console", label, detail, className }: {
   value: number;

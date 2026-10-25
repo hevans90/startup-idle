@@ -21,11 +21,12 @@ export function TopStreets({ className }: { className?: string }) {
   const live = liveStreets();
   return (
     <div className={twMerge(
-      "w-64 border border-line bg-surface-1/95 p-2 text-xs text-fg shadow-md",
-      "",
+      "w-64 border border-line-quiet bg-surface-1/95 p-2.5 text-xs text-fg shadow-lg backdrop-blur-sm",
       className,
     )}>
-      <b className="text-[10px] uppercase tracking-wide text-fg-muted">Best streets</b>
+      <p className="mb-1 flex items-center gap-2 font-display text-xs uppercase tracking-widest">
+        <span aria-hidden className="h-3 w-0.5 bg-money" />Best streets
+      </p>
       {!ranked.length && <p className="opacity-70">Nothing earning on the map yet.</p>}
       {ranked.map((r, k) => {
         const tiles = live?.streets.tiles[r.street] ?? [];

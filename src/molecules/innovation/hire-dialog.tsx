@@ -13,7 +13,7 @@ import {
   useTeamLeadersEmployeesStore,
   type TeamLeaderEmployee,
 } from "../../state/team-leaders.store";
-import { Button } from "../../ui/console";
+import { Button, Dialog } from "../../ui/console";
 import { TenXDevText } from "../../utils/ten-x-utils";
 import { RainbowText } from "../../utils/vibe-utils";
 import { EmployeeAvatar } from "./employee-avatar";
@@ -43,10 +43,10 @@ function SkillChip({ skillId }: { skillId: TeamLeaderSkillId }) {
         bg,
       )}
     >
-      <span className={twMerge("text-[8px] font-semibold leading-none", text)}>
+      <span className={twMerge("text-[10px] font-semibold leading-none", text)}>
         {skill.name}
       </span>
-      <span className="text-[7px] leading-none text-fg-muted">
+      <span className="text-[10px] leading-none text-fg-muted">
         {skill.descriptions[0]}
       </span>
     </div>
@@ -107,7 +107,7 @@ function CandidateCard({
           </div>
           <span
             className={twMerge(
-              "text-[9px] font-semibold uppercase tracking-wide shrink-0",
+              "text-[10px] uppercase tracking-widest shrink-0",
               TRAIT_COLORS[candidate.traitId],
             )}
           >
@@ -116,13 +116,13 @@ function CandidateCard({
         </div>
 
         {/* Flavor */}
-        <p className="text-[9px] italic text-fg-muted leading-snug">
+        <p className="text-[10px] italic text-fg-muted leading-snug">
           "{trait.flavor}"
         </p>
 
         {/* Skill path preview */}
         <div className="flex flex-col gap-1">
-          <span className="text-[8px] uppercase tracking-wider text-fg-muted">
+          <span className="text-[10px] uppercase tracking-wider text-fg-muted">
             Skills
           </span>
           <div className="flex gap-1 flex-wrap">
@@ -134,7 +134,7 @@ function CandidateCard({
 
         {/* Hire button */}
         <div className="flex justify-end pt-0.5">
-          <Button type="button" className="text-[9px] px-2 py-1" onClick={onHire}>
+          <Button type="button" className="text-[10px] px-2 py-1" onClick={onHire}>
             Hire →
           </Button>
         </div>
@@ -175,96 +175,26 @@ export function HireDialog({
         ? "10x dev"
         : "intern";
 
+  // RECRUITMENT, a dialog: the candidates, a card each; a reroll in its foot.
   return (
-    /* Backdrop */
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={onClose}
-    >
-      {/* Panel — stop propagation so clicks inside don't close */}
-      <div
-        className="bg-surface-1 border border-line w-full max-w-sm mx-4 flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-line">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-semibold uppercase tracking-widest text-fg-muted">
-              Recruitment
-            </span>
-            <span className="text-[9px] text-fg-muted">
-              ·
-            </span>
-            {role === "vibe_coder" ? (
-              <RainbowText
-                text={roleLabel}
-                className="text-[10px] font-medium"
-              />
-            ) : role === "10x_dev" ? (
-              <TenXDevText
-                text={roleLabel}
-                className="text-[10px] font-medium"
-              />
-            ) : (
-              <span className="text-[10px] font-medium text-fg-muted capitalize">
-                {roleLabel}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-[10px] text-fg-muted hover:text-fg-muted leading-none px-1"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Candidate cards */}
-        <div className="flex flex-col gap-2 p-3">
-          {candidates.length === 0 ? (
-            <p className="text-xs text-fg-muted text-center py-4">
-              No candidates available.
-            </p>
-          ) : (
-            candidates.map((c) => (
-              <CandidateCard
-                key={c.id}
-                candidate={c}
-                onHire={() => {
-                  hireCandidateFromPool(role, c.id);
-                  onClose();
-                }}
-              />
-            ))
-          )}
-        </div>
-
-        {/* Reroll footer */}
-        <div className="border-t border-line px-3 py-2 flex items-center justify-between gap-3">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[9px] text-fg-muted">
-              Not feeling it?
-            </span>
-            <span className="text-[9px] tabular-nums text-fg-muted">
-              {innovation.toFixed(0)} innovation available
-            </span>
-          </div>
-          <Button
-            type="button"
-            disabled={!canAffordReroll}
-            onClick={() => rerollCandidates(role)}
-            className="text-[9px] px-2 py-1 shrink-0"
-            title={
-              canAffordReroll
-                ? `Costs ${rerollCost} innovation`
-                : `Need ${rerollCost} innovation`
-            }
-          >
-            Reroll — {rerollCost} ipa
-          </Button>
-        </div>
+    <Dialog title="Recruitment" kicker={`Hiring a team leader · ${roleLabel}`} onClose={onClose}
+      actions={<>
+        <span className="mr-auto self-center text-[11px] tabular-nums text-fg-muted">{innovation.toFixed(0)} innovation available</span>
+        <Button size="sm" disabled={!canAffordReroll} onClick={() => rerollCandidates(role)}
+          title={canAffordReroll ? `Costs ${rerollCost} innovation` : `Need ${rerollCost} innovation`}>
+          Reroll · <span className="text-innovation">{rerollCost}</span>
+        </Button>
+      </>}>
+      <div className="flex flex-col gap-2">
+        {candidates.length === 0 ? (
+          <p className="py-4 text-center text-xs text-fg-muted">No candidates available.</p>
+        ) : (
+          candidates.map((c) => (
+            <CandidateCard key={c.id} candidate={c}
+              onHire={() => { hireCandidateFromPool(role, c.id); onClose(); }} />
+          ))
+        )}
       </div>
-    </div>
+    </Dialog>
   );
 }

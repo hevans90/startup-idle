@@ -21,7 +21,7 @@ export const CompanyTimer = ({ className }: { className?: ClassNameValue }) => {
       )}
       title="Time since this company was founded"
     >
-      <span className="text-[9px] uppercase tracking-wide opacity-70">
+      <span className="text-[10px] uppercase tracking-wide opacity-70">
         Incorporated
       </span>
       <span className="responsive-text-xs tabular-nums">

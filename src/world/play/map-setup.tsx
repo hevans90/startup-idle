@@ -12,12 +12,11 @@
  * @see GEN_SLIDERS
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { twMerge } from "tailwind-merge";
 
 import { DIRT, GRASS, SAND, WOODS } from "../../state/world.store";
 import { WATER_VIEW } from "../agents/mood-rules";
 import { HILLY, ruggedness } from "../gen/rugged";
-import { Button } from "../../ui/console";
+import { Button, Slider, Tile } from "../../ui/console";
 import { FoundingShell } from "../../molecules/founding-shell";
 import { generatePlayableMap, type GenReport } from "../gen/generate-map";
 import { DEFAULT_GEN, GEN_SLIDERS, type GenParams } from "../gen/params";
@@ -180,17 +179,13 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
           </div>
 
           <div>
-            <p className="mb-1 text-xs font-bold uppercase tracking-wide opacity-60">Size</p>
-            <div className="flex gap-1">
+            <p className="mb-1 text-[10px] uppercase tracking-widest text-fg-muted">Size</p>
+            <div className="grid grid-cols-3 gap-1">
               {SIZES.map(([n, name]) => (
-                <button key={n} type="button" onClick={() => set("size", n)}
-                  className={twMerge(
-                    "flex-1 cursor-pointer border border-line px-2 py-1.5 text-sm",
-                    params.size === n ? "bg-surface-3 font-bold" : "hover:bg-surface-2",
-                  )}>
+                <Tile key={n} selected={params.size === n} onClick={() => set("size", n)} className="flex flex-col items-center px-2 py-1.5 text-sm">
                   {name}
-                  <span className="ml-1 text-[10px] opacity-60">{n}×{n}</span>
-                </button>
+                  <span className="text-[10px] text-fg-muted">{n}×{n}</span>
+                </Tile>
               ))}
             </div>
           </div>
@@ -200,27 +195,25 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
             return (
               <label key={key} className="block" title={s.hint}>
                 <span className="flex justify-between text-xs">
-                  <span className="font-bold uppercase tracking-wide opacity-60">{label}</span>
+                  <span className="uppercase tracking-widest opacity-60">{label}</span>
                   <span>{words(params[key])}</span>
                 </span>
-                <input type="range" className="w-full accent-[var(--ui-good)]"
-                  min={s.min} max={s.max} step={s.step} value={params[key]}
-                  onChange={(e) => set(key, Number(e.target.value))} />
+                <Slider label={label} className="mt-1 w-full" min={s.min} max={s.max} step={s.step} value={params[key]}
+                  onChange={(v) => set(key, v)} />
               </label>
             );
           })}
 
-          <details className="border border-line p-2 text-xs">
+          <details className="border border-line-quiet bg-surface-1 p-2.5 text-xs">
             <summary className="cursor-pointer font-bold">All settings</summary>
             {GROUPS.map(([group, name]) => (
               <fieldset key={group} className="mt-2">
-                <legend className="font-bold uppercase tracking-wide opacity-60">{name}</legend>
+                <legend className="uppercase tracking-widest opacity-60">{name}</legend>
                 {GEN_SLIDERS.filter((s) => s.group === group && s.key !== "size").map((s) => (
                   <label key={s.key} className="mt-1 grid grid-cols-[6rem_1fr_2.5rem] items-center gap-2" title={s.hint}>
                     <span className="truncate">{s.label}</span>
-                    <input type="range" className="accent-[var(--ui-good)]"
-                      min={s.min} max={s.max} step={s.step} value={params[s.key]}
-                      onChange={(e) => set(s.key, Number(e.target.value))} />
+                    <Slider label={s.label} className="w-full" min={s.min} max={s.max} step={s.step} value={params[s.key]}
+                      onChange={(v) => set(s.key, v)} />
                     <span className="text-right tabular-nums">{params[s.key]}</span>
                   </label>
                 ))}

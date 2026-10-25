@@ -17,6 +17,7 @@ import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { usePrestigeStore } from "../state/prestige.store";
+import { FOCUS } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -79,7 +80,7 @@ function formatMult(n: number): string {
 function SatisfactionHowToRaiseHelpContent() {
   return (
     <div className="max-w-sm space-y-2 text-left text-xs leading-snug text-fg">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-fg-muted">
+      <p className="text-[10px] uppercase tracking-widest text-fg-muted">
         How to raise satisfaction
       </p>
       <ul className="list-disc space-y-1 pl-3.5 text-[11px] text-fg">
@@ -311,18 +312,22 @@ export const EmployeeSatisfactionOverlay = ({
       floatOffset={8}
     >
       <PopoverTrigger asChild>
-        <div
+        <section
+          aria-label="Satisfaction"
+          tabIndex={0}
           className={twMerge(
-            "relative cursor-help border border-line/60 bg-surface-1/90 p-2 outline-none",
+            "relative cursor-help border border-line-quiet bg-surface-1 outline-none",
+            FOCUS,
             className,
           )}
         >
-          <div className="mb-1.5 flex items-center justify-between gap-1">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-fg-muted">
-              Satisfaction
-            </p>
+          <header className="flex min-h-8 items-center justify-between gap-2 border-b border-line-quiet bg-surface-2/40 px-3 py-1">
+            <h3 className="flex items-center gap-2 font-display text-xs uppercase tracking-widest">
+              <span aria-hidden className="h-3 w-0.5 bg-console" />Satisfaction
+            </h3>
             <SatisfactionHowToRaiseHelpPopover />
-          </div>
+          </header>
+          <div className="p-3">
           {neutralized && (
             <p className="mb-1.5 text-[10px] leading-snug text-bad">
               Disabled by keystone — all satisfaction effects are off.
@@ -349,11 +354,12 @@ export const EmployeeSatisfactionOverlay = ({
               />
             ))}
           </div>
-        </div>
+          </div>
+        </section>
       </PopoverTrigger>
 
-      <PopoverContent className="z-50 max-h-[min(92vh,52rem)] max-w-sm border border-line-strong bg-surface-1 p-3 text-fg shadow-lg outline-none focus:ring-0">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-fg-muted">
+      <PopoverContent className="z-50 max-h-[min(92vh,52rem)] max-w-sm border border-line-strong bg-surface-3 p-3 text-fg shadow-lg outline-none focus:ring-0">
+        <p className="mb-2 text-[10px] uppercase tracking-widest text-fg-muted">
           Satisfaction effects
         </p>
         <SatisfactionCurrentEffects

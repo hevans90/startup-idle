@@ -12,7 +12,7 @@ function BreakdownContent({ bd }: { bd: ModifierBreakdown }) {
   return (
     <div className="min-w-48 max-w-80 space-y-2 text-xs text-fg">
       <div className="flex items-baseline justify-between gap-2 border-b border-line pb-1.5">
-        <span className="font-semibold leading-tight">{bd.label}</span>
+        <span className="font-display text-xs uppercase tracking-widest leading-tight">{bd.label}</span>
         <span className="shrink-0 tabular-nums font-bold">{bd.total}</span>
       </div>
       {bd.description && (
@@ -49,11 +49,11 @@ function ModifierTagInner({ modKey, children }: { modKey: string; children: Reac
   return (
     <Popover placement="bottom-start" floatOffset={6}>
       <PopoverTrigger asChild>
-        <span className="cursor-help underline decoration-dashed decoration-1 underline-offset-2 outline-none">
+        <span className="cursor-help underline decoration-line-strong decoration-dotted decoration-1 underline-offset-[3px] outline-none hover:decoration-fg-muted">
           {children}
         </span>
       </PopoverTrigger>
-      <PopoverContent className="z-[110] border border-line-strong bg-surface-1 p-2.5 text-fg shadow-xl outline-none focus:ring-0">
+      <PopoverContent className="z-[110] border border-line-strong bg-surface-3 p-3 text-fg shadow-lg outline-none focus:ring-0">
         <LazyBreakdownContent modKey={modKey} />
       </PopoverContent>
     </Popover>

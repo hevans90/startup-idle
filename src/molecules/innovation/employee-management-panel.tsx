@@ -75,7 +75,7 @@ function StatBar({
   const pct = Math.min(100, (value / Math.max(1, max)) * 100);
   return (
     <div className="flex items-center gap-1.5 min-w-0">
-      <span className="text-[9px] text-fg-muted w-9 shrink-0">
+      <span className="text-[10px] text-fg-muted w-9 shrink-0">
         {label}
       </span>
       <div className="flex-1 h-1 bg-surface-2 overflow-hidden min-w-0">
@@ -84,7 +84,7 @@ function StatBar({
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[9px] tabular-nums text-fg-muted w-5 text-right shrink-0">
+      <span className="text-[10px] tabular-nums text-fg-muted w-5 text-right shrink-0">
         {Math.floor(value)}
       </span>
     </div>
@@ -113,7 +113,7 @@ function SkillPip({
       <div className="flex items-center gap-1">
         <span
           className={twMerge(
-            "text-[8px] font-semibold",
+            "text-[10px] font-semibold",
             unlocked ? text : "text-fg-muted",
           )}
         >
@@ -121,7 +121,7 @@ function SkillPip({
         </span>
         <span
           className={twMerge(
-            "text-[7px]",
+            "text-[10px]",
             unlocked ? dimText : "text-fg-muted/40",
           )}
         >
@@ -131,7 +131,7 @@ function SkillPip({
       </div>
       <span
         className={twMerge(
-          "text-[7px]",
+          "text-[10px]",
           unlocked
             ? "text-fg-muted"
             : "text-fg-muted/50",
@@ -178,14 +178,14 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
             </div>
             <span
               className={twMerge(
-                "text-[9px] shrink-0 font-medium",
+                "text-[10px] shrink-0 font-medium",
                 TRAIT_COLORS[emp.traitId],
               )}
             >
               {trait.name}
             </span>
           </div>
-          <p className="text-[9px] italic text-fg-muted leading-tight">
+          <p className="text-[10px] italic text-fg-muted leading-tight">
             {trait.flavor}
           </p>
         </div>
@@ -208,7 +208,7 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
       </div>
 
       {/* Rank + unspent indicator */}
-      <div className="flex items-center justify-between text-[9px] tabular-nums">
+      <div className="flex items-center justify-between text-[10px] tabular-nums">
         <span className="text-fg-muted">
           Rank {emp.rank}
           {emp.rank < MAX_RANK ? ` → ${nextThresh}` : " (max)"}
@@ -223,7 +223,7 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
       {/* Skill spend buttons (only shown when there are unspent points) */}
       {emp.unspentPoints > 0 && (
         <div className="flex flex-col gap-1.5 border-t border-warn/20 pt-1.5">
-          <p className="text-[9px] text-warn">
+          <p className="text-[10px] text-warn">
             Spend rank point:
           </p>
           <div className="flex flex-col gap-1">
@@ -252,24 +252,24 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span
                       className={twMerge(
-                        "text-[9px] font-semibold leading-none",
+                        "text-[10px] font-semibold leading-none",
                         maxed ? "text-fg-muted" : text,
                       )}
                     >
                       {skill.name}
                       {maxed && (
-                        <span className="ml-1 text-[7px] font-normal opacity-60">
+                        <span className="ml-1 text-[10px] font-normal opacity-60">
                           maxed
                         </span>
                       )}
                     </span>
-                    <span className="text-[7px] leading-none text-fg-muted">
+                    <span className="text-[10px] leading-none text-fg-muted">
                       {maxed
                         ? skill.descriptions[2]
                         : `→ ${skill.descriptions[currentLevel]}`}
                     </span>
                   </div>
-                  <span className="text-[8px] tabular-nums text-fg-muted shrink-0">
+                  <span className="text-[10px] tabular-nums text-fg-muted shrink-0">
                     {currentLevel}/3
                   </span>
                 </button>
@@ -293,7 +293,7 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
       {/* Fire */}
       <div className="flex items-center justify-between gap-2 border-t border-line-quiet pt-1.5">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[9px] text-fg-muted">
+          <span className="text-[10px] text-fg-muted">
             {emp.rank > 0
               ? `Legacy → +${legacyRev}% rev, +${legacyIps}% IPS`
               : "Rank up to earn a legacy"}
@@ -301,7 +301,7 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
           {fireCost > 0 && (
             <span
               className={twMerge(
-                "text-[8px] tabular-nums",
+                "text-[10px] tabular-nums",
                 canAffordFire
                   ? "text-fg-muted"
                   : "text-bad",
@@ -313,7 +313,7 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
         </div>
         <Button
           type="button"
-          className="text-[9px] px-1.5 py-0.5 shrink-0"
+          className="text-[10px] px-1.5 py-0.5 shrink-0"
           disabled={!canAffordFire}
           onClick={() => fireEmployee(emp.id)}
           title={
@@ -341,7 +341,7 @@ function PairSynergyRow({ syn }: { syn: PairSynergy }) {
     parts.push(`+${Math.round(syn.outputGrowthBonus * 100)}% growth`);
 
   return (
-    <div className="flex items-baseline gap-1.5 text-[9px]">
+    <div className="flex items-baseline gap-1.5 text-[10px]">
       <span className="text-good shrink-0">⇌</span>
       <span className="font-medium text-fg-muted">
         {syn.name}
@@ -395,7 +395,7 @@ function TeamLeadersSection({
 
   return (
     <div className="px-1 flex flex-col gap-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+      <p className="text-[10px] uppercase tracking-widest text-fg-muted">
         Team Leaders
         {totalUnspent > 0 && (
           <span className="ml-1.5 font-normal normal-case tracking-normal text-warn">
@@ -418,16 +418,16 @@ function TeamLeadersSection({
             <div className="flex items-center gap-1.5">
               <RoleLabel id={role} className="text-[10px]" />
               {candidatePool[role]?.length ? (
-                <span className="text-[9px] text-good">
+                <span className="text-[10px] text-good">
                   · {candidatePool[role]!.length} candidates ready
                 </span>
               ) : (
-                <span className="text-[9px] text-fg-muted">
+                <span className="text-[10px] text-fg-muted">
                   · no team leader
                 </span>
               )}
             </div>
-            <span className="text-[9px] text-fg-muted group-hover:text-fg-muted transition-colors">
+            <span className="text-[10px] text-fg-muted group-hover:text-fg-muted transition-colors">
               Find talent →
             </span>
           </button>
@@ -436,7 +436,7 @@ function TeamLeadersSection({
 
       {activePairSyns.length > 0 && (
         <div className="flex flex-col gap-1 border-t border-line-quiet pt-1.5">
-          <p className="text-[9px] uppercase tracking-wider text-fg-muted">
+          <p className="text-[10px] uppercase tracking-wider text-fg-muted">
             Pair synergies
           </p>
           {activePairSyns.map((syn) => (
@@ -447,12 +447,12 @@ function TeamLeadersSection({
 
       {legacies.length > 0 && (
         <div className="flex flex-col gap-0.5 border-t border-line-quiet pt-1.5">
-          <p className="text-[9px] uppercase tracking-wider text-fg-muted">
+          <p className="text-[10px] uppercase tracking-wider text-fg-muted">
             Legacy bonuses
           </p>
           {legacies.map((leg) => (
-            <div key={leg.role} className="flex gap-1.5 text-[9px]">
-              <RoleLabel id={leg.role} className="text-[9px] font-normal" />
+            <div key={leg.role} className="flex gap-1.5 text-[10px]">
+              <RoleLabel id={leg.role} className="text-[10px] font-normal" />
               <span className="text-fg-muted">
                 +{Math.round(leg.revenueMult * 100)}% rev · +
                 {Math.round(leg.ipsMult * 100)}% IPS
@@ -490,7 +490,7 @@ function MicromanagementSection({
 }: MicromanagementSectionProps) {
   return (
     <div className="border-t border-line-quiet px-1 pt-2 pb-1 flex flex-col gap-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+      <p className="text-[10px] uppercase tracking-widest text-fg-muted">
         Micromanagement
       </p>
       {generators.map((gen) => {

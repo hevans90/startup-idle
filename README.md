@@ -76,7 +76,7 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**. **Hin
 
 ## Tech stack
 
-React 19 + TypeScript (Vite, SWC), Tailwind CSS v4 (the console's tokens, `src/ui/theme/`: roles as `--ui-*` variables for both themes, `bg-surface-1`/`text-fg-muted`/`text-money`…, `--console-ai` by stage; `font-display` Share Tech Mono; plan `plans/ui-overhaul.md`); Zustand persisted to `localStorage`; PixiJS v8, @pixi/react, pixi-viewport; WebGPU compute water with a CPU reference; break_infinity.js (`Decimal`); Arwes (`@arwes/frames`, `@arwes/text`, `@arwes/bgs` with `motion@10`) only through the console's kit, `src/ui/console/` (Frame, Text, Backdrop, Button, Tabs, Panel, Card, Dialog, Meter, Locked…; an eslint error elsewhere; gallery `?uikit`), motion levels in `src/ui/motion/`, comms in `src/ui/comms/`; Bun (runtime, tests); Tauri (desktop).
+React 19 + TypeScript (Vite, SWC), Tailwind CSS v4 (the console's tokens, `src/ui/theme/`: roles as `--ui-*` variables for both themes, `bg-surface-1`/`text-fg-muted`/`text-money`…, `--console-ai` by stage; `font-display` Share Tech Mono; plan `plans/ui-overhaul.md`); Zustand persisted to `localStorage`; PixiJS v8, @pixi/react, pixi-viewport; WebGPU compute water with a CPU reference; break_infinity.js (`Decimal`); Arwes (`@arwes/frames`, `@arwes/text`, `@arwes/bgs` with `motion@10`) only through the console's kit, `src/ui/console/` (Panel, Card, Tile, Stat, Field, Dialog, Tabs, Meter, Locked, Button…; frames only for dialogs and the AI's words; arwes an eslint error elsewhere, as are raw palette classes anywhere in the game's UI; gallery `?uikit`), motion levels in `src/ui/motion/`, comms in `src/ui/comms/`; Bun (runtime, tests); Tauri (desktop).
 
 ## Getting started
 

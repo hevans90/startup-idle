@@ -18,7 +18,7 @@ import { useSlopPitStore } from "../../state/slop-pit.store";
 import { builtProjects, ruledOut, sitesOf } from "../projects/works";
 import { projectForStructure } from "../../game/projects";
 import { nextHint, type HintState } from "./hints";
-import { Card, FOCUS } from "../../ui/console";
+import { Button, Card } from "../../ui/console";
 
 /** What the hints can see, read from the game now. */
 function snapshot(): HintState {
@@ -108,9 +108,7 @@ export function HintCard() {
         <span aria-hidden className="mt-0.5 text-good">●</span>
         <p className="flex-1">{hint.text}</p>
       </div>
-      <button type="button" onClick={() => setOff(true)} className={`self-end cursor-pointer text-[10px] text-fg-muted underline hover:text-fg ${FOCUS}`}>
-        no more tips
-      </button>
+      <Button size="sm" variant="quiet" className="self-end" onClick={() => setOff(true)}>No more tips</Button>
     </Card>
   );
 }

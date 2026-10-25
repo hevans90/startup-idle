@@ -7,7 +7,7 @@
  */
 import { twMerge } from "tailwind-merge";
 
-import { Button, Card } from "../../ui/console";
+import { Button, Card, IconButton } from "../../ui/console";
 
 import { pipeCost } from "../../game/build-cost";
 import { agentsCooled } from "../../game/mains";
@@ -21,7 +21,7 @@ import { MAIN_BORE, MAIN_END, idx, inBounds } from "../grid";
 import { structureDef } from "../structures/def";
 import { findMains, hasMain, mainReportAt, planMain, previewMain, routeMain, type MainState } from "../water/mains";
 
-const CARD = "border border-line bg-surface-1/95 px-2 py-1 text-xs shadow";
+const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
 
 export function MainCard() {
   const stroke = useWorldStore((s) => s.stroke);
@@ -32,13 +32,10 @@ export function MainCard() {
   if (!playing) return null;
   if (offer && !stroke) {
     return (
-      <div role="status" className={twMerge(CARD, "flex items-center gap-2 border-warn")}>
+      <div role="status" className={twMerge(CARD, "flex items-center gap-2 border-l-2 border-l-warn")}>
         <span className="text-warn">{offer.why}.</span>
-        <button type="button" onClick={accept}
-          className="cursor-pointer border border-line px-2 py-0.5 hover:bg-surface-2">
-          Add a pump: {formatCurrency(offer.price)}
-        </button>
-        <button type="button" onClick={dismiss} aria-label="Dismiss" className="cursor-pointer px-1 text-fg-muted hover:text-fg">✕</button>
+        <Button size="sm" variant="primary" tone="warn" onClick={accept}>Add a pump: {formatCurrency(offer.price)}</Button>
+        <IconButton label="Dismiss" onClick={dismiss}>✕</IconButton>
       </div>
     );
   }

@@ -11,7 +11,6 @@ import {
 import { useCompareVersion } from "./hooks/use-compare-version";
 import { AscensionCard } from "./molecules/ascension-card";
 import { DevDrawer } from "./molecules/dev-panel";
-import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
 import { FounderSelect } from "./molecules/founder-select";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
 import { OfflineSummaryModal } from "./molecules/offline-summary";
@@ -232,7 +231,6 @@ function App() {
                   </Suspense>
                 </div>
 
-                <EmployeeSatisfactionOverlay className="absolute bottom-3 right-3 z-10" />
 
                 {/* THE DEV DRAWER, in development: ` to open it, out of comms' way. @see DevPanel */}
                 <DevDrawer />

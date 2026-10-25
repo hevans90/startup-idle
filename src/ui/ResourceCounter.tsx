@@ -48,7 +48,7 @@ export const ResourceCounter = ({
 
   const body = (
     <>
-      {label && <span className="text-[9px] uppercase tracking-[0.18em] text-fg-faint">{label}</span>}
+      {label && <span className="text-[10px] uppercase tracking-[0.18em] text-fg-faint">{label}</span>}
       <span className="flex items-baseline gap-2 whitespace-nowrap">
         <span className="font-display text-base tabular-nums" style={role ? { color: `var(--ui-${role})` } : undefined}>{value}</span>
         {rate != null && (

@@ -2,7 +2,8 @@ import { ClassNameValue, twMerge } from "tailwind-merge";
 import { getManagerEconomyMultipliers } from "../../game/modifiers";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
-import { InfoRow } from "../../ui/InfoRow";
+import { Stat, StatGrid } from "../../ui/console";
+import { ModifierTag } from "../../ui/ModifierTag";
 import { formatRate } from "../../utils/rate-utils";
 import { ResourceBreakdownView } from "../resource-breakdown";
 
@@ -35,40 +36,13 @@ export const InnovationSummary = ({
     );
   }
 
-  // Compact variant (sidebar Innovation tab).
+  // Compact variant (sidebar Innovation tab): what the managers give, a figure each.
+  if (!managersActive) return null;
   return (
-    <div
-      className={twMerge(
-        "flex flex-col gap-2 items-center justify-center text-center w-full",
-        className,
-      )}
-    >
-      {managersActive && (
-        <div className="w-full text-left">
-          <div className="mt-1 border-t border-line/70 pt-2" />
-          <p className="responsive-text-xs text-fg-muted">
-            Manager Bonuses
-          </p>
-          <InfoRow
-            label="Innovation rate"
-            value={`x${mgr.innovationIncome.toFixed(2)}`}
-            size="small"
-            modKey="managerInnovation"
-          />
-          <InfoRow
-            label="Money Output"
-            value={`x${mgr.employeeMoney.toFixed(2)}`}
-            size="small"
-            modKey="managerMoney"
-          />
-          <InfoRow
-            label="Valuation"
-            value={`x${mgr.salesValuation.toFixed(2)}`}
-            size="small"
-            modKey="managerSalesValuation"
-          />
-        </div>
-      )}
-    </div>
+    <StatGrid className={twMerge("w-full", className)}>
+      <Stat label={<ModifierTag modKey="managerInnovation">Innovation</ModifierTag>} value={`×${mgr.innovationIncome.toFixed(2)}`} role="innovation" />
+      <Stat label={<ModifierTag modKey="managerMoney">Money</ModifierTag>} value={`×${mgr.employeeMoney.toFixed(2)}`} role="money" />
+      <Stat label={<ModifierTag modKey="managerSalesValuation">Valuation</ModifierTag>} value={`×${mgr.salesValuation.toFixed(2)}`} role="valuation" />
+    </StatGrid>
   );
 };

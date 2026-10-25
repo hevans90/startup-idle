@@ -7,6 +7,7 @@
  */
 import { useEffect } from "react";
 import { twMerge } from "tailwind-merge";
+import { IconButton } from "../../ui/console";
 
 import { PROJECTS, type ProjectDef } from "../../game/projects";
 import { useGeneratorStore } from "../../state/generators.store";
@@ -22,7 +23,7 @@ import { useGateUnlocks } from "./gates";
 
 export const WONDERS: readonly ProjectDef[] = PROJECTS.filter((p) => p.bonus);
 
-const PANEL = "border border-line bg-surface-1/95 shadow-md";
+const PANEL = "border border-line-quiet bg-surface-1/95 shadow-lg backdrop-blur-sm";
 const ROW = "flex flex-col gap-1 border-t border-line-quiet py-2 first:border-t-0";
 
 export function WondersPanel({ className }: { className?: string }) {
@@ -47,11 +48,12 @@ export function WondersPanel({ className }: { className?: string }) {
   // ONE PROJECT AT A TIME, wonders with the rest. @see projectUnderWay
   const busy = projectUnderWay(grid);
   return (
-    <div className={twMerge(PANEL, "w-[min(22rem,calc(100vw-1rem))] p-2 text-xs text-fg", className)}>
+    <div className={twMerge(PANEL, "w-[min(22rem,calc(100vw-1rem))] p-2.5 text-xs text-fg", className)}>
       <div className="mb-1 flex items-baseline justify-between">
-        <b className="text-[10px] uppercase tracking-wide text-fg-muted">Wonders</b>
-        <button type="button" onClick={() => setOpen(false)}
-          className="cursor-pointer px-1 text-fg-muted hover:text-fg" aria-label="Close">✕</button>
+        <p className="flex items-center gap-2 font-display text-xs uppercase tracking-widest">
+          <span aria-hidden className="h-3 w-0.5 bg-good" />Wonders
+        </p>
+        <IconButton label="Close" onClick={() => setOpen(false)}>✕</IconButton>
       </div>
       {WONDERS.map((w) => {
         const bonus = opensText(w);

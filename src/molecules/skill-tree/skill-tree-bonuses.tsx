@@ -165,7 +165,7 @@ const Section = ({
   children: React.ReactNode;
 }) => (
   <div className="mb-3">
-    <p className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${color}`}>
+    <p className={`mb-1 text-[10px] uppercase tracking-widest ${color}`}>
       {label}
     </p>
     <div className="flex flex-col gap-1.5">{children}</div>

@@ -211,13 +211,13 @@ export const FounderSelect = () => {
           {/* equity + skill tree CTA */}
           <div className="flex items-center justify-between gap-3 border-b border-line/40 px-4 py-4">
             <div>
-              <p className="text-[9px] font-medium uppercase tracking-wider opacity-40">
+              <p className="text-[10px] font-medium uppercase tracking-wider opacity-40">
                 Equity
               </p>
               <p className="mt-0.5 text-xl font-black tabular-nums text-warn leading-none">
                 {formatCurrency(equity, { showDollarSign: false })}
               </p>
-              <p className="mt-1 text-[9px] tabular-nums opacity-30">
+              <p className="mt-1 text-[10px] tabular-nums opacity-30">
                 {exits} exit{exits !== 1 ? "s" : ""}
               </p>
             </div>
@@ -357,7 +357,7 @@ export const FounderSelect = () => {
       {shopOpen && (
         // THE MODEL'S SHOP, between companies: Weights spent before the next run. @see ModelShop
         <Dialog title="The Model" kicker="Weights" tone="ai" wide onClose={() => setShopOpen(false)}>
-          <div className="-mx-5 max-h-[70vh] overflow-y-auto">
+          <div className="-mx-5 max-h-[70vh] overflow-y-auto pb-1">
             <ModelShop onOpenTree={() => { setShopOpen(false); setTreeOpen(true); }} />
           </div>
         </Dialog>
