@@ -85,7 +85,7 @@ export function Meter({ value, tone = "console", label, detail, className }: {
   const v = Math.max(0, Math.min(1, value));
   return (
     <div className={twMerge("flex flex-col gap-1 text-xs", className)}>
-      <div className="flex items-baseline justify-between gap-2"><span className="text-fg-muted">{label}</span>{detail && <span className="tabular-nums">{detail}</span>}</div>
+      <div className="flex items-baseline justify-between gap-2 whitespace-nowrap"><span className="min-w-0 truncate text-fg-muted">{label}</span>{detail && <span className="shrink-0 tabular-nums">{detail}</span>}</div>
       <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(v * 100)} className="h-1 w-full bg-surface-3">
         <div className="h-full transition-[width] duration-500" style={{ width: `${v * 100}%`, background: color(tone) }} />
       </div>

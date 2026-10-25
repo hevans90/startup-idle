@@ -202,10 +202,10 @@ export const FounderSelect = () => {
       aside={showPrestige ? (
         <aside className="relative hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-line-quiet bg-surface-1 lg:flex xl:w-80">
           {/* sticky header */}
-          <div className="sticky top-0 z-10 flex items-center border-b border-line/60 bg-surface-1/95 px-4 py-3 backdrop-blur-sm">
-            <span className="text-[10px] font-bold uppercase tracking-widest opacity-35">
-              Permanent Bonuses
-            </span>
+          <div className="sticky top-0 z-10 flex min-h-10 items-center border-b border-line-quiet bg-surface-2/60 px-4 backdrop-blur-sm">
+            <h2 className="flex items-center gap-2 font-display text-xs uppercase tracking-widest">
+              <span aria-hidden className="h-3 w-0.5 bg-console" />Permanent bonuses
+            </h2>
           </div>
 
           {/* equity + skill tree CTA */}

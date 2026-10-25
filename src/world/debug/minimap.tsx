@@ -62,7 +62,7 @@ export function Minimap() {
   return (
     <canvas
       ref={canvasRef}
-      className="w-full rounded border border-gray-800"
+      className="w-full rounded border border-line-quiet"
       style={{ imageRendering: "pixelated" }}
     />
   );

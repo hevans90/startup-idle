@@ -5,8 +5,8 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 /** Directories moved onto the console's tokens. @see plans/ui-overhaul.md §7 */
-// THE GAME'S UI, all of it on the console's tokens. The editor and the debug tools keep their own look.
-const MIGRATED = ['src/App.tsx', 'src/ui/**', 'src/quest-ui/**', 'src/molecules/**', 'src/world/play/**']
+// EVERYTHING DRAWN IN THE DOM — the game, the editor and the debug tools — on the console's tokens.
+const MIGRATED = ['src/App.tsx', 'src/ui/**', 'src/quest-ui/**', 'src/molecules/**', 'src/world/play/**', 'src/world/debug/**', 'src/world/world-editor.tsx']
 /** A Tailwind colour class from the raw palette: text-violet-600, dark:bg-primary-900, border-emerald-400/50… */
 const RAW_PALETTE = '/(^|[\\s:])(text|bg|border|fill|stroke|ring|outline|from|to|via|accent|divide)-(primary|gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\\d/'
 
@@ -50,7 +50,7 @@ export default tseslint.config(
     // MIGRATED TO THE CONSOLE: colours by role, from the tokens — no raw palette class, which would need its
     // own dark: pair and would not follow the takeover. The list grows a phase at a time. @see plans/ui-overhaul.md §2
     files: MIGRATED,
-    ignores: ['src/quest-ui/gallery.tsx', 'src/ui/console/gallery.tsx', 'src/molecules/dev-panel.tsx'],
+    ignores: ['src/quest-ui/gallery.tsx', 'src/ui/console/gallery.tsx'],
     rules: {
       'no-restricted-syntax': ['error',
         { selector: `Literal[value=${RAW_PALETTE}]`, message: 'Use the console tokens (bg-surface-1, text-fg-muted, text-money…), not a raw palette class.' },

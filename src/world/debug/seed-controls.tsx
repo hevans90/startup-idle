@@ -17,7 +17,7 @@ import { useWorldStore } from "../../state/world.store";
 import { seedFrom } from "../../utils/rng";
 
 const BTN = "cursor-pointer rounded border px-2 py-1 font-mono";
-const OFF = "border-gray-700 text-gray-300 hover:border-gray-500";
+const OFF = "border-line text-fg-muted hover:border-line-strong";
 
 export function SeedControls() {
   const { seed, generateWorld } = useWorldStore(
@@ -67,8 +67,8 @@ export function SeedControls() {
           onKeyDown={(e) => { if (e.key === "Enter") fromField(); }}
           placeholder="world seed"
           title="A seed to found on. Enter regenerates."
-          className="w-28 rounded border border-gray-700 bg-gray-900 px-2 py-1
-                     font-mono text-amber-400 placeholder:text-gray-600"
+          className="w-28 rounded border border-line bg-surface-1 px-2 py-1
+                     font-mono text-warn placeholder:text-fg-muted"
         />
         <button type="button" onClick={fromField}
           title="Regenerate from the seed in the field"
@@ -78,7 +78,7 @@ export function SeedControls() {
           className={`${BTN} ${OFF}`}>new</button>
       </div>
       {seed === null && (
-        <p className="mt-1 text-gray-500">
+        <p className="mt-1 text-fg-muted">
           authored, loaded or a fixture — not generated
         </p>
       )}

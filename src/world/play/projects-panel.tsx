@@ -97,7 +97,7 @@ export function ProjectsPanel({ className }: { className?: string }) {
     <div className={twMerge("flex max-h-[75%] w-72 flex-col gap-2", className)}>
       {pit && <SlopPitCard />}
       {(open.length > 0 || busy) && (
-        <div className={twMerge(CARD, "flex min-h-0 flex-col p-0")}>
+        <div className={twMerge(CARD, "flex min-h-0 w-full flex-col p-0")}>
           <button type="button" onClick={() => setOpen(!isOpen)} data-hint="projects"
             className={twMerge(
               "flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-left hover:bg-surface-2",

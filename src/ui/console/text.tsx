@@ -7,7 +7,6 @@
  * @see Frame, ui/motion
  */
 import { useEffect, useRef, type RefObject } from "react";
-import { animateTextDecipher, animateTextSequence, getAnimationTextDuration } from "@arwes/text";
 
 import { useConsoleMotion } from "../motion";
 
@@ -15,6 +14,13 @@ import { useConsoleMotion } from "../motion";
 const TYPED = 60;
 const LONGEST = 4;
 const DECIPHER = 0.8;
+
+/** The package, fetched the first time text plays: it is not in the main bundle. */
+let arwesText: Promise<typeof import("@arwes/text")> | null = null;
+const loadText = () => (arwesText ??= import("@arwes/text"));
+
+/** How many titles are deciphering now: one at a time on screen — one that comes while another plays is simply there. */
+let deciphering = 0;
 
 export type TextMode = "decipher" | "sequence" | "auto" | "plain";
 
@@ -42,12 +48,26 @@ export function Text({ text, mode = "auto", as = "span", className, onDone }: {
       done.current?.();
       return;
     }
-    const duration = effect === "decipher" ? DECIPHER : getAnimationTextDuration({ length: text.length, charactersPerSecond: TYPED, maxDuration: LONGEST });
-    const play = effect === "decipher" ? animateTextDecipher : animateTextSequence;
-    const a = play({ rootElement, contentElement, duration, isEntering: true, hideOnEntered: false });
-    let live = true;
-    void a.then(() => { if (live) done.current?.(); });
-    return () => { live = false; a.cancel(); };
+    if (effect === "decipher" && deciphering > 0) {
+      contentElement.style.visibility = "visible";
+      done.current?.();
+      return;
+    }
+    let live = true, cancel: (() => void) | null = null;
+    if (effect === "decipher") deciphering++;
+    void loadText().then((t) => {
+      if (!live) return;
+      const duration = effect === "decipher" ? DECIPHER : t.getAnimationTextDuration({ length: text.length, charactersPerSecond: TYPED, maxDuration: LONGEST });
+      const play = effect === "decipher" ? t.animateTextDecipher : t.animateTextSequence;
+      const a = play({ rootElement, contentElement, duration, isEntering: true, hideOnEntered: false });
+      cancel = () => a.cancel();
+      void a.then(() => { if (live) done.current?.(); });
+    });
+    // Its turn ends when it has played, or is taken down — once.
+    let held = effect === "decipher";
+    const release = () => { if (held) { held = false; deciphering = Math.max(0, deciphering - 1); } };
+    const ends = window.setTimeout(release, (DECIPHER + 0.1) * 1000);
+    return () => { live = false; cancel?.(); window.clearTimeout(ends); release(); };
   }, [text, effect, plays]);
   // One element type for the ref; any of these takes it alike.
   const Tag = as as "span";

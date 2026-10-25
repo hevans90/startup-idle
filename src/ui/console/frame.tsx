@@ -22,11 +22,7 @@
  */
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
-import {
-  animateFrameAssembler, createFrame, createFrameCornersSettings, createFrameHeaderSettings, createFrameKranoxSettings,
-  createFrameLinesSettings, createFrameNefrexSettings, createFrameOctagonSettings, createFrameUnderlineSettings,
-  type FrameSettings,
-} from "@arwes/frames";
+import type { FrameSettings } from "@arwes/frames";
 
 import type { Role } from "../theme/tokens";
 import { useConsoleMotion } from "../motion";
@@ -35,15 +31,20 @@ export type FrameKind = "octagon" | "corners" | "kranox" | "nefrex" | "underline
 /** What colours a frame: the console's own, or a role. */
 export type Tone = "console" | Role;
 
+/** The package, fetched the first time a frame is drawn: it is not in the main bundle. */
+type ArwesFrames = typeof import("@arwes/frames");
+let frames: Promise<ArwesFrames> | null = null;
+const loadFrames = () => (frames ??= import("@arwes/frames"));
+
 /** How each is cut: never animated by arwes's animator — the assembler draws it on. */
-const SETTINGS: Record<FrameKind, () => FrameSettings> = {
-  octagon: () => createFrameOctagonSettings({ animated: false, squareSize: 12, strokeWidth: 1.25, leftTop: true, rightTop: false, rightBottom: true, leftBottom: false }),
-  corners: () => createFrameCornersSettings({ animated: false, cornerLength: 12, strokeWidth: 1.5 }),
-  kranox: () => createFrameKranoxSettings({ animated: false, squareSize: 8, strokeWidth: 1.25, smallLineLength: 8, largeLineLength: 32 }),
-  nefrex: () => createFrameNefrexSettings({ animated: false, squareSize: 10, strokeWidth: 1.25, smallLineLength: 8, largeLineLength: 28 }),
-  underline: () => createFrameUnderlineSettings({ animated: false, squareSize: 8, strokeWidth: 1.25 }),
-  lines: () => createFrameLinesSettings({ animated: false, largeLineWidth: 1.5, smallLineWidth: 1, smallLineLength: 12 }),
-  header: () => createFrameHeaderSettings({ animated: false, strokeWidth: 1.25, decoWidth: 4, contentLength: 48 }),
+const SETTINGS: Record<FrameKind, (f: ArwesFrames) => FrameSettings> = {
+  octagon: (f) => f.createFrameOctagonSettings({ animated: false, squareSize: 12, strokeWidth: 1.25, leftTop: true, rightTop: false, rightBottom: true, leftBottom: false }),
+  corners: (f) => f.createFrameCornersSettings({ animated: false, cornerLength: 12, strokeWidth: 1.5 }),
+  kranox: (f) => f.createFrameKranoxSettings({ animated: false, squareSize: 8, strokeWidth: 1.25, smallLineLength: 8, largeLineLength: 32 }),
+  nefrex: (f) => f.createFrameNefrexSettings({ animated: false, squareSize: 10, strokeWidth: 1.25, smallLineLength: 8, largeLineLength: 28 }),
+  underline: (f) => f.createFrameUnderlineSettings({ animated: false, squareSize: 8, strokeWidth: 1.25 }),
+  lines: (f) => f.createFrameLinesSettings({ animated: false, largeLineWidth: 1.5, smallLineWidth: 1, smallLineLength: 12 }),
+  header: (f) => f.createFrameHeaderSettings({ animated: false, strokeWidth: 1.25, decoWidth: 4, contentLength: 48 }),
 };
 
 /** Seconds a frame takes to draw on. */
@@ -78,14 +79,15 @@ export function Frame({ kind = "kranox", tone = "console", illuminate = false, l
   useEffect(() => {
     const el = svg.current;
     if (!el) return;
-    const container = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    const frame = createFrame(el, { ...SETTINGS[kind](), container });
-    const drawing = draws ? animateFrameAssembler({ element: el, duration: ASSEMBLE }) : null;
-    return () => {
-      drawing?.stop();
-      frame.remove();
-      container.remove();
-    };
+    let stop: (() => void) | null = null, gone = false;
+    void loadFrames().then((f) => {
+      if (gone) return;
+      const container = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      const frame = f.createFrame(el, { ...SETTINGS[kind](f), container });
+      const drawing = draws ? f.animateFrameAssembler({ element: el, duration: ASSEMBLE }) : null;
+      stop = () => { drawing?.stop(); frame.remove(); container.remove(); };
+    });
+    return () => { gone = true; stop?.(); };
   }, [kind, draws]);
   return (
     <div className={twMerge("ui-frame relative", className)} style={{ ...toneStyle(tone), ...style }}

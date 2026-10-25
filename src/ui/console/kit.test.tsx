@@ -8,7 +8,12 @@ import { Button, CountUp, Dialog, Frame, Locked, Meter, Panel, Tabs, Text } from
 
 let dom: ReturnType<typeof installDom>;
 beforeAll(() => { jest.useRealTimers(); dom = installDom(); });
-afterAll(() => dom.remove());
+afterAll(async () => { await settle(); dom.remove(); });
+
+/** The kit's arwes packages, fetched on first use: let them arrive, and what waits on them draw. */
+async function settle() {
+  await act(async () => { await Promise.all([import("@arwes/frames"), import("@arwes/text")]); for (let i = 0; i < 5; i++) await Promise.resolve(); });
+}
 
 /** Render under StrictMode — mounted, unmounted and mounted again, the trap arwes's React packages fall into. */
 async function render(node: ReactNode, motion: { mix?: number; calm?: boolean } = { calm: true }) {
@@ -25,6 +30,7 @@ async function render(node: ReactNode, motion: { mix?: number; calm?: boolean } 
 describe("the console's kit", () => {
   test("a frame, mounted twice under StrictMode, is there: its SVG drawn once, its content shown", async () => {
     const { host, unmount } = await render(<Frame kind="kranox"><span>inside</span></Frame>);
+    await settle();
     expect(host.textContent).toContain("inside");
     expect(host.querySelectorAll("svg > g").length).toBe(1);
     expect(host.querySelectorAll("svg path").length).toBeGreaterThan(0);

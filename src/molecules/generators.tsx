@@ -1,5 +1,7 @@
 import { useFounderStore } from "../state/founder.store";
-import { useGeneratorStore } from "../state/generators.store";
+import { IconCode, IconHeadphones, IconSchool, IconUser } from "@tabler/icons-react";
+import { KIND_COLOUR } from "../game/kind-colours";
+import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { twMerge } from "tailwind-merge";
 import { FOCUS, Panel, POPOVER } from "../ui/console";
@@ -29,6 +31,20 @@ const PopRow = ({
     <span className={`responsive-text-xs ${color ?? ""}`}>{value}</span>
   </div>
 );
+
+/** WHO THEY ARE, AT A GLANCE: their kind's icon on their map colour. @see KIND_COLOUR */
+const KIND_ICON: Record<string, typeof IconSchool> = { intern: IconSchool, vibe_coder: IconHeadphones, "10x_dev": IconCode };
+function KindMark({ id }: { id: string }) {
+  const Icon = KIND_ICON[id] ?? IconUser;
+  const c = KIND_COLOUR[id as GeneratorId];
+  const hex = c === undefined ? "var(--ui-fg-muted)" : `#${c.toString(16).padStart(6, "0")}`;
+  return (
+    <span aria-hidden className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center border"
+      style={{ borderColor: hex, color: hex, background: `color-mix(in oklab, ${hex} 14%, transparent)` }}>
+      <Icon size={14} stroke={1.8} />
+    </span>
+  );
+}
 
 export const Generators = () => {
   const generators = useGeneratorStore((s) => s.generators);
@@ -66,6 +82,7 @@ export const Generators = () => {
               tabIndex={0}
               className={twMerge("flex responsive-text-sm items-center gap-1 px-2 py-1 hover:cursor-help hover:bg-surface-2", FOCUS)}
             >
+              <KindMark id={gen.id} />
               {gen.id === "vibe_coder" ? (
                 <RainbowText className="grow" text={gen.name} />
               ) : gen.id === "10x_dev" ? (

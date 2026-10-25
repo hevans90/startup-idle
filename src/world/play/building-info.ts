@@ -19,6 +19,7 @@ import { NEAR_CONFERENCE_PAYS } from "../events/convoy";
 import { moodWord, type MoodParts } from "../agents/mood";
 import { growthShort, serviceOf, type ServiceId } from "../agents/services";
 import { LAB_SHARE } from "../projects/labs";
+import { KIND_COLOUR } from "../../game/kind-colours";
 
 /** What the live game says, for the labels. */
 export type InfoContext = {
@@ -86,7 +87,7 @@ const KIND_NAME: Record<GeneratorId, [string, string]> = {
   vibe_coder: ["Vibe coder", "vibe coders"],
   "10x_dev": ["10x dev", "10x devs"],
 };
-export const KIND_COLOUR: Record<GeneratorId, number> = { intern: 0xf2b51d, vibe_coder: 0xff4fa3, "10x_dev": 0x2fb8a8 };
+export { KIND_COLOUR };
 const TAB_NAME = { employees: "Employees", innovation: "Innovation", valuation: "Valuation", ai: "the AI" } as const;
 
 /** A workplace's desks, as a label line: taken of how many, amber once full. */

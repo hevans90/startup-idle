@@ -67,7 +67,7 @@ export function GpuCheckHud() {
 
   if (!device) {
     return (
-      <div className="pointer-events-none absolute left-2 top-32 rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-amber-400">
+      <div className="pointer-events-none absolute left-2 top-32 rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-warn">
         waiting for a WebGPU device — none on the WebGL path
       </div>
     );
@@ -76,26 +76,26 @@ export function GpuCheckHud() {
 
   return (
     <div className="pointer-events-none absolute left-2 top-32 rounded bg-black/70 px-2 py-1 font-mono text-[10px] leading-tight">
-      <div className="mb-0.5 text-neutral-400">
+      <div className="mb-0.5 text-fg-muted">
         compute passes vs cpu, on this map
       </div>
       {rows.map((r) => (
         <div key={r.pass} className="flex gap-2">
-          <span className="w-[72px] text-neutral-300">{r.pass}</span>
-          <span className={r.ok ? "text-emerald-400" : "text-red-400"}>
+          <span className="w-[72px] text-fg-muted">{r.pass}</span>
+          <span className={r.ok ? "text-good" : "text-bad"}>
             {r.ok ? "agrees" : "DIFFERS"}
           </span>
-          <span className="text-neutral-500">
+          <span className="text-fg-muted">
             {r.relative > 0 ? r.relative.toExponential(0) : "exact"}
           </span>
           {/* A pass that did nothing agrees perfectly — see `didOf`. */}
-          <span className={r.did === 0 ? "text-amber-400" : "text-neutral-600"}>
+          <span className={r.did === 0 ? "text-warn" : "text-fg-muted"}>
             {r.did === 0 ? "not exercised" : `did ${r.did}`}
           </span>
         </div>
       ))}
       {rows.some((r) => r.why) && (
-        <div className="mt-0.5 max-w-[340px] whitespace-pre-wrap text-amber-400">
+        <div className="mt-0.5 max-w-[340px] whitespace-pre-wrap text-warn">
           {rows.find((r) => r.why)?.why?.slice(0, 160)}
         </div>
       )}
