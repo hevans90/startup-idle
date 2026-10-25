@@ -6,6 +6,7 @@
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
 import { founderIs } from "../game/founder-rules";
+import { useThemeStore } from "../state/theme.store";
 import { latticeForm } from "../game/quests/finale";
 import { BLOCK, SITE, boxAround, clearBlock } from "./ai/arc-rules";
 import { useQuestStore } from "../state/quest.store";
@@ -431,6 +432,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const grid = useWorldStore((s) => s.grid);
   const scale = useWorldStore((s) => s.scale);
   const { app } = useApplication();
+  // THE MAP'S WELL follows the theme: the light console's grey, or the dark's. @see plans/ui-overhaul.md open question 6
+  const theme = useThemeStore((t) => t.theme);
+  useEffect(() => { if (app?.renderer) app.renderer.background.color = theme === "light" ? 0xc7cbd1 : 0x101418; }, [app, theme]);
   // NOT DRAWN while out of sight: the stage goes dark, the ticks go on. @see mapHidden
   const mapHidden = useWorldStore((s) => s.mapHidden);
   useEffect(() => { app.stage.visible = !mapHidden; }, [app, mapHidden]);

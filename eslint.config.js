@@ -8,7 +8,12 @@ import tseslint from 'typescript-eslint'
 const MIGRATED = ['src/ui/console/**', 'src/ui/comms/**', 'src/quest-ui/**', 'src/world/play/event-cards.tsx', 'src/world/play/hint-card.tsx',
   // U5, the HUD.
   'src/molecules/toolbar.tsx', 'src/ui/ResourceCounter.tsx', 'src/molecules/ai-singularity-readout.tsx', 'src/molecules/company-timer.tsx',
-  'src/molecules/founder-badge.tsx', 'src/molecules/game-stage-ticker.tsx', 'src/molecules/innovation-counter.tsx', 'src/molecules/valuation-counter.tsx']
+  'src/molecules/founder-badge.tsx', 'src/molecules/game-stage-ticker.tsx', 'src/molecules/innovation-counter.tsx', 'src/molecules/valuation-counter.tsx',
+  // U6, the map's edges.
+  'src/world/play/build-bar.tsx', 'src/world/play/ai-mode-panel.tsx', 'src/world/play/wonders-panel.tsx', 'src/world/play/main-card.tsx',
+  'src/world/play/projects-panel.tsx', 'src/world/play/top-streets.tsx', 'src/world/play/desire-readout.tsx', 'src/world/play/port-income.tsx',
+  'src/world/play/gate-chips.tsx', 'src/world/play/leader-tags.tsx', 'src/world/play/building-labels.tsx', 'src/world/play/anchored.tsx',
+  'src/world/play/company-map.tsx', 'src/molecules/employee-satisfaction-overlay.tsx']
 /** A Tailwind colour class from the raw palette: text-violet-600, dark:bg-primary-900, border-emerald-400/50… */
 const RAW_PALETTE = '/(^|[\\s:])(text|bg|border|fill|stroke|ring|outline|from|to|via|accent|divide)-(primary|gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\\d/'
 

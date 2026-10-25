@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import Decimal from "break_infinity.js";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
@@ -38,3 +39,20 @@ const DevPanelImpl = () => (
 export const DevPanel = import.meta.env.DEV
   ? DevPanelImpl
   : () => null;
+
+/** THE DEV PANEL, in a drawer: shut till ` (backquote) opens it, so it stays out of comms' way. Development only. */
+function DevDrawerImpl() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.key !== "`" || (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      setOpen((o) => !o);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+  if (!open) return null;
+  return <div className="pointer-events-none absolute bottom-24 left-2 z-30"><DevPanelImpl /></div>;
+}
+export const DevDrawer = import.meta.env.DEV ? DevDrawerImpl : () => null;

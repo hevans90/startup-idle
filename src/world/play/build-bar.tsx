@@ -18,7 +18,7 @@
  *    when they arrive — and only for people the company can hire: no lots for
  *    vibe coders before the studio opens. @see world/agents/arrivals
  */
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useRef, useEffect, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { buildCost } from "../../game/build-cost";
@@ -46,8 +46,9 @@ import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
 import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
 import { PUMP_HEAD } from "../../game/cooling";
-import { MainCard, MainInfo } from "./main-card";
+import { MainCard } from "./main-card";
 import { InfoPop } from "../../ui/InfoPop";
+import { FOCUS, Kbd } from "../../ui/console";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -178,11 +179,11 @@ function tileNote(def: StructureDef): string {
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
-const PANEL = "border border-primary-300 bg-primary-50/95 shadow-md dark:border-primary-700 dark:bg-primary-900/95";
+const PANEL = "border border-line bg-surface-1/95 shadow-md";
 const TOOL =
-  "flex cursor-pointer items-center gap-1 whitespace-nowrap px-2 py-1 text-xs text-primary-800 hover:bg-primary-200 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center "
-  + "dark:text-primary-200 dark:hover:bg-primary-800";
-const TOOL_ON = "bg-primary-800 text-primary-50 hover:bg-primary-800 dark:bg-primary-200 dark:text-primary-900 dark:hover:bg-primary-200";
+  `flex cursor-pointer items-center gap-1 whitespace-nowrap px-2 py-1 text-xs text-fg hover:bg-surface-2 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center ${FOCUS}`;
+/** In hand, or on: lit in the console's own colour, underlined. */
+const TOOL_ON = "bg-surface-3 text-console shadow-[inset_0_-2px_0_var(--ui-console)] hover:bg-surface-3";
 
 export function BuildBar({ className }: { className?: string }) {
   const tool = useWorldStore((s) => s.tool);
@@ -195,6 +196,10 @@ export function BuildBar({ className }: { className?: string }) {
   const revision = useWorldStore((s) => s.revision);
   const labels = useWorldStore((s) => s.labels);
   const setLabels = useWorldStore((s) => s.setLabels);
+  // AI MODE, a view on The Model's runs: its switch here, its settings above. @see AiModePanel
+  const model = useFounderStore((s) => s.selectedFounderId) === "model";
+  const aiMode = useSessionStore((s) => s.aiMode);
+  const setAiMode = useSessionStore((s) => s.setAiMode);
   const money = useMoneyStore((s) => s.money);
   const generators = useGeneratorStore((s) => s.generators);
   const [picking, setPicking] = useState(false);
@@ -267,20 +272,36 @@ export function BuildBar({ className }: { className?: string }) {
   const pipesOpen = agentsOpen();
   const liftPipe = useWorldStore((s) => s.liftPipe);
   const setLiftPipe = useWorldStore((s) => s.setLiftPipe);
+  // THE TOOLS ON OFFER, and their keys: 1 to 6, as shown on each. Not while typing in a field, nor with a modifier.
+  const shown = useMemo(() => TOOLS.filter((t) => t.id !== "pipe" || pipesOpen), [pipesOpen]);
+  const keyed = useRef(choose);
+  keyed.current = choose;
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > shown.length) return;
+      e.preventDefault();
+      keyed.current(shown[n - 1].id);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [shown]);
 
   return (
-    <div className={twMerge("flex flex-col items-center gap-1.5 text-primary-900 dark:text-primary-100", className)}>
+    <div className={twMerge("flex flex-col items-center gap-1.5 text-fg", className)}>
       <WondersPanel />
       <AiModePanel />
       <MainCard />
-      <MainInfo />
       {/* LIFT: road, or pipe — never both at once. @see liftPipe */}
       {tool === "eraseRoad" && pipesOpen && (
         <div className={twMerge(PANEL, "flex items-center gap-1 px-2 py-1 text-xs")} role="radiogroup" aria-label="What Lift takes up">
-          <span className="text-primary-600 dark:text-primary-400">Lift</span>
+          <span className="text-fg-muted">Lift</span>
           {([[false, "Road"], [true, "Pipe"]] as const).map(([on, label]) => (
             <button key={label} type="button" role="radio" aria-checked={liftPipe === on} onClick={() => setLiftPipe(on)}
-              className={twMerge("cursor-pointer border px-2 py-0.5", liftPipe === on ? "border-primary-600 bg-primary-200 dark:border-primary-400 dark:bg-primary-800" : "border-primary-300 hover:bg-primary-200 dark:border-primary-700 dark:hover:bg-primary-800")}>
+              className={twMerge("cursor-pointer border px-2 py-0.5", liftPipe === on ? "border-console bg-surface-3 text-console" : "border-line hover:bg-surface-2")}>
               {label}
             </button>
           ))}
@@ -291,7 +312,7 @@ export function BuildBar({ className }: { className?: string }) {
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
           {sale.map((sec) => (
             <Fragment key={sec.title}>
-              <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
+              <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-fg-muted">
                 {sec.colour !== undefined && <span className="h-2 w-2 shrink-0" style={{ background: hex(sec.colour) }} />}
                 {sec.title}
               </p>
@@ -303,15 +324,15 @@ export function BuildBar({ className }: { className?: string }) {
                     <button key={def.id} type="button" title={`${saleName(def)} · ${def.footprint.w}×${def.footprint.h}`}
                       onClick={() => { setStructureDef(def.id); setPicking(false); }}
                       className={twMerge(
-                        "flex w-32 cursor-pointer flex-col border border-primary-200 px-1.5 py-0.5 text-left text-xs hover:border-primary-500 dark:border-primary-700 dark:hover:border-primary-400",
-                        on && "border-primary-700 bg-primary-200 dark:border-primary-200 dark:bg-primary-800",
+                        "flex w-32 cursor-pointer flex-col border border-line-quiet px-1.5 py-0.5 text-left text-xs hover:border-line-strong",
+                        on && "border-console bg-surface-3",
                         !afford && "opacity-50",
                       )}>
                       <span className="flex items-baseline justify-between gap-1">
                         <b className="truncate">{tileName(def)}</b>
-                        <span className={twMerge("tabular-nums", !afford && "text-red-700 dark:text-red-400")}>{formatCurrency(price)}</span>
+                        <span className={twMerge("tabular-nums", !afford && "text-bad")}>{formatCurrency(price)}</span>
                       </span>
-                      <span className="truncate text-[10px] text-primary-600 dark:text-primary-400">{tileNote(def)}</span>
+                      <span className="truncate text-[10px] text-fg-muted">{tileNote(def)}</span>
                     </button>
                   );
                 })}
@@ -323,7 +344,7 @@ export function BuildBar({ className }: { className?: string }) {
 
       <div className={twMerge(PANEL, "flex max-w-full flex-col")}>
         {/* THE PEOPLE: a chip a district, its figures as icons. @see Stat */}
-        <div className="flex flex-wrap justify-center gap-x-4 gap-y-0.5 border-b border-primary-200 px-2 py-1 text-[11px] tabular-nums dark:border-primary-700">
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-0.5 border-b border-line-quiet px-2 py-1 text-[11px] tabular-nums">
           {KINDS.filter((id) => hireable.has(id)).map((id) => {
             const g = generators.find((x) => x.id === id)!;
             const have = beds[id] ?? 0;
@@ -335,31 +356,31 @@ export function BuildBar({ className }: { className?: string }) {
             return (
               <span key={id} className="flex items-center gap-1.5">
                 <span className="h-2 w-2" style={{ background: hex(KIND_COLOUR[id]) }} />
-                <Stat icon={ICONS.people} value={`${g.amount}/${have}`} tone={full ? "text-red-700 dark:text-red-400" : undefined}
+                <Stat icon={ICONS.people} value={`${g.amount}/${have}`} tone={full ? "text-bad" : undefined}
                   title={`${name}: ${g.amount} employed, ${have} beds`}>
                   {full
                     ? "Every bed is taken, so you can't hire more until you build housing for them."
                     : "People employed against beds, on lots on the map and off it. A new hire works once they've moved in."}
                 </Stat>
                 {deskless[id] ? (
-                  <Stat icon={ICONS.desk} value={deskless[id]} tone="text-amber-700 dark:text-amber-400" title={`${deskless[id]} without a desk`}>
+                  <Stat icon={ICONS.desk} value={deskless[id]} tone="text-warn" title={`${deskless[id]} without a desk`}>
                     Every desk is taken, so they work at a third of the pace. An office adds desks.
                   </Stat>
                 ) : null}
                 {st?.riding ? (
-                  <Stat icon={ICONS.bus} value={`+${st.riding}`} tone="text-emerald-700 dark:text-emerald-400" title={`${st.riding} on the way`}>
+                  <Stat icon={ICONS.bus} value={`+${st.riding}`} tone="text-good" title={`${st.riding} on the way`}>
                     Hired, and coming in by {by}.
                   </Stat>
                 ) : null}
                 {st?.waiting ? (
                   <Stat icon={ICONS.waiting} value={st.waiting}
-                    tone={blocked ? "text-amber-700 dark:text-amber-400" : "text-primary-600 dark:text-primary-400"}
+                    tone={blocked ? "text-warn" : "text-fg-muted"}
                     title={blocked ? `${st.waiting} waiting: ${blocked.title.toLowerCase()}` : `${st.waiting} waiting`}>
                     {blocked ? blocked.why : "Hired, and waiting for their ride in."}
                   </Stat>
                 ) : null}
                 {blocked ? (
-                  <Stat icon={blocked.icon} tone="text-amber-700 dark:text-amber-400" title={blocked.title}>{blocked.why}</Stat>
+                  <Stat icon={blocked.icon} tone="text-warn" title={blocked.title}>{blocked.why}</Stat>
                 ) : null}
               </span>
             );
@@ -368,13 +389,14 @@ export function BuildBar({ className }: { className?: string }) {
 
         {/* THE TOOLS. */}
         <div className="flex items-stretch overflow-x-auto">
-          {TOOLS.filter((t) => t.id !== "pipe" || pipesOpen).map((t) => (
-            <button key={t.id} type="button" title={aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint}
-              onClick={() => choose(t.id)}
+          {shown.map((t, k) => (
+            <button key={t.id} type="button" title={`${aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint} (${k + 1})`}
+              onClick={() => choose(t.id)} aria-pressed={tool === t.id} aria-keyshortcuts={String(k + 1)}
               data-hint={t.id === "placeStructure" ? "build" : undefined}
               className={twMerge(TOOL, tool === t.id && TOOL_ON, "disabled:cursor-default disabled:opacity-40")}>
               {ICONS[t.id]}
               <span className="@max-3xl:hidden">{t.label}</span>
+              <span className="@max-5xl:hidden"><Kbd>{k + 1}</Kbd></span>
               {t.id === "placeStructure" && chosen && tool === t.id && (
                 <span className="ml-0.5 border-l border-current/30 pl-1 opacity-80">{saleName(chosen.def)}</span>
               )}
@@ -383,19 +405,20 @@ export function BuildBar({ className }: { className?: string }) {
           {/* THE AI IS BUILDING: its latest memo on hover. @see stepAi */}
           {aiBuilding && (
             <span title={aiMemo ?? "The AI is working on the town."}
-              className="flex items-center gap-1 px-2 text-[10px] font-bold uppercase tracking-wide text-violet-700 dark:text-violet-300">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-600 dark:bg-violet-400" />
+              className="flex items-center gap-1 px-2 text-[10px] font-bold uppercase tracking-wide text-ai">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ai" />
               <span className="@max-3xl:hidden">The AI is building</span>
             </span>
           )}
           {canUndo && (
             <button type="button" title="Take back the last build and get its money back"
-              onClick={undoLastBuild} className={twMerge(TOOL, "text-amber-800 dark:text-amber-300")}>
+              onClick={undoLastBuild} className={twMerge(TOOL, "text-warn")}>
               {ICONS.undo}
               <span>Undo +{formatCurrency(lastBuild!.refund)}</span>
             </button>
           )}
-          <span className="mx-0.5 my-1 w-px bg-primary-300 dark:bg-primary-700" />
+          {/* VIEWS from here: what you see, not what you hold. */}
+          <span className="mx-0.5 my-1 w-px bg-surface-3" />
           <button type="button" title="The wonders: great buildings, each a bonus for good" data-hint="wonders"
             onClick={() => { setWondersOpen(!wondersOpen); setPicking(false); }}
             className={twMerge(TOOL, wondersOpen && TOOL_ON)}>
@@ -417,6 +440,13 @@ export function BuildBar({ className }: { className?: string }) {
               onClick={() => setWaterOverlay(!waterOverlay)} className={twMerge(TOOL, (waterOverlay || tool === "pipe") && TOOL_ON)}>
               {ICONS.water}
               <span className="@max-3xl:hidden">Water</span>
+            </button>
+          )}
+          {model && (
+            <button type="button" title="AI mode: The Model builds the town itself" aria-pressed={aiMode}
+              onClick={() => setAiMode({ aiMode: !aiMode })} className={twMerge(TOOL, aiMode && TOOL_ON, aiMode && "text-ai")}>
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ai" />
+              <span className="@max-3xl:hidden">AI mode</span>
             </button>
           )}
           <button type="button" title="Show or hide what each building is and how it is doing"

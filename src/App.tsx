@@ -7,7 +7,7 @@ import {
 } from "./game/offline-progress";
 import { useCompareVersion } from "./hooks/use-compare-version";
 import { AscensionCard } from "./molecules/ascension-card";
-import { DevPanel } from "./molecules/dev-panel";
+import { DevDrawer } from "./molecules/dev-panel";
 import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
 import { FounderSelect } from "./molecules/founder-select";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
@@ -243,9 +243,8 @@ function App() {
 
                 <EmployeeSatisfactionOverlay className="absolute bottom-3 right-3 z-10" />
 
-                <div className="pointer-events-none absolute right-2 top-10 z-20">
-                  <DevPanel />
-                </div>
+                {/* THE DEV DRAWER, in development: ` to open it, out of comms' way. @see DevPanel */}
+                <DevDrawer />
 
                 <AscensionCard className="absolute left-1/2 top-1/4 z-30 -translate-x-1/2" />
 

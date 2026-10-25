@@ -29,7 +29,7 @@ A satirical idle game: hire interns, vibe coders and 10x devs, and build your co
 
 The town (`world/play/company-map.tsx`): buildings need **road frontage**. **Hints** (`play/hints.ts`, `data-hint`). **Phone** (≤ 768 px): Map/Company tabs, map always mounted, touch buttons ≥ 44 px.
 
-- **Build bar** (`build-bar.tsx`): beds per district, tools (Look, Road, Lift, Build, Demolish, Wonders, Mood, Labels), a picker (Lot, Office, Services, Ports).
+- **Build bar** (`build-bar.tsx`): beds per district, tools on keys 1–6 (Look, Road, Lift, Pipe, Build, Demolish), then views (Wonders, Mood, Earnings, Water, AI mode, Labels), a picker (Lot, Office, Services, Ports). A looked-at main's card sits beside it (`anchored.tsx`); the dev panel is a drawer on ` in development.
 - **Undo** for 15 s, money included (`undoLastBuild`). **Labels** (`building-labels.tsx`) collate when they overlap (`gatherLabels`).
 - **No land to buy:** the company builds anywhere on its map by a road. A **derelict** (old saves) is −5 mood within 4 tiles and costs 15 s of income to clear.
 - **Housing** (`world/agents/arrivals.ts`): **lots** (1×1, 2 beds) dragged in rows (`lotLine`) count toward the hiring cap at once (`Structure.residents`). Hires travel in, idle until housed (`attendance`): interns by 12-seat bus, others by car/limo. Loading moves everyone in (`settleHousing`). 2 remote intern beds to start (`foundingRemoteBeds`).

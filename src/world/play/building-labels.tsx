@@ -251,7 +251,7 @@ export function BuildingLabels({ className }: { className?: string }) {
         <div key={key}
           ref={(el) => { if (el) els.current.set(key, el); else els.current.delete(key); }}
           className={twMerge(
-            "invisible absolute left-0 top-0 whitespace-nowrap border-l-2 bg-primary-50/90 px-1.5 py-0.5 text-[10px] leading-[13px] text-primary-900 shadow-sm dark:bg-primary-900/85 dark:text-primary-100",
+            "invisible absolute left-0 top-0 whitespace-nowrap border-l-2 bg-surface-1/90 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-sm",
             ids.length > 1 && "border-dashed",
           )}
           style={{ borderLeftColor: hex(info.accent) }}>
@@ -261,9 +261,9 @@ export function BuildingLabels({ className }: { className?: string }) {
               {info.lines.map((l, k) => (
                 <p key={k} className={twMerge(
                   "whitespace-pre tabular-nums",
-                  l.tone === "good" && "text-emerald-700 dark:text-emerald-400",
-                  l.tone === "warn" && "text-amber-700 dark:text-amber-400",
-                  l.tone === "dim" && "text-primary-600 dark:text-primary-400",
+                  l.tone === "good" && "text-good",
+                  l.tone === "warn" && "text-warn",
+                  l.tone === "dim" && "text-fg-muted",
                 )}>{l.text}</p>
               ))}
             </>

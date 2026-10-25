@@ -47,8 +47,8 @@ export function DesireReadout({ className }: { className?: string }) {
   return (
     <div ref={ref} className={twMerge(
       "pointer-events-none invisible absolute left-0 top-0 -translate-x-1/2 -translate-y-full whitespace-nowrap",
-      "border border-primary-500 bg-primary-50/95 px-1.5 py-1 text-[10px] leading-[13px] text-primary-900 shadow",
-      "dark:bg-primary-900/95 dark:text-primary-100",
+      "border border-line-strong bg-surface-1/95 px-1.5 py-1 text-[10px] leading-[13px] text-fg shadow",
+      "",
       !d && !cafeOk && !confOk && "hidden",
       className,
     )}>
@@ -56,7 +56,7 @@ export function DesireReadout({ className }: { className?: string }) {
         served.length
           ? <>
             <p className="font-bold">Desks next door +{Math.round(CAFE_BOOST * 100)}%</p>
-            {served.map((w) => <p key={w.id} className="text-emerald-700 dark:text-emerald-400">{structureDef(w.def)?.name ?? w.def}</p>)}
+            {served.map((w) => <p key={w.id} className="text-good">{structureDef(w.def)?.name ?? w.def}</p>)}
           </>
           : <p className="opacity-70">No workplace within {CAFE_REACH} tiles</p>
       )}
@@ -69,10 +69,10 @@ export function DesireReadout({ className }: { className?: string }) {
         <>
           <p className="font-bold tabular-nums">
             Desirability {d.total > 0 ? "+" : ""}{d.total}
-            {tier && <span className="font-normal text-emerald-700 dark:text-emerald-400"> · grows to {tier}</span>}
+            {tier && <span className="font-normal text-good"> · grows to {tier}</span>}
           </p>
           {[...d.parts].sort((a, b) => b.points - a.points).map((p) => (
-            <p key={p.why} className={twMerge("tabular-nums", p.points >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")}>
+            <p key={p.why} className={twMerge("tabular-nums", p.points >= 0 ? "text-good" : "text-bad")}>
               {p.points > 0 ? "+" : ""}{p.points} {p.why}
             </p>
           ))}

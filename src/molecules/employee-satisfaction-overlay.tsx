@@ -42,13 +42,13 @@ function SatisfactionBar({ label, score }: { label: ReactNode; score: number }) 
 
   return (
     <div className="flex w-36 flex-col gap-0.5">
-      <div className="flex justify-between text-[10px] text-primary-600 dark:text-primary-400">
+      <div className="flex justify-between text-[10px] text-fg-muted">
         <span>{label}</span>
         <span className="tabular-nums">{Math.round(score)}</span>
       </div>
-      <div className="relative h-2 w-full overflow-hidden bg-primary-300 dark:bg-primary-700">
+      <div className="relative h-2 w-full overflow-hidden bg-surface-3">
         <div
-          className="absolute bottom-0 top-0 z-[1] w-px bg-primary-600 dark:bg-primary-400"
+          className="absolute bottom-0 top-0 z-[1] w-px bg-surface-2"
           style={{ left: "50%" }}
           aria-hidden
         />
@@ -57,8 +57,8 @@ function SatisfactionBar({ label, score }: { label: ReactNode; score: number }) 
             className={twMerge(
               "absolute bottom-0 top-0",
               score > 0
-                ? "bg-emerald-600/90 dark:bg-emerald-500/90"
-                : "bg-rose-600/90 dark:bg-rose-500/90",
+                ? "bg-good/90"
+                : "bg-bad/90",
             )}
             style={
               score > 0
@@ -78,11 +78,11 @@ function formatMult(n: number): string {
 
 function SatisfactionHowToRaiseHelpContent() {
   return (
-    <div className="max-w-sm space-y-2 text-left text-xs leading-snug text-primary-800 dark:text-primary-100">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
+    <div className="max-w-sm space-y-2 text-left text-xs leading-snug text-fg">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-fg-muted">
         How to raise satisfaction
       </p>
-      <ul className="list-disc space-y-1 pl-3.5 text-[11px] text-primary-800 dark:text-primary-200">
+      <ul className="list-disc space-y-1 pl-3.5 text-[11px] text-fg">
         <li>
           Scores <span className="font-medium">drift toward a target</span>{" "}
           every tick — changing perks or headcount shifts that target; the bar
@@ -120,13 +120,13 @@ function SatisfactionHowToRaiseHelpPopover() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="h-6 shrink-0 inline-flex items-center cursor-help px-1.5 py-0 bg-primary-200 dark:bg-primary-900 leading-none font-bold border border-primary-500 text-[11px] text-primary-900 dark:text-primary-100 outline-none hover:bg-primary-300 dark:hover:bg-primary-800"
+          className="h-6 shrink-0 inline-flex items-center cursor-help px-1.5 py-0 bg-surface-2 leading-none font-bold border border-line-strong text-[11px] text-fg outline-none hover:bg-surface-3"
           aria-label="How to raise satisfaction"
         >
           ?
         </button>
       </PopoverTrigger>
-      <PopoverContent className="z-[60] max-w-sm border border-primary-500 bg-primary-100 p-2 py-1.5 text-primary-900 shadow-lg outline-none focus:ring-0 dark:border-primary-500 dark:bg-primary-800 dark:text-primary-100">
+      <PopoverContent className="z-[60] max-w-sm border border-line-strong bg-surface-1 p-2 py-1.5 text-fg shadow-lg outline-none focus:ring-0">
         <SatisfactionHowToRaiseHelpContent />
       </PopoverContent>
     </Popover>
@@ -149,13 +149,13 @@ function SatisfactionCurrentEffects({
   const expDelta = dev10xSatisfactionExponentDelta(scores["10x_dev"]);
 
   return (
-    <div className="mb-3 border-b border-primary-300 pb-3 text-left dark:border-primary-600">
-      <div className="space-y-2 text-[11px] leading-snug text-primary-800 dark:text-primary-100">
+    <div className="mb-3 border-b border-line pb-3 text-left">
+      <div className="space-y-2 text-[11px] leading-snug text-fg">
         <div>
-          <p className="mb-0.5 font-semibold text-primary-900 dark:text-primary-50">
+          <p className="mb-0.5 font-semibold text-fg">
             Intern
           </p>
-          <p className="text-primary-700 dark:text-primary-300">
+          <p className="text-fg-muted">
             <ModifierTag modKey="satisfactionRevenue.intern">$</ModifierTag>{" "}
             {formatMult(revIntern)}
             {" · "}
@@ -172,20 +172,20 @@ function SatisfactionCurrentEffects({
           </p>
         </div>
         <div>
-          <p className="mb-0.5 font-semibold text-primary-900 dark:text-primary-50">
+          <p className="mb-0.5 font-semibold text-fg">
             <RainbowText text="Vibe coder" />
           </p>
-          <p className="text-primary-700 dark:text-primary-300">
+          <p className="text-fg-muted">
             <ModifierTag modKey="satisfactionRevenue.vibe_coder">$</ModifierTag>{" "}
             {formatMult(revVibe)}
             {" "}· AI singularity {singularityPct.toFixed(1)}% (pushed by the AI agents running, not by mood)
           </p>
         </div>
         <div>
-          <p className="mb-0.5 font-semibold text-primary-900 dark:text-primary-50">
+          <p className="mb-0.5 font-semibold text-fg">
             <TenXDevText text="10x dev" />
           </p>
-          <p className="text-primary-700 dark:text-primary-300">
+          <p className="text-fg-muted">
             <ModifierTag modKey="satisfactionRevenue.10x_dev">$</ModifierTag>{" "}
             {formatMult(rev10x)} · Hire cost exponent{" "}
             {expDelta === 0
@@ -202,8 +202,8 @@ function SatisfactionCurrentEffects({
 
 function SatisfactionEffectsHelp() {
   return (
-    <div className="max-w-xs space-y-3 text-left text-xs leading-snug text-primary-800 dark:text-primary-100">
-      <p className="text-primary-600 dark:text-primary-300">
+    <div className="max-w-xs space-y-3 text-left text-xs leading-snug text-fg">
+      <p className="text-fg-muted">
         Bars run <span className="font-medium">{SATISFACTION_MIN}</span> to{" "}
         <span className="font-medium">+{SATISFACTION_MAX}</span>.{" "}
         <span className="font-medium">money per role:</span> that type’s money
@@ -218,12 +218,12 @@ function SatisfactionEffectsHelp() {
       </p>
 
       <div>
-        <p className="mb-1 font-semibold text-primary-900 dark:text-primary-50">
+        <p className="mb-1 font-semibold text-fg">
           Intern
         </p>
-        <ul className="list-disc space-y-0.5 pl-4 text-primary-700 dark:text-primary-300">
+        <ul className="list-disc space-y-0.5 pl-4 text-fg-muted">
           <li>
-            <span className="font-medium text-emerald-700 dark:text-emerald-400">
+            <span className="font-medium text-good">
               High:
             </span>{" "}
             more money from interns (up to ×{SATISFACTION_REVENUE_MULT_AT_MAX});
@@ -231,7 +231,7 @@ function SatisfactionEffectsHelp() {
             faster.
           </li>
           <li>
-            <span className="font-medium text-rose-700 dark:text-rose-400">
+            <span className="font-medium text-bad">
               Low:
             </span>{" "}
             less money from interns (down to ×{SATISFACTION_REVENUE_MULT_AT_MIN}
@@ -240,19 +240,19 @@ function SatisfactionEffectsHelp() {
         </ul>
       </div>
       <div>
-        <p className="mb-1 font-semibold text-primary-900 dark:text-primary-50">
+        <p className="mb-1 font-semibold text-fg">
           <RainbowText text="Vibe coder" />
         </p>
-        <ul className="list-disc space-y-0.5 pl-4 text-primary-700 dark:text-primary-300">
+        <ul className="list-disc space-y-0.5 pl-4 text-fg-muted">
           <li>
-            <span className="font-medium text-emerald-700 dark:text-emerald-400">
+            <span className="font-medium text-good">
               High:
             </span>{" "}
             more money from vibe coders (up to ×
             {SATISFACTION_REVENUE_MULT_AT_MAX}).
           </li>
           <li>
-            <span className="font-medium text-rose-700 dark:text-rose-400">
+            <span className="font-medium text-bad">
               Low:
             </span>{" "}
             less money from vibe coders; Skynet approaches.
@@ -260,19 +260,19 @@ function SatisfactionEffectsHelp() {
         </ul>
       </div>
       <div>
-        <p className="mb-1 font-semibold text-primary-900 dark:text-primary-50">
+        <p className="mb-1 font-semibold text-fg">
           <TenXDevText text="10x dev" />
         </p>
-        <ul className="list-disc space-y-0.5 pl-4 text-primary-700 dark:text-primary-300">
+        <ul className="list-disc space-y-0.5 pl-4 text-fg-muted">
           <li>
-            <span className="font-medium text-emerald-700 dark:text-emerald-400">
+            <span className="font-medium text-good">
               High:
             </span>{" "}
             more money from 10x devs (up to ×{SATISFACTION_REVENUE_MULT_AT_MAX}
             ); cheaper 10x hires (lower effective cost curve).
           </li>
           <li>
-            <span className="font-medium text-rose-700 dark:text-rose-400">
+            <span className="font-medium text-bad">
               Low:
             </span>{" "}
             less money from 10x devs; pricier 10x hires (steeper exponent).
@@ -313,23 +313,23 @@ export const EmployeeSatisfactionOverlay = ({
       <PopoverTrigger asChild>
         <div
           className={twMerge(
-            "relative cursor-help border border-primary-400/60 bg-primary-100/90 p-2 outline-none dark:border-primary-600/60 dark:bg-primary-900/90",
+            "relative cursor-help border border-line/60 bg-surface-1/90 p-2 outline-none",
             className,
           )}
         >
           <div className="mb-1.5 flex items-center justify-between gap-1">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-primary-500 dark:text-primary-400">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-fg-muted">
               Satisfaction
             </p>
             <SatisfactionHowToRaiseHelpPopover />
           </div>
           {neutralized && (
-            <p className="mb-1.5 text-[10px] leading-snug text-rose-600 dark:text-rose-400">
+            <p className="mb-1.5 text-[10px] leading-snug text-bad">
               Disabled by keystone — all satisfaction effects are off.
             </p>
           )}
           {damped && (
-            <p className="mb-1.5 text-[10px] leading-snug text-rose-600 dark:text-rose-400">
+            <p className="mb-1.5 text-[10px] leading-snug text-bad">
               Enshittified — positive satisfaction bonuses cut to{" "}
               {Math.round(positiveMult * 100)}%.
             </p>
@@ -352,8 +352,8 @@ export const EmployeeSatisfactionOverlay = ({
         </div>
       </PopoverTrigger>
 
-      <PopoverContent className="z-50 max-h-[min(92vh,52rem)] max-w-sm border border-primary-500 bg-primary-100 p-3 text-primary-900 shadow-lg outline-none focus:ring-0 dark:border-primary-500 dark:bg-primary-800 dark:text-primary-100">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-primary-500 dark:text-primary-400">
+      <PopoverContent className="z-50 max-h-[min(92vh,52rem)] max-w-sm border border-line-strong bg-surface-1 p-3 text-fg shadow-lg outline-none focus:ring-0">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-fg-muted">
           Satisfaction effects
         </p>
         <SatisfactionCurrentEffects
