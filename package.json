@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@arwes/animated": "1.0.0-next.25020502",
+    "@arwes/animator": "1.0.0-next.25020502",
     "@arwes/bgs": "1.0.0-next.25020502",
     "@arwes/frames": "1.0.0-next.25020502",
     "@arwes/text": "1.0.0-next.25020502",
@@ -58,6 +59,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",
+    "happy-dom": "20.8.9",
     "typescript": "~5.7.2",
     "typescript-eslint": "^8.26.1",
     "vite": "^6.3.1",

@@ -7,6 +7,8 @@
  * the backgrounds' lines run behind dialogs from the Overseer.
  * @see plans/ui-overhaul.md §1.4
  */
+import { createContext, useContext } from "react";
+
 import { stageOf, useAiSingularityStore } from "../../state/ai-singularity.store";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
 import { CONSOLE_AI } from "../theme/tokens";
@@ -45,10 +47,18 @@ export const stageMix = (value: number): number => CONSOLE_AI[stageOf(value).sta
 /** Whether the console is calm now: chosen, or the system's reduced motion. */
 export const isCalm = (): boolean => useGlobalSettingsStore.getState().motion === "calm" || reducedMotion();
 
+/**
+ * A MIX AND A CALM GIVEN, for what is under it: the kit's gallery showing
+ * every stage and level, and tests — without touching the meter or the
+ * settings, which are saved.
+ */
+export const ConsoleMotionOverride = createContext<{ mix?: number; calm?: boolean } | null>(null);
+
 /** The console's motion now, as a hook. */
 export function useConsoleMotion(): ConsoleMotion {
+  const given = useContext(ConsoleMotionOverride);
   const reduced = useReducedMotion();
   const chosen = useGlobalSettingsStore((s) => s.motion);
   const mix = useAiSingularityStore((s) => stageMix(s.value));
-  return consoleMotion(mix, reduced || chosen === "calm");
+  return consoleMotion(given?.mix ?? mix, given?.calm ?? (reduced || chosen === "calm"));
 }

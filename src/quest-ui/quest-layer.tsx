@@ -60,7 +60,7 @@ function QuestMarker({ at }: { at: { x: number; y: number } }) {
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       {/* The ping inside the placed ring, so its transform does not undo the placing. */}
       <div ref={el} className="absolute left-0 top-0 h-20 w-20">
-        <div className="h-full w-full animate-ping rounded-full border-4 border-violet-500/80 dark:border-violet-400/80" />
+        <div className="h-full w-full animate-ping rounded-full border-4 border-ai/80" />
       </div>
     </div>
   );

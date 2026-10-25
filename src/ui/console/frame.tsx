@@ -1,0 +1,91 @@
+/**
+ * THE CONSOLE'S FRAME: an arwes SVG frame (`@arwes/frames`) behind content,
+ * one shape for each kind of thing, so the shape says what something is
+ * before it is read (plans/ui-overhaul.md §1.3):
+ *  - `octagon` a dialog, something the game asks of you;
+ *  - `corners` a choice you can make;
+ *  - `kranox` a panel, a standing part of the console;
+ *  - `nefrex` a card on the map, something there now;
+ *  - `underline` a status line; `lines` a divider; `header` a title bar.
+ *
+ * Its colours are the tokens', never arwes's own: its `tone` — the console's
+ * own colour by default, the founder's teal mixed toward the AI's violet, or
+ * any role — sets the line, a tint of it the fill when lit (`.ui-frame` in
+ * index.css). It draws on when it appears if the console's decoration has
+ * reached that (`assemble="auto"`, from the Colleague), always unless calm
+ * (`"always"`, for the AI's own words), or never; and never moves at rest.
+ *
+ * The DOM packages through our own refs, not `@arwes/react-*`: those mark
+ * themselves unmounted in an effect's cleanup and never mounted again, so
+ * under StrictMode nothing shows. Here an effect makes the frame and its
+ * cleanup removes it, so a second mount simply makes it again.
+ */
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { twMerge } from "tailwind-merge";
+import {
+  animateFrameAssembler, createFrame, createFrameCornersSettings, createFrameHeaderSettings, createFrameKranoxSettings,
+  createFrameLinesSettings, createFrameNefrexSettings, createFrameOctagonSettings, createFrameUnderlineSettings,
+  type FrameSettings,
+} from "@arwes/frames";
+
+import type { Role } from "../theme/tokens";
+import { useConsoleMotion } from "../motion";
+
+export type FrameKind = "octagon" | "corners" | "kranox" | "nefrex" | "underline" | "lines" | "header";
+/** What colours a frame: the console's own, or a role. */
+export type Tone = "console" | Role;
+
+/** How each is cut: never animated by arwes's animator — the assembler draws it on. */
+const SETTINGS: Record<FrameKind, () => FrameSettings> = {
+  octagon: () => createFrameOctagonSettings({ animated: false, squareSize: 14, strokeWidth: 1.5 }),
+  corners: () => createFrameCornersSettings({ animated: false, cornerLength: 12, strokeWidth: 1.5 }),
+  kranox: () => createFrameKranoxSettings({ animated: false, squareSize: 8, strokeWidth: 1.25, smallLineLength: 8, largeLineLength: 32 }),
+  nefrex: () => createFrameNefrexSettings({ animated: false, squareSize: 10, strokeWidth: 1.25, smallLineLength: 8, largeLineLength: 28 }),
+  underline: () => createFrameUnderlineSettings({ animated: false, squareSize: 8, strokeWidth: 1.25 }),
+  lines: () => createFrameLinesSettings({ animated: false, largeLineWidth: 1.5, smallLineWidth: 1, smallLineLength: 12 }),
+  header: () => createFrameHeaderSettings({ animated: false, strokeWidth: 1.25, decoWidth: 4, contentLength: 48 }),
+};
+
+/** Seconds a frame takes to draw on. */
+export const ASSEMBLE = 0.6;
+
+/** The CSS a tone sets: the frame's line, and what it fills with when lit. */
+export const toneStyle = (tone: Tone): CSSProperties =>
+  (tone === "console" ? {} : { ["--frame-tone" as string]: `var(--ui-${tone})` });
+
+export function Frame({ kind = "kranox", tone = "console", illuminate = false, lit = false, assemble = "auto", className, style, children }: {
+  kind?: FrameKind;
+  tone?: Tone;
+  /** Lit up on hover: something under the pointer that can be acted on. */
+  illuminate?: boolean;
+  /** Lit up outright: chosen, armed, current. */
+  lit?: boolean;
+  /** Drawn on when it appears: as the console's decoration allows, always (unless calm), or never. */
+  assemble?: "auto" | "always" | false;
+  className?: string;
+  style?: CSSProperties;
+  children?: ReactNode;
+}) {
+  const svg = useRef<SVGSVGElement>(null);
+  const motion = useConsoleMotion();
+  const draws = assemble === "always" ? !motion.calm : assemble === "auto" ? motion.draws : false;
+  useEffect(() => {
+    const el = svg.current;
+    if (!el) return;
+    const container = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    const frame = createFrame(el, { ...SETTINGS[kind](), container });
+    const drawing = draws ? animateFrameAssembler({ element: el, duration: ASSEMBLE }) : null;
+    return () => {
+      drawing?.stop();
+      frame.remove();
+      container.remove();
+    };
+  }, [kind, draws]);
+  return (
+    <div className={twMerge("ui-frame relative", className)} style={{ ...toneStyle(tone), ...style }}
+      data-illuminate={illuminate || undefined} data-lit={lit || undefined}>
+      <svg ref={svg} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" />
+      <div className="relative">{children}</div>
+    </div>
+  );
+}

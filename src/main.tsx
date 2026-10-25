@@ -22,7 +22,10 @@ const mount = (node: ReactNode) =>
 // build` failed on it, while `vite dev` was perfectly happy because dev serves
 // modules untranspiled. Nothing here needs to block the module's evaluation:
 // the import's only job is to hand back a component to mount.
-if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('questkit')) {
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('uikit')) {
+  // The console's kit on its own: every piece, both themes, any stage. @see KitGallery
+  void import('./ui/console/gallery.tsx').then(({ KitGallery }) => mount(<KitGallery />))
+} else if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('questkit')) {
   // The AI's console kit on its own, light and dark. @see QuestGallery
   void import('./quest-ui/gallery.tsx').then(({ QuestGallery }) => mount(<QuestGallery />))
 } else if (isWorldV2) {

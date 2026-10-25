@@ -6,7 +6,7 @@
 import { twMerge } from "tailwind-merge";
 
 import { clock } from "../game/quests/describe";
-import { QuestFrame } from "./quest-frame";
+import { Frame } from "../ui/console";
 
 export function Tracker({ says, progress, left, action, needs, className }: {
   says: string;
@@ -21,28 +21,28 @@ export function Tracker({ says, progress, left, action, needs, className }: {
   className?: string;
 }) {
   return (
-    <QuestFrame kind="underline" className={twMerge("w-fit", className)}>
+    <Frame kind="underline" tone="ai" assemble="always" className={twMerge("w-fit", className)}>
       <div className="flex w-64 flex-col gap-1 px-2 pb-2 pt-1 text-xs" role="status" aria-label={`Objective: ${says}`}>
         <p className="flex justify-between gap-2">
-          <span className="text-[10px] uppercase tracking-widest text-violet-700 dark:text-violet-300">Objective</span>
-          <span className="tabular-nums text-primary-600 dark:text-primary-400">{clock(left)}</span>
+          <span className="text-[10px] uppercase tracking-widest text-ai">Objective</span>
+          <span className="tabular-nums text-fg-muted">{clock(left)}</span>
         </p>
         <p>{says}</p>
         {needs && (
           <p className="flex flex-wrap gap-x-2 text-[11px]">
-            {needs.map((n) => <span key={n.label} className={n.ok ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>{n.ok ? "✓" : "·"} {n.label}</span>)}
+            {needs.map((n) => <span key={n.label} className={n.ok ? "text-good" : "text-warn"}>{n.ok ? "✓" : "·"} {n.label}</span>)}
           </p>
         )}
         {action && (
           <button type="button" onClick={action.onClick} title={action.busy ? "Stop picking" : undefined}
-            className={`w-fit cursor-pointer border px-2 py-0.5 ${action.busy ? "animate-pulse border-violet-600 text-violet-800 dark:border-violet-400 dark:text-violet-200" : "border-primary-400 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800"}`}>
+            className={`w-fit cursor-pointer border px-2 py-0.5 ${action.busy ? "animate-pulse border-ai text-ai" : "border-line hover:bg-surface-2"}`}>
             {action.label}
           </button>
         )}
-        <div className="h-1 w-full bg-primary-300 dark:bg-primary-700">
-          <div className="h-full bg-violet-600 transition-[width] duration-500 dark:bg-violet-400" style={{ width: `${Math.round(progress * 100)}%` }} />
+        <div className="h-1 w-full bg-surface-2">
+          <div className="h-full bg-ai transition-[width] duration-500" style={{ width: `${Math.round(progress * 100)}%` }} />
         </div>
       </div>
-    </QuestFrame>
+    </Frame>
   );
 }

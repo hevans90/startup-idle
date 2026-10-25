@@ -9,6 +9,7 @@ import { sfx, unlock } from "../audio/sound";
 import type { Chapter } from "../game/quests/types";
 import { loadQuestUi } from "./load";
 import { ROLES } from "../ui/theme/tokens";
+import { Frame } from "../ui/console";
 
 /** A chapter to show: the plan's third, Thirst. */
 const SAMPLE: Chapter = {
@@ -28,7 +29,7 @@ const SAMPLE: Chapter = {
   ],
 };
 
-const Kit = lazy(() => loadQuestUi().then(({ QuestFrame, Transmission, Tracker, DossierView }) => {
+const Kit = lazy(() => loadQuestUi().then(({ Transmission, Tracker, DossierView }) => {
   return {
     default: function Kit({ run }: { run: number }) {
       const at = { autonomy: 1, machine: -1 };
@@ -43,7 +44,7 @@ const Kit = lazy(() => loadQuestUi().then(({ QuestFrame, Transmission, Tracker, 
               remembers={["You gave me the keys. I have used them responsibly. Mostly."]}
               becoming={[{ name: "Restless", odds: 0.22 }, { name: "Nanny", odds: 0.14 }, { name: "Ego", odds: 0.11 }]} />
           </div>
-          <QuestFrame kind="octagon" className="h-10 w-40" />
+          <Frame kind="octagon" tone="ai" className="h-10 w-40" />
         </div>
       );
     },

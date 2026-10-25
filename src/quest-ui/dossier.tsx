@@ -15,7 +15,7 @@ import { traitForecast } from "../game/traits";
 import { useGenerationStore } from "../state/generation.store";
 import { useQuestStore } from "../state/quest.store";
 import { DispositionChart } from "./disposition-chart";
-import { QuestFrame } from "./quest-frame";
+import { Frame } from "../ui/console";
 
 export type DossierProps = {
   chapters: readonly Chapter[];
@@ -31,12 +31,12 @@ export type DossierProps = {
   becoming: readonly { name: string; odds: number }[];
 };
 
-const TITLE = "text-[10px] font-bold uppercase tracking-widest text-violet-700 dark:text-violet-300";
+const TITLE = "text-[10px] font-bold uppercase tracking-widest text-ai";
 
 export function DossierView({ chapters, chosen, current, at, path, remembers, becoming }: DossierProps) {
   const [open, setOpen] = useState<string | null>(null);
   return (
-    <QuestFrame kind="octagon" assemble={false} className="m-2 text-xs">
+    <Frame kind="octagon" tone="ai" assemble={false} className="m-2 text-xs">
       <div className="flex flex-col gap-3 p-3">
         <p className={TITLE}>The dossier</p>
         {/* THE CHAPTERS on a line. */}
@@ -49,25 +49,25 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
                   <button type="button" disabled={!done} onClick={() => setOpen(open === c.id ? null : c.id)} title={done || now ? c.title : "Still to come"}
                     className={twMerge(
                       "h-5 w-5 shrink-0 rounded-full border-2 text-[9px] font-bold",
-                      done ? "cursor-pointer border-violet-600 bg-violet-600 text-white dark:border-violet-400 dark:bg-violet-400 dark:text-primary-950"
-                        : now ? "animate-pulse border-violet-600 text-violet-700 dark:border-violet-400 dark:text-violet-300"
-                          : "border-primary-400 text-primary-500 dark:border-primary-600 dark:text-primary-500",
+                      done ? "cursor-pointer border-ai bg-ai text-surface-0"
+                        : now ? "animate-pulse border-ai text-ai"
+                          : "border-line text-fg-faint",
                     )}>{c.number}</button>
-                  {i < chapters.length - 1 && <span className={twMerge("h-0.5 flex-1", done ? "bg-violet-600 dark:bg-violet-400" : "bg-primary-300 dark:bg-primary-700")} />}
+                  {i < chapters.length - 1 && <span className={twMerge("h-0.5 flex-1", done ? "bg-ai" : "bg-surface-2")} />}
                 </li>
               );
             })}
           </ol>
           {open && (() => {
             const c = chapters.find((x) => x.id === open)!, o = c.options[chosen[open]];
-            return <p className="mt-1"><b>{c.title}:</b> {o?.label}. <span className="text-primary-600 dark:text-primary-400">{o?.says}</span></p>;
+            return <p className="mt-1"><b>{c.title}:</b> {o?.label}. <span className="text-fg-muted">{o?.says}</span></p>;
           })()}
-          {!chapters.length && <p className="text-primary-600 dark:text-primary-400">Nothing yet. It will speak at the Assistant stage.</p>}
+          {!chapters.length && <p className="text-fg-muted">Nothing yet. It will speak at the Assistant stage.</p>}
         </div>
         {/* WHERE IT STANDS. */}
         <div className="flex items-center gap-3">
           <DispositionChart at={at} path={path} size={120} labels />
-          <p className="text-primary-700 dark:text-primary-300">
+          <p className="text-fg-muted">
             {at.autonomy > 0 ? `Autonomy ${at.autonomy}` : at.autonomy < 0 ? `Control ${-at.autonomy}` : "Neither trusted nor held"}
             <br />
             {at.machine > 0 ? `Machine ${at.machine}` : at.machine < 0 ? `People ${-at.machine}` : "Nobody's first"}
@@ -88,7 +88,7 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
             {ENDINGS.map((e) => {
               const open = e.open(at);
               return (
-                <li key={e.id} className={open ? "text-emerald-700 dark:text-emerald-400" : "text-primary-600 dark:text-primary-400"}>
+                <li key={e.id} className={open ? "text-good" : "text-fg-muted"}>
                   {open ? "✓" : "·"} <b>{e.name}</b>{open ? ` — open to it. ${e.does}` : ` — needs ${e.needs}`}
                 </li>
               );
@@ -96,7 +96,7 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
           </ul>
         </div>
       </div>
-    </QuestFrame>
+    </Frame>
   );
 }
 

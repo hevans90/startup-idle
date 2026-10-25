@@ -25,5 +25,5 @@
     "types": ["vite-plugin-svgr/client"]
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/test/preload.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test/preload.ts"]
 }
