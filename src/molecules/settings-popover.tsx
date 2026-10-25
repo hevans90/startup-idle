@@ -11,6 +11,7 @@ import { DayNightToggle } from "./day-night-toggle";
 import { SoundControls } from "./sound-controls";
 import { ResetButton } from "./reset-button";
 import { ThemeToggle } from "./theme-toggle";
+import { POPOVER } from "../ui/console";
 
 export const SettingsPopover = ({
   className,
@@ -30,11 +31,11 @@ export const SettingsPopover = ({
             className
           )}
         >
-          <IconSettings className="w-6 h-6 xl:w-8 xl:h-8 text-primary-900 dark:text-primary-200" />
+          <IconSettings className="h-6 w-6 text-fg xl:h-7 xl:w-7" />
         </button>
       </PopoverTrigger>
 
-      <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4 w-48 xl:w-52 2xl:w-56 3xl:w-64 outline-none focus:ring-0">
+      <PopoverContent className={twMerge(POPOVER, "w-64")}>
         <PopoverHeading className="font-medium mb-2 responsive-text">
           Settings
         </PopoverHeading>

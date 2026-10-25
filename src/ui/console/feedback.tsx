@@ -12,6 +12,9 @@ import type { Role } from "../theme/tokens";
 import { Button } from "./controls";
 import { Frame, type Tone } from "./frame";
 
+/** What a popover is drawn as: a raised surface, a strong line. Every popover the same. */
+export const POPOVER = "border border-line-strong bg-surface-3 p-3 text-fg shadow-lg outline-none focus:ring-0";
+
 const color = (tone: Tone) => (tone === "console" ? "var(--ui-console)" : `var(--ui-${tone})`);
 
 /** A number, in its resource's colour, its digits lined up. */

@@ -12,6 +12,7 @@ import {
 } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { useUpgradeStore } from "../state/upgrades.store";
+import { useConsoleMotion } from "../ui/motion";
 
 export const GameStageTicker = ({ className }: { className?: ClassNameValue }) => {
   const internAmount = useGeneratorStore(
@@ -109,11 +110,13 @@ export const GameStageTicker = ({ className }: { className?: ClassNameValue }) =
   }, [poolKey]);
 
   const current = messages[index] ?? "";
+  // Calm, each line simply replaces the last. @see useConsoleMotion
+  const calm = useConsoleMotion().calm;
 
   return (
     <div
       className={twMerge(
-        "flex h-8 items-center justify-center overflow-hidden border-b border-primary-300 dark:border-primary-600 bg-primary-100/95 dark:bg-primary-800/95 px-4 backdrop-blur-sm",
+        "flex h-7 items-center justify-center overflow-hidden bg-surface-1/90 px-4 backdrop-blur-sm",
         className
       )}
       title={current}
@@ -123,7 +126,7 @@ export const GameStageTicker = ({ className }: { className?: ClassNameValue }) =
     >
       <p
         key={current}
-        className="news-line-enter max-w-full truncate text-center text-xs tracking-tight text-primary-800 dark:text-primary-400"
+        className={twMerge("max-w-full truncate text-center text-xs tracking-tight text-fg-muted", !calm && "news-line-enter")}
       >
         {current}
       </p>

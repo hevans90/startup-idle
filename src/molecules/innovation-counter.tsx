@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { ResourceCounter } from "../ui/ResourceCounter";
 import { formatRate } from "../utils/rate-utils";
 import { InnovationSummary } from "./innovation/innovation-summary";
+import { POPOVER } from "../ui/console";
 
 export const InnovationCounter = ({
   className,
@@ -21,7 +22,7 @@ export const InnovationCounter = ({
       <PopoverTrigger asChild>
         <section
           className={twMerge(
-            "flex flex-col items-center hover:bg-primary-200 dark:hover:bg-primary-600 p-2 cursor-help",
+            "flex cursor-help flex-col items-center p-2 hover:bg-surface-2",
             className,
           )}
         >
@@ -33,7 +34,7 @@ export const InnovationCounter = ({
         </section>
       </PopoverTrigger>
 
-      <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4 w-48 xl:w-52 2xl:w-56 3xl:w-64 outline-none focus:ring-0">
+      <PopoverContent className={twMerge(POPOVER, "w-56")}>
         Coming soon
       </PopoverContent>
     </Popover>
@@ -61,6 +62,7 @@ export const ToolbarInnovationCounter = ({
         </>
       }
       rate={formatRate(ips).formatted}
+      role="innovation"
       onClick={() => setSidebarTab("innovation")}
       popover={<InnovationSummary />}
       className={className}

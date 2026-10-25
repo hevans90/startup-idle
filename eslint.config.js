@@ -5,7 +5,10 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 /** Directories moved onto the console's tokens. @see plans/ui-overhaul.md §7 */
-const MIGRATED = ['src/ui/console/**', 'src/ui/comms/**', 'src/quest-ui/**', 'src/world/play/event-cards.tsx', 'src/world/play/hint-card.tsx']
+const MIGRATED = ['src/ui/console/**', 'src/ui/comms/**', 'src/quest-ui/**', 'src/world/play/event-cards.tsx', 'src/world/play/hint-card.tsx',
+  // U5, the HUD.
+  'src/molecules/toolbar.tsx', 'src/ui/ResourceCounter.tsx', 'src/molecules/ai-singularity-readout.tsx', 'src/molecules/company-timer.tsx',
+  'src/molecules/founder-badge.tsx', 'src/molecules/game-stage-ticker.tsx', 'src/molecules/innovation-counter.tsx', 'src/molecules/valuation-counter.tsx']
 /** A Tailwind colour class from the raw palette: text-violet-600, dark:bg-primary-900, border-emerald-400/50… */
 const RAW_PALETTE = '/(^|[\\s:])(text|bg|border|fill|stroke|ring|outline|from|to|via|accent|divide)-(primary|gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\\d/'
 
@@ -34,7 +37,10 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_' },
       ],
       // ARWES only through the console's kit, themed from its tokens. @see src/ui, plans/ui-overhaul.md §2
-      'no-restricted-imports': ['error', { patterns: [{ group: ['@arwes/*', 'motion'], message: 'Use the kit in src/ui, not arwes directly.' }] }],
+      'no-restricted-imports': ['error', {
+        paths: [{ name: 'motion', message: 'Use the kit in src/ui, not arwes directly.' }],
+        patterns: [{ group: ['@arwes/*'], message: 'Use the kit in src/ui, not arwes directly.' }],
+      }],
     },
   },
   {

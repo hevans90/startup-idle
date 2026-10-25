@@ -6,6 +6,7 @@ import { useTicking } from "../hooks/use-ticking";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
+import { POPOVER } from "../ui/console";
 
 /**
  * Toolbar badge showing the chosen founder; hovering reveals their tagline,
@@ -27,7 +28,7 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
       <PopoverTrigger asChild>
         <div
           className={twMerge(
-            "flex items-center gap-2 rounded px-2 py-1 cursor-help hover:bg-primary-300 dark:hover:bg-primary-700",
+            "flex cursor-help items-center gap-2 px-2 py-1 hover:bg-surface-2",
             className,
           )}
         >
@@ -39,7 +40,7 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
         </div>
       </PopoverTrigger>
 
-      <PopoverContent className="w-60 bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4 outline-none focus:ring-0">
+      <PopoverContent className={twMerge(POPOVER, "w-60")}>
         <div className="flex items-center gap-2">
           <Icon size={20} className="shrink-0" />
           <span className="font-bold">{founder.name}</span>
@@ -56,7 +57,7 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
         </ul>
 
         {founder.rule && (
-          <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
+          <p className="mt-2 text-xs text-info">
             <span className="font-semibold">On the map:</span> {founder.rule}
           </p>
         )}
@@ -64,16 +65,16 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
 
         {/* THE TERM SHEET SIGNED, and where it stands. @see game/term-sheets */}
         {term && (
-          <div className="mt-2 border-t border-primary-400/40 pt-2 text-xs">
+          <div className="mt-2 border-t border-line-quiet pt-2 text-xs">
             <p className="font-semibold">{term.sheet.investor}: +{Math.round(term.sheet.bonus * 100)}% Equity</p>
             <p>{term.sheet.goal}</p>
-            <p className={twMerge("tabular-nums", term.progress.met ? "text-emerald-700 dark:text-emerald-400" : "opacity-70")}>
+            <p className={twMerge("tabular-nums", term.progress.met ? "text-good" : "text-fg-muted")}>
               {term.progress.text}
             </p>
           </div>
         )}
 
-        <div className="mt-2 border-t border-primary-400/40 pt-2 text-xs text-emerald-700 dark:text-emerald-400">
+        <div className="mt-2 border-t border-line-quiet pt-2 text-xs text-money">
           Founded with ${founder.startingCash}
         </div>
       </PopoverContent>

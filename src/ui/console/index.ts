@@ -8,5 +8,5 @@ export { Text, type TextMode } from "./text";
 export { Backdrop } from "./backdrop";
 export { Button, IconButton, Toggle, Segmented, Slider, FOCUS, type ButtonProps, type ButtonVariant } from "./controls";
 export { Panel, Card, Section, Dialog, Label } from "./layout";
-export { Num, Meter, Badge, Chip, Kbd, Tooltip, Locked } from "./feedback";
+export { Num, Meter, Badge, Chip, Kbd, Tooltip, Locked, POPOVER } from "./feedback";
 export { Tabs, type TabItem } from "./tabs";

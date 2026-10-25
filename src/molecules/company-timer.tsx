@@ -16,7 +16,7 @@ export const CompanyTimer = ({ className }: { className?: ClassNameValue }) => {
   return (
     <div
       className={twMerge(
-        "flex flex-col leading-tight text-primary-500 dark:text-primary-400",
+        "flex flex-col leading-tight text-fg-muted",
         className,
       )}
       title="Time since this company was founded"

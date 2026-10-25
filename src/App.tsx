@@ -6,7 +6,6 @@ import {
   type OfflineSummary,
 } from "./game/offline-progress";
 import { useCompareVersion } from "./hooks/use-compare-version";
-import { AiSingularityReadout } from "./molecules/ai-singularity-readout";
 import { AscensionCard } from "./molecules/ascension-card";
 import { DevPanel } from "./molecules/dev-panel";
 import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
@@ -248,7 +247,6 @@ function App() {
                   <DevPanel />
                 </div>
 
-                <AiSingularityReadout className="absolute top-10 left-2 z-10" />
                 <AscensionCard className="absolute left-1/2 top-1/4 z-30 -translate-x-1/2" />
 
                 <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1 items-start">

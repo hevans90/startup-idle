@@ -27,6 +27,7 @@ export const ToolbarValuationCounter = ({
         </>
       }
       rate={formatRate(vps).formatted}
+      role="valuation"
       onClick={() => setSidebarTab("valuation")}
       popover={<ValuationSummary />}
       className={className}
