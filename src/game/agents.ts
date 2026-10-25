@@ -64,14 +64,14 @@ export function agentsAtWork(agents: number): { powered: number; unpowered: numb
 }
 
 /** What the agents running multiply income by. */
-/** What the Machine's Air Gap keystone multiplies every agent's boost by. @see game/machine KEYSTONES */
-export const AIR_GAP_BOOST = 2;
+/** What the Machine's Air Gap keystone multiplies every agent's boost by: not double, which made it every company's choice. @see machine-paths.test */
+export const AIR_GAP_BOOST = 1.6;
 
 export function agentBonus(agents: number): number {
   const { powered, unpowered } = agentsAtWork(agents);
   // Compute spires the AI put up add to every agent's boost. @see SPIRE_BOOST
   const spires = Math.min(MAX_SPIRES, projectReading()?.spires ?? 0);
-  // AIR-GAPPED, every agent's boost twice over. @see AIR_GAP_BOOST
+  // AIR-GAPPED, every agent's boost the more. @see AIR_GAP_BOOST
   const gap = keystone("airgap") ? AIR_GAP_BOOST : 1;
   return 1 + AGENT_BOOST * fusionNow().agentBoostMult * gap * (1 + SPIRE_BOOST * spires) * (powered + UNPOWERED_SHARE * unpowered);
 }

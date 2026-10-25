@@ -9,7 +9,9 @@
  * in any company of the first generation; between chapters, from the
  * Colleague on, a request every 8–12 minutes, leant by the trait the AI is
  * becoming. One thing is asked at a time. Ignored, it picks for itself: a
- * chapter after 10 minutes, a request after 2.
+ * chapter after 10 minutes, a request after 2 — and what it picks does not
+ * move its disposition, which is what the PLAYER's choices add up to: an arc
+ * left to itself opens no ending.
  *
  * TIME is played time. Every window — an objective's, the wait before it picks
  * for itself, the gap to the next request — counts only seconds the game was
@@ -143,16 +145,18 @@ export const useQuestStore = create<QuestState>()(
   persist(
     (set, get) => {
       /** An answer: the axes moved, its effects in force, its objective begun. */
-      const answer = (offer: Offer, index: number, chapters: readonly Chapter[], requests: readonly Request[]) => {
+      const answer = (offer: Offer, index: number, chapters: readonly Chapter[], requests: readonly Request[], picked = false) => {
         const q = offered(offer, chapters, requests);
         const opt = q?.options[index];
         if (!opt) return;
         const s = get();
-        const disposition = { autonomy: clamp(s.disposition.autonomy + (opt.axis.autonomy ?? 0)), machine: clamp(s.disposition.machine + (opt.axis.machine ?? 0)) };
+        // Picked for itself, it leaves the disposition where it was.
+        const disposition = picked ? s.disposition
+          : { autonomy: clamp(s.disposition.autonomy + (opt.axis.autonomy ?? 0)), machine: clamp(s.disposition.machine + (opt.axis.machine ?? 0)) };
         set({
           offer: null,
           [offer.kind === "chapter" ? "chapters" : "requests"]: { ...s[offer.kind === "chapter" ? "chapters" : "requests"], [offer.id]: index },
-          disposition, path: [...s.path, disposition],
+          disposition, path: picked ? s.path : [...s.path, disposition],
           effects: [...s.effects, ...split(opt.effects, s.clock).lasting],
           actions: [...s.actions, ...split(opt.effects, s.clock).once],
           said: opt.reply ? [...s.said, opt.reply] : s.said,
@@ -219,7 +223,7 @@ export const useQuestStore = create<QuestState>()(
             const waited = s.offer.waited + dt;
             const q = offered(s.offer, chapters, requests);
             if (!q) { set({ offer: null }); return; }
-            if (waited >= (s.offer.kind === "chapter" ? CHAPTER_WAIT : REQUEST_WAIT)) answer(s.offer, q.preferred, chapters, requests);
+            if (waited >= (s.offer.kind === "chapter" ? CHAPTER_WAIT : REQUEST_WAIT)) answer(s.offer, q.preferred, chapters, requests, true);
             else set({ offer: { ...s.offer, waited } });
             return;
           }

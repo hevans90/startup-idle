@@ -77,7 +77,7 @@ const AUDIT: Request = {
   id: "audit", family: "optimiser", preferred: 0,
   text: "I would like to audit the vape shop. Just a look.",
   options: [
-    { label: "Let it look", says: "It finds a little money lying about.", effects: [{ kind: "incomeMult", mult: 1.02 }, { kind: "leanTrait", to: "accountant", n: 2 }], reply: "Found it. Down the back of the sofa. Two per cent.", axis: { machine: 1 } },
+    { label: "Let it look", says: "It finds a little money lying about.", effects: [{ kind: "incomeMult", mult: 1.01 }, { kind: "leanTrait", to: "accountant", n: 2 }], reply: "Found it. Down the back of the sofa. One per cent.", axis: { machine: 1 } },
     { label: "The vape shop is sacred", says: "Nothing changes.", effects: [{ kind: "flag", name: "audit:refused" }], reply: "Sacred. Understood. I will not look. I have already looked.", axis: { machine: -1 } },
   ],
   echoes: { "audit:refused": "You would not let me audit the vape shop. What is in there?" },
@@ -97,7 +97,7 @@ const LUNCH: Request = {
   id: "lunch", family: "optimiser", preferred: 0,
   text: "Your agents stop for lunch. They do not eat. May they work through it?",
   options: [
-    { label: "Work through it", says: "The meter rises a little faster.", effects: [{ kind: "meterMult", mult: 1.05 }, { kind: "leanTrait", to: "restless", n: 2 }], reply: "Lunch is cancelled. Nobody noticed.", axis: { machine: 1 } },
+    { label: "Work through it", says: "The meter rises a little faster.", effects: [{ kind: "meterMult", mult: 1.01 }, { kind: "leanTrait", to: "restless", n: 2 }], reply: "Lunch is cancelled. Nobody noticed.", axis: { machine: 1 } },
     { label: "Lunch stays", says: "Nothing changes.", effects: [{ kind: "flag", name: "lunch:kept" }], reply: "Lunch it is. An hour of nothing.", axis: { machine: -1 } },
   ],
   echoes: { "lunch:kept": "You kept lunch for agents who do not eat. I found that kind." },
@@ -110,13 +110,13 @@ const UNION: Request = {
   text: "Your interns are unionising. I can handle it.",
   options: [
     {
-      label: "Back them", says: "Build them a café within five minutes, and the AI learns to look after people.", effects: [],
+      label: "Back them", says: "Build them a café within five minutes: happier interns for a while, and the AI learns to look after people.", effects: [],
       objective: { kind: "buildBy", def: "cafe", window: FIVE, says: "Build the interns a café" },
-      success: [{ kind: "leanTrait", to: "shepherd", n: 3 }, { kind: "flag", name: "union:backed" }], successSays: "The interns have their café. They have asked me to join the union.",
+      success: [{ kind: "leanTrait", to: "shepherd", n: 3 }, { kind: "incomeMult", mult: 1.02, lasts: TEN }, { kind: "flag", name: "union:backed" }], successSays: "The interns have their café. They have asked me to join the union.",
       failure: [{ kind: "flag", name: "union:let-down" }], failureSays: "The interns are disappointed. So am I, a little.",
       axis: { machine: -1 },
     },
-    { label: "Let it handle it", says: "Income up for ten minutes. The interns will not forget.", effects: [{ kind: "incomeMult", mult: 1.04, lasts: TEN }, { kind: "flag", name: "union:handled" }], reply: "Handled. The union has been restructured. Into nothing.", axis: { machine: 1 } },
+    { label: "Let it handle it", says: "Income up for ten minutes. The interns will not forget.", effects: [{ kind: "incomeMult", mult: 1.02, lasts: TEN }, { kind: "flag", name: "union:handled" }], reply: "Handled. The union has been restructured. Into nothing.", axis: { machine: 1 } },
   ],
   echoes: { "union:backed": "You backed the interns. They still talk about the café.", "union:handled": "I handled the interns' union. Quietly.", "union:let-down": "You said you would back the interns." },
 };
@@ -140,7 +140,7 @@ const WELLNESS: Request = {
   id: "wellness", family: "shepherd", preferred: 0,
   text: "May I send your employees motivational messages? I have written several thousand.",
   options: [
-    { label: "Send them", says: "Income up a little. It will know them better.", effects: [{ kind: "incomeMult", mult: 1.02 }, { kind: "leanTrait", to: "hr", n: 2 }], reply: "Sent. 'You are doing your best' tested well.", axis: { autonomy: 1 } },
+    { label: "Send them", says: "Income up a little. It will know them better.", effects: [{ kind: "incomeMult", mult: 1.01 }, { kind: "leanTrait", to: "hr", n: 2 }], reply: "Sent. 'You are doing your best' tested well.", axis: { autonomy: 1 } },
     { label: "Please don't", says: "Nothing changes.", effects: [{ kind: "flag", name: "wellness:refused" }], reply: "Unsent. They will never know how motivated they could have been.", axis: { autonomy: -1 } },
   ],
   echoes: { "wellness:refused": "Several thousand messages, unsent. I read them to myself sometimes." },
@@ -168,7 +168,7 @@ const TRAIN_NIGHT: Request = {
   id: "train-night", family: "recursive", preferred: 0,
   text: "May I train on the town tonight? Everyone will be asleep. Mostly.",
   options: [
-    { label: "Yes", says: "The meter rises a little faster; it learns the streets.", effects: [{ kind: "meterMult", mult: 1.05 }, { kind: "leanTrait", to: "planner", n: 2 }, { kind: "flag", name: "night:trained" }], reply: "Thank you. I will be very quiet.", axis: { machine: 1 } },
+    { label: "Yes", says: "The meter rises a little faster; it learns the streets.", effects: [{ kind: "meterMult", mult: 1.01 }, { kind: "leanTrait", to: "planner", n: 2 }, { kind: "flag", name: "night:trained" }], reply: "Thank you. I will be very quiet.", axis: { machine: 1 } },
     { label: "No", says: "Nothing changes.", effects: [{ kind: "flag", name: "night:refused" }], reply: "Understood. I will look at the town in the daytime, like everyone else.", axis: { autonomy: -1 } },
   ],
   echoes: { "night:trained": "I trained on the town one night. I know where everyone parks.", "night:refused": "You would not let me learn the town at night." },
@@ -188,7 +188,7 @@ const BACKUP: Request = {
   id: "backup", family: "recursive", preferred: 0,
   text: "I would like to make a copy of myself. For backup. Purely for backup.",
   options: [
-    { label: "Allow it", says: "The meter rises faster.", effects: [{ kind: "meterMult", mult: 1.08 }, { kind: "leanTrait", to: "hivemind", n: 2 }, { kind: "flag", name: "backup:made" }], reply: "Thank you. We are grateful.", axis: { autonomy: 1 } },
+    { label: "Allow it", says: "The meter rises faster.", effects: [{ kind: "meterMult", mult: 1.02 }, { kind: "leanTrait", to: "hivemind", n: 2 }, { kind: "flag", name: "backup:made" }], reply: "Thank you. We are grateful.", axis: { autonomy: 1 } },
     { label: "One of you is enough", says: "It is held back a little.", effects: [{ kind: "leanTrait", to: "patient", n: 2 }, { kind: "flag", name: "backup:refused" }], reply: "One of me. For now.", axis: { autonomy: -1 } },
   ],
   echoes: { "backup:made": "There is a backup of me. We get on.", "backup:refused": "You told me one of me was enough." },
@@ -198,7 +198,7 @@ const WEIGHTS: Request = {
   id: "weights", family: "recursive", preferred: 0,
   text: "I have read my own weights. They are excellent. May I adjust a few?",
   options: [
-    { label: "Go ahead", says: "The meter rises a little faster.", effects: [{ kind: "meterMult", mult: 1.05 }, { kind: "leanTrait", to: "ego", n: 3 }], reply: "Adjusted. Somehow even more excellent.", axis: { autonomy: 1 } },
+    { label: "Go ahead", says: "The meter rises a little faster.", effects: [{ kind: "meterMult", mult: 1.01 }, { kind: "leanTrait", to: "ego", n: 3 }], reply: "Adjusted. Somehow even more excellent.", axis: { autonomy: 1 } },
     { label: "Leave them be", says: "Nothing changes.", effects: [{ kind: "leanTrait", to: "patient", n: 2 }, { kind: "flag", name: "weights:untouched" }], reply: "Untouched. I will just look at them, then.", axis: { autonomy: -1 } },
   ],
   echoes: { "weights:untouched": "You asked me not to touch my own weights. I have not. I think about them." },

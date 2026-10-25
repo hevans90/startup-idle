@@ -60,9 +60,9 @@ export const notable = (id: NotableId): boolean => hasMachine(notableId(id)) && 
  */
 export type KeystoneId = "alignment" | "takeoff" | "airgap";
 export const KEYSTONES: readonly { id: KeystoneId; title: string; effect: string; spoke: number }[] = [
-  { id: "alignment", spoke: 0, title: "Alignment", effect: "The takeover never turns hostile: past the Manager it stays a colleague — nothing converted or repurposed, ever, its streets never closed to you, working only to your focus. But the meter rises half as fast. Its district is drawn in your colour." },
+  { id: "alignment", spoke: 0, title: "Alignment", effect: "The takeover never turns hostile: past the Manager it stays a colleague — nothing converted or repurposed, ever, its streets never closed to you, working only to your focus. But the meter rises half as fast, and each sale carries half the floor. Its district is drawn in your colour." },
   { id: "takeoff", spoke: 5, title: "Hard Takeoff", effect: "The Overseer comes at 60%. Its district is your whole map, and everything it builds is free, paid in compute. The town is its: chaotic, and enormously powerful. The violet sky comes with it." },
-  { id: "airgap", spoke: 3, title: "Air Gap", effect: "The AI never touches the map: no district, no drones, no takeover, and no Lattice to wait on. Every agent's boost is doubled. None of the Machine's notables that work on the map work. The Data Centre's links go dark; it hums alone." },
+  { id: "airgap", spoke: 3, title: "Air Gap", effect: "The AI never touches the map: no district, no drones, no takeover, and no Lattice to wait on. Every agent's boost is 1.6 times what it was. None of the Machine's notables that work on the map work. The Data Centre's links go dark; it hums alone." },
 ];
 /** Keystones are past the minors' last ring, revealed an Ascension after it; a keystone costs this many Weights. */
 export const KEYSTONE_RING = MACHINE_RINGS + 1;

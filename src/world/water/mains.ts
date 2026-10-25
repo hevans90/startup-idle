@@ -94,17 +94,25 @@ export function intakeWater(g: Grid, field: WaterField, i: number): { column: nu
   return best;
 }
 
-/** The building that drinks an outlet feeds — any side of it, any tile of the building — by id; −1 with none. */
+/**
+ * The building that drinks an outlet feeds — any side of it, any tile of the
+ * building — by id; −1 with none. Beside two, the one with the most room in
+ * its tank: a main ending between a full building and a thirsty one waters
+ * the thirsty one, not whichever side was looked at first.
+ */
 export function outletBuilding(g: Grid, i: number): number {
   const x = i % g.w, y = (i / g.w) | 0;
+  let best = -1, room = -1;
   for (const side of SIDES) {
     const [dx, dy] = NEIGHBOUR[side];
     if (!inBounds(g, x + dx, y + dy)) continue;
     const id = structureAt(g, x + dx, y + dy);
     const s = id >= 0 ? g.structures.get(id) : undefined;
-    if (s && !s.build && isDrinker(s.def)) return id;
+    if (!s || s.build || !isDrinker(s.def) || id === best) continue;
+    const r = tankRoom(id);
+    if (r > room) { best = id; room = r; }
   }
-  return -1;
+  return best;
 }
 
 /**

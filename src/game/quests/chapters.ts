@@ -22,14 +22,14 @@ const LEDGER: Chapter = {
   options: [
     {
       label: "Give it the keys", says: "It runs the payroll. When its own wallet is empty it may dip into yours.",
-      effects: [{ kind: "incomeMult", mult: 1.05 }, { kind: "walletDraws", share: 0.1 }, { kind: "flag", name: "ledger:open" }],
+      effects: [{ kind: "incomeMult", mult: 1.03 }, { kind: "walletDraws", share: 0.15 }, { kind: "flag", name: "ledger:open" }],
       axis: { autonomy: 1, machine: 1 },
     },
     {
       label: "Sandbox it", cost: "agents at half for ten minutes", says: "It may try, with half its agents. If it behaves, it keeps a ledger you can read.",
       effects: [],
       objective: { kind: "throttleAtMost", share: 0.5, seconds: TEN, window: 3 * TEN, says: "Keep the agents at half or less for 10 minutes" },
-      success: [{ kind: "incomeMult", mult: 1.03 }, { kind: "flag", name: "ledger:logged" }],
+      success: [{ kind: "incomeMult", mult: 1.04 }, { kind: "flag", name: "ledger:logged" }],
       successSays: "The sandbox held. My ledger is in the Data Centre panel now. Every cent.",
       failure: [{ kind: "flag", name: "ledger:forgot" }],
       failureSays: "You forgot about me.",
@@ -150,7 +150,7 @@ const CHARTER: Chapter = {
     },
     {
       label: "The Mandate", says: "Its district grows by half, its wallet holds twice as much, and the meter quickens. Hard Takeoff is revealed in the Machine.",
-      effects: [{ kind: "charter", charter: "mandate" }, { kind: "districtRadius", mult: 1.5 }, { kind: "walletMax", mult: 2 }, { kind: "meterMult", mult: 1.15 }, { kind: "revealMachineNode", id: "machine_k_takeoff", discount: 0 }, { kind: "flag", name: "charter:mandate" }],
+      effects: [{ kind: "charter", charter: "mandate" }, { kind: "districtRadius", mult: 1.5 }, { kind: "walletMax", mult: 2 }, { kind: "meterMult", mult: 1.1 }, { kind: "revealMachineNode", id: "machine_k_takeoff", discount: 0 }, { kind: "flag", name: "charter:mandate" }],
       axis: { autonomy: 2, machine: 1 },
     },
   ],

@@ -58,13 +58,26 @@ describe("the arc", () => {
     step({ meter: 25 });
     useQuestStore.setState({ disposition: { autonomy: -1, machine: 0 } });
     const before = questIncomeMult();
-    // Ignored for the whole wait, it takes its preferred option: the keys.
-    for (let k = 0; k < CHAPTER_WAIT; k++) step({ meter: 25 });
+    answer("ledger", 0);
     expect(q().chapters.ledger).toBe(0);
     expect(q().disposition).toEqual({ autonomy: 0, machine: 1 });
     expect(questIncomeMult()).toBeCloseTo(before * 1.05);
     expect(q().flags).toContain("ledger:open");
     expect(q().path.length).toBe(1);
+    // AND THE SAY GONE: the axis capped at three either way.
+    useQuestStore.setState({ disposition: { autonomy: 3, machine: 3 } });
+    step({ meter: 65 });
+    answer("thirst", 0);
+    expect(q().disposition).toEqual({ autonomy: 3, machine: 3 });
+  });
+
+  test("ignored, it picks its own option: in force, but the disposition is the player's, and does not move", () => {
+    step({ meter: 25 });
+    for (let k = 0; k < CHAPTER_WAIT; k++) step({ meter: 25 });
+    expect(q().chapters.ledger).toBe(0);
+    expect(q().flags).toContain("ledger:open");
+    expect(q().disposition).toEqual({ autonomy: 0, machine: 0 });
+    expect(q().path).toEqual([]);
   });
 
   test("an objective met brings its success; one out of time its failure, and what it says", () => {

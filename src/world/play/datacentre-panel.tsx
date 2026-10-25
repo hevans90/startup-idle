@@ -155,7 +155,7 @@ function Focus() {
   // The Model's own runs are AI mode's. @see AiModePanel
   if (founder === "model") return null;
   // AIR-GAPPED, there is nothing for it to work at. @see game/machine KEYSTONES
-  if (keystone("airgap")) return <div className={SECTION}><p className={TITLE}>Air-gapped</p><p>It never touches the map: no district, no drones, no takeover. Every agent's boost is doubled.</p></div>;
+  if (keystone("airgap")) return <div className={SECTION}><p className={TITLE}>Air-gapped</p><p>It never touches the map: no district, no drones, no takeover. Every agent's boost is 1.6 times what it was.</p></div>;
   const stage = stageOf(value).stage;
   const interval = INTERVAL[stage];
   const pace = aiPace(grid, { stage, running: runningAgents(), agents }, 1);

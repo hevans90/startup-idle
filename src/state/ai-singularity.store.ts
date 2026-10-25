@@ -98,8 +98,13 @@ export const inheritedStart = (): number => {
   return hasMachine("machine_root") ? STAGES.find((s) => s.stage === "assistant")!.from : 0;
 };
 
-export function afterSale(value: number, sales: number): number {
-  return Math.min(100, Math.max(value * CARRY, Math.min(FLOOR_CAP, sales * FLOOR_PER_SALE)));
+/**
+ * What a sale leaves the meter at: a share of it, never under the floor this
+ * generation's sales have built — the floor built `floor` as fast: half, with
+ * the Machine's Alignment, whose meter is half as quick in all of it.
+ */
+export function afterSale(value: number, sales: number, floor = 1): number {
+  return Math.min(100, Math.max(value * CARRY, Math.min(FLOOR_CAP, sales * FLOOR_PER_SALE * floor)));
 }
 
 /** Points a second the meter moves by, with `running` of `owned` agents running: before there are any, it holds. */
@@ -140,7 +145,9 @@ export const useAiSingularityStore = create<AiSingularityState>()(
 
       // A SALE: part of it kept, over a floor this generation's sales have built.
       // A new company: what the sale kept — and, with Inheritance, never under the Assistant. @see game/machine
-      reset: () => set({ value: Math.max(inheritedStart(), afterSale(get().value, useGenerationStore.getState().sales)) }),
+      reset: () => set({
+        value: Math.max(inheritedStart(), afterSale(get().value, useGenerationStore.getState().sales, hasMachine("machine_k_alignment") ? ALIGNMENT_METER : 1)),
+      }),
     }),
     {
       name: KEY,

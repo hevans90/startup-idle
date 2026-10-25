@@ -130,8 +130,8 @@ function spots(g: Grid, defId: string, d: District, near?: { at: Cell; within: n
   return out;
 }
 
-/** The jobs that put up something that drinks: none of them while its cooling is short. @see coolingState */
-const DRINKING = new Set<Kind>(["node", "farm", "spire"]);
+/** The jobs that put up something that drinks — a takeover too, a house made a node, a service a farm: none of them while its cooling is short. @see coolingState */
+const DRINKING = new Set<Kind>(["node", "farm", "spire", "convert", "repurpose"]);
 /** How full every tank must be before it adds another drinker: water coming in faster than it goes. */
 export const FULL_ENOUGH = 0.8;
 
@@ -453,8 +453,11 @@ export function chooseAction(
     const pipe = candidate("pipe", g, rand, district);
     if (pipe && affords(pipe)) return pipe;
     // NO WAY TO WATER at all: a reservoir, the last resort. @see reservoir
-    const dig = stage !== "colleague" ? reservoirFor(g, district) : null;
+    const dig = !pipe && stage !== "colleague" ? reservoirFor(g, district) : null;
     if (dig && affords(dig)) return dig;
+    // ONE IT CANNOT PAY FOR YET, it saves for: nothing else is bought meanwhile,
+    // or the wallet it needs goes on lots while its racks run dry. @see plans/ai-takeover.md §8
+    if (pipe || dig) return null;
   }
   // TRAINED ON THE RIVER, a reservoir run low is topped up first. @see lowReservoir
   const low = skillOf("river") >= 2 ? lowReservoir() : null;
