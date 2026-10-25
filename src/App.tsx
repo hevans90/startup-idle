@@ -1,6 +1,6 @@
 import { isPhone } from "./hooks/use-phone";
 import { useAiSingularityStore } from "./state/ai-singularity.store";
-import { Frame, Num, Segmented } from "./ui/console";
+import { Num, Segmented } from "./ui/console";
 import { FloatingTree } from "@floating-ui/react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { evaluateAchievements } from "./game/achievements.engine";
@@ -190,8 +190,7 @@ function App() {
           // commute — hold on a phone as on a desktop. @see useFoundWorld
           <div className="flex h-full w-full flex-col bg-surface-0 text-fg">
             {/* THE HUD, ONE ROW: settings, money (a tap earns), innovation, the AI; then Map or Company. */}
-            <header className="relative flex items-center gap-2 px-2 py-1">
-              <Frame kind="underline" assemble="auto" className="pointer-events-none absolute inset-x-0 bottom-0 h-2" />
+            <header className="relative flex items-center gap-2 border-b border-line-quiet bg-surface-1 px-2 py-1">
               <SettingsPopover className="h-9 w-9 border-none p-1" />
               <button type="button" className="shrink-0 cursor-pointer text-left" onClick={() => increaseMoney(Math.max(mps / 10, 1))}>
                 <Num role="money" className="block font-display text-base leading-tight">{formatCurrency(money)}</Num>
@@ -221,7 +220,7 @@ function App() {
             <div className="relative flex h-full min-h-0 w-2/3 flex-col items-center">
               <Toolbar />
 
-              <GameStageTicker className="absolute top-13 left-0 right-0 z-20" />
+              <GameStageTicker className="absolute top-12 left-0 right-0 z-20" />
 
               <div className="relative min-h-0 w-full flex-1 basis-0 overflow-hidden">
                 {/* THE COMPANY'S MAP, where the old procedural city was: its

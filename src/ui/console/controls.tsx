@@ -8,14 +8,15 @@ import { forwardRef, useEffect, useState, type ButtonHTMLAttributes, type Forwar
 import { twMerge } from "tailwind-merge";
 
 import { sfx } from "../../audio/sound";
-import { Frame, type Tone } from "./frame";
+import { toneVar, type Tone } from "./frame";
 
 /** The focus ring every control shows from the keyboard. */
 export const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-console focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0";
 
 export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger";
 const VARIANT: Record<ButtonVariant, string> = {
-  primary: "text-fg",
+  // The one thing to do here: filled with its tone, lined in it. @see toneVar
+  primary: "border border-tone bg-tone-soft text-fg hover:bg-tone-fill",
   secondary: "border border-line bg-surface-2 text-fg hover:border-line-strong",
   quiet: "text-fg-muted hover:bg-surface-2 hover:text-fg",
   danger: "border border-bad-line text-bad hover:bg-bad-soft",
@@ -69,10 +70,11 @@ export const Button = forwardRef(function Button(
       }}
       className={twMerge(
         "cursor-pointer select-none font-space-mono transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-        FOCUS, SIZE[size], VARIANT[variant], armed && "text-warn", className,
+        FOCUS, SIZE[size], VARIANT[variant], armed && "border-warn text-warn", className,
       )}
+      style={{ ...toneVar(tone), ...rest.style }}
     >
-      {variant === "primary" ? <Frame kind="corners" tone={tone} illuminate lit={armed} className="-mx-1 -my-0.5 px-1 py-0.5">{body}</Frame> : body}
+      {body}
     </button>
   );
 });
@@ -136,3 +138,28 @@ export function Slider({ value, onChange, min = 0, max = 1, step = 0.05, label, 
       className={twMerge("h-1 w-24 cursor-pointer accent-[var(--ui-console)] disabled:cursor-not-allowed disabled:opacity-40", FOCUS)} />
   );
 }
+
+/**
+ * A CHOICE AS A TILE: something to pick or buy — a founder, a term sheet, an
+ * upgrade. A hairline at rest; `lit`, it can be had now, and is lined in the
+ * console's colour; `selected`, it is the one chosen, filled with a tint of it
+ * and marked down its left edge.
+ */
+export const Tile = forwardRef(function Tile(
+  { lit, selected, className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { lit?: boolean; selected?: boolean },
+  ref: ForwardedRef<HTMLButtonElement>,
+) {
+  return (
+    <button ref={ref} type="button" {...rest}
+      className={twMerge(
+        "relative cursor-pointer border border-line-quiet bg-surface-1 text-left text-fg transition-colors hover:border-line-strong hover:bg-surface-2",
+        "disabled:cursor-not-allowed disabled:text-fg-muted disabled:hover:border-line-quiet disabled:hover:bg-surface-1",
+        FOCUS,
+        lit && "border-console-line",
+        selected && "border-console bg-console-soft shadow-[inset_3px_0_0_var(--ui-console)] hover:bg-console-fill",
+        className,
+      )}>
+      {children}
+    </button>
+  );
+});

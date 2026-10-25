@@ -1,12 +1,11 @@
 /**
- * QUEST UI — THE OBJECTIVE, TRACKED: a compact underlined frame on the map —
+ * QUEST UI — THE OBJECTIVE, TRACKED: a card on the map in the AI's violet —
  * what is asked in a line, how far it has come, and the time left of its
  * window. @see Running
  */
 import { twMerge } from "tailwind-merge";
 
 import { clock } from "../game/quests/describe";
-import { Frame } from "../ui/console";
 
 export function Tracker({ says, progress, left, action, needs, className }: {
   says: string;
@@ -21,8 +20,8 @@ export function Tracker({ says, progress, left, action, needs, className }: {
   className?: string;
 }) {
   return (
-    <Frame kind="underline" tone="ai" assemble="always" className={twMerge("w-fit", className)}>
-      <div className="flex w-64 flex-col gap-1 px-2 pb-2 pt-1 text-xs" role="status" aria-label={`Objective: ${says}`}>
+    <div className={twMerge("w-fit border border-line border-l-2 border-l-ai bg-surface-2/95 shadow-lg backdrop-blur-sm", className)}>
+      <div className="flex w-64 flex-col gap-1 px-2.5 py-2 text-xs" role="status" aria-label={`Objective: ${says}`}>
         <p className="flex justify-between gap-2">
           <span className="text-[10px] uppercase tracking-widest text-ai">Objective</span>
           <span className="tabular-nums text-fg-muted">{clock(left)}</span>
@@ -43,6 +42,6 @@ export function Tracker({ says, progress, left, action, needs, className }: {
           <div className="h-full bg-ai transition-[width] duration-500" style={{ width: `${Math.round(progress * 100)}%` }} />
         </div>
       </div>
-    </Frame>
+    </div>
   );
 }

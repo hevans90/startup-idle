@@ -37,7 +37,7 @@ export type Tone = "console" | Role;
 
 /** How each is cut: never animated by arwes's animator — the assembler draws it on. */
 const SETTINGS: Record<FrameKind, () => FrameSettings> = {
-  octagon: () => createFrameOctagonSettings({ animated: false, squareSize: 14, strokeWidth: 1.5 }),
+  octagon: () => createFrameOctagonSettings({ animated: false, squareSize: 12, strokeWidth: 1.25, leftTop: true, rightTop: false, rightBottom: true, leftBottom: false }),
   corners: () => createFrameCornersSettings({ animated: false, cornerLength: 12, strokeWidth: 1.5 }),
   kranox: () => createFrameKranoxSettings({ animated: false, squareSize: 8, strokeWidth: 1.25, smallLineLength: 8, largeLineLength: 32 }),
   nefrex: () => createFrameNefrexSettings({ animated: false, squareSize: 10, strokeWidth: 1.25, smallLineLength: 8, largeLineLength: 28 }),
@@ -48,6 +48,10 @@ const SETTINGS: Record<FrameKind, () => FrameSettings> = {
 
 /** Seconds a frame takes to draw on. */
 export const ASSEMBLE = 0.6;
+
+/** A tone as `--tone`, for what is drawn in CSS rather than as a frame: a panel's tick, a card's edge, a button's fill. */
+export const toneVar = (tone: Tone): CSSProperties =>
+  ({ ["--tone" as string]: tone === "console" ? "var(--ui-console)" : `var(--ui-${tone})` });
 
 /** The CSS a tone sets: the frame's line, and what it fills with when lit. */
 export const toneStyle = (tone: Tone): CSSProperties =>

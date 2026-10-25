@@ -8,11 +8,12 @@ import { cloneElement, useEffect, useState, type ReactElement, type ReactNode } 
 import type Decimal from "break_infinity.js";
 import { FloatingPortal, autoUpdate, flip, offset, shift, useDismiss, useFloating, useFocus, useHover, useInteractions, useRole } from "@floating-ui/react";
 import { twMerge } from "tailwind-merge";
+import { IconLock } from "@tabler/icons-react";
 
 import { ENTER_MOST, useConsoleMotion } from "../motion";
 import type { Role } from "../theme/tokens";
 import { Button } from "./controls";
-import { Frame, type Tone } from "./frame";
+import type { Tone } from "./frame";
 
 /** What a popover is drawn as: a raised surface, a strong line. Every popover the same. */
 export const POPOVER = "border border-line-strong bg-surface-3 p-3 text-fg shadow-lg outline-none focus:ring-0";
@@ -49,7 +50,7 @@ export function CountUp<T extends number | Decimal>({ to, format, role, classNam
   return <Num role={role} className={className}>{format(t >= 1 ? to : v)}</Num>;
 }
 
-/** How far something has come, 0–1: an underline frame, filled. */
+/** How far something has come, 0–1: its label and number over a thin bar, filled in its tone. */
 export function Meter({ value, tone = "console", label, detail, className }: {
   value: number;
   tone?: Tone;
@@ -61,14 +62,12 @@ export function Meter({ value, tone = "console", label, detail, className }: {
 }) {
   const v = Math.max(0, Math.min(1, value));
   return (
-    <Frame kind="underline" tone={tone} assemble={false} className={twMerge("text-xs", className)}>
-      <div className="flex flex-col gap-1 px-1.5 pb-1.5 pt-1">
-        <div className="flex justify-between gap-2"><span className="text-fg-muted">{label}</span>{detail && <span className="tabular-nums">{detail}</span>}</div>
-        <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(v * 100)} className="h-1 w-full bg-surface-2">
-          <div className="h-full transition-[width] duration-500" style={{ width: `${v * 100}%`, background: color(tone) }} />
-        </div>
+    <div className={twMerge("flex flex-col gap-1 text-xs", className)}>
+      <div className="flex items-baseline justify-between gap-2"><span className="text-fg-muted">{label}</span>{detail && <span className="tabular-nums">{detail}</span>}</div>
+      <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(v * 100)} className="h-1 w-full bg-surface-3">
+        <div className="h-full transition-[width] duration-500" style={{ width: `${v * 100}%`, background: color(tone) }} />
       </div>
-    </Frame>
+    </div>
   );
 }
 
@@ -121,19 +120,17 @@ export function Tooltip({ content, children }: { content: ReactNode; children: R
 }
 
 /**
- * A FEATURE NOT YET OPEN: what is in it, dimmed behind a corners frame, with
- * what opens it and — if it is somewhere on the map — a way to be shown.
+ * A FEATURE NOT YET OPEN: a dashed outline where it will be, what is in it
+ * dimmed, what opens it and — if it is somewhere on the map — a way to be shown.
  */
 export function Locked({ needs, onShow, children, className }: { needs: ReactNode; onShow?: () => void; children?: ReactNode; className?: string }) {
   return (
-    <Frame kind="corners" tone="console" assemble={false} className={twMerge("text-fg", className)}>
-      <div className="flex flex-col gap-1.5 p-2">
-        {children && <div aria-hidden className="pointer-events-none select-none opacity-30">{children}</div>}
-        <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="flex items-center gap-1.5 text-fg-muted"><span aria-hidden>🔒</span>{needs}</span>
-          {onShow && <Button size="sm" variant="secondary" onClick={onShow} className="shrink-0 whitespace-nowrap">Show me</Button>}
-        </div>
+    <div className={twMerge("flex flex-col gap-1.5 border border-dashed border-line bg-surface-1/60 p-2.5 text-fg", className)}>
+      {children && <div aria-hidden className="pointer-events-none select-none opacity-30">{children}</div>}
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="flex items-center gap-2 text-fg-muted"><IconLock size={14} aria-hidden className="shrink-0" />{needs}</span>
+        {onShow && <Button size="sm" variant="secondary" onClick={onShow} className="shrink-0 whitespace-nowrap">Show me</Button>}
       </div>
-    </Frame>
+    </div>
   );
 }

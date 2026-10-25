@@ -43,6 +43,13 @@
  * is right in light and dark alike — no `dark:` pair needed. @see src/ui/theme
  */
 @theme inline {
+  /* A TONE, set as --tone on an element (toneVar): its line, its tints. And the console's own, lit and chosen. */
+  --color-tone: var(--tone);
+  --color-tone-soft: color-mix(in oklab, var(--tone) 16%, transparent);
+  --color-tone-fill: color-mix(in oklab, var(--tone) 28%, transparent);
+  --color-console-line: color-mix(in oklab, var(--ui-console) 60%, transparent);
+  --color-console-soft: color-mix(in oklab, var(--ui-console) 12%, var(--ui-surface-1));
+  --color-console-fill: color-mix(in oklab, var(--ui-console) 18%, var(--ui-surface-1));
   --color-surface-0: var(--ui-surface-0);
   --color-surface-1: var(--ui-surface-1);
   --color-surface-2: var(--ui-surface-2);

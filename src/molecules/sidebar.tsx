@@ -70,7 +70,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   return (
     <div className={twMerge("relative flex h-full select-none flex-col overflow-hidden bg-surface-1 text-fg", className)}>
       <OverseerBackdrop />
-      <Tabs label="The company" hint="tab" tabs={tabs} value={tab} onChange={setSidebarTab} className="relative h-[53px] shrink-0 px-1" />
+      <Tabs label="The company" hint="tab" tabs={tabs} value={tab} onChange={setSidebarTab} className="relative h-12 shrink-0 bg-surface-1 px-1" />
       <div role="tabpanel" className="relative min-h-0 flex-1 overflow-y-auto">{body[tab]}</div>
     </div>
   );

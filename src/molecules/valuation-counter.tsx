@@ -20,12 +20,8 @@ export const ToolbarValuationCounter = ({
 
   return (
     <ResourceCounter
-      value={
-        <>
-          <span className="opacity-60">V</span>{" "}
-          {formatCurrency(valuation, { showDollarSign: false, steady: true })}
-        </>
-      }
+      label="Valuation"
+      value={formatCurrency(valuation, { showDollarSign: false, steady: true })}
       rate={formatRate(vps).formatted}
       role="valuation"
       onClick={() => setSidebarTab("valuation")}

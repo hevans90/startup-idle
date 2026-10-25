@@ -1,5 +1,5 @@
 /**
- * THE CONSOLE'S TABS: a rail of them, the current one underlined by a frame,
+ * THE CONSOLE'S TABS: a rail of them, the current one underlined in the console's colour,
  * arrow keys between them; a tab that has just opened draws itself on, and the
  * rail scrolls sideways — the current tab kept in sight — rather than wrap.
  * @see plans/ui-overhaul.md §3.4
@@ -9,7 +9,6 @@ import { twMerge } from "tailwind-merge";
 
 import { useConsoleMotion } from "../motion";
 import { FOCUS } from "./controls";
-import { Frame } from "./frame";
 
 export type TabItem<T extends string> = { id: T; label: ReactNode; icon?: ReactNode; badge?: ReactNode };
 
@@ -50,7 +49,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, label, hint, cla
             {t.icon}
             <span>{t.label}</span>
             {t.badge}
-            {on && <Frame kind="underline" assemble="auto" className="pointer-events-none absolute inset-x-1 bottom-0 h-2" />}
+            {on && <span aria-hidden className="pointer-events-none absolute inset-x-2 bottom-0 h-0.5 bg-console" />}
           </button>
         );
       })}

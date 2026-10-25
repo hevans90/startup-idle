@@ -56,11 +56,8 @@ export const ToolbarInnovationCounter = ({
 
   return (
     <ResourceCounter
-      value={
-        <>
-          <span className="opacity-60">I</span> {innovation.toFixed(2)}
-        </>
-      }
+      label="Innovation"
+      value={innovation.toFixed(2)}
       rate={formatRate(ips).formatted}
       role="innovation"
       onClick={() => setSidebarTab("innovation")}

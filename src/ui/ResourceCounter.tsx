@@ -6,12 +6,14 @@ import { FOCUS, POPOVER } from "./console";
 import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
 
 /**
- * A resource in the HUD: its value in the console's display face, in its
- * resource's colour, its rate under it, at a steady width so a changing digit
- * count does not shift the bar. Optionally a button (to its tab) and a hover
- * popover (its breakdown). @see Toolbar, plans/ui-overhaul.md §3.1
+ * A resource in the HUD: what it is in small capitals, its value in the
+ * console's display face and its resource's colour, its rate beside it — a
+ * cell between hairlines, at a steady width so a changing digit count does not
+ * shift the bar. Optionally a button (to its tab) and a hover popover (its
+ * breakdown). @see Toolbar, plans/ui-overhaul.md §3.1
  */
 export const ResourceCounter = ({
+  label,
   value,
   rate,
   role,
@@ -21,8 +23,10 @@ export const ResourceCounter = ({
   className,
   rateClassName,
 }: {
+  /** What it is: "Money". */
+  label?: string;
   value: ReactNode;
-  /** Per-second line shown beneath the value. */
+  /** Per-second, beside the value. */
   rate?: ReactNode;
   /** Its resource: the colour it is shown in. */
   role?: Role;
@@ -36,20 +40,21 @@ export const ResourceCounter = ({
   rateClassName?: ClassNameValue;
 }) => {
   const cls = twMerge(
-    "flex min-w-[7.5rem] flex-col items-center px-2 leading-tight",
+    "flex h-full min-w-[8.5rem] flex-col justify-center gap-0.5 px-3 text-left leading-none",
     onClick && twMerge("cursor-pointer hover:bg-surface-2", FOCUS),
-    !onClick && popover && "cursor-help",
+    !onClick && popover && "cursor-help hover:bg-surface-2",
     className,
   );
 
   const body = (
     <>
-      <span className="max-w-full truncate whitespace-nowrap font-display text-base tabular-nums leading-none" style={role ? { color: `var(--ui-${role})` } : undefined}>{value}</span>
-      {rate != null && (
-        <span className={twMerge("max-w-full truncate whitespace-nowrap text-[11px] tabular-nums text-fg-muted", rateClassName)}>
-          {rate}
-        </span>
-      )}
+      {label && <span className="text-[9px] uppercase tracking-[0.18em] text-fg-faint">{label}</span>}
+      <span className="flex items-baseline gap-2 whitespace-nowrap">
+        <span className="font-display text-base tabular-nums" style={role ? { color: `var(--ui-${role})` } : undefined}>{value}</span>
+        {rate != null && (
+          <span className={twMerge("text-[11px] tabular-nums text-fg-muted", rateClassName)}>{rate}</span>
+        )}
+      </span>
     </>
   );
 
@@ -58,7 +63,7 @@ export const ResourceCounter = ({
       {body}
     </button>
   ) : (
-    <div title={title} className={cls}>
+    <div title={title} className={cls} tabIndex={popover ? 0 : undefined}>
       {body}
     </div>
   );

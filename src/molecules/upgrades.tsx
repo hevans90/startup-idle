@@ -10,7 +10,7 @@ import {
   useUpgradeStore,
 } from "../state/upgrades.store";
 import { twMerge } from "tailwind-merge";
-import { FOCUS, Frame, Label, Panel, POPOVER } from "../ui/console";
+import { FOCUS, Label, Panel, POPOVER, Tile } from "../ui/console";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -167,16 +167,14 @@ export const Upgrades = () => {
             const can = money.gte(upg.cost);
             return (
               <Popover key={upg.id} openOnHover={true} placement="bottom">
-                <Frame kind="corners" lit={can} illuminate={can} assemble={false} className={twMerge("w-full", !can && "opacity-60")}>
-                  <PopoverTrigger asChild>
-                    <button type="button" disabled={!can} onClick={() => unlockUpgrade(upg.id)}
-                      className={twMerge("relative flex w-full cursor-pointer flex-col items-start gap-0.5 p-2 text-left text-xs disabled:cursor-not-allowed", FOCUS, can ? "text-fg" : "text-fg-muted")}>
-                      <GenLabel id={upg.id} text={upg.name} />
-                      <span className="tabular-nums text-money">{formatCurrency(upg.cost)}</span>
-                      <OpensMark upg={upg} />
-                    </button>
-                  </PopoverTrigger>
-                </Frame>
+                <PopoverTrigger asChild>
+                  <Tile lit={can} disabled={!can} onClick={() => unlockUpgrade(upg.id)}
+                    className="flex w-full flex-col items-start gap-0.5 p-2 text-xs">
+                    <GenLabel id={upg.id} text={upg.name} />
+                    <span className={twMerge("tabular-nums", can ? "text-money" : "text-fg-faint")}>{formatCurrency(upg.cost)}</span>
+                    <OpensMark upg={upg} />
+                  </Tile>
+                </PopoverTrigger>
                 <PopoverContent className={twMerge(POPOVER, "flex max-w-[39rem] flex-col gap-2 p-2")}>
                   <div className="responsive-text-xs grow text-center text-fg-muted">{upg.description}</div>
                   <UpgradeSummary upg={upg} />

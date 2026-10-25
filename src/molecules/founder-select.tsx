@@ -8,7 +8,7 @@ import { MANDATES, useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { CURRENT_VERSION } from "../state/version.store";
 import { fmtMult } from "../ui/BonusRow";
-import { Button, Dialog, FOCUS, Frame } from "../ui/console";
+import { Button, Dialog, Tile } from "../ui/console";
 import { FoundingShell } from "./founding-shell";
 import { TermSheetSelect } from "./term-sheet-select";
 import { FusedTraits } from "./fused-traits";
@@ -398,19 +398,13 @@ export const FounderSelect = () => {
                 (f.id === "model" && generation > 1);
 
               return (
-                <Frame key={f.id} kind="corners" lit={isSel} illuminate={isUnlocked} assemble={false} className="h-full" inner="h-full">
-                <button
-                  type="button"
+                <Tile
+                  key={f.id}
                   disabled={!isUnlocked}
                   aria-pressed={isSel}
+                  selected={isSel}
                   onClick={() => isUnlocked && setSelected(f.id)}
-                  className={twMerge(
-                    "relative flex h-full w-full flex-col overflow-hidden p-4 text-left transition-colors",
-                    FOCUS,
-                    isUnlocked
-                      ? isSel ? "cursor-pointer bg-accent-soft" : "cursor-pointer hover:bg-surface-2"
-                      : "cursor-not-allowed",
-                  )}
+                  className="flex h-full w-full flex-col overflow-hidden p-4"
                 >
                   <div className="flex items-start gap-2">
                     <Icon size={26} stroke={1.6} className="mt-0.5 shrink-0" />
@@ -482,8 +476,7 @@ export const FounderSelect = () => {
                       </span>
                     </div>
                   )}
-                </button>
-                </Frame>
+                </Tile>
               );
             })}
           </div>

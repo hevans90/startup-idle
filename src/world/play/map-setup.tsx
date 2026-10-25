@@ -17,7 +17,7 @@ import { twMerge } from "tailwind-merge";
 import { DIRT, GRASS, SAND, WOODS } from "../../state/world.store";
 import { WATER_VIEW } from "../agents/mood-rules";
 import { HILLY, ruggedness } from "../gen/rugged";
-import { Button, Frame } from "../../ui/console";
+import { Button } from "../../ui/console";
 import { FoundingShell } from "../../molecules/founding-shell";
 import { generatePlayableMap, type GenReport } from "../gen/generate-map";
 import { DEFAULT_GEN, GEN_SLIDERS, type GenParams } from "../gen/params";
@@ -143,10 +143,10 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:flex-row">
         {/* THE PREVIEW */}
         <div className="flex flex-1 flex-col items-center gap-3">
-          <Frame kind="corners" assemble={false} className="w-full" inner="flex min-h-[290px] items-center justify-center bg-surface-1 p-3">
+          <div className="relative flex min-h-[290px] w-full items-center justify-center border border-line-quiet bg-surface-1 p-3">
             <canvas ref={canvas} className="h-auto max-w-full" />
             {!map && <span className="absolute text-sm text-fg-muted">Surveying…</span>}
-          </Frame>
+          </div>
           {stats && (
             <div className="flex gap-6 text-xs tabular-nums opacity-80">
               <span><b>{stats.plots}</b> building plots by the road</span>

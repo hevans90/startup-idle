@@ -116,7 +116,7 @@ export const GameStageTicker = ({ className }: { className?: ClassNameValue }) =
   return (
     <div
       className={twMerge(
-        "flex h-7 items-center justify-center overflow-hidden bg-surface-1/90 px-4 backdrop-blur-sm",
+        "flex h-7 items-center justify-center overflow-hidden border-b border-line-quiet bg-surface-1/90 px-4 backdrop-blur-sm",
         className
       )}
       title={current}

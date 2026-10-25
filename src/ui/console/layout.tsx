@@ -14,7 +14,7 @@ import { useConsoleMotion, useSequence } from "../motion";
 import { Backdrop } from "./backdrop";
 import { FOCUS } from "./controls";
 import { Tooltip } from "./feedback";
-import { Frame, type Tone } from "./frame";
+import { Frame, toneVar, type Tone } from "./frame";
 import { Text } from "./text";
 
 /** A small label: a panel's controls, a field, a kicker over a title. */
@@ -22,7 +22,12 @@ export const Label = ({ children, className }: { children: ReactNode; className?
   <span className={twMerge("text-[10px] uppercase tracking-widest text-fg-muted", className)}>{children}</span>
 );
 
-/** A standing part of the console: a title, its controls, what it is for on a "?", and what is in it. */
+/**
+ * A standing part of the console: a surface with a hairline round it, a
+ * header strip — its tone's tick, its title, its controls, what it is for on a
+ * "?" — and what is in it. Plain on purpose: frames are kept for what the game
+ * asks of you, so a panel does not shout.
+ */
 export function Panel({ title, controls, help, tone = "console", className, children }: {
   title: string;
   controls?: ReactNode;
@@ -32,28 +37,29 @@ export function Panel({ title, controls, help, tone = "console", className, chil
   children?: ReactNode;
 }) {
   return (
-    <Frame kind="kranox" tone={tone} className={twMerge("text-fg", className)}>
-      <section aria-label={title} className="flex flex-col gap-2 px-3 pb-3 pt-2">
-        <header className="flex items-center justify-between gap-2">
-          <Text as="h3" text={title} className="font-display text-sm uppercase tracking-wider text-[color:var(--frame-tone,var(--ui-console))]" />
-          {(controls || help) && (
-            <div className="flex items-center gap-1">
-              {controls}
-              {help && (
-                <Tooltip content={<div className="max-w-64 text-xs">{help}</div>}>
-                  <button type="button" aria-label={`About ${title}`} className={twMerge("cursor-help border border-line px-1.5 text-xs text-fg-muted hover:text-fg", FOCUS)}>?</button>
-                </Tooltip>
-              )}
-            </div>
-          )}
-        </header>
-        {children}
-      </section>
-    </Frame>
+    <section aria-label={title} style={toneVar(tone)} className={twMerge("border border-line-quiet bg-surface-1 text-fg", className)}>
+      <header className="flex min-h-8 items-center justify-between gap-2 border-b border-line-quiet bg-surface-2/40 px-3 py-1">
+        <h3 className="flex items-center gap-2">
+          <span aria-hidden className="h-3 w-0.5 bg-tone" />
+          <Text text={title} className="font-display text-xs uppercase tracking-widest text-fg" />
+        </h3>
+        {(controls || help) && (
+          <div className="flex items-center gap-1.5">
+            {controls}
+            {help && (
+              <Tooltip content={<div className="max-w-64 text-xs">{help}</div>}>
+                <button type="button" aria-label={`About ${title}`} className={twMerge("flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-line text-[10px] text-fg-muted hover:border-line-strong hover:text-fg", FOCUS)}>?</button>
+              </Tooltip>
+            )}
+          </div>
+        )}
+      </header>
+      <div className="flex flex-col gap-2 p-3">{children}</div>
+    </section>
   );
 }
 
-/** Something on the map, now: a card with a title and, if it can go, a close. */
+/** Something on the map, now: a raised card, its tone down its left edge, a title and, if it can go, a close. */
 export function Card({ title, tone = "console", onClose, className, children }: {
   title?: ReactNode;
   tone?: Tone;
@@ -62,27 +68,36 @@ export function Card({ title, tone = "console", onClose, className, children }: 
   children?: ReactNode;
 }) {
   return (
-    <Frame kind="nefrex" tone={tone} className={twMerge("text-xs text-fg", className)}>
+    <div style={toneVar(tone)} className={twMerge("border border-line border-l-2 border-l-tone bg-surface-2/95 text-xs text-fg shadow-lg backdrop-blur-sm", className)}>
       <div className="flex flex-col gap-1 px-2.5 py-2">
         {(title || onClose) && (
           <div className="flex items-start justify-between gap-2">
             {title && <div className="font-bold">{title}</div>}
             {onClose && (
-              <button type="button" onClick={onClose} aria-label="Close" className={twMerge("cursor-pointer px-1 text-fg-muted hover:text-fg", FOCUS)}>✕</button>
+              <button type="button" onClick={onClose} aria-label="Close" className={twMerge("-mr-1 -mt-0.5 cursor-pointer px-1 text-fg-muted hover:text-fg", FOCUS)}>✕</button>
             )}
           </div>
         )}
         {children}
       </div>
-    </Frame>
+    </div>
   );
 }
 
-/** A divider inside a panel, with a label. */
+/** One setting or field: what it is on the left, its control on the right; its hint on hover. */
+export function Field({ label, hint, children, className }: { label: string; hint?: string; children: ReactNode; className?: string }) {
+  return (
+    <div className={twMerge("flex min-h-8 items-center justify-between gap-4 text-sm", className)} title={hint}>
+      <span className="text-fg">{label}</span>
+      <span className="flex shrink-0 items-center">{children}</span>
+    </div>
+  );
+}
+
+/** A divider inside a panel: a hairline, and a label under it. */
 export function Section({ label, children }: { label?: string; children?: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <Frame kind="lines" className="h-3" />
+    <div className="flex flex-col gap-1.5 border-t border-line-quiet pt-2">
       {label && <Label>{label}</Label>}
       {children}
     </div>
@@ -133,20 +148,22 @@ export function Dialog({ title, kicker, onClose, actions, tone = "console", wide
     // On a phone, the whole screen. @see isPhone
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-0/60 p-4 backdrop-blur-[1px] max-md:p-0">
       <div ref={box} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className={twMerge("w-full outline-none max-md:h-full max-md:max-w-none", wide ? "max-w-2xl" : "max-w-md")}>
-        <Frame kind="octagon" tone={tone} assemble="auto" className="text-fg max-md:h-full max-md:bg-surface-1" inner="max-md:h-full max-md:overflow-y-auto">
+        <Frame kind="octagon" tone={tone} assemble="auto" style={toneVar(tone)} className="text-fg shadow-2xl max-md:h-full max-md:bg-surface-1" inner="max-md:h-full max-md:overflow-y-auto">
           <Backdrop kind="dots" />
-          <div className="relative flex flex-col gap-3 p-5">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                {kicker && <Label className="text-console">{kicker}</Label>}
+          <div className="relative flex flex-col">
+            <header className="flex items-start justify-between gap-2 border-b border-line-quiet px-5 pb-3 pt-4">
+              <div className="flex flex-col gap-1">
+                {kicker && <Label className="text-tone">{kicker}</Label>}
                 {step >= 2 && <Text as="h2" text={title} className="block font-display text-xl tracking-wide" />}
               </div>
               {onClose && (
                 <button type="button" onClick={onClose} aria-label="Close" className={twMerge("cursor-pointer px-1 text-fg-muted hover:text-fg", FOCUS)}>✕</button>
               )}
-            </div>
-            <div className={twMerge("text-sm transition-opacity duration-200", step >= 3 ? "opacity-100" : "opacity-0")}>{children}</div>
-            {actions && <div className={twMerge("flex flex-wrap justify-end gap-2 transition-opacity duration-200", step >= 4 ? "opacity-100" : "opacity-0")}>{actions}</div>}
+            </header>
+            <div className={twMerge("px-5 py-4 text-sm transition-opacity duration-200", step >= 3 ? "opacity-100" : "opacity-0")}>{children}</div>
+            {actions && (
+              <footer className={twMerge("flex flex-wrap justify-end gap-2 border-t border-line-quiet bg-surface-2/40 px-5 py-3 transition-opacity duration-200", step >= 4 ? "opacity-100" : "opacity-0")}>{actions}</footer>
+            )}
           </div>
         </Frame>
       </div>

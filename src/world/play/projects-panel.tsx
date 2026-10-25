@@ -106,7 +106,9 @@ export function ProjectsPanel({ className }: { className?: string }) {
               !isOpen && fresh.length > 0 && "animate-pulse",
             )}
             title={isOpen ? "Fold the projects log away" : "Open the projects log"}>
-            <b className="flex-1">Projects</b>
+            <span className="flex flex-1 items-center gap-2 font-display text-xs uppercase tracking-widest">
+              <span aria-hidden className="h-3 w-0.5 bg-console" />Projects
+            </span>
             {fresh.length > 0 && !isOpen && (
               <span className="bg-good px-1.5 text-[10px] font-bold uppercase text-white">
                 {fresh.length} new

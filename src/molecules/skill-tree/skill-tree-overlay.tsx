@@ -4,7 +4,7 @@ import { usePrestigeStore, RESPECS_PER_EXIT } from "../../state/prestige.store";
 import { useGenerationStore } from "../../state/generation.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { twMerge } from "tailwind-merge";
-import { Button, FOCUS, Frame, IconButton, Label, Num, Text } from "../../ui/console";
+import { Button, FOCUS, IconButton, Label, Num, Text } from "../../ui/console";
 import { formatCurrency } from "../../utils/money-utils";
 import { SkillTreeBonuses } from "./skill-tree-bonuses";
 import { SkillTreeCanvas } from "./skill-tree-canvas";
@@ -62,8 +62,7 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
   return (
     <div role="dialog" aria-modal="true" aria-label="The acquisition tree" className="fixed inset-0 z-50 flex flex-col bg-surface-0 text-fg">
       {/* THE HEADER: what there is to spend, the search, respec, and the way out. */}
-      <div className="relative flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-2">
-        <Frame kind="underline" assemble="auto" className="pointer-events-none absolute inset-x-0 bottom-0 h-2" />
+      <div className="relative flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line-quiet bg-surface-1 px-4 py-2">
         <div className="flex items-center gap-5 text-sm">
           <Text as="h2" text="Acquisition tree" className="font-display uppercase tracking-wider" />
           <span><Label>Equity</Label> <Num className="font-display text-base text-valuation">{formatCurrency(equity, { showDollarSign: false })}</Num></span>
