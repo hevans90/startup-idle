@@ -10,11 +10,13 @@ import './index.css'
 import { installTheme } from './ui/theme/install'
 installTheme()
 import App from './App.tsx'
+import { ErrorScreen } from './ui/console/error-screen'
 
 const isWorldV2 = new URLSearchParams(window.location.search).get('world') === '1'
 
+// Every route inside the error screen: a crash shows what happened, not a white page. @see ErrorScreen
 const mount = (node: ReactNode) =>
-  createRoot(document.getElementById('root')!).render(<StrictMode>{node}</StrictMode>)
+  createRoot(document.getElementById('root')!).render(<StrictMode><ErrorScreen>{node}</ErrorScreen></StrictMode>)
 
 // The editor's route is loaded with `.then` rather than a top-level `await`,
 // which is what it used to use. TLA is not in the build's target — es2021,

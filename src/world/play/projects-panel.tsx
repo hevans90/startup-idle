@@ -8,7 +8,7 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 
 import { useTicking } from "../../hooks/use-ticking";
-import { Button } from "../../ui/console";
+import { Button, Segmented } from "../../ui/console";
 import { twMerge } from "tailwind-merge";
 
 import {
@@ -28,10 +28,8 @@ import { builtProjects, materialCap, siteOf, STALL_GRACE } from "../projects/wor
 import { hasRiver } from "../boats/river";
 import { structureDef } from "../structures/def";
 
-/** The map's docks: a raised surface, a quiet line; buttons as the kit's secondary, the chosen one in the console's colour. */
+/** The map's docks: a raised surface, a quiet line. */
 const CARD = "w-72 border border-line-quiet bg-surface-1/95 p-2.5 text-xs text-fg shadow-lg backdrop-blur-sm";
-const BTN = "cursor-pointer border border-line bg-surface-2 px-2 py-1 transition-colors hover:border-line-strong pointer-coarse:min-h-11";
-const ON = "border-console bg-console-soft text-console hover:border-console";
 
 /** "45 seconds", "2 minutes". */
 const formatDuration = (s: number) =>
@@ -170,17 +168,17 @@ export function SlopPitCard() {
       <div className="flex items-center gap-1.5">
         <button type="button" disabled={!pit} onClick={() => pit && showMe({ x: pit.x + 1, y: pit.y + 1 })}
           className="cursor-pointer font-bold disabled:cursor-default">Slop pit</button>
-        <div className="h-1.5 flex-1 bg-surface-2">
+        <div className="h-1 flex-1 bg-surface-3">
           <div className={twMerge("h-full", fill > 50 ? "bg-bad" : "bg-good")}
             style={{ width: `${Math.min(100, fill)}%` }} />
         </div>
         <span className="tabular-nums">{Math.floor(fill)}%</span>
         {penalty > 0 && <span className="tabular-nums text-bad">−{penalty}%</span>}
-        <button type="button" disabled={fill < 1}
+        <Button size="sm" disabled={fill < 1}
           onClick={() => (ev ? respond(ev.id, "drain") : useSlopPitStore.getState().drain())}
-          className={BTN_SMALL} title="Empties the pit: −40 vibe coder morale">
+          title="Empties the pit: −40 vibe coder morale">
           Drain
-        </button>
+        </Button>
       </div>
       {ev && (
         <div className="mt-1 flex items-center gap-1">
@@ -190,10 +188,10 @@ export function SlopPitCard() {
           {ev.phase === "active" && <span className="text-bad">overflowing</span>}
           <span className="flex-1" />
           {trucks && (
-            <button type="button" disabled={!!trucks.unavailable} onClick={() => respond(ev.id, "trucks")}
-              className={BTN_SMALL} title={trucks.unavailable ?? `Sludge trucks: ${trucks.cost}`}>
+            <Button size="sm" disabled={!!trucks.unavailable} onClick={() => respond(ev.id, "trucks")}
+              title={trucks.unavailable ?? `Sludge trucks: ${trucks.cost}`}>
               Trucks
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -201,7 +199,6 @@ export function SlopPitCard() {
   );
 }
 const SMALL = "w-56 border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-[11px] text-fg shadow-lg backdrop-blur-sm";
-const BTN_SMALL = "cursor-pointer border border-line bg-surface-2 px-1.5 transition-colors hover:border-line-strong disabled:cursor-default disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-3";
 
 /** One project's card: its site to choose, or how it is going. */
 export function ProjectCard({ next, className }: { next: ProjectDef; className?: string }) {
@@ -236,7 +233,7 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
                 ? `Beside a road, within ${structureDef(next.structure)!.placement!.nearRiver} tiles of the river`
                 : "Click beside a road"}
             </span>
-            <button type="button" className={BTN} onClick={() => placeProject(null)}>Cancel</button>
+            <Button size="sm" variant="quiet" onClick={() => placeProject(null)}>Cancel</Button>
           </div>
         ) : (
           <Button variant="primary" className="mt-2 w-full font-bold" onClick={() => placeProject(next.id)}>
@@ -270,15 +267,12 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
         {crew.working + crew.walking} building · {b.delivered}/{b.deliveries} loads
       </p>
       {problem && <p className={stalledFor > 0 ? "text-bad" : "text-fg-muted"}>{problem}</p>}
-      <div className="mt-1.5 flex gap-1"
+      <div className="mt-2 flex items-center justify-between gap-2"
         title={next.founderBuilds ? "You build it yourself."
           : `How much of the company builds: ${buildersFor(next, b.priority, owned, site.w * site.h)} of your ${who} now. Builders don't work at their desks.`}>
-        {PRIORITY_NAMES.map((name, k) => (
-          <button key={name} type="button" onClick={() => setPriority(site.id, k as Priority)}
-            className={twMerge(BTN, "flex-1 px-1", b.priority === k && ON)}>
-            {name}
-          </button>
-        ))}
+        <span className="text-[10px] uppercase tracking-widest text-fg-faint">Priority</span>
+        <Segmented label={`${next.name}: priority`} value={String(b.priority)} onChange={(v) => setPriority(site.id, Number(v) as Priority)}
+          options={PRIORITY_NAMES.map((name, k) => ({ value: String(k), label: name }))} />
       </div>
     </div>
   );

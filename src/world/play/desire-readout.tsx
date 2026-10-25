@@ -47,8 +47,7 @@ export function DesireReadout({ className }: { className?: string }) {
   return (
     <div ref={ref} className={twMerge(
       "pointer-events-none invisible absolute left-0 top-0 -translate-x-1/2 -translate-y-full whitespace-nowrap",
-      "border border-line-strong bg-surface-1/95 px-1.5 py-1 text-[10px] leading-[13px] text-fg shadow",
-      "",
+      "border border-line-strong border-t-2 border-t-console bg-surface-3 px-2 py-1.5 text-[10px] leading-[13px] text-fg shadow-xl",
       !d && !cafeOk && !confOk && "hidden",
       className,
     )}>

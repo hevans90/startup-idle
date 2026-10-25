@@ -29,7 +29,7 @@ export function NoticeToast() {
   if (!last) return null;
   const x = Math.min(at.current.x + 14, window.innerWidth - 300), y = Math.min(at.current.y + 18, window.innerHeight - 48);
   return (
-    <p role="status" className="pointer-events-none fixed z-[70] max-w-[18rem] border border-bad-line bg-surface-3 px-2 py-1 text-xs text-bad shadow"
+    <p role="status" className="pointer-events-none fixed z-[70] max-w-[18rem] border border-line-strong border-l-2 border-l-bad bg-surface-3 px-2.5 py-1.5 text-xs text-fg shadow-lg"
       style={{ left: Math.max(8, x), top: Math.max(8, y) }}>
       {last.text}
     </p>

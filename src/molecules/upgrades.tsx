@@ -10,7 +10,7 @@ import {
   useUpgradeStore,
 } from "../state/upgrades.store";
 import { twMerge } from "tailwind-merge";
-import { FOCUS, Label, Panel, POPOVER, Tile } from "../ui/console";
+import { FOCUS, Label, Panel, PopCard, PopGroup, POPOVER_BARE, Tile } from "../ui/console";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -53,9 +53,9 @@ const OpensLine = ({ upg }: { upg: Upgrade }) => {
   const names = opensOf(upg);
   if (!names.length) return null;
   return (
-    <div className="responsive-text-xs flex items-center justify-center gap-1 text-warn">
-      <IconBuildingCommunity size={12} className="shrink-0" />
-      <b>{names.join(", ")}</b>
+    <div className="flex items-center gap-1.5 text-warn">
+      <IconBuildingCommunity size={13} className="shrink-0" />
+      <span>Opens <b>{names.join(", ")}</b> on the map</span>
     </div>
   );
 };
@@ -66,9 +66,9 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
       case "multiplier":
         return (
           <>
-            mult:{" "}
+            Output{" "}
             <span className="text-good">
-              x{effect.value}
+              ×{effect.value}
             </span>
           </>
         );
@@ -78,7 +78,7 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
         const isGood = discount > 0;
         return (
           <>
-            cost:{" "}
+            Cost{" "}
             <span
               className={
                 isGood
@@ -98,7 +98,7 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
         const sign = effect.delta > 0 ? "+" : "";
         return (
           <>
-            exponent:{" "}
+            Cost growth{" "}
             <span
               className={
                 isGood
@@ -118,31 +118,21 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
     }
   };
 
+  // A row a kind it changes: who, then what — each change on its own line.
   return (
-    <div className="flex items-center justify-center">
-      <table className="responsive-text-xs w-auto table-auto border-separate border-spacing-x-4">
-        <tbody>
-          {upg.effects.map((effectBlock, i) => {
-            const genName =
-              GENERATOR_TYPES.find((gen) => gen.id === effectBlock.genId)
-                ?.name || effectBlock.genId;
-
-            return (
-              <tr key={i} className="border-b last:border-none">
-                <td className="font-bold whitespace-nowrap text-fg">
-                  <GenLabel id={effectBlock.genId} text={genName} />
-                </td>
-                {effectBlock.changes.map((effect, index) => (
-                  <td key={index} className="text-left">
-                    {renderEffect(effect)}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <PopGroup label="Effects">
+      {upg.effects.map((effectBlock, i) => {
+        const genName = GENERATOR_TYPES.find((gen) => gen.id === effectBlock.genId)?.name || effectBlock.genId;
+        return (
+          <div key={i} className="flex items-baseline justify-between gap-4 py-1">
+            <span className="font-bold text-fg"><GenLabel id={effectBlock.genId} text={genName} /></span>
+            <span className="flex flex-col items-end tabular-nums text-fg-muted">
+              {effectBlock.changes.map((effect, index) => <span key={index}>{renderEffect(effect)}</span>)}
+            </span>
+          </div>
+        );
+      })}
+    </PopGroup>
   );
 };
 
@@ -175,10 +165,12 @@ export const Upgrades = () => {
                     <OpensMark upg={upg} />
                   </Tile>
                 </PopoverTrigger>
-                <PopoverContent className={twMerge(POPOVER, "flex max-w-[39rem] flex-col gap-2 p-2")}>
-                  <div className="responsive-text-xs grow text-center text-fg-muted">{upg.description}</div>
-                  <UpgradeSummary upg={upg} />
-                  <OpensLine upg={upg} />
+                <PopoverContent className={POPOVER_BARE}>
+                  <PopCard title={<GenLabel id={upg.id} text={upg.name} />} value={formatCurrency(upg.cost)} tone={can ? "money" : "console"} className="w-80"
+                    foot={opensOf(upg).length ? <OpensLine upg={upg} /> : undefined}>
+                    <p className="text-fg-muted">{upg.description}</p>
+                    <UpgradeSummary upg={upg} />
+                  </PopCard>
                 </PopoverContent>
               </Popover>
             );
@@ -194,13 +186,12 @@ export const Upgrades = () => {
                   <GenLabel id={upg.id} text={upg?.abbreviation ?? "UPG"} static />
                 </div>
               </PopoverTrigger>
-              <PopoverContent className={twMerge(POPOVER, "flex w-[26rem] flex-col items-center gap-2 p-2")}>
-                <span className="flex responsive-text-xs">
-                  <GenLabel id={upg.id} text={upg.name} static />
-                  <span>: {formatCurrency(upg.cost)}</span>
-                </span>
-                <div className="responsive-text-xs grow text-center text-fg-muted">{upg.description}</div>
-                <UpgradeSummary upg={upg} />
+              <PopoverContent className={POPOVER_BARE}>
+                <PopCard title={<GenLabel id={upg.id} text={upg.name} static />} value="Bought" tone="good" className="w-80"
+                  foot={<>Paid {formatCurrency(upg.cost)}.</>}>
+                  <p className="text-fg-muted">{upg.description}</p>
+                  <UpgradeSummary upg={upg} />
+                </PopCard>
               </PopoverContent>
             </Popover>
           ))}

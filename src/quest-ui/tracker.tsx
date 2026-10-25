@@ -6,6 +6,7 @@
 import { twMerge } from "tailwind-merge";
 
 import { clock } from "../game/quests/describe";
+import { Button } from "../ui/console";
 
 export function Tracker({ says, progress, left, action, needs, className }: {
   says: string;
@@ -33,12 +34,12 @@ export function Tracker({ says, progress, left, action, needs, className }: {
           </p>
         )}
         {action && (
-          <button type="button" onClick={action.onClick} title={action.busy ? "Stop picking" : undefined}
-            className={`w-fit cursor-pointer border px-2 py-0.5 ${action.busy ? "animate-pulse border-ai text-ai" : "border-line hover:bg-surface-2"}`}>
+          <Button size="sm" variant={action.busy ? "primary" : "secondary"} tone="ai" onClick={action.onClick}
+            title={action.busy ? "Stop picking" : undefined} className={twMerge("w-fit", action.busy && "animate-pulse")}>
             {action.label}
-          </button>
+          </Button>
         )}
-        <div className="h-1 w-full bg-surface-2">
+        <div className="h-1 w-full bg-surface-3">
           <div className="h-full bg-ai transition-[width] duration-500" style={{ width: `${Math.round(progress * 100)}%` }} />
         </div>
       </div>

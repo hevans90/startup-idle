@@ -4,7 +4,7 @@ import { KIND_COLOUR } from "../game/kind-colours";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { twMerge } from "tailwind-merge";
-import { FOCUS, Panel, POPOVER } from "../ui/console";
+import { FOCUS, Panel, PopCard, PopGroup, PopRow, POPOVER_BARE } from "../ui/console";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { fmtMult } from "../ui/BonusRow";
 import { formatCurrency } from "../utils/money-utils";
@@ -13,24 +13,6 @@ import { RainbowText } from "../utils/vibe-utils";
 import { GeneratorBuyButton } from "./generator-buy-button";
 import { AgentsRow } from "./agents-row";
 
-const PopRow = ({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string;
-  color?: string;
-}) => (
-  <div className="flex items-center justify-between gap-3">
-    <span
-      className={`responsive-text-xs grow ${color ?? "text-fg-muted"}`}
-    >
-      {label}
-    </span>
-    <span className={`responsive-text-xs ${color ?? ""}`}>{value}</span>
-  </div>
-);
 
 /** WHO THEY ARE, AT A GLANCE: their kind's icon on their map colour. @see KIND_COLOUR */
 const KIND_ICON: Record<string, typeof IconSchool> = { intern: IconSchool, vibe_coder: IconHeadphones, "10x_dev": IconCode };
@@ -102,71 +84,74 @@ export const Generators = () => {
             </div>
           </PopoverTrigger>
 
-          <PopoverContent className={twMerge(POPOVER, "flex min-w-44 flex-col gap-1 p-2")}>
-            <PopRow label="total" value={`${formatCurrency(genMps(gen.id, gen.amount))}/s`} />
-            <div className="border-b border-line pb-2">
-              <PopRow label="per" value={`${formatCurrency(genMps(gen.id, 1))}/s`} />
-            </div>
-            <PopRow label="base production" value={formatCurrency(gen.baseProduction)} />
-            <PopRow label="multiplier" value={fmtMult(gen.multiplier)} />
+          <PopoverContent className={POPOVER_BARE}>
+            <PopCard title={gen.name} value={`${formatCurrency(genMps(gen.id, gen.amount))}/s`} tone="money" className="w-72"
+              foot={<>Each earns {formatCurrency(genMps(gen.id, 1))}/s.</>}>
+              <PopGroup label="Output">
+            <PopRow label="Base production" value={formatCurrency(gen.baseProduction)} />
+            <PopRow label="Multiplier" value={fmtMult(gen.multiplier)} />
             {(founderGenMoneyMult[gen.id] ?? 1) !== 1 && (
               <PopRow
-                label="founder"
+                label="Founder"
                 value={fmtMult(founderGenMoneyMult[gen.id] ?? 1)}
-                color="text-good"
+                valueClass="text-good"
               />
             )}
             {headcountMult !== 1 && (
               <PopRow
-                label="founder headcount"
+                label="Founder headcount"
                 value={fmtMult(headcountMult)}
-                color="text-good"
+                valueClass="text-good"
               />
             )}
             {prestige.moneyMult !== 1 && (
               <PopRow
-                label="equity money"
+                label="Equity money"
                 value={fmtMult(prestige.moneyMult)}
-                color="text-innovation"
+                valueClass="text-innovation"
               />
             )}
             {prestige.employeeOutputMult !== 1 && (
               <PopRow
-                label="equity output"
+                label="Equity output"
                 value={fmtMult(prestige.employeeOutputMult)}
-                color="text-innovation"
+                valueClass="text-innovation"
               />
             )}
             {equityHeadcountMult !== 1 && (
               <PopRow
-                label="equity headcount"
+                label="Equity headcount"
                 value={fmtMult(equityHeadcountMult)}
-                color="text-innovation"
+                valueClass="text-innovation"
               />
             )}
             {gen.id === "intern" && prestige.internOutputMult !== 1 && (
               <PopRow
                 label="AGI-pilled"
                 value={fmtMult(prestige.internOutputMult)}
-                color="text-bad"
+                valueClass="text-bad"
               />
             )}
-            <PopRow label="cost multiplier" value={gen.costMultiplier.toFixed(2)} />
-            <PopRow label="cost exponent" value={gen.costExponent.toFixed(2)} />
+              </PopGroup>
+              <PopGroup label="Hiring cost">
+            <PopRow label="Cost multiplier" value={gen.costMultiplier.toFixed(2)} />
+            <PopRow label="Cost exponent" value={gen.costExponent.toFixed(2)} />
             {costExponentReduction !== 0 && (
               <PopRow
-                label="founder exponent"
+                label="Founder exponent"
                 value={`−${costExponentReduction.toFixed(3)}`}
-                color="text-good"
+                valueClass="text-good"
               />
             )}
             {prestige.hireCostMult !== 1 && (
               <PopRow
-                label="equity cost"
+                label="Equity cost"
                 value={fmtMult(prestige.hireCostMult)}
-                color="text-innovation"
+                valueClass="text-innovation"
               />
             )}
+              </PopGroup>
+            </PopCard>
           </PopoverContent>
         </Popover>
       ))}

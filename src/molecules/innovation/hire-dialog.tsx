@@ -13,7 +13,7 @@ import {
   useTeamLeadersEmployeesStore,
   type TeamLeaderEmployee,
 } from "../../state/team-leaders.store";
-import { Button, Dialog } from "../../ui/console";
+import { Button, Dialog, Label } from "../../ui/console";
 import { TenXDevText } from "../../utils/ten-x-utils";
 import { RainbowText } from "../../utils/vibe-utils";
 import { EmployeeAvatar } from "./employee-avatar";
@@ -81,7 +81,7 @@ function CandidateCard({
   return (
     <div
       className={twMerge(
-        "border-l-2 border border-line pr-2 py-2.5 flex gap-3",
+        "flex gap-3 border border-l-2 border-line-quiet bg-surface-1 py-3 pr-3",
         TRAIT_BORDER[candidate.traitId],
       )}
     >
@@ -122,9 +122,7 @@ function CandidateCard({
 
         {/* Skill path preview */}
         <div className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-wider text-fg-muted">
-            Skills
-          </span>
+          <Label>Skills</Label>
           <div className="flex gap-1 flex-wrap">
             {(candidate.skillPool ?? trait.skills.slice(0, 3)).map((sid) => (
               <SkillChip key={sid} skillId={sid} />
@@ -133,9 +131,9 @@ function CandidateCard({
         </div>
 
         {/* Hire button */}
-        <div className="flex justify-end pt-0.5">
-          <Button type="button" className="text-[10px] px-2 py-1" onClick={onHire}>
-            Hire →
+        <div className="flex justify-end pt-1">
+          <Button size="sm" variant="primary" onClick={onHire}>
+            Hire {candidate.name.split(" ")[0]}
           </Button>
         </div>
       </div>

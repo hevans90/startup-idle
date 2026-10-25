@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { getModifierBreakdown, type ModifierBreakdown } from "../game/modifier-explanations";
+import { PopCard, PopGroup, PopRow, POPOVER_BARE } from "./console";
 import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
 
 const TONE_CLS = {
@@ -8,29 +9,15 @@ const TONE_CLS = {
   neutral: "text-innovation",
 };
 
+/** Where a modifier comes from: its total in the header, its sources as rows, what it means at the foot. */
 function BreakdownContent({ bd }: { bd: ModifierBreakdown }) {
   return (
-    <div className="min-w-48 max-w-80 space-y-2 text-xs text-fg">
-      <div className="flex items-baseline justify-between gap-2 border-b border-line pb-1.5">
-        <span className="font-display text-xs uppercase tracking-widest leading-tight">{bd.label}</span>
-        <span className="shrink-0 tabular-nums font-bold">{bd.total}</span>
-      </div>
-      {bd.description && (
-        <p className="text-[10px] leading-snug opacity-60 whitespace-pre-line">{bd.description}</p>
-      )}
-      <div className="flex flex-col gap-0.5">
-        {bd.rows.map((row, i) => (
-          <div key={i} className="flex items-baseline justify-between gap-3">
-            <span className="min-w-0 break-words opacity-70">{row.source}</span>
-            {row.value && (
-              <span className={`shrink-0 tabular-nums font-medium ${TONE_CLS[row.tone]}`}>
-                {row.value}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
+    <PopCard title={bd.label} value={bd.total} className="w-72"
+      foot={bd.description ? <span className="whitespace-pre-line">{bd.description}</span> : undefined}>
+      <PopGroup label="From">
+        {bd.rows.map((row, i) => <PopRow key={i} wrap label={row.source} value={row.value || undefined} valueClass={TONE_CLS[row.tone]} />)}
+      </PopGroup>
+    </PopCard>
   );
 }
 
@@ -53,7 +40,7 @@ function ModifierTagInner({ modKey, children }: { modKey: string; children: Reac
           {children}
         </span>
       </PopoverTrigger>
-      <PopoverContent className="z-[110] border border-line-strong bg-surface-3 p-3 text-fg shadow-lg outline-none focus:ring-0">
+      <PopoverContent className={POPOVER_BARE}>
         <LazyBreakdownContent modKey={modKey} />
       </PopoverContent>
     </Popover>

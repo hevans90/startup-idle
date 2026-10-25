@@ -554,20 +554,20 @@ function VapeMinigame({
       <div className="absolute inset-0 bg-surface-0/85 backdrop-blur-sm" />
 
       <div
-        className="relative z-10 flex flex-col overflow-hidden  border border-ai-line bg-surface-0 shadow-2xl"
+        className="relative z-10 flex flex-col overflow-hidden border border-line-strong border-t-2 border-t-juice bg-surface-1 text-fg shadow-2xl"
         style={{ width: TRACK_W + 48 }}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-line-quiet px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="text-base">💨</span>
-            <span className="text-xs font-bold uppercase tracking-widest text-ai">
+            <span className="font-display text-sm uppercase tracking-widest">
               Take a puff
             </span>
           </div>
           {started && !done && (
             <div className="flex items-center gap-3">
-              <span className="text-xs font-bold tabular-nums text-ai/70">
+              <span className="font-display text-sm tabular-nums text-juice">
                 {(Math.min(1, liveScore) * 100).toFixed(0)}%
               </span>
               <span className="tabular-nums text-[10px] text-fg-muted">
@@ -588,7 +588,7 @@ function VapeMinigame({
                   className="pointer-events-none absolute left-0 right-0 z-10 flex justify-center animate-bounce"
                   style={{ top: HIT_ZONE_Y - 48 }}
                 >
-                  <div className="flex items-center gap-1.5 rounded-full border border-ai/40 bg-surface-0/95 px-3 py-1 text-[10px] font-medium text-ai whitespace-nowrap shadow-lg">
+                  <div className="flex items-center gap-1.5 whitespace-nowrap border border-juice-line bg-surface-1/95 px-3 py-1 text-[10px] text-juice shadow-lg">
                     Space or click to begin 💨
                   </div>
                 </div>
@@ -870,15 +870,15 @@ function VapeMinigame({
         {/* Result */}
         {done && (
           <div className="flex flex-col items-center gap-3 px-4 py-6">
-            <div className="text-3xl font-black tabular-nums text-ai">
+            <div className="font-display text-4xl tabular-nums text-juice">
               {(finalScore * 100).toFixed(0)}%
             </div>
             <div className="text-sm text-fg-muted">
               {scoreLabel(finalScore, config.perfectThreshold)}
             </div>
-            <div className="w-full  bg-line-quiet border border-fg/[0.06] px-3 py-2 flex flex-col gap-1 text-[10px] tabular-nums">
+            <div className="flex w-full flex-col divide-y divide-line-quiet border border-line-quiet bg-surface-2/50 px-3 text-[11px] tabular-nums [&>div]:py-1.5">
               <div className="flex justify-between items-center">
-                <span className="text-fg-muted">accuracy</span>
+                <span className="text-fg-muted">Accuracy</span>
                 <span className="flex gap-2">
                   <span className="text-warn">{perfCount}P</span>
                   <span className="text-good">{goodCount}G</span>
@@ -887,19 +887,19 @@ function VapeMinigame({
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-fg-muted">score {(finalScore * 100).toFixed(0)}%</span>
+                <span className="text-fg-muted">Score {(finalScore * 100).toFixed(0)}%</span>
                 <span className="text-fg-muted font-semibold">{scoreMult.toFixed(2)}×</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-fg-muted">best combo ×{maxCombo}</span>
+                <span className="text-fg-muted">Best combo ×{maxCombo}</span>
                 <span className="text-fg-muted font-semibold">{comboBns.toFixed(2)}×</span>
               </div>
-              <div className="border-t border-fg/[0.06] mt-0.5 pt-0.5 flex justify-between items-center">
-                <span className="text-fg-muted">total boost</span>
-                <span className="text-ai font-bold">{(scoreMult * comboBns).toFixed(2)}×</span>
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-fg">Total boost</span>
+                <span className="font-bold text-juice">{(scoreMult * comboBns).toFixed(2)}×</span>
               </div>
             </div>
-            <div className="text-base font-bold text-ai tabular-nums">
+            <div className="font-display text-lg tabular-nums text-innovation">
               +{formatCurrency(new Decimal(totalReward), { showDollarSign: false, exponentBreakpoint: 1e6 })} innovation
             </div>
             <Button

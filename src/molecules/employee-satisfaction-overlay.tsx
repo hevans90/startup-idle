@@ -17,7 +17,7 @@ import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { usePrestigeStore } from "../state/prestige.store";
-import { FOCUS } from "../ui/console";
+import { FOCUS, PopCard, POPOVER_BARE } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -79,10 +79,7 @@ function formatMult(n: number): string {
 
 function SatisfactionHowToRaiseHelpContent() {
   return (
-    <div className="max-w-sm space-y-2 text-left text-xs leading-snug text-fg">
-      <p className="text-[10px] uppercase tracking-widest text-fg-muted">
-        How to raise satisfaction
-      </p>
+    <div className="space-y-2 text-left text-xs leading-snug text-fg">
       <ul className="list-disc space-y-1 pl-3.5 text-[11px] text-fg">
         <li>
           Scores <span className="font-medium">drift toward a target</span>{" "}
@@ -121,14 +118,16 @@ function SatisfactionHowToRaiseHelpPopover() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="h-6 shrink-0 inline-flex items-center cursor-help px-1.5 py-0 bg-surface-2 leading-none font-bold border border-line-strong text-[11px] text-fg outline-none hover:bg-surface-3"
+          className="flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded-full border border-line text-[10px] text-fg-muted outline-none hover:border-line-strong hover:text-fg"
           aria-label="How to raise satisfaction"
         >
           ?
         </button>
       </PopoverTrigger>
-      <PopoverContent className="z-[60] max-w-sm border border-line-strong bg-surface-1 p-2 py-1.5 text-fg shadow-lg outline-none focus:ring-0">
-        <SatisfactionHowToRaiseHelpContent />
+      <PopoverContent className={POPOVER_BARE}>
+        <PopCard title="How to raise satisfaction" tone="good" className="w-80">
+          <SatisfactionHowToRaiseHelpContent />
+        </PopCard>
       </PopoverContent>
     </Popover>
   );
@@ -150,7 +149,7 @@ function SatisfactionCurrentEffects({
   const expDelta = dev10xSatisfactionExponentDelta(scores["10x_dev"]);
 
   return (
-    <div className="mb-3 border-b border-line pb-3 text-left">
+    <div className="border-b border-line-quiet pb-3 text-left">
       <div className="space-y-2 text-[11px] leading-snug text-fg">
         <div>
           <p className="mb-0.5 font-semibold text-fg">
@@ -203,7 +202,7 @@ function SatisfactionCurrentEffects({
 
 function SatisfactionEffectsHelp() {
   return (
-    <div className="max-w-xs space-y-3 text-left text-xs leading-snug text-fg">
+    <div className="space-y-3 text-left text-xs leading-snug text-fg">
       <p className="text-fg-muted">
         Bars run <span className="font-medium">{SATISFACTION_MIN}</span> to{" "}
         <span className="font-medium">+{SATISFACTION_MAX}</span>.{" "}
@@ -358,15 +357,14 @@ export const EmployeeSatisfactionOverlay = ({
         </section>
       </PopoverTrigger>
 
-      <PopoverContent className="z-50 max-h-[min(92vh,52rem)] max-w-sm border border-line-strong bg-surface-3 p-3 text-fg shadow-lg outline-none focus:ring-0">
-        <p className="mb-2 text-[10px] uppercase tracking-widest text-fg-muted">
-          Satisfaction effects
-        </p>
+      <PopoverContent className={POPOVER_BARE}>
+        <PopCard title="Satisfaction effects" className="max-h-[min(92vh,52rem)] w-96 overflow-y-auto">
         <SatisfactionCurrentEffects
           scores={scores}
           singularityPct={singularityPct}
         />
         <SatisfactionEffectsHelp />
+        </PopCard>
       </PopoverContent>
     </Popover>
   );

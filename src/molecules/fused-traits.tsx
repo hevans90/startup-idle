@@ -11,7 +11,7 @@ export function FusedTraits({ founder }: { founder: string }) {
   const traits = fusedInto(founder);
   if (!traits.length) return null;
   return (
-    <div className="mt-2 border border-ai/30 bg-ai/10 px-2 py-1 text-[11px] leading-snug text-ai">
+    <div className="mt-2 border-l-2 border-ai bg-ai-soft px-2 py-1.5 text-[11px] leading-snug text-ai">
       <p className="font-semibold">Fused with the AI</p>
       {traits.map((t, k) => (
         <p key={k} title={trait(t).memo}><b>{trait(t).name}</b>: {FUSIONS[t].text}</p>

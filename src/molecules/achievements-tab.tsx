@@ -21,7 +21,7 @@ import { twMerge } from "tailwind-merge";
 import { ACHIEVEMENT_CATALOG } from "../game/achievements.catalog";
 import { JUICE_SHOP_UPGRADES } from "../game/achievements.juice-shop";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
-import { FOCUS, Locked, Num, Panel, POPOVER, Tile } from "../ui/console";
+import { FOCUS, Locked, Num, Panel, PopCard, POPOVER_BARE, Tile } from "../ui/console";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
 
@@ -75,13 +75,11 @@ export const AchievementsTab = () => {
                 <span className="text-[10px] tabular-nums">{bought ? "Owned" : u.cost}</span>
               </Tile>
             </PopoverTrigger>
-            <PopoverContent className={twMerge(POPOVER, "flex max-w-[18rem] flex-col gap-1 p-2.5")}>
-              <span className="text-sm font-bold">{u.name}</span>
-              <span className="text-xs text-fg-muted">{u.description}</span>
-              {u.minigameDescription && <span className="text-[11px] text-juice">🎮 {u.minigameDescription}</span>}
-              <span className={twMerge("text-xs", bought ? "text-good" : canBuy ? "text-juice" : "text-fg-muted")}>
-                {bought ? "✓ Owned" : `${u.cost} juice`}
-              </span>
+            <PopoverContent className={POPOVER_BARE}>
+              <PopCard title={u.name} value={bought ? "Owned" : `${u.cost} juice`} tone={bought ? "good" : "juice"}
+                foot={u.minigameDescription ? <span className="text-juice">🎮 {u.minigameDescription}</span> : undefined}>
+                <p className="text-fg-muted">{u.description}</p>
+              </PopCard>
             </PopoverContent>
           </Popover>
         );
@@ -117,10 +115,12 @@ export const AchievementsTab = () => {
                     <span className="ml-auto shrink-0 tabular-nums opacity-80">+{a.juiceReward}</span>
                   </div>
                 </PopoverTrigger>
-                <PopoverContent className={twMerge(POPOVER, "flex max-w-[18rem] flex-col gap-1 p-2.5")}>
-                  <span className="text-sm font-bold">{hiddenLocked ? "Hidden achievement" : a.name}{done ? " ✓" : ""}</span>
-                  {!hiddenLocked && <span className="text-xs text-fg-muted">{a.description}</span>}
-                  <span className={twMerge("text-xs", done ? "text-good" : "text-fg-muted")}>{done ? "Earned" : "Reward"}: +{a.juiceReward} juice</span>
+                <PopoverContent className={POPOVER_BARE}>
+                  <PopCard title={hiddenLocked ? "Hidden achievement" : a.name} value={`+${a.juiceReward}`} tone={done ? "good" : "juice"}
+                    icon={done ? <IconTrophy size={13} /> : <IconLock size={13} />}
+                    foot={done ? "Earned." : `Earn it for ${a.juiceReward} juice.`}>
+                    {!hiddenLocked && <p className="text-fg-muted">{a.description}</p>}
+                  </PopCard>
                 </PopoverContent>
               </Popover>
             );

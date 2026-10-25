@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import { installDom } from "../../test/dom";
 import { ConsoleMotionOverride } from "../motion";
-import { Button, CountUp, Dialog, Frame, Locked, Meter, Panel, Tabs, Text } from "./index";
+import { Button, CountUp, Dialog, ErrorScreen, Frame, Locked, Meter, Panel, Tabs, Text } from "./index";
 
 let dom: ReturnType<typeof installDom>;
 beforeAll(() => { jest.useRealTimers(); dom = installDom(); });
@@ -62,6 +62,18 @@ describe("the console's kit", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 1000)); });
     expect(moving.host.textContent).toBe("500");
     await moving.unmount();
+  });
+
+  test("a crash shows the error screen, with a reload, not a blank page", async () => {
+    const Boom = () => { throw new Error("the kettle exploded"); };
+    const quiet = console.error;
+    console.error = () => {};
+    const { host, unmount } = await render(<ErrorScreen><Boom /></ErrorScreen>);
+    console.error = quiet;
+    expect(host.textContent).toContain("Something broke");
+    expect(host.textContent).toContain("the kettle exploded");
+    expect([...host.querySelectorAll("button")].map((b) => b.textContent)).toContain("Reload");
+    await unmount();
   });
 
   test("a confirming button needs two presses, and says so between them", async () => {

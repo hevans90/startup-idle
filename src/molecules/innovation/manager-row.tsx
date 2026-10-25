@@ -53,7 +53,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
           </div>
           <div className="flex justify-between gap-2 text-[11px] text-fg-muted">
             <span><ModifierTag modKey={bonus.modKey}>{bonus.label}</ModifierTag> <b className="tabular-nums text-fg">×{bonusMultiplier?.toFixed(3)}</b> · ×{bonusMultiplierGrowthPerTier?.toFixed(2)}/tier</span>
-            <span className="tabular-nums">{estimateToNextTier === "-" ? "idle" : `next tier ${estimateToNextTier}`}</span>
+            <span className="shrink-0 tabular-nums" title="Time to the next tier at this assignment">{estimateToNextTier === "-" || estimateToNextTier === "∞" ? "idle" : `next in ${estimateToNextTier}`}</span>
           </div>
         </div>
         <div className="flex gap-1">

@@ -7,7 +7,7 @@ import { report } from "../state/comms.store";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 import { useSessionStore } from "../state/session.store";
 import { useThemeStore } from "../state/theme.store";
-import { Button, FOCUS, Field, Label, POPOVER, Segmented, Toggle } from "../ui/console";
+import { Button, FOCUS, Field, Label, POPOVER_BARE, Segmented, Toggle } from "../ui/console";
 import { SoundControls } from "./sound-controls";
 
 /** A group of settings: its name, then a row a setting. */
@@ -53,10 +53,10 @@ export const SettingsPopover = ({
         </button>
       </PopoverTrigger>
 
-      <PopoverContent className={twMerge(POPOVER, "w-80 p-0")}>
-        <header className="flex items-center gap-2 border-b border-line-quiet px-4 py-2.5">
-          <IconSettings className="h-4 w-4 text-console" stroke={1.6} />
-          <h2 className="font-display text-sm uppercase tracking-widest">Settings</h2>
+      <PopoverContent className={twMerge(POPOVER_BARE, "w-80 border border-line-strong border-t-2 border-t-console bg-surface-3 text-fg shadow-xl")}>
+        <header className="flex items-center gap-2 border-b border-line-quiet px-4 py-2">
+          <IconSettings className="h-3.5 w-3.5 text-console" stroke={1.6} />
+          <h2 className="font-display text-[11px] uppercase tracking-widest">Settings</h2>
         </header>
         <Group title="Display">
           <Field label="Theme">

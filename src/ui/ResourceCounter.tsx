@@ -2,7 +2,7 @@ import { ReactNode } from "react";
 import { ClassNameValue, twMerge } from "tailwind-merge";
 
 import type { Role } from "./theme/tokens";
-import { FOCUS, POPOVER } from "./console";
+import { FOCUS, POPOVER_BARE } from "./console";
 import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
 
 /**
@@ -73,7 +73,7 @@ export const ResourceCounter = ({
   return (
     <Popover openOnHover={true} persistOnHoverContent={true} placement="bottom">
       <PopoverTrigger asChild>{cell}</PopoverTrigger>
-      <PopoverContent className={POPOVER}>{popover}</PopoverContent>
+      <PopoverContent className={POPOVER_BARE}>{popover}</PopoverContent>
     </Popover>
   );
 };

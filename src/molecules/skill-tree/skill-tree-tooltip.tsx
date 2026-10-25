@@ -119,23 +119,23 @@ export const SkillTreeTooltip = () => {
   return (
     <div
       ref={ref}
-      className="pointer-events-none absolute z-10 w-52"
+      className="pointer-events-none absolute z-10 w-60"
       style={{
         left: hovered.x,
         top: hovered.y - hovered.r - 12,
         transform: "translate(-50%, -100%)",
       }}
     >
-      <div className="border border-line-strong bg-surface-3 px-3 py-2 text-fg shadow-lg">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-bold">{node.title}</span>
-          <span className="text-[10px] uppercase tracking-wide opacity-50">
+      <div className="border border-line-strong border-t-2 border-t-console bg-surface-3 text-xs text-fg shadow-xl">
+        <div className="flex items-baseline justify-between gap-2 border-b border-line-quiet px-3 py-2">
+          <span className="font-display text-[11px] uppercase tracking-widest">{node.title}</span>
+          <span className="text-[10px] uppercase tracking-widest text-fg-faint">
             {node.kind}
           </span>
         </div>
 
         {effectRows.length > 0 ? (
-          <div className="mt-1 flex flex-col gap-0.5 text-xs">
+          <div className="flex flex-col gap-1 px-3 py-2">
             {effectRows.map((row, i) => (
               <span key={i} className={toneClass(row.tone)}>
                 {row.label}
@@ -143,10 +143,10 @@ export const SkillTreeTooltip = () => {
             ))}
           </div>
         ) : (
-          <p className="mt-1 text-xs opacity-60">Pathway node — no bonus</p>
+          <p className="px-3 py-2 text-fg-muted">Pathway node — no bonus</p>
         )}
 
-        <div className="mt-2 border-t border-line/40 pt-1.5 text-xs tabular-nums">
+        <div className="border-t border-line-quiet bg-surface-2/50 px-3 py-2 text-[11px] tabular-nums">
           {refundCount > 0 ? (
             <span
               className={
@@ -241,15 +241,15 @@ function MachineTip({ refEl, id, hovered }: { refEl: React.RefObject<HTMLDivElem
     : { text: `Cost: ${cost} Weights`, cls: "text-fg" };
   const fog = blocked === "fog" && n.kind !== "root";
   return (
-    <div ref={refEl} className="pointer-events-none absolute z-10 w-56"
+    <div ref={refEl} className="pointer-events-none absolute z-10 w-60"
       style={{ left: hovered.x, top: hovered.y - hovered.r - 12, transform: "translate(-50%, -100%)" }}>
-      <div className="border border-ai-line bg-surface-3 px-3 py-2 text-fg shadow-lg">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-bold">{fog ? "Unrevealed" : n.title}</span>
-          <span className="text-[10px] uppercase tracking-wide text-ai opacity-80">The Machine</span>
+      <div className="border border-line-strong border-t-2 border-t-ai bg-surface-3 text-xs text-fg shadow-xl">
+        <div className="flex items-baseline justify-between gap-2 border-b border-line-quiet px-3 py-2">
+          <span className="font-display text-[11px] uppercase tracking-widest">{fog ? "Unrevealed" : n.title}</span>
+          <span className="text-[10px] uppercase tracking-widest text-ai">The Machine</span>
         </div>
-        {!fog && <p className="mt-1 text-xs text-good">{n.effect}</p>}
-        <div className={`mt-2 border-t border-line/40 pt-1.5 text-xs tabular-nums ${status.cls}`}>{status.text}</div>
+        {!fog && <p className="px-3 py-2 text-good">{n.effect}</p>}
+        <div className={`border-t border-line-quiet bg-surface-2/50 px-3 py-2 text-[11px] tabular-nums ${status.cls}`}>{status.text}</div>
       </div>
     </div>
   );

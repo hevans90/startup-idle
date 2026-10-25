@@ -30,6 +30,7 @@ export const InnovationSummary = ({
     return (
       <ResourceBreakdownView
         header="Innovation"
+        tone="innovation"
         breakdown={breakdown}
         format={(n) => formatRate(n).formatted}
       />

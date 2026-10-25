@@ -12,7 +12,7 @@ import { twMerge } from "tailwind-merge";
 import { clock } from "../game/quests/describe";
 import type { Disposition, Option } from "../game/quests/types";
 import { DecisionCard } from "./decision-card";
-import { Backdrop, Frame, Text } from "../ui/console";
+import { Backdrop, Frame, IconButton, Text } from "../ui/console";
 
 export type TransmissionProps = {
   /** What it is, over the title: "Chapter 3", "A request". */
@@ -62,8 +62,7 @@ export function Transmission({ kicker, title, lines, options, preferred, at, lef
           <p className="text-[10px] uppercase tracking-widest text-ai">
             {kicker} · <Text mode="decipher" text={title} className="font-bold" />
           </p>
-          <button type="button" onClick={() => setAway(true)} aria-label="Put the transmission away" title="Put it away: it waits"
-            className="cursor-pointer px-1 text-fg-muted hover:text-fg">–</button>
+          <IconButton label="Put it away: it waits" onClick={() => setAway(true)}>–</IconButton>
         </div>
         {lines.slice(0, shown).map((line, i) => (
           <Text mode="sequence" key={`${title}:${i}`} as="p" text={line} className="text-sm leading-snug"

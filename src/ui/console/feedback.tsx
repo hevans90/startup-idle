@@ -15,8 +15,6 @@ import type { Role } from "../theme/tokens";
 import { Button } from "./controls";
 import type { Tone } from "./frame";
 
-/** What a popover is drawn as: a raised surface, a strong line. Every popover the same. */
-export const POPOVER = "border border-line-strong bg-surface-3 p-3 text-fg shadow-lg outline-none focus:ring-0";
 
 const color = (tone: Tone) => (tone === "console" ? "var(--ui-console)" : `var(--ui-${tone})`);
 
@@ -132,7 +130,7 @@ export function Tooltip({ content, children }: { content: ReactNode; children: R
       {open && (
         <FloatingPortal>
           <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()}
-            className="z-[60] max-w-xs border border-line-strong bg-surface-3 px-2 py-1 text-xs text-fg shadow">
+            className="z-[60] max-w-xs border border-line-strong border-t-2 border-t-console bg-surface-3 px-2.5 py-1.5 text-xs leading-snug text-fg shadow-lg">
             {content}
           </div>
         </FloatingPortal>

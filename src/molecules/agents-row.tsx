@@ -3,7 +3,9 @@
  * the racks have, what the next costs in innovation, and a button to spin it
  * up. Shown once the Data Centre stands. @see game/agents
  */
+import { IconRobot } from "@tabler/icons-react";
 import { twMerge } from "tailwind-merge";
+import { Button } from "../ui/console";
 
 import {
   AGENT_BOOST, RACK_RANGE, agentsARack, UNPOWERED_SHARE, agentBonus, agentCost, agentsAtWork, agentsOpen, rackRoom,
@@ -42,7 +44,10 @@ export function AgentsRow() {
   const pct = (k: number) => `${k >= 1 ? "+" : "−"}${Math.abs((k - 1) * 100).toFixed(1)}%`;
   const roomText = (Number.isFinite(room) ? `${agents}/${room}` : `${agents}`) + (running < agents ? ` · ${running} on` : "");
   return (
-    <div className="flex items-center justify-between gap-2 border-t border-line px-2 py-1">
+    <div className="flex items-center gap-1 border-t border-line-quiet px-2 py-1">
+      <span aria-hidden className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center border border-ai-line bg-ai-soft text-ai">
+        <IconRobot size={14} stroke={1.8} />
+      </span>
       <InfoPop className="grow" placement="left"
         trigger={<span className="responsive-text-sm text-info">AI agents</span>}
         title={`AI agents: income +${boost}%`}>
@@ -55,15 +60,13 @@ export function AgentsRow() {
         </p>
       </InfoPop>
       <span className="text-right responsive-text-sm tabular-nums">{roomText}</span>
-      <button type="button" disabled={!!blocked} onClick={() => spinUp()}
-        title={blocked ? WHY[blocked] : undefined}
-        className={twMerge(
-          "ml-2 w-2/5 cursor-pointer border border-line px-2 py-1 responsive-text-xs hover:bg-surface-2",
-          "disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent",
-        )}>
-        Spin up: {fmt(cost)} innovation
-        {!blocked && <span className={trade.net >= 1 ? "text-good" : "text-bad"}> ({pct(trade.net)})</span>}
-      </button>
+      <Button disabled={!!blocked} onClick={() => spinUp()} title={blocked ? WHY[blocked] : "Spin up an agent"}
+        className="ml-2 w-2/5 min-w-32 responsive-text-xs">
+        <span className="flex flex-col leading-tight">
+          <span className="text-innovation">{fmt(cost)} innovation</span>
+          {!blocked && <span className={twMerge("text-[10px]", trade.net >= 1 ? "text-good" : "text-bad")}>{pct(trade.net)} income</span>}
+        </span>
+      </Button>
     </div>
   );
 }

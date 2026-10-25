@@ -7,7 +7,7 @@
  */
 import { useEffect } from "react";
 import { twMerge } from "tailwind-merge";
-import { IconButton } from "../../ui/console";
+import { Badge, IconButton } from "../../ui/console";
 
 import { PROJECTS, type ProjectDef } from "../../game/projects";
 import { useGeneratorStore } from "../../state/generators.store";
@@ -60,7 +60,7 @@ export function WondersPanel({ className }: { className?: string }) {
         if (built.has(w.id)) {
           return (
             <div key={w.id} className={ROW}>
-              <p className="flex justify-between"><b>{w.name}</b><span className="text-good">Standing</span></p>
+              <p className="flex items-center justify-between"><b>{w.name}</b><Badge tone="good">Standing</Badge></p>
               <p className="text-good">{bonus}</p>
             </div>
           );
@@ -77,7 +77,7 @@ export function WondersPanel({ className }: { className?: string }) {
         if (rival) {
           return (
             <div key={w.id} className={twMerge(ROW, "text-fg-muted")}>
-              <p className="flex justify-between"><b className="line-through">{w.name}</b><span>{rival.name} instead</span></p>
+              <p className="flex items-center justify-between"><b className="line-through">{w.name}</b><Badge tone="bad">{rival.name} instead</Badge></p>
             </div>
           );
         }
@@ -98,7 +98,7 @@ export function WondersPanel({ className }: { className?: string }) {
             <p className="flex justify-between"><b className="text-fg">{w.name}</b><span>{bonus}</span></p>
             {/* HOW MANY IT NEEDS, a bar a kind, with how many more on hover. @see GateChips */}
             <GateChips project={w} />
-            <p>from {formatCurrency(w.floor)}</p>
+            <p>From <span className="tabular-nums text-money">{formatCurrency(w.floor)}</span></p>
             {fork}
           </div>
         );

@@ -15,7 +15,7 @@ import { useSessionStore } from "../../state/session.store";
 import { useFounderStore } from "../../state/founder.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { twMerge } from "tailwind-merge";
-import { Meter, Panel, Slider } from "../../ui/console";
+import { Label, Meter, Panel, Slider, Tile } from "../../ui/console";
 
 import { agentBonus, agentsARack, agentsOpen } from "../../game/agents";
 import { DATASETS, MAX_SKILL, dataset } from "../../game/training";
@@ -95,10 +95,6 @@ export function DataCentre({ className }: { className?: string }) {
 
 /** Each of the control room's parts: a panel in the AI's violet. */
 const SECTION = "mt-3";
-const BTN = twMerge(
-  "flex w-full cursor-pointer flex-col items-start border border-line px-2 py-1 text-left hover:bg-surface-2",
-  "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent",
-);
 
 /**
  * THE LATTICE: at the hold, what the AI needs to finish it — each met or not —
@@ -124,10 +120,7 @@ function Lattice() {
         {need(n.agents, `${LATTICE_AGENTS} agents running (${running} now)`)}
         {need(n.water, "Water piped to the Lattice")}
       </ul>
-      <div className="mt-1 h-1.5 w-full overflow-hidden bg-surface-2" role="progressbar" aria-valuenow={Math.round(charge * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="The Lattice's charge">
-        <div className="h-full bg-ai" style={{ width: `${charge * 100}%` }} />
-      </div>
-      <p className="mt-0.5 tabular-nums">{Math.round(charge * 100)}% charged</p>
+      <Meter tone="ai" value={charge} label="The Lattice's charge" detail={`${Math.round(charge * 100)}%`} className="mt-1" />
     </Panel>
   );
 }
@@ -160,11 +153,11 @@ function Focus() {
     <Panel tone="ai" title="Its focus" className={SECTION}>
       <div className="grid grid-cols-2 gap-1" role="radiogroup" aria-label="The AI's focus">
         {FOCUSES.map((f) => (
-          <button key={f.id} type="button" role="radio" aria-checked={focus === f.id} title={f.blurb}
+          <Tile key={f.id} role="radio" aria-checked={focus === f.id} selected={focus === f.id} title={f.blurb}
             onClick={() => setFocus(f.id)}
-            className={twMerge(BTN, focus === f.id && "border-ai bg-ai-soft")}>
+            className="px-2 py-1.5">
             <b>{f.name}</b>
-          </button>
+          </Tile>
         ))}
       </div>
       <p className="mt-1 text-fg-muted">{FOCUSES.find((f) => f.id === focus)?.blurb}</p>
@@ -201,11 +194,13 @@ function Allowance() {
       {/* ITS LEDGER, kept for you since the sandbox. @see walletLedger, chapter "ledger" */}
       {questFlag("ledger:logged") && (
         <div className="mt-1">
-          <p className="font-bold">Its ledger</p>
+          <Label>Its ledger</Label>
           {walletLedger().length === 0 && <p className="text-fg-muted">Nothing spent yet.</p>}
+          <div className="flex flex-col divide-y divide-line-quiet">
           {walletLedger().map((l, i) => (
-            <p key={i} className="flex justify-between gap-2 tabular-nums"><span className="truncate">{l.what}</span><span>{formatCurrency(l.price)}</span></p>
+            <p key={i} className="flex justify-between gap-2 py-1 tabular-nums"><span className="truncate text-fg-muted">{l.what}</span><span className="text-money">{formatCurrency(l.price)}</span></p>
           ))}
+          </div>
         </div>
       )}
     </Panel>
@@ -233,10 +228,10 @@ function Cooling() {
           Running hot: {hot} agent{hot === 1 ? "" : "s"} at half power. Pipe water in from a river or lake with the Pipe tool.
         </p>
       )}
-      <div className="flex max-h-32 flex-col overflow-y-auto">
+      <div className="flex max-h-32 flex-col divide-y divide-line-quiet overflow-y-auto">
         {tanks.map(({ id, t, s }) => (
           <button key={id} type="button" onClick={() => showMe({ x: s!.x, y: s!.y })}
-            className="cursor-pointer px-1 py-0.5 text-left hover:bg-surface-2">
+            className="cursor-pointer px-1 py-1 text-left hover:bg-surface-2">
             <span className="flex justify-between gap-2">
               <span>{name(t.def)} · <span className={t.share > 0.95 ? "text-good" : "text-warn"}>
                 {Math.round(t.share * 100)}% cooled</span></span>
@@ -292,13 +287,13 @@ function Training() {
             {DATASETS.map((d) => {
               const n = skills[d.id] ?? 0;
               return (
-                <button key={d.id} type="button" className={BTN} disabled={!!blocked} onClick={() => start(d.id)}>
+                <Tile key={d.id} lit={!blocked} disabled={!!blocked} onClick={() => start(d.id)} className="flex w-full flex-col items-start gap-0.5 px-2 py-1.5">
                   <span className="flex w-full justify-between">
                     <b>{d.name} <span className="tabular-nums font-normal text-ai" aria-label={`level ${n} of ${MAX_SKILL}`}>{"●".repeat(n)}{"○".repeat(MAX_SKILL - n)}</span></b>
                     <span className="tabular-nums text-ai">+{d.jump}%</span>
                   </span>
                   <span className="text-fg-muted">{n < MAX_SKILL ? `Next: ${d.skills[n]}` : "Learned. Another run still leans it and jumps the AI."}</span>
-                </button>
+                </Tile>
               );
             })}
           </div>
@@ -321,10 +316,10 @@ function Roster() {
     .map((r) => { const n = Math.min(agentsARack(), left); left -= n; return { ...r, n }; });
   return (
     <Panel tone="ai" title="Racks" className={SECTION}>
-      <div className="flex max-h-28 flex-col overflow-y-auto">
+      <div className="flex max-h-28 flex-col divide-y divide-line-quiet overflow-y-auto">
         {rows.map(({ s, on, n }, k) => (
           <button key={s.id} type="button" onClick={() => showMe({ x: s.x, y: s.y })}
-            className="flex cursor-pointer justify-between px-1 py-0.5 text-left hover:bg-surface-2">
+            className="flex cursor-pointer justify-between px-1 py-1 text-left hover:bg-surface-2">
             <span>Rack {k + 1} · <span className={on ? "text-good" : "text-warn"}>{on ? "powered" : "half power"}</span></span>
             <span className="tabular-nums">{n}/{agentsARack()} running</span>
           </button>
@@ -341,9 +336,10 @@ function Forecast() {
   return (
     <Panel tone="ai" title="Training log" className={SECTION}>
       {forecast.map(({ trait, odds }) => (
-        <p key={trait.id} className="flex justify-between gap-2">
-          <span title={trait.memo}><b>{trait.name}</b> <span className="italic text-fg-muted">{trait.memo}</span></span>
-          <span className="shrink-0 tabular-nums">{Math.round(odds * 100)}%</span>
+        <p key={trait.id} className="flex flex-col gap-1 py-1">
+          <span className="flex justify-between gap-2"><b title={trait.memo}>{trait.name}</b><span className="shrink-0 tabular-nums text-ai">{Math.round(odds * 100)}%</span></span>
+          <span className="block h-0.5 bg-surface-3"><span className="block h-full bg-ai" style={{ width: `${Math.round(odds * 100)}%` }} /></span>
+          <span className="italic text-fg-muted">{trait.memo}</span>
         </p>
       ))}
     </Panel>

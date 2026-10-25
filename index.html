@@ -31,22 +31,37 @@
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
     <title>Startup idle</title>
     <script>
-      // Initialize theme based on localStorage or system preference
-      if (
-        localStorage.theme === "dark" ||
-        (!("theme" in localStorage) &&
-          window.matchMedia("(prefers-color-scheme: dark)").matches)
-      ) {
-        document.documentElement.classList.add("dark");
-      } else {
-        document.documentElement.classList.remove("dark");
-      }
+      // THE THEME, BEFORE THE FIRST PAINT: the theme store's saved choice (JSON under "theme"), or the system's.
+      (function () {
+        var saved = null;
+        try { saved = JSON.parse(localStorage.getItem("theme") || "null"); } catch (e) {}
+        var theme = (saved && saved.state && saved.state.theme) ||
+          (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.classList.toggle("dark", theme === "dark");
+      })();
     </script>
+    <style>
+      /* THE BOOT SCREEN, before the console's tokens exist: its own colours, the surface-0 of each theme. */
+      .boot { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+        background: #f4f5f6; color: #1b1f23; font-family: "Share Tech Mono", ui-monospace, monospace; letter-spacing: 0.2em; text-transform: uppercase; }
+      .dark .boot { background: #111417; color: #e1e3e6; }
+      .boot-title { font-size: 22px; }
+      .boot-line { font-size: 10px; opacity: 0.6; }
+      .boot-bar { width: 160px; height: 2px; background: rgba(127, 127, 127, 0.25); overflow: hidden; }
+      .boot-bar > i { display: block; width: 40%; height: 100%; background: #3fbf8f; animation: boot 1.2s ease-in-out infinite; }
+      @keyframes boot { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+      @media (prefers-reduced-motion: reduce) { .boot-bar > i { animation: none; width: 100%; } }
+      body { background: #f4f5f6; } .dark body { background: #111417; }
+    </style>
   </head>
-  <body
-    class="w-screen h-screen font-space-mono bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-200"
-  >
-    <div id="root" class="h-full"></div>
+  <body class="h-screen w-screen bg-surface-0 font-space-mono text-fg">
+    <div id="root" class="h-full">
+      <div class="boot" role="status" aria-label="Loading">
+        <div class="boot-title">Startup Idle</div>
+        <div class="boot-bar"><i></i></div>
+        <div class="boot-line">Booting the console</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

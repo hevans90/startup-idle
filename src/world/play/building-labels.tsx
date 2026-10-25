@@ -251,13 +251,13 @@ export function BuildingLabels({ className }: { className?: string }) {
         <div key={key}
           ref={(el) => { if (el) els.current.set(key, el); else els.current.delete(key); }}
           className={twMerge(
-            "invisible absolute left-0 top-0 whitespace-nowrap border-l-2 bg-surface-1/90 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-sm",
+            "invisible absolute left-0 top-0 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/90 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-md backdrop-blur-sm",
             ids.length > 1 && "border-dashed",
           )}
           style={{ borderLeftColor: hex(info.accent) }}>
           {full ? (
             <>
-              <p className="font-bold">{info.title}</p>
+              <p className="font-display uppercase tracking-wider">{info.title}</p>
               {info.lines.map((l, k) => (
                 <p key={k} className={twMerge(
                   "whitespace-pre tabular-nums",
