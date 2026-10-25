@@ -30,12 +30,20 @@ export function effectRow(e: Effect): EffectRow | null {
     case "charter": return { label: CHARTER[e.charter], tone: "good" };
     case "standingWater": return { label: "Its buildings never short of water", tone: "good" };
     case "rebuildBlock": return { label: "The block's starter houses cleared, and built again taller", tone: "good" };
+    case "pay": {
+      const n = e.seconds >= 60 ? Math.round(e.seconds / 60) : e.seconds, unit = e.seconds >= 60 ? "minute" : "second";
+      return { label: `Costs ${n} ${unit}${n === 1 ? "" : "s"} of income`, tone: "bad" };
+    }
     case "flag": return null;
   }
 }
 
-/** All of an option's effects, as rows. */
-export const effectRows = (effects: readonly Effect[]): EffectRow[] => effects.map(effectRow).filter((r): r is EffectRow => !!r);
+/** How long a lasting effect lasts, said. */
+const forHowLong = (s: number) => (s >= 60 ? ` for ${Math.round(s / 60)} min` : ` for ${s} s`);
+
+/** All of an option's effects, as rows; a lasting one says for how long. */
+export const effectRows = (effects: readonly Effect[]): EffectRow[] =>
+  effects.flatMap((e) => { const r = effectRow(e); return r ? [e.lasts ? { ...r, label: r.label + forHowLong(e.lasts) } : r] : []; });
 
 /** Minutes and seconds, `m:ss`. */
 export const clock = (seconds: number) => {

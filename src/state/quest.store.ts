@@ -59,8 +59,10 @@ type QuestState = {
   /** Where it has stood after each answer: its path on the dossier's chart. */
   path: Disposition[];
   flags: string[];
-  /** Every effect chosen this generation, in force. @see game/quests/effects */
+  /** Every effect chosen this generation, in force — those that last a while, till their `until`. @see game/quests/effects */
   effects: Effect[];
+  /** Seconds of play this generation: the clock a lasting effect's `until` is on. */
+  clock: number;
   /** Seconds of play to the next request; null till requests begin. */
   requestIn: number | null;
   /**
@@ -100,10 +102,13 @@ type QuestState = {
 
 const fresh = () => ({
   offer: null, chapters: {}, requests: {}, objective: null, disposition: { autonomy: 0, machine: 0 }, path: [],
-  flags: [], effects: [], requestIn: null, block: null, keep: null, site: null, picking: null, actions: [], said: [],
+  flags: [], effects: [], clock: 0, requestIn: null, block: null, keep: null, site: null, picking: null, actions: [], said: [],
 });
-/** Effects split: those read while they last, and those done once. */
-const split = (es: readonly Effect[]) => ({ lasting: es.filter((e) => !ONCE.has(e.kind)), once: es.filter((e) => ONCE.has(e.kind)) });
+/** Effects split: those read while they last — a lasting one timed from `clock` — and those done once. */
+const split = (es: readonly Effect[], clock: number) => ({
+  lasting: es.filter((e) => !ONCE.has(e.kind)).map((e) => (e.lasts ? { ...e, until: clock + e.lasts } : e)),
+  once: es.filter((e) => ONCE.has(e.kind)),
+});
 
 const clamp = (n: number) => Math.max(-AXIS_MOST, Math.min(AXIS_MOST, n));
 
@@ -144,8 +149,9 @@ export const useQuestStore = create<QuestState>()(
           offer: null,
           [offer.kind === "chapter" ? "chapters" : "requests"]: { ...s[offer.kind === "chapter" ? "chapters" : "requests"], [offer.id]: index },
           disposition, path: [...s.path, disposition],
-          effects: [...s.effects, ...split(opt.effects).lasting],
-          actions: [...s.actions, ...split(opt.effects).once],
+          effects: [...s.effects, ...split(opt.effects, s.clock).lasting],
+          actions: [...s.actions, ...split(opt.effects, s.clock).once],
+          said: opt.reply ? [...s.said, opt.reply] : s.said,
           flags: [...new Set([...s.flags, ...opt.effects.flatMap((e) => (e.kind === "flag" ? [e.name] : []))])],
           // One objective at a time: a new one takes the place of one still running, which is let go, not failed.
           objective: opt.objective ? { kind: offer.kind, id: offer.id, option: index, spec: opt.objective, elapsed: 0, progress: 0, held: 0 } : s.objective,
@@ -160,8 +166,8 @@ export const useQuestStore = create<QuestState>()(
         const says = met ? opt?.successSays : opt?.failureSays;
         set({
           objective: null, picking: null,
-          effects: [...s.effects, ...split(more).lasting],
-          actions: [...s.actions, ...split(more).once],
+          effects: [...s.effects, ...split(more, s.clock).lasting],
+          actions: [...s.actions, ...split(more, s.clock).once],
           flags: [...new Set([...s.flags, ...more.flatMap((e) => (e.kind === "flag" ? [e.name] : []))])],
           said: says ? [...s.said, says] : s.said,
         });
@@ -187,6 +193,10 @@ export const useQuestStore = create<QuestState>()(
           if (get().dcCooled !== world.dcCooled >= 1) set({ dcCooled: world.dcCooled >= 1 });
           // THE ARC IS THE FIRST GENERATION'S. @see plans/ai-takeover.md open question 6
           if (useGenerationStore.getState().generation !== 1) return;
+          // THE ARC'S CLOCK, and what has run out on it.
+          const clock = get().clock + dt;
+          const expired = get().effects.some((e) => e.until !== undefined && e.until <= clock);
+          set(expired ? { clock, effects: get().effects.filter((e) => e.until === undefined || e.until > clock) } : { clock });
           let s = get();
           // AN OBJECTIVE, measured; met, or out of time.
           if (s.objective) {

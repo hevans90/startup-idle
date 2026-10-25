@@ -20,7 +20,12 @@ export type Cell = { x: number; y: number };
  * WHAT AN OPTION DOES, for the rest of the generation. Each is read in
  * exactly one place in the game. @see effects
  */
-export type Effect =
+export type Effect = EffectKind & {
+  /** Seconds of play it lasts; for good, without. Set when chosen: `until`, on the arc's clock. @see useQuestStore.clock */
+  lasts?: number;
+  until?: number;
+};
+type EffectKind =
   /** Income × this. */
   | { kind: "incomeMult"; mult: number }
   /** The AI's wallet holds × this. */
@@ -47,13 +52,15 @@ export type Effect =
   | { kind: "charter"; charter: Charter }
   /** Its buildings in its district kept in water, whatever their pipes: a standing source. */
   | { kind: "standingWater" }
+  /** ONCE: so many seconds of income paid, or as much as there is. */
+  | { kind: "pay"; seconds: number }
   /** ONCE, when it comes into force: the block picked rebuilt to its plan — its starter houses cleared, but for the building kept. */
   | { kind: "rebuildBlock" }
   /** An echo: something a later chapter, request or the Ascension reads. */
   | { kind: "flag"; name: string };
 
 /** The effects done once, when they come into force, rather than read while they last. @see useQuestStore.actions */
-export const ONCE: ReadonlySet<Effect["kind"]> = new Set(["rebuildBlock"]);
+export const ONCE: ReadonlySet<Effect["kind"]> = new Set(["rebuildBlock", "pay"]);
 
 /**
  * THE CHARTERS: the rules of the takeover. The Oversight Board keeps your
@@ -103,6 +110,8 @@ export type Option = {
   /** What follows when its objective is met, and when it is not. */
   success?: Effect[];
   failure?: Effect[];
+  /** What it says when this is chosen. */
+  reply?: string;
   /** What it says on each. */
   successSays?: string;
   failureSays?: string;

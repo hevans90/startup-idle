@@ -3133,6 +3133,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               useQuestStore.setState({ actions: [] });
               for (const e of q.actions) {
                 if (e.kind === "rebuildBlock" && clearBlock(st.grid) > 0) st.pushAiMemo("I have cleared the block. Its residents are staying with friends. I will build it again, properly.");
+                // PAID: so many seconds of income, or as much as there is. @see Effect "pay"
+                if (e.kind === "pay") {
+                  const m = useMoneyStore.getState();
+                  m.spendMoney(Math.min(m.money.toNumber(), Math.max(0, useGeneratorStore.getState().getMoneyPerSecond()) * e.seconds));
+                }
               }
             }
           }
