@@ -2,13 +2,17 @@
  * THE TOKENS, INSTALLED: written once into a `<style>` as CSS variables —
  * `--ui-*` on `:root` for light, again under `.dark` — before anything is
  * drawn; and `--console-ai`, the takeover mix, kept to the meter's stage on
- * the root element. `--ui-console` is the console's own colour: the founder's
+ * the root element — nothing when the console is calm — and the interface's
+ * sound pitched by it. `--ui-console` is the console's own colour: the founder's
  * teal mixed toward the AI's violet by it; an element that sets its own
  * `--console-ai` takes the class `console-scope` to have it mixed there.
  * @see tokens, plans/ui-overhaul.md §1.1
  */
-import { stageOf, useAiSingularityStore } from "../../state/ai-singularity.store";
-import { CONSOLE_AI, tokens, type Theme } from "./tokens";
+import { setConsoleMix } from "../../audio/sound";
+import { useAiSingularityStore } from "../../state/ai-singularity.store";
+import { useGlobalSettingsStore } from "../../state/global-settings.store";
+import { isCalm, stageMix } from "../motion/console";
+import { tokens, type Theme } from "./tokens";
 
 const block = (theme: Theme) => Object.entries(tokens(theme)).map(([k, v]) => `--ui-${k}: ${v};`).join(" ");
 
@@ -27,12 +31,18 @@ export function installTheme(doc: Document = document): () => void {
   style.dataset.ui = "tokens";
   style.textContent = themeCss();
   doc.head.prepend(style);
+  // THE MIX, the stage's — held at nothing when calm — for the colours and the interface's pitch.
   let was = -1;
   const sync = () => {
-    const mix = CONSOLE_AI[stageOf(useAiSingularityStore.getState().value).stage] ?? 0;
-    if (mix !== was) { was = mix; doc.documentElement.style.setProperty("--console-ai", String(mix)); }
+    const mix = isCalm() ? 0 : stageMix(useAiSingularityStore.getState().value);
+    if (mix === was) return;
+    was = mix;
+    doc.documentElement.style.setProperty("--console-ai", String(mix));
+    setConsoleMix(mix);
   };
   sync();
-  const stop = useAiSingularityStore.subscribe(sync);
-  return () => { stop(); style.remove(); };
+  const stops = [useAiSingularityStore.subscribe(sync), useGlobalSettingsStore.subscribe(sync)];
+  const media = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  media?.addEventListener("change", sync);
+  return () => { for (const s of stops) s(); media?.removeEventListener("change", sync); style.remove(); };
 }

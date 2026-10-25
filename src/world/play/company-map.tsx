@@ -13,6 +13,7 @@ import { AiReport } from "./ai-report";
 import { AiMemos } from "./ai-memos";
 import { DesireReadout } from "./desire-readout";
 import { useEffect } from "react";
+import { sfx } from "../../audio/sound";
 
 import { projectForStructure } from "../../game/projects";
 import { useResizeToWrapper } from "../../hooks/use-resize-to-wrapper";
@@ -47,6 +48,8 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
    * studio the employees. A drag pans the map and opens nothing.
    * @see ProjectDef.opens, WorldState.lookedAt
    */
+  // A REFUSAL, heard: the interface's deny. @see WorldState.notice
+  useEffect(() => useWorldStore.subscribe((st, was) => { if (st.notice && st.notice !== was.notice) sfx("deny"); }), []);
   useEffect(() => useWorldStore.subscribe((st, was) => {
     if (!st.lookedAt || st.lookedAt === was.lookedAt) return;
     const s = structureOf(st.grid, st.lookedAt.x, st.lookedAt.y);

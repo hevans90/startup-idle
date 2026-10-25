@@ -31,7 +31,7 @@ import { useMoneyStore } from "./state/money.store";
 import { useSessionStore } from "./state/session.store";
 import { useThemeStore } from "./state/theme.store";
 import { useGlobalSettingsStore } from "./state/global-settings.store";
-import { listen, setLevel } from "./audio/sound";
+import { listen, setLevel, setMix } from "./audio/sound";
 import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
 
@@ -140,7 +140,12 @@ function App() {
   // SOUND: started on the first gesture, buttons click, and the level kept to the player's settings. @see audio/sound
   useEffect(() => {
     const stop = listen();
-    const apply = () => { const g = useGlobalSettingsStore.getState(); setLevel(g.volume, g.muted); };
+    const apply = () => {
+      const g = useGlobalSettingsStore.getState();
+      setLevel(g.volume, g.muted);
+      // Each bus's share, and ticks only when asked for and the console is not calm. @see setMix
+      setMix({ effects: g.effects, interface: g.interface, ambience: g.ambience, ticks: g.ticks && g.motion !== "calm" });
+    };
     apply();
     const unsub = useGlobalSettingsStore.subscribe(apply);
     return () => { stop(); unsub(); };

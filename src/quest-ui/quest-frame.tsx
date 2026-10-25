@@ -18,7 +18,7 @@ import {
   type FrameSettings,
 } from "@arwes/frames";
 
-import { useReducedMotion } from "./motion";
+import { useConsoleMotion } from "../ui/motion";
 
 /** The shapes: the transmission's octagon, a decision card's corners, the tracker's underline. */
 export type QuestFrameKind = "octagon" | "corners" | "underline";
@@ -45,7 +45,8 @@ export function QuestFrame({ kind = "octagon", illuminate = false, lit = false, 
   children?: ReactNode;
 }) {
   const svg = useRef<SVGSVGElement>(null);
-  const reduced = useReducedMotion();
+  // Calm — chosen, or the system's reduced motion — and it is simply there. @see useConsoleMotion
+  const reduced = useConsoleMotion().calm;
   useEffect(() => {
     const el = svg.current;
     if (!el) return;

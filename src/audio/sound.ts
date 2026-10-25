@@ -1,13 +1,17 @@
 /**
  * SOUND: every sound the game makes, made here in Web Audio — no files, so
- * nothing to license or load. Three gains under a master: the effects, and
- * the town's ambience under it.
+ * nothing to license or load. Three buses under a master, each at its own
+ * level: the game's effects, the interface's, and the town's ambience.
  *
  *  - EFFECTS (`sfx`): a click for a button, a thud for a building going up, a
  *    pop for a house growing, a coin for a port's fee, a crumble for a
  *    demolition; a soft rising chirp as the AI's transmission comes in, and a
  *    confirm tone for a decision made. The same one again within `REPEAT_MS`
  *    is dropped, so AI mode building a block is a patter and not a roar.
+ *  - THE INTERFACE (`INTERFACE`, on its own bus): a click, a tick under the
+ *    pointer (if asked for), a panel opening and closing, a purchase
+ *    confirmed, a refusal, an alert, the AI's transmission and a decision —
+ *    pitched up a little as the AI takes the console over. @see setConsoleMix
  *  - AMBIENCE (`ambience`): a low hum that swells with the town, birds by
  *    day, crickets by night.
  *
@@ -16,17 +20,24 @@
  * old browsers) every call is a no-op. Volume and mute are the player's, in
  * settings. @see SoundControls
  */
-export type Sfx = "click" | "build" | "pop" | "coin" | "crumble" | "transmission" | "decision";
+export type Sfx = "click" | "build" | "pop" | "coin" | "crumble" | "transmission" | "decision"
+  | "tick" | "open" | "close" | "confirm" | "deny" | "alert";
+/** The interface's sounds, on its own bus. */
+export const INTERFACE: ReadonlySet<Sfx> = new Set(["click", "transmission", "decision", "tick", "open", "close", "confirm", "deny", "alert"]);
 
 /** The same sound again within this long is dropped, ms. */
 export const REPEAT_MS = 70;
 /** How loud the ambience sits under the effects, at its fullest. */
 const AMBIENT = 0.35;
 
-type Bus = { ctx: AudioContext; master: GainNode; sfx: GainNode; amb: GainNode; noise: AudioBuffer; hum: GainNode | null; birds: number; crickets: number };
+type Bus = { ctx: AudioContext; master: GainNode; sfx: GainNode; ui: GainNode; amb: GainNode; ambLevel: GainNode; noise: AudioBuffer; hum: GainNode | null; birds: number; crickets: number };
 
 let bus: Bus | null = null;
 let level = { volume: 0.6, muted: false };
+/** Each bus's share of the level, and whether the interface ticks. */
+let mix = { effects: 1, interface: 0.5, ambience: 1, ticks: false };
+/** How far the AI has taken the console over, 0–1: the interface's pitch rises with it. @see installTheme */
+let consoleMix = 0;
 const last: Partial<Record<Sfx, number>> = {};
 let mood = { town: 0, night: 0 };
 /** When the ambience was last told about the town; it fades out if that stops — the map hidden. */
@@ -44,6 +55,19 @@ export function setLevel(volume: number, muted: boolean) {
 /** What the master gain is, for the level set. */
 export const gainNow = () => (level.muted ? 0 : level.volume * level.volume);
 
+/** Each bus's share of the level, and whether the interface ticks under the pointer. */
+export function setMix(m: Partial<typeof mix>) {
+  mix = { ...mix, ...m };
+  if (!bus) return;
+  const t = bus.ctx.currentTime;
+  bus.sfx.gain.setTargetAtTime(mix.effects, t, 0.05);
+  bus.ui.gain.setTargetAtTime(mix.interface, t, 0.05);
+  bus.ambLevel.gain.setTargetAtTime(mix.ambience, t, 0.05);
+}
+export const mixNow = () => mix;
+/** The takeover's mix, for the interface's pitch. */
+export const setConsoleMix = (m: number) => { consoleMix = Math.max(0, Math.min(1, m)); };
+
 /** Start the bus, on the first gesture. Safe to call again. */
 export function unlock(): void {
   if (bus || !canPlay()) { void bus?.ctx.resume(); return; }
@@ -52,15 +76,23 @@ export function unlock(): void {
   master.gain.value = gainNow();
   master.connect(ctx.destination);
   const sfx = ctx.createGain();
+  sfx.gain.value = mix.effects;
   sfx.connect(master);
+  const ui = ctx.createGain();
+  ui.gain.value = mix.interface;
+  ui.connect(master);
+  // The ambience swells and fades by itself; its level sits after that.
+  const ambLevel = ctx.createGain();
+  ambLevel.gain.value = mix.ambience;
+  ambLevel.connect(master);
   const amb = ctx.createGain();
   amb.gain.value = 0;
-  amb.connect(master);
+  amb.connect(ambLevel);
   // A second of white noise, for the thuds, crumbles and the hum.
   const noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
   const d = noise.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  bus = { ctx, master, sfx, amb, noise, hum: null, birds: 0, crickets: 0 };
+  bus = { ctx, master, sfx, ui, amb, ambLevel, noise, hum: null, birds: 0, crickets: 0 };
   startHum(bus);
   // The map's ticker drives the ambience; with the map away, it goes quiet.
   setInterval(() => {
@@ -68,21 +100,37 @@ export function unlock(): void {
   }, 500);
 }
 
-/** Listen for the first gesture, and for clicks on buttons. Returns how to stop. */
+/** What can be acted on: a click on it clicks, a pointer arriving on it ticks. */
+const ACTABLE = "button:not(:disabled), [role=button], [role=tab], input[type=checkbox], select";
+/** A tick at most this often, ms; never twice for the same thing. */
+const TICK_MS = 60;
+
+/** Listen for the first gesture, for clicks on buttons and, if asked for, for the pointer arriving on one. Returns how to stop. */
 export function listen(): () => void {
   if (typeof window === "undefined") return () => {};
   const first = () => unlock();
   const click = (e: MouseEvent) => {
     const t = e.target as HTMLElement | null;
-    if (t?.closest?.("button, [role=button], input[type=checkbox], select")) sfx("click");
+    if (t?.closest?.(ACTABLE)) sfx("click");
+  };
+  let over: Element | null = null, tickedAt = 0;
+  const hover = (e: PointerEvent) => {
+    if (!mix.ticks || e.pointerType === "touch") return;
+    const el = (e.target as HTMLElement | null)?.closest?.(ACTABLE) ?? null;
+    if (el === over) return;
+    over = el;
+    const now = performance.now();
+    if (el && now - tickedAt >= TICK_MS) { tickedAt = now; sfx("tick"); }
   };
   window.addEventListener("pointerdown", first, { capture: true });
   window.addEventListener("keydown", first, { capture: true });
   window.addEventListener("click", click, { capture: true });
+  window.addEventListener("pointerover", hover, { capture: true, passive: true });
   return () => {
     window.removeEventListener("pointerdown", first, { capture: true });
     window.removeEventListener("keydown", first, { capture: true });
     window.removeEventListener("click", click, { capture: true });
+    window.removeEventListener("pointerover", hover, { capture: true });
   };
 }
 
@@ -93,16 +141,25 @@ export function sfx(name: Sfx): void {
   if (now - (last[name] ?? -Infinity) < REPEAT_MS) return;
   last[name] = now;
   const { ctx } = bus, t = ctx.currentTime;
+  // THE INTERFACE'S, on its bus, a little higher as the AI takes the console over.
+  const ui = INTERFACE.has(name) ? bus.ui : bus.sfx, p = INTERFACE.has(name) ? 1 + 0.12 * consoleMix : 1;
+  const note = (type: OscillatorType, f0: number, f1: number, at: number, dur: number, peak: number) => tone(bus!, type, f0 * p, f1 * p, at, dur, peak, ui);
   switch (name) {
-    case "click": tone(bus, "sine", 1400, 900, t, 0.035, 0.12); break;
+    case "click": note("sine", 1400, 900, t, 0.035, 0.12); break;
+    case "tick": note("sine", 2600, 2400, t, 0.012, 0.04); break;
+    case "open": note("sine", 660, 990, t, 0.09, 0.07); note("sine", 1320, 1320, t + 0.05, 0.06, 0.04); break;
+    case "close": note("sine", 990, 600, t, 0.08, 0.06); break;
+    case "confirm": note("triangle", 880, 880, t, 0.06, 0.1); note("triangle", 1320, 1320, t + 0.06, 0.12, 0.09); break;
+    case "deny": note("square", 220, 180, t, 0.07, 0.05); note("square", 180, 150, t + 0.08, 0.09, 0.05); break;
+    case "alert": for (let k = 0; k < 2; k++) note("triangle", 1046, 1046, t + k * 0.16, 0.1, 0.1); break;
     case "pop": tone(bus, "sine", 420, 980, t, 0.09, 0.25); tone(bus, "triangle", 1960, 1960, t + 0.05, 0.08, 0.06); break;
     case "coin": tone(bus, "square", 988, 988, t, 0.07, 0.06); tone(bus, "square", 1319, 1319, t + 0.07, 0.16, 0.06); break;
     case "build": tone(bus, "sine", 120, 55, t, 0.22, 0.5); burst(bus, t, 0.12, 900, 0.25); break;
     case "crumble": burst(bus, t, 0.45, 600, 0.4); burst(bus, t + 0.08, 0.3, 1800, 0.15); break;
     // THE AI'S TRANSMISSION: three soft rising chirps, each a little higher. @see quest-ui
-    case "transmission": for (let k = 0; k < 3; k++) tone(bus, "sine", 520 * 1.26 ** k, 780 * 1.26 ** k, t + k * 0.09, 0.14, 0.09); break;
+    case "transmission": for (let k = 0; k < 3; k++) note("sine", 520 * 1.26 ** k, 780 * 1.26 ** k, t + k * 0.09, 0.14, 0.09); break;
     // A DECISION: two notes up a fifth, the second held.
-    case "decision": tone(bus, "triangle", 660, 660, t, 0.08, 0.14); tone(bus, "triangle", 990, 990, t + 0.08, 0.24, 0.12); break;
+    case "decision": note("triangle", 660, 660, t, 0.08, 0.14); note("triangle", 990, 990, t + 0.08, 0.24, 0.12); break;
   }
 }
 

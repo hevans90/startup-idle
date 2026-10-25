@@ -8,7 +8,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { animateTextDecipher, animateTextSequence, getAnimationTextDuration } from "@arwes/text";
 
-import { useReducedMotion } from "./motion";
+import { useConsoleMotion } from "../ui/motion";
 
 /** Characters a second it types at, and the longest a line takes, seconds. */
 const TYPED = 60;
@@ -27,7 +27,7 @@ export function QuestText({ text, mode = "sequence", as = "span", className, onD
 }) {
   const root = useRef<HTMLElement>(null);
   const content = useRef<HTMLSpanElement>(null);
-  const reduced = useReducedMotion();
+  const reduced = useConsoleMotion().calm;
   const done = useRef(onDone);
   done.current = onDone;
   useEffect(() => {
