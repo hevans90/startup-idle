@@ -53,7 +53,7 @@ export const ValuationSummary = () => {
         className="text-sm font-bold"
       />
 
-      <div className="flex flex-col gap-0.5 border-t border-primary-400/40 pt-1.5 dark:border-primary-600/50">
+      <div className="flex flex-col gap-0.5 border-t border-line/40 pt-1.5">
         <Row label="Revenue engine" value={formatRate(base).formatted} />
         <Row
           indent
@@ -64,7 +64,7 @@ export const ValuationSummary = () => {
       </div>
 
       {activeFactors.length > 0 && (
-        <div className="flex flex-col gap-0.5 border-t border-primary-400/40 pt-1.5 dark:border-primary-600/50">
+        <div className="flex flex-col gap-0.5 border-t border-line/40 pt-1.5">
           <p className="text-[10px] uppercase tracking-wide opacity-50">
             Multipliers
           </p>

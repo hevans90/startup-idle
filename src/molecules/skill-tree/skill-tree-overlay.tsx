@@ -3,7 +3,8 @@ import { useEffect } from "react";
 import { usePrestigeStore, RESPECS_PER_EXIT } from "../../state/prestige.store";
 import { useGenerationStore } from "../../state/generation.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
-import { Button } from "../../ui/Button";
+import { twMerge } from "tailwind-merge";
+import { Button, FOCUS, Frame, IconButton, Label, Num, Text } from "../../ui/console";
 import { formatCurrency } from "../../utils/money-utils";
 import { SkillTreeBonuses } from "./skill-tree-bonuses";
 import { SkillTreeCanvas } from "./skill-tree-canvas";
@@ -59,85 +60,52 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
   }, [respecPoints, respecMode]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-primary-50 text-primary-900 dark:bg-primary-900 dark:text-primary-100">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-primary-300 px-4 py-2 dark:border-primary-700">
-        <div className="flex items-center gap-6 text-sm tabular-nums">
-          <span>
-            <span className="opacity-60">Equity</span>{" "}
-            <span className="font-bold">
-              {formatCurrency(equity, { showDollarSign: false })}
-            </span>
-          </span>
-          <span className="opacity-60">Exits {exits}</span>
-          <span className="opacity-60">Allocated {allocated}</span>
-          <span>
-            <span className="opacity-60">Respecs</span>{" "}
-            <span className="font-bold text-rose-500 dark:text-rose-400">{respecPoints}</span>
-          </span>
+    <div role="dialog" aria-modal="true" aria-label="The acquisition tree" className="fixed inset-0 z-50 flex flex-col bg-surface-0 text-fg">
+      {/* THE HEADER: what there is to spend, the search, respec, and the way out. */}
+      <div className="relative flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-2">
+        <Frame kind="underline" assemble="auto" className="pointer-events-none absolute inset-x-0 bottom-0 h-2" />
+        <div className="flex items-center gap-5 text-sm">
+          <Text as="h2" text="Acquisition tree" className="font-display uppercase tracking-wider" />
+          <span><Label>Equity</Label> <Num className="font-display text-base text-valuation">{formatCurrency(equity, { showDollarSign: false })}</Num></span>
+          <span><Label>Exits</Label> <Num>{exits}</Num></span>
+          <span><Label>Allocated</Label> <Num>{allocated}</Num></span>
+          <span><Label>Respecs</Label> <Num className="text-bad">{respecPoints}</Num></span>
           {ascended && (
             <span title="Spent in the Machine, the AI's cluster below the tree">
-              <span className="opacity-60">Weights</span>{" "}
-              <span className="font-bold text-violet-700 dark:text-violet-300">{weights}</span>
+              <Label>Weights</Label> <Num role="weights" className="font-display text-base">{weights}</Num>
             </span>
           )}
         </div>
 
         <div className="relative">
-          <IconSearch
-            size={15}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-primary-400"
-          />
+          <IconSearch size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-faint" />
           <input
             type="text"
             value={search}
             onChange={(e) => useSkillTreeUiStore.getState().setSearch(e.target.value)}
             placeholder="Search passives…"
             aria-label="Search passives"
-            className="w-56 rounded-md border border-primary-300 bg-primary-100/80 py-1 pl-8 pr-7 text-xs text-primary-900 outline-none placeholder:text-primary-400 focus:border-cyan-500 dark:border-primary-700 dark:bg-primary-800/80 dark:text-primary-100"
+            className={twMerge("w-56 border border-line bg-surface-1 py-1 pl-8 pr-7 text-xs text-fg placeholder:text-fg-faint focus:border-console", FOCUS)}
           />
           {search && (
-            <button
-              type="button"
-              aria-label="Clear search"
-              onClick={() => useSkillTreeUiStore.getState().setSearch("")}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-primary-400 hover:text-primary-700 dark:hover:text-primary-100"
-            >
+            <IconButton label="Clear search" className="absolute right-0.5 top-1/2 -translate-y-1/2" onClick={() => useSkillTreeUiStore.getState().setSearch("")}>
               <IconX size={14} />
-            </button>
+            </IconButton>
           )}
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            className="text-xs"
-            disabled={exits < 1}
-            onClick={() => usePrestigeStore.getState().buyRespecs()}
-          >
+          <Button size="sm" disabled={exits < 1} onClick={() => usePrestigeStore.getState().buyRespecs()}>
             Buy {RESPECS_PER_EXIT} respecs (1 Exit)
           </Button>
-          <Button
+          <Button size="sm" variant={respecMode ? "danger" : "secondary"} aria-pressed={respecMode}
             disabled={respecPoints < 1}
             title={respecPoints < 1 ? "Buy respec points with an Exit first" : undefined}
-            className={
-              respecMode
-                ? "text-xs ring-2 ring-rose-500 bg-rose-500/20 dark:ring-rose-400"
-                : "text-xs"
-            }
-            onClick={() =>
-              useSkillTreeUiStore.getState().setRespecMode(!respecMode)
-            }
-          >
+            className={respecMode ? "bg-bad-soft" : undefined}
+            onClick={() => useSkillTreeUiStore.getState().setRespecMode(!respecMode)}>
             {respecMode ? "Respeccing…" : "Respec"}
           </Button>
-          <button
-            type="button"
-            aria-label="Close skill tree"
-            title="Close (Esc)"
-            onClick={onClose}
-            className="rounded p-1.5 text-primary-500 hover:bg-primary-200 hover:text-primary-900 dark:text-primary-300 dark:hover:bg-primary-700 dark:hover:text-primary-50"
-          >
-            <IconX size={20} />
-          </button>
+          <IconButton label="Close the tree (Esc)" onClick={onClose}><IconX size={20} /></IconButton>
         </div>
       </div>
 
@@ -146,7 +114,7 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
         <SkillTreeTooltip />
         <SkillTreeBonuses />
         {respecMode && (
-          <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded bg-rose-500/20 px-3 py-1 text-xs text-rose-700 ring-1 ring-rose-400/50 dark:text-rose-200">
+          <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 border border-bad-line bg-bad-soft px-3 py-1 text-xs text-bad">
             Respec mode — click an allocated node to refund it and everything past it (1 respec point each)
           </div>
         )}

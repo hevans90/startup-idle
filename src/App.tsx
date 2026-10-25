@@ -1,3 +1,6 @@
+import { isPhone } from "./hooks/use-phone";
+import { useAiSingularityStore } from "./state/ai-singularity.store";
+import { Frame, Num, Segmented } from "./ui/console";
 import { FloatingTree } from "@floating-ui/react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { evaluateAchievements } from "./game/achievements.engine";
@@ -11,16 +14,12 @@ import { DevDrawer } from "./molecules/dev-panel";
 import { EmployeeSatisfactionOverlay } from "./molecules/employee-satisfaction-overlay";
 import { FounderSelect } from "./molecules/founder-select";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
-import { Generators } from "./molecules/generators";
-import { InnovationCounter } from "./molecules/innovation-counter";
 import { OfflineSummaryModal } from "./molecules/offline-summary";
 import { whenWorldReady } from "./game/world-ready";
-import { PurchaseModeToggle } from "./molecules/purchase-mode-toggle";
 import { SellTransitionProvider } from "./molecules/sell-transition";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Sidebar } from "./molecules/sidebar";
 import { Toolbar } from "./molecules/toolbar";
-import { Upgrades } from "./molecules/upgrades";
 import { VapeMapWrapper } from "./molecules/vape-map-wrapper";
 import { useFounderStore } from "./state/founder.store";
 import { useGeneratorStore } from "./state/generators.store";
@@ -60,6 +59,7 @@ function App() {
   const money = useMoneyStore((s) => s.money);
   const increaseMoney = useMoneyStore((s) => s.increaseMoney);
   const innovation = useInnovationStore((s) => s.innovation);
+  const aiValue = useAiSingularityStore((s) => s.value);
 
   const lastAchievementEvalRef = useRef(0);
 
@@ -79,7 +79,7 @@ function App() {
     null,
   );
 
-  const isMobile = window.innerWidth <= 768;
+  const isMobile = isPhone();
   const [phoneTab, setPhoneTab] = useState<"map" | "company">("map");
   // SENT FROM THE MAP to show the company's side — a project's gate, say, whose
   // upgrade is bought on the Employees tab. @see showUpgrades
@@ -188,22 +188,22 @@ function App() {
           // THE PHONE: the map and the company, a tab each. The map stays
           // mounted on the other tab, so its gates — beds, projects, the
           // commute — hold on a phone as on a desktop. @see useFoundWorld
-          <div className="flex h-full w-full flex-col bg-primary-50 dark:bg-primary-900">
-            <header className="flex items-center gap-2 border-b border-primary-300 px-2 py-1 dark:border-primary-700">
+          <div className="flex h-full w-full flex-col bg-surface-0 text-fg">
+            {/* THE HUD, ONE ROW: settings, money (a tap earns), innovation, the AI; then Map or Company. */}
+            <header className="relative flex items-center gap-2 px-2 py-1">
+              <Frame kind="underline" assemble="auto" className="pointer-events-none absolute inset-x-0 bottom-0 h-2" />
               <SettingsPopover className="h-9 w-9 border-none p-1" />
-              <button className="cursor-pointer text-left" onClick={() => increaseMoney(Math.max(mps / 10, 1))}>
-                <span className="block text-lg font-bold leading-tight">{formatCurrency(money)}</span>
-                <span className="block text-[11px] text-primary-600 dark:text-primary-400">{formatCurrency(mps)}/s</span>
+              <button type="button" className="shrink-0 cursor-pointer text-left" onClick={() => increaseMoney(Math.max(mps / 10, 1))}>
+                <Num role="money" className="block font-display text-base leading-tight">{formatCurrency(money)}</Num>
+                <span className="block text-[11px] text-fg-muted">{formatCurrency(mps)}/s</span>
               </button>
+              {innovation.gte(1) && (
+                <Num role="innovation" className="shrink-0 font-display text-sm">I {formatCurrency(innovation, { showDollarSign: false })}</Num>
+              )}
+              {aiValue > 0 && <Num role="ai" className="shrink-0 font-display text-sm">AI {aiValue.toFixed(0)}%</Num>}
               <span className="flex-1" />
-              {(["map", "company"] as const).map((t) => (
-                <button key={t} type="button" onClick={() => setPhoneTab(t)}
-                  className={`cursor-pointer border px-3 py-1 text-sm ${phoneTab === t
-                    ? "border-primary-700 bg-primary-200 dark:border-primary-200 dark:bg-primary-700"
-                    : "border-primary-300 dark:border-primary-600"}`}>
-                  {t === "map" ? "Map" : "Company"}
-                </button>
-              ))}
+              <Segmented label="Show" value={phoneTab} onChange={setPhoneTab}
+                options={[{ value: "map", label: "Map" }, { value: "company", label: "Company" }]} />
             </header>
             <div className="relative min-h-0 flex-1">
               <div className={`absolute inset-0 ${phoneTab === "map" ? "" : "invisible"}`}>
@@ -211,16 +211,8 @@ function App() {
                   <CompanyMap hidden={phoneTab !== "map"} />
                 </Suspense>
               </div>
-              {phoneTab === "company" && (
-                <div className="absolute inset-0 flex flex-col items-center gap-2 overflow-y-auto bg-primary-50 pt-4 dark:bg-primary-900">
-                  {innovation.gte(1) && <InnovationCounter />}
-                  <PurchaseModeToggle />
-                  <Generators isMobile={true} />
-                  <section className="mt-8">
-                    <Upgrades isMobile={true} />
-                  </section>
-                </div>
-              )}
+              {/* THE COMPANY: the sidebar, its panels the screen's width. @see Sidebar */}
+              {phoneTab === "company" && <Sidebar className="absolute inset-0" />}
             </div>
           </div>
         ) : (
@@ -246,7 +238,7 @@ function App() {
                 {/* THE DEV DRAWER, in development: ` to open it, out of comms' way. @see DevPanel */}
                 <DevDrawer />
 
-                <AscensionCard className="absolute left-1/2 top-1/4 z-30 -translate-x-1/2" />
+                <AscensionCard />
 
                 <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1 items-start">
                   {vapeVisible && <VapeMapWrapper />}

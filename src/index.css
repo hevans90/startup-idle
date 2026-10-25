@@ -109,7 +109,32 @@
   }
 }
 
+@keyframes ui-tab-in {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* CALM: nothing loops or slides in — a pulse, a glow, a tab drawn on, an arrival. Set on the root by installTheme. */
+html.ui-calm .animate-pulse,
+html.ui-calm .animate-ping,
+html.ui-calm .hint-glow,
+html.ui-calm .ui-tab-in,
+html.ui-calm .quest-slide-in,
+html.ui-calm .news-line-enter {
+  animation: none;
+}
+
 @layer utilities {
+  /* A TAB JUST OPENED, drawn on from the left. @see Tabs */
+  .ui-tab-in {
+    animation: ui-tab-in 0.5s ease-out;
+  }
   /* THE AI'S TRANSMISSION arriving from the right. @see Transmission */
   .quest-slide-in {
     animation: quest-slide-in 0.35s ease-out;

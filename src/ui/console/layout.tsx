@@ -13,6 +13,7 @@ import { sfx } from "../../audio/sound";
 import { useConsoleMotion, useSequence } from "../motion";
 import { Backdrop } from "./backdrop";
 import { FOCUS } from "./controls";
+import { Tooltip } from "./feedback";
 import { Frame, type Tone } from "./frame";
 import { Text } from "./text";
 
@@ -21,10 +22,11 @@ export const Label = ({ children, className }: { children: ReactNode; className?
   <span className={twMerge("text-[10px] uppercase tracking-widest text-fg-muted", className)}>{children}</span>
 );
 
-/** A standing part of the console: a title, its controls, and what is in it. */
-export function Panel({ title, controls, tone = "console", className, children }: {
+/** A standing part of the console: a title, its controls, what it is for on a "?", and what is in it. */
+export function Panel({ title, controls, help, tone = "console", className, children }: {
   title: string;
   controls?: ReactNode;
+  help?: ReactNode;
   tone?: Tone;
   className?: string;
   children?: ReactNode;
@@ -33,8 +35,17 @@ export function Panel({ title, controls, tone = "console", className, children }
     <Frame kind="kranox" tone={tone} className={twMerge("text-fg", className)}>
       <section aria-label={title} className="flex flex-col gap-2 px-3 pb-3 pt-2">
         <header className="flex items-center justify-between gap-2">
-          <Text as="h3" text={title} className="font-display text-sm uppercase tracking-wider text-fg" />
-          {controls && <div className="flex items-center gap-1">{controls}</div>}
+          <Text as="h3" text={title} className="font-display text-sm uppercase tracking-wider text-[color:var(--frame-tone,var(--ui-console))]" />
+          {(controls || help) && (
+            <div className="flex items-center gap-1">
+              {controls}
+              {help && (
+                <Tooltip content={<div className="max-w-64 text-xs">{help}</div>}>
+                  <button type="button" aria-label={`About ${title}`} className={twMerge("cursor-help border border-line px-1.5 text-xs text-fg-muted hover:text-fg", FOCUS)}>?</button>
+                </Tooltip>
+              )}
+            </div>
+          )}
         </header>
         {children}
       </section>
@@ -119,9 +130,10 @@ export function Dialog({ title, kicker, onClose, actions, tone = "console", wide
     return () => { window.removeEventListener("keydown", key); sfx("close"); back?.focus?.(); };
   }, []);
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-0/60 p-4 backdrop-blur-[1px]">
-      <div ref={box} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className={twMerge("w-full outline-none", wide ? "max-w-2xl" : "max-w-md")}>
-        <Frame kind="octagon" tone={tone} assemble="auto" className="text-fg">
+    // On a phone, the whole screen. @see isPhone
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-0/60 p-4 backdrop-blur-[1px] max-md:p-0">
+      <div ref={box} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className={twMerge("w-full outline-none max-md:h-full max-md:max-w-none", wide ? "max-w-2xl" : "max-w-md")}>
+        <Frame kind="octagon" tone={tone} assemble="auto" className="text-fg max-md:h-full max-md:bg-surface-1" inner="max-md:h-full max-md:overflow-y-auto">
           <Backdrop kind="dots" />
           <div className="relative flex flex-col gap-3 p-5">
             <div className="flex items-start justify-between gap-2">

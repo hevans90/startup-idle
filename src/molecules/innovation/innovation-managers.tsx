@@ -4,9 +4,9 @@ import {
 } from "../../state/innovation.store";
 import { featureGateOpen } from "../../game/projects";
 import { usePrestigeStore } from "../../state/prestige.store";
-import { Button } from "../../ui/Button";
+import { Button, Locked, Panel } from "../../ui/console";
+import { showProject } from "../../world/play/map-focus";
 import { CycleButton } from "../../ui/CyclingButton";
-import { SystemPanel } from "../../ui/SystemPanel";
 import { EmployeeManagementPanel } from "./employee-management-panel";
 import ManagerRow from "./manager-row";
 
@@ -36,26 +36,24 @@ export const InnovationManagers = () => {
   return (
     <div className="w-full flex flex-col gap-6 select-none mt-2">
       {disableManagers && (
-        <div className="border border-rose-400/60 bg-rose-500/15 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
+        <div className="border border-bad-line bg-bad-soft px-3 py-2 text-xs text-bad">
           <span className="font-semibold">Bootstrapped</span> — managers and
           auto-buy are disabled. Manager tiers and auto-buy levels have no
           effect while this keystone is allocated.
         </div>
       )}
-      {!managersState?.unlocked && (
-        <Button
-          onClick={() => unlock("managers")}
-          disabled={!canUnlockManagers}
-          title={hqBuilt ? undefined : "Managers need an office: build your Company HQ on the map first."}
-        >
-          {hqBuilt
-            ? <>Unlock Managers: {managersState?.cost.toFixed(2)}</>
-            : <>Managers need an HQ — build one on the map</>}
+      {/* LOCKED until the HQ stands; then bought. @see featureGateOpen */}
+      {!managersState?.unlocked && !hqBuilt && (
+        <Locked needs="Managers need an office: build your Company HQ on the map" onShow={() => showProject("managers")} />
+      )}
+      {!managersState?.unlocked && hqBuilt && (
+        <Button variant="primary" onClick={() => unlock("managers")} disabled={!canUnlockManagers}>
+          Unlock Managers: {managersState?.cost.toFixed(2)}
         </Button>
       )}
 
       {managersState?.unlocked && (
-        <SystemPanel
+        <Panel
           title="Managers"
           help="Assign innovation to tier up managers"
           controls={
@@ -76,11 +74,12 @@ export const InnovationManagers = () => {
               onUnassign={() => unassignManager(managerName)}
             />
           ))}
-        </SystemPanel>
+        </Panel>
       )}
 
       {!employeeManagementState?.unlocked && (
         <Button
+          variant="primary"
           onClick={() => unlock("employeeManagement")}
           disabled={!canUnlockEmployeeManagement}
         >
@@ -89,14 +88,14 @@ export const InnovationManagers = () => {
       )}
 
       {employeeManagementState?.unlocked && (
-        <SystemPanel
+        <Panel
           title="Employee Management"
           help="Spend management points from manager tiers on each role. Refund a row
           to return all points spent on that role. Auto-buy purchases one
           employee per tick when you can afford it (fractions accumulate)."
         >
           <EmployeeManagementPanel />
-        </SystemPanel>
+        </Panel>
       )}
     </div>
   );

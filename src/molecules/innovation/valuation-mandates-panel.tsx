@@ -1,6 +1,6 @@
 import { featureGateOpen } from "../../game/projects";
 import { MANDATES, useValuationStore } from "../../state/valuation.store";
-import { Button } from "../../ui/Button";
+import { Button } from "../../ui/console";
 import { InfoRow } from "../../ui/InfoRow";
 import { formatCurrency } from "../../utils/money-utils";
 
@@ -23,7 +23,7 @@ export const ValuationMandatesPanel = () => {
 
       {/* The board needs somewhere to meet, where the company has a map. */}
       {!featureGateOpen("mandates") && (
-        <p className="px-1 text-xs text-amber-700 dark:text-amber-300">
+        <p className="px-1 text-xs text-warn">
           The board meets in its Boardroom Tower. Build one on the map to pass mandates.
         </p>
       )}
@@ -36,7 +36,7 @@ export const ValuationMandatesPanel = () => {
           return (
             <div
               key={m.id}
-              className="border border-primary-400 dark:border-primary-600 p-2 flex flex-col gap-1"
+              className="border border-line p-2 flex flex-col gap-1"
             >
               <div className="flex justify-between gap-2">
                 <span className="font-medium">{m.name}</span>

@@ -23,7 +23,7 @@ const WHY = {
   dark: "The racks are dark after the shutdown.",
 } as const;
 
-export function AgentsRow({ isMobile }: { isMobile: boolean }) {
+export function AgentsRow() {
   useTicking(500);
   const agents = useAgentsStore((s) => s.agents);
   const spinUp = useAgentsStore((s) => s.spinUp);
@@ -42,30 +42,27 @@ export function AgentsRow({ isMobile }: { isMobile: boolean }) {
   const pct = (k: number) => `${k >= 1 ? "+" : "−"}${Math.abs((k - 1) * 100).toFixed(1)}%`;
   const roomText = (Number.isFinite(room) ? `${agents}/${room}` : `${agents}`) + (running < agents ? ` · ${running} on` : "");
   return (
-    <div className={twMerge(
-      "flex items-center justify-between gap-2 border-t border-primary-300 px-2 py-1 dark:border-primary-700",
-      isMobile && "min-w-48 flex-col border px-3 py-2",
-    )}>
+    <div className="flex items-center justify-between gap-2 border-t border-line px-2 py-1">
       <InfoPop className="grow" placement="left"
-        trigger={<span className="responsive-text-sm text-indigo-600 dark:text-indigo-300">AI agents</span>}
+        trigger={<span className="responsive-text-sm text-info">AI agents</span>}
         title={`AI agents: income +${boost}%`}>
         <p>Each agent running at full power adds {Math.round(AGENT_BOOST * 100)}% to all income; they cost innovation, not money.</p>
         <p>They run in racks on the map, {agentsARack()} to a rack. A rack within {RACK_RANGE} tiles of the Data Centre is powered; further off, its agents work at {Math.round(UNPOWERED_SHARE * 100)}%.</p>
         <p className="tabular-nums">Running: {powered} powered{unpowered ? `, ${unpowered} at half power` : ""}.</p>
         <p className="tabular-nums">
           The next: {pct(trade.gain)} income from the agent, {pct(trade.loss)} from spending the innovation
-          (innovation multiplies income too): <b className={trade.net >= 1 ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}>{pct(trade.net)} in all</b>.
+          (innovation multiplies income too): <b className={trade.net >= 1 ? "text-good" : "text-bad"}>{pct(trade.net)} in all</b>.
         </p>
       </InfoPop>
-      <span className="w-1/4 text-center responsive-text-sm tabular-nums">{roomText}</span>
+      <span className="text-right responsive-text-sm tabular-nums">{roomText}</span>
       <button type="button" disabled={!!blocked} onClick={() => spinUp()}
         title={blocked ? WHY[blocked] : undefined}
         className={twMerge(
-          "w-1/2 cursor-pointer border border-primary-400 px-2 py-1 responsive-text-xs hover:bg-primary-200",
-          "disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent dark:border-primary-600 dark:hover:bg-primary-800",
+          "ml-2 w-2/5 cursor-pointer border border-line px-2 py-1 responsive-text-xs hover:bg-surface-2",
+          "disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent",
         )}>
         Spin up: {fmt(cost)} innovation
-        {!blocked && <span className={trade.net >= 1 ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}> ({pct(trade.net)})</span>}
+        {!blocked && <span className={trade.net >= 1 ? "text-good" : "text-bad"}> ({pct(trade.net)})</span>}
       </button>
     </div>
   );

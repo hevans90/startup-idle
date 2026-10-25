@@ -2,7 +2,8 @@
  * THE TOKENS, INSTALLED: written once into a `<style>` as CSS variables —
  * `--ui-*` on `:root` for light, again under `.dark` — before anything is
  * drawn; and `--console-ai`, the takeover mix, kept to the meter's stage on
- * the root element — nothing when the console is calm — and the interface's
+ * the root element — nothing when the console is calm, which also sets
+ * `ui-calm` there to still what loops — and the interface's
  * sound pitched by it. `--ui-console` is the console's own colour: the founder's
  * teal mixed toward the AI's violet by it; an element that sets its own
  * `--console-ai` takes the class `console-scope` to have it mixed there.
@@ -34,7 +35,10 @@ export function installTheme(doc: Document = document): () => void {
   // THE MIX, the stage's — held at nothing when calm — for the colours and the interface's pitch.
   let was = -1;
   const sync = () => {
-    const mix = isCalm() ? 0 : stageMix(useAiSingularityStore.getState().value);
+    const calm = isCalm();
+    // CALM, on the root: what loops (a pulse, a glow, an arrival) stands still. @see index.css .ui-calm
+    doc.documentElement.classList.toggle("ui-calm", calm);
+    const mix = calm ? 0 : stageMix(useAiSingularityStore.getState().value);
     if (mix === was) return;
     was = mix;
     doc.documentElement.style.setProperty("--console-ai", String(mix));

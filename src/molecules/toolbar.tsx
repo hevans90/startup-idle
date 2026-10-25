@@ -11,7 +11,7 @@ import { MoneySummary } from "./money-summary";
 import { SettingsPopover } from "./settings-popover";
 import { ToolbarValuationCounter } from "./valuation-counter";
 import { AiSingularityReadout } from "./ai-singularity-readout";
-import { Frame } from "../ui/console";
+import { Frame, OverseerBackdrop } from "../ui/console";
 
 /** A counter's cell: as wide as it likes up to a point, and giving way when the bar is short. */
 const COUNTER = "shrink-0 px-1 @lg:px-2";
@@ -34,6 +34,7 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
   // never spilling over the sidebar.
   return (
     <div className={twMerge("@container relative h-13 w-full min-w-0 bg-surface-1 text-fg", className)}>
+      <OverseerBackdrop />
       <Frame kind="underline" assemble="auto" className="pointer-events-none absolute inset-x-0 bottom-0 h-3" />
       <div className="relative flex h-full min-w-0 items-center gap-1 overflow-hidden @lg:gap-3 @3xl:gap-5">
         <SettingsPopover className="h-full w-10 shrink-0 border-none @lg:w-14" />

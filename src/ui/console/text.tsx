@@ -22,7 +22,7 @@ export function Text({ text, mode = "auto", as = "span", className, onDone }: {
   text: string;
   /** Deciphered, typed, deciphered when the console has got that far, or plain. */
   mode?: TextMode;
-  as?: "span" | "p" | "h2" | "h3" | "div";
+  as?: "span" | "p" | "h1" | "h2" | "h3" | "div";
   className?: string;
   /** When it has all arrived: the next line may start. */
   onDone?: () => void;

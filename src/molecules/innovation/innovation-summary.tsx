@@ -45,8 +45,8 @@ export const InnovationSummary = ({
     >
       {managersActive && (
         <div className="w-full text-left">
-          <div className="mt-1 border-t border-primary-300/70 dark:border-primary-600/60 pt-2" />
-          <p className="responsive-text-xs text-primary-500 dark:text-primary-400">
+          <div className="mt-1 border-t border-line/70 pt-2" />
+          <p className="responsive-text-xs text-fg-muted">
             Manager Bonuses
           </p>
           <InfoRow

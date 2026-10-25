@@ -16,8 +16,8 @@ import { ModifierTag } from "../../ui/ModifierTag";
 const NODES = nodeById(SKILL_TREE);
 const toneClass = (tone: "good" | "bad") =>
   tone === "good"
-    ? "text-emerald-600 dark:text-emerald-400"
-    : "text-rose-600 dark:text-rose-400";
+    ? "text-good"
+    : "text-bad";
 
 const spotlight = (ids: string[]) =>
   useSkillTreeUiStore.getState().setHighlightIds(ids);
@@ -25,8 +25,8 @@ const clearSpotlight = () => useSkillTreeUiStore.getState().setHighlightIds([]);
 
 const trim = (n: number) => Number(n.toFixed(2)).toString();
 const fmtPct = (v: number) => `${v > 0 ? "+" : ""}${Number(v.toFixed(1))}%`;
-const goodClass = "text-emerald-600 dark:text-emerald-400";
-const badClass = "text-rose-600 dark:text-rose-400";
+const goodClass = "text-good";
+const badClass = "text-bad";
 
 const STAT_MOD_KEY: Partial<Record<BonusStat, string>> = {
   money: "prestigeMoney",
@@ -80,8 +80,8 @@ export const SkillTreeBonuses = () => {
   }
 
   return (
-    <div className="pointer-events-auto absolute inset-y-0 right-0 w-72 overflow-y-auto border-l border-primary-300 bg-primary-50/85 p-3 text-primary-900 backdrop-blur-sm dark:border-primary-700 dark:bg-primary-900/85 dark:text-primary-100">
-      <h3 className="text-sm font-bold">Allocated bonuses</h3>
+    <div className="pointer-events-auto absolute inset-y-0 right-0 w-72 overflow-y-auto border-l border-line bg-surface-1/85 p-3 text-fg backdrop-blur-sm">
+      <h3 className="font-display text-sm uppercase tracking-wider">Allocated bonuses</h3>
       <p className="mb-3 text-[11px] opacity-50">
         {nodes.length} {nodes.length === 1 ? "node" : "nodes"} · {totals.length}{" "}
         {totals.length === 1 ? "stat" : "stats"} affected
@@ -94,7 +94,7 @@ export const SkillTreeBonuses = () => {
       )}
 
       {totals.length > 0 && (
-        <Section label="Totals" color="text-cyan-600 dark:text-cyan-400">
+        <Section label="Totals" color="text-innovation">
           {totals.map((t) => (
             <TotalRow key={t.stat} total={t} />
           ))}
@@ -102,7 +102,7 @@ export const SkillTreeBonuses = () => {
       )}
 
       {keystones.length > 0 && (
-        <Section label="Keystones" color="text-rose-500 dark:text-rose-400">
+        <Section label="Keystones" color="text-bad">
           {keystones.map((k) => (
             <Row key={k.id} title={k.title} rows={nodeEffectRows(k)} ids={[k.id]} />
           ))}
@@ -110,7 +110,7 @@ export const SkillTreeBonuses = () => {
       )}
 
       {notables.length > 0 && (
-        <Section label="Notables" color="text-amber-600 dark:text-amber-400">
+        <Section label="Notables" color="text-warn">
           {notables.map((n) => (
             <Row key={n.id} title={n.title} rows={nodeEffectRows(n)} ids={[n.id]} />
           ))}
@@ -118,7 +118,7 @@ export const SkillTreeBonuses = () => {
       )}
 
       {minorGroups.size > 0 && (
-        <Section label="Minor passives" color="text-emerald-600 dark:text-emerald-400">
+        <Section label="Minor passives" color="text-good">
           {[...minorGroups.entries()].map(([cluster, g]) => (
             <Row key={cluster} title={`${g.name} ×${g.count}`} rows={g.rows} ids={g.ids} />
           ))}
@@ -146,7 +146,7 @@ const TotalRow = ({ total }: { total: StatTotal }) => {
     </span>
   );
   return (
-    <div className="flex items-baseline justify-between gap-2 bg-primary-200/70 px-2 py-1 dark:bg-primary-800/60">
+    <div className="flex items-baseline justify-between gap-2 bg-surface-2/70 px-2 py-1">
       <span className="text-xs">
         {modKey ? <ModifierTag modKey={modKey}>{meta.label}</ModifierTag> : meta.label}
       </span>
@@ -184,7 +184,7 @@ const Row = ({
   <div
     onMouseEnter={() => spotlight(ids)}
     onMouseLeave={clearSpotlight}
-    className="cursor-default bg-primary-200/70 px-2 py-1 transition-colors hover:bg-cyan-500/20 dark:bg-primary-800/60 dark:hover:bg-cyan-400/20"
+    className="cursor-default bg-surface-2/70 px-2 py-1 transition-colors hover:bg-innovation/20"
   >
     <div className="text-xs font-medium">{title}</div>
     {rows.map((row, i) => (

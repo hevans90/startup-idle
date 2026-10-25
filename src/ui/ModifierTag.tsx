@@ -3,15 +3,15 @@ import { getModifierBreakdown, type ModifierBreakdown } from "../game/modifier-e
 import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
 
 const TONE_CLS = {
-  good: "text-emerald-600 dark:text-emerald-400",
-  bad: "text-rose-500 dark:text-rose-400",
-  neutral: "text-cyan-600 dark:text-cyan-400",
+  good: "text-good",
+  bad: "text-bad",
+  neutral: "text-innovation",
 };
 
 function BreakdownContent({ bd }: { bd: ModifierBreakdown }) {
   return (
-    <div className="min-w-48 max-w-80 space-y-2 text-xs text-primary-900 dark:text-primary-100">
-      <div className="flex items-baseline justify-between gap-2 border-b border-primary-300 pb-1.5 dark:border-primary-600">
+    <div className="min-w-48 max-w-80 space-y-2 text-xs text-fg">
+      <div className="flex items-baseline justify-between gap-2 border-b border-line pb-1.5">
         <span className="font-semibold leading-tight">{bd.label}</span>
         <span className="shrink-0 tabular-nums font-bold">{bd.total}</span>
       </div>
@@ -53,7 +53,7 @@ function ModifierTagInner({ modKey, children }: { modKey: string; children: Reac
           {children}
         </span>
       </PopoverTrigger>
-      <PopoverContent className="z-[110] border border-primary-500 bg-primary-100 p-2.5 text-primary-900 shadow-xl outline-none focus:ring-0 dark:border-primary-500 dark:bg-primary-800 dark:text-primary-100">
+      <PopoverContent className="z-[110] border border-line-strong bg-surface-1 p-2.5 text-fg shadow-xl outline-none focus:ring-0">
         <LazyBreakdownContent modKey={modKey} />
       </PopoverContent>
     </Popover>

@@ -4,12 +4,12 @@ import type { TeamLeaderTraitId } from "../../game/team-leaders.catalog";
 import type { GeneratorId } from "../../state/generators.store";
 
 const TRAIT_AVATAR_BG: Record<TeamLeaderTraitId, string> = {
-  overachiever:   "bg-blue-100   dark:bg-blue-900   text-blue-600   dark:text-blue-300",
-  chaos_agent:    "bg-red-100    dark:bg-red-900    text-red-600    dark:text-red-300",
-  quiet_quitter:  "bg-slate-100  dark:bg-slate-800  text-slate-500  dark:text-slate-400",
-  brown_noser:    "bg-yellow-100 dark:bg-yellow-900 text-yellow-600 dark:text-yellow-300",
-  thought_leader: "bg-purple-100 dark:bg-purple-900 text-purple-600 dark:text-purple-300",
-  burnout_risk:   "bg-orange-100 dark:bg-orange-900 text-orange-600 dark:text-orange-300",
+  overachiever:   "bg-info-soft     text-info  ",
+  chaos_agent:    "bg-bad-soft       text-bad   ",
+  quiet_quitter:  "bg-surface-1   text-fg-muted ",
+  brown_noser:    "bg-warn-soft text-warn",
+  thought_leader: "bg-ai-soft text-ai",
+  burnout_risk:   "bg-warn-soft text-warn",
 };
 
 const SIZE = {

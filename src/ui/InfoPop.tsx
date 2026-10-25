@@ -10,8 +10,8 @@ import { twMerge } from "tailwind-merge";
 import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
 
 export const POP =
-  "z-[110] max-w-60 border border-primary-500 bg-primary-100 px-2 py-1.5 text-xs text-primary-900 shadow-xl outline-none "
-  + "dark:border-primary-500 dark:bg-primary-800 dark:text-primary-100";
+  "z-[110] max-w-60 border border-line-strong bg-surface-1 px-2 py-1.5 text-xs text-fg shadow-xl outline-none "
+  + "";
 
 export function InfoPop({ trigger, title, children, className, placement = "top" }: {
   trigger: ReactNode;
@@ -29,7 +29,7 @@ export function InfoPop({ trigger, title, children, className, placement = "top"
       </PopoverTrigger>
       <PopoverContent className={POP}>
         <p className="font-bold">{title}</p>
-        {children && <div className="flex flex-col gap-1 text-primary-700 dark:text-primary-300">{children}</div>}
+        {children && <div className="flex flex-col gap-1 text-fg-muted">{children}</div>}
       </PopoverContent>
     </Popover>
   );

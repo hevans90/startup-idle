@@ -94,3 +94,20 @@ export const CONTRAST: { fg: string; bg: string; min: number }[] = [
   ...["surface-0", "surface-1"].map((bg) => ({ fg: "line-strong", bg, min: 3 })),
   ...ROLES.map((r) => ({ fg: r, bg: `${r}-soft`, min: 4.5 })),
 ];
+
+/**
+ * A TOKEN AS A NUMBER, 0xrrggbb, for what draws on a canvas (Pixi tints and
+ * fills) rather than reading a CSS variable: the same colour, by its name.
+ */
+export function tokenNumber(theme: Theme, name: string): number {
+  const v = tokens(theme)[name];
+  if (!v) throw new Error(`No token ${name}`);
+  if (v.startsWith("#")) return parseInt(v.slice(1), 16);
+  const m = /hsl\(([\d.]+),\s*([\d.]+)%,\s*([\d.]+)%/.exec(v);
+  if (!m) throw new Error(`Unread token ${name}: ${v}`);
+  const [h, s, l] = [Number(m[1]), Number(m[2]) / 100, Number(m[3]) / 100];
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
+  return (f(0) << 16) | (f(8) << 8) | f(4);
+}

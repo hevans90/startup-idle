@@ -1,7 +1,7 @@
 /**
  * COMMS ON THE MAP: one stack at the map's top right, in order of what needs
  * you most — the objective under way and what the AI asks, then events, then
- * reports, then a hint — at most `DOCK_MOST` cards; the rest fold into a
+ * reports, then a hint — at most `DOCK_MOST` cards (one on a phone); the rest fold into a
  * "+n" that opens the log. A polite live region; an alert speaks up.
  * @see comms.store, plans/ui-overhaul.md §3.2, §4
  */
@@ -35,15 +35,16 @@ export function ReportCard({ e }: { e: CommsEntry }) {
  * WHAT COMMS SHOWS, in order of what needs you most, and how many more there
  * are: the objective, what the AI asks, events, reports; `DOCK_MOST` at most.
  */
-export function dockItems(has: { objective: boolean; offer: boolean; events: readonly number[]; reports: readonly number[] }): { shown: string[]; hidden: number } {
+export function dockItems(has: { objective: boolean; offer: boolean; events: readonly number[]; reports: readonly number[] }, most = DOCK_MOST): { shown: string[]; hidden: number } {
   const all = [
     ...(has.objective ? ["quest:tracker"] : []), ...(has.offer ? ["quest:offer"] : []),
     ...has.events.map((id) => `event:${id}`), ...has.reports.map((id) => `report:${id}`),
   ];
-  return { shown: all.slice(0, DOCK_MOST), hidden: Math.max(0, all.length - DOCK_MOST) };
+  return { shown: all.slice(0, most), hidden: Math.max(0, all.length - most) };
 }
 
-export function CommsDock() {
+/** How many cards: `DOCK_MOST`, or on a phone one, its "+n" the rest. */
+export function CommsDock({ most = DOCK_MOST }: { most?: number }) {
   const objective = useQuestStore((s) => !!s.objective);
   const offer = useQuestStore((s) => !!s.offer);
   const events = liveEvents(useWorldStore((s) => s.events));
@@ -61,7 +62,7 @@ export function CommsDock() {
     ...events.map((e) => [`event:${e.id}`, <EventCard e={e} />] as const),
     ...reports.map((r) => [`report:${r.id}`, <ReportCard e={r} />] as const),
   ]);
-  const { shown: keys, hidden } = dockItems({ objective, offer, events: events.map((e) => e.id), reports: reports.map((r) => r.id) });
+  const { shown: keys, hidden } = dockItems({ objective, offer, events: events.map((e) => e.id), reports: reports.map((r) => r.id) }, most);
   const shown = keys.map((key) => ({ key, node: nodes.get(key) ?? null }));
   const has = (key: string) => keys.includes(key);
 
@@ -79,7 +80,7 @@ export function CommsDock() {
         {(has("quest:tracker") || has("quest:offer")) && <QuestArc tracker={has("quest:tracker")} offer={has("quest:offer")} />}
         {shown.filter((i) => i.node).map((i) => <div key={i.key}>{i.node}</div>)}
         {/* A hint, last, only with a slot to spare. */}
-        {shown.length < DOCK_MOST && <HintCard />}
+        {shown.length < most && <HintCard />}
       </div>
       {open && <CommsLog onClose={() => setOpen(false)} />}
     </div>

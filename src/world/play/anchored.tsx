@@ -17,7 +17,7 @@ export function Anchored({ at, children }: { at: { x: number; y: number } | null
   const el = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!at) return;
-    let raf = 0;
+    let raf = 0, was = "";
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const box = el.current, vp = useWorldStore.getState().viewport, g = useWorldStore.getState().grid;
@@ -32,7 +32,9 @@ export function Anchored({ at, children }: { at: { x: number; y: number } | null
       if (x + box.offsetWidth > W - 8) x = p.x - GAP - box.offsetWidth;
       x = Math.max(8, Math.min(W - box.offsetWidth - 8, x));
       y = Math.max(40, Math.min(H - box.offsetHeight - 96, y));
-      box.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+      // Written only when it moved: a still map costs a read a frame, no style.
+      const to = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+      if (to !== was) box.style.transform = was = to;
     };
     frame();
     return () => cancelAnimationFrame(raf);

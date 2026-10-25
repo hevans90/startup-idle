@@ -14,15 +14,15 @@ export function AiTab() {
   const g = useGenerationStore();
   const slotted = MODULES.filter((m) => g.slotted.includes(m.id));
   return (
-    <div className="flex flex-col text-xs text-primary-900 dark:text-primary-100">
-      <div className="flex items-baseline justify-between gap-2 border-b border-primary-300 p-2 dark:border-primary-700">
-        <p className="text-sm font-bold">Generation {g.generation}</p>
+    <div className="flex flex-col text-xs text-fg">
+      <div className="flex items-baseline justify-between gap-2 border-b border-line-quiet p-2">
+        <p className="font-display text-sm uppercase tracking-wider">Generation {g.generation}</p>
         <p className="tabular-nums" title="Spent on modules between companies, on the founder screen">
-          <b className="text-violet-700 dark:text-violet-300">{g.weights}</b> Weights
+          <b className="text-weights">{g.weights}</b> Weights
         </p>
       </div>
       {slotted.length > 0 && (
-        <p className="border-b border-primary-300 px-2 py-1 text-primary-600 dark:border-primary-700 dark:text-primary-400">
+        <p className="border-b border-line-quiet px-2 py-1 text-fg-muted">
           Slotted: {slotted.map((m) => `${m.name} ${g.modules[m.id] ?? 0}`).join(" · ")}
         </p>
       )}

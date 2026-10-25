@@ -7,7 +7,7 @@ import {
   ManagerKeys,
   ManagerState,
 } from "../../state/innovation.store";
-import { Button } from "../../ui/Button";
+import { Button } from "../../ui/console";
 import { InfoRow } from "../../ui/InfoRow";
 import { Popover, PopoverContent, PopoverTrigger } from "../../ui/Popover";
 import { ProgressBar } from "../../ui/ProgressBar";
@@ -45,7 +45,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
         floatOffset={15}
       >
         <PopoverTrigger asChild>
-          <div className="flex gap-2 items-center w-full justify-between hover:bg-primary-300 dark:hover:bg-primary-800 p-2 py-3">
+          <div className="flex gap-2 items-center w-full justify-between hover:bg-surface-3 p-2 py-3">
             <span className="leading-none mr-4">
               {managerName.toUpperCase()}
             </span>
@@ -60,7 +60,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
                     -
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0">
+                <PopoverContent className="bg-surface-1 text-fg border-line-strong border-[1px] p-2 outline-none focus:ring-0">
                   <div className="flex flex-col gap-2 items-center justify-center text-sm">
                     Refund Innovation ({totalRefund.toFixed(2)})
                   </div>
@@ -87,7 +87,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
                     +
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0">
+                <PopoverContent className="bg-surface-1 text-fg border-line-strong border-[1px] p-2 outline-none focus:ring-0">
                   <div className="flex flex-col gap-2 items-center justify-center text-sm">
                     Cost{numberToAssign > 1 && ` (${numberToAssign})`}:{" "}
                     {formatCurrency(totalCost, { showDollarSign: false })}
@@ -98,7 +98,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
           </div>
         </PopoverTrigger>
 
-        <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-2 outline-none focus:ring-0 min-w-72">
+        <PopoverContent className="bg-surface-1 text-fg border-line-strong border-[1px] p-2 outline-none focus:ring-0 min-w-72">
           <div className="flex flex-col gap-2 items-center justify-center text-sm">
             <InfoRow
               label={

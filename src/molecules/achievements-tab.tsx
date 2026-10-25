@@ -63,10 +63,10 @@ export const AchievementsTab = () => {
       <div className="relative shrink-0 pb-3">
         {/* Juice balance + shop header */}
         <div className="flex items-baseline justify-between">
-          <p className="text-xs font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
+          <p className="text-xs font-bold uppercase tracking-wide text-fg-muted">
             Vape shop
           </p>
-          <span className="tabular-nums text-sm font-bold text-violet-600 dark:text-violet-400">
+          <span className="tabular-nums text-sm font-bold text-ai">
             {formatCurrency(vapeJuice, {
               showDollarSign: false,
               exponentBreakpoint: 1e9,
@@ -95,10 +95,10 @@ export const AchievementsTab = () => {
                   className={twMerge(
                     "flex h-16 w-16 flex-col items-center justify-center gap-1 rounded border p-1 transition-colors",
                     bought
-                      ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                      ? "border-good/60 bg-good/15 text-good"
                       : canBuy
-                        ? "cursor-pointer border-primary-400 hover:bg-primary-100 dark:border-primary-600 dark:hover:bg-primary-700"
-                        : "cursor-not-allowed border-primary-300 text-primary-400 opacity-60 dark:border-primary-700",
+                        ? "cursor-pointer border-line hover:bg-surface-2"
+                        : "cursor-not-allowed border-line text-fg-muted opacity-60",
                   )}
                 >
                   <Icon size={22} stroke={1.6} />
@@ -107,11 +107,11 @@ export const AchievementsTab = () => {
                   </span>
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 max-w-[18rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col gap-1">
+              <PopoverContent className="bg-surface-1 outline-none focus:ring-0 max-w-[18rem] border-line border-solid border-[1px] p-2 flex flex-col gap-1">
                 <span className="text-sm font-medium">{u.name}</span>
                 <span className="text-xs opacity-80">{u.description}</span>
                 {u.minigameDescription && (
-                  <span className="text-[11px] text-violet-400/80">
+                  <span className="text-[11px] text-ai/80">
                     🎮 {u.minigameDescription}
                   </span>
                 )}
@@ -119,10 +119,10 @@ export const AchievementsTab = () => {
                   className={twMerge(
                     "text-xs font-medium",
                     bought
-                      ? "text-emerald-600 dark:text-emerald-400"
+                      ? "text-good"
                       : canBuy
                         ? ""
-                        : "text-primary-500",
+                        : "text-fg-muted",
                   )}
                 >
                   {bought ? "✓ Owned" : `Cost: ${u.cost} juice`}
@@ -135,7 +135,7 @@ export const AchievementsTab = () => {
 
         {/* Lock overlay — until vibe_army (100 vibe coders) is earned */}
         {!hasVibeArmy && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-primary-900/40 backdrop-blur-xl dark:bg-primary-950/50">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-1/40 backdrop-blur-xl">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="24"
@@ -161,7 +161,7 @@ export const AchievementsTab = () => {
       {/* Achievements — header pinned, grid scrolls */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="mb-2 flex shrink-0 items-baseline justify-between gap-2">
-          <p className="text-xs font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400">
+          <p className="text-xs font-bold uppercase tracking-wide text-fg-muted">
             Achievements
           </p>
           <span className="text-xs tabular-nums opacity-70">
@@ -180,8 +180,8 @@ export const AchievementsTab = () => {
                     className={twMerge(
                       "flex cursor-help items-center gap-1 rounded border px-1.5 py-1 text-[11px] leading-tight",
                       done
-                        ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                        : "border-dashed border-primary-300 text-primary-500 opacity-70 dark:border-primary-600 dark:text-primary-400",
+                        ? "border-good/50 bg-good/15 text-good"
+                        : "border-dashed border-line text-fg-muted opacity-70",
                     )}
                   >
                     {done ? (
@@ -195,7 +195,7 @@ export const AchievementsTab = () => {
                     </span>
                   </div>
                 </PopoverTrigger>
-                <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 max-w-[18rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col gap-1">
+                <PopoverContent className="bg-surface-1 outline-none focus:ring-0 max-w-[18rem] border-line border-solid border-[1px] p-2 flex flex-col gap-1">
                   <span className="text-sm font-medium">
                     {hiddenLocked ? "Hidden achievement" : a.name}
                     {done ? " ✓" : ""}
@@ -207,8 +207,8 @@ export const AchievementsTab = () => {
                     className={twMerge(
                       "text-xs font-medium",
                       done
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-primary-500",
+                        ? "text-good"
+                        : "text-fg-muted",
                     )}
                   >
                     {done ? "Earned" : "Reward"}: +{a.juiceReward} juice

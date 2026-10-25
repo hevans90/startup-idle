@@ -15,7 +15,7 @@ export const InfoRow = ({
   <div className="w-full flex items-center gap-3 justify-between">
     <span
       className={twMerge(
-        "text-primary-700 dark:text-primary-300",
+        "text-fg-muted",
         size === "small" && "responsive-text-xs grow",
         size === "large" && "responsive-text"
       )}

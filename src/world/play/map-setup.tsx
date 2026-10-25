@@ -17,7 +17,8 @@ import { twMerge } from "tailwind-merge";
 import { DIRT, GRASS, SAND, WOODS } from "../../state/world.store";
 import { WATER_VIEW } from "../agents/mood-rules";
 import { HILLY, ruggedness } from "../gen/rugged";
-import { Button } from "../../ui/Button";
+import { Button, Frame } from "../../ui/console";
+import { FoundingShell } from "../../molecules/founding-shell";
 import { generatePlayableMap, type GenReport } from "../gen/generate-map";
 import { DEFAULT_GEN, GEN_SLIDERS, type GenParams } from "../gen/params";
 import { createGrid, type Grid } from "../grid";
@@ -134,19 +135,18 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
   }, [map]);
 
   return (
-    <div className="flex h-full w-full flex-col overflow-y-auto bg-primary-100 px-6 py-8 text-primary-900 dark:bg-primary-900 dark:text-primary-50">
-      <div className="mb-6 text-center">
-        <h1 className="text-3xl font-bold sm:text-4xl">Choose your land</h1>
-        <p className="mt-2 text-sm opacity-70">Where will {founder} found the company?</p>
-      </div>
-
-      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 lg:flex-row">
+    <FoundingShell step="land" title="Choose your land" subtitle={<>Where will {founder} found the company?</>}
+      back={onBack}
+      // The REPORTED seed: the generator rerolls a map with too little
+      // to build on, and the one shown is the one to make again.
+      next={{ label: "Next: sign a term sheet →", disabled: !map, onClick: () => map && onFound({ seed: map.report.seed, params }) }}>
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:flex-row">
         {/* THE PREVIEW */}
         <div className="flex flex-1 flex-col items-center gap-3">
-          <div className="relative flex min-h-[290px] w-full items-center justify-center border border-primary-300 bg-primary-200/60 p-3 dark:border-primary-700 dark:bg-primary-800/40">
+          <Frame kind="corners" assemble={false} className="w-full" inner="flex min-h-[290px] items-center justify-center bg-surface-1 p-3">
             <canvas ref={canvas} className="h-auto max-w-full" />
-            {!map && <span className="absolute text-sm opacity-60">Surveying…</span>}
-          </div>
+            {!map && <span className="absolute text-sm text-fg-muted">Surveying…</span>}
+          </Frame>
           {stats && (
             <div className="flex gap-6 text-xs tabular-nums opacity-80">
               <span><b>{stats.plots}</b> building plots by the road</span>
@@ -167,13 +167,13 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
         {/* THE CHOICES */}
         <div className="flex w-full flex-col gap-4 lg:w-80">
           <div className="flex items-center gap-2">
-            <Button type="button" className="flex-1 py-2 font-bold" onClick={() => setSeed(randomSeed())}>
+            <Button className="flex-1 py-2 font-bold" onClick={() => setSeed(randomSeed())}>
               🎲 New land
             </Button>
             <input
               aria-label="Seed"
               title="The seed: the same seed and settings always give the same land"
-              className="w-28 border border-primary-300 bg-primary-50 px-2 py-2 text-xs tabular-nums dark:border-primary-700 dark:bg-primary-800"
+              className="w-28 border border-line bg-surface-1 px-2 py-2 text-xs tabular-nums"
               value={seed}
               onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) setSeed(Math.floor(Math.abs(n))); }}
             />
@@ -185,8 +185,8 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
               {SIZES.map(([n, name]) => (
                 <button key={n} type="button" onClick={() => set("size", n)}
                   className={twMerge(
-                    "flex-1 cursor-pointer border border-primary-300 px-2 py-1.5 text-sm dark:border-primary-700",
-                    params.size === n ? "bg-primary-300 font-bold dark:bg-primary-700" : "hover:bg-primary-200 dark:hover:bg-primary-800",
+                    "flex-1 cursor-pointer border border-line px-2 py-1.5 text-sm",
+                    params.size === n ? "bg-surface-3 font-bold" : "hover:bg-surface-2",
                   )}>
                   {name}
                   <span className="ml-1 text-[10px] opacity-60">{n}×{n}</span>
@@ -203,14 +203,14 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
                   <span className="font-bold uppercase tracking-wide opacity-60">{label}</span>
                   <span>{words(params[key])}</span>
                 </span>
-                <input type="range" className="w-full accent-emerald-600 dark:accent-emerald-400"
+                <input type="range" className="w-full accent-[var(--ui-good)]"
                   min={s.min} max={s.max} step={s.step} value={params[key]}
                   onChange={(e) => set(key, Number(e.target.value))} />
               </label>
             );
           })}
 
-          <details className="border border-primary-300 p-2 text-xs dark:border-primary-700">
+          <details className="border border-line p-2 text-xs">
             <summary className="cursor-pointer font-bold">All settings</summary>
             {GROUPS.map(([group, name]) => (
               <fieldset key={group} className="mt-2">
@@ -218,7 +218,7 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
                 {GEN_SLIDERS.filter((s) => s.group === group && s.key !== "size").map((s) => (
                   <label key={s.key} className="mt-1 grid grid-cols-[6rem_1fr_2.5rem] items-center gap-2" title={s.hint}>
                     <span className="truncate">{s.label}</span>
-                    <input type="range" className="accent-emerald-600 dark:accent-emerald-400"
+                    <input type="range" className="accent-[var(--ui-good)]"
                       min={s.min} max={s.max} step={s.step} value={params[s.key]}
                       onChange={(e) => set(s.key, Number(e.target.value))} />
                     <span className="text-right tabular-nums">{params[s.key]}</span>
@@ -232,18 +232,8 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
             </button>
           </details>
 
-          <div className="mt-auto flex gap-2 pt-2">
-            <Button type="button" className="px-4 py-3" onClick={onBack}>← Back</Button>
-            <Button type="button" className="flex-1 px-4 py-3 text-base font-bold disabled:opacity-40"
-              disabled={!map}
-              // The REPORTED seed: the generator rerolls a map with too little
-              // to build on, and the one shown is the one to make again.
-              onClick={() => map && onFound({ seed: map.report.seed, params })}>
-              Next: sign a term sheet →
-            </Button>
-          </div>
         </div>
       </div>
-    </div>
+    </FoundingShell>
   );
 }

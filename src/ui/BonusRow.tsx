@@ -11,9 +11,9 @@ export const fmtPct = (v: number) =>
   `${v > 0 ? "+" : ""}${Number(v.toFixed(1))}%`;
 
 const VALUE_CLS: Record<BonusTone, string> = {
-  good: "text-emerald-600 dark:text-emerald-400",
-  bad: "text-rose-500 dark:text-rose-400",
-  neutral: "text-cyan-600 dark:text-cyan-400",
+  good: "text-good",
+  bad: "text-bad",
+  neutral: "text-innovation",
 };
 
 export const BonusRow = ({

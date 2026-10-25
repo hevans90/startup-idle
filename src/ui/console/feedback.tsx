@@ -4,10 +4,12 @@
  * feature, shown behind a frame with what unlocks it and the way to it,
  * never an empty box. @see plans/ui-overhaul.md §2
  */
-import { cloneElement, useState, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useEffect, useState, type ReactElement, type ReactNode } from "react";
+import type Decimal from "break_infinity.js";
 import { FloatingPortal, autoUpdate, flip, offset, shift, useDismiss, useFloating, useFocus, useHover, useInteractions, useRole } from "@floating-ui/react";
 import { twMerge } from "tailwind-merge";
 
+import { ENTER_MOST, useConsoleMotion } from "../motion";
 import type { Role } from "../theme/tokens";
 import { Button } from "./controls";
 import { Frame, type Tone } from "./frame";
@@ -20,6 +22,31 @@ const color = (tone: Tone) => (tone === "console" ? "var(--ui-console)" : `var(-
 /** A number, in its resource's colour, its digits lined up. */
 export function Num({ children, role, className }: { children: ReactNode; role?: Role; className?: string }) {
   return <span className={twMerge("tabular-nums", className)} style={role ? { color: color(role) } : undefined}>{children}</span>;
+}
+
+/**
+ * A NUMBER COUNTING UP to what it is, over the entrance's budget, on a timer
+ * (a hidden tab's frames stop); at once when calm. A `Decimal` counts as one.
+ */
+export function CountUp<T extends number | Decimal>({ to, format, role, className }: { to: T; format: (v: T) => string; role?: Role; className?: string }) {
+  const { calm } = useConsoleMotion();
+  const [t, setT] = useState(calm ? 1 : 0);
+  const key = String(to);
+  useEffect(() => {
+    if (calm) { setT(1); return; }
+    const start = Date.now(), ms = ENTER_MOST * 1000;
+    setT(0);
+    const id = window.setInterval(() => {
+      const k = Math.min(1, (Date.now() - start) / ms);
+      setT(k);
+      if (k >= 1) window.clearInterval(id);
+    }, 40);
+    return () => window.clearInterval(id);
+  }, [calm, key]);
+  // Eased out: fast, then settling on it.
+  const e = 1 - (1 - t) ** 3;
+  const v = (typeof to === "number" ? to * e : (to as Decimal).mul(e)) as T;
+  return <Num role={role} className={className}>{format(t >= 1 ? to : v)}</Num>;
 }
 
 /** How far something has come, 0–1: an underline frame, filled. */
@@ -104,7 +131,7 @@ export function Locked({ needs, onShow, children, className }: { needs: ReactNod
         {children && <div aria-hidden className="pointer-events-none select-none opacity-30">{children}</div>}
         <div className="flex items-center justify-between gap-2 text-xs">
           <span className="flex items-center gap-1.5 text-fg-muted"><span aria-hidden>🔒</span>{needs}</span>
-          {onShow && <Button size="sm" variant="secondary" onClick={onShow}>Show me</Button>}
+          {onShow && <Button size="sm" variant="secondary" onClick={onShow} className="shrink-0 whitespace-nowrap">Show me</Button>}
         </div>
       </div>
     </Frame>

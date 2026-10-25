@@ -9,7 +9,8 @@ import {
   Upgrade,
   useUpgradeStore,
 } from "../state/upgrades.store";
-import { Button } from "../ui/Button";
+import { twMerge } from "tailwind-merge";
+import { FOCUS, Frame, Label, Panel, POPOVER } from "../ui/console";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -42,7 +43,7 @@ const OpensMark = ({ upg }: { upg: Upgrade }) => {
     <IconBuildingCommunity
       size={14}
       aria-label={`Opens ${names.join(", ")}`}
-      className="pointer-events-none absolute right-1 bottom-1 text-amber-600 dark:text-amber-400"
+      className="pointer-events-none absolute right-1 bottom-1 text-warn"
     />
   );
 };
@@ -52,7 +53,7 @@ const OpensLine = ({ upg }: { upg: Upgrade }) => {
   const names = opensOf(upg);
   if (!names.length) return null;
   return (
-    <div className="responsive-text-xs flex items-center justify-center gap-1 text-amber-700 dark:text-amber-400">
+    <div className="responsive-text-xs flex items-center justify-center gap-1 text-warn">
       <IconBuildingCommunity size={12} className="shrink-0" />
       <b>{names.join(", ")}</b>
     </div>
@@ -66,7 +67,7 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
         return (
           <>
             mult:{" "}
-            <span className="text-green-700 dark:text-green-400">
+            <span className="text-good">
               x{effect.value}
             </span>
           </>
@@ -81,8 +82,8 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
             <span
               className={
                 isGood
-                  ? "text-green-700 dark:text-green-400"
-                  : "text-red-700 dark:text-red-400"
+                  ? "text-good"
+                  : "text-bad"
               }
             >
               {isGood ? "-" : "+"}
@@ -101,8 +102,8 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
             <span
               className={
                 isGood
-                  ? "text-green-700 dark:text-green-400"
-                  : "text-red-700 dark:text-red-400"
+                  ? "text-good"
+                  : "text-bad"
               }
             >
               {sign}
@@ -128,7 +129,7 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
 
             return (
               <tr key={i} className="border-b last:border-none">
-                <td className="font-bold whitespace-nowrap text-primary-900 dark:text-primary-50">
+                <td className="font-bold whitespace-nowrap text-fg">
                   <GenLabel id={effectBlock.genId} text={genName} />
                 </td>
                 {effectBlock.changes.map((effect, index) => (
@@ -145,7 +146,7 @@ const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
   );
 };
 
-export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
+export const Upgrades = () => {
   const { availableUpgrades, unlockedUpgrades, unlockUpgrade } =
     useUpgradeStore();
 
@@ -157,96 +158,56 @@ export const Upgrades = ({ isMobile }: { isMobile: boolean }) => {
 
   const { money } = useMoneyStore();
 
-  return isMobile ? (
-    <>
-      <div className="flex flex-wrap gap-3 justify-center text-center">
-        {visibleUpgrades.map((upg) => (
-          <Button
-            disabled={money.lt(upg.cost)}
-            key={upg.id}
-            className="relative flex flex-col gap-2 w-full p-4"
-            onClick={() => unlockUpgrade(upg.id)}
-          >
-            <OpensMark upg={upg} />
-            <div className="responsive-text mb-1">
-              <span className="underline-offset-2 underline">
-                <GenLabel id={upg.id} text={upg.name} inline />
-              </span>:{" "}
-              {formatCurrency(upg.cost)}
-            </div>
-            <OpensLine upg={upg} />
-            <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow">
-              {upg.description}
-            </div>
-            <UpgradeSummary upg={upg} />
-          </Button>
-        ))}
-      </div>
-      <div className="flex flex-wrap justify-center gap-2 mt-6">
-        {unlockedUpgrades.map((upg) => (
-          <div
-            key={upg.id}
-            className="responsive-text-sm opacity-50 border-[1px] border-solid border-primary-500 p-2 flex flex-col gap-2 items-center px-4 "
-          >
-            <GenLabel id={upg.id} text={upg.name} inline />
-            <UpgradeSummary upg={upg} />
-          </div>
-        ))}
-      </div>
-    </>
-  ) : (
-    <>
-      <div className="flex flex-col gap-3 justify-center items-center px-2">
-        {visibleUpgrades.map((upg) => (
-          <Popover key={upg.id} openOnHover={true} placement="bottom">
-            <PopoverTrigger asChild>
-              <Button
-                disabled={money.lt(upg.cost)}
-                key={upg.id}
-                className="relative flex w-full p-4 responsive-text-sm"
-                onClick={() => unlockUpgrade(upg.id)}
-              >
-                <GenLabel id={upg.id} text={upg.name} />
-                <span>: {formatCurrency(upg.cost)}</span>
-                <OpensMark upg={upg} />
-              </Button>
-            </PopoverTrigger>
-
-            <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 max-w-[39rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col gap-2">
-              <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow text-center">
-                {upg.description}
-              </div>
-              <UpgradeSummary upg={upg} />
-              <OpensLine upg={upg} />
-            </PopoverContent>
-          </Popover>
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-3 text-center px-2">
-        {unlockedUpgrades.map((upg) => (
-          <Popover key={upg.id} openOnHover={true} placement="bottom">
-            <PopoverTrigger asChild>
-              <div
-                key={upg.id}
-                className="bg-primary-300 dark:bg-primary-700 cursor-help p-2 responsive-text-xs"
-              >
-                <GenLabel id={upg.id} text={upg?.abbreviation ?? "UPG"} static />
-              </div>
-            </PopoverTrigger>
-
-            <PopoverContent className="bg-primary-100 dark:bg-primary-800 outline-none focus:ring-0 w-[26rem] border-primary-400 border-solid border-[1px] p-2 flex flex-col items-center gap-2">
-              <span className="flex responsive-text-xs">
-                <GenLabel id={upg.id} text={upg.name} static />
-                <span>: {formatCurrency(upg.cost)}</span>
-              </span>
-              <div className="responsive-text-xs text-primary-500 dark:text-primary-300 grow text-center">
-                {upg.description}
-              </div>
-              <UpgradeSummary upg={upg} />
-            </PopoverContent>
-          </Popover>
-        ))}
-      </div>
-    </>
+  return (
+    // A GRID OF CORNERS CARDS, what can be afforded lit; what is bought, below, by its initials.
+    <Panel title="Upgrades" className="mx-2" controls={<Label>{unlockedUpgrades.length} bought</Label>}>
+      {visibleUpgrades.length > 0 ? (
+        <div className="grid grid-cols-2 gap-2">
+          {visibleUpgrades.map((upg) => {
+            const can = money.gte(upg.cost);
+            return (
+              <Popover key={upg.id} openOnHover={true} placement="bottom">
+                <Frame kind="corners" lit={can} illuminate={can} assemble={false} className={twMerge("w-full", !can && "opacity-60")}>
+                  <PopoverTrigger asChild>
+                    <button type="button" disabled={!can} onClick={() => unlockUpgrade(upg.id)}
+                      className={twMerge("relative flex w-full cursor-pointer flex-col items-start gap-0.5 p-2 text-left text-xs disabled:cursor-not-allowed", FOCUS, can ? "text-fg" : "text-fg-muted")}>
+                      <GenLabel id={upg.id} text={upg.name} />
+                      <span className="tabular-nums text-money">{formatCurrency(upg.cost)}</span>
+                      <OpensMark upg={upg} />
+                    </button>
+                  </PopoverTrigger>
+                </Frame>
+                <PopoverContent className={twMerge(POPOVER, "flex max-w-[39rem] flex-col gap-2 p-2")}>
+                  <div className="responsive-text-xs grow text-center text-fg-muted">{upg.description}</div>
+                  <UpgradeSummary upg={upg} />
+                  <OpensLine upg={upg} />
+                </PopoverContent>
+              </Popover>
+            );
+          })}
+        </div>
+      ) : <p className="text-xs text-fg-muted">Nothing more to buy yet.</p>}
+      {unlockedUpgrades.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 border-t border-line-quiet pt-2 text-center">
+          {unlockedUpgrades.map((upg) => (
+            <Popover key={upg.id} openOnHover={true} placement="bottom">
+              <PopoverTrigger asChild>
+                <div tabIndex={0} className={twMerge("cursor-help border border-line-quiet bg-surface-2 px-1.5 py-0.5 text-[11px]", FOCUS)}>
+                  <GenLabel id={upg.id} text={upg?.abbreviation ?? "UPG"} static />
+                </div>
+              </PopoverTrigger>
+              <PopoverContent className={twMerge(POPOVER, "flex w-[26rem] flex-col items-center gap-2 p-2")}>
+                <span className="flex responsive-text-xs">
+                  <GenLabel id={upg.id} text={upg.name} static />
+                  <span>: {formatCurrency(upg.cost)}</span>
+                </span>
+                <div className="responsive-text-xs grow text-center text-fg-muted">{upg.description}</div>
+                <UpgradeSummary upg={upg} />
+              </PopoverContent>
+            </Popover>
+          ))}
+        </div>
+      )}
+    </Panel>
   );
 };

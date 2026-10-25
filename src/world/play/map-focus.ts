@@ -1,4 +1,6 @@
-/** Small helpers shared by the map's cards: a countdown, and the camera to a tile. */
+/** Small helpers shared by the map's cards: a countdown, the camera to a tile, and to a feature's project. */
+import { PROJECTS, type FeatureId } from "../../game/projects";
+import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
 import { HH, HW } from "../iso";
 
@@ -23,4 +25,16 @@ export function showMe(where: { x: number; y: number }) {
     time: FLY_MS, ease: "easeInOutCubic", removeOnInterrupt: true,
     callbackOnComplete: () => vp.emit("moved", { viewport: vp, type: "drag" } as never),
   });
+}
+
+/**
+ * SHOW ME the project that opens a feature: its site, if it is being built;
+ * otherwise the projects log, opened, where it waits. @see Locked
+ */
+export function showProject(feature: FeatureId) {
+  const p = PROJECTS.find((q) => q.grants === feature);
+  // Its site, if it is being built: as `siteOf` finds it — not imported, as that would bring the map's engine into the sidebar's bundle.
+  const site = p ? [...useWorldStore.getState().grid.structures.values()].find((s) => s.def === p.structure && s.build) : undefined;
+  if (site) showMe({ x: site.x + 1, y: site.y + 1 });
+  else useSessionStore.getState().setProjectsOpen(true);
 }

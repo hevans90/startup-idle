@@ -18,6 +18,7 @@
  *    when they arrive — and only for people the company can hire: no lots for
  *    vibe coders before the studio opens. @see world/agents/arrivals
  */
+import { isPhone } from "../../hooks/use-phone";
 import { Fragment, useRef, useEffect, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
@@ -203,6 +204,8 @@ export function BuildBar({ className }: { className?: string }) {
   const money = useMoneyStore((s) => s.money);
   const generators = useGeneratorStore((s) => s.generators);
   const [picking, setPicking] = useState(false);
+  const phone = isPhone();
+  const [viewsOpen, setViewsOpen] = useState(false);
   // A refusal is comms' now, shown by the pointer. @see NoticeToast
   const [, setNow] = useState(0);
   // THE LAST BUILD, while it can be taken back. @see undoLastBuild
@@ -289,6 +292,46 @@ export function BuildBar({ className }: { className?: string }) {
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [shown]);
+
+  const views = (
+    <>
+      <button type="button" title="The wonders: great buildings, each a bonus for good" data-hint="wonders"
+        onClick={() => { setWondersOpen(!wondersOpen); setPicking(false); }}
+        className={twMerge(TOOL, wondersOpen && TOOL_ON)}>
+        {ICONS.wonders}
+        <span className="@max-3xl:hidden">Wonders</span>
+      </button>
+      <button type="button" title="Tint every house by how happy its people are" data-hint="mood"
+        onClick={() => setMoodOverlay(!moodOverlay)} className={twMerge(TOOL, moodOverlay && TOOL_ON)}>
+        {ICONS.mood}
+        <span className="@max-3xl:hidden">Mood</span>
+      </button>
+      <button type="button" title="Tint every street by what it earns, and list the best"
+        onClick={() => setEarningsOverlay(!earningsOverlay)} className={twMerge(TOOL, earningsOverlay && TOOL_ON)}>
+        {ICONS.earnings}
+        <span className="@max-3xl:hidden">Earnings</span>
+      </button>
+      {pipesOpen && (
+        <button type="button" title="Show every water main by what it is doing, each tank, and the water: on too while the Pipe tool is in hand"
+          onClick={() => setWaterOverlay(!waterOverlay)} className={twMerge(TOOL, (waterOverlay || tool === "pipe") && TOOL_ON)}>
+          {ICONS.water}
+          <span className="@max-3xl:hidden">Water</span>
+        </button>
+      )}
+      {model && (
+        <button type="button" title="AI mode: The Model builds the town itself" aria-pressed={aiMode}
+          onClick={() => setAiMode({ aiMode: !aiMode })} className={twMerge(TOOL, aiMode && TOOL_ON, aiMode && "text-ai")}>
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ai" />
+          <span className="@max-3xl:hidden">AI mode</span>
+        </button>
+      )}
+      <button type="button" title="Show or hide what each building is and how it is doing"
+        onClick={() => setLabels(!labels)} className={twMerge(TOOL, labels && TOOL_ON)}>
+        {ICONS.labels}
+        <span className="@max-3xl:hidden">Labels</span>
+      </button>
+    </>
+  );
 
   return (
     <div className={twMerge("flex flex-col items-center gap-1.5 text-fg", className)}>
@@ -387,7 +430,8 @@ export function BuildBar({ className }: { className?: string }) {
           })}
         </div>
 
-        {/* THE TOOLS. */}
+        {phone && viewsOpen && <div className="flex items-stretch overflow-x-auto border-b border-line-quiet">{views}</div>}
+        {/* THE TOOLS: a rail that scrolls, on a phone. */}
         <div className="flex items-stretch overflow-x-auto">
           {shown.map((t, k) => (
             <button key={t.id} type="button" title={`${aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint} (${k + 1})`}
@@ -417,43 +461,14 @@ export function BuildBar({ className }: { className?: string }) {
               <span>Undo +{formatCurrency(lastBuild!.refund)}</span>
             </button>
           )}
-          {/* VIEWS from here: what you see, not what you hold. */}
+          {/* VIEWS from here: what you see, not what you hold — on a phone, behind a button. */}
           <span className="mx-0.5 my-1 w-px bg-surface-3" />
-          <button type="button" title="The wonders: great buildings, each a bonus for good" data-hint="wonders"
-            onClick={() => { setWondersOpen(!wondersOpen); setPicking(false); }}
-            className={twMerge(TOOL, wondersOpen && TOOL_ON)}>
-            {ICONS.wonders}
-            <span className="@max-3xl:hidden">Wonders</span>
-          </button>
-          <button type="button" title="Tint every house by how happy its people are" data-hint="mood"
-            onClick={() => setMoodOverlay(!moodOverlay)} className={twMerge(TOOL, moodOverlay && TOOL_ON)}>
-            {ICONS.mood}
-            <span className="@max-3xl:hidden">Mood</span>
-          </button>
-          <button type="button" title="Tint every street by what it earns, and list the best"
-            onClick={() => setEarningsOverlay(!earningsOverlay)} className={twMerge(TOOL, earningsOverlay && TOOL_ON)}>
-            {ICONS.earnings}
-            <span className="@max-3xl:hidden">Earnings</span>
-          </button>
-          {pipesOpen && (
-            <button type="button" title="Show every water main by what it is doing, each tank, and the water: on too while the Pipe tool is in hand"
-              onClick={() => setWaterOverlay(!waterOverlay)} className={twMerge(TOOL, (waterOverlay || tool === "pipe") && TOOL_ON)}>
-              {ICONS.water}
-              <span className="@max-3xl:hidden">Water</span>
+          {phone ? (
+            <button type="button" aria-expanded={viewsOpen} title="What the map shows" onClick={() => setViewsOpen(!viewsOpen)}
+              className={twMerge(TOOL, viewsOpen && TOOL_ON)}>
+              {ICONS.labels}<span>Views</span>
             </button>
-          )}
-          {model && (
-            <button type="button" title="AI mode: The Model builds the town itself" aria-pressed={aiMode}
-              onClick={() => setAiMode({ aiMode: !aiMode })} className={twMerge(TOOL, aiMode && TOOL_ON, aiMode && "text-ai")}>
-              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ai" />
-              <span className="@max-3xl:hidden">AI mode</span>
-            </button>
-          )}
-          <button type="button" title="Show or hide what each building is and how it is doing"
-            onClick={() => setLabels(!labels)} className={twMerge(TOOL, labels && TOOL_ON)}>
-            {ICONS.labels}
-            <span className="@max-3xl:hidden">Labels</span>
-          </button>
+          ) : views}
         </div>
       </div>
     </div>

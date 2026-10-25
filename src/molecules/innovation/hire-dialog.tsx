@@ -13,7 +13,7 @@ import {
   useTeamLeadersEmployeesStore,
   type TeamLeaderEmployee,
 } from "../../state/team-leaders.store";
-import { Button } from "../../ui/Button";
+import { Button } from "../../ui/console";
 import { TenXDevText } from "../../utils/ten-x-utils";
 import { RainbowText } from "../../utils/vibe-utils";
 import { EmployeeAvatar } from "./employee-avatar";
@@ -46,7 +46,7 @@ function SkillChip({ skillId }: { skillId: TeamLeaderSkillId }) {
       <span className={twMerge("text-[8px] font-semibold leading-none", text)}>
         {skill.name}
       </span>
-      <span className="text-[7px] leading-none text-primary-600 dark:text-primary-400">
+      <span className="text-[7px] leading-none text-fg-muted">
         {skill.descriptions[0]}
       </span>
     </div>
@@ -61,7 +61,7 @@ function RoleChip({ role }: { role: GeneratorId }) {
   if (role === "10x_dev")
     return <TenXDevText text="10x dev" className="text-[10px]" />;
   return (
-    <span className="text-[10px] text-primary-400 dark:text-primary-500 capitalize">
+    <span className="text-[10px] text-fg-muted capitalize">
       intern
     </span>
   );
@@ -81,7 +81,7 @@ function CandidateCard({
   return (
     <div
       className={twMerge(
-        "border-l-2 border border-primary-300 dark:border-primary-700 pr-2 py-2.5 flex gap-3",
+        "border-l-2 border border-line pr-2 py-2.5 flex gap-3",
         TRAIT_BORDER[candidate.traitId],
       )}
     >
@@ -100,7 +100,7 @@ function CandidateCard({
         {/* Name + role + trait */}
         <div className="flex items-baseline justify-between gap-2 min-w-0">
           <div className="flex items-baseline gap-2 min-w-0 flex-1">
-            <span className="text-sm font-semibold text-primary-800 dark:text-primary-100 leading-none">
+            <span className="text-sm font-semibold text-fg leading-none">
               {candidate.name}
             </span>
             <RoleChip role={candidate.role} />
@@ -116,13 +116,13 @@ function CandidateCard({
         </div>
 
         {/* Flavor */}
-        <p className="text-[9px] italic text-primary-400 dark:text-primary-500 leading-snug">
+        <p className="text-[9px] italic text-fg-muted leading-snug">
           "{trait.flavor}"
         </p>
 
         {/* Skill path preview */}
         <div className="flex flex-col gap-1">
-          <span className="text-[8px] uppercase tracking-wider text-primary-400 dark:text-primary-600">
+          <span className="text-[8px] uppercase tracking-wider text-fg-muted">
             Skills
           </span>
           <div className="flex gap-1 flex-wrap">
@@ -183,16 +183,16 @@ export function HireDialog({
     >
       {/* Panel — stop propagation so clicks inside don't close */}
       <div
-        className="bg-primary-100 dark:bg-primary-900 border border-primary-400 dark:border-primary-600 w-full max-w-sm mx-4 flex flex-col"
+        className="bg-surface-1 border border-line w-full max-w-sm mx-4 flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-primary-300 dark:border-primary-700">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-line">
           <div className="flex items-center gap-2">
-            <span className="text-[9px] font-semibold uppercase tracking-widest text-primary-400 dark:text-primary-500">
+            <span className="text-[9px] font-semibold uppercase tracking-widest text-fg-muted">
               Recruitment
             </span>
-            <span className="text-[9px] text-primary-500 dark:text-primary-600">
+            <span className="text-[9px] text-fg-muted">
               ·
             </span>
             {role === "vibe_coder" ? (
@@ -206,7 +206,7 @@ export function HireDialog({
                 className="text-[10px] font-medium"
               />
             ) : (
-              <span className="text-[10px] font-medium text-primary-700 dark:text-primary-300 capitalize">
+              <span className="text-[10px] font-medium text-fg-muted capitalize">
                 {roleLabel}
               </span>
             )}
@@ -214,7 +214,7 @@ export function HireDialog({
           <button
             type="button"
             onClick={onClose}
-            className="text-[10px] text-primary-400 dark:text-primary-500 hover:text-primary-700 dark:hover:text-primary-200 leading-none px-1"
+            className="text-[10px] text-fg-muted hover:text-fg-muted leading-none px-1"
           >
             ✕
           </button>
@@ -223,7 +223,7 @@ export function HireDialog({
         {/* Candidate cards */}
         <div className="flex flex-col gap-2 p-3">
           {candidates.length === 0 ? (
-            <p className="text-xs text-primary-400 dark:text-primary-500 text-center py-4">
+            <p className="text-xs text-fg-muted text-center py-4">
               No candidates available.
             </p>
           ) : (
@@ -241,12 +241,12 @@ export function HireDialog({
         </div>
 
         {/* Reroll footer */}
-        <div className="border-t border-primary-300 dark:border-primary-700 px-3 py-2 flex items-center justify-between gap-3">
+        <div className="border-t border-line px-3 py-2 flex items-center justify-between gap-3">
           <div className="flex flex-col gap-0.5">
-            <span className="text-[9px] text-primary-400 dark:text-primary-500">
+            <span className="text-[9px] text-fg-muted">
               Not feeling it?
             </span>
-            <span className="text-[9px] tabular-nums text-primary-500 dark:text-primary-600">
+            <span className="text-[9px] tabular-nums text-fg-muted">
               {innovation.toFixed(0)} innovation available
             </span>
           </div>

@@ -53,7 +53,7 @@ export const ASSEMBLE = 0.6;
 export const toneStyle = (tone: Tone): CSSProperties =>
   (tone === "console" ? {} : { ["--frame-tone" as string]: `var(--ui-${tone})` });
 
-export function Frame({ kind = "kranox", tone = "console", illuminate = false, lit = false, assemble = "auto", className, style, children }: {
+export function Frame({ kind = "kranox", tone = "console", illuminate = false, lit = false, assemble = "auto", className, inner, style, children }: {
   kind?: FrameKind;
   tone?: Tone;
   /** Lit up on hover: something under the pointer that can be acted on. */
@@ -63,6 +63,8 @@ export function Frame({ kind = "kranox", tone = "console", illuminate = false, l
   /** Drawn on when it appears: as the console's decoration allows, always (unless calm), or never. */
   assemble?: "auto" | "always" | false;
   className?: string;
+  /** The box its children sit in: to make them fill it. */
+  inner?: string;
   style?: CSSProperties;
   children?: ReactNode;
 }) {
@@ -85,7 +87,7 @@ export function Frame({ kind = "kranox", tone = "console", illuminate = false, l
     <div className={twMerge("ui-frame relative", className)} style={{ ...toneStyle(tone), ...style }}
       data-illuminate={illuminate || undefined} data-lit={lit || undefined}>
       <svg ref={svg} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" />
-      <div className="relative">{children}</div>
+      <div className={twMerge("relative", inner)}>{children}</div>
     </div>
   );
 }

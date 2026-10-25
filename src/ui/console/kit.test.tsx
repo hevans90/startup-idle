@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import { installDom } from "../../test/dom";
 import { ConsoleMotionOverride } from "../motion";
-import { Button, Dialog, Frame, Locked, Meter, Panel, Tabs, Text } from "./index";
+import { Button, CountUp, Dialog, Frame, Locked, Meter, Panel, Tabs, Text } from "./index";
 
 let dom: ReturnType<typeof installDom>;
 beforeAll(() => { jest.useRealTimers(); dom = installDom(); });
@@ -43,6 +43,19 @@ describe("the console's kit", () => {
     const { host, unmount } = await render(<Text text="The Data Centre" />, { mix: 0, calm: false });
     expect((host.querySelector("span > span") as HTMLElement).style.visibility).toBe("visible");
     await unmount();
+  });
+
+  test("a number counts up to what it is — and, calm, is there at once", async () => {
+    jest.useRealTimers(); // the preload fakes them before each test
+    const fmt = (v: number) => String(Math.round(v));
+    const calm = await render(<CountUp to={500} format={fmt} />);
+    expect(calm.host.textContent).toBe("500");
+    await calm.unmount();
+    const moving = await render(<CountUp to={500} format={fmt} />, { calm: false });
+    expect(Number(moving.host.textContent)).toBeLessThan(500);
+    await act(async () => { await new Promise((r) => setTimeout(r, 1000)); });
+    expect(moving.host.textContent).toBe("500");
+    await moving.unmount();
   });
 
   test("a confirming button needs two presses, and says so between them", async () => {

@@ -2,20 +2,21 @@ import { useShallow } from "zustand/shallow";
 import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { InfoRow } from "../ui/InfoRow";
-import { SystemPanel } from "../ui/SystemPanel";
+import { Locked, Panel } from "../ui/console";
+import { useGlobalSettingsStore } from "../state/global-settings.store";
 import { ValuationMandatesPanel } from "./innovation/valuation-mandates-panel";
 
 export const ValuationTab = () => {
   const managersUnlocked = useInnovationStore(
     (s) => s.unlocks.managers?.unlocked,
   );
+  const setTab = useGlobalSettingsStore((s) => s.setSidebarTab);
   const board = useValuationStore(useShallow((s) => s.getEconomyMultipliers()));
 
   if (!managersUnlocked) {
     return (
-      <div className="p-4 text-center text-sm text-primary-600 dark:text-primary-300">
-        Unlock <span className="font-medium">Managers</span> on the Innovation
-        tab to accrue valuation and buy board mandates.
+      <div className="p-2 pt-4">
+        <Locked needs="Unlock Managers on the Innovation tab to accrue valuation and buy board mandates" onShow={() => setTab("innovation")} />
       </div>
     );
   }
@@ -23,7 +24,7 @@ export const ValuationTab = () => {
   return (
     <div className="p-2 pt-4 w-full flex flex-col gap-4 items-center">
       <div className="w-64 text-left">
-        <p className="responsive-text-xs text-primary-500 dark:text-primary-400">
+        <p className="responsive-text-xs text-fg-muted">
           Board mandate bonuses
         </p>
         <InfoRow
@@ -39,13 +40,13 @@ export const ValuationTab = () => {
           modKey="mandateInnovation"
         />
       </div>
-      <SystemPanel
+      <Panel
         title="Board Mandates"
         help="Valuation accrues from revenue (boosted by Sales). Buy mandates for global bonuses."
         className="w-full"
       >
         <ValuationMandatesPanel />
-      </SystemPanel>
+      </Panel>
     </div>
   );
 };

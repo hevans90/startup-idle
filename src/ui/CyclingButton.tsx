@@ -19,7 +19,7 @@ export const CycleButton = ({
 
   return (
     <Button
-      className="h-full p-0 text-sm min-w-12 border-primary-500"
+      className="h-full p-0 text-sm min-w-12 border-line-strong"
       onClick={handleClick}
     >
       {currentValue}
