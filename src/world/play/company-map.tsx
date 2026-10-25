@@ -9,11 +9,8 @@
  * of the bundle, and the founder screen does not need it.
  */
 import { TopStreets } from "./top-streets";
-import { AiReport } from "./ai-report";
-import { AiMemos } from "./ai-memos";
 import { DesireReadout } from "./desire-readout";
 import { useEffect } from "react";
-import { sfx } from "../../audio/sound";
 
 import { projectForStructure } from "../../game/projects";
 import { useResizeToWrapper } from "../../hooks/use-resize-to-wrapper";
@@ -25,11 +22,12 @@ import { BuildBar } from "./build-bar";
 import { BuildingLabels } from "./building-labels";
 import { PortIncome } from "./port-income";
 import { ProjectsPanel } from "./projects-panel";
-import { HintCard } from "./hint-card";
-import { EventCards, EventMarkers } from "./event-cards";
+import { EventMarkers } from "./event-cards";
+import { CommsDock } from "../../ui/comms/comms-dock";
+import { startCommsBridge } from "../../ui/comms/bridge";
 import { LeaderTags } from "./leader-tags";
 import { PerfHud } from "../debug/perf-hud";
-import { QuestArc, QuestArcMarkers } from "../../quest-ui/arc";
+import { QuestArcMarkers } from "../../quest-ui/arc";
 
 /** The frame meter over the play view, with `?perf`: what each part of a frame costs. @see PerfHud */
 const SHOW_PERF = typeof location !== "undefined" && new URLSearchParams(location.search).has("perf");
@@ -48,8 +46,8 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
    * studio the employees. A drag pans the map and opens nothing.
    * @see ProjectDef.opens, WorldState.lookedAt
    */
-  // A REFUSAL, heard: the interface's deny. @see WorldState.notice
-  useEffect(() => useWorldStore.subscribe((st, was) => { if (st.notice && st.notice !== was.notice) sfx("deny"); }), []);
+  // INTO COMMS: the world's refusals, its events and the AI's asks. @see startCommsBridge
+  useEffect(() => startCommsBridge(), []);
   useEffect(() => useWorldStore.subscribe((st, was) => {
     if (!st.lookedAt || st.lookedAt === was.lookedAt) return;
     const s = structureOf(st.grid, st.lookedAt.x, st.lookedAt.y);
@@ -69,9 +67,10 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
       {/* THE ARC's ring on the map, where an objective has a place. @see QuestArcMarkers */}
       <QuestArcMarkers />
       <LeaderTags />
-      <div className="absolute left-[19.5rem] right-2 top-14 z-20 flex flex-col items-start gap-2 max-md:left-2 max-md:top-auto max-md:bottom-28">
-        {/* THE ARC first: the objective under way, and what the AI asks. @see QuestArc */}
-        <QuestArc /><HintCard /><AiReport /><AiMemos /><EventCards /></div>
+      {/* COMMS: the objective, what the AI asks, events, reports, a hint — three at most, the rest in the log. @see CommsDock */}
+      <div className="absolute right-2 top-14 z-20 max-md:top-2">
+        <CommsDock />
+      </div>
       <BuildBar className="absolute bottom-3 left-1/2 z-10 max-w-[calc(100%-1rem)] -translate-x-1/2 items-center" />
     </div>
   );

@@ -1,7 +1,7 @@
 import Decimal from "break_infinity.js";
+import { report } from "../state/comms.store";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import toast from "react-hot-toast";
 import { twMerge } from "tailwind-merge";
 import { useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
@@ -984,10 +984,7 @@ export function VapeMapWrapper() {
       showDollarSign: false,
       exponentBreakpoint: 1e6,
     });
-    toast.success(
-      `${scoreLabel(score, perfectThreshold)} — +${boostStr} innovation (${(score * 100).toFixed(0)}%)`,
-      { duration: 5000, icon: "💨" },
-    );
+    report(`${scoreLabel(score, perfectThreshold)} — +${boostStr} innovation (${(score * 100).toFixed(0)}%)`, { title: "Vape" });
   }, []);
 
   return (

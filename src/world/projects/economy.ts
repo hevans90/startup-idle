@@ -4,9 +4,9 @@
  * when a project opens. Kept apart from `works` so that stays testable with a
  * wallet of its own. @see stepWorks
  */
-import toast from "react-hot-toast";
 
 import { projectDef, type ProjectId } from "../../game/projects";
+import { report } from "../../state/comms.store";
 import { syncUnlockedGenerators, useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 
@@ -41,6 +41,6 @@ export function announceOpened(ids: readonly ProjectId[]): void {
       : p.grants === "managers" ? " You can now hire managers."
         : p.grants === "services" ? " You can now build cafés, parks and gyms."
           : p.grants === "ports" ? " You can now build seaports." : "";
-    toast.success(`${p.name} has opened.${news}`, { duration: 6000 });
+    report(`${p.name} has opened.${news}`, { title: "Opened" });
   }
 }

@@ -16,7 +16,7 @@ import {
   type Icon as TablerIcon,
 } from "@tabler/icons-react";
 import { useMemo } from "react";
-import toast from "react-hot-toast";
+import { report } from "../state/comms.store";
 import { twMerge } from "tailwind-merge";
 import { ACHIEVEMENT_CATALOG } from "../game/achievements.catalog";
 import { JUICE_SHOP_UPGRADES } from "../game/achievements.juice-shop";
@@ -89,7 +89,7 @@ export const AchievementsTab = () => {
                   aria-disabled={!canBuy}
                   onClick={() => {
                     if (canBuy && tryPurchaseJuiceUpgrade(u.id)) {
-                      toast.success(`${u.name} purchased`);
+                      report(`${u.name} purchased`);
                     }
                   }}
                   className={twMerge(

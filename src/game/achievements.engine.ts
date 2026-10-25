@@ -1,5 +1,5 @@
-import toast from "react-hot-toast";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { report } from "../state/comms.store";
 import { useExitsStore } from "../state/exits.store";
 import { useGeneratorStore } from "../state/generators.store";
 import {
@@ -90,12 +90,7 @@ export function evaluateAchievements(
       .recordAchievementUnlock(ach.id, ach.juiceReward);
     if (isNew) {
       unlocked.add(ach.id);
-      toast.success(
-        `Achievement unlocked: ${ach.name} (+${ach.juiceReward} juice)`,
-        {
-          duration: 8000,
-        },
-      );
+      report(`${ach.name} (+${ach.juiceReward} juice)`, { title: "Achievement unlocked" });
     }
   }
 }

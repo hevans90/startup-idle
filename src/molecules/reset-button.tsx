@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import toast from "react-hot-toast";
+import { report } from "../state/comms.store";
 import { resetAllGameStores } from "../simulation/reset-game-stores";
 import { Button } from "../ui/Button";
 
@@ -9,7 +9,7 @@ export const ResetButton = () => {
       // Single source of truth — resets every game store (incl. the founder),
       // so a reset returns the player to the founder-selection screen.
       resetAllGameStores();
-      toast.success("Game fully reset. All progress wiped.");
+      report("Game fully reset. All progress wiped.");
     }
   }, []);
 

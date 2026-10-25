@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 /** Directories moved onto the console's tokens. @see plans/ui-overhaul.md §7 */
-const MIGRATED = ['src/ui/console/**', 'src/quest-ui/**']
+const MIGRATED = ['src/ui/console/**', 'src/ui/comms/**', 'src/quest-ui/**', 'src/world/play/event-cards.tsx', 'src/world/play/hint-card.tsx']
 /** A Tailwind colour class from the raw palette: text-violet-600, dark:bg-primary-900, border-emerald-400/50… */
 const RAW_PALETTE = '/(^|[\\s:])(text|bg|border|fill|stroke|ring|outline|from|to|via|accent|divide)-(primary|gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\\d/'
 

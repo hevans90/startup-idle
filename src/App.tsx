@@ -1,6 +1,5 @@
 import { FloatingTree } from "@floating-ui/react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import toast, { resolveValue, Toaster } from "react-hot-toast";
 import { evaluateAchievements } from "./game/achievements.engine";
 import {
   computeOfflineProgress,
@@ -32,8 +31,8 @@ import { useSessionStore } from "./state/session.store";
 import { useThemeStore } from "./state/theme.store";
 import { useGlobalSettingsStore } from "./state/global-settings.store";
 import { listen, setLevel, setMix } from "./audio/sound";
-import { Toast } from "./ui/Toast";
 import { formatCurrency } from "./utils/money-utils";
+import { NoticeToast } from "./ui/comms/notice-toast";
 
 /** Vibe coders this run before the vape appears on the map. */
 const VAPE_UNLOCK_VIBE_CODERS = 50;
@@ -173,13 +172,8 @@ function App() {
 
   return (
     <FloatingTree>
-      <Toaster position="bottom-center" toastOptions={{ duration: 3000 }}>
-        {(t) => (
-          <Toast onClose={() => toast.dismiss(t.id)} icon={t.icon}>
-            {resolveValue(t.message, t)}
-          </Toast>
-        )}
-      </Toaster>
+      {/* COMMS' NOTICES: a refusal, by the pointer. @see NoticeToast */}
+      <NoticeToast />
 
       {offlineSummary && (
         <OfflineSummaryModal
