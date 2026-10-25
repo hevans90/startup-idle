@@ -39,9 +39,10 @@ export type TakeoverRun = {
 };
 
 export type TakeoverReport = {
-  /** Jobs done, and of what kind. */
+  /** Jobs done, and of what kind; and how many put up something that drinks — a building, or a takeover. */
   jobs: number;
   kinds: Record<string, number>;
+  grew: number;
   /** The longest stretch, seconds, with under `SHORT` of its drinkers cooled; when it was first all cooled, and the longest stretch after that. */
   dryest: number;
   cooledAt: number | null;
@@ -104,7 +105,7 @@ export function simulateTakeover(run: TakeoverRun, rand: () => number = Math.ran
   town(run);
   const runner = createAiRunner();
   const startMoney = useMoneyStore.getState().money.toNumber();
-  const report: TakeoverReport = { jobs: 0, kinds: {}, dryest: 0, cooledAt: null, relapse: 0, cooledEnd: 0, spent: 0, allowed: useSessionStore.getState().aiWallet, outside: 0, unwarned: 0, reservoirs: 0 };
+  const report: TakeoverReport = { jobs: 0, kinds: {}, grew: 0, dryest: 0, cooledAt: null, relapse: 0, cooledEnd: 0, spent: 0, allowed: useSessionStore.getState().aiWallet, outside: 0, unwarned: 0, reservoirs: 0 };
   /** When each takeover was first announced, by its tile. */
   const announced = new Map<string, number>();
   let dry = 0, now = 1_000_000;
@@ -122,6 +123,7 @@ export function simulateTakeover(run: TakeoverRun, rand: () => number = Math.ran
     for (const a of did) {
       report.jobs++;
       report.kinds[a.kind] = (report.kinds[a.kind] ?? 0) + 1;
+      if ((a.kind === "place" && isDrinker(a.def)) || a.kind === "convert") report.grew++;
       if (a.kind === "convert") {
         const at = announced.get(`${a.at.x},${a.at.y}`);
         if (at === undefined || now - at < warnMs()) report.unwarned++;

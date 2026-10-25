@@ -77,7 +77,7 @@ function freshRoad(g: Grid, from: { x: number; y: number }, to: { x: number; y: 
 }
 
 /** The jobs that build: free with Hard Takeoff, paid in compute. @see freeBuilds */
-const BUILDS = new Set<AiAction["kind"]>(["place", "convert", "road", "pipe", "reservoir", "refill", "flatten", "lift", "deferred"]);
+const BUILDS = new Set<AiAction["kind"]>(["place", "convert", "road", "pipe", "widen", "reservoir", "refill", "flatten", "lift", "deferred"]);
 
 /** What a job costs now, in money: nought for what costs a player nothing. */
 export function priceOfAi(g: Grid, a: AiAction): number {
@@ -87,6 +87,7 @@ export function priceOfAi(g: Grid, a: AiAction): number {
     case "convert": return buildCost(a.into)?.toNumber() ?? 0;
     case "road": return roadCost(freshRoad(g, a.from, a.to)).toNumber();
     case "pipe": return pipeCost(a.route.pipe.length).toNumber() + (a.route.pump ? buildCost("pump")?.toNumber() ?? Infinity : 0);
+    case "widen": return a.price;
     case "hire": return getGeneratorCost(a.who, 1).toNumber();
     case "upgrade": return useUpgradeStore.getState().availableUpgrades.find((u) => u.id === a.id)?.cost ?? Infinity;
     default: return 0;

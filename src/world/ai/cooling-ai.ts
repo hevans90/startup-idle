@@ -4,10 +4,10 @@
  * it as a main — a pump at its intake where one is needed — through the player's own
  * actions. AI mode and the company's AI both. @see routePipe, game/cooling
  */
-import { buildCost, pipeCost } from "../../game/build-cost";
+import { boreCost, buildCost, pipeCost } from "../../game/build-cost";
 import { isDrinker } from "../../game/cooling";
 import { mainWet, useWorldStore } from "../../state/world.store";
-import { MAIN_END, idx, inBounds, type Grid, type Structure } from "../grid";
+import { MAIN_BORE, MAIN_END, idx, inBounds, type Grid, type Structure } from "../grid";
 import { tankFor } from "../projects/cooling";
 import { depthAt } from "../water/field";
 import { layPipePath } from "../play/build-actions";
@@ -111,14 +111,22 @@ export function waterThatLasts(g: Grid, wet: (x: number, y: number) => boolean, 
 
 /** The building most in need of a pipe, and its route; null if none is short, or none can be reached. */
 export function neededPipe(g: Grid): { s: Structure; route: PipeRoute; price: number } | null {
+  return pipeFor(g, (t) => t.share < SHORT);
+}
+
+/**
+ * A main for the first drinker `wants` picks — by how short it is — with an
+ * intake left to take, to water that will last, that would carry something.
+ */
+function pipeFor(g: Grid, wants: (t: NonNullable<ReturnType<typeof tankFor>>) => boolean): { s: Structure; route: PipeRoute; price: number } | null {
   const reader = waterReader(g), surface = reader.surface;
   // Only water that will last: not the last of a pond. @see waterThatLasts
   const wet = waterThatLasts(g, reader.wet, reader.depth);
   const short = [...g.structures.values()]
     .filter((s) => !s.build && isDrinker(s.def))
     .map((s) => ({ s, t: tankFor(s.id) }))
-    .filter(({ s, t }) => t && t.demand > 0 && t.share < SHORT && intakesInto(g, s) < MAX_INTAKES)
-    .sort((a, b) => a.t!.share - b.t!.share);
+    .filter(({ s, t }) => t && t.demand > 0 && wants(t) && intakesInto(g, s) < MAX_INTAKES)
+    .sort((a, b) => a.t!.share - b.t!.share || a.t!.level / a.t!.capacity - b.t!.level / b.t!.capacity);
   for (const { s } of short) {
     const owned = () => true;
     // TRAINED ON THE RIVER, it looks for a gravity run before settling for a pump. @see game/training
@@ -134,6 +142,39 @@ export function neededPipe(g: Grid): { s: Structure; route: PipeRoute; price: nu
     if (field && !("refused" in plan) && previewMain(g, field, plan.cells, !!route.pump).flow <= 0) continue;
     const price = pipeCost(route.pipe.length).toNumber() + (route.pump ? buildCost("pump")?.toNumber() ?? Infinity : 0);
     return { s, route, price };
+  }
+  return null;
+}
+
+/**
+ * WATER TO SPARE, to grow on: cooled, but with a tank below `full` of its
+ * capacity — water coming in no faster than it goes — the AI cannot add a
+ * drinker. For the drinker furthest from full: another main, if it has an
+ * intake left and lasting water is in reach; or else a narrow main into it
+ * widened, twice the water through the same run. Null with every tank full,
+ * or nothing to be done. @see coolingState, widenMainAt
+ */
+export function moreWater(g: Grid, full: number):
+  | { kind: "pipe"; s: Structure; route: PipeRoute; price: number }
+  | { kind: "widen"; s: Structure; at: { x: number; y: number }; price: number }
+  | null {
+  const low = (t: NonNullable<ReturnType<typeof tankFor>>) => t.level < full * t.capacity;
+  const pipe = pipeFor(g, low);
+  if (pipe) return { kind: "pipe", ...pipe };
+  const wanting = [...g.structures.values()]
+    .filter((s) => !s.build && isDrinker(s.def))
+    .map((s) => ({ s, t: tankFor(s.id) }))
+    .filter(({ t }) => t && t.demand > 0 && low(t))
+    .sort((a, b) => a.t!.level / a.t!.capacity - b.t!.level / b.t!.capacity);
+  const nets = findMains(g).list;
+  for (const { s } of wanting) {
+    for (const net of nets) {
+      if (!net.outlets.some((o) => outletBuilding(g, o) === s.id)) continue;
+      const narrow = net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length;
+      if (!narrow) continue;
+      const i = net.cells[Math.floor(net.cells.length / 2)];
+      return { kind: "widen", s, at: { x: i % g.w, y: (i - (i % g.w)) / g.w }, price: boreCost(narrow).toNumber() };
+    }
   }
   return null;
 }

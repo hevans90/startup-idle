@@ -4,6 +4,8 @@
  * plan's guards (§8):
  *  - COOLING: once all it runs is cooled, never short for more than a minute;
  *    and, on a full run, all cooled in the end;
+ *  - GROWTH: on a full run told to feed the machine, water to spare made —
+ *    a main laid or widened — and something that drinks put up;
  *  - SPEND: never more than its wallet held and was given;
  *  - DISTRICT: nothing it builds or takes outside its district;
  *  - TAKEOVERS: each announced its warning ahead;
@@ -47,6 +49,11 @@ describe("the takeover sim", () => {
       if (process.env.BALANCE) console.log(name.padEnd(28), JSON.stringify(r));
       expect(r.relapse).toBeLessThanOrEqual(60);
       if (run.seconds >= 1800) expect(r.cooledEnd).toBeGreaterThanOrEqual(0.9);
+      // AND IT GROWS, given time and a focus that wants it: water to spare first, then something that drinks. @see moreWater
+      if (run.seconds >= 1800 && run.focus === "machine") {
+        expect((r.kinds.widen ?? 0) + (r.kinds.pipe ?? 0)).toBeGreaterThan(0);
+        expect(r.grew).toBeGreaterThan(0);
+      }
       expect(r.spent).toBeLessThanOrEqual(r.allowed + 1);
       expect(r.outside).toBe(0);
       expect(r.unwarned).toBe(0);

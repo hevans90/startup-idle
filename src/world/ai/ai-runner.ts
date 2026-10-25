@@ -17,7 +17,8 @@ import type { Stage } from "../../state/ai-singularity.store";
 import { structureAt, type Grid, type Structure } from "../grid";
 import { housedBy } from "../../game/housing";
 import { structureDef } from "../structures/def";
-import { INTERVAL, chooseAction, perform, targetOf, type AiAction } from "./planner";
+import { INTERVAL, chooseAction, mainReserve, makesDrinker, perform, targetOf, type AiAction } from "./planner";
+import { useSessionStore } from "../../state/session.store";
 import { ARRIVALS, nextMemoIn, pickMemo } from "./memos";
 import { accrueWallet, creditWallet, priceOfAi, spendWallet, walletCovers } from "./wallet";
 import { skillOf } from "../../state/training.store";
@@ -91,6 +92,7 @@ function ledgerLine(a: AiAction): string {
     case "place": return structureDef(a.def)?.name ?? a.def;
     case "convert": return `${structureDef(a.into)?.name ?? a.into}, converted`;
     case "pipe": return "A water main";
+    case "widen": return "A main, widened";
     case "road": return "Road";
     case "hire": return `A hire: ${a.who}`;
     case "upgrade": return "An upgrade";
@@ -151,7 +153,7 @@ export function stepAi(r: AiRunner, g: Grid, ai: AiNow, dt: number, now: number,
   r.lastAt = now;
   if (r.clock < interval || r.jobs.length >= MAX_DRONES) return did;
   r.clock = 0;
-  const a = chooseAction(g, ai.stage, rand, (x) => walletCovers(g, x) && !(x.kind === "convert" && pendingAt(r, x.at)) && !(isLattice(x) && r.jobs.some((j) => isLattice(j.action))));
+  const a = chooseAction(g, ai.stage, rand, (x) => walletCovers(g, x) && reserved(g, x) && !(x.kind === "convert" && pendingAt(r, x.at)) && !(isLattice(x) && r.jobs.some((j) => isLattice(j.action))));
   if (!a) return did;
   // A TAKEOVER is announced first, and done a minute later. @see WARN_MS
   if (a.kind === "convert") { announce(r, g, a, now); return did; }
@@ -214,6 +216,14 @@ export function vetoAt(r: AiRunner, g: Grid, x: number, y: number, peek = false)
   if (job) { if (!peek) r.jobs = r.jobs.filter((j) => j !== job); return job.action; }
   return null;
 }
+
+/**
+ * WHAT IT KEEPS IN HAND: something that drinks is put up only with a main to
+ * it still in the wallet after — a new building has no water of its own, and
+ * without the money for its main it would run dry while the wallet refilled.
+ * The Lattice aside: it is built at the hold, whatever. @see mainReserve
+ */
+const reserved = (g: Grid, a: AiAction) => !makesDrinker(a) || isLattice(a) || priceOfAi(g, a) + mainReserve() <= useSessionStore.getState().aiWallet;
 
 /** A job putting up the Lattice: one in the air at a time. @see lattice */
 const isLattice = (a: AiAction) => a.kind === "place" && a.def === "lattice";

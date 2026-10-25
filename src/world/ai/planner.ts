@@ -18,6 +18,7 @@
  * lever — fewer agents running, slower it goes; none, and it stops.
  */
 import { NEIGHBOUR } from "../../iso/dir";
+import { buildCost, pipeCost } from "../../game/build-cost";
 import { aiSite, inRebuiltBlock } from "./arc-rules";
 import { questJobLean, questTakeoverShift } from "../../game/quests/effects";
 import { featureGateOpen } from "../../game/projects";
@@ -39,9 +40,9 @@ import { connects, isPaved } from "../roads/mask";
 import { RACK_RANGE } from "../../game/agents";
 import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
-import { demolishAt, liftRoad, paveRoad, placeStructure, reshape } from "../play/build-actions";
+import { demolishAt, liftRoad, paveRoad, placeStructure, reshape, widenMain } from "../play/build-actions";
 import { useSlopPitStore } from "../../state/slop-pit.store";
-import { layRoute, neededPipe } from "./cooling-ai";
+import { layRoute, moreWater, neededPipe } from "./cooling-ai";
 import type { PipeRoute } from "./pipe-route";
 import { isDrinker } from "../../game/cooling";
 import { tankFor } from "../projects/cooling";
@@ -53,7 +54,7 @@ import { aiDistrict, inDistrict, type District } from "./district";
 import { aiFocus, focusSays, focusWeight } from "./focus";
 import { MAX_RESERVOIRS, digReservoir, lowReservoir, refillReservoir, reservoirs, siteFor } from "./reservoir";
 import { skillOf } from "../../state/training.store";
-import { priceOfAi } from "./wallet";
+import { priceOfAi, walletCap } from "./wallet";
 import { useSessionStore } from "../../state/session.store";
 
 type Cell = { x: number; y: number };
@@ -72,6 +73,8 @@ export type AiAction =
   | { kind: "upgrade"; id: string; why: string }
   /** A pipe to water, and a pump house where one is needed, for a building that drinks. @see neededPipe */
   | { kind: "pipe"; route: PipeRoute; at: Cell; why: string }
+  /** A main widened, twice the water through it, for water to spare. @see moreWater */
+  | { kind: "widen"; at: Cell; price: number; why: string }
   /** Nothing: a drone sent for the look of it, AI mode's work being done already. @see autopilot */
   | { kind: "noop"; at: Cell; why: string }
   /**
@@ -134,6 +137,11 @@ function spots(g: Grid, defId: string, d: District, near?: { at: Cell; within: n
 const DRINKING = new Set<Kind>(["node", "farm", "spire", "convert", "repurpose"]);
 /** How full every tank must be before it adds another drinker: water coming in faster than it goes. */
 export const FULL_ENOUGH = 0.8;
+/** Tiles of main, and a pump, that it keeps the price of in hand when it puts up something that drinks: for the main to it. @see takeover.test */
+export const MAIN_RESERVE_TILES = 16;
+export const mainReserve = (): number => pipeCost(MAIN_RESERVE_TILES).toNumber() + (buildCost("pump")?.toNumber() ?? 0);
+/** Whether a job puts up something that drinks: a building that does, or a takeover into one. */
+export const makesDrinker = (a: AiAction): boolean => (a.kind === "place" && isDrinker(a.def)) || a.kind === "convert";
 
 /**
  * HOW ITS COOLING STANDS: `short` with any of its drinkers short of water —
@@ -475,17 +483,34 @@ export function chooseAction(
   const family = traitForecast(useGenerationStore.getState().log, 1)[0].trait.family;
   // INHERITED, it works for you till the Overseer: nothing taken, and only to your focus. @see game/machine
   const tame = inherited(stage);
+  // WATER TO SPARE, before it can grow: cooled, but no tank filling, it lays another main or widens one —
+  // when its focus wants anything that drinks. Told to feed the machine, it saves for it. @see moreWater
+  if (cooling === "ok" && kinds.some((k) => DRINKING.has(k) && focusWeight(focus, k) > 0 && !(tame && TAKES.has(k)))) {
+    const more = moreWater(g, FULL_ENOUGH);
+    const job: AiAction | null = !more ? null : more.kind === "pipe"
+      ? { kind: "pipe", route: more.route, at: more.route.pipe[more.route.pipe.length - 1], why: "I have laid another main. I would like water to spare." }
+      : { kind: "widen", at: more.at, price: more.price, why: "I have widened a main. Twice the water through the same pipe: I would like some to spare." };
+    if (job && affords(job)) return job;
+    if (job && focus === "machine") return null;
+  }
   const weighted = kinds.filter((k) => (cooling === "full" || !DRINKING.has(k)) && focusWeight(focus, k) > 0 && !(tame && TAKES.has(k)))
     // And leant by the arc, People to Machine. @see questJobLean
     .map((k) => ({ k, w: focusWeight(focus, k) * (tame ? 1 : LEAN[family][k] ?? 1) * questJobLean(k) * rand() }));
   weighted.sort((a, b) => b.w - a.w);
   // TRAINED ON THE MONEY, it weighs every job it could do by what it costs, and does the best value. @see priceOfAi
+  // TOLD TO FEED THE MACHINE, a drinker it cannot pay for yet — but could, from a full wallet, with a main to it — is
+  // saved for, not passed over for something cheaper. @see mainReserve
+  const pays = (k: Kind, a: AiAction): boolean | "save" => affords(a)
+    || (focus === "machine" && DRINKING.has(k) && priceOfAi(g, a) + mainReserve() <= walletCap() ? "save" : false);
   if (skillOf("money") >= 2) {
     const wallet = Math.max(1, useSessionStore.getState().aiWallet);
     let best: { a: AiAction; k: Kind; v: number } | null = null;
     for (const { k, w } of weighted) {
       const a = candidate(k, g, rand, district);
-      if (!a || !affords(a)) continue;
+      if (!a) continue;
+      const p = pays(k, a);
+      if (p === "save") return null;
+      if (!p) continue;
       const v = w / (1 + priceOfAi(g, a) / wallet);
       if (!best || v > best.v) best = { a, k, v };
     }
@@ -494,7 +519,9 @@ export function chooseAction(
   for (const { k } of weighted) {
     const a = candidate(k, g, rand, district);
     // A job its wallet cannot pay for is passed over for the next kind. @see walletCovers
-    if (a && affords(a)) return { ...a, why: focusSays(focus, k, a.why) };
+    const p = a ? pays(k, a) : false;
+    if (p === "save") return null;
+    if (a && p) return { ...a, why: focusSays(focus, k, a.why) };
   }
   return null;
 }
@@ -505,6 +532,7 @@ export function perform(a: AiAction): boolean {
     case "place": return placeStructure(a.def, a.at);
     case "deferred": return a.run();
     case "pipe": return layRoute(a.route);
+    case "widen": return widenMain(a.at);
     // Taken down, then its own put up; a node if what it meant will not fit where it stood.
     case "convert": return demolishAt(a.at) && (placeStructure(a.into, a.at) || placeStructure("ai-node", a.at));
     case "road": return paveRoad(a.from, a.to);

@@ -54,6 +54,9 @@ export const layPipePath = (cells: readonly Cell[], pump = false): boolean =>
     () => useWorldStore.getState().endStroke(),
   );
 
+/** Widen the main at a tile, as the main's card widens it, paid for alike. @see widenMainAt */
+export const widenMain = (at: Cell): boolean => withTool({}, () => useWorldStore.getState().widenMainAt(at));
+
 /** Lay road along a straight line, each new tile paid for. */
 export const paveRoad = (from: Cell, to: Cell) => stroke("paintRoad", from, to);
 /** Lift road along a straight line. */

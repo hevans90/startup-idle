@@ -11,6 +11,8 @@ import { rackReading } from "../projects/racks";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { demolishAt, paveRoad, placeStructure } from "../play/build-actions";
+import { useSessionStore } from "../../state/session.store";
+import { useGeneratorStore } from "../../state/generators.store";
 import { CATCH_UP, DRONE_SPEED, aiPace, createAiRunner, droneAt, stepAi } from "./ai-runner";
 import { perform, targetOf } from "./planner";
 
@@ -45,6 +47,9 @@ describe("the AI's pace", () => {
     stepAi(r, g, { stage: "assistant", running: 10, agents: 10 }, 1000, 0);
     expect(r.jobs.length).toBe(0);
     useMoneyStore.setState({ money: new Decimal(1e9) });
+    // A wallet to spend, and an income it is a share of: something that drinks keeps a main's price in hand. @see mainReserve
+    useGeneratorStore.setState({ getMoneyPerSecond: () => 1000 } as never);
+    useSessionStore.setState({ aiWallet: 1e6 });
     stepAi(r, g, { stage: "colleague", running: 10, agents: 10 }, 61, 0, () => 0.5);
     expect(r.jobs.length + r.log.length).toBeGreaterThan(0);
     expect(CATCH_UP).toBeGreaterThan(0);
