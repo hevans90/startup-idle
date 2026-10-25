@@ -10,6 +10,7 @@
  * @see planner, plans/ai-takeover.md §1.1
  */
 import { stageFrom, stageOf, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
+import { useGenerationStore } from "../../state/generation.store";
 import { questCharter, questDistrictCentre, questDistrictMult, questDistrictTiles } from "../../game/quests/effects";
 import { useFounderStore } from "../../state/founder.store";
 import { keystone } from "../../game/machine";
@@ -53,6 +54,8 @@ export const inDistrict = (d: District | null, x: number, y: number): boolean =>
  */
 export const aiHoldsRoads = (): boolean =>
   useFounderStore.getState().selectedFounderId !== "model" && !keystone("alignment") && !keystone("airgap")
+  // A Steward's AI keeps out of your streets for the generation after. @see game/quests/endings
+  && useGenerationStore.getState().legacy !== "steward"
   // The Oversight Board's streets stay yours; the Partnership's are shared. @see questCharter
   && questCharter() !== "oversight" && questCharter() !== "partnership"
   && useAiSingularityStore.getState().value >= stageFrom("overseer");

@@ -86,8 +86,17 @@ export function stageOf(value: number) {
 }
 
 /** What a sale leaves the meter at: a share of it, never under the floor this generation's sales have built. */
-/** Where a company's AI starts, with Inheritance bought: at the Assistant stage. @see game/machine */
-export const inheritedStart = (): number => (hasMachine("machine_root") ? STAGES.find((s) => s.stage === "assistant")!.from : 0);
+/**
+ * Where a company's AI starts, with Inheritance bought: at the Assistant stage
+ * — at the Colleague after a Merge, and from nothing after a Release.
+ * @see game/machine, game/quests/endings
+ */
+export const inheritedStart = (): number => {
+  const legacy = useGenerationStore.getState().legacy;
+  if (legacy === "release") return 0;
+  if (legacy === "merge") return STAGES.find((s) => s.stage === "colleague")!.from;
+  return hasMachine("machine_root") ? STAGES.find((s) => s.stage === "assistant")!.from : 0;
+};
 
 export function afterSale(value: number, sales: number): number {
   return Math.min(100, Math.max(value * CARRY, Math.min(FLOOR_CAP, sales * FLOOR_PER_SALE)));

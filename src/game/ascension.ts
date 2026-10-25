@@ -15,6 +15,7 @@ import { grantInheritance } from "./machine";
 import { useFounderStore } from "../state/founder.store";
 import { emptyLog, useGenerationStore, type BehaviourLog } from "../state/generation.store";
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
+import { CONTAIN_AT, CONTAIN_WEIGHTS, RELEASE_WEIGHTS, openEnding, type Ending, type EndingId } from "./quests/endings";
 
 /** The chance the trait drawn mutates into a sibling. */
 export const MUTATION = 0.25;
@@ -52,21 +53,39 @@ export function inheritTrait(log: BehaviourLog, rand: () => number): { trait: Tr
   return { trait: pool[Math.floor(rand() * pool.length)].id, mutated: true };
 }
 
-export type AscensionResult = { trait: TraitId; mutated: boolean; founder: string; weights: number; generation: number };
+export type AscensionResult = { trait: TraitId; mutated: boolean; founder: string; weights: number; generation: number; also?: TraitId };
 
-/** ASCEND: bank the Weights, fuse the trait, wipe everything but the generation and the tree. */
-export function ascend(rand: () => number = Math.random): AscensionResult | null {
+/** The endings that ascend; Contain shuts it down instead. @see game/quests/endings */
+export type AscendingEnding = Exclude<EndingId, "contain">;
+
+/** What an Ascension now would bank, by the ending taken: twice for a Release, half again after a Contain. */
+export function ascensionWeights(ending: AscendingEnding | null = null): number {
+  return Math.round(weightsNow() * (ending === "release" ? RELEASE_WEIGHTS : 1) * (useGenerationStore.getState().contained ? CONTAIN_WEIGHTS : 1));
+}
+
+/**
+ * ASCEND: bank the Weights, fuse the trait, wipe everything but the generation
+ * and the tree — by an ending, if the arc opened one: a Merge fuses a second
+ * trait and starts the next generation's takeover at the Colleague; a Steward
+ * leaves an AI that never turns; a Release banks twice and leaves nothing to
+ * inherit. @see game/quests/endings
+ */
+export function ascend(rand: () => number = Math.random, ending: AscendingEnding | null = null): AscensionResult | null {
   const founder = useFounderStore.getState().selectedFounderId;
   if (!founder) return null;
   const g = useGenerationStore.getState();
   const { trait: t, mutated } = inheritTrait(g.log, rand);
-  const weights = weightsNow();
+  // MERGED: a second trait, not the first. @see ENDINGS merge
+  let also: TraitId | undefined;
+  for (let k = 0; ending === "merge" && k < 8 && (!also || also === t); k++) also = inheritTrait(g.log, rand).trait;
+  if (also === t) also = undefined;
+  const weights = ascensionWeights(ending);
 
   resetForAscension();
-  // THE ARC closed: kept in the record, a fresh one for the next generation. @see useQuestStore.closeArc
-  useQuestStore.getState().closeArc();
+  // THE ARC closed: kept in the record with its ending, a fresh one for the next generation. @see useQuestStore.closeArc
+  useQuestStore.getState().closeArc(ending);
 
-  const fused = { ...g.fused, [founder]: [...(g.fused[founder] ?? []), t] };
+  const fused = { ...g.fused, [founder]: [...(g.fused[founder] ?? []), t, ...(also ? [also] : [])] };
   useGenerationStore.setState({
     generation: g.generation + 1,
     sales: 0,
@@ -77,11 +96,14 @@ export function ascend(rand: () => number = Math.random): AscensionResult | null
     fused,
     past: [...g.past, { generation: g.generation, trait: t, mutated, founder, weights }],
     announce: { generation: g.generation, trait: t, mutated, founder, weights },
+    // WHAT THE ENDING LEAVES the next generation; a Contain's bonus, spent. @see legacy
+    legacy: ending,
+    contained: false,
   });
   // THE MACHINE: Inheritance, the first Ascension's gift — the AI starts each company at the Assistant. @see game/machine
   grantInheritance();
   useAiSingularityStore.setState({ value: inheritedStart() });
-  return { trait: t, mutated, founder, weights, generation: g.generation + 1 };
+  return { trait: t, mutated, founder, weights, generation: g.generation + 1, ...(also ? { also } : {}) };
 }
 
 /** SHUT IT DOWN: every agent deleted, the racks dark a while, the meter halved — and remembered. */
@@ -89,4 +111,24 @@ export function shutDown(now = Date.now()): void {
   useAgentsStore.setState({ agents: 0, running: null, darkUntil: now + DARK_MS });
   useAiSingularityStore.setState({ value: SHUTDOWN_AT });
   useGenerationStore.getState().recordShutdown();
+}
+
+/**
+ * CONTAIN IT: shut down without the shutdown's costs — no agents lost, no
+ * racks dark, nothing resented — the meter back to `CONTAIN_AT`; it stays for
+ * another company, and its next Ascension banks half as much again. Once a
+ * generation. @see ENDINGS contain
+ */
+export function contain(): void {
+  useAiSingularityStore.setState({ value: CONTAIN_AT });
+  useGenerationStore.setState({ contained: true });
+  const q = useQuestStore.getState();
+  useQuestStore.setState({ flags: [...new Set([...q.flags, "ending:contain"])] });
+}
+
+/** The ending open now, by where the arc has left the AI — Contain only once a generation. */
+export function endingNow(): Ending | null {
+  const q = useQuestStore.getState();
+  const e = openEnding(q.disposition);
+  return e && !(e.id === "contain" && q.flags.includes("ending:contain")) ? e : null;
 }

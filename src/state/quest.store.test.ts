@@ -117,7 +117,7 @@ describe("the arc", () => {
     expect(q().disposition).toEqual({ autonomy: -3, machine: -1 });
     useQuestStore.getState().closeArc();
     expect(q().chapters).toEqual({});
-    expect(q().record).toEqual([{ generation: 1, chapters: { ledger: 2 }, disposition: { autonomy: -3, machine: -1 }, flags: ["ledger:refused"] }]);
+    expect(q().record).toEqual([{ generation: 1, chapters: { ledger: 2 }, disposition: { autonomy: -3, machine: -1 }, flags: ["ledger:refused"], ending: null }]);
     useGenerationStore.setState({ generation: 2 });
     step({ meter: 99 });
     expect(q().offer).toBeNull();

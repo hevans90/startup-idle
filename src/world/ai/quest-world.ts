@@ -13,6 +13,7 @@ import { setFamilyLean, useQuestStore } from "../../state/quest.store";
 import type { Grid } from "../grid";
 import { tankFor } from "../projects/cooling";
 import { SHORT } from "./cooling-ai";
+import { latticeCharge } from "./lattice";
 
 export function questWorld(g: Grid): QuestWorld {
   const counts: Record<string, number> = {};
@@ -37,6 +38,7 @@ export function questWorld(g: Grid): QuestWorld {
     counts,
     block: !!q.block,
     keep: q.keep !== null,
+    lattice: latticeCharge(),
     site: !!q.site,
   };
 }

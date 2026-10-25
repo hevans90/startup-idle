@@ -47,7 +47,8 @@ function town() {
 
 describe("the chapters", () => {
   test("one at each stage in order, every option's effects stated, every echo remembered", () => {
-    expect(CHAPTERS.map((c) => c.stage)).toEqual(["assistant", "colleague", "manager", "overseer", "overseer"]);
+    expect(CHAPTERS.map((c) => c.stage)).toEqual(["assistant", "colleague", "manager", "overseer", "overseer", "overseer"]);
+    expect(CHAPTERS.map((c) => c.number)).toEqual([1, 2, 3, 4, 4, 5]);
     for (const c of CHAPTERS) {
       expect(c.options[c.preferred]).toBeDefined();
       const flags = c.options.flatMap((o) => [...o.effects, ...(o.success ?? []), ...(o.failure ?? [])])
@@ -62,12 +63,12 @@ describe("the chapters", () => {
 
   test("they come one after another as the meter climbs, the test of trust after the Charter", () => {
     const seen: string[] = [];
-    for (const meter of [25, 45, 65, 85, 85]) {
+    for (const meter of [25, 45, 65, 85, 85, 96]) {
       q().step(world({ meter }), 1);
       seen.push(q().offer!.id);
       q().choose(CHAPTERS.find((c) => c.id === q().offer!.id)!.options.length - 1);
     }
-    expect(seen).toEqual(["ledger", "commute", "thirst", "charter", "trust"]);
+    expect(seen).toEqual(["ledger", "commute", "thirst", "charter", "trust", "last-light"]);
   });
 
   test("Thirst remembers the Ledger refused", () => {

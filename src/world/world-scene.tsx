@@ -6,6 +6,7 @@
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
 import { founderIs } from "../game/founder-rules";
+import { latticeForm } from "../game/quests/finale";
 import { BLOCK, SITE, boxAround, clearBlock } from "./ai/arc-rules";
 import { useQuestStore } from "../state/quest.store";
 import { questWorld } from "./ai/quest-world";
@@ -3120,6 +3121,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             if ((a.kind === "convert" && a.into === "gpu-farm") || (a.kind === "place" && a.def === "lattice")) st.pushAiMemo(a.why);
             // What it put up, for an objective waiting on it. @see noteAiBuilt
             if (a.kind === "place") useQuestStore.getState().noteAiBuilt(a.def);
+            // THE LATTICE BEGUN: its form, where the AI stands now, kept. @see latticeForm
+            if (a.kind === "place" && a.def === "lattice") useQuestStore.getState().fixLatticeForm(latticeForm());
           }
           // THE ARC, a second at a time: its triggers, its objectives, and what it says of how they went. @see quest.store
           questClock.current += dt;

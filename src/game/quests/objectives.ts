@@ -21,6 +21,8 @@ export type QuestWorld = {
   /** Whether a block has been picked, a building in it kept, and a site given. */
   block: boolean;
   keep: boolean;
+  /** How far the Lattice is charged, 0–1. */
+  lattice: number;
   site: boolean;
 };
 
@@ -39,6 +41,7 @@ export function measure(o: Running, w: QuestWorld, dt: number): { progress: numb
     case "aiBuilds": return at(o.aiBuilt ? 1 : 0);
     case "buildBy": return at((w.counts[s.def] ?? 0) > (o.baseline ?? Infinity) ? 1 : 0);
     case "agentsRunning": return at(w.running / s.n);
+    case "latticeCharged": return at(w.lattice);
     case "waterBudgetCovered": return at(w.covered >= 1 ? 1 : w.covered * 0.99);
   }
 }

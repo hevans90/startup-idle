@@ -54,6 +54,15 @@ type GenerationState = {
   /** The traits fused into each founder, by founder id. @see game/fusion */
   fused: Record<string, TraitId[]>;
   past: PastGeneration[];
+  /**
+   * THE ENDING the last generation's arc closed on, and what it leaves this
+   * one: Merge, the takeover begun at the Colleague; Steward, an AI that never
+   * turns; Release, none inherited. Null for an Ascension without one.
+   * @see game/quests/endings
+   */
+  legacy: "merge" | "steward" | "release" | null;
+  /** Contained: the next Ascension banks half as many Weights again. */
+  contained: boolean;
   /** The Ascension just made, to announce at the next founding; cleared once seen. */
   announce: PastGeneration | null;
   /** A company sold, by whoever founded it, for so much Equity. */
@@ -78,6 +87,8 @@ export const useGenerationStore = create<GenerationState>()(
       machine: [],
       fused: {},
       past: [],
+      legacy: null,
+      contained: false,
       announce: null,
       recordSale: (founder, equity = 0) => set((s) => ({
         sales: s.sales + 1,
@@ -100,6 +111,7 @@ export const useGenerationStore = create<GenerationState>()(
       partialize: (s) => ({
         generation: s.generation, sales: s.sales, log: s.log, equity: s.equity, peakAgents: s.peakAgents,
         weights: s.weights, modules: s.modules, slotted: s.slotted, machine: s.machine, fused: s.fused, past: s.past, announce: s.announce,
+        legacy: s.legacy, contained: s.contained,
       }),
       merge: (p, current) => ({
         ...current, ...(p as object),

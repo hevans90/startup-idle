@@ -10,6 +10,7 @@
  */
 import { mix, tone, type Pen } from "./pen";
 import type { Building, Footprint, Mass } from "./model";
+import { latticeForm } from "../../../game/quests/finale";
 
 // The town's: measured off the house sprites.
 const STONE = 0xc2beac;
@@ -724,23 +725,86 @@ export function monolith(f: Footprint): Building {
   };
 }
 
-/** THE LATTICE: a black frame of four columns round a lit core, braced, taller than anything near it. */
+/**
+ * THE LATTICE, in the form the AI's disposition gave it: by default the black
+ * vault, four columns round a lit core, braced, taller than anything near it.
+ * @see game/quests/finale latticeForm
+ */
 export function lattice(f: Footprint): Building {
+  const form = latticeForm();
   const H = 6;
-  const col = (u: number, v: number): Mass => ({
+  const col = (u: number, v: number, wall: number, deck: number): Mass => ({
     u0: u, v0: v, u1: u + 0.28, v1: v + 0.28, z0: 0, z1: H,
-    wall: 0x050407, storey: H, facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x0b0910 },
+    wall, storey: H, facade: { kind: "plain" }, roof: { kind: "flat", deck },
   });
-  const cols = [col(0.35, 0.35), col(f.w - 0.63, 0.35), col(0.35, f.h - 0.63), col(f.w - 0.63, f.h - 0.63)];
-  const core: Mass = {
-    ...inside(f, 0.95, 0, H + 0.8), wall: AI_GLASS, storey: 0.6,
-    facade: { kind: "louvres", slat: 0x3b3358, every: 0.2, edge: 0.08 }, roof: { kind: "flat", deck: 0x17131f },
-  };
-  return {
-    plinth: { inset: 0.1, h: 0.2, colour: 0x050407, top: 0x0b0910 }, masses: [core, ...cols], crane: "none",
-    grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0x2a2440),
-    details: (p) => { for (let z = 1; z < H; z += 1.2) aiBand(p, core, z); },
-  };
+  const cols = (wall: number, deck: number) => [col(0.35, 0.35, wall, deck), col(f.w - 0.63, 0.35, wall, deck), col(0.35, f.h - 0.63, wall, deck), col(f.w - 0.63, f.h - 0.63, wall, deck)];
+  switch (form) {
+    // A GLASS SPIRE: three stacked, narrowing towers of glass, lit at every floor.
+    case "spire": {
+      const tiers: Mass[] = [[0.55, 0, 4], [0.85, 4, 7.5], [1.15, 7.5, 9.5]].map(([inset, z0, z1]) => ({
+        ...inside(f, inset, z0, z1), wall: 0x3d4f7a, storey: 0.7,
+        facade: { kind: "curtain", glass: 0x6d8fc4, mullion: 0xd6e4f5, every: 0.25, spandrel: 0x2a3556 },
+        roof: { kind: "flat", deck: 0x2a3556 },
+      }));
+      return {
+        plinth: { inset: 0.1, h: 0.2, colour: 0x2a3556, top: 0x3d4f7a }, masses: tiers, crane: "none",
+        grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0x2a2440),
+        details: (p) => { for (const t of tiers) aiBand(p, t, t.z1 - 0.3); },
+      };
+    }
+    // A GARDEN LATTICE: pale stone columns, a core of green louvres, planted on top, a lawn round it.
+    case "garden": {
+      const core: Mass = {
+        ...inside(f, 0.95, 0, H - 0.4), wall: 0x3f5f34, storey: 0.6,
+        facade: { kind: "louvres", slat: 0x6f9a52, every: 0.2, edge: 0.08 }, roof: { kind: "garden", deck: 0x4f7a3a, rim: 0xd8d2c0 },
+      };
+      return {
+        plinth: { inset: 0.1, h: 0.15, colour: 0xc9c2ae, top: 0xd8d2c0 }, masses: [core, ...cols(0xd8d2c0, 0xe6e1d2)], crane: "none",
+        grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0x5f8a3e),
+        details: () => {},
+      };
+    }
+    // AN OPEN FRAME: white columns round a core of clear glass behind white fins, warm inside.
+    case "open": {
+      const core: Mass = {
+        ...inside(f, 0.95, 0, H + 0.4), wall: 0xf2efe6, storey: 0.6,
+        facade: { kind: "fins", glass: 0xf6e7b8, fin: 0xffffff, every: 0.18 }, roof: { kind: "flat", deck: 0xe6e1d2 },
+      };
+      return {
+        plinth: { inset: 0.1, h: 0.15, colour: 0xd9d5ca, top: 0xeeeae0 }, masses: [core, ...cols(0xf4f3ee, 0xffffff)], crane: "none",
+        grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0xb9b4a6),
+        details: () => {},
+      };
+    }
+    // A RIVER-COOLED MONOLITH: a dark slab standing in a pool, banded in water-blue.
+    case "river": {
+      const slab: Mass = {
+        u0: f.w / 2 - 0.45, v0: 0.6, u1: f.w / 2 + 0.45, v1: f.h - 0.6, z0: 0, z1: H + 1,
+        wall: 0x0d1a22, storey: H + 1, facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x14262f },
+      };
+      return {
+        plinth: { inset: 0.1, h: 0.08, colour: 0x1c3a48, top: 0x2f6f8f }, masses: [slab], crane: "none",
+        grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.006, 0x2f6f8f),
+        details: (p) => {
+          for (let z = 0.8; z < slab.z1; z += 1.1) {
+            p.onV(slab.v1 + 0.005, slab.u0 + 0.04, slab.u1 - 0.04, z, z + 0.08, 0x7fd3f0);
+            p.onU(slab.u1 + 0.005, slab.v0 + 0.04, slab.v1 - 0.04, z, z + 0.08, 0x5fb6d6);
+          }
+        },
+      };
+    }
+    default: {
+      const core: Mass = {
+        ...inside(f, 0.95, 0, H + 0.8), wall: AI_GLASS, storey: 0.6,
+        facade: { kind: "louvres", slat: 0x3b3358, every: 0.2, edge: 0.08 }, roof: { kind: "flat", deck: 0x17131f },
+      };
+      return {
+        plinth: { inset: 0.1, h: 0.2, colour: 0x050407, top: 0x0b0910 }, masses: [core, ...cols(0x050407, 0x0b0910)], crane: "none",
+        grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0x2a2440),
+        details: (p) => { for (let z = 1; z < H; z += 1.2) aiBand(p, core, z); },
+      };
+    }
+  }
 }
 
 /** Each building by the structure it is drawn for. */

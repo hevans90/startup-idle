@@ -16,6 +16,8 @@ import { idx, inBounds, structureAt, type Grid } from "../world/grid";
 import { BLOCK, SITE, boxAround } from "../world/ai/arc-rules";
 import { cellToWorld } from "../world/iso";
 import { Tracker } from "./tracker";
+import { runningAgents } from "../state/agents.store";
+import { LATTICE_AGENTS, latticeNeeds } from "../world/ai/lattice";
 import { Transmission } from "./transmission";
 
 /** Where an objective is on the map, if it has a place. */
@@ -28,6 +30,10 @@ function targetOf(o: Running, g: Grid): { x: number; y: number } | null {
     }
     case "selectBlock": return q.block;
     case "giveSite": return q.site;
+    case "latticeCharged": {
+      for (const s of g.structures.values()) if (s.def === "lattice") return { x: s.x + (s.w - 1) / 2, y: s.y + (s.h - 1) / 2 };
+      return null;
+    }
     default: return null;
   }
 }
@@ -58,6 +64,18 @@ function QuestMarker({ at }: { at: { x: number; y: number } }) {
       </div>
     </div>
   );
+}
+
+/** What the Lattice waits on, for its tracker. @see latticeNeeds */
+function latticeLine(): { label: string; ok: boolean }[] {
+  const running = runningAgents();
+  const n = latticeNeeds(useWorldStore.getState().grid, running);
+  return [
+    { label: "It stands", ok: n.built },
+    { label: `Agents ${Math.min(running, LATTICE_AGENTS)}/${LATTICE_AGENTS}`, ok: n.agents },
+    { label: "Data Centre cooled", ok: n.dc },
+    { label: "Lattice cooled", ok: n.water },
+  ];
 }
 
 /** The ring on the map, where the objective under way has a place. */
@@ -119,7 +137,8 @@ export function QuestLayer() {
   return (
     <>
         {objective && (
-          <Tracker says={objective.spec.says} progress={objective.progress} left={objective.spec.window - objective.elapsed} action={action} />
+          <Tracker says={objective.spec.says} progress={objective.progress} left={objective.spec.window - objective.elapsed} action={action}
+            needs={objective.spec.kind === "latticeCharged" ? latticeLine() : undefined} />
         )}
         {offer && q && (chapter || request) && (
           <Transmission

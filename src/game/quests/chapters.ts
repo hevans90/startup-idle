@@ -1,11 +1,12 @@
 /**
  * THE ARC'S CHAPTERS AND REQUESTS, in the order the meter meets them: one at
  * each stage of the first generation — the Assistant, the Colleague, the
- * Manager, the Overseer (with its test of trust after) — and the Lattice's in
- * phase Q6. The requests are in `requests.ts`. Every effect stated on a card is the
+ * Manager, the Overseer (with its test of trust after) — and the Lattice's,
+ * Last Light, in `finale.ts`. The requests are in `requests.ts`. Every effect stated on a card is the
  * effect. @see state/quest.store, plans/ai-takeover.md §5
  */
 import type { Chapter } from "./types";
+import { LAST_LIGHT } from "./finale";
 export { REQUESTS } from "./requests";
 
 /** Ten minutes of play: the window of most objectives. */
@@ -187,4 +188,4 @@ const TRUST: Chapter = {
   },
 };
 
-export const CHAPTERS: readonly Chapter[] = [LEDGER, COMMUTE, THIRST, CHARTER, TRUST];
+export const CHAPTERS: readonly Chapter[] = [LEDGER, COMMUTE, THIRST, CHARTER, TRUST, LAST_LIGHT];

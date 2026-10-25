@@ -90,7 +90,9 @@ export type ObjectiveSpec =
   /** Every building that drinks has its water. */
   | { kind: "waterBudgetCovered" }
   /** Give the AI a site of its own. */
-  | { kind: "giveSite" };
+  | { kind: "giveSite" }
+  /** The Lattice built and charged. */
+  | { kind: "latticeCharged" };
 
 export type Objective = ObjectiveSpec & {
   /** Seconds of play it has: time away does not count against it. */

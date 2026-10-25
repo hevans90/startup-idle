@@ -47,7 +47,7 @@ export type Running = {
   held: number; baseline?: number; aiBuilt?: boolean;
 };
 /** A generation's arc, as the dossier keeps it. */
-export type ArcRecord = { generation: number; chapters: Record<string, number>; disposition: Disposition; flags: string[] };
+export type ArcRecord = { generation: number; chapters: Record<string, number>; disposition: Disposition; flags: string[]; ending?: string | null };
 
 type QuestState = {
   offer: Offer | null;
@@ -77,6 +77,8 @@ type QuestState = {
   picking: "block" | "keep" | "site" | null;
   /** Effects done once, waiting for the map to do them. @see ONCE */
   actions: Effect[];
+  /** The Lattice's form, fixed when it was begun. @see game/quests/finale */
+  latticeForm: "spire" | "garden" | "open" | "vault" | "river" | null;
   /** What it has to say of how things turned out, for the memos; taken by the scene. */
   said: string[];
   record: ArcRecord[];
@@ -95,14 +97,16 @@ type QuestState = {
   newCompany: () => void;
   /** A second or so of play. */
   step: (world: QuestWorld, dt: number, rand?: () => number, chapters?: readonly Chapter[], requests?: readonly Request[]) => void;
-  /** The Ascension: this generation's arc into the record, and a fresh one. */
-  closeArc: () => void;
+  /** The Ascension: this generation's arc into the record, with the ending it closed on, and a fresh one. */
+  closeArc: (ending?: string | null) => void;
+  /** The Lattice begun: its form fixed. */
+  fixLatticeForm: (form: QuestState["latticeForm"]) => void;
   reset: () => void;
 };
 
 const fresh = () => ({
   offer: null, chapters: {}, requests: {}, objective: null, disposition: { autonomy: 0, machine: 0 }, path: [],
-  flags: [], effects: [], clock: 0, requestIn: null, block: null, keep: null, site: null, picking: null, actions: [], said: [],
+  flags: [], effects: [], clock: 0, requestIn: null, block: null, keep: null, site: null, picking: null, actions: [], latticeForm: null, said: [],
 });
 /** Effects split: those read while they last — a lasting one timed from `clock` — and those done once. */
 const split = (es: readonly Effect[], clock: number) => ({
@@ -230,9 +234,10 @@ export const useQuestStore = create<QuestState>()(
           set({ requestIn: nextRequestIn(rand()), offer: r ? { kind: "request", id: r.id, waited: 0 } : null });
         },
 
-        closeArc: () => {
+        fixLatticeForm: (latticeForm) => { if (!get().latticeForm) set({ latticeForm }); },
+        closeArc: (ending = null) => {
           const s = get();
-          const done: ArcRecord = { generation: useGenerationStore.getState().generation, chapters: s.chapters, disposition: s.disposition, flags: s.flags };
+          const done: ArcRecord = { generation: useGenerationStore.getState().generation, chapters: s.chapters, disposition: s.disposition, flags: s.flags, ending };
           set({ ...fresh(), record: Object.keys(s.chapters).length ? [...s.record, done] : s.record });
         },
         reset: () => set({ ...fresh(), record: [], dcCooled: false }),

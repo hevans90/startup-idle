@@ -89,7 +89,7 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
               const open = e.open(at);
               return (
                 <li key={e.id} className={open ? "text-emerald-700 dark:text-emerald-400" : "text-primary-600 dark:text-primary-400"}>
-                  {open ? "✓" : "·"} <b>{e.name}</b>{open ? " — open to it" : ` — needs ${e.needs}`}
+                  {open ? "✓" : "·"} <b>{e.name}</b>{open ? ` — open to it. ${e.does}` : ` — needs ${e.needs}`}
                 </li>
               );
             })}

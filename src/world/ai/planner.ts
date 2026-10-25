@@ -196,9 +196,16 @@ function unserved(structures: readonly Structure[], mine: (s: Structure) => bool
 /** The jobs that take what is the player's. */
 const TAKES = new Set<Kind>(["convert", "repurpose"]);
 
-/** Whether the AI, inherited, still works for the player at a stage: before the Overseer — and, aligned, always. @see INHERITANCE, keystone */
-export const inherited = (stage: Stage): boolean =>
-  hasMachine(INHERITANCE) && (keystone("alignment") || (stage !== "overseer" && stage !== "ascension"));
+/**
+ * Whether the AI, inherited, still works for the player at a stage: before the
+ * Overseer — and, aligned or after a Steward ending, always; after a Release,
+ * never: nothing was inherited. @see INHERITANCE, keystone, game/quests/endings
+ */
+export const inherited = (stage: Stage): boolean => {
+  const legacy = useGenerationStore.getState().legacy;
+  if (legacy === "release") return false;
+  return hasMachine(INHERITANCE) && (keystone("alignment") || legacy === "steward" || (stage !== "overseer" && stage !== "ascension"));
+};
 
 /** The stages in order; and where it starts taking what is yours — the Manager, moved by the arc. @see questTakeoverShift */
 const ORDER: readonly Stage[] = ["tool", "assistant", "colleague", "manager", "overseer", "ascension"];
