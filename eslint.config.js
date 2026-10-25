@@ -28,13 +28,13 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_' },
       ],
-      // ARWES only through the quest UI: themed by QuestFrame, and in its lazy chunk. @see src/quest-ui
-      'no-restricted-imports': ['error', { patterns: [{ group: ['@arwes/*', 'motion'], message: 'Use src/quest-ui (loaded through loadQuestUi), not arwes directly.' }] }],
+      // ARWES only through the console's kit, themed from its tokens. @see src/ui, plans/ui-overhaul.md §2
+      'no-restricted-imports': ['error', { patterns: [{ group: ['@arwes/*', 'motion'], message: 'Use the kit in src/ui, not arwes directly.' }] }],
     },
   },
   {
-    // The quest UI itself, and the 10x dev's decipher, which came first.
-    files: ['src/quest-ui/**', 'src/utils/ten-x-utils.tsx'],
+    // The kit itself, the quest UI (moving into it), and the 10x dev's decipher, which came first.
+    files: ['src/ui/**', 'src/quest-ui/**', 'src/utils/ten-x-utils.tsx'],
     rules: { 'no-restricted-imports': 'off' },
   },
 )

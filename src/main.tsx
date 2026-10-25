@@ -6,6 +6,9 @@ if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('hitc
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+// The console's tokens, before anything is drawn. @see installTheme
+import { installTheme } from './ui/theme/install'
+installTheme()
 import App from './App.tsx'
 
 const isWorldV2 = new URLSearchParams(window.location.search).get('world') === '1'

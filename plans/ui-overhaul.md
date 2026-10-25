@@ -1,6 +1,6 @@
 # The UI, rebuilt: one console, in arwes
 
-**Status:** a plan. Nothing here is built yet. The arc's quest UI (`src/quest-ui/`, phases Q1–Q6 of `ai-takeover.md`) is the only part of the game in arwes so far, and it is the seed of what follows.
+**Status:** in progress on the `ui-overhaul` branch. **U1 done:** `src/ui/theme/` — `tokens.ts` builds every role's scale with `@arwes/theme` (indexed by lightness: arwes rounds a scale's index), in both themes; `installTheme` writes them as `--ui-*` variables before the first draw and keeps `--console-ai` to the stage; `index.css` maps them to Tailwind colours (`bg-surface-1`, `text-fg-muted`, `border-line`, `text-money`, `bg-ai-soft`, `border-console`), one class right in both themes; Share Tech Mono is `font-display`; `tokens.test.ts` holds every text pair to AA and every role and strong line to 3:1 in both themes. `--ui-console` (the teal mixed toward violet) is declared on `:root`, `.dark` and `.console-scope`: a variable built of variables resolves where it is declared. The open questions are taken as proposed (Share Tech Mono; start plain; replace each surface outright). No surface is migrated yet.
 
 ## Why
 

@@ -9,7 +9,9 @@
         "@arwes/bgs": "1.0.0-next.25020502",
         "@arwes/frames": "1.0.0-next.25020502",
         "@arwes/text": "1.0.0-next.25020502",
+        "@arwes/theme": "1.0.0-next.25020502",
         "@floating-ui/react": "^0.27.7",
+        "@fontsource/share-tech-mono": "5.2.5",
         "@fontsource/space-mono": "^5.2.5",
         "@headlessui/react": "^2.2.2",
         "@pixi/react": "^8.0.5",
@@ -63,6 +65,8 @@
     "@arwes/frames": ["@arwes/frames@1.0.0-next.25020502", "", { "dependencies": { "@arwes/animated": "^1.0.0-next.25020502", "@arwes/tools": "^1.0.0-next.25020502", "csstype": "3", "tslib": "2" }, "peerDependencies": { "motion": "10" } }, "sha512-/dh2OklvHlUT8lnP9C9CkBxBI1pDUTWcLP0vxYjI0QJzC+B6ucD8x9kNsJj9MxYuIw4/jkvBnmJZhkNyCwyd4A=="],
 
     "@arwes/text": ["@arwes/text@1.0.0-next.25020502", "", { "dependencies": { "@arwes/animated": "^1.0.0-next.25020502", "@arwes/tools": "^1.0.0-next.25020502", "tslib": "2" } }, "sha512-oL1aemeLFWIZgrpS2FtHmUq5JxxU7A9pVRKEoBxDtEICyT94kHoADbvhN4aJ7AXYJwvECMrmsAPuw7/27bXJvA=="],
+
+    "@arwes/theme": ["@arwes/theme@1.0.0-next.25020502", "", { "dependencies": { "@arwes/tools": "^1.0.0-next.25020502", "csstype": "3", "tslib": "2" } }, "sha512-fYObQFJDTTpg6rOLOyfPSm2fPG0PeI7ocDcOXATn3pUdSmgDia++McphC/NwZ4szAKqVTuholuUsQ7F6Jy8Jpw=="],
 
     "@arwes/tools": ["@arwes/tools@1.0.0-next.25020502", "", { "dependencies": { "tslib": "2" } }, "sha512-RMo4b6K3xKdsZxdrvE8MxG4XCy+1HlURxVWoFnk1yjllz9e3Ng3FkvsMau8S758zfkm8/SFCSJE1bBnTOj1ukg=="],
 
@@ -175,6 +179,8 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.2", "", { "dependencies": { "@floating-ui/dom": "^1.0.0" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-06okr5cgPzMNBy+Ycse2A6udMi4bqwW/zgBF/rwjcNqWkyr82Mcg8b0vjX8OJpZFy/FKjJmw6wV7t44kK6kW7A=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.9", "", {}, "sha512-MDWhGtE+eHw5JW7lq4qhc5yRLS11ERl1c7Z6Xd0a58DozHES6EnNNwUWbMiG4J9Cgj053Bhk8zvlhFYKVhULwg=="],
+
+    "@fontsource/share-tech-mono": ["@fontsource/share-tech-mono@5.2.5", "", {}, "sha512-elkcBO1znQKdqCTofXzFQaKU9nL/PiSJg+PcE2fSwVFt47W6/FbwN+rTZgBY5G9jOZh83dhRQGi5NKXiJywMLA=="],
 
     "@fontsource/space-mono": ["@fontsource/space-mono@5.2.5", "", {}, "sha512-yFU6K17ko4LEDHl5554n6mCrmDbuc2xYGCZZkCRpAvRtCaJisUjxFdDdph2d2hiIElaiMlinmkmV8IWlbQCMJA=="],
 

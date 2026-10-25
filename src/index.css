@@ -1,4 +1,5 @@
 @import "@fontsource/space-mono";
+@import "@fontsource/share-tech-mono";
 
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
@@ -18,6 +19,8 @@
 
 @theme {
   --font-space-mono: "Space Mono", monospace;
+  /* THE CONSOLE'S DISPLAY FACE: headers, the HUD's big numbers, frame titles. @see plans/ui-overhaul.md §1.2 */
+  --font-display: "Share Tech Mono", "Space Mono", monospace;
   --color-primary-50: #f4f5f6;
   --color-primary-100: #e1e3e6;
   --color-primary-200: #c7cbd1;
@@ -31,6 +34,59 @@
   /* The darkest: dark mode's panels over the map. Missing, every `primary-950`
      class quietly drew nothing — the Ascension card stayed light in dark mode. */
   --color-primary-950: #111417;
+}
+
+/*
+ * THE CONSOLE'S TOKENS as Tailwind colours: `bg-surface-1`, `text-fg-muted`,
+ * `border-line`, `text-money`, `bg-ai-soft`, `border-console`… Each reads its
+ * `--ui-*` variable, which `installTheme` writes for both themes, so one class
+ * is right in light and dark alike — no `dark:` pair needed. @see src/ui/theme
+ */
+@theme inline {
+  --color-surface-0: var(--ui-surface-0);
+  --color-surface-1: var(--ui-surface-1);
+  --color-surface-2: var(--ui-surface-2);
+  --color-surface-3: var(--ui-surface-3);
+  --color-line-quiet: var(--ui-line-quiet);
+  --color-line: var(--ui-line);
+  --color-line-strong: var(--ui-line-strong);
+  --color-fg: var(--ui-fg);
+  --color-fg-muted: var(--ui-fg-muted);
+  --color-fg-faint: var(--ui-fg-faint);
+  --color-console: var(--ui-console);
+  --color-accent: var(--ui-accent);
+  --color-accent-soft: var(--ui-accent-soft);
+  --color-accent-line: var(--ui-accent-line);
+  --color-ai: var(--ui-ai);
+  --color-ai-soft: var(--ui-ai-soft);
+  --color-ai-line: var(--ui-ai-line);
+  --color-money: var(--ui-money);
+  --color-money-soft: var(--ui-money-soft);
+  --color-money-line: var(--ui-money-line);
+  --color-innovation: var(--ui-innovation);
+  --color-innovation-soft: var(--ui-innovation-soft);
+  --color-innovation-line: var(--ui-innovation-line);
+  --color-valuation: var(--ui-valuation);
+  --color-valuation-soft: var(--ui-valuation-soft);
+  --color-valuation-line: var(--ui-valuation-line);
+  --color-juice: var(--ui-juice);
+  --color-juice-soft: var(--ui-juice-soft);
+  --color-juice-line: var(--ui-juice-line);
+  --color-weights: var(--ui-weights);
+  --color-weights-soft: var(--ui-weights-soft);
+  --color-weights-line: var(--ui-weights-line);
+  --color-good: var(--ui-good);
+  --color-good-soft: var(--ui-good-soft);
+  --color-good-line: var(--ui-good-line);
+  --color-warn: var(--ui-warn);
+  --color-warn-soft: var(--ui-warn-soft);
+  --color-warn-line: var(--ui-warn-line);
+  --color-bad: var(--ui-bad);
+  --color-bad-soft: var(--ui-bad-soft);
+  --color-bad-line: var(--ui-bad-line);
+  --color-info: var(--ui-info);
+  --color-info-soft: var(--ui-info-soft);
+  --color-info-line: var(--ui-info-line);
 }
 
 @keyframes news-line-in {
