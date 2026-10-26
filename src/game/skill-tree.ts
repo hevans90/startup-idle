@@ -50,7 +50,7 @@ export type KeystoneSpecial =
   | "lightCleanup" // Clean Sweep — mopping up sludge takes half the people
   | "foundingRoute" // Conglomerate — every company starts with a regular shipping route
   | "fastRepairs" // Open Core — flood damage is repaired twice as fast
-  | "extraTermSheet"; // Founder Worship — a fourth term sheet at founding
+  | "extraTermSheet"; // Founder Worship — a fifth term sheet at founding
 
 /** Free generator (intern) levels granted at the start of each run while the
  * "Permanent Acqui-hire" keystone is allocated — the upside offsetting its halved Equity. */
@@ -147,7 +147,7 @@ const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
   lightCleanup: { label: "Mopping up sludge takes half the people", tone: "good" },
   foundingRoute: { label: "Every company starts with a regular shipping route", tone: "good" },
   fastRepairs: { label: "Flood damage repaired twice as fast", tone: "good" },
-  extraTermSheet: { label: "A fourth term sheet at founding", tone: "good" },
+  extraTermSheet: { label: "A fifth term sheet at founding", tone: "good" },
 };
 
 /** Full signed breakdown for a node: one row per grant, plus its structural
@@ -350,7 +350,7 @@ const CLUSTERS: ClusterDef[] = [
     minor: "+1.5% money, +1.5% innovation",
     minorBonus: [pct("money", 1.5), pct("innovation", 1.5)],
     notables: [
-      { title: "Founder Worship", effect: "+5% money and +5% innovation, and a fourth term sheet to choose from at founding.", bonus: [pct("money", 5), pct("innovation", 5)], special: "extraTermSheet" },
+      { title: "Founder Worship", effect: "+5% money and +5% innovation, and a fifth term sheet to choose from at founding.", bonus: [pct("money", 5), pct("innovation", 5)], special: "extraTermSheet" },
       { title: "Cult of Personality", effect: "+30% valuation / sec (as The Hustler).", bonus: [pct("valuation", 30)] },
       { title: "Hometown Hero", effect: "+6% money and +6% innovation, and every new town starts with a café.", bonus: [pct("money", 6), pct("innovation", 6)], special: "foundingCafe" },
     ],
@@ -762,7 +762,7 @@ export const NEUTRAL_PRESTIGE_MODIFIERS: PrestigeModifiers = {
   cleanupMult: 1,
   startingRoutes: 0,
   repairMult: 1,
-  termSheets: 3,
+  termSheets: 4,
 };
 
 const NODE_INDEX = nodeById(SKILL_TREE);
@@ -808,7 +808,7 @@ export function resolvePrestigeModifiers(
         out.repairMult = 2;
         break;
       case "extraTermSheet":
-        out.termSheets = 4;
+        out.termSheets = 5;
         break;
     }
   }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { usePrestigeStore } from "../state/prestige.store";
 import { useSessionStore } from "../state/session.store";
 import { offerPremium, OFFER_PREMIUM } from "./acquisition";
 import { computeHireCostMultipliers } from "./modifiers";
@@ -28,22 +29,30 @@ describe("the term sheet, negotiated", () => {
 
   test("the clause they care about counts twice, and taking terms back costs their appetite", () => {
     const opening = openingDeal("quick");
-    // Blitz cares about exclusivity: their no-shop is worth 4 to them, an open market nothing.
-    expect(appetite("quick", opening)).toBe(4);
+    // Blitz cares about exclusivity: they open on first refusal, and an open market loses them.
+    expect(opening.exclusivity).toBe("rofr");
     const open = { ...opening, exclusivity: "open" };
-    expect(appetite("quick", open)).toBe(0);
+    expect(appetite("quick", open)).toBeLessThan(appetite("quick", opening));
     expect(willSign("quick", open)).toBe(false);
     expect(reply("quick", open)).toBe(NEGOTIATORS.quick.says.no);
-    // Give them a 2x preference instead, and they sign again.
-    expect(willSign("quick", { ...open, preference: "two" })).toBe(true);
+    // Give them an investor board instead, and they sign again.
+    expect(willSign("quick", { ...open, board: "investor" })).toBe(true);
+  });
+
+  test("the investment is theirs to judge: the cheque they came to write pleases them, another does not", () => {
+    // Cash Cow wants to write a Series A; Skeleton Crew, an angel cheque.
+    expect(appetite("cashcow", { ...openingDeal("cashcow"), investment: "seriesA" }))
+      .toBeGreaterThan(appetite("cashcow", { ...openingDeal("cashcow"), investment: "angel" }));
+    expect(appetite("lean", { ...openingDeal("lean"), investment: "angel" }))
+      .toBeGreaterThan(appetite("lean", { ...openingDeal("lean"), investment: "seriesA" }));
   });
 
   test("a deal's effects combine; no deal changes nothing", () => {
     expect(dealEffects(null)).toEqual(NO_EFFECTS);
-    const e = dealEffects({ investment: "seed", preference: "two", board: "investor", pool: "twenty", milestone: "stretch", exclusivity: "noshop" });
+    const e = dealEffects({ investment: "seed", board: "investor", pool: "twenty", milestone: "stretch", exclusivity: "noshop" });
     expect(e.cash).toBe(600);
     expect(e.dilution).toBeCloseTo(0.2);
-    expect(e.saleMult).toBeCloseTo(0.85 * 0.9 * 0.9);
+    expect(e.saleMult).toBeCloseTo(0.9 * 0.9);
     expect(e.hireCostMult).toBeCloseTo(0.8);
     expect(e.mandateCostMult).toBeCloseTo(0.75);
     expect(e.goalScale).toBeCloseTo(1.5);
@@ -78,9 +87,16 @@ describe("the term sheet, negotiated", () => {
     expect(termStatus()!.goal).toBe("Sell within 1 h 15 min of founding");
   });
 
+  test("spending an Exit: one at a time, never below none", () => {
+    usePrestigeStore.setState({ exits: 1 });
+    expect(usePrestigeStore.getState().spendExit()).toBe(true);
+    expect(usePrestigeStore.getState().exits).toBe(0);
+    expect(usePrestigeStore.getState().spendExit()).toBe(false);
+  });
+
   test("the sale, hiring and the board read the deal", () => {
     const before = computeHireCostMultipliers(1, 1).prestige;
-    sign("agents", openingDeal("agents"));
+    sign("agents", { investment: "seed", board: "shared", pool: "twenty", milestone: "standard", exclusivity: "open" });
     // Seed: 20% stake; a 20% pool takes 10% more of the sale and makes hiring 20% cheaper.
     expect(termSaleMult()).toBeCloseTo(0.8 * 0.9);
     expect(computeHireCostMultipliers(1, 1).prestige).toBeCloseTo(before * 0.8);
@@ -89,7 +105,7 @@ describe("the term sheet, negotiated", () => {
   test("first refusal halves an acquirer's premium; a no-shop keeps them away", () => {
     sign("quick", { ...openingDeal("quick"), exclusivity: "rofr" });
     expect(offerPremium()).toBeCloseTo(1 + (OFFER_PREMIUM - 1) / 2);
-    sign("quick", openingDeal("quick"));
+    sign("quick", { ...openingDeal("quick"), exclusivity: "noshop" });
     expect(termEffects().offers).toBe("none");
   });
 });

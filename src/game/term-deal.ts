@@ -1,8 +1,8 @@
 /**
- * THE TERM SHEET, NEGOTIATED: six clauses, each a few options, and what each
- * one does to the run — money in at founding for a share of the sale, a
- * preference on the payout, who sits on the board, an option pool, how hard
- * the investor's milestone is, and whether anyone else may make an offer.
+ * THE TERM SHEET, NEGOTIATED: five clauses, each a few options, and what each
+ * one does to the run — money in at founding for a share of the sale, who
+ * sits on the board, an option pool, how hard the investor's milestone is,
+ * and whether anyone else may make an offer.
  *
  * The investor has an APPETITE: each option pleases them or costs them, and
  * the clause they care about counts twice. They sign only a deal that meets
@@ -14,8 +14,9 @@
  * clauses has none, and keeps the old terms exactly. @see term-sheets, TermSheetSelect
  */
 import { useSessionStore } from "../state/session.store";
+import { INVESTORS, type Investor } from "./term-investors";
 
-export type ClauseId = "investment" | "preference" | "board" | "pool" | "milestone" | "exclusivity";
+export type ClauseId = "investment" | "board" | "pool" | "milestone" | "exclusivity";
 
 /** What a deal does to the run, all together. Identity: no deal, or a deal that changes nothing. */
 export type TermEffects = {
@@ -49,7 +50,7 @@ export type ClauseOption = {
   label: string;
   /** What it does, in a line, for the controls. */
   says: string;
-  /** How much it pleases the investor: up is for them, down is for the founder. */
+  /** How much it pleases the investor: up is for them, down is for the founder. (The investment's is the investor's own: @see optionAppetite.) */
   appetite: number;
   /** The paragraph as the document reads with it. */
   text: (c: ClauseContext) => string;
@@ -64,65 +65,55 @@ export const CLAUSES: readonly Clause[] = [
   {
     id: "investment", number: 1, title: "Investment", options: [
       { id: "none", label: "Bootstrap", says: "No money in; no stake", appetite: -2, effects: {},
-        text: (c) => `${c.investor} invests nothing at signing and takes no stake. ${c.founder} builds on their own money.` },
+        text: () => "No investment. The founder keeps the company whole." },
       { id: "angel", label: "Angel", says: "$150 now · 10% stake", appetite: 0, effects: { cash: 150, dilution: 0.1 },
-        text: (c) => `${c.investor} invests ${money(150)} at signing in exchange for 10% of the company, fully diluted.` },
+        text: () => `${money(150)} at signing for 10% of the company.` },
       { id: "seed", label: "Seed", says: "$600 now · 20% stake", appetite: 0, effects: { cash: 600, dilution: 0.2 },
-        text: (c) => `${c.investor} invests ${money(600)} at signing in exchange for 20% of the company, fully diluted.` },
+        text: () => `${money(600)} at signing for 20% of the company.` },
       { id: "seriesA", label: "Series A", says: "$2,500 now · 35% stake", appetite: -1, effects: { cash: 2500, dilution: 0.35 },
-        text: (c) => `${c.investor} leads a Series A of ${money(2500)} at signing for 35% of the company, fully diluted, with the usual protective provisions.` },
+        text: () => `${money(2500)} at signing for 35%, with protective provisions.` },
     ],
   },
   {
-    id: "preference", number: 2, title: "Liquidation preference", options: [
-      { id: "none", label: "None", says: "They are paid as everyone is", appetite: -1, effects: {},
-        text: () => "On a sale the proceeds are shared pro rata. The investor holds no preference." },
-      { id: "one", label: "1× standard", says: "Their money back first", appetite: 0, effects: {},
-        text: () => "On a sale the investor is first repaid one times their investment, non-participating, and the rest is shared pro rata." },
-      { id: "two", label: "2× participating", says: "Sale pays 15% less Equity", appetite: 2, effects: { saleMult: 0.85 },
-        text: () => "On a sale the investor is repaid two times their investment and then participates in the remainder. Founders' proceeds are reduced accordingly." },
-    ],
-  },
-  {
-    id: "board", number: 3, title: "Board of directors", options: [
-      { id: "founder", label: "Founder control", says: "Mandates at full price", appetite: -1, effects: {},
-        text: (c) => `The board is three seats: two appointed by ${c.founder}, one independent. The investor observes without a vote.` },
+    id: "board", number: 2, title: "Board", options: [
+      { id: "founder", label: "Founder", says: "Mandates at full price", appetite: -1, effects: {},
+        text: (c) => `${c.founder} holds two seats of three; the investor observes.` },
       { id: "shared", label: "Shared", says: "Mandates 10% cheaper", appetite: 0, effects: { mandateCostMult: 0.9 },
-        text: (c) => `The board is three seats: one for ${c.founder}, one for ${c.investor}, one independent agreed by both. Mandates pass by majority.` },
-      { id: "investor", label: "Investor majority", says: "Mandates 25% cheaper · sale 10% less", appetite: 2, effects: { mandateCostMult: 0.75, saleMult: 0.9 },
-        text: (c) => `${c.investor} appoints two of three seats and the chair. The board may approve mandates and a sale without the founder's consent.` },
+        text: (c) => `One seat each for ${c.founder} and ${c.investor}, one independent.` },
+      { id: "investor", label: "Investor", says: "Mandates 25% cheaper · sale 10% less", appetite: 2, effects: { mandateCostMult: 0.75, saleMult: 0.9 },
+        text: (c) => `${c.investor} holds two seats of three, and the chair.` },
     ],
   },
   {
-    id: "pool", number: 4, title: "Option pool", options: [
+    id: "pool", number: 3, title: "Option pool", options: [
       { id: "none", label: "None", says: "Hiring at full price", appetite: 0, effects: {},
-        text: () => "No options are reserved. Employees are paid in salary alone." },
+        text: () => "No options reserved; staff are paid in salary." },
       { id: "ten", label: "10%", says: "Hiring 10% cheaper · sale 5% less", appetite: 1, effects: { hireCostMult: 0.9, saleMult: 0.95 },
-        text: () => "A pool of 10% of the company is reserved for employees before the investment, so hires take part of their pay in options." },
+        text: () => "10% reserved for staff options; hires come cheaper." },
       { id: "twenty", label: "20%", says: "Hiring 20% cheaper · sale 10% less", appetite: 2, effects: { hireCostMult: 0.8, saleMult: 0.9 },
-        text: () => "A pool of 20% of the company is reserved for employees before the investment. Hiring is cheap; the founder's share is not." },
+        text: () => "20% reserved for staff options; hiring is cheap." },
     ],
   },
   {
-    id: "milestone", number: 5, title: "Milestone", options: [
-      { id: "comfortable", label: "Comfortable", says: "An easier target · 60% of the bonus", appetite: -1, effects: { goalScale: 0.75, bonusMult: 0.6 },
-        text: () => "The milestone below is set at three quarters of the investor's plan. Its kicker is reduced to match." },
-      { id: "standard", label: "Standard", says: "Their target · the full bonus", appetite: 0, effects: {},
-        text: () => "The milestone below is set at the investor's plan, with the kicker as offered." },
-      { id: "stretch", label: "Stretch", says: "Half as hard again · 1.6× the bonus", appetite: 1, effects: { goalScale: 1.5, bonusMult: 1.6 },
-        text: () => "The milestone below is a stretch: half as much again as the plan. Met, its kicker is increased by sixty percent." },
-      { id: "moonshot", label: "Moonshot", says: "Twice as hard · 2.2× the bonus", appetite: 2, effects: { goalScale: 2, bonusMult: 2.2 },
-        text: () => "The milestone below is a moonshot: twice the plan. Met, its kicker is more than doubled. Missed, it pays nothing." },
+    id: "milestone", number: 4, title: "Milestone", options: [
+      { id: "comfortable", label: "Easy", says: "An easier target · 60% of the kicker", appetite: -1, effects: { goalScale: 0.75, bonusMult: 0.6 },
+        text: () => "Set at three quarters of the plan; the kicker cut to match." },
+      { id: "standard", label: "Plan", says: "Their target · the full kicker", appetite: 0, effects: {},
+        text: () => "Set at the investor's plan, with the kicker as offered." },
+      { id: "stretch", label: "Stretch", says: "Half as hard again · 1.6× the kicker", appetite: 1, effects: { goalScale: 1.5, bonusMult: 1.6 },
+        text: () => "Half as much again as the plan; the kicker raised 60%." },
+      { id: "moonshot", label: "Moonshot", says: "Twice as hard · 2.2× the kicker", appetite: 2, effects: { goalScale: 2, bonusMult: 2.2 },
+        text: () => "Twice the plan; the kicker more than doubled." },
     ],
   },
   {
-    id: "exclusivity", number: 6, title: "Exclusivity", options: [
-      { id: "open", label: "Open market", says: "Acquirers may offer as usual", appetite: 0, effects: {},
-        text: () => "The company may entertain offers from any acquirer at any time." },
+    id: "exclusivity", number: 5, title: "Exclusivity", options: [
+      { id: "open", label: "Open", says: "Acquirers may offer as usual", appetite: 0, effects: {},
+        text: () => "Any acquirer may make an offer, at any time." },
       { id: "rofr", label: "First refusal", says: "Acquirers' premiums halved", appetite: 1, effects: { offers: "halved" },
-        text: (c) => `${c.investor} holds a right of first refusal on any sale: acquirers may still offer, knowing the investor may match them.` },
+        text: (c) => `${c.investor} may match any offer; acquirers bid lower.` },
       { id: "noshop", label: "No-shop", says: "No acquirer offers this run", appetite: 2, effects: { offers: "none" },
-        text: (c) => `For the life of this company it will not solicit or entertain any offer to acquire it, other than through ${c.investor}.` },
+        text: (c) => `No offers entertained, except through ${c.investor}.` },
     ],
   },
 ];
@@ -142,28 +133,58 @@ export type Negotiator = {
   motto: string;
 };
 
-export const NEGOTIATORS: Record<string, Negotiator> = {
-  quick: { demand: 2, cares: "exclusivity",
-    opening: { investment: "seed", preference: "one", board: "shared", pool: "none", milestone: "standard", exclusivity: "noshop" },
-    says: { eager: "Sign it and we'll wire it before lunch.", fine: "Fast, clean, done. We can work with this.", no: "Too slow, too loose. We don't sign that." },
-    partner: "Dex Varga, Managing Partner", motto: "Velocity is a moat · Orbital Finance District" },
-  town: { demand: 1, cares: "board",
-    opening: { investment: "angel", preference: "one", board: "shared", pool: "ten", milestone: "standard", exclusivity: "open" },
-    says: { eager: "A seat at the table, a town to build. Lovely.", fine: "That's a fair deal for a main street.", no: "We'd need a say in how the town is run." },
-    partner: "Ines Oduya, General Partner", motto: "Patient capital for places people live · Old Quarter" },
-  clean: { demand: 1, cares: "preference",
-    opening: { investment: "angel", preference: "two", board: "founder", pool: "none", milestone: "standard", exclusivity: "open" },
-    says: { eager: "Protected and principled. We're delighted.", fine: "Green on both sides of the ledger. Agreed.", no: "We need our capital protected to sign." },
-    partner: "Hal Moreno, Stewardship Partner", motto: "Returns without residue · Green Ring, Level 9" },
-  wonders: { demand: 2, cares: "milestone",
-    opening: { investment: "seed", preference: "one", board: "shared", pool: "none", milestone: "stretch", exclusivity: "open" },
-    says: { eager: "Monuments, and ambition to match. Done.", fine: "Build us something worth a plaque.", no: "Think bigger, or find another backer." },
-    partner: "Odessa Kline, Founding Partner", motto: "We fund what outlives us · The Plinth" },
-  agents: { demand: 2, cares: "pool",
-    opening: { investment: "seed", preference: "one", board: "shared", pool: "twenty", milestone: "standard", exclusivity: "open" },
-    says: { eager: "Cheap headcount, many agents. The future.", fine: "The machines approve. Mostly.", no: "Our thesis needs a bigger option pool." },
-    partner: "Unit 7 (on behalf of the fund)", motto: "Compute is the new capital · Datacentre Row" },
+/** Where every opening starts: their cheque, a shared board, no pool, their plan, an open market. */
+const BASE: Omit<Clauses, "investment"> = { board: "shared", pool: "none", milestone: "standard", exclusivity: "open" };
+/** The order an opening is sweetened in, after the clause they care about. */
+const SWEETEN: readonly ClauseId[] = ["pool", "milestone", "exclusivity", "board"];
+
+/**
+ * THE DRAFT THEY OPEN WITH: their cheque and the plain terms, then the clause
+ * they care about pushed their way a step at a time — then the others — until
+ * it meets their demand. So every opening is one they would sign, and it leans
+ * the way they lean.
+ */
+function openingFor(i: Investor): Clauses {
+  const d: Clauses = { investment: i.cheque, ...BASE };
+  const step = (id: ClauseId): boolean => {
+    const opts = CLAUSES.find((c) => c.id === id)!.options;
+    const at = opts.findIndex((o) => o.id === d[id]);
+    const next = opts.slice(at + 1).find((o) => o.appetite > opts[at].appetite);
+    if (!next) return false;
+    d[id] = next.id;
+    return true;
+  };
+  const order = [i.cares, ...SWEETEN.filter((c) => c !== i.cares)];
+  for (let guard = 0; guard < 20 && appetiteOf(i, d) < i.demand; guard++) {
+    if (!order.some((c) => step(c))) break;
+  }
+  return d;
+}
+
+/**
+ * WHAT ONE OPTION DOES TO AN INVESTOR'S APPETITE, the clause they care about counted twice. The investment is
+ * theirs to judge: the cheque they came to write pleases them, another size costs them, and none at all costs most.
+ */
+function optionAppetite(i: Pick<Investor, "cares" | "cheque">, id: ClauseId, opt: string | undefined): number {
+  const base = id === "investment"
+    ? (opt === i.cheque ? 1 : opt === "none" ? -2 : -1)
+    : (CLAUSES.find((c) => c.id === id)!.options.find((o) => o.id === opt)?.appetite ?? 0);
+  return base * (i.cares === id ? 2 : 1);
+}
+
+const appetiteOf = (i: Pick<Investor, "cares" | "cheque">, d: Clauses) => CLAUSES.reduce((sum, c) => sum + optionAppetite(i, c.id, d[c.id]), 0);
+
+const byId = new Map(INVESTORS.map((i) => [i.id, i]));
+
+/** What an option does to this investor's appetite: for the redline's ▲▼. */
+export const clauseAppetite = (investor: string, id: ClauseId, opt: string): number => {
+  const i = byId.get(investor);
+  return i ? optionAppetite(i, id, opt) : 0;
 };
+
+export const NEGOTIATORS: Record<string, Negotiator> = Object.fromEntries(INVESTORS.map((i) => [i.id, {
+  demand: i.demand, cares: i.cares, opening: openingFor(i), says: i.says, partner: i.partner, motto: i.motto,
+}]));
 
 export const clause = (id: ClauseId) => CLAUSES.find((c) => c.id === id)!;
 export const option = (id: ClauseId, opt: string | undefined): ClauseOption | undefined => clause(id).options.find((o) => o.id === opt);
@@ -173,8 +194,8 @@ export const openingDeal = (investor: string): Clauses => ({ ...NEGOTIATORS[inve
 
 /** How much a deal pleases its investor: each clause's appetite, the one they care about twice. */
 export function appetite(investor: string, clauses: Clauses): number {
-  const n = NEGOTIATORS[investor];
-  return CLAUSES.reduce((sum, c) => sum + (option(c.id, clauses[c.id])?.appetite ?? 0) * (n?.cares === c.id ? 2 : 1), 0);
+  const i = byId.get(investor);
+  return i ? appetiteOf(i, clauses) : 0;
 }
 
 /** Whether they would sign it. */

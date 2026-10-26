@@ -1,16 +1,28 @@
 /**
- * TERM SHEETS — what the investors want of this company, chosen at founding:
+ * TERM SHEETS — what an investor wants of this company, chosen at founding:
  * one goal for the run, paying a share on top of the Equity the sale pays if
- * it is met when the company is sold. Each pushes a different way to play — a
- * quick sale, a big town, a clean one, the wonders, the agents — and three of
- * them are offered, a different three for different land. @see termBonusNow
+ * it is met when the company is sold. Each investor pushes a different way to
+ * play — a quick sale or a patient one, a big town or a small one, an army of
+ * hires or a skeleton crew, the machine or none of it — and four of them are
+ * offered, a different four for different land, rerolled for an Exit.
+ * The goals are measured here; who the investors are, in term-investors; the
+ * clauses, in term-deal. @see termBonusNow, TermSheetSelect
  */
 import { runningAgents } from "../state/agents.store";
-import { termEffects } from "./term-deal";
+import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { useGeneratorStore } from "../state/generators.store";
+import { useInnovationStore } from "../state/innovation.store";
+import { useMoneyStore } from "../state/money.store";
 import { useSessionStore } from "../state/session.store";
+import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
+import { useUpgradeStore } from "../state/upgrades.store";
+import { useValuationStore } from "../state/valuation.store";
+import { formatCurrency } from "../utils/money-utils";
+import { termEffects } from "./term-deal";
+import { INVESTORS, type GoalSpec, type Investor, type Metric } from "./term-investors";
 
 /** What the map says, for the goals that are about it. @see setTermReader */
-export type TermReading = { houses: number; wonders: number };
+export type TermReading = { houses: number; wonders: number; projects?: number };
 
 /** Where a goal stands: how far along, of how much, and whether it is met. */
 export type TermProgress = { have: number; need: number; met: boolean; text: string };
@@ -28,64 +40,94 @@ export type TermSheet = {
   progress: (now: TermNow, scale?: number) => TermProgress;
 };
 
-/** Everything a goal is read from. */
-export type TermNow = TermReading & { secondsIn: number; agents: number; overflowed: boolean };
+/** Everything a goal is read from, at the sale. */
+export type TermNow = Required<TermReading> & Record<Exclude<Metric, keyof TermReading>, number> & { secondsIn: number };
 
-/** A run's deadline for the quick sale, seconds. */
+/** The first investor's deadline for the quick sale, seconds. */
 export const QUICK_SALE = 2.5 * 3600;
 
 const clock = (s: number) => {
   const m = Math.max(0, Math.round(s / 60));
   return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
 };
+const amount = (n: number, money?: boolean) => (money ? formatCurrency(n, { exponentBreakpoint: 1e9 }) : n.toLocaleString("en-GB"));
 
-const atLeast = (have: number, need: number, what: string): TermProgress =>
-  ({ have, need, met: have >= need, text: `${Math.min(have, need)}/${need} ${what}` });
+/** A count asked for at a scale: harder asks more (never under one, a meter never over 99). */
+const more = (base: number, k: number, metric: Metric) => {
+  const n = Math.max(1, Math.round(base * k));
+  return metric === "singularity" || metric === "morale" ? Math.min(99, n) : n;
+};
+/** A ceiling at a scale: harder allows less — for a negative one, further below nought. */
+const fewer = (base: number, k: number) => (base >= 0 ? Math.floor(base / k) : Math.round(base * k));
 
-/** A count at a scale: never below one. */
-const scaled = (base: number, scale: number) => Math.max(1, Math.round(base * scale));
-/** The quick sale's deadline at a scale: a harder milestone is a shorter one. */
-const deadline = (scale: number) => QUICK_SALE / scale;
+/** A GOAL, from its spec: what it says at a scale, and where the company stands against it. */
+function goalOf(g: GoalSpec): Pick<TermSheet, "goalAt" | "progress"> {
+  switch (g.kind) {
+    case "more": return {
+      goalAt: (k) => `${amount(more(g.base, k, g.metric), g.money)} ${g.unit} when you sell`,
+      progress: (n, k = 1) => {
+        const need = more(g.base, k, g.metric), have = n[g.metric];
+        return { have, need, met: have >= need, text: `${amount(Math.min(have, need), g.money)}/${amount(need, g.money)} ${g.unit}` };
+      },
+    };
+    case "fewer": return {
+      goalAt: (k) => `No more than ${fewer(g.base, k).toLocaleString("en-GB")} ${g.unit} when you sell`,
+      progress: (n, k = 1) => {
+        const need = fewer(g.base, k), have = Math.round(n[g.metric]);
+        return { have, need, met: have <= need, text: `${have} now, ${need} at most` };
+      },
+    };
+    case "none": return {
+      goalAt: () => `No ${g.unit} when you sell`,
+      progress: (n) => {
+        const have = Math.round(n[g.metric]);
+        return { have, need: 0, met: have === 0, text: have === 0 ? `None so far` : `${have} now: none allowed` };
+      },
+    };
+    case "within": return {
+      goalAt: (k) => `Sell within ${clock(g.seconds / k)} of founding`,
+      progress: (n, k = 1) => {
+        const by = g.seconds / k;
+        return { have: n.secondsIn, need: by, met: n.secondsIn <= by, text: n.secondsIn <= by ? `${clock(by - n.secondsIn)} left` : "Too late" };
+      },
+    };
+    case "after": return {
+      goalAt: (k) => `Hold the company ${clock(g.seconds * k)} before selling`,
+      progress: (n, k = 1) => {
+        const from = g.seconds * k;
+        return { have: n.secondsIn, need: from, met: n.secondsIn >= from, text: n.secondsIn >= from ? "Free to sell" : `${clock(from - n.secondsIn)} to wait` };
+      },
+    };
+    case "window": return {
+      goalAt: (k) => `Sell between ${clock(g.from)} and ${clock(g.from + (g.to - g.from) / k)} after founding`,
+      progress: (n, k = 1) => {
+        const to = g.from + (g.to - g.from) / k, t = n.secondsIn;
+        return {
+          have: t, need: to, met: t >= g.from && t <= to,
+          text: t < g.from ? `Opens in ${clock(g.from - t)}` : t <= to ? `Open: ${clock(to - t)} left` : "The window has closed",
+        };
+      },
+    };
+  }
+}
 
-export const TERM_SHEETS: readonly TermSheet[] = [
-  {
-    id: "quick", investor: "Blitz Capital", goal: "Sell within 2 h 30 min of founding", bonus: 0.3,
-    goalAt: (k) => `Sell within ${clock(deadline(k))} of founding`,
-    progress: (n, k = 1) => ({
-      have: n.secondsIn, need: deadline(k), met: n.secondsIn <= deadline(k),
-      text: n.secondsIn <= deadline(k) ? `${clock(deadline(k) - n.secondsIn)} left` : "Too late",
-    }),
-  },
-  {
-    id: "town", investor: "Main Street Partners", goal: "40 lived-in houses when you sell", bonus: 0.25,
-    goalAt: (k) => `${scaled(40, k)} lived-in houses when you sell`,
-    progress: (n, k = 1) => atLeast(n.houses, scaled(40, k), "houses"),
-  },
-  {
-    // A promise kept or broken: no harder or easier, whatever the milestone says of the kicker.
-    id: "clean", investor: "Green Ledger Fund", goal: "Never let the slop pit overflow", bonus: 0.2,
-    goalAt: () => "Never let the slop pit overflow",
-    progress: (n) => ({ have: n.overflowed ? 0 : 1, need: 1, met: !n.overflowed, text: n.overflowed ? "It overflowed" : "Clean so far" }),
-  },
-  {
-    id: "wonders", investor: "Monument Ventures", goal: "Two wonders standing when you sell", bonus: 0.3,
-    goalAt: (k) => { const w = scaled(2, k); return `${w === 1 ? "One wonder" : `${w} wonders`} standing when you sell`; },
-    progress: (n, k = 1) => atLeast(n.wonders, scaled(2, k), "wonders"),
-  },
-  {
-    id: "agents", investor: "Singularity Seed", goal: "12 AI agents running when you sell", bonus: 0.25,
-    goalAt: (k) => `${scaled(12, k)} AI agents running when you sell`,
-    progress: (n, k = 1) => atLeast(n.agents, scaled(12, k), "agents"),
-  },
-];
+const sheetOf = (i: Investor): TermSheet => {
+  const g = goalOf(i.goal);
+  return { id: i.id, investor: i.investor, goal: g.goalAt(1), goalAt: g.goalAt, bonus: i.bonus, progress: g.progress };
+};
+
+export const TERM_SHEETS: readonly TermSheet[] = INVESTORS.map(sheetOf);
 
 export const termSheet = (id: string | null | undefined): TermSheet | null => TERM_SHEETS.find((t) => t.id === id) ?? null;
 
-/** The `n` offered for a seed: the same land, the same ones. */
-export function termSheetsFor(seed: number, n = 3): TermSheet[] {
+/**
+ * The `n` offered for a seed and a reroll: the same land and the same reroll,
+ * the same ones; another reroll, another draw. @see TermSheetSelect
+ */
+export function termSheetsFor(seed: number, n = 4, reroll = 0): TermSheet[] {
   const all = [...TERM_SHEETS];
-  // mulberry32: a neighbouring seed is a different three.
-  let s = seed >>> 0;
+  // mulberry32: a neighbouring seed, or the next reroll, is a different draw.
+  let s = (seed + Math.imul(reroll, 0x9e3779b1)) >>> 0;
   const rand = () => {
     s = (s + 0x6d2b79f5) >>> 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
@@ -110,17 +152,40 @@ export function setTermReader(read: () => TermReading): () => void {
 /** What every goal is read from, now. */
 export function termNow(): TermNow {
   const s = useSessionStore.getState();
+  const gen = useGeneratorStore.getState();
+  const count = (id: string) => gen.generators.find((g) => g.id === id)?.amount ?? 0;
+  const inn = useInnovationStore.getState();
+  const val = useValuationStore.getState();
+  const map = reader?.() ?? { houses: 0, wonders: 0 };
+  // Morale: the average over the kinds employed (none employed, nought).
+  const kinds = gen.generators.filter((g) => g.amount > 0);
+  const morale = kinds.length ? kinds.reduce((sum, g) => sum + (gen.satisfactionScores[g.id as keyof typeof gen.satisfactionScores] ?? 0), 0) / kinds.length : 0;
   return {
-    ...(reader?.() ?? { houses: 0, wonders: 0 }),
+    houses: map.houses, wonders: map.wonders, projects: map.projects ?? 0,
     secondsIn: (Date.now() - s.incorporatedAt) / 1000,
     agents: runningAgents(),
-    overflowed: !!s.overflowed,
+    interns: count("intern"), vibe: count("vibe_coder"), tenx: count("10x_dev"),
+    employees: gen.generators.reduce((n, g) => n + g.amount, 0),
+    minKind: Math.min(count("intern"), count("vibe_coder")),
+    mps: gen.getMoneyPerSecond(), ips: gen.getInnovationPerSecond(),
+    money: useMoneyStore.getState().money.toNumber(),
+    valuation: val.accruedThisRun.toNumber(),
+    mandates: Object.values(val.mandateLevels).reduce((n, l) => n + l, 0),
+    innovation: inn.innovation.toNumber(),
+    managerTiers: Object.values(inn.managers).reduce((n, m) => n + m.tier.floor().toNumber(), 0),
+    upgrades: useUpgradeStore.getState().unlockedUpgradeIds.length,
+    leaders: useTeamLeadersEmployeesStore.getState().employees.length,
+    morale,
+    singularity: useAiSingularityStore.getState().value,
+    routes: s.routes,
+    portIncome: s.portIncomePerSecond,
   };
 }
 
 /**
  * This run's term sheet and where it stands, or null with none: its goal and
- * its bonus at the milestone the deal set. @see term-deal
+ * its bonus at the milestone the deal set. A run signed with an investor who
+ * is no longer offered has none. @see term-deal
  */
 export function termStatus(): { sheet: TermSheet; progress: TermProgress; goal: string; bonus: number } | null {
   const sheet = termSheet(useSessionStore.getState().termSheet);

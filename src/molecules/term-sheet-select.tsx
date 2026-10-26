@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { twMerge } from "tailwind-merge";
 
 import {
-  CLAUSES, NEGOTIATORS, appetite, clause, dealEffects, openingDeal, option, reply, willSign,
+  CLAUSES, NEGOTIATORS, appetite, clause, clauseAppetite, dealEffects, openingDeal, option, reply, willSign,
   type ClauseId, type Clauses,
 } from "../game/term-deal";
 import { termSheetsFor, type TermSheet } from "../game/term-sheets";
@@ -37,12 +37,28 @@ const pct = (k: number) => `${Math.round(k * 100)}%`;
 const mult = (k: number) => (k === 1 ? "×1" : `×${k.toFixed(2)}`);
 
 export function TermSheetSelect({ seed, founder, onBack, onSign }: Props) {
-  // Founder Worship brings a fourth. @see PrestigeModifiers.termSheets
-  const sheets = useMemo(() => termSheetsFor(seed, usePrestigeStore.getState().modifiers.termSheets), [seed]);
+  // FOUR INVESTORS, five with Founder Worship; a different draw for each reroll, paid for with an Exit. @see PrestigeModifiers.termSheets
+  const offered = usePrestigeStore((p) => p.modifiers.termSheets);
+  const exits = usePrestigeStore((p) => p.exits);
+  const [rerolls, setRerolls] = useState(0);
+  const sheets = useMemo(() => termSheetsFor(seed, offered, rerolls), [seed, offered, rerolls]);
   const [investor, setInvestor] = useState(sheets[0].id);
   // EACH INVESTOR'S DRAFT, kept as it was left: going to another and back finds yours where you left it.
-  const [drafts, setDrafts] = useState<Record<string, Clauses>>(() => Object.fromEntries(sheets.map((t) => [t.id, openingDeal(t.id)])));
-  const [versions, setVersions] = useState<Record<string, number>>(() => Object.fromEntries(sheets.map((t) => [t.id, 1])));
+  const fresh = (list: typeof sheets) => ({
+    drafts: Object.fromEntries(list.map((t) => [t.id, openingDeal(t.id)])) as Record<string, Clauses>,
+    versions: Object.fromEntries(list.map((t) => [t.id, 1])) as Record<string, number>,
+  });
+  const [drafts, setDrafts] = useState<Record<string, Clauses>>(() => fresh(sheets).drafts);
+  const [versions, setVersions] = useState<Record<string, number>>(() => fresh(sheets).versions);
+  const reroll = () => {
+    if (signing || !usePrestigeStore.getState().spendExit()) return;
+    const next = termSheetsFor(seed, offered, rerolls + 1);
+    const f = fresh(next);
+    setDrafts(f.drafts);
+    setVersions(f.versions);
+    setInvestor(next[0].id);
+    setRerolls((r) => r + 1);
+  };
   const [signing, setSigning] = useState(false);
   const { calm } = useConsoleMotion();
 
@@ -75,47 +91,63 @@ export function TermSheetSelect({ seed, founder, onBack, onSign }: Props) {
       next={{ label: signing ? "Signing…" : ok ? `Sign with ${sheet.investor}` : `${sheet.investor} won't sign this`, disabled: !ok || signing, onClick: sign }}>
       <div className="mx-auto flex w-full max-w-[110rem] flex-col gap-4">
         {/* THE INVESTORS, a tile each: who, what they want, what they care about, and whether your draft would do. */}
-        <div role="radiogroup" aria-label="Investors" className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <Label>{sheets.length} investors on this land</Label>
+          <Button size="sm" disabled={signing || exits < 1} onClick={reroll}
+            title={exits < 1 ? "No Exits to spend: sell a company to earn one" : "Spend an Exit for four other investors"}>
+            Reroll investors · 1 Exit <span className="text-fg-muted">({exits})</span>
+          </Button>
+        </div>
+        <div role="radiogroup" aria-label="Investors" className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-2">
           {sheets.map((t) => {
             const willThey = willSign(t.id, drafts[t.id]);
             return (
               <Tile key={t.id} role="radio" aria-checked={t.id === investor} selected={t.id === investor} disabled={signing}
-                onClick={() => setInvestor(t.id)} className="flex flex-col gap-1 p-3">
-                <span className="flex items-center justify-between gap-2">
-                  <span className="font-display text-sm uppercase tracking-widest">{t.investor}</span>
+                onClick={() => setInvestor(t.id)} className="flex flex-col gap-1 px-3 py-2">
+                <span className="truncate font-display text-sm uppercase tracking-widest">{t.investor}</span>
+                <span className="text-xs text-fg-muted">{t.goal}</span>
+                <span className="mt-auto flex items-center justify-between gap-2 pt-1">
+                  <span className="text-[10px] uppercase tracking-widest text-fg-faint">+{Math.round(t.bonus * 100)}% · ★ {clause(NEGOTIATORS[t.id].cares).title.toLowerCase()}</span>
                   <Badge tone={willThey ? "good" : "bad"}>{willThey ? "Would sign" : "Won't sign"}</Badge>
                 </span>
-                <span className="text-xs text-fg-muted">{t.goal}</span>
-                <span className="text-[10px] uppercase tracking-widest text-fg-faint">Cares most about {clause(NEGOTIATORS[t.id].cares).title.toLowerCase()}</span>
               </Tile>
             );
           })}
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(20rem,1fr)]">
-          <TermDocument sheet={sheet} clauses={clauses} founder={founder} seed={seed} version={versions[investor]} signing={signing} />
+          <div className="flex flex-col gap-3">
+            <TermDocument sheet={sheet} clauses={clauses} founder={founder} seed={seed} version={versions[investor]} signing={signing} />
+            {/* WHAT THE DEAL DOES to the run, all together. */}
+            <StatGrid className="grid-flow-row grid-cols-3 lg:grid-cols-6">
+              <Stat label="Cash" value={`$${fx.cash.toLocaleString("en-GB")}`} role="money" />
+              <Stat label="Your share" value={pct(share)} role={share < 0.75 ? "warn" : "good"} />
+              <Stat label="Kicker" value={`+${pct(sheet.bonus * fx.bonusMult)}`} role="good" />
+              <Stat label="Hiring" value={mult(fx.hireCostMult)} />
+              <Stat label="Mandates" value={mult(fx.mandateCostMult)} />
+              <Stat label="Acquirers" value={fx.offers === "open" ? "Open" : fx.offers === "halved" ? "Half premium" : "None"} role={fx.offers === "none" ? "warn" : undefined} />
+            </StatGrid>
+          </div>
 
           {/* THE NEGOTIATION: every clause's options, what each does, and how the investor takes it. */}
           <div className="flex flex-col gap-3">
             <Panel title="Their answer" tone={ok ? "good" : "bad"}>
               <Meter tone={ok ? "good" : "bad"} value={Math.max(0, Math.min(1, (a + 4) / (n.demand + 8)))}
                 label="Their appetite" detail={<>{a} <span className="text-fg-muted">· needs {n.demand}</span></>} />
-              <p className={twMerge("italic", ok ? "text-fg" : "text-bad")}>“{reply(investor, clauses)}”</p>
-              <p className="text-[11px] text-fg-muted">
-                They care most about <b className="text-fg">{clause(n.cares).title.toLowerCase()}</b>: it counts twice (★).
-              </p>
+              <p className={twMerge("italic", ok ? "text-fg" : "text-bad")}>“{reply(investor, clauses)}” <span className="not-italic text-[11px] text-fg-muted">★ counts twice.</span></p>
+
             </Panel>
 
             <Panel title="Redline" controls={<Button size="sm" variant="quiet" disabled={signing} onClick={backToTheirs}>Their draft</Button>}>
               <div className="flex flex-col divide-y divide-line-quiet">
                 {CLAUSES.map((c) => {
                   const chosen = option(c.id, clauses[c.id])!;
-                  const delta = chosen.appetite * (n.cares === c.id ? 2 : 1);
+                  const delta = clauseAppetite(investor, c.id, chosen.id);
                   const changed = clauses[c.id] !== n.opening[c.id];
                   return (
-                    <div key={c.id} className="flex flex-col gap-1.5 py-2.5 first:pt-0 last:pb-0">
+                    <div key={c.id} className="flex flex-col gap-1 py-2 first:pt-0 last:pb-0" title={chosen.says}>
                       <div className="flex items-center justify-between gap-2">
-                        <Label className={changed ? "text-warn" : undefined}>§{c.number} {c.title}{n.cares === c.id && " ★"}</Label>
+                        <Label className={changed ? "text-warn" : undefined}>§{c.number} {c.title}{n.cares === c.id && " ★"} <span className="normal-case tracking-normal text-fg-faint">· {chosen.says}</span></Label>
                         <span className={twMerge("text-[10px] tabular-nums", delta > 0 ? "text-good" : delta < 0 ? "text-bad" : "text-fg-faint")}
                           title="What this option does to their appetite">
                           {delta > 0 ? `▲ ${delta}` : delta < 0 ? `▼ ${-delta}` : "—"}
@@ -123,22 +155,13 @@ export function TermSheetSelect({ seed, founder, onBack, onSign }: Props) {
                       </div>
                       <Segmented label={c.title} value={clauses[c.id]} onChange={(v) => amend(c.id, v)}
                         options={c.options.map((o) => ({ value: o.id, label: o.label, title: o.says }))} />
-                      <span className="text-[11px] text-fg-muted">{chosen.says}</span>
                     </div>
                   );
                 })}
               </div>
             </Panel>
 
-            {/* WHAT THE DEAL DOES to the run, all together. */}
-            <StatGrid className="grid-flow-row grid-cols-3 divide-y">
-              <Stat label="Cash at signing" value={`$${fx.cash.toLocaleString("en-GB")}`} role="money" />
-              <Stat label="Your share of a sale" value={pct(share)} role={share < 0.75 ? "warn" : "good"} />
-              <Stat label="Kicker if met" value={`+${pct(sheet.bonus * fx.bonusMult)}`} role="good" />
-              <Stat label="Hiring" value={mult(fx.hireCostMult)} />
-              <Stat label="Mandates" value={mult(fx.mandateCostMult)} />
-              <Stat label="Acquirers" value={fx.offers === "open" ? "Open" : fx.offers === "halved" ? "Half premium" : "None"} role={fx.offers === "none" ? "warn" : undefined} />
-            </StatGrid>
+
           </div>
         </div>
       </div>
@@ -187,69 +210,52 @@ function TermDocument({ sheet, clauses, founder, seed, version, signing }: {
         <span className="tabular-nums">Ref {ref}</span>
       </div>
 
-      <div className="relative flex flex-col gap-5 px-5 py-5 sm:px-8">
+      <div className="relative flex flex-col gap-4 px-5 py-4 sm:px-7">
         {/* THE LETTERHEAD */}
-        <header className="flex flex-col gap-1 border-b border-line-quiet pb-4">
-          <Text key={`name:${sheet.id}`} mode="decipher" as="h2" text={sheet.investor} className="font-display text-2xl uppercase tracking-[0.2em]" />
-          <span className="text-[10px] uppercase tracking-widest text-fg-faint">{n.motto}</span>
-          <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2">
-            <Text key={`round:${sheet.id}:${clauses.investment}`} mode="decipher" as="span"
-              text={`Summary of terms — ${ROUND[clauses.investment] ?? "Investment"}`} className="font-display text-sm uppercase tracking-widest text-console" />
-            <span className="text-[11px] text-fg-muted">Company: {founder}'s startup · Founder: {founder}</span>
+        <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-line-quiet pb-3">
+          <div className="flex flex-col">
+            <Text key={`name:${sheet.id}`} mode="decipher" as="h2" text={sheet.investor} className="font-display text-xl uppercase tracking-[0.2em]" />
+            <span className="text-[10px] uppercase tracking-widest text-fg-faint">{n.motto}</span>
           </div>
+          <Text key={`round:${sheet.id}:${clauses.investment}`} mode="decipher" as="span"
+            text={`${ROUND[clauses.investment] ?? "Investment"} · ${founder}`} className="font-display text-xs uppercase tracking-widest text-console" />
         </header>
 
-        {/* THE CLAUSES */}
-        <ol className="flex flex-col gap-4">
+        {/* THE CLAUSES, a line each, and the covenant: what it is all for. */}
+        <ol className="flex flex-col gap-2">
           {CLAUSES.map((c) => {
             const o = option(c.id, clauses[c.id])!;
             const amended = clauses[c.id] !== n.opening[c.id];
             const flushed = flash?.id === c.id;
             return (
               <li key={`${c.id}:${flushed ? flash!.at : 0}`}
-                className={twMerge("relative -ml-3 grid grid-cols-[2.25rem_1fr] gap-x-3 border-l-2 pl-3",
+                className={twMerge("relative -ml-3 grid grid-cols-[1.75rem_7.5rem_1fr] items-baseline gap-x-2 border-l-2 py-0.5 pl-3",
                   amended ? "border-warn" : "border-transparent", flushed && "ui-redline")}>
                 <span className="font-display text-console">§{c.number}</span>
-                <div className="flex flex-col gap-1">
-                  <span className="flex items-center gap-2">
-                    <span className="text-[11px] uppercase tracking-widest text-fg">{c.title}</span>
-                    {amended && <span className="border border-warn-line px-1 text-[10px] uppercase tracking-widest text-warn">Amended</span>}
-                  </span>
-                  <Text key={`${sheet.id}:${c.id}:${o.id}`} mode="sequence" as="p" text={o.text(ctx)} className="text-fg-muted" />
-                </div>
+                <span className="flex flex-col text-[10px] uppercase tracking-widest text-fg">
+                  {c.title}
+                  {amended && <span className="text-warn">Amended</span>}
+                </span>
+                <Text key={`${sheet.id}:${c.id}:${o.id}`} mode="sequence" as="p" text={o.text(ctx)} className="text-fg-muted" />
               </li>
             );
           })}
-          {/* THE MILESTONE ITSELF: the goal at the deal's scale, and its kicker. */}
-          <li className="grid grid-cols-[2.25rem_1fr] gap-x-3">
-            <span className="font-display text-console">§7</span>
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] uppercase tracking-widest text-fg">Covenant</span>
-              <Text key={`${sheet.id}:goal:${clauses.milestone}`} mode="sequence" as="p"
-                text={`${sheet.goalAt(fx.goalScale)}. Met at the sale, the founder's Equity is increased by ${pct(sheet.bonus * fx.bonusMult)}.`}
-                className="text-fg" />
-            </div>
-          </li>
-          <li className="grid grid-cols-[2.25rem_1fr] gap-x-3">
-            <span className="font-display text-console">§8</span>
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] uppercase tracking-widest text-fg">Governing terms</span>
-              <p className="text-fg-faint">
-                This summary is governed by the laws of the Free Port of New Delaware and expires at the end of the founder's session.
-                Nothing here obliges either party until the definitive agreements are executed, which, in practice, is now.
-              </p>
-            </div>
+          <li className="grid grid-cols-[1.75rem_7.5rem_1fr] items-baseline gap-x-2 border-t border-line-quiet pt-2">
+            <span className="font-display text-console">§6</span>
+            <span className="text-[10px] uppercase tracking-widest text-fg">Covenant</span>
+            <Text key={`${sheet.id}:goal:${clauses.milestone}`} mode="sequence" as="p"
+              text={`${sheet.goalAt(fx.goalScale)}: +${pct(sheet.bonus * fx.bonusMult)} Equity.`} className="text-fg" />
           </li>
         </ol>
 
         {/* THE SIGNATURES: lines until it is signed, then both names written in. */}
-        <footer ref={signatures} className="relative grid gap-6 border-t border-line-quiet pt-5 sm:grid-cols-2">
+        <footer ref={signatures} className="relative grid gap-4 border-t border-line-quiet pt-3 sm:grid-cols-2">
           {[{ for: sheet.investor, who: n.partner }, { for: "the company", who: founder }].map((s) => (
-            <div key={s.for} className="flex flex-col gap-1">
-              <div className="flex h-8 items-end border-b border-line-strong">
-                {signing && <Text mode="decipher" as="span" text={s.who.split(",")[0]} className="font-display text-lg italic text-console" />}
+            <div key={s.for} className="flex flex-col gap-0.5">
+              <div className="flex h-7 items-end border-b border-line-strong">
+                {signing && <Text mode="decipher" as="span" text={s.who.split(",")[0]} className="font-display text-base italic text-console" />}
               </div>
-              <span className="text-[10px] uppercase tracking-widest text-fg-faint">For {s.for} · {s.who}</span>
+              <span className="truncate text-[10px] uppercase tracking-widest text-fg-faint">For {s.for} · {s.who}</span>
             </div>
           ))}
           {signing && (
