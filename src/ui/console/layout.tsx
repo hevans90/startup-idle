@@ -68,11 +68,15 @@ export function Card({ title, tone = "console", onClose, className, children }: 
   children?: ReactNode;
 }) {
   return (
-    <div style={toneVar(tone)} className={twMerge("border border-line border-l-2 border-l-tone bg-surface-2/95 text-xs text-fg shadow-lg backdrop-blur-sm", className)}>
-      <div className="flex flex-col gap-1 px-2.5 py-2">
-        {(title || onClose) && (
+    <div style={toneVar(tone)} className={twMerge("relative border border-line border-l-2 border-l-tone bg-surface-2/95 text-xs text-fg shadow-lg backdrop-blur-sm", className)}>
+      {/* Untitled, the close sits in the corner, taking no line of its own. */}
+      {!title && onClose && (
+        <button type="button" onClick={onClose} aria-label="Close" className={twMerge("absolute right-1 top-1.5 cursor-pointer px-1 text-fg-muted hover:text-fg", FOCUS)}>✕</button>
+      )}
+      <div className={twMerge("flex flex-col gap-1 px-2.5 py-2", !title && onClose && "pr-7")}>
+        {title && (
           <div className="flex items-start justify-between gap-2">
-            {title && <div className="font-bold">{title}</div>}
+            <div className="font-bold">{title}</div>
             {onClose && (
               <button type="button" onClick={onClose} aria-label="Close" className={twMerge("-mr-1 -mt-0.5 cursor-pointer px-1 text-fg-muted hover:text-fg", FOCUS)}>✕</button>
             )}
