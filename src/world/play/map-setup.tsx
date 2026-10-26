@@ -68,11 +68,16 @@ function groundColour(material: number): [number, number, number] {
  */
 function drawPreview(cv: HTMLCanvasElement, g: Grid, px: number): void {
   const w = px, h = px / 2;
-  cv.width = Math.round(w + 8);
-  cv.height = Math.round(h + 8);
+  // At the screen's own resolution, so a large preview stays sharp.
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round((w + 8) * dpr);
+  cv.height = Math.round((h + 8) * dpr);
+  cv.style.width = `${Math.round(w + 8)}px`;
+  cv.style.height = `${Math.round(h + 8)}px`;
   const ctx = cv.getContext("2d");
   if (!ctx) return;
-  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w + 8, h + 8);
   const k = w / (g.w + g.h);
   const at = (i: number) => g.height[i];
   for (let y = 0; y < g.h; y++) {
@@ -118,6 +123,23 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
   const [params, setParams] = useState<GenParams>({ ...FOUNDING_GEN });
   const [map, setMap] = useState<{ grid: Grid; report: GenReport } | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  // THE PREVIEW'S SIZE: as wide as its box, as tall as the screen allows (the diamond is half as tall as it is wide). @see drawPreview
+  const box = useRef<HTMLDivElement>(null);
+  const [px, setPx] = useState(520);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => {
+      const byWidth = el.clientWidth - 32;
+      const byHeight = (window.innerHeight * 0.62) * 2;
+      setPx(Math.max(280, Math.min(1400, Math.floor(Math.min(byWidth, byHeight)))));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    window.addEventListener("resize", fit);
+    return () => { ro.disconnect(); window.removeEventListener("resize", fit); };
+  }, []);
 
   // Generated a moment after the last change, so dragging a slider does not
   // queue a map for every pixel it passes.
@@ -126,8 +148,8 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
     return () => clearTimeout(id);
   }, [seed, params]);
   useEffect(() => {
-    if (map && canvas.current) drawPreview(canvas.current, map.grid, 520);
-  }, [map]);
+    if (map && canvas.current) drawPreview(canvas.current, map.grid, px);
+  }, [map, px]);
 
   const set = (key: keyof GenParams, v: number) => setParams((p) => ({ ...p, [key]: v }));
   const slider = (key: keyof GenParams) => GEN_SLIDERS.find((s) => s.key === key)!;
@@ -146,10 +168,10 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
       // The REPORTED seed: the generator rerolls a map with too little
       // to build on, and the one shown is the one to make again.
       next={{ label: "Next: sign a term sheet →", disabled: !map, onClick: () => map && onFound({ seed: map.report.seed, params }) }}>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:flex-row">
+      <div className="mx-auto flex w-full max-w-[110rem] flex-col gap-6 lg:flex-row">
         {/* THE PREVIEW */}
         <div className="flex flex-1 flex-col items-center gap-3">
-          <div className="relative flex min-h-[290px] w-full items-center justify-center border border-line-quiet bg-surface-1 p-3">
+          <div ref={box} className="relative flex min-h-[290px] w-full items-center justify-center border border-line-quiet bg-surface-1 p-3">
             <canvas ref={canvas} className="h-auto max-w-full" />
             {!map && <span className="absolute text-sm text-fg-muted">Surveying…</span>}
           </div>
