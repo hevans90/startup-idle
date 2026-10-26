@@ -365,7 +365,7 @@ export const FounderSelect = () => {
 
       {/* THE ASCENSION JUST MADE, said once. @see ascend */}
       {announce && (
-        <div className="mx-auto mb-4 w-full max-w-4xl border border-ai-line bg-ai-soft px-3 py-2 text-sm text-ai">
+        <div className="mx-auto mb-4 w-full max-w-[110rem] border border-ai-line bg-ai-soft px-3 py-2 text-sm text-ai">
           Generation {announce.generation} ascended: the AI became <b>{trait(announce.trait).name}</b>
           {announce.mutated ? " (it mutated)" : ""}, fused into <b>{FOUNDERS.find((x) => x.id === announce.founder)?.name ?? announce.founder}</b>.
           {" "}+{announce.weights} Weights. Generation {announce.generation + 1} begins.
@@ -374,7 +374,7 @@ export const FounderSelect = () => {
 
       {/* WEIGHTS, to spend before the next company starts. @see ModelShop */}
       {(generation > 1 || weights > 0) && (
-        <div className="mx-auto mb-4 flex w-full max-w-4xl items-center justify-between gap-3 border border-ai-line bg-ai-soft px-3 py-2 text-sm">
+        <div className="mx-auto mb-4 flex w-full max-w-[110rem] items-center justify-between gap-3 border border-ai-line bg-ai-soft px-3 py-2 text-sm">
           <span>
             Generation {generation} · <b className="tabular-nums text-weights">{weights}</b> Weights
           </span>
@@ -382,8 +382,9 @@ export const FounderSelect = () => {
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-4xl">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 [grid-auto-rows:1fr]">
+      {/* AS MANY ACROSS AS FIT, a card at least 15rem wide: every founder in a row on a wide screen. */}
+      <div className="mx-auto w-full max-w-[110rem]">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 [grid-auto-rows:1fr]">
             {FOUNDERS.map((f) => {
               const Icon = f.icon;
               const isSel = selected === f.id;
