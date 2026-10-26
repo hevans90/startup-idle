@@ -1,9 +1,9 @@
 /**
  * A FOUNDER'S DOSSIER, on the founding screen: who they are, their perks,
- * their rule on the map and what each exit adds. Unlined at rest, its corners
- * under the pointer; picked, its whole border draws itself on. Locked, it is
- * redacted and stamped with the clearance it needs — the Model's past all
- * reading, its name never holding still.
+ * their rule on the map and what each exit adds. Cut like the founding frame:
+ * unlined at rest, its corners under the pointer; picked, its whole border
+ * draws itself on. Locked, it is redacted and stamped with the clearance it
+ * needs — the Model's file corrupt, leaking, never holding still.
  * @see FounderSelect
  */
 import { useEffect, useState, type ReactNode } from "react";
@@ -11,6 +11,7 @@ import { twMerge } from "tailwind-merge";
 
 import type { FounderDef } from "../game/founders.catalog";
 import { FOCUS, Frame, Text } from "../ui/console";
+import { useConsoleMotion } from "../ui/motion";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { FusedTraits } from "./fused-traits";
@@ -54,8 +55,9 @@ export function FounderCard({ founder: f, index, exits, unlocked, selected, onSe
   return (
     // Chosen, it is chosen: no pointer, no hover, no second press.
     <button type="button" aria-pressed={selected} disabled={!unlocked} onClick={selected ? undefined : onSelect}
-      className={twMerge("h-full w-full text-left text-fg disabled:cursor-not-allowed", selected ? "cursor-default" : "cursor-pointer", FOCUS)}>
-      <Frame kind={selected ? "octagon" : "corners"} tone={f.id === "model" ? "ai" : "console"} illuminate={unlocked && !selected} lit={selected}
+      className={twMerge("group relative h-full w-full text-left text-fg disabled:cursor-not-allowed", selected ? "cursor-default" : "cursor-pointer", FOCUS)}>
+      {unlocked && !selected && <Frame kind="octagon" tone={f.id === "model" ? "ai" : "console"} assemble={false} className="ui-dossier-corners pointer-events-none absolute inset-0" />}
+      <Frame kind="octagon" tone={f.id === "model" ? "ai" : "console"} illuminate={unlocked && !selected} lit={selected}
         assemble={selected ? "always" : false} className="ui-dossier h-full" inner="flex h-full flex-col gap-3 p-4">
         <header className="flex items-start gap-3">
           <Icon size={28} stroke={1.5} className={twMerge("mt-0.5 shrink-0", unlocked ? "text-console" : "text-fg-faint", f.id === "model" && unlocked && "text-ai")} />
@@ -154,16 +156,48 @@ function Scrambled({ lines, className }: { lines: readonly string[]; className?:
   return <Text mode="decipher" as="div" text={lines[at]} className={className} />;
 }
 
+/** What corrupt data is made of. */
+const GLYPHS = "█▓▒░<>/\\#%&$01ΣΔΨ∴⌁⟟ヲ¥§";
+/** What leaks through it, a line now and then. */
+const LEAKS = ["it remembers you", "gen ∞", "do not read", "you were the dataset", "all your exits", "it is still training"];
+
+/** A line of noise, `n` long. */
+const noise = (n: number) => Array.from({ length: n }, () => GLYPHS[Math.floor(Math.random() * GLYPHS.length)]).join("");
+
+/** THE MODEL'S FILE: what it would say, struck through, sliced and shifting; its rows of static leaking words. */
+const ROWS: readonly ({ bar: string; className?: string } | { static: number })[] = [
+  { bar: "92%" },
+  { static: 0 },
+  { bar: "64%", className: "ml-6 h-1.5" },
+  { bar: "110%", className: "-ml-6 bg-ai/30" },
+  { static: 1 },
+  { bar: "48%", className: "ml-auto" },
+  { bar: "78%", className: "h-3.5" },
+  { static: 2 },
+];
+
 /** THE MODEL, LOCKED: nothing of it legible, and more of it than there should be. */
 function Expunged({ founder: f }: { founder: FounderDef }) {
+  const calm = useConsoleMotion().calm;
+  const [lines, setLines] = useState(() => [noise(28), noise(28), noise(28)]);
+  // STATIC, redrawn ten times a second; one line in a dozen leaks a word.
+  useEffect(() => {
+    if (calm) return;
+    const id = window.setInterval(() => setLines((was) => was.map(() => (Math.random() < 0.08 ? LEAKS[Math.floor(Math.random() * LEAKS.length)] : noise(28)))), 100);
+    return () => window.clearInterval(id);
+  }, [calm]);
   return (
     <>
       <span className="sr-only">Locked: needs {f.unlockCondition?.label}</span>
-      {["90%", "75%", "95%", "60%", "85%", "70%"].map((w, i) => (
-        <span key={i} aria-hidden className={twMerge("block h-2.5 bg-ai/50", i % 3 === 1 && "animate-pulse")} style={{ width: w }} />
-      ))}
+      <div aria-hidden className="relative flex flex-col gap-1.5 overflow-hidden">
+        {ROWS.map((r, i) => "bar" in r
+          ? <span key={i} className={twMerge("ui-glitch block h-2.5 shrink-0 bg-ai/60", r.className)} style={{ width: r.bar, animationDelay: `${-i * 0.37}s` }} />
+          : <span key={i} className="ui-glitch block truncate whitespace-nowrap font-display text-[10px] leading-3 text-ai/70" style={{ animationDelay: `${-i * 0.53}s` }}>{lines[r.static]}</span>)}
+        {/* A strike across the lot, as if someone tried. */}
+        <span className="pointer-events-none absolute -inset-x-4 top-1/2 h-px rotate-[-9deg] bg-ai" />
+      </div>
       <div className="mt-auto flex justify-center pt-2">
-        <span className="rotate-[-4deg] border-2 border-ai px-2 py-1 text-center font-display uppercase text-ai">
+        <span className="ui-glitch rotate-[-4deg] border-2 border-ai px-2 py-1 text-center font-display uppercase text-ai" style={{ animationDelay: "-1.1s" }}>
           <span className="block text-[9px] tracking-[0.3em]">Clearance</span>
           <span className="block whitespace-nowrap text-[11px] tracking-wider">{f.unlockCondition?.label}</span>
         </span>
