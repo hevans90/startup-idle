@@ -107,7 +107,7 @@ export function TermSheetSelect({ seed, founder, onBack, onSign }: Props) {
                 <span className="truncate font-display text-sm uppercase tracking-widest">{t.investor}</span>
                 <span className="text-xs text-fg-muted">{t.goal}</span>
                 <span className="mt-auto flex items-center justify-between gap-2 pt-1">
-                  <span className="text-[10px] uppercase tracking-widest text-fg-faint">+{Math.round(t.bonus * 100)}% · ★ {clause(NEGOTIATORS[t.id].cares).title.toLowerCase()}</span>
+                  <span className="min-w-0 truncate text-[10px] uppercase tracking-widest text-fg-faint" title={`+${Math.round(t.bonus * 100)}% kicker · cares most about ${clause(NEGOTIATORS[t.id].cares).title.toLowerCase()}`}>+{Math.round(t.bonus * 100)}% · ★ {clause(NEGOTIATORS[t.id].cares).title.toLowerCase()}</span>
                   <Badge tone={willThey ? "good" : "bad"}>{willThey ? "Would sign" : "Won't sign"}</Badge>
                 </span>
               </Tile>
@@ -119,7 +119,7 @@ export function TermSheetSelect({ seed, founder, onBack, onSign }: Props) {
           <div className="flex flex-col gap-3">
             <TermDocument sheet={sheet} clauses={clauses} founder={founder} seed={seed} version={versions[investor]} signing={signing} />
             {/* WHAT THE DEAL DOES to the run, all together. */}
-            <StatGrid className="grid-flow-row grid-cols-3 lg:grid-cols-6">
+            <StatGrid className="grid-flow-row grid-cols-3 xl:grid-cols-6">
               <Stat label="Cash" value={`$${fx.cash.toLocaleString("en-GB")}`} role="money" />
               <Stat label="Your share" value={pct(share)} role={share < 0.75 ? "warn" : "good"} />
               <Stat label="Kicker" value={`+${pct(sheet.bonus * fx.bonusMult)}`} role="good" />

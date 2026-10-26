@@ -94,7 +94,7 @@ export function Meter({ value, tone = "console", label, detail, className }: {
 /** A count, or a state, in a small pill. */
 export function Badge({ children, tone = "console" }: { children: ReactNode; tone?: Tone }) {
   return (
-    <span className="inline-flex min-w-4 items-center justify-center px-1 text-[10px] font-bold leading-4 tabular-nums"
+    <span className="inline-flex min-w-4 shrink-0 items-center justify-center whitespace-nowrap px-1 text-[10px] font-bold leading-4 tabular-nums"
       style={{ color: color(tone), background: tone === "console" ? "var(--ui-accent-soft)" : `var(--ui-${tone}-soft)` }}>{children}</span>
   );
 }
