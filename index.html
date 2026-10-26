@@ -41,8 +41,9 @@
       })();
     </script>
     <style>
-      /* THE BOOT SCREEN, before the console's tokens exist: its own colours, the surface-0 of each theme. */
-      .boot { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+      /* THE BOOT SCREEN, before the console's tokens exist: its own colours, the surface-0 of each theme;
+         the whole viewport, as Tailwind (and so h-full on #root) has not loaded yet. */
+      .boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
         background: #f4f5f6; color: #1b1f23; font-family: "Share Tech Mono", ui-monospace, monospace; letter-spacing: 0.2em; text-transform: uppercase; }
       .dark .boot { background: #111417; color: #e1e3e6; }
       .boot-title { font-size: 22px; }
