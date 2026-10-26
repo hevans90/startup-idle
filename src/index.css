@@ -271,8 +271,8 @@ html.ui-calm .news-line-enter {
   opacity: 1;
 }
 .ui-frame.ui-dossier[data-lit] {
-  --arwes-frames-bg-color: color-mix(in oklab, var(--frame-tone) 14%, var(--ui-surface-2));
+  --arwes-frames-bg-color: color-mix(in oklab, var(--frame-tone) 9%, var(--ui-surface-2));
   --arwes-frames-line-color: var(--frame-tone);
   --arwes-frames-deco-color: var(--frame-tone);
-  --arwes-frames-line-filter: drop-shadow(0 0 3px var(--frame-tone));
+  --arwes-frames-line-filter: drop-shadow(0 0 2px color-mix(in oklab, var(--frame-tone) 60%, transparent));
 }
