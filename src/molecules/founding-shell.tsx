@@ -7,7 +7,10 @@
 import type { ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
-import { Backdrop, Button, Frame, Text } from "../ui/console";
+import { IconMoon, IconSun } from "@tabler/icons-react";
+
+import { useThemeStore } from "../state/theme.store";
+import { Backdrop, Button, Frame, Segmented, Text } from "../ui/console";
 
 export type FoundingStep = "founder" | "land" | "terms";
 
@@ -31,21 +34,32 @@ export function FoundingShell({ step, title, subtitle, back, next, foot, aside, 
   children: ReactNode;
 }) {
   const at = STEPS.findIndex((s) => s.id === step);
+  const theme = useThemeStore((s) => s.theme);
+  const setTheme = useThemeStore((s) => s.setTheme);
   return (
     <div className="relative flex h-full w-full overflow-hidden bg-surface-0 text-fg">
       <Backdrop kind="grid" />
       <div className="relative flex min-w-0 flex-1 flex-col gap-4 p-3 sm:p-6">
-        {/* THE RAIL: where you are of the three. */}
-        <ol aria-label="Founding" className="flex items-center justify-center gap-2 font-display text-xs uppercase tracking-widest">
-          {STEPS.map((s, i) => (
-            <li key={s.id} aria-current={i === at ? "step" : undefined} className="flex items-center gap-2">
-              {i > 0 && <span aria-hidden className={twMerge("h-px w-6 sm:w-10", i <= at ? "bg-console" : "bg-line")} />}
-              <span className={i === at ? "text-console" : i < at ? "text-fg" : "text-fg-faint"}>
-                {i + 1} · {s.name}
-              </span>
-            </li>
-          ))}
-        </ol>
+        {/* THE THEME, to hand on every step; then THE RAIL: where you are of the three. */}
+        <div className="flex items-center gap-3">
+          <div className="flex flex-1">
+            <Segmented label="Theme" value={theme} onChange={setTheme} options={[
+              { value: "light", label: <IconSun size={14} aria-hidden />, title: "Light" },
+              { value: "dark", label: <IconMoon size={14} aria-hidden />, title: "Dark" },
+            ]} />
+          </div>
+          <ol aria-label="Founding" className="flex items-center justify-center gap-2 font-display text-xs uppercase tracking-widest">
+            {STEPS.map((s, i) => (
+              <li key={s.id} aria-current={i === at ? "step" : undefined} className="flex items-center gap-2">
+                {i > 0 && <span aria-hidden className={twMerge("h-px w-6 sm:w-10", i <= at ? "bg-console" : "bg-line")} />}
+                <span className={i === at ? "text-console" : i < at ? "text-fg" : "text-fg-faint"}>
+                  {i + 1} · {s.name}
+                </span>
+              </li>
+            ))}
+          </ol>
+          <div className="flex-1" />
+        </div>
         <Frame kind="octagon" assemble="auto" className="flex min-h-0 flex-1 flex-col" inner="flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col">
             <header className="shrink-0 px-5 pt-5 text-center">

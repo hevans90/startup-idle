@@ -8,20 +8,18 @@ import { MANDATES, useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { CURRENT_VERSION } from "../state/version.store";
 import { fmtMult } from "../ui/BonusRow";
-import { Button, Dialog, Tile } from "../ui/console";
+import { Button, Dialog } from "../ui/console";
+import { FounderCard } from "./founder-card";
 import { FoundingShell } from "./founding-shell";
 import { TermSheetSelect } from "./term-sheet-select";
 import { dealEffects } from "../game/term-deal";
 import { useMoneyStore } from "../state/money.store";
-import { FusedTraits } from "./fused-traits";
 import { fusedInto } from "../game/fusion";
 import { trait } from "../game/traits";
 import { useGenerationStore } from "../state/generation.store";
 import { ModelShop } from "./model-shop";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
-import { TenXDevText } from "../utils/ten-x-utils";
-import { RainbowText } from "../utils/vibe-utils";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
 import { useSessionStore } from "../state/session.store";
 
@@ -32,21 +30,6 @@ import { useSessionStore } from "../state/session.store";
 const MapSetup = lazy(() => import("../world/play/map-setup"));
 
 // ─── local helpers ────────────────────────────────────────────────────────────
-
-const SPLIT_RE = /(vibe coders?|10x devs?)/gi;
-
-function PerkText({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(SPLIT_RE).map((seg, i) => {
-        if (/^vibe coders?$/i.test(seg))
-          return <RainbowText key={i} text={seg} inline />;
-        if (/^10x devs?$/i.test(seg)) return <TenXDevText key={i} text={seg} />;
-        return <span key={i}>{seg}</span>;
-      })}
-    </>
-  );
-}
 
 function toneClass(tone: "good" | "bad" | "neutral"): string {
   if (tone === "good") return "text-good";
@@ -389,104 +372,15 @@ export const FounderSelect = () => {
         </div>
       )}
 
-      {/* AS MANY ACROSS AS FIT, a card at least 15rem wide: every founder in a row on a wide screen. */}
+      {/* AS MANY ACROSS AS FIT, a dossier at least 15rem wide: every founder in a row on a wide screen. */}
       <div className="mx-auto w-full max-w-[110rem]">
           <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 [grid-auto-rows:1fr]">
-            {FOUNDERS.map((f) => {
-              const Icon = f.icon;
-              const isSel = selected === f.id;
-              const exitRecord = founderExits[f.id];
-              const exitCount = exitRecord?.count ?? 0;
-              // A founder fused with the AI is always playable. @see game/fusion
-              const isUnlocked =
-                !f.unlockCondition ||
-                f.unlockCondition.check(exits, bestExitValuation) ||
-                fusedInto(f.id).length > 0 ||
-                // THE MODEL, from the first Ascension. @see plans/singularity.md §4b
-                (f.id === "model" && generation > 1);
-
-              return (
-                <Tile
-                  key={f.id}
-                  disabled={!isUnlocked}
-                  aria-pressed={isSel}
-                  selected={isSel}
-                  onClick={() => isUnlocked && setSelected(f.id)}
-                  className="flex h-full w-full flex-col overflow-hidden p-4"
-                >
-                  <div className="flex items-start gap-2">
-                    <Icon size={26} stroke={1.6} className="mt-0.5 shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="font-bold leading-tight">{f.name}</div>
-                      <div className="text-xs italic opacity-60">
-                        {f.tagline}
-                      </div>
-                    </div>
-                    {isUnlocked && exitCount > 0 && (
-                      <div className="shrink-0 bg-warn/15 px-2 py-0.5 text-[10px] font-bold tabular-nums text-warn">
-                        {exitCount}×
-                      </div>
-                    )}
-                  </div>
-
-                  <ul className="mt-3 flex flex-1 flex-col gap-1 text-xs tabular-nums opacity-90">
-                    {f.perks(exitCount).map((p, i) => (
-                      <li key={i}>
-                        • <PerkText text={p} />
-                      </li>
-                    ))}
-                  </ul>
-
-                  {f.rule && (
-                    <p className="mt-2 border border-info/30 bg-info/10 px-2 py-1 text-[11px] leading-snug text-info">
-                      <span className="font-semibold">On the map:</span> {f.rule}
-                    </p>
-                  )}
-                  <FusedTraits founder={f.id} />
-
-                  <div className="mt-4 border-t border-line pt-2 text-xs font-semibold tabular-nums text-good">
-                    Starts with ${f.startingCash}
-                  </div>
-
-                  <div className="mt-2 border border-ai/20 bg-ai/5 px-2 py-1.5 text-[10px] leading-snug text-ai">
-                    <span className="font-semibold">
-                      {f.scalingModifier.label}:
-                    </span>{" "}
-                    {f.scalingModifier.perExitDescription}
-                  </div>
-
-                  {!isUnlocked && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-1/40 backdrop-blur">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="28"
-                        height="28"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="drop-shadow-md"
-                      >
-                        <rect
-                          x="3"
-                          y="11"
-                          width="18"
-                          height="11"
-                          rx="2"
-                          ry="2"
-                        />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </svg>
-                      <span className="px-4 text-center text-[11px] font-semibold leading-snug drop-shadow-sm">
-                        {f.unlockCondition!.label}
-                      </span>
-                    </div>
-                  )}
-                </Tile>
-              );
-            })}
+            {FOUNDERS.map((f, i) => (
+              <FounderCard key={f.id} founder={f} index={i} exits={founderExits[f.id]?.count ?? 0}
+                selected={selected === f.id} onSelect={() => setSelected(f.id)}
+                // A founder fused with the AI is always playable; the Model, from the first Ascension. @see game/fusion
+                unlocked={!f.unlockCondition || f.unlockCondition.check(exits, bestExitValuation) || fusedInto(f.id).length > 0 || (f.id === "model" && generation > 1)} />
+            ))}
           </div>
 
       </div>

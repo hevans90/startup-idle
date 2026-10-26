@@ -225,3 +225,24 @@ html.ui-calm .news-line-enter {
   --arwes-frames-line-color: var(--frame-tone);
   --arwes-frames-line-filter: drop-shadow(0 0 3px var(--frame-tone));
 }
+/*
+ * A DOSSIER (a founder's file): raised off the page, and no line at rest; its
+ * corners under the pointer; chosen, its whole border, drawn on. @see FounderCard
+ */
+.ui-frame.ui-dossier {
+  --arwes-frames-bg-color: color-mix(in oklab, var(--ui-surface-2) 50%, var(--ui-surface-1));
+  --arwes-frames-line-color: transparent;
+  --arwes-frames-deco-color: transparent;
+}
+.ui-frame.ui-dossier[data-illuminate]:hover {
+  --arwes-frames-bg-color: var(--ui-surface-2);
+  --arwes-frames-line-color: var(--frame-tone);
+  --arwes-frames-deco-color: var(--frame-tone);
+  --arwes-frames-line-filter: none;
+}
+.ui-frame.ui-dossier[data-lit] {
+  --arwes-frames-bg-color: color-mix(in oklab, var(--frame-tone) 14%, var(--ui-surface-2));
+  --arwes-frames-line-color: var(--frame-tone);
+  --arwes-frames-deco-color: var(--frame-tone);
+  --arwes-frames-line-filter: drop-shadow(0 0 3px var(--frame-tone));
+}
