@@ -88,11 +88,12 @@ function drawPreview(cv: HTMLCanvasElement, g: Grid, px: number): void {
       const west = x > 0 ? at(i - 1) : at(i), north = y > 0 ? at(i - g.w) : at(i);
       const slope = (at(i) - west) + (at(i) - north);
       const lift = Math.max(-40, Math.min(40, slope * 9)) + (at(i) - g.minHeight) * 0.8;
-      if (g.pool[i] > 0) {
+      // THE ROAD FIRST: a bridge is a paved cell with water under its deck, and is drawn as the road over it. @see Grid.deck
+      if (g.paved[i] !== 0) {
+        [r, gr, b] = g.deck[i] !== 0 ? [128, 120, 108] : [96, 100, 108];
+      } else if (g.pool[i] > 0) {
         const deep = Math.min(1, g.pool[i] / 8);
         [r, gr, b] = [70 - 30 * deep, 140 - 40 * deep, 200 - 30 * deep];
-      } else if (g.paved[i] !== 0) {
-        [r, gr, b] = [96, 100, 108];
       } else {
         r += lift; gr += lift; b += lift;
       }
