@@ -26,6 +26,13 @@ import { createGrid, type Grid } from "../grid";
 const SIZES: [number, string][] = [[48, "Small"], [64, "Medium"], [96, "Large"]];
 
 /** The few settings worth a plain control, and how to say their values. */
+/**
+ * WHERE A COMPANY STARTS: the generator's defaults, but a straight road and
+ * flat land — the easiest ground to build a first town on. Only founding's;
+ * the editor and the tests keep `DEFAULT_GEN`. The sliders move either.
+ */
+const FOUNDING_GEN: GenParams = { ...DEFAULT_GEN, wander: 0, relief: 2 };
+
 const PLAIN: { key: keyof GenParams; label: string; words: (v: number) => string }[] = [
   { key: "relief", label: "Hills", words: (v) => (v <= 4 ? "Flat" : v <= 14 ? "Rolling" : v <= 26 ? "Hilly" : "Mountainous") },
   { key: "rivers", label: "Rivers", words: (v) => (v === 0 ? "None" : `${v}`) },
@@ -108,7 +115,7 @@ export type MapSetupProps = {
 
 export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
   const [seed, setSeed] = useState(randomSeed);
-  const [params, setParams] = useState<GenParams>({ ...DEFAULT_GEN });
+  const [params, setParams] = useState<GenParams>({ ...FOUNDING_GEN });
   const [map, setMap] = useState<{ grid: Grid; report: GenReport } | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
 
@@ -220,7 +227,7 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
               </fieldset>
             ))}
             <button type="button" className="mt-3 cursor-pointer underline opacity-70"
-              onClick={() => setParams({ ...DEFAULT_GEN, size: params.size })}>
+              onClick={() => setParams({ ...FOUNDING_GEN, size: params.size })}>
               Back to the usual settings
             </button>
           </details>
