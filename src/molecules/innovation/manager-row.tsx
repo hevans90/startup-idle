@@ -4,6 +4,7 @@ import { memo } from "react";
 import {
   getManagerCost,
   getManagerRefund,
+  ManagerBonusType,
   ManagerKeys,
   ManagerState,
 } from "../../state/innovation.store";
@@ -19,10 +20,11 @@ interface ManagerRowProps {
   onUnassign: () => void;
 }
 
-const BONUS: Record<string, { label: string; modKey: string }> = {
+/** What each kind of manager's bonus is, by its bonus type: every type, so none can fall through. */
+const BONUS: Record<ManagerBonusType, { label: string; modKey: string }> = {
   innovation: { label: "Innovation rate", modKey: "managerInnovation" },
   employee: { label: "Employee output", modKey: "managerMoney" },
-  sales: { label: "Valuation rate", modKey: "managerSalesValuation" },
+  valuation: { label: "Valuation rate", modKey: "managerSalesValuation" },
 };
 
 /**
@@ -36,7 +38,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
     const { assignment, progress, tier, estimateToNextTier, bonusType, bonusMultiplier, bonusMultiplierGrowthPerTier } = managerData;
     const { totalCost, count: numberToAssign } = getManagerCost(managerName);
     const { totalRefund } = getManagerRefund(managerName);
-    const bonus = BONUS[bonusType] ?? BONUS.innovation;
+    const bonus = BONUS[bonusType];
     const pct = Math.min(100, Math.max(0, progress.toNumber()));
 
     return (

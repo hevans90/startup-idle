@@ -36,7 +36,7 @@ export function getManagementTierTotal(): number {
   );
 }
 
-type ManagerBonusType = "innovation" | "employee" | "valuation";
+export type ManagerBonusType = "innovation" | "employee" | "valuation";
 
 export type ManagerState = {
   assignment: Decimal;
