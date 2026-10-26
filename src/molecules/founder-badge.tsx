@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
 import { termStatus } from "../game/term-sheets";
@@ -8,7 +9,7 @@ import { useTicking } from "../hooks/use-ticking";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
-import { PopCard, PopGroup, PopRow, POPOVER_BARE } from "../ui/console";
+import { PopCard, PopGroup, PopRow, POPOVER_BARE, useGlitch } from "../ui/console";
 
 /**
  * Toolbar badge showing the chosen founder; hovering reveals their tagline,
@@ -22,6 +23,9 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
   useTicking(1000);
   const term = termStatus();
   const clauses = useSessionStore((s) => s.termClauses);
+  // THE MODEL, playing: never quite still in the toolbar. @see useGlitch
+  const self = useRef<HTMLSpanElement>(null);
+  useGlitch(self, { active: founderId === "model", strength: 0.7, every: 4 });
   if (!founder) return null;
 
   const Icon = founder.icon;
@@ -35,10 +39,12 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
             className,
           )}
         >
-          <Icon size={18} className="shrink-0 opacity-80" />
-          {/* The name where there is room for it; the icon alone, and the name on hover, where not. */}
-          <span className="hidden max-w-[10rem] truncate text-sm font-medium whitespace-nowrap @2xl:inline">
-            {founder.name}
+          <span ref={self} className="flex min-w-0 items-center gap-2">
+            <Icon size={18} className="shrink-0 opacity-80" />
+            {/* The name where there is room for it; the icon alone, and the name on hover, where not. */}
+            <span className="hidden max-w-[10rem] truncate text-sm font-medium whitespace-nowrap @2xl:inline">
+              {founder.name}
+            </span>
           </span>
         </div>
       </PopoverTrigger>

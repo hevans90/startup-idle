@@ -4,7 +4,7 @@
  * founder, at the cost of everything else; or shut it down. And, if the arc
  * has opened one, its ending beside them. @see game/ascension, game/quests/endings
  */
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 import { DARK_MS, SHUTDOWN_AT, ascend, ascensionWeights, contain, endingNow, shutDown } from "../game/ascension";
 import { useQuestStore } from "../state/quest.store";
@@ -15,7 +15,8 @@ import { useFounderStore } from "../state/founder.store";
 import { useGenerationStore } from "../state/generation.store";
 import { useWorldStore } from "../state/world.store";
 import { sequenceDone } from "../world/ai/ascension-sequence";
-import { Button, CountUp, Dialog, Tooltip } from "../ui/console";
+import { Button, CountUp, Dialog, Tooltip, type Kick } from "../ui/console";
+import { isCalm } from "../ui/motion";
 
 export function AscensionCard() {
   useTicking(1000);
@@ -25,6 +26,16 @@ export function AscensionCard() {
   const founder = useFounderStore((s) => s.selectedFounderId);
   // Read so the ending follows where the arc has left it. @see endingNow
   useQuestStore((s) => s.disposition);
+  // ITS LAST WORDS, torn: as it asks, and once more as it is shut down. @see useGlitch
+  const kick = useRef<Kick | null>(null);
+  const going = useRef(false);
+  const shut = () => {
+    if (going.current) return;
+    going.current = true;
+    if (isCalm()) return shutDown();
+    kick.current?.({ strength: 1.8, burst: 0.7 });
+    window.setTimeout(() => shutDown(), 650);
+  };
   if (value < 100 || !founder) return null;
   // On the map, the sequence plays first. @see stepSequence
   if (useWorldStore.getState().playing && !sequenceDone(Date.now())) return null;
@@ -34,9 +45,10 @@ export function AscensionCard() {
   // It must be answered: no way to close it but a choice.
   return (
     <Dialog title="The AI would like to move on." kicker={`Generation ${generation} · the singularity`} tone="ai"
+      glitch={{ arrive: true, every: null, strength: 1.3, burst: 0.6, kick }}
       actions={<>
         <Tooltip content={tip(<>Every agent deleted, the racks dark for {Math.round(DARK_MS / 60_000)} minutes, the AI back to {SHUTDOWN_AT}%. It will remember.</>)}>
-          <Button variant="secondary" confirm onClick={() => shutDown()}>Shut it down</Button>
+          <Button variant="secondary" confirm onClick={shut}>Shut it down</Button>
         </Tooltip>
         {/* THE ARC'S ENDING, where it opened one. @see endingNow */}
         {ending && (

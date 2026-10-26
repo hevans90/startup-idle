@@ -15,6 +15,7 @@ import { Backdrop } from "./backdrop";
 import { FOCUS } from "./controls";
 import { Tooltip } from "./feedback";
 import { Frame, toneVar, type Tone } from "./frame";
+import { useGlitch, type GlitchOptions, type Kick } from "./glitch";
 import { Text } from "./text";
 
 /** A small label: a panel's controls, a field, a kicker over a title. */
@@ -115,7 +116,7 @@ const FOCUSABLE = "button:not(:disabled), [href], input:not(:disabled), select:n
  * pattern behind, a kicker and a title, what it says, and what you can do.
  * Without `onClose` it cannot be dismissed — it must be answered.
  */
-export function Dialog({ title, kicker, onClose, actions, tone = "console", wide, children }: {
+export function Dialog({ title, kicker, onClose, actions, tone = "console", wide, glitch, children }: {
   title: string;
   kicker?: string;
   /** Closing it: Esc, and the ✕. None, and it must be answered. */
@@ -123,9 +124,14 @@ export function Dialog({ title, kicker, onClose, actions, tone = "console", wide
   actions?: ReactNode;
   tone?: Tone;
   wide?: boolean;
+  /** Torn now and then, or on cue through `kick`. @see useGlitch */
+  glitch?: GlitchOptions & { kick?: { current: Kick | null } };
   children?: ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const kick = useGlitch(box, { ...glitch, active: !!glitch && glitch.active !== false });
+  const handle = glitch?.kick;
+  useEffect(() => { if (handle) handle.current = kick; }, [handle, kick]);
   const { calm } = useConsoleMotion();
   // Its entrance: the frame, then the title, then the body, then the actions.
   const step = useSequence(4, calm, title);

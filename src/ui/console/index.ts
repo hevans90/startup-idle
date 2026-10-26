@@ -12,4 +12,4 @@ export { Num, CountUp, Stat, StatGrid, Meter, Badge, Chip, Kbd, Tooltip, Locked 
 export { Tabs, type TabItem } from "./tabs";
 export { PopCard, PopGroup, PopRow, POPOVER_BARE } from "./popcard";
 export { ErrorScreen } from "./error-screen";
-export { Glitch, useGlitch, type GlitchOptions } from "./glitch";
+export { Glitch, takeoverGlitch, useGlitch, useTakeoverGlitch, type GlitchOptions, type Kick } from "./glitch";

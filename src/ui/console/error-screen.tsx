@@ -2,9 +2,12 @@
  * WHEN THE CONSOLE FALLS OVER: not a white page, but what happened in the
  * console's own look — the error, a reload, and the details to copy for a bug
  * report. Built of plain elements and the tokens only: the kit itself may be
- * what threw. The save is untouched; a reload carries on from it.
+ * what threw — save its glitch, as if the AI had done it. The save is
+ * untouched; a reload carries on from it.
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
+
+import { Glitch } from "./glitch";
 
 type State = { error: Error | null; stack: string };
 
@@ -26,7 +29,8 @@ export class ErrorScreen extends Component<{ children: ReactNode }, State> {
     const details = `${error.name}: ${error.message}\n\n${stack}`;
     return (
       <div role="alert" className="flex h-full w-full items-center justify-center bg-surface-0 p-4 text-fg">
-        <div className="flex w-full max-w-lg flex-col border border-line-strong border-t-2 border-t-bad bg-surface-1 shadow-2xl">
+        <Glitch arrive strength={1} every={3} className="w-full max-w-lg">
+        <div className="flex w-full flex-col border border-line-strong border-t-2 border-t-bad bg-surface-1 shadow-2xl">
           <header className="border-b border-line-quiet px-5 pb-3 pt-4">
             <p className="text-[10px] uppercase tracking-widest text-bad">The console fell over</p>
             <h1 className="font-display text-xl tracking-wide">Something broke</h1>
@@ -48,6 +52,7 @@ export class ErrorScreen extends Component<{ children: ReactNode }, State> {
             </button>
           </footer>
         </div>
+        </Glitch>
       </div>
     );
   }

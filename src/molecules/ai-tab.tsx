@@ -5,20 +5,25 @@
  * throttle, cooling, training, the racks and the training log. Clicking the
  * Data Centre on the map opens it. @see DataCentre, ModelShop
  */
+import { useRef } from "react";
+
 import { MODULES } from "../game/modules";
 import { useGenerationStore } from "../state/generation.store";
 import { DataCentre } from "../world/play/datacentre-panel";
 import { QuestDossier } from "../quest-ui/arc";
 import { stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
-import { Stat, StatGrid } from "../ui/console";
+import { Stat, StatGrid, useTakeoverGlitch } from "../ui/console";
 
 export function AiTab() {
   const g = useGenerationStore();
   const slotted = MODULES.filter((m) => g.slotted.includes(m.id));
+  // ITS OWN TAB, torn as the takeover goes on. @see useTakeoverGlitch
+  const box = useRef<HTMLDivElement>(null);
+  useTakeoverGlitch(box);
   const value = useAiSingularityStore((s) => s.value);
   const stage = stageOf(value);
   return (
-    <div className="flex flex-col gap-3 p-2 text-xs text-fg">
+    <div ref={box} className="flex flex-col gap-3 p-2 text-xs text-fg">
       <StatGrid>
         <Stat label="Generation" value={g.generation} />
         <Stat label="Weights" value={g.weights} role="weights" title="Spent on modules between companies, on the founder screen" />

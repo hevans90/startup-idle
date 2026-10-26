@@ -17,6 +17,7 @@ import { usePrestigeStore } from "../../state/prestige.store";
 import { useGenerationStore } from "../../state/generation.store";
 import { isMachine, machineBlocked, machineCost, machineNode } from "../../game/machine";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
+import { useGlitch } from "../../ui/console";
 
 const NODES = nodeById(SKILL_TREE);
 const ADJ = buildAdjacency(SKILL_TREE);
@@ -240,10 +241,13 @@ function MachineTip({ refEl, id, hovered }: { refEl: React.RefObject<HTMLDivElem
     : blocked === "weights" ? { text: `Cost: ${cost} Weights (can't afford)`, cls: "text-bad" }
     : { text: `Cost: ${cost} Weights`, cls: "text-fg" };
   const fog = blocked === "fog" && n.kind !== "root";
+  // THE KEYSTONES THAT LET IT LOOSE OR SHUT IT OUT, once bought: torn. @see useGlitch
+  const box = useRef<HTMLDivElement>(null);
+  useGlitch(box, { active: (id === "takeoff" || id === "airgap") && blocked === "owned", strength: 0.9, every: 1.6 });
   return (
     <div ref={refEl} className="pointer-events-none absolute z-10 w-60"
       style={{ left: hovered.x, top: hovered.y - hovered.r - 12, transform: "translate(-50%, -100%)" }}>
-      <div className="border border-line-strong border-t-2 border-t-ai bg-surface-3 text-xs text-fg shadow-xl">
+      <div ref={box} className="border border-line-strong border-t-2 border-t-ai bg-surface-3 text-xs text-fg shadow-xl">
         <div className="flex items-baseline justify-between gap-2 border-b border-line-quiet px-3 py-2">
           <span className="font-display text-[11px] uppercase tracking-widest">{fog ? "Unrevealed" : n.title}</span>
           <span className="text-[10px] uppercase tracking-widest text-ai">The Machine</span>

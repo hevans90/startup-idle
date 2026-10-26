@@ -5,7 +5,7 @@
  * "+n" that opens the log. A polite live region; an alert speaks up.
  * @see comms.store, plans/ui-overhaul.md §3.2, §4
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useCommsStore, type CommsEntry } from "../../state/comms.store";
 import { useQuestStore } from "../../state/quest.store";
@@ -13,7 +13,7 @@ import { useWorldStore } from "../../state/world.store";
 import { QuestArc } from "../../quest-ui/arc";
 import { EventCard, liveEvents } from "../../world/play/event-cards";
 import { HintCard } from "../../world/play/hint-card";
-import { Badge, Button, Card } from "../console";
+import { Badge, Button, Card, useGlitch } from "../console";
 import { CommsLog } from "./comms-log";
 
 /** The most cards it shows at once. */
@@ -22,12 +22,17 @@ export const DOCK_MOST = 3;
 /** A report: what happened, the AI's in its violet. */
 export function ReportCard({ e }: { e: CommsEntry }) {
   const dismiss = useCommsStore((s) => s.dismiss);
+  // THE AI'S, torn as they come in. @see useGlitch
+  const box = useRef<HTMLDivElement>(null);
+  useGlitch(box, { active: e.from === "ai", arrive: true, every: null, strength: 1, burst: 0.5 });
   return (
+    <div ref={box}>
     <Card tone={e.from === "ai" ? "ai" : "console"} onClose={() => dismiss(e.id)} className="w-[min(24rem,calc(100vw-1rem))]"
       title={e.title ? <span className="text-[10px] uppercase tracking-widest" style={{ color: e.from === "ai" ? "var(--ui-ai)" : undefined }}>{e.title}</span> : undefined}>
       {e.text && <p className={e.from === "ai" ? "italic" : undefined}>{e.from === "ai" ? `“${e.text}”` : e.text}</p>}
       {e.lines && <ul className="flex flex-col gap-0.5">{e.lines.map((l, k) => <li key={k} className="italic">“{l}”</li>)}</ul>}
     </Card>
+    </div>
   );
 }
 
