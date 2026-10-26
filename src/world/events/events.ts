@@ -12,6 +12,7 @@
  * event DOES to the map — sludge poured, trucks sent — is the scene's and the
  * store's. @see world-scene, respondToEvent
  */
+import { termEffects } from "../../game/term-deal";
 import { notable } from "../../game/machine";
 import { questFloodMult } from "../../game/quests/effects";
 import { FLOOD_SECONDS } from "./flood";
@@ -230,7 +231,8 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     warnMs: 20_000, activeMs: 120_000,
     warning: { title: "An acquirer is circling", text: "Someone wants to buy the company. An offer is coming." },
     active: { title: "An offer is on the table", text: "Sell now and they pay a premium. Hold out, and the company — and the next offer — may grow." },
-    of: (w) => w.offer && {
+    // A NO-SHOP in the term sheet: no acquirer comes knocking this run. @see term-deal
+    of: (w) => (termEffects().offers === "none" ? null : w.offer && {
       ...w.offer,
       // THE BEST STREET is what caught their eye. @see liveStreetEarnings
       ...(w.offer.street ? { text: `Someone wants to buy the company — they have been walking ${w.offer.street}. An offer is coming.` } : {}),
@@ -238,7 +240,7 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
         { id: "accept", label: "Look at the offer", cost: `+${w.offer.withPremium} Equity, against ${w.offer.equity} without them · sells the company` },
         { id: "hold", label: "Hold out", cost: "the premium goes with them" },
       ],
-    },
+    }),
     // A sale ends the company, and this with it; still here, it lapsed.
     outcome: (e) => (e.chosen === "accept" ? "The offer lapsed before you signed. Another may come." : "The acquirer has walked away. Another may come."),
   },

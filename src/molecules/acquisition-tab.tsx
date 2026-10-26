@@ -1,5 +1,5 @@
 import Decimal from "break_infinity.js";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   accruedForEquity,
   ACQUISITION_THRESHOLD,
@@ -11,6 +11,7 @@ import {
   performAcquisition,
 } from "../game/acquisition";
 import { termStatus } from "../game/term-sheets";
+import { termSaleMult } from "../game/term-deal";
 import { useTicking } from "../hooks/use-ticking";
 import { SKILL_TREE } from "../game/skill-tree";
 import { useShallow } from "zustand/shallow";
@@ -19,9 +20,8 @@ import { useMoneyStore } from "../state/money.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useSessionStore } from "../state/session.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
-import { Button } from "../ui/Button";
+import { Button, CountUp, Dialog, Panel, Section, Stat, StatGrid } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
-import { SystemPanel } from "../ui/SystemPanel";
 import { formatCurrency } from "../utils/money-utils";
 import { formatDuration } from "../utils/time-utils";
 import { useSellTransition } from "./sell-transition";
@@ -43,10 +43,10 @@ const Bar = ({
   frac: number;
   tone?: "emerald" | "cyan";
 }) => (
-  <div className="h-1.5 w-full overflow-hidden rounded bg-primary-300 dark:bg-primary-700">
+  <div className="h-1.5 w-full overflow-hidden  bg-surface-3">
     <div
       className={
-        tone === "cyan" ? "h-full bg-cyan-500" : "h-full bg-emerald-500"
+        tone === "cyan" ? "h-full bg-innovation" : "h-full bg-good"
       }
       style={{ width: `${Math.max(0, Math.min(1, frac)) * 100}%` }}
     />
@@ -60,8 +60,8 @@ export const ChipRow = ({ chips }: { chips: Chip[] }) => (
         key={c.label}
         className={`px-1.5 py-0.5 text-[10px] tabular-nums ${
           c.good
-            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-            : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
+            ? "bg-good/15 text-good"
+            : "bg-bad/15 text-bad"
         }`}
       >
         {c.modKey
@@ -73,9 +73,9 @@ export const ChipRow = ({ chips }: { chips: Chip[] }) => (
   </div>
 );
 
-const SummaryRow = ({ label, value }: { label: string; value: string }) => (
+const SummaryRow = ({ label, value }: { label: string; value: ReactNode }) => (
   <div className="flex items-baseline justify-between gap-4">
-    <span className="opacity-70">{label}</span>
+    <span className="text-fg-muted">{label}</span>
     <span className="font-medium tabular-nums">{value}</span>
   </div>
 );
@@ -103,59 +103,32 @@ const AcquireConfirm = ({
   const activeMandates = MANDATES.filter((m) => mandateLevels[m.id] > 0);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onCancel}
-    >
-      <div
-        className="w-96 max-w-full rounded-lg border border-primary-500 bg-primary-100 p-5 text-primary-900 shadow-xl dark:bg-primary-800 dark:text-primary-100"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-bold">Sell the company?</h2>
-
-        <p className="mt-2 mb-1 text-[10px] uppercase tracking-wide opacity-50">
-          This company
-        </p>
+    <Dialog title="Sell the company?" kicker="The sale" onClose={onCancel}
+      actions={<>
+        <Button variant="quiet" onClick={onCancel}>Cancel</Button>
+        <Button variant="primary" tone="good" onClick={onConfirm}>Sell for +{plain(offer)} Equity</Button>
+      </>}>
+      <Section label="This company">
         <div className="flex flex-col gap-1 text-xs">
-          <SummaryRow
-            label="Lifespan"
-            value={`${formatDuration(Date.now() - incorporatedAt)}`}
-          />
-          <SummaryRow label="Valuation accrued" value={plain(accrued)} />
-          <SummaryRow label="Cash on hand" value={formatCurrency(money)} />
-          <SummaryRow label="Employees" value={String(employees)} />
+          <SummaryRow label="Lifespan" value={`${formatDuration(Date.now() - incorporatedAt)}`} />
+          <SummaryRow label="Valuation accrued" value={<CountUp to={accrued} format={plain} role="valuation" />} />
+          <SummaryRow label="Cash on hand" value={<CountUp to={money} format={(v) => formatCurrency(v)} role="money" />} />
+          <SummaryRow label="Employees" value={<CountUp to={employees} format={(v) => String(Math.round(v))} />} />
         </div>
-
-        <p className="mt-3 mb-1 text-[10px] uppercase tracking-wide opacity-50">
-          You'll gain
-        </p>
+      </Section>
+      <Section label="You'll gain">
         <div className="flex flex-col gap-1 text-xs">
           <SummaryRow label="Exits" value="+1" />
-          <SummaryRow label="Equity" value={`+${plain(offer)}`} />
+          <SummaryRow label="Equity" value={<CountUp to={offer} format={(v) => `+${plain(v)}`} role="good" className="font-display text-base" />} />
           {activeMandates.map((m) => (
-            <SummaryRow
-              key={m.id}
-              label={m.name}
-              value={`Lv ${mandateLevels[m.id]}`}
-            />
+            <SummaryRow key={m.id} label={m.name} value={`Lv ${mandateLevels[m.id]}`} />
           ))}
-          <p className="mt-1 text-[11px] opacity-60">
-            Equity, skill tree and board mandates persist. Money, employees,
-            upgrades, innovation, valuation and the company's map reset — the
-            next company founds on new ground.
-          </p>
         </div>
-
-        <div className="mt-4 flex gap-2">
-          <Button className="flex-1" onClick={onConfirm}>
-            Sell company
-          </Button>
-          <Button className="flex-1 opacity-70" onClick={onCancel}>
-            Cancel
-          </Button>
-        </div>
-      </div>
-    </div>
+      </Section>
+      <p className="mt-2 text-[11px] text-fg-muted">
+        Equity, skill tree and board mandates persist. Money, employees, upgrades, innovation, valuation and the company's map reset — the next company founds on new ground.
+      </p>
+    </Dialog>
   );
 };
 
@@ -260,33 +233,21 @@ export const AcquisitionTab = () => {
   const paid = premium > 1 ? offer.mul(premium).floor() : offer;
 
   return (
-    <div className="flex w-full flex-col items-center gap-4 p-3">
-      {/* Hero: banked Equity */}
-      <div className="flex w-full flex-col items-center gap-1 pb-3 dark:border-primary-700">
-        <span className="text-[10px] uppercase tracking-wide opacity-60">
-          Banked Equity
-        </span>
-        <span className="text-3xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
-          {plain(equity)}
-        </span>
-        <div className="flex gap-4 text-xs opacity-70 tabular-nums">
-          <span>Exits {exits}</span>
-          <span>
-            Respecs{" "}
-            <span className="font-semibold text-rose-500 dark:text-rose-400">
-              {respecPoints}
-            </span>
-          </span>
-        </div>
-      </div>
+    <div className="flex w-full flex-col gap-3 p-2">
+      {/* WHAT IS BANKED: Equity, the exits made, the respecs to spend. */}
+      <StatGrid className="w-full">
+        <Stat label="Banked equity" value={plain(equity)} role="good" />
+        <Stat label="Exits" value={exits} />
+        <Stat label="Respecs" value={respecPoints} role={respecPoints > 0 ? "bad" : undefined} />
+      </StatGrid>
 
       {/* Skill tree */}
-      <SystemPanel
+      <Panel
         title="Acquisition tree"
         className="w-full"
         help="Spend Equity in a passive tree of permanent bonuses. Respec with Exits."
       >
-        <div className="flex flex-col gap-2 px-2 pb-2">
+        <div className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between text-xs">
             <span className="opacity-70">Nodes allocated</span>
             <span className="tabular-nums">
@@ -308,19 +269,19 @@ export const AcquisitionTab = () => {
             </p>
           )}
 
-          <Button className="mt-1 w-full" onClick={() => setTreeOpen(true)}>
+          <Button variant="primary" className="mt-1 w-full" onClick={() => setTreeOpen(true)}>
             Open acquisition tree
           </Button>
         </div>
-      </SystemPanel>
+      </Panel>
 
       {/* Sell the company */}
-      <SystemPanel
+      <Panel
         title="Sell the company"
         className="w-full"
         help="Accrued valuation determines your acquisition payout (diminishing returns). Selling banks Equity and starts a fresh company."
       >
-        <div className="flex flex-col gap-2 px-2 pb-2">
+        <div className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between text-xs">
             <span className="opacity-70">Accrued valuation</span>
             <span className="tabular-nums">{plain(accrued)}</span>
@@ -330,7 +291,7 @@ export const AcquisitionTab = () => {
             <span
               className={`text-lg font-bold tabular-nums ${
                 eligible
-                  ? "text-emerald-600 dark:text-emerald-400"
+                  ? "text-good"
                   : "opacity-40"
               }`}
             >
@@ -338,22 +299,29 @@ export const AcquisitionTab = () => {
             </span>
           </div>
           {eligible && premium > 1 && premiumUntil !== null && (
-            <p className="text-[11px] tabular-nums text-amber-700 dark:text-amber-400">
+            <p className="text-[11px] tabular-nums text-warn">
               An acquirer's premium of +{Math.round((premium - 1) * 100)}% (against +{plain(offer)} without),
               for {formatDuration(Math.max(0, premiumUntil - Date.now()))} more
             </p>
           )}
+          {/* THE INVESTOR'S SHARE AND TERMS, off the top of the sale. @see termSaleMult */}
+          {termSaleMult() < 1 && (
+            <p className="text-[11px] tabular-nums text-warn"
+              title="The term sheet's stake, its liquidation preference and the board, as the deal was signed.">
+              After the investor's terms you keep {Math.round(termSaleMult() * 100)}%
+            </p>
+          )}
           {townBonusNow() > 0 && (
-            <p className="text-[11px] tabular-nums text-emerald-700 dark:text-emerald-400"
+            <p className="text-[11px] tabular-nums text-good"
               title="Houses grown, services and wonders on your map. Up to +50%.">
               Includes a town bonus of +{Math.round(townBonusNow() * 100)}%
             </p>
           )}
           {term && (
-            <p className={`text-[11px] tabular-nums ${term.progress.met ? "text-emerald-700 dark:text-emerald-400" : "opacity-70"}`}
-              title={`${term.sheet.investor}'s term sheet: +${Math.round(term.sheet.bonus * 100)}% Equity if it is met when you sell.`}>
-              Term sheet: {term.sheet.goal} · {term.progress.text}
-              {term.progress.met ? ` · includes +${Math.round(term.sheet.bonus * 100)}%` : ""}
+            <p className={`text-[11px] tabular-nums ${term.progress.met ? "text-good" : "opacity-70"}`}
+              title={`${term.sheet.investor}'s term sheet: +${Math.round(term.bonus * 100)}% Equity if it is met when you sell.`}>
+              Term sheet: {term.goal} · {term.progress.text}
+              {term.progress.met ? ` · includes +${Math.round(term.bonus * 100)}%` : ""}
             </p>
           )}
           <Bar frac={frac} />
@@ -364,6 +332,7 @@ export const AcquisitionTab = () => {
           </p>
 
           <Button
+            variant="primary"
             className="mt-1 w-full"
             disabled={!eligible}
             onClick={() => setConfirming(true)}
@@ -373,7 +342,7 @@ export const AcquisitionTab = () => {
               : "Not enough valuation yet"}
           </Button>
         </div>
-      </SystemPanel>
+      </Panel>
 
 
       {treeOpen && <SkillTreeOverlay onClose={() => setTreeOpen(false)} />}

@@ -20,12 +20,12 @@ export function DispositionChart({ at, to, path = [], size = 44, labels = false 
   const trail = [{ autonomy: 0, machine: 0 }, ...path];
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-label={`Autonomy ${at.autonomy}, Machine ${at.machine}`}
-      className="shrink-0 text-violet-600 dark:text-violet-300">
-      <rect x={pad} y={pad} width={inner} height={inner} className="fill-primary-200/60 stroke-primary-400 dark:fill-primary-800/60 dark:stroke-primary-600" strokeWidth={0.5} />
-      <line x1={size / 2} y1={pad} x2={size / 2} y2={size - pad} className="stroke-primary-400 dark:stroke-primary-600" strokeWidth={0.5} />
-      <line x1={pad} y1={size / 2} x2={size - pad} y2={size / 2} className="stroke-primary-400 dark:stroke-primary-600" strokeWidth={0.5} />
+      className="shrink-0 text-ai">
+      <rect x={pad} y={pad} width={inner} height={inner} className="fill-surface-2 stroke-line" strokeWidth={0.5} />
+      <line x1={size / 2} y1={pad} x2={size / 2} y2={size - pad} className="stroke-line" strokeWidth={0.5} />
+      <line x1={pad} y1={size / 2} x2={size - pad} y2={size / 2} className="stroke-line" strokeWidth={0.5} />
       {labels && (
-        <g className="fill-primary-600 dark:fill-primary-400" fontSize={8}>
+        <g className="fill-fg-muted" fontSize={8}>
           <text transform={`translate(9 ${size / 2}) rotate(-90)`} textAnchor="middle">Control</text>
           <text transform={`translate(${size - 9} ${size / 2}) rotate(90)`} textAnchor="middle">Autonomy</text>
           <text x={size / 2} y={9} textAnchor="middle">Machine</text>

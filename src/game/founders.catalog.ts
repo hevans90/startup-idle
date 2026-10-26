@@ -105,122 +105,104 @@ export const FOUNDERS: FounderDef[] = [
     startingCash: 5,
     scalingModifier: {
       label: "Compounding Grind",
-      perExitDescription: "each exit: ×2 all money output",
+      perExitDescription: "×2 money per exit",
       compute: (exits) => ({
         globalMoneyMult: Math.pow(2, exits),
       }),
     },
-    perks: (exits) => [
-      "$5 starting cash. No other bonuses.",
-      exits === 0
-        ? "Complete a run to unlock Compounding Grind"
-        : `Compounding Grind: ${x(Math.pow(2, exits), 0)} all money (×2 per exit)`,
-    ],
+    perks: (exits) => [exits === 0 ? "No perks" : `Money ${x(Math.pow(2, exits), 0)}`],
   },
 
   // ── The Bootstrapper (1 exit) ────────────────────────────────────────────────
   {
     id: "bootstrapper",
-    rule: `Everything built ${Math.round((1 - BOOTSTRAP_BUILD) * 100)}% cheaper, projects too`,
+    rule: `Builds ${Math.round((1 - BOOTSTRAP_BUILD) * 100)}% cheaper, projects too`,
     name: "The Bootstrapper",
     tagline: "Ramen profitable",
     unlockCondition: {
-      label: "Complete 1 exit",
+      label: "1 exit",
       check: (exits) => exits >= 1,
     },
     icon: IconSeeding,
     startingCash: 30,
     scalingModifier: {
       label: "Scar Tissue",
-      perExitDescription: "each exit: −0.012 all generator cost exponents",
+      perExitDescription: "−0.012 cost growth per exit",
       compute: (exits) => ({
         costExponentReduction: 0.02 + exits * 0.012,
         autoBuyMult: 1.4,
       }),
     },
-    perks: (exits) => [
-      `−${(0.02 + exits * 0.012).toFixed(3)} generator cost exponent${exits > 0 ? ` (base −0.020 + exits)` : ""}`,
-      "+40% auto-buy rate",
-    ],
+    perks: (exits) => [`Cost growth −${(0.02 + exits * 0.012).toFixed(3)}`, "Auto-buy +40%"],
   },
 
   // ── The Hacker (2 exits) ─────────────────────────────────────────────────────
   {
     id: "hacker",
-    rule: `R&D labs give ${HACKER_LABS}× the innovation`,
+    rule: `R&D labs give ${HACKER_LABS}× innovation`,
     name: "The Hacker",
-    tagline: "Ships product before slides",
+    tagline: "Ships before slides",
     unlockCondition: {
-      label: "Complete 2 exits",
+      label: "2 exits",
       check: (exits) => exits >= 2,
     },
     icon: IconCode,
     startingCash: 40,
     scalingModifier: {
       label: "Stack Overflow",
-      perExitDescription:
-        "each exit: +15% innovation curve, +20% vibe-coder innovation",
+      perExitDescription: "+0.15 innovation curve, +20% vibe coder innovation per exit",
       compute: (exits) => ({
         innovationLogMult: 1.4 + exits * 0.15,
         generatorInnovationMult: { vibe_coder: 1.5 + exits * 0.2 },
       }),
     },
-    perks: (exits) => [
-      `Innovation multiplier curve ${x(1.4 + exits * 0.15)}${exits > 0 ? ` (+${exits * 15}% from exits)` : ""}`,
-      `Vibe coders: ${pct(1.5 + exits * 0.2 - 1)} innovation`,
-    ],
+    perks: (exits) => [`Innovation curve ${x(1.4 + exits * 0.15)}`, `Vibe coders +${pct(1.5 + exits * 0.2 - 1)} innovation`],
   },
 
   // ── The Visionary (3 exits + $5k) ───────────────────────────────────────────
   {
     id: "visionary",
-    rule: `The Data Centre needs ${Math.round(VISIONARY_DATACENTRE * 100)}% of the headcount`,
+    rule: `Data Centre needs ${Math.round(VISIONARY_DATACENTRE * 100)}% of the headcount`,
     name: "The Visionary",
     tagline: "Sells the dream",
     unlockCondition: {
-      label: "3 exits · best exit at 5,000+ valuation",
+      label: "3 exits · a 5,000 exit",
       check: (exits, best) => exits >= 3 && best >= 5_000,
     },
     icon: IconTelescope,
     startingCash: 50,
     scalingModifier: {
       label: "Track Record",
-      perExitDescription: "each exit: ×1.25 valuation accrual rate",
+      perExitDescription: "×1.25 valuation rate per exit",
       compute: (exits) => ({
         valuationAccrualMult: 1.35 * Math.pow(1.25, exits),
         mandateCostGrowthReduction: 0.025,
       }),
     },
-    perks: (exits) => [
-      `Valuation rate ${x(1.35 * Math.pow(1.25, exits))}${exits > 0 ? ` (compounds ×1.25 per exit)` : ""}`,
-      "−0.025 board-mandate cost growth",
-    ],
+    perks: (exits) => [`Valuation rate ${x(1.35 * Math.pow(1.25, exits))}`, "Mandate cost growth −0.025"],
   },
 
   // ── The Hustler (5 exits + $50k) ─────────────────────────────────────────────
   {
     id: "hustler",
-    rule: `Map events come round ${HUSTLER_EVENTS}× as often`,
+    rule: `Map events ${HUSTLER_EVENTS}× as often`,
     name: "The Hustler",
     tagline: "Always be closing",
     unlockCondition: {
-      label: "5 exits · best exit at 50,000+ valuation",
+      label: "5 exits · a 50,000 exit",
       check: (exits, best) => exits >= 5 && best >= 50_000,
     },
     icon: IconBriefcase,
     startingCash: 100,
     scalingModifier: {
       label: "Network Deepens",
-      perExitDescription: "each exit: +0.5%/employee money bonus",
+      perExitDescription: "+0.5% money per employee per exit",
       compute: (exits) => ({
         headcountMoneyPerEmployee: 0.007 + exits * 0.005,
         autoBuyMult: 1.3,
       }),
     },
-    perks: (exits) => [
-      `+${pct(0.007 + exits * 0.005)} money per employee owned${exits > 0 ? ` (was +0.7%)` : ""}`,
-      "+30% auto-buy rate",
-    ],
+    perks: (exits) => [`+${pct(0.007 + exits * 0.005, 1)} money per employee`, "Auto-buy +30%"],
   },
 
   // ── The Agentic Delusionist (8 exits + $500k) ───────────────────────────────
@@ -229,15 +211,14 @@ export const FOUNDERS: FounderDef[] = [
     name: "The Agentic Delusionist",
     tagline: "The agents will figure it out",
     unlockCondition: {
-      label: "8 exits · best exit at 500,000+ valuation",
+      label: "8 exits · a 500,000 exit",
       check: (exits, best) => exits >= 8 && best >= 500_000,
     },
     icon: IconRobot,
     startingCash: 150,
     scalingModifier: {
       label: "AGI Proximity",
-      perExitDescription:
-        "each exit: +100% vibe-coder money, +75% vibe-coder innovation",
+      perExitDescription: "+100% vibe coder money, +75% innovation per exit",
       compute: (exits) => ({
         onlyGenerator: "vibe_coder",
         generatorMoneyMult: { vibe_coder: 3 + exits * 1.0 },
@@ -246,10 +227,9 @@ export const FOUNDERS: FounderDef[] = [
       }),
     },
     perks: (exits) => [
-      "Only vibe coders — interns & 10x devs disabled",
-      `Vibe coders: ${pct(3 + exits * 1.0 - 1)} money${exits > 0 ? ` (base +200%)` : ""}`,
-      `Vibe coders: ${pct(2.5 + exits * 0.75 - 1)} innovation${exits > 0 ? ` (base +150%)` : ""}`,
-      "+0.6% money per employee owned",
+      "Vibe coders only",
+      `Vibe coders +${pct(3 + exits * 1.0 - 1)} money, +${pct(2.5 + exits * 0.75 - 1)} innovation`,
+      "+0.6% money per employee",
     ],
   },
 
@@ -260,23 +240,19 @@ export const FOUNDERS: FounderDef[] = [
   {
     id: "model",
     name: "The Model",
-    tagline: "It has read every company you ever ran",
+    tagline: "Has read every company you ran",
     unlockCondition: {
       label: "Ascend once",
       check: () => false,
     },
-    rule: "AI mode: switch it on and the town plans and builds itself",
+    rule: "AI mode plans and builds the town",
     icon: IconCpu,
     startingCash: 5,
     scalingModifier: {
       label: "Generations",
-      perExitDescription:
-        "carries every trait the generations before it ended with",
+      perExitDescription: "Grows with each Ascension, not exits",
       compute: () => ({}),
     },
-    perks: () => [
-      "Every trait past generations ended with",
-      "$5 starting cash",
-    ],
+    perks: () => ["Every past generation's traits"],
   },
 ];

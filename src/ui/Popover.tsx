@@ -11,6 +11,7 @@ import {
   useFloating,
   useFloatingNodeId,
   useFloatingParentNodeId,
+  useFocus,
   useHover,
   useId,
   useInteractions,
@@ -90,10 +91,12 @@ function usePopover({
       : null,
   });
 
+  // A hover popover opens on the keyboard's focus too: nothing only for the pointer.
+  const focus = useFocus(context, { enabled: openOnHover });
   const dismiss = useDismiss(context, { bubbles: true });
   const role = useRole(context);
 
-  const interactions = useInteractions([click, hover, dismiss, role]);
+  const interactions = useInteractions([click, hover, focus, dismiss, role]);
 
   return React.useMemo(
     () => ({

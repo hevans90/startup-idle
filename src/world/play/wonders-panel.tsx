@@ -7,6 +7,7 @@
  */
 import { useEffect } from "react";
 import { twMerge } from "tailwind-merge";
+import { Badge, IconButton } from "../../ui/console";
 
 import { PROJECTS, type ProjectDef } from "../../game/projects";
 import { useGeneratorStore } from "../../state/generators.store";
@@ -22,8 +23,8 @@ import { useGateUnlocks } from "./gates";
 
 export const WONDERS: readonly ProjectDef[] = PROJECTS.filter((p) => p.bonus);
 
-const PANEL = "border border-primary-300 bg-primary-50/95 shadow-md dark:border-primary-700 dark:bg-primary-900/95";
-const ROW = "flex flex-col gap-1 border-t border-primary-200 py-2 first:border-t-0 dark:border-primary-700";
+const PANEL = "border border-line-quiet bg-surface-1/95 shadow-lg backdrop-blur-sm";
+const ROW = "flex flex-col gap-1 border-t border-line-quiet py-2 first:border-t-0";
 
 export function WondersPanel({ className }: { className?: string }) {
   useTicking(250);
@@ -47,19 +48,20 @@ export function WondersPanel({ className }: { className?: string }) {
   // ONE PROJECT AT A TIME, wonders with the rest. @see projectUnderWay
   const busy = projectUnderWay(grid);
   return (
-    <div className={twMerge(PANEL, "w-[min(22rem,calc(100vw-1rem))] p-2 text-xs text-primary-900 dark:text-primary-100", className)}>
+    <div className={twMerge(PANEL, "w-[min(22rem,calc(100vw-1rem))] p-2.5 text-xs text-fg", className)}>
       <div className="mb-1 flex items-baseline justify-between">
-        <b className="text-[10px] uppercase tracking-wide text-primary-600 dark:text-primary-400">Wonders</b>
-        <button type="button" onClick={() => setOpen(false)}
-          className="cursor-pointer px-1 text-primary-500 hover:text-primary-900 dark:hover:text-primary-100" aria-label="Close">✕</button>
+        <p className="flex items-center gap-2 font-display text-xs uppercase tracking-widest">
+          <span aria-hidden className="h-3 w-0.5 bg-good" />Wonders
+        </p>
+        <IconButton label="Close" onClick={() => setOpen(false)}>✕</IconButton>
       </div>
       {WONDERS.map((w) => {
         const bonus = opensText(w);
         if (built.has(w.id)) {
           return (
             <div key={w.id} className={ROW}>
-              <p className="flex justify-between"><b>{w.name}</b><span className="text-emerald-700 dark:text-emerald-400">Standing</span></p>
-              <p className="text-emerald-700 dark:text-emerald-400">{bonus}</p>
+              <p className="flex items-center justify-between"><b>{w.name}</b><Badge tone="good">Standing</Badge></p>
+              <p className="text-good">{bonus}</p>
             </div>
           );
         }
@@ -74,15 +76,15 @@ export function WondersPanel({ className }: { className?: string }) {
         const rival = ruledOut(grid, w);
         if (rival) {
           return (
-            <div key={w.id} className={twMerge(ROW, "text-primary-500 dark:text-primary-500")}>
-              <p className="flex justify-between"><b className="line-through">{w.name}</b><span>{rival.name} instead</span></p>
+            <div key={w.id} className={twMerge(ROW, "text-fg-muted")}>
+              <p className="flex items-center justify-between"><b className="line-through">{w.name}</b><Badge tone="bad">{rival.name} instead</Badge></p>
             </div>
           );
         }
         // Hidden while another project is under way. @see projectUnderWay
         if (busy) return null;
         const or = w.rival && PROJECTS.find((p) => p.id === w.rival);
-        const fork = or && <p className="text-amber-700 dark:text-amber-400">Or the {or.name}, never both</p>;
+        const fork = or && <p className="text-warn">Or the {or.name}, never both</p>;
         if (w.ready(owned, unlocked)) {
           return (
             <div key={w.id} className={ROW}>
@@ -92,11 +94,11 @@ export function WondersPanel({ className }: { className?: string }) {
           );
         }
         return (
-          <div key={w.id} className={twMerge(ROW, "text-primary-600 dark:text-primary-400")}>
-            <p className="flex justify-between"><b className="text-primary-800 dark:text-primary-200">{w.name}</b><span>{bonus}</span></p>
+          <div key={w.id} className={twMerge(ROW, "text-fg-muted")}>
+            <p className="flex justify-between"><b className="text-fg">{w.name}</b><span>{bonus}</span></p>
             {/* HOW MANY IT NEEDS, a bar a kind, with how many more on hover. @see GateChips */}
             <GateChips project={w} />
-            <p>from {formatCurrency(w.floor)}</p>
+            <p>From <span className="tabular-nums text-money">{formatCurrency(w.floor)}</span></p>
             {fork}
           </div>
         );

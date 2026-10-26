@@ -13,10 +13,10 @@ const Layer = lazy(() => loadQuestUi().then((m) => ({ default: m.QuestLayer })))
 const Markers = lazy(() => loadQuestUi().then((m) => ({ default: m.QuestMarkers })));
 const DossierLazy = lazy(() => loadQuestUi().then((m) => ({ default: m.Dossier })));
 
-/** At the head of the map's column of cards: the tracker and the transmission, when there is either. */
-export function QuestArc() {
-  const live = useQuestStore((s) => !!s.offer || !!s.objective);
-  return live ? <Suspense fallback={null}><Layer /></Suspense> : null;
+/** In comms: the tracker and the transmission — each only if comms has room for it. @see CommsDock */
+export function QuestArc({ tracker = true, offer = true }: { tracker?: boolean; offer?: boolean }) {
+  const live = useQuestStore((s) => (offer && !!s.offer) || (tracker && !!s.objective));
+  return live ? <Suspense fallback={null}><Layer tracker={tracker} offer={offer} /></Suspense> : null;
 }
 
 /** Over the map: the ring where an objective has a place. */

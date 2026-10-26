@@ -1,32 +1,15 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useGeneratorStore } from "../state/generators.store";
-import { Button } from "../ui/Button";
+import { Label, Segmented } from "../ui/console";
 
-export const PurchaseModeToggle = ({
-  className,
-}: {
-  className?: ClassNameValue;
-}) => {
+/** HOW MANY A PRESS BUYS: one, or as many as can be afforded. */
+export const PurchaseModeToggle = ({ className }: { className?: ClassNameValue }) => {
   const { purchaseMode, setPurchaseMode } = useGeneratorStore();
-
-  const handleToggle = () => {
-    if (purchaseMode === "single") {
-      setPurchaseMode("max");
-    }
-    if (purchaseMode === "max") {
-      setPurchaseMode("single");
-    }
-  };
-
   return (
-    <Button
-      onClick={handleToggle}
-      className={twMerge(
-        "px-4 py-2 bg-gray-200 dark:bg-primary-700 text-black dark:text-white responsive-text-sm",
-        className
-      )}
-    >
-      Purchase: {purchaseMode}
-    </Button>
+    <div className={twMerge("flex items-center justify-between gap-2", className)}>
+      <Label>Buy</Label>
+      <Segmented label="How many a press buys" value={purchaseMode} onChange={setPurchaseMode}
+        options={[{ value: "single", label: "×1" }, { value: "max", label: "Max", title: "As many as you can afford" }]} />
+    </div>
   );
 };

@@ -4,6 +4,12 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
+/** Directories moved onto the console's tokens. @see plans/ui-overhaul.md §7 */
+// EVERYTHING DRAWN IN THE DOM — the game, the editor and the debug tools — on the console's tokens.
+const MIGRATED = ['src/App.tsx', 'src/ui/**', 'src/quest-ui/**', 'src/molecules/**', 'src/world/play/**', 'src/world/debug/**', 'src/world/world-editor.tsx']
+/** A Tailwind colour class from the raw palette: text-violet-600, dark:bg-primary-900, border-emerald-400/50… */
+const RAW_PALETTE = '/(^|[\\s:])(text|bg|border|fill|stroke|ring|outline|from|to|via|accent|divide)-(primary|gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\\d/'
+
 export default tseslint.config(
   { ignores: ['dist'] },
   {
@@ -28,13 +34,28 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_' },
       ],
-      // ARWES only through the quest UI: themed by QuestFrame, and in its lazy chunk. @see src/quest-ui
-      'no-restricted-imports': ['error', { patterns: [{ group: ['@arwes/*', 'motion'], message: 'Use src/quest-ui (loaded through loadQuestUi), not arwes directly.' }] }],
+      // ARWES only through the console's kit, themed from its tokens. @see src/ui, plans/ui-overhaul.md §2
+      'no-restricted-imports': ['error', {
+        paths: [{ name: 'motion', message: 'Use the kit in src/ui, not arwes directly.' }],
+        patterns: [{ group: ['@arwes/*'], message: 'Use the kit in src/ui, not arwes directly.' }],
+      }],
     },
   },
   {
-    // The quest UI itself, and the 10x dev's decipher, which came first.
-    files: ['src/quest-ui/**', 'src/utils/ten-x-utils.tsx'],
+    // The kit itself, and the 10x dev's decipher, which came first.
+    files: ['src/ui/**', 'src/utils/ten-x-utils.tsx'],
     rules: { 'no-restricted-imports': 'off' },
+  },
+  {
+    // MIGRATED TO THE CONSOLE: colours by role, from the tokens — no raw palette class, which would need its
+    // own dark: pair and would not follow the takeover. The list grows a phase at a time. @see plans/ui-overhaul.md §2
+    files: MIGRATED,
+    ignores: ['src/quest-ui/gallery.tsx', 'src/ui/console/gallery.tsx'],
+    rules: {
+      'no-restricted-syntax': ['error',
+        { selector: `Literal[value=${RAW_PALETTE}]`, message: 'Use the console tokens (bg-surface-1, text-fg-muted, text-money…), not a raw palette class.' },
+        { selector: `TemplateElement[value.raw=${RAW_PALETTE}]`, message: 'Use the console tokens (bg-surface-1, text-fg-muted, text-money…), not a raw palette class.' },
+      ],
+    },
   },
 )

@@ -1,11 +1,15 @@
+import { useRef } from "react";
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
 import { termStatus } from "../game/term-sheets";
+import { dealLines } from "../game/term-deal";
+import { useSessionStore } from "../state/session.store";
 import { FusedTraits } from "./fused-traits";
 import { useTicking } from "../hooks/use-ticking";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
+import { PopCard, PopGroup, PopRow, POPOVER_BARE, useGlitch } from "../ui/console";
 
 /**
  * Toolbar badge showing the chosen founder; hovering reveals their tagline,
@@ -18,6 +22,10 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
   // Ticking, so the term sheet's clock moves while the popover is open.
   useTicking(1000);
   const term = termStatus();
+  const clauses = useSessionStore((s) => s.termClauses);
+  // THE MODEL, playing: never quite still in the toolbar. @see useGlitch
+  const self = useRef<HTMLSpanElement>(null);
+  useGlitch(self, { active: founderId === "model", strength: 0.7, every: 4 });
   if (!founder) return null;
 
   const Icon = founder.icon;
@@ -27,55 +35,46 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
       <PopoverTrigger asChild>
         <div
           className={twMerge(
-            "flex items-center gap-2 rounded px-2 py-1 cursor-help hover:bg-primary-300 dark:hover:bg-primary-700",
+            "flex cursor-help items-center gap-2 px-2 py-1 hover:bg-surface-2",
             className,
           )}
         >
-          <Icon size={18} className="shrink-0 opacity-80" />
-          {/* The name where there is room for it; the icon alone, and the name on hover, where not. */}
-          <span className="hidden max-w-[10rem] truncate text-sm font-medium whitespace-nowrap @2xl:inline">
-            {founder.name}
+          <span ref={self} className="flex min-w-0 items-center gap-2">
+            <Icon size={18} className="shrink-0 opacity-80" />
+            {/* The name where there is room for it; the icon alone, and the name on hover, where not. */}
+            <span className="hidden max-w-[10rem] truncate text-sm font-medium whitespace-nowrap @2xl:inline">
+              {founder.name}
+            </span>
           </span>
         </div>
       </PopoverTrigger>
 
-      <PopoverContent className="w-60 bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4 outline-none focus:ring-0">
-        <div className="flex items-center gap-2">
-          <Icon size={20} className="shrink-0" />
-          <span className="font-bold">{founder.name}</span>
-        </div>
-        <p className="mt-0.5 text-xs italic opacity-60">{founder.tagline}</p>
-
-        <ul className="mt-2 flex flex-col gap-1 text-xs">
-          {founder.perks(exitCount).map((perk) => (
-            <li key={perk} className="flex gap-1.5">
-              <span className="opacity-50">•</span>
-              <span>{perk}</span>
-            </li>
-          ))}
-        </ul>
-
-        {founder.rule && (
-          <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
-            <span className="font-semibold">On the map:</span> {founder.rule}
-          </p>
-        )}
-        <FusedTraits founder={founder.id} />
-
-        {/* THE TERM SHEET SIGNED, and where it stands. @see game/term-sheets */}
-        {term && (
-          <div className="mt-2 border-t border-primary-400/40 pt-2 text-xs">
-            <p className="font-semibold">{term.sheet.investor}: +{Math.round(term.sheet.bonus * 100)}% Equity</p>
-            <p>{term.sheet.goal}</p>
-            <p className={twMerge("tabular-nums", term.progress.met ? "text-emerald-700 dark:text-emerald-400" : "opacity-70")}>
-              {term.progress.text}
-            </p>
-          </div>
-        )}
-
-        <div className="mt-2 border-t border-primary-400/40 pt-2 text-xs text-emerald-700 dark:text-emerald-400">
-          Founded with ${founder.startingCash}
-        </div>
+      <PopoverContent className={POPOVER_BARE}>
+        <PopCard title={founder.name} icon={<Icon size={14} className="shrink-0" />} className="w-72"
+          foot={<>Founded with <span className="text-money">${founder.startingCash}</span></>}>
+          <p className="italic text-fg-muted">{founder.tagline}</p>
+          <PopGroup label="Perks">
+            {founder.perks(exitCount).map((perk) => <PopRow key={perk} wrap label={<span className="text-fg">{perk}</span>} />)}
+          </PopGroup>
+          {founder.rule && (
+            <p className="border-l-2 border-info-line pl-2 text-info"><span className="font-bold">On the map:</span> {founder.rule}</p>
+          )}
+          <FusedTraits founder={founder.id} />
+          {/* THE TERM SHEET SIGNED, and where it stands. @see game/term-sheets */}
+          {term && (
+            <PopGroup label="Term sheet">
+              <PopRow strong label={term.sheet.investor} value={`+${Math.round(term.bonus * 100)}% Equity`} valueClass="text-good" />
+              <PopRow wrap label={term.goal} />
+              <PopRow wrap label={<span className={term.progress.met ? "text-good" : undefined}>{term.progress.text}</span>} />
+            </PopGroup>
+          )}
+          {/* THE DEAL SIGNED, a clause a row. @see term-deal */}
+          {clauses && (
+            <PopGroup label="Signed terms">
+              {dealLines(clauses).map((l) => <PopRow key={l.title} label={l.title} value={l.label} valueClass="text-fg" />)}
+            </PopGroup>
+          )}
+        </PopCard>
       </PopoverContent>
     </Popover>
   );

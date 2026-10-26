@@ -18,6 +18,7 @@ import { useSlopPitStore } from "../../state/slop-pit.store";
 import { builtProjects, ruledOut, sitesOf } from "../projects/works";
 import { projectForStructure } from "../../game/projects";
 import { nextHint, type HintState } from "./hints";
+import { Button, Card } from "../../ui/console";
 
 /** What the hints can see, read from the game now. */
 function snapshot(): HintState {
@@ -100,19 +101,14 @@ export function HintCard() {
   }, [hint]);
 
   if (!hint) return null;
+  // A HINT, in comms: quiet, the good tone, put away with ✕ or for good. @see CommsDock
   return (
-    <div role="status"
-      className="flex max-w-[min(26rem,calc(100vw-1rem))] items-start gap-2 border border-emerald-500 bg-primary-50/95 px-3 py-2 text-xs text-primary-900 shadow-md dark:border-emerald-400 dark:bg-primary-900/95 dark:text-primary-100">
-      <span aria-hidden className="mt-0.5 text-emerald-600 dark:text-emerald-400">●</span>
-      <p className="flex-1">{hint.text}</p>
-      <div className="flex shrink-0 flex-col items-end gap-0.5">
-        <button type="button" onClick={() => markDone([hint.id])}
-          className="cursor-pointer px-1 text-primary-500 hover:text-primary-900 dark:hover:text-primary-100" aria-label="Dismiss this tip">✕</button>
-        <button type="button" onClick={() => setOff(true)}
-          className="cursor-pointer text-[10px] text-primary-500 underline hover:text-primary-900 dark:hover:text-primary-100">
-          no more tips
-        </button>
+    <Card tone="good" onClose={() => markDone([hint.id])} className="w-[min(24rem,calc(100vw-1rem))]">
+      <div role="status" className="flex items-start gap-2">
+        <span aria-hidden className="mt-0.5 text-good">●</span>
+        <p className="flex-1">{hint.text}</p>
       </div>
-    </div>
+      <Button size="sm" variant="quiet" className="self-end" onClick={() => setOff(true)}>No more tips</Button>
+    </Card>
   );
 }

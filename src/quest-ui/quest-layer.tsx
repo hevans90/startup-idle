@@ -60,7 +60,7 @@ function QuestMarker({ at }: { at: { x: number; y: number } }) {
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       {/* The ping inside the placed ring, so its transform does not undo the placing. */}
       <div ref={el} className="absolute left-0 top-0 h-20 w-20">
-        <div className="h-full w-full animate-ping rounded-full border-4 border-violet-500/80 dark:border-violet-400/80" />
+        <div className="h-full w-full animate-ping rounded-full border-4 border-ai/80" />
       </div>
     </div>
   );
@@ -86,8 +86,8 @@ export function QuestMarkers() {
   return target ? <QuestMarker at={target} /> : null;
 }
 
-/** The tracker and the transmission, at the head of the map's column of cards. */
-export function QuestLayer() {
+/** The tracker and the transmission, in comms — each if comms has room for it. */
+export function QuestLayer({ tracker = true, offer: showOffer = true }: { tracker?: boolean; offer?: boolean }) {
   const offer = useQuestStore((s) => s.offer);
   const objective = useQuestStore((s) => s.objective);
   const at = useQuestStore((s) => s.disposition);
@@ -136,11 +136,11 @@ export function QuestLayer() {
   const request = offer?.kind === "request" ? REQUESTS.find((r) => r.id === offer.id) : null;
   return (
     <>
-        {objective && (
+        {tracker && objective && (
           <Tracker says={objective.spec.says} progress={objective.progress} left={objective.spec.window - objective.elapsed} action={action}
             needs={objective.spec.kind === "latticeCharged" ? latticeLine() : undefined} />
         )}
-        {offer && q && (chapter || request) && (
+        {showOffer && offer && q && (chapter || request) && (
           <Transmission
             className="quest-slide-in"
             kicker={chapter ? `Chapter ${chapter.number}` : "Between chapters"}

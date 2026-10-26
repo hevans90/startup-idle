@@ -12,12 +12,12 @@
  * @see GEN_SLIDERS
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { twMerge } from "tailwind-merge";
 
 import { DIRT, GRASS, SAND, WOODS } from "../../state/world.store";
 import { WATER_VIEW } from "../agents/mood-rules";
 import { HILLY, ruggedness } from "../gen/rugged";
-import { Button } from "../../ui/Button";
+import { Button, Slider, Tile } from "../../ui/console";
+import { FoundingShell } from "../../molecules/founding-shell";
 import { generatePlayableMap, type GenReport } from "../gen/generate-map";
 import { DEFAULT_GEN, GEN_SLIDERS, type GenParams } from "../gen/params";
 import { createGrid, type Grid } from "../grid";
@@ -26,6 +26,13 @@ import { createGrid, type Grid } from "../grid";
 const SIZES: [number, string][] = [[48, "Small"], [64, "Medium"], [96, "Large"]];
 
 /** The few settings worth a plain control, and how to say their values. */
+/**
+ * WHERE A COMPANY STARTS: the generator's defaults, but a straight road and
+ * flat land — the easiest ground to build a first town on. Only founding's;
+ * the editor and the tests keep `DEFAULT_GEN`. The sliders move either.
+ */
+const FOUNDING_GEN: GenParams = { ...DEFAULT_GEN, wander: 0, relief: 2 };
+
 const PLAIN: { key: keyof GenParams; label: string; words: (v: number) => string }[] = [
   { key: "relief", label: "Hills", words: (v) => (v <= 4 ? "Flat" : v <= 14 ? "Rolling" : v <= 26 ? "Hilly" : "Mountainous") },
   { key: "rivers", label: "Rivers", words: (v) => (v === 0 ? "None" : `${v}`) },
@@ -61,11 +68,16 @@ function groundColour(material: number): [number, number, number] {
  */
 function drawPreview(cv: HTMLCanvasElement, g: Grid, px: number): void {
   const w = px, h = px / 2;
-  cv.width = Math.round(w + 8);
-  cv.height = Math.round(h + 8);
+  // At the screen's own resolution, so a large preview stays sharp.
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round((w + 8) * dpr);
+  cv.height = Math.round((h + 8) * dpr);
+  cv.style.width = `${Math.round(w + 8)}px`;
+  cv.style.height = `${Math.round(h + 8)}px`;
   const ctx = cv.getContext("2d");
   if (!ctx) return;
-  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w + 8, h + 8);
   const k = w / (g.w + g.h);
   const at = (i: number) => g.height[i];
   for (let y = 0; y < g.h; y++) {
@@ -76,11 +88,12 @@ function drawPreview(cv: HTMLCanvasElement, g: Grid, px: number): void {
       const west = x > 0 ? at(i - 1) : at(i), north = y > 0 ? at(i - g.w) : at(i);
       const slope = (at(i) - west) + (at(i) - north);
       const lift = Math.max(-40, Math.min(40, slope * 9)) + (at(i) - g.minHeight) * 0.8;
-      if (g.pool[i] > 0) {
+      // THE ROAD FIRST: a bridge is a paved cell with water under its deck, and is drawn as the road it is. @see Grid.deck
+      if (g.paved[i] !== 0) {
+        [r, gr, b] = [96, 100, 108];
+      } else if (g.pool[i] > 0) {
         const deep = Math.min(1, g.pool[i] / 8);
         [r, gr, b] = [70 - 30 * deep, 140 - 40 * deep, 200 - 30 * deep];
-      } else if (g.paved[i] !== 0) {
-        [r, gr, b] = [96, 100, 108];
       } else {
         r += lift; gr += lift; b += lift;
       }
@@ -108,9 +121,26 @@ export type MapSetupProps = {
 
 export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
   const [seed, setSeed] = useState(randomSeed);
-  const [params, setParams] = useState<GenParams>({ ...DEFAULT_GEN });
+  const [params, setParams] = useState<GenParams>({ ...FOUNDING_GEN });
   const [map, setMap] = useState<{ grid: Grid; report: GenReport } | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  // THE PREVIEW'S SIZE: as wide as its box, as tall as the screen allows (the diamond is half as tall as it is wide). @see drawPreview
+  const box = useRef<HTMLDivElement>(null);
+  const [px, setPx] = useState(520);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => {
+      const byWidth = el.clientWidth - 32;
+      const byHeight = (window.innerHeight * 0.62) * 2;
+      setPx(Math.max(280, Math.min(1400, Math.floor(Math.min(byWidth, byHeight)))));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    window.addEventListener("resize", fit);
+    return () => { ro.disconnect(); window.removeEventListener("resize", fit); };
+  }, []);
 
   // Generated a moment after the last change, so dragging a slider does not
   // queue a map for every pixel it passes.
@@ -119,8 +149,8 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
     return () => clearTimeout(id);
   }, [seed, params]);
   useEffect(() => {
-    if (map && canvas.current) drawPreview(canvas.current, map.grid, 520);
-  }, [map]);
+    if (map && canvas.current) drawPreview(canvas.current, map.grid, px);
+  }, [map, px]);
 
   const set = (key: keyof GenParams, v: number) => setParams((p) => ({ ...p, [key]: v }));
   const slider = (key: keyof GenParams) => GEN_SLIDERS.find((s) => s.key === key)!;
@@ -134,18 +164,17 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
   }, [map]);
 
   return (
-    <div className="flex h-full w-full flex-col overflow-y-auto bg-primary-100 px-6 py-8 text-primary-900 dark:bg-primary-900 dark:text-primary-50">
-      <div className="mb-6 text-center">
-        <h1 className="text-3xl font-bold sm:text-4xl">Choose your land</h1>
-        <p className="mt-2 text-sm opacity-70">Where will {founder} found the company?</p>
-      </div>
-
-      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 lg:flex-row">
+    <FoundingShell step="land" title="Choose your land" subtitle={<>Where will {founder} found the company?</>}
+      back={onBack}
+      // The REPORTED seed: the generator rerolls a map with too little
+      // to build on, and the one shown is the one to make again.
+      next={{ label: "Next: sign a term sheet →", disabled: !map, onClick: () => map && onFound({ seed: map.report.seed, params }) }}>
+      <div className="mx-auto flex w-full max-w-[110rem] flex-col gap-6 lg:flex-row">
         {/* THE PREVIEW */}
         <div className="flex flex-1 flex-col items-center gap-3">
-          <div className="relative flex min-h-[290px] w-full items-center justify-center border border-primary-300 bg-primary-200/60 p-3 dark:border-primary-700 dark:bg-primary-800/40">
+          <div ref={box} className="relative flex min-h-[290px] w-full items-center justify-center border border-line-quiet bg-surface-1 p-3">
             <canvas ref={canvas} className="h-auto max-w-full" />
-            {!map && <span className="absolute text-sm opacity-60">Surveying…</span>}
+            {!map && <span className="absolute text-sm text-fg-muted">Surveying…</span>}
           </div>
           {stats && (
             <div className="flex gap-6 text-xs tabular-nums opacity-80">
@@ -167,30 +196,26 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
         {/* THE CHOICES */}
         <div className="flex w-full flex-col gap-4 lg:w-80">
           <div className="flex items-center gap-2">
-            <Button type="button" className="flex-1 py-2 font-bold" onClick={() => setSeed(randomSeed())}>
+            <Button className="flex-1 py-2 font-bold" onClick={() => setSeed(randomSeed())}>
               🎲 New land
             </Button>
             <input
               aria-label="Seed"
               title="The seed: the same seed and settings always give the same land"
-              className="w-28 border border-primary-300 bg-primary-50 px-2 py-2 text-xs tabular-nums dark:border-primary-700 dark:bg-primary-800"
+              className="w-28 border border-line bg-surface-1 px-2 py-2 text-xs tabular-nums"
               value={seed}
               onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) setSeed(Math.floor(Math.abs(n))); }}
             />
           </div>
 
           <div>
-            <p className="mb-1 text-xs font-bold uppercase tracking-wide opacity-60">Size</p>
-            <div className="flex gap-1">
+            <p className="mb-1 text-[10px] uppercase tracking-widest text-fg-muted">Size</p>
+            <div className="grid grid-cols-3 gap-1">
               {SIZES.map(([n, name]) => (
-                <button key={n} type="button" onClick={() => set("size", n)}
-                  className={twMerge(
-                    "flex-1 cursor-pointer border border-primary-300 px-2 py-1.5 text-sm dark:border-primary-700",
-                    params.size === n ? "bg-primary-300 font-bold dark:bg-primary-700" : "hover:bg-primary-200 dark:hover:bg-primary-800",
-                  )}>
+                <Tile key={n} selected={params.size === n} onClick={() => set("size", n)} className="flex flex-col items-center px-2 py-1.5 text-sm">
                   {name}
-                  <span className="ml-1 text-[10px] opacity-60">{n}×{n}</span>
-                </button>
+                  <span className="text-[10px] text-fg-muted">{n}×{n}</span>
+                </Tile>
               ))}
             </div>
           </div>
@@ -200,50 +225,38 @@ export default function MapSetup({ founder, onBack, onFound }: MapSetupProps) {
             return (
               <label key={key} className="block" title={s.hint}>
                 <span className="flex justify-between text-xs">
-                  <span className="font-bold uppercase tracking-wide opacity-60">{label}</span>
+                  <span className="uppercase tracking-widest opacity-60">{label}</span>
                   <span>{words(params[key])}</span>
                 </span>
-                <input type="range" className="w-full accent-emerald-600 dark:accent-emerald-400"
-                  min={s.min} max={s.max} step={s.step} value={params[key]}
-                  onChange={(e) => set(key, Number(e.target.value))} />
+                <Slider label={label} className="mt-1 w-full" min={s.min} max={s.max} step={s.step} value={params[key]}
+                  onChange={(v) => set(key, v)} />
               </label>
             );
           })}
 
-          <details className="border border-primary-300 p-2 text-xs dark:border-primary-700">
+          <details className="border border-line-quiet bg-surface-1 p-2.5 text-xs">
             <summary className="cursor-pointer font-bold">All settings</summary>
             {GROUPS.map(([group, name]) => (
               <fieldset key={group} className="mt-2">
-                <legend className="font-bold uppercase tracking-wide opacity-60">{name}</legend>
+                <legend className="uppercase tracking-widest opacity-60">{name}</legend>
                 {GEN_SLIDERS.filter((s) => s.group === group && s.key !== "size").map((s) => (
                   <label key={s.key} className="mt-1 grid grid-cols-[6rem_1fr_2.5rem] items-center gap-2" title={s.hint}>
                     <span className="truncate">{s.label}</span>
-                    <input type="range" className="accent-emerald-600 dark:accent-emerald-400"
-                      min={s.min} max={s.max} step={s.step} value={params[s.key]}
-                      onChange={(e) => set(s.key, Number(e.target.value))} />
+                    <Slider label={s.label} className="w-full" min={s.min} max={s.max} step={s.step} value={params[s.key]}
+                      onChange={(v) => set(s.key, v)} />
                     <span className="text-right tabular-nums">{params[s.key]}</span>
                   </label>
                 ))}
               </fieldset>
             ))}
             <button type="button" className="mt-3 cursor-pointer underline opacity-70"
-              onClick={() => setParams({ ...DEFAULT_GEN, size: params.size })}>
+              onClick={() => setParams({ ...FOUNDING_GEN, size: params.size })}>
               Back to the usual settings
             </button>
           </details>
 
-          <div className="mt-auto flex gap-2 pt-2">
-            <Button type="button" className="px-4 py-3" onClick={onBack}>← Back</Button>
-            <Button type="button" className="flex-1 px-4 py-3 text-base font-bold disabled:opacity-40"
-              disabled={!map}
-              // The REPORTED seed: the generator rerolls a map with too little
-              // to build on, and the one shown is the one to make again.
-              onClick={() => map && onFound({ seed: map.report.seed, params })}>
-              Next: sign a term sheet →
-            </Button>
-          </div>
         </div>
       </div>
-    </div>
+    </FoundingShell>
   );
 }

@@ -1,4 +1,5 @@
 @import "@fontsource/space-mono";
+@import "@fontsource/share-tech-mono";
 
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
@@ -18,6 +19,8 @@
 
 @theme {
   --font-space-mono: "Space Mono", monospace;
+  /* THE CONSOLE'S DISPLAY FACE: headers, the HUD's big numbers, frame titles. @see plans/ui-overhaul.md §1.2 */
+  --font-display: "Share Tech Mono", "Space Mono", monospace;
   --color-primary-50: #f4f5f6;
   --color-primary-100: #e1e3e6;
   --color-primary-200: #c7cbd1;
@@ -31,6 +34,66 @@
   /* The darkest: dark mode's panels over the map. Missing, every `primary-950`
      class quietly drew nothing — the Ascension card stayed light in dark mode. */
   --color-primary-950: #111417;
+}
+
+/*
+ * THE CONSOLE'S TOKENS as Tailwind colours: `bg-surface-1`, `text-fg-muted`,
+ * `border-line`, `text-money`, `bg-ai-soft`, `border-console`… Each reads its
+ * `--ui-*` variable, which `installTheme` writes for both themes, so one class
+ * is right in light and dark alike — no `dark:` pair needed. @see src/ui/theme
+ */
+@theme inline {
+  /* A TONE, set as --tone on an element (toneVar): its line, its tints. And the console's own, lit and chosen. */
+  --color-tone: var(--tone);
+  --color-tone-soft: color-mix(in oklab, var(--tone) 16%, transparent);
+  --color-tone-fill: color-mix(in oklab, var(--tone) 28%, transparent);
+  --color-console-line: color-mix(in oklab, var(--ui-console) 60%, transparent);
+  --color-console-soft: color-mix(in oklab, var(--ui-console) 12%, var(--ui-surface-1));
+  --color-console-fill: color-mix(in oklab, var(--ui-console) 18%, var(--ui-surface-1));
+  --color-surface-0: var(--ui-surface-0);
+  --color-surface-1: var(--ui-surface-1);
+  --color-surface-2: var(--ui-surface-2);
+  --color-surface-3: var(--ui-surface-3);
+  --color-line-quiet: var(--ui-line-quiet);
+  --color-line: var(--ui-line);
+  --color-line-strong: var(--ui-line-strong);
+  --color-fg: var(--ui-fg);
+  --color-fg-muted: var(--ui-fg-muted);
+  --color-fg-faint: var(--ui-fg-faint);
+  --color-console: var(--ui-console);
+  --color-accent: var(--ui-accent);
+  --color-accent-soft: var(--ui-accent-soft);
+  --color-accent-line: var(--ui-accent-line);
+  --color-ai: var(--ui-ai);
+  --color-ai-soft: var(--ui-ai-soft);
+  --color-ai-line: var(--ui-ai-line);
+  --color-money: var(--ui-money);
+  --color-money-soft: var(--ui-money-soft);
+  --color-money-line: var(--ui-money-line);
+  --color-innovation: var(--ui-innovation);
+  --color-innovation-soft: var(--ui-innovation-soft);
+  --color-innovation-line: var(--ui-innovation-line);
+  --color-valuation: var(--ui-valuation);
+  --color-valuation-soft: var(--ui-valuation-soft);
+  --color-valuation-line: var(--ui-valuation-line);
+  --color-juice: var(--ui-juice);
+  --color-juice-soft: var(--ui-juice-soft);
+  --color-juice-line: var(--ui-juice-line);
+  --color-weights: var(--ui-weights);
+  --color-weights-soft: var(--ui-weights-soft);
+  --color-weights-line: var(--ui-weights-line);
+  --color-good: var(--ui-good);
+  --color-good-soft: var(--ui-good-soft);
+  --color-good-line: var(--ui-good-line);
+  --color-warn: var(--ui-warn);
+  --color-warn-soft: var(--ui-warn-soft);
+  --color-warn-line: var(--ui-warn-line);
+  --color-bad: var(--ui-bad);
+  --color-bad-soft: var(--ui-bad-soft);
+  --color-bad-line: var(--ui-bad-line);
+  --color-info: var(--ui-info);
+  --color-info-soft: var(--ui-info-soft);
+  --color-info-line: var(--ui-info-line);
 }
 
 @keyframes news-line-in {
@@ -53,7 +116,46 @@
   }
 }
 
+@keyframes ui-redline {
+  from {
+    background-color: var(--ui-warn-soft);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes ui-tab-in {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* CALM: nothing loops or slides in — a pulse, a glow, a tab drawn on, an arrival. Set on the root by installTheme. */
+html.ui-calm .animate-pulse,
+html.ui-calm .animate-ping,
+html.ui-calm .hint-glow,
+html.ui-calm .ui-tab-in,
+html.ui-calm .ui-redline,
+html.ui-calm .quest-slide-in,
+html.ui-calm .news-line-enter {
+  animation: none;
+}
+
 @layer utilities {
+  /* A CLAUSE JUST AMENDED, its paragraph flushed in the warn tint, fading. @see TermDocument */
+  .ui-redline {
+    animation: ui-redline 1.6s ease-out;
+  }
+  /* A TAB JUST OPENED, drawn on from the left. @see Tabs */
+  .ui-tab-in {
+    animation: ui-tab-in 0.5s ease-out;
+  }
   /* THE AI'S TRANSMISSION arriving from the right. @see Transmission */
   .quest-slide-in {
     animation: quest-slide-in 0.35s ease-out;
@@ -106,34 +208,58 @@
 }
 
 /*
- * THE AI'S CONSOLE (quest-ui): arwes's frame variables, set from the game's
- * palette and never left at arwes's own — violet on a light panel in light
- * mode, violet on near-black in dark. `data-illuminate` lights a frame on
- * hover: a decision card under the pointer; `data-lit` lights it outright. @see QuestFrame
+ * THE CONSOLE'S FRAMES: arwes's frame variables from the tokens, never arwes's
+ * own. A frame's line is its tone (`--frame-tone`: the console's own colour,
+ * unless a role is set); lit — chosen, or under the pointer where it can be
+ * acted on — it fills with a tint of it and glows. @see src/ui/console/frame.tsx
  */
-.quest-frame {
-  --arwes-frames-bg-color: color-mix(in oklab, var(--color-primary-50) 94%, transparent);
-  --arwes-frames-line-color: var(--color-violet-600);
-  --arwes-frames-deco-color: var(--color-violet-500);
-  --quest-pattern: color-mix(in oklab, var(--color-violet-600) 22%, transparent);
-  color: var(--color-primary-900);
+.ui-frame {
+  --frame-tone: var(--ui-console);
+  --arwes-frames-bg-color: color-mix(in oklab, var(--ui-surface-1) 92%, transparent);
+  --arwes-frames-line-color: color-mix(in oklab, var(--frame-tone) 80%, transparent);
+  --arwes-frames-deco-color: var(--frame-tone);
 }
-.dark .quest-frame {
-  --arwes-frames-bg-color: color-mix(in oklab, var(--color-primary-950) 94%, transparent);
-  --arwes-frames-line-color: var(--color-violet-400);
-  --arwes-frames-deco-color: var(--color-violet-300);
-  --quest-pattern: color-mix(in oklab, var(--color-violet-400) 20%, transparent);
-  color: var(--color-primary-100);
+.ui-frame[data-illuminate]:hover,
+.ui-frame[data-lit] {
+  --arwes-frames-bg-color: color-mix(in oklab, var(--frame-tone) 14%, var(--ui-surface-1));
+  --arwes-frames-line-color: var(--frame-tone);
+  --arwes-frames-line-filter: drop-shadow(0 0 3px var(--frame-tone));
 }
-.quest-frame[data-illuminate]:hover,
-.quest-frame[data-lit] {
-  --arwes-frames-bg-color: color-mix(in oklab, var(--color-violet-100) 94%, transparent);
-  --arwes-frames-line-color: var(--color-violet-500);
-  --arwes-frames-line-filter: drop-shadow(0 0 3px var(--color-violet-500));
+/*
+ * A DOSSIER (a founder's file): cut like the founding frame, raised off the
+ * page, and no line at rest; its corners under the pointer; chosen, its whole
+ * border, drawn on. @see FounderCard
+ */
+.ui-frame.ui-dossier {
+  --arwes-frames-bg-color: color-mix(in oklab, var(--ui-surface-2) 50%, var(--ui-surface-1));
+  --arwes-frames-line-color: transparent;
+  --arwes-frames-deco-color: transparent;
 }
-.dark .quest-frame[data-illuminate]:hover,
-.quest-frame[data-lit] {
-  --arwes-frames-bg-color: color-mix(in oklab, var(--color-violet-950) 94%, transparent);
-  --arwes-frames-line-color: var(--color-violet-300);
-  --arwes-frames-line-filter: drop-shadow(0 0 4px var(--color-violet-400));
+.ui-frame.ui-dossier[data-illuminate]:hover {
+  --arwes-frames-bg-color: var(--ui-surface-2);
+  --arwes-frames-line-color: transparent;
+  --arwes-frames-deco-color: transparent;
+  --arwes-frames-line-filter: none;
+}
+/* Its corners, under the pointer: the same cut border, masked to where it turns. */
+.ui-frame.ui-dossier-corners {
+  --arwes-frames-bg-color: transparent;
+  --arwes-frames-line-color: var(--frame-tone);
+  --arwes-frames-deco-color: var(--frame-tone);
+  opacity: 0;
+  transition: opacity 0.15s;
+  mask-image:
+    radial-gradient(circle at 0 0, #000 24px, transparent 25px),
+    radial-gradient(circle at 100% 0, #000 24px, transparent 25px),
+    radial-gradient(circle at 100% 100%, #000 24px, transparent 25px),
+    radial-gradient(circle at 0 100%, #000 24px, transparent 25px);
+}
+.group:hover > .ui-dossier-corners {
+  opacity: 1;
+}
+.ui-frame.ui-dossier[data-lit] {
+  --arwes-frames-bg-color: color-mix(in oklab, var(--frame-tone) 9%, var(--ui-surface-2));
+  --arwes-frames-line-color: var(--frame-tone);
+  --arwes-frames-deco-color: var(--frame-tone);
+  --arwes-frames-line-filter: drop-shadow(0 0 2px color-mix(in oklab, var(--frame-tone) 60%, transparent));
 }

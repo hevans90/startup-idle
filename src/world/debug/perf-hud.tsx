@@ -18,9 +18,9 @@ const ms = (v: number) => v.toFixed(2).padStart(5, " ");
 
 /** Green while there is room in a sixty hertz frame, amber close, red over. */
 const bar = (v: number) =>
-  v > 16.7 ? "text-red-400 dark:text-red-400"
-    : v > 11 ? "text-amber-400 dark:text-amber-400"
-      : "text-emerald-400 dark:text-emerald-400";
+  v > 16.7 ? "text-bad"
+    : v > 11 ? "text-warn"
+      : "text-good";
 
 type Gpu = { of: Record<string, number>; total: number; frames: number };
 
@@ -42,9 +42,9 @@ export function PerfHud() {
   }, []);
   if (!p) return null;
 
-  const row = (name: string, v: number, tint = "text-gray-200 dark:text-gray-200") => (
+  const row = (name: string, v: number, tint = "text-fg") => (
     <div className="flex justify-between gap-3">
-      <span className="text-gray-400 dark:text-gray-500">{name}</span>
+      <span className="text-fg-muted">{name}</span>
       <span className={`tabular-nums ${tint}`}>{ms(v)}</span>
     </div>
   );
@@ -52,12 +52,12 @@ export function PerfHud() {
   return (
     <div
       className="pointer-events-none absolute left-2 top-2 z-10 rounded
-        border border-gray-700 bg-gray-900/80 px-2 py-1.5 font-mono text-[11px]
-        leading-tight text-gray-200
-        dark:border-gray-700 dark:bg-gray-900/80 dark:text-gray-200"
+        border border-line bg-surface-1/80 px-2 py-1.5 font-mono text-[11px]
+        leading-tight text-fg
+          "
     >
       <div className="mb-1 flex justify-between gap-3">
-        <span className="text-gray-400 dark:text-gray-500">fps</span>
+        <span className="text-fg-muted">fps</span>
         <span className={`tabular-nums ${bar(p.frame)}`}>
           {p.fps.toFixed(0).padStart(5, " ")}
         </span>
@@ -67,19 +67,19 @@ export function PerfHud() {
       {row("town", p.town)}
       {row("fx", p.fx)}
       {row("present*", p.present)}
-      <div className="my-1 border-t border-gray-700 dark:border-gray-700" />
+      <div className="my-1 border-t border-line" />
       {/* `present` is left out of this on purpose: it is mostly the wait on
           the compositor, so counting it would make a quiet frame look busy.
           See `perf.ts` — it goes DOWN as the frame fills up. */}
       {row("js", p.js, bar(p.js))}
       {row("frame", p.frame, bar(p.frame))}
-      <div className="my-1 border-t border-gray-700 dark:border-gray-700" />
+      <div className="my-1 border-t border-line" />
       {/* Counts, not times: draw calls submitted, and Graphics cleared to be drawn again. */}
-      <div className="flex justify-between gap-3"><span className="text-gray-400 dark:text-gray-500">draws</span><span className="tabular-nums">{p.draws.toFixed(0).padStart(5, " ")}</span></div>
-      <div className="flex justify-between gap-3"><span className="text-gray-400 dark:text-gray-500">gfx</span><span className="tabular-nums">{p.gfx.toFixed(0).padStart(5, " ")}</span></div>
+      <div className="flex justify-between gap-3"><span className="text-fg-muted">draws</span><span className="tabular-nums">{p.draws.toFixed(0).padStart(5, " ")}</span></div>
+      <div className="flex justify-between gap-3"><span className="text-fg-muted">gfx</span><span className="tabular-nums">{p.gfx.toFixed(0).padStart(5, " ")}</span></div>
       {g && g.frames > 0 && (
         <>
-          <div className="my-1 border-t border-gray-700 dark:border-gray-700" />
+          <div className="my-1 border-t border-line" />
           {row("gpu", g.total, bar(g.total))}
           {/* Biggest first, and only what clears the browser's own hundred
               microsecond quantisation — below that a row is noise. */}
@@ -89,8 +89,8 @@ export function PerfHud() {
             .slice(0, 5)
             .map(([name, v]) => (
               <div key={name} className="flex justify-between gap-3 pl-2">
-                <span className="text-gray-500 dark:text-gray-600">{name}</span>
-                <span className="tabular-nums text-gray-400 dark:text-gray-500">
+                <span className="text-fg-muted">{name}</span>
+                <span className="tabular-nums text-fg-muted">
                   {ms(v)}
                 </span>
               </div>

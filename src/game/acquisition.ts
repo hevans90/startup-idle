@@ -7,6 +7,7 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { useSessionStore } from "../state/session.store";
 import { useValuationStore } from "../state/valuation.store";
 import { computeEquityMultipliers } from "./modifiers";
+import { termEffects, termSaleMult } from "./term-deal";
 import { termBonusNow } from "./term-sheets";
 
 /**
@@ -57,7 +58,8 @@ export function equityForAccrued(accrued: Decimal): Decimal {
   const eq = computeEquityMultipliers();
   const mandateEquityBoost = useValuationStore.getState().getEconomyMultipliers().equityBoost;
   return new Decimal(
-    Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP) * eq.prestige * (1 + eq.juice) * mandateEquityBoost * (1 + townBonusNow()) * (1 + termBonusNow())),
+    // The term sheet's share and terms come off the top. @see termSaleMult
+    Math.floor(EQUITY_BASE * Math.pow(ratio, EQUITY_EXP) * eq.prestige * (1 + eq.juice) * mandateEquityBoost * (1 + townBonusNow()) * (1 + termBonusNow()) * termSaleMult()),
   );
 }
 
@@ -70,7 +72,7 @@ export function accruedForEquity(targetEquity: number): Decimal {
   if (targetEquity <= 0) return new Decimal(0);
   const eq = computeEquityMultipliers();
   const ratio = Math.pow(
-    targetEquity / (EQUITY_BASE * eq.prestige * (1 + eq.juice) * (1 + townBonusNow()) * (1 + termBonusNow())),
+    targetEquity / (EQUITY_BASE * eq.prestige * (1 + eq.juice) * (1 + townBonusNow()) * (1 + termBonusNow()) * termSaleMult()),
     1 / EQUITY_EXP,
   );
   return new Decimal(ACQUISITION_THRESHOLD * ratio);
@@ -121,7 +123,11 @@ export const OFFER_PREMIUM = 1.25;
 /** What investors left unimpressed by a tour take off the next offer's premium. @see Session.snubbed */
 export const SNUB = 0.15;
 /** The premium the next acquirer offers: less once investors have been shown a poor town. */
-export const offerPremium = () => OFFER_PREMIUM - (useSessionStore.getState().snubbed ? SNUB : 0);
+export const offerPremium = () => {
+  const p = OFFER_PREMIUM - (useSessionStore.getState().snubbed ? SNUB : 0);
+  // A RIGHT OF FIRST REFUSAL in the term sheet: an acquirer bids knowing the investor may match, and offers half the premium. @see term-deal
+  return termEffects().offers === "halved" ? 1 + (p - 1) / 2 : p;
+};
 let premium: { mult: number; until: number } | null = null;
 export function setOfferPremium(mult: number, until: number): void { premium = { mult, until }; }
 export function clearOfferPremium(): void { premium = null; }

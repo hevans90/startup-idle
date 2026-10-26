@@ -1,6 +1,6 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useGeneratorPurchase } from "../hooks/use-purchase-generator";
-import { Button } from "../ui/Button";
+import { Button } from "../ui/console";
 import { formatCurrency } from "../utils/money-utils";
 
 export const GeneratorBuyButton = ({
@@ -30,10 +30,10 @@ export const GeneratorBuyButton = ({
       )}
     >
       {!housed ? (
-        <span className="text-amber-700 dark:text-amber-300">No housing</span>
+        <span className="text-warn">No housing</span>
       ) : (
         <>
-          {formatCurrency(cost)}
+          <span className="text-money">{formatCurrency(cost)}</span>
           <span className="opacity-70">
             {purchaseMode === "max" && max.amount > 1 && <>({max.amount})</>}
           </span>

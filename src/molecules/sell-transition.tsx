@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { isCalm } from "../ui/motion";
+
 type Phase = "idle" | "out" | "in";
 
 const MAX_D = 10;
@@ -25,6 +27,8 @@ export const SellTransitionProvider = ({ children }: { children: ReactNode }) =>
   const firedRef = useRef(false);
 
   const triggerSell = useCallback((onMidpoint: () => void) => {
+    // CALM: no dissolve, the sale at once. @see isCalm
+    if (isCalm()) { onMidpoint(); return; }
     midpointRef.current = onMidpoint;
     firedRef.current = false;
     setD(0);

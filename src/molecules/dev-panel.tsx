@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import Decimal from "break_infinity.js";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
@@ -6,11 +7,11 @@ import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 
 const BTN =
-  "cursor-pointer border border-dashed border-amber-500 px-2 py-1 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 text-left";
+  "cursor-pointer border border-dashed border-warn px-2 py-1 text-xs text-warn hover:bg-warn/10 text-left";
 
 const DevPanelImpl = () => (
-  <div className="pointer-events-auto flex flex-col gap-1 border border-amber-500/40 bg-primary-900/80 p-1.5 dark:bg-primary-950/85">
-    <p className="text-[9px] font-bold uppercase tracking-wider text-amber-500/70">
+  <div className="pointer-events-auto flex flex-col gap-1 border border-warn/40 bg-surface-1/80 p-1.5">
+    <p className="text-[9px] font-bold uppercase tracking-wider text-warn/70">
       dev
     </p>
     <button type="button" className={BTN} onClick={() => useMoneyStore.getState().increaseMoney(1e9)}>
@@ -38,3 +39,20 @@ const DevPanelImpl = () => (
 export const DevPanel = import.meta.env.DEV
   ? DevPanelImpl
   : () => null;
+
+/** THE DEV PANEL, in a drawer: shut till ` (backquote) opens it, so it stays out of comms' way. Development only. */
+function DevDrawerImpl() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.key !== "`" || (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      setOpen((o) => !o);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+  if (!open) return null;
+  return <div className="pointer-events-none absolute bottom-24 left-2 z-30"><DevPanelImpl /></div>;
+}
+export const DevDrawer = import.meta.env.DEV ? DevDrawerImpl : () => null;

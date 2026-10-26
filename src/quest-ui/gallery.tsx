@@ -8,6 +8,8 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { sfx, unlock } from "../audio/sound";
 import type { Chapter } from "../game/quests/types";
 import { loadQuestUi } from "./load";
+import { ROLES } from "../ui/theme/tokens";
+import { Frame } from "../ui/console";
 
 /** A chapter to show: the plan's third, Thirst. */
 const SAMPLE: Chapter = {
@@ -27,7 +29,7 @@ const SAMPLE: Chapter = {
   ],
 };
 
-const Kit = lazy(() => loadQuestUi().then(({ QuestFrame, Transmission, Tracker, DossierView }) => {
+const Kit = lazy(() => loadQuestUi().then(({ Transmission, Tracker, DossierView }) => {
   return {
     default: function Kit({ run }: { run: number }) {
       const at = { autonomy: 1, machine: -1 };
@@ -42,15 +44,38 @@ const Kit = lazy(() => loadQuestUi().then(({ QuestFrame, Transmission, Tracker, 
               remembers={["You gave me the keys. I have used them responsibly. Mostly."]}
               becoming={[{ name: "Restless", odds: 0.22 }, { name: "Nanny", odds: 0.14 }, { name: "Ego", odds: 0.11 }]} />
           </div>
-          <QuestFrame kind="octagon" className="h-10 w-40" />
+          <Frame kind="octagon" tone="ai" className="h-10 w-40" />
         </div>
       );
     },
   };
 }));
 
+/** THE TOKENS: every role on every surface — its colour, its tint and its line — and the console's mix. @see ui/theme */
+function Swatches({ mix }: { mix: number }) {
+  return (
+    <div className="console-scope flex flex-col gap-2 text-xs text-fg" style={{ ["--console-ai" as string]: mix }}>
+      <p className="font-display text-lg tracking-wide">The console · tokens</p>
+      {(["surface-0", "surface-1", "surface-2", "surface-3"] as const).map((surface) => (
+        <div key={surface} className="flex flex-wrap items-center gap-1 border border-line p-1" style={{ background: `var(--ui-${surface})` }}>
+          <span className="w-16 text-fg-muted">{surface}</span>
+          {ROLES.map((r) => (
+            <span key={r} className="border px-1 tabular-nums" style={{ color: `var(--ui-${r})`, borderColor: `var(--ui-${r}-line)` }}>{r}</span>
+          ))}
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-1">
+        {ROLES.map((r) => <span key={r} className="px-1" style={{ color: `var(--ui-${r})`, background: `var(--ui-${r}-soft)` }}>{r} on its tint</span>)}
+      </div>
+      <p className="border-2 border-console px-2 py-1 text-console">The console's own colour, at this stage's mix</p>
+      <p className="text-fg-muted">Muted text · <span className="text-fg-faint">faint text</span> · <span className="text-money tabular-nums">$1,234,567</span> · <span className="text-innovation">I 4.2k</span></p>
+    </div>
+  );
+}
+
 export function QuestGallery() {
   const [run, setRun] = useState(0);
+  const [mix, setMix] = useState(0);
   // Both themes at once: the page's own dark class off, the dark column its own.
   useEffect(() => { document.documentElement.classList.remove("dark"); }, []);
   const again = () => { unlock(); sfx("transmission"); setRun((n) => n + 1); };
@@ -59,6 +84,13 @@ export function QuestGallery() {
       <button type="button" onClick={again} className="w-fit cursor-pointer border border-primary-500 px-2 py-1 text-sm text-primary-900 hover:bg-primary-300 dark:text-primary-100">
         Play again (transmission tone)
       </button>
+      <label className="flex items-center gap-2 text-sm text-primary-900 dark:text-primary-100">
+        The takeover mix (--console-ai) <input type="range" min={0} max={1} step={0.05} value={mix} onChange={(e) => setMix(Number(e.target.value))} /> {mix.toFixed(2)}
+      </label>
+      <div className="flex flex-wrap items-start gap-6">
+        <section className="w-[34rem] bg-surface-0 p-4"><Swatches mix={mix} /></section>
+        <section className="dark"><div className="w-[34rem] bg-surface-0 p-4"><Swatches mix={mix} /></div></section>
+      </div>
       <div className="flex flex-wrap items-start gap-6">
         <section className="bg-primary-100 p-4 text-primary-900">
           <p className="mb-2 text-xs text-primary-600">Light</p>

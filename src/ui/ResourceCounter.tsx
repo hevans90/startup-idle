@@ -1,24 +1,35 @@
 import { ReactNode } from "react";
 import { ClassNameValue, twMerge } from "tailwind-merge";
+
+import type { Role } from "./theme/tokens";
+import { FOCUS, POPOVER_BARE } from "./console";
 import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
 
 /**
- * A top-bar resource cell: a bold value with its per-second rate stacked
- * beneath, at a fixed min-width so changing digit counts don't shift the bar.
- * Optionally clickable and/or backed by a hover popover.
+ * A resource in the HUD: what it is in small capitals, its value in the
+ * console's display face and its resource's colour, its rate beside it — a
+ * cell between hairlines, at a steady width so a changing digit count does not
+ * shift the bar. Optionally a button (to its tab) and a hover popover (its
+ * breakdown). @see Toolbar, plans/ui-overhaul.md §3.1
  */
 export const ResourceCounter = ({
+  label,
   value,
   rate,
+  role,
   onClick,
   popover,
   title,
   className,
   rateClassName,
 }: {
+  /** What it is: "Money". */
+  label?: string;
   value: ReactNode;
-  /** Per-second line shown beneath the value. */
+  /** Per-second, beside the value. */
   rate?: ReactNode;
+  /** Its resource: the colour it is shown in. */
+  role?: Role;
   /** If set, the cell is a button. */
   onClick?: () => void;
   /** If set, hovering the cell opens a popover with this content. */
@@ -29,20 +40,21 @@ export const ResourceCounter = ({
   rateClassName?: ClassNameValue;
 }) => {
   const cls = twMerge(
-    "flex min-w-[6.5rem] flex-col items-center rounded px-2 leading-tight",
-    onClick && "cursor-pointer hover:bg-primary-300 dark:hover:bg-primary-700",
-    !onClick && popover && "cursor-help",
+    "flex h-full min-w-[8.5rem] flex-col justify-center gap-0.5 px-3 text-left leading-none",
+    onClick && twMerge("cursor-pointer hover:bg-surface-2", FOCUS),
+    !onClick && popover && "cursor-help hover:bg-surface-2",
     className,
   );
 
   const body = (
     <>
-      <span className="max-w-full truncate font-bold tabular-nums whitespace-nowrap">{value}</span>
-      {rate != null && (
-        <span className={twMerge("max-w-full truncate text-xs tabular-nums whitespace-nowrap opacity-60", rateClassName)}>
-          {rate}
-        </span>
-      )}
+      {label && <span className="text-[10px] uppercase tracking-[0.18em] text-fg-faint">{label}</span>}
+      <span className="flex items-baseline gap-2 whitespace-nowrap">
+        <span className="font-display text-base tabular-nums" style={role ? { color: `var(--ui-${role})` } : undefined}>{value}</span>
+        {rate != null && (
+          <span className={twMerge("text-[11px] tabular-nums text-fg-muted", rateClassName)}>{rate}</span>
+        )}
+      </span>
     </>
   );
 
@@ -51,7 +63,7 @@ export const ResourceCounter = ({
       {body}
     </button>
   ) : (
-    <div title={title} className={cls}>
+    <div title={title} className={cls} tabIndex={popover ? 0 : undefined}>
       {body}
     </div>
   );
@@ -61,9 +73,7 @@ export const ResourceCounter = ({
   return (
     <Popover openOnHover={true} persistOnHoverContent={true} placement="bottom">
       <PopoverTrigger asChild>{cell}</PopoverTrigger>
-      <PopoverContent className="bg-primary-100 dark:bg-primary-800 text-primary-900 dark:text-primary-100 border-primary-500 border-[1px] p-4 outline-none focus:ring-0">
-        {popover}
-      </PopoverContent>
+      <PopoverContent className={POPOVER_BARE}>{popover}</PopoverContent>
     </Popover>
   );
 };

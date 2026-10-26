@@ -88,7 +88,7 @@ export function PortIncome() {
       {floats.map((f) => (
         <span key={f.key}
           ref={(el) => { if (el) els.current.set(f.key, el); else els.current.delete(f.key); }}
-          className="absolute left-0 top-0 whitespace-nowrap text-xs font-bold tabular-nums text-emerald-600 opacity-0 drop-shadow dark:text-emerald-300">
+          className="absolute left-0 top-0 whitespace-nowrap text-xs font-bold tabular-nums text-good opacity-0 drop-shadow">
           +{formatCurrency(f.amount)}
         </span>
       ))}

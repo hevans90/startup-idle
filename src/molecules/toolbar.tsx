@@ -10,11 +10,13 @@ import { ToolbarInnovationCounter } from "./innovation-counter";
 import { MoneySummary } from "./money-summary";
 import { SettingsPopover } from "./settings-popover";
 import { ToolbarValuationCounter } from "./valuation-counter";
+import { AiSingularityReadout } from "./ai-singularity-readout";
+import { OverseerBackdrop } from "../ui/console";
 
 /** A counter's cell: as wide as it likes up to a point, and giving way when the bar is short. */
-const COUNTER = "min-w-0 shrink basis-[9.5rem] px-1 @lg:px-2";
+const COUNTER = "shrink-0";
 /** The rate beneath it, gone when the bar is very short. */
-const RATE = "@max-md:hidden";
+const RATE = "@max-4xl:hidden";
 
 export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
   const money = useMoneyStore((state) => state.money);
@@ -24,35 +26,38 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
     (state) => state.unlocks.managers?.unlocked ?? false,
   );
 
-  // SIZED TO ITSELF, not the window: it is two thirds of one beside the
-  // sidebar, so it asks its own width what fits. The counters give way first,
-  // then their rates, the company's clock, and the founder's name — never
-  // spilling over the sidebar.
+  // THE HUD (plans/ui-overhaul.md §3.1): one strip, its parts between
+  // hairlines — settings and the company on the left, the resources in the
+  // middle, the AI on the right — and a hairline under it all. SIZED TO
+  // ITSELF, not the window: it is two thirds of one beside the sidebar, so it
+  // asks its own width what fits. The rates give way first, then the
+  // company's clock and the founder's name — never spilling over the sidebar.
   return (
-    <div
-      className={twMerge(
-        "@container w-full h-13 min-w-0 overflow-hidden bg-primary-200 dark:bg-primary-900 flex items-center gap-1 @lg:gap-3 @3xl:gap-5",
-        className,
-      )}
-    >
-      <SettingsPopover className="border-none w-10 @lg:w-14 h-full shrink-0" />
+    <div className={twMerge("@container relative h-12 w-full min-w-0 border-b border-line-quiet bg-surface-1 text-fg", className)}>
+      <OverseerBackdrop />
+      <div className="relative flex h-full min-w-0 items-stretch overflow-hidden">
+        <SettingsPopover className="h-full w-12 shrink-0 border-0 border-r border-line-quiet" />
+        <FounderBadge className="shrink-0 border-r border-line-quiet px-3" />
+        <CompanyTimer className="hidden shrink-0 justify-center border-r border-line-quiet px-3 @3xl:flex" />
 
-      <ResourceCounter
-        value={formatCurrency(money, { steady: true })}
-        rate={`${formatCurrency(mps, { steady: true })}/s`}
-        popover={<MoneySummary />}
-        className={COUNTER}
-        rateClassName={RATE}
-      />
+        <div className="mx-auto flex min-w-0 items-stretch divide-x divide-line-quiet border-x border-line-quiet">
+          <ResourceCounter
+            label="Money"
+            value={formatCurrency(money, { steady: true })}
+            rate={`${formatCurrency(mps, { steady: true })}/s`}
+            role="money"
+            popover={<MoneySummary />}
+            className={COUNTER}
+            rateClassName={RATE}
+          />
+          <ToolbarInnovationCounter className={COUNTER} rateClassName={RATE} />
+          {valuationUnlocked && (
+            <ToolbarValuationCounter className={COUNTER} rateClassName={RATE} />
+          )}
+        </div>
 
-      <ToolbarInnovationCounter className={COUNTER} rateClassName={RATE} />
-
-      {valuationUnlocked && (
-        <ToolbarValuationCounter className={COUNTER} rateClassName={RATE} />
-      )}
-
-      <CompanyTimer className="ml-auto shrink-0 hidden @3xl:flex" />
-      <FounderBadge className="ml-auto mr-1 shrink-0 @lg:mr-2 @3xl:ml-3" />
+        <AiSingularityReadout className="hidden w-48 shrink-0 border-l border-line-quiet px-3 @2xl:flex" />
+      </div>
     </div>
   );
 };

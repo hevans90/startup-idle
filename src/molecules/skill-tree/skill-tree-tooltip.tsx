@@ -17,6 +17,7 @@ import { usePrestigeStore } from "../../state/prestige.store";
 import { useGenerationStore } from "../../state/generation.store";
 import { isMachine, machineBlocked, machineCost, machineNode } from "../../game/machine";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
+import { useGlitch } from "../../ui/console";
 
 const NODES = nodeById(SKILL_TREE);
 const ADJ = buildAdjacency(SKILL_TREE);
@@ -25,8 +26,8 @@ const clamp = (n: number, lo: number, hi: number) =>
 const fmtPct = (v: number) => `${v > 0 ? "+" : ""}${Number(v.toFixed(1))}%`;
 const toneClass = (tone: "good" | "bad") =>
   tone === "good"
-    ? "text-emerald-600 dark:text-emerald-400"
-    : "text-rose-600 dark:text-rose-400";
+    ? "text-good"
+    : "text-bad";
 
 /**
  * HTML preview for the skill-tree node under the cursor. The renderer publishes
@@ -119,23 +120,23 @@ export const SkillTreeTooltip = () => {
   return (
     <div
       ref={ref}
-      className="pointer-events-none absolute z-10 w-52"
+      className="pointer-events-none absolute z-10 w-60"
       style={{
         left: hovered.x,
         top: hovered.y - hovered.r - 12,
         transform: "translate(-50%, -100%)",
       }}
     >
-      <div className="rounded-md border border-primary-500 bg-primary-100/95 px-3 py-2 text-primary-900 shadow-lg backdrop-blur-sm dark:bg-primary-800/95 dark:text-primary-100">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-bold">{node.title}</span>
-          <span className="text-[10px] uppercase tracking-wide opacity-50">
+      <div className="border border-line-strong border-t-2 border-t-console bg-surface-3 text-xs text-fg shadow-xl">
+        <div className="flex items-baseline justify-between gap-2 border-b border-line-quiet px-3 py-2">
+          <span className="font-display text-[11px] uppercase tracking-widest">{node.title}</span>
+          <span className="text-[10px] uppercase tracking-widest text-fg-faint">
             {node.kind}
           </span>
         </div>
 
         {effectRows.length > 0 ? (
-          <div className="mt-1 flex flex-col gap-0.5 text-xs">
+          <div className="flex flex-col gap-1 px-3 py-2">
             {effectRows.map((row, i) => (
               <span key={i} className={toneClass(row.tone)}>
                 {row.label}
@@ -143,16 +144,16 @@ export const SkillTreeTooltip = () => {
             ))}
           </div>
         ) : (
-          <p className="mt-1 text-xs opacity-60">Pathway node — no bonus</p>
+          <p className="px-3 py-2 text-fg-muted">Pathway node — no bonus</p>
         )}
 
-        <div className="mt-2 border-t border-primary-400/40 pt-1.5 text-xs tabular-nums dark:border-primary-600/50">
+        <div className="border-t border-line-quiet bg-surface-2/50 px-3 py-2 text-[11px] tabular-nums">
           {refundCount > 0 ? (
             <span
               className={
                 enoughPoints
-                  ? "text-rose-600 dark:text-rose-400"
-                  : "text-amber-600 dark:text-amber-400"
+                  ? "text-bad"
+                  : "text-warn"
               }
             >
               Refund: {refundCount} {refundCount === 1 ? "node" : "nodes"} ·{" "}
@@ -160,15 +161,15 @@ export const SkillTreeTooltip = () => {
               {enoughPoints ? "" : ` (only ${respecPoints})`}
             </span>
           ) : isAllocated ? (
-            <span className="text-emerald-600 dark:text-emerald-400">
+            <span className="text-good">
               ✓ Allocated
             </span>
           ) : onPathToHere ? (
             <span
               className={
                 routeAffordable
-                  ? "text-sky-600 dark:text-sky-400"
-                  : "text-rose-600 dark:text-rose-400"
+                  ? "text-info"
+                  : "text-bad"
               }
             >
               Reach: {routePath.length} nodes · {routeCost} Equity
@@ -178,8 +179,8 @@ export const SkillTreeTooltip = () => {
             <span
               className={
                 affordable
-                  ? "text-primary-800 dark:text-primary-100"
-                  : "text-rose-600 dark:text-rose-400"
+                  ? "text-fg"
+                  : "text-bad"
               }
             >
               Cost: {nextCost} Equity{affordable ? "" : " (can't afford)"}
@@ -188,8 +189,8 @@ export const SkillTreeTooltip = () => {
         </div>
 
         {(routeTotals.length > 0 || routeStructural.length > 0) && (
-          <div className="mt-2 border-t border-primary-400/40 pt-1.5 dark:border-primary-600/50">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-600 dark:text-cyan-400">
+          <div className="mt-2 border-t border-line/40 pt-1.5">
+            <p className="mb-1 text-[10px] uppercase tracking-widest text-innovation">
               Route gains
             </p>
             <div className="flex flex-col gap-0.5 text-[11px] tabular-nums">
@@ -233,23 +234,26 @@ function MachineTip({ refEl, id, hovered }: { refEl: React.RefObject<HTMLDivElem
   const n = machineNode(id)!;
   const cost = machineCost(id);
   const blocked = machineBlocked(id);
-  const status = blocked === "owned" ? { text: "✓ Bought", cls: "text-emerald-600 dark:text-emerald-400" }
-    : blocked === "fog" ? { text: n.kind === "root" ? "Ascend to receive" : "Ascend to reveal", cls: "text-violet-600 dark:text-violet-300" }
-    : blocked === "exclusive" ? { text: "Another keystone is bought: they exclude each other", cls: "text-rose-600 dark:text-rose-400" }
-    : blocked === "unreached" ? { text: `Buy the node before it first · ${cost} Weights`, cls: "text-amber-600 dark:text-amber-400" }
-    : blocked === "weights" ? { text: `Cost: ${cost} Weights (can't afford)`, cls: "text-rose-600 dark:text-rose-400" }
-    : { text: `Cost: ${cost} Weights`, cls: "text-primary-800 dark:text-primary-100" };
+  const status = blocked === "owned" ? { text: "✓ Bought", cls: "text-good" }
+    : blocked === "fog" ? { text: n.kind === "root" ? "Ascend to receive" : "Ascend to reveal", cls: "text-ai" }
+    : blocked === "exclusive" ? { text: "Another keystone is bought: they exclude each other", cls: "text-bad" }
+    : blocked === "unreached" ? { text: `Buy the node before it first · ${cost} Weights`, cls: "text-warn" }
+    : blocked === "weights" ? { text: `Cost: ${cost} Weights (can't afford)`, cls: "text-bad" }
+    : { text: `Cost: ${cost} Weights`, cls: "text-fg" };
   const fog = blocked === "fog" && n.kind !== "root";
+  // THE KEYSTONES THAT LET IT LOOSE OR SHUT IT OUT, once bought: torn. @see useGlitch
+  const box = useRef<HTMLDivElement>(null);
+  useGlitch(box, { active: (id === "takeoff" || id === "airgap") && blocked === "owned", strength: 0.9, every: 1.6 });
   return (
-    <div ref={refEl} className="pointer-events-none absolute z-10 w-56"
+    <div ref={refEl} className="pointer-events-none absolute z-10 w-60"
       style={{ left: hovered.x, top: hovered.y - hovered.r - 12, transform: "translate(-50%, -100%)" }}>
-      <div className="rounded-md border border-violet-500 bg-primary-100/95 px-3 py-2 text-primary-900 shadow-lg backdrop-blur-sm dark:bg-primary-800/95 dark:text-primary-100">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-bold">{fog ? "Unrevealed" : n.title}</span>
-          <span className="text-[10px] uppercase tracking-wide text-violet-700 opacity-80 dark:text-violet-300">The Machine</span>
+      <div ref={box} className="border border-line-strong border-t-2 border-t-ai bg-surface-3 text-xs text-fg shadow-xl">
+        <div className="flex items-baseline justify-between gap-2 border-b border-line-quiet px-3 py-2">
+          <span className="font-display text-[11px] uppercase tracking-widest">{fog ? "Unrevealed" : n.title}</span>
+          <span className="text-[10px] uppercase tracking-widest text-ai">The Machine</span>
         </div>
-        {!fog && <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">{n.effect}</p>}
-        <div className={`mt-2 border-t border-primary-400/40 pt-1.5 text-xs tabular-nums dark:border-primary-600/50 ${status.cls}`}>{status.text}</div>
+        {!fog && <p className="px-3 py-2 text-good">{n.effect}</p>}
+        <div className={`border-t border-line-quiet bg-surface-2/50 px-3 py-2 text-[11px] tabular-nums ${status.cls}`}>{status.text}</div>
       </div>
     </div>
   );

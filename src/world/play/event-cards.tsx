@@ -15,13 +15,7 @@ import { idx, inBounds } from "../grid";
 import type { GameEvent } from "../events/events";
 import { clearOfferPremium, offerPremium, setOfferPremium } from "../../game/acquisition";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
-
-const CARD =
-  "w-[min(24rem,calc(100vw-1rem))] border px-3 py-2 text-xs shadow-md "
-  + "bg-primary-50/95 text-primary-900 dark:bg-primary-900/95 dark:text-primary-100";
-const BTN =
-  "flex cursor-pointer flex-col items-start border border-primary-400 px-2 py-1 text-left hover:bg-primary-200 pointer-coarse:min-h-11 "
-  + "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-primary-600 dark:hover:bg-primary-800";
+import { Button, Card, Tile } from "../../ui/console";
 
 /**
  * AN ACQUIRER'S OFFER, answered: looking at it puts their premium on the sale
@@ -40,58 +34,43 @@ function answerOffer(e: GameEvent, choice: string) {
   window.dispatchEvent(new CustomEvent("startup:confirm-sale"));
 }
 
-function EventCard({ e }: { e: GameEvent }) {
+/** AN EVENT, as a card in comms: what is coming and when, what can be done and what it costs, and a way to look. @see CommsDock */
+export function EventCard({ e }: { e: GameEvent }) {
+  useTicking(500);
   const respond = useWorldStore((s) => s.respondToEvent);
   const setOff = useSessionStore((s) => s.setMapEventsOff);
-  const tone = e.phase === "over" ? "border-primary-300 opacity-70 dark:border-primary-700"
-    : e.phase === "active" ? "border-red-500 dark:border-red-400" : "border-amber-500 dark:border-amber-400";
   const chosen = e.choices.find((c) => c.id === e.chosen);
   return (
-    <div role="alert" className={twMerge(CARD, tone)}>
-      <div className="flex items-baseline justify-between gap-2">
-        <b>{e.title}</b>
-        {e.phase === "warning" && e.strikesAt !== null && (
-          <span className="tabular-nums text-amber-700 dark:text-amber-400">in {clock(e.strikesAt - Date.now())}</span>
+    <Card tone={e.phase === "over" ? "console" : e.phase === "active" ? "bad" : "warn"} className={twMerge("w-[min(24rem,calc(100vw-1rem))]", e.phase === "over" && "opacity-70")}
+      title={<span className="flex items-baseline justify-between gap-2"><span>{e.title}</span>
+        {e.phase === "warning" && e.strikesAt !== null && <span className="tabular-nums text-warn">in {clock(e.strikesAt - Date.now())}</span>}</span>}>
+      <div role="alert" className="flex flex-col gap-1.5">
+        <p className="text-fg-muted">{e.phase === "over" ? e.outcome : e.text}</p>
+        {e.phase !== "over" && (
+          <div className="grid grid-cols-2 gap-1.5">
+            {e.choices.map((c) => (
+              <Tile key={c.id} selected={e.chosen === c.id} disabled={!!c.unavailable} title={c.unavailable}
+                onClick={() => { respond(e.id, c.id); answerOffer(e, c.id); }} className="flex flex-col items-start gap-0.5 px-2 py-1.5 pointer-coarse:min-h-11">
+                <span className="font-bold">{c.label}</span>
+                <span className="text-[10px] text-fg-muted">{c.unavailable ?? c.cost}</span>
+              </Tile>
+            ))}
+          </div>
         )}
-      </div>
-      <p className="mt-0.5 text-primary-700 dark:text-primary-300">{e.phase === "over" ? e.outcome : e.text}</p>
-      {e.phase !== "over" && (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {e.choices.map((c) => (
-            <button key={c.id} type="button" disabled={!!c.unavailable}
-              onClick={() => { respond(e.id, c.id); answerOffer(e, c.id); }}
-              className={twMerge(BTN, e.chosen === c.id && "bg-primary-200 dark:bg-primary-800")}
-              title={c.unavailable}>
-              <span className="font-bold">{c.label}</span>
-              <span className="text-[10px] text-primary-600 dark:text-primary-400">{c.unavailable ?? c.cost}</span>
-            </button>
-          ))}
+        <div className="flex items-center justify-between text-[10px] text-fg-muted">
+          <span>{chosen ? `You chose: ${chosen.label.toLowerCase()}` : ""}</span>
+          <span className="flex gap-1">
+            <Button size="sm" variant="quiet" onClick={() => setOff(true)} title="No more floods or overflows. Back on in Settings.">No events</Button>
+            <Button size="sm" variant="secondary" onClick={() => showMe(e.where)}>Show me</Button>
+          </span>
         </div>
-      )}
-      <div className="mt-1 flex items-center justify-between text-[10px] text-primary-600 dark:text-primary-400">
-        <span>{chosen ? `You chose: ${chosen.label.toLowerCase()}` : ""}</span>
-        <span className="flex gap-2">
-          <button type="button" onClick={() => setOff(true)} className="cursor-pointer underline"
-            title="No more floods or overflows. Back on in Settings.">no events</button>
-          <button type="button" onClick={() => showMe(e.where)} className="cursor-pointer underline">Show me</button>
-        </span>
       </div>
-    </div>
+    </Card>
   );
 }
 
-/** Every event under way or just over, newest first. */
-export function EventCards() {
-  useTicking(500);
-  // THE SLOP PIT'S OVERFLOW is on the pit's own card. @see SlopPitCard
-  const events = useWorldStore((s) => s.events).filter((e) => e.kind !== "slop-overflow");
-  if (!events.length) return null;
-  return (
-    <div className="flex flex-col gap-2">
-      {[...events].reverse().map((e) => <EventCard key={e.id} e={e} />)}
-    </div>
-  );
-}
+/** The events comms shows: under way or just over, newest first — the slop pit's overflow is on the pit's own card. */
+export const liveEvents = (events: readonly GameEvent[]) => [...events].filter((e) => e.kind !== "slop-overflow").reverse();
 
 /**
  * A RING ON THE MAP where each event is, pulsing, held to its tile as the
@@ -133,7 +112,7 @@ export function EventMarkers() {
           className="absolute left-0 top-0 h-16 w-16">
           <div className={twMerge(
             "h-full w-full animate-ping rounded-full border-4",
-            e.phase === "active" ? "border-red-500/80 dark:border-red-400/80" : "border-amber-400/80 dark:border-amber-300/80",
+            e.phase === "active" ? "border-bad/80" : "border-warn/80",
           )} />
         </div>
       ))}

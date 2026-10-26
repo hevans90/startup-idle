@@ -35,59 +35,25 @@ export const SKILL_CAT: Record<TeamLeaderSkillId, SkillCategory> = {
   legacy_amplifier:    "legacy",
 };
 
+/** Each category by a role of the console's: one class right in both themes. (Written out whole, for Tailwind to find.) */
 export const CAT_STYLE: Record<
   SkillCategory,
   { border: string; bg: string; text: string; dimText: string }
 > = {
-  revenue: {
-    border:  "border-emerald-700/60 dark:border-emerald-600/50",
-    bg:      "bg-emerald-950/40 dark:bg-emerald-900/20",
-    text:    "text-emerald-400",
-    dimText: "text-emerald-600 dark:text-emerald-500",
-  },
-  ips: {
-    border:  "border-blue-700/60 dark:border-blue-600/50",
-    bg:      "bg-blue-950/40 dark:bg-blue-900/20",
-    text:    "text-blue-400",
-    dimText: "text-blue-600 dark:text-blue-500",
-  },
-  global: {
-    border:  "border-purple-700/60 dark:border-purple-600/50",
-    bg:      "bg-purple-950/40 dark:bg-purple-900/20",
-    text:    "text-purple-400",
-    dimText: "text-purple-600 dark:text-purple-500",
-  },
-  satisfaction: {
-    border:  "border-amber-700/60 dark:border-amber-600/50",
-    bg:      "bg-amber-950/40 dark:bg-amber-900/20",
-    text:    "text-amber-400",
-    dimText: "text-amber-600 dark:text-amber-500",
-  },
-  growth: {
-    border:  "border-orange-700/60 dark:border-orange-600/50",
-    bg:      "bg-orange-950/40 dark:bg-orange-900/20",
-    text:    "text-orange-400",
-    dimText: "text-orange-600 dark:text-orange-500",
-  },
-  economy: {
-    border:  "border-teal-700/60 dark:border-teal-600/50",
-    bg:      "bg-teal-950/40 dark:bg-teal-900/20",
-    text:    "text-teal-400",
-    dimText: "text-teal-600 dark:text-teal-500",
-  },
-  legacy: {
-    border:  "border-rose-700/60 dark:border-rose-600/50",
-    bg:      "bg-rose-950/40 dark:bg-rose-900/20",
-    text:    "text-rose-400",
-    dimText: "text-rose-600 dark:text-rose-500",
-  },
+  revenue: { border: "border-money-line", bg: "bg-money-soft", text: "text-money", dimText: "text-money" },
+  ips: { border: "border-innovation-line", bg: "bg-innovation-soft", text: "text-innovation", dimText: "text-innovation" },
+  global: { border: "border-ai-line", bg: "bg-ai-soft", text: "text-ai", dimText: "text-ai" },
+  satisfaction: { border: "border-good-line", bg: "bg-good-soft", text: "text-good", dimText: "text-good" },
+  growth: { border: "border-warn-line", bg: "bg-warn-soft", text: "text-warn", dimText: "text-warn" },
+  economy: { border: "border-valuation-line", bg: "bg-valuation-soft", text: "text-valuation", dimText: "text-valuation" },
+  legacy: { border: "border-weights-line", bg: "bg-weights-soft", text: "text-weights", dimText: "text-weights" },
 };
 
 export const TRAIT_COLORS: Record<TeamLeaderTraitId, string> = {
-  overachiever:   "text-blue-500 dark:text-blue-400",
-  chaos_agent:    "text-red-500 dark:text-red-400",
-  quiet_quitter:  "text-slate-500 dark:text-slate-400",
-  brown_noser:    "text-yellow-500 dark:text-yellow-400",
-  thought_leader: "text-purple-500 dark:text-purple-400",
-  burnout_risk:   "text-orange-500 dark:text-orange-400",
+  overachiever:   "text-info",
+  chaos_agent:    "text-bad",
+  quiet_quitter:  "text-fg-muted",
+  brown_noser:    "text-warn",
+  thought_leader: "text-ai",
+  burnout_risk:   "text-juice",
 };

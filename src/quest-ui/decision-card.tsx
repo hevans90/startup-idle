@@ -9,9 +9,9 @@ import { twMerge } from "tailwind-merge";
 import { effectRows, within } from "../game/quests/describe";
 import { AXIS_MOST, type Disposition, type Option } from "../game/quests/types";
 import { DispositionChart } from "./disposition-chart";
-import { QuestFrame } from "./quest-frame";
+import { Frame } from "../ui/console";
 
-const TONE = { good: "text-emerald-700 dark:text-emerald-400", bad: "text-red-700 dark:text-red-400" };
+const TONE = { good: "text-good", bad: "text-bad" };
 const clamp = (n: number) => Math.max(-AXIS_MOST, Math.min(AXIS_MOST, n));
 
 export function DecisionCard({ option, at, armed, chosen, preferred, onPick }: {
@@ -30,21 +30,21 @@ export function DecisionCard({ option, at, armed, chosen, preferred, onPick }: {
   return (
     <button type="button" onClick={onPick} aria-pressed={armed}
       className={twMerge("block w-full cursor-pointer text-left transition-transform duration-200", chosen && "scale-95 opacity-80")}>
-      <QuestFrame kind="corners" illuminate lit={armed} className="p-2">
+      <Frame kind="corners" tone="ai" assemble="always" illuminate lit={armed} className="p-2">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="font-bold">{option.label}{preferred && <span className="ml-1 text-[10px] font-normal text-violet-700 dark:text-violet-300">(its choice)</span>}</p>
-            {option.cost && <p className="text-[11px] text-amber-700 dark:text-amber-400">Cost: {option.cost}</p>}
+            <p className="font-bold">{option.label}{preferred && <span className="ml-1 text-[10px] font-normal text-ai">(its choice)</span>}</p>
+            {option.cost && <p className="text-[11px] text-warn">Cost: {option.cost}</p>}
           </div>
           <DispositionChart at={at} to={to} size={38} />
         </div>
-        <p className="mt-1 text-[11px] text-primary-700 dark:text-primary-300">{option.says}</p>
+        <p className="mt-1 text-[11px] text-fg-muted">{option.says}</p>
         {rows.map((r, i) => <p key={i} className={twMerge("text-[11px]", TONE[r.tone])}>{r.label}</p>)}
         {option.objective && (
-          <p className="mt-1 text-[11px] text-violet-800 dark:text-violet-200">Objective: {option.objective.says}, {within(option.objective)}</p>
+          <p className="mt-1 text-[11px] text-ai">Objective: {option.objective.says}, {within(option.objective)}</p>
         )}
-        {armed && !chosen && <p className="mt-1 text-[11px] font-bold text-violet-700 dark:text-violet-300">Click again to choose</p>}
-      </QuestFrame>
+        {armed && !chosen && <p className="mt-1 text-[11px] font-bold text-ai">Click again to choose</p>}
+      </Frame>
     </button>
   );
 }

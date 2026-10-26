@@ -178,17 +178,19 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     if (!play) return;
     return setTownBonusReader(held(() => townBonusOf(useWorldStore.getState().grid)));
   }, [play]);
-  /** THE MAP'S SIDE OF THE TERM SHEET: houses lived in, wonders standing. @see game/term-sheets */
+  /** THE MAP'S SIDE OF THE TERM SHEET: houses lived in, wonders standing, projects built. @see game/term-sheets */
   useEffect(() => {
     if (!play) return;
     return setTermReader(held(() => {
-      let houses = 0, wonders = 0;
+      let houses = 0, wonders = 0, projects = 0;
       for (const s of useWorldStore.getState().grid.structures.values()) {
         if (s.build) continue;
         if (housedBy(s.def) && residentsIn(s) > 0) houses++;
-        if (projectForStructure(s.def)?.bonus) wonders++;
+        const p = projectForStructure(s.def);
+        if (p) projects++;
+        if (p?.bonus) wonders++;
       }
-      return { houses, wonders };
+      return { houses, wonders, projects };
     }));
   }, [play]);
   /** THE GAME'S RULES, while the game is the one showing the map. @see playing */

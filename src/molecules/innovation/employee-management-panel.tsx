@@ -24,8 +24,7 @@ import {
   useTeamLeadersEmployeesStore,
   type TeamLeaderEmployee,
 } from "../../state/team-leaders.store";
-import { Button } from "../../ui/Button";
-import { InfoRow } from "../../ui/InfoRow";
+import { Badge, Button, Label, Stat, StatGrid, Tile } from "../../ui/console";
 import { TenXDevText } from "../../utils/ten-x-utils";
 import { RainbowText } from "../../utils/vibe-utils";
 import { EmployeeAvatar } from "./employee-avatar";
@@ -75,16 +74,16 @@ function StatBar({
   const pct = Math.min(100, (value / Math.max(1, max)) * 100);
   return (
     <div className="flex items-center gap-1.5 min-w-0">
-      <span className="text-[9px] text-primary-400 dark:text-primary-500 w-9 shrink-0">
+      <span className="text-[10px] text-fg-muted w-9 shrink-0">
         {label}
       </span>
-      <div className="flex-1 h-1 bg-primary-200 dark:bg-primary-800 overflow-hidden min-w-0">
+      <div className="flex-1 h-1 bg-surface-3 overflow-hidden min-w-0">
         <div
           className={twMerge("h-full transition-all duration-700", color)}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[9px] tabular-nums text-primary-400 dark:text-primary-500 w-5 text-right shrink-0">
+      <span className="text-[10px] tabular-nums text-fg-muted w-5 text-right shrink-0">
         {Math.floor(value)}
       </span>
     </div>
@@ -104,25 +103,25 @@ function SkillPip({
   return (
     <div
       className={twMerge(
-        "flex flex-col gap-px px-1.5 py-1 border leading-none",
+        "flex flex-col gap-0.5 border px-1.5 py-1 leading-none",
         unlocked
           ? twMerge(border, bg)
-          : "border-primary-300/50 dark:border-primary-700/50",
+          : "border-dashed border-line-quiet",
       )}
     >
       <div className="flex items-center gap-1">
         <span
           className={twMerge(
-            "text-[8px] font-semibold",
-            unlocked ? text : "text-primary-500 dark:text-primary-600",
+            "text-[10px] font-semibold",
+            unlocked ? text : "text-fg-muted",
           )}
         >
           {skill.name}
         </span>
         <span
           className={twMerge(
-            "text-[7px]",
-            unlocked ? dimText : "text-primary-400/40 dark:text-primary-600/40",
+            "text-[10px]",
+            unlocked ? dimText : "text-fg-muted/40",
           )}
         >
           {"▪".repeat(level)}
@@ -131,10 +130,10 @@ function SkillPip({
       </div>
       <span
         className={twMerge(
-          "text-[7px]",
+          "text-[10px]",
           unlocked
-            ? "text-primary-600 dark:text-primary-400"
-            : "text-primary-500/50 dark:text-primary-600/50",
+            ? "text-fg-muted"
+            : "text-fg-muted/50",
         )}
       >
         {unlocked ? skill.descriptions[level - 1] : skill.descriptions[0]}
@@ -158,9 +157,9 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
   const canAffordFire = fireCost === 0 || innovation.gte(fireCost);
 
   return (
-    <div className="border border-primary-300 dark:border-primary-700 p-2 flex flex-col gap-1.5">
-      {/* Avatar + name + role + trait */}
-      <div className="flex items-start gap-2 min-w-0">
+    <div className="flex flex-col border border-line-quiet bg-surface-1">
+      {/* Avatar + name + role + trait, a header strip */}
+      <div className="flex min-w-0 items-start gap-2 border-b border-line-quiet bg-surface-2/40 px-2.5 py-2">
         <EmployeeAvatar
           name={emp.name}
           role={emp.role}
@@ -171,61 +170,56 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
         <div className="flex flex-col gap-0.5 min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2 min-w-0">
             <div className="flex items-baseline gap-1.5 min-w-0 flex-1">
-              <span className="text-xs font-semibold text-primary-800 dark:text-primary-100 truncate">
+              <span className="text-xs font-semibold text-fg truncate">
                 {emp.name}
               </span>
               <RoleLabel id={emp.role} className="text-[10px] font-normal" />
             </div>
             <span
               className={twMerge(
-                "text-[9px] shrink-0 font-medium",
+                "text-[10px] shrink-0 font-medium",
                 TRAIT_COLORS[emp.traitId],
               )}
             >
               {trait.name}
             </span>
           </div>
-          <p className="text-[9px] italic text-primary-400 dark:text-primary-500 leading-tight">
+          <p className="text-[10px] italic text-fg-muted leading-tight">
             {trait.flavor}
           </p>
         </div>
       </div>
 
+      <div className="flex flex-col gap-2 px-2.5 py-2">
       {/* Stat bars */}
-      <div className="flex flex-col gap-0.5">
+      <div className="flex flex-col gap-1">
         <StatBar
           label="Output"
           value={emp.outputStat}
           max={statMax}
-          color="bg-blue-400 dark:bg-blue-500"
+          color="bg-info"
         />
         <StatBar
           label="Morale"
           value={emp.moraleStat}
           max={statMax}
-          color="bg-emerald-400 dark:bg-emerald-500"
+          color="bg-good"
         />
       </div>
 
       {/* Rank + unspent indicator */}
-      <div className="flex items-center justify-between text-[9px] tabular-nums">
-        <span className="text-primary-400 dark:text-primary-500">
+      <div className="flex items-center justify-between text-[10px] tabular-nums">
+        <span className="text-fg-muted">
           Rank {emp.rank}
           {emp.rank < MAX_RANK ? ` → ${nextThresh}` : " (max)"}
         </span>
-        {emp.unspentPoints > 0 && (
-          <span className="text-amber-500 dark:text-amber-400 font-semibold">
-            ⬆ {emp.unspentPoints} to spend
-          </span>
-        )}
+        {emp.unspentPoints > 0 && <Badge tone="warn">{emp.unspentPoints} to spend</Badge>}
       </div>
 
       {/* Skill spend buttons (only shown when there are unspent points) */}
       {emp.unspentPoints > 0 && (
-        <div className="flex flex-col gap-1.5 border-t border-amber-500/20 pt-1.5">
-          <p className="text-[9px] text-amber-500 dark:text-amber-400">
-            Spend rank point:
-          </p>
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-warn">Spend a rank point</Label>
           <div className="flex flex-col gap-1">
             {(emp.skillPool ?? trait.skills.slice(0, 3)).map((skillId) => {
               const currentLevel = emp.skills[skillId] ?? 0;
@@ -233,46 +227,36 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
               const skill = EMPLOYEE_SKILLS[skillId];
               const { border, bg, text } = CAT_STYLE[SKILL_CAT[skillId]];
               return (
-                <button
+                <Tile
                   key={skillId}
                   onClick={() => spendRankPoint(emp.id, skillId)}
                   disabled={maxed}
-                  className={twMerge(
-                    "flex items-center justify-between gap-2 px-2 py-1.5 border text-left transition-colors w-full",
-                    maxed
-                      ? "border-primary-300/40 dark:border-primary-700/40 cursor-not-allowed opacity-50"
-                      : twMerge(
-                          "cursor-pointer",
-                          border,
-                          bg,
-                          "hover:opacity-80",
-                        ),
-                  )}
+                  className={twMerge("flex w-full items-center justify-between gap-2 px-2 py-1.5", !maxed && twMerge(border, bg))}
                 >
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span
                       className={twMerge(
-                        "text-[9px] font-semibold leading-none",
-                        maxed ? "text-primary-500" : text,
+                        "text-[10px] font-semibold leading-none",
+                        maxed ? "text-fg-muted" : text,
                       )}
                     >
                       {skill.name}
                       {maxed && (
-                        <span className="ml-1 text-[7px] font-normal opacity-60">
+                        <span className="ml-1 text-[10px] font-normal opacity-60">
                           maxed
                         </span>
                       )}
                     </span>
-                    <span className="text-[7px] leading-none text-primary-600 dark:text-primary-300">
+                    <span className="text-[10px] leading-none text-fg-muted">
                       {maxed
                         ? skill.descriptions[2]
                         : `→ ${skill.descriptions[currentLevel]}`}
                     </span>
                   </div>
-                  <span className="text-[8px] tabular-nums text-primary-400 dark:text-primary-600 shrink-0">
+                  <span className="text-[10px] tabular-nums text-fg-muted shrink-0">
                     {currentLevel}/3
                   </span>
-                </button>
+                </Tile>
               );
             })}
           </div>
@@ -290,10 +274,12 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
         ))}
       </div>
 
-      {/* Fire */}
-      <div className="flex items-center justify-between gap-2 border-t border-primary-200 dark:border-primary-700 pt-1.5">
+      </div>
+
+      {/* Legacy and severance, and the firing: a footer strip */}
+      <div className="flex items-center justify-between gap-2 border-t border-line-quiet bg-surface-2/40 px-2.5 py-2">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[9px] text-primary-400 dark:text-primary-500">
+          <span className="text-[10px] text-fg-muted">
             {emp.rank > 0
               ? `Legacy → +${legacyRev}% rev, +${legacyIps}% IPS`
               : "Rank up to earn a legacy"}
@@ -301,10 +287,10 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
           {fireCost > 0 && (
             <span
               className={twMerge(
-                "text-[8px] tabular-nums",
+                "text-[10px] tabular-nums",
                 canAffordFire
-                  ? "text-primary-400 dark:text-primary-600"
-                  : "text-red-400 dark:text-red-500",
+                  ? "text-fg-muted"
+                  : "text-bad",
               )}
             >
               Severance: {fireCost} ipa
@@ -312,15 +298,17 @@ function TeamLeaderCard({ emp }: { emp: TeamLeaderEmployee }) {
           )}
         </div>
         <Button
-          type="button"
-          className="text-[9px] px-1.5 py-0.5 shrink-0"
+          size="sm"
+          variant="danger"
+          confirm={`Fire ${emp.name}?`}
+          className="shrink-0"
           disabled={!canAffordFire}
           onClick={() => fireEmployee(emp.id)}
           title={
             !canAffordFire ? `Need ${fireCost} innovation to fire` : undefined
           }
         >
-          Fire{emp.rank > 0 ? " →" : ""}
+          Fire
         </Button>
       </div>
     </div>
@@ -341,12 +329,12 @@ function PairSynergyRow({ syn }: { syn: PairSynergy }) {
     parts.push(`+${Math.round(syn.outputGrowthBonus * 100)}% growth`);
 
   return (
-    <div className="flex items-baseline gap-1.5 text-[9px]">
-      <span className="text-emerald-400 shrink-0">⇌</span>
-      <span className="font-medium text-primary-700 dark:text-primary-300">
+    <div className="flex items-baseline gap-1.5 text-[10px]">
+      <span className="text-good shrink-0">⇌</span>
+      <span className="font-medium text-fg-muted">
         {syn.name}
       </span>
-      <span className="text-primary-400 dark:text-primary-500 truncate">
+      <span className="text-fg-muted truncate">
         {parts.join(" · ")}
       </span>
     </div>
@@ -354,10 +342,10 @@ function PairSynergyRow({ syn }: { syn: PairSynergy }) {
 }
 
 const BRANCH_LABEL: Record<EmployeePerkBranch, string> = {
-  money: "+Rev",
-  innovation: "+Happy",
-  cost: "-Cost",
-  auto: "Auto",
+  money: "Revenue",
+  innovation: "Morale",
+  cost: "Cheaper",
+  auto: "Auto-buy",
 };
 
 const BRANCH_TITLE: Record<EmployeePerkBranch, string> = {
@@ -394,14 +382,10 @@ function TeamLeadersSection({
   );
 
   return (
-    <div className="px-1 flex flex-col gap-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-primary-500 dark:text-primary-400">
-        Team Leaders
-        {totalUnspent > 0 && (
-          <span className="ml-1.5 font-normal normal-case tracking-normal text-amber-500 dark:text-amber-400">
-            · {totalUnspent} unspent
-          </span>
-        )}
+    <div className="flex flex-col gap-2">
+      <p className="flex items-center gap-2">
+        <Label>Team leaders</Label>
+        {totalUnspent > 0 && <Badge tone="warn">{totalUnspent} unspent</Badge>}
       </p>
 
       <div className="flex flex-col gap-2">
@@ -409,34 +393,33 @@ function TeamLeadersSection({
           <TeamLeaderCard key={emp.id} emp={emp} />
         ))}
         {rolesNeedingHire.map((role) => (
-          <button
+          <Tile
             key={role}
-            type="button"
             onClick={() => onHire(role)}
-            className="flex items-center justify-between gap-2 border border-dashed border-primary-300 dark:border-primary-700 hover:border-primary-400 dark:hover:border-primary-500 px-2 py-2 transition-colors group"
+            className="group flex items-center justify-between gap-2 border-dashed px-2.5 py-2"
           >
             <div className="flex items-center gap-1.5">
               <RoleLabel id={role} className="text-[10px]" />
               {candidatePool[role]?.length ? (
-                <span className="text-[9px] text-emerald-500 dark:text-emerald-400">
+                <span className="text-[10px] text-good">
                   · {candidatePool[role]!.length} candidates ready
                 </span>
               ) : (
-                <span className="text-[9px] text-primary-400 dark:text-primary-600">
+                <span className="text-[10px] text-fg-muted">
                   · no team leader
                 </span>
               )}
             </div>
-            <span className="text-[9px] text-primary-400 dark:text-primary-500 group-hover:text-primary-600 dark:group-hover:text-primary-300 transition-colors">
+            <span className="text-[10px] text-fg-muted transition-colors group-hover:text-console">
               Find talent →
             </span>
-          </button>
+          </Tile>
         ))}
       </div>
 
       {activePairSyns.length > 0 && (
-        <div className="flex flex-col gap-1 border-t border-primary-200 dark:border-primary-700 pt-1.5">
-          <p className="text-[9px] uppercase tracking-wider text-primary-400 dark:text-primary-500">
+        <div className="flex flex-col gap-1 border-t border-line-quiet pt-2">
+          <p className="text-[10px] uppercase tracking-widest text-fg-muted">
             Pair synergies
           </p>
           {activePairSyns.map((syn) => (
@@ -446,14 +429,14 @@ function TeamLeadersSection({
       )}
 
       {legacies.length > 0 && (
-        <div className="flex flex-col gap-0.5 border-t border-primary-200 dark:border-primary-700 pt-1.5">
-          <p className="text-[9px] uppercase tracking-wider text-primary-400 dark:text-primary-500">
+        <div className="flex flex-col gap-0.5 border-t border-line-quiet pt-2">
+          <p className="text-[10px] uppercase tracking-widest text-fg-muted">
             Legacy bonuses
           </p>
           {legacies.map((leg) => (
-            <div key={leg.role} className="flex gap-1.5 text-[9px]">
-              <RoleLabel id={leg.role} className="text-[9px] font-normal" />
-              <span className="text-primary-400 dark:text-primary-500">
+            <div key={leg.role} className="flex gap-1.5 text-[10px]">
+              <RoleLabel id={leg.role} className="text-[10px] font-normal" />
+              <span className="text-fg-muted">
                 +{Math.round(leg.revenueMult * 100)}% rev · +
                 {Math.round(leg.ipsMult * 100)}% IPS
               </span>
@@ -489,10 +472,8 @@ function MicromanagementSection({
   purchaseEmployeePerk,
 }: MicromanagementSectionProps) {
   return (
-    <div className="border-t border-primary-200 dark:border-primary-700 px-1 pt-2 pb-1 flex flex-col gap-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-primary-500 dark:text-primary-400">
-        Micromanagement
-      </p>
+    <div className="flex flex-col gap-2 border-t border-line-quiet pt-2">
+      <Label>Micromanagement</Label>
       {generators.map((gen) => {
         const gid = gen.id as GeneratorId;
         const rowSpent = getManagementPointsSpentOnRow(gid);
@@ -502,26 +483,27 @@ function MicromanagementSection({
         return (
           <div
             key={gen.id}
-            className="border border-primary-300 dark:border-primary-700 p-2 flex flex-col gap-1.5"
+            className="flex flex-col gap-2 border border-line-quiet bg-surface-1 p-2.5"
           >
             <div className="flex justify-between items-center gap-1">
               <div className="flex items-center gap-2 min-w-0">
                 <RoleLabel id={gid} />
-                <span className="text-[10px] text-primary-400 dark:text-primary-500 tabular-nums">
+                <span className="text-[10px] text-fg-muted tabular-nums">
                   target {target > 0 ? "+" : ""}
                   {target}
                 </span>
               </div>
               <Button
-                type="button"
-                className="text-[10px] px-1.5 py-0.5 shrink-0"
+                size="sm"
+                variant="quiet"
+                className="shrink-0"
                 disabled={rowSpent <= 0}
                 onClick={() => refundEmployeeManagementRow(gid)}
               >
                 Refund +{rowSpent}
               </Button>
             </div>
-            <div className="flex gap-1">
+            <div className="grid grid-cols-4 gap-1">
               {(
                 [
                   "money",
@@ -533,16 +515,17 @@ function MicromanagementSection({
                 const cost = getEmployeePerkNextCost(gid, branch);
                 const can = canPurchaseEmployeePerk(gid, branch);
                 return (
-                  <Button
+                  <Tile
                     key={branch}
-                    className="text-[10px] px-1.5 py-0.5 min-w-0 flex-1"
+                    lit={can && cost > 0}
+                    className="flex min-w-0 flex-col items-center gap-0.5 px-1 py-1.5 text-[10px]"
                     disabled={!can || cost <= 0}
                     onClick={() => purchaseEmployeePerk(gid, branch)}
                     title={BRANCH_TITLE[branch]}
                   >
-                    {BRANCH_LABEL[branch]}
-                    {cost > 0 ? ` (${cost})` : ""}
-                  </Button>
+                    <span className="truncate">{BRANCH_LABEL[branch]}</span>
+                    <span className="tabular-nums text-fg-faint">{cost > 0 ? `${cost} pt` : "—"}</span>
+                  </Tile>
                 );
               })}
             </div>
@@ -618,14 +601,11 @@ export const EmployeeManagementPanel = () => {
         <HireDialog role={hiringFor} onClose={() => setHiringFor(null)} />
       )}
 
-      {/* Budget */}
-      <div className="px-1">
-        <InfoRow
-          label="Mgmt tiers (budget)"
-          value={`${tierTotal} total · ${available} unspent`}
-          size="small"
-        />
-      </div>
+      {/* Budget: the managers' tiers, and what is left of them to spend */}
+      <StatGrid>
+        <Stat label="Manager tiers" value={tierTotal} />
+        <Stat label="To spend" value={available} role={available > 0 ? "warn" : undefined} />
+      </StatGrid>
 
       {/* Change 5: team leaders section as sub-component */}
       {hasTeamLeadersSection && (

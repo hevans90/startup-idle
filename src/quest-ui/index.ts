@@ -1,13 +1,9 @@
 /**
- * QUEST UI: the AI's console — arwes's frames, text and patterns behind our
- * own StrictMode-safe wrappers, themed from the palette. Loaded only through
- * `loadQuestUi`, so it and arwes stay out of the game's own bundle.
- * @see plans/ai-takeover.md "The UI"
+ * QUEST UI: the arc's pieces — the transmission, the tracker, the map's ring
+ * and the dossier — built on the console's kit (src/ui/console), in the AI's
+ * violet. Loaded only through `loadQuestUi`: it is fetched when the arc has
+ * something to show. @see plans/ai-takeover.md "The UI"
  */
-export { QuestFrame, ASSEMBLE, type QuestFrameKind } from "./quest-frame";
-export { QuestText } from "./quest-text";
-export { QuestBackground } from "./quest-background";
-export { reducedMotion, useReducedMotion } from "./motion";
 export { QuestLayer, QuestMarkers } from "./quest-layer";
 export { Dossier } from "./dossier";
 export { Transmission } from "./transmission";

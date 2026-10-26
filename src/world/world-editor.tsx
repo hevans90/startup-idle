@@ -45,7 +45,7 @@ export function WorldEditor() {
   const total = bandCount(grid.w, grid.h);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-gray-950 text-gray-100">
+    <div className="flex h-screen w-screen overflow-hidden bg-surface-0 text-fg">
       {/* canvas — min-width so the flex child can never collapse to zero,
           which is the failure mode that makes v1's map-harness look broken */}
       <div ref={setRef} className="relative min-h-0 min-w-[420px] flex-1">
@@ -68,42 +68,42 @@ export function WorldEditor() {
       </div>
 
       {/* chrome — sibling of the wrapper, so wheel events are its own */}
-      <aside className="w-72 shrink-0 overflow-y-auto border-l border-gray-800 bg-gray-950 p-4 text-xs">
+      <aside className="w-72 shrink-0 overflow-y-auto border-l border-line-quiet bg-surface-0 p-4 text-xs">
         {/* WHERE THE TITLE WAS. A panel does not need to say which panel it
             is; the seed is the thing worth writing down. @see SeedControls */}
         <SeedControls />
 
         <dl className="grid grid-cols-2 gap-y-1 font-mono">
-          <dt className="text-gray-400">size</dt>
+          <dt className="text-fg-muted">size</dt>
           <dd>
             {grid.w}×{grid.h}
           </dd>
-          <dt className="text-gray-400">cells</dt>
+          <dt className="text-fg-muted">cells</dt>
           <dd>{(grid.w * grid.h).toLocaleString()}</dd>
-          <dt className="text-gray-400">bands</dt>
+          <dt className="text-fg-muted">bands</dt>
           <dd>{total}</dd>
-          <dt className="text-gray-400">drawn</dt>
+          <dt className="text-fg-muted">drawn</dt>
           <dd
             className={
-              drawnBands < total ? "text-emerald-400" : "text-gray-100"
+              drawnBands < total ? "text-good" : "text-fg"
             }
           >
             {drawnBands}{" "}
-            <span className="text-gray-500">
+            <span className="text-fg-muted">
               ({total ? Math.round((drawnBands / total) * 100) : 0}%)
             </span>
           </dd>
-          <dt className="text-gray-400">height</dt>
+          <dt className="text-fg-muted">height</dt>
           <dd>
             {grid.minHeight}…{grid.maxHeight}
           </dd>
-          <dt className="text-gray-400">hover</dt>
-          <dd className={hover ? "text-emerald-300" : "text-gray-600"}>
+          <dt className="text-fg-muted">hover</dt>
+          <dd className={hover ? "text-good" : "text-fg-muted"}>
             {hover ? `${hover.x},${hover.y}` : "—"}
           </dd>
         </dl>
 
-        <p className="mt-4 mb-1 text-gray-400">overlays</p>
+        <p className="mt-4 mb-1 text-fg-muted">overlays</p>
         <div className="flex flex-wrap gap-1">
           {(
             [
@@ -125,8 +125,8 @@ export function WorldEditor() {
               onClick={() => toggleOverlay(k)}
               className={`cursor-pointer rounded border px-2 py-1 font-mono ${
                 overlays[k]
-                  ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
-                  : "border-gray-700 bg-gray-900 text-gray-400 hover:bg-gray-800"
+                  ? "border-good bg-good/20 text-good"
+                  : "border-line bg-surface-1 text-fg-muted hover:bg-surface-2"
               }`}
             >
               {k}
@@ -140,14 +140,14 @@ export function WorldEditor() {
           <TileBrowser />
         </div>
 
-        <p className="mt-4 mb-1 text-gray-400">minimap</p>
+        <p className="mt-4 mb-1 text-fg-muted">minimap</p>
         <Minimap />
 
         <div className="mt-4">
           <Calibration />
         </div>
 
-        <p className="mt-6 leading-relaxed text-gray-500">
+        <p className="mt-6 leading-relaxed text-fg-muted">
           Left-drag paints; while a paint tool is active, pan with middle or
           right button. <span className="font-mono">⌘Z</span> /{" "}
           <span className="font-mono">⇧⌘Z</span> undo and redo — a whole drag is

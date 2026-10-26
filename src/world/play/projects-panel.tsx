@@ -8,6 +8,7 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 
 import { useTicking } from "../../hooks/use-ticking";
+import { Button, Segmented } from "../../ui/console";
 import { twMerge } from "tailwind-merge";
 
 import {
@@ -27,13 +28,8 @@ import { builtProjects, materialCap, siteOf, STALL_GRACE } from "../projects/wor
 import { hasRiver } from "../boats/river";
 import { structureDef } from "../structures/def";
 
-const CARD =
-  "w-72 border border-primary-400 bg-primary-50/95 p-2 text-xs text-primary-900 shadow "
-  + "dark:border-primary-600 dark:bg-primary-900/95 dark:text-primary-100";
-const BTN =
-  "cursor-pointer border border-primary-400 px-2 py-1 hover:bg-primary-200 pointer-coarse:min-h-11 "
-  + "dark:border-primary-600 dark:hover:bg-primary-800";
-const ON = "bg-primary-300 dark:bg-primary-700";
+/** The map's docks: a raised surface, a quiet line. */
+const CARD = "w-72 border border-line-quiet bg-surface-1/95 p-2.5 text-xs text-fg shadow-lg backdrop-blur-sm";
 
 /** "45 seconds", "2 minutes". */
 const formatDuration = (s: number) =>
@@ -42,8 +38,8 @@ const formatDuration = (s: number) =>
 
 function Bar({ value, className }: { value: number; className?: string }) {
   return (
-    <div className={twMerge("h-2 w-full bg-primary-200 dark:bg-primary-800", className)}>
-      <div className="h-full bg-emerald-600 dark:bg-emerald-400" style={{ width: `${Math.round(Math.min(1, value) * 100)}%` }} />
+    <div className={twMerge("h-1 w-full bg-surface-3", className)}>
+      <div className="h-full bg-good" style={{ width: `${Math.round(Math.min(1, value) * 100)}%` }} />
     </div>
   );
 }
@@ -99,28 +95,30 @@ export function ProjectsPanel({ className }: { className?: string }) {
     <div className={twMerge("flex max-h-[75%] w-72 flex-col gap-2", className)}>
       {pit && <SlopPitCard />}
       {(open.length > 0 || busy) && (
-        <div className={twMerge(CARD, "flex min-h-0 flex-col p-0")}>
+        <div className={twMerge(CARD, "flex min-h-0 w-full flex-col p-0")}>
           <button type="button" onClick={() => setOpen(!isOpen)} data-hint="projects"
             className={twMerge(
-              "flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-left hover:bg-primary-100 dark:hover:bg-primary-800",
+              "flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-left hover:bg-surface-2",
               !isOpen && fresh.length > 0 && "animate-pulse",
             )}
             title={isOpen ? "Fold the projects log away" : "Open the projects log"}>
-            <b className="flex-1">Projects</b>
+            <span className="flex flex-1 items-center gap-2 font-display text-xs uppercase tracking-widest">
+              <span aria-hidden className="h-3 w-0.5 bg-console" />Projects
+            </span>
             {fresh.length > 0 && !isOpen && (
-              <span className="bg-emerald-600 px-1.5 text-[10px] font-bold uppercase text-white dark:bg-emerald-500 dark:text-primary-950">
+              <span className="bg-good px-1.5 text-[10px] font-bold uppercase text-white">
                 {fresh.length} new
               </span>
             )}
-            <span className="tabular-nums text-primary-600 dark:text-primary-400">
+            <span className="tabular-nums text-fg-muted">
               {going.length > 0 && `${going.length} building`}
               {going.length > 0 && available.length > 0 && " · "}
               {available.length > 0 && `${available.length} ready`}
             </span>
-            <span aria-hidden className="text-primary-500">{isOpen ? "▾" : "▸"}</span>
+            <span aria-hidden className="text-fg-muted">{isOpen ? "▾" : "▸"}</span>
           </button>
           {isOpen && (
-            <div className="flex min-h-0 flex-col gap-2 overflow-y-auto border-t border-primary-200 p-2 dark:border-primary-700">
+            <div className="flex min-h-0 flex-col gap-2 overflow-y-auto border-t border-line-quiet p-2">
               {/* What can be started, first and untitled: the cards say it. */}
               {available.map((p) => <ProjectCard key={p.id} next={p} className={IN_LOG} />)}
               {busy && <LogSection title="In progress">
@@ -128,7 +126,7 @@ export function ProjectsPanel({ className }: { className?: string }) {
               </LogSection>}
               {next.length > 0 && <LogSection title="Up next">
                 {next.map((p) => (
-                  <div key={p.id} className="flex items-start justify-between gap-2 text-primary-700 dark:text-primary-300">
+                  <div key={p.id} className="flex items-start justify-between gap-2 text-fg-muted">
                     <span>{p.name}</span>
                     <GateChips project={p} />
                   </div>
@@ -148,7 +146,7 @@ const IN_LOG = "w-full border-0 bg-transparent p-0 shadow-none dark:bg-transpare
 function LogSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-primary-500">{title}</p>
+      <p className="text-[10px] uppercase tracking-widest text-fg-muted">{title}</p>
       {children}
     </section>
   );
@@ -166,46 +164,41 @@ export function SlopPitCard() {
   const trucks = ev?.choices.find((c) => c.id === "trucks");
   const pit = useWorldStore((s) => [...s.grid.structures.values()].find((x) => x.def === "slop-pit"));
   return (
-    <div className={twMerge(SMALL, ev?.phase === "active" ? "border-red-500 dark:border-red-400" : ev ? "border-amber-500 dark:border-amber-400" : "")}>
+    <div className={twMerge(SMALL, ev?.phase === "active" ? "border-bad" : ev ? "border-warn" : "")}>
       <div className="flex items-center gap-1.5">
         <button type="button" disabled={!pit} onClick={() => pit && showMe({ x: pit.x + 1, y: pit.y + 1 })}
           className="cursor-pointer font-bold disabled:cursor-default">Slop pit</button>
-        <div className="h-1.5 flex-1 bg-primary-200 dark:bg-primary-800">
-          <div className={twMerge("h-full", fill > 50 ? "bg-red-600 dark:bg-red-400" : "bg-lime-600 dark:bg-lime-400")}
+        <div className="h-1 flex-1 bg-surface-3">
+          <div className={twMerge("h-full", fill > 50 ? "bg-bad" : "bg-good")}
             style={{ width: `${Math.min(100, fill)}%` }} />
         </div>
         <span className="tabular-nums">{Math.floor(fill)}%</span>
-        {penalty > 0 && <span className="tabular-nums text-red-700 dark:text-red-400">−{penalty}%</span>}
-        <button type="button" disabled={fill < 1}
+        {penalty > 0 && <span className="tabular-nums text-bad">−{penalty}%</span>}
+        <Button size="sm" disabled={fill < 1}
           onClick={() => (ev ? respond(ev.id, "drain") : useSlopPitStore.getState().drain())}
-          className={BTN_SMALL} title="Empties the pit: −40 vibe coder morale">
+          title="Empties the pit: −40 vibe coder morale">
           Drain
-        </button>
+        </Button>
       </div>
       {ev && (
         <div className="mt-1 flex items-center gap-1">
           {ev.phase === "warning" && ev.strikesAt !== null && (
-            <span className="tabular-nums text-amber-700 dark:text-amber-400">full in {clock(ev.strikesAt - Date.now())}</span>
+            <span className="tabular-nums text-warn">full in {clock(ev.strikesAt - Date.now())}</span>
           )}
-          {ev.phase === "active" && <span className="text-red-700 dark:text-red-400">overflowing</span>}
+          {ev.phase === "active" && <span className="text-bad">overflowing</span>}
           <span className="flex-1" />
           {trucks && (
-            <button type="button" disabled={!!trucks.unavailable} onClick={() => respond(ev.id, "trucks")}
-              className={BTN_SMALL} title={trucks.unavailable ?? `Sludge trucks: ${trucks.cost}`}>
+            <Button size="sm" disabled={!!trucks.unavailable} onClick={() => respond(ev.id, "trucks")}
+              title={trucks.unavailable ?? `Sludge trucks: ${trucks.cost}`}>
               Trucks
-            </button>
+            </Button>
           )}
         </div>
       )}
     </div>
   );
 }
-const SMALL =
-  "w-56 border border-primary-400 bg-primary-50/95 px-2 py-1 text-[11px] text-primary-900 shadow "
-  + "dark:border-primary-600 dark:bg-primary-900/95 dark:text-primary-100";
-const BTN_SMALL =
-  "cursor-pointer border border-primary-400 px-1.5 hover:bg-primary-200 disabled:cursor-default disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-3 "
-  + "dark:border-primary-600 dark:hover:bg-primary-800";
+const SMALL = "w-56 border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-[11px] text-fg shadow-lg backdrop-blur-sm";
 
 /** One project's card: its site to choose, or how it is going. */
 export function ProjectCard({ next, className }: { next: ProjectDef; className?: string }) {
@@ -226,26 +219,26 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
     const income = useGeneratorStore.getState().getMoneyPerSecond();
     return (
       <div className={twMerge(CARD, className)}>
-        <p><b>{next.name}</b></p>
-        <p className="text-primary-700 dark:text-primary-300">{opensText(next)}</p>
-        <p className="tabular-nums text-primary-600 dark:text-primary-400"
+        <p className="font-bold">{next.name}</p>
+        <p className="text-fg-muted">{opensText(next)}</p>
+        <p className="tabular-nums text-fg-muted"
           title={next.founderBuilds ? undefined
             : `About ${formatDuration(next.incomeSeconds)} of income, fixed when you choose the site. Builders leave their desks while they build.`}>
           {next.founderBuilds ? "Free · you build it" : `${formatCurrency(projectCost(next, income))} · built by ${who}`}
         </p>
         {choosing ? (
           <div className="mt-1.5 flex items-center justify-between gap-2">
-            <span className="text-emerald-700 dark:text-emerald-400">
+            <span className="text-good">
               {structureDef(next.structure)?.placement?.nearRiver
                 ? `Beside a road, within ${structureDef(next.structure)!.placement!.nearRiver} tiles of the river`
                 : "Click beside a road"}
             </span>
-            <button type="button" className={BTN} onClick={() => placeProject(null)}>Cancel</button>
+            <Button size="sm" variant="quiet" onClick={() => placeProject(null)}>Cancel</Button>
           </div>
         ) : (
-          <button type="button" className={twMerge(BTN, "mt-1.5 w-full font-bold")} onClick={() => placeProject(next.id)}>
+          <Button variant="primary" className="mt-2 w-full font-bold" onClick={() => placeProject(next.id)}>
             Choose a site
-          </button>
+          </Button>
         )}
       </div>
     );
@@ -270,19 +263,16 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
         <span className="tabular-nums">{Math.floor((b.done / b.need) * 100)}%</span>
       </div>
       <Bar value={b.done / b.need} className="mt-1" />
-      <p className="mt-1 tabular-nums text-primary-700 dark:text-primary-300">
+      <p className="mt-1 tabular-nums text-fg-muted">
         {crew.working + crew.walking} building · {b.delivered}/{b.deliveries} loads
       </p>
-      {problem && <p className={stalledFor > 0 ? "text-red-700 dark:text-red-400" : "text-primary-600 dark:text-primary-400"}>{problem}</p>}
-      <div className="mt-1.5 flex gap-1"
+      {problem && <p className={stalledFor > 0 ? "text-bad" : "text-fg-muted"}>{problem}</p>}
+      <div className="mt-2 flex items-center justify-between gap-2"
         title={next.founderBuilds ? "You build it yourself."
           : `How much of the company builds: ${buildersFor(next, b.priority, owned, site.w * site.h)} of your ${who} now. Builders don't work at their desks.`}>
-        {PRIORITY_NAMES.map((name, k) => (
-          <button key={name} type="button" onClick={() => setPriority(site.id, k as Priority)}
-            className={twMerge(BTN, "flex-1 px-1", b.priority === k && ON)}>
-            {name}
-          </button>
-        ))}
+        <span className="text-[10px] uppercase tracking-widest text-fg-faint">Priority</span>
+        <Segmented label={`${next.name}: priority`} value={String(b.priority)} onChange={(v) => setPriority(site.id, Number(v) as Priority)}
+          options={PRIORITY_NAMES.map((name, k) => ({ value: String(k), label: name }))} />
       </div>
     </div>
   );

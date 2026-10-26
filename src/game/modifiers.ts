@@ -12,6 +12,7 @@
  */
 
 import { useFounderStore } from "../state/founder.store";
+import { termEffects } from "./term-deal";
 import { useInnovationStore } from "../state/innovation.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { fusionNow } from "./fusion";
@@ -438,8 +439,8 @@ export function computeHireCostMultipliers(
   tlMult: number;
 } {
   return {
-    // The skill tree, and HR fused into the founder. @see game/fusion
-    prestige: usePrestigeStore.getState().modifiers.hireCostMult * fusionNow().hireCostMult,
+    // The skill tree, HR fused into the founder, and the term sheet's option pool. @see game/fusion, term-deal
+    prestige: usePrestigeStore.getState().modifiers.hireCostMult * fusionNow().hireCostMult * termEffects().hireCostMult,
     juiceReduction: Math.min(
       0.9,
       useVapeAchievementsStore.getState().juiceHireCostReduction,

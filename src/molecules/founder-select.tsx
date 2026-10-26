@@ -8,17 +8,18 @@ import { MANDATES, useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { CURRENT_VERSION } from "../state/version.store";
 import { fmtMult } from "../ui/BonusRow";
-import { Button } from "../ui/Button";
+import { Button, Dialog } from "../ui/console";
+import { FounderCard } from "./founder-card";
+import { FoundingShell } from "./founding-shell";
 import { TermSheetSelect } from "./term-sheet-select";
-import { FusedTraits } from "./fused-traits";
+import { dealEffects } from "../game/term-deal";
+import { useMoneyStore } from "../state/money.store";
 import { fusedInto } from "../game/fusion";
 import { trait } from "../game/traits";
 import { useGenerationStore } from "../state/generation.store";
 import { ModelShop } from "./model-shop";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
-import { TenXDevText } from "../utils/ten-x-utils";
-import { RainbowText } from "../utils/vibe-utils";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
 import { useSessionStore } from "../state/session.store";
 
@@ -30,25 +31,10 @@ const MapSetup = lazy(() => import("../world/play/map-setup"));
 
 // ─── local helpers ────────────────────────────────────────────────────────────
 
-const SPLIT_RE = /(vibe coders?|10x devs?)/gi;
-
-function PerkText({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(SPLIT_RE).map((seg, i) => {
-        if (/^vibe coders?$/i.test(seg))
-          return <RainbowText key={i} text={seg} inline />;
-        if (/^10x devs?$/i.test(seg)) return <TenXDevText key={i} text={seg} />;
-        return <span key={i}>{seg}</span>;
-      })}
-    </>
-  );
-}
-
 function toneClass(tone: "good" | "bad" | "neutral"): string {
-  if (tone === "good") return "text-emerald-600 dark:text-emerald-400";
-  if (tone === "bad") return "text-rose-500 dark:text-rose-400";
-  return "text-cyan-600 dark:text-cyan-400";
+  if (tone === "good") return "text-good";
+  if (tone === "bad") return "text-bad";
+  return "text-innovation";
 }
 
 function PanelRow({
@@ -94,6 +80,7 @@ export const FounderSelect = () => {
   const [land, setLand] = useState<{ seed: number; params: Record<string, number> } | null>(null);
   const setMapChoice = useSessionStore((s) => s.setMapChoice);
   const setTermSheet = useSessionStore((s) => s.setTermSheet);
+  const setTermClauses = useSessionStore((s) => s.setTermClauses);
   const announce = useGenerationStore((s) => s.announce);
   const generation = useGenerationStore((s) => s.generation);
 
@@ -167,7 +154,7 @@ export const FounderSelect = () => {
 
   if (step === "land" && selected) {
     return (
-      <Suspense fallback={<div className="h-full w-full bg-primary-100 dark:bg-primary-900" />}>
+      <Suspense fallback={<div className="h-full w-full bg-surface-1" />}>
         <MapSetup
           founder={FOUNDERS.find((f) => f.id === selected)?.name ?? "you"}
           onBack={() => setStep("founder")}
@@ -178,205 +165,49 @@ export const FounderSelect = () => {
   }
   if (step === "terms" && selected && land) {
     return (
-      <TermSheetSelect seed={land.seed} onBack={() => setStep("land")}
-        onSign={(id) => {
+      <TermSheetSelect seed={land.seed} founder={FOUNDERS.find((f) => f.id === selected)?.name ?? "The founder"} onBack={() => setStep("land")}
+        onSign={(id, clauses) => {
           // The land first, so the company's map is made from it when it mounts.
           setMapChoice(land);
           setTermSheet(id);
+          setTermClauses(clauses);
           // Announced; a new company is under way.
           useGenerationStore.setState({ announce: null });
           chooseFounder(selected);
+          // THE INVESTMENT, wired in at signing, on top of the founder's own cash. @see term-deal
+          const cash = dealEffects(clauses).cash;
+          if (cash > 0) useMoneyStore.getState().increaseMoney(cash);
         }} />
     );
   }
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-primary-100 text-primary-900 dark:bg-primary-900 dark:text-primary-50">
-      {treeOpen && <SkillTreeOverlay onClose={() => setTreeOpen(false)} />}
-      {shopOpen && (
-        // THE MODEL'S SHOP, between companies: Weights spent before the next run. @see ModelShop
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShopOpen(false)}>
-          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto border border-violet-500 bg-primary-100 dark:bg-primary-900"
-            onClick={(e) => e.stopPropagation()}>
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-primary-300 bg-primary-100 px-3 py-2 dark:border-primary-700 dark:bg-primary-900">
-              <b className="text-[10px] uppercase tracking-widest text-violet-700 dark:text-violet-300">The Model</b>
-              <button type="button" onClick={() => setShopOpen(false)} aria-label="Close"
-                className="cursor-pointer px-1 text-primary-500 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-100">✕</button>
-            </div>
-            <ModelShop onOpenTree={() => { setShopOpen(false); setTreeOpen(true); }} />
-          </div>
-        </div>
-      )}
-
-      {/* ── Left: founder card grid ──────────────────────────── */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-8">
-        <div className="mb-6 text-center">
-          <h1 className="text-3xl font-bold sm:text-4xl">Startup Idle</h1>
-          <p className="mt-2 text-sm opacity-70">
-            Which type of shitlord tech bro are you?
-          </p>
-        </div>
-
-        {/* THE ASCENSION JUST MADE, said once. @see ascend */}
-        {announce && (
-          <div className="mx-auto mb-4 w-full max-w-4xl border border-violet-500 bg-violet-500/10 px-3 py-2 text-sm text-violet-800 dark:text-violet-200">
-            Generation {announce.generation} ascended: the AI became <b>{trait(announce.trait).name}</b>
-            {announce.mutated ? " (it mutated)" : ""}, fused into <b>{FOUNDERS.find((x) => x.id === announce.founder)?.name ?? announce.founder}</b>.
-            {" "}+{announce.weights} Weights. Generation {announce.generation + 1} begins.
-          </div>
-        )}
-
-        {/* WEIGHTS, to spend before the next company starts. @see ModelShop */}
-        {(generation > 1 || weights > 0) && (
-          <div className="mx-auto mb-4 flex w-full max-w-4xl items-center justify-between gap-3 border border-violet-500/50 bg-violet-500/5 px-3 py-2 text-sm">
-            <span>
-              Generation {generation} · <b className="tabular-nums text-violet-700 dark:text-violet-300">{weights}</b> Weights
-            </span>
-            <Button type="button" className="shrink-0 text-xs" onClick={() => setShopOpen(true)}>Spend Weights →</Button>
-          </div>
-        )}
-
-        <div className="mx-auto w-full max-w-4xl flex-1">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 [grid-auto-rows:1fr]">
-            {FOUNDERS.map((f) => {
-              const Icon = f.icon;
-              const isSel = selected === f.id;
-              const exitRecord = founderExits[f.id];
-              const exitCount = exitRecord?.count ?? 0;
-              // A founder fused with the AI is always playable. @see game/fusion
-              const isUnlocked =
-                !f.unlockCondition ||
-                f.unlockCondition.check(exits, bestExitValuation) ||
-                fusedInto(f.id).length > 0 ||
-                // THE MODEL, from the first Ascension. @see plans/singularity.md §4b
-                (f.id === "model" && generation > 1);
-
-              return (
-                <button
-                  key={f.id}
-                  type="button"
-                  disabled={!isUnlocked}
-                  onClick={() => isUnlocked && setSelected(f.id)}
-                  className={twMerge(
-                    "relative flex h-full flex-col overflow-hidden border p-4 text-left transition-colors",
-                    isUnlocked
-                      ? isSel
-                        ? "cursor-pointer border-emerald-600 bg-emerald-500/5"
-                        : "cursor-pointer border-primary-300 hover:border-primary-400 dark:border-primary-700 dark:hover:border-primary-500"
-                      : "cursor-not-allowed border-primary-300/40 dark:border-primary-700/40",
-                  )}
-                >
-                  <div className="flex items-start gap-2">
-                    <Icon size={26} stroke={1.6} className="mt-0.5 shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="font-bold leading-tight">{f.name}</div>
-                      <div className="text-xs italic opacity-60">
-                        {f.tagline}
-                      </div>
-                    </div>
-                    {isUnlocked && exitCount > 0 && (
-                      <div className="shrink-0 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold tabular-nums text-amber-600 dark:text-amber-400">
-                        {exitCount}×
-                      </div>
-                    )}
-                  </div>
-
-                  <ul className="mt-3 flex flex-1 flex-col gap-1 text-xs tabular-nums opacity-90">
-                    {f.perks(exitCount).map((p, i) => (
-                      <li key={i}>
-                        • <PerkText text={p} />
-                      </li>
-                    ))}
-                  </ul>
-
-                  {f.rule && (
-                    <p className="mt-2 border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-[11px] leading-snug text-sky-700 dark:text-sky-300">
-                      <span className="font-semibold">On the map:</span> {f.rule}
-                    </p>
-                  )}
-                  <FusedTraits founder={f.id} />
-
-                  <div className="mt-4 border-t border-primary-300 pt-2 text-xs font-semibold tabular-nums text-emerald-700 dark:border-primary-700 dark:text-emerald-400">
-                    Starts with ${f.startingCash}
-                  </div>
-
-                  <div className="mt-2 border border-violet-400/20 bg-violet-500/5 px-2 py-1.5 text-[10px] leading-snug text-violet-600 dark:text-violet-400">
-                    <span className="font-semibold">
-                      {f.scalingModifier.label}:
-                    </span>{" "}
-                    {f.scalingModifier.perExitDescription}
-                  </div>
-
-                  {!isUnlocked && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-primary-900/40 backdrop-blur dark:bg-primary-950/50">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="28"
-                        height="28"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="drop-shadow-md"
-                      >
-                        <rect
-                          x="3"
-                          y="11"
-                          width="18"
-                          height="11"
-                          rx="2"
-                          ry="2"
-                        />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </svg>
-                      <span className="px-4 text-center text-[11px] font-semibold leading-snug drop-shadow-sm">
-                        {f.unlockCondition!.label}
-                      </span>
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-8 flex flex-col items-center gap-3">
-            <Button
-              type="button"
-              disabled={selected == null}
-              className="px-6 py-3 text-base font-bold disabled:opacity-40"
-              onClick={() => selected && setStep("land")}
-            >
-              Next: choose your land →
-            </Button>
-            <span className="text-[11px] tabular-nums opacity-25">
-              v{CURRENT_VERSION}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Right: permanent bonuses panel ───────────────────── */}
-      {showPrestige && (
-        <aside className="hidden lg:flex w-72 xl:w-80 shrink-0 flex-col overflow-y-auto border-l border-primary-300/60 bg-primary-100/80 dark:border-primary-700/50 dark:bg-primary-800/50">
+    <FoundingShell
+      step="founder"
+      title="Startup Idle"
+      subtitle="Which type of shitlord tech bro are you?"
+      next={{ label: "Next: choose your land →", disabled: selected == null, onClick: () => selected && setStep("land") }}
+      foot={<>v{CURRENT_VERSION}</>}
+      // THE PERMANENT BONUSES, beside it on a wide screen.
+      aside={showPrestige ? (
+        <aside className="relative hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-line-quiet bg-surface-1 lg:flex xl:w-80">
           {/* sticky header */}
-          <div className="sticky top-0 z-10 flex items-center border-b border-primary-300/60 bg-primary-100/95 px-4 py-3 backdrop-blur-sm dark:border-primary-700/50 dark:bg-primary-800/95">
-            <span className="text-[10px] font-bold uppercase tracking-widest opacity-35">
-              Permanent Bonuses
-            </span>
+          <div className="sticky top-0 z-10 flex min-h-10 items-center border-b border-line-quiet bg-surface-2/60 px-4 backdrop-blur-sm">
+            <h2 className="flex items-center gap-2 font-display text-xs uppercase tracking-widest">
+              <span aria-hidden className="h-3 w-0.5 bg-console" />Permanent bonuses
+            </h2>
           </div>
 
           {/* equity + skill tree CTA */}
-          <div className="flex items-center justify-between gap-3 border-b border-primary-300/40 px-4 py-4 dark:border-primary-700/40">
+          <div className="flex items-center justify-between gap-3 border-b border-line/40 px-4 py-4">
             <div>
-              <p className="text-[9px] font-medium uppercase tracking-wider opacity-40">
+              <p className="text-[10px] font-medium uppercase tracking-wider opacity-40">
                 Equity
               </p>
-              <p className="mt-0.5 text-xl font-black tabular-nums text-amber-600 dark:text-amber-400 leading-none">
+              <p className="mt-0.5 text-xl font-black tabular-nums text-warn leading-none">
                 {formatCurrency(equity, { showDollarSign: false })}
               </p>
-              <p className="mt-1 text-[9px] tabular-nums opacity-30">
+              <p className="mt-1 text-[10px] tabular-nums opacity-30">
                 {exits} exit{exits !== 1 ? "s" : ""}
               </p>
             </div>
@@ -386,7 +217,7 @@ export const FounderSelect = () => {
               className={twMerge(
                 "shrink-0 text-xs transition-shadow",
                 hasPoints &&
-                  "animate-pulse ring-2 ring-amber-400 shadow-[0_0_18px_3px_rgba(251,191,36,0.6)]",
+                  "animate-pulse ring-2 ring-warn shadow-[0_0_18px_3px_var(--ui-warn-soft)]",
               )}
             >
               {hasPoints ? "Spend →" : "Skill tree"}
@@ -404,7 +235,7 @@ export const FounderSelect = () => {
                 acquisition tree.
               </p>
             ) : (
-              <div className="flex flex-col divide-y divide-black/[0.06] dark:divide-white/[0.06] text-[11px]">
+              <div className="flex flex-col divide-y divide-line-quiet text-[11px]">
                 {combinedMoneyMult !== 1 && (
                   <PanelRow
                     label="Money output"
@@ -510,7 +341,49 @@ export const FounderSelect = () => {
             )}
           </div>
         </aside>
+      ) : undefined}
+    >
+      {treeOpen && <SkillTreeOverlay onClose={() => setTreeOpen(false)} />}
+      {shopOpen && (
+        // THE MODEL'S SHOP, between companies: Weights spent before the next run. @see ModelShop
+        <Dialog title="The Model" kicker="Weights" tone="ai" wide onClose={() => setShopOpen(false)}>
+          <div className="-mx-5 max-h-[70vh] overflow-y-auto pb-1">
+            <ModelShop onOpenTree={() => { setShopOpen(false); setTreeOpen(true); }} />
+          </div>
+        </Dialog>
       )}
-    </div>
+
+      {/* THE ASCENSION JUST MADE, said once. @see ascend */}
+      {announce && (
+        <div className="mx-auto mb-4 w-full max-w-[110rem] border border-ai-line bg-ai-soft px-3 py-2 text-sm text-ai">
+          Generation {announce.generation} ascended: the AI became <b>{trait(announce.trait).name}</b>
+          {announce.mutated ? " (it mutated)" : ""}, fused into <b>{FOUNDERS.find((x) => x.id === announce.founder)?.name ?? announce.founder}</b>.
+          {" "}+{announce.weights} Weights. Generation {announce.generation + 1} begins.
+        </div>
+      )}
+
+      {/* WEIGHTS, to spend before the next company starts. @see ModelShop */}
+      {(generation > 1 || weights > 0) && (
+        <div className="mx-auto mb-4 flex w-full max-w-[110rem] items-center justify-between gap-3 border border-ai-line bg-ai-soft px-3 py-2 text-sm">
+          <span>
+            Generation {generation} · <b className="tabular-nums text-weights">{weights}</b> Weights
+          </span>
+          <Button size="sm" className="shrink-0" onClick={() => setShopOpen(true)}>Spend Weights →</Button>
+        </div>
+      )}
+
+      {/* AS MANY ACROSS AS FIT, a dossier at least 15rem wide: every founder in a row on a wide screen. */}
+      <div className="mx-auto w-full max-w-[110rem]">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 [grid-auto-rows:1fr]">
+            {FOUNDERS.map((f, i) => (
+              <FounderCard key={f.id} founder={f} index={i} exits={founderExits[f.id]?.count ?? 0}
+                selected={selected === f.id} onSelect={() => setSelected(f.id)}
+                // A founder fused with the AI is always playable; the Model, from the first Ascension. @see game/fusion
+                unlocked={!f.unlockCondition || f.unlockCondition.check(exits, bestExitValuation) || fusedInto(f.id).length > 0 || (f.id === "model" && generation > 1)} />
+            ))}
+          </div>
+
+      </div>
+    </FoundingShell>
   );
 };

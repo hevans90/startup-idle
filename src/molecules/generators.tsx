@@ -1,6 +1,10 @@
 import { useFounderStore } from "../state/founder.store";
-import { useGeneratorStore } from "../state/generators.store";
+import { IconCode, IconHeadphones, IconSchool, IconUser } from "@tabler/icons-react";
+import { KIND_COLOUR } from "../game/kind-colours";
+import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { usePrestigeStore } from "../state/prestige.store";
+import { twMerge } from "tailwind-merge";
+import { FOCUS, Panel, PopCard, PopGroup, PopRow, POPOVER_BARE } from "../ui/console";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { fmtMult } from "../ui/BonusRow";
 import { formatCurrency } from "../utils/money-utils";
@@ -9,26 +13,22 @@ import { RainbowText } from "../utils/vibe-utils";
 import { GeneratorBuyButton } from "./generator-buy-button";
 import { AgentsRow } from "./agents-row";
 
-const PopRow = ({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string;
-  color?: string;
-}) => (
-  <div className="flex items-center justify-between gap-3">
-    <span
-      className={`responsive-text-xs grow ${color ?? "text-primary-500 dark:text-primary-300"}`}
-    >
-      {label}
-    </span>
-    <span className={`responsive-text-xs ${color ?? ""}`}>{value}</span>
-  </div>
-);
 
-export const Generators = ({ isMobile }: { isMobile: boolean }) => {
+/** WHO THEY ARE, AT A GLANCE: their kind's icon on their map colour. @see KIND_COLOUR */
+const KIND_ICON: Record<string, typeof IconSchool> = { intern: IconSchool, vibe_coder: IconHeadphones, "10x_dev": IconCode };
+function KindMark({ id }: { id: string }) {
+  const Icon = KIND_ICON[id] ?? IconUser;
+  const c = KIND_COLOUR[id as GeneratorId];
+  const hex = c === undefined ? "var(--ui-fg-muted)" : `#${c.toString(16).padStart(6, "0")}`;
+  return (
+    <span aria-hidden className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center border"
+      style={{ borderColor: hex, color: hex, background: `color-mix(in oklab, ${hex} 14%, transparent)` }}>
+      <Icon size={14} stroke={1.8} />
+    </span>
+  );
+}
+
+export const Generators = () => {
   const generators = useGeneratorStore((s) => s.generators);
   // Full multiplier chain (globals + founder passives), so the displayed output
   // matches actual earnings.
@@ -46,38 +46,13 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
   const headcountMult = 1 + headcountPerEmployee * totalEmployees;
   const equityHeadcountMult = 1 + prestige.headcountPerEmployee * totalEmployees;
 
-  return isMobile ? (
-    <div className="flex flex-row flex-wrap justify-center gap-2 px-2">
-      {generators.length === 0 && (
-        <p className="px-2 py-3 text-sm text-primary-600 dark:text-primary-300">
-          No one to hire yet. Build your Founder's Garage on the map, and you can hire your first intern.
-        </p>
-      )}
-      {generators.map((gen) => (
-        <div
-          key={gen.id}
-          className="min-w-48 flex flex-col gap-2 items-center border-[1px] border-primary-300 dark:border-primary-600 px-3 py-2"
-        >
-          {gen.name} - {gen.amount}
-          <div className="flex items-center">
-            <span className="responsive-text-xs text-primary-400">
-              {formatCurrency(genMps(gen.id, gen.amount))}/s
-            </span>
-          </div>
-          <GeneratorBuyButton id={gen.id} />
-          <span className="responsive-text-xs text-primary-400">
-            {formatCurrency(genMps(gen.id, 1))}/s
-          </span>
-        </div>
-      ))}
-      <AgentsRow isMobile />
-    </div>
-  ) : (
-    <div className="flex flex-col">
+  return (
+    <Panel title="Employees" className="mx-2">
+    <div className="-mx-2 flex flex-col">
       {/* NOBODY TO HIRE YET: the first hire waits on the founder's garage,
           built on the map. @see game/projects */}
       {generators.length === 0 && (
-        <p className="px-2 py-3 text-sm text-primary-600 dark:text-primary-300">
+        <p className="px-2 py-3 text-sm text-fg-muted">
           No one to hire yet. Build your Founder's Garage on the map, and you can hire your first intern.
         </p>
       )}
@@ -86,8 +61,10 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
           <PopoverTrigger asChild>
             <div
               key={gen.id}
-              className="flex responsive-text-sm justify-between items-center hover:cursor-help hover:bg-primary-300 dark:hover:bg-primary-800 py-1 px-2"
+              tabIndex={0}
+              className={twMerge("flex responsive-text-sm items-center gap-1 px-2 py-1 hover:cursor-help hover:bg-surface-2", FOCUS)}
             >
+              <KindMark id={gen.id} />
               {gen.id === "vibe_coder" ? (
                 <RainbowText className="grow" text={gen.name} />
               ) : gen.id === "10x_dev" ? (
@@ -96,83 +73,90 @@ export const Generators = ({ isMobile }: { isMobile: boolean }) => {
                 <span className="grow">{gen.name}</span>
               )}
 
-              <span className="w-1/4 text-center">{gen.amount}</span>
+              <span className="w-12 text-right tabular-nums">{gen.amount}</span>
+              <span className="w-20 text-right text-xs tabular-nums text-fg-muted" title="What they all earn">
+                {formatCurrency(genMps(gen.id, gen.amount))}/s
+              </span>
               <GeneratorBuyButton
                 id={gen.id}
-                className="w-1/2 responsive-text-xs"
+                className="ml-2 w-2/5 responsive-text-xs"
               />
             </div>
           </PopoverTrigger>
 
-          <PopoverContent className="outline-none focus:ring-0 bg-primary-300 dark:bg-primary-800 p-2 flex flex-col gap-1 min-w-44">
-            <PopRow label="total" value={`${formatCurrency(genMps(gen.id, gen.amount))}/s`} />
-            <div className="border-b border-primary-400 pb-2">
-              <PopRow label="per" value={`${formatCurrency(genMps(gen.id, 1))}/s`} />
-            </div>
-            <PopRow label="base production" value={formatCurrency(gen.baseProduction)} />
-            <PopRow label="multiplier" value={fmtMult(gen.multiplier)} />
+          <PopoverContent className={POPOVER_BARE}>
+            <PopCard title={gen.name} value={`${formatCurrency(genMps(gen.id, gen.amount))}/s`} tone="money" className="w-72"
+              foot={<>Each earns {formatCurrency(genMps(gen.id, 1))}/s.</>}>
+              <PopGroup label="Output">
+            <PopRow label="Base production" value={formatCurrency(gen.baseProduction)} />
+            <PopRow label="Multiplier" value={fmtMult(gen.multiplier)} />
             {(founderGenMoneyMult[gen.id] ?? 1) !== 1 && (
               <PopRow
-                label="founder"
+                label="Founder"
                 value={fmtMult(founderGenMoneyMult[gen.id] ?? 1)}
-                color="text-emerald-700 dark:text-emerald-400"
+                valueClass="text-good"
               />
             )}
             {headcountMult !== 1 && (
               <PopRow
-                label="founder headcount"
+                label="Founder headcount"
                 value={fmtMult(headcountMult)}
-                color="text-emerald-700 dark:text-emerald-400"
+                valueClass="text-good"
               />
             )}
             {prestige.moneyMult !== 1 && (
               <PopRow
-                label="equity money"
+                label="Equity money"
                 value={fmtMult(prestige.moneyMult)}
-                color="text-cyan-700 dark:text-cyan-400"
+                valueClass="text-innovation"
               />
             )}
             {prestige.employeeOutputMult !== 1 && (
               <PopRow
-                label="equity output"
+                label="Equity output"
                 value={fmtMult(prestige.employeeOutputMult)}
-                color="text-cyan-700 dark:text-cyan-400"
+                valueClass="text-innovation"
               />
             )}
             {equityHeadcountMult !== 1 && (
               <PopRow
-                label="equity headcount"
+                label="Equity headcount"
                 value={fmtMult(equityHeadcountMult)}
-                color="text-cyan-700 dark:text-cyan-400"
+                valueClass="text-innovation"
               />
             )}
             {gen.id === "intern" && prestige.internOutputMult !== 1 && (
               <PopRow
                 label="AGI-pilled"
                 value={fmtMult(prestige.internOutputMult)}
-                color="text-rose-600 dark:text-rose-400"
+                valueClass="text-bad"
               />
             )}
-            <PopRow label="cost multiplier" value={gen.costMultiplier.toFixed(2)} />
-            <PopRow label="cost exponent" value={gen.costExponent.toFixed(2)} />
+              </PopGroup>
+              <PopGroup label="Hiring cost">
+            <PopRow label="Cost multiplier" value={gen.costMultiplier.toFixed(2)} />
+            <PopRow label="Cost exponent" value={gen.costExponent.toFixed(2)} />
             {costExponentReduction !== 0 && (
               <PopRow
-                label="founder exponent"
+                label="Founder exponent"
                 value={`−${costExponentReduction.toFixed(3)}`}
-                color="text-emerald-700 dark:text-emerald-400"
+                valueClass="text-good"
               />
             )}
             {prestige.hireCostMult !== 1 && (
               <PopRow
-                label="equity cost"
+                label="Equity cost"
                 value={fmtMult(prestige.hireCostMult)}
-                color="text-cyan-700 dark:text-cyan-400"
+                valueClass="text-innovation"
               />
             )}
+              </PopGroup>
+            </PopCard>
           </PopoverContent>
         </Popover>
       ))}
-      <AgentsRow isMobile={false} />
+      <AgentsRow />
     </div>
+    </Panel>
   );
 };

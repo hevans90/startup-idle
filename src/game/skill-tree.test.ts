@@ -356,10 +356,10 @@ describe("town perks", () => {
     expect(byTitle.get("Company Town")!.special).toBeUndefined();
   });
 
-  test("three more bring rules: a shipping route, quick repairs, a fourth term sheet", () => {
+  test("three more bring rules: a shipping route, quick repairs, a fifth term sheet", () => {
     const byTitle = new Map(SKILL_TREE.nodes.map((n) => [n.title, n]));
-    expect(resolvePrestigeModifiers([])).toMatchObject({ startingRoutes: 0, repairMult: 1, termSheets: 3 });
+    expect(resolvePrestigeModifiers([])).toMatchObject({ startingRoutes: 0, repairMult: 1, termSheets: 4 });
     const m = resolvePrestigeModifiers(["Conglomerate", "Open Core", "Founder Worship"].map((t) => byTitle.get(t)!.id));
-    expect(m).toMatchObject({ startingRoutes: 1, repairMult: 2, termSheets: 4 });
+    expect(m).toMatchObject({ startingRoutes: 1, repairMult: 2, termSheets: 5 });
   });
 });

@@ -25,8 +25,8 @@ const priceOf = (defId: string) => {
 };
 
 const BTN = "cursor-pointer rounded border px-2 py-1 font-mono";
-const ON = "border-emerald-500 bg-emerald-500/20 text-emerald-300";
-const OFF = "border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800";
+const ON = "border-good bg-good/20 text-good";
+const OFF = "border-line bg-surface-1 text-fg-muted hover:bg-surface-2";
 
 const TOOLS: [ToolId, string][] = [
   ["paintTerrain", "paint (b)"],
@@ -192,7 +192,7 @@ export function EditPanel() {
 
   return (
     <>
-      <p className="mt-4 mb-1 text-gray-400">tool</p>
+      <p className="mt-4 mb-1 text-fg-muted">tool</p>
       <div className="flex flex-wrap gap-1">
         {TOOLS.map(([id, label]) => (
           <button key={id} type="button" onClick={() => setTool(id)}
@@ -200,7 +200,7 @@ export function EditPanel() {
         ))}
       </div>
 
-      <p className="mt-3 mb-1 text-gray-400">height</p>
+      <p className="mt-3 mb-1 text-fg-muted">height</p>
       <div className="flex flex-wrap gap-1">
         {HEIGHT_UI.map(([id, label]) => (
           <button key={id} type="button" onClick={() => setTool(id)}
@@ -208,20 +208,20 @@ export function EditPanel() {
         ))}
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-1">
-        <span className="mr-1 text-gray-500 dark:text-gray-500">step</span>
+        <span className="mr-1 text-fg-muted">step</span>
         {STEPS.map(([n, label]) => (
           <button key={n} type="button" onClick={() => setHeightStep(n)}
             className={`${BTN} ${heightStep === n ? ON : OFF}`}>{label}</button>
         ))}
       </div>
 
-      <p className="mt-3 mb-1 text-gray-400">road</p>
+      <p className="mt-3 mb-1 text-fg-muted">road</p>
       <div className="flex flex-wrap items-center gap-1">
         <button type="button" onClick={() => setTool("paintRoad")}
           className={`${BTN} ${tool === "paintRoad" ? ON : OFF}`}>pave (p)</button>
         <button type="button" onClick={() => setTool("eraseRoad")}
           className={`${BTN} ${tool === "eraseRoad" ? ON : OFF}`}>unpave (o)</button>
-        <span className="ml-1 text-gray-500 dark:text-gray-500">
+        <span className="ml-1 text-fg-muted">
           {netComponents} network{netComponents === 1 ? "" : "s"}
         </span>
       </div>
@@ -233,7 +233,7 @@ export function EditPanel() {
           className={`${BTN} ${tool === "unslope" ? ON : OFF}`}>unslope (i)</button>
       </div>
 
-      <p className="mt-3 mb-1 text-gray-400">water</p>
+      <p className="mt-3 mb-1 text-fg-muted">water</p>
       <div className="flex flex-wrap items-center gap-1">
         <button type="button" onClick={() => setTool("pourWater")}
           className={`${BTN} ${tool === "pourWater" ? ON : OFF}`}>pour (j)</button>
@@ -256,7 +256,7 @@ export function EditPanel() {
           <button key={index} type="button" onClick={() => setFluidMaterial(index)}
             className={`${BTN} ${fluidMaterial === index ? ON : OFF}`}>{material.name}</button>
         ))}
-        <span className="ml-1 text-gray-500 dark:text-gray-500">
+        <span className="ml-1 text-fg-muted">
           <WaterMeta />
           {springs > 0 && ` · ${springs} spring${springs === 1 ? "" : "s"}`}
           {sinks > 0 && ` · ${sinks} sink${sinks === 1 ? "" : "s"}`}
@@ -264,7 +264,7 @@ export function EditPanel() {
         </span>
       </div>
 
-      <p className="mt-3 mb-1 text-gray-400">structures</p>
+      <p className="mt-3 mb-1 text-fg-muted">structures</p>
       <div className="flex flex-wrap items-center gap-1">
         <button type="button" onClick={() => setTool("placeStructure")}
           className={`${BTN} ${tool === "placeStructure" ? ON : OFF}`}>build (n)</button>
@@ -276,14 +276,14 @@ export function EditPanel() {
           title="Play rules: housing needs road frontage and costs money"
           className={`${BTN} ${playing ? ON : OFF}`}>play rules</button>
       </div>
-      <div className="mt-1 text-gray-400">
+      <div className="mt-1 text-fg-muted">
         {beds.intern + beds.vibe_coder + beds["10x_dev"] === 0
           ? <span>no housing built</span>
           : (
             <span>
-              beds — intern <span className="text-gray-200">{beds.intern}</span>
-              {" · vibe "}<span className="text-gray-200">{beds.vibe_coder}</span>
-              {" · 10x "}<span className="text-gray-200">{beds["10x_dev"]}</span>
+              beds — intern <span className="text-fg">{beds.intern}</span>
+              {" · vibe "}<span className="text-fg">{beds.vibe_coder}</span>
+              {" · 10x "}<span className="text-fg">{beds["10x_dev"]}</span>
             </span>
           )}
       </div>
@@ -295,7 +295,7 @@ export function EditPanel() {
         ))}
       </div>
 
-      <p className="mt-3 mb-1 text-gray-400">brush</p>
+      <p className="mt-3 mb-1 text-fg-muted">brush</p>
       <div className="flex flex-wrap gap-1">
         {BRUSHES.map(([id, label]) => (
           <button key={id} type="button" onClick={() => setBrush(id)}
@@ -303,7 +303,7 @@ export function EditPanel() {
         ))}
       </div>
 
-      <p className="mt-3 mb-1 text-gray-400">brush size</p>
+      <p className="mt-3 mb-1 text-fg-muted">brush size</p>
       <div className="flex flex-wrap gap-1">
         {SIZES.map(([r, label]) => (
           <button key={r} type="button" onClick={() => setBrushRadius(r)}
@@ -311,7 +311,7 @@ export function EditPanel() {
         ))}
       </div>
 
-      <p className="mt-3 mb-1 text-gray-400">material</p>
+      <p className="mt-3 mb-1 text-fg-muted">material</p>
       <div className="flex flex-wrap gap-1">
         {palette.map((frame, i) =>
           i === VOID_MATERIAL ? null : (
@@ -323,26 +323,26 @@ export function EditPanel() {
         )}
       </div>
 
-      <p className="mt-3 mb-1 text-gray-400">history</p>
+      <p className="mt-3 mb-1 text-fg-muted">history</p>
       <div className="flex flex-wrap gap-1">
         <button type="button" onClick={doUndo} disabled={!undoDepth}
           title={undoName ?? undefined}
-          className={`${BTN} ${undoDepth ? OFF : "border-gray-800 bg-gray-900 text-gray-600"}`}>
+          className={`${BTN} ${undoDepth ? OFF : "border-line-quiet bg-surface-1 text-fg-faint"}`}>
           undo {undoDepth ? `(${undoDepth})` : ""}
         </button>
         <button type="button" onClick={doRedo} disabled={!redoDepth}
           title={redoName ?? undefined}
-          className={`${BTN} ${redoDepth ? OFF : "border-gray-800 bg-gray-900 text-gray-600"}`}>
+          className={`${BTN} ${redoDepth ? OFF : "border-line-quiet bg-surface-1 text-fg-faint"}`}>
           redo {redoDepth ? `(${redoDepth})` : ""}
         </button>
       </div>
       {undoName && (
-        <p className="mt-1 truncate font-mono text-gray-500" title={undoName}>
+        <p className="mt-1 truncate font-mono text-fg-muted" title={undoName}>
           last: {undoName}
         </p>
       )}
 
-      <p className="mt-3 mb-1 text-gray-400">map</p>
+      <p className="mt-3 mb-1 text-fg-muted">map</p>
       <div className="flex flex-wrap gap-1">
         <button type="button" onClick={save} className={`${BTN} ${OFF}`}>save</button>
         <button type="button" onClick={() => fileRef.current?.click()} className={`${BTN} ${OFF}`}>
@@ -367,7 +367,7 @@ export function EditPanel() {
       {/* A BLANK map at this size, for authoring — and the generator's size is
           set to match, or pressing generate afterwards would quietly hand back
           a map of a different size from the one just chosen. @see GenParams */}
-      <p className="mt-3 mb-1 text-gray-400">size</p>
+      <p className="mt-3 mb-1 text-fg-muted">size</p>
       <div className="flex flex-wrap gap-1">
         {[16, 32, DEFAULT_SIZE, 96].map((n) => (
           <button key={n} type="button"
@@ -376,7 +376,7 @@ export function EditPanel() {
         ))}
       </div>
 
-      <p className="mt-3 mb-1 text-gray-400">terrain fixture</p>
+      <p className="mt-3 mb-1 text-fg-muted">terrain fixture</p>
       <div className="flex flex-wrap gap-1">
         {FIXTURES.map(([id, label]) => (
           <button key={id} type="button" onClick={() => applyFixture(id)}

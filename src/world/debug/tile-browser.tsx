@@ -81,8 +81,8 @@ export function TileBrowser() {
 
   return (
     <div>
-      <p className="mb-1 text-gray-400">
-        tiles <span className="text-gray-600">
+      <p className="mb-1 text-fg-muted">
+        tiles <span className="text-fg-muted">
           ({filtered.length}{filtered.length !== entries.length ? ` of ${entries.length}` : ""})
         </span>
       </p>
@@ -91,8 +91,8 @@ export function TileBrowser() {
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="search frames…"
-        className="mb-1 w-full rounded border border-gray-700 bg-gray-900 px-2 py-1
-                   font-mono text-gray-200 placeholder:text-gray-600"
+        className="mb-1 w-full rounded border border-line bg-surface-1 px-2 py-1
+                   font-mono text-fg placeholder:text-fg-muted"
       />
 
       <div className="mb-1 flex flex-wrap gap-1">
@@ -100,8 +100,8 @@ export function TileBrowser() {
           <button key={s} type="button" onClick={() => setSheet(s)}
             className={`cursor-pointer rounded border px-1.5 py-0.5 font-mono ${
               sheet === s
-                ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
-                : "border-gray-700 bg-gray-900 text-gray-400 hover:bg-gray-800"
+                ? "border-good bg-good/20 text-good"
+                : "border-line bg-surface-1 text-fg-muted hover:bg-surface-2"
             }`}>{s}</button>
         ))}
       </div>
@@ -110,8 +110,8 @@ export function TileBrowser() {
           <button key={s} type="button" onClick={() => setSize(s)}
             className={`cursor-pointer rounded border px-1.5 py-0.5 font-mono ${
               size === s
-                ? "border-sky-500 bg-sky-500/20 text-sky-300"
-                : "border-gray-700 bg-gray-900 text-gray-400 hover:bg-gray-800"
+                ? "border-info bg-info/20 text-info"
+                : "border-line bg-surface-1 text-fg-muted hover:bg-surface-2"
             }`}>{s}</button>
         ))}
       </div>
@@ -119,7 +119,7 @@ export function TileBrowser() {
       <div
         ref={scroller}
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
-        className="overflow-y-auto rounded border border-gray-800 bg-gray-950/60"
+        className="overflow-y-auto rounded border border-line-quiet bg-surface-0/60"
         style={{ height: VIEW_H }}
       >
         {/* spacer keeps the scrollbar honest while only a window is rendered */}
@@ -139,12 +139,12 @@ export function TileBrowser() {
                   title={e.name}
                   onClick={() => selectFrame(e.name)}
                   className={`flex cursor-pointer flex-col items-center justify-end rounded border p-0.5 ${
-                    on ? "border-emerald-400 bg-emerald-500/20" : "border-transparent hover:bg-gray-800"
+                    on ? "border-good bg-good/20" : "border-transparent hover:bg-surface-2"
                   }`}
                   style={{ height: ROW_H - 2 }}
                 >
                   <div style={sizes[e.sheetUrl] ? thumbStyle(e, BOX, sizes[e.sheetUrl]) : { width: BOX, height: BOX }} />
-                  <span className="font-mono text-[9px] leading-none text-gray-500">{e.label}</span>
+                  <span className="font-mono text-[9px] leading-none text-fg-muted">{e.label}</span>
                 </button>
               );
             })}
@@ -153,7 +153,7 @@ export function TileBrowser() {
       </div>
 
       {activeFrame && (
-        <p className="mt-1 truncate font-mono text-emerald-300" title={activeFrame}>
+        <p className="mt-1 truncate font-mono text-good" title={activeFrame}>
           painting: {activeFrame}
         </p>
       )}

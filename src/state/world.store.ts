@@ -8,6 +8,7 @@
  * @see startAutosave, loadSaved
  */
 import { aiActing, aiDistrict, aiHoldsRoads, inDistrict } from "../world/ai/district";
+import { report } from "./comms.store";
 import { onAiSite, playerShare } from "../world/ai/arc-rules";
 import { spendWallet } from "../world/ai/wallet";
 import { stageOf, useAiSingularityStore } from "./ai-singularity.store";
@@ -837,9 +838,16 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   wondersOpen: false,
   setWondersOpen: (wondersOpen) => set({ wondersOpen }),
   aiReport: null,
-  setAiReport: (aiReport) => set({ aiReport }),
+  // INTO COMMS: what it did while you were out, up till dismissed; each memo, a report from the AI. @see comms.store
+  setAiReport: (aiReport) => {
+    set({ aiReport });
+    if (aiReport?.length) report("", { from: "ai", title: "While you were out, the AI", lines: aiReport, sticky: true });
+  },
   aiMemos: [],
-  pushAiMemo: (text) => set((s) => ({ aiMemos: [...s.aiMemos, { text, at: Date.now() }].slice(-3) })),
+  pushAiMemo: (text) => {
+    set((s) => ({ aiMemos: [...s.aiMemos, { text, at: Date.now() }].slice(-3) }));
+    report(text, { from: "ai", title: "Memo from the AI" });
+  },
   dismissAiMemos: () => set({ aiMemos: [] }),
   notice: null,
   lastBuild: null,

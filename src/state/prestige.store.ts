@@ -68,6 +68,8 @@ type PrestigeState = {
   respecPath: (id: string) => void;
   /** Spend 1 Exit for RESPECS_PER_EXIT respec points. */
   buyRespecs: () => void;
+  /** Spend an Exit on something else — a reroll of the investors at founding. False if there is none to spend. @see TermSheetSelect */
+  spendExit: () => boolean;
 
   /** Bank an acquisition payout: add Equity and increment the exit count. */
   bankAcquisition: (gain: Decimal) => void;
@@ -189,6 +191,12 @@ export const usePrestigeStore = create<PrestigeState>()(
           equity,
           modifiers: resolvePrestigeModifiers(allocated),
         });
+      },
+
+      spendExit: () => {
+        if (get().exits < 1) return false;
+        set((s) => ({ exits: s.exits - 1 }));
+        return true;
       },
 
       buyRespecs: () => {

@@ -11,7 +11,6 @@
  * DOM animation has no React in it to go wrong.
  */
 import { useEffect, useRef } from "react";
-import { animateTextDecipher } from "@arwes/text";
 
 /** Seconds deciphering in, held, and ciphering out. */
 const ENTER = 0.9;
@@ -36,11 +35,13 @@ function TenXDevTextAnimated({ text, className = "" }: { text: string; className
     const rootElement = root.current, contentElement = content.current;
     if (!rootElement || !contentElement) return;
     let live = true, running: { cancel: () => void } | null = null, hold = 0;
-    const play = (isEntering: boolean, duration: number) => new Promise<void>((done) => {
+    // The package fetched on first use: it is not in the main bundle.
+    const play = (isEntering: boolean, duration: number) => import("@arwes/text").then(({ animateTextDecipher }) => new Promise<void>((done) => {
+      if (!live) { done(); return; }
       const a = animateTextDecipher({ rootElement, contentElement, duration, isEntering, hideOnEntered: false, hideOnExited: true });
       running = a;
       a.then(() => done());
-    });
+    }));
     // In, held, out, again — for as long as it is on the page.
     (async () => {
       while (live) {

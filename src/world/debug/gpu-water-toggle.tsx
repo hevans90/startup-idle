@@ -54,10 +54,10 @@ export function GpuWaterToggle() {
   // its widest row with room to spare.
   return (
     <div
-      className="absolute left-36 top-2 z-10 rounded border border-gray-700
-        bg-gray-900/80 px-2 py-1.5 font-mono text-[11px] leading-tight
-        text-gray-200 dark:border-gray-700 dark:bg-gray-900/80
-        dark:text-gray-200"
+      className="absolute left-36 top-2 z-10 rounded border border-line
+        bg-surface-1/80 px-2 py-1.5 font-mono text-[11px] leading-tight
+        text-fg
+        "
     >
       <button
         type="button"
@@ -66,10 +66,10 @@ export function GpuWaterToggle() {
         className={`w-full rounded px-2 py-1 text-left font-mono text-[11px]
           transition-colors ${
           !ready
-            ? "cursor-not-allowed bg-gray-800 text-gray-500 dark:bg-gray-800 dark:text-gray-500"
+            ? "cursor-not-allowed bg-surface-2 text-fg-muted"
             : on
-              ? "bg-emerald-600 text-white hover:bg-emerald-500 dark:bg-emerald-600 dark:text-white dark:hover:bg-emerald-500"
-              : "bg-gray-700 text-gray-200 hover:bg-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+              ? "bg-good text-white hover:bg-good dark:text-white"
+              : "bg-surface-3 text-fg hover:bg-surface-2"
         }`}
       >
         water: {!ready
@@ -82,15 +82,15 @@ export function GpuWaterToggle() {
               : "GPU compute"}
       </button>
       {note && (
-        <div className="mt-1 whitespace-pre text-[10px] text-gray-400 dark:text-gray-500">
+        <div className="mt-1 whitespace-pre text-[10px] text-fg-muted">
           {note}
         </div>
       )}
       {alarm && (
         <div
-          className="mt-1 whitespace-pre-line rounded border border-red-500
-            bg-red-950/70 px-1 py-0.5 text-[10px] font-bold text-red-300
-            dark:border-red-500 dark:bg-red-950/70 dark:text-red-300"
+          className="mt-1 whitespace-pre-line rounded border border-bad
+            bg-bad-soft/70 px-1 py-0.5 text-[10px] font-bold text-bad
+              "
         >
           {alarm}
         </div>

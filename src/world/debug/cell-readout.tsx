@@ -54,18 +54,18 @@ export function CellReadout() {
       ref={ref}
       // pointer-events-none so it can never intercept a pick
       className="pointer-events-none absolute left-0 top-0 z-20 -translate-x-1/2 -translate-y-full
-                 whitespace-nowrap rounded border border-emerald-500/50 bg-gray-950/90 px-2 py-1
-                 font-mono text-[11px] leading-tight text-emerald-200 shadow-lg"
+                 whitespace-nowrap rounded border border-good/50 bg-surface-0/90 px-2 py-1
+                 font-mono text-[11px] leading-tight text-good shadow-lg"
       style={{ visibility: "hidden" }}
     >
       {hover && (
         <>
           <div>
             cell <span className="text-white">{hover.x},{hover.y}</span>
-            <span className="ml-2 text-gray-400">band</span>{" "}
+            <span className="ml-2 text-fg-muted">band</span>{" "}
             <span className="text-white">{bandOf(hover.x, hover.y)}</span>
           </div>
-          <div className="text-gray-400">
+          <div className="text-fg-muted">
             height <span className="text-white">{h}</span> ={" "}
             <span className="text-white">{(h * HEIGHT_UNIT).toFixed(1)}px</span>
             {h !== 0 && (
@@ -73,15 +73,15 @@ export function CellReadout() {
             )}
           </div>
           {deck !== null && (
-            // no dark: pair — the panel itself is bg-gray-950/90 whatever the
+            // no dark: pair — the panel itself is bg-surface-0/90 whatever the
             // theme is, so a light variant here would be unreadable on it
-            <div className="rounded-sm bg-sky-500/20 px-1 text-sky-300">
+            <div className="rounded-sm bg-info/20 px-1 text-info">
               deck <span className="text-white">{deck}</span>
               <span className="ml-1 opacity-70">over ground {h}</span>
             </div>
           )}
           {dir !== 0 && (
-            <div className="text-gray-400">
+            <div className="text-fg-muted">
               ramp <span className="text-white">{RAMP_NAME[dir]}</span>
               <span className="ml-1">
                 rise <span className="text-white">×{rise / 2}</span>
@@ -92,18 +92,18 @@ export function CellReadout() {
           )}
           {paved && pick && (
             <>
-              <div className="text-gray-400">
+              <div className="text-fg-muted">
                 open <span className="text-white">{bitNames(mask, DIR)}</span>
                 <span className="ml-1">diag <span className="text-white">{bitNames(mask, DIAG)}</span></span>
               </div>
-              <div className="text-gray-400">
+              <div className="text-fg-muted">
                 rule <span className="text-white">{pick.role}</span>
-                {!pick.exact && <span className="ml-1 text-amber-400">(substituted)</span>}
+                {!pick.exact && <span className="ml-1 text-warn">(substituted)</span>}
               </div>
-              <div className="text-gray-400">
+              <div className="text-fg-muted">
                 tile <span className="text-white">{pick.frame ?? "none"}</span>
               </div>
-              <div className="text-gray-400">
+              <div className="text-fg-muted">
                 net <span className="text-white">{net}</span>
               </div>
             </>

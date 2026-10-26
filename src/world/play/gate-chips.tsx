@@ -41,10 +41,10 @@ function GateChip({ part, project, owned }: { part: GatePart; project: ProjectDe
     const afford = money.gte(u.cost);
     const mark = part.met ? DONE : when.met ? READY : LOCK;
     const tone = part.met
-      ? "border-emerald-600 text-emerald-700 dark:border-emerald-400 dark:text-emerald-400"
+      ? "border-good text-good"
       : when.met
-        ? "border-amber-600 text-amber-700 dark:border-amber-400 dark:text-amber-400"
-        : "border-primary-400 text-primary-600 dark:border-primary-600 dark:text-primary-400";
+        ? "border-warn text-warn"
+        : "border-line text-fg-muted";
     return (
       <InfoPop
         className={twMerge("border px-1 py-px text-[10px]", tone)}
@@ -52,12 +52,12 @@ function GateChip({ part, project, owned }: { part: GatePart; project: ProjectDe
         title={part.met ? `${u.name}: bought` : `${project.name} needs ${u.name}`}>
         <p>{u.description}</p>
         <p className="tabular-nums">
-          Costs <b className={afford || part.met ? undefined : "text-red-700 dark:text-red-400"}>{formatCurrency(u.cost)}</b>
+          Costs <b className={afford || part.met ? undefined : "text-bad"}>{formatCurrency(u.cost)}</b>
           {!part.met && <> · buyable at {when.text}</>}
         </p>
         {!part.met && (
           <button type="button" onClick={showUpgrades}
-            className="mt-1 cursor-pointer self-start border border-primary-500 px-1.5 py-0.5 text-primary-900 hover:bg-primary-200 dark:text-primary-100 dark:hover:bg-primary-700">
+            className="mt-1 cursor-pointer self-start border border-line-strong px-1.5 py-0.5 text-fg hover:bg-surface-2">
             Show on the Employees tab
           </button>
         )}
@@ -69,8 +69,8 @@ function GateChip({ part, project, owned }: { part: GatePart; project: ProjectDe
     return (
       <InfoPop
         className={twMerge("border px-1 py-px text-[10px]", part.met
-          ? "border-emerald-600 text-emerald-700 dark:border-emerald-400 dark:text-emerald-400"
-          : "border-primary-400 text-primary-600 dark:border-primary-600 dark:text-primary-400")}
+          ? "border-good text-good"
+          : "border-line text-fg-muted")}
         trigger={<><span aria-hidden>{part.met ? DONE : LOCK}</span><span>{name}</span></>}
         title={part.met ? `${name}: unlocked` : `${project.name} needs ${name}`}>
         <p>Unlocked on the Innovation tab.</p>
@@ -94,11 +94,11 @@ function StaffCount({ part }: { part: Extract<GatePart, { kind: "staff" }> }) {
         <>
           <span className="flex justify-between gap-1 text-[10px] tabular-nums">
             <span className="truncate">{KIND[part.who][1]}</span>
-            <span className={part.met ? "text-emerald-700 dark:text-emerald-400" : undefined}>{Math.min(part.have, part.need)}/{part.need}</span>
+            <span className={part.met ? "text-good" : undefined}>{Math.min(part.have, part.need)}/{part.need}</span>
           </span>
-          <span className="block h-1.5 w-full bg-primary-200 dark:bg-primary-800">
+          <span className="block h-1.5 w-full bg-surface-2">
             <span className="block h-full" style={{ width: `${Math.round(share * 100)}%`, background: part.met ? undefined : hex(KIND_COLOUR[part.who]) }}>
-              {part.met && <span className="block h-full bg-emerald-600 dark:bg-emerald-400" />}
+              {part.met && <span className="block h-full bg-good" />}
             </span>
           </span>
         </>

@@ -37,7 +37,7 @@ export function LeaderTags() {
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       {leaders.map((l, k) => (
         <div key={l.id} ref={(el) => { if (el) els.current.set(k, el); else els.current.delete(k); }}
-          className="invisible absolute left-0 top-0 whitespace-nowrap border border-amber-500 bg-primary-50/90 px-1 text-[10px] text-primary-900 dark:border-amber-400 dark:bg-primary-900/90 dark:text-primary-100">
+          className="invisible absolute left-0 top-0 whitespace-nowrap border border-l-2 border-line-quiet border-l-warn bg-surface-2/90 px-1.5 py-0.5 text-[10px] text-fg shadow-md backdrop-blur-sm">
           <b>{l.name}</b> · {EMPLOYEE_TRAITS[l.traitId]?.name} · rank {l.rank}
         </div>
       ))}

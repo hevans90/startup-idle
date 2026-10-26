@@ -1,56 +1,41 @@
 import { featureGateOpen } from "../../game/projects";
 import { MANDATES, useValuationStore } from "../../state/valuation.store";
-import { Button } from "../../ui/Button";
-import { InfoRow } from "../../ui/InfoRow";
+import { Locked, Tile } from "../../ui/console";
 import { formatCurrency } from "../../utils/money-utils";
+import { showProject } from "../../world/play/map-focus";
 
+/**
+ * THE BOARD'S MANDATES: a tile each — its name and level, what it does, and
+ * its price in valuation; lit when it can be bought, a press to buy. Locked
+ * until the board has its Boardroom Tower, on the map.
+ */
 export const ValuationMandatesPanel = () => {
-  const valuation = useValuationStore((s) => s.valuation);
   const mandateLevels = useValuationStore((s) => s.mandateLevels);
   const purchaseMandate = useValuationStore((s) => s.purchaseMandate);
   const canAffordMandate = useValuationStore((s) => s.canAffordMandate);
   const getMandateCost = useValuationStore((s) => s.getMandateCost);
+  const open = featureGateOpen("mandates");
 
   return (
-    <div className="flex flex-col gap-3 w-full text-sm">
-      <div className="px-1">
-        <InfoRow
-          label="Valuation"
-          value={formatCurrency(valuation, { showDollarSign: false })}
-          size="small"
-        />
-      </div>
-
+    <div className="flex flex-col gap-2">
       {/* The board needs somewhere to meet, where the company has a map. */}
-      {!featureGateOpen("mandates") && (
-        <p className="px-1 text-xs text-amber-700 dark:text-amber-300">
-          The board meets in its Boardroom Tower. Build one on the map to pass mandates.
-        </p>
-      )}
-
-      <div className="flex flex-col gap-2 px-1 pb-1">
+      {!open && <Locked needs="The board meets in its Boardroom Tower: build one on the map" onShow={() => showProject("mandates")} />}
+      <div className="grid grid-cols-2 gap-2">
         {MANDATES.map((m) => {
           const level = mandateLevels[m.id];
-          const cost = getMandateCost(m.id);
-          const affordable = canAffordMandate(m.id);
+          const affordable = open && canAffordMandate(m.id);
           return (
-            <div
-              key={m.id}
-              className="border border-primary-400 dark:border-primary-600 p-2 flex flex-col gap-1"
-            >
-              <div className="flex justify-between gap-2">
-                <span className="font-medium">{m.name}</span>
-                <span className="text-xs opacity-70">Lv {level}</span>
-              </div>
-              <p className="text-xs opacity-80 text-left">{m.description}</p>
-              <Button
-                className="text-xs mt-1"
-                disabled={!affordable}
-                onClick={() => purchaseMandate(m.id)}
-              >
-                {`Buy (${formatCurrency(cost, { showDollarSign: false })})`}
-              </Button>
-            </div>
+            <Tile key={m.id} lit={affordable} disabled={!affordable} onClick={() => purchaseMandate(m.id)}
+              className="flex flex-col gap-1 p-2.5">
+              <span className="flex items-baseline justify-between gap-2">
+                <b className="text-xs">{m.name}</b>
+                <span className="text-[10px] uppercase tracking-widest text-fg-faint">Lv {level}</span>
+              </span>
+              <span className="text-[11px] leading-snug text-fg-muted">{m.description}</span>
+              <span className="mt-auto pt-1 text-xs tabular-nums text-valuation">
+                {formatCurrency(getMandateCost(m.id), { showDollarSign: false })} valuation
+              </span>
+            </Tile>
           );
         })}
       </div>

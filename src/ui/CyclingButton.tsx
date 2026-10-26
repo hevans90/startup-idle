@@ -1,5 +1,6 @@
-import { Button } from "./Button";
+import { Button } from "./console";
 
+/** A step through a few values, a press each: ×1, ×10, ×100, max. */
 export const CycleButton = ({
   values,
   currentValue,
@@ -9,20 +10,10 @@ export const CycleButton = ({
   values: ("max" | number)[];
   onChanged: (value: "max" | number) => void;
 }) => {
-  const currentIndex = values.indexOf(currentValue);
-  const nextIndex = (currentIndex + 1) % values.length;
-
-  const handleClick = () => {
-    const nextValue = values[nextIndex];
-    onChanged(nextValue);
-  };
-
+  const next = values[(values.indexOf(currentValue) + 1) % values.length];
   return (
-    <Button
-      className="h-full p-0 text-sm min-w-12 border-primary-500"
-      onClick={handleClick}
-    >
-      {currentValue}
+    <Button size="sm" className="min-w-12 tabular-nums" title={`Next: ${next}`} onClick={() => onChanged(next)}>
+      {currentValue === "max" ? "Max" : `×${currentValue}`}
     </Button>
   );
 };

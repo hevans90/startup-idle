@@ -7,28 +7,20 @@ type ProgressBarProps = {
   className?: ClassNameValue;
 };
 
+/** How far, as a thin bar in the console's colour and its percentage beside it. */
 export const ProgressBar = ({
   value,
   min = 0,
   max = 100,
   className,
 }: ProgressBarProps) => {
-  const percent = Math.min(
-    100,
-    Math.max(0, ((value - min) / (max - min)) * 100)
-  );
-
+  const percent = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
   return (
-    <div className={twMerge("w-full select-none", className)}>
-      <div className="relative w-full h-4 bg-primary-400 dark:bg-primary-600  overflow-hidden">
-        <div
-          className="h-full bg-primary-600 dark:bg-primary-400"
-          style={{ width: `${percent}%` }}
-        />
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-primary-50 text-xs">
-          {percent.toFixed(2)}%
-        </div>
+    <div className={twMerge("flex w-full select-none items-center gap-2", className)}>
+      <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)} className="h-1.5 flex-1 overflow-hidden bg-surface-3">
+        <div className="h-full bg-console transition-[width] duration-300" style={{ width: `${percent}%` }} />
       </div>
+      <span className="w-12 text-right text-[11px] tabular-nums text-fg-muted">{percent.toFixed(1)}%</span>
     </div>
   );
 };

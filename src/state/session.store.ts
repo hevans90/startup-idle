@@ -62,6 +62,12 @@ type SessionState = {
   /** The investors' term sheet chosen at founding, by id. @see game/term-sheets */
   termSheet: string | null;
   setTermSheet: (id: string | null) => void;
+  /**
+   * The clauses negotiated into it, clause by clause; null for a run founded
+   * before there were clauses, which keeps the old terms exactly. @see game/term-deal
+   */
+  termClauses: Record<string, string> | null;
+  setTermClauses: (clauses: Record<string, string> | null) => void;
   /** Whether the slop pit has overflowed this run. */
   overflowed: boolean;
   markOverflowed: () => void;
@@ -137,6 +143,8 @@ export const useSessionStore = create<SessionState>()(
       addRoute: (max) => set((s) => ({ routes: Math.min(max, (s.routes ?? 0) + 1) })),
       termSheet: null,
       setTermSheet: (termSheet) => set({ termSheet }),
+      termClauses: null,
+      setTermClauses: (termClauses) => set({ termClauses }),
       overflowed: false,
       markOverflowed: () => set((s) => (s.overflowed ? s : { overflowed: true })),
       snubbed: false,
@@ -168,7 +176,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], eventPacing: null, routes: 0, termSheet: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
+        portIncomePerSecond: 0, hintsDone: [], eventPacing: null, routes: 0, termSheet: null, termClauses: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
       }),
     }),
     {
@@ -188,6 +196,7 @@ export const useSessionStore = create<SessionState>()(
         eventPacing: s.eventPacing,
         routes: s.routes,
         termSheet: s.termSheet,
+        termClauses: s.termClauses,
         overflowed: s.overflowed,
         snubbed: s.snubbed,
         aiAt: s.aiAt,

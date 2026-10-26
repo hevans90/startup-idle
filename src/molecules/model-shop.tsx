@@ -9,36 +9,37 @@ import { FUSIONS } from "../game/fusion";
 import { machineGraph } from "../game/machine";
 import { trait } from "../game/traits";
 import { useGenerationStore } from "../state/generation.store";
+import { Button, Stat, StatGrid } from "../ui/console";
 
 const MACHINE_SIZE = machineGraph().nodes.length;
 
-const SECTION = "border-t border-primary-300 p-2 dark:border-primary-700";
-const TITLE = "mb-1 text-[10px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-400";
+const SECTION = "flex flex-col gap-1 border-t border-line-quiet pt-3";
+const TITLE = "mb-1 text-[10px] uppercase tracking-widest text-fg-muted";
 
 export function ModelShop({ onOpenTree }: { onOpenTree?: () => void }) {
   const g = useGenerationStore();
   const owned = g.machine.length;
   const founderName = (id: string) => FOUNDERS.find((f) => f.id === id)?.name ?? id;
   return (
-    <div className="flex flex-col text-xs text-primary-900 dark:text-primary-100">
-      <div className="flex items-baseline justify-between p-2">
-        <p className="text-sm font-bold">Generation {g.generation}</p>
-        <p className="tabular-nums"><b className="text-violet-700 dark:text-violet-300">{g.weights}</b> Weights</p>
-      </div>
+    <div className="flex flex-col gap-3 px-5 text-xs text-fg">
+      <StatGrid>
+        <Stat label="Generation" value={g.generation} />
+        <Stat label="Weights" value={g.weights} role="weights" />
+        <Stat label="The Machine" value={`${owned} / ${MACHINE_SIZE}`} role="ai" />
+      </StatGrid>
 
       {/* THE MACHINE: where Weights go — the skill tree's AI cluster. @see game/machine */}
       <div className={SECTION}>
-        <p className={TITLE}>The Machine · {owned} of {MACHINE_SIZE} nodes</p>
-        <p className="text-primary-600 dark:text-primary-400">
+        <p className={TITLE}>The Machine</p>
+        <p className="text-fg-muted">
           {g.generation > 1
             ? "Spend Weights in the Machine: the AI's own cluster of the skill tree, below the rest. A ring more of it shows each Ascension."
             : "The Machine, the AI's own cluster of the skill tree, opens at the first Ascension."}
         </p>
         {onOpenTree && (
-          <button type="button" onClick={onOpenTree}
-            className="mt-1 cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800">
+          <Button size="sm" variant="primary" tone="ai" className="mt-1 self-start" onClick={onOpenTree}>
             Open the skill tree
-          </button>
+          </Button>
         )}
       </div>
 
@@ -49,7 +50,7 @@ export function ModelShop({ onOpenTree }: { onOpenTree?: () => void }) {
           {Object.entries(g.fused).map(([f, traits]) => (
             <div key={f} className="mb-1">
               <p className="font-bold">{founderName(f)}</p>
-              {traits.map((t, k) => <p key={k}><span className="text-violet-700 dark:text-violet-300">{trait(t).name}</span>: {FUSIONS[t].text}</p>)}
+              {traits.map((t, k) => <p key={k}><span className="text-ai">{trait(t).name}</span>: {FUSIONS[t].text}</p>)}
             </div>
           ))}
         </div>

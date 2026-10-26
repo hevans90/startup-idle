@@ -7,6 +7,8 @@
  */
 import { twMerge } from "tailwind-merge";
 
+import { Button, Card, IconButton } from "../../ui/console";
+
 import { pipeCost } from "../../game/build-cost";
 import { agentsCooled } from "../../game/mains";
 import { formatCurrency } from "../../utils/money-utils";
@@ -19,7 +21,7 @@ import { MAIN_BORE, MAIN_END, idx, inBounds } from "../grid";
 import { structureDef } from "../structures/def";
 import { findMains, hasMain, mainReportAt, planMain, previewMain, routeMain, type MainState } from "../water/mains";
 
-const CARD = "border border-primary-300 bg-primary-100/95 px-2 py-1 text-xs shadow dark:border-primary-700 dark:bg-primary-900/95";
+const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
 
 export function MainCard() {
   const stroke = useWorldStore((s) => s.stroke);
@@ -30,13 +32,10 @@ export function MainCard() {
   if (!playing) return null;
   if (offer && !stroke) {
     return (
-      <div role="status" className={twMerge(CARD, "flex items-center gap-2 border-amber-400 dark:border-amber-600")}>
-        <span className="text-amber-800 dark:text-amber-300">{offer.why}.</span>
-        <button type="button" onClick={accept}
-          className="cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800">
-          Add a pump: {formatCurrency(offer.price)}
-        </button>
-        <button type="button" onClick={dismiss} aria-label="Dismiss" className="cursor-pointer px-1 text-primary-500 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-100">✕</button>
+      <div role="status" className={twMerge(CARD, "flex items-center gap-2 border-l-2 border-l-warn")}>
+        <span className="text-warn">{offer.why}.</span>
+        <Button size="sm" variant="primary" tone="warn" onClick={accept}>Add a pump: {formatCurrency(offer.price)}</Button>
+        <IconButton label="Dismiss" onClick={dismiss}>✕</IconButton>
       </div>
     );
   }
@@ -44,18 +43,18 @@ export function MainCard() {
   const st = useWorldStore.getState();
   const wet = mainWet(st.grid);
   const route = routeMain(st.grid, stroke.anchor, stroke.head, wet);
-  if (!route) return <p className={twMerge(CARD, "text-red-700 dark:text-red-400")}>No way through for a main: round buildings, off the water</p>;
+  if (!route) return <p className={twMerge(CARD, "text-bad")}>No way through for a main: round buildings, off the water</p>;
   const plan = planMain(st.grid, route, wet);
-  if ("refused" in plan) return <p className={twMerge(CARD, "text-red-700 dark:text-red-400")}>{plan.refused}</p>;
+  if ("refused" in plan) return <p className={twMerge(CARD, "text-bad")}>{plan.refused}</p>;
   const look = previewMain(st.grid, st.getWaterField(), plan.cells);
   const price = pipeCost(look.fresh).toNumber();
   return (
     <div className={CARD}>
       <p className="flex justify-between gap-4 tabular-nums"><b>Water main · {look.fresh} tiles</b><span>{formatCurrency(price)}</span></p>
-      <p className="text-primary-600 dark:text-primary-400">{look.ends.join(" → ")}</p>
+      <p className="text-fg-muted">{look.ends.join(" → ")}</p>
       {look.problem
-        ? <p className={look.needsPump ? "text-amber-700 dark:text-amber-400" : "text-red-700 dark:text-red-400"}>{look.problem}{look.needsPump ? " — you can add one when it's laid" : ""}</p>
-        : <p className="text-emerald-700 dark:text-emerald-400">≈ {look.flow.toFixed(2)} a second · cools about {agentsCooled(look.flow)} agents</p>}
+        ? <p className={look.needsPump ? "text-warn" : "text-bad"}>{look.problem}{look.needsPump ? " — you can add one when it's laid" : ""}</p>
+        : <p className="text-good">≈ {look.flow.toFixed(2)} a second · cools about {agentsCooled(look.flow)} agents</p>}
     </div>
   );
 }
@@ -70,7 +69,7 @@ const SAYS: Record<MainState, { text: string; tone: "good" | "warn" | "bad" }> =
   "no-source": { text: "Draws from nothing: one end must be at water", tone: "bad" },
   "no-outlet": { text: "Feeds nothing: one end must be beside a building that drinks", tone: "bad" },
 };
-const TONE = { good: "text-emerald-700 dark:text-emerald-400", warn: "text-amber-700 dark:text-amber-400", bad: "text-red-700 dark:text-red-400" };
+const TONE = { good: "text-good", warn: "text-warn", bad: "text-bad" };
 
 /**
  * A MAIN, LOOKED AT: clicked with the Look tool, what it is doing and why —
@@ -98,31 +97,27 @@ export function MainInfo() {
     const s = g.structures.get(o.building);
     return s?.def === "lattice" ? "the Lattice" : structureDef(s?.def ?? "")?.name ?? "a building";
   });
+  // A MAIN LOOKED AT, beside it: a card toned by what it is doing. @see Anchored
   return (
-    <div className={twMerge(CARD, "flex w-80 flex-col gap-0.5")}>
-      <p className="flex justify-between gap-2"><b>{r.bore > 1 ? "Wide water main" : "Water main"} · {r.length} tiles</b>
-        <button type="button" onClick={() => setShut(looked.n)} aria-label="Close" className="cursor-pointer px-1 text-primary-500 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-100">✕</button></p>
+    <Card tone={say.tone} onClose={() => setShut(looked.n)} className="w-80" title={<>{r.bore > 1 ? "Wide water main" : "Water main"} · {r.length} tiles</>}>
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums">
         {r.flow > 0 ? `${r.flow.toFixed(2)} a second · cools ${agentsCooled(r.flow)} agents` : `Could carry ${r.capacity.toFixed(2)} a second`}
         {r.intakes.some((k) => k.surface !== null) && <> · head {(r.head / 2).toFixed(1)} slabs</>}
       </p>
-      <p className="text-primary-600 dark:text-primary-400">
+      <p className="text-fg-muted">
         {r.intakes.length ? r.intakes.map((k) => `${k.pump ? "Pump" : "Intake"}${k.surface === null ? " (dry)" : ""}`).join(", ") : "No intake"}
         {" → "}{names.length ? names.join(", ") : "nothing"}
       </p>
-      <div className="mt-0.5 flex gap-1">
+      <div className="mt-0.5 flex flex-wrap gap-1">
         {r.state === "no-head" && intake !== undefined && (
-          <button type="button" onClick={() => st.offerPump({ x: intake % g.w, y: (intake / g.w) | 0, price: buildCost("pump")?.toNumber() ?? 0, why: say.text })}
-            className="cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800">Add a pump…</button>
+          <Button size="sm" onClick={() => st.offerPump({ x: intake % g.w, y: (intake / g.w) | 0, price: buildCost("pump")?.toNumber() ?? 0, why: say.text })}>Add a pump…</Button>
         )}
         {narrow > 0 && (
-          <button type="button" onClick={() => st.widenMainAt(looked)} title="Twice the water through the same run"
-            className="cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800">Widen: {formatCurrency(boreCost(narrow).toNumber())}</button>
+          <Button size="sm" onClick={() => st.widenMainAt(looked)} title="Twice the water through the same run">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>
         )}
-        <button type="button" onClick={() => st.liftMainAt(looked)}
-          className="cursor-pointer border border-primary-400 px-2 py-0.5 hover:bg-primary-200 dark:border-primary-600 dark:hover:bg-primary-800">Lift it</button>
+        <Button size="sm" variant="danger" confirm="Lift it? Press again" onClick={() => st.liftMainAt(looked)}>Lift it</Button>
       </div>
-    </div>
+    </Card>
   );
 }

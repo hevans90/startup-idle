@@ -18,6 +18,7 @@ import { useGenerationStore } from "../../state/generation.store";
 import { buyMachine, isMachine, machineBlocked } from "../../game/machine";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { useThemeStore } from "../../state/theme.store";
+import { tokenNumber, type Theme } from "../../ui/theme/tokens";
 import { useResizeToWrapper } from "../../hooks/use-resize-to-wrapper";
 import { useDisableDOMZoom } from "../../utils/use-disable-dom-zoom";
 import { applyViewportControls } from "../../utils/viewport-controls";
@@ -28,29 +29,20 @@ extend({ Container, Graphics, Sprite, Viewport });
 const ADJ = buildAdjacency(SKILL_TREE);
 const NODES = nodeById(SKILL_TREE);
 
-// State colours (applied as a TINT on a white ring — cheap, no redraw).
-// Allocated nodes/links use a neutral grey that flips with the app theme: light
-// grey reads on the dark theme, a darker grey on the light theme.
-const C_ALLOC_DARK = 0xd7dbe6; // light grey — on the dark theme
-const C_ALLOC_LIGHT = 0x5b6373; // mid grey — on the light theme
-const C_AVAILABLE = 0x6ee7b7; // green — reachable + affordable
-const C_HOVER = 0xeafff4; // bright mint — hovering an allocatable node
-const C_REACHABLE = 0xe0a23a; // amber — reachable but can't afford
-const C_LOCKED = 0x47506a; // dim — unallocated ring on the dark theme
-const C_LOCKED_LIGHT = 0xccd0d8; // faint grey — unallocated ring on the light theme
-const C_RESPEC = 0xfb7185; // rose — refundable in respec mode
-const C_RESPEC_HOT = 0xffc2cb; // bright rose — in the refund set under the cursor
-const C_EDGE_RESPEC = 0xfb7185; // rose — edge inside the previewed refund set
-const C_INNER = 0x161b29; // dark disc behind the icon (fallback / path nodes)
-const C_INNER_LIGHT = 0xe7e9ec; // light disc (light theme fallback)
-const C_HOVER_LIGHT = 0x0f9d6b; // emerald — hovered allocatable node on the light theme
-const C_ON_PATH = 0x2563eb; // blue — node lies on the previewed route to the hovered node
-const C_EDGE_PREVIEW = 0x2563eb; // blue — edge on the previewed route
-const C_EDGE_DIM = 0x3a4258; // dark theme idle edge
-const C_EDGE_DIM_LIGHT = 0xd2d6dd; // light theme idle edge (faint)
-const C_SPOTLIGHT = 0x22d3ee; // bright cyan — search / panel-hover spotlight
+// STATE COLOURS, from the console's tokens (applied as a TINT on a white ring —
+// cheap, no redraw), a set a theme: allocated in the text's colour, available
+// good, can't afford warn, respec bad, the previewed route info, a search's
+// spotlight innovation, the Machine's fog the AI's violet. @see ui/theme/tokens
+const palette = (t: Theme) => {
+  const c = (name: string) => tokenNumber(t, name);
+  return {
+    alloc: c("fg"), available: c("good"), hover: c("accent"), reachable: c("warn"), locked: c("line"),
+    respec: c("bad"), respecHot: c("bad-line"), inner: c("surface-1"), onPath: c("info"),
+    edgeDim: c("line-quiet"), spotlight: c("innovation"), fog: c("ai"), bg: c("surface-0"),
+  };
+};
+const PALETTE = { dark: palette("dark"), light: palette("light") };
 const POP_SCALE = 1.35; // how much a spotlit node grows
-const C_FOG = 0x8b5cf6; // violet — a Machine node not yet revealed: "Ascend to reveal"
 const FOG_ALPHA = 0.35;
 
 // Per-theme disc fills so the 11 clusters read as distinct regions. State
@@ -86,8 +78,8 @@ const CLUSTER_FILL_LIGHT: Record<string, number> = {
 };
 const discTint = (cluster: string, theme: "light" | "dark") =>
   theme === "dark"
-    ? (CLUSTER_FILL_DARK[cluster] ?? C_INNER)
-    : (CLUSTER_FILL_LIGHT[cluster] ?? C_INNER_LIGHT);
+    ? (CLUSTER_FILL_DARK[cluster] ?? PALETTE.dark.inner)
+    : (CLUSTER_FILL_LIGHT[cluster] ?? PALETTE.light.inner);
 
 /**
  * Initial camera, applied once when the viewport mounts (see TreeViewport). Tune
@@ -147,7 +139,7 @@ const TreeScene = memo(function TreeScene() {
   // Repaint the backdrop when the theme toggles while the tree is open.
   useEffect(() => {
     const renderer = pixiApp?.app?.renderer;
-    if (renderer) renderer.background.color = theme === "dark" ? 0x16191d : 0xf4f5f6;
+    if (renderer) renderer.background.color = PALETTE[theme].bg;
   }, [pixiApp, theme]);
 
   // Hover tracking → publishes the hovered node + screen anchor each frame.
@@ -202,7 +194,7 @@ const TreeScene = memo(function TreeScene() {
 
       const glow = new Graphics();
       glow.circle(0, 0, r + 7).fill(0xffffff);
-      glow.tint = C_AVAILABLE;
+      glow.tint = PALETTE[useThemeStore.getState().theme].available;
       glow.alpha = 0.3;
       glow.visible = false;
       glow.zIndex = 0;
@@ -258,10 +250,8 @@ const TreeScene = memo(function TreeScene() {
     const machineSet = new Set(machine);
     const affordable = equity.gte(nodeCost(allocated.length));
     const hoverNode = hoveredId ? NODES.get(hoveredId) : undefined;
-    const cAlloc = theme === "dark" ? C_ALLOC_DARK : C_ALLOC_LIGHT;
-    const cHover = theme === "dark" ? C_HOVER : C_HOVER_LIGHT;
-    const cLocked = theme === "dark" ? C_LOCKED : C_LOCKED_LIGHT;
-    const cEdgeDim = theme === "dark" ? C_EDGE_DIM : C_EDGE_DIM_LIGHT;
+    const P = PALETTE[theme];
+    const cAlloc = P.alloc, cHover = P.hover, cLocked = P.locked, cEdgeDim = P.edgeDim;
 
     // Spotlight set: fuzzy-search matches (title + effect) plus any externally
     // hovered ids (e.g. the bonuses panel). Matches just pop — nothing dims.
@@ -310,9 +300,9 @@ const TreeScene = memo(function TreeScene() {
         const owned = machineSet.has(node.id);
         const hotM = blocked === null && node.id === hoveredId;
         view.disc.tint = discTint(node.cluster, theme);
-        view.ring.tint = owned ? cAlloc : hotM ? cHover : blocked === null ? C_AVAILABLE : blocked === "weights" ? C_REACHABLE : blocked === "fog" ? C_FOG : cLocked;
+        view.ring.tint = owned ? cAlloc : hotM ? cHover : blocked === null ? P.available : blocked === "weights" ? P.reachable : blocked === "fog" ? P.fog : cLocked;
         view.cont.alpha = blocked === "fog" ? FOG_ALPHA : 1;
-        view.glow.tint = C_AVAILABLE;
+        view.glow.tint = P.available;
         view.glow.alpha = 0.3;
         view.glow.visible = hotM;
         view.cont.scale.set(1);
@@ -331,18 +321,18 @@ const TreeScene = memo(function TreeScene() {
       view.ring.tint =
         respecMode && isAlloc
           ? inRefund
-            ? C_RESPEC_HOT
-            : C_RESPEC
+            ? P.respecHot
+            : P.respec
           : isAlloc
             ? cAlloc
             : hot
               ? cHover
               : onPath
-                ? C_ON_PATH
+                ? P.onPath
                 : available
-                  ? C_AVAILABLE
+                  ? P.available
                   : reachable
-                    ? C_REACHABLE
+                    ? P.reachable
                     : cLocked;
 
       // Spotlight (search / panel hover) wins the ring and pops the node: it
@@ -350,12 +340,12 @@ const TreeScene = memo(function TreeScene() {
       // a search is active.
       const spotlit = spotlight.has(node.id);
       if (spotlit) {
-        view.ring.tint = C_SPOTLIGHT;
-        view.glow.tint = C_SPOTLIGHT;
+        view.ring.tint = P.spotlight;
+        view.glow.tint = P.spotlight;
         view.glow.alpha = 0.6;
         view.glow.visible = true;
       } else {
-        view.glow.tint = C_AVAILABLE;
+        view.glow.tint = P.available;
         view.glow.alpha = 0.3;
         view.glow.visible = hot;
       }
@@ -370,13 +360,13 @@ const TreeScene = memo(function TreeScene() {
       const lit = (allocatedSet.has(a) && allocatedSet.has(b)) || (machineSet.has(a) && machineSet.has(b));
       const allocPreview = !respecMode && pathEdges.has(ekey(a, b));
       if (removalEdge) {
-        g.tint = C_EDGE_RESPEC;
+        g.tint = P.respec;
         g.alpha = 0.95;
       } else if (lit) {
         g.tint = cAlloc;
         g.alpha = 0.9;
       } else if (allocPreview) {
-        g.tint = C_EDGE_PREVIEW;
+        g.tint = P.onPath;
         g.alpha = 0.85;
       } else {
         g.tint = cEdgeDim;
@@ -474,10 +464,6 @@ const TreeViewport = memo(function TreeViewport({
   );
 });
 
-// Canvas backdrop — flips with the app theme. Dark is a touch darker than
-// primary-900 so the tree sits on a deeper backdrop.
-const BG_DARK = "#16191d";
-const BG_LIGHT = "#f4f5f6";
 
 export const SkillTreeCanvas = () => {
   const { ref, setRef, size } = useResizeToWrapper();
@@ -491,7 +477,7 @@ export const SkillTreeCanvas = () => {
           resizeTo={ref}
           antialias={true}
           autoDensity={true}
-          background={theme === "dark" ? BG_DARK : BG_LIGHT}
+          background={PALETTE[theme].bg}
           resolution={2}
         >
           <TreeViewport screenSize={size}>

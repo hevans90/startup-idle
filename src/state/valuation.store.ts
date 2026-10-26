@@ -1,4 +1,5 @@
 import Decimal from "break_infinity.js";
+import { termEffects } from "../game/term-deal";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
@@ -156,7 +157,8 @@ export const useValuationStore = create<ValuationState>()(
         const level = get().mandateLevels[id];
         const founderReduction = useFounderStore.getState().mandateCostGrowthReduction;
         const growth = Math.max(1.01, def.costGrowth - founderReduction);
-        return new Decimal(def.baseCost).mul(Decimal.pow(growth, level));
+        // The board the term sheet set up: an investor on it waves mandates through cheaper. @see term-deal
+        return new Decimal(def.baseCost).mul(Decimal.pow(growth, level)).mul(termEffects().mandateCostMult);
       },
 
       canAffordMandate: (id: MandateId) => {

@@ -7,11 +7,9 @@
 import type { ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
+import { FOCUS, PopCard, POPOVER_BARE } from "./console";
 import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
 
-export const POP =
-  "z-[110] max-w-60 border border-primary-500 bg-primary-100 px-2 py-1.5 text-xs text-primary-900 shadow-xl outline-none "
-  + "dark:border-primary-500 dark:bg-primary-800 dark:text-primary-100";
 
 export function InfoPop({ trigger, title, children, className, placement = "top" }: {
   trigger: ReactNode;
@@ -23,13 +21,14 @@ export function InfoPop({ trigger, title, children, className, placement = "top"
   return (
     <Popover openOnHover openOnClick persistOnHoverContent placement={placement} floatOffset={8}>
       <PopoverTrigger asChild>
-        <span tabIndex={0} className={twMerge("flex cursor-help items-center gap-0.5 outline-none", className)}>
+        <span tabIndex={0} className={twMerge("flex cursor-help items-center gap-0.5", FOCUS, className)}>
           {trigger}
         </span>
       </PopoverTrigger>
-      <PopoverContent className={POP}>
-        <p className="font-bold">{title}</p>
-        {children && <div className="flex flex-col gap-1 text-primary-700 dark:text-primary-300">{children}</div>}
+      <PopoverContent className={POPOVER_BARE}>
+        <PopCard title={title}>
+          {children && <div className="flex flex-col gap-1.5 leading-snug text-fg-muted">{children}</div>}
+        </PopCard>
       </PopoverContent>
     </Popover>
   );

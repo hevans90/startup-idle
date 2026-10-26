@@ -52,17 +52,17 @@ export function GenControls() {
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          className="cursor-pointer text-gray-400 hover:text-gray-200"
+          className="cursor-pointer text-fg-muted hover:text-fg"
         >
           {open ? "▾" : "▸"} map settings
-          {moved > 0 && <span className="ml-1 text-amber-400">·{moved}</span>}
+          {moved > 0 && <span className="ml-1 text-warn">·{moved}</span>}
         </button>
         {moved > 0 && (
           <button
             type="button"
             onClick={resetGenParams}
             title="Put every setting back to its default"
-            className="cursor-pointer text-gray-500 underline hover:text-gray-300"
+            className="cursor-pointer text-fg-muted underline hover:text-fg-muted"
           >
             reset
           </button>
@@ -73,11 +73,11 @@ export function GenControls() {
         <div className="mt-2 space-y-2">
           {GROUPS.map(({ id, name }) => (
             <div key={id}>
-              <p className="text-gray-500">{name}</p>
+              <p className="text-fg-muted">{name}</p>
               {GEN_SLIDERS.filter((s) => s.group === id).map((s) => (
                 <label key={s.key} title={s.hint}
                   className="flex items-center gap-2 py-px">
-                  <span className="w-20 shrink-0 truncate text-gray-400">{s.label}</span>
+                  <span className="w-20 shrink-0 truncate text-fg-muted">{s.label}</span>
                   {/* `min-w-0`, or the range input's intrinsic width (~129px)
                       stops `flex-1` shrinking and the value falls off the panel. */}
                   <input
@@ -85,10 +85,10 @@ export function GenControls() {
                     min={s.min} max={s.max} step={s.step}
                     value={gen[s.key]}
                     onChange={(e) => setGenParam(s.key, Number(e.target.value))}
-                    className="h-1 min-w-0 flex-1 cursor-pointer accent-amber-400"
+                    className="h-1 min-w-0 flex-1 cursor-pointer accent-[var(--ui-warn)]"
                   />
                   <span className={`w-8 shrink-0 text-right font-mono ${
-                    gen[s.key] === DEFAULT_GEN[s.key] ? "text-gray-500" : "text-amber-400"
+                    gen[s.key] === DEFAULT_GEN[s.key] ? "text-fg-muted" : "text-warn"
                   }`}>
                     {show(gen[s.key], s.step)}
                   </span>
@@ -96,7 +96,7 @@ export function GenControls() {
               ))}
             </div>
           ))}
-          <p className="text-gray-600">
+          <p className="text-fg-muted">
             press generate to build a map with these
           </p>
         </div>

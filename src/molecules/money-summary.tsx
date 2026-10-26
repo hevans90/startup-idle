@@ -14,6 +14,6 @@ export const MoneySummary = () => {
   useGeneratorStore((s) => s.getMoneyPerSecond());
   const breakdown = useGeneratorStore.getState().getMoneyBreakdown();
   return (
-    <ResourceBreakdownView header="Money" breakdown={breakdown} format={money} />
+    <ResourceBreakdownView header="Money" breakdown={breakdown} format={money} tone="money" />
   );
 };
