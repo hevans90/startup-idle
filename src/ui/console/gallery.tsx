@@ -11,7 +11,7 @@ import { sfx, unlock } from "../../audio/sound";
 import { ConsoleMotionOverride } from "../motion";
 import { CONSOLE_AI } from "../theme/tokens";
 import {
-  Badge, Button, Card, Chip, Dialog, Frame, IconButton, Kbd, Label, Locked, Meter, Num, Panel, Section, Segmented, Slider, Tabs, Text, Toggle, Tooltip,
+  Badge, Button, Card, Chip, Dialog, Frame, Glitch, IconButton, Kbd, Label, Locked, Meter, Num, Panel, Section, Segmented, Slider, Tabs, Text, Toggle, Tooltip,
   type FrameKind,
 } from "./index";
 
@@ -65,6 +65,9 @@ function Pieces() {
         <p className="text-good">Carrying water</p>
         <p className="text-fg-muted">0.50 a second · cools 12 agents</p>
       </Card>
+      <Glitch strength={1} every={1.5}>
+        <Card title="Glitch · any element" tone="ai"><p className="text-ai">Torn now and then: bands jolted sideways, red and cyan split.</p></Card>
+      </Glitch>
       <Locked needs="Managers need an HQ — build one on the map" onShow={() => {}}>
         <p className="text-sm">Employee management</p>
         <p className="text-xs">Managers, mandates, morale</p>

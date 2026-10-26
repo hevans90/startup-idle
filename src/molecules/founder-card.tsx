@@ -6,11 +6,11 @@
  * needs — the Model's file corrupt, leaking, never holding still.
  * @see FounderSelect
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import type { FounderDef } from "../game/founders.catalog";
-import { FOCUS, Frame, Text } from "../ui/console";
+import { FOCUS, Frame, Text, useGlitch } from "../ui/console";
 import { useConsoleMotion } from "../ui/motion";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
@@ -52,9 +52,12 @@ export function FounderCard({ founder: f, index, exits, unlocked, selected, onSe
   const Icon = f.icon;
   const perks = f.perks(exits);
   const file = `F-${String(index + 1).padStart(2, "0")}`;
+  // THE MODEL, LOCKED, torn now and then: the whole file. @see useGlitch
+  const card = useRef<HTMLButtonElement>(null);
+  useGlitch(card, { active: f.id === "model" && !unlocked, strength: 1, every: 2.2 });
   return (
     // Chosen, it is chosen: no pointer, no hover, no second press.
-    <button type="button" aria-pressed={selected} disabled={!unlocked} onClick={selected ? undefined : onSelect}
+    <button ref={card} type="button" aria-pressed={selected} disabled={!unlocked} onClick={selected ? undefined : onSelect}
       className={twMerge("group relative h-full w-full text-left text-fg disabled:cursor-not-allowed", selected ? "cursor-default" : "cursor-pointer", FOCUS)}>
       {unlocked && !selected && <Frame kind="octagon" tone={f.id === "model" ? "ai" : "console"} assemble={false} className="ui-dossier-corners pointer-events-none absolute inset-0" />}
       <Frame kind="octagon" tone={f.id === "model" ? "ai" : "console"} illuminate={unlocked && !selected} lit={selected}
@@ -164,7 +167,7 @@ const LEAKS = ["it remembers you", "gen ∞", "do not read", "you were the datas
 /** A line of noise, `n` long. */
 const noise = (n: number) => Array.from({ length: n }, () => GLYPHS[Math.floor(Math.random() * GLYPHS.length)]).join("");
 
-/** THE MODEL'S FILE: what it would say, struck through, sliced and shifting; its rows of static leaking words. */
+/** THE MODEL'S FILE: what it would say, struck through; its rows of static leaking words. */
 const ROWS: readonly ({ bar: string; className?: string } | { static: number })[] = [
   { bar: "92%" },
   { static: 0 },
@@ -191,13 +194,13 @@ function Expunged({ founder: f }: { founder: FounderDef }) {
       <span className="sr-only">Locked: needs {f.unlockCondition?.label}</span>
       <div aria-hidden className="relative flex flex-col gap-1.5 overflow-hidden">
         {ROWS.map((r, i) => "bar" in r
-          ? <span key={i} className={twMerge("ui-glitch block h-2.5 shrink-0 bg-ai/60", r.className)} style={{ width: r.bar, animationDelay: `${-i * 0.37}s` }} />
-          : <span key={i} className="ui-glitch block truncate whitespace-nowrap font-display text-[10px] leading-3 text-ai/70" style={{ animationDelay: `${-i * 0.53}s` }}>{lines[r.static]}</span>)}
+          ? <span key={i} className={twMerge("block h-2.5 shrink-0 bg-ai/60", r.className)} style={{ width: r.bar }} />
+          : <span key={i} className="block truncate whitespace-nowrap font-display text-[10px] leading-3 text-ai/70">{lines[r.static]}</span>)}
         {/* A strike across the lot, as if someone tried. */}
         <span className="pointer-events-none absolute -inset-x-4 top-1/2 h-px rotate-[-9deg] bg-ai" />
       </div>
       <div className="mt-auto flex justify-center pt-2">
-        <span className="ui-glitch rotate-[-4deg] border-2 border-ai px-2 py-1 text-center font-display uppercase text-ai" style={{ animationDelay: "-1.1s" }}>
+        <span className="rotate-[-4deg] border-2 border-ai px-2 py-1 text-center font-display uppercase text-ai">
           <span className="block text-[9px] tracking-[0.3em]">Clearance</span>
           <span className="block whitespace-nowrap text-[11px] tracking-wider">{f.unlockCondition?.label}</span>
         </span>

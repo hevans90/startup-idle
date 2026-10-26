@@ -125,15 +125,6 @@
   }
 }
 
-/* A REDACTION THAT WILL NOT STAY PUT: still, then a jolt sideways, sliced. @see FounderCard */
-@keyframes ui-glitch {
-  0%, 88%, 100% { transform: none; clip-path: none; }
-  89% { transform: translateX(-6px); clip-path: inset(0 0 55% 0); }
-  91% { transform: translateX(7px) skewX(-12deg); clip-path: inset(45% 0 0 0); }
-  93% { transform: translateX(-3px); clip-path: inset(20% 0 30% 0); }
-  95% { transform: translateX(2px); }
-}
-
 @keyframes ui-tab-in {
   from {
     opacity: 0;
@@ -151,7 +142,6 @@ html.ui-calm .animate-ping,
 html.ui-calm .hint-glow,
 html.ui-calm .ui-tab-in,
 html.ui-calm .ui-redline,
-html.ui-calm .ui-glitch,
 html.ui-calm .quest-slide-in,
 html.ui-calm .news-line-enter {
   animation: none;
@@ -161,9 +151,6 @@ html.ui-calm .news-line-enter {
   /* A CLAUSE JUST AMENDED, its paragraph flushed in the warn tint, fading. @see TermDocument */
   .ui-redline {
     animation: ui-redline 1.6s ease-out;
-  }
-  .ui-glitch {
-    animation: ui-glitch 2.3s steps(1) infinite;
   }
   /* A TAB JUST OPENED, drawn on from the left. @see Tabs */
   .ui-tab-in {
