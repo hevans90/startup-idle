@@ -11,6 +11,7 @@ import {
   performAcquisition,
 } from "../game/acquisition";
 import { termStatus } from "../game/term-sheets";
+import { termSaleMult } from "../game/term-deal";
 import { useTicking } from "../hooks/use-ticking";
 import { SKILL_TREE } from "../game/skill-tree";
 import { useShallow } from "zustand/shallow";
@@ -303,6 +304,13 @@ export const AcquisitionTab = () => {
               for {formatDuration(Math.max(0, premiumUntil - Date.now()))} more
             </p>
           )}
+          {/* THE INVESTOR'S SHARE AND TERMS, off the top of the sale. @see termSaleMult */}
+          {termSaleMult() < 1 && (
+            <p className="text-[11px] tabular-nums text-warn"
+              title="The term sheet's stake, its liquidation preference and the board, as the deal was signed.">
+              After the investor's terms you keep {Math.round(termSaleMult() * 100)}%
+            </p>
+          )}
           {townBonusNow() > 0 && (
             <p className="text-[11px] tabular-nums text-good"
               title="Houses grown, services and wonders on your map. Up to +50%.">
@@ -311,9 +319,9 @@ export const AcquisitionTab = () => {
           )}
           {term && (
             <p className={`text-[11px] tabular-nums ${term.progress.met ? "text-good" : "opacity-70"}`}
-              title={`${term.sheet.investor}'s term sheet: +${Math.round(term.sheet.bonus * 100)}% Equity if it is met when you sell.`}>
-              Term sheet: {term.sheet.goal} · {term.progress.text}
-              {term.progress.met ? ` · includes +${Math.round(term.sheet.bonus * 100)}%` : ""}
+              title={`${term.sheet.investor}'s term sheet: +${Math.round(term.bonus * 100)}% Equity if it is met when you sell.`}>
+              Term sheet: {term.goal} · {term.progress.text}
+              {term.progress.met ? ` · includes +${Math.round(term.bonus * 100)}%` : ""}
             </p>
           )}
           <Bar frac={frac} />

@@ -6,6 +6,7 @@
  * them are offered, a different three for different land. @see termBonusNow
  */
 import { runningAgents } from "../state/agents.store";
+import { termEffects } from "./term-deal";
 import { useSessionStore } from "../state/session.store";
 
 /** What the map says, for the goals that are about it. @see setTermReader */
@@ -18,11 +19,13 @@ export type TermSheet = {
   id: string;
   /** Who is offering it. */
   investor: string;
-  /** The goal, as the investors put it. */
+  /** The goal, as the investors put it, at their plan. */
   goal: string;
-  /** What meeting it adds to the sale's Equity, as a share. */
+  /** The goal at a milestone's scale: harder, or easier. @see TermEffects.goalScale */
+  goalAt: (scale: number) => string;
+  /** What meeting it adds to the sale's Equity, as a share, at their plan. */
   bonus: number;
-  progress: (now: TermNow) => TermProgress;
+  progress: (now: TermNow, scale?: number) => TermProgress;
 };
 
 /** Everything a goal is read from. */
@@ -39,29 +42,40 @@ const clock = (s: number) => {
 const atLeast = (have: number, need: number, what: string): TermProgress =>
   ({ have, need, met: have >= need, text: `${Math.min(have, need)}/${need} ${what}` });
 
+/** A count at a scale: never below one. */
+const scaled = (base: number, scale: number) => Math.max(1, Math.round(base * scale));
+/** The quick sale's deadline at a scale: a harder milestone is a shorter one. */
+const deadline = (scale: number) => QUICK_SALE / scale;
+
 export const TERM_SHEETS: readonly TermSheet[] = [
   {
     id: "quick", investor: "Blitz Capital", goal: "Sell within 2 h 30 min of founding", bonus: 0.3,
-    progress: (n) => ({
-      have: n.secondsIn, need: QUICK_SALE, met: n.secondsIn <= QUICK_SALE,
-      text: n.secondsIn <= QUICK_SALE ? `${clock(QUICK_SALE - n.secondsIn)} left` : "Too late",
+    goalAt: (k) => `Sell within ${clock(deadline(k))} of founding`,
+    progress: (n, k = 1) => ({
+      have: n.secondsIn, need: deadline(k), met: n.secondsIn <= deadline(k),
+      text: n.secondsIn <= deadline(k) ? `${clock(deadline(k) - n.secondsIn)} left` : "Too late",
     }),
   },
   {
     id: "town", investor: "Main Street Partners", goal: "40 lived-in houses when you sell", bonus: 0.25,
-    progress: (n) => atLeast(n.houses, 40, "houses"),
+    goalAt: (k) => `${scaled(40, k)} lived-in houses when you sell`,
+    progress: (n, k = 1) => atLeast(n.houses, scaled(40, k), "houses"),
   },
   {
+    // A promise kept or broken: no harder or easier, whatever the milestone says of the kicker.
     id: "clean", investor: "Green Ledger Fund", goal: "Never let the slop pit overflow", bonus: 0.2,
+    goalAt: () => "Never let the slop pit overflow",
     progress: (n) => ({ have: n.overflowed ? 0 : 1, need: 1, met: !n.overflowed, text: n.overflowed ? "It overflowed" : "Clean so far" }),
   },
   {
     id: "wonders", investor: "Monument Ventures", goal: "Two wonders standing when you sell", bonus: 0.3,
-    progress: (n) => atLeast(n.wonders, 2, "wonders"),
+    goalAt: (k) => { const w = scaled(2, k); return `${w === 1 ? "One wonder" : `${w} wonders`} standing when you sell`; },
+    progress: (n, k = 1) => atLeast(n.wonders, scaled(2, k), "wonders"),
   },
   {
     id: "agents", investor: "Singularity Seed", goal: "12 AI agents running when you sell", bonus: 0.25,
-    progress: (n) => atLeast(n.agents, 12, "agents"),
+    goalAt: (k) => `${scaled(12, k)} AI agents running when you sell`,
+    progress: (n, k = 1) => atLeast(n.agents, scaled(12, k), "agents"),
   },
 ];
 
@@ -104,14 +118,19 @@ export function termNow(): TermNow {
   };
 }
 
-/** This run's term sheet and where it stands, or null with none. */
-export function termStatus(): { sheet: TermSheet; progress: TermProgress } | null {
+/**
+ * This run's term sheet and where it stands, or null with none: its goal and
+ * its bonus at the milestone the deal set. @see term-deal
+ */
+export function termStatus(): { sheet: TermSheet; progress: TermProgress; goal: string; bonus: number } | null {
   const sheet = termSheet(useSessionStore.getState().termSheet);
-  return sheet ? { sheet, progress: sheet.progress(termNow()) } : null;
+  if (!sheet) return null;
+  const e = termEffects();
+  return { sheet, progress: sheet.progress(termNow(), e.goalScale), goal: sheet.goalAt(e.goalScale), bonus: sheet.bonus * e.bonusMult };
 }
 
 /** What the term sheet adds to a sale now: its bonus if met, else nothing. */
 export function termBonusNow(): number {
   const t = termStatus();
-  return t?.progress.met ? t.sheet.bonus : 0;
+  return t?.progress.met ? t.bonus : 0;
 }

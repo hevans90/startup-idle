@@ -1,6 +1,8 @@
 import { ClassNameValue, twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
 import { termStatus } from "../game/term-sheets";
+import { dealLines } from "../game/term-deal";
+import { useSessionStore } from "../state/session.store";
 import { FusedTraits } from "./fused-traits";
 import { useTicking } from "../hooks/use-ticking";
 import { useExitsStore } from "../state/exits.store";
@@ -19,6 +21,7 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
   // Ticking, so the term sheet's clock moves while the popover is open.
   useTicking(1000);
   const term = termStatus();
+  const clauses = useSessionStore((s) => s.termClauses);
   if (!founder) return null;
 
   const Icon = founder.icon;
@@ -54,9 +57,15 @@ export const FounderBadge = ({ className }: { className?: ClassNameValue }) => {
           {/* THE TERM SHEET SIGNED, and where it stands. @see game/term-sheets */}
           {term && (
             <PopGroup label="Term sheet">
-              <PopRow strong label={term.sheet.investor} value={`+${Math.round(term.sheet.bonus * 100)}% Equity`} valueClass="text-good" />
-              <PopRow wrap label={term.sheet.goal} />
+              <PopRow strong label={term.sheet.investor} value={`+${Math.round(term.bonus * 100)}% Equity`} valueClass="text-good" />
+              <PopRow wrap label={term.goal} />
               <PopRow wrap label={<span className={term.progress.met ? "text-good" : undefined}>{term.progress.text}</span>} />
+            </PopGroup>
+          )}
+          {/* THE DEAL SIGNED, a clause a row. @see term-deal */}
+          {clauses && (
+            <PopGroup label="Signed terms">
+              {dealLines(clauses).map((l) => <PopRow key={l.title} label={l.title} value={l.label} valueClass="text-fg" />)}
             </PopGroup>
           )}
         </PopCard>

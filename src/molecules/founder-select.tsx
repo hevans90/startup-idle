@@ -11,6 +11,8 @@ import { fmtMult } from "../ui/BonusRow";
 import { Button, Dialog, Tile } from "../ui/console";
 import { FoundingShell } from "./founding-shell";
 import { TermSheetSelect } from "./term-sheet-select";
+import { dealEffects } from "../game/term-deal";
+import { useMoneyStore } from "../state/money.store";
 import { FusedTraits } from "./fused-traits";
 import { fusedInto } from "../game/fusion";
 import { trait } from "../game/traits";
@@ -95,6 +97,7 @@ export const FounderSelect = () => {
   const [land, setLand] = useState<{ seed: number; params: Record<string, number> } | null>(null);
   const setMapChoice = useSessionStore((s) => s.setMapChoice);
   const setTermSheet = useSessionStore((s) => s.setTermSheet);
+  const setTermClauses = useSessionStore((s) => s.setTermClauses);
   const announce = useGenerationStore((s) => s.announce);
   const generation = useGenerationStore((s) => s.generation);
 
@@ -179,14 +182,18 @@ export const FounderSelect = () => {
   }
   if (step === "terms" && selected && land) {
     return (
-      <TermSheetSelect seed={land.seed} onBack={() => setStep("land")}
-        onSign={(id) => {
+      <TermSheetSelect seed={land.seed} founder={FOUNDERS.find((f) => f.id === selected)?.name ?? "The founder"} onBack={() => setStep("land")}
+        onSign={(id, clauses) => {
           // The land first, so the company's map is made from it when it mounts.
           setMapChoice(land);
           setTermSheet(id);
+          setTermClauses(clauses);
           // Announced; a new company is under way.
           useGenerationStore.setState({ announce: null });
           chooseFounder(selected);
+          // THE INVESTMENT, wired in at signing, on top of the founder's own cash. @see term-deal
+          const cash = dealEffects(clauses).cash;
+          if (cash > 0) useMoneyStore.getState().increaseMoney(cash);
         }} />
     );
   }
