@@ -207,10 +207,9 @@ describe("the Founder's Garage", () => {
 describe("the Boardroom Tower", () => {
   const BOARDROOM = projectDef("boardroom")!;
 
-  test("waits on Upward Management and employee management both, and opens mandates where there is a map", () => {
-    expect(BOARDROOM.ready({ vibe_coder: 100 }, new Set(["employeeManagement"]))).toBe(false);
-    expect(BOARDROOM.ready({}, new Set(["intern_hybrid_upgrade_1"]))).toBe(false);
-    expect(BOARDROOM.ready({}, new Set(["employeeManagement", "intern_hybrid_upgrade_1"]))).toBe(true);
+  test("waits on Upward Management alone, and opens mandates where there is a map", () => {
+    expect(BOARDROOM.ready({ vibe_coder: 100 }, new Set())).toBe(false);
+    expect(BOARDROOM.ready({}, new Set(["intern_hybrid_upgrade_1"]))).toBe(true);
     const stop = setProjectReader(() => ({ built: new Set(["studio", "hq"]), away: {} }));
     expect(featureGateOpen("mandates")).toBe(false);
     stop();

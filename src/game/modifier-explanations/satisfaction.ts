@@ -10,7 +10,7 @@ import { SAT_REV_BASE, satisfactionRevenueEntry } from "./factories";
 import { fmt2, satRows } from "./utils";
 
 const EM_LOCKED_ROW: BreakdownRow = {
-  source: "Unlock Employee Management to activate",
+  source: "Opens with the Company HQ",
   value: "—",
   tone: "neutral",
 };

@@ -49,3 +49,38 @@ describe("innovation store hydration is crash-proof", () => {
     expect(() => useInnovationStore.getState().getMultiplier()).not.toThrow();
   });
 });
+
+describe("the tab's features, opened by projects", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useInnovationStore.getState().reset();
+  });
+
+  test("the HQ opens managers and employee management together; other grants open nothing here", () => {
+    const s = () => useInnovationStore.getState();
+    s().grantFeatures("services");
+    s().grantFeatures(undefined);
+    expect(s().unlocks.managers.unlocked).toBe(false);
+    s().grantFeatures("managers");
+    expect(s().unlocks.managers.unlocked).toBe(true);
+    expect(s().unlocks.employeeManagement.unlocked).toBe(true);
+    expect(s().innovation.toNumber()).toBe(0);
+  });
+
+  test("an old save is refunded what it paid, once, and keeps what it opened", async () => {
+    const dec = (n: number) => ({ type: "decimal", mantissa: n, exponent: 0 });
+    localStorage.setItem("innovation", JSON.stringify({
+      state: {
+        innovation: { type: "decimal", mantissa: 1, exponent: 1 },
+        unlocks: { managers: { unlocked: true, cost: dec(1) }, employeeManagement: { unlocked: false, cost: dec(5) } },
+      },
+      version: 0,
+    }));
+    await useInnovationStore.persist.rehydrate();
+    const s = useInnovationStore.getState();
+    // 10 had, plus the 1 paid for managers; employee management was never bought.
+    expect(s.innovation.toNumber()).toBeCloseTo(11);
+    expect(s.unlocks.managers).toEqual({ unlocked: true, cost: new Decimal(0) });
+    expect(s.unlocks.employeeManagement.unlocked).toBe(false);
+  });
+});

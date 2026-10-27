@@ -9,6 +9,7 @@ const reset = () =>
     exits: 0,
     respecPoints: 0,
     allocated: [],
+    everEarnedEquity: false,
   });
 
 describe("prestige allocation (escalating cost)", () => {
@@ -178,5 +179,33 @@ describe("prestige hydration", () => {
     expect(s.equity).toBeInstanceOf(Decimal);
     expect(s.equity.toNumber()).toBe(12);
     expect(s.allocated).toEqual(["core"]); // ghost pruned
+  });
+});
+
+describe("ever earned Equity", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    reset();
+  });
+
+  test("set by a sale or a grant, and kept when the Equity is spent", () => {
+    expect(usePrestigeStore.getState().everEarnedEquity).toBe(false);
+    usePrestigeStore.getState().bankAcquisition(new Decimal(5));
+    usePrestigeStore.setState({ equity: new Decimal(0), exits: 0 });
+    expect(usePrestigeStore.getState().everEarnedEquity).toBe(true);
+    reset();
+    usePrestigeStore.getState().grantEquity(1);
+    expect(usePrestigeStore.getState().everEarnedEquity).toBe(true);
+  });
+
+  test("an older save says so by what Equity bought or is; a fresh one does not", async () => {
+    const hydrate = async (state: object) => {
+      localStorage.setItem("prestige", JSON.stringify({ state, version: 0 }));
+      await usePrestigeStore.persist.rehydrate();
+      return usePrestigeStore.getState().everEarnedEquity;
+    };
+    expect(await hydrate({ equity: 0, exits: 0, respecPoints: 0, allocated: ["core"] })).toBe(true);
+    expect(await hydrate({ equity: 3, exits: 0, respecPoints: 0, allocated: [] })).toBe(true);
+    expect(await hydrate({ equity: 0, exits: 0, respecPoints: 0, allocated: [] })).toBe(false);
   });
 });

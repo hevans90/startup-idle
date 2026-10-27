@@ -112,7 +112,7 @@ export function satisfactionRevenueEntry(
     const tone: BreakdownRow["tone"] = mult >= 1 ? "good" : "bad";
     const rows = emUnlocked
       ? satRows(score, effScore, mult, tone, prestige)
-      : [{ source: "Unlock Employee Management to activate", value: "—", tone: "neutral" as const }];
+      : [{ source: "Opens with the Company HQ", value: "—", tone: "neutral" as const }];
     return { label, description, rows, total: fmt2(mult) };
   };
 }

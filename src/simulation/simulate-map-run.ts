@@ -290,9 +290,8 @@ export function simulateMapRun(
       else { pit.drain(); report.slopDrained++; }
     }
     const o = owned();
-    // The innovation unlocks had and the upgrades bought: what a gate is met by. @see Gate
-    const unlocked = new Set(Object.entries(useInnovationStore.getState().unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
-    for (const id of useUpgradeStore.getState().unlockedUpgradeIds) unlocked.add(id);
+    // The upgrades bought: what a gate is met by. @see Gate
+    const unlocked = new Set(useUpgradeStore.getState().unlockedUpgradeIds);
     // ONE PROJECT AT A TIME, as in the game: the first ready, in order. @see projectUnderWay
     for (const id of GATES) {
       if (sites.length) break;
@@ -327,6 +326,8 @@ export function simulateMapRun(
       if (s.done >= s.p.work - 1e-6 && s.delivered >= s.p.deliveries) {
         built.add(s.p.id);
         report.opened[s.p.id] = t;
+        // What it opens, as in the game. @see grantFeatures
+        useInnovationStore.getState().grantFeatures(s.p.grants);
         report.milestones.push(t);
         sites.splice(sites.indexOf(s), 1);
         syncUnlockedGenerators();

@@ -5,7 +5,6 @@
 import { PROJECTS, type ProjectDef } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
-import { useInnovationStore } from "../../state/innovation.store";
 import { UPGRADES, useUpgradeStore, type Upgrade } from "../../state/upgrades.store";
 
 /** One of a kind, or many. */
@@ -15,21 +14,12 @@ export const KIND: Record<GeneratorId, [string, string]> = {
 export const kindName = (who: GeneratorId, n: number) => `${n} ${KIND[who][n === 1 ? 0 : 1]}`;
 export const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
-/** The innovation unlocks had, and the upgrades bought: what a gate is met by. */
-export function gateUnlocksNow(): Set<string> {
-  const unlocks = useInnovationStore.getState().unlocks;
-  const out = new Set(Object.entries(unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
-  for (const id of useUpgradeStore.getState().unlockedUpgradeIds) out.add(id);
-  return out;
-}
+/** The upgrades bought: what a gate is met by. */
+export const gateUnlocksNow = (): Set<string> => new Set(useUpgradeStore.getState().unlockedUpgradeIds);
 
 /** The same, kept up to date in a component. */
 export function useGateUnlocks(): Set<string> {
-  const unlocks = useInnovationStore((s) => s.unlocks);
-  const bought = useUpgradeStore((s) => s.unlockedUpgradeIds);
-  const out = new Set(Object.entries(unlocks).filter(([, u]) => u?.unlocked).map(([k]) => k));
-  for (const id of bought) out.add(id);
-  return out;
+  return new Set(useUpgradeStore((s) => s.unlockedUpgradeIds));
 }
 
 export const upgradeOf = (id: string): Upgrade | null => UPGRADES.find((u) => u.id === id) ?? null;

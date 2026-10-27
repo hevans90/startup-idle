@@ -265,14 +265,14 @@ export const ACHIEVEMENT_CATALOG: AchievementDef[] = [
   {
     id: "managers_online",
     name: "Management layer",
-    description: "Unlock Managers.",
+    description: "Open the Company HQ: managers.",
     juiceReward: 18,
     check: (c) => c.managersUnlocked,
   },
   {
     id: "hr_expansion",
     name: "HR expansion",
-    description: "Unlock Employee Management.",
+    description: "Open the Company HQ: employee management.",
     juiceReward: 30,
     check: (c) => c.employeeManagementUnlocked,
   },

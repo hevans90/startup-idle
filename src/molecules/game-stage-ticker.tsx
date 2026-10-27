@@ -33,7 +33,6 @@ export const GameStageTicker = ({ className }: { className?: ClassNameValue }) =
   const innovationEarly = useInnovationStore(
     (s) => s.innovation.gte(1) && s.innovation.lt(5)
   );
-  const innovationFivePlus = useInnovationStore((s) => s.innovation.gte(5));
 
   const managersUnlocked = useInnovationStore((s) => s.unlocks.managers?.unlocked ?? false);
   const employeeMgmtUnlocked = useInnovationStore(
@@ -62,7 +61,6 @@ export const GameStageTicker = ({ className }: { className?: ClassNameValue }) =
         hasPositiveMps,
         innovationBelowOne,
         innovationEarly,
-        innovationFivePlus,
         isBrokeNews,
         managersUnlocked,
         employeeMgmtUnlocked,
@@ -77,7 +75,6 @@ export const GameStageTicker = ({ className }: { className?: ClassNameValue }) =
       hasPositiveMps,
       innovationBelowOne,
       innovationEarly,
-      innovationFivePlus,
       isBrokeNews,
       managersUnlocked,
       employeeMgmtUnlocked,

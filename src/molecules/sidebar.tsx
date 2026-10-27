@@ -3,6 +3,7 @@ import { ClassNameValue, twMerge } from "tailwind-merge";
 
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGlobalSettingsStore, type SidebarTab } from "../state/global-settings.store";
+import { usePrestigeStore } from "../state/prestige.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
@@ -27,19 +28,24 @@ function useVapeVisible() {
 export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const { sidebarTab, setSidebarTab } = useGlobalSettingsStore();
   const vapeVisible = useVapeVisible();
+  const managersOpen = useInnovationStore((s) => s.unlocks.managers?.unlocked ?? false);
   const employeeMgmtUnlocked = useInnovationStore(
     (s) => s.unlocks.employeeManagement?.unlocked ?? false,
   );
   const accruedThisRun = useValuationStore((s) => s.accruedThisRun);
-  const acquisitionVisible = accruedThisRun.gte(100);
+  const everEarnedEquity = usePrestigeStore((s) => s.everEarnedEquity);
+  // ONCE THERE IS SOMETHING TO SELL on a first run; from the start once any Equity has ever been earned.
+  const acquisitionVisible = accruedThisRun.gte(100) || everEarnedEquity;
   // THE AI: once the Data Centre stands, the AI has reached the singularity, or any Ascension has been made.
   const generation = useGenerationStore((s) => s.generation);
   const aiVisible = useAiSingularityStore((s) => s.everCompleted) || generation > 1 || (projectReading()?.built.has("datacentre") ?? false);
 
   const tabs: TabItem<SidebarTab>[] = [
     { id: "employees", label: "Employees" },
-    { id: "innovation", label: "Innovation" },
-    ...(employeeMgmtUnlocked ? [{ id: "valuation" as SidebarTab, label: "Valuation" }] : []),
+    // OPENED BY THE HQ. @see grantFeatures
+    ...(managersOpen ? [{ id: "innovation" as SidebarTab, label: "Innovation" }] : []),
+    // WITH THE HQ on a first run; from the start once any Equity has ever been earned.
+    ...(employeeMgmtUnlocked || everEarnedEquity ? [{ id: "valuation" as SidebarTab, label: "Valuation" }] : []),
     ...(acquisitionVisible ? [{ id: "acquisition" as SidebarTab, label: "Acquisition" }] : []),
     ...(vapeVisible ? [{ id: "achievements" as SidebarTab, label: "Vape shop" }] : []),
     ...(aiVisible ? [{ id: "ai" as SidebarTab, label: "AI" }] : []),

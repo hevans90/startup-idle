@@ -8,21 +8,28 @@ import {
   decimalReplacer,
   decimalReviver,
 } from "./_break_infinity.decimals";
-import { featureGateOpen } from "../game/projects";
+import type { FeatureId } from "../game/projects";
 import { useFounderStore } from "./founder.store";
 import { usePrestigeStore } from "./prestige.store";
 
 const LOCAL_STORAGE_KEY = "innovation";
 
+/**
+ * WHAT THE TAB HAS OPENED: opened by a project, never bought — `cost` is what
+ * an old save paid for it before that, refunded once. @see grantFeatures
+ */
 const unlockInitialState = {
-  managers: { unlocked: false, cost: new Decimal(1) },
-  employeeManagement: { unlocked: false, cost: new Decimal(5) },
+  managers: { unlocked: false, cost: new Decimal(0) },
+  employeeManagement: { unlocked: false, cost: new Decimal(0) },
 };
 
 const PROGRESS_THRESHOLD = new Decimal(100);
 const MANGER_TICK_INTERVAL = 200;
 
 type UnlockKeys = keyof typeof unlockInitialState;
+
+/** What each project's grant opens here: the HQ, managers and employee management. @see ProjectDef.grants */
+const OPENED_BY: Partial<Record<FeatureId, UnlockKeys[]>> = { managers: ["managers", "employeeManagement"] };
 
 export const ManagerKeyValues = ["agile", "corpo", "sales"] as const;
 export type ManagerKeys = (typeof ManagerKeyValues)[number];
@@ -178,8 +185,8 @@ type InnovationState = {
   reset: () => void;
 
   unlocks: Record<UnlockKeys, { unlocked: boolean; cost: Decimal }>;
-  canUnlock: (key: UnlockKeys) => boolean;
-  unlock: (key: UnlockKeys) => void;
+  /** A project opened: what it grants here, opened. @see announceOpened */
+  grantFeatures: (grant: FeatureId | undefined) => void;
 
   managers: Record<ManagerKeys, ManagerState>;
 
@@ -273,28 +280,12 @@ export const useInnovationStore = create<InnovationState>()(
         });
       },
 
-      canUnlock: (key) => {
-        const { innovation, unlocks } = get();
-        return (
-          !unlocks[key]?.unlocked &&
-          innovation.greaterThanOrEqualTo(unlocks[key]?.cost) &&
-          // MANAGERS WAIT FOR THE HQ, where the company has a map to build
-          // one on. @see game/projects
-          (key !== "managers" || featureGateOpen("managers"))
-        );
-      },
-
-      unlock: (key) => {
-        const { canUnlock, spendInnovation, unlocks } = get();
-        if (canUnlock(key)) {
-          spendInnovation(unlocks[key].cost.toNumber());
-          set((state) => ({
-            unlocks: {
-              ...state.unlocks,
-              [key]: { unlocked: true, cost: unlocks[key].cost },
-            },
-          }));
-        }
+      grantFeatures: (grant) => {
+        const keys = grant ? OPENED_BY[grant] ?? [] : [];
+        if (!keys.length || keys.every((k) => get().unlocks[k]?.unlocked)) return;
+        set((state) => ({
+          unlocks: { ...state.unlocks, ...Object.fromEntries(keys.map((k) => [k, { unlocked: true, cost: new Decimal(0) }])) },
+        }));
       },
 
       assignManager: (key) => {
@@ -497,10 +488,22 @@ export const useInnovationStore = create<InnovationState>()(
             ),
           };
         }
+        // WHAT AN OLD SAVE PAID to open the tab's features, given back once:
+        // projects open them now. @see unlockInitialState
+        let innovation = coerceDecimal(p.innovation, current.innovation);
+        const unlocks = { ...current.unlocks };
+        for (const key of Object.keys(unlockInitialState) as UnlockKeys[]) {
+          const saved = (p.unlocks as Partial<InnovationState["unlocks"]> | undefined)?.[key];
+          if (!saved) continue;
+          const paid = coerceDecimal(saved.cost, new Decimal(0));
+          if (saved.unlocked && paid.gt(0)) innovation = innovation.add(paid);
+          unlocks[key] = { unlocked: !!saved.unlocked, cost: new Decimal(0) };
+        }
         return {
           ...current,
           ...p,
-          innovation: coerceDecimal(p.innovation, current.innovation),
+          innovation,
+          unlocks,
           managers,
         };
       },

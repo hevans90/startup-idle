@@ -2,9 +2,8 @@ import {
   ManagerKeyValues,
   useInnovationStore,
 } from "../../state/innovation.store";
-import { featureGateOpen } from "../../game/projects";
 import { usePrestigeStore } from "../../state/prestige.store";
-import { Button, Locked, Panel } from "../../ui/console";
+import { Locked, Panel } from "../../ui/console";
 import { showProject } from "../../world/play/map-focus";
 import { CycleButton } from "../../ui/CyclingButton";
 import { EmployeeManagementPanel } from "./employee-management-panel";
@@ -14,8 +13,6 @@ export const InnovationManagers = () => {
   const {
     innovation,
     unlocks,
-    canUnlock,
-    unlock,
     managers,
     assignManager,
     unassignManager,
@@ -23,13 +20,8 @@ export const InnovationManagers = () => {
     setAssignment,
   } = useInnovationStore();
 
+  // OPENED BY THE HQ, both: never bought. @see grantFeatures
   const managersState = unlocks.managers;
-  // Where the company has a map, managers wait for the HQ. @see featureGateOpen
-  const hqBuilt = featureGateOpen("managers");
-
-  const canUnlockManagers = canUnlock("managers");
-  const canUnlockEmployeeManagement = canUnlock("employeeManagement");
-
   const employeeManagementState = unlocks.employeeManagement;
   const disableManagers = usePrestigeStore((s) => s.modifiers.disableManagers);
 
@@ -42,14 +34,9 @@ export const InnovationManagers = () => {
           effect while this keystone is allocated.
         </div>
       )}
-      {/* LOCKED until the HQ stands; then bought. @see featureGateOpen */}
-      {!managersState?.unlocked && !hqBuilt && (
+      {/* LOCKED until the HQ stands. @see grantFeatures */}
+      {!managersState?.unlocked && (
         <Locked needs="Managers need an office: build your Company HQ on the map" onShow={() => showProject("managers")} />
-      )}
-      {!managersState?.unlocked && hqBuilt && (
-        <Button variant="primary" onClick={() => unlock("managers")} disabled={!canUnlockManagers}>
-          Unlock Managers: {managersState?.cost.toFixed(2)}
-        </Button>
       )}
 
       {managersState?.unlocked && (
@@ -75,16 +62,6 @@ export const InnovationManagers = () => {
             />
           ))}
         </Panel>
-      )}
-
-      {!employeeManagementState?.unlocked && (
-        <Button
-          variant="primary"
-          onClick={() => unlock("employeeManagement")}
-          disabled={!canUnlockEmployeeManagement}
-        >
-          Unlock Employee Management: {employeeManagementState?.cost.toFixed(2)}
-        </Button>
       )}
 
       {employeeManagementState?.unlocked && (

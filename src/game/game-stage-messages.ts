@@ -10,7 +10,6 @@ export type GameStageSnapshot = {
   hasPositiveMps: boolean;
   innovationBelowOne: boolean;
   innovationEarly: boolean;
-  innovationFivePlus: boolean;
   isBrokeNews: boolean;
   managersUnlocked: boolean;
   employeeMgmtUnlocked: boolean;
@@ -103,14 +102,6 @@ const NEWS_BUCKETS: NewsBucket[] = [
     lines: [
       "Agile, Corpo, Sales — pick your poison; they all invoice the same soul.",
       "Managers multiply. Accountability divides. Math checks out.",
-    ],
-  },
-  {
-    when: (s) =>
-      s.managersUnlocked && !s.employeeMgmtUnlocked && s.innovationFivePlus,
-    lines: [
-      "Employee Management waits, patient as a reorg in January.",
-      "You have tiers to burn and perks to pretend are 'culture.'",
     ],
   },
   {

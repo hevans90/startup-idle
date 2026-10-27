@@ -8,6 +8,7 @@
 import { projectDef, type ProjectId } from "../../game/projects";
 import { report } from "../../state/comms.store";
 import { syncUnlockedGenerators, useGeneratorStore, type GeneratorId } from "../../state/generators.store";
+import { useInnovationStore } from "../../state/innovation.store";
 import { useMoneyStore } from "../../state/money.store";
 
 /** Employees of each kind the company has. */
@@ -37,8 +38,10 @@ export function announceOpened(ids: readonly ProjectId[]): void {
   for (const id of ids) {
     const p = projectDef(id);
     if (!p) continue;
+    // What it grants the Innovation tab, opened. @see grantFeatures
+    useInnovationStore.getState().grantFeatures(p.grants);
     const news = p.unlocks ? " New hires are available."
-      : p.grants === "managers" ? " You can now hire managers."
+      : p.grants === "managers" ? " Managers and employee management are open on the Innovation tab."
         : p.grants === "services" ? " You can now build cafés, parks and gyms."
           : p.grants === "ports" ? " You can now build seaports." : "";
     report(`${p.name} has opened.${news}`, { title: "Opened" });

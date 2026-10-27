@@ -45,6 +45,8 @@ type PrestigeState = {
   respecPoints: number;
   /** Allocated skill-tree node ids. */
   allocated: string[];
+  /** Whether any Equity has ever been earned, a sale or a grant: kept when it is spent. */
+  everEarnedEquity: boolean;
   /** Resolved economy modifiers from `allocated` (derived; recomputed on every
    * change, never persisted). Read at the founder-style chokepoints. */
   modifiers: PrestigeModifiers;
@@ -83,6 +85,7 @@ export const usePrestigeStore = create<PrestigeState>()(
     (set, get) => ({
       equity: new Decimal(0),
       exits: 0,
+      everEarnedEquity: false,
       respecPoints: 0,
       allocated: [],
       modifiers: { ...NEUTRAL_PRESTIGE_MODIFIERS },
@@ -209,12 +212,12 @@ export const usePrestigeStore = create<PrestigeState>()(
 
       bankAcquisition: (gain) => {
         if (gain.lte(0)) return;
-        set((s) => ({ equity: s.equity.add(gain), exits: s.exits + 1 }));
+        set((s) => ({ equity: s.equity.add(gain), exits: s.exits + 1, everEarnedEquity: true }));
       },
 
       grantEquity: (amount) => {
         if (amount <= 0) return;
-        set((s) => ({ equity: s.equity.add(amount) }));
+        set((s) => ({ equity: s.equity.add(amount), everEarnedEquity: true }));
       },
 
       reset: () => {
@@ -223,6 +226,7 @@ export const usePrestigeStore = create<PrestigeState>()(
           exits: 0,
           respecPoints: 0,
           allocated: [],
+          everEarnedEquity: false,
           modifiers: { ...NEUTRAL_PRESTIGE_MODIFIERS },
         });
         usePrestigeStore.persist.clearStorage();
@@ -239,15 +243,19 @@ export const usePrestigeStore = create<PrestigeState>()(
         exits: s.exits,
         respecPoints: s.respecPoints,
         allocated: s.allocated,
+        everEarnedEquity: s.everEarnedEquity,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<PrestigeState>;
         // Drop any allocated ids that no longer exist in the tree.
         const allocated = (p.allocated ?? []).filter((id) => NODES.has(id));
+        const equity = coerceDecimal(p.equity, current.equity);
         return {
           ...current,
           ...p,
-          equity: coerceDecimal(p.equity, current.equity),
+          equity,
+          // A save from before the flag: anything Equity bought, or is, says it was earned.
+          everEarnedEquity: p.everEarnedEquity ?? (equity.gt(0) || (p.exits ?? 0) > 0 || allocated.length > 0 || (p.respecPoints ?? 0) > 0),
           allocated,
           modifiers: resolvePrestigeModifiers(allocated),
         };

@@ -42,8 +42,6 @@ export type FeatureId = "managers" | "mandates" | "services" | "ports";
 export type Gate = {
   /** An upgrade that must have been bought. @see upgrades.store */
   upgrade?: string;
-  /** An innovation unlock that must be had: "employeeManagement". */
-  feature?: string;
   /** So many of each kind employed. */
   staff?: Partial<Record<GeneratorId, number>>;
 };
@@ -51,7 +49,6 @@ export type Gate = {
 /** One part of a gate, for whoever shows it. */
 export type GatePart =
   | { kind: "upgrade"; id: string; met: boolean }
-  | { kind: "feature"; id: string; met: boolean }
   | { kind: "staff"; who: GeneratorId; need: number; have: number; met: boolean };
 
 /**
@@ -85,7 +82,6 @@ export function gateParts(
   const gate = gateNow(given);
   const parts: GatePart[] = [];
   if (gate.upgrade) parts.push({ kind: "upgrade", id: gate.upgrade, met: unlocked.has(gate.upgrade) });
-  if (gate.feature) parts.push({ kind: "feature", id: gate.feature, met: unlocked.has(gate.feature) });
   for (const [who, need] of Object.entries(gate.staff ?? {}) as [GeneratorId, number][]) {
     const have = owned[who] ?? 0;
     parts.push({ kind: "staff", who, need, have, met: have >= need });
@@ -140,8 +136,7 @@ export type ProjectDef = {
   gate: Gate;
   /**
    * Whether the company is ready for it: every part of its gate met. Made from
-   * the gate. `unlocked` holds both the innovation unlocks ("managers",
-   * "employeeManagement") and the ids of the upgrades bought.
+   * the gate. `unlocked` holds the ids of the upgrades bought.
    */
   ready: (owned: Partial<Record<GeneratorId, number>>, unlocked: ReadonlySet<string>) => boolean;
   /**
@@ -248,7 +243,7 @@ export const PROJECTS: readonly ProjectDef[] = [
     deliveries: 14,
     grants: "mandates",
     opens: "valuation",
-    ...needs({ upgrade: "intern_hybrid_upgrade_1", feature: "employeeManagement" }),
+    ...needs({ upgrade: "intern_hybrid_upgrade_1" }),
   },
   {
     id: "campus",

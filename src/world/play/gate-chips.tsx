@@ -18,9 +18,6 @@ import { formatCurrency } from "../../utils/money-utils";
 import { KIND_COLOUR } from "./building-info";
 import { KIND, hex, kindName, showUpgrades, upgradeOf, useGateUnlocks } from "./gates";
 
-/** What an innovation unlock is called, for a chip. */
-const FEATURE_NAME: Record<string, string> = { employeeManagement: "Employee Management", managers: "Managers" };
-
 /** "at 25 interns", from an upgrade's conditions, with how many there are now. */
 function whenBuyable(u: Upgrade, owned: Partial<Record<GeneratorId, number>>): { text: string; met: boolean } {
   const parts = u.unlockConditions.map((c) => ({ c, have: owned[c.requiredId] ?? 0 }));
@@ -61,19 +58,6 @@ function GateChip({ part, project, owned }: { part: GatePart; project: ProjectDe
             Show on the Employees tab
           </button>
         )}
-      </InfoPop>
-    );
-  }
-  if (part.kind === "feature") {
-    const name = FEATURE_NAME[part.id] ?? part.id;
-    return (
-      <InfoPop
-        className={twMerge("border px-1 py-px text-[10px]", part.met
-          ? "border-good text-good"
-          : "border-line text-fg-muted")}
-        trigger={<><span aria-hidden>{part.met ? DONE : LOCK}</span><span>{name}</span></>}
-        title={part.met ? `${name}: unlocked` : `${project.name} needs ${name}`}>
-        <p>Unlocked on the Innovation tab.</p>
       </InfoPop>
     );
   }

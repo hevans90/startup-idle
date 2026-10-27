@@ -17,7 +17,7 @@ import {
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { getNetwork, getWorks, startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
 import { housedBy, residentsIn } from "../game/housing";
-import { projectForStructure, setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
+import { projectDef, projectForStructure, setProjectReader, type FeatureId, type ProjectId } from "../game/projects";
 import { setTermReader } from "../game/term-sheets";
 import { liveLeadership } from "./agents/leaders";
 import { deskShare } from "./agents/desk-perks";
@@ -223,6 +223,8 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     useWorldStore.getState().settleHousing(owned, useSessionStore.getState().remoteBeds ?? {});
     const opened = catchUpWorks(useWorldStore.getState().grid, owned, payForLoad, Date.now());
     if (opened.length) announceOpened(opened);
+    // WHAT THE BUILDINGS STANDING HAVE OPENED, had: a save from before projects opened them. @see grantFeatures
+    for (const id of builtProjects(useWorldStore.getState().grid)) useInnovationStore.getState().grantFeatures(projectDef(id)?.grants);
     // What is built changes only with the map, so it is worked out again only
     // then: the economy asks every tick.
     let seenGrid: unknown = null, seenRev = -1, seenProjects = -1;
