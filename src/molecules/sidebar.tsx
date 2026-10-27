@@ -13,7 +13,7 @@ import { AchievementsTab } from "./achievements-tab";
 import { AiTab } from "./ai-tab";
 import { projectReading } from "../game/projects";
 import { useGenerationStore } from "../state/generation.store";
-import { EmployeeSatisfactionOverlay } from "./employee-satisfaction-overlay";
+import { MoralePanel, MoraleStrip } from "./morale-panel";
 import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation/innovation-managers";
 import { InnovationSummary } from "./innovation/innovation-summary";
@@ -59,13 +59,15 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
       <div className="flex flex-col gap-6 p-2">
         <PurchaseModeToggle />
         <Generators />
-        <EmployeeSatisfactionOverlay className="mx-2" />
+        {/* MORALE, here until the HQ opens the Innovation tab, where it is in full. */}
+        {!managersOpen && <MoraleStrip className="mx-2" />}
         <Upgrades />
       </div>
     ),
     innovation: (
       <div className="flex w-full flex-col items-center gap-4 p-2 pt-4">
         <InnovationSummary compact={true} className="my-1" />
+        <MoralePanel className="w-full" />
         <InnovationManagers />
       </div>
     ),

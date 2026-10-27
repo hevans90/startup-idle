@@ -12,8 +12,7 @@ import {
 } from "zustand/middleware";
 import { roomFor } from "../game/housing";
 import { attendance, deskBonus, labBonus, wonderBonus } from "../game/projects";
-import { townMoodOffsets } from "../game/town-mood";
-import { moraleOffsets } from "../game/morale";
+import { moralePartsNow } from "../game/morale-parts";
 import { fusionNow } from "../game/fusion";
 import {
   calcGeneratorIncome,
@@ -33,10 +32,7 @@ import {
   vibeSlopMultiplier,
   type SatisfactionScores,
 } from "../game/satisfaction";
-import {
-  computeTeamLeaderEmpSatOffsets,
-  skillMult,
-} from "../game/team-leaders.catalog";
+import { skillMult } from "../game/team-leaders.catalog";
 import {
   getGeneratorCost,
   getUnlockedGeneratorIds,
@@ -459,18 +455,12 @@ function tickSatisfaction(
   prestige: { satisfactionGainMult: number },
   employees: TeamLeaderEmployee[],
 ): SatisfactionScores {
-  const satOffsets = { ...computeTeamLeaderEmpSatOffsets(employees) };
-  // AND THE TOWN: each kind leans toward the mood of the houses it lives in.
-  // @see townMoodOffsets
-  // AND WHAT EVENTS LEFT BEHIND, for as long as it is felt. @see addMorale
-  // And the founder's fused traits: a Ruthless or a Nanny leans everyone. @see game/fusion
-  const lean = fusionNow().moraleLean;
-  const fused: Partial<Record<GeneratorId, number>> = lean ? { intern: lean, vibe_coder: lean, "10x_dev": lean } : {};
-  for (const offsets of [townMoodOffsets(), moraleOffsets(), fused]) {
-    for (const [id, n] of Object.entries(offsets)) {
-      satOffsets[id as GeneratorId] = (satOffsets[id as GeneratorId] ?? 0) + (n ?? 0);
-    }
-  }
+  // EVERY PART BUT WORK, which the step adds itself: home, leaders, events,
+  // the founder's fused lean. @see moralePartsNow
+  const parts = moralePartsNow(perks, amounts, employees);
+  const satOffsets = Object.fromEntries(
+    Object.entries(parts).map(([id, p]) => [id, p.home + p.leaders + p.events + p.founder]),
+  ) as Partial<Record<GeneratorId, number>>;
   let driftMult = 1;
   for (const emp of employees) {
     const srLv = emp.skills.sat_recovery ?? 0;
@@ -934,7 +924,7 @@ export const useGeneratorStore = create<GeneratorState>()(
               modKey: "juiceInnovation",
             },
             {
-              label: "Intern satisfaction",
+              label: "Intern morale",
               mult: m.internIpsMult,
               modKey: "internIpsMult",
             },

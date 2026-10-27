@@ -294,7 +294,7 @@ export const FounderSelect = () => {
                 )}
                 {modifiers.satisfactionGainMult !== 1 && (
                   <PanelRow
-                    label="Satisfaction gain"
+                    label="Morale recovery"
                     value={fmtMult(modifiers.satisfactionGainMult)}
                     tone={modifiers.satisfactionGainMult > 1 ? "good" : "bad"}
                     modKey="prestigeSatisfactionGain"
@@ -335,7 +335,7 @@ export const FounderSelect = () => {
                   <PanelRow label="Managers disabled" value="✕" tone="bad" />
                 )}
                 {modifiers.satisfactionNeutralized && (
-                  <PanelRow label="Satisfaction off" value="✕" tone="bad" />
+                  <PanelRow label="Morale off" value="✕" tone="bad" />
                 )}
               </div>
             )}

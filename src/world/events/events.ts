@@ -215,7 +215,7 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     of: (w) => w.tour && {
       ...w.tour,
       choices: [
-        { id: "tidy", label: "Tidy up first", cost: `${people(w.tour.tidyCrew, "vibe coder")} off work until they come · the town looks ${TIDY_MOOD} mood better` },
+        { id: "tidy", label: "Tidy up first", cost: `${people(w.tour.tidyCrew, "vibe coder")} off work until they come · the town's morale looks ${TIDY_MOOD} better` },
         { id: "as-is", label: "Show it as it is", cost: `they would pay ${money(w.tour.reward)} now` },
       ],
     },

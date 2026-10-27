@@ -60,7 +60,7 @@ const INTERN_UPGRADES: Upgrade[] = [
     abbreviation: "IN1",
     name: "Micromanagement",
     description:
-      "Micromanage your interns harder. Weekly 1-1s will improve satisfaction and productivity (you think).",
+      "Micromanage your interns harder. Weekly 1-1s will improve morale and productivity (you think).",
     unlockConditions: [{ requiredId: "intern", requiredAmount: 15 }],
     effects: [
       {

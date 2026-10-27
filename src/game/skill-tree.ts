@@ -90,7 +90,7 @@ export const STAT_META: Record<BonusStat, { label: string; good: "up" | "down" }
   hireCost: { label: "Hire cost", good: "down" },
   singularity: { label: "Singularity rate", good: "up" },
   equity: { label: "Equity payout", good: "up" },
-  satisfactionGain: { label: "Satisfaction gain", good: "up" },
+  satisfactionGain: { label: "Morale recovery", good: "up" },
 };
 
 const STAT_ORDER = Object.keys(STAT_META) as BonusStat[];
@@ -139,8 +139,8 @@ export function grantRow(g: BonusGrant): EffectRow {
 /** Structural keystone reshapes as signed rows (their non-numeric side). */
 const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
   disableManagers: { label: "Managers & auto-buy disabled", tone: "bad" },
-  neutralizeSatisfaction: { label: "All satisfaction effects off", tone: "bad" },
-  dampSatisfaction: { label: "Positive satisfaction halved", tone: "bad" },
+  neutralizeSatisfaction: { label: "Morale has no effect", tone: "bad" },
+  dampSatisfaction: { label: "Good morale counts half", tone: "bad" },
   internsCrippled: { label: "Interns produce 10× less", tone: "bad" },
   freeStartingLevels: { label: `+${ACQUIHIRE_FREE_LEVELS} starting interns`, tone: "good" },
   foundingCafe: { label: "Every new town starts with a café", tone: "good" },
@@ -179,7 +179,7 @@ const STAT_SHORT: Record<BonusStat, string> = {
   managerSpeed: "manager speed",
   singularity: "singularity",
   equity: "Equity",
-  satisfactionGain: "satisfaction gain",
+  satisfactionGain: "morale recovery",
 };
 
 /** One-line human summary of a grant list (used for travel-node effect text). */
@@ -297,10 +297,10 @@ const CLUSTERS: ClusterDef[] = [
     minor: "+2.5% employee output",
     minorBonus: [pct("employeeOutput", 2.5)],
     notables: [
-      { title: "996", effect: "+40% employee output, but satisfaction rises 50% slower.", bonus: [pct("employeeOutput", 40), pct("satisfactionGain", -50)] },
+      { title: "996", effect: "+40% employee output, but morale recovers 50% slower.", bonus: [pct("employeeOutput", 40), pct("satisfactionGain", -50)] },
       { title: "Clean Sweep", effect: "+10% employee output, and mopping up sludge takes half the people.", bonus: [pct("employeeOutput", 10)], special: "lightCleanup" },
     ],
-    keystone: { title: "Crunch Mode", effect: "Employee output ×2.5, but all satisfaction effects are switched off.", bonus: [mult("employeeOutput", 2.5)], special: "neutralizeSatisfaction" },
+    keystone: { title: "Crunch Mode", effect: "Employee output ×2.5, but morale has no effect at all.", bonus: [mult("employeeOutput", 2.5)], special: "neutralizeSatisfaction" },
     shape: { trunkMinors: 4, travelPerGap: 4, branches: [{ offset: -27, pods: 1, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
@@ -362,7 +362,7 @@ const CLUSTERS: ClusterDef[] = [
     minor: "+3% money, −1% innovation",
     minorBonus: [pct("money", 3), pct("innovation", -1)],
     notables: [{ title: "Monetize Everything", effect: "+50% money, but −25% innovation.", bonus: [pct("money", 50), pct("innovation", -25)] }],
-    keystone: { title: "Enshittify", effect: "Money ×3, but innovation ×0.2 and positive satisfaction bonuses are halved.", bonus: [mult("money", 3), mult("innovation", 0.2)], special: "dampSatisfaction" },
+    keystone: { title: "Enshittify", effect: "Money ×3, but innovation ×0.2 and good morale counts for half.", bonus: [mult("money", 3), mult("innovation", 0.2)], special: "dampSatisfaction" },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
   },
 ];

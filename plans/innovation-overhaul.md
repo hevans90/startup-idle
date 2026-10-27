@@ -165,7 +165,7 @@ All of it happens in `world/ai/autopilot.ts`, logged in its memos.
    - Events, skill tree and fusion rewired.
    - Old scores converted.
    - Sims rebalanced: `map-balance`, `run-spread` and `progression-sim` must hold their pacing.
-3. **Morale UI and naming.**
+3. **Morale UI and naming.** (Done; code identifiers keep "satisfaction" for now.)
    - The Morale panel and strip, the map overlay renamed, every "satisfaction" string gone.
    - Modifier explanations (`modifier-explanations/satisfaction.ts` becomes `morale.ts`).
 4. **Work policies.** Catalogue, slots from manager tiers, the panel; perks and management points removed.

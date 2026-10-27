@@ -20,7 +20,7 @@ export const NO_JUICE_ROW: BreakdownRow = {
 };
 
 export const SAT_REV_BASE =
-  `Score 0 = ×1; +${SATISFACTION_MAX} = ×${SATISFACTION_REVENUE_MULT_AT_MAX}; ` +
+  `Morale 0 = ×1; +${SATISFACTION_MAX} = ×${SATISFACTION_REVENUE_MULT_AT_MAX}; ` +
   `${SATISFACTION_MIN} = ×${SATISFACTION_REVENUE_MULT_AT_MIN}.`;
 
 export function simplePrestigeEntry(

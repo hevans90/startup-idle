@@ -87,9 +87,9 @@ export const EMPLOYEE_SKILLS: Record<TeamLeaderSkillId, EmployeeSkill> = {
     name: "Chaos Spark",
     maxLevel: 3,
     descriptions: [
-      "+20% IPS · −2 others' sat",
-      "+40% IPS · −4 others' sat",
-      "+65% IPS · −6 others' sat",
+      "+20% IPS · −2 others' morale",
+      "+40% IPS · −4 others' morale",
+      "+65% IPS · −6 others' morale",
     ],
     mult: [1.2, 1.4, 1.65],
     offset: [-2, -4, -6],
@@ -99,9 +99,9 @@ export const EMPLOYEE_SKILLS: Record<TeamLeaderSkillId, EmployeeSkill> = {
     name: "Crunch Mode",
     maxLevel: 3,
     descriptions: [
-      "+45% rev · −3 sat (role)",
-      "+80% rev · −6 sat (role)",
-      "+130% rev · −11 sat (role)",
+      "+45% rev · −3 morale (role)",
+      "+80% rev · −6 morale (role)",
+      "+130% rev · −11 morale (role)",
     ],
     mult: [1.45, 1.8, 2.3],
     offset: [-3, -6, -11],
@@ -111,9 +111,9 @@ export const EMPLOYEE_SKILLS: Record<TeamLeaderSkillId, EmployeeSkill> = {
     name: "Research Mode",
     maxLevel: 3,
     descriptions: [
-      "+20% IPS · −2 sat (role)",
-      "+38% IPS · −4 sat (role)",
-      "+60% IPS · −7 sat (role)",
+      "+20% IPS · −2 morale (role)",
+      "+38% IPS · −4 morale (role)",
+      "+60% IPS · −7 morale (role)",
     ],
     mult: [1.2, 1.38, 1.6],
     offset: [-2, -4, -7],
@@ -123,9 +123,9 @@ export const EMPLOYEE_SKILLS: Record<TeamLeaderSkillId, EmployeeSkill> = {
     name: "Office Villain",
     maxLevel: 3,
     descriptions: [
-      "−2 sat (role) · +10% global IPS",
-      "−3 sat (role) · +20% global IPS",
-      "−6 sat (role) · +35% global IPS",
+      "−2 morale (role) · +10% global IPS",
+      "−3 morale (role) · +20% global IPS",
+      "−6 morale (role) · +35% global IPS",
     ],
     mult: [1.1, 1.2, 1.35],
     offset: [-2, -3, -6],
@@ -134,7 +134,7 @@ export const EMPLOYEE_SKILLS: Record<TeamLeaderSkillId, EmployeeSkill> = {
     id: "satisfaction_lift",
     name: "Good Vibes",
     maxLevel: 3,
-    descriptions: ["+2 sat target", "+4 sat target", "+7 sat target"],
+    descriptions: ["+2 morale target", "+4 morale target", "+7 morale target"],
     offset: [2, 4, 7],
   },
   hire_cost_reduction: {
@@ -171,9 +171,9 @@ export const EMPLOYEE_SKILLS: Record<TeamLeaderSkillId, EmployeeSkill> = {
     name: "Team Builder",
     maxLevel: 3,
     descriptions: [
-      "+2 sat (all roles)",
-      "+3 sat (all roles)",
-      "+6 sat (all roles)",
+      "+2 morale (all roles)",
+      "+3 morale (all roles)",
+      "+6 morale (all roles)",
     ],
     offset: [2, 3, 6],
   },
@@ -182,9 +182,9 @@ export const EMPLOYEE_SKILLS: Record<TeamLeaderSkillId, EmployeeSkill> = {
     name: "Culture Carrier",
     maxLevel: 3,
     descriptions: [
-      "+25% sat drift speed",
-      "+55% sat drift speed",
-      "+90% sat drift speed",
+      "+25% morale recovery",
+      "+55% morale recovery",
+      "+90% morale recovery",
     ],
     mult: [1.25, 1.55, 1.9],
   },
@@ -247,9 +247,9 @@ export const EMPLOYEE_SKILLS: Record<TeamLeaderSkillId, EmployeeSkill> = {
     name: "Engaged Workforce",
     maxLevel: 3,
     descriptions: [
-      "+5% rev when sat>0",
-      "+12% rev when sat>0",
-      "+22% rev when sat>0",
+      "+5% rev when morale is good",
+      "+12% rev when morale is good",
+      "+22% rev when morale is good",
     ],
     mult: [1.05, 1.12, 1.22],
   },
@@ -632,11 +632,11 @@ export function computeTeamLeaderEmpSatOffsets(
   const allRoles: GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 
   for (const emp of employees) {
-    // satisfaction_lift: +N sat target (this role)
+    // satisfaction_lift: +N morale target (this role)
     const satLiftLv = emp.skills.satisfaction_lift ?? 0;
     if (satLiftLv > 0) offsets[emp.role] += skillOffset("satisfaction_lift", satLiftLv);
 
-    // chaos_spark: −N sat target (all OTHER roles)
+    // chaos_spark: −N morale target (all OTHER roles)
     const chaosLv = emp.skills.chaos_spark ?? 0;
     if (chaosLv > 0) {
       const delta = skillOffset("chaos_spark", chaosLv);
@@ -645,19 +645,19 @@ export function computeTeamLeaderEmpSatOffsets(
       }
     }
 
-    // crunch_mode: −N sat target (this role)
+    // crunch_mode: −N morale target (this role)
     const crunchLv = emp.skills.crunch_mode ?? 0;
     if (crunchLv > 0) offsets[emp.role] += skillOffset("crunch_mode", crunchLv);
 
-    // research_mode: −N sat target (this role)
+    // research_mode: −N morale target (this role)
     const researchLv = emp.skills.research_mode ?? 0;
     if (researchLv > 0) offsets[emp.role] += skillOffset("research_mode", researchLv);
 
-    // sat_drain: −N sat target (this role)
+    // sat_drain: −N morale target (this role)
     const drainLv = emp.skills.sat_drain ?? 0;
     if (drainLv > 0) offsets[emp.role] += skillOffset("sat_drain", drainLv);
 
-    // team_morale: +N sat target (all roles)
+    // team_morale: +N morale target (all roles)
     const teamLv = emp.skills.team_morale ?? 0;
     if (teamLv > 0) {
       const lift = skillOffset("team_morale", teamLv);

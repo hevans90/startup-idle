@@ -54,7 +54,7 @@ export function prestigeRows(
     });
 }
 
-/** Build satisfaction rows, branching on whether prestige mods alter the raw score. */
+/** A kind's morale as breakdown rows, branching on whether a keystone changes what it counts for. */
 export function satRows(
   score: number,
   effScore: number,
@@ -64,16 +64,16 @@ export function satRows(
 ): BreakdownRow[] {
   if (prestige.satisfactionNeutralized) {
     return [
-      { source: `Raw score ${score.toFixed(0)}`, value: "", tone: "neutral" },
-      { source: "Neutralized to 0 by keystone", value: fmt2(mult), tone: "neutral" },
+      { source: `Morale ${score.toFixed(0)}`, value: "", tone: "neutral" },
+      { source: "Crunch Mode: no effect", value: fmt2(mult), tone: "neutral" },
     ];
   }
   if (prestige.satisfactionPositiveMult !== 1 && score > 0) {
     return [
-      { source: `Raw score ${score.toFixed(0)}`, value: "", tone: "neutral" },
-      { source: "Skill tree positive boost", value: fmt2(prestige.satisfactionPositiveMult), tone: "good" },
-      { source: `Effective score ${effScore.toFixed(0)}`, value: fmt2(mult), tone },
+      { source: `Morale ${score.toFixed(0)}`, value: "", tone: "neutral" },
+      { source: "Enshittify: good morale counts", value: fmt2(prestige.satisfactionPositiveMult), tone: "bad" },
+      { source: `Counted as ${effScore.toFixed(0)}`, value: fmt2(mult), tone },
     ];
   }
-  return [{ source: `Score ${score.toFixed(0)}`, value: fmt2(mult), tone }];
+  return [{ source: `Morale ${score.toFixed(0)}`, value: fmt2(mult), tone }];
 }

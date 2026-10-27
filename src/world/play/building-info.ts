@@ -166,13 +166,13 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
       if (short > 0) lines.push({ text: `Grows at +${short} more desirability`, tone: "dim" });
       else if (here >= h.slots) lines.push({ text: "Growing", tone: "good" });
     }
-    // ITS MOOD, and what weighs on it most if it is down. @see world/agents/mood
+    // ITS MORALE, and what weighs on it most if it is down. @see world/agents/mood
     const mood = ctx.moods.get(s.id);
     if (mood && here > 0) {
       const worst = [...mood.parts].sort((a, b) => a.points - b.points)[0];
       const sign = mood.total > 0 ? "+" : "";
       lines.push({
-        text: `${moodWord(mood.total)} (${sign}${mood.total})${mood.total < 0 && worst && worst.points < 0 ? `: ${worst.why}` : ""}`,
+        text: `Morale ${sign}${mood.total} · ${moodWord(mood.total).toLowerCase()}${mood.total < 0 && worst && worst.points < 0 ? `: ${worst.why}` : ""}`,
         tone: mood.total >= 0 ? "good" : "warn",
       });
     }
@@ -395,7 +395,7 @@ export function said(t: Tally, money: (n: number) => string): Omit<BuildingInfo,
     // Their mood, weighted by who lives where. @see moodOffsets
     if (h.felt) {
       const avg = Math.round(h.moodRes / h.feltRes);
-      lines.push({ text: `  ${moodWord(avg).toLowerCase()} (${avg > 0 ? "+" : ""}${avg})`, tone: avg >= 0 ? "good" : "warn" });
+      lines.push({ text: `  morale ${avg > 0 ? "+" : ""}${avg} · ${moodWord(avg).toLowerCase()}`, tone: avg >= 0 ? "good" : "warn" });
     }
     brief.push(`${name}s ${h.res}/${h.beds}${h.coming ? ` +${h.coming}` : ""}`);
   }

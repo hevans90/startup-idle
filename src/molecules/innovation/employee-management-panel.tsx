@@ -349,10 +349,10 @@ const BRANCH_LABEL: Record<EmployeePerkBranch, string> = {
 };
 
 const BRANCH_TITLE: Record<EmployeePerkBranch, string> = {
-  money: "+20% revenue per level · lowers satisfaction target",
-  innovation: "+20% IPS per level · raises satisfaction target",
-  cost: "-3.2% hire cost per level · lowers satisfaction target",
-  auto: "Auto-purchases employees · lowers satisfaction target",
+  money: "+20% revenue per level · costs morale",
+  innovation: "+20% IPS per level · lifts morale",
+  cost: "-3.2% hire cost per level · costs morale",
+  auto: "Auto-purchases employees · costs morale",
 };
 
 // ─── Team Leaders Section ─────────────────────────────────────────────────────

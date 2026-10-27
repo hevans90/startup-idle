@@ -7,7 +7,7 @@ import { entries as mandatesEntries } from "./mandates";
 import { entries as vapeEntries } from "./vape";
 import { entries as founderEntries } from "./founder";
 import { entries as prestigeEntries } from "./prestige";
-import { entries as satisfactionEntries } from "./satisfaction";
+import { entries as moraleEntries } from "./morale";
 import { entries as unifiedEntries } from "./unified";
 import { entries as teamLeadersEntries } from "./team-leaders";
 
@@ -18,7 +18,7 @@ const REGISTRY: Record<string, () => ModifierBreakdown> = {
   ...vapeEntries,
   ...founderEntries,
   ...prestigeEntries,
-  ...satisfactionEntries,
+  ...moraleEntries,
   ...unifiedEntries,
   ...teamLeadersEntries,
 };

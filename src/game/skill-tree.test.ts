@@ -292,14 +292,14 @@ describe("resolvePrestigeModifiers", () => {
 });
 
 describe("nodeEffectRows (signed, coloured breakdown)", () => {
-  test("996 splits into a green output gain and a red satisfaction downside", () => {
+  test("996 splits into a green output gain and a red morale downside", () => {
     const n996 = SKILL_TREE.nodes.find((n) => n.title === "996")!;
     const rows = nodeEffectRows(n996);
     expect(rows.length).toBe(2);
     const good = rows.find((r) => r.tone === "good");
     const bad = rows.find((r) => r.tone === "bad");
     expect(good?.label.toLowerCase()).toContain("employee output");
-    expect(bad?.label.toLowerCase()).toContain("satisfaction gain");
+    expect(bad?.label.toLowerCase()).toContain("morale recovery");
   });
 
   test("a keystone appends its structural reshape as a row", () => {

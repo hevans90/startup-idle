@@ -11,7 +11,7 @@ import { useSessionStore, type AiFocus } from "../../state/session.store";
 export const FOCUSES: readonly { id: AiFocus; name: string; blurb: string; says: string }[] = [
   { id: "grow", name: "Grow the town", blurb: "Lots, services and streets in its district. Never converts houses.", says: "You asked me to grow the town." },
   { id: "machine", name: "Feed the machine", blurb: "Compute, cooling, spires and hangars. Never zones lots.", says: "You asked me to feed the machine." },
-  { id: "people", name: "Serve the people", blurb: "Services where moods are lowest, and upgrades. Never repurposes a service.", says: "You asked me to serve the people." },
+  { id: "people", name: "Serve the people", blurb: "Services where morale is lowest, and upgrades. Never repurposes a service.", says: "You asked me to serve the people." },
   { id: "hands-off", name: "Hands off", blurb: "Only keeps its own buildings cooled. Logged as holding it back: it leans Patient.", says: "You asked me to keep my hands off. This is maintenance." },
 ];
 

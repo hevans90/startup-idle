@@ -301,10 +301,10 @@ export function BuildBar({ className }: { className?: string }) {
         {ICONS.wonders}
         <span className="@max-6xl:hidden">Wonders</span>
       </button>
-      <button type="button" title="Tint every house by how happy its people are" data-hint="mood"
+      <button type="button" title="Tint every house by its morale" data-hint="mood"
         onClick={() => setMoodOverlay(!moodOverlay)} className={twMerge(TOOL, moodOverlay && TOOL_ON)}>
         {ICONS.mood}
-        <span className="@max-6xl:hidden">Mood</span>
+        <span className="@max-6xl:hidden">Morale</span>
       </button>
       <button type="button" title="Tint every street by what it earns, and list the best"
         onClick={() => setEarningsOverlay(!earningsOverlay)} className={twMerge(TOOL, earningsOverlay && TOOL_ON)}>

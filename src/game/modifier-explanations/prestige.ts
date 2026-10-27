@@ -25,7 +25,7 @@ export const entries: Record<string, () => ModifierBreakdown> = {
   prestigeEquity: simplePrestigeEntry("Skill tree — equity", "equity", (m) => m.equityMult),
   prestigeAutoBuy: simplePrestigeEntry("Skill tree — auto-buy", "autoBuy", (m) => m.autoBuyMult),
   prestigeManagerSpeed: simplePrestigeEntry("Skill tree — manager speed", "managerSpeed", (m) => m.managerSpeedMult),
-  prestigeSatisfactionGain: simplePrestigeEntry("Skill tree — satisfaction speed", "satisfactionGain", (m) => m.satisfactionGainMult),
+  prestigeSatisfactionGain: simplePrestigeEntry("Skill tree — morale recovery", "satisfactionGain", (m) => m.satisfactionGainMult),
   prestigeSingularity: simplePrestigeEntry("Skill tree — AI singularity", "singularity", (m) => m.singularityMult),
 
   skillTreeMoney: () => {

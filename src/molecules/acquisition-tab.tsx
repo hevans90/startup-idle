@@ -154,7 +154,7 @@ export function modifierChips(
   mult("Managers", m.managerSpeedMult, "prestigeManagerSpeed");
   mult("Hire cost", m.hireCostMult, "prestigeHireCost", false);
   mult("Singularity", m.singularityMult, "prestigeSingularity");
-  mult("Satisfaction", m.satisfactionGainMult, "prestigeSatisfactionGain");
+  mult("Morale recovery", m.satisfactionGainMult, "prestigeSatisfactionGain");
   mult("Equity", m.equityMult, "prestigeEquity");
   if (m.headcountPerEmployee > 0) {
     chips.push({
@@ -167,7 +167,7 @@ export function modifierChips(
   if (m.disableManagers)
     chips.push({ label: "No managers", value: "", good: false });
   if (m.satisfactionNeutralized)
-    chips.push({ label: "No satisfaction", value: "", good: false });
+    chips.push({ label: "No morale", value: "", good: false });
   if (m.internOutputMult !== 1)
     chips.push({
       label: "Weak interns",

@@ -128,7 +128,7 @@ export const HINTS: readonly Hint[] = [
   },
   {
     id: "mood",
-    text: "Some of your people are unhappy at home, and it costs you. Turn on Mood to see where, and read a house's label for why.",
+    text: "Some of your people are unhappy at home, and it costs you. Turn on Morale to see where, and read a house's label for why.",
     target: "mood",
     when: (s) => s.worstMood <= -10,
     done: (s) => s.moodShown,

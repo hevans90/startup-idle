@@ -16,7 +16,7 @@ describe("a building's label", () => {
     expect(info.title).toBe("Intern house II");
     expect(info.brief).toEqual(["3/5 · +2"]);
     // III at 10, and with no park its crowding counts against it: 4 − 6.
-    expect(info.lines.map((l) => l.text)).toEqual(["3/5 interns living here", "Earns $6/s", "Grows at +12 more desirability", "Content (+4)", "2 on the way"]);
+    expect(info.lines.map((l) => l.text)).toEqual(["3/5 interns living here", "Earns $6/s", "Grows at +12 more desirability", "Morale +4 · content", "2 on the way"]);
   });
 
   test("an empty lot is a lot, and says how many beds are free", () => {
@@ -121,14 +121,14 @@ describe("mood on the labels", () => {
   test("a house says how happy it is, and what weighs on it most", () => {
     const moods = new Map([[7, { total: -12, parts: [{ why: "café", points: 4 }, { why: "long commute", points: -12 }, { why: "no services", points: -4 }] }]]);
     const info = infoFor(at("kit:intern.t1", { residents: 3 }), ctx({ moods }))!;
-    expect(info.lines.map((l) => l.text)).toContain("Unhappy (-12): long commute");
+    expect(info.lines.map((l) => l.text)).toContain("Morale -12 · unhappy: long commute");
   });
 
   test("houses collated say their people's mood, weighted by who lives where", () => {
     const moods = new Map([[1, { total: 20, parts: [] }], [2, { total: -20, parts: [] }]]);
     const a = infoFor({ ...at("kit:intern.t1", { residents: 1 }), id: 1 }, ctx({ moods }))!;
     const b = infoFor({ ...at("kit:intern.t1", { residents: 3 }), id: 2 }, ctx({ moods }))!;
-    expect(collate([a, b], String).lines.map((l) => l.text)).toContain("  unhappy (-10)");
+    expect(collate([a, b], String).lines.map((l) => l.text)).toContain("  morale -10 · unhappy");
   });
 });
 

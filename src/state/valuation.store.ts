@@ -98,7 +98,7 @@ export const MANDATES: MandateDef[] = [
   {
     id: "culture_capital",
     name: "Culture capital",
-    description: "+10% satisfaction recovery speed per level",
+    description: "+10% morale recovery speed per level",
     baseCost: 100,
     costGrowth: 1.4,
     moneyMultPerLevel: 0,
