@@ -16,6 +16,8 @@ import { useInnovationStore } from "../state/innovation.store";
 import { useLinkedOutStore } from "../state/linkedout.store";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { Button, Dialog, Tabs } from "../ui/console";
+import { TenXDevText } from "../utils/ten-x-utils";
+import { RainbowText } from "../utils/vibe-utils";
 import { EmployeeAvatar } from "./innovation/employee-avatar";
 import { KIND_PLURAL } from "./leaders-panel";
 
@@ -24,6 +26,14 @@ const clock = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 const KIND_ONE: Record<GeneratorId, string> = { intern: "intern", vibe_coder: "vibe coder", "10x_dev": "10x dev" };
+
+/** A kind's name, in its colours: vibe coders in rainbow, 10x devs in theirs. */
+function KindName({ id, plural }: { id: GeneratorId; plural?: boolean }) {
+  const text = plural ? KIND_PLURAL[id] : KIND_ONE[id];
+  if (id === "vibe_coder") return <RainbowText text={text} inline />;
+  if (id === "10x_dev") return <TenXDevText text={text} />;
+  return <>{text}</>;
+}
 
 /** The wordmark: not anybody else's. */
 export function Wordmark({ className }: { className?: string }) {
@@ -48,7 +58,11 @@ function ApplicantCard({ a, now }: { a: Applicant; now: number }) {
       <EmployeeAvatar name={a.name} role={a.role} traitId={a.personality} avatarId={a.avatarId} size="lg" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-baseline justify-between gap-2">
-          <b className="truncate text-sm">{a.name}</b>
+          <span className="flex min-w-0 items-baseline gap-2">
+            <b className="truncate text-sm">{a.name}</b>
+            {/* WHICH KIND THEY WOULD LEAD, in the kind's own colours. */}
+            <span className="shrink-0 border border-line px-1 text-[10px] uppercase tracking-wider">for <KindName id={a.role} /></span>
+          </span>
           <span className="shrink-0 text-[10px] tabular-nums text-fg-faint">leaves in {clock(a.leavesAt - now)}</span>
         </div>
         <p className="text-[11px] leading-snug text-fg">{a.headline}</p>
@@ -86,26 +100,26 @@ function Jobs() {
   const innovation = useInnovationStore((s) => s.innovation);
   const kinds = useGeneratorStore((s) => s.generators).filter((g) => g.amount > 0).map((g) => g.id as GeneratorId);
   const cost = postCost(postsThisRun);
+  // A KIND A SECTION: its post, then the people who answered it.
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1.5">
-        {kinds.map((k) => {
-          const open = posts.find((p) => p.role === k);
-          return (
-            <div key={k} className="flex items-center justify-between gap-2 border border-line-quiet px-2.5 py-1.5 text-xs">
-              <span>Leader, {KIND_PLURAL[k]}</span>
+    <div className="flex flex-col gap-4">
+      <p className="text-[10px] text-fg-faint">A post stays up {POST_OPEN / 60} minutes; applicants come every minute or three, and wait eight for an answer.</p>
+      {kinds.map((k) => {
+        const open = posts.find((p) => p.role === k);
+        const theirs = applicants.filter((a) => a.role === k).sort((a, b) => b.arrivedAt - a.arrivedAt);
+        return (
+          <section key={k} aria-label={`${KIND_PLURAL[k]} leader applicants`} className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2 border-b border-line pb-1.5">
+              <span className="font-display text-sm uppercase tracking-wider">Leader of <KindName id={k} plural /></span>
               {open
-                ? <span className="tabular-nums text-fg-muted">Posted · up to {open.left} more · closes in {clock(open.closesAt - now)}</span>
+                ? <span className="text-[11px] tabular-nums text-fg-muted">Posted · up to {open.left} more · closes in {clock(open.closesAt - now)}</span>
                 : <Button size="sm" disabled={innovation.lt(cost)} onClick={() => post(k)}>Post a job · <span className="text-innovation">{cost}</span></Button>}
             </div>
-          );
-        })}
-      </div>
-      <p className="text-[10px] text-fg-faint">A post stays up {POST_OPEN / 60} minutes; applicants come every minute or three, and wait eight for an answer.</p>
-      <div className="flex flex-col gap-2">
-        {applicants.length ? [...applicants].sort((a, b) => b.arrivedAt - a.arrivedAt).map((a) => <ApplicantCard key={a.id} a={a} now={now} />)
-          : <p className="py-4 text-center text-xs text-fg-muted">No applicants yet. Post a job.</p>}
-      </div>
+            {theirs.length ? theirs.map((a) => <ApplicantCard key={a.id} a={a} now={now} />)
+              : <p className="py-1 text-[11px] text-fg-muted">{open ? "No one yet." : "No post up: nobody is applying."}</p>}
+          </section>
+        );
+      })}
     </div>
   );
 }
