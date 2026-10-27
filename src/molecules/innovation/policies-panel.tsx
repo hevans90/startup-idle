@@ -31,10 +31,12 @@ export function PoliciesPanel() {
   return (
     <Panel title="Work policies"
       help="How each kind is run: each policy a trade, its effects on it. Manager tiers give the slots, the same for every kind. Switching is free; morale drifts to its new level."
-      controls={<span className="text-[10px] uppercase tracking-widest text-fg-muted">
-        {slots} {slots === 1 ? "slot" : "slots"}{next !== undefined && ` · next at ${next} tiers`}
+      controls={<span className="whitespace-nowrap text-[10px] uppercase tracking-widest text-fg-muted">
+        {slots} {slots === 1 ? "slot" : "slots"}
       </span>}>
-      {slots === 0 && <p className="mb-2 text-xs text-fg-muted">Raise a manager to tier 1 for the first slot.</p>}
+      {slots === 0
+        ? <p className="mb-2 text-xs text-fg-muted">Raise a manager to tier 1 for the first slot.</p>
+        : next !== undefined && <p className="mb-2 text-[11px] text-fg-muted">Another slot at {next} manager tiers in all (now {tiers}).</p>}
       <div className="flex flex-col gap-3">
         {kinds.map((kind) => {
           const on = policies[kind] ?? [];
