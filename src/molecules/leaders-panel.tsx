@@ -5,6 +5,7 @@
  * on the map, moved, or let go. @see game/leaders, team-leaders.store
  */
 import { twMerge } from "tailwind-merge";
+import { useShallow } from "zustand/shallow";
 
 import { LEADER_PERKS, MAX_LEADER_RANK, PERSONALITIES, XP_AT, perkOffer, type Leader } from "../game/leaders";
 import { RED_FLAGS } from "../game/linkedout";
@@ -97,6 +98,47 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
   );
 }
 
+const clock = (ms: number) => {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+};
+
+/**
+ * THE SEARCH FOR A KIND'S LEADER, as it stands on LinkedOut: the job posted
+ * and how long it has left, the applicants waiting and for how long; with no
+ * leader and nothing under way, a way to start.
+ */
+function Hiring({ role, hasLeader, onOpen }: { role: GeneratorId; hasLeader: boolean; onOpen: () => void }) {
+  const post = useLinkedOutStore((s) => s.posts.find((p) => p.role === role));
+  const waiting = useLinkedOutStore(useShallow((s) => s.applicants.filter((a) => a.role === role)));
+  if (hasLeader && !post && !waiting.length) return null;
+  const now = Date.now();
+  const soonest = waiting.length ? Math.min(...waiting.map((a) => a.leavesAt)) : null;
+  return (
+    <div className={twMerge("flex items-center justify-between gap-2 border px-2.5 py-2 text-xs", waiting.length ? "border-console-line" : "border-dashed border-line")}>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        {!post && !waiting.length && <span className="text-fg-muted">No leader yet.</span>}
+        {post && (
+          <span className="text-fg-muted">
+            Job posted · <span className="tabular-nums">closes in {clock(post.closesAt - now)}</span>
+            {post.left > 0 && <> · up to {post.left} more</>}
+          </span>
+        )}
+        {waiting.length > 0 && (
+          <span className="text-fg">
+            <b className="text-console">{waiting.length} {waiting.length === 1 ? "applicant" : "applicants"}</b> waiting
+            {soonest !== null && <span className="tabular-nums text-fg-muted"> · the first leaves in {clock(soonest - now)}</span>}
+          </span>
+        )}
+        {post && !waiting.length && <span className="text-fg-faint">No one yet: they come every minute or three.</span>}
+      </div>
+      <Button size="sm" variant={waiting.length || !post ? "primary" : "secondary"} className="shrink-0" onClick={onOpen}>
+        {waiting.length ? "See them" : post ? "Open LinkedOut" : "Find one on LinkedOut"}
+      </Button>
+    </div>
+  );
+}
+
 export function LeadersPanel({ className }: { className?: string }) {
   useTicking(1000);
   const generators = useGeneratorStore((s) => s.generators);
@@ -112,12 +154,8 @@ export function LeadersPanel({ className }: { className?: string }) {
           return (
             <section key={id} aria-label={`${id} leader`} className="flex flex-col gap-1.5">
               <span className="font-display text-xs uppercase tracking-wider"><Kind id={id} /></span>
-              {l ? <LeaderCard l={l} owned={g.amount} /> : (
-                <div className="flex items-center justify-between gap-2 border border-dashed border-line px-2.5 py-2 text-xs text-fg-muted">
-                  No leader yet.
-                  <Button size="sm" variant="primary" onClick={() => openLinkedOut(true)}>Find one on LinkedOut</Button>
-                </div>
-              )}
+              {l && <LeaderCard l={l} owned={g.amount} />}
+              <Hiring role={id} hasLeader={!!l} onOpen={() => openLinkedOut(true)} />
             </section>
           );
         })}
