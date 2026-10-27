@@ -92,3 +92,12 @@ describe("term sheets", () => {
     expect(INVESTORS.some((i) => i.id === "clean")).toBe(false);
   });
 });
+
+describe("the talent scouts", () => {
+  test("ask for leaders placed, never more than the three there can be", async () => {
+    const { termSheet } = await import("./term-sheets");
+    const t = termSheet("talent")!;
+    expect(t.goal).toBe("3 leaders placed when you sell");
+    expect(t.goalAt(2.2)).toBe("3 leaders placed when you sell");
+  });
+});

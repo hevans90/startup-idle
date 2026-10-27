@@ -173,7 +173,7 @@ All of it happens in `world/ai/autopilot.ts`, logged in its memos.
    - The project, placement, teams from commutes, the rank/perk loop, the badge and card.
    - Old leaders converted.
 6. **LinkedOut.** (Done. Legacy bonuses for leaders let go stay as they were; connections are separate.) The window, posts and trickle, profiles and headlines, red flags and checks, reputation and reviews, connections.
-7. **The Model's runs and term sheets.** AI mode's leader and policy steps; investors rewritten.
+7. **The Model's runs and term sheets.** (Done.) AI mode's leader and policy steps; investors rewritten.
 8. **Tests, README, a pass in the browser at every stage of a run.**
 
 Phases 1, 4 and 6 are independent enough to run alongside their neighbours once 2 has landed.

@@ -52,9 +52,10 @@ const clock = (s: number) => {
 };
 const amount = (n: number, money?: boolean) => (money ? formatCurrency(n, { exponentBreakpoint: 1e9 }) : n.toLocaleString("en-GB"));
 
-/** A count asked for at a scale: harder asks more (never under one, a meter never over 99). */
+/** A count asked for at a scale: harder asks more (never under one, a meter never over 99, leaders never over the three there can be). */
 const more = (base: number, k: number, metric: Metric) => {
   const n = Math.max(1, Math.round(base * k));
+  if (metric === "leaders") return Math.min(3, n);
   return metric === "singularity" || metric === "morale" ? Math.min(99, n) : n;
 };
 /** A ceiling at a scale: harder allows less — for a negative one, further below nought. */
@@ -174,7 +175,8 @@ export function termNow(): TermNow {
     innovation: inn.innovation.toNumber(),
     managerTiers: Object.values(inn.managers).reduce((n, m) => n + m.tier.floor().toNumber(), 0),
     upgrades: useUpgradeStore.getState().unlockedUpgradeIds.length,
-    leaders: useTeamLeadersEmployeesStore.getState().employees.length,
+    // LEADERS PLACED: hired and put in a building, one a kind. @see game/leaders
+    leaders: useTeamLeadersEmployeesStore.getState().employees.filter((l) => l.placedAt !== null).length,
     morale,
     singularity: useAiSingularityStore.getState().value,
     routes: s.routes,

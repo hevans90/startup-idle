@@ -144,7 +144,7 @@ export const INVESTORS: readonly Investor[] = [
     goal: { kind: "more", metric: "mandates", base: 5, unit: "mandate levels passed" }, bonus: 0.3, demand: 2, cares: "board", cheque: "seed",
     says: { eager: "A board that governs. At last.", fine: "Pass the mandates.", no: "The board must be ours." } },
   { id: "talent", investor: "Talent Scouts", partner: "Remy Fontaine, Partner", motto: "We know a star · The Green Room",
-    goal: { kind: "more", metric: "leaders", base: 3, unit: "team leaders" }, bonus: 0.25, demand: 1, cares: "pool", cheque: "angel",
+    goal: { kind: "more", metric: "leaders", base: 3, unit: "leaders placed" }, bonus: 0.25, demand: 1, cares: "pool", cheque: "angel",
     says: { eager: "Leaders, with options. Ideal.", fine: "Find your stars.", no: "Stars want equity. Pool, please." } },
   { id: "happy", investor: "Wellbeing Ventures", partner: "Noor Haddad, Partner", motto: "Happy teams ship · The Garden Office",
     goal: { kind: "more", metric: "morale", base: 8, unit: "average morale" }, bonus: 0.3, demand: 1, cares: "pool", cheque: "angel",
