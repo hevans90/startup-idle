@@ -2909,7 +2909,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // THE WATER MAINS: their tubes where they changed, and the water in them. @see createMainsLayer
       mainsRef.current?.sync(grid, scale);
       { const st = useWorldStore.getState();
-        mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe")); }
+        mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe"), st.hover); }
       // THE TOWN: cars and people on their trips round the roads. @see world/agents
       const net = getNetwork();
       if (net) {

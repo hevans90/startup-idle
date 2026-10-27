@@ -126,7 +126,7 @@ Status: **plan**, agreed in conversation on 2026-10-27; not started. Follows `pl
 ## Phases
 
 1. **The tube.** (Done: drawn with boxes and rings rather than baked pieces, which keeps the per-cell redraw as it was.) Iso pieces, slim, sorted in bands, saddles and road spans, thin collars; fittings rebuilt to size. No flow changes. Before/after screenshots on the singularity fixture's map.
-2. **Flow.** Glass sections with moving water at the flow's speed, chevrons on hover and in the overlay, intake swirl; `__waterBench` before and after.
+2. **Flow.** (Done.) Glass sections with moving water at the flow's speed, chevrons on hover and in the overlay, intake swirl; `__waterBench` before and after.
 3. **Ports.** `StructureDef.ports` for every drinker, drawn on the buildings; the tool snaps and refuses; old mains re-ended to ports on load; the AI router to ports.
 4. **Audit.** A pass over the pipe tool and the overlay for anything else broken (previews, stilts, ends, the Water overlay's numbers), each fixed or listed.
 5. **Sewers.** The second pipe type: the tool's Water | Sewer toggle, sewer drawing, auto stubs, outfalls, and sinks in order.

@@ -52,6 +52,15 @@ const AI_BODY = 0x9d8bbd, AI_BAND = 0xb44aff;
 const GRATE = 0x3d4a57, PUMP_BODY = 0x4f6f8f, PUMP_TRIM = 0xe0a23a, VALVE = 0xb8463a, CAP = 0xc0392b;
 /** The water in a main, and the warning at one that cannot deliver. */
 const WATER = 0x5fb7ff, WARN = 0xf2a33a;
+/** A glass section's tint, and how far along each limb it reaches, as a share of the limb. */
+const GLASS_TINT = 0xd9f1ff, GLASS = 0.62;
+/** Glass every fourth tile of a straight run (collars on the others). */
+const isGlass = (g: Grid, x: number, y: number) => {
+  const i = idx(g, x, y);
+  if (!g.main[i] || g.mainEnd[i]) return false;
+  const ns = joined(g, x, y, "N") && joined(g, x, y, "S"), ew = joined(g, x, y, "E") && joined(g, x, y, "W");
+  return (ns !== ew) && !joined(g, x, y, ns ? "E" : "N") && !joined(g, x, y, ns ? "W" : "S") && (x + y) % 4 === 2;
+};
 /** The Water overlay: the dimming, and each state's colour. */
 const DIM = 0x05080d;
 const STATE_COLOUR: Record<MainState, number> = {
@@ -62,7 +71,7 @@ export type MainsLayer = {
   /** Redraw the tubes where the mains changed. */
   sync: (g: Grid, scale: number) => void;
   /** The water moving in them, this frame; and the main being dragged out, a ghost of itself. */
-  tick: (g: Grid, scale: number, now: number, preview?: readonly { x: number; y: number }[] | null, ok?: boolean, water?: boolean) => void;
+  tick: (g: Grid, scale: number, now: number, preview?: readonly { x: number; y: number }[] | null, ok?: boolean, water?: boolean, hover?: { x: number; y: number } | null) => void;
   destroy: () => void;
 };
 
@@ -182,7 +191,19 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     const along: "u" | "v" = joined(g, x, y, "N") || joined(g, x, y, "S") ? "u" : "v";
     // A COLLAR every few tiles of a straight run, and the AI's violet band: rings round the tube.
     if (straight && (x + y) % 4 === 0) ring(gfx, s, x, y, z, along, w * 0.6, COLLAR);
-    if (ai && straight && (x + y) % 4 === 2) ring(gfx, s, x, y, z, along, w * 0.58, AI_BAND);
+    if (ai && straight && (x + y) % 4 === 3) ring(gfx, s, x, y, z, along, w * 0.58, AI_BAND);
+    // A GLASS SECTION every few tiles: a pale window down the tube, ringed at each end, where the water inside shows. @see isGlass
+    if (isGlass(g, x, y)) {
+      const [ax, ay, bx, by] = legs[0], [cx, cy, dx, dy] = legs[1];
+      const along2 = (k: number): [number, number] => k < 0 ? [ax + (bx - ax) * -k, ay + (by - ay) * -k] : [cx + (dx - cx) * k, cy + (dy - cy) * k];
+      const a = along2(-GLASS), b = along2(GLASS);
+      gfx.moveTo(a[0], a[1] - w * 0.05).lineTo(b[0], b[1] - w * 0.05);
+      gfx.stroke({ color: GLASS_TINT, width: w * 0.82, cap: "butt", alpha: 0.9 });
+      for (const k of [-1, 1]) {
+        const o = k * GLASS * 0.5;
+        ring(gfx, s, x + (along === "u" ? o : 0), y + (along === "v" ? o : 0), z, along, w * 0.55, COLLAR);
+      }
+    }
     // THE FITTING at an end: solids, sized to the tube.
     const end = g.mainEnd[i];
     if (end === MAIN_END.intake) {
@@ -330,7 +351,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         water.set(band, gfx);
       }
     },
-    tick(g, scale, now, preview, ok = true, overlayOn = false) {
+    tick(g, scale, now, preview, ok = true, overlayOn = false, hover = null) {
       flow.clear();
       for (const gfx of wet) gfx.clear();
       wet.clear();
@@ -354,6 +375,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       }
       const { list } = findMains(g);
       if (!list.length) return;
+      const streaks = new Map<Graphics, [number, number, number, number][]>();
+      const hoverAt = hover && inBounds(g, hover.x, hover.y) ? idx(g, hover.x, hover.y) : null;
       for (const net of list) {
         const first = net.cells[0], fx = first % g.w, fy = (first / g.w) | 0;
         const r = mainReportAt(g, fx, fy);
@@ -373,23 +396,69 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
             queue.push(j);
           }
         }
-        if (state === "flowing" && r) {
-          const speed = 0.6 + Math.min(2, r.flow) * 1.2;
+        // THE WATER, seen through each glass section: streaks running downstream
+        // at the main's speed while it flows, standing still in a full one,
+        // nothing in a dry one. @see isGlass
+        if ((state === "flowing" || state === "full") && r) {
+          const speed = state === "flowing" ? 0.35 + Math.min(2, r.flow) * 0.6 : 0;
           for (const i of net.cells) {
-            const x = i % g.w, y = (i / g.w) | 0, d = dist.get(i) ?? 0;
+            const x = i % g.w, y = (i / g.w) | 0;
+            if (!isGlass(g, x, y)) continue;
+            const gfx = water.get(x + y);
+            if (!gfx) continue;
+            // Downstream: toward the neighbour further from the intake.
+            const d = dist.get(i) ?? 0;
+            let dir: [number, number] = [0, 0];
             for (const side of SIDES) {
               if (!joined(g, x, y, side)) continue;
               const [dx, dy] = NEIGHBOUR[side];
-              const j = idx(g, x + dx, y + dy);
-              if ((dist.get(j) ?? 0) <= d) continue;           // each length once, downstream
-              const phase = ((t * speed + d * 0.5) % 1 + 1) % 1;
-              const z0 = levelAt(g, x, y), z1 = levelAt(g, x + dx, y + dy);
-              const a = phase, b = Math.min(1, phase + 0.35);
-              const p0 = P(scale, x + dx * a, y + dy * a, z0 + (z1 - z0) * a), p1 = P(scale, x + dx * b, y + dy * b, z0 + (z1 - z0) * b);
-              const gfx = water.get(x + y);
-              if (!gfx) continue;
-              gfx.moveTo(p0[0], p0[1] - w * 0.1).lineTo(p1[0], p1[1] - w * 0.1);
-              wet.add(gfx);
+              if ((dist.get(idx(g, x + dx, y + dy)) ?? 0) > d) dir = [dx, dy];
+            }
+            const z = levelAt(g, x, y), half = GLASS * 0.5;
+            const at = (k: number) => P(scale, x + dir[0] * k, y + dir[1] * k, z);
+            // The water itself, a band along the glass; then the streaks moving in it.
+            const a0 = at(-half), a1 = at(half);
+            gfx.moveTo(a0[0], a0[1] + w * 0.04).lineTo(a1[0], a1[1] + w * 0.04);
+            wet.add(gfx);
+            if (speed > 0) {
+              for (let k = 0; k < 3; k++) {
+                const ph = (((t * speed + k / 3) % 1) + 1) % 1;
+                const p0 = at(-half + ph * 2 * half * 0.85), p1 = at(-half + Math.min(1, ph * 0.85 + 0.15) * 2 * half);
+                const list = streaks.get(gfx) ?? [];
+                list.push([p0[0], p0[1] - w * 0.06, p1[0], p1[1] - w * 0.06]);
+                streaks.set(gfx, list);
+              }
+            }
+          }
+          // THE INTAKE DRAWING: a slow swirl in the water at its mouth.
+          if (state === "flowing") {
+            for (const q of net.intakes) {
+              const x = q % g.w, y = (q / g.w) | 0, c = P(scale, x, y, levelAt(g, x, y) - 0.3);
+              for (let k = 0; k < 2; k++) {
+                const a = t * 2.2 + k * Math.PI;
+                flow.arc(c[0], c[1], w * (1.1 + k * 0.5), a, a + 1.6);
+                flow.stroke({ color: 0xe8f6ff, width: Math.max(0.6, w * 0.12), alpha: 0.7 });
+              }
+            }
+          }
+        }
+        // WHICH WAY IT RUNS, on the main under the pointer and every main in the
+        // Water overlay: chevrons every other tile, pointing downstream.
+        const hovered = hoverAt !== null && net.cells.includes(hoverAt);
+        if ((hovered || overlayOn) && state === "flowing") {
+          for (const i of net.cells) {
+            const x = i % g.w, y = (i / g.w) | 0;
+            if ((x + y) % 2) continue;
+            const d = dist.get(i) ?? 0;
+            for (const side of SIDES) {
+              if (!joined(g, x, y, side)) continue;
+              const [dx, dy] = NEIGHBOUR[side];
+              if ((dist.get(idx(g, x + dx, y + dy)) ?? 0) <= d) continue;
+              const z = levelAt(g, x, y);
+              const tip = P(scale, x + dx * 0.22, y + dy * 0.22, z), l = P(scale, x + dx * 0.06 - dy * 0.08, y + dy * 0.06 + dx * 0.08, z), rr = P(scale, x + dx * 0.06 + dy * 0.08, y + dy * 0.06 - dx * 0.08, z);
+              const lift = ow * 0.45;
+              flow.moveTo(l[0], l[1] - lift).lineTo(tip[0], tip[1] - lift).lineTo(rr[0], rr[1] - lift);
+              flow.stroke({ color: 0xffffff, width: Math.max(1, ow * 0.12), alpha: 0.9, join: "round", cap: "round" });
             }
           }
         }
@@ -408,7 +477,14 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
           }
         }
       }
-      for (const gfx of wet) gfx.stroke({ color: WATER, width: Math.max(0.8, w * 0.35), cap: "round", alpha: 0.95 });
+      for (const gfx of wet) {
+        gfx.stroke({ color: WATER, width: Math.max(0.8, w * 0.62), cap: "butt", alpha: 0.85 });
+        // The streaks, light on the water, over it in the same band.
+        const list = streaks.get(gfx);
+        if (!list) continue;
+        for (const [ax, ay, bx, by] of list) gfx.moveTo(ax, ay).lineTo(bx, by);
+        gfx.stroke({ color: 0xffffff, width: Math.max(0.5, w * 0.16), cap: "round", alpha: 0.9 });
+      }
     },
     destroy() {
       clear();
