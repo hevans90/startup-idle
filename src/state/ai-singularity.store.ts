@@ -55,8 +55,16 @@ export function setLatticeReader(read: () => boolean): () => void {
   latticeReader = read;
   return () => { if (latticeReader === read) latticeReader = null; };
 }
-/** The most the meter may reach now: all the way, or, the Lattice unfinished, its hold — never below where it is. */
-export const meterCap = (cur: number): number => (!latticeReader || latticeReader() ? 100 : Math.max(cur, LATTICE_AT));
+/**
+ * THE AWAY HOLD: while time away is replayed, the meter stops at the next
+ * quest step — it may bring one chapter to you, never run on past it. @see
+ * computeOfflineProgress, nextQuestStep
+ */
+let awayHold: number | null = null;
+export const holdWhileAway = (at: number | null): void => { awayHold = at; };
+/** The most the meter may reach now: all the way, or, the Lattice unfinished, its hold; or the away hold — never below where it is. */
+export const meterCap = (cur: number): number =>
+  Math.max(cur, Math.min(!latticeReader || latticeReader() ? 100 : LATTICE_AT, awayHold ?? 100));
 /** Where each stage begins. */
 export const STAGES: readonly { stage: Stage; from: number; name: string }[] = [
   { stage: "tool", from: 0, name: "Tool" },
@@ -73,6 +81,13 @@ export const HARD_TAKEOFF_AT = 60;
 /** Where each stage begins now: the Overseer brought forward by Hard Takeoff. */
 export const stagesNow = (): readonly { stage: Stage; from: number; name: string }[] =>
   hasMachine("machine_k_takeoff") ? STAGES.map((s) => (s.stage === "overseer" ? { ...s, from: HARD_TAKEOFF_AT } : s)) : STAGES;
+
+/** THE QUEST STEPS the meter meets: where each stage begins (a chapter each), the Lattice's hold (the finale's), the end. @see game/quests/chapters */
+export const questSteps = (): number[] =>
+  [...new Set([...stagesNow().map((s) => s.from).filter((f) => f > 0), LATTICE_AT, 100])].sort((a, b) => a - b);
+
+/** The next quest step above a meter value: where the meter stops while you are away. */
+export const nextQuestStep = (value: number): number => questSteps().find((f) => f > value) ?? 100;
 
 /** Where a stage begins now. */
 export const stageFrom = (stage: Stage): number => stagesNow().find((s) => s.stage === stage)!.from;

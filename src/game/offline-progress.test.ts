@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
+import { useAgentsStore } from "../state/agents.store";
+import { LATTICE_AT, RATE_PER_AGENT, meterCap, nextQuestStep, useAiSingularityStore } from "../state/ai-singularity.store";
+import { useGenerationStore } from "../state/generation.store";
+import { useQuestStore } from "../state/quest.store";
 import { useSessionStore } from "../state/session.store";
+import { useTrainingStore } from "../state/training.store";
 import { resetAllGameStores } from "../simulation/reset-game-stores";
 import {
+  chapterWaiting,
   computeOfflineProgress,
   MIN_OFFLINE_MS,
   OFFLINE_CAP_MS,
@@ -97,5 +103,79 @@ describe("computeOfflineProgress", () => {
 
   test("OFFLINE_CAP_MS is 2 days", () => {
     expect(OFFLINE_CAP_MS).toBe(2 * 24 * 60 * 60 * 1000);
+  });
+
+  describe("the AI, while you were away", () => {
+    test("gets as far as the next quest step and waits there", () => {
+      startRunningGame(50);
+      useAgentsStore.setState({ agents: 40, running: null });
+      useAiSingularityStore.setState({ value: 25 });
+      const now = Date.now();
+      // Two days of forty agents would carry it from the Assistant to the end.
+      useSessionStore.setState({ lastSeenAt: now - 48 * HOUR });
+      computeOfflineProgress(now);
+      expect(useAiSingularityStore.getState().value).toBe(40);
+    });
+
+    test("short of the next step, it goes as far as it would have", () => {
+      startRunningGame(50);
+      useAgentsStore.setState({ agents: 4, running: null });
+      useAiSingularityStore.setState({ value: 41 });
+      const now = Date.now();
+      useSessionStore.setState({ lastSeenAt: now - HOUR });
+      computeOfflineProgress(now);
+      expect(useAiSingularityStore.getState().value).toBeCloseTo(41 + 4 * RATE_PER_AGENT * 3600, 1);
+    });
+
+    test("a training run finished meanwhile is held to the step too", () => {
+      startRunningGame(50);
+      useAgentsStore.setState({ agents: 0, running: null });
+      useAiSingularityStore.setState({ value: 59.5 });
+      const now = Date.now();
+      // A jump of two from 59.5 would carry it past the Manager (60).
+      useTrainingStore.setState({ current: { dataset: "town", endsAt: now - HOUR } });
+      useSessionStore.setState({ lastSeenAt: now - 2 * HOUR });
+      computeOfflineProgress(now);
+      expect(useAiSingularityStore.getState().value).toBe(60);
+      expect(useTrainingStore.getState().current).toBeNull();
+    });
+
+    test("and the summary says which chapter it is waiting at", () => {
+      startRunningGame(50);
+      useGenerationStore.setState({ generation: 1 });
+      // The first chapter answered before you left; the second is where it stops.
+      useQuestStore.setState({ chapters: { ledger: 0 }, offer: null });
+      useAgentsStore.setState({ agents: 40, running: null });
+      useAiSingularityStore.setState({ value: 25 });
+      const now = Date.now();
+      useSessionStore.setState({ lastSeenAt: now - 48 * HOUR });
+      expect(computeOfflineProgress(now)!.chapter).toEqual({ number: 2, title: "The Commute Problem" });
+    });
+
+    test("no chapter waiting, short of one, or after the first generation", () => {
+      startRunningGame(50);
+      useGenerationStore.setState({ generation: 1 });
+      useQuestStore.setState({ chapters: { ledger: 0 }, offer: null });
+      useAgentsStore.setState({ agents: 4, running: null });
+      useAiSingularityStore.setState({ value: 25 });
+      const now = Date.now();
+      useSessionStore.setState({ lastSeenAt: now - HOUR });
+      expect(computeOfflineProgress(now)!.chapter).toBeNull();
+      useGenerationStore.setState({ generation: 2 });
+      useQuestStore.setState({ chapters: {}, offer: null });
+      expect(chapterWaiting(40)).toBeNull();
+    });
+
+    test("the hold is let go once you are back", () => {
+      startRunningGame(50);
+      useSessionStore.setState({ lastSeenAt: Date.now() - HOUR });
+      computeOfflineProgress();
+      expect(meterCap(10)).toBe(100);
+    });
+
+    test("the steps: each stage's start, the Lattice's hold, the end", () => {
+      expect([0, 19, 20, 59, 80, 94, 95, 99].map(nextQuestStep)).toEqual([20, 20, 40, 60, 95, 95, 100, 100]);
+      expect(LATTICE_AT).toBe(95);
+    });
   });
 });

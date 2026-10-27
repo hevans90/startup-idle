@@ -1,10 +1,14 @@
 import Decimal from "break_infinity.js";
-import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { holdWhileAway, nextQuestStep, stageFrom, useAiSingularityStore } from "../state/ai-singularity.store";
+import { useGenerationStore } from "../state/generation.store";
+import { useQuestStore } from "../state/quest.store";
+import { CHAPTERS } from "./quests/chapters";
 import { useFounderStore } from "../state/founder.store";
 import { type GeneratorId, useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { useSessionStore } from "../state/session.store";
+import { useTrainingStore } from "../state/training.store";
 import { useValuationStore } from "../state/valuation.store";
 
 /** Hard cap on credited offline time (full credit up to here, nothing beyond). */
@@ -27,7 +31,23 @@ export type OfflineSummary = {
   aiSingularity: number;
   /** Employees auto-bought during the absence, per generator. */
   hires: Record<GeneratorId, number>;
+  /** The arc's chapter the AI is waiting for you at, if one is due. @see chapterWaiting */
+  chapter: { number: number; title: string } | null;
 };
+
+/**
+ * THE CHAPTER WAITING FOR YOU: the one asked already, or the first unanswered
+ * one the meter has reached — the first generation's arc only. The away hold
+ * stops the meter at it. @see holdWhileAway, useQuestStore.step
+ */
+export function chapterWaiting(meter: number): OfflineSummary["chapter"] {
+  if (useGenerationStore.getState().generation !== 1) return null;
+  const q = useQuestStore.getState();
+  const c = q.offer?.kind === "chapter"
+    ? CHAPTERS.find((x) => x.id === q.offer!.id)
+    : CHAPTERS.find((x) => !(x.id in q.chapters) && meter >= (x.at ?? stageFrom(x.stage)));
+  return c ? { number: c.number, title: c.title } : null;
+}
 
 const countsByGenerator = (): Record<GeneratorId, number> => {
   const out: Record<GeneratorId, number> = {
@@ -84,12 +104,20 @@ export function computeOfflineProgress(
   // interval) because numChunks never exceeds floor(totalSec) and totalSec >= 60.
   const numChunks = Math.min(MAX_STEPS, Math.max(1, Math.floor(totalSec)));
   const chunkMs = creditedMs / numChunks;
-  for (let i = 0; i < numChunks; i++) {
-    const t = Date.now();
-    useGeneratorStore.setState({ globalLastTick: t - chunkMs });
-    useInnovationStore.setState({ globalLastTick: t - chunkMs });
-    useGeneratorStore.getState().tickGenerators();
-    useInnovationStore.getState().tickManagers();
+  // THE AI, AWAY, gets as far as the next quest step and waits there for you:
+  // the agents' push and a training run finished meanwhile alike. @see holdWhileAway
+  holdWhileAway(nextQuestStep(aiSingularity0));
+  try {
+    for (let i = 0; i < numChunks; i++) {
+      const t = Date.now();
+      useGeneratorStore.setState({ globalLastTick: t - chunkMs });
+      useInnovationStore.setState({ globalLastTick: t - chunkMs });
+      useGeneratorStore.getState().tickGenerators();
+      useInnovationStore.getState().tickManagers();
+    }
+    useTrainingStore.getState().tick(nowMs);
+  } finally {
+    holdWhileAway(null);
   }
 
   // AND THE SEAPORTS, at the rate they were earning when the map last ran:
@@ -133,5 +161,6 @@ export function computeOfflineProgress(
     valuation,
     aiSingularity,
     hires,
+    chapter: chapterWaiting(useAiSingularityStore.getState().value),
   };
 }

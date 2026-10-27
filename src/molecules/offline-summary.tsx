@@ -19,7 +19,8 @@ function Row<T extends number | Decimal>({ label, to, format, role }: { label: s
 
 /**
  * "While you were away": what the company earned and auto-hired during the
- * absence, counting up. Gains are already credited; the button just dismisses.
+ * absence, counting up, and the chapter the AI is waiting at. Gains are
+ * already credited; the button just dismisses.
  */
 export const OfflineSummaryModal = ({
   summary,
@@ -43,6 +44,12 @@ export const OfflineSummaryModal = ({
         {summary.innovation.gt(0) && <Row label="Innovation" to={summary.innovation} format={plain} role="innovation" />}
         {summary.valuation.gt(0) && <Row label="Valuation" to={summary.valuation} format={plain} role="valuation" />}
         {summary.aiSingularity > 0 && <Row label="AI singularity" to={summary.aiSingularity} format={(v) => `+${v.toFixed(1)}%`} role="ai" />}
+        {/* WHERE THE AI STOPPED: a chapter it would not go past without you. @see holdWhileAway */}
+        {summary.chapter && (
+          <p className="mt-1 border-l-2 border-ai pl-2 text-xs text-ai">
+            The AI is waiting for you at <b>Chapter {summary.chapter.number} · {summary.chapter.title}</b>.
+          </p>
+        )}
         {hires.length > 0 && (
           <Section label="Auto-hired">
             {hires.map(([id, n]) => <Row key={id} label={genName(id)} to={n} format={(v) => `+${Math.round(v)}`} />)}
