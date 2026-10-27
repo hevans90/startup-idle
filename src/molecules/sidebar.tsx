@@ -63,9 +63,9 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
         <Generators />
         {/* MORALE, here until the HQ opens the Innovation tab, where it is in full. */}
         {!managersOpen && <MoraleStrip className="mx-2" />}
-        {/* LEADERS, once the Talent Agency stands. @see LeadersPanel */}
-        {leadersOpen && <LeadersPanel />}
         <Upgrades />
+        {/* LEADERS, once the Talent Agency stands. @see LeadersPanel */}
+        {leadersOpen && <LeadersPanel className="mx-2" />}
       </div>
     ),
     innovation: (

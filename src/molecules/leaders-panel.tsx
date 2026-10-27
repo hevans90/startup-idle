@@ -97,7 +97,7 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
   );
 }
 
-export function LeadersPanel() {
+export function LeadersPanel({ className }: { className?: string }) {
   useTicking(1000);
   const generators = useGeneratorStore((s) => s.generators);
   const leaders = useTeamLeadersEmployeesStore((s) => s.employees);
@@ -105,7 +105,7 @@ export function LeadersPanel() {
   const kinds = generators.filter((g) => g.amount > 0);
   if (!kinds.length) return null;
   return (
-    <Panel title="Leaders" help="One leader for each kind, in a building where that kind works: the people there feel them in full, the rest of the kind half. They rank up from their team's work, and pick a perk at every rank.">
+    <Panel title="Leaders" className={className} help="One leader for each kind, in a building where that kind works: the people there feel them in full, the rest of the kind half. They rank up from their team's work, and pick a perk at every rank.">
       <div className="flex flex-col gap-3">
         {kinds.map((g) => {
           const id = g.id as GeneratorId, l = leaders.find((x) => x.role === id);
