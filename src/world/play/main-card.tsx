@@ -19,7 +19,7 @@ import { boreCost, buildCost } from "../../game/build-cost";
 import { useTicking } from "../../hooks/use-ticking";
 import { MAIN_BORE, MAIN_END, idx, inBounds } from "../grid";
 import { structureDef } from "../structures/def";
-import { findMains, hasMain, mainReportAt, planMain, previewMain, routeMain, type MainState } from "../water/mains";
+import { findMains, hasMain, mainReportAt, planMain, previewMain, previewSewer, routeMain, type MainReport, type MainState } from "../water/mains";
 
 const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
 
@@ -41,11 +41,22 @@ export function MainCard() {
   }
   if (!stroke || stroke.tool !== "pipe") return null;
   const st = useWorldStore.getState();
-  const wet = mainWet(st.grid);
-  const route = routeMain(st.grid, stroke.anchor, stroke.head, wet);
-  if (!route) return <p className={twMerge(CARD, "text-bad")}>No way through for a main: round buildings, off the water</p>;
-  const plan = planMain(st.grid, route, wet);
+  const wet = mainWet(st.grid), sewer = !!stroke.sewer;
+  const route = routeMain(st.grid, stroke.anchor, stroke.head, wet, sewer);
+  if (!route) return <p className={twMerge(CARD, "text-bad")}>No way through for a {sewer ? "sewer" : "main"}: round buildings, off the water</p>;
+  const plan = planMain(st.grid, route, wet, false, sewer);
   if ("refused" in plan) return <p className={twMerge(CARD, "text-bad")}>{plan.refused}</p>;
+  if (sewer) {
+    // A SEWER: what it drains into what, and what it can carry.
+    const look = previewSewer(st.grid, plan.cells);
+    return (
+      <div className={CARD}>
+        <p className="flex justify-between gap-4 tabular-nums"><b>Sewer · {look.fresh} tiles</b><span>{formatCurrency(pipeCost(look.fresh).toNumber())}</span></p>
+        <p className="text-fg-muted">{look.ends.join(" → ")}</p>
+        {look.problem ? <p className="text-bad">{look.problem}</p> : <p className="text-good">Carries up to {look.capacity.toFixed(2)} slop a second</p>}
+      </div>
+    );
+  }
   const look = previewMain(st.grid, st.getWaterField(), plan.cells);
   const price = pipeCost(look.fresh).toNumber();
   return (
@@ -69,6 +80,12 @@ const SAYS: Record<MainState, { text: string; tone: "good" | "warn" | "bad" }> =
   "no-source": { text: "Draws from nothing: one end must be at water", tone: "bad" },
   "no-outlet": { text: "Feeds nothing: one end must be at an inlet of a building that drinks", tone: "bad" },
 };
+/** And a sewer's. Nothing moves in one till workplaces fill with slop. @see solveSewer */
+const SEWER_SAYS: Partial<Record<MainState, { text: string; tone: "good" | "warn" | "bad" }>> = {
+  flowing: { text: "Joined up: its workplaces drain into it", tone: "good" },
+  "no-source": { text: "Drains nothing: one end must be at a workplace's slop port, or pass in front of one", tone: "bad" },
+  "no-outlet": { text: "Goes nowhere: one end must pour into water, or feed a processor", tone: "bad" },
+};
 const TONE = { good: "text-good", warn: "text-warn", bad: "text-bad" };
 
 /**
@@ -88,8 +105,9 @@ export function MainInfo() {
   if (!inBounds(g, looked.x, looked.y) || !hasMain(g, idx(g, looked.x, looked.y))) return null;
   const r = mainReportAt(g, looked.x, looked.y);
   if (!r) return null;
-  const say = SAYS[r.state];
   const net = findMains(g).list[findMains(g).of[idx(g, looked.x, looked.y)]];
+  if (r.sewer) return <SewerInfo r={r} at={looked} onClose={() => setShut(looked.n)} />;
+  const say = SAYS[r.state];
   const intake = net?.intakes.find((i) => g.mainEnd[i] === MAIN_END.intake);
   // WIDENING IT: twice the water through the same run, paid for the tiles not yet widened. @see boreCost
   const narrow = net ? net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length : 0;
@@ -117,6 +135,30 @@ export function MainInfo() {
           <Button size="sm" onClick={() => st.widenMainAt(looked)} title="Twice the water through the same run">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>
         )}
         <Button size="sm" variant="danger" confirm="Lift it? Press again" onClick={() => st.liftMainAt(looked)}>Lift it</Button>
+      </div>
+    </Card>
+  );
+}
+
+/** A SEWER, LOOKED AT: whether it is joined up, the workplaces it drains and where to, and a way to widen or lift it. */
+function SewerInfo({ r, at, onClose }: { r: MainReport; at: { x: number; y: number }; onClose: () => void }) {
+  const st = useWorldStore.getState(), g = st.grid;
+  const say = SEWER_SAYS[r.state] ?? SEWER_SAYS.flowing!;
+  const net = findMains(g).list[findMains(g).of[idx(g, at.x, at.y)]];
+  const narrow = net ? net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length : 0;
+  const nameOf = (id: number) => structureDef(g.structures.get(id)?.def ?? "")?.name ?? "a building";
+  const from = r.sewer!.sources.map(nameOf);
+  const to = [...r.outlets.map((o) => nameOf(o.building)), ...r.sewer!.outfalls.map(() => "the water")];
+  return (
+    <Card tone={say.tone} onClose={onClose} className="w-80" title={<>{r.bore > 1 ? "Wide sewer" : "Sewer"} · {r.length} tiles</>}>
+      <p className={TONE[say.tone]}>{say.text}</p>
+      <p className="tabular-nums">Carries up to {r.capacity.toFixed(2)} slop a second</p>
+      <p className="text-fg-muted">{from.length ? from.join(", ") : "No workplace"}{" → "}{to.length ? to.join(", ") : "nothing"}</p>
+      <div className="mt-0.5 flex flex-wrap gap-1">
+        {narrow > 0 && (
+          <Button size="sm" onClick={() => st.widenMainAt(at)} title="Twice the slop through the same run">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>
+        )}
+        <Button size="sm" variant="danger" confirm="Lift it? Press again" onClick={() => st.liftMainAt(at)}>Lift it</Button>
       </div>
     </Card>
   );

@@ -68,6 +68,8 @@ export type Placement = {
  * @see world/water/ports
  */
 export type Port = { face: "N" | "E" | "S" | "W"; at: number; fluid: "water" | "slop"; dir: "in" | "out" };
+/** A slop outlet on a face the camera sees, toward its near end. @see sewerStubs */
+const SLOP_OUT = (along: number): readonly Port[] => [{ face: "S", at: along, fluid: "slop", dir: "out" }];
 /** A water inlet on each face the camera sees, in its middle. */
 const INLETS = (along: number): readonly Port[] => [
   { face: "S", at: along, fluid: "water", dir: "in" },
@@ -196,6 +198,7 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
     name: "Vibe Coder Studio",
     footprint: { w: 3, h: 2 },
     render: { kind: "custom", rendererId: "project" },
+    ports: SLOP_OUT(1),
   },
   {
     id: "hq",
@@ -249,7 +252,7 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
  */
 export const OFFICES: readonly StructureDef[] = [
   { id: "office-intern", name: "Intern office", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
-  { id: "office-vibe", name: "Vibe studio", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "office-vibe", name: "Vibe studio", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" }, ports: SLOP_OUT(1) },
   { id: "office-10x", name: "10x office", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
 ];
 

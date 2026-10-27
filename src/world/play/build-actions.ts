@@ -47,10 +47,10 @@ function stroke(tool: ToolId, from: Cell, to: Cell, extra: Record<string, unknow
     () => useWorldStore.getState().endStroke());
 }
 
-/** Lay a main along a route, cell by cell in order — with a pump at its intake, if asked — as the Pipe tool lays it and paid for alike. @see planMain */
-export const layPipePath = (cells: readonly Cell[], pump = false): boolean =>
+/** Lay a main along a route, cell by cell in order — with a pump at its intake, if asked, or as a sewer — as the Pipe tool lays it and paid for alike. @see planMain */
+export const layPipePath = (cells: readonly Cell[], pump = false, sewer = false): boolean =>
   cells.length > 0 && withTool(
-    { tool: "pipe", brush: "line", brushRadius: 0, placingProject: null, stroke: { tool: "pipe", brush: "line", anchor: cells[0], head: cells[cells.length - 1], path: cells, pump } },
+    { tool: "pipe", brush: "line", brushRadius: 0, placingProject: null, stroke: { tool: "pipe", brush: "line", anchor: cells[0], head: cells[cells.length - 1], path: cells, pump, sewer } },
     () => useWorldStore.getState().endStroke(),
   );
 

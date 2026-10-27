@@ -209,19 +209,19 @@ import { serviceOf } from "./agents/services";
 /** The services a Holo-Concierge stands at: those in the AI's district. @see game/machine "concierge" */
 const conciergesOf = (g: import("./grid").Grid) =>
   [...g.structures.values()].filter((s) => !s.build && serviceOf(s.def) && inAiDistrictNow(g, s.x, s.y)).map((s) => ({ x: s.x, y: s.y + s.h }));
-import { planMain, previewMain, routeMain, runMains } from "./water/mains";
+import { planMain, previewMain, previewSewer, routeMain, runMains } from "./water/mains";
 import { createMainsLayer, type MainsLayer } from "./render/mains-layer";
 
 /** The main being dragged with the Pipe tool, in the game: its route, and whether it will carry water. @see MainCard */
 function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
   const st = useWorldStore.getState(), s0 = st.stroke;
   if (!st.playing || !s0 || s0.tool !== "pipe") return [null, true];
-  const wet = mainWet(st.grid);
-  const route = routeMain(st.grid, s0.anchor, s0.head, wet);
+  const wet = mainWet(st.grid), sewer = !!s0.sewer;
+  const route = routeMain(st.grid, s0.anchor, s0.head, wet, sewer);
   if (!route) return [null, true];
-  const plan = planMain(st.grid, route, wet);
+  const plan = planMain(st.grid, route, wet, false, sewer);
   if ("refused" in plan) return [route, false];
-  return [route, !previewMain(st.grid, st.getWaterField(), plan.cells).problem];
+  return [route, !(sewer ? previewSewer(st.grid, plan.cells) : previewMain(st.grid, st.getWaterField(), plan.cells)).problem];
 }
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 

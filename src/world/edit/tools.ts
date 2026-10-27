@@ -105,6 +105,8 @@ export type Stroke = {
   path?: readonly Cell[];
   /** A main laid with a pump at its intake. @see planMain */
   pump?: boolean;
+  /** A sewer, not a water main. @see planMain */
+  sewer?: boolean;
 };
 
 const clampCell = (g: Grid, c: Cell): Cell => ({

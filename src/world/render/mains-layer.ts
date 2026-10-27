@@ -25,8 +25,9 @@
  */
 import { Container, Graphics, Matrix, Text } from "pixi.js";
 
+import { SEWERS_OPEN } from "../../game/mains";
 import { NEIGHBOUR } from "../../iso/dir";
-import { MAIN_AI, MAIN_BORE, MAIN_END, idx, inBounds, structureAt, type Grid } from "../grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, idx, inBounds, structureAt, type Grid } from "../grid";
 import { allTanks } from "../projects/cooling";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { findMains, joined, mainReportAt, mainReports, type MainState } from "../water/mains";
@@ -48,6 +49,8 @@ const CONCRETE = 0xc9c4b8, CONCRETE_SIDE = 0xaaa59a, CONCRETE_DARK = 0x958f84;
 /** How high a main rides over a road, half steps; how much fatter a widened bore is. */
 const ROAD_LIFT = 2.4;
 const BORE_WIDE = 1.4;
+/** A SEWER: dark umber, a little wider, banded brown. */
+const SEWER_SHADE = 0x3f2d20, SEWER_BODY = 0x6b4e36, SEWER_BAND = 0x9a6a3a, SEWER_WIDE = 0.13;
 /** The AI's mains: a violet tint to the body, and its bands. */
 const AI_BODY = 0x9d8bbd, AI_BAND = 0xb44aff;
 /** The fittings. */
@@ -168,11 +171,12 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     const legs = limbs(g, x, y, s);
     const z = levelAt(g, x, y), floor = ground(g, x, y);
     const c = P(s, x, y, z);
-    const bits = g.main[i], ai = (bits & MAIN_AI) !== 0;
+    const bits = g.main[i], ai = (bits & MAIN_AI) !== 0, sewer = (bits & MAIN_SEWER) !== 0;
     const bore = bits & MAIN_BORE ? BORE_WIDE : 1;
-    const w = WIDE * HW * 2 * s * bore;
+    const wide = sewer ? SEWER_WIDE : WIDE;
+    const w = wide * HW * 2 * s * bore;
     /** The tube's radius in half steps, for what it rests on. */
-    const rz = (WIDE * bore * HW * 2) / HEIGHT_UNIT / 2;
+    const rz = (wide * bore * HW * 2) / HEIGHT_UNIT / 2;
     const straight = legs.length === 2 && (joined(g, x, y, "N") && joined(g, x, y, "S") || joined(g, x, y, "E") && joined(g, x, y, "W"));
     // ITS SHADOW on the ground, softly, under where it lies.
     const lift = (z - floor) * HEIGHT_UNIT * s;
@@ -188,16 +192,16 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     // THE TUBE, shaded as a cylinder: its underside, its body, the light along its top.
     for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay + w * 0.12).lineTo(bx, by + w * 0.12);
     if (!legs.length) gfx.circle(c[0], c[1], w * 0.5);
-    gfx.stroke({ color: ai ? 0x6e5f8f : SHADE, width: w, cap: "round", join: "round" });
+    gfx.stroke({ color: sewer ? SEWER_SHADE : ai ? 0x6e5f8f : SHADE, width: w, cap: "round", join: "round" });
     for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay - w * 0.05).lineTo(bx, by - w * 0.05);
-    gfx.stroke({ color: ai ? AI_BODY : BODY, width: w * 0.8, cap: "round", join: "round" });
+    gfx.stroke({ color: sewer ? SEWER_BODY : ai ? AI_BODY : BODY, width: w * 0.8, cap: "round", join: "round" });
     for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay - w * 0.26).lineTo(bx, by - w * 0.26);
-    gfx.stroke({ color: SHINE, width: Math.max(0.6, w * 0.18), cap: "round", join: "round", alpha: 0.85 });
+    gfx.stroke({ color: SHINE, width: Math.max(0.6, w * 0.18), cap: "round", join: "round", alpha: sewer ? 0.35 : 0.85 });
     // WHICH WAY it runs here: N–S along u, E–W along v. @see NEIGHBOUR
     const along: "u" | "v" = joined(g, x, y, "N") || joined(g, x, y, "S") ? "u" : "v";
     // A COLLAR every few tiles of a straight run, and the AI's violet band: rings round the tube.
     if (straight && (x + y) % 4 === 0) ring(gfx, s, x, y, z, along, w * 0.6, COLLAR);
-    if (ai && straight && (x + y) % 4 === 3) ring(gfx, s, x, y, z, along, w * 0.58, AI_BAND);
+    if ((ai || sewer) && straight && (x + y) % 4 === 3) ring(gfx, s, x, y, z, along, w * 0.58, sewer ? SEWER_BAND : AI_BAND);
     // A GLASS SECTION every few tiles: a pale window down the tube, ringed at each end, where the water inside shows. @see isGlass
     if (isGlass(g, x, y)) {
       const [ax, ay, bx, by] = legs[0], [cx, cy, dx, dy] = legs[1];
@@ -230,6 +234,14 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       ring(gfx, s, x, y, z, along, w * 0.72, COLLAR);
       gfx.circle(c[0], c[1] - w * 1.05, w * 0.42);
       gfx.stroke({ color: VALVE, width: Math.max(0.6, w * 0.16) });
+    } else if (end === MAIN_END.drain) {
+      // A SEWER'S DRAIN, at a workplace's slop port: a brown flange.
+      ring(gfx, s, x, y, z, along, w * 0.7, PORT_COLOUR.slop);
+    } else if (end === MAIN_END.outfall) {
+      // AN OUTFALL over the bank: the pipe's mouth, flared, dark inside, on a post to the water.
+      isoBox(gfx, s, x - 0.03, y - 0.03, x + 0.03, y + 0.03, Math.min(floor, z - rz) - 0.6, z - rz, CONCRETE, CONCRETE_SIDE, CONCRETE_DARK);
+      ring(gfx, s, x, y, z, along, w * 0.85, SEWER_SHADE);
+      ring(gfx, s, x, y, z, along, w * 0.55, 0x1a120c);
     } else if (end === MAIN_END.cap) {
       gfx.circle(c[0], c[1], w * 0.55);
       gfx.fill({ color: CAP });
@@ -384,6 +396,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       // THE PORTS on the buildings, under any main that ends at them.
       for (const st of g.structures.values()) {
         for (const p of portsOf(g, st)) {
+          // Slop ports only once slop is piped. @see SEWERS_OPEN
+          if (p.port.fluid === "slop" && !SEWERS_OPEN) continue;
           const band = p.x + p.y;
           if (!bands.pavedOf[band]) continue;
           const gfx = drawPort(g, p, scale);
@@ -441,7 +455,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         const state: MainState | undefined = r?.state;
         // WHICH WAY: steps from the nearest intake, so the water runs away from it.
         const dist = new Map<number, number>();
-        const queue = [...net.intakes];
+        const queue = net.sewer ? net.cells.filter((i) => g.mainEnd[i] === MAIN_END.drain) : [...net.intakes];
         for (const q of queue) dist.set(q, 0);
         for (let h = 0; h < queue.length; h++) {
           const i = queue[h], x = i % g.w, y = (i / g.w) | 0;
@@ -457,7 +471,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         // THE WATER, seen through each glass section: streaks running downstream
         // at the main's speed while it flows, standing still in a full one,
         // nothing in a dry one. @see isGlass
-        if ((state === "flowing" || state === "full") && r) {
+        // A sewer shows its slop only while some moves. @see solveSewer
+        if ((state === "flowing" || state === "full") && r && (!net.sewer || r.flow > 0)) {
           const speed = state === "flowing" ? 0.35 + Math.min(2, r.flow) * 0.6 : 0;
           for (const i of net.cells) {
             const x = i % g.w, y = (i / g.w) | 0;
@@ -503,7 +518,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         // WHICH WAY IT RUNS, on the main under the pointer and every main in the
         // Water overlay: chevrons every other tile, pointing downstream.
         const hovered = hoverAt !== null && net.cells.includes(hoverAt);
-        if ((hovered || overlayOn) && state === "flowing") {
+        if ((hovered || overlayOn) && state === "flowing" && (!net.sewer || (r?.flow ?? 0) > 0)) {
           for (const i of net.cells) {
             const x = i % g.w, y = (i / g.w) | 0;
             if ((x + y) % 2) continue;

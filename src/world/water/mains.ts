@@ -12,13 +12,14 @@
  */
 import { surfaceAt, wantDepth, addWater } from "../../fluid/columns";
 import { isDrinker } from "../../game/cooling";
-import { PUMP_MOST, mainFlow, pumpLift } from "../../game/mains";
+import { PUMP_MOST, mainFlow, pumpLift, sewerFlow } from "../../game/mains";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { MAIN_AI, MAIN_BORE, MAIN_END, edited, idx, inBounds, structureAt, type Grid } from "../grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { fillTank, tankRoom } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { COLUMNS_PER_TILE, columnOf, type WaterField } from "./field";
-import { nearestPort, portsAt, wallAt } from "./ports";
+import { nearestPort, portsAt, portsOf, wallAt } from "./ports";
+import type { Port } from "../structures/def";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 const OPPOSITE = { N: "S", S: "N", E: "W", W: "E" } as const;
@@ -34,12 +35,15 @@ export function joined(g: Grid, x: number, y: number, side: (typeof SIDES)[numbe
 
 /** Whether a cell carries a main: joined somewhere, or a lone fitting. */
 export const hasMain = (g: Grid, i: number) => g.main[i] !== 0 || g.mainEnd[i] !== 0;
+/** Whether the main on a cell is a sewer. */
+export const isSewer = (g: Grid, i: number) => (g.main[i] & MAIN_SEWER) !== 0;
 
 /**
  * One network of mains: its cells, its intakes and outlets by cell; its BORE
- * — 2 once every tile of it is widened, else 1 — and whether the AI laid it.
+ * — 2 once every tile of it is widened, else 1 — whether the AI laid it, and
+ * whether it is a SEWER, with its outfalls into water by cell.
  */
-export type MainNet = { id: number; cells: number[]; intakes: number[]; outlets: number[]; bore: number; ai: boolean };
+export type MainNet = { id: number; cells: number[]; intakes: number[]; outlets: number[]; outfalls: number[]; bore: number; ai: boolean; sewer: boolean };
 
 const nets = new WeakMap<Grid, { rev: number; list: MainNet[]; of: Int32Array }>();
 
@@ -51,7 +55,7 @@ export function findMains(g: Grid): { list: MainNet[]; of: Int32Array } {
   const list: MainNet[] = [];
   for (let start = 0; start < of.length; start++) {
     if (!hasMain(g, start) || of[start] >= 0) continue;
-    const id = list.length, net: MainNet = { id, cells: [], intakes: [], outlets: [], bore: 2, ai: false };
+    const id = list.length, net: MainNet = { id, cells: [], intakes: [], outlets: [], outfalls: [], bore: 2, ai: false, sewer: false };
     const queue = [start];
     of[start] = id;
     for (let q = 0; q < queue.length; q++) {
@@ -59,9 +63,11 @@ export function findMains(g: Grid): { list: MainNet[]; of: Int32Array } {
       net.cells.push(i);
       if (!(g.main[i] & MAIN_BORE)) net.bore = 1;
       if (g.main[i] & MAIN_AI) net.ai = true;
+      if (g.main[i] & MAIN_SEWER) net.sewer = true;
       const end = g.mainEnd[i];
       if (end === MAIN_END.intake || end === MAIN_END.pump) net.intakes.push(i);
       else if (end === MAIN_END.outlet) net.outlets.push(i);
+      else if (end === MAIN_END.outfall) net.outfalls.push(i);
       for (const side of SIDES) {
         if (!joined(g, x, y, side)) continue;
         const [dx, dy] = NEIGHBOUR[side];
@@ -138,6 +144,8 @@ export type MainReport = {
   outlets: { cell: number; building: number; capacity: number; pumped: boolean }[];
   /** Each intake's water surface, or null if dry, and how deep it stands there; whether it is a pump. */
   intakes: { cell: number; surface: number | null; depth: number; pump: boolean }[];
+  /** A SEWER's: the workplaces it takes slop from, by id, and its outfalls by cell. Empty for a water main. */
+  sewer?: { sources: number[]; outfalls: number[] };
 };
 
 /**
@@ -180,9 +188,36 @@ export function solveMain(g: Grid, field: WaterField, net: MainNet, pumpsOn = tr
   return { state, head: Number.isFinite(head) ? head : 0, capacity, flow: 0, length, bore: net.bore, outlets: outlets.map(({ cell, building, capacity, pumped }) => ({ cell, building, capacity, pumped })), intakes };
 }
 
+/** The workplaces a sewer takes slop from, by id: those whose slop port is one of its cells, a stub's or the trunk's own. */
+export function sewerSources(g: Grid, net: MainNet): number[] {
+  const out: number[] = [];
+  for (const i of net.cells) for (const p of portsAt(g, i, "slop", "out")) if (!out.includes(p.building)) out.push(p.building);
+  return out;
+}
+
+/**
+ * A SEWER SOLVED: what it takes slop from and where it can put it — a
+ * processor's inlet (an outlet on a slop port) or an outfall — and what it
+ * carries a second, by its bore alone. Nothing is carried yet: the
+ * workplaces' tanks that fill it come with phase 7. @see sewerFlow
+ */
+export function solveSewer(g: Grid, net: MainNet): MainReport {
+  const sources = sewerSources(g, net);
+  const processors = net.outlets.filter((i) => portsAt(g, i, "slop", "in").length > 0);
+  const state: MainState = !sources.length ? "no-source" : !processors.length && !net.outfalls.length ? "no-outlet" : "flowing";
+  return {
+    state, head: 0, capacity: sewerFlow(net.bore), flow: 0, length: net.cells.length, bore: net.bore,
+    outlets: processors.map((cell) => ({ cell, building: portsAt(g, cell, "slop", "in")[0].building, capacity: sewerFlow(net.bore), pumped: false })),
+    intakes: [], sewer: { sources, outfalls: net.outfalls },
+  };
+}
+
 /** How pump intakes are paid: for `seconds` of running, whether it was. In the editor, free. */
 export type MainPumps = { pay: (seconds: number) => boolean };
 const FREE: MainPumps = { pay: () => true };
+
+/** The map's revision its stubs were last laid for. */
+const stubbed = new WeakMap<Grid, number>();
 
 /** Each network's report from the last frame, by the cell it starts at. @see mainReportAt */
 let reports = new Map<number, MainReport>();
@@ -195,9 +230,12 @@ let reportOf: Int32Array | null = null, reportGrid: Grid | null = null;
  * it feeds has room; unpaid, the network falls back on gravity.
  */
 export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPumps = FREE): void {
+  // STUBS from workplaces to the sewers beside them, as the map now stands. @see sewerStubs
+  if (stubbed.get(g) !== g.rev) { sewerStubs(g); stubbed.set(g, g.rev); }
   const { list, of } = findMains(g);
   const out = new Map<number, MainReport>();
   for (const net of list) {
+    if (net.sewer) { out.set(net.cells[0], solveSewer(g, net)); continue; }
     let r = solveMain(g, field, net);
     const wants = r.outlets.some((o) => o.building >= 0 && tankRoom(o.building) > 0);
     if (r.outlets.some((o) => o.pumped) && wants && !pumps.pay(dt)) {
@@ -249,14 +287,18 @@ export type MainCell = { x: number; y: number; join: number; end: number };
  */
 export function planMain(
   g: Grid, cells: readonly { x: number; y: number }[],
-  wet: (x: number, y: number) => boolean, pump = false,
+  wet: (x: number, y: number) => boolean, pump = false, sewer = false,
 ): { cells: MainCell[]; joins: number } | { refused: string } {
-  if (cells.length < 2) return { refused: "Drag from the water to a building to lay a main" };
+  const what = sewer ? "sewer" : "main";
+  if (cells.length < 2) return { refused: sewer ? "Drag from a workplace's slop port to water to lay a sewer" : "Drag from the water to a building to lay a main" };
   for (const [k, c] of cells.entries()) {
     if (!inBounds(g, c.x, c.y)) return { refused: "Off the map" };
-    if (structureAt(g, c.x, c.y) >= 0) return { refused: "A main can't go through a building" };
+    if (structureAt(g, c.x, c.y) >= 0) return { refused: `A ${what} can't go through a building` };
     const end = k === 0 || k === cells.length - 1;
-    if (!end && hasMain(g, idx(g, c.x, c.y))) return { refused: "End the run on the other main to join it" };
+    const i = idx(g, c.x, c.y);
+    if (!end && hasMain(g, i)) return { refused: `End the run on the other ${what} to join it` };
+    // A SEWER AND A WATER MAIN never join.
+    if (end && hasMain(g, i) && isSewer(g, i) !== sewer) return { refused: "A sewer and a water main never join" };
   }
   const toward = (a: { x: number; y: number }, b: { x: number; y: number }) =>
     SIDES.find((s) => NEIGHBOUR[s][0] === b.x - a.x && NEIGHBOUR[s][1] === b.y - a.y);
@@ -276,21 +318,24 @@ export function planMain(
     if (isEnd && hasMain(g, i)) joins++;
     else if (isEnd) {
       const beside = (f: (x: number, y: number) => boolean) => SIDES.some((s) => { const [dx, dy] = NEIGHBOUR[s]; return inBounds(g, c.x + dx, c.y + dy) && f(c.x + dx, c.y + dy); });
-      end = outletBuilding(g, i) >= 0 ? MAIN_END.outlet : wet(c.x, c.y) || beside(wet) ? (pump ? MAIN_END.pump : MAIN_END.intake) : MAIN_END.cap;
-      // AGAINST A WALL with no inlet there: a main joins a building at its ports only.
-      const wall = end === MAIN_END.cap ? wallAt(g, i, drinker) : null;
-      if (wall) return { refused: `Join the ${wall.def === "lattice" ? "Lattice" : structureDef(wall.def)?.name ?? "building"} at one of its inlets` };
+      const atWater = wet(c.x, c.y) || beside(wet);
+      end = sewer
+        ? portsAt(g, i, "slop", "out").length ? MAIN_END.drain : portsAt(g, i, "slop", "in").length ? MAIN_END.outlet : atWater ? MAIN_END.outfall : MAIN_END.cap
+        : outletBuilding(g, i) >= 0 ? MAIN_END.outlet : atWater ? (pump ? MAIN_END.pump : MAIN_END.intake) : MAIN_END.cap;
+      // AGAINST A WALL with no port there: a pipe joins a building at its ports only.
+      const wall = end === MAIN_END.cap ? (sewer ? wallAt(g, i, (b) => !b.build, "slop") : wallAt(g, i, drinker)) : null;
+      if (wall) return { refused: `Join the ${wall.def === "lattice" ? "Lattice" : structureDef(wall.def)?.name ?? "building"} at ${sewer ? "its slop port" : "one of its inlets"}` };
     }
     out.push({ x: c.x, y: c.y, join, end });
   }
   return { cells: out, joins };
 }
 
-/** Lay a planned main on the map: its joins added to what is there, its fittings set. Bumps the map. */
-export function layMain(g: Grid, plan: readonly MainCell[]): void {
+/** Lay a planned main on the map: its joins added to what is there, its fittings set — a sewer's cells marked so. Bumps the map. */
+export function layMain(g: Grid, plan: readonly MainCell[], sewer = false): void {
   for (const c of plan) {
     const i = idx(g, c.x, c.y);
-    g.main[i] |= c.join;
+    g.main[i] |= c.join | (sewer ? MAIN_SEWER : 0);
     if (c.end) g.mainEnd[i] = c.end;
   }
   edited(g);
@@ -298,16 +343,19 @@ export function layMain(g: Grid, plan: readonly MainCell[]): void {
 
 /**
  * Where an end of a drag goes: on or against a building that drinks, away
- * from its inlets, the nearest free inlet of it; else where it is. Water
+ * from its inlets, the nearest free inlet of it — or for a sewer, a
+ * building's nearest slop port; else where it is. Water
  * and a main already there keep it. @see nearestPort
  */
-export function snapToPort(g: Grid, c: { x: number; y: number }, wet: (x: number, y: number) => boolean): { x: number; y: number } {
+export function snapToPort(g: Grid, c: { x: number; y: number }, wet: (x: number, y: number) => boolean, fluid: Port["fluid"] = "water"): { x: number; y: number } {
   if (!inBounds(g, c.x, c.y)) return c;
   const i = idx(g, c.x, c.y);
+  // For water, a building that drinks; for slop, any with a slop port.
+  const takes = (b: Structure) => (fluid === "water" ? drinker(b) : !b.build && portsOf(g, b).some((p) => p.port.fluid === "slop"));
   const on = g.structures.get(structureAt(g, c.x, c.y));
-  const s = on ? (drinker(on) ? on : null) : !wet(c.x, c.y) && !hasMain(g, i) ? wallAt(g, i, drinker) : null;
+  const s = on ? (takes(on) ? on : null) : !wet(c.x, c.y) && !hasMain(g, i) ? wallAt(g, i, takes, fluid) : null;
   if (!s) return c;
-  const p = nearestPort(g, s, c, (j) => hasMain(g, j));
+  const p = nearestPort(g, s, c, (j) => hasMain(g, j), fluid);
   return p ? { x: p.x, y: p.y } : c;
 }
 
@@ -320,11 +368,11 @@ export function snapToPort(g: Grid, c: { x: number; y: number }, wet: (x: number
  */
 export function routeMain(
   g: Grid, from: { x: number; y: number }, to: { x: number; y: number },
-  wet: (x: number, y: number) => boolean,
+  wet: (x: number, y: number) => boolean, sewer = false,
 ): { x: number; y: number }[] | null {
   if (!inBounds(g, from.x, from.y) || !inBounds(g, to.x, to.y)) return null;
-  from = snapToPort(g, from, wet);
-  to = snapToPort(g, to, wet);
+  from = snapToPort(g, from, wet, sewer ? "slop" : "water");
+  to = snapToPort(g, to, wet, sewer ? "slop" : "water");
   if (from.x === to.x && from.y === to.y) return [from];
   const n = g.w * g.h, start = idx(g, from.x, from.y), goal = idx(g, to.x, to.y);
   const free = (i: number) => {
@@ -526,4 +574,84 @@ export function mainsToPorts(g: Grid, wet: (x: number, y: number) => boolean): b
   }
   if (changed) edited(g);
   return changed;
+}
+
+/**
+ * STUBS: a workplace whose slop port is free and has a sewer beside it is
+ * joined to it, a tile of sewer from the port to the trunk, laid by itself;
+ * and a stub whose trunk or workplace has gone is taken up. Whether anything
+ * changed. @see plans/pipes-and-slop.md §3
+ */
+export function sewerStubs(g: Grid): boolean {
+  let changed = false;
+  // GONE: a stub no longer joined to a sewer, or in front of no port.
+  for (let i = 0; i < g.main.length; i++) {
+    if (!(g.main[i] & MAIN_STUB)) continue;
+    const x = i % g.w, y = (i / g.w) | 0;
+    if (portsAt(g, i, "slop", "out").length && SIDES.some((side) => joined(g, x, y, side))) continue;
+    for (const side of SIDES) {
+      if (!(g.main[i] & DIR[side])) continue;
+      const [dx, dy] = NEIGHBOUR[side];
+      if (inBounds(g, x + dx, y + dy)) g.main[idx(g, x + dx, y + dy)] &= ~DIR[OPPOSITE[side]];
+    }
+    g.main[i] = 0;
+    g.mainEnd[i] = 0;
+    changed = true;
+  }
+  // LAID: from each free slop port to a sewer beside it.
+  for (const s of g.structures.values()) {
+    for (const p of portsOf(g, s)) {
+      if (p.port.fluid !== "slop" || p.port.dir !== "out" || hasMain(g, p.i) || structureAt(g, p.x, p.y) >= 0) continue;
+      const side = SIDES.find((d) => {
+        const [dx, dy] = NEIGHBOUR[d];
+        return inBounds(g, p.x + dx, p.y + dy) && isSewer(g, idx(g, p.x + dx, p.y + dy));
+      });
+      if (!side) continue;
+      const [dx, dy] = NEIGHBOUR[side], j = idx(g, p.x + dx, p.y + dy);
+      g.main[p.i] = DIR[side] | MAIN_SEWER | MAIN_STUB;
+      g.mainEnd[p.i] = MAIN_END.drain;
+      g.main[j] |= DIR[OPPOSITE[side]];
+      // A capped end it meets runs on into the stub.
+      if (g.mainEnd[j] === MAIN_END.cap) g.mainEnd[j] = 0;
+      changed = true;
+    }
+  }
+  if (changed) edited(g);
+  return changed;
+}
+
+/**
+ * WHAT A SEWER WOULD DO, before it is laid, for the tool's card: what it
+ * costs in new tiles, what each end is, what it would carry — or why not.
+ * Its own ends, or the sewer it joins, give its workplaces and its sinks.
+ */
+export function previewSewer(g: Grid, plan: readonly MainCell[]): { fresh: number; capacity: number; ends: string[]; problem: string | null } {
+  const fresh = plan.filter((c) => !hasMain(g, idx(g, c.x, c.y))).length;
+  const nets = findMains(g);
+  let sources = 0, sinks = 0;
+  const ends: string[] = [];
+  const nameOf = (id: number) => structureDef(g.structures.get(id)?.def ?? "")?.name ?? "building";
+  for (const c of [plan[0], plan[plan.length - 1]]) {
+    const i = idx(g, c.x, c.y);
+    const joinedNet = hasMain(g, i) ? nets.list[nets.of[i]] : undefined;
+    if (joinedNet) {
+      ends.push("Joins a sewer");
+      sources += sewerSources(g, joinedNet).length;
+      sinks += joinedNet.outfalls.length + joinedNet.outlets.length;
+    } else if (c.end === MAIN_END.drain) {
+      sources++;
+      ends.push(`Drains the ${nameOf(portsAt(g, i, "slop", "out")[0].building)}`);
+    } else if (c.end === MAIN_END.outlet) {
+      sinks++;
+      ends.push(`Feeds the ${nameOf(portsAt(g, i, "slop", "in")[0].building)}`);
+    } else if (c.end === MAIN_END.outfall) {
+      sinks++;
+      ends.push("Pours into the water");
+    } else ends.push("Goes nowhere");
+  }
+  const problem = ends.includes("Goes nowhere") ? "This end goes nowhere: end it at a slop port, water, or another sewer"
+    : !sources ? "Drains nothing: start it at a workplace's slop port"
+    : !sinks ? "Goes nowhere: end it at water, or a processor's inlet"
+    : null;
+  return { fresh, capacity: sewerFlow(), ends, problem };
 }

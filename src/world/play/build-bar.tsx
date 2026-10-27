@@ -18,6 +18,7 @@
  *    when they arrive — and only for people the company can hire: no lots for
  *    vibe coders before the studio opens. @see world/agents/arrivals
  */
+import { SEWERS_OPEN } from "../../game/mains";
 import { isPhone } from "../../hooks/use-phone";
 import { Fragment, useRef, useEffect, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
@@ -275,6 +276,8 @@ export function BuildBar({ className }: { className?: string }) {
   const pipesOpen = agentsOpen();
   const liftPipe = useWorldStore((s) => s.liftPipe);
   const setLiftPipe = useWorldStore((s) => s.setLiftPipe);
+  const pipeSewer = useWorldStore((s) => s.pipeSewer);
+  const setPipeSewer = useWorldStore((s) => s.setPipeSewer);
   // THE TOOLS ON OFFER, and their keys: 1 to 6, as shown on each. Not while typing in a field, nor with a modifier.
   const shown = useMemo(() => TOOLS.filter((t) => t.id !== "pipe" || pipesOpen), [pipesOpen]);
   const keyed = useRef(choose);
@@ -338,6 +341,14 @@ export function BuildBar({ className }: { className?: string }) {
       <WondersPanel />
       <AiModePanel />
       <MainCard />
+      {/* PIPE: a water main, or a sewer — once slop is piped. @see SEWERS_OPEN */}
+      {tool === "pipe" && SEWERS_OPEN && (
+        <div className={twMerge(PANEL, "flex items-center gap-2 px-2 py-1 text-xs")}>
+          <span className="text-fg-muted">Pipe</span>
+          <Segmented label="What the Pipe tool lays" value={pipeSewer ? "sewer" : "water"} onChange={(v) => setPipeSewer(v === "sewer")}
+            options={[{ value: "water", label: "Water" }, { value: "sewer", label: "Sewer" }]} />
+        </div>
+      )}
       {/* LIFT: road, or pipe — never both at once. @see liftPipe */}
       {tool === "eraseRoad" && pipesOpen && (
         <div className={twMerge(PANEL, "flex items-center gap-2 px-2 py-1 text-xs")}>

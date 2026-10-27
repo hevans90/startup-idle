@@ -346,10 +346,18 @@ export const sourceAt = (g: Grid, x: number, y: number) =>
 export const pipeAt = (g: Grid, x: number, y: number) =>
   inBounds(g, x, y) ? g.pipe[idx(g, x, y)] : 0;
 
-/** A main's end fittings: drawing from water, with a pump, feeding a building, capped. */
-export const MAIN_END = { intake: 1, pump: 2, outlet: 3, cap: 4 } as const;
-/** Flags on a main's cell, above its `DIR` joins: its bore widened; laid by the AI. */
-export const MAIN_BORE = 16, MAIN_AI = 32;
+/**
+ * A main's end fittings: drawing from water, with a pump, feeding a building,
+ * capped; and a sewer's — pouring into water (an OUTFALL), or taking a
+ * workplace's slop at its port (a DRAIN).
+ */
+export const MAIN_END = { intake: 1, pump: 2, outlet: 3, cap: 4, outfall: 5, drain: 6 } as const;
+/**
+ * Flags on a main's cell, above its `DIR` joins: its bore widened; laid by
+ * the AI; a SEWER, not a water main — the two never join; a sewer's STUB,
+ * laid by itself from a workplace's port to a sewer beside it. @see sewerStubs
+ */
+export const MAIN_BORE = 16, MAIN_AI = 32, MAIN_SEWER = 64, MAIN_STUB = 128;
 
 /** The invert of the pipe on a cell — where its floor is. See {@link Grid.pipeZ}. */
 export const pipeInvertAt = (g: Grid, x: number, y: number) =>

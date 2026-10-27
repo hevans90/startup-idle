@@ -33,3 +33,17 @@ export const PUMP_MOST = 0.5;
 
 /** How many agents a flow cools, at full power. */
 export const agentsCooled = (flow: number) => Math.floor(flow / WATER_PER_AGENT + 1e-9);
+
+/**
+ * SEWERS: what one carries a second, a bore. Pumped from the workplaces'
+ * tanks, so its limit is its bore, not its head or its length.
+ * @see plans/pipes-and-slop.md §3
+ */
+export const SEWER_RATE = 1;
+export const sewerFlow = (bore = 1) => SEWER_RATE * bore;
+/**
+ * Whether sewers can be laid in the game: off until slop is piped out of the
+ * workplaces instead of filling the pit (phase 7), so nobody lays a pipe that
+ * carries nothing. The machinery works either way. @see plans/pipes-and-slop.md
+ */
+export const SEWERS_OPEN = false;

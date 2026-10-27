@@ -36,13 +36,13 @@ import { create } from "zustand";
 
 import { waterMetaSaw } from "../world/debug/water-meta";
 import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
-import { MAIN_AI, MAIN_BORE, MAIN_END, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { SLOP_PIT, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
-import { findMains, hasMain, mainsToPorts, pipesToMains, planMain, previewMain, routeMain } from "../world/water/mains";
+import { findMains, hasMain, mainsToPorts, pipesToMains, planMain, previewMain, previewSewer, routeMain } from "../world/water/mains";
 import { DIR, NEIGHBOUR } from "../iso/dir";
 import {
   OPEN_EDGE_DEFAULT, POUR_AMOUNT, SOURCE_RATE, createWaterField, depthAt, drainAt, pourAt,
@@ -423,6 +423,9 @@ type WorldState = {
   /** Whether the Lift tool lifts pipe rather than road. @see the Lift tool */
   liftPipe: boolean;
   setLiftPipe: (on: boolean) => void;
+  /** Whether the Pipe tool lays a sewer rather than a water main. @see SEWERS_OPEN */
+  pipeSewer: boolean;
+  setPipeSewer: (on: boolean) => void;
   /**
    * A MAIN JUST LAID that cannot lift its water to the building: where its
    * intake is, and what a pump there costs — offered, once. @see acceptPump
@@ -1024,6 +1027,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setMaterial: (material) => set({ material }),
   setHeightStep: (heightStep) => set({ heightStep }),
   setLiftPipe: (liftPipe) => set({ liftPipe }),
+  pipeSewer: false,
+  setPipeSewer: (pipeSewer) => set({ pipeSewer }),
   dismissPumpOffer: () => set({ pumpOffer: null }),
   offerPump: (pumpOffer) => set({ pumpOffer }),
   liftMainAt: (c) => {
@@ -1087,7 +1092,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   beginStroke: (c) =>
-    set((st) => ({ stroke: { tool: st.tool, brush: st.brush, anchor: c, head: c } })),
+    set((st) => ({ stroke: { tool: st.tool, brush: st.brush, anchor: c, head: c, ...(st.tool === "pipe" && st.pipeSewer ? { sewer: true } : {}) } })),
 
   updateStroke: (c) =>
     set((st) => (st.stroke ? { stroke: { ...st.stroke, head: c } } : {})),
@@ -1162,20 +1167,22 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       // went down to where it is — or along a route given — its ends fitted
       // to what they reach, paid a tile at a time for the new tiles and for a
       // pump if it has one. All or none. @see planMain, routeMain, pipeCost
-      const wet = mainWet(st.grid);
-      const route = s0.path ?? routeMain(st.grid, s0.anchor, s0.head, wet);
-      if (!route) { set({ stroke: null, notice: { text: "No way through for a main: round buildings, off the water", at: Date.now() } }); return; }
-      const plan = planMain(st.grid, route, wet, !!s0.pump);
+      // A SEWER the same way, priced alike, its cells marked as one. @see previewSewer
+      const wet = mainWet(st.grid), sewer = !!s0.sewer;
+      const what = sewer ? "sewer" : "main";
+      const route = s0.path ?? routeMain(st.grid, s0.anchor, s0.head, wet, sewer);
+      if (!route) { set({ stroke: null, notice: { text: `No way through for a ${what}: round buildings, off the water`, at: Date.now() } }); return; }
+      const plan = planMain(st.grid, route, wet, !sewer && !!s0.pump, sewer);
       if ("refused" in plan) { set({ stroke: null, notice: { text: plan.refused, at: Date.now() } }); return; }
-      const look = previewMain(st.grid, water, plan.cells, !!s0.pump);
-      const pumpPrice = s0.pump ? buildCost("pump")?.toNumber() ?? 0 : 0;
+      const look = sewer ? { ...previewSewer(st.grid, plan.cells), needsPump: false } : previewMain(st.grid, water, plan.cells, !!s0.pump);
+      const pumpPrice = s0.pump && !sewer ? buildCost("pump")?.toNumber() ?? 0 : 0;
       const price = pipeCost(look.fresh).plus(pumpPrice);
       if (price.gt(0) && !spendForBuild(price)) {
-        set({ stroke: null, notice: { text: `Not enough money for ${look.fresh} tiles of main: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
+        set({ stroke: null, notice: { text: `Not enough money for ${look.fresh} tiles of ${what}: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
         return;
       }
-      // The AI's own mains are marked, to be drawn in its violet.
-      const mark = aiActing() ? MAIN_AI : 0;
+      // The AI's own mains are marked, to be drawn in its violet; a sewer's, as a sewer.
+      const mark = (aiActing() ? MAIN_AI : 0) | (sewer ? MAIN_SEWER : 0);
       for (const c of plan.cells) {
         const i = idx(st.grid, c.x, c.y);
         b.set("main", c.x, c.y, st.grid.main[i] | c.join | (hasMain(st.grid, i) ? 0 : mark));
