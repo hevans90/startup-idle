@@ -25,11 +25,8 @@ import {
   type SatisfactionScores,
 } from "./satisfaction";
 import { type PrestigeModifiers } from "./skill-tree";
-import {
-  getActivePairSynergies,
-  skillMult,
-  skillRankMult,
-} from "./team-leaders.catalog";
+import { leadersNow } from "./leader-economy";
+import type { GeneratorId } from "../state/generators.store";
 
 // ─── Type ─────────────────────────────────────────────────────────────────────
 
@@ -120,22 +117,22 @@ export type GameModifiers = {
   effectiveScores: Record<string, number>;
 
   // ── TEAM LEADER bonuses ──────────────────────────────────────────────────
-  /** Per-role revenue mult from team leader skills (revenue_boost). */
+  /** Each kind's output from its leader, as felt across the kind. @see leadersNow */
   teamLeaderEmpRoleRevenue: Record<string, number>;
-  /** Per-role IPS mult from team leader skills (ips_boost). */
+  /** Each kind's innovation from its leader. */
   teamLeaderEmpRoleIps: Record<string, number>;
-  /** Global revenue mult from thought_leader skill + pair synergies. */
+  /** Company-wide revenue from leaders: none since leaders lead one kind each (kept as 1). */
   teamLeaderEmpGlobalRevenue: number;
-  /** Global IPS mult from chaos_spark skill + pair synergies. */
+  /** Company-wide innovation from leaders: likewise 1. */
   teamLeaderEmpGlobalIps: number;
   /** Legacy run bonuses from fired team leaders (additive fraction, already converted to multiplier). */
   teamLeaderLegacyRevenue: Record<string, number>;
   teamLeaderLegacyIps: Record<string, number>;
-  /** Per-role hire cost multiplier from hire_cost_reduction + cost_efficiency skills. */
+  /** Each kind's hire price from its leader. */
   teamLeaderEmpRoleHireCostMult: Record<string, number>;
-  /** Global hire cost multiplier from cost_efficiency skill (stacked across all employees). */
+  /** Company-wide hire price from leaders: 1. */
   teamLeaderEmpGlobalHireCostMult: number;
-  /** Valuation accrual rate multiplier from valuation_boost skill. */
+  /** Valuation from leaders: 1. */
   teamLeaderEmpValuationMult: number;
 };
 
@@ -150,6 +147,8 @@ export type ModifierContext = {
   emUnlocked: boolean;
   /** Raw (un-modified) satisfaction scores from the generators store. */
   rawScores: SatisfactionScores;
+  /** Each kind's headcount, for what its leader's team is of it. @see leadersNow */
+  owned?: Partial<Record<GeneratorId, number>>;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -203,108 +202,20 @@ export function computeModifiers(ctx: ModifierContext): GameModifiers {
 
   const internEffective = effectiveScores["intern"] ?? 0;
 
-  // Team leaders: skills + pair synergies → per-role and global bonuses.
+  // LEADERS: each kind's, as felt across the kind — once the Talent Agency
+  // has opened them. @see leadersNow, game/leaders
   const tlStore = useTeamLeadersEmployeesStore.getState();
-  const teamLeaders = ctx.emUnlocked ? tlStore.employees : [];
   const keyLegacies = tlStore.legacies;
-
-  const tlRoleRevenue: Record<string, number> = {
-    intern: 1,
-    vibe_coder: 1,
-    "10x_dev": 1,
-  };
-  const tlRoleIps: Record<string, number> = {
-    intern: 1,
-    vibe_coder: 1,
-    "10x_dev": 1,
-  };
-  const tlRoleHireCostMult: Record<string, number> = {
-    intern: 1,
-    vibe_coder: 1,
-    "10x_dev": 1,
-  };
-  let tlGlobalRevenue = 1;
-  let tlGlobalIps = 1;
-  let tlGlobalHireCostMult = 1;
-  let tlValuationMult = 1;
-
-  for (const emp of teamLeaders) {
-    const role = emp.role;
-
-    // ── Revenue ────────────────────────────────────────────────────────────────
-
-    const revLv = emp.skills.revenue_boost ?? 0;
-    if (revLv > 0) tlRoleRevenue[role] *= skillMult("revenue_boost", revLv);
-
-    // crunch_mode: role rev boost (sat penalty handled in computeTeamLeaderEmpSatOffsets)
-    const crunchLv = emp.skills.crunch_mode ?? 0;
-    if (crunchLv > 0) tlRoleRevenue[role] *= skillMult("crunch_mode", crunchLv);
-
-    const gRevLv = emp.skills.global_revenue ?? 0;
-    if (gRevLv > 0) tlGlobalRevenue *= skillMult("global_revenue", gRevLv);
-
-    // big_picture: global rev + global IPS
-    const bpLv = emp.skills.big_picture ?? 0;
-    if (bpLv > 0) {
-      const bpM = skillMult("big_picture", bpLv);
-      tlGlobalRevenue *= bpM;
-      tlGlobalIps *= bpM;
-    }
-
-    // compounding_rev: per-rank role rev
-    const cRevLv = emp.skills.compounding_rev ?? 0;
-    if (cRevLv > 0)
-      tlRoleRevenue[role] *= skillRankMult("compounding_rev", cRevLv, emp.rank);
-
-    // rev_per_sat: role rev boost when effective sat > 0
-    const rpsLv = emp.skills.rev_per_sat ?? 0;
-    if (rpsLv > 0 && (effectiveScores[role] ?? 0) > 0) {
-      tlRoleRevenue[role] *= skillMult("rev_per_sat", rpsLv);
-    }
-
-    // ── IPS ────────────────────────────────────────────────────────────────────
-
-    const ipsLv = emp.skills.ips_boost ?? 0;
-    if (ipsLv > 0) tlRoleIps[role] *= skillMult("ips_boost", ipsLv);
-
-    // research_mode: role IPS boost (sat penalty handled in computeTeamLeaderEmpSatOffsets)
-    const researchLv = emp.skills.research_mode ?? 0;
-    if (researchLv > 0) tlRoleIps[role] *= skillMult("research_mode", researchLv);
-
-    // compounding_ips: per-rank role IPS
-    const cIpsLv = emp.skills.compounding_ips ?? 0;
-    if (cIpsLv > 0) tlRoleIps[role] *= skillRankMult("compounding_ips", cIpsLv, emp.rank);
-
-    // chaos_spark: global IPS (sat penalty handled in computeTeamLeaderEmpSatOffsets)
-    const chaosLv = emp.skills.chaos_spark ?? 0;
-    if (chaosLv > 0) tlGlobalIps *= skillMult("chaos_spark", chaosLv);
-
-    // global_ips: clean global IPS, no sat penalty
-    const gIpsLv = emp.skills.global_ips ?? 0;
-    if (gIpsLv > 0) tlGlobalIps *= skillMult("global_ips", gIpsLv);
-
-    // sat_drain: global IPS bonus (sat penalty handled in computeTeamLeaderEmpSatOffsets)
-    const drainLv = emp.skills.sat_drain ?? 0;
-    if (drainLv > 0) tlGlobalIps *= skillMult("sat_drain", drainLv);
-
-    // ── Economy ────────────────────────────────────────────────────────────────
-
-    const hcrLv = emp.skills.hire_cost_reduction ?? 0;
-    if (hcrLv > 0) tlRoleHireCostMult[role] *= skillMult("hire_cost_reduction", hcrLv);
-
-    const ceLv = emp.skills.cost_efficiency ?? 0;
-    if (ceLv > 0) tlGlobalHireCostMult *= skillMult("cost_efficiency", ceLv);
-
-    const vbLv = emp.skills.valuation_boost ?? 0;
-    if (vbLv > 0) tlValuationMult *= skillMult("valuation_boost", vbLv);
-
+  const led = innovState.unlocks.leaders?.unlocked && ctx.owned
+    ? leadersNow(ctx.owned, (id) => satisfactionRevenueMultiplier(effectiveScores[id] ?? 0)).of
+    : {};
+  const tlRoleRevenue: Record<string, number> = {}, tlRoleIps: Record<string, number> = {}, tlRoleHireCostMult: Record<string, number> = {};
+  for (const id of ["intern", "vibe_coder", "10x_dev"] as GeneratorId[]) {
+    tlRoleRevenue[id] = led[id]?.output ?? 1;
+    tlRoleIps[id] = led[id]?.innovation ?? 1;
+    tlRoleHireCostMult[id] = led[id]?.hireCost ?? 1;
   }
-
-  const pairSynergies = getActivePairSynergies(teamLeaders);
-  for (const syn of pairSynergies) {
-    if (syn.globalRevenueMult) tlGlobalRevenue *= syn.globalRevenueMult;
-    if (syn.globalIpsMult) tlGlobalIps *= syn.globalIpsMult;
-  }
+  const tlGlobalRevenue = 1, tlGlobalIps = 1, tlGlobalHireCostMult = 1, tlValuationMult = 1;
 
   const teamLeaderLegacyRevenue: Record<string, number> = {
     intern: 1,

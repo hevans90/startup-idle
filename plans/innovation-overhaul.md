@@ -169,7 +169,7 @@ All of it happens in `world/ai/autopilot.ts`, logged in its memos.
    - The Morale panel and strip, the map overlay renamed, every "satisfaction" string gone.
    - Modifier explanations (`modifier-explanations/satisfaction.ts` becomes `morale.ts`).
 4. **Work policies.** (Done. Free Lunch costs output (×0.95) rather than a running bill; Always Be Hiring is the auto-buy, a hire every 2 s.) Catalogue, slots from manager tiers, the panel; perks and management points removed.
-5. **Talent Agency and leaders on the map.**
+5. **Talent Agency and leaders on the map.** (Done. The old pairings, global skills and per-workplace +25% went; the legacy bonus for a leader let go stays until connections.)
    - The project, placement, teams from commutes, the rank/perk loop, the badge and card.
    - Old leaders converted.
 6. **LinkedOut.** The window, posts and trickle, profiles and headlines, red flags and checks, reputation and reviews, connections.

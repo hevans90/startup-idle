@@ -15,5 +15,15 @@ export function opensSomething(def: string, build: unknown): boolean {
   return !!p && (p.id === "datacentre" || !!p.opens);
 }
 
+/**
+ * A PICK UNDER WAY, if any: while a leader is being placed, the buildings
+ * they could lead are what light up and take the click instead. @see LeaderPlacement
+ */
+let pickable: ((def: string, build: unknown) => boolean) | null = null;
+export const setPickable = (f: typeof pickable) => { pickable = f; };
+
+/** Whether a structure takes the click now: one being picked among, or one that opens something. */
+export const takesClick = (def: string, build: unknown): boolean => (pickable ? pickable(def, build) : opensSomething(def, build));
+
 /** Whether, with this tool in hand, a building that opens something takes the click. */
 export const clickTakesOver = (tool: ToolId) => tool !== "demolish";

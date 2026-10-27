@@ -1,0 +1,124 @@
+/**
+ * LEADERS, on the Employees tab once the Talent Agency stands: a leader for
+ * each kind, or a way to hire one; where they lead and how many, their rank
+ * and how far to the next, the perk to pick when a rank is reached; placed
+ * on the map, moved, or let go. @see game/leaders, team-leaders.store
+ */
+import { useState } from "react";
+import { twMerge } from "tailwind-merge";
+
+import { LEADER_PERKS, MAX_LEADER_RANK, PERSONALITIES, XP_AT, perkOffer, type Leader } from "../game/leaders";
+import { leaderTeam } from "../game/projects";
+import { structureDef } from "../world/structures/def";
+import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
+import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
+import { useWorldStore } from "../state/world.store";
+import { Button, Panel, Tile } from "../ui/console";
+import { useTicking } from "../hooks/use-ticking";
+import { TenXDevText } from "../utils/ten-x-utils";
+import { RainbowText } from "../utils/vibe-utils";
+import { EmployeeAvatar } from "./innovation/employee-avatar";
+import { HireDialog } from "./innovation/hire-dialog";
+
+export const KIND_PLURAL: Record<GeneratorId, string> = { intern: "interns", vibe_coder: "vibe coders", "10x_dev": "10x devs" };
+
+function Kind({ id }: { id: GeneratorId }) {
+  if (id === "vibe_coder") return <RainbowText text="Vibe coders" inline />;
+  if (id === "10x_dev") return <TenXDevText text="10x devs" />;
+  return <>Interns</>;
+}
+
+/** Where a leader is, in words: the building and its team, or not placed. */
+function whereText(l: Leader, owned: number): { text: string; ok: boolean } {
+  if (l.placedAt === null) return { text: "Not placed: they do nothing until you put them in a building.", ok: false };
+  const s = useWorldStore.getState().grid.structures.get(l.placedAt);
+  const name = s ? structureDef(s.def)?.name ?? "their building" : "a building that is gone";
+  return { text: `Leads ${leaderTeam(l.role)} of ${owned} at the ${name}; the rest of them feel half.`, ok: !!s };
+}
+
+function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
+  const { pickPerk, setPlacing, placeLeader, fireEmployee } = useTeamLeadersEmployeesStore.getState();
+  const placing = useTeamLeadersEmployeesStore((s) => s.placing === l.role);
+  const p = PERSONALITIES[l.personality];
+  const offer = perkOffer(l);
+  const where = whereText(l, owned);
+  const top = l.rank >= MAX_LEADER_RANK;
+  const from = XP_AT[l.rank], to = XP_AT[Math.min(MAX_LEADER_RANK, l.rank + 1)];
+  const pct = top ? 100 : Math.min(100, ((l.xp - from) / (to - from)) * 100);
+  const place = () => { useWorldStore.getState().setTool("inspect"); setPlacing(l.role); };
+  return (
+    <div className="flex flex-col gap-2 border border-line-quiet bg-surface-1 p-2.5">
+      <div className="flex gap-2.5">
+        <EmployeeAvatar name={l.name} role={l.role} traitId={l.personality} avatarId={l.avatarId} size="md" />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex items-baseline justify-between gap-2">
+            <b className="truncate text-sm">{l.name}</b>
+            <span className="shrink-0 font-display text-[11px] tabular-nums text-warn">Rank {l.rank}</span>
+          </div>
+          <span className="text-[11px] text-fg-muted"><b className="text-fg">{p.name}</b> · {p.says}</span>
+          <div role="progressbar" aria-label={`${l.name}: to the next rank`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} className="mt-1 h-1 bg-surface-3">
+            <div className="h-full bg-warn transition-[width] duration-500" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      </div>
+      <p className={twMerge("text-[11px]", where.ok ? "text-fg-muted" : "text-bad")}>
+        {placing ? `Click a building where your ${KIND_PLURAL[l.role]} work.` : where.text}
+      </p>
+      {offer.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-widest text-warn">Rank {l.perks.length + 1}: pick one</span>
+          <div className="grid grid-cols-3 gap-1">
+            {offer.map((k) => (
+              <Tile key={k} lit onClick={() => pickPerk(l.id, k)} className="flex flex-col items-start gap-0.5 px-1.5 py-1">
+                <span className="text-[11px] font-bold">{LEADER_PERKS[k].name}</span>
+                <span className="text-[10px] leading-snug text-fg-muted">{LEADER_PERKS[k].says}</span>
+              </Tile>
+            ))}
+          </div>
+        </div>
+      )}
+      {l.perks.length > 0 && (
+        <p className="flex flex-wrap gap-1 text-[10px]">
+          {l.perks.map((k) => <span key={k} title={LEADER_PERKS[k].says} className="border border-line-quiet px-1 py-px">{LEADER_PERKS[k].name}</span>)}
+        </p>
+      )}
+      <div className="flex justify-end gap-1">
+        {placing
+          ? <Button size="sm" variant="quiet" onClick={() => setPlacing(null)}>Cancel</Button>
+          : <Button size="sm" variant={l.placedAt === null ? "primary" : "secondary"} onClick={place}>{l.placedAt === null ? "Place on the map" : "Move"}</Button>}
+        {l.placedAt !== null && !placing && <Button size="sm" variant="quiet" onClick={() => placeLeader(l.id, null)}>Take out</Button>}
+        <Button size="sm" variant="danger" confirm={`Let ${l.name.split(" ")[0]} go?`} onClick={() => fireEmployee(l.id)}>Let go</Button>
+      </div>
+    </div>
+  );
+}
+
+export function LeadersPanel() {
+  useTicking(1000);
+  const generators = useGeneratorStore((s) => s.generators);
+  const leaders = useTeamLeadersEmployeesStore((s) => s.employees);
+  const [hiring, setHiring] = useState<GeneratorId | null>(null);
+  const kinds = generators.filter((g) => g.amount > 0);
+  if (!kinds.length) return null;
+  return (
+    <Panel title="Leaders" help="One leader for each kind, in a building where that kind works: the people there feel them in full, the rest of the kind half. They rank up from their team's work, and pick a perk at every rank.">
+      {hiring && <HireDialog role={hiring} onClose={() => setHiring(null)} />}
+      <div className="flex flex-col gap-3">
+        {kinds.map((g) => {
+          const id = g.id as GeneratorId, l = leaders.find((x) => x.role === id);
+          return (
+            <section key={id} aria-label={`${id} leader`} className="flex flex-col gap-1.5">
+              <span className="font-display text-xs uppercase tracking-wider"><Kind id={id} /></span>
+              {l ? <LeaderCard l={l} owned={g.amount} /> : (
+                <div className="flex items-center justify-between gap-2 border border-dashed border-line px-2.5 py-2 text-xs text-fg-muted">
+                  No leader yet.
+                  <Button size="sm" variant="primary" onClick={() => setHiring(id)}>Find one</Button>
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}

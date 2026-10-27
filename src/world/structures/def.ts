@@ -201,6 +201,12 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
     render: { kind: "custom", rendererId: "project" },
   },
   {
+    id: "agency",
+    name: "Talent Agency",
+    footprint: { w: 3, h: 2 },
+    render: { kind: "custom", rendererId: "project" },
+  },
+  {
     id: "townhall",
     name: "Town Hall",
     footprint: { w: 3, h: 2 },

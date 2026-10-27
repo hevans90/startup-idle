@@ -13,6 +13,7 @@ import { AchievementsTab } from "./achievements-tab";
 import { AiTab } from "./ai-tab";
 import { projectReading } from "../game/projects";
 import { useGenerationStore } from "../state/generation.store";
+import { LeadersPanel } from "./leaders-panel";
 import { MoralePanel, MoraleStrip } from "./morale-panel";
 import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation/innovation-managers";
@@ -29,6 +30,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const { sidebarTab, setSidebarTab } = useGlobalSettingsStore();
   const vapeVisible = useVapeVisible();
   const managersOpen = useInnovationStore((s) => s.unlocks.managers?.unlocked ?? false);
+  const leadersOpen = useInnovationStore((s) => s.unlocks.leaders?.unlocked ?? false);
   const employeeMgmtUnlocked = useInnovationStore(
     (s) => s.unlocks.employeeManagement?.unlocked ?? false,
   );
@@ -61,6 +63,8 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
         <Generators />
         {/* MORALE, here until the HQ opens the Innovation tab, where it is in full. */}
         {!managersOpen && <MoraleStrip className="mx-2" />}
+        {/* LEADERS, once the Talent Agency stands. @see LeadersPanel */}
+        {leadersOpen && <LeadersPanel />}
         <Upgrades />
       </div>
     ),

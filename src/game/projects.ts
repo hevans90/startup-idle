@@ -23,14 +23,14 @@ import { BLUEPRINT_CACHE, moduleLevel } from "./modules";
 import { BOOTSTRAP_BUILD, HACKER_LABS, VISIONARY_DATACENTRE } from "./founders.catalog";
 
 export type ProjectId =
-  | "garage" | "studio" | "hq" | "boardroom" | "campus" | "townhall" | "harbour"
+  | "garage" | "studio" | "hq" | "boardroom" | "campus" | "agency" | "townhall" | "harbour"
   | "datacentre" | "conference" | "hackerspace" | "ipo";
 
 /** What a WONDER multiplies, for as long as it stands. @see wonderBonus */
 export type Bonus = { money?: number; innovation?: number; valuation?: number };
 
 /** Features of the game a project can open, beyond hiring. @see featureGateOpen */
-export type FeatureId = "managers" | "mandates" | "services" | "ports";
+export type FeatureId = "managers" | "mandates" | "services" | "ports" | "leaders";
 
 /**
  * A PROJECT'S GATE. Every project after the garage waits on an EMPLOYEE
@@ -259,6 +259,20 @@ export const PROJECTS: readonly ProjectDef[] = [
     opens: "employees",
     ...needs({ upgrade: "vibe_coder_upgrade_2" }),
   },
+  {
+    id: "agency",
+    name: "Talent Agency",
+    pitch: "Headhunters with a view. When it opens, each kind can have a leader, placed in a building where that kind works.",
+    structure: "agency",
+    builders: ["intern", "vibe_coder", "10x_dev"],
+    work: 5000,
+    incomeSeconds: 120,
+    floor: 60_000,
+    deliveries: 14,
+    grants: "leaders",
+    opens: "employees",
+    ...needs({ upgrade: "10x_dev_10x_1" }),
+  },
   // THE WONDERS: late, dear, and a bonus for good. @see wonderBonus
   {
     id: "datacentre",
@@ -343,6 +357,9 @@ export const labBonus = () => {
  */
 export const deskBonus = (id: GeneratorId) => 1 + (reader ? reader().desks?.[id] ?? 0 : 0);
 
+/** The people a kind's leader leads in their building; nought with no map. @see leaderEffects */
+export const leaderTeam = (id: GeneratorId) => (reader ? reader().teams?.[id] ?? 0 : 0);
+
 /** How many R&D labs stand on the map. */
 export const labsBuilt = () => (reader ? reader().labs?.count ?? 0 : 0);
 
@@ -417,8 +434,10 @@ export type ProjectReading = {
   racks?: { powered: number; unpowered: number };
   /** Compute spires the AI has put up. @see SPIRE_BOOST */
   spires?: number;
-  /** What leaders and cafés add to each kind's work at its desks, as a share: 0.1 is +10%. @see deskShare */
+  /** What cafés add to each kind's work at its desks, as a share: 0.1 is +10%. @see deskShare */
   desks?: Partial<Record<GeneratorId, number>>;
+  /** Each kind's leader's TEAM: the people at the desks of the building they lead. @see game/leaders */
+  teams?: Partial<Record<GeneratorId, number>>;
 };
 
 let reader: (() => ProjectReading) | null = null;

@@ -20,6 +20,7 @@ const LOCAL_STORAGE_KEY = "innovation";
 const unlockInitialState = {
   managers: { unlocked: false, cost: new Decimal(0) },
   employeeManagement: { unlocked: false, cost: new Decimal(0) },
+  leaders: { unlocked: false, cost: new Decimal(0) },
 };
 
 const PROGRESS_THRESHOLD = new Decimal(100);
@@ -27,8 +28,8 @@ const MANGER_TICK_INTERVAL = 200;
 
 type UnlockKeys = keyof typeof unlockInitialState;
 
-/** What each project's grant opens here: the HQ, managers and employee management. @see ProjectDef.grants */
-const OPENED_BY: Partial<Record<FeatureId, UnlockKeys[]>> = { managers: ["managers", "employeeManagement"] };
+/** What each project's grant opens here: the HQ, managers and employee management; the Talent Agency, leaders. @see ProjectDef.grants */
+const OPENED_BY: Partial<Record<FeatureId, UnlockKeys[]>> = { managers: ["managers", "employeeManagement"], leaders: ["leaders"] };
 
 export const ManagerKeyValues = ["agile", "corpo", "sales"] as const;
 export type ManagerKeys = (typeof ManagerKeyValues)[number];

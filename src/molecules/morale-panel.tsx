@@ -7,6 +7,7 @@
 import type { ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
+import { leadersNow } from "../game/leader-economy";
 import { MORALE_PARTS, moralePartsNow, moraleTarget, type MoralePart } from "../game/morale-parts";
 import {
   dev10xSatisfactionExponentDelta,
@@ -32,7 +33,7 @@ const PART_NAME: Record<MoralePart, string> = { home: "Home", work: "Work", lead
 const PART_HINT: Record<MoralePart, string> = {
   home: "Their houses' morale: commutes, services, crowding, the slop pit. Show it on the map",
   work: "The work policies they are run by",
-  leaders: "Team leaders' skills and pairings",
+  leaders: "Their leader: in full for the team in their building, half for the rest",
   events: "Hackathons, floods and the AI's memos, felt for a day",
   founder: "Traits fused into the founder",
 };
@@ -67,10 +68,11 @@ function useMorale() {
   const policies = useGeneratorStore((s) => s.employeeManagement.policies);
   const generators = useGeneratorStore((s) => s.generators);
   const effective = useGeneratorStore((s) => s.getEffectiveSatisfaction);
-  const emOpen = useInnovationStore((s) => s.unlocks.employeeManagement?.unlocked ?? false);
+  const leadersOpen = useInnovationStore((s) => s.unlocks.leaders?.unlocked ?? false);
   const leaders = useTeamLeadersEmployeesStore((s) => s.employees);
   const amounts = Object.fromEntries(generators.map((g) => [g.id, g.amount])) as Record<GeneratorId, number>;
-  const parts = moralePartsNow(policies, emOpen ? leaders : []);
+  const led = leadersOpen ? leadersNow(amounts, (id) => satisfactionRevenueMultiplier(effective(id)), leaders) : undefined;
+  const parts = moralePartsNow(policies, led);
   const hired = (id: GeneratorId) => (amounts[id] ?? 0) > 0;
   return { scores, parts, effective, hired };
 }

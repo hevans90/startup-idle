@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef } from "react";
 
-import { EMPLOYEE_TRAITS } from "../../game/team-leaders.catalog";
+import { PERSONALITIES } from "../../game/leaders";
 import { useTeamLeadersEmployeesStore } from "../../state/team-leaders.store";
 import { getTown, useWorldStore } from "../../state/world.store";
 import { cellToWorld } from "../iso";
@@ -38,7 +38,7 @@ export function LeaderTags() {
       {leaders.map((l, k) => (
         <div key={l.id} ref={(el) => { if (el) els.current.set(k, el); else els.current.delete(k); }}
           className="invisible absolute left-0 top-0 whitespace-nowrap border border-l-2 border-line-quiet border-l-warn bg-surface-2/90 px-1.5 py-0.5 text-[10px] text-fg shadow-md backdrop-blur-sm">
-          <b>{l.name}</b> · {EMPLOYEE_TRAITS[l.traitId]?.name} · rank {l.rank}
+          <b>{l.name}</b> · {PERSONALITIES[l.personality]?.name} · rank {l.rank}
         </div>
       ))}
     </div>

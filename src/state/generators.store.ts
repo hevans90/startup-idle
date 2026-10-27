@@ -31,9 +31,10 @@ import {
   stepSatisfactionScores,
   TO_MORALE,
   vibeSlopMultiplier,
+  satisfactionRevenueMultiplier,
   type SatisfactionScores,
 } from "../game/satisfaction";
-import { skillMult } from "../game/team-leaders.catalog";
+import { leadersNow } from "../game/leader-economy";
 import {
   getGeneratorCost,
   getUnlockedGeneratorIds,
@@ -43,10 +44,7 @@ import { useFounderStore } from "./founder.store";
 import { getManagementTierTotal, useInnovationStore } from "./innovation.store";
 import { useMoneyStore } from "./money.store";
 import { usePrestigeStore } from "./prestige.store";
-import {
-  useTeamLeadersEmployeesStore,
-  type TeamLeaderEmployee,
-} from "./team-leaders.store";
+import { useTeamLeadersEmployeesStore } from "./team-leaders.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
 import { useSlopPitStore } from "./slop-pit.store";
 import { useValuationStore } from "./valuation.store";
@@ -374,19 +372,15 @@ function tickSatisfaction(
   policies: Record<GeneratorId, PolicyId[]>,
   seconds: number,
   prestige: { satisfactionGainMult: number },
-  employees: TeamLeaderEmployee[],
+  led: ReturnType<typeof leadersNow>,
 ): SatisfactionScores {
   // EVERY PART BUT WORK, which the step adds itself: home, leaders, events,
   // the founder's fused lean. @see moralePartsNow
-  const parts = moralePartsNow(policies, employees);
+  const parts = moralePartsNow(policies, led);
   const satOffsets = Object.fromEntries(
     Object.entries(parts).map(([id, p]) => [id, p.home + p.leaders + p.events + p.founder]),
   ) as Partial<Record<GeneratorId, number>>;
-  let driftMult = 1;
-  for (const emp of employees) {
-    const srLv = emp.skills.sat_recovery ?? 0;
-    if (srLv > 0) driftMult *= skillMult("sat_recovery", srLv);
-  }
+  const driftMult = 1;
   // Culture Capital mandate: multiplies satisfaction recovery speed.
   const mandateSatGain = useValuationStore.getState().getEconomyMultipliers().satisfactionGain;
   return stepSatisfactionScores(
@@ -491,7 +485,9 @@ export const useGeneratorStore = create<GeneratorState>()(
         },
 
         getAutoBuyRate: (id) => {
-          const rate = get().getPolicyEffects(id).autoBuy;
+          // Always Be Hiring, and a leader who is Always Recruiting. @see POLICIES, LEADER_PERKS
+          const leaders = useInnovationStore.getState().unlocks.leaders?.unlocked ? leadersNow(buildAmountsMap(get().generators)).of[id]?.autoBuy ?? 0 : 0;
+          const rate = get().getPolicyEffects(id).autoBuy + leaders;
           if (rate <= 0) return 0;
           // Founder "Operator" + skill-tree automation modifiers.
           return rate * useFounderStore.getState().autoBuyMult * usePrestigeStore.getState().modifiers.autoBuyMult;
@@ -541,6 +537,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             totalEmployees,
             emUnlocked,
             rawScores: get().satisfactionScores,
+            owned: buildAmountsMap(generators),
           });
         },
 
@@ -562,28 +559,31 @@ export const useGeneratorStore = create<GeneratorState>()(
           // Compute the new satisfaction scores as a local variable; we pass
           // them directly to computeModifiers below so the modifier snapshot
           // already reflects the updated scores without an intermediate set().
-          // Team leaders work once employee management is open; morale is
-          // felt from the start. @see game/satisfaction
+          // LEADERS work once the Talent Agency has opened them, ranking up
+          // from their teams' work; morale is felt from the start. @see game/leaders
           const tlStore = useTeamLeadersEmployeesStore.getState();
-          if (emUnlocked) {
+          const leadersOpen = useInnovationStore.getState().unlocks.leaders?.unlocked ?? false;
+          const outputAt = (id: GeneratorId) => satisfactionRevenueMultiplier(applyEffectiveSatisfaction(get().satisfactionScores[id], prestige));
+          const led = leadersOpen ? leadersNow(amounts, outputAt) : { of: {}, everyone: 0 };
+          if (leadersOpen) {
             for (const g of get().generators) {
               if (g.amount > 0) tlStore.generateCandidates(g.id);
             }
-            tlStore.tickTeamLeaders(seconds, get().satisfactionScores, amounts);
+            tlStore.tickTeamLeaders(seconds, (l) => led.of[l.role]?.xpPerSecond ?? 0);
           }
           const satisfactionScores = tickSatisfaction(
             get().satisfactionScores,
             get().employeeManagement.policies,
             seconds,
             prestige,
-            emUnlocked ? tlStore.employees : [],
+            led,
           );
 
           // ── 2. Build full modifier snapshot ──────────────────────────────────
           // Use the freshly computed satisfaction scores so the snapshot is
           // consistent even though we haven't committed them to state yet.
           const totalEmployees = get().generators.reduce((n, g) => n + g.amount, 0);
-          const m = computeModifiers({ totalEmployees, emUnlocked, rawScores: satisfactionScores });
+          const m = computeModifiers({ totalEmployees, emUnlocked, rawScores: satisfactionScores, owned: amounts });
 
           // ── 3. AI singularity: the agents running push it. @see singularityRate
           useAiSingularityStore.getState().tick(seconds);
@@ -709,12 +709,13 @@ export const useGeneratorStore = create<GeneratorState>()(
                 total: get().getGeneratorMoneyPerSecond(gen.id, gen.amount),
                 factors: [
                   { label: "upgrades", mult: gen.multiplier },
-                  { label: "perks", mult: out.money },
+                  { label: "policies & the map", mult: out.money },
                   {
-                    label: "satisfaction",
+                    label: "morale",
                     mult: m.satisfactionRevenue[gen.id] ?? 1,
                     modKey: `satisfactionRevenue.${gen.id}`,
                   },
+                  { label: "leader", mult: m.teamLeaderEmpRoleRevenue[gen.id] ?? 1, modKey: `leader.${gen.id}` },
                   { label: "founder", mult: m.founderMoney[gen.id] ?? 1 },
                 ],
               };
@@ -788,7 +789,8 @@ export const useGeneratorStore = create<GeneratorState>()(
                 ),
                 factors: [
                   { label: "upgrades", mult: gen.innovationMultiplier },
-                  { label: "perks", mult: out.innovation },
+                  { label: "policies & the map", mult: out.innovation },
+                  { label: "leader", mult: m.teamLeaderEmpRoleIps[gen.id] ?? 1, modKey: `leader.${gen.id}` },
                   {
                     label: "founder",
                     mult: m.founderInnovation[gen.id] ?? 1,
@@ -831,11 +833,6 @@ export const useGeneratorStore = create<GeneratorState>()(
               label: "Vape shop",
               mult: m.juiceValuation,
               modKey: "juiceValuation",
-            },
-            {
-              label: "Team leaders",
-              mult: m.teamLeaderEmpValuationMult,
-              modKey: "teamLeaderEmpValuationMult",
             },
             // The wonders on the map. @see wonderBonus
             { label: "Wonders", mult: wonderBonus("valuation") },

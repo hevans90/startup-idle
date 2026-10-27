@@ -222,6 +222,32 @@ export function boardroom(f: Footprint): Building {
   };
 }
 
+/** TALENT AGENCY: a glass slab in the recruiter's teal on a dark base, a big HIRING board on the roof, a queue's worth of planters. */
+export function agency(f: Footprint): Building {
+  const base: Mass = {
+    ...inside(f, 0.18, PLINTH.h, PLINTH.h + 2.0), wall: 0x2b3238, storey: 2.0,
+    facade: { kind: "curtain", glass: 0x3f6f7a, mullion: 0x1f262b, every: 0.34 },
+    roof: { kind: "parapet", deck: 0x4a535b, rim: 0x2b3238, h: 0.16 },
+  };
+  const slab: Mass = {
+    ...inside(f, 0.5, base.z1, base.z1 + 7.2), wall: 0x9fd6cf, storey: 1.5,
+    facade: { kind: "curtain", glass: 0x5fb7ad, mullion: 0xd9f2ee, every: 0.24, spandrel: 0x3f8f87 },
+    roof: { kind: "parapet", deck: ROOF, rim: 0x9fd6cf, h: 0.25 },
+  };
+  return {
+    plinth: PLINTH, masses: [base, slab], crane: "tower",
+    grounds: paved,
+    details: (p) => {
+      const mid = (base.u0 + base.u1) / 2;
+      door(p, base, mid, 0.55, 1.3, 0x14191c);
+      canopy(p, base, mid, 1.1, base.z0 + 1.4, 0x0f766e);
+      for (let k = 0; k < 3; k++) planter(p, base.u0 + 0.35 + k * 0.5, base.v1 + 0.2, PLINTH.h);
+      // THE BOARD: who they are looking for, in lights.
+      roofSign(p, slab.u0 + 0.1, slab.u1 - 0.1, slab.v1 - 0.3, slab.z1, 1.4, 0x0f3d39, 0x5eead4);
+    },
+  };
+}
+
 /** CAMPUS: low and white, a long block across the back and a wing down one side, roof gardens and a courtyard. */
 export function campus(f: Footprint): Building {
   const split = Math.max(1.2, f.w * 0.55), mid = Math.max(1, f.h * 0.48);
@@ -809,7 +835,7 @@ export function lattice(f: Footprint): Building {
 
 /** Each building by the structure it is drawn for. */
 export const LOOKS: Record<string, (f: Footprint) => Building> = {
-  garage, studio, hq, boardroom, campus, townhall, harbour, datacentre, conference, hackerspace, ipo,
+  garage, studio, hq, boardroom, campus, agency, townhall, harbour, datacentre, conference, hackerspace, ipo,
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
   cafe, park, gym, lab, levee, derelict, rack, pump,

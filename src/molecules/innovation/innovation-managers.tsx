@@ -6,7 +6,6 @@ import { usePrestigeStore } from "../../state/prestige.store";
 import { Locked, Panel } from "../../ui/console";
 import { showProject } from "../../world/play/map-focus";
 import { CycleButton } from "../../ui/CyclingButton";
-import { EmployeeManagementPanel } from "./employee-management-panel";
 import ManagerRow from "./manager-row";
 import { PoliciesPanel } from "./policies-panel";
 
@@ -68,11 +67,6 @@ export const InnovationManagers = () => {
       {/* WORK POLICIES, in the slots the managers' tiers give. @see game/policies */}
       {employeeManagementState?.unlocked && <PoliciesPanel />}
 
-      {employeeManagementState?.unlocked && (
-        <Panel title="Team leaders" help="One leader for each kind: hire, rank up and spend their points on skills.">
-          <EmployeeManagementPanel />
-        </Panel>
-      )}
     </div>
   );
 };

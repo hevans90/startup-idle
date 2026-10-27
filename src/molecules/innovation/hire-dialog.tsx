@@ -1,10 +1,5 @@
 import { twMerge } from "tailwind-merge";
-import {
-  EMPLOYEE_SKILLS,
-  EMPLOYEE_TRAITS,
-  type TeamLeaderSkillId,
-  type TeamLeaderTraitId,
-} from "../../game/team-leaders.catalog";
+import { LEADER_PERKS, PERSONALITIES, type PersonalityId } from "../../game/leaders";
 import type { GeneratorId } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import { useShallow } from "zustand/shallow";
@@ -17,41 +12,16 @@ import { Button, Dialog, Label } from "../../ui/console";
 import { TenXDevText } from "../../utils/ten-x-utils";
 import { RainbowText } from "../../utils/vibe-utils";
 import { EmployeeAvatar } from "./employee-avatar";
-import { CAT_STYLE, SKILL_CAT, TRAIT_COLORS } from "./skill-styles";
 
-// ─── Trait colour palette ─────────────────────────────────────────────────────
-
-const TRAIT_BORDER: Record<TeamLeaderTraitId, string> = {
-  overachiever:   "border-l-blue-500 dark:border-l-blue-400",
-  chaos_agent:    "border-l-red-500 dark:border-l-red-400",
-  quiet_quitter:  "border-l-slate-500 dark:border-l-slate-400",
-  brown_noser:    "border-l-yellow-500 dark:border-l-yellow-400",
-  thought_leader: "border-l-purple-500 dark:border-l-purple-400",
-  burnout_risk:   "border-l-orange-500 dark:border-l-orange-400",
+/** A personality's edge, by a role of the console's. */
+const PERSONALITY_EDGE: Record<PersonalityId, string> = {
+  overachiever: "border-l-money",
+  chaos_agent: "border-l-bad",
+  quiet_quitter: "border-l-line-strong",
+  brown_noser: "border-l-warn",
+  thought_leader: "border-l-ai",
+  burnout_risk: "border-l-innovation",
 };
-
-// ─── Skill chip (hire dialog) ─────────────────────────────────────────────────
-
-function SkillChip({ skillId }: { skillId: TeamLeaderSkillId }) {
-  const skill = EMPLOYEE_SKILLS[skillId];
-  const { border, bg, text } = CAT_STYLE[SKILL_CAT[skillId]];
-  return (
-    <div
-      className={twMerge(
-        "flex flex-col gap-0.5 px-1.5 py-1 border",
-        border,
-        bg,
-      )}
-    >
-      <span className={twMerge("text-[10px] font-semibold leading-none", text)}>
-        {skill.name}
-      </span>
-      <span className="text-[10px] leading-none text-fg-muted">
-        {skill.descriptions[0]}
-      </span>
-    </div>
-  );
-}
 
 // ─── Role label (inline, small) ───────────────────────────────────────────────
 
@@ -76,65 +46,27 @@ function CandidateCard({
   candidate: TeamLeaderEmployee;
   onHire: () => void;
 }) {
-  const trait = EMPLOYEE_TRAITS[candidate.traitId];
-
+  const p = PERSONALITIES[candidate.personality];
   return (
-    <div
-      className={twMerge(
-        "flex gap-3 border border-l-2 border-line-quiet bg-surface-1 py-3 pr-3",
-        TRAIT_BORDER[candidate.traitId],
-      )}
-    >
-      {/* Avatar */}
-      <EmployeeAvatar
-        name={candidate.name}
-        role={candidate.role}
-        traitId={candidate.traitId}
-        avatarId={candidate.avatarId}
-        size="lg"
-        className="ml-2 mt-0.5 shrink-0"
-      />
-
-      {/* Content */}
-      <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-        {/* Name + role + trait */}
-        <div className="flex items-baseline justify-between gap-2 min-w-0">
-          <div className="flex items-baseline gap-2 min-w-0 flex-1">
-            <span className="text-sm font-semibold text-fg leading-none">
-              {candidate.name}
-            </span>
+    <div className={twMerge("flex gap-3 border border-l-2 border-line-quiet bg-surface-1 py-3 pr-3", PERSONALITY_EDGE[candidate.personality])}>
+      <EmployeeAvatar name={candidate.name} role={candidate.role} traitId={candidate.personality} avatarId={candidate.avatarId} size="lg" className="ml-2 mt-0.5 shrink-0" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex min-w-0 items-baseline justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+            <span className="text-sm font-semibold leading-none text-fg">{candidate.name}</span>
             <RoleChip role={candidate.role} />
           </div>
-          <span
-            className={twMerge(
-              "text-[10px] uppercase tracking-widest shrink-0",
-              TRAIT_COLORS[candidate.traitId],
-            )}
-          >
-            {trait.name}
-          </span>
+          <span className="shrink-0 text-[10px] uppercase tracking-widest text-fg-muted">{p.name}</span>
         </div>
-
-        {/* Flavor */}
-        <p className="text-[10px] italic text-fg-muted leading-snug">
-          "{trait.flavor}"
-        </p>
-
-        {/* Skill path preview */}
+        <p className="text-[11px] text-fg">{p.says}</p>
         <div className="flex flex-col gap-1">
-          <Label>Skills</Label>
-          <div className="flex gap-1 flex-wrap">
-            {(candidate.skillPool ?? trait.skills.slice(0, 3)).map((sid) => (
-              <SkillChip key={sid} skillId={sid} />
-            ))}
-          </div>
+          <Label>Perks they can grow into</Label>
+          <p className="flex flex-wrap gap-1 text-[10px]">
+            {p.pool.map((k) => <span key={k} title={LEADER_PERKS[k].says} className="border border-line-quiet px-1 py-px text-fg-muted">{LEADER_PERKS[k].name}</span>)}
+          </p>
         </div>
-
-        {/* Hire button */}
         <div className="flex justify-end pt-1">
-          <Button size="sm" variant="primary" onClick={onHire}>
-            Hire {candidate.name.split(" ")[0]}
-          </Button>
+          <Button size="sm" variant="primary" onClick={onHire}>Hire {candidate.name.split(" ")[0]}</Button>
         </div>
       </div>
     </div>
@@ -175,7 +107,7 @@ export function HireDialog({
 
   // RECRUITMENT, a dialog: the candidates, a card each; a reroll in its foot.
   return (
-    <Dialog title="Recruitment" kicker={`Hiring a team leader · ${roleLabel}`} onClose={onClose}
+    <Dialog title="Recruitment" kicker={`Hiring a leader · ${roleLabel}`} onClose={onClose}
       actions={<>
         <span className="mr-auto self-center text-[11px] tabular-nums text-fg-muted">{innovation.toFixed(0)} innovation available</span>
         <Button size="sm" disabled={!canAffordReroll} onClick={() => rerollCandidates(role)}

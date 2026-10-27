@@ -1,13 +1,14 @@
 /**
- * World v2 — WHAT A WORKPLACE'S DESKS GET FROM WHERE IT IS: a team leader
- * leading it, and a café next door. Each a share more work from the people at
- * its desks, shown on its label and on the café's ghost before it goes down.
+ * World v2 — WHAT A WORKPLACE'S DESKS GET FROM WHERE IT IS: a café next door,
+ * a share more work from the people at its desks, shown on its label and on
+ * the café's ghost before it goes down. Who leads it is said beside, and what
+ * a leader does is game/leaders'.
  * @see deskShare, deskBonus
  */
 import type { GeneratorId } from "../../state/generators.store";
 import type { Grid, Structure } from "../grid";
 import { workplaceKind } from "./commute";
-import { LEAD_BOOST, LEADS_A_WORKPLACE, type Leadership } from "./leaders";
+import type { Leadership } from "./leaders";
 
 /** What a café within `CAFE_REACH` tiles adds to a workplace's desks. One café counts, however many. */
 export const CAFE_BOOST = 0.1;
@@ -33,11 +34,7 @@ export function deskPerks(g: Grid, lead: Leadership, work: Structure): { share: 
   const why: string[] = [];
   let share = 0;
   const names = lead.leads.get(work.id);
-  if (names?.length) {
-    const k = LEAD_BOOST * Math.min(LEADS_A_WORKPLACE, names.length);
-    share += k;
-    why.push(`Led by ${names.join(" & ")} · +${Math.round(k * 100)}%`);
-  }
+  if (names?.length) why.push(`Led by ${names.join(" & ")}`);
   if (cafeNear(g, work)) {
     share += CAFE_BOOST;
     why.push(`Café next door · +${Math.round(CAFE_BOOST * 100)}%`);

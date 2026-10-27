@@ -214,6 +214,8 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     const owned = ownedNow();
     const features = new Set<FeatureId>();
     if (useInnovationStore.getState().unlocks.managers?.unlocked) features.add("managers");
+    // A save with leaders from before the Talent Agency has earned it.
+    if (useTeamLeadersEmployeesStore.getState().employees.length) features.add("leaders");
     if (Object.values(useValuationStore.getState().mandateLevels).some((l) => l > 0)) features.add("mandates");
     // A map that already has services or ports has already earned them.
     for (const s of useWorldStore.getState().grid.structures.values()) {
@@ -276,12 +278,18 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const remote = useSessionStore.getState().remoteBeds ?? {};
       const net = getNetwork();
       const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;
-      // AT THEIR DESKS: a team leader leading them, a café next door. @see deskShare
-      const desks = net ? deskShare(
+      // AT THEIR DESKS: a café next door. @see deskShare
+      const seating = net ? liveSeating(st.grid, net).desks : undefined;
+      const desks = net && seating ? deskShare(
         st.grid,
         liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100)),
-        liveSeating(st.grid, net).desks, ownedNow(),
+        seating, ownedNow(),
       ) : undefined;
+      // EACH LEADER'S TEAM: the people at the desks of the building they lead. @see game/leaders
+      const teams: Partial<Record<GeneratorId, number>> = {};
+      for (const l of useTeamLeadersEmployeesStore.getState().employees) {
+        if (l.placedAt !== null) teams[l.role] = seating?.get(l.placedAt)?.used ?? 0;
+      }
       // COOLING: agents the water does not reach run at half, and a dry spire
       // adds nothing. @see stepCooling
       // Before the first drink — time away, credited on load — the tanks are full.
@@ -289,7 +297,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const cooled = hot ? { powered: racks.powered - hot, unpowered: racks.unpowered + hot } : racks;
       let spires = 0;
       for (const s of st.grid.structures.values()) if (s.def === "compute-spire" && !s.build) spires++;
-      return { built, away, commute, labs, racks: cooled, desks, spires: allTanks().size ? cooledSpires() : spires };
+      return { built, away, commute, labs, racks: cooled, desks, teams, spires: allTanks().size ? cooledSpires() : spires };
     }));
   }, [play]);
   // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is

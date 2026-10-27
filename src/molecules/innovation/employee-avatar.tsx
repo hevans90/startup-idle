@@ -1,9 +1,9 @@
 import { twMerge } from "tailwind-merge";
 import { resolveAvatarUrl } from "../../game/team-leader-avatars";
-import type { TeamLeaderTraitId } from "../../game/team-leaders.catalog";
+import type { PersonalityId } from "../../game/leaders";
 import type { GeneratorId } from "../../state/generators.store";
 
-const TRAIT_AVATAR_BG: Record<TeamLeaderTraitId, string> = {
+const TRAIT_AVATAR_BG: Record<PersonalityId, string> = {
   overachiever:   "bg-info-soft     text-info  ",
   chaos_agent:    "bg-bad-soft       text-bad   ",
   quiet_quitter:  "bg-surface-1   text-fg-muted ",
@@ -21,7 +21,7 @@ const SIZE = {
 type AvatarProps = {
   name: string;
   role: GeneratorId;
-  traitId: TeamLeaderTraitId;
+  traitId: PersonalityId;
   avatarId?: string;
   size?: keyof typeof SIZE;
   className?: string;

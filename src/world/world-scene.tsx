@@ -173,7 +173,7 @@ import {
 } from "./render/falls-gpu";
 import { COLUMNS_PER_TILE } from "./water/field";
 import { pointerRead, type PointerAt } from "./debug/pointer-at";
-import { clickTakesOver, opensSomething } from "./play/opens";
+import { clickTakesOver, takesClick } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
 import { createJuice, type Juice } from "./render/juice";
 import { aiDistrict } from "./ai/district";
@@ -1811,7 +1811,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // mid-stroke: tested only against those, by what they drew. @see opensSomething
       const st = useWorldStore.getState();
       const open = st.playing && !st.stroke && clickTakesOver(st.tool)
-        ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => opensSomething(s.def, s.build))
+        ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => takesClick(s.def, s.build))
         : null;
       st.setHoverOpen(open?.id ?? null);
     };
@@ -1849,7 +1849,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       // Tested where the press lands, not taken from the hover: a finger has no hover, and the last one may be stale.
       const open = st.playing && clickTakesOver(st.tool)
-        ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => opensSomething(s.def, s.build))
+        ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => takesClick(s.def, s.build))
         : null;
       if (open) {
         lookFrom = { x: e.global.x, y: e.global.y, cell: { x: open.x, y: open.y }, open: true };

@@ -1,38 +1,32 @@
+/**
+ * THE LEADERS ON THE PAYROLL: one a kind, each placed in a building of their
+ * kind's or not yet; candidates to hire from, rerolled for innovation; and
+ * what those let go leave behind. Ranks come from their team's work and a
+ * perk is picked at each. @see game/leaders, LeadersPanel
+ */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+
 import {
-  EMPLOYEE_TRAITS,
-  getActivePairSynergies,
-  getNamePool,
-  skillMult,
-  stepEmployeeStat,
-  type TeamLeaderSkillId,
-  type TeamLeaderTraitId,
-} from "../game/team-leaders.catalog";
+  MAX_LEADER_RANK,
+  PERSONALITIES,
+  XP_AT,
+  perkOffer,
+  rankAt,
+  type Leader,
+  type LeaderPerkId,
+  type PersonalityId,
+} from "../game/leaders";
+import { getNamePool } from "../game/team-leaders.catalog";
 import { pickAvatarIds } from "../game/team-leader-avatars";
 import type { GeneratorId } from "./generators.store";
 import { useInnovationStore } from "./innovation.store";
 
-let _idSeq = 0;
-function genId(): string {
-  return `tl_${Date.now()}_${_idSeq++}`;
-}
+/** Kept under its old name, for those who read it. */
+export type TeamLeaderEmployee = Leader;
 
-export type TeamLeaderEmployee = {
-  id: string;
-  role: GeneratorId;
-  name: string;
-  traitId: TeamLeaderTraitId;
-  outputStat: number;
-  moraleStat: number;
-  rank: number;
-  unspentPoints: number;
-  skills: Partial<Record<TeamLeaderSkillId, number>>;
-  /** The 3 skills randomly drawn from this employee's trait pool at candidate creation. */
-  skillPool: readonly TeamLeaderSkillId[];
-  /** Filename from the role's avatar pool (e.g. "alex.jpg"). Undefined if pool is empty. */
-  avatarId?: string;
-};
+let _idSeq = 0;
+const genId = () => `tl_${Date.now()}_${_idSeq++}`;
 
 export type LegacyBonus = {
   role: GeneratorId;
@@ -42,87 +36,79 @@ export type LegacyBonus = {
   ipsMult: number;
 };
 
-/** Base cost in innovation for first reroll per slot; doubles each subsequent reroll. */
+/** Innovation for the first reroll of a kind's candidates; doubling each time after. */
 export const REROLL_BASE_COST = 50;
-/** Innovation cost to fire an employee per rank they've accumulated. */
-export const FIRE_COST_PER_RANK = 100;
+
+const PERSONALITY_IDS = Object.keys(PERSONALITIES) as PersonalityId[];
 
 type TeamLeaderState = {
-  employees: TeamLeaderEmployee[];
+  employees: Leader[];
   legacies: LegacyBonus[];
-  /** Candidate pools per role — shown in the hire dialog before committing. */
-  candidatePool: Partial<Record<GeneratorId, TeamLeaderEmployee[]>>;
-  /** How many times each role's pool has been rerolled since last hire (drives cost escalation). */
+  /** Candidates for each kind with no leader, shown before one is hired. */
+  candidatePool: Partial<Record<GeneratorId, Leader[]>>;
+  /** Rerolls of each kind's candidates since its last hire: the cost doubles. */
   rerollCounts: Partial<Record<GeneratorId, number>>;
+  /** The kind whose leader is being placed on the map, if one is. Not saved. */
+  placing: GeneratorId | null;
 
   generateCandidates: (role: GeneratorId) => void;
   hireCandidateFromPool: (role: GeneratorId, candidateId: string) => void;
   rerollCandidates: (role: GeneratorId) => void;
   getRerollCost: (role: GeneratorId) => number;
+  /** Let a leader go: what they built up stays behind as a small lasting bonus. */
   fireEmployee: (id: string) => boolean;
-  spendRankPoint: (id: string, skillId: TeamLeaderSkillId) => void;
-
-  tickTeamLeaders: (
-    seconds: number,
-    satScores: Record<GeneratorId, number>,
-    amounts: Record<GeneratorId, number>,
-  ) => void;
+  /** Take one of the three perks offered at a rank. */
+  pickPerk: (id: string, perk: LeaderPerkId) => void;
+  /** Put a leader in a building (a structure id), or take them out of it. */
+  placeLeader: (id: string, at: number | null) => void;
+  setPlacing: (role: GeneratorId | null) => void;
+  /** XP from their teams' work: `rate` says each leader's a second. */
+  tickTeamLeaders: (seconds: number, rate: (l: Leader) => number) => void;
 
   reset: () => void;
 };
 
-const ALL_TRAIT_IDS = Object.keys(EMPLOYEE_TRAITS) as TeamLeaderTraitId[];
+const pickRandom = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
-function pickRandom<T>(arr: readonly T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function pickSkillPool(traitId: TeamLeaderTraitId): TeamLeaderSkillId[] {
-  const pool = [...EMPLOYEE_TRAITS[traitId].skills];
-  // Shuffle and take 3 of the 4-skill pool so each candidate feels distinct
-  pool.sort(() => Math.random() - 0.5);
-  return pool.slice(0, 3) as TeamLeaderSkillId[];
-}
-
-function makeCandidates(role: GeneratorId): TeamLeaderEmployee[] {
+function makeCandidates(role: GeneratorId): Leader[] {
   const namePool = getNamePool(role);
-  // Pick 3 distinct names if possible
   const names: string[] = [];
-  const usedNames = new Set<string>();
   while (names.length < 3) {
     const n = pickRandom(namePool);
-    if (!usedNames.has(n) || usedNames.size >= namePool.length) {
-      usedNames.add(n);
-      names.push(n);
-    }
+    if (!names.includes(n) || names.length >= namePool.length) names.push(n);
   }
-  // Pick 3 distinct traits
-  const shuffled = [...ALL_TRAIT_IDS].sort(() => Math.random() - 0.5);
-  const traits = shuffled.slice(0, 3) as TeamLeaderTraitId[];
-
-  // Assign distinct avatars from the role pool (undefined if pool is empty)
+  const personalities = [...PERSONALITY_IDS].sort(() => Math.random() - 0.5).slice(0, 3);
   const avatarIds = pickAvatarIds(role, 3);
-
   return names.map((name, i) => ({
-    id: genId(),
-    role,
-    name,
-    traitId: traits[i],
-    outputStat: 0,
-    moraleStat: 0,
-    rank: 0,
-    unspentPoints: 0,
-    skills: {},
-    skillPool: pickSkillPool(traits[i]),
-    avatarId: avatarIds[i],
+    id: genId(), role, name, avatarId: avatarIds[i], personality: personalities[i], rank: 0, xp: 0, perks: [], placedAt: null,
   }));
 }
 
+/**
+ * A LEADER FROM AN OLD SAVE, the stat-and-skills kind: the same person and
+ * personality (the traits were these), at their rank with its XP, perks to
+ * pick for every rank they hold, not yet placed. @see plans/innovation-overhaul.md §8
+ */
+function fromSaved(raw: Record<string, unknown>): Leader | null {
+  if (typeof raw.id !== "string" || typeof raw.role !== "string" || typeof raw.name !== "string") return null;
+  if (raw.personality && typeof raw.xp === "number") {
+    const l = raw as unknown as Leader;
+    return { ...l, perks: [...(l.perks ?? [])], placedAt: typeof l.placedAt === "number" ? l.placedAt : null };
+  }
+  const personality = PERSONALITY_IDS.includes(raw.traitId as PersonalityId) ? (raw.traitId as PersonalityId) : "overachiever";
+  const rank = Math.max(0, Math.min(MAX_LEADER_RANK, Math.floor(Number(raw.rank) || 0)));
+  return {
+    id: raw.id, role: raw.role as GeneratorId, name: raw.name, avatarId: typeof raw.avatarId === "string" ? raw.avatarId : undefined,
+    personality, rank, xp: XP_AT[rank], perks: [], placedAt: null,
+  };
+}
+
 const defaultState = {
-  employees: [] as TeamLeaderEmployee[],
+  employees: [] as Leader[],
   legacies: [] as LegacyBonus[],
-  candidatePool: {} as Partial<Record<GeneratorId, TeamLeaderEmployee[]>>,
+  candidatePool: {} as Partial<Record<GeneratorId, Leader[]>>,
   rerollCounts: {} as Partial<Record<GeneratorId, number>>,
+  placing: null as GeneratorId | null,
 };
 
 export const useTeamLeadersEmployeesStore = create<TeamLeaderState>()(
@@ -131,132 +117,80 @@ export const useTeamLeadersEmployeesStore = create<TeamLeaderState>()(
       ...defaultState,
 
       generateCandidates: (role) => {
-        const state = get();
-        // Skip if already have an active employee or a pending pool for this role
-        if (state.employees.some((e) => e.role === role)) return;
-        if (state.candidatePool[role]?.length) return;
-        set((s) => ({
-          candidatePool: { ...s.candidatePool, [role]: makeCandidates(role) },
-        }));
+        const s = get();
+        if (s.employees.some((e) => e.role === role) || s.candidatePool[role]?.length) return;
+        set((st) => ({ candidatePool: { ...st.candidatePool, [role]: makeCandidates(role) } }));
       },
 
       hireCandidateFromPool: (role, candidateId) => {
         set((s) => {
-          const candidate = s.candidatePool[role]?.find(
-            (c) => c.id === candidateId,
-          );
-          if (!candidate) return s;
+          const c = s.candidatePool[role]?.find((x) => x.id === candidateId);
+          // One a kind: hired only where there is none.
+          if (!c || s.employees.some((e) => e.role === role)) return s;
           return {
-            employees: [...s.employees, candidate],
+            employees: [...s.employees, c],
             candidatePool: { ...s.candidatePool, [role]: undefined },
             rerollCounts: { ...s.rerollCounts, [role]: 0 },
           };
         });
       },
 
-      getRerollCost: (role) => {
-        const count = get().rerollCounts[role] ?? 0;
-        return Math.round(REROLL_BASE_COST * Math.pow(2, count));
-      },
+      getRerollCost: (role) => Math.round(REROLL_BASE_COST * Math.pow(2, get().rerollCounts[role] ?? 0)),
 
       rerollCandidates: (role) => {
         const cost = get().getRerollCost(role);
-        const innovStore = useInnovationStore.getState();
-        if (innovStore.innovation.lt(cost)) return;
-        innovStore.spendInnovation(cost);
+        const inn = useInnovationStore.getState();
+        if (inn.innovation.lt(cost)) return;
+        inn.spendInnovation(cost);
         set((s) => ({
           candidatePool: { ...s.candidatePool, [role]: makeCandidates(role) },
-          rerollCounts: {
-            ...s.rerollCounts,
-            [role]: (s.rerollCounts[role] ?? 0) + 1,
-          },
+          rerollCounts: { ...s.rerollCounts, [role]: (s.rerollCounts[role] ?? 0) + 1 },
         }));
       },
 
       fireEmployee: (id) => {
         const emp = get().employees.find((e) => e.id === id);
         if (!emp) return false;
-
-        // Firing costs innovation proportional to rank — discourages casual churn
-        const fireCost = emp.rank * FIRE_COST_PER_RANK;
-        if (fireCost > 0) {
-          const innovStore = useInnovationStore.getState();
-          if (innovStore.innovation.lt(fireCost)) return false;
-          innovStore.spendInnovation(fireCost);
-        }
-
-        const legacyMult = skillMult("legacy_amplifier", emp.skills.legacy_amplifier ?? 0);
-        const bonusRev = emp.rank * 0.02 * legacyMult;
-        const bonusIps = emp.rank * 0.01 * legacyMult;
         set((s) => {
-          const existing = s.legacies.find((l) => l.role === emp.role);
+          const was = s.legacies.find((l) => l.role === emp.role);
           return {
             employees: s.employees.filter((e) => e.id !== id),
             legacies: [
               ...s.legacies.filter((l) => l.role !== emp.role),
-              {
-                role: emp.role,
-                revenueMult: (existing?.revenueMult ?? 0) + bonusRev,
-                ipsMult: (existing?.ipsMult ?? 0) + bonusIps,
-              },
+              { role: emp.role, revenueMult: (was?.revenueMult ?? 0) + emp.rank * 0.02, ipsMult: (was?.ipsMult ?? 0) + emp.rank * 0.01 },
             ],
-            // Immediately generate a fresh candidate pool for this role
-            candidatePool: {
-              ...s.candidatePool,
-              [emp.role]: makeCandidates(emp.role),
-            },
+            candidatePool: { ...s.candidatePool, [emp.role]: makeCandidates(emp.role) },
             rerollCounts: { ...s.rerollCounts, [emp.role]: 0 },
+            placing: s.placing === emp.role ? null : s.placing,
           };
         });
         return true;
       },
 
-      spendRankPoint: (id, skillId) => {
+      pickPerk: (id, perk) => {
         set((s) => ({
-          employees: s.employees.map((e) => {
-            if (e.id !== id || e.unspentPoints <= 0) return e;
-            const pool =
-              e.skillPool ?? EMPLOYEE_TRAITS[e.traitId].skills.slice(0, 3);
-            if (!pool.includes(skillId)) return e;
-            const currentLevel = e.skills[skillId] ?? 0;
-            if (currentLevel >= 3) return e;
-            return {
-              ...e,
-              unspentPoints: e.unspentPoints - 1,
-              skills: { ...e.skills, [skillId]: currentLevel + 1 },
-            };
-          }),
+          employees: s.employees.map((e) => (e.id === id && perkOffer(e).includes(perk) ? { ...e, perks: [...e.perks, perk] } : e)),
         }));
       },
 
-      tickTeamLeaders: (seconds, satScores, amounts) => {
+      placeLeader: (id, at) => {
+        set((s) => ({ employees: s.employees.map((e) => (e.id === id ? { ...e, placedAt: at } : e)), placing: null }));
+      },
+
+      setPlacing: (placing) => set({ placing }),
+
+      tickTeamLeaders: (seconds, rate) => {
         const employees = get().employees;
-        if (employees.length === 0) return;
-
-        // Compute pair synergy output growth bonuses per-employee
-        const pairSyns = getActivePairSynergies(employees);
-        const growthBonus: Record<string, number> = {};
-        for (const syn of pairSyns) {
-          if (!syn.outputGrowthBonus) continue;
-          for (const emp of employees) {
-            if (emp.traitId === syn.traitA || emp.traitId === syn.traitB) {
-              growthBonus[emp.id] =
-                (growthBonus[emp.id] ?? 0) + syn.outputGrowthBonus;
-            }
-          }
-        }
-
-        set((s) => ({
-          employees: s.employees.map((emp) => {
-            const amount = amounts[emp.role] ?? 0;
-            const satScore = satScores[emp.role] ?? 0;
-            const pairBonus = growthBonus[emp.id] ?? 0;
-            return {
-              ...emp,
-              ...stepEmployeeStat(emp, satScore, amount, pairBonus, seconds),
-            };
-          }),
-        }));
+        if (!employees.length) return;
+        let changed = false;
+        const next = employees.map((e) => {
+          const r = rate(e);
+          if (r <= 0 || e.xp >= XP_AT[MAX_LEADER_RANK]) return e;
+          changed = true;
+          const xp = Math.min(XP_AT[MAX_LEADER_RANK], e.xp + r * seconds);
+          return { ...e, xp, rank: rankAt(xp) };
+        });
+        if (changed) set({ employees: next });
       },
 
       reset: () => set(defaultState),
@@ -269,23 +203,26 @@ export const useTeamLeadersEmployeesStore = create<TeamLeaderState>()(
         candidatePool: s.candidatePool,
         rerollCounts: s.rerollCounts,
       }),
-      onRehydrateStorage: () => (state) => {
-        if (!state) return;
-        // Backfill skillPool for employees saved before this field existed.
-        // Invested skills are placed first so prior spend history is preserved.
-        state.employees = state.employees.map((emp) => {
-          if (emp.skillPool?.length) return emp;
-          const invested = (Object.keys(emp.skills) as TeamLeaderSkillId[]).filter(
-            (id) => (emp.skills[id] ?? 0) > 0,
-          );
-          const remaining = EMPLOYEE_TRAITS[emp.traitId].skills.filter(
-            (id) => !invested.includes(id),
-          );
-          return {
-            ...emp,
-            skillPool: [...invested, ...remaining].slice(0, 3) as readonly TeamLeaderSkillId[],
-          };
-        });
+      // OLD SAVES' LEADERS, converted; one a kind, the highest rank kept; old candidates drawn again.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as { employees?: unknown[]; legacies?: LegacyBonus[]; candidatePool?: Record<string, unknown[]>; rerollCounts?: TeamLeaderState["rerollCounts"] };
+        const byRole = new Map<GeneratorId, Leader>();
+        for (const raw of p.employees ?? []) {
+          const l = raw && typeof raw === "object" ? fromSaved(raw as Record<string, unknown>) : null;
+          if (l && (!byRole.has(l.role) || byRole.get(l.role)!.rank < l.rank)) byRole.set(l.role, l);
+        }
+        const candidatePool: TeamLeaderState["candidatePool"] = {};
+        for (const [role, list] of Object.entries(p.candidatePool ?? {})) {
+          const ok = (list ?? []).map((c) => (c && typeof c === "object" ? fromSaved(c as Record<string, unknown>) : null));
+          if (ok.length && ok.every((c) => c && (c as Leader).personality && "xp" in (c as object))) candidatePool[role as GeneratorId] = ok as Leader[];
+        }
+        return {
+          ...current,
+          employees: [...byRole.values()],
+          legacies: p.legacies ?? [],
+          candidatePool,
+          rerollCounts: p.rerollCounts ?? {},
+        };
       },
     },
   ),

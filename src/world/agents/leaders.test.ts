@@ -5,7 +5,7 @@ import { createGrid, fillTerrain, idx } from "../grid";
 import { createNetwork } from "../roads/network";
 import { placeCommand } from "../structures/place";
 import { structureDef } from "../structures/def";
-import { AT_WORK, LEAD_BOOST, createLeaders, leadershipOf, stepLeaders } from "./leaders";
+import { AT_WORK, createLeaders, leadershipOf, stepLeaders } from "./leaders";
 import { CAFE_BOOST, deskPerks, deskShare } from "./desk-perks";
 import { placesOf } from "./roads";
 import { createTown, stepTown } from "./town";
@@ -20,7 +20,8 @@ describe("team leaders on the map", () => {
     commit(g, history, placeCommand(g, structureDef("garage")!, 22, 4)!);
     for (const s of g.structures.values()) if (s.def.startsWith("kit")) s.residents = 3;
     const net = createNetwork(g), town = createTown(), L = createLeaders();
-    const seats = [{ id: "tl_1", role: "intern" as const }];
+    const garage = [...g.structures.values()].find((s) => s.def === "garage")!.id;
+    const seats = [{ id: "tl_1", role: "intern" as const, placedAt: garage }];
     const lead = leadershipOf(g, placesOf(g, net), seats, new Map());
     const seen: string[] = [];
     for (let k = 0; k < 30 * 120; k++) {
@@ -59,24 +60,30 @@ describe("who the leaders lead", () => {
     return { g, net: createNetwork(g), id };
   }
 
-  test("a leader lives in the most desirable home of their kind and leads the workplace nearest it", () => {
+  test("a leader leads the building they were put in, and lives in the most desirable home of their kind", () => {
     const { g, net, id } = street();
-    const seats = [{ id: "tl_1", role: "intern" as const, name: "Ada" }];
     const fond = (house: number) => new Map([[house, { total: 20, parts: [] }]]);
-    const near = leadershipOf(g, placesOf(g, net), seats, fond(id("kit:intern.t1", 14)));
-    expect(near.of.get("tl_1")).toEqual({ home: id("kit:intern.t1", 14), work: id("office-intern", 17) });
-    expect(near.leads.get(id("office-intern", 17))).toEqual(["Ada"]);
-    const far = leadershipOf(g, placesOf(g, net), seats, fond(id("kit:intern.t1", 4)));
-    expect(far.of.get("tl_1")!.work).toBe(id("garage", 0));
+    const at = (placedAt: number | null) => [{ id: "tl_1", role: "intern" as const, name: "Ada", placedAt }];
+    const office = leadershipOf(g, placesOf(g, net), at(id("office-intern", 17)), fond(id("kit:intern.t1", 4)));
+    expect(office.of.get("tl_1")).toEqual({ home: id("kit:intern.t1", 4), work: id("office-intern", 17) });
+    expect(office.leads.get(id("office-intern", 17))).toEqual(["Ada"]);
+    const garage = leadershipOf(g, placesOf(g, net), at(id("garage", 0)), fond(id("kit:intern.t1", 14)));
+    expect(garage.of.get("tl_1")).toEqual({ home: id("kit:intern.t1", 14), work: id("garage", 0) });
   });
 
-  test("the people at a led workplace's desks work harder, as a share of the kind", () => {
+  test("put nowhere, in another kind's building or one that is gone, they lead nothing", () => {
     const { g, net, id } = street();
-    const lead = leadershipOf(g, placesOf(g, net), [{ id: "tl_1", role: "intern" as const }], new Map());
-    const work = lead.of.get("tl_1")!.work;
-    const other = id("garage", 0) === work ? id("office-intern", 17) : id("garage", 0);
-    const share = deskShare(g, lead, new Map([[work, { used: 4 }], [other, { used: 6 }]]), { intern: 10 });
-    expect(share.intern).toBeCloseTo((4 * LEAD_BOOST) / 10);
+    const lead = (placedAt: number | null, role: "intern" | "vibe_coder" = "intern") => leadershipOf(g, placesOf(g, net), [{ id: "tl_1", role, placedAt }], new Map());
+    expect(lead(null).of.size).toBe(0);
+    expect(lead(id("garage", 0), "vibe_coder").of.size).toBe(0);
+    expect(lead(99999).of.size).toBe(0);
+  });
+
+  test("a led workplace's desks are named on its card, with no share of their own: a leader's effect is the kind's", () => {
+    const { g, net, id } = street();
+    const lead = leadershipOf(g, placesOf(g, net), [{ id: "tl_1", role: "intern" as const, name: "Ada", placedAt: id("office-intern", 17) }], new Map());
+    expect(deskPerks(g, lead, g.structures.get(id("office-intern", 17))!)).toEqual({ share: 0, why: ["Led by Ada"] });
+    expect(deskShare(g, lead, new Map([[id("office-intern", 17), { used: 4 }]]), { intern: 10 }).intern ?? 0).toBe(0);
   });
 
   test("a café next door is a tenth more at a workplace's desks, and says so", () => {

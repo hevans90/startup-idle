@@ -6,11 +6,11 @@
  */
 import type { GeneratorId } from "../../state/generators.store";
 import { housedBy, residentsIn } from "../../game/housing";
-import { idx, type Grid } from "../grid";
+import type { Grid } from "../grid";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
 import { sendOnJob, type Town } from "./town";
-import { WORKPLACES, walkFrom } from "./commute";
+import { WORKPLACES } from "./commute";
 import type { MoodParts } from "./mood-rules";
 
 /** Seconds a leader spends at work, and at home, before setting off again. */
@@ -18,8 +18,8 @@ export const AT_WORK = 25;
 export const AT_HOME = 12;
 const SHIRT = 0xf2c230;
 
-/** Who a leader is, as the town needs them. */
-export type LeaderSeat = { id: string; role: GeneratorId };
+/** Who a leader is, as the town needs them: and the building they were put in, if any. */
+export type LeaderSeat = { id: string; role: GeneratorId; placedAt?: number | null };
 
 /** Where each leader is: out walking, or waiting somewhere until a time. Live state; not saved. */
 export type Leaders = { seats: string[]; at: Map<string, { place: "home" | "work"; wait: number }> };
@@ -28,16 +28,12 @@ export const createLeaders = (): Leaders => ({ seats: [], at: new Map() });
 /** A stable number for a string, to pick a leader's home among many. */
 const hash = (s: string) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); };
 
-/** What the people at a led workplace's desks add to their work, a leader; and the most leaders that count at one. */
-export const LEAD_BOOST = 0.25;
-export const LEADS_A_WORKPLACE = 2;
-
 /**
- * WHERE THE LEADERS LIVE AND WHO THEY LEAD. A leader lives in the most
- * desirable home of their kind — the best of them, a leader each, round again
- * once every one has one — and leads the workplace nearest it along the
- * roads. So a good street beside a big office is where a leader is worth
- * most: their workplace's desks work `LEAD_BOOST` harder. @see leadShare
+ * WHERE THE LEADERS LIVE AND WHO THEY LEAD. A leader leads the building they
+ * were put in — a workplace of their kind, still standing — and lives in the
+ * most desirable home of their kind, the best of them a leader each. One put
+ * nowhere, or whose building is gone, is off the map. What they do is in
+ * game/leaders. @see LeadersPanel
  */
 export type Leadership = {
   /** Each leader's home and workplace, by leader id: structure ids. */
@@ -60,15 +56,10 @@ export function leadershipOf(
     if (!homes.length) continue;
     const n = k[seat.role] ?? 0;
     k[seat.role] = n + 1;
-    const home = homes[n % homes.length], door = doorOf.get(home.id)!;
-    const walk = walkFrom(g, [idx(g, door.x, door.y)]);
-    let work: number | null = null, best = Infinity;
-    for (const s of g.structures.values()) {
-      if (s.build || !WORKPLACES[seat.role].includes(s.def)) continue;
-      const d = doorOf.get(s.id), t = d ? walk[idx(g, d.x, d.y)] : -1;
-      if (t >= 0 && t < best) { best = t; work = s.id; }
-    }
-    if (work === null) continue;
+    const home = homes[n % homes.length];
+    const at = seat.placedAt ?? null, there = at === null ? undefined : g.structures.get(at);
+    if (!there || there.build || !WORKPLACES[seat.role].includes(there.def)) continue;
+    const work = there.id;
     out.of.set(seat.id, { home: home.id, work });
     out.leads.set(work, [...(out.leads.get(work) ?? []), seat.name ?? seat.id]);
   }
@@ -83,7 +74,7 @@ let memo: { g: Grid | null; rev: number; seats: string; moods: unknown; value: L
 export function liveLeadership(
   g: Grid, net: Network, seats: readonly (LeaderSeat & { name?: string })[], moods: ReadonlyMap<number, MoodParts>,
 ): Leadership {
-  const key = seats.map((s) => s.id).join();
+  const key = seats.map((s) => `${s.id}@${s.placedAt ?? ""}`).join();
   if (memo.g !== g || memo.rev !== g.rev || memo.seats !== key || memo.moods !== moods) {
     memo = { g, rev: g.rev, seats: key, moods, value: leadershipOf(g, placesOf(g, net), seats, moods) };
   }
