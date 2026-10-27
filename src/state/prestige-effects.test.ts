@@ -159,10 +159,7 @@ describe("prestige modifiers are wired to the economy", () => {
     useGeneratorStore.setState((s) => ({
       employeeManagement: {
         ...s.employeeManagement,
-        perks: {
-          ...s.employeeManagement.perks,
-          intern: { ...s.employeeManagement.perks.intern, autoBuyLevel: 3 },
-        },
+        policies: { ...s.employeeManagement.policies, intern: ["pipeline"] },
       },
     }));
     const base = useGeneratorStore.getState().getAutoBuyRate("intern");
@@ -226,11 +223,8 @@ describe("prestige modifiers are wired to the economy", () => {
         globalLastTick: Date.now() - 1000,
         employeeManagement: {
           ...s.employeeManagement,
-          perks: {
-            ...s.employeeManagement.perks,
-            // high innovation perk → a strongly positive satisfaction target
-            intern: { ...s.employeeManagement.perks.intern, innovationLevel: 10 },
-          },
+          // Free Lunch and Remote Fridays: a positive morale target.
+          policies: { ...s.employeeManagement.policies, intern: ["lunch", "remote"] },
         },
       }));
       useGeneratorStore.getState().tickGenerators();

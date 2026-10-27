@@ -13,6 +13,7 @@ import {
 import { roomFor } from "../game/housing";
 import { attendance, deskBonus, labBonus, wonderBonus } from "../game/projects";
 import { moralePartsNow } from "../game/morale-parts";
+import { policyEffects, policySlots, SLOT_TIERS, validPolicies, type PolicyEffects, type PolicyId } from "../game/policies";
 import { fusionNow } from "../game/fusion";
 import {
   calcGeneratorIncome,
@@ -81,33 +82,15 @@ export type OwnedGenerator = Generator & {
   innovationMultiplier: number; // persistent multiplier from upgrades
 };
 
-export type EmployeePerks = {
-  moneyLevel: number;
-  innovationLevel: number;
-  costLevel: number;
-  autoBuyLevel: number;
-};
-
-export type EmployeePerkBranch = "money" | "innovation" | "cost" | "auto";
 
 export type GeneratorId = "intern" | "vibe_coder" | "10x_dev";
 
 /** Per-hire ratio must stay above 1 or costs tend to 0 at high counts; upgrades clamp to this floor. */
 export const MIN_GENERATOR_COST_EXPONENT = 1.02;
 
-const MAX_MONEY_INNO_LEVEL = 25;
-const MAX_COST_LEVEL = 15;
-const MAX_AUTO_LEVEL = 5;
-
-const MONEY_MULT_PER_LEVEL = 0.2;
-const INNO_MULT_PER_LEVEL = 0.2;
-/** Per −Cost level; stronger than legacy 0.985 so tier spend meaningfully cuts hire price. */
-const COST_DISCOUNT_BASE = 0.968;
-const AUTO_BUY_PER_LEVEL = 0.175;
-
 type EmployeeManagementData = {
-  spentManagementPoints: number;
-  perks: Record<GeneratorId, EmployeePerks>;
+  /** Each kind's work policies, in the slots manager tiers give. @see game/policies */
+  policies: Record<GeneratorId, PolicyId[]>;
   autoBuyAcc: Partial<Record<GeneratorId, number>>;
 };
 
@@ -177,26 +160,19 @@ type GeneratorState = {
   /** Full breakdown of valuation/sec (for the valuation popover). */
   getValuationBreakdown: () => ValuationBreakdown;
 
-  getEmployeePerks: (id: GeneratorId) => EmployeePerks;
+  /** A kind's policies, and what they do together. @see game/policies */
+  getPolicies: (id: GeneratorId) => PolicyId[];
+  getPolicyEffects: (id: GeneratorId) => PolicyEffects;
+  /** How many policies each kind may have now. */
+  getPolicySlots: () => number;
+  /** Turn a policy on or off for a kind, within its slots. */
+  togglePolicy: (id: GeneratorId, policy: PolicyId) => void;
   getEmployeeOutputMults: (id: GeneratorId) => {
     money: number;
     innovation: number;
   };
   getEmployeeCostMult: (id: GeneratorId) => number;
   getAutoBuyRate: (id: GeneratorId) => number;
-  getAvailableManagementPoints: () => number;
-  getEmployeePerkNextCost: (
-    id: GeneratorId,
-    branch: EmployeePerkBranch,
-  ) => number;
-  canPurchaseEmployeePerk: (
-    id: GeneratorId,
-    branch: EmployeePerkBranch,
-  ) => boolean;
-  purchaseEmployeePerk: (id: GeneratorId, branch: EmployeePerkBranch) => void;
-  /** Returns management points spent on this role’s perks (sum of historical purchase costs). */
-  getManagementPointsSpentOnRow: (id: GeneratorId) => number;
-  refundEmployeeManagementRow: (id: GeneratorId) => void;
 
   reset: () => void;
 };
@@ -246,24 +222,10 @@ function clampPersistedScore(n: unknown, scale = 1): number {
   return Math.min(SATISFACTION_MAX, Math.max(SATISFACTION_MIN, n * scale));
 }
 
-const defaultEmployeePerks = (): EmployeePerks => ({
-  moneyLevel: 0,
-  innovationLevel: 0,
-  costLevel: 0,
-  autoBuyLevel: 0,
-});
-
-const mergeEmployeePerks = (
-  partial?: Partial<Record<GeneratorId, EmployeePerks>>,
-): Record<GeneratorId, EmployeePerks> => ({
-  intern: { ...defaultEmployeePerks(), ...partial?.intern },
-  vibe_coder: { ...defaultEmployeePerks(), ...partial?.vibe_coder },
-  "10x_dev": { ...defaultEmployeePerks(), ...partial?.["10x_dev"] },
-});
+const noPolicies = (): Record<GeneratorId, PolicyId[]> => ({ intern: [], vibe_coder: [], "10x_dev": [] });
 
 const defaultEmployeeManagement = (): EmployeeManagementData => ({
-  spentManagementPoints: 0,
-  perks: mergeEmployeePerks(),
+  policies: noPolicies(),
   autoBuyAcc: {},
 });
 
@@ -272,21 +234,17 @@ const parseEmployeeManagementJson = (
 ): EmployeeManagementData => {
   if (!raw) return defaultEmployeeManagement();
   try {
+    // A save from before policies had perks and management points: they go,
+    // nothing to give back — the tiers that earned them give slots now.
     const parsed = JSON.parse(raw) as {
-      spentManagementPoints?: number;
-      perks?: Partial<Record<GeneratorId, Partial<EmployeePerks>>>;
+      policies?: Partial<Record<GeneratorId, unknown[]>>;
       autoBuyAcc?: Partial<Record<GeneratorId, number>>;
     };
-    const perksIn = parsed.perks ?? {};
-    const merged: Partial<Record<GeneratorId, EmployeePerks>> = {};
+    const policies = noPolicies();
     for (const id of ["intern", "vibe_coder", "10x_dev"] as GeneratorId[]) {
-      merged[id] = { ...defaultEmployeePerks(), ...perksIn[id] };
+      policies[id] = validPolicies(id, parsed.policies?.[id] ?? [], SLOT_TIERS.length);
     }
-    return {
-      spentManagementPoints: parsed.spentManagementPoints ?? 0,
-      perks: mergeEmployeePerks(merged),
-      autoBuyAcc: parsed.autoBuyAcc ?? {},
-    };
+    return { policies, autoBuyAcc: parsed.autoBuyAcc ?? {} };
   } catch {
     return defaultEmployeeManagement();
   }
@@ -403,42 +361,6 @@ export const syncUnlockedGenerators = (): void => {
   if (!unchanged) useGeneratorStore.setState({ generators: next });
 };
 
-function employeePerkPurchaseCost(
-  branch: EmployeePerkBranch,
-  currentLevel: number,
-): number {
-  if (branch === "money" || branch === "innovation") {
-    if (currentLevel >= MAX_MONEY_INNO_LEVEL) return 0;
-    return 2 + Math.floor(currentLevel / 6);
-  }
-  if (branch === "cost") {
-    if (currentLevel >= MAX_COST_LEVEL) return 0;
-    return 3 + Math.floor(currentLevel / 4);
-  }
-  if (branch === "auto") {
-    if (currentLevel >= MAX_AUTO_LEVEL) return 0;
-    return 6 + currentLevel * 3;
-  }
-  return 0;
-}
-
-function totalManagementPointsSpentOnPerks(p: EmployeePerks): number {
-  let sum = 0;
-  for (let i = 0; i < p.moneyLevel; i++) {
-    sum += employeePerkPurchaseCost("money", i);
-  }
-  for (let i = 0; i < p.innovationLevel; i++) {
-    sum += employeePerkPurchaseCost("innovation", i);
-  }
-  for (let i = 0; i < p.costLevel; i++) {
-    sum += employeePerkPurchaseCost("cost", i);
-  }
-  for (let i = 0; i < p.autoBuyLevel; i++) {
-    sum += employeePerkPurchaseCost("auto", i);
-  }
-  return sum;
-}
-
 // ─── tickGenerators helpers ───────────────────────────────────────────────────
 
 function buildAmountsMap(generators: OwnedGenerator[]): Record<GeneratorId, number> {
@@ -449,15 +371,14 @@ function buildAmountsMap(generators: OwnedGenerator[]): Record<GeneratorId, numb
 
 function tickSatisfaction(
   scores: SatisfactionScores,
-  perks: Record<GeneratorId, EmployeePerks>,
-  amounts: Record<GeneratorId, number>,
+  policies: Record<GeneratorId, PolicyId[]>,
   seconds: number,
   prestige: { satisfactionGainMult: number },
   employees: TeamLeaderEmployee[],
 ): SatisfactionScores {
   // EVERY PART BUT WORK, which the step adds itself: home, leaders, events,
   // the founder's fused lean. @see moralePartsNow
-  const parts = moralePartsNow(perks, amounts, employees);
+  const parts = moralePartsNow(policies, employees);
   const satOffsets = Object.fromEntries(
     Object.entries(parts).map(([id, p]) => [id, p.home + p.leaders + p.events + p.founder]),
   ) as Partial<Record<GeneratorId, number>>;
@@ -470,8 +391,7 @@ function tickSatisfaction(
   const mandateSatGain = useValuationStore.getState().getEconomyMultipliers().satisfactionGain;
   return stepSatisfactionScores(
     scores,
-    perks,
-    amounts,
+    policies,
     seconds * prestige.satisfactionGainMult * driftMult * mandateSatGain,
     satOffsets,
   );
@@ -527,10 +447,29 @@ export const useGeneratorStore = create<GeneratorState>()(
         employeeManagement: defaultEmployeeManagement(),
         satisfactionScores: defaultSatisfactionScores(),
 
-        getEmployeePerks: (id) => get().employeeManagement.perks[id],
+        getPolicies: (id) => get().employeeManagement.policies[id] ?? [],
+
+        getPolicyEffects: (id) => policyEffects(get().getPolicies(id)),
+
+        // SLOTS from manager tiers in all, once employee management is open. @see SLOT_TIERS
+        getPolicySlots: () =>
+          useInnovationStore.getState().unlocks.employeeManagement?.unlocked ? policySlots(getManagementTierTotal()) : 0,
+
+        togglePolicy: (id, policy) => {
+          const had = get().getPolicies(id);
+          const next = had.includes(policy) ? had.filter((p) => p !== policy) : [...had, policy];
+          // Never more than the slots: a full row takes nothing new.
+          if (next.length > get().getPolicySlots()) return;
+          set((state) => ({
+            employeeManagement: {
+              ...state.employeeManagement,
+              policies: { ...state.employeeManagement.policies, [id]: validPolicies(id, next, SLOT_TIERS.length) },
+            },
+          }));
+        },
 
         getEmployeeOutputMults: (id) => {
-          const p = get().employeeManagement.perks[id];
+          const e = get().getPolicyEffects(id);
           // AWAY BUILDING: a desk with nobody at it makes nothing. One here,
           // so the live tick and every readout agree. @see attendance
           const here = attendance(id, get().generators.find((g) => g.id === id)?.amount ?? 0);
@@ -539,15 +478,12 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: (1 + p.moneyLevel * MONEY_MULT_PER_LEVEL) * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
-            innovation: (1 + p.innovationLevel * INNO_MULT_PER_LEVEL) * here * atDesks * wonderBonus("innovation") * labBonus(),
+            money: e.output * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
+            innovation: e.innovation * here * atDesks * wonderBonus("innovation") * labBonus(),
           };
         },
 
-        getEmployeeCostMult: (id) => {
-          const lv = get().employeeManagement.perks[id].costLevel;
-          return Math.pow(COST_DISCOUNT_BASE, lv);
-        },
+        getEmployeeCostMult: (id) => get().getPolicyEffects(id).hireCost,
 
         getEffectiveSatisfaction: (id) => {
           const m = usePrestigeStore.getState().modifiers;
@@ -555,108 +491,10 @@ export const useGeneratorStore = create<GeneratorState>()(
         },
 
         getAutoBuyRate: (id) => {
-          const lv = get().employeeManagement.perks[id].autoBuyLevel;
-          if (lv <= 0) return 0;
+          const rate = get().getPolicyEffects(id).autoBuy;
+          if (rate <= 0) return 0;
           // Founder "Operator" + skill-tree automation modifiers.
-          return (
-            AUTO_BUY_PER_LEVEL *
-            lv *
-            useFounderStore.getState().autoBuyMult *
-            usePrestigeStore.getState().modifiers.autoBuyMult
-          );
-        },
-
-        getAvailableManagementPoints: () => {
-          if (
-            !useInnovationStore.getState().unlocks.employeeManagement?.unlocked
-          ) {
-            return 0;
-          }
-          const total = getManagementTierTotal();
-          return Math.max(
-            0,
-            total - get().employeeManagement.spentManagementPoints,
-          );
-        },
-
-        getEmployeePerkNextCost: (id, branch) => {
-          const p = get().employeeManagement.perks[id];
-          const level =
-            branch === "money"
-              ? p.moneyLevel
-              : branch === "innovation"
-                ? p.innovationLevel
-                : branch === "cost"
-                  ? p.costLevel
-                  : p.autoBuyLevel;
-          return employeePerkPurchaseCost(branch, level);
-        },
-
-        canPurchaseEmployeePerk: (id, branch) => {
-          const cost = get().getEmployeePerkNextCost(id, branch);
-          if (cost <= 0) return false;
-          return get().getAvailableManagementPoints() >= cost;
-        },
-
-        purchaseEmployeePerk: (id, branch) => {
-          if (
-            !useInnovationStore.getState().unlocks.employeeManagement?.unlocked
-          ) {
-            return;
-          }
-          if (!get().canPurchaseEmployeePerk(id, branch)) return;
-
-          const cost = get().getEmployeePerkNextCost(id, branch);
-          set((state) => {
-            const perks = { ...state.employeeManagement.perks };
-            const cur = { ...perks[id] };
-            if (branch === "money") cur.moneyLevel += 1;
-            else if (branch === "innovation") cur.innovationLevel += 1;
-            else if (branch === "cost") cur.costLevel += 1;
-            else cur.autoBuyLevel += 1;
-            perks[id] = cur;
-            return {
-              employeeManagement: {
-                ...state.employeeManagement,
-                spentManagementPoints:
-                  state.employeeManagement.spentManagementPoints + cost,
-                perks,
-              },
-            };
-          });
-        },
-
-        getManagementPointsSpentOnRow: (id) =>
-          totalManagementPointsSpentOnPerks(get().employeeManagement.perks[id]),
-
-        refundEmployeeManagementRow: (id) => {
-          if (
-            !useInnovationStore.getState().unlocks.employeeManagement?.unlocked
-          ) {
-            return;
-          }
-          const refund = totalManagementPointsSpentOnPerks(
-            get().employeeManagement.perks[id],
-          );
-          if (refund <= 0) return;
-
-          set((state) => {
-            const perks = { ...state.employeeManagement.perks };
-            perks[id] = defaultEmployeePerks();
-            const autoBuyAcc = { ...state.employeeManagement.autoBuyAcc };
-            delete autoBuyAcc[id];
-            return {
-              employeeManagement: {
-                ...state.employeeManagement,
-                spentManagementPoints: Math.max(
-                  0,
-                  state.employeeManagement.spentManagementPoints - refund,
-                ),
-                perks,
-                autoBuyAcc,
-              },
-            };
-          });
+          return rate * useFounderStore.getState().autoBuyMult * usePrestigeStore.getState().modifiers.autoBuyMult;
         },
 
         addGenerator: (gen) =>
@@ -735,8 +573,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           }
           const satisfactionScores = tickSatisfaction(
             get().satisfactionScores,
-            get().employeeManagement.perks,
-            amounts,
+            get().employeeManagement.policies,
             seconds,
             prestige,
             emUnlocked ? tlStore.employees : [],
@@ -754,7 +591,8 @@ export const useGeneratorStore = create<GeneratorState>()(
           // ── 4. Income accrual (side effects only) ────────────────────────────
           // Slop pit fills from vibe coders and penalises all income when full.
           // Happy vibe coders ship cleaner; miserable ones rage-ship. @see vibeSlopMultiplier
-          useSlopPitStore.getState().tick(amounts.vibe_coder, seconds, vibeSlopMultiplier(m.effectiveScores.vibe_coder ?? 0));
+          // And their policies: Hackathon Culture ships faster, and dirtier. @see POLICIES
+          useSlopPitStore.getState().tick(amounts.vibe_coder, seconds, vibeSlopMultiplier(m.effectiveScores.vibe_coder ?? 0) * get().getPolicyEffects("vibe_coder").slop);
           const slopPenaltyMult = useSlopPitStore.getState().getMoneyPenaltyMult();
 
           // Track which gens fire this tick; stamp lastTick after auto-buy so

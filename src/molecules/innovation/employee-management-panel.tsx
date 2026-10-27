@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { twMerge } from "tailwind-merge";
 import { useShallow } from "zustand/shallow";
-import { satisfactionTargetForRole } from "../../game/satisfaction";
 import {
   EMPLOYEE_SKILLS,
   EMPLOYEE_TRAITS,
@@ -15,16 +14,15 @@ import {
 } from "../../game/team-leaders.catalog";
 import {
   useGeneratorStore,
-  type EmployeePerkBranch,
   type GeneratorId,
 } from "../../state/generators.store";
-import { ManagerKeyValues, useInnovationStore } from "../../state/innovation.store";
+import { useInnovationStore } from "../../state/innovation.store";
 import {
   FIRE_COST_PER_RANK,
   useTeamLeadersEmployeesStore,
   type TeamLeaderEmployee,
 } from "../../state/team-leaders.store";
-import { Badge, Button, Label, Stat, StatGrid, Tile } from "../../ui/console";
+import { Badge, Button, Label, Tile } from "../../ui/console";
 import { TenXDevText } from "../../utils/ten-x-utils";
 import { RainbowText } from "../../utils/vibe-utils";
 import { EmployeeAvatar } from "./employee-avatar";
@@ -341,20 +339,6 @@ function PairSynergyRow({ syn }: { syn: PairSynergy }) {
   );
 }
 
-const BRANCH_LABEL: Record<EmployeePerkBranch, string> = {
-  money: "Revenue",
-  innovation: "Morale",
-  cost: "Cheaper",
-  auto: "Auto-buy",
-};
-
-const BRANCH_TITLE: Record<EmployeePerkBranch, string> = {
-  money: "+20% revenue per level · costs morale",
-  innovation: "+20% IPS per level · lifts morale",
-  cost: "-3.2% hire cost per level · costs morale",
-  auto: "Auto-purchases employees · costs morale",
-};
-
 // ─── Team Leaders Section ─────────────────────────────────────────────────────
 
 type TeamLeadersSectionProps = {
@@ -383,10 +367,8 @@ function TeamLeadersSection({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="flex items-center gap-2">
-        <Label>Team leaders</Label>
-        {totalUnspent > 0 && <Badge tone="warn">{totalUnspent} unspent</Badge>}
-      </p>
+      {/* The panel round it says whose they are; here, only what is waiting. */}
+      {totalUnspent > 0 && <p><Badge tone="warn">{totalUnspent} points unspent</Badge></p>}
 
       <div className="flex flex-col gap-2">
         {employees.map((emp) => (
@@ -448,121 +430,12 @@ function TeamLeadersSection({
   );
 }
 
-// ─── Micromanagement Section ──────────────────────────────────────────────────
-
-type MicromanagementSectionProps = {
-  perksByGen: ReturnType<typeof useGeneratorStore.getState>["employeeManagement"]["perks"];
-  generators: ReturnType<typeof useGeneratorStore.getState>["generators"];
-  available: number;
-  getManagementPointsSpentOnRow: (id: GeneratorId) => number;
-  refundEmployeeManagementRow: (id: GeneratorId) => void;
-  getEmployeePerkNextCost: (id: GeneratorId, branch: EmployeePerkBranch) => number;
-  canPurchaseEmployeePerk: (id: GeneratorId, branch: EmployeePerkBranch) => boolean;
-  purchaseEmployeePerk: (id: GeneratorId, branch: EmployeePerkBranch) => void;
-};
-
-function MicromanagementSection({
-  perksByGen,
-  generators,
-  available: _available,
-  getManagementPointsSpentOnRow,
-  refundEmployeeManagementRow,
-  getEmployeePerkNextCost,
-  canPurchaseEmployeePerk,
-  purchaseEmployeePerk,
-}: MicromanagementSectionProps) {
-  return (
-    <div className="flex flex-col gap-2 border-t border-line-quiet pt-2">
-      <Label>Micromanagement</Label>
-      {generators.map((gen) => {
-        const gid = gen.id as GeneratorId;
-        const rowSpent = getManagementPointsSpentOnRow(gid);
-        const target = Math.round(
-          satisfactionTargetForRole(gid, gen.amount, perksByGen[gid]),
-        );
-        return (
-          <div
-            key={gen.id}
-            className="flex flex-col gap-2 border border-line-quiet bg-surface-1 p-2.5"
-          >
-            <div className="flex justify-between items-center gap-1">
-              <div className="flex items-center gap-2 min-w-0">
-                <RoleLabel id={gid} />
-                <span className="text-[10px] text-fg-muted tabular-nums">
-                  target {target > 0 ? "+" : ""}
-                  {target}
-                </span>
-              </div>
-              <Button
-                size="sm"
-                variant="quiet"
-                className="shrink-0"
-                disabled={rowSpent <= 0}
-                onClick={() => refundEmployeeManagementRow(gid)}
-              >
-                Refund +{rowSpent}
-              </Button>
-            </div>
-            <div className="grid grid-cols-4 gap-1">
-              {(
-                [
-                  "money",
-                  "innovation",
-                  "cost",
-                  "auto",
-                ] as EmployeePerkBranch[]
-              ).map((branch) => {
-                const cost = getEmployeePerkNextCost(gid, branch);
-                const can = canPurchaseEmployeePerk(gid, branch);
-                return (
-                  <Tile
-                    key={branch}
-                    lit={can && cost > 0}
-                    className="flex min-w-0 flex-col items-center gap-0.5 px-1 py-1.5 text-[10px]"
-                    disabled={!can || cost <= 0}
-                    onClick={() => purchaseEmployeePerk(gid, branch)}
-                    title={BRANCH_TITLE[branch]}
-                  >
-                    <span className="truncate">{BRANCH_LABEL[branch]}</span>
-                    <span className="tabular-nums text-fg-faint">{cost > 0 ? `${cost} pt` : "—"}</span>
-                  </Tile>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── Panel ────────────────────────────────────────────────────────────────────
 
 export const EmployeeManagementPanel = () => {
   const [hiringFor, setHiringFor] = useState<GeneratorId | null>(null);
 
-  // Change 1: collapse 8 individual useGeneratorStore calls into one useShallow selector
-  const {
-    purchaseEmployeePerk,
-    refundEmployeeManagementRow,
-    getManagementPointsSpentOnRow,
-    canPurchaseEmployeePerk,
-    getEmployeePerkNextCost,
-    perksByGen,
-    generators,
-    spentManagementPoints,
-  } = useGeneratorStore(
-    useShallow((s) => ({
-      purchaseEmployeePerk: s.purchaseEmployeePerk,
-      refundEmployeeManagementRow: s.refundEmployeeManagementRow,
-      getManagementPointsSpentOnRow: s.getManagementPointsSpentOnRow,
-      canPurchaseEmployeePerk: s.canPurchaseEmployeePerk,
-      getEmployeePerkNextCost: s.getEmployeePerkNextCost,
-      perksByGen: s.employeeManagement.perks,
-      generators: s.generators,
-      spentManagementPoints: s.employeeManagement.spentManagementPoints,
-    })),
-  );
+  const generators = useGeneratorStore((s) => s.generators);
 
   const { employees, legacies, candidatePool } = useTeamLeadersEmployeesStore(
     useShallow((s) => ({
@@ -571,11 +444,6 @@ export const EmployeeManagementPanel = () => {
       candidatePool: s.candidatePool,
     })),
   );
-
-  const tierTotal = useInnovationStore((s) =>
-    ManagerKeyValues.reduce((sum, key) => sum + s.managers[key].tier.floor().toNumber(), 0),
-  );
-  const available = tierTotal - spentManagementPoints;
 
   // Change 4: memoize derived values
   const totalUnspent = useMemo(
@@ -601,12 +469,6 @@ export const EmployeeManagementPanel = () => {
         <HireDialog role={hiringFor} onClose={() => setHiringFor(null)} />
       )}
 
-      {/* Budget: the managers' tiers, and what is left of them to spend */}
-      <StatGrid>
-        <Stat label="Manager tiers" value={tierTotal} />
-        <Stat label="To spend" value={available} role={available > 0 ? "warn" : undefined} />
-      </StatGrid>
-
       {/* Change 5: team leaders section as sub-component */}
       {hasTeamLeadersSection && (
         <TeamLeadersSection
@@ -620,17 +482,6 @@ export const EmployeeManagementPanel = () => {
         />
       )}
 
-      {/* Change 5: micromanagement section as sub-component */}
-      <MicromanagementSection
-        perksByGen={perksByGen}
-        generators={generators}
-        available={available}
-        getManagementPointsSpentOnRow={getManagementPointsSpentOnRow}
-        refundEmployeeManagementRow={refundEmployeeManagementRow}
-        getEmployeePerkNextCost={getEmployeePerkNextCost}
-        canPurchaseEmployeePerk={canPurchaseEmployeePerk}
-        purchaseEmployeePerk={purchaseEmployeePerk}
-      />
     </div>
   );
 };

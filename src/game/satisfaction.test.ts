@@ -9,13 +9,6 @@ import {
   vibeSlopMultiplier,
 } from "./satisfaction";
 
-const zeroPerks = {
-  moneyLevel: 0,
-  innovationLevel: 0,
-  costLevel: 0,
-  autoBuyLevel: 0,
-};
-
 describe("morale's effects, on its −40…+40 scale", () => {
   test("output: ×0.5 at −40, ×1 at 0, ×2 at +40, linear each side, clamped", () => {
     expect(satisfactionRevenueMultiplier(-40)).toBeCloseTo(0.5, 6);
@@ -47,37 +40,17 @@ describe("morale's effects, on its −40…+40 scale", () => {
 });
 
 describe("stepSatisfactionScores", () => {
-  test("moves toward a lower target when perks cost morale", () => {
+  test("moves toward a lower target when policies cost morale", () => {
     const prev = defaultSatisfactionScores();
-    const perks = {
-      intern: { ...zeroPerks, moneyLevel: 2 },
-      vibe_coder: { ...zeroPerks },
-      "10x_dev": { ...zeroPerks },
-    };
-    const amounts = { intern: 80, vibe_coder: 0, "10x_dev": 0 };
-    const next = stepSatisfactionScores(prev, perks, amounts, 5);
+    const next = stepSatisfactionScores(prev, { intern: ["crunch"], vibe_coder: [], "10x_dev": [] }, 5);
     expect(next.intern).toBeLessThan(prev.intern);
     expect(next.vibe_coder).toBe(prev.vibe_coder);
   });
 });
 
-describe("satisfactionTargetForRole", () => {
-  test("more money perks lowers target", () => {
-    const low = satisfactionTargetForRole("intern", 5, {
-      ...zeroPerks,
-      moneyLevel: 0,
-    });
-    const high = satisfactionTargetForRole("intern", 5, {
-      ...zeroPerks,
-      moneyLevel: 10,
-    });
-    expect(high).toBeLessThan(low);
-  });
-});
-
-describe("work: the perks, on the new scale", () => {
-  test("headcount alone moves nothing: crowding is the town's", () => {
-    expect(satisfactionTargetForRole("intern", 1e9, zeroPerks)).toBe(0);
-    expect(satisfactionTargetForRole("10x_dev", 500, zeroPerks)).toBe(0);
+describe("work: the policies, on the new scale", () => {
+  test("work is the policies' morale added up; none, nothing", () => {
+    expect(satisfactionTargetForRole([])).toBe(0);
+    expect(satisfactionTargetForRole(["crunch", "lunch"])).toBe(-2);
   });
 });

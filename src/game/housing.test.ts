@@ -196,16 +196,13 @@ describe("the gate", () => {
   test("auto-buy, and therefore an absence, cannot outrun the housing", () => {
     ungate = gateAt(3);
     const g = useGeneratorStore.getState();
-    // One intern to seed it (auto-buy skips a generator at zero), and a perk
-    // level so the rate is above zero at all.
+    // One intern to seed it (auto-buy skips a generator at zero), and Always
+    // Be Hiring so the rate is above zero at all.
     g.increaseGenerator("intern", 1);
     useGeneratorStore.setState((st) => ({
       employeeManagement: {
         ...st.employeeManagement,
-        perks: {
-          ...st.employeeManagement.perks,
-          intern: { ...st.employeeManagement.perks.intern, autoBuyLevel: 20 },
-        },
+        policies: { ...st.employeeManagement.policies, intern: ["pipeline"] },
       },
     }));
     expect(useGeneratorStore.getState().getAutoBuyRate("intern")).toBeGreaterThan(0);

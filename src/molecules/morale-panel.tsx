@@ -31,7 +31,7 @@ const KINDS: readonly GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 const PART_NAME: Record<MoralePart, string> = { home: "Home", work: "Work", leaders: "Leaders", events: "Events", founder: "Founder" };
 const PART_HINT: Record<MoralePart, string> = {
   home: "Their houses' morale: commutes, services, crowding, the slop pit. Show it on the map",
-  work: "The perks bought for them in employee management",
+  work: "The work policies they are run by",
   leaders: "Team leaders' skills and pairings",
   events: "Hackathons, floods and the AI's memos, felt for a day",
   founder: "Traits fused into the founder",
@@ -64,13 +64,13 @@ function MoraleBar({ score }: { score: number }) {
 function useMorale() {
   useTicking(1000);
   const scores = useGeneratorStore((s) => s.satisfactionScores);
-  const perks = useGeneratorStore((s) => s.employeeManagement.perks);
+  const policies = useGeneratorStore((s) => s.employeeManagement.policies);
   const generators = useGeneratorStore((s) => s.generators);
   const effective = useGeneratorStore((s) => s.getEffectiveSatisfaction);
   const emOpen = useInnovationStore((s) => s.unlocks.employeeManagement?.unlocked ?? false);
   const leaders = useTeamLeadersEmployeesStore((s) => s.employees);
   const amounts = Object.fromEntries(generators.map((g) => [g.id, g.amount])) as Record<GeneratorId, number>;
-  const parts = moralePartsNow(perks, amounts, emOpen ? leaders : []);
+  const parts = moralePartsNow(policies, emOpen ? leaders : []);
   const hired = (id: GeneratorId) => (amounts[id] ?? 0) > 0;
   return { scores, parts, effective, hired };
 }

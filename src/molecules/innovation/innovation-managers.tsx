@@ -8,6 +8,7 @@ import { showProject } from "../../world/play/map-focus";
 import { CycleButton } from "../../ui/CyclingButton";
 import { EmployeeManagementPanel } from "./employee-management-panel";
 import ManagerRow from "./manager-row";
+import { PoliciesPanel } from "./policies-panel";
 
 export const InnovationManagers = () => {
   const {
@@ -64,13 +65,11 @@ export const InnovationManagers = () => {
         </Panel>
       )}
 
+      {/* WORK POLICIES, in the slots the managers' tiers give. @see game/policies */}
+      {employeeManagementState?.unlocked && <PoliciesPanel />}
+
       {employeeManagementState?.unlocked && (
-        <Panel
-          title="Employee Management"
-          help="Spend management points from manager tiers on each role. Refund a row
-          to return all points spent on that role. Auto-buy purchases one
-          employee per tick when you can afford it (fractions accumulate)."
-        >
+        <Panel title="Team leaders" help="One leader for each kind: hire, rank up and spend their points on skills.">
           <EmployeeManagementPanel />
         </Panel>
       )}
