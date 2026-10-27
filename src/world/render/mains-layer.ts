@@ -25,17 +25,24 @@
 import { Container, Graphics, Text } from "pixi.js";
 
 import { NEIGHBOUR } from "../../iso/dir";
-import { MAIN_AI, MAIN_BORE, MAIN_END, idx, inBounds, type Grid } from "../grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, idx, inBounds, structureAt, type Grid } from "../grid";
 import { allTanks } from "../projects/cooling";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { findMains, joined, mainReportAt, mainReports, type MainState } from "../water/mains";
 import type { BandLayer } from "./bands";
 
 const SIDES = ["N", "E", "S", "W"] as const;
-/** The tube: its casing, body and highlight; how wide, in tile units; how high it lies off the ground, in half steps. */
-const CASING = 0x2b3440, BODY = 0x8796a8, SHINE = 0xc9d3de;
-const WIDE = 0.16;
-const LIFT = 0.6;
+/**
+ * The tube: its shade (the underside), body and highlight; how wide, in tile
+ * units; how high its middle lies off the ground, in half steps. And the
+ * overlay's line, wider than the tube so a main reads at any zoom.
+ */
+const CASING = 0x2b3440, BODY = 0x8796a8, SHADE = 0x5d6b7c, SHINE = 0xd4dde6, COLLAR = 0x6f7d8e;
+const WIDE = 0.11;
+const OVERLAY_WIDE = 0.16;
+const LIFT = 0.45;
+/** Concrete for the saddles and posts it rests on. */
+const CONCRETE = 0xc9c4b8, CONCRETE_SIDE = 0xaaa59a, CONCRETE_DARK = 0x958f84;
 /** How high a main rides over a road, half steps; how much fatter a widened bore is. */
 const ROAD_LIFT = 2.4;
 const BORE_WIDE = 1.4;
@@ -61,6 +68,34 @@ export type MainsLayer = {
 
 /** The point in screen space of map coordinates (cell centres on the integers) at `z` half steps. */
 const P = (s: number, u: number, v: number, z: number): [number, number] => [(u - v) * HW * s, (u + v) * HH * s - z * HEIGHT_UNIT * s];
+
+/**
+ * A RING ROUND THE TUBE: a collar or a flange, drawn as the ellipse it is in
+ * the plane across the tube — the tube running along `u` (N–S) or `v` (E–W) —
+ * `px` its radius on screen.
+ */
+function ring(gfx: Graphics, s: number, u: number, v: number, z: number, along: "u" | "v", px: number, colour: number) {
+  const rT = px / (Math.hypot(HW, HH) * s), rZ = px / (HEIGHT_UNIT * s), pts: number[] = [];
+  for (let k = 0; k < 16; k++) {
+    const t = (k / 16) * Math.PI * 2, c = Math.cos(t) * rT;
+    pts.push(...P(s, u + (along === "v" ? c : 0), v + (along === "u" ? c : 0), z + Math.sin(t) * rZ));
+  }
+  gfx.poly(pts);
+  gfx.fill({ color: colour });
+}
+
+/**
+ * A SOLID BOX in the map's own axes, from (u0, v0) to (u1, v1), z0 to z1 half
+ * steps: its top and the two sides that face the camera (+v and +u), shaded.
+ * What the saddles, posts and fittings are made of.
+ */
+function isoBox(gfx: Graphics, s: number, u0: number, v0: number, u1: number, v1: number, z0: number, z1: number, top: number, left: number, right: number) {
+  const q = (u: number, v: number, z: number) => P(s, u, v, z);
+  const poly = (pts: [number, number][], colour: number) => { gfx.poly(pts.flat()); gfx.fill({ color: colour }); };
+  poly([q(u0, v1, z1), q(u1, v1, z1), q(u1, v1, z0), q(u0, v1, z0)], left);
+  poly([q(u1, v0, z1), q(u1, v1, z1), q(u1, v1, z0), q(u1, v0, z0)], right);
+  poly([q(u0, v0, z1), q(u1, v0, z1), q(u1, v1, z1), q(u0, v1, z1)], top);
+}
 
 const ground = (g: Grid, x: number, y: number) => (inBounds(g, x, y) ? g.height[idx(g, x, y)] : 0);
 
@@ -119,57 +154,57 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     const z = levelAt(g, x, y), floor = ground(g, x, y);
     const c = P(s, x, y, z);
     const bits = g.main[i], ai = (bits & MAIN_AI) !== 0;
-    const w = WIDE * HW * 2 * s * (bits & MAIN_BORE ? BORE_WIDE : 1);
-    // STILTS, where it rides high: a pair of legs down to the ground, behind the tube.
-    if (z - floor > LIFT + 0.4) {
-      const f = P(s, x, y, floor);
-      for (const o of [-0.5, 0.5]) gfx.moveTo(c[0] + o * w, c[1]).lineTo(f[0] + o * w * 1.3, f[1]);
-      gfx.stroke({ color: CASING, width: Math.max(1, w * 0.28) });
-      gfx.moveTo(f[0] - w, f[1]).lineTo(f[0] + w, f[1]);
-      gfx.stroke({ color: CASING, width: Math.max(1, w * 0.2) });
+    const bore = bits & MAIN_BORE ? BORE_WIDE : 1;
+    const w = WIDE * HW * 2 * s * bore;
+    /** The tube's radius in half steps, for what it rests on. */
+    const rz = (WIDE * bore * HW * 2) / HEIGHT_UNIT / 2;
+    const straight = legs.length === 2 && (joined(g, x, y, "N") && joined(g, x, y, "S") || joined(g, x, y, "E") && joined(g, x, y, "W"));
+    // ITS SHADOW on the ground, softly, under where it lies.
+    const lift = (z - floor) * HEIGHT_UNIT * s;
+    for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay + lift).lineTo(bx, by + lift);
+    gfx.stroke({ color: 0x000000, width: w * 1.3, cap: "round", join: "round", alpha: 0.16 });
+    // WHAT IT RESTS ON: posts where it rides high, a low saddle every other tile.
+    const high = z - floor > LIFT + 0.4;
+    if (high) {
+      for (const o of [-0.09, 0.09]) isoBox(gfx, s, x + o - 0.025, y - o - 0.025, x + o + 0.025, y - o + 0.025, floor, z - rz, CONCRETE, CONCRETE_SIDE, CONCRETE_DARK);
+    } else if (straight && (x + y) % 2 === 0) {
+      isoBox(gfx, s, x - 0.07, y - 0.07, x + 0.07, y + 0.07, floor, z - rz * 0.4, CONCRETE, CONCRETE_SIDE, CONCRETE_DARK);
     }
-    // The tube: casing, body, highlight — round caps, so lengths meet without a seam.
-    for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay).lineTo(bx, by);
+    // THE TUBE, shaded as a cylinder: its underside, its body, the light along its top.
+    for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay + w * 0.12).lineTo(bx, by + w * 0.12);
     if (!legs.length) gfx.circle(c[0], c[1], w * 0.5);
-    gfx.stroke({ color: CASING, width: w * 1.25, cap: "round", join: "round" });
-    for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay).lineTo(bx, by);
-    gfx.stroke({ color: ai ? AI_BODY : BODY, width: w, cap: "round", join: "round" });
-    for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay - w * 0.22).lineTo(bx, by - w * 0.22);
-    gfx.stroke({ color: SHINE, width: Math.max(1, w * 0.22), cap: "round", alpha: 0.9 });
-    // THE AI'S: a band of its violet round the middle of each length.
-    if (ai && legs.length) {
-      const [ax, ay, bx, by] = legs[0];
-      gfx.moveTo(ax + (bx - ax) * 0.45, ay + (by - ay) * 0.45).lineTo(ax + (bx - ax) * 0.65, ay + (by - ay) * 0.65);
-      gfx.stroke({ color: AI_BAND, width: w * 1.08, cap: "butt" });
-    }
-    // A flange every few tiles, where a run is straight.
-    if (legs.length === 2 && (x + y) % 3 === 0) {
-      gfx.circle(c[0], c[1], w * 0.68);
-      gfx.fill({ color: CASING });
-      gfx.circle(c[0], c[1], w * 0.5);
-      gfx.fill({ color: BODY });
-    }
-    // THE FITTING at an end.
+    gfx.stroke({ color: ai ? 0x6e5f8f : SHADE, width: w, cap: "round", join: "round" });
+    for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay - w * 0.05).lineTo(bx, by - w * 0.05);
+    gfx.stroke({ color: ai ? AI_BODY : BODY, width: w * 0.8, cap: "round", join: "round" });
+    for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay - w * 0.26).lineTo(bx, by - w * 0.26);
+    gfx.stroke({ color: SHINE, width: Math.max(0.6, w * 0.18), cap: "round", join: "round", alpha: 0.85 });
+    // WHICH WAY it runs here: N–S along u, E–W along v. @see NEIGHBOUR
+    const along: "u" | "v" = joined(g, x, y, "N") || joined(g, x, y, "S") ? "u" : "v";
+    // A COLLAR every few tiles of a straight run, and the AI's violet band: rings round the tube.
+    if (straight && (x + y) % 4 === 0) ring(gfx, s, x, y, z, along, w * 0.6, COLLAR);
+    if (ai && straight && (x + y) % 4 === 2) ring(gfx, s, x, y, z, along, w * 0.58, AI_BAND);
+    // THE FITTING at an end: solids, sized to the tube.
     const end = g.mainEnd[i];
     if (end === MAIN_END.intake) {
-      gfx.rect(c[0] - w * 0.9, c[1] - w * 0.9, w * 1.8, w * 1.4);
-      gfx.fill({ color: GRATE });
-      for (let k = -1; k <= 1; k++) gfx.rect(c[0] - w * 0.75, c[1] - w * 0.55 + k * w * 0.4, w * 1.5, w * 0.12);
-      gfx.fill({ color: SHINE, alpha: 0.7 });
-    } else if (end === MAIN_END.pump) {
-      gfx.rect(c[0] - w * 1.4, c[1] - w * 2.6, w * 2.8, w * 2.6);
-      gfx.fill({ color: PUMP_BODY });
-      gfx.rect(c[0] - w * 1.4, c[1] - w * 2.9, w * 2.8, w * 0.4);
-      gfx.fill({ color: PUMP_TRIM });
-      gfx.circle(c[0] + w * 0.5, c[1] - w * 1.3, w * 0.7);
-      gfx.stroke({ color: CASING, width: Math.max(1, w * 0.2) });
+      // A grated bell mouth, set into the water at the bank.
+      isoBox(gfx, s, x - 0.09, y - 0.09, x + 0.09, y + 0.09, z - rz * 1.2, z + rz * 0.9, COLLAR, SHADE, CASING);
+      for (const k of [-0.045, 0, 0.045]) { const a = P(s, x - 0.07, y + k, z + rz * 0.9), b = P(s, x + 0.07, y + k, z + rz * 0.9); gfx.moveTo(a[0], a[1]).lineTo(b[0], b[1]); }
+      gfx.stroke({ color: GRATE, width: Math.max(0.5, w * 0.1) });
+    } else if (end === MAIN_END.pump && g.structures.get(structureAt(g, x, y))?.def !== "pump") {
+      // A small pump house on the bank, where no pump house building stands: walls, a roof in the pump's amber, a wheel on its side.
+      const top = Math.max(z + rz * 2, floor + 2.6);
+      isoBox(gfx, s, x - 0.22, y - 0.18, x + 0.22, y + 0.18, floor, top, 0x6f8fae, PUMP_BODY, 0x3e5872);
+      isoBox(gfx, s, x - 0.25, y - 0.21, x + 0.25, y + 0.21, top, top + 0.35, PUMP_TRIM, 0xb8812a, 0x9a6b22);
+      const hub = P(s, x + 0.22, y, (floor + top) / 2);
+      gfx.ellipse(hub[0], hub[1], w * 0.55, w * 0.8);
+      gfx.stroke({ color: CASING, width: Math.max(0.6, w * 0.16) });
     } else if (end === MAIN_END.outlet) {
-      gfx.circle(c[0], c[1] - w * 0.9, w * 0.75);
-      gfx.stroke({ color: VALVE, width: Math.max(1.2, w * 0.25) });
-      gfx.moveTo(c[0] - w * 0.75, c[1] - w * 0.9).lineTo(c[0] + w * 0.75, c[1] - w * 0.9);
-      gfx.stroke({ color: VALVE, width: Math.max(1, w * 0.18) });
+      // A flange where it meets the building, and a small valve wheel on it.
+      ring(gfx, s, x, y, z, along, w * 0.72, COLLAR);
+      gfx.circle(c[0], c[1] - w * 1.05, w * 0.42);
+      gfx.stroke({ color: VALVE, width: Math.max(0.6, w * 0.16) });
     } else if (end === MAIN_END.cap) {
-      gfx.circle(c[0], c[1], w * 0.62);
+      gfx.circle(c[0], c[1], w * 0.55);
       gfx.fill({ color: CAP });
     }
     return gfx;
@@ -300,8 +335,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       for (const gfx of wet) gfx.clear();
       wet.clear();
       const t = now / 1000;
-      const w = WIDE * HW * 2 * scale;
-      if (overlayOn) drawWater(g, scale, w, now);
+      const w = WIDE * HW * 2 * scale, ow = OVERLAY_WIDE * HW * 2 * scale;
+      if (overlayOn) drawWater(g, scale, ow, now);
       else if (words.visible) words.visible = false;
       // THE MAIN BEING DRAGGED: its route as a tube of light, teal where it will work, amber where it won't.
       if (preview && preview.length) {
@@ -310,10 +345,10 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
           const p = P(scale, c.x, c.y, levelAt(g, c.x, c.y));
           if (k === 0) flow.moveTo(p[0], p[1]); else flow.lineTo(p[0], p[1]);
         }
-        flow.stroke({ color: colour, width: w * 1.1, cap: "round", join: "round", alpha: 0.45 + 0.15 * Math.sin(t * 6) });
+        flow.stroke({ color: colour, width: ow * 1.1, cap: "round", join: "round", alpha: 0.45 + 0.15 * Math.sin(t * 6) });
         for (const c of [preview[0], preview[preview.length - 1]]) {
           const p = P(scale, c.x, c.y, levelAt(g, c.x, c.y));
-          flow.circle(p[0], p[1], w * 0.8);
+          flow.circle(p[0], p[1], ow * 0.8);
           flow.fill({ color: colour, alpha: 0.8 });
         }
       }
@@ -364,15 +399,16 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
           const pulse = 0.55 + 0.45 * Math.sin(t * 4);
           for (const i of at) {
             const x = i % g.w, y = (i / g.w) | 0;
-            const c = P(scale, x, y, levelAt(g, x, y));
-            flow.circle(c[0], c[1] - w * 2.4, w * 0.9);
+            // Floated over the fitting: a pump house stands tall at an intake.
+            const c = P(scale, x, y, Math.max(levelAt(g, x, y), ground(g, x, y) + 3.4));
+            flow.circle(c[0], c[1] - ow * 2.4, ow * 0.9);
             flow.fill({ color: WARN, alpha: pulse });
-            flow.rect(c[0] - w * 0.12, c[1] - w * 2.9, w * 0.24, w * 0.6);
+            flow.rect(c[0] - ow * 0.12, c[1] - ow * 2.9, ow * 0.24, ow * 0.6);
             flow.fill({ color: 0x1a1a1a, alpha: pulse });
           }
         }
       }
-      for (const gfx of wet) gfx.stroke({ color: WATER, width: Math.max(1, w * 0.45), cap: "round", alpha: 0.95 });
+      for (const gfx of wet) gfx.stroke({ color: WATER, width: Math.max(0.8, w * 0.35), cap: "round", alpha: 0.95 });
     },
     destroy() {
       clear();
