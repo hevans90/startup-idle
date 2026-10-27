@@ -172,7 +172,7 @@ All of it happens in `world/ai/autopilot.ts`, logged in its memos.
 5. **Talent Agency and leaders on the map.** (Done. The old pairings, global skills and per-workplace +25% went; the legacy bonus for a leader let go stays until connections.)
    - The project, placement, teams from commutes, the rank/perk loop, the badge and card.
    - Old leaders converted.
-6. **LinkedOut.** The window, posts and trickle, profiles and headlines, red flags and checks, reputation and reviews, connections.
+6. **LinkedOut.** (Done. Legacy bonuses for leaders let go stay as they were; connections are separate.) The window, posts and trickle, profiles and headlines, red flags and checks, reputation and reviews, connections.
 7. **The Model's runs and term sheets.** AI mode's leader and policy steps; investors rewritten.
 8. **Tests, README, a pass in the browser at every stage of a run.**
 

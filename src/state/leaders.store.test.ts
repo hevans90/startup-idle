@@ -11,14 +11,15 @@ describe("the leaders on the payroll", () => {
     store().reset();
   });
 
-  test("one a kind: hired from candidates, placed, ranked by XP, a perk picked, let go", () => {
-    store().generateCandidates("intern");
-    const c = store().candidatePool.intern![0];
-    store().hireCandidateFromPool("intern", c.id);
-    expect(store().employees.map((e) => e.id)).toEqual([c.id]);
-    // A second hire for the same kind does nothing.
-    store().generateCandidates("intern");
-    expect(store().candidatePool.intern).toBeUndefined();
+  test("one a kind: hired (replacing who was there), placed, ranked by XP, a perk picked, let go", () => {
+    const c = { id: "a", role: "intern" as const, name: "Ada", personality: "overachiever" as const, rank: 0, xp: 0, perks: [], placedAt: 5 };
+    expect(store().hire(c)).toBeNull();
+    // Hired unplaced, whatever they came with.
+    expect(store().employees).toEqual([{ ...c, placedAt: null }]);
+    const b = { ...c, id: "b", name: "Bo" };
+    expect(store().hire(b)!.id).toBe("a");
+    expect(store().employees.map((e) => e.id)).toEqual(["b"]);
+    store().hire(c);
 
     store().setPlacing("intern");
     store().placeLeader(c.id, 42);

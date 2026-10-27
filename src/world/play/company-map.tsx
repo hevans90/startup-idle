@@ -9,6 +9,8 @@
  * of the bundle, and the founder screen does not need it.
  */
 import { LeaderPlacement } from "./leader-placement";
+import { LinkedOut } from "../../molecules/linkedout";
+import { useLinkedOutStore } from "../../state/linkedout.store";
 import { TopStreets } from "./top-streets";
 import { DesireReadout } from "./desire-readout";
 import { useEffect } from "react";
@@ -57,6 +59,8 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
     const s = structureOf(st.grid, st.lookedAt.x, st.lookedAt.y);
     const p = s && !s.build ? projectForStructure(s.def) : null;
     if (p?.opens) useGlobalSettingsStore.getState().setSidebarTab(p.opens);
+    // The Talent Agency: and LinkedOut, where leaders are found. @see LinkedOut
+    if (p?.id === "agency") useLinkedOutStore.getState().setOpen(true);
   }), []);
   const phone = isPhone();
   return (
@@ -64,6 +68,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
       <WorldCanvas wrapperRef={wrapperRef} size={size} />
       <BuildingLabels />
       <LeaderPlacement />
+      <LinkedOut />
       {SHOW_PERF && <PerfHud />}
       <DesireReadout />
       <PortIncome />

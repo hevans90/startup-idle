@@ -4,10 +4,11 @@
  * and how far to the next, the perk to pick when a rank is reached; placed
  * on the map, moved, or let go. @see game/leaders, team-leaders.store
  */
-import { useState } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { LEADER_PERKS, MAX_LEADER_RANK, PERSONALITIES, XP_AT, perkOffer, type Leader } from "../game/leaders";
+import { RED_FLAGS } from "../game/linkedout";
+import { useLinkedOutStore } from "../state/linkedout.store";
 import { leaderTeam } from "../game/projects";
 import { structureDef } from "../world/structures/def";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
@@ -18,7 +19,6 @@ import { useTicking } from "../hooks/use-ticking";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { EmployeeAvatar } from "./innovation/employee-avatar";
-import { HireDialog } from "./innovation/hire-dialog";
 
 export const KIND_PLURAL: Record<GeneratorId, string> = { intern: "interns", vibe_coder: "vibe coders", "10x_dev": "10x devs" };
 
@@ -37,7 +37,9 @@ function whereText(l: Leader, owned: number): { text: string; ok: boolean } {
 }
 
 function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
-  const { pickPerk, setPlacing, placeLeader, fireEmployee } = useTeamLeadersEmployeesStore.getState();
+  const { pickPerk, setPlacing, placeLeader } = useTeamLeadersEmployeesStore.getState();
+  const letGo = useLinkedOutStore((s) => s.letGo);
+  const flag = l.flag ? RED_FLAGS[l.flag] : null;
   const placing = useTeamLeadersEmployeesStore((s) => s.placing === l.role);
   const p = PERSONALITIES[l.personality];
   const offer = perkOffer(l);
@@ -61,6 +63,8 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
           </div>
         </div>
       </div>
+      {/* What their profile did not say, shown once they started. @see RED_FLAGS */}
+      {flag && <p className={twMerge("text-[11px]", flag.bad ? "text-bad" : "text-good")}>{flag.name}: {flag.says}</p>}
       <p className={twMerge("text-[11px]", where.ok ? "text-fg-muted" : "text-bad")}>
         {placing ? `Click a building where your ${KIND_PLURAL[l.role]} work.` : where.text}
       </p>
@@ -87,7 +91,7 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
           ? <Button size="sm" variant="quiet" onClick={() => setPlacing(null)}>Cancel</Button>
           : <Button size="sm" variant={l.placedAt === null ? "primary" : "secondary"} onClick={place}>{l.placedAt === null ? "Place on the map" : "Move"}</Button>}
         {l.placedAt !== null && !placing && <Button size="sm" variant="quiet" onClick={() => placeLeader(l.id, null)}>Take out</Button>}
-        <Button size="sm" variant="danger" confirm={`Let ${l.name.split(" ")[0]} go?`} onClick={() => fireEmployee(l.id)}>Let go</Button>
+        <Button size="sm" variant="danger" confirm={`Let ${l.name.split(" ")[0]} go?`} onClick={() => letGo(l.id)}>Let go</Button>
       </div>
     </div>
   );
@@ -97,12 +101,11 @@ export function LeadersPanel() {
   useTicking(1000);
   const generators = useGeneratorStore((s) => s.generators);
   const leaders = useTeamLeadersEmployeesStore((s) => s.employees);
-  const [hiring, setHiring] = useState<GeneratorId | null>(null);
+  const openLinkedOut = useLinkedOutStore((s) => s.setOpen);
   const kinds = generators.filter((g) => g.amount > 0);
   if (!kinds.length) return null;
   return (
     <Panel title="Leaders" help="One leader for each kind, in a building where that kind works: the people there feel them in full, the rest of the kind half. They rank up from their team's work, and pick a perk at every rank.">
-      {hiring && <HireDialog role={hiring} onClose={() => setHiring(null)} />}
       <div className="flex flex-col gap-3">
         {kinds.map((g) => {
           const id = g.id as GeneratorId, l = leaders.find((x) => x.role === id);
@@ -112,7 +115,7 @@ export function LeadersPanel() {
               {l ? <LeaderCard l={l} owned={g.amount} /> : (
                 <div className="flex items-center justify-between gap-2 border border-dashed border-line px-2.5 py-2 text-xs text-fg-muted">
                   No leader yet.
-                  <Button size="sm" variant="primary" onClick={() => setHiring(id)}>Find one</Button>
+                  <Button size="sm" variant="primary" onClick={() => openLinkedOut(true)}>Find one on LinkedOut</Button>
                 </div>
               )}
             </section>

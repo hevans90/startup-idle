@@ -44,6 +44,7 @@ import { useFounderStore } from "./founder.store";
 import { getManagementTierTotal, useInnovationStore } from "./innovation.store";
 import { useMoneyStore } from "./money.store";
 import { usePrestigeStore } from "./prestige.store";
+import { useLinkedOutStore } from "./linkedout.store";
 import { useTeamLeadersEmployeesStore } from "./team-leaders.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
 import { useSlopPitStore } from "./slop-pit.store";
@@ -566,10 +567,12 @@ export const useGeneratorStore = create<GeneratorState>()(
           const outputAt = (id: GeneratorId) => satisfactionRevenueMultiplier(applyEffectiveSatisfaction(get().satisfactionScores[id], prestige));
           const led = leadersOpen ? leadersNow(amounts, outputAt) : { of: {}, everyone: 0 };
           if (leadersOpen) {
-            for (const g of get().generators) {
-              if (g.amount > 0) tlStore.generateCandidates(g.id);
-            }
             tlStore.tickTeamLeaders(seconds, (l) => led.of[l.role]?.xpPerSecond ?? 0);
+            // LINKEDOUT: applicants coming and going, and the company's
+            // morale remembered for its reputation. @see useLinkedOutStore
+            const kinds = get().generators.filter((g) => g.amount > 0);
+            const avg = kinds.length ? kinds.reduce((n, g) => n + get().satisfactionScores[g.id], 0) / kinds.length : 0;
+            useLinkedOutStore.getState().tick(now, seconds, avg);
           }
           const satisfactionScores = tickSatisfaction(
             get().satisfactionScores,

@@ -1,8 +1,8 @@
 /**
  * THE LEADERS ON THE PAYROLL: one a kind, each placed in a building of their
- * kind's or not yet; candidates to hire from, rerolled for innovation; and
- * what those let go leave behind. Ranks come from their team's work and a
- * perk is picked at each. @see game/leaders, LeadersPanel
+ * kind's or not yet, and what those let go leave behind. They are found on
+ * LinkedOut; ranks come from their team's work and a perk is picked at each.
+ * @see game/leaders, LeadersPanel, linkedout.store
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -17,16 +17,11 @@ import {
   type LeaderPerkId,
   type PersonalityId,
 } from "../game/leaders";
-import { getNamePool } from "../game/team-leaders.catalog";
-import { pickAvatarIds } from "../game/team-leader-avatars";
 import type { GeneratorId } from "./generators.store";
 import { useInnovationStore } from "./innovation.store";
 
 /** Kept under its old name, for those who read it. */
 export type TeamLeaderEmployee = Leader;
-
-let _idSeq = 0;
-const genId = () => `tl_${Date.now()}_${_idSeq++}`;
 
 export type LegacyBonus = {
   role: GeneratorId;
@@ -36,26 +31,17 @@ export type LegacyBonus = {
   ipsMult: number;
 };
 
-/** Innovation for the first reroll of a kind's candidates; doubling each time after. */
-export const REROLL_BASE_COST = 50;
-
 const PERSONALITY_IDS = Object.keys(PERSONALITIES) as PersonalityId[];
 
 type TeamLeaderState = {
   employees: Leader[];
   legacies: LegacyBonus[];
-  /** Candidates for each kind with no leader, shown before one is hired. */
-  candidatePool: Partial<Record<GeneratorId, Leader[]>>;
-  /** Rerolls of each kind's candidates since its last hire: the cost doubles. */
-  rerollCounts: Partial<Record<GeneratorId, number>>;
   /** The kind whose leader is being placed on the map, if one is. Not saved. */
   placing: GeneratorId | null;
 
-  generateCandidates: (role: GeneratorId) => void;
-  hireCandidateFromPool: (role: GeneratorId, candidateId: string) => void;
-  rerollCandidates: (role: GeneratorId) => void;
-  getRerollCost: (role: GeneratorId) => number;
-  /** Let a leader go: what they built up stays behind as a small lasting bonus. */
+  /** Take a leader on for their kind; whoever led it before leaves, and is returned. */
+  hire: (leader: Leader) => Leader | null;
+  /** Let a leader go: what they built up stays behind as a small lasting bonus. One who sues costs a quarter of the innovation. */
   fireEmployee: (id: string) => boolean;
   /** Take one of the three perks offered at a rank. */
   pickPerk: (id: string, perk: LeaderPerkId) => void;
@@ -67,22 +53,6 @@ type TeamLeaderState = {
 
   reset: () => void;
 };
-
-const pickRandom = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)];
-
-function makeCandidates(role: GeneratorId): Leader[] {
-  const namePool = getNamePool(role);
-  const names: string[] = [];
-  while (names.length < 3) {
-    const n = pickRandom(namePool);
-    if (!names.includes(n) || names.length >= namePool.length) names.push(n);
-  }
-  const personalities = [...PERSONALITY_IDS].sort(() => Math.random() - 0.5).slice(0, 3);
-  const avatarIds = pickAvatarIds(role, 3);
-  return names.map((name, i) => ({
-    id: genId(), role, name, avatarId: avatarIds[i], personality: personalities[i], rank: 0, xp: 0, perks: [], placedAt: null,
-  }));
-}
 
 /**
  * A LEADER FROM AN OLD SAVE, the stat-and-skills kind: the same person and
@@ -106,8 +76,6 @@ function fromSaved(raw: Record<string, unknown>): Leader | null {
 const defaultState = {
   employees: [] as Leader[],
   legacies: [] as LegacyBonus[],
-  candidatePool: {} as Partial<Record<GeneratorId, Leader[]>>,
-  rerollCounts: {} as Partial<Record<GeneratorId, number>>,
   placing: null as GeneratorId | null,
 };
 
@@ -116,41 +84,23 @@ export const useTeamLeadersEmployeesStore = create<TeamLeaderState>()(
     (set, get) => ({
       ...defaultState,
 
-      generateCandidates: (role) => {
-        const s = get();
-        if (s.employees.some((e) => e.role === role) || s.candidatePool[role]?.length) return;
-        set((st) => ({ candidatePool: { ...st.candidatePool, [role]: makeCandidates(role) } }));
-      },
-
-      hireCandidateFromPool: (role, candidateId) => {
-        set((s) => {
-          const c = s.candidatePool[role]?.find((x) => x.id === candidateId);
-          // One a kind: hired only where there is none.
-          if (!c || s.employees.some((e) => e.role === role)) return s;
-          return {
-            employees: [...s.employees, c],
-            candidatePool: { ...s.candidatePool, [role]: undefined },
-            rerollCounts: { ...s.rerollCounts, [role]: 0 },
-          };
-        });
-      },
-
-      getRerollCost: (role) => Math.round(REROLL_BASE_COST * Math.pow(2, get().rerollCounts[role] ?? 0)),
-
-      rerollCandidates: (role) => {
-        const cost = get().getRerollCost(role);
-        const inn = useInnovationStore.getState();
-        if (inn.innovation.lt(cost)) return;
-        inn.spendInnovation(cost);
+      hire: (leader) => {
+        const was = get().employees.find((e) => e.role === leader.role) ?? null;
         set((s) => ({
-          candidatePool: { ...s.candidatePool, [role]: makeCandidates(role) },
-          rerollCounts: { ...s.rerollCounts, [role]: (s.rerollCounts[role] ?? 0) + 1 },
+          employees: [...s.employees.filter((e) => e.role !== leader.role), { ...leader, placedAt: null }],
+          placing: s.placing === leader.role ? null : s.placing,
         }));
+        return was;
       },
 
       fireEmployee: (id) => {
         const emp = get().employees.find((e) => e.id === id);
         if (!emp) return false;
+        // SUES IF LET GO: a quarter of the innovation. @see RED_FLAGS
+        if (emp.flag === "litigious") {
+          const inn = useInnovationStore.getState();
+          inn.spendInnovation(inn.innovation.mul(0.25).toNumber());
+        }
         set((s) => {
           const was = s.legacies.find((l) => l.role === emp.role);
           return {
@@ -159,8 +109,6 @@ export const useTeamLeadersEmployeesStore = create<TeamLeaderState>()(
               ...s.legacies.filter((l) => l.role !== emp.role),
               { role: emp.role, revenueMult: (was?.revenueMult ?? 0) + emp.rank * 0.02, ipsMult: (was?.ipsMult ?? 0) + emp.rank * 0.01 },
             ],
-            candidatePool: { ...s.candidatePool, [emp.role]: makeCandidates(emp.role) },
-            rerollCounts: { ...s.rerollCounts, [emp.role]: 0 },
             placing: s.placing === emp.role ? null : s.placing,
           };
         });
@@ -200,29 +148,16 @@ export const useTeamLeadersEmployeesStore = create<TeamLeaderState>()(
       partialize: (s) => ({
         employees: s.employees,
         legacies: s.legacies,
-        candidatePool: s.candidatePool,
-        rerollCounts: s.rerollCounts,
       }),
-      // OLD SAVES' LEADERS, converted; one a kind, the highest rank kept; old candidates drawn again.
+      // OLD SAVES' LEADERS, converted; one a kind, the highest rank kept.
       merge: (persisted, current) => {
-        const p = (persisted ?? {}) as { employees?: unknown[]; legacies?: LegacyBonus[]; candidatePool?: Record<string, unknown[]>; rerollCounts?: TeamLeaderState["rerollCounts"] };
+        const p = (persisted ?? {}) as { employees?: unknown[]; legacies?: LegacyBonus[] };
         const byRole = new Map<GeneratorId, Leader>();
         for (const raw of p.employees ?? []) {
           const l = raw && typeof raw === "object" ? fromSaved(raw as Record<string, unknown>) : null;
           if (l && (!byRole.has(l.role) || byRole.get(l.role)!.rank < l.rank)) byRole.set(l.role, l);
         }
-        const candidatePool: TeamLeaderState["candidatePool"] = {};
-        for (const [role, list] of Object.entries(p.candidatePool ?? {})) {
-          const ok = (list ?? []).map((c) => (c && typeof c === "object" ? fromSaved(c as Record<string, unknown>) : null));
-          if (ok.length && ok.every((c) => c && (c as Leader).personality && "xp" in (c as object))) candidatePool[role as GeneratorId] = ok as Leader[];
-        }
-        return {
-          ...current,
-          employees: [...byRole.values()],
-          legacies: p.legacies ?? [],
-          candidatePool,
-          rerollCounts: p.rerollCounts ?? {},
-        };
+        return { ...current, employees: [...byRole.values()], legacies: p.legacies ?? [] };
       },
     },
   ),

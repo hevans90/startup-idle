@@ -1,4 +1,5 @@
 import { emptyLog, useGenerationStore } from "../state/generation.store";
+import { useLinkedOutStore } from "../state/linkedout.store";
 import { useQuestStore } from "../state/quest.store";
 import { SEED_ROUND, moduleLevel } from "../game/modules";
 import { useTrainingStore } from "../state/training.store";
@@ -29,6 +30,8 @@ import { retireRunSave } from "../world/io/world-save";
  * new one is chosen.
  */
 export function resetRunStores(): void {
+  // The leaders become connections before they go. @see useLinkedOutStore.newCompany
+  useLinkedOutStore.getState().newCompany();
   useMoneyStore.getState().reset();
   useUpgradeStore.getState().reset();
   useValuationStore.getState().reset();
@@ -78,6 +81,8 @@ export function resetAllGameStores(): void {
   useVapeAchievementsStore.getState().clearAll();
   // And the arc, its record with it. @see useQuestStore
   useQuestStore.getState().reset();
+  // And LinkedOut, connections and all.
+  useLinkedOutStore.getState().reset();
   // And the generations: a true new game begins at the first. @see useGenerationStore
   useGenerationStore.setState({
     generation: 1, sales: 0, log: emptyLog(), equity: 0, peakAgents: 0, weights: 0, modules: {}, slotted: [], machine: [], fused: {}, past: [], announce: null, legacy: null, contained: false,

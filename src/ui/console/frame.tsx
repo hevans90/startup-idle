@@ -85,7 +85,17 @@ export function Frame({ kind = "kranox", tone = "console", illuminate = false, l
       const container = document.createElementNS("http://www.w3.org/2000/svg", "g");
       const frame = f.createFrame(el, { ...SETTINGS[kind](f), container });
       const drawing = draws ? f.animateFrameAssembler({ element: el, duration: ASSEMBLE }) : null;
-      stop = () => { drawing?.stop(); frame.remove(); container.remove(); };
+      // ARWES SKIPS ITS OBSERVER'S FIRST CALL, taking it for the size it drew
+      // at; content that grows before that call arrives — a dialog's list
+      // filling as it opens — is never drawn round. Redrawn here whenever the
+      // size it was drawn at is not the size it is.
+      let drawn = `${el.clientWidth}x${el.clientHeight}`;
+      const sized = new ResizeObserver(() => {
+        const now = `${el.clientWidth}x${el.clientHeight}`;
+        if (now !== drawn) { drawn = now; frame.render(); }
+      });
+      sized.observe(el);
+      stop = () => { sized.disconnect(); drawing?.stop(); frame.remove(); container.remove(); };
     });
     return () => { gone = true; stop?.(); };
   }, [kind, draws]);

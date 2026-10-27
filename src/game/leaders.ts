@@ -6,6 +6,7 @@
  * nowhere, they do nothing. @see plans/innovation-overhaul.md §4, team-leaders.store
  */
 import type { GeneratorId } from "../state/generators.store";
+import type { RedFlagId } from "./linkedout";
 
 export type PersonalityId = "overachiever" | "chaos_agent" | "quiet_quitter" | "brown_noser" | "thought_leader" | "burnout_risk";
 export type LeaderPerkId = "inspire" | "ship" | "crunch" | "recruit" | "reach" | "sprint" | "mentor" | "culture" | "thick" | "autopilot";
@@ -75,6 +76,8 @@ export type Leader = {
   perks: LeaderPerkId[];
   /** The building they lead, by structure id; null while not placed. */
   placedAt: number | null;
+  /** What their profile did not say, if anything: shown once they start. @see RED_FLAGS */
+  flag?: RedFlagId | null;
 };
 
 /** The rank an amount of XP reaches. */
@@ -105,7 +108,8 @@ export function teamShare(l: Leader, team: number, owned: number): number {
   if (l.placedAt === null || owned <= 0) return 0;
   const rest = Math.max(...leans(l).map((x) => x.rest ?? REST_SHARE));
   const t = Math.min(team, owned);
-  return (t + rest * (owned - t)) / owned;
+  // Ghosts on Fridays: a fifth less of them. @see RED_FLAGS
+  return ((t + rest * (owned - t)) / owned) * (l.flag === "ghost" ? 0.8 : 1);
 }
 
 export type LeaderEffects = { output: number; innovation: number; morale: number; hireCost: number; autoBuy: number; everyone: number; xpPerSecond: number };
@@ -120,13 +124,14 @@ export function leaderEffects(l: Leader, team: number, owned: number, outputMult
   const share = teamShare(l, team, owned), all = leans(l);
   const sum = (k: keyof Lean) => all.reduce((n, x) => n + ((x[k] as number | undefined) ?? 0), 0);
   const placed = l.placedAt !== null;
-  const xpMult = all.reduce((n, x) => n * (x.xp ?? 1), 1);
+  // Secretly brilliant ranks faster; a quiet quitter stops at rank 3. @see RED_FLAGS
+  const xpMult = all.reduce((n, x) => n * (x.xp ?? 1), 1) * (l.flag === "brilliant" ? 1.5 : 1) * (l.flag === "quitter" && l.rank >= 3 ? 0 : 1);
   const t = Math.min(team, owned);
   return {
     output: 1 + share * (sum("output") + RANK_OUTPUT * l.rank),
     innovation: 1 + share * sum("innovation"),
     // + 0: never a negative nought, for nobody to see as "−0".
-    morale: share * sum("morale") + 0,
+    morale: share * (sum("morale") + (l.flag === "ego" ? -3 : 0)) + 0,
     hireCost: placed ? all.reduce((n, x) => n * (1 - (x.hireDiscount ?? 0)), 1) : 1,
     autoBuy: placed ? sum("autoBuy") : 0,
     everyone: placed ? sum("everyone") : 0,
