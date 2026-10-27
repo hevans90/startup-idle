@@ -426,7 +426,7 @@ export function previewMain(g: Grid, field: WaterField | null, plan: readonly Ma
   let flow = mainFlow(head, length);
   if (lifted > gravity && lifted > 0) flow = Math.min(flow, PUMP_MOST);
   const needsPump = sill !== null && sources.length > 0 && !(gravity > 0) && !sources.some((s) => s.pump) && gravity + pumpLift() > 0;
-  const problem = ends.includes("Goes nowhere") ? "This end goes nowhere: end it at water, a building that drinks, or another main"
+  const problem = ends.includes("Goes nowhere") ? "This end goes nowhere: end it at water, an inlet of a building that drinks, or another main"
     : sill === null ? "Feeds nothing: end it at an inlet of the Data Centre or one of the AI's buildings"
     : !sources.length ? "Draws from nothing: start it at water"
     : flow > 0 ? null

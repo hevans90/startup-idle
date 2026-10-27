@@ -7,7 +7,7 @@ import { resetCooling } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { layMain, mainsToPorts, outletBuilding, planMain, routeMain } from "./mains";
-import { portsOf } from "./ports";
+import { inletOpen, portsOf } from "./ports";
 
 afterEach(resetCooling);
 
@@ -57,5 +57,14 @@ describe("a building's ports", () => {
     const outlets = [...g.mainEnd.keys()].filter((i) => g.mainEnd[i] === MAIN_END.outlet);
     expect(outlets.map((i) => outletBuilding(g, i))).toEqual([dc.id]);
     expect(mainsToPorts(g, dry)).toBe(false);
+  });
+
+  test("are open to a main while one has no building on it", () => {
+    const { g } = town();
+    expect(inletOpen(g, "ai-node", 5, 5, 1, 1)).toBe(true);
+    // A house on each: the node's inlets at (6, 5) and (5, 6) are both covered.
+    for (const [x, y] of [[6, 5], [5, 6]]) commit(g, createHistory(), placeCommand(g, { ...structureDef("kit:intern.t0")!, placement: undefined }, x, y)!);
+    expect(inletOpen(g, "ai-node", 5, 5, 1, 1)).toBe(false);
+    expect(inletOpen(g, "kit:intern.t0", 5, 5, 1, 1)).toBe(true);
   });
 });

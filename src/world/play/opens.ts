@@ -5,6 +5,7 @@
  * click from whatever tool is in hand (but the demolish tool, which is for
  * buildings). @see company-map's lookedAt handler, the scene's picking
  */
+import { isDrinker } from "../../game/cooling";
 import { projectForStructure } from "../../game/projects";
 import type { ToolId } from "../edit/tools";
 
@@ -25,5 +26,9 @@ export const setPickable = (f: typeof pickable) => { pickable = f; };
 /** Whether a structure takes the click now: one being picked among, or one that opens something. */
 export const takesClick = (def: string, build: unknown): boolean => (pickable ? pickable(def, build) : opensSomething(def, build));
 
-/** Whether, with this tool in hand, a building that opens something takes the click. */
-export const clickTakesOver = (tool: ToolId) => tool !== "demolish";
+/**
+ * Whether, with this tool in hand, a building that opens something takes the
+ * click — or, given one, that building. Not with Demolish; and with the Pipe
+ * tool not one that drinks: a press on it starts a main, snapped to an inlet.
+ */
+export const clickTakesOver = (tool: ToolId, def?: string) => tool !== "demolish" && !(tool === "pipe" && def !== undefined && isDrinker(def));

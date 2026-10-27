@@ -20,10 +20,10 @@
  *
  * THE WATER OVERLAY, with the Pipe tool in hand or turned on: the town dimmed,
  * every main coloured by what it is doing, each building that drinks with its
- * tank as a ring, and the numbers — the water's depth at each intake, each
- * main's head. @see world/water/mains, plans/pipes-overhaul.md §3
+ * tank as a ring and a mark at each free inlet, and the numbers — the
+ * water's depth at each intake, each main's head. @see world/water/mains, plans/pipes-overhaul.md §3
  */
-import { Container, Graphics, Text } from "pixi.js";
+import { Container, Graphics, Matrix, Text } from "pixi.js";
 
 import { NEIGHBOUR } from "../../iso/dir";
 import { MAIN_AI, MAIN_BORE, MAIN_END, idx, inBounds, structureAt, type Grid } from "../grid";
@@ -133,6 +133,7 @@ function levelAt(g: Grid, x: number, y: number): number {
 export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLayer {
   const drawn = new Map<number, Graphics>();
   const ports: Graphics[] = [];
+  const scratch = new Matrix();
   /** The water in the tubes, a Graphics a band, over that band's tubes; and those drawn in last frame. */
   const water = new Map<number, Graphics>();
   const wet = new Set<Graphics>();
@@ -289,7 +290,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   /** THE WATER OVERLAY, this frame: the town dimmed; every main by its state; the tanks; the numbers. */
   const drawWater = (g: Grid, s: number, w: number, now: number) => {
     // A screen pixel, in the overlay's units: the rings and the numbers keep their size at any zoom.
-    const px = 1 / Math.max(1e-3, Math.abs(overlay.worldTransform.a));
+    // Worked out now, not read from `worldTransform`, which is last frame's: a zoom drew them its old size.
+    const px = 1 / Math.max(1e-3, Math.abs(overlay.getGlobalTransform(scratch, false).a));
     // Dimmed, the whole map and a margin round it for what stands up off it.
     const top = P(s, 0, 0, 40), bottom = P(s, g.w, g.h, -10), left = P(s, 0, g.h, 0), right = P(s, g.w, 0, 0);
     flow.rect(left[0] - 200 * s, top[1] - 200 * s, right[0] - left[0] + 400 * s, bottom[1] - top[1] + 400 * s);
@@ -328,6 +330,21 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       if (share > 0) {
         flow.moveTo(c[0], c[1] - r).arc(c[0], c[1], r, -Math.PI / 2, -Math.PI / 2 + share * Math.PI * 2);
         flow.stroke({ color: share < 0.25 ? WARN : WATER, width: 3.5 * px, cap: "round" });
+      }
+    }
+    // EACH FREE INLET, a mark to aim for: a main ends there, and nowhere else on the wall. @see portsOf
+    for (const [id] of allTanks()) {
+      const b = g.structures.get(id);
+      if (!b) continue;
+      for (const p of portsOf(g, b)) {
+        if (p.port.fluid !== "water" || g.main[p.i] || g.mainEnd[p.i]) continue;
+        const c = P(s, p.x, p.y, levelAt(g, p.x, p.y));
+        flow.circle(c[0], c[1], 5 * px);
+        flow.fill({ color: DIM, alpha: 0.8 });
+        flow.circle(c[0], c[1], 5 * px);
+        flow.stroke({ color: PORT_COLOUR.water, width: 2 * px });
+        flow.circle(c[0], c[1], 1.8 * px);
+        flow.fill({ color: WATER });
       }
     }
     // THE NUMBERS, twice a second: each tank's share, each intake's depth, each main's head.

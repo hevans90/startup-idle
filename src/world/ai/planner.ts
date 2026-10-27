@@ -40,6 +40,7 @@ import { connects, isPaved } from "../roads/mask";
 import { RACK_RANGE } from "../../game/agents";
 import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
+import { inletOpen, portTiles } from "../water/ports";
 import { demolishAt, liftRoad, paveRoad, placeStructure, reshape, widenMain } from "../play/build-actions";
 import { useSlopPitStore } from "../../state/slop-pit.store";
 import { layRoute, moreWater, neededPipe } from "./cooling-ai";
@@ -125,9 +126,17 @@ function spots(g: Grid, defId: string, d: District, near?: { at: Cell; within: n
     x0 = Math.max(x0, Math.floor(d.cx - d.r)); y0 = Math.max(y0, Math.floor(d.cy - d.r));
     x1 = Math.min(x1, Math.ceil(d.cx + d.r)); y1 = Math.min(y1, Math.ceil(d.cy + d.r));
   }
+  // THE INLETS of what drinks are kept clear, and what drinks is put where one of its own is open. @see inletOpen
+  const inlets = new Set<number>();
+  for (const s of g.structures.values()) if (isDrinker(s.def)) for (const t of portTiles(g, s.def, s.x, s.y, s.w, s.h)) inlets.add(idx(g, t.x, t.y));
+  const { w, h } = def.footprint;
+  const clear = (x: number, y: number) => {
+    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) if (inlets.has(idx(g, x + dx, y + dy))) return false;
+    return inletOpen(g, defId, x, y, w, h);
+  };
   for (let y = Math.max(0, y0); y <= Math.min(g.h - 1, y1); y++) {
     for (let x = Math.max(0, x0); x <= Math.min(g.w - 1, x1); x++) {
-      if (inDistrict(d, x, y) && validatePlacement(g, def, x, y, rules).ok) out.push({ x, y });
+      if (inDistrict(d, x, y) && validatePlacement(g, def, x, y, rules).ok && clear(x, y)) out.push({ x, y });
     }
   }
   return out;
@@ -373,7 +382,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       // An EMPTY house first, then one with a single soul in it, the unhappiest of those.
       // Trained on the people, it takes none anyone lives in.
       const most = skillOf("people") >= 1 ? 0 : 1;
-      const houses = structures.filter((s) => mine(s) && housedBy(s.def) && !s.build && s.w === 1 && s.h === 1 && (s.residents ?? 0) <= most);
+      const houses = structures.filter((s) => mine(s) && housedBy(s.def) && !s.build && s.w === 1 && s.h === 1 && (s.residents ?? 0) <= most && inletOpen(g, "ai-node", s.x, s.y, 1, 1));
       if (!houses.length) return null;
       houses.sort((a, b) => (a.residents ?? 0) - (b.residents ?? 0) || (moods.get(a.id)?.total ?? 0) - (moods.get(b.id)?.total ?? 0));
       const h = houses[0];
@@ -383,7 +392,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       // A café, a park, a gym or an office: a GPU farm now, for good.
       // THE LEAST USED: an office by its desks taken, a service by the houses
       // relying on it alone — no other of its kind in reach. @see usageOf
-      const taken = structures.filter((s) => mine(s) && !s.build && (["cafe", "park", "gym", "office-intern", "office-vibe"].includes(s.def)));
+      const taken = structures.filter((s) => mine(s) && !s.build && (["cafe", "park", "gym", "office-intern", "office-vibe"].includes(s.def)) && inletOpen(g, "gpu-farm", s.x, s.y, s.w, s.h));
       if (!taken.length || !net) return null;
       const usage = usageOf(g, net, structures);
       const s = taken.reduce((a, b) => (usage(b) < usage(a) ? b : a));

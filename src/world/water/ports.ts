@@ -12,20 +12,35 @@ import { structureDef, type Port } from "../structures/def";
 /** One port of a building on the map: the tile in front of it, its face, what it is, and whose. */
 export type PortCell = { i: number; x: number; y: number; port: Port; building: number };
 
+/** The tile in front of each port a building of `def` would have, set down at (x, y), `w` by `h`: off the map, left out. */
+export function portTiles(g: Grid, def: string, x0: number, y0: number, w: number, h: number): { x: number; y: number; port: Port }[] {
+  const out: { x: number; y: number; port: Port }[] = [];
+  for (const port of structureDef(def)?.ports ?? []) {
+    // Along a N/S face runs y; along an E/W face, x. Kept on the face if the footprint was placed smaller.
+    const ns = port.face === "N" || port.face === "S";
+    const at = Math.min(port.at, (ns ? h : w) - 1);
+    const [dx, dy] = NEIGHBOUR[port.face];
+    const x = ns ? (dx > 0 ? x0 + w : x0 - 1) : x0 + at;
+    const y = ns ? y0 + at : (dy > 0 ? y0 + h : y0 - 1);
+    if (inBounds(g, x, y)) out.push({ x, y, port });
+  }
+  return out;
+}
+
 /** A building's ports, the tile in front of each — none for one being built, or off the map. */
 export function portsOf(g: Grid, s: Structure): PortCell[] {
   if (s.build) return [];
-  const out: PortCell[] = [];
-  for (const port of structureDef(s.def)?.ports ?? []) {
-    // Along a N/S face runs y; along an E/W face, x. Kept on the face if the footprint was placed smaller.
-    const ns = port.face === "N" || port.face === "S";
-    const at = Math.min(port.at, (ns ? s.h : s.w) - 1);
-    const [dx, dy] = NEIGHBOUR[port.face];
-    const x = ns ? (dx > 0 ? s.x + s.w : s.x - 1) : s.x + at;
-    const y = ns ? s.y + at : (dy > 0 ? s.y + s.h : s.y - 1);
-    if (inBounds(g, x, y)) out.push({ i: idx(g, x, y), x, y, port, building: s.id });
-  }
-  return out;
+  return portTiles(g, s.def, s.x, s.y, s.w, s.h).map((t) => ({ ...t, i: idx(g, t.x, t.y), building: s.id }));
+}
+
+/**
+ * Whether a building of `def` set down at (x, y), `w` by `h`, would have an
+ * inlet a main could reach — one with no building on it. True for one with
+ * no ports. @see world/ai/planner
+ */
+export function inletOpen(g: Grid, def: string, x: number, y: number, w: number, h: number): boolean {
+  const tiles = portTiles(g, def, x, y, w, h);
+  return !structureDef(def)?.ports?.length || tiles.some((t) => structureAt(g, t.x, t.y) < 0);
 }
 
 /** The buildings beside a tile, once each. */

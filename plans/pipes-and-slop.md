@@ -1,6 +1,6 @@
 # Pipes that look built, and slop that has to go somewhere
 
-Status: **in progress** (phases 1–3 done), agreed in conversation on 2026-10-27. Follows `plans/pipes-overhaul.md`, whose model (mains, fittings, the steady-state solve) stays.
+Status: **in progress** (phases 1–4 done), agreed in conversation on 2026-10-27. Follows `plans/pipes-overhaul.md`, whose model (mains, fittings, the steady-state solve) stays.
 
 ## Why
 
@@ -128,7 +128,14 @@ Status: **in progress** (phases 1–3 done), agreed in conversation on 2026-10-2
 1. **The tube.** (Done: drawn with boxes and rings rather than baked pieces, which keeps the per-cell redraw as it was.) Iso pieces, slim, sorted in bands, saddles and road spans, thin collars; fittings rebuilt to size. No flow changes. Before/after screenshots on the singularity fixture's map.
 2. **Flow.** (Done.) Glass sections with moving water at the flow's speed, chevrons on hover and in the overlay, intake swirl; `__waterBench` before and after.
 3. **Ports.** (Done: a water inlet in the middle of each camera-facing face of every drinker, drawn as a nozzle by the mains layer.) `StructureDef.ports` for every drinker, drawn on the buildings; the tool snaps and refuses; old mains re-ended to ports on load; the AI router to ports.
-4. **Audit.** A pass over the pipe tool and the overlay for anything else broken (previews, stilts, ends, the Water overlay's numbers), each fixed or listed.
+4. **Audit.** A pass over the pipe tool and the overlay for anything else broken (previews, stilts, ends, the Water overlay's numbers), each fixed or listed. (Done.) Fixed:
+   - with the Pipe tool, a press on a building that drinks opened it instead of starting a main: it starts one now, snapped to an inlet;
+   - the Water overlay didn't show where to aim: each free inlet is marked;
+   - the overlay's rings and numbers were drawn at the previous frame's zoom (`worldTransform` is last frame's), so a zoom showed them huge;
+   - the AI could build over a drinker's inlets, or put up or convert into one with none open, leaving it uncoolable and its cooling "short" for good: its sites keep inlets clear (`inletOpen`);
+   - the card's wording ("beside a building") said where to end a main as the old rule had it.
+
+   Checked and sound: the preview ghost follows the snapped route; stilts over roads and the depth sort behind houses; the numbers are the solver's own. Listed, not fixed: building labels crowd the dimmed overlay at close zoom; `ai-layer.ts` reads `worldTransform` for its pixel size the same way.
 5. **Sewers.** The second pipe type: the tool's Water | Sewer toggle, sewer drawing, auto stubs, outfalls, and sinks in order.
 6. **Pollution spike, then pollution.** Concentration in the water field, advection, dilution, outflow; the brown tint; homes' morale; dirty cooling.
 7. **Slop replaces the pit.** Tanks on vibe workplaces, spills, gauges; the pit removed with its store, event and trucks; effects re-pointed; old saves converted; the sim's trucks replaced.
