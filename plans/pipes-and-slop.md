@@ -1,6 +1,6 @@
 # Pipes that look built, and slop that has to go somewhere
 
-Status: **plan**, agreed in conversation on 2026-10-27; not started. Follows `plans/pipes-overhaul.md`, whose model (mains, fittings, the steady-state solve) stays.
+Status: **in progress** (phases 1–3 done), agreed in conversation on 2026-10-27. Follows `plans/pipes-overhaul.md`, whose model (mains, fittings, the steady-state solve) stays.
 
 ## Why
 
@@ -127,7 +127,7 @@ Status: **plan**, agreed in conversation on 2026-10-27; not started. Follows `pl
 
 1. **The tube.** (Done: drawn with boxes and rings rather than baked pieces, which keeps the per-cell redraw as it was.) Iso pieces, slim, sorted in bands, saddles and road spans, thin collars; fittings rebuilt to size. No flow changes. Before/after screenshots on the singularity fixture's map.
 2. **Flow.** (Done.) Glass sections with moving water at the flow's speed, chevrons on hover and in the overlay, intake swirl; `__waterBench` before and after.
-3. **Ports.** `StructureDef.ports` for every drinker, drawn on the buildings; the tool snaps and refuses; old mains re-ended to ports on load; the AI router to ports.
+3. **Ports.** (Done: a water inlet in the middle of each camera-facing face of every drinker, drawn as a nozzle by the mains layer.) `StructureDef.ports` for every drinker, drawn on the buildings; the tool snaps and refuses; old mains re-ended to ports on load; the AI router to ports.
 4. **Audit.** A pass over the pipe tool and the overlay for anything else broken (previews, stilts, ends, the Water overlay's numbers), each fixed or listed.
 5. **Sewers.** The second pipe type: the tool's Water | Sewer toggle, sewer drawing, auto stubs, outfalls, and sinks in order.
 6. **Pollution spike, then pollution.** Concentration in the water field, advection, dilution, outflow; the brown tint; homes' morale; dirty cooling.

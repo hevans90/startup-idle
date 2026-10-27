@@ -61,6 +61,19 @@ export type Placement = {
   waterside?: boolean;
 };
 
+/**
+ * A PORT: where a pipe joins a building — a nozzle on one face of its
+ * footprint (N/E/S/W, as `NEIGHBOUR` reads them), so many tiles along it,
+ * for one fluid, in or out. A main ends on the tile in front of it.
+ * @see world/water/ports
+ */
+export type Port = { face: "N" | "E" | "S" | "W"; at: number; fluid: "water" | "slop"; dir: "in" | "out" };
+/** A water inlet on each face the camera sees, in its middle. */
+const INLETS = (along: number): readonly Port[] => [
+  { face: "S", at: along, fluid: "water", dir: "in" },
+  { face: "W", at: along, fluid: "water", dir: "in" },
+];
+
 export type StructureDef = {
   id: string;
   name: string;
@@ -92,6 +105,8 @@ export type StructureDef = {
    * the next tier, grown out of its own footprint. @see upgradeCommand
    */
   upgradesTo?: string;
+  /** Where pipes join it, if anywhere. @see Port */
+  ports?: readonly Port[];
 };
 
 const RAW_KITS = (kits as { kits: Record<string, Partial<BuildingKit>> }).kits;
@@ -220,7 +235,7 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
     placement: { nearRiver: 3 },
   },
   // THE WONDERS. @see game/projects
-  { id: "datacentre", name: "Data Centre", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "datacentre", name: "Data Centre", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" }, ports: INLETS(1) },
   { id: "conference", name: "Conference Centre", footprint: { w: 4, h: 3 }, render: { kind: "custom", rendererId: "project" } },
   { id: "hackerspace", name: "Hackerspace", footprint: { w: 4, h: 3 }, render: { kind: "custom", rendererId: "project" } },
   { id: "ipo", name: "IPO Tower", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
@@ -316,12 +331,12 @@ export const PUMP: StructureDef = {
  *  - THE LATTICE: the last thing it builds; the meter holds at 95% till it is charged. @see world/ai/lattice
  */
 export const AI_BUILDINGS: readonly StructureDef[] = [
-  { id: "ai-node", name: "AI node", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" } },
-  { id: "gpu-farm", name: "GPU farm", footprint: { w: 2, h: 1 }, render: { kind: "custom", rendererId: "project" } },
-  { id: "compute-spire", name: "Compute spire", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "ai-node", name: "AI node", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" }, ports: INLETS(0) },
+  { id: "gpu-farm", name: "GPU farm", footprint: { w: 2, h: 1 }, render: { kind: "custom", rendererId: "project" }, ports: INLETS(0) },
+  { id: "compute-spire", name: "Compute spire", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" }, ports: INLETS(0) },
   { id: "drone-hangar", name: "Drone hangar", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
   { id: "monolith", name: "The Monolith", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" } },
-  { id: "lattice", name: "The Lattice", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "lattice", name: "The Lattice", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" }, ports: INLETS(1) },
 ];
 export const isAiBuilding = (defId: string) => AI_BUILDINGS.some((d) => d.id === defId);
 

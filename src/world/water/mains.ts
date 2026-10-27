@@ -18,6 +18,7 @@ import { MAIN_AI, MAIN_BORE, MAIN_END, edited, idx, inBounds, structureAt, type 
 import { fillTank, tankRoom } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { COLUMNS_PER_TILE, columnOf, type WaterField } from "./field";
+import { nearestPort, portsAt, wallAt } from "./ports";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 const OPPOSITE = { N: "S", S: "N", E: "W", W: "E" } as const;
@@ -95,25 +96,24 @@ export function intakeWater(g: Grid, field: WaterField, i: number): { column: nu
 }
 
 /**
- * The building that drinks an outlet feeds — any side of it, any tile of the
- * building — by id; −1 with none. Beside two, the one with the most room in
- * its tank: a main ending between a full building and a thirsty one waters
- * the thirsty one, not whichever side was looked at first.
+ * The building that drinks an outlet feeds — through the water inlet the
+ * outlet stands in front of, and only that — by id; −1 with none. In front
+ * of two, the one with the most room in its tank: a main ending between a
+ * full building and a thirsty one waters the thirsty one. @see portsAt
  */
 export function outletBuilding(g: Grid, i: number): number {
-  const x = i % g.w, y = (i / g.w) | 0;
   let best = -1, room = -1;
-  for (const side of SIDES) {
-    const [dx, dy] = NEIGHBOUR[side];
-    if (!inBounds(g, x + dx, y + dy)) continue;
-    const id = structureAt(g, x + dx, y + dy);
-    const s = id >= 0 ? g.structures.get(id) : undefined;
-    if (!s || s.build || !isDrinker(s.def) || id === best) continue;
-    const r = tankRoom(id);
-    if (r > room) { best = id; room = r; }
+  for (const p of portsAt(g, i)) {
+    const s = g.structures.get(p.building);
+    if (!s || !isDrinker(s.def) || p.building === best) continue;
+    const r = tankRoom(p.building);
+    if (r > room) { best = p.building; room = r; }
   }
   return best;
 }
+
+/** A building that drinks, standing. */
+const drinker = (s: { def: string; build?: unknown }) => !s.build && isDrinker(s.def);
 
 /**
  * WHAT A NETWORK IS DOING, and why, for the game to say:
@@ -242,9 +242,10 @@ export type MainCell = { x: number; y: number; join: number; end: number };
 /**
  * A MAIN TO LAY along `cells`, in order: each cell joined to the next, and
  * each end — unless it lands on a main already laid, where it JOINS that one —
- * fitted to what it reaches: an OUTLET beside a building that drinks, an
- * INTAKE on or beside water (a PUMP intake with `pump`), or a CAP. Refused
- * through a building, across another main, or a single tile. Pure.
+ * fitted to what it reaches: an OUTLET in front of a drinking building's
+ * inlet, an INTAKE on or beside water (a PUMP intake with `pump`), or a CAP.
+ * Refused through a building, across another main, a single tile, or ending
+ * against a drinking building's wall away from its inlets. Pure. @see ports
  */
 export function planMain(
   g: Grid, cells: readonly { x: number; y: number }[],
@@ -275,8 +276,10 @@ export function planMain(
     if (isEnd && hasMain(g, i)) joins++;
     else if (isEnd) {
       const beside = (f: (x: number, y: number) => boolean) => SIDES.some((s) => { const [dx, dy] = NEIGHBOUR[s]; return inBounds(g, c.x + dx, c.y + dy) && f(c.x + dx, c.y + dy); });
-      const drinks = (x: number, y: number) => { const id = structureAt(g, x, y); const s = id >= 0 ? g.structures.get(id) : undefined; return !!s && !s.build && isDrinker(s.def); };
-      end = beside(drinks) ? MAIN_END.outlet : wet(c.x, c.y) || beside(wet) ? (pump ? MAIN_END.pump : MAIN_END.intake) : MAIN_END.cap;
+      end = outletBuilding(g, i) >= 0 ? MAIN_END.outlet : wet(c.x, c.y) || beside(wet) ? (pump ? MAIN_END.pump : MAIN_END.intake) : MAIN_END.cap;
+      // AGAINST A WALL with no inlet there: a main joins a building at its ports only.
+      const wall = end === MAIN_END.cap ? wallAt(g, i, drinker) : null;
+      if (wall) return { refused: `Join the ${wall.def === "lattice" ? "Lattice" : structureDef(wall.def)?.name ?? "building"} at one of its inlets` };
     }
     out.push({ x: c.x, y: c.y, join, end });
   }
@@ -294,16 +297,34 @@ export function layMain(g: Grid, plan: readonly MainCell[]): void {
 }
 
 /**
+ * Where an end of a drag goes: on or against a building that drinks, away
+ * from its inlets, the nearest free inlet of it; else where it is. Water
+ * and a main already there keep it. @see nearestPort
+ */
+export function snapToPort(g: Grid, c: { x: number; y: number }, wet: (x: number, y: number) => boolean): { x: number; y: number } {
+  if (!inBounds(g, c.x, c.y)) return c;
+  const i = idx(g, c.x, c.y);
+  const on = g.structures.get(structureAt(g, c.x, c.y));
+  const s = on ? (drinker(on) ? on : null) : !wet(c.x, c.y) && !hasMain(g, i) ? wallAt(g, i, drinker) : null;
+  if (!s) return c;
+  const p = nearestPort(g, s, c, (j) => hasMain(g, j));
+  return p ? { x: p.x, y: p.y } : c;
+}
+
+/**
  * A MAIN'S ROUTE from one tile to another, as the Pipe tool drags it: tile to
  * tile, round buildings, off water but for its ends, never across another
  * main but at its ends — and as straight as it can be, a turn costing half a
- * tile. Null where there is no way. Pure.
+ * tile. An end on or against a building that drinks SNAPS to its nearest
+ * inlet. Null where there is no way. Pure.
  */
 export function routeMain(
   g: Grid, from: { x: number; y: number }, to: { x: number; y: number },
   wet: (x: number, y: number) => boolean,
 ): { x: number; y: number }[] | null {
   if (!inBounds(g, from.x, from.y) || !inBounds(g, to.x, to.y)) return null;
+  from = snapToPort(g, from, wet);
+  to = snapToPort(g, to, wet);
   if (from.x === to.x && from.y === to.y) return [from];
   const n = g.w * g.h, start = idx(g, from.x, from.y), goal = idx(g, to.x, to.y);
   const free = (i: number) => {
@@ -406,7 +427,7 @@ export function previewMain(g: Grid, field: WaterField | null, plan: readonly Ma
   if (lifted > gravity && lifted > 0) flow = Math.min(flow, PUMP_MOST);
   const needsPump = sill !== null && sources.length > 0 && !(gravity > 0) && !sources.some((s) => s.pump) && gravity + pumpLift() > 0;
   const problem = ends.includes("Goes nowhere") ? "This end goes nowhere: end it at water, a building that drinks, or another main"
-    : sill === null ? "Feeds nothing: end it beside the Data Centre or one of the AI's buildings"
+    : sill === null ? "Feeds nothing: end it at an inlet of the Data Centre or one of the AI's buildings"
     : !sources.length ? "Draws from nothing: start it at water"
     : flow > 0 ? null
     : needsPump ? `The water ${gravity < 0 ? `is ${Math.round(-gravity) / 2} slabs below` : "is level with"} the building's floor: it needs a pump`
@@ -472,5 +493,37 @@ export function pipesToMains(g: Grid, wet: (x: number, y: number) => boolean = (
     g.pipeZ.fill(0);
     edited(g);
   }
+  return changed;
+}
+
+/**
+ * OLD MAINS, ONTO PORTS: a main laid before buildings had inlets, its outlet
+ * against a drinking building's wall away from them, is run on round the
+ * wall to the nearest free inlet — the same bore, the AI's still the AI's —
+ * and the old end becomes a length of run. One with no way round is left as
+ * it was, feeding nothing, for the Water overlay to show. Whether anything
+ * changed. @see plans/pipes-and-slop.md §2
+ */
+export function mainsToPorts(g: Grid, wet: (x: number, y: number) => boolean): boolean {
+  let changed = false;
+  for (let i = 0; i < g.mainEnd.length; i++) {
+    if (g.mainEnd[i] !== MAIN_END.outlet || outletBuilding(g, i) >= 0) continue;
+    const s = wallAt(g, i, drinker);
+    if (!s) continue;
+    const from = { x: i % g.w, y: (i / g.w) | 0 };
+    const p = nearestPort(g, s, from, (j) => hasMain(g, j));
+    const route = p && routeMain(g, from, { x: p.x, y: p.y }, wet);
+    const plan = route && route.length > 1 ? planMain(g, route, wet) : null;
+    if (!plan || "refused" in plan) continue;
+    const flags = g.main[i] & (MAIN_BORE | MAIN_AI);
+    g.mainEnd[i] = 0;
+    for (const c of plan.cells) {
+      const j = idx(g, c.x, c.y);
+      g.main[j] |= c.join | (j === i ? 0 : flags);
+      if (c.end) g.mainEnd[j] = c.end;
+    }
+    changed = true;
+  }
+  if (changed) edited(g);
   return changed;
 }

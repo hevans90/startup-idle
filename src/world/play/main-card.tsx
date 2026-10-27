@@ -67,7 +67,7 @@ const SAYS: Record<MainState, { text: string; tone: "good" | "warn" | "bad" }> =
   "no-head": { text: "The water is too low to reach the building: it needs a pump", tone: "warn" },
   unpaid: { text: "Its pump has stopped: not enough money to run it", tone: "bad" },
   "no-source": { text: "Draws from nothing: one end must be at water", tone: "bad" },
-  "no-outlet": { text: "Feeds nothing: one end must be beside a building that drinks", tone: "bad" },
+  "no-outlet": { text: "Feeds nothing: one end must be at an inlet of a building that drinks", tone: "bad" },
 };
 const TONE = { good: "text-good", warn: "text-warn", bad: "text-bad" };
 

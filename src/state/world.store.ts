@@ -42,7 +42,7 @@ import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { SLOP_PIT, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
-import { findMains, hasMain, pipesToMains, planMain, previewMain, routeMain } from "../world/water/mains";
+import { findMains, hasMain, mainsToPorts, pipesToMains, planMain, previewMain, routeMain } from "../world/water/mains";
 import { DIR, NEIGHBOUR } from "../iso/dir";
 import {
   OPEN_EDGE_DEFAULT, POUR_AMOUNT, SOURCE_RATE, createWaterField, depthAt, drainAt, pourAt,
@@ -754,7 +754,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setPlaying: (playing) => {
     // INTO PLAY, the old pipes become mains: the game's pipes are mains now,
     // and the old ones are only the editor's spouts. @see pipesToMains
-    if (playing && pipesToMains(get().grid, mainWet(get().grid))) {
+    // And mains laid before buildings had inlets are run on to them. @see mainsToPorts
+    if (playing && (+pipesToMains(get().grid, mainWet(get().grid)) | +mainsToPorts(get().grid, mainWet(get().grid)))) {
       set({ playing, revision: get().revision + 1 });
       return;
     }

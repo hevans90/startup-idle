@@ -11,13 +11,13 @@ import { findMains, layMain, mainReportAt, pipesToMains, planMain, previewMain, 
 
 afterEach(resetCooling);
 
-/** A lake down the west edge, its surface `rise` half steps over the ground; a Data Centre at x 20. */
+/** A lake down the west edge, its surface `rise` half steps over the ground; a Data Centre at x 18–20, y 2–4, its inlet at (19, 5). */
 function lakeside(rise: number) {
   const g = createGrid(30, 12);
   fillTerrain(g, 1);
   for (let y = 0; y < 12; y++) for (let x = 0; x < 30; x++) setHeight(g, x, y, x <= 3 ? rise - 6 : 0);
   for (let y = 0; y < 12; y++) for (let x = 0; x <= 3; x++) g.pool[idx(g, x, y)] = 6;
-  commit(g, createHistory(), placeCommand(g, { ...structureDef("datacentre")!, placement: undefined }, 20, 4)!);
+  commit(g, createHistory(), placeCommand(g, { ...structureDef("datacentre")!, placement: undefined }, 18, 2)!);
   const dc = [...g.structures.values()].find((s) => s.def === "datacentre")!;
   return { g, dc };
 }
@@ -122,8 +122,8 @@ describe("the old pipes", () => {
     const { DIR } = await import("../../iso/dir");
     const { g } = lakeside(-2);
     commit(g, createHistory(), placeCommand(g, structureDef("pump")!, 4, 5)!);
-    // On this map N is x−1 and S is x+1: the run faces the pump at its west end, the Data Centre at its east.
-    for (let x = 5; x <= 19; x++) layPipe(g, x, 5, x === 5 ? DIR.N : DIR.S, 0);
+    // On this map N is x−1, S x+1 and E y−1: the run faces the pump at its west end, the Data Centre at its east, over its inlet.
+    for (let x = 5; x <= 19; x++) layPipe(g, x, 5, x === 5 ? DIR.N : x === 19 ? DIR.E : DIR.S, 0);
     // A second run touching the first: the old pipes joined it, so the mains do.
     layPipe(g, 10, 6, DIR.W, 0);
     expect(pipesToMains(g)).toBe(true);

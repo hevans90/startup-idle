@@ -1,7 +1,7 @@
 /**
- * World v2 — A PIPE'S ROUTE, for the AI: from a building that drinks to the
- * nearest water, over the company's own free ground — under roads, round
- * buildings, never in the water. If the water stands above the building's
+ * World v2 — A PIPE'S ROUTE, for the AI: from a building that drinks, at one
+ * of its inlets, to the nearest water, over the company's own free ground —
+ * under roads, round buildings, never in the water. If the water stands above the building's
  * floor the route is a gravity run; if not, its shore end is a PUMP HOUSE,
  * when one pump's lift is enough. Pure: a grid and what is the company's in, a
  * route out, valid as the Pipe tool and the pump's placement judge it.
@@ -9,6 +9,7 @@
  */
 import { PUMP_HEAD } from "../../game/cooling";
 import { hasMain } from "../water/mains";
+import { portsOf } from "../water/ports";
 import { idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 
 type Cell = { x: number; y: number };
@@ -37,17 +38,13 @@ export function routePipe(
   const free = (x: number, y: number) =>
     inBounds(g, x, y) && owned(x, y) && !wet(x, y) && structureAt(g, x, y) < 0 && !hasMain(g, idx(g, x, y)) && !avoid(x, y);
   const floor = g.height[idx(g, drinker.x, drinker.y)];
-  // Out from every free tile beside the building, a tile at a time.
+  // Out from each of its free water inlets, a tile at a time. @see portsOf
   const from = new Int32Array(g.w * g.h).fill(-2);
   const queue: number[] = [];
-  for (let y = drinker.y - 1; y <= drinker.y + drinker.h; y++) {
-    for (let x = drinker.x - 1; x <= drinker.x + drinker.w; x++) {
-      const inside = x >= drinker.x && x < drinker.x + drinker.w && y >= drinker.y && y < drinker.y + drinker.h;
-      const corner = (x < drinker.x || x >= drinker.x + drinker.w) && (y < drinker.y || y >= drinker.y + drinker.h);
-      if (inside || corner || !free(x, y)) continue;
-      from[idx(g, x, y)] = -1;
-      queue.push(idx(g, x, y));
-    }
+  for (const p of portsOf(g, drinker)) {
+    if (p.port.fluid !== "water" || p.port.dir !== "in" || !free(p.x, p.y) || from[p.i] !== -2) continue;
+    from[p.i] = -1;
+    queue.push(p.i);
   }
   for (let q = 0; q < queue.length; q++) {
     const i = queue[q], x = i % g.w, y = (i - x) / g.w;

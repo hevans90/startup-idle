@@ -19,7 +19,7 @@ import { allTanks, resetCooling, stepCooling, tankFor } from "../projects/coolin
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater } from "./field";
-import { findMains, layMain, mainReports, pipesToMains, planMain, runMains } from "./mains";
+import { findMains, layMain, mainReports, mainsToPorts, pipesToMains, planMain, runMains } from "./mains";
 
 afterEach(resetCooling);
 
@@ -32,7 +32,7 @@ function flow(run: number, rise: number, pump: boolean, wide = false): number {
   for (let y = 0; y < 12; y++) for (let x = 0; x < w; x++) setHeight(g, x, y, x <= lake.x1 ? rise - 6 : x === lake.x1 + 1 ? Math.max(rise, 0) + 2 : 0);
   for (let y = 0; y < 12; y++) for (let x = lake.x0; x <= lake.x1; x++) g.pool[idx(g, x, y)] = 6;
   const dcX = lake.x1 + 1 + run;
-  commit(g, createHistory(), placeCommand(g, { ...structureDef("datacentre")!, placement: undefined }, dcX, 4)!);
+  commit(g, createHistory(), placeCommand(g, { ...structureDef("datacentre")!, placement: undefined }, dcX - 2, 2)!);
   const dc = [...g.structures.values()].find((s) => s.def === "datacentre")!.id;
   const cells = Array.from({ length: run }, (_, k) => ({ x: lake.x1 + 1 + k, y: 5 }));
   const plan = planMain(g, cells, (x, y) => g.pool[idx(g, x, y)] > 0, pump);
@@ -77,11 +77,12 @@ describe("what one main carries", () => {
 });
 
 describe("the singularity fixture's mains", () => {
-  /** The fixture, entered into play: its old pipes made mains, its water settled, its tanks run. */
+  /** The fixture, entered into play: its old pipes made mains, run on to the buildings' inlets, its water settled, its tanks run. */
   function played(): { g: Grid; reports: ReturnType<typeof mainReports> } {
     const g = createGrid(64, 64, 1);
     applyFixture(g, "singularity", 1);
     pipesToMains(g);
+    mainsToPorts(g, (x, y) => g.pool[idx(g, x, y)] > 0);
     const f = createWaterField(g);
     stepCooling(g, 40, false, 0);
     for (let n = 0; n < 60 * 20; n++) {

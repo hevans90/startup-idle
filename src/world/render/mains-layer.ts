@@ -4,7 +4,8 @@
  * highlight along its top — out to the middle of each face it is joined on,
  * with round ends so the lengths meet seamlessly; and at its ends a fitting:
  * an intake's grate in the water, a pump's housing, an outlet's valve at the
- * building, a red cap. Drawn once a cell, in its band's paved tier, so it
+ * building, a red cap. And each building's PORTS, nozzles out of its walls
+ * where a main may join it. Drawn once a cell, in its band's paved tier, so it
  * sorts with the town; again only when the mains or the scale change.
  *
  * And THE WATER IN THEM, every frame: dashes of water running from the
@@ -29,6 +30,7 @@ import { MAIN_AI, MAIN_BORE, MAIN_END, idx, inBounds, structureAt, type Grid } f
 import { allTanks } from "../projects/cooling";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { findMains, joined, mainReportAt, mainReports, type MainState } from "../water/mains";
+import { portsOf, type PortCell } from "../water/ports";
 import type { BandLayer } from "./bands";
 
 const SIDES = ["N", "E", "S", "W"] as const;
@@ -50,6 +52,8 @@ const BORE_WIDE = 1.4;
 const AI_BODY = 0x9d8bbd, AI_BAND = 0xb44aff;
 /** The fittings. */
 const GRATE = 0x3d4a57, PUMP_BODY = 0x4f6f8f, PUMP_TRIM = 0xe0a23a, VALVE = 0xb8463a, CAP = 0xc0392b;
+/** A port's nozzle: blue for water, brown for slop. */
+const PORT_COLOUR = { water: 0x3f86c6, slop: 0x7a5230 } as const;
 /** The water in a main, and the warning at one that cannot deliver. */
 const WATER = 0x5fb7ff, WARN = 0xf2a33a;
 /** A glass section's tint, and how far along each limb it reaches, as a share of the limb. */
@@ -128,6 +132,7 @@ function levelAt(g: Grid, x: number, y: number): number {
 
 export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLayer {
   const drawn = new Map<number, Graphics>();
+  const ports: Graphics[] = [];
   /** The water in the tubes, a Graphics a band, over that band's tubes; and those drawn in last frame. */
   const water = new Map<number, Graphics>();
   const wet = new Set<Graphics>();
@@ -231,7 +236,33 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     return gfx;
   };
 
+  /**
+   * A PORT'S NOZZLE: a short length of tube out of the wall to the middle of
+   * the tile in front, in its fluid's colour, a flange at its mouth — part of
+   * the building, there whether anything is joined to it or not.
+   */
+  const drawPort = (g: Grid, p: PortCell, s: number): Graphics => {
+    const gfx = new Graphics();
+    gfx.eventMode = "none";
+    const [dx, dy] = NEIGHBOUR[p.port.face];
+    const z = levelAt(g, p.x, p.y);
+    const w = WIDE * HW * 2 * s * 1.1;
+    const wall = P(s, p.x - dx * 0.5, p.y - dy * 0.5, z), mouth = P(s, p.x - dx * 0.12, p.y - dy * 0.12, z);
+    gfx.moveTo(wall[0], wall[1]).lineTo(mouth[0], mouth[1]);
+    gfx.stroke({ color: CASING, width: w, cap: "butt" });
+    gfx.moveTo(wall[0], wall[1]).lineTo(mouth[0], mouth[1]);
+    gfx.stroke({ color: PORT_COLOUR[p.port.fluid], width: w * 0.7, cap: "butt" });
+    gfx.moveTo(wall[0], wall[1] - w * 0.2).lineTo(mouth[0], mouth[1] - w * 0.2);
+    gfx.stroke({ color: SHINE, width: w * 0.16, cap: "butt", alpha: 0.7 });
+    const along = dx !== 0 ? "u" : "v";
+    ring(gfx, s, p.x - dx * 0.48, p.y - dy * 0.48, z, along, w * 0.62, COLLAR);
+    ring(gfx, s, p.x - dx * 0.12, p.y - dy * 0.12, z, along, w * 0.6, PORT_COLOUR[p.port.fluid]);
+    return gfx;
+  };
+
   const clear = () => {
+    for (const gfx of ports) { gfx.parent?.removeChild(gfx); gfx.destroy(); }
+    ports.length = 0;
     for (const gfx of drawn.values()) { gfx.parent?.removeChild(gfx); gfx.destroy(); }
     drawn.clear();
     for (const gfx of water.values()) { gfx.parent?.removeChild(gfx); gfx.destroy(); }
@@ -333,6 +364,16 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       if (k === key) return;
       key = k;
       clear();
+      // THE PORTS on the buildings, under any main that ends at them.
+      for (const st of g.structures.values()) {
+        for (const p of portsOf(g, st)) {
+          const band = p.x + p.y;
+          if (!bands.pavedOf[band]) continue;
+          const gfx = drawPort(g, p, scale);
+          bands.pavedOf[band].addChild(gfx);
+          ports.push(gfx);
+        }
+      }
       for (let i = 0; i < g.main.length; i++) {
         if (!g.main[i] && !g.mainEnd[i]) continue;
         const band = (i % g.w) + ((i / g.w) | 0);
