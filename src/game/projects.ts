@@ -314,7 +314,8 @@ export const PROJECTS: readonly ProjectDef[] = [
     floor: 2_000_000,
     deliveries: 20,
     bonus: { money: 1.5, valuation: 2 },
-    ...needs({ staff: { intern: 350, vibe_coder: 150, "10x_dev": 8 } }),
+    // 325 interns, not 350: a run that hires to its cost wall stops near 330. @see map-balance.test
+    ...needs({ staff: { intern: 325, vibe_coder: 150, "10x_dev": 8 } }),
   },
 ];
 

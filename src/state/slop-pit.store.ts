@@ -10,13 +10,15 @@ export const SLOP_PIT_UNLOCK_COUNT = 50;
 export const FILL_RATE_PER_CODER = 0.002; // % per second per vibe coder
 const PENALTY_THRESHOLD = 0.5;     // fill fraction below which no penalty applies
 const PENALTY_AT_FULL = 0.15;      // money mult at 100% fill (85% income lost)
-export const DRAIN_SATISFACTION_HIT = -40;
+/** What draining the pit over their heads does to vibe coders' morale. */
+export const DRAIN_SATISFACTION_HIT = -16;
 
 type SlopPitState = {
   fill: number; // 0–100 (percent full)
 
   getMoneyPenaltyMult: () => number;
-  tick: (vibeCoderCount: number, seconds: number) => void;
+  /** `mult`: how fast their morale has them fill it. @see vibeSlopMultiplier */
+  tick: (vibeCoderCount: number, seconds: number, mult?: number) => void;
   drain: () => void;
   /** Take some sludge away — a truck's load, say — with no morale cost. */
   haul: (percent: number) => void;
@@ -35,9 +37,9 @@ export const useSlopPitStore = create<SlopPitState>()(
         return 1 - t * (1 - PENALTY_AT_FULL);
       },
 
-      tick: (vibeCoderCount, seconds) => {
+      tick: (vibeCoderCount, seconds, mult = 1) => {
         if (vibeCoderCount < SLOP_PIT_UNLOCK_COUNT) return;
-        const ratePerSecond = vibeCoderCount * FILL_RATE_PER_CODER;
+        const ratePerSecond = vibeCoderCount * FILL_RATE_PER_CODER * mult;
         set((s) => ({ fill: Math.min(100, s.fill + ratePerSecond * seconds) }));
       },
 

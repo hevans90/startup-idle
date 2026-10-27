@@ -103,16 +103,12 @@ export function satisfactionRevenueEntry(
   description: string,
 ): () => ModifierBreakdown {
   return () => {
-    const emUnlocked =
-      useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
     const score = useGeneratorStore.getState().satisfactionScores[genKey];
     const effScore = useGeneratorStore.getState().getEffectiveSatisfaction(genKey);
     const prestige = usePrestigeStore.getState().modifiers;
-    const mult = emUnlocked ? satisfactionRevenueMultiplier(effScore) : 1;
+    const mult = satisfactionRevenueMultiplier(effScore);
     const tone: BreakdownRow["tone"] = mult >= 1 ? "good" : "bad";
-    const rows = emUnlocked
-      ? satRows(score, effScore, mult, tone, prestige)
-      : [{ source: "Opens with the Company HQ", value: "—", tone: "neutral" as const }];
+    const rows = satRows(score, effScore, mult, tone, prestige);
     return { label, description, rows, total: fmt2(mult) };
   };
 }

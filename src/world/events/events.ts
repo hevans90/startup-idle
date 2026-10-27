@@ -138,12 +138,12 @@ export function tourReward(income: number, mood: number, tidied: boolean): numbe
 /** Mood points tidying up is worth, to the investors. */
 export const TIDY_MOOD = 10;
 /** Satisfaction a hackathon gives the vibe coders, and what turning one down costs. */
-export const HACKATHON_MORALE = 15;
-export const HACKATHON_SNUB = 10;
+export const HACKATHON_MORALE = 6;
+export const HACKATHON_SNUB = 4;
 /** The pizza for a hackathon, in seconds of income. @see pizzaPrice */
 export const HACKATHON_PIZZA = 20;
-/** What being evacuated puts a flooded home's people out, in satisfaction for a day. */
-export const EVACUEE_MORALE = 5;
+/** What being evacuated puts a flooded home's people out, in morale for a day. */
+export const EVACUEE_MORALE = 2;
 /** Whether a tour left the investors unimpressed: they paid less than the base 30 s of income. @see SNUB */
 export const tourFailed = (income: number, reward: number) => reward < Math.max(0, income) * 30;
 
@@ -251,12 +251,12 @@ const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
     of: (w) => w.hackathon && {
       ...w.hackathon,
       choices: [
-        { id: "host", label: "Host it", cost: `${money(w.hackathon.pizza)} of pizza, vibe coders off work a minute, then +${HACKATHON_MORALE} satisfaction for a day` },
-        { id: "decline", label: "Not now", cost: `−${HACKATHON_SNUB} vibe coder satisfaction for a day` },
+        { id: "host", label: "Host it", cost: `${money(w.hackathon.pizza)} of pizza, vibe coders off work a minute, then +${HACKATHON_MORALE} vibe coder morale for a day` },
+        { id: "decline", label: "Not now", cost: `−${HACKATHON_SNUB} vibe coder morale for a day` },
       ],
     },
     goesAhead: (e) => e.chosen === "host",
-    outcome: (e) => (e.chosen === "host" ? `They are back, and happier for it: +${HACKATHON_MORALE} vibe coder satisfaction for a day.` : `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder satisfaction for a day.`),
+    outcome: (e) => (e.chosen === "host" ? `They are back, and happier for it: +${HACKATHON_MORALE} vibe coder morale for a day.` : `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder morale for a day.`),
   },
 };
 
@@ -290,7 +290,7 @@ function stepOpportunities(out: GameEvent[], w: EventWorld, next: () => number):
 export function floodChoices(w: NonNullable<EventWorld["river"]>): EventChoice[] {
   return [
     { id: "sandbags", label: "Sandbag the riverside", cost: `${people(w.sandbagCrew, "intern")} filling sandbags until it passes` },
-    { id: "evacuate", label: "Evacuate", cost: `flooded homes stop work until it passes, and are put out: −${EVACUEE_MORALE} satisfaction for a day` },
+    { id: "evacuate", label: "Evacuate", cost: `flooded homes stop work until it passes, and are put out: −${EVACUEE_MORALE} morale for a day` },
     { id: "brace", label: "Brace for it", cost: "whatever the water reaches is damaged: idle until repaired, one at a time" },
   ];
 }

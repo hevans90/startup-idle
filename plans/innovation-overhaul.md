@@ -59,7 +59,7 @@ Interns   Morale +14  →  output ×1.35 · innovation ×1.2
 - **One model** (`game/morale.ts` grows into it; `game/satisfaction.ts` retires): per kind, a target that is the sum of its parts, the score drifting toward it (as satisfaction does now), clamped ±40.
 - **Parts:**
   - Home: today's `townMoodOffsets`, now the whole of the town's say rather than a lean.
-  - Work: the kind's policies, plus headcount pressure, the `8·log1p(n)` term rescaled.
+  - Work: the kind's policies. No headcount pressure: crowding is Home's to say (dropped in phase 2, when it made the sims ~30% slower; the sims had never felt satisfaction before).
   - Leader: their personality and perks, full or half by team.
   - Events: today's `addMorale` leans, rescaled ×0.4.
 - **Output:** ×0.5 at −40, ×1 at 0, ×2 at +40, linear on each side.
@@ -159,8 +159,8 @@ All of it happens in `world/ai/autopilot.ts`, logged in its memos.
 
 ## Phases
 
-1. **Unlocks by project.** Remove the purchases and gate tabs by `featureGateOpen`; Boardroom gate fixed; refund. Small, ships alone.
-2. **Morale model.**
+1. **Unlocks by project.** (Done.) Remove the purchases and gate tabs by `featureGateOpen`; Boardroom gate fixed; refund. Small, ships alone.
+2. **Morale model.** (Done. Headcount pressure dropped; the IPO Tower's intern gate eased from 350 to 325, where the sims' hiring stops.)
    - The ±40 model with its parts and per-kind side effects (the vibe coders' slop new), replacing satisfaction in the economy.
    - Events, skill tree and fusion rewired.
    - Old scores converted.

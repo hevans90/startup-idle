@@ -3,19 +3,16 @@ import { ClassNameValue, twMerge } from "tailwind-merge";
 import {
   dev10xSatisfactionExponentDelta,
   internSatisfactionIpsMultiplier,
-  internSatisfactionManagerAccrualMultiplier,
-  internSatisfactionValuationMultiplier,
   SATISFACTION_MAX,
   SATISFACTION_MIN,
   SATISFACTION_REVENUE_MULT_AT_MAX,
   SATISFACTION_REVENUE_MULT_AT_MIN,
   SATISFACTION_REVENUE_MULT_NEUTRAL,
   satisfactionRevenueMultiplier,
+  vibeSlopMultiplier,
   type SatisfactionScores,
 } from "../game/satisfaction";
-import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useGeneratorStore } from "../state/generators.store";
-import { useInnovationStore } from "../state/innovation.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { FOCUS, PopCard, POPOVER_BARE } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
@@ -135,14 +132,11 @@ function SatisfactionHowToRaiseHelpPopover() {
 
 function SatisfactionCurrentEffects({
   scores,
-  singularityPct,
 }: {
   scores: SatisfactionScores;
-  singularityPct: number;
 }) {
   const ips = internSatisfactionIpsMultiplier(scores.intern);
-  const val = internSatisfactionValuationMultiplier(scores.intern);
-  const mgr = internSatisfactionManagerAccrualMultiplier(scores.intern);
+  const slop = vibeSlopMultiplier(scores.vibe_coder);
   const revIntern = satisfactionRevenueMultiplier(scores.intern);
   const revVibe = satisfactionRevenueMultiplier(scores.vibe_coder);
   const rev10x = satisfactionRevenueMultiplier(scores["10x_dev"]);
@@ -163,12 +157,6 @@ function SatisfactionCurrentEffects({
               Global innovation rate
             </ModifierTag>{" "}
             {formatMult(ips)}
-            {" · "}
-            <ModifierTag modKey="internValuationMult">
-              Valuation gain
-            </ModifierTag>{" "}
-            {formatMult(val)}
-            {" · "}Manager tiers {formatMult(mgr)}
           </p>
         </div>
         <div>
@@ -178,7 +166,7 @@ function SatisfactionCurrentEffects({
           <p className="text-fg-muted">
             <ModifierTag modKey="satisfactionRevenue.vibe_coder">$</ModifierTag>{" "}
             {formatMult(revVibe)}
-            {" "}· AI singularity {singularityPct.toFixed(1)}% (pushed by the AI agents running, not by mood)
+            {" "}· Slop pit fill {formatMult(slop)}
           </p>
         </div>
         <div>
@@ -227,15 +215,14 @@ function SatisfactionEffectsHelp() {
               High:
             </span>{" "}
             more money from interns (up to ×{SATISFACTION_REVENUE_MULT_AT_MAX});
-            bonus global innovation rate for all employees; managers tier up
-            faster.
+            more innovation from everyone (up to ×1.2).
           </li>
           <li>
             <span className="font-medium text-bad">
               Low:
             </span>{" "}
             less money from interns (down to ×{SATISFACTION_REVENUE_MULT_AT_MIN}
-            ); much less passive valuation; manager tier progress slows sharply.
+            ); less innovation from everyone (down to ×0.8).
           </li>
         </ul>
       </div>
@@ -249,13 +236,13 @@ function SatisfactionEffectsHelp() {
               High:
             </span>{" "}
             more money from vibe coders (up to ×
-            {SATISFACTION_REVENUE_MULT_AT_MAX}).
+            {SATISFACTION_REVENUE_MULT_AT_MAX}); the slop pit fills slower (half as fast).
           </li>
           <li>
             <span className="font-medium text-bad">
               Low:
             </span>{" "}
-            less money from vibe coders; Skynet approaches.
+            less money from vibe coders; the slop pit fills faster (twice as fast).
           </li>
         </ul>
       </div>
@@ -288,11 +275,7 @@ export const EmployeeSatisfactionOverlay = ({
 }: {
   className?: ClassNameValue;
 }) => {
-  const employeeMgmtUnlocked = useInnovationStore(
-    (s) => s.unlocks.employeeManagement?.unlocked ?? false,
-  );
   const scores = useGeneratorStore((s) => s.satisfactionScores);
-  const singularityPct = useAiSingularityStore((s) => s.value);
   const neutralized = usePrestigeStore(
     (s) => s.modifiers.satisfactionNeutralized,
   );
@@ -300,8 +283,6 @@ export const EmployeeSatisfactionOverlay = ({
     (s) => s.modifiers.satisfactionPositiveMult,
   );
   const damped = !neutralized && positiveMult !== 1;
-
-  if (!employeeMgmtUnlocked) return null;
 
   return (
     <Popover
@@ -361,7 +342,6 @@ export const EmployeeSatisfactionOverlay = ({
         <PopCard title="Satisfaction effects" className="max-h-[min(92vh,52rem)] w-96 overflow-y-auto">
         <SatisfactionCurrentEffects
           scores={scores}
-          singularityPct={singularityPct}
         />
         <SatisfactionEffectsHelp />
         </PopCard>

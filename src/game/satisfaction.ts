@@ -1,8 +1,20 @@
+/**
+ * MORALE, each kind's: one number, −40 to +40 — the scale houses' morale is on
+ * — made of its parts: HOME (the morale of the houses they live in, the town's
+ * say, in full), WORK (the perks bought), LEADERS and EVENTS,
+ * the score drifting toward their sum. It scales what the kind produces,
+ * ×0.5 at −40 to ×2 at +40, and does one thing more for each kind: interns'
+ * moves innovation, vibe coders' the slop pit, 10x devs' their cost curve.
+ * (Still "satisfaction" in the code until the names change.)
+ * @see plans/innovation-overhaul.md §2
+ */
 import type { EmployeePerks, GeneratorId } from "../state/generators.store";
 
-export const SATISFACTION_MIN = -100;
-export const SATISFACTION_MAX = 100;
+export const SATISFACTION_MIN = -40;
+export const SATISFACTION_MAX = 40;
 
+/** Points from the old −100…+100 scale to Morale's −40…+40: for what was written in the old one. */
+export const TO_MORALE = 0.4;
 export type SatisfactionScores = Record<GeneratorId, number>;
 
 export const defaultSatisfactionScores = (): SatisfactionScores => ({
@@ -15,42 +27,34 @@ export function clampScore(n: number): number {
   return Math.min(SATISFACTION_MAX, Math.max(SATISFACTION_MIN, n));
 }
 
-/** Target satisfaction for one role from headcount + perks (before smoothing). */
+/**
+ * WORK, for one kind: what the perks bought do to their morale (before the
+ * other parts). Not headcount: crowding is the town's to say, in Home.
+ */
 export function satisfactionTargetForRole(
-  id: GeneratorId,
-  amount: number,
+  _id: GeneratorId,
+  _amount: number,
   perks: EmployeePerks,
 ): number {
   let t = 0;
-  t -= Math.min(40, 8 * Math.log1p(amount));
   t -= perks.moneyLevel * 12.5;
   t += perks.innovationLevel * 9;
   t -= perks.costLevel * 10;
   t -= perks.autoBuyLevel * 6;
-  if (id === "10x_dev") t -= amount * 0.15;
-  return clampScore(t);
+  return clampScore(t * TO_MORALE);
 }
 
-/** Cash mult at −100 (worst). */
-export const SATISFACTION_REVENUE_MULT_AT_MIN = 0.25;
-/** Cash mult at +100 (best). Score 0 is always 1×. */
-export const SATISFACTION_REVENUE_MULT_AT_MAX = 10;
+/** Output at −40 (worst). */
+export const SATISFACTION_REVENUE_MULT_AT_MIN = 0.5;
+/** Output at +40 (best). Morale 0 is always ×1. */
+export const SATISFACTION_REVENUE_MULT_AT_MAX = 2;
 export const SATISFACTION_REVENUE_MULT_NEUTRAL = 1;
 
-/**
- * Piecewise linear in score: [−100, 0] → [0.25, 1], [0, 100] → [1, 10].
- * Negative satisfaction is always below 1×; neutral is 1×.
- */
+/** What a kind produces at a morale: [−40, 0] → [×0.5, ×1], [0, +40] → [×1, ×2], linear each side. */
 export function satisfactionRevenueMultiplier(score: number): number {
   const s = clampScore(score);
-  if (s <= 0) {
-    const t = (s - SATISFACTION_MIN) / (0 - SATISFACTION_MIN);
-    return (
-      SATISFACTION_REVENUE_MULT_AT_MIN +
-      t * (1 - SATISFACTION_REVENUE_MULT_AT_MIN)
-    );
-  }
-  return 1 + (s / SATISFACTION_MAX) * (SATISFACTION_REVENUE_MULT_AT_MAX - 1);
+  const t = s / SATISFACTION_MAX;
+  return s <= 0 ? 1 + t * (1 - SATISFACTION_REVENUE_MULT_AT_MIN) : 1 + t * (SATISFACTION_REVENUE_MULT_AT_MAX - 1);
 }
 
 export function stepSatisfactionScores(
@@ -71,32 +75,19 @@ export function stepSatisfactionScores(
   return next;
 }
 
-/** Global IPS mult from intern satisfaction: bonus when positive only. */
+/** INTERNS' MORALE moves the company's innovation: ×0.8 at −40, ×1.2 at +40. */
+export const INTERN_INNOVATION_SWING = 0.2;
 export function internSatisfactionIpsMultiplier(internScore: number): number {
-  if (internScore <= 0) return 1;
-  return 1 + (internScore / SATISFACTION_MAX) * 0.12;
+  return 1 + (clampScore(internScore) / SATISFACTION_MAX) * INTERN_INNOVATION_SWING;
 }
 
-/** Scales passive valuation gain; strong penalty when interns unhappy. */
-export function internSatisfactionValuationMultiplier(
-  internScore: number,
-): number {
-  if (internScore >= 0) return 1;
-  return Math.max(0, 1 + (internScore / SATISFACTION_MAX) * 0.75);
+/** VIBE CODERS' MORALE moves the slop pit: happy, they ship cleaner — half the fill at +40, twice it at −40. */
+export function vibeSlopMultiplier(vibeScore: number): number {
+  return 2 ** (-clampScore(vibeScore) / SATISFACTION_MAX);
 }
 
-/** Manager progress gain mult; floor at 0 after apply in tick. */
-export function internSatisfactionManagerAccrualMultiplier(
-  internScore: number,
-): number {
-  if (internScore >= 0) {
-    return 1 + (internScore / SATISFACTION_MAX) * 0.1;
-  }
-  return Math.max(0.12, 1 + (internScore / SATISFACTION_MAX) * 0.88);
-}
-
-/** Added to stored 10x_dev cost exponent (negative = cheaper). Clamped later to MIN. */
+/** 10X DEVS' MORALE bends their cost curve: added to their cost exponent (negative = cheaper), ±0.35 at the ends. */
 export function dev10xSatisfactionExponentDelta(score: number): number {
   if (score === 0) return 0;
-  return (-score / SATISFACTION_MAX) * 0.35;
+  return (-clampScore(score) / SATISFACTION_MAX) * 0.35;
 }

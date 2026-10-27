@@ -161,13 +161,15 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   }, [play]);
   /**
    * HOW THE TOWN FEELS, told to the economy while the map is mounted in the
-   * game: each kind's satisfaction leans toward its houses' mood. @see moodOffsets
+   * game: each kind's Home part of morale, its houses'. @see moodOffsets
    */
   useEffect(() => {
     if (!play) return;
     return setTownMoodReader(held(() => {
       const net = getNetwork(), g = useWorldStore.getState().grid;
-      return net ? moodOffsets(g, liveMoods(g, net, useSlopPitStore.getState().fill / 100)) : {};
+      // Those still waiting for a bed count as nought. @see awaitingArrival
+      const away = awaitingArrival(ownedNow(), useSessionStore.getState().remoteBeds ?? {}, housingResidents(g));
+      return net ? moodOffsets(g, liveMoods(g, net, useSlopPitStore.getState().fill / 100), away) : {};
     }));
   }, [play]);
   /**

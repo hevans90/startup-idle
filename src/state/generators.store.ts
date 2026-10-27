@@ -10,7 +10,6 @@ import {
   persist,
   type StateStorage,
 } from "zustand/middleware";
-import { setEmployeeSatisfactionReaders } from "../game/employee-satisfaction-read";
 import { roomFor } from "../game/housing";
 import { attendance, deskBonus, labBonus, wonderBonus } from "../game/projects";
 import { townMoodOffsets } from "../game/town-mood";
@@ -30,6 +29,8 @@ import {
   SATISFACTION_MAX,
   SATISFACTION_MIN,
   stepSatisfactionScores,
+  TO_MORALE,
+  vibeSlopMultiplier,
   type SatisfactionScores,
 } from "../game/satisfaction";
 import {
@@ -241,9 +242,12 @@ const GENERATOR_PERSIST_KEY = "generators";
 const EMPLOYEE_MGMT_STORAGE_KEY = "employeeManagement";
 const MAX_CATCH_UP_MS = 7 * 24 * 60 * 60 * 1000;
 
-function clampPersistedScore(n: unknown): number {
+/** The scale saved scores are on, saved beside them: before it was saved, ±100. @see TO_MORALE */
+const MORALE_SCALE = SATISFACTION_MAX;
+
+function clampPersistedScore(n: unknown, scale = 1): number {
   if (typeof n !== "number" || Number.isNaN(n)) return 0;
-  return Math.min(SATISFACTION_MAX, Math.max(SATISFACTION_MIN, n));
+  return Math.min(SATISFACTION_MAX, Math.max(SATISFACTION_MIN, n * scale));
 }
 
 const defaultEmployeePerks = (): EmployeePerks => ({
@@ -730,22 +734,23 @@ export const useGeneratorStore = create<GeneratorState>()(
           // Compute the new satisfaction scores as a local variable; we pass
           // them directly to computeModifiers below so the modifier snapshot
           // already reflects the updated scores without an intermediate set().
-          let satisfactionScores = get().satisfactionScores;
+          // Team leaders work once employee management is open; morale is
+          // felt from the start. @see game/satisfaction
+          const tlStore = useTeamLeadersEmployeesStore.getState();
           if (emUnlocked) {
-            const tlStore = useTeamLeadersEmployeesStore.getState();
             for (const g of get().generators) {
               if (g.amount > 0) tlStore.generateCandidates(g.id);
             }
             tlStore.tickTeamLeaders(seconds, get().satisfactionScores, amounts);
-            satisfactionScores = tickSatisfaction(
-              get().satisfactionScores,
-              get().employeeManagement.perks,
-              amounts,
-              seconds,
-              prestige,
-              tlStore.employees,
-            );
           }
+          const satisfactionScores = tickSatisfaction(
+            get().satisfactionScores,
+            get().employeeManagement.perks,
+            amounts,
+            seconds,
+            prestige,
+            emUnlocked ? tlStore.employees : [],
+          );
 
           // ── 2. Build full modifier snapshot ──────────────────────────────────
           // Use the freshly computed satisfaction scores so the snapshot is
@@ -758,7 +763,8 @@ export const useGeneratorStore = create<GeneratorState>()(
 
           // ── 4. Income accrual (side effects only) ────────────────────────────
           // Slop pit fills from vibe coders and penalises all income when full.
-          useSlopPitStore.getState().tick(amounts.vibe_coder, seconds);
+          // Happy vibe coders ship cleaner; miserable ones rage-ship. @see vibeSlopMultiplier
+          useSlopPitStore.getState().tick(amounts.vibe_coder, seconds, vibeSlopMultiplier(m.effectiveScores.vibe_coder ?? 0));
           const slopPenaltyMult = useSlopPitStore.getState().getMoneyPenaltyMult();
 
           // Track which gens fire this tick; stamp lastTick after auto-buy so
@@ -984,11 +990,6 @@ export const useGeneratorStore = create<GeneratorState>()(
               modKey: "managerSalesValuation",
             },
             {
-              label: "Intern satisfaction",
-              mult: m.internValuationMult,
-              modKey: "internValuationMult",
-            },
-            {
               label: "Founder",
               mult: m.founderValuation,
               modKey: "founderValuation",
@@ -1038,19 +1039,23 @@ export const useGeneratorStore = create<GeneratorState>()(
         generators: state.generators,
         employeeManagement: state.employeeManagement,
         satisfactionScores: state.satisfactionScores,
+        moraleScale: MORALE_SCALE,
       }),
       merge: (persisted, current) => {
         const p = persisted as Partial<{
           generators: OwnedGenerator[];
           employeeManagement: EmployeeManagementData;
           satisfactionScores: SatisfactionScores;
+          moraleScale: number;
         }> | null;
         if (!p) return current;
+        // A save from before Morale: its scores on ±100, brought to ±40.
+        const scale = p.moraleScale === MORALE_SCALE ? 1 : TO_MORALE;
         const mergedScores = p.satisfactionScores
           ? {
-              intern: clampPersistedScore(p.satisfactionScores.intern),
-              vibe_coder: clampPersistedScore(p.satisfactionScores.vibe_coder),
-              "10x_dev": clampPersistedScore(p.satisfactionScores["10x_dev"]),
+              intern: clampPersistedScore(p.satisfactionScores.intern, scale),
+              vibe_coder: clampPersistedScore(p.satisfactionScores.vibe_coder, scale),
+              "10x_dev": clampPersistedScore(p.satisfactionScores["10x_dev"], scale),
             }
           : current.satisfactionScores;
         return {
@@ -1067,13 +1072,6 @@ export const useGeneratorStore = create<GeneratorState>()(
     },
   ),
 );
-
-setEmployeeSatisfactionReaders({
-  internScore: () =>
-    useGeneratorStore.getState().getEffectiveSatisfaction("intern"),
-  employeeManagementUnlocked: () =>
-    useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false,
-});
 
 // Re-sync the buildable roster whenever the chosen founder changes (e.g. the
 // Agentic Delusionist restricting it to vibe coders, or a reset clearing it).

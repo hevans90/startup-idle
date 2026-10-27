@@ -2,7 +2,6 @@ import Decimal from "break_infinity.js";
 import { formatDistanceToNow } from "date-fns";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { getInternManagerAccrualMultiplierForTick } from "../game/employee-satisfaction-read";
 import {
   coerceDecimal,
   decimalReplacer,
@@ -150,8 +149,8 @@ const estimateTimeToNextTierFormatted = (
     tierScalingExponent: Decimal;
     growthRate: Decimal;
   },
-  /** Same factor applied in tickManagers (intern satisfaction when EM is on). */
-  internAccrualMult = 1
+  /** Same speed applied in tickManagers: the founder's and the skill tree's. */
+  speedMult = 1
 ): string => {
   if (manager.assignment.equals(0)) return "∞";
 
@@ -159,7 +158,7 @@ const estimateTimeToNextTierFormatted = (
   const gainPerTick = manager.assignment
     .mul(manager.growthRate)
     .div(tierModifier)
-    .mul(internAccrualMult);
+    .mul(speedMult);
 
   if (gainPerTick.equals(0)) return "∞ (no gain)";
 
@@ -405,18 +404,14 @@ export const useInnovationStore = create<InnovationState>()(
                 .mul(manager.growthRate)
                 .mul(ticks)
                 .div(tierModifier);
-              const internAccrualMult = getInternManagerAccrualMultiplierForTick();
-              const internMult = new Decimal(internAccrualMult);
               // Founder "Operator" + skill-tree: managers tier up faster.
-              const gain = baseGain
-                .mul(internMult)
-                .mul(useFounderStore.getState().managerProgressMult)
-                .mul(usePrestigeStore.getState().modifiers.managerSpeedMult);
+              const speed = useFounderStore.getState().managerProgressMult * usePrestigeStore.getState().modifiers.managerSpeedMult;
+              const gain = baseGain.mul(speed);
 
               const newProgress = manager.progress.add(gain);
               manager.estimateToNextTier = estimateTimeToNextTierFormatted(
                 manager,
-                internAccrualMult
+                speed
               );
 
               let progress = newProgress;

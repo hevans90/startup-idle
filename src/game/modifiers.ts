@@ -21,7 +21,6 @@ import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import {
   internSatisfactionIpsMultiplier,
-  internSatisfactionValuationMultiplier,
   satisfactionRevenueMultiplier,
   type SatisfactionScores,
 } from "./satisfaction";
@@ -106,10 +105,8 @@ export type GameModifiers = {
    * `1 + (founderHeadcountRate + prestigeHeadcountRate) × totalEmployees`
    */
   headcountMoney: number;
-  /** Global innovation boost from intern satisfaction (≥ 1, no penalty). */
+  /** Interns' morale on the company's innovation: ×0.8 to ×1.2. */
   internIpsMult: number;
-  /** Intern satisfaction effect on valuation (penalty when negative score). */
-  internValuationMult: number;
   /**
    * Per-generator satisfaction revenue multiplier.
    * Key is `GeneratorId`; value already accounts for neutralization/scaling.
@@ -198,11 +195,10 @@ export function computeModifiers(ctx: ModifierContext): GameModifiers {
   const mandates = useValuationStore.getState().getEconomyMultipliers();
 
   // Compute effective satisfaction scores once; all downstream fields use them.
+  // MORALE IS FELT FROM THE START: not waiting on employee management. @see game/satisfaction
   const effectiveScores: Record<string, number> = {};
   for (const [id, raw] of Object.entries(ctx.rawScores)) {
-    effectiveScores[id] = ctx.emUnlocked
-      ? applyEffectiveSatisfaction(raw as number, prestige)
-      : 0;
+    effectiveScores[id] = applyEffectiveSatisfaction(raw as number, prestige);
   }
 
   const internEffective = effectiveScores["intern"] ?? 0;
@@ -381,18 +377,11 @@ export function computeModifiers(ctx: ModifierContext): GameModifiers {
       1 +
       (founder.headcountMoneyPerEmployee + prestige.headcountPerEmployee) *
         ctx.totalEmployees,
-    internIpsMult: ctx.emUnlocked
-      ? internSatisfactionIpsMultiplier(internEffective)
-      : 1,
-    internValuationMult: ctx.emUnlocked
-      ? internSatisfactionValuationMultiplier(internEffective)
-      : 1,
+    internIpsMult: internSatisfactionIpsMultiplier(internEffective),
     satisfactionRevenue: Object.fromEntries(
       Object.keys(ctx.rawScores).map((id) => [
         id,
-        ctx.emUnlocked
-          ? satisfactionRevenueMultiplier(effectiveScores[id] ?? 0)
-          : 1,
+        satisfactionRevenueMultiplier(effectiveScores[id] ?? 0),
       ]),
     ),
     effectiveScores,

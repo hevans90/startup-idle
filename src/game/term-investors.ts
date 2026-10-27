@@ -147,10 +147,10 @@ export const INVESTORS: readonly Investor[] = [
     goal: { kind: "more", metric: "leaders", base: 3, unit: "team leaders" }, bonus: 0.25, demand: 1, cares: "pool", cheque: "angel",
     says: { eager: "Leaders, with options. Ideal.", fine: "Find your stars.", no: "Stars want equity. Pool, please." } },
   { id: "happy", investor: "Wellbeing Ventures", partner: "Noor Haddad, Partner", motto: "Happy teams ship · The Garden Office",
-    goal: { kind: "more", metric: "morale", base: 20, unit: "average morale" }, bonus: 0.3, demand: 1, cares: "pool", cheque: "angel",
+    goal: { kind: "more", metric: "morale", base: 8, unit: "average morale" }, bonus: 0.3, demand: 1, cares: "pool", cheque: "angel",
     says: { eager: "Happy people, happy returns.", fine: "Look after them.", no: "Share the upside with the team." } },
   { id: "hustle", investor: "Hustle Capital", partner: "Brock Steele, Partner", motto: "Sleep is for exits · The Grind House",
-    goal: { kind: "fewer", metric: "morale", base: -20, unit: "average morale" }, bonus: 0.35, demand: 2, cares: "milestone", cheque: "seed",
+    goal: { kind: "fewer", metric: "morale", base: -8, unit: "average morale" }, bonus: 0.35, demand: 2, cares: "milestone", cheque: "seed",
     says: { eager: "Hungry teams win. Grind on.", fine: "Keep them hungry.", no: "Push harder. Raise the bar." } },
 
   // THE MAP.

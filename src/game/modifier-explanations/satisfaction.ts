@@ -1,70 +1,49 @@
 import { useGeneratorStore } from "../../state/generators.store";
-import { useInnovationStore } from "../../state/innovation.store";
 import { usePrestigeStore } from "../../state/prestige.store";
-import {
-  internSatisfactionIpsMultiplier,
-  internSatisfactionValuationMultiplier,
-} from "../satisfaction";
+import { INTERN_INNOVATION_SWING, internSatisfactionIpsMultiplier } from "../satisfaction";
 import type { BreakdownRow, ModifierBreakdown } from "./types";
 import { SAT_REV_BASE, satisfactionRevenueEntry } from "./factories";
 import { fmt2, satRows } from "./utils";
 
-const EM_LOCKED_ROW: BreakdownRow = {
-  source: "Opens with the Company HQ",
-  value: "—",
-  tone: "neutral",
-};
-
+/** Interns' morale on something other than their own output. */
 function internSatEntry(
   label: string,
   getMult: (effScore: number) => number,
-  tone: BreakdownRow["tone"] | ((mult: number) => BreakdownRow["tone"]),
+  tone: (mult: number) => BreakdownRow["tone"],
   description?: string,
 ): () => ModifierBreakdown {
   return () => {
-    const emUnlocked =
-      useInnovationStore.getState().unlocks.employeeManagement?.unlocked ?? false;
     const score = useGeneratorStore.getState().satisfactionScores.intern;
     const effScore = useGeneratorStore.getState().getEffectiveSatisfaction("intern");
     const prestige = usePrestigeStore.getState().modifiers;
-    const mult = emUnlocked ? getMult(effScore) : 1;
-    const resolvedTone: BreakdownRow["tone"] = typeof tone === "function" ? tone(mult) : tone;
-    const rows = emUnlocked
-      ? satRows(score, effScore, mult, resolvedTone, prestige)
-      : [EM_LOCKED_ROW];
-    return { label, description, rows, total: fmt2(mult) };
+    const mult = getMult(effScore);
+    return { label, description, rows: satRows(score, effScore, mult, tone(mult), prestige), total: fmt2(mult) };
   };
 }
 
 export const entries: Record<string, () => ModifierBreakdown> = {
   internIpsMult: internSatEntry(
-    "Intern satisfaction — innovation",
+    "Intern morale — innovation",
     internSatisfactionIpsMultiplier,
-    "good",
-    "Positive intern satisfaction grants a global innovation bonus. Negative scores don't penalise innovation — this modifier only goes up.",
-  ),
-
-  internValuationMult: internSatEntry(
-    "Intern satisfaction — valuation",
-    internSatisfactionValuationMultiplier,
-    (mult) => mult >= 1 ? "good" : "bad",
+    (mult) => (mult >= 1 ? "good" : "bad"),
+    `Interns' morale moves the company's innovation: ×${1 - INTERN_INNOVATION_SWING} at its lowest, ×${1 + INTERN_INNOVATION_SWING} at its highest.`,
   ),
 
   "satisfactionRevenue.intern": satisfactionRevenueEntry(
-    "Intern satisfaction — $",
+    "Intern morale — $",
     "intern",
-    `Scales intern money output.\n${SAT_REV_BASE}\nRaise it with Innovation perks in Employee Management.`,
+    `Scales intern money output.\n${SAT_REV_BASE}`,
   ),
 
   "satisfactionRevenue.vibe_coder": satisfactionRevenueEntry(
-    "Vibe coder satisfaction — $",
+    "Vibe coder morale — $",
     "vibe_coder",
-    `Scales vibe coder money output.\n${SAT_REV_BASE}\nLow scores also trigger AI singularity accrual.`,
+    `Scales vibe coder money output.\n${SAT_REV_BASE}\nHappy vibe coders also fill the slop pit slower: half as fast at the highest, twice as fast at the lowest.`,
   ),
 
   "satisfactionRevenue.10x_dev": satisfactionRevenueEntry(
-    "10x dev satisfaction — $",
+    "10x dev morale — $",
     "10x_dev",
-    `Scales 10x dev money output.\n${SAT_REV_BASE}\nHigh scores also reduce their effective hire cost exponent.`,
+    `Scales 10x dev money output.\n${SAT_REV_BASE}\nHigh morale also lowers their hire cost curve.`,
   ),
 };

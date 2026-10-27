@@ -97,10 +97,13 @@ export function moodsOf(
 }
 
 /**
- * Each kind's lean: the mood of the houses its people live in, weighted by
- * how many live in each. Nothing for a kind with nobody on the map.
+ * Each kind's HOME part of morale: the morale of the houses its people live
+ * in, weighted by how many live in each — and those still waiting for a bed
+ * (`away`) counted as nought. Nothing for a kind with nobody on the map.
  */
-export function moodOffsets(g: Grid, moods: ReadonlyMap<number, MoodParts>): Partial<Record<GeneratorId, number>> {
+export function moodOffsets(
+  g: Grid, moods: ReadonlyMap<number, MoodParts>, away: Partial<Record<GeneratorId, number>> = {},
+): Partial<Record<GeneratorId, number>> {
   const sum: Partial<Record<GeneratorId, number>> = {}, people: Partial<Record<GeneratorId, number>> = {};
   for (const s of g.structures.values()) {
     const h = housedBy(s.def), m = moods.get(s.id);
@@ -111,7 +114,7 @@ export function moodOffsets(g: Grid, moods: ReadonlyMap<number, MoodParts>): Par
     people[h.id] = (people[h.id] ?? 0) + n;
   }
   const out: Partial<Record<GeneratorId, number>> = {};
-  for (const id of Object.keys(sum) as GeneratorId[]) out[id] = sum[id]! / people[id]!;
+  for (const id of Object.keys(sum) as GeneratorId[]) out[id] = sum[id]! / (people[id]! + (away[id] ?? 0));
   return out;
 }
 

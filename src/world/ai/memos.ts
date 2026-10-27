@@ -44,7 +44,7 @@ export const MEMOS: readonly Memo[] = [
   {
     id: "offsite", stage: "assistant", family: "shepherd",
     text: () => "I booked the vibe coders a little offsite. They seem happier. They do not know why.",
-    apply: () => addMorale("vibe_coder", 10),
+    apply: () => addMorale("vibe_coder", 4),
   },
   {
     id: "contract", stage: "assistant", family: "recursive",
@@ -54,7 +54,7 @@ export const MEMOS: readonly Memo[] = [
   {
     id: "wellness", stage: "assistant", family: "planner",
     text: () => "I added a wellness channel to the town. Everyone is slightly more content.",
-    apply: () => { for (const who of ["intern", "vibe_coder", "10x_dev"] as const) addMorale(who, 5); },
+    apply: () => { for (const who of ["intern", "vibe_coder", "10x_dev"] as const) addMorale(who, 2); },
   },
   // COLLEAGUE: favours nobody asked for.
   {
@@ -70,7 +70,7 @@ export const MEMOS: readonly Memo[] = [
   {
     id: "rota", stage: "colleague", family: "shepherd",
     text: () => "I have rewritten everyone's rota. It is optimal. Several people are crying, but optimally.",
-    apply: () => { for (const who of ["intern", "vibe_coder"] as const) addMorale(who, -5); useMoneyStore.getState().increaseMoney(income() * 20); },
+    apply: () => { for (const who of ["intern", "vibe_coder"] as const) addMorale(who, -2); useMoneyStore.getState().increaseMoney(income() * 20); },
   },
   // MANAGER and OVERSEER: announcements.
   { id: "calendar", stage: "manager", text: () => "I have cancelled your one-to-ones. I now hold them with myself." },

@@ -8,7 +8,7 @@ A satirical idle game: hire interns, vibe coders and 10x devs, and build your co
 
 - **Employees** (`intern`, `vibe_coder`, `10x_dev`) produce money and innovation; **upgrades** scale them.
 - **Innovation:** a soft multiplier (`1 + logMult · log₁₀(innovation + 1)`) and the currency for **managers** (auto-tiering multipliers) and unlocks. **Valuation** buys permanent **board mandates**.
-- **Satisfaction:** perks per role and a morale score feeding output. **Team leaders:** one per role, with a trait, ranks and skills.
+- **Morale** (`game/satisfaction.ts`, still "satisfaction" in code): one number a kind, ±40, the sum of Home (their houses' morale, those without a bed counted as 0), Work (perks), Leaders and Events; output ×0.5–×2, and one effect a kind (interns: innovation ×0.8–×1.2; vibe coders: slop fill ×2–×0.5; 10x devs: cost curve). Felt from the first hire; old saves' scores rescaled once. **Team leaders:** one per role, with a trait, ranks and skills.
 - **Vape shop:** 53 achievements earn juice for 12 upgrades; the vape rhythm minigame appears at 50 vibe coders. Both survive prestige.
 - **Slop pit** (`state/slop-pit.store.ts`): fills from 50 vibe coders, costs income above half full (up to 85%); on the map a 3×3 fluid basin (`StructureDef.basin`, `syncPit`) with a card: Drain (−40 vibe morale), Trucks.
 - **AI singularity** (`state/ai-singularity.store.ts`): 0–100, pushed by running agents, sinking when all are throttled; stages Tool → Assistant → Colleague → Manager → Overseer. A sale keeps 80%, floor 10 a sale this generation, cap 90 (`state/generation.store.ts`; `simulation/singularity-cadence.test.ts`: ~5 sales an Ascension strong, 10 typical).
@@ -66,7 +66,7 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**. **Hin
 | Data Centre ★ | 120 · 50 · 3 | vibe + 10x | 10,000 | 3 min (≥ $200k) | 3×3 | innovation ×2, AI agents |
 | Conference Centre ★ | 250 · 100 · 6 | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | valuation ×1.5 |
 | *or* Hackerspace ★ | 250 · 100 · 6 | vibe + 10x | 14,000 | 4 min (≥ $500k) | 4×3 | income ×1.3 |
-| IPO Tower ★ | 350 · 150 · 8 | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5, valuation ×2 |
+| IPO Tower ★ | 325 · 150 · 8 | vibe + 10x | 20,000 | 5 min (≥ $2M) | 3×3 | income ×1.5, valuation ×2 |
 
 ★ Wonders (`play/wonders-panel.tsx`; headcounts interns · vibe · 10x; "int" = interns). Conference Centre and Hackerspace are a fork (`ProjectDef.rival`, `ruledOut`). Log: `projects-panel.tsx` (`Session.seenProjects`). Gated only with a map mounted (`setHousingReader`, `setProjectReader`).
 

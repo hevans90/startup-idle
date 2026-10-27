@@ -32,10 +32,10 @@ describe("skillOffset", () => {
     expect(skillOffset("chaos_spark", 0)).toBe(0);
   });
 
-  test("chaos_spark offsets at lv1, lv2, lv3", () => {
-    expect(skillOffset("chaos_spark", 1)).toBe(-5);
-    expect(skillOffset("chaos_spark", 2)).toBe(-10);
-    expect(skillOffset("chaos_spark", 3)).toBe(-15);
+  test("chaos_spark offsets at lv1, lv2, lv3 (on Morale's scale)", () => {
+    expect(skillOffset("chaos_spark", 1)).toBe(-2);
+    expect(skillOffset("chaos_spark", 2)).toBe(-4);
+    expect(skillOffset("chaos_spark", 3)).toBe(-6);
   });
 });
 
@@ -75,30 +75,30 @@ describe("computeTeamLeaderEmpSatOffsets", () => {
     expect(result).toEqual({ intern: 0, vibe_coder: 0, "10x_dev": 0 });
   });
 
-  test("chaos_spark lv1 on intern: intern=0, others=-5", () => {
+  test("chaos_spark lv1 on intern: intern=0, others=-2", () => {
     const result = computeTeamLeaderEmpSatOffsets([emp("intern", "chaos_spark", 1)]);
     expect(result.intern).toBe(0);
-    expect(result.vibe_coder).toBe(-5);
-    expect(result["10x_dev"]).toBe(-5);
+    expect(result.vibe_coder).toBe(-2);
+    expect(result["10x_dev"]).toBe(-2);
   });
 
-  test("team_morale lv2 on any role: all three roles get +8", () => {
+  test("team_morale lv2 on any role: all three roles get +3", () => {
     const result = computeTeamLeaderEmpSatOffsets([emp("intern", "team_morale", 2)]);
-    expect(result.intern).toBe(8);
-    expect(result.vibe_coder).toBe(8);
-    expect(result["10x_dev"]).toBe(8);
+    expect(result.intern).toBe(3);
+    expect(result.vibe_coder).toBe(3);
+    expect(result["10x_dev"]).toBe(3);
   });
 
-  test("crunch_mode lv3 on vibe_coder: vibe_coder=-28, others=0", () => {
+  test("crunch_mode lv3 on vibe_coder: vibe_coder=-11, others=0", () => {
     const result = computeTeamLeaderEmpSatOffsets([emp("vibe_coder", "crunch_mode", 3)]);
-    expect(result.vibe_coder).toBe(-28);
+    expect(result.vibe_coder).toBe(-11);
     expect(result.intern).toBe(0);
     expect(result["10x_dev"]).toBe(0);
   });
 
-  test("satisfaction_lift lv1 on intern: intern=5, others=0", () => {
+  test("satisfaction_lift lv1 on intern: intern=2, others=0", () => {
     const result = computeTeamLeaderEmpSatOffsets([emp("intern", "satisfaction_lift", 1)]);
-    expect(result.intern).toBe(5);
+    expect(result.intern).toBe(2);
     expect(result.vibe_coder).toBe(0);
     expect(result["10x_dev"]).toBe(0);
   });
@@ -109,12 +109,12 @@ describe("computeTeamLeaderEmpSatOffsets", () => {
       emp("vibe_coder", "team_morale", 1),
     ];
     const result = computeTeamLeaderEmpSatOffsets(employees);
-    // intern: chaos_spark doesn't affect own role, team_morale lv1=+4 => +4
-    expect(result.intern).toBe(4);
-    // vibe_coder: chaos_spark from intern => -5, team_morale lv1=+4 => -1
-    expect(result.vibe_coder).toBe(-1);
-    // 10x_dev: chaos_spark from intern => -5, team_morale lv1=+4 => -1
-    expect(result["10x_dev"]).toBe(-1);
+    // intern: chaos_spark doesn't affect own role, team_morale lv1=+2 => +2
+    expect(result.intern).toBe(2);
+    // vibe_coder: chaos_spark from intern => -2, team_morale lv1=+2 => 0
+    expect(result.vibe_coder).toBe(0);
+    // 10x_dev: chaos_spark from intern => -2, team_morale lv1=+2 => 0
+    expect(result["10x_dev"]).toBe(0);
   });
 });
 
@@ -180,8 +180,8 @@ describe("getActivePairSynergies", () => {
     ];
     const result = computeTeamLeaderEmpSatOffsets(employees);
     // dumpster_fire satOffset = -15 applied to all roles
-    expect(result.intern).toBe(-15);
-    expect(result.vibe_coder).toBe(-15);
-    expect(result["10x_dev"]).toBe(-15);
+    expect(result.intern).toBe(-6);
+    expect(result.vibe_coder).toBe(-6);
+    expect(result["10x_dev"]).toBe(-6);
   });
 });
