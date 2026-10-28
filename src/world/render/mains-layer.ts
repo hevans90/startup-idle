@@ -373,7 +373,9 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       for (const it of r.intakes) {
         const x = it.cell % g.w, y = (it.cell / g.w) | 0;
         const c = P(s, x, y, levelAt(g, x, y));
-        word(k++, it.surface === null ? "dry" : `${(it.depth / 2).toFixed(1)} deep`, it.surface === null ? 0xff8a8d : 0x9fd6ff, [c[0], c[1] - w * 3.4], px);
+        // FOULED water cools less, and says so. @see coolingKept
+        const fouled = it.surface !== null && it.fouled >= 0.05 ? ` · ${Math.round(it.fouled * 100)}% fouled` : "";
+        word(k++, it.surface === null ? "dry" : `${(it.depth / 2).toFixed(1)} deep${fouled}`, it.surface === null ? 0xff8a8d : fouled ? 0xd9a35a : 0x9fd6ff, [c[0], c[1] - w * 3.4], px);
       }
     }
     for (const net of list) {

@@ -17,6 +17,7 @@
  * Per-band strips, as everything else in this engine: a column belongs to the
  * tile it sits in, and that tile's band decides what occludes it.
  */
+import { pollutionOf } from "../water/pollution";
 import {
   MATERIAL_SLOTS, activeBox, flowX, flowY, surfaceAt, velocityAt, type ColumnField, wet,} from "../../fluid/columns";
 import { COLUMNS_PER_TILE, columnOf, tileOf } from "../water/field";
@@ -861,6 +862,20 @@ function nearby(
 const respond = (v: number) => v / (Math.abs(v) + SLOPE_REF);
 
 /** Lighten toward white, for the aerated look of moving water. */
+/**
+ * A packed vertex colour — alpha, then blue, green, red, as `packRGB` packs
+ * it — browned toward mud by `k`, nought to one, keeping its light. The CPU
+ * twin of the shader's `fouled`.
+ */
+export function fouled(abgr: number, k: number): number {
+  if (k <= 0) return abgr;
+  const mud = [0.6, 0.42, 0.2], f = k * 0.85;
+  const rgb = [abgr & 0xff, (abgr >> 8) & 0xff, (abgr >> 16) & 0xff];
+  const lum = (0.3 * rgb[0] + 0.59 * rgb[1] + 0.11 * rgb[2]) / 255;
+  const [r, g, b] = rgb.map((c, n) => Math.max(0, Math.min(255, Math.round(c + (mud[n] * (0.7 + lum * 0.8) * 255 - c) * f))));
+  return ((abgr & 0xff000000) | (b << 16) | (g << 8) | r) >>> 0;
+}
+
 export function aerate(colour: number, t: number): number {
   const ch = (sh: number) => {
     const c = (colour >> sh) & 0xff;
@@ -936,6 +951,7 @@ function fillQuads(
   faces: boolean, rim: number,
 ) {
   const { nx, depth } = columns;
+  const fouling = pollutionOf(columns);
   const s = wl.scale;
 
   // CULLED to the bands on screen: the band renderer already knows what is
@@ -1033,8 +1049,10 @@ function fillQuads(
       const shadeOf = (k: number) => (k < 0
         ? (packAlpha(1) << 24 | wl.tint[tints]) >>> 0
         : (wl.va[k] << 24 | wl.tint[tints + wl.vl[k]]) >>> 0);
-      const c00 = shadeOf(k00), c10 = shadeOf(k10);
-      const c11 = shadeOf(k11), c01 = shadeOf(k01);
+      // FOULED: browned by its tile's slop, the open storey only. @see world/water/pollution
+      const foul = a === 0 ? fouling.level[(ty < fouling.h ? ty : fouling.h - 1) * fouling.w + tx] / 255 : 0;
+      const c00 = fouled(shadeOf(k00), foul), c10 = fouled(shadeOf(k10), foul);
+      const c11 = fouled(shadeOf(k11), foul), c01 = fouled(shadeOf(k01), foul);
 
       pushQuad(
         batch,

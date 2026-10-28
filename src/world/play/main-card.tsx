@@ -5,6 +5,7 @@
  * main is down that cannot lift its water, the pump it needs, one click
  * away. @see previewMain, acceptPump, plans/pipes-overhaul.md §2
  */
+import { coolingKept } from "../../game/pollution";
 import { twMerge } from "tailwind-merge";
 
 import { Button, Card, IconButton } from "../../ui/console";
@@ -124,7 +125,7 @@ export function MainInfo() {
         {r.intakes.some((k) => k.surface !== null) && <> · head {(r.head / 2).toFixed(1)} slabs</>}
       </p>
       <p className="text-fg-muted">
-        {r.intakes.length ? r.intakes.map((k) => `${k.pump ? "Pump" : "Intake"}${k.surface === null ? " (dry)" : ""}`).join(", ") : "No intake"}
+        {r.intakes.length ? r.intakes.map((k) => `${k.pump ? "Pump" : "Intake"}${k.surface === null ? " (dry)" : k.fouled >= 0.05 ? ` (${Math.round(k.fouled * 100)}% fouled: cools ${Math.round(coolingKept(k.fouled) * 100)}%)` : ""}`).join(", ") : "No intake"}
         {" → "}{names.length ? names.join(", ") : "nothing"}
       </p>
       <div className="mt-0.5 flex flex-wrap gap-1">

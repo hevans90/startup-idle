@@ -70,6 +70,7 @@ import { brinkRow, createBrinkPass, type BrinkPass } from "./brink-gpu";
 import { FALL_MIN, FALL_STOP, LATCH_ROW } from "../../fluid/falls";
 import { fluidMaterial } from "../water/materials";
 import { COLUMNS_PER_TILE, STOREYS } from "../water/field";
+import { pollutionOf, type Pollution } from "../water/pollution";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "./bands";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
@@ -113,6 +114,11 @@ import {
 } from "./water";
 
 const PER_TILE = COLUMNS_PER_TILE * COLUMNS_PER_TILE;
+/** FOULED WATER: the brown it is mixed toward, and how far at the worst. @see fouled */
+const MUD_RGB = [0.6, 0.42, 0.2] as const;
+const MUD = `vec3<f32>(${MUD_RGB.join(", ")})`;
+const MUD_GL = MUD_RGB.join(", ");
+const FOUL_MOST = 0.85;
 /**
  * Quads a column gets: its surface and its two visible SIDES.
  *
@@ -503,7 +509,10 @@ struct Water {
 // when the lip falls. A BYTE TEXTURE, so after the material in the resources
 // too. See latchAt.
 @group(2) @binding(11) var uFalling : texture_2d<f32>;
-@group(2) @binding(12) var uQuads : texture_2d<u32>;
+// HOW FOULED EACH TILE'S WATER IS, a byte a tile. After the falling latch, as
+// it is in the resources. @see world/water/pollution
+@group(2) @binding(12) var uPollution : texture_2d<f32>;
+@group(2) @binding(13) var uQuads : texture_2d<u32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -732,6 +741,14 @@ fn aerated(mat: i32, t: f32) -> vec3<f32> {
   return textureLoad(uTint, vec2<i32>(i32(k + 0.5), mat), 0).rgb;
 }
 
+/** SLOP IN THE WATER: browned by how fouled its tile is, keeping its light; the open storey only. */
+fn fouled(rgb: vec3<f32>, cx: i32, cy: i32, a: i32) -> vec3<f32> {
+  if (a != 0) { return rgb; }
+  let k = textureLoad(uPollution, vec2<i32>(cx / ${COLUMNS_PER_TILE}, cy / ${COLUMNS_PER_TILE}), 0).r;
+  let lum = dot(rgb, vec3<f32>(0.3, 0.59, 0.11));
+  return mix(rgb, ${MUD} * (0.7 + lum * 0.8), k * ${FOUL_MOST});
+}
+
 /** How fast this column is going, nought to one. */
 fn pace(cx: i32, cy: i32, d: f32, a: i32) -> f32 {
   let v = flowAt(cx, cy, d, a);
@@ -810,7 +827,7 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   // spray. Whitened as hard as a fall it came out near white, and a ring of
   // near-white round every pool on a plateau read as a panel stuck to the rock.
   let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
-  p.colour = aerated(mat, 0.08 + pace(cx, cy, d, a) * 0.14);
+  p.colour = fouled(aerated(mat, 0.08 + pace(cx, cy, d, a) * 0.14), cx, cy, a);
   // The same ramp the surface uses, on the water standing at this edge: you
   // see through the side of a puddle and not through the side of a lake. Flat
   // at a third of an alpha, a deep body read as a sheet over a void — the
@@ -986,7 +1003,7 @@ fn mainVertex(
     let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
     alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
     let mat = i32(textureLoad(uMaterial, vec2<i32>(ccx, slotRow(ccy, a)), 0).r * 255.0 + 0.5);
-    rgb = textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb;
+    rgb = fouled(textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb, ccx, ccy, a);
   } else {
     // A SIDE of this column. Hung from the very corners the surface quad
     // used, so the two share vertices and there is no seam between them.
@@ -1078,6 +1095,8 @@ uniform highp usampler2D uQuads;
 uniform sampler2D uBrink;
 // Which edges the solver says are falling. See the WGSL twin's latchAt.
 uniform sampler2D uFalling;
+// How fouled each tile's water is. See the WGSL twin's uPollution.
+uniform sampler2D uPollution;
 
 // How many STOREYS a column has, and where a storey's plane of rows begins —
 // see the WGSL twin, where the layout is argued.
@@ -1222,6 +1241,14 @@ vec3 aerated(int mat, float t) {
   return texelFetch(uTint, ivec2(int(k + 0.5), mat), 0).rgb;
 }
 
+// Slop in the water. The WGSL twin's fouled.
+vec3 fouled(vec3 rgb, int cx, int cy, int a) {
+  if (a != 0) return rgb;
+  float k = texelFetch(uPollution, ivec2(cx / ${COLUMNS_PER_TILE}, cy / ${COLUMNS_PER_TILE}), 0).r;
+  float lum = dot(rgb, vec3(0.3, 0.59, 0.11));
+  return mix(rgb, vec3(${MUD_GL}) * (0.7 + lum * 0.8), k * ${FOUL_MOST});
+}
+
 float pace(int cx, int cy, float d, int a) {
   vec2 v = flowAt(cx, cy, d, a);
   return min(1.0, (abs(v.x) + abs(v.y)) * 0.5);
@@ -1278,7 +1305,7 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
   p.h = onTop ? top : foot;
 
   int mat = int(texelFetch(uMaterial, ivec2(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
-  p.colour = aerated(mat, 0.08 + pace(cx, cy, d, a) * 0.14);
+  p.colour = fouled(aerated(mat, 0.08 + pace(cx, cy, d, a) * 0.14), cx, cy, a);
   // The same ramp the surface uses — see the WGSL twin.
   // Floored at a brink, the same as the surface — see the WGSL twin.
   float sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy, a));
@@ -1403,7 +1430,7 @@ void main() {
     float body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
     alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
     int mat = int(texelFetch(uMaterial, ivec2(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
-    rgb = texelFetch(uTint, ivec2(int(shade + 0.5), mat), 0).rgb;
+    rgb = fouled(texelFetch(uTint, ivec2(int(shade + 0.5), mat), 0).rgb, cx, cy, a);
   } else {
     if (d <= uBand.z) { return; }
     if (!facesOn()) { return; }
@@ -1446,6 +1473,8 @@ export const waterShaderSource = () => ({
 
 export type GpuWaterLayer = {
   meshes: Mesh<Geometry, Shader>[];
+  /** How fouled each tile's water is, and the count of its changes last sent up. @see world/water/pollution */
+  fouled: { src: BufferImageSource; of: Pollution; sent: number };
   /** Frames each band's roofed tier has gathered nothing. @see holdShown */
   underIdle: Uint16Array;
   /**
@@ -1528,7 +1557,7 @@ const FRAGMENT_STAGE = 2;
  * integer coordinate, which is a fetch and not a sample, and needs no sampler.
  */
 const FLOAT_FIELDS = ["uDepth", "uGround", "uWash", "uFoam", "uFx", "uFy", "uRoof", "uBrink"];
-const BYTE_FIELDS = ["uTint", "uMaterial", "uFalling"];
+const BYTE_FIELDS = ["uTint", "uMaterial", "uFalling", "uPollution"];
 /** The quad list, which is `r32uint` and so neither of the above. @see QUAD_CAP */
 const UINT_FIELDS = ["uQuads"];
 
@@ -1678,6 +1707,11 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     scaleMode: "nearest",
   });
   const tint = tintSource();
+  // HOW FOULED EACH TILE'S WATER IS, sent up when it changes. @see world/water/pollution
+  const fouledOf = pollutionOf(columns);
+  const fouledTex = new BufferImageSource({
+    resource: fouledOf.level, width: fouledOf.w, height: fouledOf.h, format: "r8unorm", scaleMode: "nearest",
+  });
   // WHICH QUADS EACH BAND DRAWS. The identity until something gathers it.
   // @see quadList
   const list = quadList(bands.w, bands.h, layers);
@@ -1727,7 +1761,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
-        uTint: tint, uMaterial: material, uFalling: fallingTex, uQuads: quads,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads,
       },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
@@ -1763,7 +1797,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         water: underWater,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
-        uTint: tint, uMaterial: material, uFalling: fallingTex, uQuads: quads,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads,
       },
     });
     const underMesh = new Mesh<Geometry, Shader>({ geometry: underGeom, shader: underShader });
@@ -1774,6 +1808,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
 
   return {
     meshes,
+    fouled: { src: fouledTex, of: fouledOf, sent: fouledOf.rev },
     underIdle: new Uint16Array(meshes.length),
     under,
     faces: 1,
@@ -2366,6 +2401,8 @@ export function drawGpuWater(
     wl.sources[k].update();
   }
   wl.groundSent = columns.groundRev;
+  // THE FOULING, when it has changed: a byte a tile, a few times a second at most.
+  if (wl.fouled.of.rev !== wl.fouled.sent) { wl.fouled.src.update(); wl.fouled.sent = wl.fouled.of.rev; }
   const tC = performance.now();
   wl.advectMs = tB - tA;
   wl.uploadMs = tC - tB;

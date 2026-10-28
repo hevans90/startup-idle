@@ -13,11 +13,13 @@
 import { surfaceAt, wantDepth, addWater } from "../../fluid/columns";
 import { isDrinker } from "../../game/cooling";
 import { PUMP_MOST, mainFlow, pumpLift, sewerFlow } from "../../game/mains";
+import { coolingKept } from "../../game/pollution";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { fillTank, tankRoom } from "../projects/cooling";
 import { structureDef } from "../structures/def";
-import { COLUMNS_PER_TILE, columnOf, type WaterField } from "./field";
+import { COLUMNS_PER_TILE, columnOf, tileOf, type WaterField } from "./field";
+import { pollutionAt } from "./pollution";
 import { nearestPort, portsAt, portsOf, wallAt } from "./ports";
 import type { Port } from "../structures/def";
 
@@ -142,8 +144,8 @@ export type MainReport = {
   bore: number;
   /** Each outlet's building, what it could take a second, and whether a pump is doing the lifting. */
   outlets: { cell: number; building: number; capacity: number; pumped: boolean }[];
-  /** Each intake's water surface, or null if dry, and how deep it stands there; whether it is a pump. */
-  intakes: { cell: number; surface: number | null; depth: number; pump: boolean }[];
+  /** Each intake's water surface, or null if dry, how deep it stands there, and how fouled (nought to one); whether it is a pump. */
+  intakes: { cell: number; surface: number | null; depth: number; pump: boolean; fouled: number }[];
   /** A SEWER's: the workplaces it takes slop from, by id, and its outfalls by cell. Empty for a water main. */
   sewer?: { sources: number[]; outfalls: number[] };
 };
@@ -158,7 +160,9 @@ export function solveMain(g: Grid, field: WaterField, net: MainNet, pumpsOn = tr
   const length = net.cells.length;
   const intakes = net.intakes.map((cell) => {
     const w = intakeWater(g, field, cell);
-    return { cell, surface: w ? w.surface : null, depth: w ? w.depth : 0, pump: g.mainEnd[cell] === MAIN_END.pump };
+    // HOW FOULED the water it draws is, on the tile its water stands on. @see coolingKept
+    const fouled = w ? pollutionAt(field, tileOf(w.column % field.columns.nx), tileOf(Math.floor(w.column / field.columns.nx))) : 0;
+    return { cell, surface: w ? w.surface : null, depth: w ? w.depth : 0, pump: g.mainEnd[cell] === MAIN_END.pump, fouled };
   });
   const live = intakes.filter((k) => k.surface !== null);
   const pumps = live.filter((k) => k.pump).length;
@@ -167,15 +171,17 @@ export function solveMain(g: Grid, field: WaterField, net: MainNet, pumpsOn = tr
     // The building's floor: the water has to stand as high as it to go in.
     const b = building >= 0 ? g.structures.get(building) : undefined;
     const sill = b ? g.height[idx(g, b.x, b.y)] : Infinity;
-    let head = -Infinity, pumped = false;
+    let head = -Infinity, pumped = false, from: (typeof live)[number] | null = null;
     for (const k of live) {
       const gravity = k.surface! - sill;
-      if (gravity > head) { head = gravity; pumped = false; }
-      if (k.pump && pumpsOn && gravity + pumpLift() > head) { head = gravity + pumpLift(); pumped = true; }
+      if (gravity > head) { head = gravity; pumped = false; from = k; }
+      if (k.pump && pumpsOn && gravity + pumpLift() > head) { head = gravity + pumpLift(); pumped = true; from = k; }
     }
     let capacity = building >= 0 ? mainFlow(head, length, net.bore) : 0;
     // A pump moves as much again through a widened bore.
     if (pumped) capacity = Math.min(capacity, (PUMP_MOST * pumps * net.bore) / Math.max(1, net.outlets.length));
+    // Fouled water cools less: as good as so much less of it, pumped or not. @see coolingKept
+    capacity *= coolingKept(from?.fouled ?? 0);
     return { cell, building, capacity, pumped, head };
   });
   const capacity = outlets.reduce((n, o) => n + o.capacity, 0);

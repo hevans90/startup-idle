@@ -18,6 +18,8 @@ export const MOOD = {
   crowded: -6,
   wonder: 5,
   sludge: -15,
+  /** Fouled water in view, in place of the water view. @see fouledHouses */
+  polluted: -8,
   flooded: -20,
   derelict: -5,
 } as const;

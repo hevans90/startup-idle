@@ -5,6 +5,7 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
+import { fouledHouses, stepPollution } from "./water/pollution";
 import { founderIs } from "../game/founder-rules";
 import { useThemeStore } from "../state/theme.store";
 import { latticeForm } from "../game/quests/finale";
@@ -111,7 +112,7 @@ import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { stepEvolution, withTier } from "./agents/services";
 import { liveSeating } from "./agents/commute";
-import { liveMoods, moodTint, setFlooded, setSludged, stepMood, type Unrest } from "./agents/mood";
+import { liveMoods, moodTint, setFlooded, setFouled, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
 import { CONVOY_PAYS, convoyPays } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
@@ -386,6 +387,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** The events director's clock, the sludge's, and the next event's number. @see stepEvents */
   const eventClock = useRef(0);
   const sludgeClock = useRef(0);
+  /** Seconds since the houses by fouled water were last looked for. @see fouledHouses */
+  const fouledClock = useRef(0);
   const eventIds = useRef(1);
   /** What the slop pit's sludge in the water was last filled to. @see syncPit */
   const pitLevel = useRef<PitLevel>(null);
@@ -2761,6 +2764,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       runPipes(field, grid, dt, useWorldStore.getState().playing ? PAID_PUMPS : undefined);
       // THE WATER MAINS: the game's pipes, solved and delivered. @see runMains
       runMains(field, grid, dt, useWorldStore.getState().playing ? PAID_PUMPS : undefined);
+      // THE SLOP IN THE WATER, carried and diluted by it. @see stepPollution
+      stepPollution(field, dt);
       // The columns the boats will read, asked for before the step uploads
       // the list. @see wantFleet
       wantFleet(getFleet(), field.columns);
@@ -3021,6 +3026,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             }
             if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
           }
+          // HOUSES BY FOULED WATER, looked for every couple of seconds. @see fouledHouses
+          fouledClock.current += dt;
+          const waterNow = st.getWaterField();
+          if (fouledClock.current >= 2 && waterNow) { setFouled(fouledHouses(waterNow, st.grid)); fouledClock.current = 0; }
           const overflowing = st.events.some((e) => e.kind === "slop-overflow" && e.phase === "active");
           // Kept for the run: a clean run is a term sheet's goal. @see game/term-sheets
           if (overflowing) useSessionStore.getState().markOverflowed();

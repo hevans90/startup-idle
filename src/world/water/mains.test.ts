@@ -86,6 +86,23 @@ describe("a water main", () => {
     expect(before - after).toBeCloseTo(r.flow, 3);
   });
 
+  test("drawing fouled water, cools as if it carried that much less", async () => {
+    const { pollute, pollutionAt } = await import("./pollution");
+    const { coolingKept } = await import("../../game/pollution");
+    const { g } = lakeside(5);
+    lay(g, row(5, 4, 19));
+    const field = createWaterField(g);
+    const net = findMains(g).list[0];
+    const clean = solveMain(g, field, net);
+    // Slop on every lake tile by the intake: the water it draws is fouled.
+    for (const [x, y] of [[3, 4], [3, 5], [3, 6], [2, 5]]) pollute(field, x, y, 2);
+    const dirty = solveMain(g, field, net);
+    const fouled = dirty.intakes[0].fouled;
+    expect(fouled).toBeCloseTo(pollutionAt(field, 3, 5), 5);
+    expect(fouled).toBeGreaterThan(0.2);
+    expect(dirty.capacity).toBeCloseTo(clean.capacity * coolingKept(fouled), 5);
+  });
+
   test("says when the water is too low to reach the building, and a pump lifts it — paid for while it runs", () => {
     const { g, dc } = lakeside(-2);
     lay(g, row(5, 4, 19));

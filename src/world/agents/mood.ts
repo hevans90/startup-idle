@@ -9,6 +9,7 @@
  *    at all drags it down;
  *  - the SLOP PIT, near it: the fuller, the worse;
  *  - CROWDING: a dense house — grown to III or a tower — with no park;
+ *  - the WATER in view, a pleasure — unless slop has fouled it;
  *  - a WONDER near it, which people like living by.
  * Each kind of employee's satisfaction leans toward the mood of the houses
  * they live in, weighted by how many live in each. @see setTownMoodReader
@@ -49,6 +50,8 @@ export function moodsOf(
   water: (s: Structure) => boolean = () => false,
   /** What a Zoner fused into the founder adds to every house. @see game/fusion */
   planning = 0,
+  /** Houses whose water in view slop has fouled. @see fouledHouses */
+  polluted: ReadonlySet<number> = new Set(),
 ): Map<number, MoodParts> {
   const pits: Structure[] = [], wonders: Structure[] = [], derelicts: Structure[] = [];
   // Kinds with somewhere to work: with none at all, there is no commute to
@@ -84,7 +87,7 @@ export function moodsOf(
     }
     const tier = tierOf(s.def);
     if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: "crowded", points: MOOD.crowded });
-    if (water(s)) parts.push({ why: "water view", points: fusionNow().waterView });
+    if (water(s)) parts.push(polluted.has(s.id) ? { why: "polluted water", points: MOOD.polluted } : { why: "water view", points: fusionNow().waterView });
     if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: "near a wonder", points: MOOD.wonder });
     if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: "derelict nearby", points: MOOD.derelict });
     if (sludged.has(s.id)) parts.push({ why: "sludge", points: MOOD.sludge });
@@ -132,6 +135,9 @@ export const setSludged = (s: ReadonlySet<number>) => { sludged = s; };
 /** Houses a flood has reached and nothing kept dry, likewise. @see floodedNow */
 let flooded: ReadonlySet<number> = new Set();
 export const setFlooded = (s: ReadonlySet<number>) => { flooded = s; };
+/** Houses with fouled water in view, likewise. @see fouledHouses */
+let fouled: ReadonlySet<number> = new Set();
+export const setFouled = (s: ReadonlySet<number>) => { fouled = s; };
 
 /**
  * Every house's mood on this map now, worked out again when the map, its
@@ -143,12 +149,12 @@ export function liveMoods(g: Grid, net: Network, slopFill: number): Map<number, 
   const fill = Math.round(Math.max(0, Math.min(1, slopFill)) * 20);
   // A Zoner fused into the founder. @see game/fusion
   const planning = fusionNow().houseDesire;
-  const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + planning;
+  const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning;
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.fill !== fill || memo.sludge !== sludge) {
     const maps = liveDesireMaps(g, net);
     memo = {
       g, rev: g.rev, sites, fill, sludge,
-      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), fill / 20, sludged, flooded, (s) => seesWater(maps, g, s), planning),
+      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), fill / 20, sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled),
     };
   }
   return memo.value;
