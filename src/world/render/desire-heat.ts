@@ -25,7 +25,7 @@ export function heatColour(total: number): number {
 
 export type DesireHeat = {
   /** Tint every tile `can` allows, for a house of `who`; or clear with no kind. */
-  draw: (g: Grid, maps: DesireMaps | null, who: GeneratorId | null, can: (x: number, y: number) => boolean, scale: number, slopFill: number) => void;
+  draw: (g: Grid, maps: DesireMaps | null, who: GeneratorId | null, can: (x: number, y: number) => boolean, scale: number) => void;
   destroy: () => void;
 };
 
@@ -36,13 +36,13 @@ export function createDesireHeat(overlay: Container): DesireHeat {
   gfx.alpha = 0.45;
   overlay.addChild(gfx);
   return {
-    draw: (g, maps, who, can, sc, slopFill) => {
+    draw: (g, maps, who, can, sc) => {
       gfx.clear();
       if (!maps || !who) return;
       for (let y = 0; y < g.h; y++) {
         for (let x = 0; x < g.w; x++) {
           if (!can(x, y)) continue;
-          const d = desireAt(g, maps, x, y, who, slopFill);
+          const d = desireAt(g, maps, x, y, who);
           if (!d) continue;
           const h = g.height[idx(g, x, y)];
           const P = (u: number, v: number) => [(u - v) * HW * sc, (u + v) * HH * sc - h * HEIGHT_UNIT * sc];

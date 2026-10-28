@@ -6,6 +6,7 @@
  * tested from plain numbers: everything it needs from the live game comes in
  * through `InfoContext`.
  */
+import { slopTankOf } from "../slop/tanks";
 import { tankFor } from "../projects/cooling";
 import { PUMP_HEAD } from "../../game/cooling";
 import { AGENTS_A_RACK, RACK_RANGE } from "../../game/agents";
@@ -214,6 +215,8 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const lines: InfoLine[] = [];
     const desks = workplaceKind(s.def) ? deskLine(s.id, ctx) : null;
     if (desks) lines.push(desks);
+    const slop = slopLine(s.id);
+    if (slop) lines.push(slop);
     lines.push(...perkLines(s.id, ctx));
     if (p.bonus) lines.push({ text: opensText(p).replace(/, for good$/, ""), tone: "good" });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
@@ -223,9 +226,6 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     }
     return { title: p.name, accent: 0x8fb3d9, brief: [p.name], lines, facts: [{ type: "project", name: p.name }] };
   }
-
-  // THE SLOP PIT has no label: its card says it all. @see SlopPitCard
-  if (s.def === "slop-pit") return null;
 
   // AN R&D LAB: what it adds to innovation. @see world/projects/labs
   if (s.def === "lab") {
@@ -293,7 +293,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const d = ctx.desks?.get(s.id);
     return {
       title: def.name, accent: KIND_COLOUR[office], brief: [d ? `${d.used}/${d.of}` : def.name],
-      lines: [deskLine(s.id, ctx) ?? { text: `${KIND_NAME[office][1]} work here` }, ...perkLines(s.id, ctx)],
+      lines: [deskLine(s.id, ctx) ?? { text: `${KIND_NAME[office][1]} work here` }, ...[slopLine(s.id)].filter((l): l is InfoLine => !!l), ...perkLines(s.id, ctx)],
       facts: [{ type: "project", name: def.name }],
     };
   }
@@ -519,6 +519,15 @@ export function gatherLabels(
   }
   groups = groups.filter((_, k) => !gone[k]);
   return groups.map((g) => ({ ids: g.ids, ...anchor(g), info: g.infos.length === 1 ? g.infos[0] : { ...(g.info as Omit<BuildingInfo, "facts">), facts: g.infos.flatMap((i) => i.facts) } }));
+}
+
+/** A vibe workplace's slop tank: how full, or spilling. @see world/slop/tanks */
+function slopLine(id: number): InfoLine | null {
+  const t = slopTankOf(id);
+  if (!t || t.rate <= 0) return null;
+  if (t.spilling) return { text: "Slop tank full: spilling", tone: "warn" };
+  const pct = Math.round((t.level / t.capacity) * 100);
+  return { text: `Slop tank ${pct}%`, tone: pct >= 75 ? "warn" : "dim" };
 }
 
 /** What a building that drinks is drinking, and how well cooled it is. @see game/cooling */

@@ -25,7 +25,6 @@
  */
 import { Container, Graphics, Matrix, Text } from "pixi.js";
 
-import { SEWERS_OPEN } from "../../game/mains";
 import { NEIGHBOUR } from "../../iso/dir";
 import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, idx, inBounds, structureAt, type Grid } from "../grid";
 import { allTanks } from "../projects/cooling";
@@ -57,6 +56,8 @@ const AI_BODY = 0x9d8bbd, AI_BAND = 0xb44aff;
 const GRATE = 0x3d4a57, PUMP_BODY = 0x4f6f8f, PUMP_TRIM = 0xe0a23a, VALVE = 0xb8463a, CAP = 0xc0392b;
 /** A port's nozzle: blue for water, brown for slop. */
 const PORT_COLOUR = { water: 0x3f86c6, slop: 0x7a5230 } as const;
+/** The slop seen in a sewer's glass, and the lumps in it. */
+const SLOP_IN = 0x7a5230, SLOP_LUMP = 0x3f2a18;
 /** The water in a main, and the warning at one that cannot deliver. */
 const WATER = 0x5fb7ff, WARN = 0xf2a33a;
 /** A glass section's tint, and how far along each limb it reaches, as a share of the limb. */
@@ -398,8 +399,6 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       // THE PORTS on the buildings, under any main that ends at them.
       for (const st of g.structures.values()) {
         for (const p of portsOf(g, st)) {
-          // Slop ports only once slop is piped. @see SEWERS_OPEN
-          if (p.port.fluid === "slop" && !SEWERS_OPEN) continue;
           const band = p.x + p.y;
           if (!bands.pavedOf[band]) continue;
           const gfx = drawPort(g, p, scale);
@@ -450,6 +449,9 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       const { list } = findMains(g);
       if (!list.length) return;
       const streaks = new Map<Graphics, [number, number, number, number][]>();
+      /** And a sewer's slop in its glass: the band, and the lumps in it. */
+      const slopBands = new Map<Graphics, [number, number, number, number][]>();
+      const lumps = new Map<Graphics, [number, number][]>();
       const hoverAt = hover && inBounds(g, hover.x, hover.y) ? idx(g, hover.x, hover.y) : null;
       for (const net of list) {
         const first = net.cells[0], fx = first % g.w, fy = (first / g.w) | 0;
@@ -493,8 +495,22 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
             const at = (k: number) => P(scale, x + dir[0] * k, y + dir[1] * k, z);
             // The water itself, a band along the glass; then the streaks moving in it.
             const a0 = at(-half), a1 = at(half);
-            gfx.moveTo(a0[0], a0[1] + w * 0.04).lineTo(a1[0], a1[1] + w * 0.04);
             wet.add(gfx);
+            // A SEWER'S SLOP: a brown band, and lumps sliding slowly down it.
+            if (net.sewer) {
+              const band = slopBands.get(gfx) ?? [];
+              band.push([a0[0], a0[1] + w * 0.04, a1[0], a1[1] + w * 0.04]);
+              slopBands.set(gfx, band);
+              const go = (0.12 + Math.min(1, r.flow) * 0.25) * t;
+              for (let k = 0; k < 2; k++) {
+                const ph = (((go + k / 2) % 1) + 1) % 1, p = at(-half + ph * 2 * half);
+                const at0 = lumps.get(gfx) ?? [];
+                at0.push([p[0], p[1] - w * 0.02]);
+                lumps.set(gfx, at0);
+              }
+              continue;
+            }
+            gfx.moveTo(a0[0], a0[1] + w * 0.04).lineTo(a1[0], a1[1] + w * 0.04);
             if (speed > 0) {
               for (let k = 0; k < 3; k++) {
                 const ph = (((t * speed + k / 3) % 1) + 1) % 1;
@@ -556,9 +572,16 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         gfx.stroke({ color: WATER, width: Math.max(0.8, w * 0.62), cap: "butt", alpha: 0.85 });
         // The streaks, light on the water, over it in the same band.
         const list = streaks.get(gfx);
-        if (!list) continue;
-        for (const [ax, ay, bx, by] of list) gfx.moveTo(ax, ay).lineTo(bx, by);
-        gfx.stroke({ color: 0xffffff, width: Math.max(0.5, w * 0.16), cap: "round", alpha: 0.9 });
+        if (list) {
+          for (const [ax, ay, bx, by] of list) gfx.moveTo(ax, ay).lineTo(bx, by);
+          gfx.stroke({ color: 0xffffff, width: Math.max(0.5, w * 0.16), cap: "round", alpha: 0.9 });
+        }
+        const band = slopBands.get(gfx);
+        if (!band) continue;
+        for (const [ax, ay, bx, by] of band) gfx.moveTo(ax, ay).lineTo(bx, by);
+        gfx.stroke({ color: SLOP_IN, width: Math.max(0.8, w * 0.7), cap: "butt", alpha: 0.9 });
+        for (const [x, y] of lumps.get(gfx) ?? []) gfx.circle(x, y, Math.max(0.5, w * 0.16));
+        gfx.fill({ color: SLOP_LUMP });
       }
     },
     destroy() {

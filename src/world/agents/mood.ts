@@ -7,7 +7,7 @@
  *    the day it costs, and worst with no road to work at all;
  *  - its SERVICES: a café, a park and a gym in reach each lift it, and none
  *    at all drags it down;
- *  - the SLOP PIT, near it: the fuller, the worse;
+ *  - SLUDGE spilled from a vibe workplace's full slop tank, on its doorstep;
  *  - CROWDING: a dense house — grown to III or a tower — with no park;
  *  - the WATER in view, a pleasure — unless slop has fouled it;
  *  - a WONDER near it, which people like living by.
@@ -29,7 +29,7 @@ import { liveCoverage, tierOf, type Coverage } from "./services";
 
 export * from "./mood-rules";
 import {
-  DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, SLOP_REACH, WONDER_REACH, type MoodParts,
+  DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, WONDER_REACH, type MoodParts,
 } from "./mood-rules";
 import { liveDesireMaps, seesWater } from "./desirability";
 
@@ -40,12 +40,9 @@ function gap(a: Structure, b: Structure): number {
   return Math.max(dx, dy);
 }
 
-/**
- * Every house's mood, by id, and what it is made of. `slopFill` is the pit's
- * fill, 0 to 1.
- */
+/** Every house's mood, by id, and what it is made of. */
 export function moodsOf(
-  g: Grid, commutes: ReadonlyMap<number, Commute>, coverage: Coverage, slopFill: number,
+  g: Grid, commutes: ReadonlyMap<number, Commute>, coverage: Coverage,
   sludged: ReadonlySet<number> = new Set(), flooded: ReadonlySet<number> = new Set(),
   water: (s: Structure) => boolean = () => false,
   /** What a Zoner fused into the founder adds to every house. @see game/fusion */
@@ -53,13 +50,12 @@ export function moodsOf(
   /** Houses whose water in view slop has fouled. @see fouledHouses */
   polluted: ReadonlySet<number> = new Set(),
 ): Map<number, MoodParts> {
-  const pits: Structure[] = [], wonders: Structure[] = [], derelicts: Structure[] = [];
+  const wonders: Structure[] = [], derelicts: Structure[] = [];
   // Kinds with somewhere to work: with none at all, there is no commute to
   // count against anybody's home. @see WORKPLACES
   const working = new Set<GeneratorId>();
   for (const s of g.structures.values()) {
     if (s.build) continue;
-    if (s.def === "slop-pit") pits.push(s);
     if (s.def === "derelict") derelicts.push(s);
     if (projectForStructure(s.def)?.bonus) wonders.push(s);
     const w = workplaceKind(s.def);
@@ -81,9 +77,6 @@ export function moodsOf(
       if (have.has("cafe")) parts.push({ why: "café", points: MOOD.cafe });
       if (have.has("park")) parts.push({ why: "park", points: MOOD.park });
       if (have.has("gym")) parts.push({ why: "gym", points: MOOD.gym });
-    }
-    if (pits.some((p) => gap(s, p) <= SLOP_REACH)) {
-      parts.push({ why: "slop pit", points: Math.round(MOOD.slopNear + MOOD.slopFull * Math.max(0, Math.min(1, slopFill))) });
     }
     const tier = tierOf(s.def);
     if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: "crowded", points: MOOD.crowded });
@@ -121,12 +114,12 @@ export function moodOffsets(
   return out;
 }
 
-let memo: { g: Grid | null; rev: number; sites: number; fill: number; sludge: string; value: Map<number, MoodParts> } = {
-  g: null, rev: -1, sites: -1, fill: -1, sludge: "", value: new Map(),
+let memo: { g: Grid | null; rev: number; sites: number; sludge: string; value: Map<number, MoodParts> } = {
+  g: null, rev: -1, sites: -1, sludge: "", value: new Map(),
 };
 
 /**
- * Houses with the slop pit's sludge on them, as the scene last found them.
+ * Houses with spilled sludge on them, as the scene last found them.
  * Kept here rather than worked out on every ask: it means reading the water.
  * @see sludgedHouses
  */
@@ -141,20 +134,20 @@ export const setFouled = (s: ReadonlySet<number>) => { fouled = s; };
 
 /**
  * Every house's mood on this map now, worked out again when the map, its
- * sites, or the slop pit's fill (to a twentieth) has changed. @see liveCommutes
+ * sites, or what is spilled, flooded or fouled round them has changed.
+ * @see liveCommutes
  */
-export function liveMoods(g: Grid, net: Network, slopFill: number): Map<number, MoodParts> {
+export function liveMoods(g: Grid, net: Network): Map<number, MoodParts> {
   let sites = 0;
   for (const s of g.structures.values()) if (s.build) sites++;
-  const fill = Math.round(Math.max(0, Math.min(1, slopFill)) * 20);
   // A Zoner fused into the founder. @see game/fusion
   const planning = fusionNow().houseDesire;
   const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning;
-  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.fill !== fill || memo.sludge !== sludge) {
+  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.sludge !== sludge) {
     const maps = liveDesireMaps(g, net);
     memo = {
-      g, rev: g.rev, sites, fill, sludge,
-      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), fill / 20, sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled),
+      g, rev: g.rev, sites, sludge,
+      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled),
     };
   }
   return memo.value;

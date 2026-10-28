@@ -23,8 +23,6 @@ import { createTown, type Town } from "../world/agents/town";
 import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
 import { createEvolution, serviceOf, type Evolution } from "../world/agents/services";
 import { HACKATHON_PIZZA, type GameEvent } from "../world/events/events";
-import { sendSludgeTrucks } from "../world/events/sludge";
-import { useSlopPitStore } from "./slop-pit.store";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
@@ -39,7 +37,7 @@ import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
 import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
-import { SLOP_PIT, structureDef } from "../world/structures/def";
+import { structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
 import { findMains, hasMain, mainsToPorts, pipesToMains, planMain, previewMain, previewSewer, routeMain } from "../world/water/mains";
@@ -267,22 +265,12 @@ function recordBuild(cmd: Command, refund: number) {
   }
 }
 
-/** Sludge trucks on their way to the pit, or back. @see sendSludgeTrucks */
-let haulersOut = 0;
-export const sludgeTrucksOut = () => haulersOut;
-export const sludgeTruckBack = () => { haulersOut = Math.max(0, haulersOut - 1); };
-/** How many trucks a call sends, and what the call costs: seconds of income, never under a floor. */
-export const SLUDGE_TRUCKS = 3;
 /** What clearing a derelict building costs: fifteen seconds of income. @see DERELICT */
 export const clearingPrice = () => Math.max(200, Math.round(incomeNow() * 15));
-export const sludgeTruckPrice = () => Math.max(200, Math.round(incomeNow() * 20));
-/** What each choice an event offers costs in money, for those that cost any. Sludge trucks are paid for apart. */
+/** What each choice an event offers costs in money, for those that cost any. */
 const CHOICE_PRICE: Record<string, () => number> = { host: () => pizzaPrice() };
 /** What a hackathon's pizza costs: seconds of income, never under a floor. @see HACKATHON_PIZZA */
 export const pizzaPrice = () => Math.max(50, Math.round(incomeNow() * HACKATHON_PIZZA));
-
-/** When a spot for the slop pit was last looked for. @see openSlopPit */
-let slopTriedAt = -Infinity;
 
 /** How the town's houses are growing and declining. @see world/agents/services */
 let evolution: Evolution = createEvolution();
@@ -423,7 +411,7 @@ type WorldState = {
   /** Whether the Lift tool lifts pipe rather than road. @see the Lift tool */
   liftPipe: boolean;
   setLiftPipe: (on: boolean) => void;
-  /** Whether the Pipe tool lays a sewer rather than a water main. @see SEWERS_OPEN */
+  /** Whether the Pipe tool lays a sewer rather than a water main: set by the build bar when only one is open. */
   pipeSewer: boolean;
   setPipeSewer: (on: boolean) => void;
   /**
@@ -523,11 +511,6 @@ type WorldState = {
   /** Whether each building wears a label of what it is and how it is doing. @see BuildingLabels */
   labels: boolean;
   setLabels: (on: boolean) => void;
-  /**
-   * Put the slop pit on the map, beside the studio, if it is not there yet.
-   * Not something to undo, or to pay for. @see SLOP_PIT
-   */
-  openSlopPit: () => void;
   /**
    * Whether the map is out of sight — on a phone's other tab — and not worth
    * drawing. The town goes on; only the drawing stops.
@@ -806,24 +789,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const st = get();
     const ev = st.events.find((e) => e.id === id);
     if (!ev || ev.phase === "over") return;
-    if (ev.kind === "slop-overflow") {
-      if (choice === "drain") useSlopPitStore.getState().drain();
-      if (choice === "trucks") {
-        const pit = [...st.grid.structures.values()].find((s) => s.def === "slop-pit");
-        if (!pit || haulersOut > 0 || !network) return;
-        const price = sludgeTruckPrice();
-        if (useMoneyStore.getState().money.lt(price)) {
-          set({ notice: { text: `Not enough money for the sludge trucks: ${formatCurrency(price)}`, at: Date.now() } });
-          return;
-        }
-        useMoneyStore.getState().spendMoney(price);
-        haulersOut += sendSludgeTrucks(town, st.grid, network, pit, SLUDGE_TRUCKS);
-      }
-    }
     // A CHOICE PAID FOR IS KEPT: nobody gets their money back by changing their mind.
     if (ev.chosen && CHOICE_PRICE[ev.chosen]) return;
     const priced = CHOICE_PRICE[choice];
-    if (priced && ev.kind !== "slop-overflow") {
+    if (priced) {
       const price = priced();
       if (useMoneyStore.getState().money.lt(price)) {
         set({ notice: { text: `Not enough money: ${formatCurrency(price)}`, at: Date.now() } });
@@ -881,23 +850,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
     history = createHistory();
     set({ revision: get().revision + 1, ...historyMeta(), ...netMeta() });
-  },
-  openSlopPit: () => {
-    const st = get();
-    for (const s of st.grid.structures.values()) if (s.def === SLOP_PIT.id) return;
-    // Looking for a spot walks the whole map: not every frame, if there is none.
-    const now = Date.now();
-    if (now - slopTriedAt < 5000) return;
-    slopTriedAt = now;
-    const studio = [...st.grid.structures.values()].find((s) => s.def === "studio");
-    const spot = nearestSpot(st.grid, SLOP_PIT, {}, studio ? { x: studio.x + 1, y: studio.y + 1 } : undefined);
-    const cmd = spot && placeCommand(st.grid, SLOP_PIT, spot.x, spot.y, {});
-    if (!cmd) return;
-    const touched = commit(st.grid, history, cmd);
-    if (water && touchesSurface(cmd)) syncGround(water, st.grid);
-    if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
-    history = createHistory();
-    set({ revision: st.revision + 1, lastTouched: markDirty(st.grid, touched, true), ...historyMeta(), ...netMeta() });
   },
   settleHousing: (owned, remote) => {
     // A FIXTURE'S HOUSES ARE AS IT BUILT THEM. It is a rig, not the company's
@@ -1426,8 +1378,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       refuse(why ? `Can't build here: ${why}` : "Can't build here");
       return;
     }
-    // THE SLOP PIT is not the company's to fill in: it is where the slop goes.
-    if (st.playing && demolishing && st.grid.structures.get(under)?.def === SLOP_PIT.id) { refuse("The slop pit stays: drain it instead"); return; }
     // A DERELICT costs to clear. @see DERELICT
     if (st.playing && demolishing && st.grid.structures.get(under)?.def === "derelict") {
       const price = new Decimal(clearingPrice());

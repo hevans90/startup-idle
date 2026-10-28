@@ -14,7 +14,6 @@ import { getNetwork, useWorldStore } from "../../state/world.store";
 import { liveCommutes, workplaceKind } from "../agents/commute";
 import { serviceOf } from "../agents/services";
 import { liveMoods } from "../agents/mood";
-import { useSlopPitStore } from "../../state/slop-pit.store";
 import { builtProjects, ruledOut, sitesOf } from "../projects/works";
 import { projectForStructure } from "../../game/projects";
 import { nextHint, type HintState } from "./hints";
@@ -44,7 +43,7 @@ function snapshot(): HintState {
   const net = getNetwork();
   let worstCommute = 1, worstMood = 0, deskless = 0;
   if (net) {
-    for (const [house, m] of liveMoods(grid, net, useSlopPitStore.getState().fill / 100)) {
+    for (const [house, m] of liveMoods(grid, net)) {
       const s = grid.structures.get(house);
       if (s && (s.residents ?? 1) > 0) worstMood = Math.min(worstMood, m.total);
     }

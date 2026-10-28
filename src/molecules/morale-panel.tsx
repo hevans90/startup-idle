@@ -31,7 +31,7 @@ const KINDS: readonly GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 
 const PART_NAME: Record<MoralePart, string> = { home: "Home", work: "Work", leaders: "Leaders", events: "Events", founder: "Founder" };
 const PART_HINT: Record<MoralePart, string> = {
-  home: "Their houses' morale: commutes, services, crowding, the slop pit. Show it on the map",
+  home: "Their houses' morale: commutes, services, crowding, sludge and fouled water. Show it on the map",
   work: "The work policies they are run by",
   leaders: "Their leader: in full for the team in their building, half for the rest",
   events: "Hackathons, floods and the AI's memos, felt for a day",
@@ -80,7 +80,7 @@ function useMorale() {
 /** What a kind's morale does now, besides their output. */
 function sideEffect(id: GeneratorId, score: number): ReactNode {
   if (id === "intern") return <ModifierTag modKey="internIpsMult">innovation {mult(internSatisfactionIpsMultiplier(score))}</ModifierTag>;
-  if (id === "vibe_coder") return <>slop pit fill {mult(vibeSlopMultiplier(score))}</>;
+  if (id === "vibe_coder") return <>slop made {mult(vibeSlopMultiplier(score))}</>;
   const d = dev10xSatisfactionExponentDelta(score);
   return <>cost curve {d === 0 ? "unchanged" : `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(3)}`}</>;
 }

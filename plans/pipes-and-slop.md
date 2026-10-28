@@ -1,6 +1,6 @@
 # Pipes that look built, and slop that has to go somewhere
 
-Status: **in progress** (phases 1–6 done), agreed in conversation on 2026-10-27. Follows `plans/pipes-overhaul.md`, whose model (mains, fittings, the steady-state solve) stays.
+Status: **in progress** (phases 1–7 done), agreed in conversation on 2026-10-27. Follows `plans/pipes-overhaul.md`, whose model (mains, fittings, the steady-state solve) stays.
 
 ## Why
 
@@ -138,7 +138,7 @@ Status: **in progress** (phases 1–6 done), agreed in conversation on 2026-10-2
    Checked and sound: the preview ghost follows the snapped route; stilts over roads and the depth sort behind houses; the numbers are the solver's own. Listed, not fixed: building labels crowd the dimmed overlay at close zoom; `ai-layer.ts` reads `worldTransform` for its pixel size the same way.
 5. **Sewers.** (Done: sewers are mains flagged `MAIN_SEWER`, a drain and an outfall fitting added; nothing moves in them yet, and the tool's toggle waits behind `SEWERS_OPEN` for phase 7; their glass shows slop from then.) The second pipe type: the tool's Water | Sewer toggle, sewer drawing, auto stubs, outfalls, and sinks in order.
 6. **Pollution spike, then pollution.** (Done: a concentration per tile, chosen; kept beside the water rather than in its columns, so neither solver changed — carried by the surface's slope, which is where a river runs. Nothing pours slop in until phase 7's outfalls.) Concentration in the water field, advection, dilution, outflow; the brown tint; homes' morale; dirty cooling.
-7. **Slop replaces the pit.** Tanks on vibe workplaces, spills, gauges; the pit removed with its store, event and trucks; effects re-pointed; old saves converted; the sim's trucks replaced.
+7. **Slop replaces the pit.** (Done. The pit's income penalty went with it: the pressure is spills, mopping and pollution now. Old saves' pits are dropped as the map is read, their fill not poured — simpler than a one-off spill for nothing a player would miss. The sim lays a 20-tile sewer when slop starts.) Tanks on vibe workplaces, spills, gauges; the pit removed with its store, event and trucks; effects re-pointed; old saves converted; the sim's trucks replaced.
 8. **Processors.** The three projects and buildings, their effects, capacities and ports.
 9. **The AI, the sims and balance.** AI mode lays sewers and builds refineries; the pacing guards (`map-balance`) re-measured; README.
 

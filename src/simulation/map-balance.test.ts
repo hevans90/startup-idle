@@ -81,7 +81,7 @@ describe("the late game", () => {
       console.log({
         labs: run.labs, spentOnLabs: run.spentOnLabs, lots: run.lots, services: run.services,
         mood: run.mood, townBonus: run.townBonus, income: run.income, spentOnHires: run.spentOnHires,
-        slopTrucked: run.slopTrucked, slopDrained: run.slopDrained, offices: run.offices, spentOnOffices: run.spentOnOffices,
+        slopAt: run.slopAt, seweredAt: run.seweredAt, offices: run.offices, spentOnOffices: run.spentOnOffices,
       });
       console.table(run.headcount.map((h) => ({ at: fmt(h.at), ...h.owned })));
     }
@@ -102,8 +102,9 @@ describe("the late game", () => {
     // where after the IPO tower it was 2.3 h. @see game/agents, longestFlat
     expect(longestFlat(run, firstSale!.at).seconds).toBeLessThan(15 * 60);
     expect(run.agents).toBeGreaterThan(5);
-    // The pit seen to with trucks, mostly: a drain is the fallback.
-    expect(run.slopDrained).toBeLessThan(run.slopTrucked);
+    // SLOP SEEN TO (2026-10-28, the pit gone for tanks and sewers): a sewer
+    // paid for within a couple of minutes of the first slop. @see SIM_SEWER_TILES
+    if (run.slopAt !== null) expect(run.seweredAt! - run.slopAt).toBeLessThan(120);
     // Income never collapses: the last half hour still earns.
     expect(run.income).toBeGreaterThan(0);
     // No kind's town is miserable on a well-served map.

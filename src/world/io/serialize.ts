@@ -249,6 +249,8 @@ function readStructure(raw: unknown): Structure | null {
   const s = raw as Partial<Structure>;
   const nums = [s.id, s.x, s.y, s.w, s.h];
   if (typeof s.def !== "string" || !nums.every((v) => Number.isInteger(v))) return null;
+  // THE SLOP PIT is gone: slop goes into tanks and sewers now. @see world/slop/tanks
+  if (s.def === "slop-pit") return null;
   if ((s.w as number) <= 0 || (s.h as number) <= 0 || (s.id as number) < 0) return null;
   const build = readBuild(s.build);
   const residents = Number.isInteger(s.residents) && s.residents! >= 0 ? s.residents : undefined;

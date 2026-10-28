@@ -1,6 +1,6 @@
 /**
  * MORALE THAT LASTS: what an event does to how a kind feels — a hackathon
- * hosted, one turned down, the slop pit drained over their heads — held as a
+ * hosted, one turned down — held as a
  * lean on their satisfaction's TARGET for a day, rather than a bump to the
  * score itself. A bump is gone in a minute: the score returns to its target
  * at 5% a second, so "+15 satisfaction" was worth a couple of seconds of

@@ -111,12 +111,6 @@ describe("labels too close to show apart", () => {
   });
 });
 
-describe("the slop pit", () => {
-  test("has no label: its card says it all", () => {
-    expect(infoFor(at("slop-pit", { w: 3, h: 3 }), ctx())).toBeNull();
-  });
-});
-
 describe("mood on the labels", () => {
   test("a house says how happy it is, and what weighs on it most", () => {
     const moods = new Map([[7, { total: -12, parts: [{ why: "café", points: 4 }, { why: "long commute", points: -12 }, { why: "no services", points: -4 }] }]]);

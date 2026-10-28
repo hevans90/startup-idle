@@ -29,7 +29,7 @@ export type Policy = {
   hireCost?: number;
   /** Hires of the kind bought a second, at the price. */
   autoBuy?: number;
-  /** Multiplies how fast the slop pit fills. */
+  /** Multiplies how much slop the vibe coders make. @see game/slop */
   slop?: number;
 };
 

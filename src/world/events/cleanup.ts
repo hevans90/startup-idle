@@ -1,6 +1,6 @@
 /**
- * World v2 — MOPPING UP: sludge that has run out of the slop pit is cleaned
- * up by hand. Vibe coders leave their desks — so many for each tile of it,
+ * World v2 — MOPPING UP: sludge spilled from a vibe workplace's full slop
+ * tank is cleaned up by hand. Vibe coders leave their desks — so many for each tile of it,
  * and they produce nothing while they are out — walk to it, and drain it a
  * tile at a time until it is gone, then go back to work.
  *
@@ -12,7 +12,7 @@ import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, walkInto, type Mover, type Town } from "../agents/town";
 import { drainAt, type WaterField } from "../water/field";
-import { inPit, sludgeAt } from "./sludge";
+import { inPit, nearAny, sludgeAt } from "./sludge";
 
 /** Under this, half steps, a tile is dry enough to leave. */
 export const CLEAN_MIN = 0.05;
@@ -22,8 +22,6 @@ export const CLEAN_RATE = 0.03;
 export const CLEANERS_PER_TILE = 2;
 /** Walkers on the map, at most, however big the crew. */
 export const MAX_WALKERS = 8;
-/** How far from the pit sludge is looked for, tiles. */
-const REACH = 16;
 /** Seconds between one walker setting off and the next. */
 const SEND_GAP = 0.6;
 
@@ -39,15 +37,9 @@ export const cleanupAway = () => away;
 export type Cleanup = { away: number; untilSend: number };
 export const createCleanup = (): Cleanup => ({ away: 0, untilSend: 0 });
 
-/** Tiles round the pit with sludge on them, outside it. */
-export function wetTiles(field: WaterField, g: Grid, pit: Structure): { x: number; y: number }[] {
-  const out: { x: number; y: number }[] = [];
-  for (let y = Math.max(0, pit.y - REACH); y < Math.min(g.h, pit.y + pit.h + REACH); y++) {
-    for (let x = Math.max(0, pit.x - REACH); x < Math.min(g.w, pit.x + pit.w + REACH); x++) {
-      if (!inPit(g, x, y) && sludgeAt(field, x, y) > CLEAN_MIN) out.push({ x, y });
-    }
-  }
-  return out;
+/** Tiles near the vibe workplaces — `around` — with sludge on them. @see nearAny */
+export function wetTiles(field: WaterField, g: Grid, around: readonly Structure[]): { x: number; y: number }[] {
+  return nearAny(g, around).filter((t) => !inPit(g, t.x, t.y) && sludgeAt(field, t.x, t.y) > CLEAN_MIN);
 }
 
 const isCleaner = (m: Mover) => m.job?.role === "clean-go" || m.job?.role === "clean" || m.job?.role === "cleaning";
@@ -76,16 +68,19 @@ function walkOver(m: Mover, g: Grid, to: { x: number; y: number }): void {
 }
 
 /**
- * One frame of the mop-up. `owned` is how many vibe coders there are; `from`
- * where they come out of — a vibe coder's workplace door, or anywhere on the
- * map when there is none. Run before `stepWorks`, which clears the arrivals.
+ * One frame of the mop-up, round `around`, the vibe workplaces that spill.
+ * `owned` is how many vibe coders there are, coming out of the door of one of
+ * `workplaces` — or anywhere on the map when there is none. Run before
+ * `stepWorks`, which clears the arrivals.
  * Returns how many vibe coders are away from their desks for it.
  */
 export function stepCleanup(
-  c: Cleanup, town: Town, g: Grid, net: Network, field: WaterField, pit: Structure,
+  c: Cleanup, town: Town, g: Grid, net: Network, field: WaterField, around: readonly Structure[],
   owned: number, workplaces: readonly number[], dt: number, perTile = CLEANERS_PER_TILE,
 ): number {
-  const wet = wetTiles(field, g, pit);
+  const wet = wetTiles(field, g, around);
+  // Whose job it is, for the walkers' records: the first workplace that spills.
+  const site = around[0]?.id ?? -1;
   c.away = Math.min(owned, Math.ceil(wet.length * perTile));
   const places = placesOf(g, net);
 
@@ -93,7 +88,7 @@ export function stepCleanup(
   for (const m of town.arrived) {
     if (m.job?.role === "clean-go") {
       const to = tileOf(g, m.job.site);
-      walkInto(town, g, m.path[m.path.length - 1], to, pit.id).job = { site: m.job.site, role: "clean" };
+      walkInto(town, g, m.path[m.path.length - 1], to, site).job = { site: m.job.site, role: "clean" };
     } else if (m.job?.role === "clean") {
       // AT THE TILE: standing there, mopping. Back on the list it came off.
       town.movers.push({ ...m, s: 0, speed: 0, job: { site: m.job.site, role: "cleaning" } });
@@ -125,7 +120,7 @@ export function stepCleanup(
       town.movers = town.movers.filter((m) => !isCleaner(m));
       for (const m of crew) {
         const near = nearestPlace(places, m.x, m.y);
-        if (near && home) sendOnJob(town, g, "person", near, home, { site: pit.id, role: "clean-back" });
+        if (near && home) sendOnJob(town, g, "person", near, home, { site, role: "clean-back" });
       }
     }
     return c.away;
@@ -145,7 +140,7 @@ export function stepCleanup(
     if (from && target && to) {
       const m = sendOnJob(town, g, "person", from, to, { site: idx(g, target.x, target.y), role: "clean-go" });
       // Already at the door: straight over.
-      if (!m) walkInto(town, g, to, target, pit.id).job = { site: idx(g, target.x, target.y), role: "clean" };
+      if (!m) walkInto(town, g, to, target, site).job = { site: idx(g, target.x, target.y), role: "clean" };
     } else stuck = true;
   }
 

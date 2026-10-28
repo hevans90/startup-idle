@@ -18,7 +18,7 @@
  *    when they arrive — and only for people the company can hire: no lots for
  *    vibe coders before the studio opens. @see world/agents/arrivals
  */
-import { SEWERS_OPEN } from "../../game/mains";
+import { SLOP_FROM } from "../../game/slop";
 import { isPhone } from "../../hooks/use-phone";
 import { Fragment, useRef, useEffect, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
@@ -272,12 +272,19 @@ export function BuildBar({ className }: { className?: string }) {
     }
   };
   const chosen = sale.flatMap((s) => s.items).find((d) => d.def.id === structureDefId);
-  // PIPE, once there is a Data Centre to cool. @see game/cooling
-  const pipesOpen = agentsOpen();
+  // PIPE: water mains once there is a Data Centre to cool, sewers once the
+  // vibe coders make slop — the tool with either. @see game/cooling, game/slop
+  const mainsOpen = agentsOpen();
+  const sewersOpen = (generators.find((g) => g.id === "vibe_coder")?.amount ?? 0) >= SLOP_FROM;
+  const pipesOpen = mainsOpen || sewersOpen;
   const liftPipe = useWorldStore((s) => s.liftPipe);
   const setLiftPipe = useWorldStore((s) => s.setLiftPipe);
   const pipeSewer = useWorldStore((s) => s.pipeSewer);
   const setPipeSewer = useWorldStore((s) => s.setPipeSewer);
+  // ONE KIND OPEN, the tool lays that kind. @see pipeSewer
+  useEffect(() => {
+    if (mainsOpen !== sewersOpen && pipeSewer !== sewersOpen) setPipeSewer(sewersOpen);
+  }, [mainsOpen, sewersOpen, pipeSewer, setPipeSewer]);
   // THE TOOLS ON OFFER, and their keys: 1 to 6, as shown on each. Not while typing in a field, nor with a modifier.
   const shown = useMemo(() => TOOLS.filter((t) => t.id !== "pipe" || pipesOpen), [pipesOpen]);
   const keyed = useRef(choose);
@@ -341,8 +348,8 @@ export function BuildBar({ className }: { className?: string }) {
       <WondersPanel />
       <AiModePanel />
       <MainCard />
-      {/* PIPE: a water main, or a sewer — once slop is piped. @see SEWERS_OPEN */}
-      {tool === "pipe" && SEWERS_OPEN && (
+      {/* PIPE: a water main, or a sewer, when both are open. @see pipeSewer */}
+      {tool === "pipe" && mainsOpen && sewersOpen && (
         <div className={twMerge(PANEL, "flex items-center gap-2 px-2 py-1 text-xs")}>
           <span className="text-fg-muted">Pipe</span>
           <Segmented label="What the Pipe tool lays" value={pipeSewer ? "sewer" : "water"} onChange={(v) => setPipeSewer(v === "sewer")}

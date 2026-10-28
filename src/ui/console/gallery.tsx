@@ -47,7 +47,7 @@ function Pieces() {
         <Segmented label="Purchase mode" value={seg} onChange={setSeg} options={[{ value: "one", label: "×1" }, { value: "ten", label: "×10" }, { value: "max", label: "Max" }]} />
         <Toggle label="Sound" on={on} onChange={setOn} />
         <Slider label="Volume" value={vol} onChange={setVol} />
-        <Tooltip content="Every income multiplier, from the founder to the slop pit."><button type="button" className="underline decoration-dotted">What's this?</button></Tooltip>
+        <Tooltip content="Every income multiplier, from the founder to the board's mandates."><button type="button" className="underline decoration-dotted">What's this?</button></Tooltip>
         <span>Shortcut <Kbd>3</Kbd></span>
       </div>
       <div className="flex flex-wrap gap-1">

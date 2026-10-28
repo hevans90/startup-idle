@@ -16,7 +16,7 @@
  */
 import { AGENTS_A_RACK } from "../game/agents";
 import { agentTrade, useAgentsStore } from "../state/agents.store";
-import { buildCost } from "../game/build-cost";
+import { buildCost, pipeCost } from "../game/build-cost";
 import { roomFor, setHousingReader } from "../game/housing";
 import {
   PROJECTS, buildersFor, projectCost, setProjectReader, type ProjectDef, type ProjectId,
@@ -32,8 +32,7 @@ import { structureDef } from "../world/structures/def";
 import { STALL_GRACE } from "../world/projects/works";
 import { LAB_SHARE } from "../world/projects/labs";
 import { DESKLESS, DESKS } from "../world/agents/commute";
-import { useSlopPitStore } from "../state/slop-pit.store";
-import { HAUL_LOAD } from "../world/events/sludge";
+import { SLOP_FROM } from "../game/slop";
 import { MOOD, MOOD_LIMIT } from "../world/agents/mood";
 import { setTownMoodReader } from "../game/town-mood";
 import { PER_GROWN, PER_SERVICE, PER_WONDER } from "../world/projects/town-worth";
@@ -41,6 +40,9 @@ import { TOWN_BONUS_CAP, pendingEquity } from "../game/acquisition";
 import { syncUnlockedGenerators } from "../state/generators.store";
 import { advanceGameplayOneSecond } from "./run-sim";
 import { resetAllGameStores } from "./reset-game-stores";
+
+/** Tiles of sewer the run lays from its studio to the water, once there is slop. */
+const SIM_SEWER_TILES = 20;
 
 export type MapRunOptions = {
   maxSimulatedSeconds?: number;
@@ -92,9 +94,9 @@ export type MapRunReport = {
   townBonus: number;
   /** Income a second at the end. */
   income: number;
-  /** Times the slop pit was emptied by sludge trucks, and drained outright. */
-  slopTrucked: number;
-  slopDrained: number;
+  /** When slop started, and when a sewer for it was paid for; null for never. @see SIM_SEWER_TILES */
+  slopAt: number | null;
+  seweredAt: number | null;
   /** Headcount by kind, every half hour of the run. */
   headcount: { at: number; owned: Partial<Record<GeneratorId, number>> }[];
   /**
@@ -246,7 +248,7 @@ export function simulateMapRun(
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
     spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
-    coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopTrucked: 0, slopDrained: 0, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
+    coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopAt: null, seweredAt: null, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
@@ -281,15 +283,16 @@ export function simulateMapRun(
 
   /** One second of the town: projects started, worked, supplied and opened; hires arriving. */
   const stepTown = () => {
-    // THE SLOP PIT, seen to as a player would when it is about to overflow:
-    // trucks if they can be paid for, a drain if not. @see respondToEvent
-    const pit = useSlopPitStore.getState();
-    if (pit.fill >= 95) {
-      const trucks = Math.max(200, useGeneratorStore.getState().getMoneyPerSecond() * 20);
-      if (money() >= trucks) { spend(trucks); pit.haul(3 * HAUL_LOAD); report.slopTrucked++; }
-      else { pit.drain(); report.slopDrained++; }
-    }
     const o = owned();
+    // SLOP, seen to as a player would: once the vibe coders make it, a sewer
+    // from the studio to the water, paid for as soon as it can be. @see game/slop
+    if ((o.vibe_coder ?? 0) >= SLOP_FROM) {
+      report.slopAt ??= t;
+      if (report.seweredAt === null && money() >= pipeCost(SIM_SEWER_TILES).toNumber()) {
+        spend(pipeCost(SIM_SEWER_TILES).toNumber());
+        report.seweredAt = t;
+      }
+    }
     // The upgrades bought: what a gate is met by. @see Gate
     const unlocked = new Set(useUpgradeStore.getState().unlockedUpgradeIds);
     // ONE PROJECT AT A TIME, as in the game: the first ready, in order. @see projectUnderWay

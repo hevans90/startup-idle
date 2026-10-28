@@ -13,8 +13,6 @@ export const MOOD = {
   park: 6,
   gym: 4,
   noServices: -6,
-  slopNear: -8,
-  slopFull: -12,
   crowded: -6,
   wonder: 5,
   sludge: -15,
@@ -23,8 +21,7 @@ export const MOOD = {
   flooded: -20,
   derelict: -5,
 } as const;
-/** How near the slop pit and a wonder count, in tiles. */
-export const SLOP_REACH = 6;
+/** How near a wonder and a derelict count, in tiles. */
 export const WONDER_REACH = 10;
 export const DERELICT_REACH = 4;
 /** A house's mood never goes past this, either way. */

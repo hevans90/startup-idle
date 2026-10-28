@@ -37,7 +37,7 @@ function live(g: Grid, secs: number) {
   for (let t = 0; t < secs; t += 5) {
     for (const s of g.structures.values()) { const h = housedBy(s.def); if (h) s.residents = h.slots; }
     const places = placesOf(g, createNetwork(g));
-    const moods = moodsOf(g, seat(g, places).commutes, coverageOf(g, places), 0);
+    const moods = moodsOf(g, seat(g, places).commutes, coverageOf(g, places));
     stepEvolution(e, g, moods, 5);
   }
   return g;

@@ -19,7 +19,7 @@ export function startCommsBridge(): () => void {
     // AN EVENT BEGUN: logged, and heard.
     if (st.events !== was.events) {
       for (const e of st.events) {
-        if (seenEvents.has(e.id) || e.kind === "slop-overflow") continue;
+        if (seenEvents.has(e.id)) continue;
         seenEvents.add(e.id);
         c().note({ kind: "alert", title: e.title, text: e.text });
         sfx("alert");

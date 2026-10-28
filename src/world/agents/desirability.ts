@@ -3,7 +3,7 @@
  * the player can read before they build. @see world/agents/mood
  *
  * It is the house's mood, and the same parts: the commute, the services in
- * reach, a view of water, a wonder nearby, the slop pit and derelicts. A house
+ * reach, a view of water, a wonder nearby, and derelicts. A house
  * GROWS by it — a tier at each threshold, and back down when it falls below —
  * and new hires move in by it, so a good street fills and climbs and a bad one
  * stays lots. @see GROW_AT, stepEvolution
@@ -19,7 +19,7 @@ import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { connects, isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { commuteEfficiency, walkFrom, WORKPLACES } from "./commute";
-import { DERELICT_REACH, MOOD, MOOD_LIMIT, SLOP_REACH, WATER_REACH, WONDER_REACH, type MoodParts } from "./mood-rules";
+import { DERELICT_REACH, MOOD, MOOD_LIMIT, WATER_REACH, WONDER_REACH, type MoodParts } from "./mood-rules";
 import { fusionNow } from "../../game/fusion";
 import { placesOf, type Place } from "./roads";
 import { RANGE, SERVICE_IDS, serviceOf, type ServiceId } from "./services";
@@ -52,7 +52,6 @@ export type DesireMaps = {
   service: Record<ServiceId, Int32Array>;
   /** Road distance from each kind's workplaces' doors; absent for a kind with none. */
   work: Partial<Record<GeneratorId, Int32Array>>;
-  pits: Structure[];
   derelicts: Structure[];
   wonders: Structure[];
   /** Tiles with standing water within `WATER_REACH`. */
@@ -80,10 +79,9 @@ export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
     // The walk to work, climbs and all, as the commute counts it. @see walkFrom
     if (doors.length) work[who] = walkFrom(g, doors);
   }
-  const pits: Structure[] = [], derelicts: Structure[] = [], wonders: Structure[] = [];
+  const derelicts: Structure[] = [], wonders: Structure[] = [];
   for (const s of g.structures.values()) {
     if (s.build) continue;
-    if (s.def === "slop-pit") pits.push(s);
     if (s.def === "derelict") derelicts.push(s);
     if (projectForStructure(s.def)?.bonus) wonders.push(s);
   }
@@ -98,7 +96,7 @@ export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
       }
     }
   }
-  return { service, work, pits, derelicts, wonders, water };
+  return { service, work, derelicts, wonders, water };
 }
 
 let memo: { g: Grid | null; rev: number; sites: number; value: DesireMaps | null } = { g: null, rev: -1, sites: -1, value: null };
@@ -119,10 +117,10 @@ const gapTo = (x: number, y: number, s: Structure) =>
 
 /**
  * WHAT A HOUSE AT (x, y) WOULD GET, for the kind `who`: its door the nearest
- * road beside it, and each part as the mood counts it. `slopFill` is the pit's
- * fill, 0 to 1. Null where there is no road beside the tile to have a door on.
+ * road beside it, and each part as the mood counts it. Null where there is no
+ * road beside the tile to have a door on.
  */
-export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: GeneratorId, slopFill = 0): MoodParts | null {
+export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: GeneratorId): MoodParts | null {
   const doors: number[] = [];
   for (const dir of DIRS) {
     const [dx, dy] = NEIGHBOUR[dir];
@@ -144,9 +142,6 @@ export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: G
   if (maps.water[idx(g, x, y)]) parts.push({ why: "water view", points: fusionNow().waterView });
   // A Zoner fused into the founder, for every house. @see game/fusion
   if (fusionNow().houseDesire) parts.push({ why: "AI-planned", points: fusionNow().houseDesire });
-  if (maps.pits.some((p) => gapTo(x, y, p) <= SLOP_REACH)) {
-    parts.push({ why: "slop pit", points: Math.round(MOOD.slopNear + MOOD.slopFull * Math.max(0, Math.min(1, slopFill))) });
-  }
   if (maps.wonders.some((w) => gapTo(x, y, w) <= WONDER_REACH)) parts.push({ why: "near a wonder", points: MOOD.wonder });
   if (maps.derelicts.some((d) => gapTo(x, y, d) <= DERELICT_REACH)) parts.push({ why: "derelict nearby", points: MOOD.derelict });
   const total = Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, parts.reduce((n, p) => n + p.points, 0)));

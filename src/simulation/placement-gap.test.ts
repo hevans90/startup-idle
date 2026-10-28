@@ -67,13 +67,13 @@ function grownWorth(g: Grid): { beds: number; commute: number; worth: number } {
   const fill = () => { for (const s of g.structures.values()) { const h = housedBy(s.def); if (h) s.residents = h.slots; } };
   fill();
   for (let t = 0; t < GROW_FOR; t += 5) {
-    if (stepEvolution(evo, g, liveMoods(g, net, 0), 5).length) { fill(); g.rev++; }
+    if (stepEvolution(evo, g, liveMoods(g, net), 5).length) { fill(); g.rev++; }
   }
   let beds = 0;
   for (const s of g.structures.values()) beds += housedBy(s.def)?.slots ?? 0;
   const commute = commuteFactor(g, liveCommutes(g, net), { intern: beds }, {}).intern ?? 1;
   if (process.env.DEBUG) {
-    const moods = liveMoods(g, net, 0), cs = liveCommutes(g, net);
+    const moods = liveMoods(g, net), cs = liveCommutes(g, net);
     const houses = [...g.structures.values()].filter((s) => housedBy(s.def));
     const avg = (f: (s: (typeof houses)[0]) => number) => (houses.reduce((n, s) => n + f(s), 0) / houses.length).toFixed(1);
     const tiers: Record<string, number> = {};

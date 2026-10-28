@@ -30,7 +30,6 @@ import { commuteFactor, liveCommutes, liveSeating } from "./agents/commute";
 import { setTownBonusReader } from "../game/acquisition";
 import { setTownMoodReader } from "../game/town-mood";
 import { liveMoods, moodOffsets } from "./agents/mood";
-import { useSlopPitStore } from "../state/slop-pit.store";
 import { townBonusOf } from "./projects/town-worth";
 import { serviceOf } from "./agents/services";
 import { structureDef } from "./structures/def";
@@ -169,7 +168,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const net = getNetwork(), g = useWorldStore.getState().grid;
       // Those still waiting for a bed count as nought. @see awaitingArrival
       const away = awaitingArrival(ownedNow(), useSessionStore.getState().remoteBeds ?? {}, housingResidents(g));
-      return net ? moodOffsets(g, liveMoods(g, net, useSlopPitStore.getState().fill / 100), away) : {};
+      return net ? moodOffsets(g, liveMoods(g, net), away) : {};
     }));
   }, [play]);
   /**
@@ -256,7 +255,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       for (const [id, n] of Object.entries(evacuatedAway(st.grid))) away[id as GeneratorId] = (away[id as GeneratorId] ?? 0) + n;
       // OUT OF HOMES A FLOOD DAMAGED, until the repair crew has been. @see damage
       for (const [id, n] of Object.entries(damagedAway(st.grid))) away[id as GeneratorId] = (away[id as GeneratorId] ?? 0) + n;
-      // MOPPING UP SLUDGE that ran out of the slop pit. @see stepCleanup
+      // MOPPING UP SLUDGE spilled from a full slop tank. @see stepCleanup
       const mopping = cleanupAway();
       if (mopping) away.vibe_coder = Math.min(ownedNow().vibe_coder ?? 0, (away.vibe_coder ?? 0) + mopping);
       // AT A HACKATHON, every vibe coder, for as long as it runs.
@@ -282,7 +281,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const seating = net ? liveSeating(st.grid, net).desks : undefined;
       const desks = net && seating ? deskShare(
         st.grid,
-        liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100)),
+        liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, liveMoods(st.grid, net)),
         seating, ownedNow(),
       ) : undefined;
       // EACH LEADER'S TEAM: the people at the desks of the building they lead. @see game/leaders

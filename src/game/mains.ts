@@ -41,9 +41,3 @@ export const agentsCooled = (flow: number) => Math.floor(flow / WATER_PER_AGENT 
  */
 export const SEWER_RATE = 1;
 export const sewerFlow = (bore = 1) => SEWER_RATE * bore;
-/**
- * Whether sewers can be laid in the game: off until slop is piped out of the
- * workplaces instead of filling the pit (phase 7), so nobody lays a pipe that
- * carries nothing. The machinery works either way. @see plans/pipes-and-slop.md
- */
-export const SEWERS_OPEN = false;

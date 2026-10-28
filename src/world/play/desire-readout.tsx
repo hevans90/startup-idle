@@ -11,7 +11,6 @@ import { twMerge } from "tailwind-merge";
 
 import { housedBy } from "../../game/housing";
 import { useTicking } from "../../hooks/use-ticking";
-import { useSlopPitStore } from "../../state/slop-pit.store";
 import { getNetwork, playRules, useWorldStore } from "../../state/world.store";
 import { useCellAnchorFollow } from "../anchors/use-cell-anchor";
 import { liveDesireMaps, desireAt } from "../agents/desirability";
@@ -34,7 +33,7 @@ export function DesireReadout({ className }: { className?: string }) {
   const who = tool === "placeStructure" && def ? housedBy(def.id)?.id : undefined;
   const net = getNetwork();
   const ok = !!(who && hover && net && playing && def && validatePlacement(grid, def, hover.x, hover.y, playRules(grid)).ok);
-  const d = ok ? desireAt(grid, liveDesireMaps(grid, net!), hover!.x, hover!.y, who!, useSlopPitStore.getState().fill / 100) : null;
+  const d = ok ? desireAt(grid, liveDesireMaps(grid, net!), hover!.x, hover!.y, who!) : null;
   const tier = d ? growsTo(d.total) : null;
   // A CAFÉ IN HAND: the workplaces next door it would serve. @see CAFE_BOOST
   const cafeOk = !!(def?.id === "cafe" && tool === "placeStructure" && hover && playing && validatePlacement(grid, def, hover.x, hover.y, playRules(grid)).ok);

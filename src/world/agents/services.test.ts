@@ -29,7 +29,7 @@ function street(things: [string, number][]) {
 }
 const cover = (g: Grid) => coverageOf(g, placesOf(g, createNetwork(g)));
 /** Every house's desirability — no commute here: nobody works anywhere. */
-const moods = (g: Grid) => moodsOf(g, new Map(), cover(g), 0);
+const moods = (g: Grid) => moodsOf(g, new Map(), cover(g));
 const run = (g: Grid, seconds: number, e = createEvolution()) => {
   const changed: number[] = [];
   for (let k = 0; k < seconds; k++) changed.push(...stepEvolution(e, g, moods(g), 1));

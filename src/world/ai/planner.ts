@@ -42,7 +42,6 @@ import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
 import { inletOpen, portTiles } from "../water/ports";
 import { demolishAt, liftRoad, paveRoad, placeStructure, reshape, widenMain } from "../play/build-actions";
-import { useSlopPitStore } from "../../state/slop-pit.store";
 import { layRoute, moreWater, neededPipe } from "./cooling-ai";
 import type { PipeRoute } from "./pipe-route";
 import { isDrinker } from "../../game/cooling";
@@ -316,17 +315,16 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       const kit = (t: number) => [`kit:${who}.t${t}`, `kit:${who}.t1`, `kit:${who}.t0`].find((id) => structureDef(id))!;
       const def = kit(tier);
       const maps = liveDesireMaps(g, net);
-      const fill = useSlopPitStore.getState().fill / 100;
       let best: Cell | null = null, top = -Infinity;
       for (const c of spots(g, def, d)) {
         // THE BLOCK IT REBUILDS, first of anywhere. @see inRebuiltBlock
-        const want = (desireAt(g, maps, c.x, c.y, who, fill)?.total ?? -Infinity) + (inRebuiltBlock(c.x, c.y) ? 1e6 : 0);
+        const want = (desireAt(g, maps, c.x, c.y, who)?.total ?? -Infinity) + (inRebuiltBlock(c.x, c.y) ? 1e6 : 0);
         if (want > top) { top = want; best = c; }
       }
       if (!best) return null;
       // GENERATIVE ZONING: born at the tier the spot can sustain, if that is higher — and in the block it rebuilds. @see projectTier
       if (notable("zoning") || inRebuiltBlock(best.x, best.y)) {
-        const m = desireAt(g, maps, best.x, best.y, who, fill);
+        const m = desireAt(g, maps, best.x, best.y, who);
         // A landmark is not zoned: t2 at most.
         const grown = m ? Math.min(2, ["t0", "t1", "t2", "landmark"].indexOf(projectTier(m))) : -1;
         if (grown > tier) {
@@ -346,7 +344,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       // Where the houses are thickest — or, told to serve the people, where
       // they are unhappiest: each house counted by how far its mood is down.
       const people = aiFocus() === "people" && net;
-      const moods = people ? liveMoods(g, net, useSlopPitStore.getState().fill / 100) : null;
+      const moods = people ? liveMoods(g, net) : null;
       // Trained on the town, it counts only the houses with none of that kind in reach.
       const kin = structures.filter((s) => s.def === def);
       const covered = (h: Structure) => kin.some((s) => Math.abs(h.x - s.x) + Math.abs(h.y - s.y) <= RANGE);
@@ -378,7 +376,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
     case "convert": {
       const net2 = getNetwork();
       if (!net2) return null;
-      const moods = liveMoods(g, net2, useSlopPitStore.getState().fill / 100);
+      const moods = liveMoods(g, net2);
       // An EMPTY house first, then one with a single soul in it, the unhappiest of those.
       // Trained on the people, it takes none anyone lives in.
       const most = skillOf("people") >= 1 ? 0 : 1;

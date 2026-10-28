@@ -9,7 +9,6 @@ import { resetCooling } from "../world/projects/cooling";
 import { resetPlanner } from "../world/ai/planner";
 import { useAgentsStore } from "../state/agents.store";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
-import { useSlopPitStore } from "../state/slop-pit.store";
 import { useExitsStore } from "../state/exits.store";
 import { useFounderStore } from "../state/founder.store";
 import { useGeneratorStore } from "../state/generators.store";
@@ -40,7 +39,6 @@ export function resetRunStores(): void {
   useAiSingularityStore.getState().reset();
   useFounderStore.getState().reset();
   useSessionStore.getState().reset();
-  useSlopPitStore.getState().reset();
   useAgentsStore.getState().reset();
   useTrainingStore.getState().reset();
   clearMorale();

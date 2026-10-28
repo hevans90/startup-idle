@@ -273,19 +273,6 @@ export const SERVICES: readonly StructureDef[] = [
 ];
 
 /**
- * THE SLOP PIT: where fifty vibe coders' output goes. Not built or bought: it
- * opens up beside the studio on its own once there are that many, and fills.
- * @see state/slop-pit.store, slop-renderer
- */
-export const SLOP_PIT: StructureDef = {
-  id: "slop-pit", name: "Slop pit", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "slop" },
-  // A hole: the ground there is not drawn, or it would cover what is in it,
-  // and to the water it is a basin the sludge stands in.
-  clearsTerrain: true,
-  basin: 3,
-};
-
-/**
  * A FLOOD WALL: a tile of concrete, dragged along a bank in a row. To the
  * water every building is a wall already — this is one that is nothing else,
  * cheap, and needs no road. @see world/events/flood
@@ -344,7 +331,7 @@ export const AI_BUILDINGS: readonly StructureDef[] = [
 export const isAiBuilding = (defId: string) => AI_BUILDINGS.some((d) => d.id === defId);
 
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, SLOP_PIT, LEVEE, LAB, DERELICT, RACK, PUMP, ...AI_BUILDINGS].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, LEVEE, LAB, DERELICT, RACK, PUMP, ...AI_BUILDINGS].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

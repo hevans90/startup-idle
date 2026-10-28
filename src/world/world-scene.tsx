@@ -42,7 +42,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, sludgeTruckBack, pizzaPrice, sludgeTruckPrice, sludgeTrucksOut, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, pizzaPrice, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import {
@@ -111,14 +111,16 @@ import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { stepEvolution, withTier } from "./agents/services";
-import { liveSeating } from "./agents/commute";
+import { WORKPLACES, liveSeating } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
 import { CONVOY_PAYS, convoyPays } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
-import { CLEANERS_PER_TILE, cleanupAway, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
+import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
-import { dryUp, overflow, sludgedHouses, stepHaulers, syncPit, type PitLevel } from "./events/sludge";
+import { dryUp, sludgedHouses } from "./events/sludge";
+import { stepSlop, tanksOf } from "./slop/tanks";
+import { slopMaking } from "../game/slop";
 import {
   convoyTally, createPacing, endedBetween, HACKATHON_CODERS, isDue, repace, tallyCall, tickPacing, townMood,
 } from "./events/town-events";
@@ -128,8 +130,6 @@ import {
 import {
   CREW_SHARE, EVACUEE_MORALE, FLOOD_MS, HACKATHON_MORALE, HACKATHON_SNUB, tourFailed, MAX_ROUTES, ROUTE_BONUS, routeWon, stepEvents, tourReward,
 } from "./events/events";
-import { SLOP_PIT } from "./structures/def";
-import { FILL_RATE_PER_CODER, SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../state/slop-pit.store";
 import { perMinute, recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
@@ -144,7 +144,6 @@ import { stepFleet, wantFleet } from "./boats/fleet";
 import { stepTraffic, trafficSteer } from "./boats/traffic";
 import "./structures/seaport-renderer";
 import "./structures/project-renderer";
-import "./structures/slop-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
@@ -390,8 +389,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** Seconds since the houses by fouled water were last looked for. @see fouledHouses */
   const fouledClock = useRef(0);
   const eventIds = useRef(1);
-  /** What the slop pit's sludge in the water was last filled to. @see syncPit */
-  const pitLevel = useRef<PitLevel>(null);
   /** The crew mopping up sludge. @see stepCleanup */
   const cleanup = useRef(createCleanup());
   /** The team leaders out and about. @see stepLeaders */
@@ -2153,7 +2150,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const paint = () => {
       const sl = slRef.current, net = getNetwork(), g = useWorldStore.getState().grid;
       if (!sl || !net) return;
-      const moods = liveMoods(g, net, useSlopPitStore.getState().fill / 100);
+      const moods = liveMoods(g, net);
       for (const [id, m] of sl.mounted) {
         const mood = moods.get(id);
         if (!mood || isDamaged(id)) continue;
@@ -2254,10 +2251,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const def = structureDef(structureDefId);
     const who = tool === "placeStructure" && def ? housedBy(def.id)?.id ?? null : null;
     const net = getNetwork();
-    if (!who || !net || !useWorldStore.getState().playing) { heat.draw(grid, null, null, () => false, scale, 0); return; }
+    if (!who || !net || !useWorldStore.getState().playing) { heat.draw(grid, null, null, () => false, scale); return; }
     const rules = playRules(grid);
-    heat.draw(grid, liveDesireMaps(grid, net), who, (x, y) => validatePlacement(grid, def!, x, y, rules).ok,
-      scale, useSlopPitStore.getState().fill / 100);
+    heat.draw(grid, liveDesireMaps(grid, net), who, (x, y) => validatePlacement(grid, def!, x, y, rules).ok, scale);
   }, [tool, structureDefId, grid, revision, scale, sceneEpoch]);
 
   /** THE EARNINGS OVERLAY: the streets tinted by what they earn, every two seconds while it is on. */
@@ -2937,33 +2933,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           { const e = section("tick: arrivals"); stepArrivals(arrivals, st.grid, net, getTown(), owned, fake ? {} : useSessionStore.getState().remoteBeds ?? {}, dt); e(); }
           if (arrivals.moved.length) useWorldStore.getState().housingMoved(arrivals.moved.splice(0));
         }
-        // THE SLOP PIT, opening up beside the studio once there are enough
-        // vibe coders to fill it. @see SLOP_PIT
-        if (st.playing && (ownedNow().vibe_coder ?? 0) >= SLOP_PIT_UNLOCK_COUNT) st.openSlopPit();
-        // THE SLOP PIT'S SLUDGE, standing in it in the water as high as the
-        // pit is full — in the editor too. @see syncPit
-        {
-          const pit = [...st.grid.structures.values()].find((s) => s.def === SLOP_PIT.id);
-          const field = st.getWaterField();
-          if (pit && field) pitLevel.current = syncPit(pitLevel.current, field, pit, useSlopPitStore.getState().fill);
-          else pitLevel.current = null;
-        }
-        // EVENTS, in the game: the sludge trucks' loads, the director's look
-        // twice a second, and what an event under way does to the map.
-        // @see world/events
-        const sEvents = section("tick: haulers, leaders, events, flood");
+        // THE SLOP TANKS at the vibe workplaces, filled by what the vibe coders
+        // make, drained by the sewers, spilling when full. @see stepSlop
+        if (st.playing) stepSlop(st.grid, st.getWaterField(), liveSeating(st.grid, net).desks, slopMaking(), dt);
+        // EVENTS, in the game: the director's look twice a second, and what
+        // an event under way does to the map. @see world/events
+        const sEvents = section("tick: leaders, events, flood");
         if (st.playing) {
-          stepHaulers(getTown(), st.grid, net, (p) => useSlopPitStore.getState().haul(p), sludgeTruckBack);
           // THE TEAM LEADERS, walking between home and work. @see stepLeaders
           const seats = useTeamLeadersEmployeesStore.getState().employees;
           stepLeaders(leaders.current, getTown(), st.grid, net, seats,
-            liveLeadership(st.grid, net, seats, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100)), dt);
-          const pit = [...st.grid.structures.values()].find((s) => s.def === SLOP_PIT.id);
+            liveLeadership(st.grid, net, seats, liveMoods(st.grid, net)), dt);
           const field = st.getWaterField();
           eventClock.current += dt;
           if (eventClock.current >= 0.5) {
             eventClock.current = 0;
-            const fill = useSlopPitStore.getState().fill;
             const vibe = ownedNow().vibe_coder ?? 0;
             const now = Date.now();
             const head = riverHead(st.grid);
@@ -2978,14 +2962,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const tour = st.events.find((e) => e.kind === "investor-tour" && e.phase !== "over");
             const convoy = st.events.find((e) => e.kind === "convoy" && e.phase !== "over");
             const tally = convoyTally(convoy?.id ?? -1);
-            const reward = tourReward(income, townMood(st.grid, liveMoods(st.grid, net, fill / 100)), tour?.chosen === "tidy");
+            const reward = tourReward(income, townMood(st.grid, liveMoods(st.grid, net)), tour?.chosen === "tidy");
             const next = stepEvents(st.events, {
               now,
-              slop: pit ? {
-                x: pit.x + 1, y: pit.y + 1, fill,
-                rate: vibe >= SLOP_PIT_UNLOCK_COUNT ? vibe * FILL_RATE_PER_CODER : 0,
-                trucks: sludgeTrucksOut(), truckPrice: sludgeTruckPrice(),
-              } : null,
               river: head ? {
                 ...head, due: isDue(pace, "river-flood"), flooded: floodedCount.current, sandbagCrew: Math.floor((ownedNow().intern ?? 0) * CREW_SHARE.sandbags),
               } : null,
@@ -3030,21 +3009,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           fouledClock.current += dt;
           const waterNow = st.getWaterField();
           if (fouledClock.current >= 2 && waterNow) { setFouled(fouledHouses(waterNow, st.grid)); fouledClock.current = 0; }
-          const overflowing = st.events.some((e) => e.kind === "slop-overflow" && e.phase === "active");
-          // Kept for the run: a clean run is a term sheet's goal. @see game/term-sheets
-          if (overflowing) useSessionStore.getState().markOverflowed();
-          // MOPPING UP what has run out of the pit: vibe coders off work,
-          // walking to it and draining it by hand. @see stepCleanup
+          // A TANK SPILLING, kept for the run: a clean run is a term sheet's goal. @see game/term-sheets
+          if ([...tanksOf(st.grid).values()].some((t) => t.spilling)) useSessionStore.getState().markOverflowed();
+          // MOPPING UP what has spilled: vibe coders off work, walking to it
+          // and draining it by hand. @see stepCleanup
           // (In development, `__fakeHires` counts: a crew to watch with nobody hired.)
           const vibes = (ownedNow().vibe_coder ?? 0) + (import.meta.env.DEV ? window.__fakeHires?.vibe_coder ?? 0 : 0);
-          const workplaces = [...st.grid.structures.values()].filter((s) => (s.def === "studio" || s.def === "office-vibe") && !s.build).map((s) => s.id);
-          setCleanupAway(pit && field ? stepCleanup(cleanup.current, getTown(), st.grid, net, field, pit, vibes, workplaces, dt, CLEANERS_PER_TILE * usePrestigeStore.getState().modifiers.cleanupMult) : 0);
-          if (pit && field) {
-            // It spills what is still coming in: the vibe coders at their desks.
-            if (overflowing) overflow(field, pit, Math.max(0, vibes - cleanupAway()) * FILL_RATE_PER_CODER, dt);
+          const spillers = [...st.grid.structures.values()].filter((s) => WORKPLACES.vibe_coder.includes(s.def) && !s.build);
+          setCleanupAway(spillers.length && field ? stepCleanup(cleanup.current, getTown(), st.grid, net, field, spillers, vibes, spillers.map((s) => s.id), dt, CLEANERS_PER_TILE * usePrestigeStore.getState().modifiers.cleanupMult) : 0);
+          if (spillers.length && field) {
             sludgeClock.current += dt;
             if (sludgeClock.current >= 2) {
-              if (!overflowing) dryUp(field, st.grid, pit, sludgeClock.current);
+              dryUp(field, st.grid, spillers, sludgeClock.current);
               setSludged(sludgedHouses(field, st.grid));
               sludgeClock.current = 0;
             }
@@ -3175,13 +3151,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // PEOPLE LEAVING MISERABLE HOUSES, in the game, one now and then.
         // @see stepMood
         if (st.playing) {
-          const left = stepMood(unrestRef.current, st.grid, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100), dt);
+          const left = stepMood(unrestRef.current, st.grid, liveMoods(st.grid, net), dt);
           if (left.length) useWorldStore.getState().housingMoved(left);
         }
         // THE TOWN EVOLVING, in the game: houses growing round the cafés,
         // parks and gyms that serve them, and declining when they lose them.
         if (st.playing) {
-          const grew = stepEvolution(getEvolution(), st.grid, liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100), dt);
+          const grew = stepEvolution(getEvolution(), st.grid, liveMoods(st.grid, net), dt);
           if (grew.length) useWorldStore.getState().housingMoved(grew);
         }
         sMood();

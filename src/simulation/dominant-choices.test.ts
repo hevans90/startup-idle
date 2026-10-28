@@ -16,8 +16,6 @@ import { describe, expect, test } from "bun:test";
 
 import { MORALE_SECONDS } from "../game/morale";
 import { SATISFACTION_MAX, SATISFACTION_MIN } from "../game/satisfaction";
-import { DRAIN_SATISFACTION_HIT } from "../state/slop-pit.store";
-import { CLEANERS_PER_TILE } from "../world/events/cleanup";
 import {
   CREW_SHARE, EVACUEE_MORALE, HACKATHON_MORALE, HACKATHON_PIZZA, HACKATHON_SNUB, ROUTE_BONUS, TIDY_MOOD,
 } from "../world/events/events";
@@ -25,14 +23,10 @@ import { FLOOD_SECONDS, REPAIR_SECONDS } from "../world/events/flood";
 
 /** The window a choice is judged over, seconds. */
 const WINDOW = 600;
-/** How fast satisfaction returns to its target: the game's `k`, a second. @see stepSatisfactionScores */
-const RETURN = 0.05;
 /** What a point of satisfaction is worth, as a share of that kind's output: below zero, and above. @see satisfactionRevenueMultiplier */
 const PER_POINT_BELOW = 0.75 / -SATISFACTION_MIN;
 const PER_POINT_ABOVE = 9 / SATISFACTION_MAX;
 const perPoint = (score: number) => (score < 0 ? PER_POINT_BELOW : PER_POINT_ABOVE);
-/** Seconds of a kind's income a one-off bump of `points` is worth, decaying as the game decays it. */
-const bumpSeconds = (points: number, score: number) => points * perPoint(score) * (1 / RETURN);
 /** Seconds of a kind's income a lean of `points` held for a day is worth. @see addMorale */
 const leanSeconds = (points: number, score: number) => points * perPoint(score) * MORALE_SECONDS;
 
@@ -51,9 +45,6 @@ function company(rand: () => number) {
     agents: 1 + Math.floor(rand() * 20),
     /** Money in hand, in seconds of income. */
     money: 30 + rand() * 3000,
-    vibes: 10 + Math.floor(rand() * 290),
-    wet: 3 + Math.floor(rand() * 27),
-    mop: 60 + rand() * 120,
     /** The vibe coders' satisfaction: below neutral for most companies. */
     vibeScore: -60 + rand() * 70,
     internScore: -60 + rand() * 60,
@@ -92,22 +83,7 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
   // TRAINING RUNS are not here: every dataset costs the same — the agents'
   // boost for the run — and what each teaches is how the AI acts on the map,
   // not income to weigh in seconds. @see game/training
-  "slop-overflow": {
-    // The core game's own drain: a one-off hit, back in a minute.
-    drain: (c) => c.vibe * bumpSeconds(-DRAIN_SATISFACTION_HIT, c.vibeScore),
-    // Three loads for twenty seconds of income.
-    trucks: () => 20,
-    // A mopping crew off their desks till it is dry. (Left out: the sludge's mood on the houses it reaches.)
-    spill: (c) => c.vibe * Math.min(1, (CLEANERS_PER_TILE * c.wet) / c.vibes) * c.mop,
-  },
 };
-
-/**
- * NOT HELD TO THE BAR, and why:
- *  - the slop pit: draining is the core game's own, a hit to morale that is
- *    back in a minute, so it is nearly always cheapest. Left as it is for now.
- */
-const KNOWN = { "slop-overflow": "draining's hit is gone in a minute" };
 
 /** Each event's choices, and the share of companies each is best for. */
 export function dominance(draws = 4000, seed = 7): Record<string, Record<string, number>> {
@@ -139,7 +115,6 @@ describe("dominant choices", () => {
       }
     }
     for (const [event, split] of Object.entries(d)) {
-      if (event in KNOWN) continue;
       expect(Math.max(...Object.values(split))).toBeLessThanOrEqual(0.7);
     }
   });

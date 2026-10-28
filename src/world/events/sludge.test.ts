@@ -1,87 +1,38 @@
 import { describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, idx, type Structure } from "../grid";
-import { createNetwork } from "../roads/network";
-import { createTown, stepTown } from "../agents/town";
-import { createWaterField, stepWater } from "../water/field";
-import { HAUL_LOAD, SLUDGED, overflow, sludgeAt, sludgedHouses, sendSludgeTrucks, stepHaulers, syncPit } from "./sludge";
+import { createWaterField, pourAt } from "../water/field";
+import { fluidIndexOf } from "../water/materials";
+import { DRY_REACH, SLUDGED, dryUp, sludgeAt, sludgedHouses } from "./sludge";
 
-/** A map with a full pit at 8,8 and, optionally, more buildings, each on its cells. */
-function pitMap(...more: Structure[]) {
-  const g = createGrid(20, 20);
+/** A flat map with these buildings on it, each on its cells. */
+function map(...list: Structure[]) {
+  const g = createGrid(40, 40);
   fillTerrain(g, 1);
   g.height.fill(4);
-  const pit: Structure = { id: 1, def: "slop-pit", x: 8, y: 8, w: 3, h: 3 };
-  for (const s of [pit, ...more]) {
+  for (const s of list) {
     g.structures.set(s.id, s);
     for (let y = s.y; y < s.y + s.h; y++) for (let x = s.x; x < s.x + s.w; x++) g.structureAt[idx(g, x, y)] = s.id;
   }
-  return { g, pit, field: createWaterField(g) };
+  return { g, field: createWaterField(g) };
 }
+const house = (id: number, x: number, y: number): Structure => ({ id, def: "kit:intern.t0", x, y, w: 1, h: 1 });
+const studio: Structure = { id: 1, def: "studio", x: 5, y: 5, w: 3, h: 2 };
 
-describe("the sludge", () => {
-  test("stands in the pit as deep as the pit is full, and follows it", () => {
-    const { pit, field } = pitMap();
-    let level = syncPit(null, field, pit, 50);
-    expect(sludgeAt(field, 9, 9)).toBeCloseTo(1.5 * 0.85, 3);
-    level = syncPit(level, field, pit, 100);
-    expect(sludgeAt(field, 9, 9)).toBeCloseTo(3 * 0.85, 3);
-    syncPit(level, field, pit, 0);
-    expect(sludgeAt(field, 9, 9)).toBe(0);
+describe("spilled sludge", () => {
+  test("is on the doorstep of a house beside it, and of no house further off", () => {
+    const { g, field } = map(studio, house(2, 10, 6), house(3, 20, 20));
+    pourAt(field, 9, 6, SLUDGED * 3, fluidIndexOf("slop"));
+    expect([...sludgedHouses(field, g)]).toEqual([2]);
   });
 
-  test("in the pit, full, it is on nobody's doorstep", () => {
-    const house: Structure = { id: 2, def: "kit:intern.t0", x: 11, y: 9, w: 1, h: 1, residents: 2 };
-    const { g, pit, field } = pitMap(house);
-    syncPit(null, field, pit, 100);
-    for (let k = 0; k < 120; k++) stepWater(field, 1 / 30);
-    expect([...sludgedHouses(field, g)]).toEqual([]);
-  });
-
-  test("overflowing, it brims over the rim onto open ground — never over a building", () => {
-    const studio: Structure = { id: 2, def: "studio", x: 11, y: 8, w: 3, h: 2 };
-    const house: Structure = { id: 3, def: "kit:intern.t0", x: 9, y: 12, w: 1, h: 1, residents: 2 };
-    const { g, pit, field } = pitMap(studio, house);
-    syncPit(null, field, pit, 100);
-    for (let k = 0; k < 30 * 8; k++) {
-      overflow(field, pit, 20, 1 / 30);
-      stepWater(field, 1 / 30);
-    }
-    expect(sludgeAt(field, 7, 9)).toBeGreaterThan(SLUDGED);
-    expect(sludgeAt(field, 9, 11)).toBeGreaterThan(SLUDGED);
-    // Nothing stands on the studio's roof: to the water it is a wall.
-    for (let y = 8; y < 10; y++) for (let x = 11; x < 14; x++) expect(sludgeAt(field, x, y)).toBe(0);
-    expect([...sludgedHouses(field, g)]).toEqual([3]);
-  });
-
-  test("spills what is coming in, not a flood: a trickle, with few at their desks", () => {
-    const { pit, field } = pitMap();
-    syncPit(null, field, pit, 100);
-    const before = field.columns.depth.reduce((n, d) => n + d, 0);
-    overflow(field, pit, 0, 1);
-    const poured = field.columns.depth.reduce((n, d) => n + d, 0) - before;
-    // SPILL_MIN, 2% of the pit a second: 3 half steps a column, 9 tiles of 16.
-    expect(poured).toBeCloseTo(0.02 * 3 * 9 * 16, 3);
-  });
-});
-
-describe("sludge trucks", () => {
-  test("drive in from the edge of the map, each take a load, and drive away", () => {
-    const g = createGrid(30, 12);
-    fillTerrain(g, 1);
-    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 5)] = 1;
-    const pit: Structure = { id: 1, def: "slop-pit", x: 14, y: 2, w: 3, h: 3 };
-    g.structures.set(1, pit);
-    for (let y = 2; y < 5; y++) for (let x = 14; x < 17; x++) g.structureAt[idx(g, x, y)] = 1;
-    const net = createNetwork(g), town = createTown();
-    expect(sendSludgeTrucks(town, g, net, pit, 3)).toBe(3);
-    let hauled = 0, back = 0;
-    for (let k = 0; k < 30 * 60; k++) {
-      stepTown(town, g, net, 0, 1 / 30);
-      stepHaulers(town, g, net, (p) => { hauled += p; }, () => { back++; });
-      town.arrived.length = 0;
-    }
-    expect(hauled).toBe(3 * HAUL_LOAD);
-    expect(back).toBe(3);
+  test("dries up near the workplaces that spill it, and is left alone far from them", () => {
+    const { g, field } = map(studio);
+    const far = 5 + 3 + DRY_REACH + 2;
+    pourAt(field, 9, 6, 1, fluidIndexOf("slop"));
+    pourAt(field, far, 6, 1, fluidIndexOf("slop"));
+    for (let k = 0; k < 10; k++) dryUp(field, g, [studio], 2);
+    expect(sludgeAt(field, 9, 6)).toBeLessThan(0.5);
+    expect(sludgeAt(field, far, 6)).toBeCloseTo(1, 3);
   });
 });

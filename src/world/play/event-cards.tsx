@@ -69,8 +69,8 @@ export function EventCard({ e }: { e: GameEvent }) {
   );
 }
 
-/** The events comms shows: under way or just over, newest first — the slop pit's overflow is on the pit's own card. */
-export const liveEvents = (events: readonly GameEvent[]) => [...events].filter((e) => e.kind !== "slop-overflow").reverse();
+/** The events comms shows: under way or just over, newest first. */
+export const liveEvents = (events: readonly GameEvent[]) => [...events].reverse();
 
 /**
  * A RING ON THE MAP where each event is, pulsing, held to its tile as the

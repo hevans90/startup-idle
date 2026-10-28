@@ -4,7 +4,7 @@
  * say, in full), WORK (its policies), LEADERS and EVENTS,
  * the score drifting toward their sum. It scales what the kind produces,
  * ×0.5 at −40 to ×2 at +40, and does one thing more for each kind: interns'
- * moves innovation, vibe coders' the slop pit, 10x devs' their cost curve.
+ * moves innovation, vibe coders' the slop they make, 10x devs' their cost curve.
  * (Still "satisfaction" in the code until the names change.)
  * @see plans/innovation-overhaul.md §2
  */
@@ -69,7 +69,7 @@ export function internSatisfactionIpsMultiplier(internScore: number): number {
   return 1 + (clampScore(internScore) / SATISFACTION_MAX) * INTERN_INNOVATION_SWING;
 }
 
-/** VIBE CODERS' MORALE moves the slop pit: happy, they ship cleaner — half the fill at +40, twice it at −40. */
+/** VIBE CODERS' MORALE moves the slop they make: happy, they ship cleaner — half as much at +40, twice it at −40. @see game/slop */
 export function vibeSlopMultiplier(vibeScore: number): number {
   return 2 ** (-clampScore(vibeScore) / SATISFACTION_MAX);
 }

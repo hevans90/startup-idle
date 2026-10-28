@@ -43,7 +43,6 @@ import { structureDef } from "../structures/def";
 import { workplaceKind } from "../agents/commute";
 import { useTeamLeadersEmployeesStore } from "../../state/team-leaders.store";
 import { liveMoods } from "../agents/mood";
-import { useSlopPitStore } from "../../state/slop-pit.store";
 import { nearHub } from "../projects/labs";
 import { powered as rackPowered } from "../projects/racks";
 import { housedBy, residentsIn } from "../../game/housing";
@@ -112,7 +111,7 @@ function gather(): InfoContext {
   const commutes = seating?.commutes ?? new Map();
   const desks = seating?.desks;
   const coverage = net ? liveCoverage(st.grid, net) : new Map();
-  const moods = net ? liveMoods(st.grid, net, useSlopPitStore.getState().fill / 100) : new Map();
+  const moods = net ? liveMoods(st.grid, net) : new Map();
   const labsNear = new Set([...st.grid.structures.values()].filter((s) => s.def === "lab" && nearHub(st.grid, s)).map((s) => s.id));
   const racksPowered = new Set([...st.grid.structures.values()].filter((s) => s.def === "rack" && rackPowered(st.grid, s)).map((s) => s.id));
   // WHAT EACH WORKPLACE'S DESKS GET: a leader, a café next door. @see deskPerks

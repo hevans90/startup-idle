@@ -30,7 +30,6 @@ import {
   SATISFACTION_MIN,
   stepSatisfactionScores,
   TO_MORALE,
-  vibeSlopMultiplier,
   satisfactionRevenueMultiplier,
   type SatisfactionScores,
 } from "../game/satisfaction";
@@ -47,7 +46,7 @@ import { usePrestigeStore } from "./prestige.store";
 import { useLinkedOutStore } from "./linkedout.store";
 import { useTeamLeadersEmployeesStore } from "./team-leaders.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
-import { useSlopPitStore } from "./slop-pit.store";
+import { setSlopMaking, slopMade } from "../game/slop";
 import { useValuationStore } from "./valuation.store";
 
 /**
@@ -397,10 +396,9 @@ function accrueGeneratorIncome(
   m: GameModifiers,
   out: { money: number; innovation: number },
   ticks: number,
-  moneyMult = 1,
 ): void {
   const { money, innovation } = calcGeneratorIncome(gen, m, out, ticks);
-  useMoneyStore.getState().increaseMoney(money * moneyMult);
+  useMoneyStore.getState().increaseMoney(money);
   useInnovationStore.getState().increaseInnovation(innovation);
 }
 
@@ -592,11 +590,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           useAiSingularityStore.getState().tick(seconds);
 
           // ── 4. Income accrual (side effects only) ────────────────────────────
-          // Slop pit fills from vibe coders and penalises all income when full.
+          // SLOP, made by the vibe coders, for the map's tanks to fill by.
           // Happy vibe coders ship cleaner; miserable ones rage-ship. @see vibeSlopMultiplier
           // And their policies: Hackathon Culture ships faster, and dirtier. @see POLICIES
-          useSlopPitStore.getState().tick(amounts.vibe_coder, seconds, vibeSlopMultiplier(m.effectiveScores.vibe_coder ?? 0) * get().getPolicyEffects("vibe_coder").slop);
-          const slopPenaltyMult = useSlopPitStore.getState().getMoneyPenaltyMult();
+          setSlopMaking(slopMade(amounts.vibe_coder, m.effectiveScores.vibe_coder ?? 0, get().getPolicyEffects("vibe_coder").slop));
 
           // Track which gens fire this tick; stamp lastTick after auto-buy so
           // increaseGenerator's set() calls are not overwritten by ours.
@@ -606,7 +603,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             const ticks = Math.floor(globalTickInterval / gen.interval);
             if (ticks === 0) continue;
             firingGenIds.add(gen.id);
-            accrueGeneratorIncome(gen, m, get().getEmployeeOutputMults(gen.id), ticks, slopPenaltyMult);
+            accrueGeneratorIncome(gen, m, get().getEmployeeOutputMults(gen.id), ticks);
           }
 
           // ── 5. Auto-buy ───────────────────────────────────────────────────────
@@ -657,10 +654,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           if (!gen || units <= 0) return 0;
           const m = get()._buildModifiers();
           const out = get().getEmployeeOutputMults(id);
-          // AND THE SLOP PIT'S CUT, as the tick takes it: without it the rate
-          // shown — and every price set in seconds of income — was up to six
-          // times what was really coming in. @see getMoneyPenaltyMult
-          return calcGeneratorPerSecond(gen, m, out, units).money * useSlopPitStore.getState().getMoneyPenaltyMult();
+          return calcGeneratorPerSecond(gen, m, out, units).money;
         },
         // Sum each generator's full-chain output (single source of truth: the
         // employee-tab popovers and this getter stay in lockstep).
@@ -687,7 +681,6 @@ export const useGeneratorStore = create<GeneratorState>()(
               modKey: "mandateMoney",
             },
             { label: "Vape juice", mult: m.juiceMoney, modKey: "juiceMoney" },
-            { label: "Slop pit", mult: useSlopPitStore.getState().getMoneyPenaltyMult() },
             {
               label: "Headcount synergy",
               mult: m.headcountMoney,

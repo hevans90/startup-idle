@@ -19,11 +19,13 @@ import { useGeneratorStore } from "../../state/generators.store";
 import { useSessionStore } from "../../state/session.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
-import { SLOP_PIT_UNLOCK_COUNT, useSlopPitStore } from "../../state/slop-pit.store";
+import { SLOP_FROM, slopMaking } from "../../game/slop";
+import { tanksOf } from "../slop/tanks";
+import { mainReports } from "../water/mains";
 import { opensText } from "./building-info";
 import { GateChips } from "./gate-chips";
 import { useGateUnlocks } from "./gates";
-import { clock, showMe } from "./map-focus";
+import { showMe } from "./map-focus";
 import { builtProjects, materialCap, siteOf, STALL_GRACE } from "../projects/works";
 import { hasRiver } from "../boats/river";
 import { structureDef } from "../structures/def";
@@ -52,7 +54,7 @@ function Bar({ value, className }: { value: number; className?: string }) {
  * seen list and whether it is open are kept with the company.
  * @see Session.seenProjects
  *
- * The slop pit's card goes beside it, not in it: it is not a project.
+ * The slop card goes beside it, not in it: it is not a project.
  */
 export function ProjectsPanel({ className }: { className?: string }) {
   useTicking(250);
@@ -82,7 +84,7 @@ export function ProjectsPanel({ className }: { className?: string }) {
   const available = busy ? [] : open.filter((p) => p.ready(owned, unlocked));
   const next = busy ? [] : open.filter((p) => !available.includes(p));
   const fresh = available.filter((p) => !seen.includes(p.id));
-  const pit = (owned.vibe_coder ?? 0) >= SLOP_PIT_UNLOCK_COUNT;
+  const slop = (owned.vibe_coder ?? 0) >= SLOP_FROM;
 
   // OPEN, what it shows has been seen.
   const freshKey = fresh.map((p) => p.id).join(",");
@@ -90,10 +92,10 @@ export function ProjectsPanel({ className }: { className?: string }) {
     if (isOpen && freshKey) markSeen(freshKey.split(","));
   }, [isOpen, freshKey, markSeen]);
 
-  if (!open.length && !busy && !pit) return null;
+  if (!open.length && !busy && !slop) return null;
   return (
     <div className={twMerge("flex max-h-[75%] w-72 flex-col gap-2", className)}>
-      {pit && <SlopPitCard />}
+      {slop && <SlopCard />}
       {(open.length > 0 || busy) && (
         <div className={twMerge(CARD, "flex min-h-0 w-full flex-col p-0")}>
           <button type="button" onClick={() => setOpen(!isOpen)} data-hint="projects"
@@ -153,48 +155,39 @@ function LogSection({ title, children }: { title: string; children: ReactNode })
 }
 
 /**
- * THE SLOP PIT'S CARD: how full it is, what it is costing, and the drain —
- * which costs the vibe coders' morale. @see state/slop-pit.store
+ * SLOP: what the vibe coders make a second, and each workplace's tank — how
+ * full, whether a sewer takes from it, and whether it is spilling onto the
+ * street. A press on one shows it on the map. @see world/slop/tanks
  */
-export function SlopPitCard() {
-  const fill = useSlopPitStore((s) => s.fill);
-  const penalty = Math.round((1 - useSlopPitStore.getState().getMoneyPenaltyMult()) * 100);
-  const ev = useWorldStore((s) => s.events.find((e) => e.kind === "slop-overflow" && e.phase !== "over"));
-  const respond = useWorldStore((s) => s.respondToEvent);
-  const trucks = ev?.choices.find((c) => c.id === "trucks");
-  const pit = useWorldStore((s) => [...s.grid.structures.values()].find((x) => x.def === "slop-pit"));
+export function SlopCard() {
+  useTicking(500);
+  const grid = useWorldStore((s) => s.grid);
+  const tanks = tanksOf(grid);
+  const drained = new Set([...mainReports().values()].flatMap((r) => (r.sewer && r.state === "flowing" ? r.sewer.sources : [])));
+  const rows = [...tanks.entries()].map(([id, t]) => ({ id, t, s: grid.structures.get(id) })).filter((r) => r.s);
+  const spilling = rows.some((r) => r.t.spilling);
   return (
-    <div className={twMerge(SMALL, ev?.phase === "active" ? "border-bad" : ev ? "border-warn" : "")}>
-      <div className="flex items-center gap-1.5">
-        <button type="button" disabled={!pit} onClick={() => pit && showMe({ x: pit.x + 1, y: pit.y + 1 })}
-          className="cursor-pointer font-bold disabled:cursor-default">Slop pit</button>
-        <div className="h-1 flex-1 bg-surface-3">
-          <div className={twMerge("h-full", fill > 50 ? "bg-bad" : "bg-good")}
-            style={{ width: `${Math.min(100, fill)}%` }} />
-        </div>
-        <span className="tabular-nums">{Math.floor(fill)}%</span>
-        {penalty > 0 && <span className="tabular-nums text-bad">−{penalty}%</span>}
-        <Button size="sm" disabled={fill < 1}
-          onClick={() => (ev ? respond(ev.id, "drain") : useSlopPitStore.getState().drain())}
-          title="Empties the pit: −40 vibe coder morale">
-          Drain
-        </Button>
+    <div className={twMerge(SMALL, spilling ? "border-bad" : "")}>
+      <div className="flex items-baseline justify-between gap-2">
+        <b>Slop</b>
+        <span className="tabular-nums text-fg-muted">{slopMaking().toFixed(2)} a second</span>
       </div>
-      {ev && (
-        <div className="mt-1 flex items-center gap-1">
-          {ev.phase === "warning" && ev.strikesAt !== null && (
-            <span className="tabular-nums text-warn">full in {clock(ev.strikesAt - Date.now())}</span>
-          )}
-          {ev.phase === "active" && <span className="text-bad">overflowing</span>}
-          <span className="flex-1" />
-          {trucks && (
-            <Button size="sm" disabled={!!trucks.unavailable} onClick={() => respond(ev.id, "trucks")}
-              title={trucks.unavailable ?? `Sludge trucks: ${trucks.cost}`}>
-              Trucks
-            </Button>
-          )}
-        </div>
-      )}
+      {rows.map(({ id, t, s }) => {
+        const full = t.capacity > 0 ? t.level / t.capacity : 0;
+        return (
+          <button key={id} type="button" onClick={() => showMe({ x: s!.x + 1, y: s!.y + 1 })}
+            className="mt-1 flex w-full cursor-pointer items-center gap-1.5 text-left">
+            <span className="w-24 truncate">{structureDef(s!.def)?.name}</span>
+            <span className="h-1 flex-1 bg-surface-3">
+              <span className={twMerge("block h-full", t.spilling ? "bg-bad" : full > 0.75 ? "bg-warn" : "bg-good")} style={{ width: `${Math.min(100, full * 100)}%` }} />
+            </span>
+            <span className={twMerge("w-14 text-right tabular-nums", t.spilling ? "text-bad" : drained.has(id) ? "text-good" : "text-fg-muted")}>
+              {t.spilling ? "spilling" : drained.has(id) ? "sewered" : `${Math.round(full * 100)}%`}
+            </span>
+          </button>
+        );
+      })}
+      {spilling && <p className="mt-1 text-bad">A full tank spills sludge at its slop port. Lay a sewer from it to water.</p>}
     </div>
   );
 }

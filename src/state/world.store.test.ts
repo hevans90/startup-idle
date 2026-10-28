@@ -589,23 +589,6 @@ describe("the land chosen when founding", () => {
   });
 });
 
-describe("the slop pit", () => {
-  test("opens once, on the map, beside the studio", () => {
-    s().resize(24, 24);
-    const g = s().grid;
-    fillTerrain(g, GRASS);
-    s().loadGrid(g, s().palette);
-    const studio = { id: 900, def: "studio", x: 4, y: 4, w: 3, h: 2 };
-    s().grid.structures.set(studio.id, studio);
-    s().openSlopPit();
-    const pits = [...s().grid.structures.values()].filter((x) => x.def === "slop-pit");
-    expect(pits.length).toBe(1);
-    expect(Math.hypot(pits[0].x - 5, pits[0].y - 5)).toBeLessThan(6);
-    s().openSlopPit();
-    expect([...s().grid.structures.values()].filter((x) => x.def === "slop-pit").length).toBe(1);
-  });
-});
-
 describe("in the game, road costs money and a refusal says why", () => {
   afterEach(() => { s().setPlaying(false); useMoneyStore.setState({ money: new Decimal(0) }); });
 
@@ -857,22 +840,4 @@ describe("derelict buildings", () => {
     expect(useMoneyStore.getState().money.toNumber()).toBeLessThanOrEqual(1e6 - 200);
   });
 });
-
-describe("the slop pit under play rules", () => {
-  afterEach(() => s().setPlaying(false));
-  test("cannot be demolished", () => {
-    const g = createGrid(20, 20);
-    fillTerrain(g, 1);
-    s().loadGrid(g);
-    s().setTool("placeStructure");
-    s().setStructureDef("slop-pit");
-    s().commitStructure({ x: 8, y: 8 });
-    s().setPlaying(true);
-    s().setTool("demolish");
-    s().commitStructure({ x: 9, y: 9 });
-    expect([...s().grid.structures.values()].some((x) => x.def === "slop-pit")).toBe(true);
-    expect(s().notice?.text).toMatch(/slop pit stays/);
-  });
-});
-
 
