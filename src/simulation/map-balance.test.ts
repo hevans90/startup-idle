@@ -81,7 +81,7 @@ describe("the late game", () => {
       console.log({
         labs: run.labs, spentOnLabs: run.spentOnLabs, lots: run.lots, services: run.services,
         mood: run.mood, townBonus: run.townBonus, income: run.income, spentOnHires: run.spentOnHires,
-        slopAt: run.slopAt, seweredAt: run.seweredAt, offices: run.offices, spentOnOffices: run.spentOnOffices,
+        slopAt: run.slopAt, seweredAt: run.seweredAt, refineryAt: run.refineryAt, offices: run.offices, spentOnOffices: run.spentOnOffices,
       });
       console.table(run.headcount.map((h) => ({ at: fmt(h.at), ...h.owned })));
     }

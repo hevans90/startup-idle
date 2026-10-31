@@ -22,7 +22,7 @@ import { builtProjects, nearestSpot, projectUnderWay } from "../projects/works";
 import { structureDef } from "../structures/def";
 import { saleName } from "../play/building-info";
 import type { Grid } from "../grid";
-import { demolishAt, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
+import { demolishAt, layPipePath, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
 import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "./ai-runner";
 import type { Masterplan, PlanStep } from "./masterplan/plan";
 import { inBox, townCentre, type Box } from "./masterplan/plan";
@@ -32,6 +32,7 @@ import { idx } from "../grid";
 import { isPaved } from "../roads/mask";
 import { nextStep, roadTiles } from "./masterplan/schedule";
 import { layRoute, neededPipe } from "./cooling-ai";
+import { neededSewer, wantsRefinery } from "./sewer-ai";
 import type { PipeRoute } from "./pipe-route";
 import { styleOf } from "./masterplan/style";
 import { fusedInto } from "../../game/fusion";
@@ -266,6 +267,24 @@ function act(g: Grid, budget: number): boolean {
       return true;
     }
     state.failed.add(`pipe:${pipe.s.id}`);
+  }
+  // SLOP: a sewer for a workplace that has none — to a processor, a sewer or
+  // the water — and another refinery while there is more slop than they take. @see neededSewer
+  const sewer = neededSewer(g);
+  if (sewer && !state.failed.has(`sewer:${sewer.s.id}`) && sewer.price <= spend) {
+    if (layPipePath(sewer.cells, false, true)) {
+      fly(sewer.cells[sewer.cells.length - 1], g);
+      state.last = "a sewer, for the slop";
+      return true;
+    }
+    state.failed.add(`sewer:${sewer.s.id}`);
+  }
+  const refinery = wantsRefinery(g);
+  if (refinery && !state.failed.has("refinery") && refinery.price <= spend) {
+    const vibe = [...g.structures.values()].find((x) => !x.build && WORKPLACES.vibe_coder.includes(x.def));
+    const at = nearestSpot(g, structureDef("refinery")!, playRules(g), vibe ? { x: vibe.x, y: vibe.y } : state.plan?.centre);
+    if (at && placeStructure("refinery", at)) { fly(at, g); state.last = "a slop refinery"; return true; }
+    state.failed.add("refinery");
   }
   // THE PROJECTS, as they open: the next one ready, at the nearest good spot. @see nearestSpot
   if (!projectUnderWay(g)) {

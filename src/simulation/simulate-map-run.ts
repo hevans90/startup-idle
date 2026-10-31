@@ -97,6 +97,8 @@ export type MapRunReport = {
   /** When slop started, and when a sewer for it was paid for; null for never. @see SIM_SEWER_TILES */
   slopAt: number | null;
   seweredAt: number | null;
+  /** When a slop refinery was paid for, after the sewer: a project's price, not built tile by tile. */
+  refineryAt: number | null;
   /** Headcount by kind, every half hour of the run. */
   headcount: { at: number; owned: Partial<Record<GeneratorId, number>> }[];
   /**
@@ -248,7 +250,7 @@ export function simulateMapRun(
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
     spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
-    coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopAt: null, seweredAt: null, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
+    coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopAt: null, seweredAt: null, refineryAt: null, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
@@ -285,12 +287,18 @@ export function simulateMapRun(
   const stepTown = () => {
     const o = owned();
     // SLOP, seen to as a player would: once the vibe coders make it, a sewer
-    // from the studio to the water, paid for as soon as it can be. @see game/slop
+    // from the studio to the water, and then a refinery for it to feed, each
+    // paid for as soon as it can be. @see game/slop, game/processors
     if ((o.vibe_coder ?? 0) >= SLOP_FROM) {
       report.slopAt ??= t;
       if (report.seweredAt === null && money() >= pipeCost(SIM_SEWER_TILES).toNumber()) {
         spend(pipeCost(SIM_SEWER_TILES).toNumber());
         report.seweredAt = t;
+      }
+      const refinery = projectCost(PROJECTS.find((p) => p.id === "refinery")!, useGeneratorStore.getState().getMoneyPerSecond());
+      if (report.seweredAt !== null && report.refineryAt === null && money() >= refinery) {
+        spend(refinery);
+        report.refineryAt = t;
       }
     }
     // The upgrades bought: what a gate is met by. @see Gate

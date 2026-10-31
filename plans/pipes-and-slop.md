@@ -1,6 +1,6 @@
 # Pipes that look built, and slop that has to go somewhere
 
-Status: **in progress** (phases 1–8 done), agreed in conversation on 2026-10-27. Follows `plans/pipes-overhaul.md`, whose model (mains, fittings, the steady-state solve) stays.
+Status: **done** (2026-10-31); what is left is listed under "To decide while building"., agreed in conversation on 2026-10-27. Follows `plans/pipes-overhaul.md`, whose model (mains, fittings, the steady-state solve) stays.
 
 ## Why
 
@@ -140,11 +140,18 @@ Status: **in progress** (phases 1–8 done), agreed in conversation on 2026-10-2
 6. **Pollution spike, then pollution.** (Done: a concentration per tile, chosen; kept beside the water rather than in its columns, so neither solver changed — carried by the surface's slope, which is where a river runs. Nothing pours slop in until phase 7's outfalls.) Concentration in the water field, advection, dilution, outflow; the brown tint; homes' morale; dirty cooling.
 7. **Slop replaces the pit.** (Done. The pit's income penalty went with it: the pressure is spills, mopping and pollution now. Old saves' pits are dropped as the map is read, their fill not poured — simpler than a one-off spill for nothing a player would miss. The sim lays a 20-tile sewer when slop starts.) Tanks on vibe workplaces, spills, gauges; the pit removed with its store, event and trucks; effects re-pointed; old saves converted; the sim's trucks replaced.
 8. **Processors.** (Done: busyness, smoothed over 3 s, scales each effect; prices rise 25% a kind for each standing.) The three projects and buildings, their effects, capacities and ports.
-9. **The AI, the sims and balance.** AI mode lays sewers and builds refineries; the pacing guards (`map-balance`) re-measured; README.
+9. **The AI, the sims and balance.** (Done: AI mode sewers to the nearest processor, sewer or water — not yet "downstream of its town" — and adds refineries; the takeover AI's buildings have water ports from phase 3 and lay no sewers. Balance guards hold: in the reference run slop starts at 48 min, sewered at once, a refinery at 82 min.) AI mode lays sewers and builds refineries; the pacing guards (`map-balance`) re-measured; README.
 
 Phases 1–4 touch nothing of slop: the pit keeps working until phase 7 switches it.
 
 ## To decide while building
+
+Left open after phase 9:
+- AI outfalls go to the nearest water, not downstream of the town.
+- Pollution and the slop tanks are not saved: a reload clears them.
+- No Slop overlay: sewers show in the Water overlay by state; tanks are on the Slop card and the labels.
+- Processor numbers (0.5 a second; +15% / +25% / +10%) are first guesses; the sim pays for a refinery but does not count what it gives.
+
 
 - Numbers: slop per vibe coder a second, tank size, sewer capacity, each processor's rate and yield, the pollution thresholds. Tune against the sims.
 - Whether the Water overlay grows a slop mode, or a separate **Slop** overlay shows sewers, tanks and pollution.
