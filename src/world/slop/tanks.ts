@@ -11,7 +11,7 @@ import { PROCESS_RATE, processorKind, setProcessorUse, type ProcessorKind } from
 import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { fluidIndexOf } from "../water/materials";
-import { mainReports } from "../water/mains";
+import { mainReportsFor } from "../water/mains";
 import { pollute } from "../water/pollution";
 import { portsOf } from "../water/ports";
 import { pourAt, type WaterField } from "../water/field";
@@ -83,7 +83,7 @@ export function stepSlop(
   // What each processor has taken this frame. @see PROCESS_RATE
   const taken = new Map<number, number>();
   // DRAINED by the sewers: each its share of what it carries from every tank it serves.
-  for (const r of mainReports().values()) {
+  for (const r of mainReportsFor(g).values()) {
     if (!r.sewer || r.state !== "flowing" || dt <= 0) continue;
     const from = r.sewer.sources.map((id) => tanks.get(id)).filter((t): t is Tank => !!t);
     const there = from.reduce((n, t) => n + t.level, 0);

@@ -241,7 +241,13 @@ export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPump
   const { list, of } = findMains(g);
   const out = new Map<number, MainReport>();
   for (const net of list) {
-    if (net.sewer) { out.set(net.cells[0], solveSewer(g, net)); continue; }
+    // A SEWER carries what the tanks last gave it, until they say again this frame. @see stepSlop
+    if (net.sewer) {
+      const r = solveSewer(g, net), was = reportGrid === g ? reports.get(net.cells[0]) : undefined;
+      if (was?.sewer && r.state === "flowing") r.flow = was.flow;
+      out.set(net.cells[0], r);
+      continue;
+    }
     let r = solveMain(g, field, net);
     const wants = r.outlets.some((o) => o.building >= 0 && tankRoom(o.building) > 0);
     if (r.outlets.some((o) => o.pumped) && wants && !pumps.pay(dt)) {
@@ -279,6 +285,8 @@ export function mainReportAt(g: Grid, x: number, y: number): MainReport | null {
 
 /** Every network's report from the last frame. */
 export const mainReports = (): ReadonlyMap<number, MainReport> => reports;
+/** And only if they were for this map: none for another. */
+export const mainReportsFor = (g: Grid): ReadonlyMap<number, MainReport> => (g === reportGrid ? reports : new Map());
 
 /** A cell of a main to lay: the sides it joins, added to what is there, and its end fitting if it is an end. */
 export type MainCell = { x: number; y: number; join: number; end: number };
