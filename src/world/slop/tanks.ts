@@ -7,6 +7,7 @@
  * saved: a workplace starts with an empty tank. @see game/slop
  */
 import { POLLUTION_PER_SLOP, SPILL_DEPTH, tankFor } from "../../game/slop";
+import { PROCESS_RATE, processorKind, setProcessorUse, type ProcessorKind } from "../../game/processors";
 import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { fluidIndexOf } from "../water/materials";
@@ -56,20 +57,19 @@ export function release(g: Grid, field: WaterField, x: number, y: number, amount
  * ONE FRAME OF SLOP: `making` a second, shared out among the workplaces by
  * the desks taken in each (evenly, with nobody seated anywhere); each sewer
  * draining the tanks it serves, as much as it carries, into the processors it
- * feeds — `process` says how much one takes — and the rest out of its
- * outfalls; and each tank over full spilling at its port. Run after the
- * mains, whose sewer reports it fills in with what they carried.
+ * feeds — each up to `PROCESS_RATE` a second — and the rest out of its
+ * outfalls; each tank over full spilling at its port; and how busy each kind
+ * of processor has been, for the economy. Run after the mains, whose sewer
+ * reports it fills in with what they carried.
  */
 export function stepSlop(
   g: Grid, field: WaterField | null, desks: ReadonlyMap<number, { used: number }> | null, making: number, dt: number,
-  process: (building: number, amount: number) => number = () => 0,
 ): void {
   const tanks = tanksOf(g);
   latest = tanks;
   const places = [...g.structures.values()].filter((s) => !s.build && WORKPLACES.vibe_coder.includes(s.def));
   // GONE: a workplace taken down takes its tank with it.
   for (const id of tanks.keys()) if (!places.some((s) => s.id === id)) tanks.delete(id);
-  if (!places.length) return;
   const seated = places.map((s) => desks?.get(s.id)?.used ?? 0);
   const all = seated.reduce((a, b) => a + b, 0);
   // FILLING, by who works there.
@@ -80,18 +80,31 @@ export function stepSlop(
     t.level += t.rate * dt;
     tanks.set(s.id, t);
   }
+  // What each processor has taken this frame. @see PROCESS_RATE
+  const taken = new Map<number, number>();
   // DRAINED by the sewers: each its share of what it carries from every tank it serves.
   for (const r of mainReports().values()) {
     if (!r.sewer || r.state !== "flowing" || dt <= 0) continue;
     const from = r.sewer.sources.map((id) => tanks.get(id)).filter((t): t is Tank => !!t);
     const there = from.reduce((n, t) => n + t.level, 0);
-    const take = Math.min(there, r.capacity * dt);
+    // AS MUCH AS IT CAN PUT SOMEWHERE: what its processors have room for, and
+    // with an outfall, all it carries. Backed up, the rest stays in the tanks.
+    // Each processor once, though a sewer meet both its inlets.
+    const sinks = [...new Map(r.outlets.filter((o) => processorKind(g.structures.get(o.building)?.def ?? "")).map((o) => [o.building, o])).values()];
+    const roomOf = (id: number) => Math.max(0, PROCESS_RATE * dt - (taken.get(id) ?? 0));
+    const room = r.sewer.outfalls.length ? Infinity : sinks.reduce((n, o) => n + roomOf(o.building), 0);
+    const take = Math.min(there, r.capacity * dt, room);
     if (take <= 0) { r.flow = 0; continue; }
     for (const t of from) t.level -= take * (t.level / there);
     r.flow = take / dt;
     // INTO THE PROCESSORS FIRST, as much as each takes; the rest out of the outfalls.
     let left = take;
-    for (const o of r.outlets) if (left > 0) left -= Math.max(0, Math.min(left, process(o.building, left)));
+    for (const o of sinks) {
+      if (left <= 0) break;
+      const into = Math.min(left, roomOf(o.building));
+      taken.set(o.building, (taken.get(o.building) ?? 0) + into);
+      left -= into;
+    }
     if (left > 0 && field && r.sewer.outfalls.length) {
       for (const cell of r.sewer.outfalls) release(g, field, cell % g.w, (cell / g.w) | 0, left / r.sewer.outfalls.length);
     }
@@ -107,7 +120,28 @@ export function stepSlop(
     const at = spillAt(g, s);
     if (field && at) release(g, field, at.x, at.y, over);
   }
+  // HOW BUSY each processor is, smoothed over a few seconds, and each kind's in all.
+  const use: Record<ProcessorKind, number> = { refinery: 0, dataplant: 0, contentfarm: 0 };
+  const seen = new Set<number>();
+  for (const s of g.structures.values()) {
+    const k = processorKind(s.def);
+    if (!k || s.build) continue;
+    seen.add(s.id);
+    const now = dt > 0 ? (taken.get(s.id) ?? 0) / (PROCESS_RATE * dt) : 0;
+    const was = busy.get(s.id) ?? 0;
+    const b = was + (now - was) * Math.min(1, dt / BUSY_SECONDS);
+    busy.set(s.id, b);
+    use[k] += b;
+  }
+  for (const id of busy.keys()) if (!seen.has(id)) busy.delete(id);
+  setProcessorUse(use);
 }
+
+/** Seconds a processor's busyness takes to come round to what it is taking. */
+const BUSY_SECONDS = 3;
+/** How busy each processor has been, nought to one, by id. Live state; not saved. */
+const busy = new Map<number, number>();
+export const processorBusy = (id: number) => busy.get(id) ?? 0;
 
 /** Where a workplace's tank spills: in front of its slop port, or the nearest open tile round it; null boxed in. */
 export function spillAt(g: Grid, s: Structure): { x: number; y: number } | null {

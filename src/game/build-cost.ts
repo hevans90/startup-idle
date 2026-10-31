@@ -16,7 +16,7 @@ import { isAiBuilding, structureDef } from "../world/structures/def";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { getGeneratorCost } from "../utils/generator-utils";
-import { labsBuilt } from "./projects";
+import { labsBuilt, processorsBuilt } from "./projects";
 import { racksBuilt } from "./agents";
 import { founderIs } from "./founder-rules";
 import { fusionNow } from "./fusion";
@@ -66,6 +66,11 @@ function listPrice(defId: string): Decimal | null {
   if (defId === "rack") {
     return Decimal.max(new Decimal(RACK_FLOOR), new Decimal(safeIncome()).times(RACK_SECONDS)).times(RACK_STEP ** racksBuilt()).round();
   }
+  // A SLOP PROCESSOR: seconds of income, never under a floor, dearer for each of its kind standing. @see game/processors
+  const processor = PROCESSOR_PRICE[defId];
+  if (processor) {
+    return Decimal.max(new Decimal(processor.floor), new Decimal(safeIncome()).times(processor.seconds)).times(PROCESSOR_STEP ** processorsBuilt(defId)).round();
+  }
   // A PUMP HOUSE: seconds of income, never under a floor. @see PUMP
   if (defId === "pump") return Decimal.max(new Decimal(PUMP_FLOOR), new Decimal(safeIncome()).times(PUMP_SECONDS)).round();
   // A FLOOD WALL: cheap, a tile at a time.
@@ -110,6 +115,13 @@ const SERVICE_PRICE: Record<string, { seconds: number; floor: number }> = {
   park: { seconds: 8, floor: 400 },
   gym: { seconds: 16, floor: 2000 },
 };
+/** A slop processor: seconds of income, never under a floor, dearer by this for each of its kind standing. */
+const PROCESSOR_PRICE: Record<string, { seconds: number; floor: number }> = {
+  refinery: { seconds: 30, floor: 2000 },
+  dataplant: { seconds: 60, floor: 50_000 },
+  contentfarm: { seconds: 45, floor: 15_000 },
+};
+const PROCESSOR_STEP = 1.25;
 /** A pump house: seconds of income, never under a floor. */
 const PUMP_SECONDS = 15;
 const PUMP_FLOOR = 25_000;

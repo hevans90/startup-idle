@@ -5,6 +5,7 @@
  * upbringing. When a run ends the skill goes up, the singularity jumps and
  * the behaviour log is told. @see game/training
  */
+import { dataPlantJump, dataPlantSpeed } from "../game/processors";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -34,8 +35,8 @@ export const useTrainingStore = create<TrainingState>()(
     (set, get) => ({
       current: null,
       skills: {},
-      // Shorter with the Pre-trained module and Ego fused in.
-      seconds: () => TRAINING_SECONDS * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingTimeMult,
+      // Shorter with the Pre-trained module and Ego fused in, and the data plants busy. @see dataPlantSpeed
+      seconds: () => (TRAINING_SECONDS * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingTimeMult) / dataPlantSpeed(),
       blocked: () => (get().current ? "running" : null),
       start: (id, now = Date.now()) => {
         if (get().blocked() || !dataset(id)) return false;
@@ -47,7 +48,7 @@ export const useTrainingStore = create<TrainingState>()(
         if (!c || now < c.endsAt) return;
         set((s) => ({ current: null, skills: { ...s.skills, [c.dataset]: Math.min(MAX_SKILL, (s.skills[c.dataset] ?? 0) + 1) } }));
         const d = dataset(c.dataset);
-        if (d) useAiSingularityStore.setState((s) => ({ value: Math.min(meterCap(s.value), s.value + d.jump * fusionNow().trainingJumpMult) }));
+        if (d) useAiSingularityStore.setState((s) => ({ value: Math.min(meterCap(s.value), s.value + d.jump * fusionNow().trainingJumpMult * dataPlantJump()) }));
         useGenerationStore.getState().recordTraining(c.dataset);
       },
       reset: () => set({ current: null, skills: {} }),

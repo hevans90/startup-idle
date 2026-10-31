@@ -4,6 +4,7 @@
  * remembers for the company's reputation — and the connections, every leader
  * of every company before, who outlast a sale. @see game/linkedout, LinkedOut
  */
+import { contentFarmStars } from "../game/processors";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -76,7 +77,8 @@ export const useLinkedOutStore = create<LinkedOutState>()(
       connections: [],
       open: false,
 
-      stars: () => reputation(get().moraleRemembered, get().letGoThisRun),
+      // A content farm running is a star: thought leadership, at scale. @see contentFarmStars
+      stars: () => reputation(get().moraleRemembered, get().letGoThisRun, contentFarmStars()),
 
       setOpen: (open) => set({ open }),
 

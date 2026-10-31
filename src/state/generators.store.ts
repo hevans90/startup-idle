@@ -47,6 +47,7 @@ import { useLinkedOutStore } from "./linkedout.store";
 import { useTeamLeadersEmployeesStore } from "./team-leaders.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
 import { setSlopMaking, slopMade } from "../game/slop";
+import { contentFarmBonus, refineryBonus } from "../game/processors";
 import { useValuationStore } from "./valuation.store";
 
 /**
@@ -472,7 +473,8 @@ export const useGeneratorStore = create<GeneratorState>()(
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
             money: e.output * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
-            innovation: e.innovation * here * atDesks * wonderBonus("innovation") * labBonus(),
+            // And the slop refineries, by how busy they are. @see game/processors
+            innovation: e.innovation * here * atDesks * wonderBonus("innovation") * labBonus() * refineryBonus(),
           };
         },
 
@@ -832,6 +834,8 @@ export const useGeneratorStore = create<GeneratorState>()(
             },
             // The wonders on the map. @see wonderBonus
             { label: "Wonders", mult: wonderBonus("valuation") },
+            // The content farms, by how busy they are. @see game/processors
+            { label: "Content farms", mult: contentFarmBonus() },
           ];
           const total = factors.reduce((acc, f) => acc * f.mult, base);
           return { total, base, mps, factors };

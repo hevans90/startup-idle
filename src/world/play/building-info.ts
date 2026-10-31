@@ -6,7 +6,8 @@
  * tested from plain numbers: everything it needs from the live game comes in
  * through `InfoContext`.
  */
-import { slopTankOf } from "../slop/tanks";
+import { processorBusy, slopTankOf } from "../slop/tanks";
+import { CONTENTFARM_VALUATION, DATAPLANT_SPEED, REFINERY_INNOVATION, processorKind } from "../../game/processors";
 import { tankFor } from "../projects/cooling";
 import { PUMP_HEAD } from "../../game/cooling";
 import { AGENTS_A_RACK, RACK_RANGE } from "../../game/agents";
@@ -217,6 +218,8 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     if (desks) lines.push(desks);
     const slop = slopLine(s.id);
     if (slop) lines.push(slop);
+    const proc = processorLine(s);
+    if (proc) lines.push(proc);
     lines.push(...perkLines(s.id, ctx));
     if (p.bonus) lines.push({ text: opensText(p).replace(/, for good$/, ""), tone: "good" });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
@@ -519,6 +522,19 @@ export function gatherLabels(
   }
   groups = groups.filter((_, k) => !gone[k]);
   return groups.map((g) => ({ ids: g.ids, ...anchor(g), info: g.infos.length === 1 ? g.infos[0] : { ...(g.info as Omit<BuildingInfo, "facts">), facts: g.infos.flatMap((i) => i.facts) } }));
+}
+
+/** A slop processor: how busy, and what that is worth. @see game/processors */
+function processorLine(s: Structure): InfoLine | null {
+  const k = processorKind(s.def);
+  if (!k || s.build) return null;
+  const b = processorBusy(s.id);
+  if (b < 0.02) return { text: "Idle: sewer slop to its inlet", tone: "dim" };
+  const pct = Math.round(b * 100);
+  const what = k === "refinery" ? `+${Math.round(b * REFINERY_INNOVATION * 100)}% innovation`
+    : k === "dataplant" ? `training ${Math.round(b * DATAPLANT_SPEED * 100)}% faster`
+    : `+${Math.round(b * CONTENTFARM_VALUATION * 100)}% valuation`;
+  return { text: `${pct}% busy · ${what}`, tone: "good" };
 }
 
 /** A vibe workplace's slop tank: how full, or spilling. @see world/slop/tanks */

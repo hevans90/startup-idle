@@ -24,13 +24,14 @@ import { BOOTSTRAP_BUILD, HACKER_LABS, VISIONARY_DATACENTRE } from "./founders.c
 
 export type ProjectId =
   | "garage" | "studio" | "hq" | "boardroom" | "campus" | "agency" | "townhall" | "harbour"
-  | "datacentre" | "conference" | "hackerspace" | "ipo";
+  | "datacentre" | "conference" | "hackerspace" | "ipo"
+  | "refinery" | "dataplant" | "contentfarm";
 
 /** What a WONDER multiplies, for as long as it stands. @see wonderBonus */
 export type Bonus = { money?: number; innovation?: number; valuation?: number };
 
 /** Features of the game a project can open, beyond hiring. @see featureGateOpen */
-export type FeatureId = "managers" | "mandates" | "services" | "ports" | "leaders";
+export type FeatureId = "managers" | "mandates" | "services" | "ports" | "leaders" | "refinery" | "dataplant" | "contentfarm";
 
 /**
  * A PROJECT'S GATE. Every project after the garage waits on an EMPLOYEE
@@ -44,12 +45,15 @@ export type Gate = {
   upgrade?: string;
   /** So many of each kind employed. */
   staff?: Partial<Record<GeneratorId, number>>;
+  /** Another project's building standing. */
+  after?: ProjectId;
 };
 
 /** One part of a gate, for whoever shows it. */
 export type GatePart =
   | { kind: "upgrade"; id: string; met: boolean }
-  | { kind: "staff"; who: GeneratorId; need: number; have: number; met: boolean };
+  | { kind: "staff"; who: GeneratorId; need: number; have: number; met: boolean }
+  | { kind: "built"; project: ProjectId; met: boolean };
 
 /**
  * A gate as this company faces it:
@@ -86,6 +90,7 @@ export function gateParts(
     const have = owned[who] ?? 0;
     parts.push({ kind: "staff", who, need, have, met: have >= need });
   }
+  if (gate.after) parts.push({ kind: "built", project: gate.after, met: !reader || reader().built.has(gate.after) });
   return parts;
 }
 
@@ -331,6 +336,47 @@ export const PROJECTS: readonly ProjectDef[] = [
     // 325 interns, not 350: a run that hires to its cost wall stops near 330. @see map-balance.test
     ...needs({ staff: { intern: 325, vibe_coder: 150, "10x_dev": 8 } }),
   },
+  // THE SLOP PROCESSORS: each project builds the first, and opens the rest
+  // to buy. @see game/processors
+  {
+    id: "refinery",
+    name: "Slop Refinery",
+    pitch: "Pipe the vibe coders' slop in; best practices come out. Opens Slop Refineries: innovation, by how much slop they take.",
+    structure: "refinery",
+    builders: ["intern", "vibe_coder"],
+    work: 1500,
+    incomeSeconds: 60,
+    floor: 3000,
+    deliveries: 8,
+    grants: "refinery",
+    ...needs({ staff: { vibe_coder: 50 } }),
+  },
+  {
+    id: "dataplant",
+    name: "Training Data Plant",
+    pitch: "Slop, labelled, is training data. Nobody checks. Opens Data Plants: training runs faster and land harder.",
+    structure: "dataplant",
+    builders: ["vibe_coder", "10x_dev"],
+    work: 6000,
+    incomeSeconds: 120,
+    floor: 100_000,
+    deliveries: 14,
+    grants: "dataplant",
+    ...needs({ after: "datacentre" }),
+  },
+  {
+    id: "contentfarm",
+    name: "Content Farm",
+    pitch: "Thought leadership, at scale, from the slop. Opens Content Farms: valuation, and a LinkedOut star while they run.",
+    structure: "contentfarm",
+    builders: ["intern", "vibe_coder"],
+    work: 3000,
+    incomeSeconds: 90,
+    floor: 30_000,
+    deliveries: 12,
+    grants: "contentfarm",
+    ...needs({ after: "boardroom" }),
+  },
 ];
 
 /**
@@ -359,6 +405,9 @@ export const deskBonus = (id: GeneratorId) => 1 + (reader ? reader().desks?.[id]
 
 /** The people a kind's leader leads in their building; nought with no map. @see leaderEffects */
 export const leaderTeam = (id: GeneratorId) => (reader ? reader().teams?.[id] ?? 0 : 0);
+
+/** How many slop processors of a kind stand on the map. */
+export const processorsBuilt = (kind: string) => (reader ? reader().processors?.[kind] ?? 0 : 0);
 
 /** How many R&D labs stand on the map. */
 export const labsBuilt = () => (reader ? reader().labs?.count ?? 0 : 0);
@@ -438,6 +487,8 @@ export type ProjectReading = {
   desks?: Partial<Record<GeneratorId, number>>;
   /** Each kind's leader's TEAM: the people at the desks of the building they lead. @see game/leaders */
   teams?: Partial<Record<GeneratorId, number>>;
+  /** The slop processors standing, by kind. @see game/processors */
+  processors?: Partial<Record<string, number>>;
 };
 
 let reader: (() => ProjectReading) | null = null;

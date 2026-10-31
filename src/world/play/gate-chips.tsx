@@ -9,7 +9,7 @@
  */
 import { twMerge } from "tailwind-merge";
 
-import { gateParts, type GatePart, type ProjectDef } from "../../game/projects";
+import { gateParts, projectDef, type GatePart, type ProjectDef } from "../../game/projects";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import type { Upgrade } from "../../state/upgrades.store";
 import { useMoneyStore } from "../../state/money.store";
@@ -59,6 +59,16 @@ function GateChip({ part, project, owned }: { part: GatePart; project: ProjectDe
           </button>
         )}
       </InfoPop>
+    );
+  }
+  // ANOTHER PROJECT STANDING: a chip with its name.
+  if (part.kind === "built") {
+    const name = projectDef(part.project)?.name ?? part.project;
+    return (
+      <span className={twMerge("border px-1 py-px text-[10px]", part.met ? "border-good text-good" : "border-line text-fg-muted")}
+        title={part.met ? `${name}: built` : `${project.name} needs the ${name} built first`}>
+        <span aria-hidden>{part.met ? DONE : LOCK}</span><span>{name}</span>
+      </span>
     );
   }
   return <StaffCount part={part} />;

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { processorKind } from "../../game/processors";
 import {
   PROJECTS, alreadyEarned, attendance, featureGateOpen, projectCost, projectDef, wonderBonus, projectGateOpen, setProjectReader,
 } from "../../game/projects";
@@ -293,10 +294,11 @@ describe("the Town Hall and the Harbour Office", () => {
 });
 
 describe("every project's gate", () => {
-  test("every project after the garage waits on an employee upgrade that exists, or a wonder on headcounts", () => {
+  test("every project after the garage waits on an employee upgrade that exists, a wonder on headcounts, a slop processor on slop or another project", () => {
     for (const p of PROJECTS) {
       if (p.id === "garage") { expect(p.gate).toEqual({}); continue; }
       if (p.bonus) expect(Object.keys(p.gate.staff ?? {}).length).toBeGreaterThan(0);
+      else if (processorKind(p.structure)) expect(!!p.gate.after || (p.gate.staff?.vibe_coder ?? 0) > 0).toBe(true);
       else expect(UPGRADES.some((u) => u.id === p.gate.upgrade)).toBe(true);
     }
   });

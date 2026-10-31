@@ -34,8 +34,8 @@ const BAD: readonly RedFlagId[] = ["quitter", "ego", "ghost", "litigious"];
 export const REPUTATION_MEMORY = 600;
 
 /** The company's stars, 1–5: three for even morale, one more for every +10, half a star off for each person let go this run. */
-export function reputation(moraleRemembered: number, letGo: number): number {
-  return Math.max(1, Math.min(5, Math.round(3 + moraleRemembered / 10 - 0.5 * letGo)));
+export function reputation(moraleRemembered: number, letGo: number, boost = 0): number {
+  return Math.max(1, Math.min(5, Math.round(3 + moraleRemembered / 10 - 0.5 * letGo + boost)));
 }
 
 /** Applicants a post brings, by the stars. */

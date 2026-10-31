@@ -70,6 +70,11 @@ export type Placement = {
 export type Port = { face: "N" | "E" | "S" | "W"; at: number; fluid: "water" | "slop"; dir: "in" | "out" };
 /** A slop outlet on a face the camera sees, toward its near end. @see sewerStubs */
 const SLOP_OUT = (along: number): readonly Port[] => [{ face: "S", at: along, fluid: "slop", dir: "out" }];
+/** A slop inlet on each face the camera sees, toward its near end. @see PROCESSORS */
+const SLOP_IN: readonly Port[] = [
+  { face: "S", at: 1, fluid: "slop", dir: "in" },
+  { face: "W", at: 1, fluid: "slop", dir: "in" },
+];
 /** A water inlet on each face the camera sees, in its middle. */
 const INLETS = (along: number): readonly Port[] => [
   { face: "S", at: along, fluid: "water", dir: "in" },
@@ -263,6 +268,16 @@ export const OFFICES: readonly StructureDef[] = [
 export const LAB: StructureDef = { id: "lab", name: "R&D lab", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } };
 
 /**
+ * SLOP PROCESSORS: fed by sewers at their slop inlets, each opened by a
+ * project of its own and then bought like an office. @see game/processors
+ */
+export const PROCESSOR_DEFS: readonly StructureDef[] = [
+  { id: "refinery", name: "Slop Refinery", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" }, ports: SLOP_IN },
+  { id: "dataplant", name: "Training Data Plant", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" }, ports: SLOP_IN },
+  { id: "contentfarm", name: "Content Farm", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" }, ports: SLOP_IN },
+];
+
+/**
  * SERVICES: a café, a park and a gym, which serve the homes near them along
  * the roads, and are what houses grow by. @see world/agents/services
  */
@@ -331,7 +346,7 @@ export const AI_BUILDINGS: readonly StructureDef[] = [
 export const isAiBuilding = (defId: string) => AI_BUILDINGS.some((d) => d.id === defId);
 
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, LEVEE, LAB, DERELICT, RACK, PUMP, ...AI_BUILDINGS].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, ...PROCESSOR_DEFS, LEVEE, LAB, DERELICT, RACK, PUMP, ...AI_BUILDINGS].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

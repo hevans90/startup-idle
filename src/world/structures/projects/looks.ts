@@ -545,6 +545,85 @@ export function gym(f: Footprint): Building {
   };
 }
 
+/** SLOP REFINERY: a squat brick works, two brown-banded tanks beside it and a stack venting on the roof. */
+export function refinery(f: Footprint): Building {
+  const m: Mass = {
+    u0: 0.18, v0: 0.18, u1: f.w * 0.62, v1: f.h - 0.2, z0: PLINTH.h, z1: PLINTH.h + 2.2, wall: 0x8a6a52, storey: 2.2,
+    facade: { kind: "windows", glass: tone(GLASS, 0.8), frame: 0x5e4636, w: 0.12, gap: 0.22, sill: 0.6, head: 0.5 },
+    roof: { kind: "parapet", deck: 0x4b4038, rim: 0x5e4636, h: 0.14 },
+  };
+  return {
+    plinth: { inset: 0.04, h: 0.2, colour: 0xa49d8f, top: 0xb7b0a2 }, masses: [m], crane: "none",
+    grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0xb7b0a2),
+    details: (p) => {
+      door(p, m, m.u0 + 0.35, 0.36, 1.2, 0x2b2420, 0x7a5230);
+      // THE TANKS: round-ish, banded in slop brown.
+      for (const [u, v] of [[f.w - 0.42, 0.55], [f.w - 0.42, f.h - 0.55]]) {
+        p.box(u - 0.26, v - 0.26, u + 0.26, v + 0.26, 0.2, 1.6, 0xb9b3a6);
+        p.box(u - 0.27, v - 0.27, u + 0.27, v + 0.27, 0.9, 1.05, 0x7a5230);
+        p.dot(u, v, 1.62, 0.2, 0x8f897e);
+      }
+      // THE STACK, and what comes out of it.
+      const su = m.u0 + 0.4, sv = m.v0 + 0.4;
+      p.box(su - 0.08, sv - 0.08, su + 0.08, sv + 0.08, m.z1, m.z1 + 1.8, 0x6e5a4a);
+      p.box(su - 0.09, sv - 0.09, su + 0.09, sv + 0.09, m.z1 + 1.55, m.z1 + 1.65, 0xd9a35a);
+      p.dot(su + 0.05, sv, m.z1 + 2.05, 0.14, 0xcfc6b8);
+      p.dot(su + 0.15, sv - 0.05, m.z1 + 2.3, 0.1, 0xddd6ca);
+      // "BEST PRACTICES", lit, on the front.
+      p.box(m.u0 + 0.15, m.v1, m.u1 - 0.15, m.v1 + 0.03, m.z1 - 0.55, m.z1 - 0.2, 0x2b2420);
+      p.onV(m.v1 + 0.03, m.u0 + 0.25, m.u1 - 0.3, m.z1 - 0.45, m.z1 - 0.32, 0x8ee07a);
+    },
+  };
+}
+
+/** TRAINING DATA PLANT: a long grey labelling hall, a row of skylights, and server cabinets humming along its side. */
+export function dataplant(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, [0.16, 0.2, 0.16, 0.5], PLINTH.h, PLINTH.h + 2.4), wall: 0xc9ccd1, storey: 2.4,
+    facade: { kind: "ribbon", glass: 0x5a7f95, frame: 0x9aa1a8, sill: 0.9, head: 0.4 },
+    roof: { kind: "parapet", deck: 0x5c636b, rim: 0x9aa1a8, h: 0.14 },
+  };
+  return {
+    plinth: PLINTH, masses: [m], crane: "none",
+    grounds: paved,
+    details: (p) => {
+      door(p, m, m.u1 - 0.35, 0.32, 1.15, 0x23292f, 0x6c7cff);
+      // SKYLIGHTS along the roof.
+      for (let u = m.u0 + 0.25; u < m.u1 - 0.2; u += 0.42) p.box(u - 0.12, m.v0 + 0.3, u + 0.12, m.v1 - 0.3, m.z1, m.z1 + 0.22, 0x9cc3d8, { top: 0xbfe0ee });
+      // CABINETS out front, each with a light.
+      for (let u = m.u0 + 0.2; u < m.u1 - 0.6; u += 0.3) {
+        p.box(u - 0.1, m.v1 + 0.08, u + 0.1, m.v1 + 0.3, PLINTH.h, PLINTH.h + 0.7, 0x2f343a);
+        p.onV(m.v1 + 0.3, u - 0.05, u + 0.05, PLINTH.h + 0.5, PLINTH.h + 0.58, 0x6c7cff);
+      }
+      roofSign(p, m.u0 + 0.2, m.u0 + 1.1, m.v1 - 0.15, m.z1, 0.9, 0x1f2430, 0x9fb0ff);
+    },
+  };
+}
+
+/** CONTENT FARM: a cheerful glass box crammed with ring lights, a billboard on top, a queue of delivery vans. */
+export function contentfarm(f: Footprint): Building {
+  const m: Mass = {
+    ...inside(f, 0.2, PLINTH.h, PLINTH.h + 3.0), wall: 0xf1e8f4, storey: 1.5,
+    facade: { kind: "curtain", glass: 0xc59ad6, mullion: 0xf7f2f8, every: 0.3, spandrel: 0xe4d4ea },
+    roof: { kind: "parapet", deck: ROOF, rim: 0xf1e8f4, h: 0.2 },
+  };
+  return {
+    plinth: PLINTH, masses: [m], crane: "none",
+    grounds: paved,
+    details: (p) => {
+      const mid = (m.u0 + m.u1) / 2;
+      door(p, m, mid, 0.42, 1.2, 0x3a2442);
+      canopy(p, m, mid, 0.9, m.z0 + 1.35, 0xe25f9e);
+      // RING LIGHTS in the windows.
+      for (let u = m.u0 + 0.25; u < m.u1 - 0.15; u += 0.4) p.onV(m.v1, u - 0.06, u + 0.06, m.z0 + 1.9, m.z0 + 2.02, 0xfff3c4);
+      // THE BILLBOARD: thought leadership, at scale.
+      roofSign(p, m.u0 + 0.1, m.u1 - 0.1, m.v1 - 0.3, m.z1, 1.5, 0xe25f9e, 0xfff3fa);
+      // A delivery van at the kerb.
+      p.box(m.u1 - 0.55, f.h - 0.22, m.u1 - 0.1, f.h - 0.05, 0.02, 0.38, 0xf7f7f7);
+    },
+  };
+}
+
 /** AN R&D LAB: a white block, a band of glass, and a dish on the roof. */
 export function lab(f: Footprint): Building {
   const m: Mass = {
@@ -839,6 +918,8 @@ export const LOOKS: Record<string, (f: Footprint) => Building> = {
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
   cafe, park, gym, lab, levee, derelict, rack, pump,
+  // The slop processors. @see game/processors
+  refinery, dataplant, contentfarm,
   "ai-node": aiNode, "gpu-farm": gpuFarm, "compute-spire": computeSpire, "drone-hangar": droneHangar, monolith, lattice,
 };
 

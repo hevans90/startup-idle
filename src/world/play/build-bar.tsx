@@ -18,6 +18,7 @@
  *    when they arrive — and only for people the company can hire: no lots for
  *    vibe coders before the studio opens. @see world/agents/arrivals
  */
+import { PROCESS_RATE, processorKind } from "../../game/processors";
 import { SLOP_FROM } from "../../game/slop";
 import { isPhone } from "../../hooks/use-phone";
 import { Fragment, useRef, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -153,6 +154,9 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
   if (services.length && featureGateOpen("services")) out.push({ title: "Services", colour: 0x2f8f6b, items: services });
   const ports = all.filter((d) => d.def.port).sort((a, b) => a.price - b.price);
   if (ports.length && featureGateOpen("ports")) out.push({ title: "Ports", colour: 0x4a90c8, items: ports });
+  // SLOP PROCESSORS, each kind once its project has opened it. @see game/processors
+  const processors = all.filter((d) => { const k = processorKind(d.def.id); return k !== null && featureGateOpen(k); });
+  if (processors.length) out.push({ title: "Slop", colour: 0x7a5230, items: processors });
   // FLOOD WALLS, on a map with a river to flood. @see LEVEE
   const walls = all.filter((d) => d.def.id === "levee");
   if (river && walls.length) out.push({ title: "Defences", colour: 0x8a8475, items: walls });
@@ -175,6 +179,7 @@ function tileNote(def: StructureDef): string {
   if (def.id === "lab") return `innovation +${LAB_SHARE * 100}%`;
   if (def.id === "rack") return `${AGENTS_A_RACK} agents · near the Data Centre`;
   if (def.id === "pump") return `lifts water ${PUMP_HEAD / 2} slabs · by the water`;
+  if (processorKind(def.id)) return `takes ${PROCESS_RATE} slop a second · by sewer`;
   return "";
 }
 
