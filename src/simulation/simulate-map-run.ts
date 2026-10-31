@@ -16,7 +16,7 @@
  */
 import { AGENTS_A_RACK } from "../game/agents";
 import { agentTrade, useAgentsStore } from "../state/agents.store";
-import { buildCost, pipeCost } from "../game/build-cost";
+import { PROCESSOR_STEP, buildCost, pipeCost } from "../game/build-cost";
 import { roomFor, setHousingReader } from "../game/housing";
 import {
   PROJECTS, buildersFor, projectCost, setProjectReader, type ProjectDef, type ProjectId,
@@ -32,7 +32,11 @@ import { structureDef } from "../world/structures/def";
 import { STALL_GRACE } from "../world/projects/works";
 import { LAB_SHARE } from "../world/projects/labs";
 import { DESKLESS, DESKS } from "../world/agents/commute";
-import { SLOP_FROM } from "../game/slop";
+import { SLOP_FROM, SPILL_DEPTH, slopMaking } from "../game/slop";
+import { DRY_RATE } from "../world/events/sludge";
+import { CLEANERS_PER_TILE, CLEAN_RATE } from "../world/events/cleanup";
+import { PROCESS_RATE, setProcessorUse } from "../game/processors";
+import { sewerFlow } from "../game/mains";
 import { MOOD, MOOD_LIMIT } from "../world/agents/mood";
 import { setTownMoodReader } from "../game/town-mood";
 import { PER_GROWN, PER_SERVICE, PER_WONDER } from "../world/projects/town-worth";
@@ -41,7 +45,7 @@ import { syncUnlockedGenerators } from "../state/generators.store";
 import { advanceGameplayOneSecond } from "./run-sim";
 import { resetAllGameStores } from "./reset-game-stores";
 
-/** Tiles of sewer the run lays from its studio to the water, once there is slop. */
+/** Tiles of sewer the run lays from its studio to the water, once there is slop, and again for each sewer's worth more. */
 const SIM_SEWER_TILES = 20;
 
 export type MapRunOptions = {
@@ -59,6 +63,8 @@ export type MapRunOptions = {
   afterCore?: number;
   /** Who founds it, by id: their modifiers and their rule on the map, at no exits. @see FOUNDERS */
   founder?: string;
+  /** Slop: seen to with sewers and refineries (the default), or content farms; sewers alone, or left to spill. */
+  slop?: "refine" | "farm" | "sewer" | "spill";
 };
 
 export type MapRunReport = {
@@ -99,6 +105,14 @@ export type MapRunReport = {
   seweredAt: number | null;
   /** When a slop refinery was paid for, after the sewer: a project's price, not built tile by tile. */
   refineryAt: number | null;
+  /** Refineries and sewers bought, what they all cost, and the most slop made a second. */
+  refineries: number;
+  sewers: number;
+  spentOnSlop: number;
+  peakSlop: number;
+  /** Vibe coders away mopping, at most; and when a sale would first pay any Equity. */
+  peakMopping: number;
+  saleAt: number | null;
   /** Headcount by kind, every half hour of the run. */
   headcount: { at: number; owned: Partial<Record<GeneratorId, number>> }[];
   /**
@@ -185,9 +199,16 @@ export function simulateMapRun(
     }
     return out;
   };
+  /**
+   * SLOP SPILLED a second, and the vibe coders out mopping it: each tile of
+   * sludge, kept wet as fast as it is mopped and dries, wants its crew.
+   * @see stepCleanup, dryUp
+   */
+  let spilling = 0, mopping = 0;
   const away = (): Partial<Record<GeneratorId, number>> => {
     const out: Partial<Record<GeneratorId, number>> = {};
     for (const h of pending) out[h.id] = (out[h.id] ?? 0) + 1;
+    if (mopping) out.vibe_coder = Math.min(owned().vibe_coder ?? 0, (out.vibe_coder ?? 0) + mopping);
     for (const { split } of crews().values()) {
       for (const [id, n] of Object.entries(split)) out[id as GeneratorId] = (out[id as GeneratorId] ?? 0) + (n ?? 0);
     }
@@ -237,7 +258,8 @@ export function simulateMapRun(
     const out: Partial<Record<GeneratorId, number>> = {};
     for (const [id, list] of Object.entries(streets) as [GeneratorId, { lots: number; tier: number }[]][]) {
       let sum = 0, n = 0;
-      for (const st of list) { const b = st.lots * TIER_SLOTS[st.tier]; sum += streetMood(st.tier) * b; n += b; }
+      // SLUDGE on the street nearest the studio while it spills. @see sludgedHouses
+      list.forEach((st, k) => { const b = st.lots * TIER_SLOTS[st.tier]; sum += (streetMood(st.tier) + (spilling > 0 && id === "vibe_coder" && k === 0 ? MOOD.sludge : 0)) * b; n += b; });
       if (n) out[id] = sum / n;
     }
     return out;
@@ -247,10 +269,12 @@ export function simulateMapRun(
   syncUnlockedGenerators();
   useMoneyStore.getState().increaseMoney(getGeneratorCost("intern", 1).toNumber() || 5);
 
+  const slopMode = options.slop ?? "refine";
+  setProcessorUse({ refinery: 0, dataplant: 0, contentfarm: 0 });
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
     spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
-    coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopAt: null, seweredAt: null, refineryAt: null, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
+    coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopAt: null, seweredAt: null, refineryAt: null, refineries: 0, sewers: 0, spentOnSlop: 0, peakSlop: 0, peakMopping: 0, saleAt: null, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
@@ -289,18 +313,42 @@ export function simulateMapRun(
     // SLOP, seen to as a player would: once the vibe coders make it, a sewer
     // from the studio to the water, and then a refinery for it to feed, each
     // paid for as soon as it can be. @see game/slop, game/processors
-    if ((o.vibe_coder ?? 0) >= SLOP_FROM) {
+    const slop = (o.vibe_coder ?? 0) >= SLOP_FROM ? slopMaking() : 0;
+    if (slop > 0) {
       report.slopAt ??= t;
-      if (report.seweredAt === null && money() >= pipeCost(SIM_SEWER_TILES).toNumber()) {
-        spend(pipeCost(SIM_SEWER_TILES).toNumber());
-        report.seweredAt = t;
+      report.peakSlop = Math.max(report.peakSlop, slop);
+    }
+    if (slop > 0 && slopMode !== "spill") {
+      // A SEWER for each sewer's worth of slop. @see sewerFlow
+      const sewer = pipeCost(SIM_SEWER_TILES).toNumber();
+      if (report.sewers * sewerFlow() < slop && money() >= sewer) {
+        spend(sewer);
+        report.spentOnSlop += sewer;
+        report.sewers++;
+        report.seweredAt ??= t;
       }
-      const refinery = projectCost(PROJECTS.find((p) => p.id === "refinery")!, useGeneratorStore.getState().getMoneyPerSecond());
-      if (report.seweredAt !== null && report.refineryAt === null && money() >= refinery) {
-        spend(refinery);
-        report.refineryAt = t;
+      if ((slopMode === "refine" || slopMode === "farm") && report.seweredAt !== null) {
+        // THE FIRST by its project; the rest bought while the slop outruns them. @see wantsRefinery
+        const kind = slopMode === "farm" ? "contentfarm" : "refinery";
+        const price = report.refineries === 0
+          ? projectCost(PROJECTS.find((p) => p.id === kind)!, useGeneratorStore.getState().getMoneyPerSecond())
+          : buildCost(kind)!.toNumber() * PROCESSOR_STEP ** report.refineries;
+        if (slop > report.refineries * PROCESS_RATE && money() >= price) {
+          spend(price);
+          report.spentOnSlop += price;
+          report.refineries++;
+          report.refineryAt ??= t;
+        }
+        // WHAT THEY TAKE, as far as the sewers bring it. @see stepSlop
+        const taken = Math.min(slop, report.sewers * sewerFlow(), report.refineries * PROCESS_RATE);
+        setProcessorUse({ refinery: 0, dataplant: 0, contentfarm: 0, [kind]: taken / PROCESS_RATE });
       }
     }
+    // WHAT THE SEWERS CANNOT CARRY SPILLS, and is mopped. @see stepSlop
+    spilling = Math.max(0, slop - (slopMode === "spill" ? 0 : report.sewers * sewerFlow()));
+    mopping = Math.ceil(CLEANERS_PER_TILE * (spilling * SPILL_DEPTH) / (CLEANERS_PER_TILE * CLEAN_RATE + DRY_RATE));
+    report.peakMopping = Math.max(report.peakMopping, mopping);
+    if (report.saleAt === null && t % 60 === 0 && pendingEquity().toNumber() > 0) report.saleAt = t;
     // The upgrades bought: what a gate is met by. @see Gate
     const unlocked = new Set(useUpgradeStore.getState().unlockedUpgradeIds);
     // ONE PROJECT AT A TIME, as in the game: the first ready, in order. @see projectUnderWay
@@ -465,6 +513,7 @@ export function simulateMapRun(
     stopBeds();
     stopProjects();
     stopMood();
+    setProcessorUse({ refinery: 0, dataplant: 0, contentfarm: 0 });
   }
   // The core run's length, as it always was; the late game is extra.
   report.totalSeconds = report.coreAt ?? t;

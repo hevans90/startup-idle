@@ -12,7 +12,7 @@ import { structureDef } from "../structures/def";
 import { COLUMNS_PER_TILE, drainAt, type WaterField } from "../water/field";
 
 /** How fast it dries, half steps a second, and how near a workplace it is looked for. */
-const DRY_RATE = 0.04;
+export const DRY_RATE = 0.04;
 export const DRY_REACH = 16;
 /** Deeper than this, in half steps, and a tile counts as under sludge. */
 export const SLUDGED = 0.25;

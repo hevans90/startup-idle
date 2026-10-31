@@ -121,7 +121,7 @@ const PROCESSOR_PRICE: Record<string, { seconds: number; floor: number }> = {
   dataplant: { seconds: 60, floor: 50_000 },
   contentfarm: { seconds: 45, floor: 15_000 },
 };
-const PROCESSOR_STEP = 1.25;
+export const PROCESSOR_STEP = 1.25;
 /** A pump house: seconds of income, never under a floor. */
 const PUMP_SECONDS = 15;
 const PUMP_FLOOR = 25_000;
