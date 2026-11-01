@@ -36,6 +36,7 @@ import { sheetRuleSource } from "./nappe";
 import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
 import { brinkSource } from "./brink-gpu";
+import { pipeShaderSource } from "./pipe-gpu";
 import { quadsSource } from "./quads-gpu";
 import { washSource } from "./wash-gpu";
 import { waterShaderSource } from "./water-gpu";
@@ -65,6 +66,7 @@ const WGSL: [string, () => string][] = [
   ["quad rule", () => quadRuleSource("wgsl")],
   ["sheet group", () => sheetGroupSource("wgsl")],
   ["brink", brinkSource],
+  ["pipes", pipeShaderSource],
 ];
 
 describe("every shader source", () => {

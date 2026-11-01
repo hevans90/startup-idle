@@ -1,6 +1,6 @@
 # Pipe rendering overhaul
 
-Status: **plan** (2026-11-01), not started. The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
+Status: **phase 1 done** (2026-11-01). The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
 
 The goal is for pipes to look as solid and readable as Factorio's. That means:
 - round, lit metal tubes;
@@ -146,6 +146,17 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
 4. **Fittings and ports:** intake, pump house, outlet, drain, outfall and nozzles.
 5. **Variants:** sewer, AI and bore. Then glass windows with the flow drawn through them, and the dashes removed elsewhere.
 6. **Level of detail tiers, the perf pass (§6), and the removal of the old `Graphics` path and the toggle.** README line updated.
+
+### Phase 1, as built
+
+- `render/pipe-mesh.ts` builds tubes and balls in the map's own metric space (a half step is `ZT` of a tile), writing only the faces the camera sees; `render/pipe-gpu.ts` lights them in three tones with a shine line and a darkened edge, in WGSL and GLSL.
+- `mains-layer.ts` draws a band at a time: a Graphics for what lies under the tubes, one mesh for the tubes, a Graphics for what is on them. `__pipes = "old"` in the console brings back the strokes.
+- Decided on the screenshots:
+  - The tube is 0.18 of a tile across (`TUBE_R`), and lies higher (`LIFT` 0.8) to clear the ground.
+  - The shine runs along the screen's "up", not toward the sun. A true glint lit only the tubes running one way.
+  - The steel is a warm grey (`0xb9b7b1`), which the night's blue grade leaves grey, like the roofs.
+  - The old flat collars are off on solid tubes, because on a round tube they read as stuck-on plates. Flanges come in phase 2.
+- Not seen: the GLSL path in the game. With `?webgl`, the water shader fails to compile (`dryDepth`, `groundAt`) and stops the render, before any pipe draws. The pipe GLSL was compiled by hand in a WebGL2 context, and it compiles.
 
 ## 8. Verification
 
