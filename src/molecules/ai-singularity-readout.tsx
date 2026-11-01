@@ -11,9 +11,10 @@ import { FOCUS, Meter, useTakeoverGlitch } from "../ui/console";
  * THE SINGULARITY, in the HUD: its stage and how far through, which way it is
  * going, in the AI's violet; a click opens the AI tab. Shown once there is
  * anything to show — an agent spun up, or the meter carried over from the
- * last company. @see useAiSingularityStore, plans/ui-overhaul.md §3.1
+ * last company. COMPACT on a narrow bar: the percentage and the arrow alone.
+ * @see useAiSingularityStore, plans/ui-overhaul.md §3.1
  */
-export const AiSingularityReadout = ({ className }: { className?: ClassNameValue }) => {
+export const AiSingularityReadout = ({ className, compact = false }: { className?: ClassNameValue; compact?: boolean }) => {
   useTicking(1000);
   const value = useAiSingularityStore((s) => s.value);
   const agents = useAgentsStore((s) => s.agents);
@@ -31,10 +32,18 @@ export const AiSingularityReadout = ({ className }: { className?: ClassNameValue
   if (pct <= 0 && agents <= 0) return null;
   const rate = singularityRate(runningAgents(), singularityMult(), agents);
   const stage = stageOf(pct);
+  const detail = <>{pct.toFixed(1)}% <span className={rate > 0 ? "text-ai" : "text-fg-faint"}>{rate > 0 ? "▲" : pct > 0 ? "▼" : ""}</span></>;
+  if (compact) {
+    return (
+      <button ref={box} type="button" onClick={() => setTab("ai")} title={`The AI · ${stage.name}: open its tab`}
+        className={twMerge("shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap font-display text-xs tabular-nums text-ai hover:bg-surface-2", FOCUS, className)}>
+        AI <span className="text-fg">{detail}</span>
+      </button>
+    );
+  }
   return (
     <button ref={box} type="button" onClick={() => setTab("ai")} title="The AI: open its tab" className={twMerge("w-44 shrink-0 cursor-pointer flex-col justify-center text-left hover:bg-surface-2", FOCUS, className)}>
-      <Meter tone="ai" value={pct / 100} label={`AI · ${stage.name}`}
-        detail={<>{pct.toFixed(1)}% <span className={rate > 0 ? "text-ai" : "text-fg-faint"}>{rate > 0 ? "▲" : pct > 0 ? "▼" : ""}</span></>} />
+      <Meter tone="ai" value={pct / 100} label={`AI · ${stage.name}`} detail={detail} />
     </button>
   );
 };

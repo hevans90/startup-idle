@@ -32,7 +32,8 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
   // company's clock and the founder's name — never spilling over the sidebar.
   // THE COUNTERS NEVER give way: the row wraps in its one line's height, so
   // what doesn't fit beside them — the AI's readout, last, with a tab of its
-  // own — drops out of sight rather than standing on them.
+  // own — drops out of sight rather than standing on them; before that it
+  // gives way to its compact form.
   return (
     <div className={twMerge("@container relative h-12 w-full min-w-0 border-b border-line-quiet bg-surface-1 text-fg", className)}>
       <OverseerBackdrop />
@@ -58,6 +59,8 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
         </div>
 
         <AiSingularityReadout className="hidden w-48 shrink-0 border-l border-line-quiet px-3 @2xl:flex" />
+        {/* NARROWER, the AI gives way to its percentage and arrow rather than going. */}
+        <AiSingularityReadout compact className="flex border-l border-line-quiet px-2 @2xl:hidden" />
       </div>
     </div>
   );
