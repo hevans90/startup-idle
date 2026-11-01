@@ -21,6 +21,7 @@ import { InnovationSummary } from "./innovation/innovation-summary";
 import { PurchaseModeToggle } from "./purchase-mode-toggle";
 import { Upgrades } from "./upgrades";
 import { ValuationTab } from "./valuation-tab";
+import { useValuationVisible } from "../hooks/use-valuation-visible";
 
 function useVapeVisible() {
   return useVapeAchievementsStore((s) => s.unlockedAchievementIds.length > 0);
@@ -31,9 +32,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const vapeVisible = useVapeVisible();
   const managersOpen = useInnovationStore((s) => s.unlocks.managers?.unlocked ?? false);
   const leadersOpen = useInnovationStore((s) => s.unlocks.leaders?.unlocked ?? false);
-  const employeeMgmtUnlocked = useInnovationStore(
-    (s) => s.unlocks.employeeManagement?.unlocked ?? false,
-  );
+  const valuationVisible = useValuationVisible();
   const accruedThisRun = useValuationStore((s) => s.accruedThisRun);
   const everEarnedEquity = usePrestigeStore((s) => s.everEarnedEquity);
   // ONCE THERE IS SOMETHING TO SELL on a first run; from the start once any Equity has ever been earned.
@@ -46,8 +45,8 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
     { id: "employees", label: "Employees" },
     // OPENED BY THE HQ. @see grantFeatures
     ...(managersOpen ? [{ id: "innovation" as SidebarTab, label: "Innovation" }] : []),
-    // WITH THE HQ on a first run; from the start once any Equity has ever been earned.
-    ...(employeeMgmtUnlocked || everEarnedEquity ? [{ id: "valuation" as SidebarTab, label: "Valuation" }] : []),
+    // WITH THE HQ on a first run; from the start once any Equity has ever been earned. @see useValuationVisible
+    ...(valuationVisible ? [{ id: "valuation" as SidebarTab, label: "Valuation" }] : []),
     ...(acquisitionVisible ? [{ id: "acquisition" as SidebarTab, label: "Acquisition" }] : []),
     ...(vapeVisible ? [{ id: "achievements" as SidebarTab, label: "Vape shop" }] : []),
     ...(aiVisible ? [{ id: "ai" as SidebarTab, label: "AI" }] : []),
