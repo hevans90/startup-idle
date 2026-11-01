@@ -113,7 +113,7 @@ function Jobs() {
               <span className="font-display text-sm uppercase tracking-wider">Leader of <KindName id={k} plural /></span>
               {open
                 ? <span className="text-[11px] tabular-nums text-fg-muted">Posted · up to {open.left} more · closes in {clock(open.closesAt - now)}</span>
-                : <Button size="sm" disabled={innovation.lt(cost)} onClick={() => post(k)}>Post a job · <span className="text-innovation">{cost}</span></Button>}
+                : <Button size="sm" disabled={innovation.lt(cost)} onClick={() => post(k)}>Post a job · <span className="text-innovation">{cost} innovation</span></Button>}
             </div>
             {theirs.length ? theirs.map((a) => <ApplicantCard key={a.id} a={a} now={now} />)
               : <p className="py-1 text-[11px] text-fg-muted">{open ? "No one yet." : "No post up: nobody is applying."}</p>}

@@ -1,6 +1,6 @@
 # Polish: one voice for every modifier, and the rough edges of the UI
 
-**Status:** phases 1–5 done; phase 6 (the read-through) next.
+**Status:** all six phases done.
 - **Answers taken:** "Money +8%"; no flavour lines written for modifiers that have none; e-notation for big numbers, as it is (not the short scale's names); "Output" for a kind's whole production.
 - **`game/wording.ts`:**
   - `STATS`, the glossary: each stat's name, which way is good, share or points.
@@ -43,6 +43,11 @@
   8. `Empty`: one empty state, what is missing then what opens it ("Nothing more to buy yet. The next comes at 15 interns.").
   9. The placement readout (`world/play/place-readout.tsx`): what the click builds or upgrades and its price, or why not ("Needs a road beside it · $905").
   10. Esc on the map puts away the hover label and the projects log.
+- **Phase 6, the read-through** (singularity fixture with every tab opened, dark and light, desktop and phone width):
+  - Fixed: the money popover counted people as a multiple ("Intern ×40" → "40 interns"); the tree said "passives" (now "nodes"); "+3/run" → "+3 a run"; the acquisition empty states through `Empty`; LinkedOut's job post named its price's currency ("20 innovation"); the full AI readout wrapped out of sight beside three counters, so it now needs a wider bar and the compact one shows below.
+  - Seen and fine: every sidebar tab in both themes; the phone's Map and Company views; the money popover, the comms log, LinkedOut, the build menus, the acquisition tree.
+  - Not seen: the founder select, term sheets and the Ascension (they need a sale); the tree's node tooltip (canvas hover doesn't reach a hidden preview pane).
+  - Left as is: six sidebar tabs scroll sideways in a narrow sidebar.
 
 ## Why
 
