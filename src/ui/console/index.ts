@@ -8,7 +8,7 @@ export { Text, type TextMode } from "./text";
 export { Backdrop, OverseerBackdrop } from "./backdrop";
 export { Button, IconButton, Toggle, Segmented, Slider, Tile, FOCUS, type ButtonProps, type ButtonVariant } from "./controls";
 export { Panel, Card, Section, Dialog, Field, Label } from "./layout";
-export { Num, CountUp, Stat, StatGrid, Meter, Badge, Chip, Kbd, Tooltip, Locked } from "./feedback";
+export { Num, CountUp, Stat, StatGrid, Meter, Badge, Chip, Kbd, Tooltip, Locked, Empty } from "./feedback";
 export { Tabs, type TabItem } from "./tabs";
 export { PopCard, PopGroup, PopRow, POPOVER_BARE } from "./popcard";
 export { ErrorScreen } from "./error-screen";

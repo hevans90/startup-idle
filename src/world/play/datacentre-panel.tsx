@@ -9,7 +9,7 @@ import { twMerge } from "tailwind-merge";
 import { LATTICE_AT } from "../../state/ai-singularity.store";
 import { useFounderStore } from "../../state/founder.store";
 import { useSessionStore } from "../../state/session.store";
-import { Label, Meter, Panel, Slider, Tile } from "../../ui/console";
+import { Empty, Label, Meter, Panel, Slider, Tile } from "../../ui/console";
 import { formatCurrency } from "../../utils/money-utils";
 import { aiPace, getAiRunner } from "../ai/ai-runner";
 import { FOCUSES } from "../ai/focus";
@@ -294,7 +294,7 @@ function Allowance() {
         <div className="mt-1">
           <Label>Its ledger</Label>
           {walletLedger().length === 0 && (
-            <p className="text-fg-muted">Nothing spent yet.</p>
+            <Empty>Nothing spent yet.</Empty>
           )}
           <div className="flex flex-col divide-y divide-line-quiet">
             {walletLedger().map((l, i) => (

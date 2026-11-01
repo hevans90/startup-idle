@@ -22,7 +22,7 @@ import { useInnovationStore } from "../state/innovation.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { useWorldStore } from "../state/world.store";
-import { FOCUS, Panel } from "../ui/console";
+import { Empty, FOCUS, Panel } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
@@ -135,7 +135,7 @@ export function MoralePanel({ className }: { className?: string }) {
             </section>
           );
         })}
-        {!KINDS.some(hired) && <p className="text-xs text-fg-muted">No one to be happy or unhappy yet.</p>}
+        {!KINDS.some(hired) && <Empty opens="Hire an intern.">No one to be happy or unhappy yet.</Empty>}
       </div>
     </Panel>
   );

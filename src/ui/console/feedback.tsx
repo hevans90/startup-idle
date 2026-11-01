@@ -140,6 +140,18 @@ export function Tooltip({ content, children }: { content: ReactNode; children: R
 }
 
 /**
+ * NOTHING HERE YET, said the one way on every tab: what is missing, then —
+ * in the text's own colour — what opens it. @see Locked, for a whole feature.
+ */
+export function Empty({ children, opens, className }: { children: ReactNode; opens?: ReactNode; className?: string }) {
+  return (
+    <p className={twMerge("text-xs text-fg-muted", className)}>
+      {children}{opens && <> <span className="text-fg">{opens}</span></>}
+    </p>
+  );
+}
+
+/**
  * A FEATURE NOT YET OPEN: a dashed outline where it will be, what is in it
  * dimmed, what opens it and — if it is somewhere on the map — a way to be shown.
  */

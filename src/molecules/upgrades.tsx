@@ -8,10 +8,12 @@ import { useMoneyStore } from "../state/money.store";
 import {
   GeneratorEffect,
   Upgrade,
+  UPGRADES,
   useUpgradeStore,
 } from "../state/upgrades.store";
+import { kindName } from "../world/play/gates";
 import { twMerge } from "tailwind-merge";
-import { FOCUS, Label, Panel, PopCard, PopGroup, POPOVER_BARE, Tile } from "../ui/console";
+import { Empty, FOCUS, Label, Panel, PopCard, PopGroup, POPOVER_BARE, Tile } from "../ui/console";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
@@ -110,6 +112,8 @@ export const Upgrades = () => {
   );
 
   const { money } = useMoneyStore();
+  // WHAT OPENS NEXT, when there is nothing to buy: the cheapest still locked.
+  const next = [...UPGRADES].sort((a, b) => a.cost - b.cost).find((u) => !unlockedUpgrades.some((b) => b.id === u.id) && !availableUpgrades.includes(u));
 
   return (
     // A GRID OF CORNERS CARDS, what can be afforded lit; what is bought, below, by its initials.
@@ -139,7 +143,8 @@ export const Upgrades = () => {
             );
           })}
         </div>
-      ) : <p className="text-xs text-fg-muted">Nothing more to buy yet.</p>}
+      ) : next ? <Empty opens={`The next comes at ${next.unlockConditions.map((c) => kindName(c.requiredId, c.requiredAmount)).join(" and ")}.`}>Nothing more to buy yet.</Empty>
+        : <Empty>Every upgrade is bought.</Empty>}
       {unlockedUpgrades.length > 0 && (
         <div className="flex flex-wrap gap-1.5 border-t border-line-quiet pt-2 text-center">
           {unlockedUpgrades.map((upg) => (

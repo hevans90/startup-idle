@@ -15,7 +15,7 @@ import { structureDef } from "../world/structures/def";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { useWorldStore } from "../state/world.store";
-import { Button, FOCUS, Panel, Tile } from "../ui/console";
+import { Button, Empty, FOCUS, Panel, Tile } from "../ui/console";
 import { useTicking } from "../hooks/use-ticking";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
@@ -120,7 +120,7 @@ function Hiring({ role, hasLeader, onOpen }: { role: GeneratorId; hasLeader: boo
       className={twMerge("group flex w-full cursor-pointer items-center justify-between gap-2 border px-2.5 py-2 text-left text-xs transition-colors hover:bg-surface-2", FOCUS,
         waiting.length ? "border-console-line hover:border-console" : "border-dashed border-line hover:border-line-strong")}>
       <div className="flex min-w-0 flex-col gap-0.5">
-        {!post && !waiting.length && <span className="text-fg-muted">No leader yet. <span className="text-console">Find one on LinkedOut</span></span>}
+        {!post && !waiting.length && <Empty opens={<span className="text-console">Find one on LinkedOut.</span>}>No leader yet.</Empty>}
         {post && (
           <span className="text-fg-muted">
             Job posted · <span className="tabular-nums">closes in {clock(post.closesAt - now)}</span>
@@ -133,7 +133,7 @@ function Hiring({ role, hasLeader, onOpen }: { role: GeneratorId; hasLeader: boo
             {soonest !== null && <span className="tabular-nums text-fg-muted"> · the first leaves in {clock(soonest - now)}</span>}
           </span>
         )}
-        {post && !waiting.length && <span className="text-fg-faint">No one yet: they come every minute or three.</span>}
+        {post && !waiting.length && <Empty opens="They come every minute or three.">No one yet.</Empty>}
       </div>
       <span aria-hidden className="shrink-0 text-fg-muted transition-colors group-hover:text-console">→</span>
     </button>

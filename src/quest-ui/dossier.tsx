@@ -15,7 +15,7 @@ import { traitForecast } from "../game/traits";
 import { useGenerationStore } from "../state/generation.store";
 import { useQuestStore } from "../state/quest.store";
 import { DispositionChart } from "./disposition-chart";
-import { Panel } from "../ui/console";
+import { Empty, Panel } from "../ui/console";
 
 export type DossierProps = {
   chapters: readonly Chapter[];
@@ -61,7 +61,7 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
             const c = chapters.find((x) => x.id === open)!, o = c.options[chosen[open]];
             return <p className="mt-1"><b>{c.title}:</b> {o?.label}. <span className="text-fg-muted">{o?.says}</span></p>;
           })()}
-          {!chapters.length && <p className="text-fg-muted">Nothing yet. It will speak at the Assistant stage.</p>}
+          {!chapters.length && <Empty opens="It will speak at the Assistant stage.">Nothing yet.</Empty>}
         </div>
         {/* WHERE IT STANDS. */}
         <div className="flex items-center gap-3">
