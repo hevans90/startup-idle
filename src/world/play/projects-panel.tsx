@@ -93,6 +93,19 @@ export function ProjectsPanel({ className }: { className?: string }) {
     if (isOpen && freshKey) markSeen(freshKey.split(","));
   }, [isOpen, freshKey, markSeen]);
 
+  // FOLDED AWAY ONCE THE TOWN HAS ITS FIRST PROJECT: it starts closed over
+  // the map, and opens itself only when a project becomes ready that has not
+  // been seen — a choice to make. @see plans/polish.md (UI 3)
+  const anyBuilt = built.size > 0;
+  useEffect(() => {
+    if (anyBuilt && !freshKey) setOpen(false);
+    // On load only: after that it is the player's to fold.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (anyBuilt && freshKey) setOpen(true);
+  }, [anyBuilt, freshKey, setOpen]);
+
   if (!open.length && !busy && !slop) return null;
   return (
     <div className={twMerge("flex max-h-[75%] w-72 flex-col gap-2", className)}>
