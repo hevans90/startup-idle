@@ -13,6 +13,7 @@ import { LinkedOut } from "../../molecules/linkedout";
 import { useLinkedOutStore } from "../../state/linkedout.store";
 import { TopStreets } from "./top-streets";
 import { DesireReadout } from "./desire-readout";
+import { PlaceReadout } from "./place-readout";
 import { useEffect } from "react";
 
 import { projectForStructure } from "../../game/projects";
@@ -71,6 +72,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
       <LinkedOut />
       {SHOW_PERF && <PerfHud />}
       <DesireReadout />
+      <PlaceReadout />
       <PortIncome />
       {phone ? (
         // ON A PHONE, ONE COLUMN: comms' one card, then the work under it. @see isPhone
