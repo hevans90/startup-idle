@@ -56,6 +56,12 @@ export type Building = {
   masses: Mass[];
   /** The plot round the building once it is open: paving, lawn, planting. */
   grounds?: (p: Pen, f: Footprint) => void;
+  /**
+   * What lies ON THE PLINTH, under the masses: a courtyard's lawn and paths.
+   * Drawn before them, so a mass standing in front covers it — in `details`,
+   * after them, a lawn painted over the wing in front of it.
+   */
+  court?: (p: Pen, f: Footprint) => void;
   /** Signs, plant, flags: the fit-out, drawn on the finished building. */
   details?: (p: Pen, f: Footprint) => void;
   /** What lifts the materials: a tower crane, or nothing for a little building. */

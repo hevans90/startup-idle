@@ -264,16 +264,21 @@ export function campus(f: Footprint): Building {
   return {
     plinth: { ...PLINTH, inset: 0.08 }, masses: [back, wing], crane: "tower",
     grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, PAVING),
-    details: (p) => {
-      // THE COURTYARD in the corner the two make: lawn, a path, trees, a bench.
+    // THE COURTYARD in the corner the two make: lawn, a path and a bench, under
+    // the wing that stands in front of it. @see Building.court
+    court: (p) => {
       const z = PLINTH.h + 0.01;
       p.flat(0.2, mid, split, f.h - 0.2, z, LAWN);
       p.flat(0.2, mid + (f.h - 0.2 - mid) / 2 - 0.08, split, mid + (f.h - 0.2 - mid) / 2 + 0.08, z + 0.004, GRAVEL);
+      p.box(split - 0.7, mid + 0.4, split - 0.3, mid + 0.5, z, z + 0.3, 0x9a7349);
+    },
+    details: (p) => {
+      // Its door, and the courtyard's trees, clear of the wing.
+      const z = PLINTH.h + 0.01;
       door(p, back, (0.2 + split) / 2, 0.4, 1.2, 0x2c3e48);
       tree(p, 0.6, mid + 0.55, z, 0.9);
       tree(p, split - 0.45, f.h - 0.55, z, 1);
       tree(p, 0.55, f.h - 0.5, z, 0.8);
-      p.box(split - 0.7, mid + 0.4, split - 0.3, mid + 0.5, z, z + 0.3, 0x9a7349);
     },
   };
 }

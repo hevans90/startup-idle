@@ -413,7 +413,8 @@ export function drawSite(p: Pen, b: Building, f: Footprint, site: Site, stock: n
       for (let u = pi + 0.2; u < f.w - pi; u += 0.25) p.strut([u, pi + 0.05, site.plinth + 0.01], [u, f.h - pi - 0.05, site.plinth + 0.01], 0.01, REBAR);
     }
   }
-  // The building, mass by mass, each with its scaffold.
+  // The building, mass by mass, each with its scaffold — any court under them, fitted out with the rest.
+  if (site.framing && site.fit > 0.5) b.court?.(p, f);
   if (site.framing) {
     for (const m of sortMasses(b.masses)) {
       if (site.frame <= m.z0 + 1e-6) continue;
@@ -473,6 +474,7 @@ export function drawFinished(p: Pen, b: Building, f: Footprint) {
   b.grounds?.(p, f);
   const pi = b.plinth.inset;
   if (b.plinth.h > 0) p.box(pi, pi, f.w - pi, f.h - pi, 0, b.plinth.h, b.plinth.colour, { top: b.plinth.top });
+  b.court?.(p, f);
   for (const m of sortMasses(b.masses)) drawMass(p, m);
   b.details?.(p, f);
 }
