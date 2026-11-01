@@ -1,6 +1,29 @@
 # Polish: one voice for every modifier, and the rough edges of the UI
 
-**Status:** proposed. Nothing done yet.
+**Status:** phase 1 done.
+- **Answers taken:** "Money +8%"; no flavour lines written for modifiers that have none; the short scale's names; "Output" for a kind's whole production.
+- **`game/wording.ts`:**
+  - `STATS`, the glossary: each stat's name, which way is good, share or points.
+  - `NEVER`: the words a player never reads.
+  - `describe` (numbers → effect line), `change` and `helps`.
+  - `effectProblems` (grammar and glossary, a reason each).
+  - `formatScale` and `formatMoneyScale` (K…Dc, then e-notation; not wired in yet, phase 4).
+- **`game/wording-audit.ts`:** every catalogue's effect lines and what is wrong with each. `bun run wording` prints the report.
+- **`wording.test.ts`:** holds the rules. Each catalogue is a todo until phase 2 adds it to `CLEARED`.
+- **First report:** 130 of 216 effect lines to put right:
+
+  | Catalogue | To put right |
+  |---|---|
+  | Skill tree | 67 of 92 |
+  | Juice | 24 of 24 |
+  | Founders | 11 of 25 |
+  | Machine | 9 of 9 |
+  | Mandates | 6 of 6 |
+  | Terms | 4 of 17 |
+  | Processors | 3 of 3 |
+  | Policies | 2 of 9 |
+  | Leaders | 2 of 16 |
+  | Training | 2 of 15 |
 
 ## Why
 

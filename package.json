@@ -14,7 +14,8 @@
     "tauri:build": "tauri build",
     "bake:road-corners": "bun run dev/bake-road-corners.ts",
     "bake:trees": "bun run dev/bake-trees.ts",
-    "bake:padded": "bun run dev/bake-padded-atlases.ts"
+    "bake:padded": "bun run dev/bake-padded-atlases.ts",
+    "wording": "bun run src/game/wording-audit.ts"
   },
   "dependencies": {
     "@arwes/animated": "1.0.0-next.25020502",
