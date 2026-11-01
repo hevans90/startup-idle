@@ -1,7 +1,7 @@
 /**
  * COMMS ON THE MAP: one stack at the map's top right, in order of what needs
  * you most — the objective under way and what the AI asks, then events, then
- * reports, then a hint — at most `DOCK_MOST` cards (one on a phone); the rest fold into a
+ * reports, then what the whole town shares, then a hint — at most `DOCK_MOST` cards (one on a phone); the rest fold into a
  * "+n" that opens the log. A polite live region; an alert speaks up.
  * @see comms.store, plans/ui-overhaul.md §3.2, §4
  */
@@ -15,6 +15,9 @@ import { EventCard, liveEvents } from "../../world/play/event-cards";
 import { HintCard } from "../../world/play/hint-card";
 import { Badge, Button, Card, useGlitch } from "../console";
 import { CommsLog } from "./comms-log";
+import { useTicking } from "../../hooks/use-ticking";
+import { KIND_PLURAL } from "../../molecules/leaders-panel";
+import { liveTownProblems, type TownProblem } from "../../world/play/town-problems";
 
 /** The most cards it shows at once. */
 export const DOCK_MOST = 3;
@@ -36,14 +39,26 @@ export function ReportCard({ e }: { e: CommsEntry }) {
   );
 }
 
+/** WHAT THE WHOLE TOWN SHARES, once, in place of a badge on every house. @see townProblems */
+function ProblemCard({ p }: { p: TownProblem }) {
+  const name = KIND_PLURAL[p.kind];
+  return (
+    <Card tone="warn" className="w-[min(24rem,calc(100vw-1rem))]"
+      title={<span className="text-[10px] uppercase tracking-widest">{name[0].toUpperCase() + name.slice(1)} unhappy at home</span>}>
+      <p>{p.houses} houses, {p.why}</p>
+    </Card>
+  );
+}
+
 /**
  * WHAT COMMS SHOWS, in order of what needs you most, and how many more there
  * are: the objective, what the AI asks, events, reports; `DOCK_MOST` at most.
  */
-export function dockItems(has: { objective: boolean; offer: boolean; events: readonly number[]; reports: readonly number[] }, most = DOCK_MOST): { shown: string[]; hidden: number } {
+export function dockItems(has: { objective: boolean; offer: boolean; events: readonly number[]; reports: readonly number[]; problems?: readonly string[] }, most = DOCK_MOST): { shown: string[]; hidden: number } {
   const all = [
     ...(has.objective ? ["quest:tracker"] : []), ...(has.offer ? ["quest:offer"] : []),
     ...has.events.map((id) => `event:${id}`), ...has.reports.map((id) => `report:${id}`),
+    ...(has.problems ?? []).map((kind) => `problem:${kind}`),
   ];
   return { shown: all.slice(0, most), hidden: Math.max(0, all.length - most) };
 }
@@ -55,6 +70,8 @@ export function CommsDock({ most = DOCK_MOST }: { most?: number }) {
   const events = liveEvents(useWorldStore((s) => s.events));
   const reports = useCommsStore((s) => s.live).filter((e) => e.kind === "report").reverse();
   const logged = useCommsStore((s) => s.log.length);
+  useTicking(1000);
+  const problems = liveTownProblems().problems;
   const [open, setOpen] = useState(false);
   // What has run its time, taken down.
   useEffect(() => {
@@ -66,8 +83,9 @@ export function CommsDock({ most = DOCK_MOST }: { most?: number }) {
   const nodes = new Map<string, ReactNode>([
     ...events.map((e) => [`event:${e.id}`, <EventCard e={e} />] as const),
     ...reports.map((r) => [`report:${r.id}`, <ReportCard e={r} />] as const),
+    ...problems.map((p) => [`problem:${p.kind}`, <ProblemCard p={p} />] as const),
   ]);
-  const { shown: keys, hidden } = dockItems({ objective, offer, events: events.map((e) => e.id), reports: reports.map((r) => r.id) }, most);
+  const { shown: keys, hidden } = dockItems({ objective, offer, events: events.map((e) => e.id), reports: reports.map((r) => r.id), problems: problems.map((p) => p.kind) }, most);
   const shown = keys.map((key) => ({ key, node: nodes.get(key) ?? null }));
   const has = (key: string) => keys.includes(key);
 

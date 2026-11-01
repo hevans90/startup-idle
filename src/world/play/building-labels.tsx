@@ -54,6 +54,7 @@ import { drawnTop, shownStructures, type StructureLayer } from "../structures/la
 import type { Structure } from "../grid";
 import type { Viewport } from "pixi-viewport";
 import { infoFor, type BuildingInfo } from "./building-info";
+import { liveTownProblems } from "./town-problems";
 import { badgeFor, placeBadges, type Badge, type BadgeContext, type BadgeIcon, type BadgeView } from "./badges";
 
 /** Below this zoom, no dots: a town seen whole is its buildings. */
@@ -138,7 +139,7 @@ function gather(): BadgeContext {
     }
   }
   const nearConference = new Set([...st.grid.structures.values()].filter((s) => structureDef(s.def)?.port && conferenceNear(st.grid, s)).map((s) => s.id));
-  return { deskless, perks, nearConference, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
+  return { quiet: liveTownProblems().quiet, deskless, perks, nearConference, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
 }
 
 /**

@@ -40,6 +40,8 @@ const MORALE_BAD = -15;
 export type BadgeContext = InfoContext & {
   /** People of each kind living on the map with no desk to go to. @see liveSeating */
   deskless?: Partial<Record<GeneratorId, number>>;
+  /** Houses whose unhappiness comms says for the whole town: no badge of their own. @see townProblems */
+  quiet?: ReadonlySet<number>;
 };
 
 const pct = (f: number) => `${Math.round(f * 100)}%`;
@@ -71,7 +73,7 @@ export function problemOf(s: Structure, ctx: BadgeContext): Badge | null {
     if (residentsIn(s) <= 0) return null;
     if (ctx.commutes.get(s.id)?.tiles === null) return { icon: "road", text: "No road to work", tone: "warn" };
     const mood = ctx.moods.get(s.id)?.total;
-    if (mood !== undefined && mood < 0) return { icon: "mood", text: signed(mood), tone: mood <= MORALE_BAD ? "bad" : "warn" };
+    if (mood !== undefined && mood < 0 && !ctx.quiet?.has(s.id)) return { icon: "mood", text: signed(mood), tone: mood <= MORALE_BAD ? "bad" : "warn" };
     return null;
   }
   // SLOP: a tank spilling, or about to.
