@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { BEND_R, BOLTS, CAST, SHADOW, SUN, VIEW, WORDS, ZT, ball, elbowPath, flange, pipeCell, pipeMesh, pipeShadow, solid, tube, type PipeMesh } from "./pipe-mesh";
+import { BEND_R, BOLTS, FITTING, SUN, VIEW, WORDS, ZT, ball, elbowPath, flange, nozzle, pipeCell, pipeMesh, solid, tube, type PipeMesh } from "./pipe-mesh";
 import { pipeFragmentGlsl, pipeShaderSource } from "./pipe-gpu";
 
 const normalOf = (m: PipeMesh, v: number) => [m.f32[v * WORDS + 2], m.f32[v * WORDS + 3], m.f32[v * WORDS + 4]];
@@ -87,7 +87,7 @@ describe("a main as a solid", () => {
     const bend = pipeMesh(), end = pipeMesh(), capped = pipeMesh();
     pipeCell(bend, 1, 5, 5, 1, [E, N], { ...look, flanges: false });
     pipeCell(end, 1, 5, 5, 1, [N], { ...look, flanges: false });
-    pipeCell(capped, 1, 5, 5, 1, [N], { ...look, flanges: false, cap: 0xc0392b });
+    pipeCell(capped, 1, 5, 5, 1, [N], { ...look, flanges: false, end: "cap" });
     expect(bend.nv).toBe(9 * 7);
     expect(end.nv).toBe(14 + 1 + 3 * 12);
     // A blind flange facing the camera: rim, a whole disc, and its bolts.
@@ -104,30 +104,10 @@ describe("a main as a solid", () => {
     expect(cross.nv).toBe(21 + 2 * 14 + 14 + 24 + 14);
   });
 
-  test("a shadow lies on the ground, cast away from the sun, as wide as the tube", () => {
-    const m = pipeMesh();
-    // A run along u, 2 half steps up, its ground at 0.
-    pipeShadow(m, 1, 5, 5, 2, 0, [{ dx: -1, dy: 0, zf: 2 }, { dx: 1, dy: 0, zf: 2 }], 0.1, "none");
-    expect(m.nv).toBe(6);
-    const h = 2 * ZT;
-    // The middle's two edges: carried along CAST by its height, and 0.1 either side of that across the run.
-    const mid = [5 + h * CAST[0], 5 + h * CAST[1]];
-    const at = (u: number, v: number) => [(u - v) * HW, (u + v) * HH];
-    for (const [k, side] of [[2, 1], [3, -1]]) {
-      const [ex, ey] = at(mid[0], mid[1] - side * 0.1);
-      expect(m.f32[k * WORDS]).toBeCloseTo(ex, 3);
-      expect(m.f32[k * WORDS + 1]).toBeCloseTo(ey, 3);
-    }
-    // Flat on the ground, and see-through.
-    for (let v = 0; v < m.nv; v++) expect(normalOf(m, v)).toEqual([0, 0, 1]);
-    expect(m.u32[5] >>> 24).toBe(Math.round(SHADOW * 255));
-  });
-
-  test("the sun lights a box's top most, then its +v side, then its +u side; shadows fall the other way", () => {
+  test("the sun lights a box's top most, then its +v side, then its +u side", () => {
     const top = SUN[2], left = SUN[1], right = SUN[0];
     expect(top).toBeGreaterThan(left);
     expect(left).toBeGreaterThan(right);
-    expect(CAST[0]).toBeGreaterThan(0);
   });
 
   test("a saddle stands under a ground run, a frame's legs either side of a high one", () => {
@@ -147,9 +127,48 @@ describe("a main as a solid", () => {
     expect(x).toBeCloseTo(-(0.1 + 0.05) * HW, 3);
   });
 
+  const ENDS = ["cap", "intake", "pump", "outlet", "drain", "outfall"] as const;
+
+  test("each fitting stands at a loose end, and the length stops at a house's wall", () => {
+    const dome = pipeMesh();
+    pipeCell(dome, 1, 5, 5, 1, [N], { ...look, flanges: false });
+    for (const end of ENDS) {
+      const m = pipeMesh();
+      pipeCell(m, 1, 5, 5, 1, [N], { ...look, flanges: false, end, floor: 0 });
+      // A drain is the building's nozzle's to draw: the main is its length and the knuckle it turns at.
+      if (end === "drain") { expect(m.nv).toBe(dome.nv); continue; }
+      expect(m.nv, end).toBeGreaterThan(14);
+      expect(m.nv, end).not.toBe(dome.nv);
+    }
+  });
+
+  test("an outlet's valve goes on after the tube, on top of it", () => {
+    const m = pipeMesh();
+    pipeCell(m, 1, 5, 5, 4, [N], { ...look, flanges: false, end: "outlet" });
+    // The handwheel's top hub is the last thing written: above the tube's middle.
+    const y = m.f32[(m.nv - 1) * WORDS + 1];
+    expect(y).toBeLessThan((5 + 5) * HH - (4 * ZT + 0.1) * (HEIGHT_UNIT / ZT));
+  });
+
+  test("a nozzle points out of the wall: its lip toward the camera is written last", () => {
+    const toward = pipeMesh(), away = pipeMesh();
+    nozzle(toward, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12);
+    nozzle(away, 1, 5, 5, 1, -1, 0, 0.1, 0x3f86c6, 0x888888, 12);
+    // A lip facing the camera shows its face and the dark inside; one facing away shows neither.
+    expect(toward.nv).toBe(away.nv + 24 + 13 + 24);
+    expect(toward.u32[(toward.nv - 1) * WORDS + 5]).toBe(solid(FITTING.bore));
+    // Joined, it reaches the middle and shows no dark inside.
+    const joined = pipeMesh();
+    nozzle(joined, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12, false);
+    expect(joined.nv).toBe(toward.nv - 13);
+  });
+
   test("everything a cell writes points somewhere real", () => {
     const m = pipeMesh();
-    for (const limbs of [[N], [N, S], [E, N], [N, S, E], [N, S, E, W]]) pipeCell(m, 1, 5, 5, 1, limbs, { ...look, cap: 0xff0000 });
+    for (const limbs of [[N], [N, S], [E, N], [N, S, E], [N, S, E, W]]) pipeCell(m, 1, 5, 5, 1, limbs, { ...look, end: "cap" });
+    for (const end of ENDS) for (const limbs of [[], [N], [E], [S], [W]]) pipeCell(m, 1, 5, 5, 1, limbs, { ...look, end, floor: 0 });
+    nozzle(m, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12);
+    nozzle(m, 1, 5, 5, 1, -1, 0, 0.1, 0x3f86c6, 0x888888, 12);
     for (let v = 0; v < m.nv; v++) expect(Math.hypot(...normalOf(m, v))).toBeCloseTo(1);
     for (const t of tris(m)) for (const v of t) expect(v).toBeLessThan(m.nv);
   });

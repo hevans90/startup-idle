@@ -1,12 +1,11 @@
 # Pipe rendering overhaul
 
-Status: **phases 1–3 done** (2026-11-01). The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
+Status: **phases 1–4 done** (2026-11-01). The cast shadows were taken out in phase 4, at the user's word. The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
 
 The goal is for pipes to look as solid and readable as Factorio's. That means:
 - round, lit metal tubes;
 - real elbows, tees and crosses;
 - flanges at the joints;
-- a shadow on the ground;
 - supports that look as if they hold the pipe up.
 
 They should be drawn in this game's own art: the Kenney isometric city pack, with flat three-tone shading and light from the top left. No Factorio art or shapes are copied.
@@ -35,10 +34,9 @@ Each item below is a requirement the work must meet.
 - **Flanged joints** at every cell boundary (on the LOD tier where there is room): a raised ring a little wider than the tube, with 4–6 bolt dots on its visible face. This rhythm is what makes Factorio pipes read as built rather than drawn.
 - **End caps:** a domed cap, or a blind flange with bolts.
 - **Supports:**
-  - Ground runs sit in concrete saddles every cell, each with a contact shadow.
-  - Stilts over roads become an H-frame (two legs and a crossbeam) with a cast shadow on the road.
+  - Ground runs sit in concrete saddles every cell.
+  - Stilts over roads become an H-frame (two legs and a crossbeam).
   - Spans over dips get a leg down to the ground.
-- **A cast shadow:** a hard-edged, low-alpha shape on the ground, offset down and to the right to match the shadows already baked into the Kenney buildings, with a tighter contact line under the saddles.
 - **Fittings modelled in the same shading:**
   - the intake (a grated box);
   - the pump house (a small building with a lit roof, a door, and a pump wheel or motor);
@@ -72,7 +70,6 @@ I recommend option A. Option B is the fallback.
   - the material colour from a small palette uniform (water steel, sewer iron, AI violet band, concrete, pump paint);
   - optional quantising to three tones, so the pipes match Kenney's flat shading rather than looking like a 3D render. This is a uniform, so the look can be tuned in the browser.
 - Depth inside a band: the tube is drawn in back-to-front cell order, the same order as the bands. Within a cell, the pieces are put in the buffer far side first. There is no depth buffer, so this matches how everything else on the map sorts.
-- Cast shadows are a second, flat mesh in the same band. It is the tube's footprint pushed onto the ground plane (`levelAt` gives the height) and drawn before the tube.
 - A cell is rebuilt only when its connections, height or variant change. That is when `drawCell` runs today. The band's buffer is patched in place.
 
 Why A:
@@ -122,7 +119,7 @@ All of this lives in a new `src/world/render/pipe-mesh.ts`, which turns a cell a
 
 Choose the tier from the viewport's scale, with a little hysteresis.
 
-- **Far:** 6-sided tube, no flanges or bolts, saddles only every other cell, shadow kept.
+- **Far:** 6-sided tube, no flanges or bolts, saddles only every other cell.
 - **Mid:** 10 sides, flanges, no bolts.
 - **Near:** 14 sides, bolts, valve wheels, glass window frames.
 
@@ -142,7 +139,7 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
 
 1. **Mesh and shader for straights only.** Water steel, run alongside the old path behind a debug toggle (`window.__pipes = "mesh" | "old"`) so the two can be compared on the same frame. Settle the light, the tones and the outline here, with the user looking at the screenshots, before anything else is built.
 2. **Elbows, tees, crosses, caps and flanges.** Includes the tests in `pipe-mesh.test.ts`.
-3. **Cast shadows, saddles, H-frame stilts, span legs, and the height steps and slopes.**
+3. **Saddles, H-frame stilts, span legs, and the height steps and slopes.** Cast shadows were built here, then taken out in phase 4.
 4. **Fittings and ports:** intake, pump house, outlet, drain, outfall and nozzles.
 5. **Variants:** sewer, AI and bore. Then glass windows with the flow drawn through them, and the dashes removed elsewhere.
 6. **Level of detail tiers, the perf pass (§6), and the removal of the old `Graphics` path and the toggle.** README line updated.
@@ -192,7 +189,27 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
   - the run along x = 32, with saddles and shadows;
   - its rise over the road at [32,26], which is hemmed in by buildings;
   - a frame on an open stretch, made by paving [32,14] in the sandboxed grid.
-- **Not done: shadows at night.** The sun's shadows stay at full strength at night. Fading them would need the shadows in a mesh of their own, with its alpha set from the night each frame. That belongs to phase 6.
+- **Taken out in phase 4:** the cast and contact shadows (`pipeShadow`, `CAST`, `SHADOW`, `CONTACT`). The user did not want them. The sun stays, for the shading.
+
+### Phase 4, as built
+
+- **Fittings** are part of the band's mesh, lit like the tubes (`fitting` in `pipe-mesh.ts`, chosen through `FITTINGS` in `mains-layer.ts`):
+  - an **intake**: a concrete box down into the water, with a dark grate and steel bars on top;
+  - a **pump house**, where no pump building stands: walls, a door on the +v side, a wheel on the +u side, and an amber roof. The main's length stops at its wall.
+  - an **outfall**: a flared mouth, dark inside, on a post;
+  - a **cap**: the phase 2 blind flange.
+- **Ports** are nozzles in their fluid's colour (`nozzle`), each with a steel collar at the wall and a lip at the mouth.
+  - **Open**, with nothing joined, a nozzle stops short of the cell's middle and shows a dark bore.
+  - **Joined**, it reaches the middle, and its lip is the joint. The outlet or drain there adds only the knuckle where the two turn into each other: a ball, plus an outlet's red valve.
+  - A nozzle pointing away from the camera is written before the band's mains, one pointing toward it after.
+- **Supports:** only a cap gets a saddle among the fittings. A saddle under an outlet stood in front of the joint, like a floating block.
+- **The old flat fittings** are no longer drawn over solid tubes.
+- **Checked by day on the singularity fixture:**
+  - the intake at [12,8];
+  - the pump houses at [23,49] and [25,49];
+  - the joined outlets at [34,30] and [22,40];
+  - an open nozzle on a data centre;
+  - an outfall and a cap, made by changing the pumps' ends in the sandboxed grid.
 
 ## 8. Verification
 

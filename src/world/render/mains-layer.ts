@@ -33,7 +33,7 @@ import { findMains, joined, mainReportAt, mainReports, type MainState } from "..
 import { portsOf, type PortCell } from "../water/ports";
 import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { K, ZT, pipeCell, pipeMesh, pipeShadow, type Limb, type PipeMesh, type Support } from "./pipe-mesh";
+import { K, ZT, nozzle, pipeCell, pipeMesh, type Fitting, type Limb, type PipeMesh, type Support } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /**
@@ -58,6 +58,11 @@ const STEEL = 0xb9b7b1, IRON = 0x7d5c40, AI_STEEL = 0xb2a9bf;
  * WHICH TUBES: the solid ones, or the old strokes — `__pipes = "old"` in the
  * console — to set them side by side while the new ones are built.
  */
+/** Each `MAIN_END` as the fitting the solid tubes draw. */
+const FITTINGS: Record<number, Fitting> = {
+  [MAIN_END.cap]: "cap", [MAIN_END.intake]: "intake", [MAIN_END.pump]: "pump",
+  [MAIN_END.outlet]: "outlet", [MAIN_END.drain]: "drain", [MAIN_END.outfall]: "outfall",
+};
 const solidTubes = () => (globalThis as { __pipes?: string }).__pipes !== "old";
 /** Concrete for the saddles and posts it rests on. */
 const CONCRETE = 0xc9c4b8, CONCRETE_SIDE = 0xaaa59a, CONCRETE_DARK = 0x958f84;
@@ -272,8 +277,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         ring(gfx, s, x + (along === "u" ? o : 0), y + (along === "v" ? o : 0), z, along, w * 0.55, COLLAR);
       }
     }
-    // THE FITTING at an end: solids, sized to the tube.
-    const end = g.mainEnd[i];
+    // THE FITTING at an end: solids, sized to the tube — on a solid tube, part of its mesh.
+    const end = part === "all" ? g.mainEnd[i] : 0;
     if (end === MAIN_END.intake) {
       // A grated bell mouth, set into the water at the bank.
       isoBox(gfx, s, x - 0.09, y - 0.09, x + 0.09, y + 0.09, z - rz * 1.2, z + rz * 0.9, COLLAR, SHADE, CASING);
@@ -300,7 +305,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       isoBox(gfx, s, x - 0.03, y - 0.03, x + 0.03, y + 0.03, Math.min(floor, z - rz) - 0.6, z - rz, CONCRETE, CONCRETE_SIDE, CONCRETE_DARK);
       ring(gfx, s, x, y, z, along, w * 0.85, SEWER_SHADE);
       ring(gfx, s, x, y, z, along, w * 0.55, 0x1a120c);
-    } else if (end === MAIN_END.cap && part === "all") {
+    } else if (end === MAIN_END.cap) {
       gfx.circle(c[0], c[1], w * 0.55);
       gfx.fill({ color: CAP });
     }
@@ -308,11 +313,11 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
 
   /** A CELL'S SOLID TUBE, into its band's mesh. @see pipeCell */
   /**
-   * A CELL'S SOLID TUBE, into its band's mesh — or, `shadow`, its shadow and
-   * its support's. What it stands on: a frame where it rides high, a saddle
-   * on the ground, nothing under a fitting that stands on its own.
+   * A CELL'S SOLID TUBE, into its band's mesh, and the fitting at its end.
+   * What it stands on: a frame where it rides high, a saddle on the ground,
+   * nothing under a fitting — it stands on its own, or on its building's nozzle.
    */
-  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number, shadow: boolean) => {
+  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number) => {
     const x = i % g.w, y = (i / g.w) | 0, z = levelAt(g, x, y), floor = ground(g, x, y), out: Limb[] = [];
     for (const side of SIDES) {
       if (!joined(g, x, y, side)) continue;
@@ -320,11 +325,12 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       out.push({ dx, dy, zf: (z + levelAt(g, x + dx, y + dy)) / 2 });
     }
     const bits = g.main[i], end = g.mainEnd[i];
-    const support: Support = z - floor > LIFT + 0.4 ? "frame" : !end || end === MAIN_END.cap || end === MAIN_END.outlet || end === MAIN_END.drain ? "saddle" : "none";
-    if (shadow) { pipeShadow(m, s, x, y, z, floor, out, tubeR(bits), support); return; }
+    const support: Support = z - floor > LIFT + 0.4 ? "frame" : !end || end === MAIN_END.cap ? "saddle" : "none";
     const colour = bits & MAIN_SEWER ? IRON : bits & MAIN_AI ? AI_STEEL : STEEL;
-    const cap = end === MAIN_END.cap ? CAP : null;
-    pipeCell(m, s, x, y, z, out, { r: tubeR(bits), colour, sides: TUBE_SIDES, cap, support, floor });
+    // A pump building stands over its own pump: no pump house drawn under it.
+    const fit = FITTINGS[end] ?? null;
+    const own = fit === "pump" && g.structures.get(structureAt(g, x, y))?.def === "pump";
+    pipeCell(m, s, x, y, z, out, { r: tubeR(bits), colour, sides: TUBE_SIDES, end: own ? null : fit, support, floor });
   };
 
   /**
@@ -487,11 +493,18 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       if (k === key) return;
       key = k;
       clear();
-      // THE PORTS on the buildings, under any main that ends at them.
+      // THE PORTS on the buildings, under any main that ends at them: strokes, or nozzles in their band's mesh.
+      const nozzles = new Map<number, PortCell[]>();
       for (const st of g.structures.values()) {
         for (const p of portsOf(g, st)) {
           const band = p.x + p.y;
           if (!bands.pavedOf[band]) continue;
+          if (solid) {
+            const list = nozzles.get(band) ?? [];
+            nozzles.set(band, list);
+            list.push(p);
+            continue;
+          }
           const gfx = drawPort(g, p, scale);
           bands.pavedOf[band].addChild(gfx);
           ports.push(gfx);
@@ -509,8 +522,9 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
           drawn.set(i, gfx);
         }
       } else {
-        // A BAND AT A TIME: what its tubes rest on, the tubes, what is on them.
+        // A BAND AT A TIME: its nozzles, its supports and tubes and fittings, the glass on them.
         const cells = new Map<number, number[]>();
+        for (const band of nozzles.keys()) cells.set(band, []);
         for (let i = 0; i < g.main.length; i++) {
           if (!g.main[i] && !g.mainEnd[i]) continue;
           const band = (i % g.w) + ((i / g.w) | 0);
@@ -522,20 +536,30 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         for (const [band, list] of cells) {
           const over = new Graphics();
           over.eventMode = "none";
-          // The band's shadows first, under all its tubes; then the supports and tubes.
           const m = pipeMesh();
-          for (const i of list) if (g.main[i]) tubeCell(m, g, i, scale, true);
+          // A NOZZLE pointing away from the camera goes in before the mains, one pointing toward it after: nearer draws over farther.
+          const port = (toward: boolean) => {
+            for (const p of nozzles.get(band) ?? []) {
+              const [dx, dy] = NEIGHBOUR[p.port.face];
+              if ((dx + dy > 0) !== toward) continue;
+              const open = !g.mainEnd[idx(g, p.x, p.y)];
+              nozzle(m, scale, p.x, p.y, levelAt(g, p.x, p.y), dx, dy, TUBE_R, PORT_COLOUR[p.port.fluid], STEEL, TUBE_SIDES, open);
+            }
+          };
+          port(false);
           for (const i of list) {
-            if (g.main[i]) tubeCell(m, g, i, scale, false);
+            tubeCell(m, g, i, scale);
             drawCell(g, i, scale, over, "over");
           }
+          port(true);
           if (m.ni) {
             const mesh = pipeDrawable(m);
             bands.pavedOf[band].addChild(mesh);
             meshes.set(band, mesh);
           }
           bands.pavedOf[band].addChild(over);
-          drawn.set(list[0], over);
+          if (list.length) drawn.set(list[0], over);
+          else ports.push(over);
         }
       }
       // The water's Graphics last in each band, over all its tubes.

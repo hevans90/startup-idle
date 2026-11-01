@@ -165,8 +165,8 @@ export type PipeLook = {
   r: number;
   colour: number;
   sides: number;
-  /** A blind flange's paint, where the main is capped; a dome otherwise. */
-  cap?: number | null;
+  /** The fitting at a loose end; a dome where there is none, or a building of its own stands over it. */
+  end?: Fitting | null;
   /** Flanges at its joins, and their bolts. */
   flanges?: boolean;
   bolts?: boolean;
@@ -174,6 +174,19 @@ export type PipeLook = {
   support?: Support;
   floor?: number;
 };
+
+/** What can stand at a main's loose end. @see MAIN_END */
+export type Fitting = "cap" | "intake" | "pump" | "outlet" | "drain" | "outfall";
+
+/** The fittings' paint. */
+export const FITTING = {
+  cap: 0xc0392b, grate: 0x3d4a57, pumpWall: 0x6f8fae, pumpRoof: 0xe0a23a, pumpDoor: 0x3e5872,
+  wheel: 0x2b3440, valve: 0xb8463a, slop: 0x7a5230, mouth: 0x5a4030, bore: 0x1a120c,
+} as const;
+/** A pump house's walls, half their length in u and in v; its height at least, half steps. */
+const PUMP_U = 0.22, PUMP_V = 0.18, PUMP_TALL = 2.6;
+/** An intake's box, half its width, tiles. */
+const INTAKE = 0.12;
 
 /** A flange: how much wider than the tube, how thick, tiles; how many bolts round it. */
 export const FLANGE_R = 1.4, FLANGE_T = 0.05, BOLTS = 6;
@@ -326,17 +339,12 @@ export function cellPaths(x: number, y: number, h: number, limbs: readonly Limb[
 /**
  * THE SUN, a unit (u, v, h) toward it: high, and from the camera's left —
  * a box's top lit, its left face (+v) next, its right (+u) in shade, as the
- * Kenney buildings are. The shader lights by it and the shadows fall from it.
+ * Kenney buildings are. The shader lights by it.
  */
 export const SUN: readonly [number, number, number] = (() => {
   const l = [-0.4, 0.35, 1], n = Math.hypot(...l);
   return [l[0] / n, l[1] / n, l[2] / n];
 })();
-/** Where a point a tile up casts its shadow, along the ground, (u, v). */
-export const CAST = [-SUN[0] / SUN[2], -SUN[1] / SUN[2]] as const;
-/** A cast shadow's darkness; the darker one where a support meets the ground. */
-export const SHADOW = 0.28, CONTACT = 0.4;
-
 /** Concrete, for what a main rests on. */
 export const CONCRETE = 0xc9c4b8;
 /** A saddle's length along the tube; a frame's legs, square, and its beam's depth, tiles. */
@@ -376,45 +384,6 @@ function supportAt(x: number, y: number, h: number, limbs: readonly Limb[]): { u
 
 /** What a cell's main stands on: a saddle on the ground, a frame of legs and a beam where it rides high, or nothing. */
 export type Support = "saddle" | "frame" | "none";
-
-/**
- * A CELL'S MAIN'S SHADOW on the ground at `floor` half steps: each length's
- * middle line carried down along the sun's rays, as wide as the tube — a
- * hard edge, low alpha, laid in strips that meet without overlapping, so it
- * is one even shade. And under its support, a darker one where it stands.
- */
-export function pipeShadow(
-  m: PipeMesh, s: number, x: number, y: number, z: number, floor: number, limbs: readonly Limb[],
-  r: number, support: Support,
-) {
-  const h = z * ZT, g = floor * ZT, dark = rgba(0x000000, SHADOW);
-  for (const path of cellPaths(x, y, h, limbs, r)) {
-    const pts = path.map(([u, v, ph]) => [u + (ph - g) * CAST[0], v + (ph - g) * CAST[1]]);
-    const n = pts.length;
-    room(m, n * 2, (n - 1) * 6);
-    const first = m.nv;
-    for (let p = 0; p < n; p++) {
-      const a = pts[Math.max(0, p - 1)], b = pts[Math.min(n - 1, p + 1)];
-      let tu = b[0] - a[0], tv = b[1] - a[1];
-      const len = Math.hypot(tu, tv) || 1;
-      tu /= len; tv /= len;
-      vert(m, s, pts[p][0] + tv * r, pts[p][1] - tu * r, g, 0, 0, 1, dark);
-      vert(m, s, pts[p][0] - tv * r, pts[p][1] + tu * r, g, 0, 0, 1, dark);
-    }
-    for (let p = 0; p < n - 1; p++) {
-      const a = first + p * 2;
-      tri(m, a, a + 2, a + 3);
-      tri(m, a, a + 3, a + 1);
-    }
-  }
-  if (support === "none" || !limbs.length) return;
-  // UNDER WHAT IT STANDS ON: the footprint, a little wider, darker.
-  const at = supportAt(x, y, h, limbs), contact = rgba(0x000000, CONTACT), pad = 0.025;
-  const feet = support === "frame" ? legs(at, r) : [saddle(at, r)];
-  for (const [u0, v0, u1, v1] of feet) {
-    quad(m, s, [[u0 - pad, v0 - pad, g], [u1 + pad, v0 - pad, g], [u1 + pad, v1 + pad, g], [u0 - pad, v1 + pad, g]], 0, 0, 1, contact);
-  }
-}
 
 /** A saddle's footprint, (u0, v0, u1, v1): short along the tube, a little narrower than it across. */
 function saddle(at: { u: number; v: number; along: "u" | "v" | null }, r: number): [number, number, number, number] {
@@ -484,14 +453,17 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
   }
 
   const { bend, run, stubs } = shape(limbs);
-  if (limbs.length === 0) ball(m, s, x, y, h, r, c, sides);
-  else if (limbs.length === 1) {
-    // A LOOSE END: a blind flange if it is capped, else a dome under whatever fitting is there.
+  const kind = look.end ?? null;
+  if (limbs.length === 0) {
+    // A LONE FITTING, joined to nothing yet: as if its main came in from the far side.
+    if (kind) fitting(m, s, kind, x, y, h, g, 1, 0, look); else ball(m, s, x, y, h, r, c, sides);
+  } else if (limbs.length === 1) {
+    // A LOOSE END: its fitting, facing out the way the main ends — the length reaching only to a house's wall — or a dome.
     const l = limbs[0];
-    const end = () => look.cap != null
-      ? flange(m, s, x, y, h, -l.dx, -l.dy, r, look.cap, sides, look.bolts !== false, true)
-      : ball(m, s, x, y, h, r, c, sides);
-    if (far(l)) { length(l); end(); } else { end(); length(l); }
+    const wall = kind === "pump" ? (l.dx ? PUMP_U : PUMP_V) : kind === "intake" ? INTAKE : 0;
+    const end = () => kind ? fitting(m, s, kind, x, y, h, g, -l.dx, -l.dy, look) : ball(m, s, x, y, h, r, c, sides);
+    if (far(l)) { length(l, wall); end(); } else { end(); length(l, wall); }
+    if (kind === "outlet") valve(m, s, x, y, h, r);
   } else if (bend) {
     sweep(m, s, elbowPath(x, y, h, run[0], run[1]), r, c, sides);
   } else {
@@ -501,6 +473,108 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     for (const l of stubs) if (!far(l)) stub(l);
   }
   if (nearLeg) box(m, s, nearLeg[0], nearLeg[1], g, nearLeg[2], nearLeg[3], h - r - BEAM, concrete);
+}
+
+/** A FLAT RING lying level, (cu, cv, ch), from `rIn` to `rOut` — a handwheel, seen from above. */
+function hring(m: PipeMesh, s: number, cu: number, cv: number, ch: number, rIn: number, rOut: number, colour: number, sides: number) {
+  room(m, sides * 2, sides * 6);
+  const first = m.nv;
+  for (let k = 0; k < sides; k++) {
+    const a = (k / sides) * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+    vert(m, s, cu + c * rOut, cv + sn * rOut, ch, 0, 0, 1, colour);
+    vert(m, s, cu + c * rIn, cv + sn * rIn, ch, 0, 0, 1, colour);
+  }
+  for (let k = 0; k < sides; k++) {
+    const a = first + k * 2, b = first + ((k + 1) % sides) * 2;
+    tri(m, a, b, b + 1);
+    tri(m, a, b + 1, a + 1);
+  }
+}
+
+/** AN OUTLET'S VALVE: a stem up out of the top of the tube, and a red handwheel on it. */
+function valve(m: PipeMesh, s: number, x: number, y: number, h: number, r: number) {
+  const top = h + r + 0.07, steel = solid(FITTING.wheel), red = solid(FITTING.valve);
+  box(m, s, x - 0.012, y - 0.012, h + r * 0.8, x + 0.012, y + 0.012, top, steel);
+  hring(m, s, x, y, top, 0.045, 0.062, red, 16);
+  box(m, s, x - 0.018, y - 0.018, top, x + 0.018, y + 0.018, top + 0.01, red);
+}
+
+/**
+ * THE FITTING at a main's loose end, at (x, y, h) on ground at `g`, the end
+ * facing out along (ou, ov):
+ * - a cap: a red blind flange;
+ * - an intake: a concrete box down into the water, grated on top;
+ * - a pump house, where no pump building stands: walls, an amber roof, a door, a wheel on its side;
+ * - an outlet, at a building, and a drain, at a workplace's slop port: the
+ *   building's nozzle reaches out to meet the main, its lip the joint, so
+ *   here only the knuckle where they turn into each other — and an outlet's
+ *   valve, which goes on after the tube;
+ * - an outfall over the bank: a flared mouth, dark inside, on a post down to the water.
+ */
+function fitting(m: PipeMesh, s: number, kind: Fitting, x: number, y: number, h: number, g: number, ou: number, ov: number, look: PipeLook) {
+  const { r, sides } = look, bolts = look.bolts !== false, concrete = solid(CONCRETE);
+  switch (kind) {
+    case "cap":
+      flange(m, s, x, y, h, ou, ov, r, FITTING.cap, sides, bolts, true);
+      return;
+    case "outlet":
+    case "drain":
+      ball(m, s, x, y, h, r, solid(look.colour), sides);
+      return;
+    case "outfall": {
+      box(m, s, x - 0.03, y - 0.03, g - 0.12, x + 0.03, y + 0.03, h - r, concrete);
+      flange(m, s, x, y, h, ou, ov, r * 1.05, FITTING.mouth, sides, false, false);
+      const lip = FLANGE_T / 2 + 0.002;
+      disc(m, s, x + ou * lip, y + ov * lip, h, ou, ov, 0, r * 1.05, solid(FITTING.bore), sides);
+      return;
+    }
+    case "intake": {
+      const top = h + r * 0.9, grate = solid(FITTING.grate), bar = solid(look.colour);
+      box(m, s, x - INTAKE, y - INTAKE, g - 0.1, x + INTAKE, y + INTAKE, top, concrete);
+      const i = INTAKE - 0.025;
+      box(m, s, x - i, y - i, top, x + i, y + i, top + 0.004, grate);
+      for (const k of [-0.5, 0, 0.5]) box(m, s, x - i, y + k * i - 0.008, top + 0.004, x + i, y + k * i + 0.008, top + 0.012, bar);
+      return;
+    }
+    case "pump": {
+      const top = Math.max(h + r * 2, g + PUMP_TALL * ZT), o = 0.03;
+      box(m, s, x - PUMP_U, y - PUMP_V, g, x + PUMP_U, y + PUMP_V, top, solid(FITTING.pumpWall));
+      // Its door, on the +v wall; its wheel, on the +u.
+      box(m, s, x - 0.06, y + PUMP_V, g, x + 0.06, y + PUMP_V + 0.006, g + (top - g) * 0.6, solid(FITTING.pumpDoor));
+      const mid = (g + top) / 2, wheel = solid(FITTING.wheel);
+      disc(m, s, x + PUMP_U + 0.004, y, mid, 1, 0, 0.045, 0.065, wheel, 16);
+      disc(m, s, x + PUMP_U + 0.004, y, mid, 1, 0, 0, 0.016, wheel, 8);
+      box(m, s, x - PUMP_U - o, y - PUMP_V - o, top, x + PUMP_U + o, y + PUMP_V + o, top + 0.07, solid(FITTING.pumpRoof));
+      return;
+    }
+  }
+}
+
+/**
+ * A BUILDING'S PORT: a nozzle out of its wall, from the wall of the cell
+ * at (x, y) — the building on the far side of it, along (−dx, −dy) — in
+ * its fluid's colour: a steel collar at the wall, a lip at the mouth. Open,
+ * with no main joined to it, it stops short of the cell's middle, dark
+ * inside; joined, it reaches the middle, where the main ends, and its lip is
+ * the joint. Part of the building, joined to or not.
+ */
+export function nozzle(
+  m: PipeMesh, s: number, x: number, y: number, z: number, dx: number, dy: number,
+  r: number, colour: number, steel: number, sides: number, open = true,
+) {
+  const h = z * ZT, c = solid(colour);
+  const short = open ? 0.12 : 0;
+  const wu = x - dx * 0.5, wv = y - dy * 0.5, mu = x - dx * short, mv = y - dy * short;
+  const toward = facing(dx, dy, 0) > 0;
+  const collar = () => flange(m, s, wu + dx * 0.03, wv + dy * 0.03, h, dx, dy, r, steel, sides, false, false);
+  const lip = () => {
+    flange(m, s, mu, mv, h, dx, dy, r, colour, sides, false, false);
+    if (!open) return;
+    const o = FLANGE_T / 2 + 0.002;
+    disc(m, s, mu + dx * o, mv + dy * o, h, dx, dy, 0, r * 0.95, solid(FITTING.bore), sides);
+  };
+  if (toward) { collar(); tube(m, s, wu, wv, h, mu, mv, h, r * 0.85, c, sides); lip(); }
+  else { lip(); tube(m, s, mu, mv, h, wu, wv, h, r * 0.85, c, sides); collar(); }
 }
 
 /** `0xRRGGBB`, opaque, as a vertex word. */
