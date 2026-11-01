@@ -185,6 +185,22 @@ export function fouledHouses(field: WaterField, g: Grid): Set<number> {
   return out;
 }
 
+/**
+ * SAVED WITH THE MAP: the slop on each tile, as a file read it, kept with its
+ * grid until a water field is made for that grid. @see serializeWorld, loadGrid
+ */
+const saved = new WeakMap<Grid, Float32Array>();
+export const stashPollution = (g: Grid, mass: Float32Array) => { saved.set(g, mass); };
+/** Put a loaded map's pollution into the field made for it; nothing if it was saved clean. */
+export function restorePollution(field: WaterField, g: Grid) {
+  const mass = saved.get(g);
+  if (!mass) return;
+  saved.delete(g);
+  const p = pollutionOf(field.columns);
+  if (mass.length === p.mass.length) p.mass.set(mass);
+  p.rev++;
+}
+
 /** Clear every tile: a new map, a reset. */
 export function resetPollution(field: WaterField) {
   const p = pollutionOf(field.columns);

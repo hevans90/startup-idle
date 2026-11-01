@@ -47,6 +47,7 @@ import {
   setWaterEdge, syncGround, totalVolume,
   wetTiles, type WaterField,
 } from "../world/water/field";
+import { restorePollution } from "../world/water/pollution";
 import { derivedSlope } from "../world/edit/slope";
 import { RAMP } from "../world/iso";
 import { demolishCommand, placeCommand, upgradeCommand, validatePlacement, type PlaceRules } from "../world/structures/place";
@@ -1516,6 +1517,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     evolution = createEvolution();
     // The file's boats, on the file's water. @see restoreFleet
     if (boats?.length) restoreFleet(fleet, water.columns, boats);
+    // And the slop in it. @see restorePollution
+    restorePollution(water, grid);
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();   // the scene rebuilds wholesale on a new grid identity
     // A saved map's terrain indices only mean anything against the palette it

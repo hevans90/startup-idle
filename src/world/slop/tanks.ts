@@ -4,7 +4,7 @@
  * that take from it, into the processors they feed and out of their
  * outfalls into the water; and SPILLED at its port when full — sludge on the
  * street, or pollution in the water if it stands in it. Live state, not
- * saved: a workplace starts with an empty tank. @see game/slop
+ * saved with the map: what each holds. @see game/slop, serializeWorld
  */
 import { POLLUTION_PER_SLOP, SPILL_DEPTH, tankFor } from "../../game/slop";
 import { PROCESS_RATE, processorKind, setProcessorUse, type ProcessorKind } from "../../game/processors";
@@ -113,7 +113,9 @@ export function stepSlop(
   // gap round the building: it goes somewhere.
   for (const s of places) {
     const t = tanks.get(s.id)!;
-    t.spilling = t.level > t.capacity;
+    // NOTHING COMING IN, nothing pushed out: a tank read from a file before
+    // the economy says what is made keeps what it holds. @see setSlopMaking
+    t.spilling = t.rate > 0 && t.level > t.capacity;
     if (!t.spilling) continue;
     const over = t.level - t.capacity;
     t.level = t.capacity;
@@ -150,6 +152,15 @@ export function spillAt(g: Grid, s: Structure): { x: number; y: number } | null 
   if (port && open(port.x, port.y)) return { x: port.x, y: port.y };
   const from = port ?? { x: s.x + s.w, y: s.y };
   return ring(g, s).filter((c) => open(c.x, c.y)).sort((a, b) => Math.abs(a.x - from.x) + Math.abs(a.y - from.y) - Math.abs(b.x - from.x) - Math.abs(b.y - from.y))[0] ?? null;
+}
+
+/** What each tank holds, by its workplace, for the file. */
+export const tankLevels = (g: Grid): { id: number; level: number }[] =>
+  [...tanksOf(g)].filter(([, t]) => t.level > 0).map(([id, t]) => ({ id, level: t.level }));
+/** Fill a loaded map's tanks as the file had them; stepped, they learn the rest. */
+export function restoreTanks(g: Grid, levels: readonly { id: number; level: number }[]) {
+  const tanks = tanksOf(g);
+  for (const { id, level } of levels) tanks.set(id, { level, capacity: 0, rate: 0, spilling: false });
 }
 
 /** Clear the tanks: a new map, a reset. */

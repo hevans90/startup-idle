@@ -16,6 +16,9 @@ import {
   type Build, type Grid, type Structure,
 } from "../grid";
 import { DECK_SLOT, poolSnapshot, type WaterField } from "../water/field";
+import { pollutionOf, stashPollution } from "../water/pollution";
+import { restoreTanks, tankLevels } from "../slop/tanks";
+import { TRACE } from "../../game/pollution";
 
 export const WORLD_FILE_VERSION = 1;
 
@@ -128,6 +131,14 @@ export type WorldFile = {
    * record is skipped rather than refusing the map. @see SavedBoat
    */
   boats?: SavedBoat[];
+  /**
+   * SLOP IN THE WATER, a tile at a time, base64 Float32Array, and what each
+   * vibe workplace's tank holds. OPTIONAL, like `boats`: a file without them
+   * opens with clean water and empty tanks, as it was saved. Only written
+   * when there is any. @see world/water/pollution, world/slop/tanks
+   */
+  pollution?: string;
+  slopTanks?: { id: number; level: number }[];
   /** Index → material id. Index 0 is VOID. Saved so indices keep their meaning. */
   palette: { terrain: (string | null)[]; paved: (string | null)[] };
 };
@@ -154,6 +165,16 @@ function b64ToBytes(b64: string): Uint8Array {
 const encodeU16 = (a: Uint16Array) => bytesToB64(new Uint8Array(a.buffer, a.byteOffset, a.byteLength));
 const encodeI8 = (a: Int8Array) => bytesToB64(new Uint8Array(a.buffer, a.byteOffset, a.byteLength));
 const encodeU8 = (a: Uint8Array) => bytesToB64(a);
+const encodeF32 = (a: Float32Array) => bytesToB64(new Uint8Array(a.buffer, a.byteOffset, a.byteLength));
+
+function decodeF32(b64: string, expected: number): Float32Array {
+  const bytes = b64ToBytes(b64);
+  const out = new Float32Array(expected);
+  // copy rather than alias, as `decodeU16`; and nothing that is not a mass
+  out.set(new Float32Array(bytes.slice(0, Math.min(expected * 4, bytes.byteLength & ~3)).buffer));
+  for (let i = 0; i < expected; i++) if (!(out[i] > 0) || !Number.isFinite(out[i])) out[i] = 0;
+  return out;
+}
 
 function decodeU8(b64: string, expected: number): Uint8Array {
   const bytes = b64ToBytes(b64);
@@ -222,6 +243,8 @@ export function serializeWorld(
     structures: [...grid.structures.values()],
     // The boats as they stand, when there is a running world to ask.
     ...(fleet ? { boats: saveFleet(fleet) } : {}),
+    ...(water && pollutionOf(water.columns).mass.some((m) => m > TRACE) ? { pollution: encodeF32(pollutionOf(water.columns).mass) } : {}),
+    ...(tankLevels(grid).length ? { slopTanks: tankLevels(grid) } : {}),
     palette: { terrain: [...palette.terrain], paved: [...palette.paved] },
   };
 }
@@ -343,6 +366,11 @@ export function deserializeWorld(
   for (const raw of Array.isArray(f.boats) ? f.boats : []) {
     const b = readBoat(raw, w as number, h as number);
     if (b) boats.push(b);
+  }
+  if (typeof f.pollution === "string") stashPollution(grid, decodeF32(f.pollution, n));
+  if (Array.isArray(f.slopTanks)) {
+    restoreTanks(grid, f.slopTanks.filter((t): t is { id: number; level: number } =>
+      !!t && Number.isInteger(t.id) && typeof t.level === "number" && Number.isFinite(t.level) && t.level > 0 && grid.structures.has(t.id)));
   }
   return { grid, palette, boats };
 }

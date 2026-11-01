@@ -9,7 +9,9 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField } from "../water/field";
 import { layMain, planMain, runMains } from "../water/mains";
-import { pollutionOf } from "../water/pollution";
+import { pollute, pollutionOf, restorePollution } from "../water/pollution";
+import { fromJSON, serializeWorld, toJSON } from "../io/serialize";
+import { getWater, useWorldStore } from "../../state/world.store";
 import { stepSlop, tanksOf } from "./tanks";
 
 /** A lake down the west edge; two vibe offices on dry ground, the first's slop port at (12, 4). */
@@ -78,5 +80,42 @@ describe("a workplace with its slop port built over", () => {
     const at = spillAt(g, a)!;
     expect(g.structureAt[idx(g, at.x, at.y)]).toBe(-1);
     expect(Math.abs(at.x - 12) + Math.abs(at.y - 4)).toBe(1);
+  });
+});
+
+describe("saved with the map", () => {
+  test("the slop in the water and what each tank holds come back with the file", () => {
+    const { g, a, field } = street();
+    pollute(field, 2, 5, 3);
+    tanksOf(g).set(a.id, { level: 40, capacity: 0, rate: 0, spilling: false });
+    const loaded = fromJSON(toJSON(serializeWorld(g, { terrain: [null], paved: [null] }, field)));
+    const next = createWaterField(loaded.grid);
+    restorePollution(next, loaded.grid);
+    expect(pollution(next)).toBeCloseTo(3, 5);
+    expect(pollutionOf(next.columns).mass[5 * loaded.grid.w + 2]).toBeCloseTo(3, 5);
+    expect(tanksOf(loaded.grid).get(a.id)!.level).toBe(40);
+  });
+
+  test("a map loaded into the game brings its pollution onto the water made for it", () => {
+    const { g, field } = street();
+    pollute(field, 2, 5, 3);
+    const loaded = fromJSON(toJSON(serializeWorld(g, { terrain: [null], paved: [null] }, field)));
+    useWorldStore.getState().loadGrid(loaded.grid, loaded.palette.terrain, loaded.boats);
+    expect(pollution(getWater())).toBeCloseTo(3, 5);
+  });
+
+  test("a clean map writes neither", () => {
+    const { g, field } = street();
+    const f = serializeWorld(g, { terrain: [null], paved: [null] }, field);
+    expect(f.pollution).toBeUndefined();
+    expect(f.slopTanks).toBeUndefined();
+  });
+
+  test("a loaded tank keeps what it holds until slop is being made", () => {
+    const { g, a, field } = street();
+    tanksOf(g).set(a.id, { level: 40, capacity: 0, rate: 0, spilling: false });
+    stepSlop(g, field, null, 0, 1);
+    expect(tanksOf(g).get(a.id)!.level).toBe(40);
+    expect(tanksOf(g).get(a.id)!.spilling).toBe(false);
   });
 });
