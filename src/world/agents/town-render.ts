@@ -119,6 +119,66 @@ export function lookOf(m: Mover): { key: string; canon: Mover } {
   return { key, canon: { ...m, x: 0, y: 0, z: 0, heading: h * step, phase, pitch, ...(m.kind === "person" ? { colour: 0xffffff } : {}) } };
 }
 
+/** What a mover is drawn with: a Graphics, or — baking a person's part — an `OccludedPen`. */
+export type Pen = {
+  clear(): Pen;
+  poly(points: number[]): Pen;
+  circle(x: number, y: number, r: number): Pen;
+  moveTo(x: number, y: number): Pen;
+  lineTo(x: number, y: number): Pen;
+  arc(x: number, y: number, r: number, a0: number, a1: number): Pen;
+  closePath(): Pen;
+  fill(style: { color: number; alpha?: number }): Pen;
+  stroke(style: { color: number; alpha?: number; width: number; cap?: "round"; join?: "round" }): Pen;
+};
+
+/**
+ * ONE PART OF A PERSON, IN FRONT OF WHAT IS BEHIND IT AND BEHIND WHAT IS IN
+ * FRONT: the whole person drawn in order, the part's own shapes painted and
+ * every other part's erasing what is under it — so a pixel of the part is
+ * kept only where the part was the last thing drawn there. Each part is its
+ * own sprite, stacked in a fixed order, and without this a far hand in the
+ * skin's sprite showed through the shirt's torso. A shape painted with
+ * alpha 0 is another part's. @see Paint, createTownLayer
+ */
+class OccludedPen implements Pen {
+  readonly root = new Container();
+  private path: ((g: Graphics) => void)[] = [];
+  private at: Graphics | null = null;
+  private erasing = false;
+  /** The Graphics a shape goes in: the last one, while it paints or erases the same. */
+  private target(erase: boolean) {
+    if (!this.at || this.erasing !== erase) {
+      this.at = new Graphics();
+      if (erase) this.at.blendMode = "erase";
+      this.root.addChild(this.at);
+      this.erasing = erase;
+    }
+    const g = this.at;
+    for (const op of this.path) op(g);
+    this.path = [];
+    return g;
+  }
+  clear() { this.root.removeChildren().forEach((c) => c.destroy()); this.at = null; this.path = []; return this; }
+  poly(points: number[]) { this.path.push((g) => g.poly(points)); return this; }
+  circle(x: number, y: number, r: number) { this.path.push((g) => g.circle(x, y, r)); return this; }
+  moveTo(x: number, y: number) { this.path.push((g) => g.moveTo(x, y)); return this; }
+  lineTo(x: number, y: number) { this.path.push((g) => g.lineTo(x, y)); return this; }
+  arc(x: number, y: number, r: number, a0: number, a1: number) { this.path.push((g) => g.arc(x, y, r, a0, a1)); return this; }
+  closePath() { this.path.push((g) => g.closePath()); return this; }
+  fill(style: { color: number; alpha?: number }) {
+    const erase = style.alpha === 0;
+    this.target(erase).fill(erase ? { color: 0xffffff } : style);
+    return this;
+  }
+  stroke(style: { color: number; alpha?: number; width: number; cap?: "round"; join?: "round" }) {
+    const erase = style.alpha === 0;
+    this.target(erase).stroke(erase ? { ...style, color: 0xffffff, alpha: 1 } : style);
+    return this;
+  }
+  destroy() { this.root.destroy({ children: true }); }
+}
+
 /** A baked frame: its texture, where the mover's foot is in it, and its base's points for the band. */
 type Frame = { tex: Texture; ax: number; ay: number };
 type Look = { frames: Frame[]; front: { u: number; v: number }[] };
@@ -129,7 +189,7 @@ function createAtlas(renderer: Renderer) {
   let x = PAGE, y = 0, shelf = 0;
   return {
     /** Bake `g` into a free slot; its frame, anchored at the drawing's origin. */
-    add(g: Graphics): Frame {
+    add(g: Container): Frame {
       const b = g.getLocalBounds();
       const w = Math.max(1, Math.ceil(b.width * BAKE)) + 2 * PAD, h = Math.max(1, Math.ceil(b.height * BAKE)) + 2 * PAD;
       if (x + w > PAGE) { x = 0; y += shelf; shelf = 0; }
@@ -166,11 +226,11 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
     let front: { u: number; v: number }[] = [];
     if (m.kind === "person") {
       for (const part of PERSON_PARTS) {
-        const g = new Graphics();
-        // The one part, white with its shading; the rest not drawn.
-        front = drawMoverFront(g, canon, scale, (p, color) => (p === part ? { color } : { color: 0, alpha: 0 }), WHITE);
-        frames.push(atlas.add(g));
-        g.destroy();
+        const pen = new OccludedPen();
+        // The one part, white with its shading; the rest erasing it where they stand in front.
+        front = drawMoverFront(pen, canon, scale, (p, color) => (p === part ? { color } : { color: 0, alpha: 0 }), WHITE);
+        frames.push(atlas.add(pen.root));
+        pen.destroy();
       }
     } else {
       const g = new Graphics();
@@ -269,7 +329,7 @@ export function drawMover(g: Graphics, m: Mover, s: number, bandsN: number): num
 
 /** Draw one; answers the points along its base that decide its band, in tiles. */
 export function drawMoverFront(
-  g: Graphics, m: Mover, s: number, paint: Paint = asIs, outfit: { skin: number; legs: number; hair: number } = outfitOf(m),
+  g: Pen, m: Mover, s: number, paint: Paint = asIs, outfit: { skin: number; legs: number; hair: number } = outfitOf(m),
 ): { u: number; v: number }[] {
   const ch = Math.cos(m.heading), sh = Math.sin(m.heading);
   // The body is highest mid-stride, over a straight leg, and lowest between.
@@ -395,7 +455,7 @@ export function outfitOf(m: Mover): { skin: number; legs: number; hair: number }
  * ways through `SWING` either side of down, the one coming through bent at the
  * knee, and each arm swings against the leg on its side.
  */
-function drawPerson(g: Graphics, m: Mover, s: number, at: At, prism: Prism, paint: Paint, outfit: { skin: number; legs: number; hair: number }) {
+function drawPerson(g: Pen, m: Mover, s: number, at: At, prism: Prism, paint: Paint, outfit: { skin: number; legs: number; hair: number }) {
   const { skin, legs, hair } = outfit;
   const ch = Math.cos(m.heading), sh = Math.sin(m.heading);
   // Which side is nearer the camera, which looks down the +u +v diagonal.
@@ -447,18 +507,20 @@ function drawPerson(g: Graphics, m: Mover, s: number, at: At, prism: Prism, pain
   const far = parts(-nearSide), near = parts(nearSide);
   limb(-nearSide * HIP_W, far.leg, "legs", dim(legs), 0.026);
   limb(-nearSide * SHOULDER_W, far.arm, "shirt", dim(m.colour), 0.02);
+  // HANDS, each at the end of its arm: the far one under the body, the near one over it.
+  const hand = (side: number, arm: { l: number; up: number }[], c: number) => {
+    const h = at(arm[2].l, side * SHOULDER_W, arm[2].up);
+    g.circle(h.px, h.py, px(0.012));
+    g.fill(paint("skin", c));
+  };
+  hand(-nearSide, far.arm, dim(skin));
   const torso = prism(
     [[0.022, SHOULDER_W], [-0.022, SHOULDER_W], [-0.022, -SHOULDER_W], [0.022, -SHOULDER_W]],
     HIP - 0.04, SHOULDER, m.colour, m.colour, "shirt",
   );
   limb(nearSide * HIP_W, near.leg, "legs", legs, 0.026);
   limb(nearSide * SHOULDER_W, near.arm, "shirt", m.colour, 0.02);
-  // Hands.
-  for (const [side, arm, c] of [[-nearSide, far.arm, dim(skin)], [nearSide, near.arm, skin]] as const) {
-    const h = at(arm[2].l, side * SHOULDER_W, arm[2].up);
-    g.circle(h.px, h.py, px(0.012));
-    g.fill(paint("skin", c));
-  }
+  hand(nearSide, near.arm, skin);
   // THE HEAD, and hair over the top of it — centred on the head on screen: a
   // cap set back along the heading slides sideways in this view, off the head.
   const head = at(0, 0, HEAD), r = px(0.034);
