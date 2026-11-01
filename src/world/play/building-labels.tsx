@@ -319,6 +319,7 @@ export function BuildingLabels({ className }: { className?: string }) {
   if (!on) return null;
   const ref = (key: string) => (el: HTMLDivElement | null) => { if (el) els.current.set(key, el); else els.current.delete(key); };
   return (
+    <>
     <div className={twMerge("pointer-events-none absolute inset-0 overflow-hidden", className)}>
       {marks.map((m) => {
         // The pointer's building wears its full label instead.
@@ -339,12 +340,15 @@ export function BuildingLabels({ className }: { className?: string }) {
         }
         return null;
       })}
+    </div>
+    {/* THE POINTER'S LABEL, a layer of its own over the map's docks and panels: nothing covers what is being looked at. */}
+    <div className={twMerge("pointer-events-none absolute inset-0 z-30 overflow-hidden", className)}>
       {label && (() => {
         const { info } = label;
         const vp = useWorldStore.getState().viewport;
         return (
           <div ref={labelEl}
-            className="absolute left-0 top-0 z-10 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/95 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-md backdrop-blur-sm"
+            className="absolute left-0 top-0 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/95 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-md backdrop-blur-sm"
             style={{ borderLeftColor: hex(info.accent), transform: vp ? placed(vp, label, false) : undefined }}>
             <p className="font-display uppercase tracking-wider">{info.title}</p>
             {info.lines.map((l, k) => (
@@ -359,5 +363,6 @@ export function BuildingLabels({ className }: { className?: string }) {
         );
       })()}
     </div>
+    </>
   );
 }
