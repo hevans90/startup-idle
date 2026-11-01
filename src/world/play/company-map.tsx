@@ -19,6 +19,7 @@ import { useEffect } from "react";
 import { projectForStructure } from "../../game/projects";
 import { useResizeToWrapper } from "../../hooks/use-resize-to-wrapper";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
+import { useSessionStore } from "../../state/session.store";
 import { useWorldStore } from "../../state/world.store";
 import { structureOf } from "../grid";
 import { useFoundWorld, WorldCanvas } from "../world-canvas";
@@ -53,6 +54,19 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
    * studio the employees. A drag pans the map and opens nothing.
    * @see ProjectDef.opens, WorldState.lookedAt
    */
+  // ESC PUTS THINGS AWAY: the pointer's label and the projects log — not
+  // while typing, nor while a dialog is up: the key is its. @see Modal
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== "Escape" || hidden || document.querySelector('[aria-modal="true"]')) return;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      useWorldStore.getState().setHoverBuilding(null);
+      useSessionStore.getState().setProjectsOpen(false);
+    };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [hidden]);
   // INTO COMMS: the world's refusals, its events and the AI's asks. @see startCommsBridge
   useEffect(() => startCommsBridge(), []);
   useEffect(() => useWorldStore.subscribe((st, was) => {
