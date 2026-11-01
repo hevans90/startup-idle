@@ -11,7 +11,7 @@ import { CONTENTFARM_VALUATION, DATAPLANT_SPEED, REFINERY_INNOVATION, processorK
 import { tankFor } from "../projects/cooling";
 import { PUMP_HEAD } from "../../game/cooling";
 import { AGENTS_A_RACK, RACK_RANGE } from "../../game/agents";
-import { housedBy, residentsIn } from "../../game/housing";
+import { housedBy, isLot, residentsIn } from "../../game/housing";
 import { projectForStructure, type ProjectDef } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
 import type { Structure } from "../grid";
@@ -111,7 +111,7 @@ export function opensText(p: ProjectDef): string {
 /** A housing building's name: `intern.t1` is "Intern house II", or "Intern lot II" while empty. */
 export function housingName(defId: string, empty = false): string | null {
   const h = housedBy(defId);
-  if (!h) return null;
+  if (!h || !isLot(defId)) return null;
   const tier = /\.(t0|t1|t2|landmark)$/.exec(defId)?.[1];
   const roman = tier === "landmark" ? " tower" : tier === "t0" ? "" : tier === "t1" ? " II" : " III";
   return `${KIND_NAME[h.id][0]} ${empty ? "lot" : "house"}${roman}`;
@@ -137,7 +137,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
 
   // HOUSING: who lives there, who is coming, and what they earn.
   const h = housedBy(s.def);
-  if (h) {
+  if (h && isLot(s.def)) {
     const here = residentsIn(s);
     const coming = ctx.arriving.get(s.id) ?? 0;
     const [, plural] = KIND_NAME[h.id];
@@ -194,6 +194,11 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
       };
     }
     const lines: InfoLine[] = [];
+    // THE CAMPUS is where the 10x devs live, as well as work. @see CAMPUS_BEDS
+    if (h) {
+      const here = residentsIn(s), coming = ctx.arriving.get(s.id) ?? 0;
+      lines.push({ text: `${here} ${KIND_NAME[h.id][here === 1 ? 0 : 1]} living here${coming > 0 ? ` · ${coming} on the way` : ""}` });
+    }
     const desks = workplaceKind(s.def) ? deskLine(s.id, ctx) : null;
     if (desks) lines.push(desks);
     const slop = slopLine(s.id);

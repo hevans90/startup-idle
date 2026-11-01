@@ -8,7 +8,7 @@
  * the projects as they open, and clears derelicts in its way. @see nextStep, planTown, plans/singularity.md §4b
  */
 import { buildCost, roadCost } from "../../game/build-cost";
-import { roomFor } from "../../game/housing";
+import { hasLots, roomFor } from "../../game/housing";
 import { PROJECTS, featureGateOpen, gateParts } from "../../game/projects";
 import { nextPerSet, upgradeSet } from "../../game/upgrade-sets";
 import { useUpgradeStore } from "../../state/upgrades.store";
@@ -91,7 +91,9 @@ function take(s: PlanStep): boolean {
 
 /** The kinds it can house, the one most short of beds first. */
 function kindsByNeed(): GeneratorId[] {
+  // Only the kinds that live on lots: the 10x devs live on the Campus. @see hasLots
   return useGeneratorStore.getState().generators
+    .filter((g) => hasLots(g.id as GeneratorId))
     .map((g) => ({ id: g.id as GeneratorId, room: roomFor(g.id as GeneratorId, g.amount) }))
     .sort((a, b) => a.room - b.room)
     .map((k) => k.id);

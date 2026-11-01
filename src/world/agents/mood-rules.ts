@@ -46,5 +46,8 @@ export const WATER_REACH = 2;
  */
 export const GROW_AT: Record<Tier, number> = { t0: -Infinity, t1: 4, t2: 10, landmark: 16 };
 export const DECLINE_MARGIN = 4;
-/** What a kind wants before it will move in at all. @see stepArrivals */
-export const MOVE_IN_AT: Partial<Record<GeneratorId, number>> = { "10x_dev": 10 };
+/**
+ * What a kind wants before it will move in at all. None now: the 10x devs, who
+ * were particular, live on the Campus. @see stepArrivals, CAMPUS_BEDS
+ */
+export const MOVE_IN_AT: Partial<Record<GeneratorId, number>> = {};

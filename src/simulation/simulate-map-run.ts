@@ -17,7 +17,7 @@
 import { AGENTS_A_RACK } from "../game/agents";
 import { agentTrade, useAgentsStore } from "../state/agents.store";
 import { PROCESSOR_STEP, buildCost, pipeCost } from "../game/build-cost";
-import { roomFor, setHousingReader } from "../game/housing";
+import { CAMPUS_BEDS, hasLots, roomFor, setHousingReader } from "../game/housing";
 import {
   PROJECTS, buildersFor, projectCost, setProjectReader, type ProjectDef, type ProjectId,
 } from "../game/projects";
@@ -385,6 +385,8 @@ export function simulateMapRun(
       if (s.done >= s.p.work - 1e-6 && s.delivered >= s.p.deliveries) {
         built.add(s.p.id);
         report.opened[s.p.id] = t;
+        // THE CAMPUS is where the 10x devs live: room for every one hired. @see CAMPUS_BEDS
+        if (s.p.id === "campus") beds["10x_dev"] = CAMPUS_BEDS;
         // What it opens, as in the game. @see grantFeatures
         useInnovationStore.getState().grantFeatures(s.p.grants);
         report.milestones.push(t);
@@ -415,7 +417,7 @@ export function simulateMapRun(
       // NO DESK for the next: an office first, as a lot when there is no bed.
       if (onMap(id) + 1 > desksOf(id) && built.has(FIRST[id][0])) consider({ kind: "office", id, cost: buildCost(OFFICE_OF[id])!.toNumber() });
       else if (roomFor(id, g.amount) >= 1) consider({ kind: "gen", id, cost: getGeneratorCost(id, 1).toNumber() });
-      else {
+      else if (hasLots(id)) {
         // No bed: the next of them costs a lot, or a service, first.
         const way = bestBeds(id);
         consider({ kind: way.kind, id, cost: way.cost });

@@ -89,11 +89,15 @@ describe("new hires arriving", () => {
     expect(housingResidents(g2)["10x_dev"]).toBe(1);
   });
 
-  test("10x devs will not move in with no café and park, and the bar says so", () => {
-    const g = street("kit:10x_dev.t0", [6]);
-    const { seen, a } = run(g, { "10x_dev": 1 }, 20);
-    expect(seen.size).toBe(0);
-    expect(a.status["10x_dev"]?.blocked).toBe("no-services");
+  test("10x devs live on the Campus — as many as are hired, café or no café — and with none, wait for one", () => {
+    const g = street("kit:intern.t0", []);
+    const { a } = run(g, { "10x_dev": 1 }, 5);
+    expect(a.status["10x_dev"]?.blocked).toBe("no-lot");
+    const cmd = placeCommand(g, structureDef("campus")!, 6, 1)!;
+    for (const s of cmd.structures!.added) s.residents = 0;
+    commit(g, createHistory(), cmd);
+    run(g, { "10x_dev": 7 }, 40);
+    expect(housingResidents(g)["10x_dev"]).toBe(7);
   });
 
   test("fills a part-full house before starting on an empty one", () => {

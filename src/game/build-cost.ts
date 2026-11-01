@@ -11,7 +11,7 @@
  */
 import Decimal from "break_infinity.js";
 
-import { housedBy } from "./housing";
+import { hasLots, housedBy } from "./housing";
 import { isAiBuilding, structureDef } from "../world/structures/def";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
@@ -92,6 +92,8 @@ function listPrice(defId: string): Decimal | null {
   // GROWS into, served by cafés, parks and gyms — not something to buy.
   // @see world/agents/services
   if (!/\.t0$/.test(defId)) return null;
+  // NONE FOR 10X DEVS: they live on the Campus. @see hasLots
+  if (!hasLots(h.id)) return null;
   const floor = new Decimal(LOT_FLOOR);
   // SCALED BY WHAT THE PEOPLE IT HOUSES COST TO HIRE: a share of the next
   // hire's price a bed.

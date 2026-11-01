@@ -84,11 +84,12 @@ describe("what a building costs", () => {
    * ONE LOT A KIND: the bigger houses are what a lot grows into, never
    * something to buy. @see world/agents/services
    */
-  test("only the smallest lot of each kind is for sale", () => {
-    for (const who of ["intern", "vibe_coder", "10x_dev"]) {
+  test("only the smallest lot of each kind is for sale — and none for 10x devs, who live on the Campus", () => {
+    for (const who of ["intern", "vibe_coder"]) {
       expect(buildCost(`kit:${who}.t0`)).not.toBeNull();
       for (const tier of ["t1", "t2", "landmark"]) expect(buildCost(`kit:${who}.${tier}`)).toBeNull();
     }
+    for (const tier of ["t0", "t1", "t2", "landmark"]) expect(buildCost(`kit:10x_dev.${tier}`)).toBeNull();
   });
 
   test("a lot costs at least its floor, and a share of the next hire once that is more", () => {

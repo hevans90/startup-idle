@@ -11,7 +11,7 @@
  * The full label is the pointer's to ask for. @see BuildingLabels, infoFor
  */
 import { processorKind } from "../../game/processors";
-import { housedBy, residentsIn } from "../../game/housing";
+import { housedBy, isLot, residentsIn } from "../../game/housing";
 import { projectForStructure } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
 import type { Structure } from "../grid";
@@ -122,7 +122,7 @@ function moodBadge(s: Structure, ctx: BadgeContext): Badge | null {
 /** THE BUILD TOOL: beds free in each house, and desks in each workplace. */
 function buildBadge(s: Structure, ctx: BadgeContext): Badge | null {
   if (s.build) return null;
-  const h = housedBy(s.def);
+  const h = isLot(s.def) ? housedBy(s.def) : null;
   if (h) {
     const free = h.slots - residentsIn(s) - (ctx.arriving.get(s.id) ?? 0);
     return free > 0 ? { icon: "bed", text: `${free} free`, tone: "info" } : null;

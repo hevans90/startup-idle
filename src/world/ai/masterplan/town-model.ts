@@ -7,7 +7,7 @@
  * IT CHANGES THE GRID IT IS GIVEN (houses grown, people moved in): hand it a
  * copy. @see cloneGrid
  */
-import { housedBy } from "../../../game/housing";
+import { housedBy, isLot } from "../../../game/housing";
 import { serializeWorld, deserializeWorld } from "../../io/serialize";
 import type { Grid, Structure } from "../../grid";
 import { createNetwork } from "../../roads/network";
@@ -85,7 +85,8 @@ export function settledTown(g: Grid): Settled {
   const net = createNetwork(g);
   const places = placesOf(g, net);
   const maps = desireMapsOf(g, places);
-  const houses = [...g.structures.values()].filter((s) => !s.build && housedBy(s.def));
+  // LOTS, which grow: not the Campus, whose beds are as many as there are 10x devs. @see CAMPUS_BEDS
+  const houses = [...g.structures.values()].filter((s) => !s.build && isLot(s.def));
   // THE TIER BOUGHT: what it was, less what it has grown since.
   const floor = new Map(houses.map((s) => {
     const k = TIERS.indexOf(tierOf(s.def) ?? "t0");

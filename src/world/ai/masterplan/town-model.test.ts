@@ -74,13 +74,6 @@ describe("the town model, against the game", () => {
     expect(modelTiers(g)).toEqual(["t1", "t1", "t1"]);
   });
 
-  test("10x devs do not move into a house under their mood", () => {
-    const sad = settledTown(cloneGrid(town([], "10x_dev")));
-    expect(sad.work).toBe(0);
-    const glad = settledTown(cloneGrid(town(["park", "cafe"], "10x_dev")));
-    expect(glad.work).toBeGreaterThan(0);
-  });
-
   test("income follows mood: the same beds earn more in a happier town", () => {
     const plain = settledTown(cloneGrid(town(["cafe"])));
     const happy = settledTown(cloneGrid(town(["park", "cafe", "gym"])));

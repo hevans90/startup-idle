@@ -71,14 +71,31 @@ export function setHousingReader(
 }
 
 /**
+ * 10X DEVS LIVE ON THE CAMPUS, not on lots: there are only ever a handful of
+ * them, each dear, and a street of their lots for so few made no sense. A
+ * finished Campus houses every one hired — room is made as they are — so the
+ * Campus that opens hiring them is also where they live. Lots of theirs on a
+ * map from before still house them; none are sold. @see hasLots
+ */
+export const CAMPUS_BEDS = Infinity;
+
+/** Whether a kind lives on LOTS of its own, bought and grown — every kind but the 10x devs. */
+export const hasLots = (id: GeneratorId) => id !== "10x_dev";
+
+/** Whether a structure is a LOT — a kit house, in tiers — rather than the Campus. */
+export const isLot = (defId: string) => defId.startsWith("kit:") && housedBy(defId) !== null;
+
+/**
  * Which generator a structure houses, and how many — or null if it is not
  * housing at all.
  *
  * Off the kit id, because that is where the district already lives:
  * `kit:vibe_coder.t1` is five vibe coders. A def this cannot read houses
  * nobody rather than throwing; a map may name a building from a later build.
+ * And the Campus, which houses the 10x devs. @see CAMPUS_BEDS
  */
 export function housedBy(defId: string): { id: GeneratorId; slots: number } | null {
+  if (defId === "campus") return { id: "10x_dev", slots: CAMPUS_BEDS };
   const m = /^kit:(intern|vibe_coder|10x_dev)\.(t0|t1|t2|landmark)$/.exec(defId);
   if (!m) return null;
   return { id: m[1] as GeneratorId, slots: SLOTS_BY_TIER[m[2]] ?? 0 };
@@ -89,7 +106,8 @@ export function housingCapacity(grid: Grid): Record<GeneratorId, number> {
   const out = { ...NO_HOUSING };
   for (const s of grid.structures.values()) {
     const h = housedBy(s.def);
-    if (h) out[h.id] += h.slots;
+    // A Campus still going up is no beds yet.
+    if (h && !(s.def === "campus" && s.build)) out[h.id] += h.slots;
   }
   return out;
 }
@@ -100,8 +118,9 @@ export function housingCapacity(grid: Grid): Record<GeneratorId, number> {
  */
 export function residentsIn(s: Structure): number {
   const h = housedBy(s.def);
-  if (!h) return 0;
-  return Math.min(h.slots, s.residents ?? h.slots);
+  // A SITE houses nobody yet; nor does a Campus nobody has moved into.
+  if (!h || (s.def === "campus" && s.build)) return 0;
+  return Math.min(h.slots, s.residents ?? (Number.isFinite(h.slots) ? h.slots : 0));
 }
 
 /** People living on this map, per generator: arrived and moved in. */

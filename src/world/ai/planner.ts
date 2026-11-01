@@ -22,7 +22,7 @@ import { buildCost, pipeCost } from "../../game/build-cost";
 import { aiSite, inRebuiltBlock } from "./arc-rules";
 import { questJobLean, questTakeoverShift } from "../../game/quests/effects";
 import { featureGateOpen } from "../../game/projects";
-import { housedBy, roomFor } from "../../game/housing";
+import { hasLots, housedBy, roomFor } from "../../game/housing";
 import { traitForecast, type Family } from "../../game/traits";
 import { LATTICE_AT, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
 import { latticeOf } from "./lattice";
@@ -246,6 +246,8 @@ function shortOfBeds(): GeneratorId | null {
   const gens = useGeneratorStore.getState().generators;
   let best: GeneratorId | null = null, least = Infinity;
   for (const gen of gens) {
+    // The 10x devs live on the Campus: no lots of theirs to build. @see hasLots
+    if (!hasLots(gen.id as GeneratorId)) continue;
     const room = roomFor(gen.id as GeneratorId, gen.amount);
     if (room < least) { least = room; best = gen.id as GeneratorId; }
   }
