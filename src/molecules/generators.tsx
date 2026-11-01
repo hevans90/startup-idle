@@ -65,21 +65,25 @@ export const Generators = () => {
               className={twMerge("flex responsive-text-sm items-center gap-1 px-2 py-1 hover:cursor-help hover:bg-surface-2", FOCUS)}
             >
               <KindMark id={gen.id} />
-              {gen.id === "vibe_coder" ? (
-                <RainbowText className="grow" text={gen.name} />
-              ) : gen.id === "10x_dev" ? (
-                <TenXDevText text={gen.name} className="grow" />
-              ) : (
-                <span className="grow">{gen.name}</span>
-              )}
-
-              <span className="w-12 text-right tabular-nums">{gen.amount}</span>
-              <span className="w-20 text-right text-xs tabular-nums text-fg-muted" title="What they all earn">
-                {formatCurrency(genMps(gen.id, gen.amount))}/s
+              {/* WHAT THEY ALL EARN under their name, not a column of its own:
+                  at three-digit exponents the row had no room for both. */}
+              <span className="flex min-w-0 grow flex-col">
+                {gen.id === "vibe_coder" ? (
+                  <RainbowText className="truncate" text={gen.name} />
+                ) : gen.id === "10x_dev" ? (
+                  <TenXDevText text={gen.name} className="truncate" />
+                ) : (
+                  <span className="truncate">{gen.name}</span>
+                )}
+                <span className="truncate text-xs tabular-nums text-fg-muted" title="What they all earn">
+                  {formatCurrency(genMps(gen.id, gen.amount))}/s
+                </span>
               </span>
+
+              <span className="shrink-0 text-right tabular-nums">{gen.amount}</span>
               <GeneratorBuyButton
                 id={gen.id}
-                className="ml-2 w-2/5 responsive-text-xs"
+                className="ml-1 w-auto min-w-28 shrink-0 whitespace-nowrap px-2 responsive-text-xs"
               />
             </div>
           </PopoverTrigger>
