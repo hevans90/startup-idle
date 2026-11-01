@@ -2,6 +2,7 @@ import type { ResourceBreakdown } from "../state/generators.store";
 import { PopCard, PopGroup, PopRow, type Tone } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
 import { times } from "../game/wording";
+import { kindName } from "../world/play/gates";
 
 const isActive = (m: number) => Math.abs(m - 1) > 1e-9;
 
@@ -32,7 +33,7 @@ export const ResourceBreakdownView = ({
         const factors = g.factors.filter((f) => isActive(f.mult));
         return (
           <PopGroup key={g.id}>
-            <PopRow strong label={<span className="capitalize">{g.name} <span className="font-normal text-fg-muted">×{g.amount}</span></span>} value={format(g.total)} />
+            <PopRow strong label={kindName(g.id, g.amount)} value={format(g.total)} />
             <PopRow indent label="each" value={format(g.perUnit)} />
             {factors.map((f) => (
               <PopRow key={f.label} indent

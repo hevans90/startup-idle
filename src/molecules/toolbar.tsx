@@ -58,9 +58,9 @@ export const Toolbar = ({ className }: { className?: ClassNameValue }) => {
           )}
         </div>
 
-        <AiSingularityReadout className="hidden w-48 shrink-0 border-l border-line-quiet px-3 @2xl:flex" />
-        {/* NARROWER, the AI gives way to its percentage and arrow rather than going. */}
-        <AiSingularityReadout compact className="flex border-l border-line-quiet px-2 @2xl:hidden" />
+        <AiSingularityReadout className="hidden w-48 shrink-0 border-l border-line-quiet px-3 @4xl:flex" />
+        {/* NARROWER, the AI gives way to its percentage and arrow rather than going: the full one wants room beside three counters. */}
+        <AiSingularityReadout compact className="flex border-l border-line-quiet px-2 @4xl:hidden" />
       </div>
     </div>
   );

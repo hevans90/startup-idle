@@ -13,6 +13,7 @@ import { usePrestigeStore } from "../../state/prestige.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { ModifierTag } from "../../ui/ModifierTag";
 import { percent, times } from "../../game/wording";
+import { Empty } from "../../ui/console";
 
 const NODES = nodeById(SKILL_TREE);
 const toneClass = (tone: "good" | "bad") =>
@@ -87,9 +88,7 @@ export const SkillTreeBonuses = () => {
       </p>
 
       {nodes.length === 0 && (
-        <p className="text-xs opacity-60">
-          Allocate passives to see their combined bonuses here.
-        </p>
+        <Empty opens="Allocate one to see what they add up to.">No nodes yet.</Empty>
       )}
 
       {totals.length > 0 && (
@@ -117,7 +116,7 @@ export const SkillTreeBonuses = () => {
       )}
 
       {minorGroups.size > 0 && (
-        <Section label="Minor passives" color="text-good">
+        <Section label="Minor nodes" color="text-good">
           {[...minorGroups.entries()].map(([cluster, g]) => (
             <Row key={cluster} title={`${g.name} ×${g.count}`} rows={g.rows} ids={g.ids} />
           ))}

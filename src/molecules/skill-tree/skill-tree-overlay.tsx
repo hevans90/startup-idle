@@ -82,8 +82,8 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
             type="text"
             value={search}
             onChange={(e) => useSkillTreeUiStore.getState().setSearch(e.target.value)}
-            placeholder="Search passives…"
-            aria-label="Search passives"
+            placeholder="Search nodes…"
+            aria-label="Search nodes"
             className={twMerge("w-56 border border-line bg-surface-1 py-1 pl-8 pr-7 text-xs text-fg placeholder:text-fg-faint focus:border-console", FOCUS)}
           />
           {search && (

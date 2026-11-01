@@ -327,7 +327,7 @@ export const FounderSelect = () => {
                 {modifiers.freeStartingLevels > 0 && (
                   <PanelRow
                     label="Free interns"
-                    value={`+${modifiers.freeStartingLevels}/run`}
+                    value={`+${modifiers.freeStartingLevels} a run`}
                     tone="good"
                   />
                 )}

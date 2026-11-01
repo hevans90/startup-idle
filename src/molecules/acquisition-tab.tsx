@@ -20,7 +20,7 @@ import { useMoneyStore } from "../state/money.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useSessionStore } from "../state/session.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
-import { Button, CountUp, Dialog, Panel, Section, Stat, StatGrid } from "../ui/console";
+import { Button, CountUp, Dialog, Empty, Panel, Section, Stat, StatGrid } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
 import { formatDuration } from "../utils/time-utils";
@@ -178,7 +178,7 @@ export function modifierChips(
   if (m.freeStartingLevels > 0)
     chips.push({
       label: "Free interns",
-      value: `+${m.freeStartingLevels}/run`,
+      value: `+${m.freeStartingLevels} a run`,
       good: true,
     });
   return chips;
@@ -245,7 +245,7 @@ export const AcquisitionTab = () => {
       <Panel
         title="Acquisition tree"
         className="w-full"
-        help="Spend Equity in a passive tree of permanent bonuses. Respec with Exits."
+        help="Spend Equity on a tree of permanent bonuses. Respec with Exits."
       >
         <div className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between text-xs">
@@ -264,9 +264,7 @@ export const AcquisitionTab = () => {
               <ChipRow chips={chips} />
             </>
           ) : (
-            <p className="text-[11px] opacity-60">
-              No nodes allocated yet — open the tree to spend your Equity.
-            </p>
+            <Empty opens="Open the tree to spend your Equity.">No nodes allocated yet.</Empty>
           )}
 
           <Button variant="primary" className="mt-1 w-full" onClick={() => setTreeOpen(true)}>
