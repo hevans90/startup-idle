@@ -1,6 +1,6 @@
 # Polish: one voice for every modifier, and the rough edges of the UI
 
-**Status:** phases 1–4 done; phase 5 next.
+**Status:** phases 1–5 done; phase 6 (the read-through) next.
 - **Answers taken:** "Money +8%"; no flavour lines written for modifiers that have none; e-notation for big numbers, as it is (not the short scale's names); "Output" for a kind's whole production.
 - **`game/wording.ts`:**
   - `STATS`, the glossary: each stat's name, which way is good, share or points.
@@ -25,13 +25,24 @@
   - Morale moves money, not output: the morale card and its popovers say so. A leader's popover gives the rest of the kind's real share (Open Door's 75%).
   - Mood reasons: one list, `WHY` in `mood-rules.ts`, for the mood and the desirability both; the desire readout puts the reason first ("Café +4").
   - The Build tool's hint says a park goes anywhere.
-  - Placement refusals ("no road access", "uneven ground") are never shown yet; they get their words with the placement readout (UI item 9).
+  - Placement refusals ("no road access", "uneven ground") are shown now, in the placement readout (phase 5, item 9).
 - **Phase 4, what changed:**
   - Every percentage and multiple on screen goes through `percent` and `times` (whole percentages unless under 10%; two places on a multiple under two): the breakdown popovers, hire and money popovers, founder and acquisition panels, skill tree, managers, mandates, morale, agents, term sheets.
   - Every money figure goes through `formatCurrency`, with one switch-over to e-notation ($10M): memos, events, term clauses, the term sheet's cash, pump upkeep; innovation and rates too, which wrote out every digit.
   - A debt takes the true minus before the dollar: "−$5".
   - Morale's 10x dev line says "hires get dearer 1.2% faster", not "cost curve +0.012"; "/emp" is "an employee".
   - The unused named scale (`formatScale`) is gone.
+- **Phase 5, what changed** (one commit an item, each checked on the isolated server):
+  1. A quiet load: achievements met at load in one "While you were away" report; the welcome-back dialog after a minute away, never on a fixture; the first tip five seconds after the map is up.
+  2. The hover label in a layer of its own (z-30), over the comms dock, the projects panel and anchored cards; under dialogs.
+  3. The projects panel starts folded once a project is built, and opens itself when a project it has not shown becomes ready.
+  4. On a narrow bar the AI readout shrinks to "AI 45.0% ▲".
+  5. Town-wide problems (`world/play/town-problems.ts`): when at least half of a kind's houses (8 or more) share a mood reason, comms says it once ("Interns unhappy at home: 883 houses, no desk") and those badges go, but for houses 5 points worse than their street's others. Bigtown: 2,041 badged houses → 613; the rest have other reasons.
+  6. Dropped (e-notation stays).
+  7. Upgrade popovers put the effect before the flavour; the projects log's gate chips show the effect too.
+  8. `Empty`: one empty state, what is missing then what opens it ("Nothing more to buy yet. The next comes at 15 interns.").
+  9. The placement readout (`world/play/place-readout.tsx`): what the click builds or upgrades and its price, or why not ("Needs a road beside it · $905").
+  10. Esc on the map puts away the hover label and the projects log.
 
 ## Why
 
@@ -172,7 +183,7 @@ Each of these was seen in the game this session, except where marked as not yet 
 3. **The projects panel starts collapsed** after the first project, opening itself only when something needs a choice ("2 ready").
 4. **The HUD on a narrow bar:** the AI readout gives way to a compact form (its percentage and arrow) rather than vanishing.
 5. **Town-wide problems are one notice, not a badge on every house.** When most houses of a kind share a mood problem, the comms dock says it once: "Interns unhappy at home: 214 houses, no services". Badges then mark only the houses worse than their street.
-6. **Big numbers by name** (§4), in the HUD, the sidebar, labels and the build bar alike.
+6. ~~**Big numbers by name**~~: dropped; e-notation from $10M stays (§4).
 7. **Popovers say the effect first:** title = the stat, then the effect line, then the flavour, then where it comes from. Today the order varies by surface.
 8. **One empty state per tab:** "Nothing to buy yet" and its siblings in one component, with what opens it. (A "Show me" link already does this on locked tabs.)
 9. **Placement readout:** the refusal and the price in one line under the pointer, in the glossary's words.
