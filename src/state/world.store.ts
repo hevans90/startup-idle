@@ -326,6 +326,9 @@ type WorldState = {
   hover: Cell | null;
   /** The building under the pointer that opens something when clicked, by id; null for none. @see opensSomething */
   hoverOpen: number | null;
+  /** The building drawn under the pointer, by id, in play; null for none. Its full label shows. @see BuildingLabels */
+  hoverBuilding: number | null;
+  setHoverBuilding: (id: number | null) => void;
   /** Bands currently drawn, for the debug readout. */
   drawnBands: number;
   /** Tiles holding water, and the total volume — mirrored for the readout. */
@@ -727,6 +730,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   viewport: null,
   hover: null,
   hoverOpen: null,
+  hoverBuilding: null,
   drawnBands: 0,
   openEdge: OPEN_EDGE_DEFAULT,
   gpuWater: true,
@@ -910,6 +914,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setViewport: (viewport) => set({ viewport }),
   setHover: (hover) => set({ hover }),
   setHoverOpen: (hoverOpen) => { if (get().hoverOpen !== hoverOpen) set({ hoverOpen }); },
+  setHoverBuilding: (hoverBuilding) => { if (get().hoverBuilding !== hoverBuilding) set({ hoverBuilding }); },
   // A LATCH, not a `set`: this fires on every pointer move with a fresh
   // object, and a store write is a React root pass. @see pointerSaw
   setPointer: (pointer) => pointerSaw(pointer),
@@ -966,7 +971,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
-      grid, hover: null, hoverOpen: null, stroke: null,
+      grid, hover: null, hoverOpen: null, hoverBuilding: null, stroke: null,
       revision: 0, lastTouched: [], ...historyMeta(), ...netMeta(),
     });
   },
@@ -1527,7 +1532,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const next = palette ?? get().palette;
     set({
       grid, palette: [...next], material: Math.min(get().material, next.length - 1),
-      hover: null, stroke: null, seed: null,
+      hover: null, hoverBuilding: null, stroke: null, seed: null,
       revision: 0, lastTouched: [], ...historyMeta(), ...netMeta(),
     });
   },

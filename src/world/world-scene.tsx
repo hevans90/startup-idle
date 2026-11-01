@@ -235,6 +235,9 @@ extend({ Container });
  */
 const ROAD_TABLE = buildRoadTable("landscape");
 
+/** Tiles round the pointer's cell a building may stand and still be drawn under it. */
+const NEAR_HOVER = 8;
+
 /**
  * The structure drawn under a point on the screen, the frontmost if several
  * overlap there — by the bounds of what its renderer drew. Null for none.
@@ -1814,10 +1817,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => takesClick(s.def, s.build) && clickTakesOver(st.tool, s.def))
         : null;
       st.setHoverOpen(open?.id ?? null);
+      // THE BUILDING UNDER THE POINTER, for its full label: tested only against
+      // those standing near the cell it is over — a tall one is drawn up the
+      // screen from its footprint, so those in front of the cell. @see BuildingLabels
+      const cell = st.hover;
+      const under = st.playing && !st.stroke && cell
+        ? structureHitAt(slRef.current, e.global.x, e.global.y, (s) => Math.abs(s.x - cell.x) <= NEAR_HOVER && Math.abs(s.y - cell.y) <= NEAR_HOVER && s.x + s.w + s.y + s.h >= cell.x + cell.y)
+        : null;
+      st.setHoverBuilding(under?.id ?? null);
     };
     const onLeave = () => {
       const st = useWorldStore.getState();
       st.setHoverOpen(null);
+      st.setHoverBuilding(null);
       st.setHover(null);
       st.setPointer(null);
       st.cancelStroke();
