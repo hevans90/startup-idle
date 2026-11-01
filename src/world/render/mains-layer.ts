@@ -33,7 +33,7 @@ import { findMains, joined, mainReportAt, mainReports, type MainState } from "..
 import { portsOf, type PortCell } from "../water/ports";
 import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { K, ZT, pipeCell, pipeMesh, solid, type Limb, type PipeMesh } from "./pipe-mesh";
+import { K, ZT, pipeCell, pipeMesh, type Limb, type PipeMesh } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /**
@@ -268,7 +268,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       const a = along2(-GLASS), b = along2(GLASS);
       gfx.moveTo(a[0], a[1] - w * 0.05).lineTo(b[0], b[1] - w * 0.05);
       gfx.stroke({ color: GLASS_TINT, width: w * 0.82, cap: "butt", alpha: 0.9 });
-      for (const k of [-1, 1]) {
+      // Its rings, but not round a solid tube: there they are plates stuck on. Its frame is to come. @see plans/pipe-rendering.md
+      for (const k of part === "all" ? [-1, 1] : []) {
         const o = k * GLASS * 0.5;
         ring(gfx, s, x + (along === "u" ? o : 0), y + (along === "v" ? o : 0), z, along, w * 0.55, COLLAR);
       }
@@ -301,7 +302,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       isoBox(gfx, s, x - 0.03, y - 0.03, x + 0.03, y + 0.03, Math.min(floor, z - rz) - 0.6, z - rz, CONCRETE, CONCRETE_SIDE, CONCRETE_DARK);
       ring(gfx, s, x, y, z, along, w * 0.85, SEWER_SHADE);
       ring(gfx, s, x, y, z, along, w * 0.55, 0x1a120c);
-    } else if (end === MAIN_END.cap) {
+    } else if (end === MAIN_END.cap && part === "all") {
       gfx.circle(c[0], c[1], w * 0.55);
       gfx.fill({ color: CAP });
     }
@@ -317,7 +318,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     }
     const bits = g.main[i];
     const colour = bits & MAIN_SEWER ? IRON : bits & MAIN_AI ? AI_STEEL : STEEL;
-    pipeCell(m, s, x, y, z, out, tubeR(bits), solid(colour), TUBE_SIDES);
+    const cap = g.mainEnd[i] === MAIN_END.cap ? CAP : null;
+    pipeCell(m, s, x, y, z, out, { r: tubeR(bits), colour, sides: TUBE_SIDES, cap });
   };
 
   /**

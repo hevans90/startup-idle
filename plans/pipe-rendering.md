@@ -1,6 +1,6 @@
 # Pipe rendering overhaul
 
-Status: **phase 1 done** (2026-11-01). The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
+Status: **phases 1–2 done** (2026-11-01). The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
 
 The goal is for pipes to look as solid and readable as Factorio's. That means:
 - round, lit metal tubes;
@@ -157,6 +157,20 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
   - The steel is a warm grey (`0xb9b7b1`), which the night's blue grade leaves grey, like the roofs.
   - The old flat collars are off on solid tubes, because on a round tube they read as stuck-on plates. Flanges come in phase 2.
 - Not seen: the GLSL path in the game. With `?webgl`, the water shader fails to compile (`dryDepth`, `groundAt`) and stops the render, before any pipe draws. The pipe GLSL was compiled by hand in a WebGL2 context, and it compiles.
+
+### Phase 2, as built
+
+- In `pipe-mesh.ts`, `pipeCell` now builds each shape from the cell's joins:
+  - a straight run;
+  - a bend, a quarter circle of radius `BEND_R` 0.35 (`elbowPath`, drawn by `sweep` with its far segments first);
+  - a tee or a cross: a run along u, with each stub welded on behind a collar;
+  - a loose end: a red blind flange with bolts if capped (`MAIN_END.cap`), and a dome under any other fitting.
+- A flange (`FLANGE_R` 1.4, with six bolts) sits at every join, drawn by the cell on the near side of the join and before its length. That way each join gets exactly one flange.
+- Each tube writes only the half of its ring that faces the camera, starting exactly on the silhouette (`halfRing`).
+  - Writing every face that showed at least one edge let the outermost faces fold back over the front. That was a dark streak along sloped runs.
+  - The half ring is also half the vertices.
+- The glass sections' flat rings are off on solid tubes too. The window gets its frame in phase 5.
+- Checked on the singularity fixture: the bends, the stilted rise over the road, flanges by day and night at zoom 1 to 7, and a cross, a tee and a cap made by editing the fixture's grid.
 
 ## 8. Verification
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { VIEW, WORDS, ZT, ball, pipeCell, pipeMesh, solid, tube, type PipeMesh } from "./pipe-mesh";
+import { BEND_R, BOLTS, VIEW, WORDS, ZT, ball, elbowPath, flange, pipeCell, pipeMesh, solid, tube, type PipeMesh } from "./pipe-mesh";
 import { pipeFragmentGlsl, pipeShaderSource } from "./pipe-gpu";
 
 const normalOf = (m: PipeMesh, v: number) => [m.f32[v * WORDS + 2], m.f32[v * WORDS + 3], m.f32[v * WORDS + 4]];
@@ -24,13 +24,16 @@ describe("a main as a solid", () => {
     expect(m.f32[1]).toBeCloseTo(0);
   });
 
-  test("a tube writes only the faces the camera can see — about half of them", () => {
-    const m = pipeMesh();
-    tube(m, 1, 0, 0, 0, 1, 0, 0, 0.1, solid(0x888888), 16);
-    const faces = tris(m).length / 2;
-    expect(faces).toBeGreaterThanOrEqual(8);
-    expect(faces).toBeLessThanOrEqual(10);
-    for (const [a, b] of tris(m)) expect(Math.max(facing(normalOf(m, a)), facing(normalOf(m, b)))).toBeGreaterThan(-0.5);
+  test("a tube writes the half the camera sees, edge to edge, and nothing turned away", () => {
+    for (const [du, dv, dh] of [[1, 0, 0], [0, 1, 0], [0, -1, 0.4], [1, 0, -0.3]]) {
+      const m = pipeMesh();
+      tube(m, 1, 0, 0, 0, du, dv, dh, 0.1, solid(0x888888), 16);
+      expect(tris(m).length / 2).toBe(8);
+      for (let v = 0; v < m.nv; v++) expect(facing(normalOf(m, v))).toBeGreaterThan(-1e-6);
+      // Its first and last edges are the silhouette: square to the line of sight.
+      expect(facing(normalOf(m, 0))).toBeCloseTo(0);
+      expect(facing(normalOf(m, m.nv - 1))).toBeCloseTo(0);
+    }
   });
 
   test("every normal is a unit, every vertex on the tube's surface", () => {
@@ -45,22 +48,73 @@ describe("a main as a solid", () => {
     for (let v = 0; v < m.nv; v++) expect(facing(normalOf(m, v))).toBeGreaterThan(-1e-6);
   });
 
-  test("a straight run needs no ball; a bend has one, drawn between its far limb and its near", () => {
-    const straight = pipeMesh(), bend = pipeMesh();
-    pipeCell(straight, 1, 5, 5, 1, [{ dx: 0, dy: -1, zf: 1 }, { dx: 0, dy: 1, zf: 1 }], 0.1, solid(0), 12);
-    pipeCell(bend, 1, 5, 5, 1, [{ dx: 1, dy: 0, zf: 1 }, { dx: 0, dy: -1, zf: 1 }], 0.1, solid(0), 12);
-    // Two tubes of 24 vertices; the bend's ball adds its pole and three rings.
-    expect(straight.nv).toBe(48);
-    expect(bend.nv).toBe(48 + 1 + 3 * 12);
-    // The far limb (toward −v) is written first: its vertices sit up the screen of the near one's.
-    const firstY = bend.f32[1], lastY = bend.f32[(bend.nv - 1) * WORDS + 1];
-    expect(firstY).toBeLessThan(lastY);
+  const look = { r: 0.1, colour: 0x888888, sides: 12 };
+  const along = (l: { dx: number; dy: number }) => ({ ...l, zf: 1 });
+  const N = along({ dx: 0, dy: -1 }), S = along({ dx: 0, dy: 1 }), E = along({ dx: 1, dy: 0 }), W = along({ dx: -1, dy: 0 });
+
+  test("a straight run is two lengths, and a flange only at its far join", () => {
+    const bare = pipeMesh(), flanged = pipeMesh();
+    pipeCell(bare, 1, 5, 5, 1, [N, S], { ...look, flanges: false });
+    pipeCell(flanged, 1, 5, 5, 1, [N, S], look);
+    // A length is the near half of each end's ring: seven of twelve, twice.
+    expect(bare.nv).toBe(2 * 14);
+    // One flange: its rim, its face, and six bolts on the face.
+    expect(flanged.nv).toBe(2 * 14 + 14 + 24 + BOLTS * 7);
+  });
+
+  test("a flange's face shows only on the camera's side", () => {
+    const near = pipeMesh(), away = pipeMesh();
+    flange(near, 1, 0, 0, 0, 1, 0, 0.1, 0x888888, 12, false, false);
+    flange(away, 1, 0, 0, 0, -1, 0, 0.1, 0x888888, 12, false, false);
+    expect(near.nv).toBe(away.nv + 24);
+  });
+
+  test("a bend's path leaves one face and arrives at the other, round a quarter circle", () => {
+    const path = elbowPath(5, 5, 0.2, W, S);
+    expect(path[0]).toEqual([4.5, 5, ZT]);
+    expect(path[path.length - 1]).toEqual([5, 5.5, ZT]);
+    // The arc: every point BEND_R from the circle's middle, out along both limbs.
+    const [ou, ov] = [5 - BEND_R, 5 + BEND_R];
+    for (const [u, v, h] of path.slice(1, -1)) {
+      expect(Math.hypot(u - ou, v - ov)).toBeCloseTo(BEND_R);
+      expect(h).toBe(0.2);
+    }
+    // It turns smoothly: no step between neighbours longer than the straights in and out.
+    for (let k = 1; k < path.length; k++) expect(Math.hypot(path[k][0] - path[k - 1][0], path[k][1] - path[k - 1][1])).toBeLessThanOrEqual(0.5 - BEND_R + 1e-9);
+  });
+
+  test("a bend has no ball; a loose end does, or a blind flange if capped", () => {
+    const bend = pipeMesh(), end = pipeMesh(), capped = pipeMesh();
+    pipeCell(bend, 1, 5, 5, 1, [E, N], { ...look, flanges: false });
+    pipeCell(end, 1, 5, 5, 1, [N], { ...look, flanges: false });
+    pipeCell(capped, 1, 5, 5, 1, [N], { ...look, flanges: false, cap: 0xc0392b });
+    expect(bend.nv).toBe(9 * 7);
+    expect(end.nv).toBe(14 + 1 + 3 * 12);
+    // A blind flange facing the camera: rim, a whole disc, and its bolts.
+    expect(capped.nv).toBe(14 + 14 + 13 + BOLTS * 7);
+  });
+
+  test("a tee is a run with a collared stub; a cross, a run with two", () => {
+    const tee = pipeMesh(), cross = pipeMesh();
+    pipeCell(tee, 1, 5, 5, 1, [N, S, E], { ...look, flanges: false });
+    pipeCell(cross, 1, 5, 5, 1, [N, S, E, W], { ...look, flanges: false });
+    // Lengths of 14, a collar of 14 and, facing the camera, its face of 24.
+    expect(tee.nv).toBe(3 * 14 + 14 + 24);
+    // The far stub's collar faces away: no face.
+    expect(cross.nv).toBe(4 * 14 + 14 + 24 + 14);
+  });
+
+  test("everything a cell writes points somewhere real", () => {
+    const m = pipeMesh();
+    for (const limbs of [[N], [N, S], [E, N], [N, S, E], [N, S, E, W]]) pipeCell(m, 1, 5, 5, 1, limbs, { ...look, cap: 0xff0000 });
+    for (let v = 0; v < m.nv; v++) expect(Math.hypot(...normalOf(m, v))).toBeCloseTo(1);
+    for (const t of tris(m)) for (const v of t) expect(v).toBeLessThan(m.nv);
   });
 
   test("it grows past its first size and keeps what it wrote", () => {
     const m = pipeMesh(4);
     for (let k = 0; k < 20; k++) tube(m, 1, k, 0, 0, k + 1, 0, 0, 0.1, solid(0x123456), 8);
-    expect(m.nv).toBe(20 * 16);
+    expect(m.nv).toBe(20 * 10);
     expect(m.u32[5]).toBe(solid(0x123456));
     for (const t of tris(m)) for (const v of t) expect(v).toBeLessThan(m.nv);
   });
