@@ -12,7 +12,7 @@
  *    pouring out. @see ascension-sequence
  * Nothing here is saved or clicked; it is how the town looks.
  */
-import { Graphics, type Container } from "pixi.js";
+import { Graphics, Matrix, type Container } from "pixi.js";
 
 import { NEIGHBOUR } from "../../iso/dir";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -109,6 +109,7 @@ const DISTRICT_SEGMENTS = 72;
 
 export function createAiLayer(overlay: Container): AiLayer {
   const gfx = new Graphics();
+  const scratch = new Matrix();
   gfx.eventMode = "none";
   gfx.zIndex = 996;
   overlay.addChild(gfx);
@@ -202,7 +203,8 @@ export function createAiLayer(overlay: Container): AiLayer {
         const p = view.pick, z = ground(g, p.x + (p.w >> 1), p.y + (p.h >> 1));
         const box = [...P(sc, p.x - 0.5, p.y - 0.5, z), ...P(sc, p.x + p.w - 0.5, p.y - 0.5, z), ...P(sc, p.x + p.w - 0.5, p.y + p.h - 0.5, z), ...P(sc, p.x - 0.5, p.y + p.h - 0.5, z)];
         // Its outline two screen pixels wide however far out the map is: the layer is scaled with it.
-        const px = 1 / (gfx.worldTransform.a || 1);
+        // Worked out now, not read from `worldTransform`, which is last frame's: a zoom drew it its old width.
+        const px = 1 / Math.max(1e-3, Math.abs(gfx.getGlobalTransform(scratch, false).a));
         gfx.poly(box);
         gfx.fill({ color: STAGE_COLOUR.overseer, alpha: 0.2 });
         gfx.poly(box);
