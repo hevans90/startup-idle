@@ -17,6 +17,7 @@ import { InfoPop } from "../../ui/InfoPop";
 import { formatCurrency } from "../../utils/money-utils";
 import { KIND_COLOUR } from "./building-info";
 import { KIND, hex, kindName, showUpgrades, upgradeOf, useGateUnlocks } from "./gates";
+import { UpgradeSummary } from "../../molecules/upgrades";
 
 /** "at 25 interns", from an upgrade's conditions, with how many there are now. */
 function whenBuyable(u: Upgrade, owned: Partial<Record<GeneratorId, number>>): { text: string; met: boolean } {
@@ -47,7 +48,8 @@ function GateChip({ part, project, owned }: { part: GatePart; project: ProjectDe
         className={twMerge("border px-1 py-px text-[10px]", tone)}
         trigger={<><span aria-hidden>{mark}</span><span>{u.name}</span></>}
         title={part.met ? `${u.name}: bought` : `${project.name} needs ${u.name}`}>
-        <p>{u.description}</p>
+        <UpgradeSummary upg={u} />
+        <p className="text-fg-muted">{u.description}</p>
         <p className="tabular-nums">
           Costs <b className={afford || part.met ? undefined : "text-bad"}>{formatCurrency(u.cost)}</b>
           {!part.met && <> · buyable at {when.text}</>}

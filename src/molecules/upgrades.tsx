@@ -61,7 +61,8 @@ const OpensLine = ({ upg }: { upg: Upgrade }) => {
   );
 };
 
-const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
+/** An upgrade's effect lines, first in every popover that shows it. @see plans/polish.md (UI 7) */
+export const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
   // Each change in the game's words, stat first, coloured by whether it helps. @see game/wording
   const renderEffect = (effect: GeneratorEffect) => {
     switch (effect.type) {
@@ -130,8 +131,8 @@ export const Upgrades = () => {
                 <PopoverContent className={POPOVER_BARE}>
                   <PopCard title={<GenLabel id={upg.id} text={upg.name} />} value={formatCurrency(upg.cost)} tone={can ? "money" : "console"} className="w-80"
                     foot={opensOf(upg).length ? <OpensLine upg={upg} /> : undefined}>
-                    <p className="text-fg-muted">{upg.description}</p>
                     <UpgradeSummary upg={upg} />
+                    <p className="text-fg-muted">{upg.description}</p>
                   </PopCard>
                 </PopoverContent>
               </Popover>
@@ -151,8 +152,8 @@ export const Upgrades = () => {
               <PopoverContent className={POPOVER_BARE}>
                 <PopCard title={<GenLabel id={upg.id} text={upg.name} static />} value="Bought" tone="good" className="w-80"
                   foot={<>Paid {formatCurrency(upg.cost)}.</>}>
-                  <p className="text-fg-muted">{upg.description}</p>
                   <UpgradeSummary upg={upg} />
+                  <p className="text-fg-muted">{upg.description}</p>
                 </PopCard>
               </PopoverContent>
             </Popover>
