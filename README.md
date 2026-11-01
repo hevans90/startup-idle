@@ -38,7 +38,7 @@ A satirical idle game: hire interns, vibe coders and 10x devs, and build your co
 
 The town (`world/play/company-map.tsx`): buildings need **road frontage**; no land to buy. **Hints** (`play/hints.ts`). The sidebar (`molecules/sidebar.tsx`) shows locked features with "Show me" (`play/map-focus.ts`). **Phone** (≤ 768 px, `hooks/use-phone.ts`): Map/Company tabs.
 
-- **Build bar** (`build-bar.tsx`): tools on keys 1–6 (Look, Road, Lift, Pipe, Build, Demolish), views (Wonders, Mood, Earnings, Water, AI mode, Labels). **Undo** for 15 s, money included. **Labels** (`building-labels.tsx`, `badges.ts`): at rest only problems wear a badge (worst kept where they meet, a street of one problem one badge), the rest a dot; Water, Mood and Build show their own numbers; the pointer gets any building's full label.
+- **Build bar** (`build-bar.tsx`): tools on keys 1–6 (Look, Road, Lift, Pipe, Build, Demolish), views (Wonders, Mood, Earnings, Water, AI mode, Labels). **Undo** for 15 s, money included. **Labels** (`building-labels.tsx`, `badges.ts`): at rest only problems wear a badge (worst kept where they meet, a street of one problem one badge), the rest a dot; Water (zoomed in), Mood and Build show their own numbers; the pointer gets any building's full label.
 - **Housing** (`world/agents/arrivals.ts`): **lots** (1×1, 2 beds) dragged in rows; hires travel in and wait for a bed (`attendance`).
 - **Desks** (`agents/commute.ts`): nearest free desk first (`seat`); deskless work at 35%; commutes free to 8 tiles, then worse.
 - **R&D labs** (`world/projects/labs.ts`): +10% innovation, 20% near the campus or Data Centre.

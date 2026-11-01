@@ -221,7 +221,8 @@ export function BuildingLabels({ className }: { className?: string }) {
         if (top.x < -OFF || top.y < -OFF || top.x > vp.screenWidth + OFF || top.y > vp.screenHeight + OFF) continue;
         if (s.id === st.hoverBuilding) continue;
         const far = view === "build" && (!near || Math.abs(s.x - near.x) > BUILD_REACH || Math.abs(s.y - near.y) > BUILD_REACH);
-        const badge = far ? null : badgeFor(s, ctx, view);
+        // THE WATER VIEW zoomed out: its rings and numbers say it, and badges would sit on them.
+        const badge = far || (view === "water" && !dots) ? null : badgeFor(s, ctx, view);
         if (badge) items.push({ id: s.id, x: top.x, y: top.y, band: s.x + s.w + s.y + s.h, badge });
         else if (dots && infoFor(s, ctx)) { keep(`d${s.id}`, top); list.push({ key: `d${s.id}`, kind: "dot" }); }
       }
