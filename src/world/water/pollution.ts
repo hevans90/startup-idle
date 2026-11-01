@@ -16,7 +16,7 @@ import {
 } from "../../game/pollution";
 import type { ColumnField } from "../../fluid/columns";
 import { housedBy } from "../../game/housing";
-import { inBounds, type Grid } from "../grid";
+import { MAIN_END, inBounds, type Grid } from "../grid";
 import { WATER_REACH } from "../agents/mood-rules";
 import { COLUMNS_PER_TILE, type WaterField } from "./field";
 
@@ -180,6 +180,55 @@ export function fouledHouses(field: WaterField, g: Grid): Set<number> {
       for (let x = s.x - WATER_REACH; x < s.x + s.w + WATER_REACH; x++) {
         if (inBounds(g, x, y) && x < p.w && y < p.h && p.mass[y * p.w + x] > TRACE && pollutionAt(field, x, y) > POLLUTED) { out.add(s.id); break search; }
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * UPSTREAM OF THE TOWN: every wet tile whose water runs down — or lies level,
+ * as a lake does — to water the town uses: beside an intake, or in view of a
+ * house. Slop let out there reaches them; an outfall belongs somewhere else.
+ * By tile index. @see routeSewer
+ */
+export function upstreamOfTown(field: WaterField, g: Grid): Set<number> {
+  const c = field.columns, w = g.w;
+  const memo = new Map<number, { depth: number; surface: number }>();
+  const at = (i: number) => {
+    let t = memo.get(i);
+    if (!t) { t = tileWater(c, i % w, (i / w) | 0); memo.set(i, t); }
+    return t;
+  };
+  const wet = (i: number) => at(i).depth >= POLLUTION_WET;
+  const out = new Set<number>(), queue: number[] = [];
+  const seed = (x: number, y: number) => {
+    if (!inBounds(g, x, y)) return;
+    const i = y * w + x;
+    if (!out.has(i) && wet(i)) { out.add(i); queue.push(i); }
+  };
+  // WHAT THE TOWN USES: the water by each intake, and in each house's view.
+  for (let i = 0; i < g.mainEnd.length; i++) {
+    if (g.mainEnd[i] !== MAIN_END.intake) continue;
+    const x = i % w, y = (i / w) | 0;
+    seed(x, y);
+    for (const [dx, dy] of SIDES) seed(x + dx, y + dy);
+  }
+  for (const s of g.structures.values()) {
+    if (!housedBy(s.def) || s.build) continue;
+    for (let y = s.y - WATER_REACH; y < s.y + s.h + WATER_REACH; y++) {
+      for (let x = s.x - WATER_REACH; x < s.x + s.w + WATER_REACH; x++) seed(x, y);
+    }
+  }
+  // AND UP FROM THEM: to each wet neighbour whose surface is no lower.
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q], x = i % w, y = (i / w) | 0, s = at(i).surface;
+    for (const [dx, dy] of SIDES) {
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(g, nx, ny)) continue;
+      const j = ny * w + nx;
+      if (out.has(j) || !wet(j) || at(j).surface < s - 1e-6) continue;
+      out.add(j);
+      queue.push(j);
     }
   }
   return out;

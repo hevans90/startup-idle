@@ -6,6 +6,8 @@ import { MAIN_END, createGrid, fillTerrain, idx, setHeight, type Grid } from "..
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { layMain, planMain } from "../water/mains";
+import { createWaterField } from "../water/field";
+import { upstreamOfTown } from "../water/pollution";
 import { neededSewer, routeSewer } from "./sewer-ai";
 
 afterEach(() => setSlopMaking(0));
@@ -56,5 +58,24 @@ describe("the AI's sewers", () => {
     expect(neededSewer(g)).toBeNull();
     setSlopMaking(1);
     expect(neededSewer(g)?.cells.length).toBeGreaterThan(1);
+  });
+
+  test("let out downstream of the town's intake, not into the water it drinks", () => {
+    // A river down the west edge, falling southward (y up); an intake at (4, 8).
+    const g = createGrid(24, 24);
+    fillTerrain(g, 1);
+    for (let y = 0; y < 24; y++) for (let x = 0; x < 24; x++) setHeight(g, x, y, x <= 3 ? -2 - (y >> 1) : 2);
+    for (let y = 0; y < 24; y++) for (let x = 0; x <= 3; x++) g.pool[idx(g, x, y)] = 4;
+    commit(g, createHistory(), placeCommand(g, { ...structureDef("office-vibe")!, placement: undefined }, 10, 3)!);
+    g.mainEnd[idx(g, 4, 8)] = MAIN_END.intake;
+    const upstream = upstreamOfTown(createWaterField(g), g);
+    // The water by the intake and above it runs to it; below, it runs away.
+    expect(upstream.has(idx(g, 3, 4))).toBe(true);
+    expect(upstream.has(idx(g, 3, 14))).toBe(false);
+    const cells = routeSewer(g, { x: 12, y: 4 }, wetOf(g), upstream)!;
+    expect(cells[cells.length - 1].y).toBeGreaterThan(9);
+    expect(end(g, cells)).toBe(MAIN_END.outfall);
+    // With nothing to keep clean, the nearest water.
+    expect(routeSewer(g, { x: 12, y: 4 }, wetOf(g))!.at(-1)!.y).toBeLessThan(8);
   });
 });

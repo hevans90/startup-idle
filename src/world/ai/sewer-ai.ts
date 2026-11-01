@@ -1,7 +1,8 @@
 /**
  * World v2 — THE AI SEES TO ITS SLOP: which vibe workplace has slop and no
  * sewer, and the route for one from its slop port — to a processor's inlet
- * first, else onto a sewer already laid, else to water for an outfall; and
+ * first, else onto a sewer already laid, else to water for an outfall —
+ * downstream of the town where there is any in reach; and
  * another refinery when there is more slop than the refineries standing can
  * take. Laid and bought through the player's own actions. AI mode.
  * @see neededPipe, game/slop, game/processors
@@ -10,7 +11,8 @@ import { pipeCost, buildCost } from "../../game/build-cost";
 import { PROCESS_RATE, processorKind } from "../../game/processors";
 import { slopMaking } from "../../game/slop";
 import { featureGateOpen } from "../../game/projects";
-import { mainWet } from "../../state/world.store";
+import { getWater, mainWet } from "../../state/world.store";
+import { upstreamOfTown } from "../water/pollution";
 import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { hasMain, isSewer, planMain } from "../water/mains";
@@ -39,9 +41,12 @@ function unsewered(g: Grid): { s: Structure; port: Cell }[] {
  * A SEWER'S ROUTE from a slop port, by the roads and the open ground — never
  * through a building, over water, or across another main: to the nearest
  * processor inlet if there is one in reach, else onto the nearest sewer, else
- * to the nearest tile beside water. Null with none. Pure.
+ * to the nearest tile beside water that is not `upstream` of the town — or,
+ * with none such in reach, beside any. Null with none. Pure.
  */
-export function routeSewer(g: Grid, from: Cell, wet: (x: number, y: number) => boolean): Cell[] | null {
+export function routeSewer(
+  g: Grid, from: Cell, wet: (x: number, y: number) => boolean, upstream: ReadonlySet<number> = new Set(),
+): Cell[] | null {
   const inlets = new Set<number>();
   for (const s of g.structures.values()) {
     if (!processorKind(s.def) || s.build) continue;
@@ -52,12 +57,17 @@ export function routeSewer(g: Grid, from: Cell, wet: (x: number, y: number) => b
   const start = idx(g, from.x, from.y);
   prev[start] = -1;
   const queue = [start];
-  let processor = -1, sewer = -1, water = -1;
+  let processor = -1, sewer = -1, water = -1, clean = -1;
   for (let q = 0; q < queue.length && processor < 0; q++) {
     const i = queue[q], x = i % g.w, y = (i / g.w) | 0;
     if (dist[i] > SEWER_REACH) break;
     if (i !== start && inlets.has(i)) { processor = i; break; }
-    if (water < 0 && i !== start && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inBounds(g, x + dx, y + dy) && wet(x + dx, y + dy))) water = i;
+    if (clean < 0 && i !== start) {
+      const by = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => inBounds(g, x + dx, y + dy) && wet(x + dx, y + dy));
+      if (by.length && water < 0) water = i;
+      // DOWNSTREAM OF THE TOWN: beside water none of it is upstream of. @see upstreamOfTown
+      if (by.length && by.every(([dx, dy]) => !upstream.has(idx(g, x + dx, y + dy)))) clean = i;
+    }
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy;
       if (!inBounds(g, nx, ny)) continue;
@@ -74,7 +84,7 @@ export function routeSewer(g: Grid, from: Cell, wet: (x: number, y: number) => b
       queue.push(j);
     }
   }
-  const end = processor >= 0 ? processor : sewer >= 0 ? sewer : water;
+  const end = processor >= 0 ? processor : sewer >= 0 ? sewer : clean >= 0 ? clean : water;
   if (end < 0) return null;
   const path: Cell[] = [];
   for (let k = end; k !== -1; k = prev[k]) path.push({ x: k % g.w, y: (k / g.w) | 0 });
@@ -84,9 +94,9 @@ export function routeSewer(g: Grid, from: Cell, wet: (x: number, y: number) => b
 /** The sewer most wanted, and its price: for a workplace with slop and none; null with no slop or no way. */
 export function neededSewer(g: Grid): { s: Structure; cells: Cell[]; price: number } | null {
   if (slopMaking() <= 0) return null;
-  const wet = mainWet(g);
+  const water = getWater(), wet = mainWet(g), upstream = water ? upstreamOfTown(water, g) : new Set<number>();
   for (const { s, port } of unsewered(g)) {
-    const cells = routeSewer(g, port, wet);
+    const cells = routeSewer(g, port, wet, upstream);
     if (!cells || cells.length < 2) continue;
     const plan = planMain(g, cells, wet, false, true);
     if ("refused" in plan) continue;
