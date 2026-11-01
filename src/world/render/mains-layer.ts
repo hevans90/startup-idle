@@ -134,6 +134,30 @@ function levelAt(g: Grid, x: number, y: number): number {
   return z + (g.paved[idx(g, x, y)] ? ROAD_LIFT : LIFT);
 }
 
+/** One of the Water overlay's numbers: what it says, where, and how much it matters (a warning most). */
+export type Word = { text: string; colour: number; at: [number, number]; rank: number };
+
+/** Roughly a number's size on the screen, px: 11 px type with its outline, anchored at its bottom middle. */
+const wordSize = (text: string) => ({ w: text.length * 6.6 + 6, h: 15 });
+
+/**
+ * WHERE THE NUMBERS GO: what matters most first, each where it stands unless it
+ * would land on one already placed — then it is left out, its building's own
+ * label still a hover away. `px` is a screen pixel in the words' units.
+ */
+export function spaceWords(words: readonly Word[], px: number): Word[] {
+  const placed: Word[] = [];
+  for (const it of [...words].sort((a, b) => b.rank - a.rank)) {
+    const s = wordSize(it.text);
+    const hit = placed.some((p) => {
+      const t = wordSize(p.text);
+      return Math.abs(p.at[0] - it.at[0]) * 2 < (s.w + t.w) * px && Math.abs(p.at[1] - it.at[1]) < ((s.h + t.h) / 2) * px;
+    });
+    if (!hit) placed.push(it);
+  }
+  return placed;
+}
+
 export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLayer {
   const drawn = new Map<number, Graphics>();
   const ports: Graphics[] = [];
@@ -369,11 +393,12 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     wordsAt = now;
     wordsPx = px;
     wordsScale = s;
-    let k = 0;
+    const all: Word[] = [];
     for (const [id, tank] of allTanks()) {
       const c = ringAt.get(id);
       if (!c) continue;
-      word(k++, `${Math.round(tank.capacity > 0 ? (100 * tank.level) / tank.capacity : 0)}%`, 0xffffff, [c[0], c[1] - 13 * px], px);
+      const f = tank.capacity > 0 ? tank.level / tank.capacity : 0;
+      all.push({ text: `${Math.round(100 * f)}%`, colour: 0xffffff, at: [c[0], c[1] - 13 * px], rank: f < 0.25 ? 3 : 2 });
     }
     for (const r of mainReports().values()) {
       for (const it of r.intakes) {
@@ -381,7 +406,12 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         const c = P(s, x, y, levelAt(g, x, y));
         // FOULED water cools less, and says so. @see coolingKept
         const fouled = it.surface !== null && it.fouled >= 0.05 ? ` · ${Math.round(it.fouled * 100)}% fouled` : "";
-        word(k++, it.surface === null ? "dry" : `${(it.depth / 2).toFixed(1)} deep${fouled}`, it.surface === null ? 0xff8a8d : fouled ? 0xd9a35a : 0x9fd6ff, [c[0], c[1] - w * 3.4], px);
+        all.push({
+          text: it.surface === null ? "dry" : `${(it.depth / 2).toFixed(1)} deep${fouled}`,
+          colour: it.surface === null ? 0xff8a8d : fouled ? 0xd9a35a : 0x9fd6ff,
+          at: [c[0], c[1] - w * 3.4],
+          rank: it.surface === null || fouled ? 3 : 1,
+        });
       }
     }
     for (const net of list) {
@@ -390,8 +420,10 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       const mid = net.cells[(net.cells.length / 2) | 0], x = mid % g.w, y = (mid / g.w) | 0;
       const c = P(s, x, y, levelAt(g, x, y));
       const slabs = r.head / 2;
-      word(k++, `head ${slabs > 0 ? "+" : ""}${slabs.toFixed(1)}`, STATE_COLOUR[r.state], [c[0], c[1] - w * 1.6], px);
+      all.push({ text: `head ${slabs > 0 ? "+" : ""}${slabs.toFixed(1)}`, colour: STATE_COLOUR[r.state], at: [c[0], c[1] - w * 1.6], rank: r.state === "flowing" || r.state === "full" ? 0 : 3 });
     }
+    let k = 0;
+    for (const it of spaceWords(all, px)) word(k++, it.text, it.colour, it.at, px);
     for (let j = k; j < pool.length; j++) pool[j].visible = false;
   };
 
