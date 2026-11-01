@@ -20,12 +20,12 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     ];
     if (founder.innovationLogMult !== 1)
       rows.push({
-        source: `Founder steepens curve ×${founder.innovationLogMult.toFixed(1)}`,
+        source: `Founder: steeper ×${Number(founder.innovationLogMult.toFixed(2))}`,
         value: "",
         tone: "good",
       });
     return {
-      label: "Innovation curve",
+      label: "Innovation's boost",
       description: `Logarithmic:\n1k I → ${innovRef(1e3)}, 1M I → ${innovRef(1e6)}, 1B I → ${innovRef(1e9)}.`,
       rows,
       total: fmt2(total),

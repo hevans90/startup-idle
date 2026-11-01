@@ -3,7 +3,7 @@ import { usePrestigeStore } from "../../state/prestige.store";
 import { INTERN_INNOVATION_SWING, internSatisfactionIpsMultiplier } from "../satisfaction";
 import type { BreakdownRow, ModifierBreakdown } from "./types";
 import { SAT_REV_BASE, satisfactionRevenueEntry } from "./factories";
-import { fmt2, satRows } from "./utils";
+import { fmt2, satRows, titled } from "./utils";
 
 /** Interns' morale on something other than their own output. */
 function internSatEntry(
@@ -23,27 +23,27 @@ function internSatEntry(
 
 export const entries: Record<string, () => ModifierBreakdown> = {
   internIpsMult: internSatEntry(
-    "Intern morale — innovation",
+    titled("Innovation", "intern morale"),
     internSatisfactionIpsMultiplier,
     (mult) => (mult >= 1 ? "good" : "bad"),
     `Interns' morale moves the company's innovation: ×${1 - INTERN_INNOVATION_SWING} at its lowest, ×${1 + INTERN_INNOVATION_SWING} at its highest.`,
   ),
 
   "satisfactionRevenue.intern": satisfactionRevenueEntry(
-    "Intern morale — $",
+    titled("Money", "intern morale"),
     "intern",
-    `Scales intern money output.\n${SAT_REV_BASE}`,
+    `Interns' money, by their morale.\n${SAT_REV_BASE}`,
   ),
 
   "satisfactionRevenue.vibe_coder": satisfactionRevenueEntry(
-    "Vibe coder morale — $",
+    titled("Money", "vibe coder morale"),
     "vibe_coder",
-    `Scales vibe coder money output.\n${SAT_REV_BASE}\nHappy vibe coders also fill the slop pit slower: half as fast at the highest, twice as fast at the lowest.`,
+    `Vibe coders' money, by their morale.\n${SAT_REV_BASE}\nHappy vibe coders also fill the slop pit slower: half as fast at the highest, twice as fast at the lowest.`,
   ),
 
   "satisfactionRevenue.10x_dev": satisfactionRevenueEntry(
-    "10x dev morale — $",
+    titled("Money", "10x dev morale"),
     "10x_dev",
-    `Scales 10x dev money output.\n${SAT_REV_BASE}\nHigh morale also lowers their hire cost curve.`,
+    `10x devs' money, by their morale.\n${SAT_REV_BASE}\nHigh morale also makes each hire of them get dearer slower.`,
   ),
 };

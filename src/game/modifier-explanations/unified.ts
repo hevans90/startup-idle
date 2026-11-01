@@ -22,15 +22,15 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     const mandate = mandateBonus("moneyMultPerLevel");
     const rows: BreakdownRow[] = [];
     if (m.moneyMult !== 1)
-      rows.push({ source: "Skill tree — money nodes", value: fmt2(m.moneyMult), tone: m.moneyMult > 1 ? "good" : "bad" });
+      rows.push({ source: "Skill tree: money", value: fmt2(m.moneyMult), tone: m.moneyMult > 1 ? "good" : "bad" });
     if (m.employeeOutputMult !== 1)
-      rows.push({ source: "Skill tree — employee output", value: fmt2(m.employeeOutputMult), tone: m.employeeOutputMult > 1 ? "good" : "bad" });
+      rows.push({ source: "Skill tree: output", value: fmt2(m.employeeOutputMult), tone: m.employeeOutputMult > 1 ? "good" : "bad" });
     if (vapeBonus > 0)
       rows.push({ source: "Vape juice", value: fmt2(1 + vapeBonus), tone: "good" });
     if (mandate > 0)
       rows.push({ source: "Board mandates", value: fmt2(1 + mandate), tone: "good" });
     return {
-      label: "Money output",
+      label: "Money",
       rows: orNone(rows),
       total: fmt2(m.moneyMult * m.employeeOutputMult * (1 + vapeBonus) * (1 + mandate)),
     };
@@ -42,15 +42,15 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     const mandate = mandateBonus("innovationMultPerLevel");
     const rows: BreakdownRow[] = [];
     if (m.innovationMult !== 1)
-      rows.push({ source: "Skill tree — innovation nodes", value: fmt2(m.innovationMult), tone: m.innovationMult > 1 ? "good" : "bad" });
+      rows.push({ source: "Skill tree: innovation", value: fmt2(m.innovationMult), tone: m.innovationMult > 1 ? "good" : "bad" });
     if (m.employeeOutputMult !== 1)
-      rows.push({ source: "Skill tree — employee output", value: fmt2(m.employeeOutputMult), tone: m.employeeOutputMult > 1 ? "good" : "bad" });
+      rows.push({ source: "Skill tree: output", value: fmt2(m.employeeOutputMult), tone: m.employeeOutputMult > 1 ? "good" : "bad" });
     if (vapeBonus > 0)
       rows.push({ source: "Vape juice", value: fmt2(1 + vapeBonus), tone: "good" });
     if (mandate > 0)
       rows.push({ source: "Board mandates", value: fmt2(1 + mandate), tone: "good" });
     return {
-      label: "Innovation rate",
+      label: "Innovation",
       rows: orNone(rows),
       total: fmt2(m.innovationMult * m.employeeOutputMult * (1 + vapeBonus) * (1 + mandate)),
     };
@@ -65,7 +65,7 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     if (vapeBonus > 0)
       rows.push({ source: "Vape juice", value: fmt2(1 + vapeBonus), tone: "good" });
     return {
-      label: "Valuation rate",
+      label: "Valuation",
       rows: orNone(rows),
       total: fmt2(m.valuationMult * (1 + vapeBonus)),
     };
@@ -80,7 +80,7 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     if (vapeBonus > 0)
       rows.push({ source: "Vape juice", value: fmt2(1 + vapeBonus), tone: "good" });
     return {
-      label: "Equity payout",
+      label: "Equity",
       rows: orNone(rows),
       total: fmt2(m.equityMult * (1 + vapeBonus)),
     };

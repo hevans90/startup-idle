@@ -672,7 +672,7 @@ export const useGeneratorStore = create<GeneratorState>()(
 
           const globals = [
             {
-              label: "Innovation",
+              label: "Innovation's boost",
               mult: m.innovationCurve,
               modKey: "innovationCurve",
             },
@@ -684,7 +684,7 @@ export const useGeneratorStore = create<GeneratorState>()(
             },
             { label: "Vape juice", mult: m.juiceMoney, modKey: "juiceMoney" },
             {
-              label: "Headcount synergy",
+              label: "Per employee",
               mult: m.headcountMoney,
               modKey: "headcountMoney",
             },
@@ -707,7 +707,7 @@ export const useGeneratorStore = create<GeneratorState>()(
                 total: get().getGeneratorMoneyPerSecond(gen.id, gen.amount),
                 factors: [
                   { label: "upgrades", mult: gen.multiplier },
-                  { label: "policies & the map", mult: out.money },
+                  { label: "policies, the map", mult: out.money },
                   {
                     label: "morale",
                     mult: m.satisfactionRevenue[gen.id] ?? 1,
@@ -741,7 +741,7 @@ export const useGeneratorStore = create<GeneratorState>()(
 
           const globals = [
             {
-              label: "Innovation curve",
+              label: "Innovation's boost",
               mult: m.innovationCurve,
               modKey: "innovationCurve",
             },
@@ -787,7 +787,7 @@ export const useGeneratorStore = create<GeneratorState>()(
                 ),
                 factors: [
                   { label: "upgrades", mult: gen.innovationMultiplier },
-                  { label: "policies & the map", mult: out.innovation },
+                  { label: "policies, the map", mult: out.innovation },
                   { label: "leader", mult: m.teamLeaderEmpRoleIps[gen.id] ?? 1, modKey: `leader.${gen.id}` },
                   {
                     label: "founder",

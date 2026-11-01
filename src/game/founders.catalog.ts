@@ -9,7 +9,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import type { GeneratorId } from "../state/generators.store";
-import { describe } from "./wording";
+import { dearer, describe } from "./wording";
 
 export type FounderModifiers = {
   /** Subtract from every generator's cost-growth exponent. */
@@ -91,8 +91,8 @@ export const HACKER_LABS = 2;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-/** How much less a hire or a mandate gets dearer, the next over the last: an exponent's points, as a percentage. */
-const slower = (what: string, by: number) => `${what} get dearer ${Number((by * 100).toFixed(1))}% slower`;
+/** How much less a hire or a mandate gets dearer, the next over the last. @see dearer */
+const slower = (what: string, by: number) => dearer(-by, what);
 
 // ─── founders ─────────────────────────────────────────────────────────────────
 

@@ -30,8 +30,32 @@ export const MOOD_LIMIT = 40;
 export const MOVE_OUT_AT = -25;
 export const MOVE_OUT_EVERY = 60;
 
+/**
+ * THE WORDS FOR WHAT A HOUSE LIVES WITH, one list for the mood and the
+ * desirability both: lower case, as they are read mid-line ("Morale −8 ·
+ * unhappy: no services"), and opening a line in capitals. @see game/wording
+ */
+export const WHY = {
+  stranded: "no road to work",
+  commute: "long commute",
+  deskless: "no desk",
+  noServices: "no services",
+  cafe: "café",
+  park: "park",
+  gym: "gym",
+  crowded: "crowded",
+  polluted: "polluted water",
+  waterView: "water view",
+  wonder: "near a wonder",
+  derelict: "derelict nearby",
+  sludge: "sludge",
+  flooded: "flooded",
+  planned: "AI-planned",
+} as const;
+export type Why = (typeof WHY)[keyof typeof WHY];
+
 /** What a house's mood is made of, each part signed. */
-export type MoodParts = { total: number; parts: { why: string; points: number }[] };
+export type MoodParts = { total: number; parts: { why: Why; points: number }[] };
 
 /** What a view of water adds, and how near the water has to be, in tiles. */
 export const WATER_VIEW = 5;

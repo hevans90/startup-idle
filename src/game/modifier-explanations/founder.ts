@@ -2,16 +2,16 @@ import { useFounderStore } from "../../state/founder.store";
 import { useGeneratorStore } from "../../state/generators.store";
 import { usePrestigeStore } from "../../state/prestige.store";
 import type { BreakdownRow, ModifierBreakdown } from "./types";
-import { fmt2 } from "./utils";
+import { fmt2, pct1, titled } from "./utils";
 
 export const entries: Record<string, () => ModifierBreakdown> = {
   founderGlobalMoney: () => {
     const mult = useFounderStore.getState().globalMoneyMult;
     return {
-      label: "Founder — global $",
+      label: titled("Money", "founder"),
       rows: mult !== 1
-        ? [{ source: "Founder bonus", value: fmt2(mult), tone: mult > 1 ? "good" : "bad" }]
-        : [{ source: "This founder has no global money bonus", value: "—", tone: "neutral" }],
+        ? [{ source: "Founder", value: fmt2(mult), tone: mult > 1 ? "good" : "bad" }]
+        : [{ source: "None from this founder", value: "—", tone: "neutral" }],
       total: fmt2(mult),
     };
   },
@@ -19,10 +19,10 @@ export const entries: Record<string, () => ModifierBreakdown> = {
   founderValuation: () => {
     const mult = useFounderStore.getState().valuationAccrualMult;
     return {
-      label: "Founder — valuation",
+      label: titled("Valuation", "founder"),
       rows: mult !== 1
-        ? [{ source: "Founder bonus", value: fmt2(mult), tone: mult > 1 ? "good" : "bad" }]
-        : [{ source: "This founder has no valuation bonus", value: "—", tone: "neutral" }],
+        ? [{ source: "Founder", value: fmt2(mult), tone: mult > 1 ? "good" : "bad" }]
+        : [{ source: "None from this founder", value: "—", tone: "neutral" }],
       total: fmt2(mult),
     };
   },
@@ -38,21 +38,21 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     const rows: BreakdownRow[] = [];
     if (founder.headcountMoneyPerEmployee > 0)
       rows.push({
-        source: `Founder: +${(founder.headcountMoneyPerEmployee * 100).toFixed(3)}%/emp`,
+        source: `Founder: ${pct1(founder.headcountMoneyPerEmployee * 100)} an employee`,
         value: "",
         tone: "neutral",
       });
     if (prestige.headcountPerEmployee > 0)
       rows.push({
-        source: `Skill tree: +${(prestige.headcountPerEmployee * 100).toFixed(3)}%/emp`,
+        source: `Skill tree: ${pct1(prestige.headcountPerEmployee * 100)} an employee`,
         value: "",
         tone: "neutral",
       });
     rows.push({
-      source: `${totalEmployees} total employees × ${(rate * 100).toFixed(3)}%/emp`,
+      source: `${totalEmployees} employees × ${pct1(rate * 100)}`,
       value: fmt2(total),
       tone: total > 1 ? "good" : "neutral",
     });
-    return { label: "Headcount synergy", rows, total: fmt2(total) };
+    return { label: "Money per employee", rows, total: fmt2(total) };
   },
 };

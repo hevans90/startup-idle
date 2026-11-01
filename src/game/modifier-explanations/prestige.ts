@@ -2,36 +2,36 @@ import { usePrestigeStore } from "../../state/prestige.store";
 import { useVapeAchievementsStore } from "../../state/vape-achievements.store";
 import type { ModifierBreakdown } from "./types";
 import { simplePrestigeEntry } from "./factories";
-import { fmt2, orNone, prestigeRows } from "./utils";
+import { fmt2, orNone, pct1, prestigeRows, titled } from "./utils";
 
 export const entries: Record<string, () => ModifierBreakdown> = {
-  prestigeMoney: simplePrestigeEntry("Skill tree — $", "money", (m) => m.moneyMult),
-  prestigeInnovation: simplePrestigeEntry("Skill tree — innovation", "innovation", (m) => m.innovationMult),
-  prestigeValuation: simplePrestigeEntry("Skill tree — valuation", "valuation", (m) => m.valuationMult),
-  prestigeEmployeeOutput: simplePrestigeEntry("Skill tree — employee output", "employeeOutput", (m) => m.employeeOutputMult),
+  prestigeMoney: simplePrestigeEntry(titled("Money", "skill tree"), "money", (m) => m.moneyMult),
+  prestigeInnovation: simplePrestigeEntry(titled("Innovation", "skill tree"), "innovation", (m) => m.innovationMult),
+  prestigeValuation: simplePrestigeEntry(titled("Valuation", "skill tree"), "valuation", (m) => m.valuationMult),
+  prestigeEmployeeOutput: simplePrestigeEntry(titled("Output", "skill tree"), "employeeOutput", (m) => m.employeeOutputMult),
 
   prestigeInternOutput: () => {
     const mult = usePrestigeStore.getState().modifiers.internOutputMult;
     return {
-      label: "Skill tree — intern output",
+      label: titled("Interns", "skill tree"),
       rows: mult !== 1
-        ? [{ source: "AGI-Pilled keystone", value: fmt2(mult), tone: "bad" as const }]
-        : [{ source: "No active sources", value: "—", tone: "neutral" as const }],
+        ? [{ source: "AGI-Pilled", value: fmt2(mult), tone: "bad" as const }]
+        : [{ source: "Nothing yet", value: "—", tone: "neutral" as const }],
       total: fmt2(mult),
     };
   },
 
-  prestigeHireCost: simplePrestigeEntry("Skill tree — hire cost", "hireCost", (m) => m.hireCostMult, "down"),
-  prestigeEquity: simplePrestigeEntry("Skill tree — equity", "equity", (m) => m.equityMult),
-  prestigeAutoBuy: simplePrestigeEntry("Skill tree — auto-buy", "autoBuy", (m) => m.autoBuyMult),
-  prestigeManagerSpeed: simplePrestigeEntry("Skill tree — manager speed", "managerSpeed", (m) => m.managerSpeedMult),
-  prestigeSatisfactionGain: simplePrestigeEntry("Skill tree — morale recovery", "satisfactionGain", (m) => m.satisfactionGainMult),
-  prestigeSingularity: simplePrestigeEntry("Skill tree — AI singularity", "singularity", (m) => m.singularityMult),
+  prestigeHireCost: simplePrestigeEntry(titled("Hires", "skill tree"), "hireCost", (m) => m.hireCostMult, "down"),
+  prestigeEquity: simplePrestigeEntry(titled("Equity", "skill tree"), "equity", (m) => m.equityMult),
+  prestigeAutoBuy: simplePrestigeEntry(titled("Auto-buy", "skill tree"), "autoBuy", (m) => m.autoBuyMult),
+  prestigeManagerSpeed: simplePrestigeEntry(titled("Manager speed", "skill tree"), "managerSpeed", (m) => m.managerSpeedMult),
+  prestigeSatisfactionGain: simplePrestigeEntry(titled("Morale recovery", "skill tree"), "satisfactionGain", (m) => m.satisfactionGainMult),
+  prestigeSingularity: simplePrestigeEntry(titled("AI meter", "skill tree"), "singularity", (m) => m.singularityMult),
 
   skillTreeMoney: () => {
     const m = usePrestigeStore.getState().modifiers;
     return {
-      label: "Skill tree — $ & output",
+      label: titled("Money", "skill tree"),
       rows: orNone([...prestigeRows("money"), ...prestigeRows("employeeOutput")]),
       total: fmt2(m.moneyMult * m.employeeOutputMult),
     };
@@ -40,7 +40,7 @@ export const entries: Record<string, () => ModifierBreakdown> = {
   skillTreeInnovation: () => {
     const m = usePrestigeStore.getState().modifiers;
     return {
-      label: "Skill tree — innovation & output",
+      label: titled("Innovation", "skill tree"),
       rows: orNone([...prestigeRows("innovation"), ...prestigeRows("employeeOutput")]),
       total: fmt2(m.innovationMult * m.employeeOutputMult),
     };
@@ -53,18 +53,18 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     const rows = [];
     if (prestige.hireCostMult !== 1)
       rows.push({
-        source: "Skill tree nodes",
+        source: "Skill tree",
         value: fmt2(prestige.hireCostMult),
         tone: prestige.hireCostMult < 1 ? "good" : "bad",
       } as const);
     if (juiceReduction > 0)
       rows.push({
-        source: "Vape juice discount",
-        value: `-${(juiceReduction * 100).toFixed(1)}%`,
+        source: "Vape juice",
+        value: pct1(-juiceReduction * 100),
         tone: "good",
       } as const);
     return {
-      label: "Hire cost multiplier",
+      label: "Hires",
       rows: orNone(rows),
       total: fmt2(total),
     };

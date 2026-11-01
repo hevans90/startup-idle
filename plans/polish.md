@@ -1,6 +1,6 @@
 # Polish: one voice for every modifier, and the rough edges of the UI
 
-**Status:** phases 1 and 2 done; phase 3 next.
+**Status:** phases 1–3 done; phase 4 next.
 - **Answers taken:** "Money +8%"; no flavour lines written for modifiers that have none; the short scale's names; "Output" for a kind's whole production.
 - **`game/wording.ts`:**
   - `STATS`, the glossary: each stat's name, which way is good, share or points.
@@ -17,7 +17,15 @@
   - Two skill-tree lines claimed limits the code never had: "(vibe coders)" on Prompt Whisperer and "(as The Hustler)" on Cult of Personality. Both bonuses apply to everyone, and the lines now say so.
   - Glossary labels on the managers' rows and the founder carry-over panel; the projects card names its builders ("vibe coders", not "vibe_coders").
   - Project `pitch` strings are never shown (the card uses `opensText`); left as they are.
-- **Left for phase 3:** the modifier breakdowns still say "Skill tree — $", "Innovation rate", "Founder steepens curve"; the upgrades tab's "Cost growth"; the generators tab's raw "−0.020".
+- **Phase 3, what changed:**
+  - Every breakdown popover is titled stat first, then its source: "Money · skill tree", "Hires · vape juice", "Money · Corpo manager" (`titled`). The founder panel's totals say "Money", "Innovation", "Valuation", "Equity".
+  - Rows in the glossary's words: "Skill tree: output", "Off: Bootstrapped", "Nothing yet"; a true minus on every percentage (`pct1`).
+  - "Innovation curve" is "Innovation's boost" everywhere; "Headcount synergy" is "Money per employee".
+  - The hire price popover: "Each hire dearer +10%", "Founder 2% slower", "Skill tree ×0.9" (it said "Equity cost"), not raw exponents. Upgrades say "Money ×2", "Hires −10%", "Hires get dearer 2% slower" (`dearer`).
+  - Morale moves money, not output: the morale card and its popovers say so. A leader's popover gives the rest of the kind's real share (Open Door's 75%).
+  - Mood reasons: one list, `WHY` in `mood-rules.ts`, for the mood and the desirability both; the desire readout puts the reason first ("Café +4").
+  - The Build tool's hint says a park goes anywhere.
+  - Placement refusals ("no road access", "uneven ground") are never shown yet; they get their words with the placement readout (UI item 9).
 
 ## Why
 

@@ -136,6 +136,13 @@ export function describe(effects: Partial<Record<Stat, number>>, scope?: string,
 /** One stat's part on its own, as a row says it: "Money +6%", "Auto-buy off". */
 export const part = (stat: Stat, value: number): string => `${STATS[stat].name} ${change(stat, value)}`;
 
+/**
+ * A CHANGE TO HOW FAST HIRES GET DEARER, the next over the last: an exponent's
+ * points, as a percentage — `dearer(-0.02)` is "Hires get dearer 2% slower".
+ */
+export const dearer = (delta: number, what = "Hires"): string =>
+  `${what} get dearer ${Number(Math.abs(delta * 100).toFixed(1))}% ${delta < 0 ? "slower" : "faster"}`;
+
 /** The longest an effect line runs, characters: more goes in its popover's detail. */
 export const EFFECT_MAX = 60;
 

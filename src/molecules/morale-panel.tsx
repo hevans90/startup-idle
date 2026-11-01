@@ -114,7 +114,7 @@ export function MoralePanel({ className }: { className?: string }) {
               <MoraleBar score={score} />
               <p className="flex flex-wrap justify-between gap-x-3 text-[11px] text-fg-muted">
                 <span>
-                  <ModifierTag modKey={`satisfactionRevenue.${id}`}>output {mult(satisfactionRevenueMultiplier(eff))}</ModifierTag>
+                  <ModifierTag modKey={`satisfactionRevenue.${id}`}>money {mult(satisfactionRevenueMultiplier(eff))}</ModifierTag>
                   {" · "}{sideEffect(id, eff)}
                 </span>
                 {Math.round(target) !== Math.round(score) && <span className="tabular-nums">heading for {signed(target)}</span>}

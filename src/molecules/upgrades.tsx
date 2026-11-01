@@ -2,6 +2,7 @@ import { IconBuildingCommunity } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { PROJECTS } from "../game/projects";
 import { nextPerSet } from "../game/upgrade-sets";
+import { change, dearer, helps } from "../game/wording";
 import { GENERATOR_TYPES } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import {
@@ -61,58 +62,19 @@ const OpensLine = ({ upg }: { upg: Upgrade }) => {
 };
 
 const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
+  // Each change in the game's words, stat first, coloured by whether it helps. @see game/wording
   const renderEffect = (effect: GeneratorEffect) => {
     switch (effect.type) {
       case "multiplier":
+        return <>Money <span className="text-good">{change("money", effect.value)}</span></>;
+      case "costMultiplier":
+        return <>Hires <span className={helps("hires", effect.value) ? "text-good" : "text-bad"}>{change("hires", effect.value)}</span></>;
+      case "costExponent":
         return (
-          <>
-            Output{" "}
-            <span className="text-good">
-              ×{effect.value}
-            </span>
-          </>
+          <span className={effect.delta < 0 ? "text-good" : "text-bad"}>
+            {dearer(effect.delta)}
+          </span>
         );
-
-      case "costMultiplier": {
-        const discount = Math.round((1 - effect.value) * 100);
-        const isGood = discount > 0;
-        return (
-          <>
-            Cost{" "}
-            <span
-              className={
-                isGood
-                  ? "text-good"
-                  : "text-bad"
-              }
-            >
-              {isGood ? "-" : "+"}
-              {Math.abs(discount)}%
-            </span>
-          </>
-        );
-      }
-
-      case "costExponent": {
-        const isGood = effect.delta < 0;
-        const sign = effect.delta > 0 ? "+" : "";
-        return (
-          <>
-            Cost growth{" "}
-            <span
-              className={
-                isGood
-                  ? "text-good"
-                  : "text-bad"
-              }
-            >
-              {sign}
-              {effect.delta.toFixed(2)}
-            </span>
-          </>
-        );
-      }
-
       default:
         return null;
     }

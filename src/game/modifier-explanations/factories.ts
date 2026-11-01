@@ -14,7 +14,7 @@ import type { BreakdownRow, ModifierBreakdown } from "./types";
 import { fmt2, orNone, pct1, PrestigeMods, prestigeRows, satRows } from "./utils";
 
 export const NO_JUICE_ROW: BreakdownRow = {
-  source: "No juice yet — hit score milestones in the vape minigame",
+  source: "No juice yet: score milestones in the vape mini-game earn it",
   value: "—",
   tone: "neutral",
 };
@@ -52,8 +52,8 @@ export function managerEntry(
         ? [{ source: `Tier ${tier}`, value: fmt2(mult), tone: "good" }]
         : [{
             source: prestige.disableManagers
-              ? "Disabled by Bootstrapped keystone"
-              : "Not yet unlocked",
+              ? "Off: Bootstrapped"
+              : "Not open yet",
             value: "—",
             tone: "neutral",
           }],
@@ -89,7 +89,7 @@ export function mandateEntry(
     const rows = MANDATES.filter(
       (m) => m[perLevelKey] > 0 && mandateLevels[m.id] > 0,
     ).map((m) => ({
-      source: `${m.name} (Lv ${mandateLevels[m.id]})`,
+      source: `${m.name}, level ${mandateLevels[m.id]}`,
       value: pct1(m[perLevelKey] * mandateLevels[m.id] * 100),
       tone: "good" as const,
     }));

@@ -318,7 +318,7 @@ export const FounderSelect = () => {
                 )}
                 {modifiers.headcountPerEmployee > 0 && (
                   <PanelRow
-                    label="Headcount synergy"
+                    label="Money per employee"
                     value={`+${(modifiers.headcountPerEmployee * 100).toFixed(1)}%/emp`}
                     tone="good"
                     modKey="headcountMoney"

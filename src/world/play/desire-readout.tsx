@@ -19,6 +19,7 @@ import { CAFE_BOOST, CAFE_REACH, servedByCafe } from "../agents/desk-perks";
 import { CONFERENCE_REACH, NEAR_CONFERENCE_PAYS, portsNear } from "../events/convoy";
 import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
+import { change } from "../../game/wording";
 
 /** The tier a desirability is enough to grow a house to. */
 const growsTo = (total: number) =>
@@ -66,12 +67,12 @@ export function DesireReadout({ className }: { className?: string }) {
       {d && (
         <>
           <p className="font-bold tabular-nums">
-            Desirability {d.total > 0 ? "+" : ""}{d.total}
+            Desirability {change("desirability", d.total)}
             {tier && <span className="font-normal text-good"> · grows to {tier}</span>}
           </p>
           {[...d.parts].sort((a, b) => b.points - a.points).map((p) => (
             <p key={p.why} className={twMerge("tabular-nums", p.points >= 0 ? "text-good" : "text-bad")}>
-              {p.points > 0 ? "+" : ""}{p.points} {p.why}
+              {p.why[0].toUpperCase() + p.why.slice(1)} {change("desirability", p.points)}
             </p>
           ))}
         </>

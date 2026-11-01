@@ -29,7 +29,7 @@ import { liveCoverage, tierOf, type Coverage } from "./services";
 
 export * from "./mood-rules";
 import {
-  DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, WONDER_REACH, type MoodParts,
+  DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, WHY, WONDER_REACH, type MoodParts,
 } from "./mood-rules";
 import { liveDesireMaps, seesWater } from "./desirability";
 
@@ -67,25 +67,25 @@ export function moodsOf(
     const parts: MoodParts["parts"] = [];
     const c = working.has(housedBy(s.def)!.id) ? commutes.get(s.id) : undefined;
     if (c) {
-      if (c.tiles === null) parts.push({ why: "no road to work", points: MOOD.stranded });
+      if (c.tiles === null) parts.push({ why: WHY.stranded, points: MOOD.stranded });
       // Without a desk, it is that more than the walk that weighs. @see DESKLESS
-      else if (c.eff < 1) parts.push({ why: c.deskless > 0 ? "no desk" : "long commute", points: Math.round(((1 - c.eff) * 10) * MOOD.perTenthLost) });
+      else if (c.eff < 1) parts.push({ why: c.deskless > 0 ? WHY.deskless : WHY.commute, points: Math.round(((1 - c.eff) * 10) * MOOD.perTenthLost) });
     }
     const have = coverage.get(s.id);
-    if (!have?.size) parts.push({ why: "no services", points: MOOD.noServices });
+    if (!have?.size) parts.push({ why: WHY.noServices, points: MOOD.noServices });
     else {
-      if (have.has("cafe")) parts.push({ why: "café", points: MOOD.cafe });
-      if (have.has("park")) parts.push({ why: "park", points: MOOD.park });
-      if (have.has("gym")) parts.push({ why: "gym", points: MOOD.gym });
+      if (have.has("cafe")) parts.push({ why: WHY.cafe, points: MOOD.cafe });
+      if (have.has("park")) parts.push({ why: WHY.park, points: MOOD.park });
+      if (have.has("gym")) parts.push({ why: WHY.gym, points: MOOD.gym });
     }
     const tier = tierOf(s.def);
-    if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: "crowded", points: MOOD.crowded });
-    if (water(s)) parts.push(polluted.has(s.id) ? { why: "polluted water", points: MOOD.polluted } : { why: "water view", points: fusionNow().waterView });
-    if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: "near a wonder", points: MOOD.wonder });
-    if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: "derelict nearby", points: MOOD.derelict });
-    if (sludged.has(s.id)) parts.push({ why: "sludge", points: MOOD.sludge });
-    if (flooded.has(s.id)) parts.push({ why: "flooded", points: MOOD.flooded });
-    if (planning) parts.push({ why: "AI-planned", points: planning });
+    if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: WHY.crowded, points: MOOD.crowded });
+    if (water(s)) parts.push(polluted.has(s.id) ? { why: WHY.polluted, points: MOOD.polluted } : { why: WHY.waterView, points: fusionNow().waterView });
+    if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: WHY.wonder, points: MOOD.wonder });
+    if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: WHY.derelict, points: MOOD.derelict });
+    if (sludged.has(s.id)) parts.push({ why: WHY.sludge, points: MOOD.sludge });
+    if (flooded.has(s.id)) parts.push({ why: WHY.flooded, points: MOOD.flooded });
+    if (planning) parts.push({ why: WHY.planned, points: planning });
     const total = Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, parts.reduce((n, p) => n + p.points, 0)));
     out.set(s.id, { total, parts });
   }

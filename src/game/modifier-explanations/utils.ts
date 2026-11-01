@@ -4,14 +4,17 @@ import type { BreakdownRow } from "./types";
 
 // Avoid circular: modifiers → ModifierTag → modifiers
 export const fmt2 = (n: number) => `×${Number(n.toFixed(2))}`;
-export const pct1 = (v: number) => `${v > 0 ? "+" : ""}${Number(v.toFixed(1))}%`;
+export const pct1 = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(Number(v.toFixed(1)))}%`;
+
+/** A popover's title: the stat, then where it comes from — "Money · skill tree". @see game/wording */
+export const titled = (stat: string, from?: string) => (from ? `${stat} · ${from}` : stat);
 
 export type PrestigeMods = ReturnType<typeof usePrestigeStore.getState>["modifiers"];
 
 export function orNone(rows: BreakdownRow[]): BreakdownRow[] {
   return rows.length > 0
     ? rows
-    : [{ source: "No active sources", value: "—", tone: "neutral" }];
+    : [{ source: "Nothing yet", value: "—", tone: "neutral" }];
 }
 
 export function prestigeRows(
@@ -65,13 +68,13 @@ export function satRows(
   if (prestige.satisfactionNeutralized) {
     return [
       { source: `Morale ${score.toFixed(0)}`, value: "", tone: "neutral" },
-      { source: "Crunch Mode: no effect", value: fmt2(mult), tone: "neutral" },
+      { source: "Crunch Mode: morale does nothing", value: fmt2(mult), tone: "neutral" },
     ];
   }
   if (prestige.satisfactionPositiveMult !== 1 && score > 0) {
     return [
       { source: `Morale ${score.toFixed(0)}`, value: "", tone: "neutral" },
-      { source: "Enshittify: good morale counts", value: fmt2(prestige.satisfactionPositiveMult), tone: "bad" },
+      { source: "Enshittify: good morale counts half", value: fmt2(prestige.satisfactionPositiveMult), tone: "bad" },
       { source: `Counted as ${effScore.toFixed(0)}`, value: fmt2(mult), tone },
     ];
   }

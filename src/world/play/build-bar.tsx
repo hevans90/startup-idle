@@ -114,7 +114,7 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
   { id: "eraseRoad", label: "Lift", hint: "Drag to take road up — or pipe, with Pipe chosen beside it" },
   { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main: it finds its own way" },
-  { id: "placeStructure", label: "Build", hint: "Build beside a road; drag along a street for a row of lots; click a seaport to upgrade it" },
+  { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down" },
 ];
 

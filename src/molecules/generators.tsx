@@ -91,9 +91,9 @@ export const Generators = () => {
           <PopoverContent className={POPOVER_BARE}>
             <PopCard title={gen.name} value={`${formatCurrency(genMps(gen.id, gen.amount))}/s`} tone="money" className="w-72"
               foot={<>Each earns {formatCurrency(genMps(gen.id, 1))}/s.</>}>
-              <PopGroup label="Output">
-            <PopRow label="Base production" value={formatCurrency(gen.baseProduction)} />
-            <PopRow label="Multiplier" value={fmtMult(gen.multiplier)} />
+              <PopGroup label="Money">
+            <PopRow label="Base" value={formatCurrency(gen.baseProduction)} />
+            <PopRow label="Upgrades" value={fmtMult(gen.multiplier)} />
             {(founderGenMoneyMult[gen.id] ?? 1) !== 1 && (
               <PopRow
                 label="Founder"
@@ -103,55 +103,55 @@ export const Generators = () => {
             )}
             {headcountMult !== 1 && (
               <PopRow
-                label="Founder headcount"
+                label="Founder, per employee"
                 value={fmtMult(headcountMult)}
                 valueClass="text-good"
               />
             )}
             {prestige.moneyMult !== 1 && (
               <PopRow
-                label="Equity money"
+                label="Skill tree: money"
                 value={fmtMult(prestige.moneyMult)}
                 valueClass="text-innovation"
               />
             )}
             {prestige.employeeOutputMult !== 1 && (
               <PopRow
-                label="Equity output"
+                label="Skill tree: output"
                 value={fmtMult(prestige.employeeOutputMult)}
                 valueClass="text-innovation"
               />
             )}
             {equityHeadcountMult !== 1 && (
               <PopRow
-                label="Equity headcount"
+                label="Skill tree, per employee"
                 value={fmtMult(equityHeadcountMult)}
                 valueClass="text-innovation"
               />
             )}
             {gen.id === "intern" && prestige.internOutputMult !== 1 && (
               <PopRow
-                label="AGI-pilled"
+                label="AGI-Pilled"
                 value={fmtMult(prestige.internOutputMult)}
                 valueClass="text-bad"
               />
             )}
               </PopGroup>
-              <PopGroup label="Hiring cost">
-            <PopRow label="Cost multiplier" value={gen.costMultiplier.toFixed(2)} />
-            <PopRow label="Cost exponent" value={gen.costExponent.toFixed(2)} />
+              <PopGroup label="Hires">
+            <PopRow label="Upgrades" value={fmtMult(gen.costMultiplier)} />
+            <PopRow label="Each hire dearer" value={`+${Number(((gen.costExponent - 1) * 100).toFixed(1))}%`} />
             {costExponentReduction !== 0 && (
               <PopRow
-                label="Founder exponent"
-                value={`−${costExponentReduction.toFixed(3)}`}
+                label="Founder"
+                value={`${Number((costExponentReduction * 100).toFixed(1))}% slower`}
                 valueClass="text-good"
               />
             )}
             {prestige.hireCostMult !== 1 && (
               <PopRow
-                label="Equity cost"
+                label="Skill tree"
                 value={fmtMult(prestige.hireCostMult)}
-                valueClass="text-innovation"
+                valueClass="text-good"
               />
             )}
               </PopGroup>

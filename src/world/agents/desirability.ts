@@ -19,7 +19,7 @@ import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { connects, isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { commuteEfficiency, walkFrom, WORKPLACES } from "./commute";
-import { DERELICT_REACH, MOOD, MOOD_LIMIT, WATER_REACH, WONDER_REACH, type MoodParts } from "./mood-rules";
+import { DERELICT_REACH, MOOD, MOOD_LIMIT, WATER_REACH, WHY, WONDER_REACH, type MoodParts } from "./mood-rules";
 import { fusionNow } from "../../game/fusion";
 import { placesOf, type Place } from "./roads";
 import { RANGE, SERVICE_IDS, serviceOf, type ServiceId } from "./services";
@@ -133,17 +133,17 @@ export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: G
   if (work) {
     const t = best(work);
     const eff = commuteEfficiency(t < 0 ? null : t);
-    if (t < 0) parts.push({ why: "no road to work", points: MOOD.stranded });
-    else if (eff < 1) parts.push({ why: "long commute", points: Math.round((1 - eff) * 10 * MOOD.perTenthLost) });
+    if (t < 0) parts.push({ why: WHY.stranded, points: MOOD.stranded });
+    else if (eff < 1) parts.push({ why: WHY.commute, points: Math.round((1 - eff) * 10 * MOOD.perTenthLost) });
   }
   const have = SERVICE_IDS.filter((sv) => best(maps.service[sv]) >= 0);
-  if (!have.length) parts.push({ why: "no services", points: MOOD.noServices });
-  for (const sv of have) parts.push({ why: sv === "cafe" ? "café" : sv, points: MOOD[sv] });
-  if (maps.water[idx(g, x, y)]) parts.push({ why: "water view", points: fusionNow().waterView });
+  if (!have.length) parts.push({ why: WHY.noServices, points: MOOD.noServices });
+  for (const sv of have) parts.push({ why: WHY[sv], points: MOOD[sv] });
+  if (maps.water[idx(g, x, y)]) parts.push({ why: WHY.waterView, points: fusionNow().waterView });
   // A Zoner fused into the founder, for every house. @see game/fusion
-  if (fusionNow().houseDesire) parts.push({ why: "AI-planned", points: fusionNow().houseDesire });
-  if (maps.wonders.some((w) => gapTo(x, y, w) <= WONDER_REACH)) parts.push({ why: "near a wonder", points: MOOD.wonder });
-  if (maps.derelicts.some((d) => gapTo(x, y, d) <= DERELICT_REACH)) parts.push({ why: "derelict nearby", points: MOOD.derelict });
+  if (fusionNow().houseDesire) parts.push({ why: WHY.planned, points: fusionNow().houseDesire });
+  if (maps.wonders.some((w) => gapTo(x, y, w) <= WONDER_REACH)) parts.push({ why: WHY.wonder, points: MOOD.wonder });
+  if (maps.derelicts.some((d) => gapTo(x, y, d) <= DERELICT_REACH)) parts.push({ why: WHY.derelict, points: MOOD.derelict });
   const total = Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, parts.reduce((n, p) => n + p.points, 0)));
   return { total, parts };
 }
