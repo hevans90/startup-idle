@@ -75,22 +75,32 @@ export function achievementsNewlyMet(
 }
 
 /**
- * Checks catalog against ctx; unlocks grant juice once. Shows toast per new unlock.
+ * Checks catalog against ctx; unlocks grant juice once. Shows a report per
+ * new unlock — or, with `batch` (the first check on load, what was earned
+ * while away), one report listing them all.
  */
 export function evaluateAchievements(
   ctx: AchievementContext = buildAchievementContext(),
+  { batch = false }: { batch?: boolean } = {},
 ): void {
   const unlocked = new Set(
     useVapeAchievementsStore.getState().unlockedAchievementIds,
   );
 
+  const earned: { name: string; juiceReward: number }[] = [];
   for (const ach of achievementsNewlyMet(ctx, unlocked)) {
     const isNew = useVapeAchievementsStore
       .getState()
       .recordAchievementUnlock(ach.id, ach.juiceReward);
     if (isNew) {
       unlocked.add(ach.id);
-      report(`${ach.name} (+${ach.juiceReward} juice)`, { title: "Achievement unlocked" });
+      if (batch) earned.push(ach);
+      else report(`${ach.name} (+${ach.juiceReward} juice)`, { title: "Achievement unlocked" });
     }
+  }
+  if (earned.length === 1) report(`${earned[0].name} (+${earned[0].juiceReward} juice)`, { title: "Achievement unlocked" });
+  else if (earned.length > 1) {
+    const juice = earned.reduce((n, a) => n + a.juiceReward, 0);
+    report(`${earned.map((a) => a.name).join(" · ")} (+${juice} juice)`, { title: `While you were away: ${earned.length} achievements` });
   }
 }

@@ -15,6 +15,8 @@ import { useValuationStore } from "../state/valuation.store";
 export const OFFLINE_CAP_MS = 2 * 24 * 60 * 60 * 1000; // 2 days
 /** Below this, don't bother crediting or showing the popup. */
 export const MIN_OFFLINE_MS = 10 * 1000; // 10 seconds
+/** Below this the time away is credited quietly: no welcome-back dialog for a reload. */
+export const WELCOME_BACK_MS = 60 * 1000;
 /** Cap on simulation chunks — bounds load cost; sets auto-buy compounding granularity. */
 const MAX_STEPS = 1000;
 

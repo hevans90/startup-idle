@@ -6,6 +6,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { evaluateAchievements } from "./game/achievements.engine";
 import {
   computeOfflineProgress,
+  WELCOME_BACK_MS,
   type OfflineSummary,
 } from "./game/offline-progress";
 import { useCompareVersion } from "./hooks/use-compare-version";
@@ -15,6 +16,7 @@ import { FounderSelect } from "./molecules/founder-select";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
 import { OfflineSummaryModal } from "./molecules/offline-summary";
 import { whenWorldReady } from "./game/world-ready";
+import { onFixture } from "./fixture-sandbox";
 import { SellTransitionProvider } from "./molecules/sell-transition";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Sidebar } from "./molecules/sidebar";
@@ -108,7 +110,8 @@ function App() {
   useEffect(() => {
     const run = () => {
       const summary = computeOfflineProgress();
-      if (summary) setOfflineSummary(summary);
+      // A QUIET LOAD: the dialog only after real time away, never on a fixture.
+      if (summary && summary.elapsedMs >= WELCOME_BACK_MS && !onFixture()) setOfflineSummary(summary);
       setOfflineDone(true);
     };
     if (useFounderStore.getState().selectedFounderId == null) { run(); return; }
@@ -152,9 +155,9 @@ function App() {
     if (founderId == null || !offlineDone) return;
 
     // Grant any already-met achievements (e.g. from a loaded save) immediately
-    // rather than waiting for the first throttled tick.
+    // rather than waiting for the first throttled tick — in one report, not a toast each.
     lastAchievementEvalRef.current = Date.now();
-    evaluateAchievements();
+    evaluateAchievements(undefined, { batch: true });
 
     const id = setInterval(() => {
       useGeneratorStore.getState().tickGenerators();

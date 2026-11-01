@@ -70,12 +70,20 @@ function snapshot(): HintState {
   };
 }
 
+/** How long the map is up before the first tip: a quiet load. @see plans/polish.md */
+const SETTLE_MS = 5000;
+
 export function HintCard() {
   const off = useSessionStore((s) => s.hintsOff);
   const done = useSessionStore((s) => s.hintsDone);
   const markDone = useSessionStore((s) => s.markHintsDone);
   const setOff = useSessionStore((s) => s.setHintsOff);
   const [hint, setHint] = useState<ReturnType<typeof nextHint>["show"]>(null);
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setSettled(true), SETTLE_MS);
+    return () => clearTimeout(id);
+  }, []);
 
   // WHAT TO SAY, and what is already done and can be put away unseen —
   // looked at twice a second, the game moving on its own.
@@ -93,13 +101,13 @@ export function HintCard() {
 
   // WHAT IT POINTS AT, glowing while it is up.
   useEffect(() => {
-    if (!hint?.target) return;
+    if (!hint?.target || !settled) return;
     const els = [...document.querySelectorAll(`[data-hint="${hint.target}"]`)];
     for (const el of els) el.classList.add("hint-glow");
     return () => { for (const el of els) el.classList.remove("hint-glow"); };
-  }, [hint]);
+  }, [hint, settled]);
 
-  if (!hint) return null;
+  if (!hint || !settled) return null;
   // A HINT, in comms: quiet, the good tone, put away with ✕ or for good. @see CommsDock
   return (
     <Card tone="good" onClose={() => markDone([hint.id])} className="w-[min(24rem,calc(100vw-1rem))]">

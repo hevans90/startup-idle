@@ -6,8 +6,12 @@
  * The map was already safe (`startedOnFixture`); this covers the rest.
  * @see seedFixtureCompany
  */
+/** Whether this tab opened on a `?fixture=`: a sandbox, never a real return to the game. */
+export const onFixture = (): boolean =>
+  typeof window !== "undefined" && new URLSearchParams(window.location.search).has("fixture");
+
 function sandbox(): void {
-  if (typeof window === "undefined" || !new URLSearchParams(window.location.search).has("fixture")) return;
+  if (!onFixture()) return;
   const real = window.localStorage;
   const mem = new Map<string, string>();
   for (let i = 0; i < real.length; i++) {
