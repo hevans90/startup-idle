@@ -1,6 +1,6 @@
 # Pipe rendering overhaul
 
-Status: **phases 1–2 done** (2026-11-01). The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
+Status: **phases 1–3 done** (2026-11-01). The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
 
 The goal is for pipes to look as solid and readable as Factorio's. That means:
 - round, lit metal tubes;
@@ -171,6 +171,28 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
   - The half ring is also half the vertices.
 - The glass sections' flat rings are off on solid tubes too. The window gets its frame in phase 5.
 - Checked on the singularity fixture: the bends, the stilted rise over the road, flanges by day and night at zoom 1 to 7, and a cross, a tee and a cap made by editing the fixture's grid.
+
+### Phase 3, as built
+
+- **One sun for the shading and the shadows** (`SUN` in `pipe-mesh.ts`, read by the shader): `(-0.4, 0.35, 1)`.
+  - A box's top is lightest, then its +v side, then its +u side, as on the Kenney buildings.
+  - The phase 1 sun lit the two sides alike.
+- **Cast shadows** (`pipeShadow`): each length's middle line, carried down to the ground along the sun's rays (`CAST`), as wide as the tube.
+  - Hard-edged, at alpha 0.28 (`SHADOW`). At 0.2 they were lost on the grass.
+  - Laid in strips that meet without overlapping, so the shade is even.
+  - A band's shadows are written before any of its tubes.
+- **Supports, in the same mesh and lit like the rest** (`box`):
+  - a concrete saddle under every ground cell (the middle of a bend's curve), standing on a darker contact shadow (`CONTACT` 0.4);
+  - an H-frame where the main rides high: the far leg and the beam before the tube, the near leg after it;
+  - nothing under an intake, pump or outfall, which phase 4 gives their own footings.
+- **Spans over dips** get the same frame as stilts over roads, because `levelAt` raises both.
+- **Slopes:** a straight run is one sweep from face to face, so where the slope changes in the middle it bends instead of kinking.
+- **The main lies higher** (`LIFT` 1.1), so the saddle shows under it.
+- **Checked by day and night:**
+  - the run along x = 32, with saddles and shadows;
+  - its rise over the road at [32,26], which is hemmed in by buildings;
+  - a frame on an open stretch, made by paving [32,14] in the sandboxed grid.
+- **Not done: shadows at night.** The sun's shadows stay at full strength at night. Fading them would need the shadows in a mesh of their own, with its alpha set from the night each frame. That belongs to phase 6.
 
 ## 8. Verification
 

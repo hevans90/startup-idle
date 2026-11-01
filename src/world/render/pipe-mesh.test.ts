@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { BEND_R, BOLTS, VIEW, WORDS, ZT, ball, elbowPath, flange, pipeCell, pipeMesh, solid, tube, type PipeMesh } from "./pipe-mesh";
+import { BEND_R, BOLTS, CAST, SHADOW, SUN, VIEW, WORDS, ZT, ball, elbowPath, flange, pipeCell, pipeMesh, pipeShadow, solid, tube, type PipeMesh } from "./pipe-mesh";
 import { pipeFragmentGlsl, pipeShaderSource } from "./pipe-gpu";
 
 const normalOf = (m: PipeMesh, v: number) => [m.f32[v * WORDS + 2], m.f32[v * WORDS + 3], m.f32[v * WORDS + 4]];
@@ -52,14 +52,14 @@ describe("a main as a solid", () => {
   const along = (l: { dx: number; dy: number }) => ({ ...l, zf: 1 });
   const N = along({ dx: 0, dy: -1 }), S = along({ dx: 0, dy: 1 }), E = along({ dx: 1, dy: 0 }), W = along({ dx: -1, dy: 0 });
 
-  test("a straight run is two lengths, and a flange only at its far join", () => {
+  test("a straight run is one sweep, and a flange only at its far join", () => {
     const bare = pipeMesh(), flanged = pipeMesh();
     pipeCell(bare, 1, 5, 5, 1, [N, S], { ...look, flanges: false });
     pipeCell(flanged, 1, 5, 5, 1, [N, S], look);
-    // A length is the near half of each end's ring: seven of twelve, twice.
-    expect(bare.nv).toBe(2 * 14);
+    // Three rings — far face, middle, near face — each the near half: seven of twelve.
+    expect(bare.nv).toBe(3 * 7);
     // One flange: its rim, its face, and six bolts on the face.
-    expect(flanged.nv).toBe(2 * 14 + 14 + 24 + BOLTS * 7);
+    expect(flanged.nv).toBe(3 * 7 + 14 + 24 + BOLTS * 7);
   });
 
   test("a flange's face shows only on the camera's side", () => {
@@ -98,10 +98,53 @@ describe("a main as a solid", () => {
     const tee = pipeMesh(), cross = pipeMesh();
     pipeCell(tee, 1, 5, 5, 1, [N, S, E], { ...look, flanges: false });
     pipeCell(cross, 1, 5, 5, 1, [N, S, E, W], { ...look, flanges: false });
-    // Lengths of 14, a collar of 14 and, facing the camera, its face of 24.
-    expect(tee.nv).toBe(3 * 14 + 14 + 24);
+    // The run's sweep of 21, a stub of 14, its collar of 14 and, facing the camera, the collar's face of 24.
+    expect(tee.nv).toBe(21 + 14 + 14 + 24);
     // The far stub's collar faces away: no face.
-    expect(cross.nv).toBe(4 * 14 + 14 + 24 + 14);
+    expect(cross.nv).toBe(21 + 2 * 14 + 14 + 24 + 14);
+  });
+
+  test("a shadow lies on the ground, cast away from the sun, as wide as the tube", () => {
+    const m = pipeMesh();
+    // A run along u, 2 half steps up, its ground at 0.
+    pipeShadow(m, 1, 5, 5, 2, 0, [{ dx: -1, dy: 0, zf: 2 }, { dx: 1, dy: 0, zf: 2 }], 0.1, "none");
+    expect(m.nv).toBe(6);
+    const h = 2 * ZT;
+    // The middle's two edges: carried along CAST by its height, and 0.1 either side of that across the run.
+    const mid = [5 + h * CAST[0], 5 + h * CAST[1]];
+    const at = (u: number, v: number) => [(u - v) * HW, (u + v) * HH];
+    for (const [k, side] of [[2, 1], [3, -1]]) {
+      const [ex, ey] = at(mid[0], mid[1] - side * 0.1);
+      expect(m.f32[k * WORDS]).toBeCloseTo(ex, 3);
+      expect(m.f32[k * WORDS + 1]).toBeCloseTo(ey, 3);
+    }
+    // Flat on the ground, and see-through.
+    for (let v = 0; v < m.nv; v++) expect(normalOf(m, v)).toEqual([0, 0, 1]);
+    expect(m.u32[5] >>> 24).toBe(Math.round(SHADOW * 255));
+  });
+
+  test("the sun lights a box's top most, then its +v side, then its +u side; shadows fall the other way", () => {
+    const top = SUN[2], left = SUN[1], right = SUN[0];
+    expect(top).toBeGreaterThan(left);
+    expect(left).toBeGreaterThan(right);
+    expect(CAST[0]).toBeGreaterThan(0);
+  });
+
+  test("a saddle stands under a ground run, a frame's legs either side of a high one", () => {
+    // A run along u: its legs stand either side of it in v.
+    const run = [{ dx: -1, dy: 0, zf: 4 }, { dx: 1, dy: 0, zf: 4 }];
+    const bare = pipeMesh(), saddle = pipeMesh(), frame = pipeMesh();
+    pipeCell(bare, 1, 5, 5, 4, run, { ...look, flanges: false });
+    pipeCell(saddle, 1, 5, 5, 4, run, { ...look, flanges: false, support: "saddle", floor: 0 });
+    pipeCell(frame, 1, 5, 5, 4, run, { ...look, flanges: false, support: "frame", floor: 0 });
+    // A box is three faces of four corners.
+    expect(saddle.nv).toBe(bare.nv + 12);
+    // Two legs and a beam.
+    expect(frame.nv).toBe(bare.nv + 3 * 12);
+    // The near leg — the +v one, left of the run on screen — is written last, after the tube: it stands in front of it.
+    let x = 0;
+    for (let v = frame.nv - 4; v < frame.nv; v++) x += frame.f32[v * WORDS] / 4;
+    expect(x).toBeCloseTo(-(0.1 + 0.05) * HW, 3);
   });
 
   test("everything a cell writes points somewhere real", () => {

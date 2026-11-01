@@ -16,10 +16,8 @@
 import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader } from "pixi.js";
 
 import { HH, HW } from "../iso";
-import { WORDS, type PipeMesh } from "./pipe-mesh";
+import { SUN, WORDS, type PipeMesh } from "./pipe-mesh";
 
-/** The sun, as a unit (u, v, h). */
-const SUN = (() => { const l = [-0.2, 0.55, 1], n = Math.hypot(...l); return l.map((c) => c / n); })();
 /**
  * Up the screen, square to the line of sight: the shine runs where a tube's
  * surface faces it — along the top of a tube lying either way alike, which a

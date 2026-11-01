@@ -170,6 +170,9 @@ export type PipeLook = {
   /** Flanges at its joins, and their bolts. */
   flanges?: boolean;
   bolts?: boolean;
+  /** What it stands on, and the ground there, half steps. */
+  support?: Support;
+  floor?: number;
 };
 
 /** A flange: how much wider than the tube, how thick, tiles; how many bolts round it. */
@@ -287,20 +290,163 @@ export function elbowPath(x: number, y: number, h: number, a: Limb, b: Limb, ste
   return out;
 }
 
+/** A point in the map's space, (u, v, h), h in tiles. */
+type Pt = [number, number, number];
+
+const far = (l: Limb) => l.dx + l.dy < 0;
+const across = (a: Limb, b: Limb) => a.dx === -b.dx && a.dy === -b.dy;
+
+/**
+ * A CELL'S SHAPE: a bend, or a run straight through — along u where there
+ * is one, for a cross — and the stubs off it. A loose end is a run of one.
+ */
+function shape(limbs: readonly Limb[]): { bend: boolean; run: Limb[]; stubs: Limb[] } {
+  if (limbs.length === 2 && !across(limbs[0], limbs[1])) return { bend: true, run: [...limbs], stubs: [] };
+  if (limbs.length < 2) return { bend: false, run: [...limbs], stubs: [] };
+  const through = limbs.filter((l) => limbs.some((o) => across(l, o)));
+  const run = through.length > 2 ? through.filter((l) => l.dx !== 0) : through;
+  // The far end first, so a run's path goes away from the camera to toward it.
+  run.sort((a, b) => (a.dx + a.dy) - (b.dx + b.dy));
+  return { bend: false, run, stubs: limbs.filter((l) => !run.includes(l)) };
+}
+
+/** The middle line of each length a cell's main is made of, as paths of points. */
+export function cellPaths(x: number, y: number, h: number, limbs: readonly Limb[], r: number): Pt[][] {
+  const face = (l: Limb): Pt => [x + l.dx * 0.5, y + l.dy * 0.5, l.zf * ZT];
+  const mid: Pt = [x, y, h];
+  const { bend, run, stubs } = shape(limbs);
+  if (bend) return [elbowPath(x, y, h, run[0], run[1])];
+  const out: Pt[][] = [];
+  if (run.length === 2) out.push([face(run[0]), mid, face(run[1])]);
+  else if (run.length === 1) out.push(far(run[0]) ? [face(run[0]), mid] : [mid, face(run[0])]);
+  for (const l of stubs) out.push([[x + l.dx * r, y + l.dy * r, h], face(l)]);
+  return out;
+}
+
+/**
+ * THE SUN, a unit (u, v, h) toward it: high, and from the camera's left —
+ * a box's top lit, its left face (+v) next, its right (+u) in shade, as the
+ * Kenney buildings are. The shader lights by it and the shadows fall from it.
+ */
+export const SUN: readonly [number, number, number] = (() => {
+  const l = [-0.4, 0.35, 1], n = Math.hypot(...l);
+  return [l[0] / n, l[1] / n, l[2] / n];
+})();
+/** Where a point a tile up casts its shadow, along the ground, (u, v). */
+export const CAST = [-SUN[0] / SUN[2], -SUN[1] / SUN[2]] as const;
+/** A cast shadow's darkness; the darker one where a support meets the ground. */
+export const SHADOW = 0.28, CONTACT = 0.4;
+
+/** Concrete, for what a main rests on. */
+export const CONCRETE = 0xc9c4b8;
+/** A saddle's length along the tube; a frame's legs, square, and its beam's depth, tiles. */
+const SADDLE = 0.1, LEG = 0.05, BEAM = 0.05;
+
+/** One flat face, its four corners in order round it, all facing `n`. */
+function quad(m: PipeMesh, s: number, q: readonly Pt[], nu: number, nv: number, nh: number, colour: number) {
+  room(m, 4, 6);
+  const a = vert(m, s, q[0][0], q[0][1], q[0][2], nu, nv, nh, colour);
+  for (let k = 1; k < 4; k++) vert(m, s, q[k][0], q[k][1], q[k][2], nu, nv, nh, colour);
+  tri(m, a, a + 1, a + 2);
+  tri(m, a, a + 2, a + 3);
+}
+
+/** A SOLID BOX in the map's axes: the three faces the camera sees — its top, and its +u and +v sides. */
+export function box(m: PipeMesh, s: number, u0: number, v0: number, h0: number, u1: number, v1: number, h1: number, colour: number) {
+  if (h1 <= h0) return;
+  quad(m, s, [[u1, v0, h1], [u1, v1, h1], [u1, v1, h0], [u1, v0, h0]], 1, 0, 0, colour);
+  quad(m, s, [[u0, v1, h1], [u1, v1, h1], [u1, v1, h0], [u0, v1, h0]], 0, 1, 0, colour);
+  quad(m, s, [[u0, v0, h1], [u1, v0, h1], [u1, v1, h1], [u0, v1, h1]], 0, 0, 1, colour);
+}
+
+/**
+ * WHERE A CELL'S MAIN IS HELD UP: under the middle of its run, or of its
+ * bend's curve; and which way the tube runs there, if it is straight.
+ */
+function supportAt(x: number, y: number, h: number, limbs: readonly Limb[]): { u: number; v: number; along: "u" | "v" | null } {
+  const { bend, run } = shape(limbs);
+  if (bend) {
+    const path = elbowPath(x, y, h, run[0], run[1]);
+    const [u, v] = path[path.length >> 1];
+    return { u, v, along: null };
+  }
+  const l = run[0];
+  return { u: x, v: y, along: !l ? null : l.dx !== 0 ? "u" : "v" };
+}
+
+/** What a cell's main stands on: a saddle on the ground, a frame of legs and a beam where it rides high, or nothing. */
+export type Support = "saddle" | "frame" | "none";
+
+/**
+ * A CELL'S MAIN'S SHADOW on the ground at `floor` half steps: each length's
+ * middle line carried down along the sun's rays, as wide as the tube — a
+ * hard edge, low alpha, laid in strips that meet without overlapping, so it
+ * is one even shade. And under its support, a darker one where it stands.
+ */
+export function pipeShadow(
+  m: PipeMesh, s: number, x: number, y: number, z: number, floor: number, limbs: readonly Limb[],
+  r: number, support: Support,
+) {
+  const h = z * ZT, g = floor * ZT, dark = rgba(0x000000, SHADOW);
+  for (const path of cellPaths(x, y, h, limbs, r)) {
+    const pts = path.map(([u, v, ph]) => [u + (ph - g) * CAST[0], v + (ph - g) * CAST[1]]);
+    const n = pts.length;
+    room(m, n * 2, (n - 1) * 6);
+    const first = m.nv;
+    for (let p = 0; p < n; p++) {
+      const a = pts[Math.max(0, p - 1)], b = pts[Math.min(n - 1, p + 1)];
+      let tu = b[0] - a[0], tv = b[1] - a[1];
+      const len = Math.hypot(tu, tv) || 1;
+      tu /= len; tv /= len;
+      vert(m, s, pts[p][0] + tv * r, pts[p][1] - tu * r, g, 0, 0, 1, dark);
+      vert(m, s, pts[p][0] - tv * r, pts[p][1] + tu * r, g, 0, 0, 1, dark);
+    }
+    for (let p = 0; p < n - 1; p++) {
+      const a = first + p * 2;
+      tri(m, a, a + 2, a + 3);
+      tri(m, a, a + 3, a + 1);
+    }
+  }
+  if (support === "none" || !limbs.length) return;
+  // UNDER WHAT IT STANDS ON: the footprint, a little wider, darker.
+  const at = supportAt(x, y, h, limbs), contact = rgba(0x000000, CONTACT), pad = 0.025;
+  const feet = support === "frame" ? legs(at, r) : [saddle(at, r)];
+  for (const [u0, v0, u1, v1] of feet) {
+    quad(m, s, [[u0 - pad, v0 - pad, g], [u1 + pad, v0 - pad, g], [u1 + pad, v1 + pad, g], [u0 - pad, v1 + pad, g]], 0, 0, 1, contact);
+  }
+}
+
+/** A saddle's footprint, (u0, v0, u1, v1): short along the tube, a little narrower than it across. */
+function saddle(at: { u: number; v: number; along: "u" | "v" | null }, r: number): [number, number, number, number] {
+  const du = at.along === "u" ? SADDLE / 2 : r * 0.8, dv = at.along === "v" ? SADDLE / 2 : r * 0.8;
+  return [at.u - du, at.v - dv, at.u + du, at.v + dv];
+}
+
+/** A frame's two legs, far one first: either side of the tube, across it. */
+function legs(at: { u: number; v: number; along: "u" | "v" | null }, r: number): [number, number, number, number][] {
+  const off = r + LEG, half = LEG / 2;
+  // Across a run along u, the legs stand either side in v — the +v one nearer the camera; and the other way about.
+  const [au, av] = at.along === "u" ? [0, 1] : [1, 0];
+  return [-1, 1].map((k) => {
+    const cu = at.u + au * off * k, cv = at.v + av * off * k;
+    return [cu - half, cv - half, cu + half, cv + half];
+  });
+}
+
 /**
  * A CELL'S MAIN as a solid, at `z` half steps in its middle, joined out
  * along `limbs`: a straight run, a bend, a tee (a run with a stub welded on),
  * a cross, or a loose end — capped, or domed under the fitting there. A
  * flange at each join on its far side (each join is some cell's far side,
- * so each is drawn once), written before the length that meets it.
+ * so each is drawn once), written before the length that meets it; and what
+ * it stands on, under it, on the ground at `look.floor`.
  */
 export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number, limbs: readonly Limb[], look: PipeLook) {
   const h = z * ZT, { r, sides } = look, c = solid(look.colour);
-  const far = (l: Limb) => l.dx + l.dy < 0;
-  const face = (l: Limb) => [x + l.dx * 0.5, y + l.dy * 0.5, l.zf * ZT] as const;
+  const face = (l: Limb): Pt => [x + l.dx * 0.5, y + l.dy * 0.5, l.zf * ZT];
   const length = (l: Limb, from = 0) => {
     const [fu, fv, fh] = face(l), k = from / 0.5;
-    const a: [number, number, number] = [x + l.dx * from, y + l.dy * from, h + (fh - h) * k];
+    const a: Pt = [x + l.dx * from, y + l.dy * from, h + (fh - h) * k];
     if (far(l)) tube(m, s, fu, fv, fh, a[0], a[1], a[2], r, c, sides);
     else tube(m, s, a[0], a[1], a[2], fu, fv, fh, r, c, sides);
   };
@@ -321,30 +467,40 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     }
   }
 
-  const n = limbs.length;
-  const across = (a: Limb, b: Limb) => a.dx === -b.dx && a.dy === -b.dy;
-  if (n === 0) { ball(m, s, x, y, h, r, c, sides); return; }
-  if (n === 1) {
+  // WHAT IT STANDS ON: a saddle up to its underside; or the far leg and the beam of a frame, its near leg after the tube.
+  const support = look.support ?? "none", g = (look.floor ?? 0) * ZT, concrete = solid(CONCRETE);
+  const at = supportAt(x, y, h, limbs);
+  let nearLeg: [number, number, number, number] | null = null;
+  if (support === "saddle" && limbs.length) {
+    const [u0, v0, u1, v1] = saddle(at, r);
+    box(m, s, u0, v0, g, u1, v1, h - r * 0.5, concrete);
+  } else if (support === "frame" && limbs.length) {
+    const [farLeg, near] = legs(at, r), top = h - r - BEAM;
+    box(m, s, farLeg[0], farLeg[1], g, farLeg[2], farLeg[3], top, concrete);
+    const span = r + LEG * 1.5;
+    const [du, dv] = at.along === "u" ? [BEAM / 2, span] : [span, BEAM / 2];
+    box(m, s, at.u - du, at.v - dv, top, at.u + du, at.v + dv, h - r, concrete);
+    nearLeg = near;
+  }
+
+  const { bend, run, stubs } = shape(limbs);
+  if (limbs.length === 0) ball(m, s, x, y, h, r, c, sides);
+  else if (limbs.length === 1) {
     // A LOOSE END: a blind flange if it is capped, else a dome under whatever fitting is there.
     const l = limbs[0];
     const end = () => look.cap != null
       ? flange(m, s, x, y, h, -l.dx, -l.dy, r, look.cap, sides, look.bolts !== false, true)
       : ball(m, s, x, y, h, r, c, sides);
     if (far(l)) { length(l); end(); } else { end(); length(l); }
-    return;
+  } else if (bend) {
+    sweep(m, s, elbowPath(x, y, h, run[0], run[1]), r, c, sides);
+  } else {
+    // The run as one sweep, far face to near, so where it changes slope in the middle it bends, not kinks.
+    for (const l of stubs) if (far(l)) stub(l);
+    sweep(m, s, [face(run[0]), [x, y, h], face(run[1])], r, c, sides);
+    for (const l of stubs) if (!far(l)) stub(l);
   }
-  if (n === 2 && !across(limbs[0], limbs[1])) {
-    sweep(m, s, elbowPath(x, y, h, limbs[0], limbs[1]), r, c, sides);
-    return;
-  }
-  // A RUN straight through — along u where there is one, for a cross — and any stubs off it.
-  const run = limbs.filter((l) => limbs.some((o) => across(l, o)));
-  const main = run.length > 2 ? run.filter((l) => l.dx !== 0) : run;
-  const stubs = limbs.filter((l) => !main.includes(l));
-  for (const l of stubs) if (far(l)) stub(l);
-  for (const l of main) if (far(l)) length(l);
-  for (const l of main) if (!far(l)) length(l);
-  for (const l of stubs) if (!far(l)) stub(l);
+  if (nearLeg) box(m, s, nearLeg[0], nearLeg[1], g, nearLeg[2], nearLeg[3], h - r - BEAM, concrete);
 }
 
 /** `0xRRGGBB`, opaque, as a vertex word. */

@@ -33,7 +33,7 @@ import { findMains, joined, mainReportAt, mainReports, type MainState } from "..
 import { portsOf, type PortCell } from "../water/ports";
 import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { K, ZT, pipeCell, pipeMesh, type Limb, type PipeMesh } from "./pipe-mesh";
+import { K, ZT, pipeCell, pipeMesh, pipeShadow, type Limb, type PipeMesh, type Support } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /**
@@ -44,7 +44,7 @@ const SIDES = ["N", "E", "S", "W"] as const;
 const CASING = 0x2b3440, BODY = 0x8796a8, SHADE = 0x5d6b7c, SHINE = 0xd4dde6, COLLAR = 0x6f7d8e;
 const WIDE = 0.11;
 const OVERLAY_WIDE = 0.16;
-const LIFT = 0.8;
+const LIFT = 1.1;
 /**
  * THE SOLID TUBE: its radius, tiles — 0.18 of a tile's width across, where
  * the strokes were 0.11; its faces round, and its colour for
@@ -176,8 +176,6 @@ export function spaceWords(words: readonly Word[], px: number): Word[] {
 
 export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLayer {
   const drawn = new Map<number, Graphics>();
-  /** What lies on the solid tubes, a Graphics a band (what is under them is in `drawn`, by the band's first cell). */
-  const laid: Graphics[] = [];
   /** The solid tubes, a mesh a band. */
   const meshes = new Map<number, Mesh<Geometry, Shader>>();
   const ports: Graphics[] = [];
@@ -215,11 +213,12 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   const tubeR = (bits: number) => TUBE_R * (bits & MAIN_SEWER ? SEWER_WIDE / WIDE : 1) * (bits & MAIN_BORE ? BORE_WIDE : 1);
 
   /**
-   * A CELL'S MAIN, drawn into `gfx`: all of it as strokes; or, round a solid
-   * tube, what lies `under` it (its shadow, what it rests on) or `over` it
-   * (collars, glass, the fitting at an end).
+   * A CELL'S MAIN, drawn into `gfx`: all of it as strokes, its shadow and
+   * what it rests on too; or, on a solid tube — which casts its own shadow
+   * and stands on its own supports — what lies `over` it: glass, the
+   * fitting at an end.
    */
-  const drawCell = (g: Grid, i: number, s: number, gfx: Graphics, part: "all" | "under" | "over") => {
+  const drawCell = (g: Grid, i: number, s: number, gfx: Graphics, part: "all" | "over") => {
     const x = i % g.w, y = (i / g.w) | 0;
     const legs = limbs(g, x, y, s);
     const z = levelAt(g, x, y), floor = ground(g, x, y);
@@ -231,7 +230,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     /** The tube's radius in half steps, for what it rests on. */
     const rz = part === "all" ? (wide * bore * HW * 2) / HEIGHT_UNIT / 2 : tubeR(bits) / ZT;
     const straight = legs.length === 2 && (joined(g, x, y, "N") && joined(g, x, y, "S") || joined(g, x, y, "E") && joined(g, x, y, "W"));
-    if (part !== "over") {
+    if (part === "all") {
       // ITS SHADOW on the ground, softly, under where it lies.
       const lift = (z - floor) * HEIGHT_UNIT * s;
       for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay + lift).lineTo(bx, by + lift);
@@ -244,7 +243,6 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         isoBox(gfx, s, x - 0.07, y - 0.07, x + 0.07, y + 0.07, floor, z - rz * 0.4, CONCRETE, CONCRETE_SIDE, CONCRETE_DARK);
       }
     }
-    if (part === "under") return;
     // THE TUBE, shaded as a cylinder: its underside, its body, the light along its top.
     if (part === "all") {
       for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay + w * 0.12).lineTo(bx, by + w * 0.12);
@@ -309,17 +307,24 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   };
 
   /** A CELL'S SOLID TUBE, into its band's mesh. @see pipeCell */
-  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number) => {
-    const x = i % g.w, y = (i / g.w) | 0, z = levelAt(g, x, y), out: Limb[] = [];
+  /**
+   * A CELL'S SOLID TUBE, into its band's mesh — or, `shadow`, its shadow and
+   * its support's. What it stands on: a frame where it rides high, a saddle
+   * on the ground, nothing under a fitting that stands on its own.
+   */
+  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number, shadow: boolean) => {
+    const x = i % g.w, y = (i / g.w) | 0, z = levelAt(g, x, y), floor = ground(g, x, y), out: Limb[] = [];
     for (const side of SIDES) {
       if (!joined(g, x, y, side)) continue;
       const [dx, dy] = NEIGHBOUR[side];
       out.push({ dx, dy, zf: (z + levelAt(g, x + dx, y + dy)) / 2 });
     }
-    const bits = g.main[i];
+    const bits = g.main[i], end = g.mainEnd[i];
+    const support: Support = z - floor > LIFT + 0.4 ? "frame" : !end || end === MAIN_END.cap || end === MAIN_END.outlet || end === MAIN_END.drain ? "saddle" : "none";
+    if (shadow) { pipeShadow(m, s, x, y, z, floor, out, tubeR(bits), support); return; }
     const colour = bits & MAIN_SEWER ? IRON : bits & MAIN_AI ? AI_STEEL : STEEL;
-    const cap = g.mainEnd[i] === MAIN_END.cap ? CAP : null;
-    pipeCell(m, s, x, y, z, out, { r: tubeR(bits), colour, sides: TUBE_SIDES, cap });
+    const cap = end === MAIN_END.cap ? CAP : null;
+    pipeCell(m, s, x, y, z, out, { r: tubeR(bits), colour, sides: TUBE_SIDES, cap, support, floor });
   };
 
   /**
@@ -351,8 +356,6 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     ports.length = 0;
     for (const gfx of drawn.values()) { gfx.parent?.removeChild(gfx); gfx.destroy(); }
     drawn.clear();
-    for (const gfx of laid) { gfx.parent?.removeChild(gfx); gfx.destroy(); }
-    laid.length = 0;
     for (const mesh of meshes.values()) destroyPipeDrawable(mesh);
     meshes.clear();
     for (const gfx of water.values()) { gfx.parent?.removeChild(gfx); gfx.destroy(); }
@@ -517,23 +520,22 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
           list.push(i);
         }
         for (const [band, list] of cells) {
-          const under = new Graphics(), over = new Graphics();
-          under.eventMode = over.eventMode = "none";
+          const over = new Graphics();
+          over.eventMode = "none";
+          // The band's shadows first, under all its tubes; then the supports and tubes.
           const m = pipeMesh();
+          for (const i of list) if (g.main[i]) tubeCell(m, g, i, scale, true);
           for (const i of list) {
-            drawCell(g, i, scale, under, "under");
-            if (g.main[i]) tubeCell(m, g, i, scale);
+            if (g.main[i]) tubeCell(m, g, i, scale, false);
             drawCell(g, i, scale, over, "over");
           }
-          bands.pavedOf[band].addChild(under);
-          drawn.set(list[0], under);
           if (m.ni) {
             const mesh = pipeDrawable(m);
             bands.pavedOf[band].addChild(mesh);
             meshes.set(band, mesh);
           }
           bands.pavedOf[band].addChild(over);
-          laid.push(over);
+          drawn.set(list[0], over);
         }
       }
       // The water's Graphics last in each band, over all its tubes.
