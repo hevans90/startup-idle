@@ -7,6 +7,7 @@
  */
 import type { GeneratorId } from "../state/generators.store";
 import type { RedFlagId } from "./linkedout";
+import { describe, type Plain } from "./wording";
 
 export type PersonalityId = "overachiever" | "chaos_agent" | "quiet_quitter" | "brown_noser" | "thought_leader" | "burnout_risk";
 export type LeaderPerkId = "inspire" | "ship" | "crunch" | "recruit" | "reach" | "sprint" | "mentor" | "culture" | "thick" | "autopilot";
@@ -34,32 +35,49 @@ type Lean = {
 export type Personality = Lean & { id: PersonalityId; name: string; says: string; pool: readonly LeaderPerkId[] };
 export type LeaderPerk = Lean & { id: LeaderPerkId; name: string; says: string };
 
+/** The rest of the kind, without Open Door: half. */
+export const REST_SHARE = 0.5;
+
+/**
+ * ITS EFFECT LINE, from its numbers: the team's first, under "Team", then the
+ * kind's and the company's. "Output" here is the team's money. @see game/wording
+ */
+function says(l: Lean): string {
+  const plain: Plain[] = [];
+  if (l.hireDiscount) plain.push({ text: describe({ hires: 1 - l.hireDiscount }), good: true });
+  if (l.autoBuy) plain.push({ text: `auto-buy one every ${1 / l.autoBuy} s`, good: true });
+  if (l.everyone) plain.push({ text: describe({ morale: l.everyone }, "Every kind's"), good: l.everyone > 0 });
+  if (l.rest) plain.push({ text: `rest of their kind feel ${Math.round(l.rest * 100)}%, not ${Math.round(REST_SHARE * 100)}%`, good: true });
+  const team = l.output !== undefined || l.innovation !== undefined || l.morale !== undefined;
+  return describe({ money: l.output && 1 + l.output, innovation: l.innovation && 1 + l.innovation, morale: l.morale, xp: l.xp }, team ? "Team" : undefined, plain);
+}
+
+const withSays = <T extends Lean>(l: T): T & { says: string } => ({ ...l, says: says(l) });
+
 export const PERSONALITIES: Record<PersonalityId, Personality> = {
-  overachiever: { id: "overachiever", name: "Overachiever", says: "Team output +15% · morale −4", output: 0.15, morale: -4, pool: ["ship", "crunch", "mentor", "autopilot", "reach"] },
-  chaos_agent: { id: "chaos_agent", name: "Chaos Agent", says: "Team innovation +20% · morale −3", innovation: 0.2, morale: -3, pool: ["sprint", "crunch", "culture", "reach", "ship"] },
-  quiet_quitter: { id: "quiet_quitter", name: "Quiet Quitter", says: "Team morale +5 · output −5% · ranks slower", morale: 5, output: -0.05, xp: 0.8, pool: ["inspire", "thick", "culture", "mentor", "recruit"] },
-  brown_noser: { id: "brown_noser", name: "Brown-Noser", says: "Team morale +3 · hires 10% cheaper", morale: 3, hireDiscount: 0.1, pool: ["recruit", "inspire", "autopilot", "reach", "culture"] },
-  thought_leader: { id: "thought_leader", name: "Thought Leader", says: "Team innovation +10% · morale +2", innovation: 0.1, morale: 2, pool: ["sprint", "culture", "inspire", "reach", "mentor"] },
-  burnout_risk: { id: "burnout_risk", name: "Burnout Risk", says: "Team output +25% · morale −8 · ranks faster", output: 0.25, morale: -8, xp: 1.3, pool: ["crunch", "ship", "thick", "autopilot", "sprint"] },
+  overachiever: withSays({ id: "overachiever", name: "Overachiever", output: 0.15, morale: -4, pool: ["ship", "crunch", "mentor", "autopilot", "reach"] }),
+  chaos_agent: withSays({ id: "chaos_agent", name: "Chaos Agent", innovation: 0.2, morale: -3, pool: ["sprint", "crunch", "culture", "reach", "ship"] }),
+  quiet_quitter: withSays({ id: "quiet_quitter", name: "Quiet Quitter", morale: 5, output: -0.05, xp: 0.8, pool: ["inspire", "thick", "culture", "mentor", "recruit"] }),
+  brown_noser: withSays({ id: "brown_noser", name: "Brown-Noser", morale: 3, hireDiscount: 0.1, pool: ["recruit", "inspire", "autopilot", "reach", "culture"] }),
+  thought_leader: withSays({ id: "thought_leader", name: "Thought Leader", innovation: 0.1, morale: 2, pool: ["sprint", "culture", "inspire", "reach", "mentor"] }),
+  burnout_risk: withSays({ id: "burnout_risk", name: "Burnout Risk", output: 0.25, morale: -8, xp: 1.3, pool: ["crunch", "ship", "thick", "autopilot", "sprint"] }),
 };
 
 export const LEADER_PERKS: Record<LeaderPerkId, LeaderPerk> = {
-  inspire: { id: "inspire", name: "Inspire", says: "Team morale +3", morale: 3 },
-  ship: { id: "ship", name: "Ship It", says: "Team output +10%", output: 0.1 },
-  crunch: { id: "crunch", name: "Crunch Captain", says: "Team output +20% · morale −4", output: 0.2, morale: -4 },
-  recruit: { id: "recruit", name: "Recruiter", says: "Their kind's hires 10% cheaper", hireDiscount: 0.1 },
-  reach: { id: "reach", name: "Open Door", says: "The rest of their kind feel three quarters, not half", rest: 0.75 },
-  sprint: { id: "sprint", name: "Innovation Sprint", says: "Team innovation +15%", innovation: 0.15 },
-  mentor: { id: "mentor", name: "Mentor Program", says: "Ranks up 40% faster", xp: 1.4 },
-  culture: { id: "culture", name: "Culture Carrier", says: "Every kind's morale +1", everyone: 1 },
-  thick: { id: "thick", name: "Thick Skin", says: "Team morale +2 · output +5%", morale: 2, output: 0.05 },
-  autopilot: { id: "autopilot", name: "Always Recruiting", says: "Hires one of their kind every 4 s when affordable", autoBuy: 0.25 },
+  inspire: withSays({ id: "inspire", name: "Inspire", morale: 3 }),
+  ship: withSays({ id: "ship", name: "Ship It", output: 0.1 }),
+  crunch: withSays({ id: "crunch", name: "Crunch Captain", output: 0.2, morale: -4 }),
+  recruit: withSays({ id: "recruit", name: "Recruiter", hireDiscount: 0.1 }),
+  reach: withSays({ id: "reach", name: "Open Door", rest: 0.75 }),
+  sprint: withSays({ id: "sprint", name: "Innovation Sprint", innovation: 0.15 }),
+  mentor: withSays({ id: "mentor", name: "Mentor Program", xp: 1.4 }),
+  culture: withSays({ id: "culture", name: "Culture Carrier", everyone: 1 }),
+  thick: withSays({ id: "thick", name: "Thick Skin", morale: 2, output: 0.05 }),
+  autopilot: withSays({ id: "autopilot", name: "Always Recruiting", autoBuy: 0.25 }),
 };
 
 /** Output a rank adds to the team: +4% each. */
 export const RANK_OUTPUT = 0.04;
-/** The rest of the kind, without Open Door: half. */
-export const REST_SHARE = 0.5;
 /** XP for each rank, from nought; five ranks. */
 export const XP_AT: readonly number[] = [0, 300, 1200, 3000, 6500, 12000];
 export const MAX_LEADER_RANK = XP_AT.length - 1;

@@ -20,11 +20,11 @@ interface ManagerRowProps {
   onUnassign: () => void;
 }
 
-/** What each kind of manager's bonus is, by its bonus type: every type, so none can fall through. */
+/** What each kind of manager's bonus is, by its bonus type, in the glossary's words: every type, so none can fall through. @see game/wording */
 const BONUS: Record<ManagerBonusType, { label: string; modKey: string }> = {
-  innovation: { label: "Innovation rate", modKey: "managerInnovation" },
-  employee: { label: "Employee output", modKey: "managerMoney" },
-  valuation: { label: "Valuation rate", modKey: "managerSalesValuation" },
+  innovation: { label: "Innovation", modKey: "managerInnovation" },
+  employee: { label: "Money", modKey: "managerMoney" },
+  valuation: { label: "Valuation", modKey: "managerSalesValuation" },
 };
 
 /**
@@ -54,7 +54,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
             <div className="h-full bg-innovation transition-[width] duration-300" style={{ width: `${pct}%` }} />
           </div>
           <div className="flex justify-between gap-2 text-[11px] text-fg-muted">
-            <span><ModifierTag modKey={bonus.modKey}>{bonus.label}</ModifierTag> <b className="tabular-nums text-fg">×{bonusMultiplier?.toFixed(3)}</b> · ×{bonusMultiplierGrowthPerTier?.toFixed(2)}/tier</span>
+            <span><ModifierTag modKey={bonus.modKey}>{bonus.label}</ModifierTag> <b className="tabular-nums text-fg">×{bonusMultiplier?.toFixed(3)}</b> · ×{bonusMultiplierGrowthPerTier?.toFixed(2)} a tier</span>
             <span className="shrink-0 tabular-nums" title="Time to the next tier at this assignment">{estimateToNextTier === "-" || estimateToNextTier === "∞" ? "idle" : `next in ${estimateToNextTier}`}</span>
           </div>
         </div>

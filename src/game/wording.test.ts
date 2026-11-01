@@ -35,6 +35,11 @@ group("an effect line, from numbers", () => {
     expect(describe({ money: 1, morale: 0, innovation: 1.2 })).toBe("Innovation +20%");
   });
 
+  test("a part no stat says goes with its side, and nought is off", () => {
+    expect(describe({ morale: -3 }, undefined, [{ text: "auto-buy one every 2 s", good: true }])).toBe("Auto-buy one every 2 s · morale −3");
+    expect(describe({ money: 4, autoBuy: 0 }, undefined, [{ text: "managers off", good: false }])).toBe("Money ×4 · auto-buy off · managers off");
+  });
+
   test("an acronym keeps its capitals mid-line", () => {
     expect(describe({ money: 1.1, aiMeter: 0.8 })).toBe("Money +10% · AI meter −20%");
   });
@@ -59,6 +64,7 @@ group("an effect line, by hand", () => {
       "an x for times — use ×",
     ]);
     expect(effectProblems("−10% hire cost on all generators")).toContain('says "generators" — say interns, vibe coders, 10x devs');
+    expect(effectProblems("R&D labs' innovation ×2")).toEqual([]);
   });
 
   test("cheaper is a minus, and an aside is flavour", () => {
@@ -103,11 +109,10 @@ group("a big number, by name", () => {
  * phase 2 rewrites it; the rest wait as todos — `bun run wording` lists what
  * is wrong with each. @see plans/polish.md
  */
-const CLEARED = new Set<CatalogueId>([]);
+const CLEARED = new Set<CatalogueId>(Object.keys(CATALOGUES) as CatalogueId[]);
 
 group("every modifier's effect line keeps the rules", () => {
   for (const id of Object.keys(CATALOGUES) as CatalogueId[]) {
-    const run = CLEARED.has(id) ? test : test.todo;
-    run(id, () => expect(audit(id)).toEqual([]));
+    (CLEARED.has(id) ? test : test.todo)(id, () => expect(audit(id)).toEqual([]));
   }
 });

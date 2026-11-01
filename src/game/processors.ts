@@ -8,19 +8,14 @@
  *  - the TRAINING DATA PLANT: training runs faster, and land a little harder;
  *  - the CONTENT FARM: valuation, and LinkedOut reputation while it runs.
  */
+import { describe } from "./wording";
+
 export type ProcessorKind = "refinery" | "dataplant" | "contentfarm";
 
 export const PROCESSOR_KINDS: readonly ProcessorKind[] = ["refinery", "dataplant", "contentfarm"];
 
 /** Slop one takes a second, at most. */
 export const PROCESS_RATE = 0.5;
-
-/** What each is called, and what it does at full use, as a player reads it. */
-export const PROCESSORS: Record<ProcessorKind, { name: string; says: string }> = {
-  refinery: { name: "Slop Refinery", says: "+15% innovation at full use" },
-  dataplant: { name: "Training Data Plant", says: "Training runs 25% faster and land 10% harder at full use" },
-  contentfarm: { name: "Content Farm", says: "+10% valuation at full use; a LinkedOut star while it runs" },
-};
 
 /** Which kind a structure is, or null for none. The structure's id is its kind. */
 export const processorKind = (def: string): ProcessorKind | null =>
@@ -33,6 +28,13 @@ export const DATAPLANT_JUMP = 0.1;
 export const CONTENTFARM_VALUATION = 0.1;
 /** Use, summed over the farms, past which reputation gets its star. */
 export const CONTENTFARM_STAR_AT = 0.25;
+
+/** What each is called, and what it does at full use, as a player reads it. @see game/wording */
+export const PROCESSORS: Record<ProcessorKind, { name: string; says: string }> = {
+  refinery: { name: "Slop Refinery", says: `${describe({ innovation: 1 + REFINERY_INNOVATION })}, at full use` },
+  dataplant: { name: "Training Data Plant", says: `Training speed +${Math.round(DATAPLANT_SPEED * 100)}% · AI meter jump +${Math.round(DATAPLANT_JUMP * 100)}%, at full use` },
+  contentfarm: { name: "Content Farm", says: `${describe({ valuation: 1 + CONTENTFARM_VALUATION })}, at full use · a LinkedOut star` },
+};
 
 /**
  * HOW BUSY EACH KIND IS, summed over its buildings — two refineries at half

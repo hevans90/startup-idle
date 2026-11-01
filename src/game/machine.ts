@@ -25,7 +25,11 @@ export const MACHINE_CENTRE = { x: 0, y: 2420 };
 
 export type MachineNode = {
   id: string; x: number; y: number; title: string; kind: "root" | "minor" | "notable" | "keystone"; cluster: typeof MACHINE;
-  effect: string; ring: number; module?: ModuleId; cost: number;
+  /** Its effect line: what it does, short. @see game/wording */
+  effect: string;
+  /** How it works, a sentence or more, for its popover: notables, keystones and the root. */
+  detail?: string;
+  ring: number; module?: ModuleId; cost: number;
 };
 
 /**
@@ -35,16 +39,16 @@ export type MachineNode = {
  * each bought makes the next dearer by `NOTABLE_STEP`. @see plans/ai-takeover.md §4.2
  */
 export type NotableId = "freight" | "airlift" | "prefab" | "zoning" | "coolant" | "concierge" | "nightshift" | "market" | "selffund";
-export const NOTABLES: readonly { id: NotableId; title: string; effect: string; gap: number; ring?: 3 }[] = [
-  { id: "freight", gap: 0, title: "Autonomous Freight", effect: "Project materials come in convoys of three self-driving lorries, from the Data Centre as well as the garage: a sixteen-load wonder in six runs." },
-  { id: "airlift", gap: 2, title: "Drone Airlift", effect: "Sites of four tiles or fewer get their materials by heavy-lift drone, straight from the Data Centre over the town: three times as fast, a quarter dearer a load." },
-  { id: "prefab", gap: 4, title: "Prefab Printing", effect: "The AI prints building segments off-site: every new project needs 40% less work. The loads stay." },
-  { id: "zoning", gap: 5, title: "Generative Zoning", effect: "Lots the AI zones in its district are born at the tier the spot can sustain, not as starter lots." },
-  { id: "coolant", gap: 1, title: "Coolant Loop", effect: "The AI's buildings share their water: a surplus at one tops up a shortage at another, so one good intake can cool them all." },
-  { id: "concierge", gap: 3, title: "Holo-Concierge", effect: "A holographic attendant at every café, park and gym in the AI's district: each serves houses 4 road tiles further away." },
-  { id: "nightshift", gap: 6, title: "Night Shift", effect: "The town never sleeps: employees without a desk work the night shift on the empty ones, at 70% instead of 35%. Offices glow violet at night." },
-  { id: "market", gap: 2, ring: 3, title: "Market Maker", effect: "The AI runs the river trade: ports in its district turn ships round half as fast again, some of them its own violet freighters, and convoys come twice as often." },
-  { id: "selffund", gap: 5, ring: 3, title: "Self-Funding", effect: "The AI pays its own way: a tenth of what the agents add to income goes into its wallet as well." },
+export const NOTABLES: readonly { id: NotableId; title: string; effect: string; detail: string; gap: number; ring?: 3 }[] = [
+  { id: "freight", gap: 0, title: "Autonomous Freight", effect: "Project loads come by self-driving convoy", detail: "Project materials come in convoys of three self-driving lorries, from the Data Centre as well as the garage: a sixteen-load wonder in six runs." },
+  { id: "airlift", gap: 2, title: "Drone Airlift", effect: "Small sites' loads ×3 faster · each load +25%", detail: "Sites of four tiles or fewer get their materials by heavy-lift drone, straight from the Data Centre over the town: three times as fast, a quarter dearer a load." },
+  { id: "prefab", gap: 4, title: "Prefab Printing", effect: "Project work −40%", detail: "The AI prints building segments off-site: every new project needs 40% less work. The loads stay." },
+  { id: "zoning", gap: 5, title: "Generative Zoning", effect: "AI lots start at the tier their spot sustains", detail: "Lots the AI zones in its district are born at the tier the spot can sustain, not as starter lots." },
+  { id: "coolant", gap: 1, title: "Coolant Loop", effect: "The AI's buildings share their water", detail: "The AI's buildings share their water: a surplus at one tops up a shortage at another, so one good intake can cool them all." },
+  { id: "concierge", gap: 3, title: "Holo-Concierge", effect: "AI district services reach 4 tiles further", detail: "A holographic attendant at every café, park and gym in the AI's district: each serves houses 4 road tiles further away." },
+  { id: "nightshift", gap: 6, title: "Night Shift", effect: "Deskless employees work nights at 70%, not 35%", detail: "The town never sleeps: employees without a desk work the night shift on the empty ones, at 70% instead of 35%. Offices glow violet at night." },
+  { id: "market", gap: 2, ring: 3, title: "Market Maker", effect: "AI district ports +50% faster · convoys ×2", detail: "The AI runs the river trade: ports in its district turn ships round half as fast again, some of them its own violet freighters, and convoys come twice as often." },
+  { id: "selffund", gap: 5, ring: 3, title: "Self-Funding", effect: "AI wallet gets a tenth of the agents' income", detail: "The AI pays its own way: a tenth of what the agents add to income goes into its wallet as well." },
 ];
 export const NOTABLE_COST = 30;
 export const NOTABLE_STEP = 15;
@@ -59,10 +63,10 @@ export const notable = (id: NotableId): boolean => hasMachine(notableId(id)) && 
  * past its third ring; one bought, the others are closed. @see plans/ai-takeover.md §4.2
  */
 export type KeystoneId = "alignment" | "takeoff" | "airgap";
-export const KEYSTONES: readonly { id: KeystoneId; title: string; effect: string; spoke: number }[] = [
-  { id: "alignment", spoke: 0, title: "Alignment", effect: "The takeover never turns hostile: past the Manager it stays a colleague — nothing converted or repurposed, ever, its streets never closed to you, working only to your focus. But the meter rises half as fast, and each sale carries half the floor. Its district is drawn in your colour." },
-  { id: "takeoff", spoke: 5, title: "Hard Takeoff", effect: "The Overseer comes at 60%. Its district is your whole map, and everything it builds is free, paid in compute. The town is its: chaotic, and enormously powerful. The violet sky comes with it." },
-  { id: "airgap", spoke: 3, title: "Air Gap", effect: "The AI never touches the map: no district, no drones, no takeover, and no Lattice to wait on. Every agent's boost is 1.6 times what it was. None of the Machine's notables that work on the map work. The Data Centre's links go dark; it hums alone." },
+export const KEYSTONES: readonly { id: KeystoneId; title: string; effect: string; detail: string; spoke: number }[] = [
+  { id: "alignment", spoke: 0, title: "Alignment", effect: "The AI stays a colleague · AI meter ×0.5 · sale floor ×0.5", detail: "The takeover never turns hostile: past the Manager it stays a colleague — nothing converted or repurposed, ever, its streets never closed to you, working only to your focus. But the meter rises half as fast, and each sale carries half the floor. Its district is drawn in your colour." },
+  { id: "takeoff", spoke: 5, title: "Hard Takeoff", effect: "Overseer at 60% · the AI builds free on the whole map", detail: "The Overseer comes at 60%. Its district is your whole map, and everything it builds is free, paid in compute. The town is its: chaotic, and enormously powerful. The violet sky comes with it." },
+  { id: "airgap", spoke: 3, title: "Air Gap", effect: "The AI stays off the map · agents' boost ×1.6", detail: "The AI never touches the map: no district, no drones, no takeover, and no Lattice to wait on. Every agent's boost is 1.6 times what it was. None of the Machine's notables that work on the map work. The Data Centre's links go dark; it hums alone." },
 ];
 /** Keystones are past the minors' last ring, revealed an Ascension after it; a keystone costs this many Weights. */
 export const KEYSTONE_RING = MACHINE_RINGS + 1;
@@ -88,7 +92,8 @@ const minorId = (m: ModuleId, ring: number) => `machine_${m}_${ring}`;
 export function machineGraph(): { nodes: MachineNode[]; edges: [string, string][] } {
   const nodes: MachineNode[] = [{
     id: INHERITANCE, ...MACHINE_CENTRE, title: "Inheritance", kind: "root", cluster: MACHINE, ring: 0, cost: 0,
-    effect: "The AI you raised comes back as yours. Each company it starts at the Assistant stage; till the Overseer it takes nothing — no house converted, nothing repurposed — and works only to your focus, its drones in your teal.",
+    effect: "The AI comes back as yours, a colleague till the Overseer",
+    detail: "The AI you raised comes back as yours. Each company it starts at the Assistant stage; till the Overseer it takes nothing — no house converted, nothing repurposed — and works only to your focus, its drones in your teal.",
   }];
   const edges: [string, string][] = [];
   const spokeAngle = (i: number) => -Math.PI / 2 + (i / SPOKES.length) * Math.PI * 2 + Math.PI / SPOKES.length;
@@ -114,7 +119,7 @@ export function machineGraph(): { nodes: MachineNode[]; edges: [string, string][
     const id = notableId(n.id), ring = n.ring ?? 2;
     nodes.push({
       id, x: MACHINE_CENTRE.x + Math.cos(a) * RING_GAP * ring, y: MACHINE_CENTRE.y + Math.sin(a) * RING_GAP * ring,
-      title: n.title, kind: "notable", cluster: MACHINE, ring, cost: NOTABLE_COST, effect: n.effect,
+      title: n.title, kind: "notable", cluster: MACHINE, ring, cost: NOTABLE_COST, effect: n.effect, detail: n.detail,
     });
     edges.push([minorId(SPOKES[n.gap], ring), id], [minorId(SPOKES[(n.gap + 1) % SPOKES.length], ring), id]);
   }
@@ -123,7 +128,7 @@ export function machineGraph(): { nodes: MachineNode[]; edges: [string, string][
     const a = spokeAngle(k.spoke), id = keystoneId(k.id);
     nodes.push({
       id, x: MACHINE_CENTRE.x + Math.cos(a) * RING_GAP * KEYSTONE_RING, y: MACHINE_CENTRE.y + Math.sin(a) * RING_GAP * KEYSTONE_RING,
-      title: k.title, kind: "keystone", cluster: MACHINE, ring: KEYSTONE_RING, cost: KEYSTONE_COST, effect: k.effect,
+      title: k.title, kind: "keystone", cluster: MACHINE, ring: KEYSTONE_RING, cost: KEYSTONE_COST, effect: k.effect, detail: k.detail,
     });
     edges.push([minorId(SPOKES[k.spoke], MACHINE_RINGS), id]);
   }

@@ -38,14 +38,14 @@ export const DATASETS: readonly Dataset[] = [
     "Builds its houses two tiers up",
   ] },
   { id: "money", name: "The money", memo: "Reading every invoice the company has ever sent.", jump: 2, skills: [
-    `Its allowance comes in ${Math.round((WALLET_FASTER - 1) * 100)}% faster`,
+    `Allowance speed +${Math.round((WALLET_FASTER - 1) * 100)}%`,
     "Prefers the jobs that cost least",
-    `Its wallet holds ${WALLET_DEEPER}× as much`,
+    `Wallet size ×${WALLET_DEEPER}`,
   ] },
   { id: "people", name: "The people", memo: "Studying the employees. Purely for their benefit.", jump: 2, skills: [
     "Never takes a house anyone lives in",
     "Repurposes only what nobody relies on",
-    "Opens a service before zoning more houses where there is none",
+    "Opens a missing service before zoning more houses",
   ] },
   { id: "river", name: "The river", memo: "Modelling the water. It has opinions about the water.", jump: 2, skills: [
     "Pipes by gravity before it builds a pump",
@@ -54,8 +54,8 @@ export const DATASETS: readonly Dataset[] = [
   ] },
   { id: "itself", name: "Itself", memo: "Reading its own weights. Recursively.", jump: 5, skills: [
     "Every rack runs one more agent",
-    `Its drones fly and scan ${Math.round((DRONES_FASTER - 1) * 100)}% faster`,
-    `The agents' boost to income +${Math.round((ITSELF_BOOST - 1) * 100)}%`,
+    `Drone speed +${Math.round((DRONES_FASTER - 1) * 100)}%`,
+    `Agents' boost +${Math.round((ITSELF_BOOST - 1) * 100)}%`,
   ] },
 ];
 

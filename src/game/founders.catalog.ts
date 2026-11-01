@@ -9,6 +9,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import type { GeneratorId } from "../state/generators.store";
+import { describe } from "./wording";
 
 export type FounderModifiers = {
   /** Subtract from every generator's cost-growth exponent. */
@@ -90,8 +91,8 @@ export const HACKER_LABS = 2;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-const pct = (n: number, decimals = 0) => `${(n * 100).toFixed(decimals)}%`;
-const x = (n: number, decimals = 2) => `×${n.toFixed(decimals)}`;
+/** How much less a hire or a mandate gets dearer, the next over the last: an exponent's points, as a percentage. */
+const slower = (what: string, by: number) => `${what} get dearer ${Number((by * 100).toFixed(1))}% slower`;
 
 // ─── founders ─────────────────────────────────────────────────────────────────
 
@@ -105,18 +106,18 @@ export const FOUNDERS: FounderDef[] = [
     startingCash: 5,
     scalingModifier: {
       label: "Compounding Grind",
-      perExitDescription: "×2 money per exit",
+      perExitDescription: "Money ×2 an exit",
       compute: (exits) => ({
         globalMoneyMult: Math.pow(2, exits),
       }),
     },
-    perks: (exits) => [exits === 0 ? "No perks" : `Money ${x(Math.pow(2, exits), 0)}`],
+    perks: (exits) => [exits === 0 ? "No perks" : describe({ money: Math.pow(2, exits) })],
   },
 
   // ── The Bootstrapper (1 exit) ────────────────────────────────────────────────
   {
     id: "bootstrapper",
-    rule: `Builds ${Math.round((1 - BOOTSTRAP_BUILD) * 100)}% cheaper, projects too`,
+    rule: `${describe({ builds: BOOTSTRAP_BUILD })}, projects too`,
     name: "The Bootstrapper",
     tagline: "Ramen profitable",
     unlockCondition: {
@@ -127,19 +128,19 @@ export const FOUNDERS: FounderDef[] = [
     startingCash: 30,
     scalingModifier: {
       label: "Scar Tissue",
-      perExitDescription: "−0.012 cost growth per exit",
+      perExitDescription: "Hires get dearer 1.2% slower an exit",
       compute: (exits) => ({
         costExponentReduction: 0.02 + exits * 0.012,
         autoBuyMult: 1.4,
       }),
     },
-    perks: (exits) => [`Cost growth −${(0.02 + exits * 0.012).toFixed(3)}`, "Auto-buy +40%"],
+    perks: (exits) => [slower("Hires", 0.02 + exits * 0.012), describe({ autoBuy: 1.4 })],
   },
 
   // ── The Hacker (2 exits) ─────────────────────────────────────────────────────
   {
     id: "hacker",
-    rule: `R&D labs give ${HACKER_LABS}× innovation`,
+    rule: `R&D labs' innovation ×${HACKER_LABS}`,
     name: "The Hacker",
     tagline: "Ships before slides",
     unlockCondition: {
@@ -150,13 +151,13 @@ export const FOUNDERS: FounderDef[] = [
     startingCash: 40,
     scalingModifier: {
       label: "Stack Overflow",
-      perExitDescription: "+0.15 innovation curve, +20% vibe coder innovation per exit",
+      perExitDescription: "Innovation's boost +0.15 · vibe coders' innovation +20% an exit",
       compute: (exits) => ({
         innovationLogMult: 1.4 + exits * 0.15,
         generatorInnovationMult: { vibe_coder: 1.5 + exits * 0.2 },
       }),
     },
-    perks: (exits) => [`Innovation curve ${x(1.4 + exits * 0.15)}`, `Vibe coders +${pct(1.5 + exits * 0.2 - 1)} innovation`],
+    perks: (exits) => [`Innovation's boost ×${Number((1.4 + exits * 0.15).toFixed(2))}`, describe({ innovation: 1.5 + exits * 0.2 }, "Vibe coders'")],
   },
 
   // ── The Visionary (3 exits + $5k) ───────────────────────────────────────────
@@ -173,19 +174,19 @@ export const FOUNDERS: FounderDef[] = [
     startingCash: 50,
     scalingModifier: {
       label: "Track Record",
-      perExitDescription: "×1.25 valuation rate per exit",
+      perExitDescription: "Valuation ×1.25 an exit",
       compute: (exits) => ({
         valuationAccrualMult: 1.35 * Math.pow(1.25, exits),
         mandateCostGrowthReduction: 0.025,
       }),
     },
-    perks: (exits) => [`Valuation rate ${x(1.35 * Math.pow(1.25, exits))}`, "Mandate cost growth −0.025"],
+    perks: (exits) => [describe({ valuation: 1.35 * Math.pow(1.25, exits) }), slower("Mandates", 0.025)],
   },
 
   // ── The Hustler (5 exits + $50k) ─────────────────────────────────────────────
   {
     id: "hustler",
-    rule: `Map events ${HUSTLER_EVENTS}× as often`,
+    rule: `Map events ×${HUSTLER_EVENTS}`,
     name: "The Hustler",
     tagline: "Always be closing",
     unlockCondition: {
@@ -196,13 +197,13 @@ export const FOUNDERS: FounderDef[] = [
     startingCash: 100,
     scalingModifier: {
       label: "Network Deepens",
-      perExitDescription: "+0.5% money per employee per exit",
+      perExitDescription: "Money per employee +0.5% an exit",
       compute: (exits) => ({
         headcountMoneyPerEmployee: 0.007 + exits * 0.005,
         autoBuyMult: 1.3,
       }),
     },
-    perks: (exits) => [`+${pct(0.007 + exits * 0.005, 1)} money per employee`, "Auto-buy +30%"],
+    perks: (exits) => [describe({ perEmployee: 1 + 0.007 + exits * 0.005 }), describe({ autoBuy: 1.3 })],
   },
 
   // ── The Agentic Delusionist (8 exits + $500k) ───────────────────────────────
@@ -218,7 +219,7 @@ export const FOUNDERS: FounderDef[] = [
     startingCash: 150,
     scalingModifier: {
       label: "AGI Proximity",
-      perExitDescription: "+100% vibe coder money, +75% innovation per exit",
+      perExitDescription: "Vibe coders' money +100% · innovation +75% an exit",
       compute: (exits) => ({
         onlyGenerator: "vibe_coder",
         generatorMoneyMult: { vibe_coder: 3 + exits * 1.0 },
@@ -228,8 +229,8 @@ export const FOUNDERS: FounderDef[] = [
     },
     perks: (exits) => [
       "Vibe coders only",
-      `Vibe coders +${pct(3 + exits * 1.0 - 1)} money, +${pct(2.5 + exits * 0.75 - 1)} innovation`,
-      "+0.6% money per employee",
+      describe({ money: 3 + exits * 1.0, innovation: 2.5 + exits * 0.75 }, "Vibe coders'"),
+      describe({ perEmployee: 1.006 }),
     ],
   },
 
@@ -245,7 +246,7 @@ export const FOUNDERS: FounderDef[] = [
       label: "Ascend once",
       check: () => false,
     },
-    rule: "AI mode plans and builds the town",
+    rule: "AI mode builds the town",
     icon: IconCpu,
     startingCash: 5,
     scalingModifier: {

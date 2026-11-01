@@ -1,6 +1,9 @@
+import { describe } from "./wording";
+
 export type JuiceShopUpgradeDef = {
   id: string;
   name: string;
+  /** Its effect line, made from its numbers. @see game/wording */
   description: string;
   cost: number;
   mpsBonus?: number;
@@ -23,119 +26,117 @@ export type JuiceShopUpgradeDef = {
   minigameForgiveness?: number;
   /** Lowers the 0.92 "perfect" score threshold (0.05 → perfect at 0.87). */
   minigamePerfectThresholdReduction?: number;
-  /** Short description of the minigame effect shown in the vape shop UI. */
+  /** Its mini-game effect line, made from its numbers. */
   minigameDescription?: string;
 };
 
 // Total cost 4040 juice — affordable if you unlock ~78% of achievements (5166 total).
-export const JUICE_SHOP_UPGRADES: JuiceShopUpgradeDef[] = [
+type Raw = Omit<JuiceShopUpgradeDef, "description" | "minigameDescription">;
+
+const points = (n: number) => Math.round(n * 100);
+
+/** Its two effect lines, from its numbers: the company's, and the mini-game's. */
+const withLines = (u: Raw): JuiceShopUpgradeDef => {
+  const game = [
+    u.minigameTapWindowBonus && `Tap windows +${points(u.minigameTapWindowBonus)}%`,
+    u.minigameHoldThresholdReduction && `Hold zones pass ${points(u.minigameHoldThresholdReduction)} points lower`,
+    u.minigameRewardBonus && `Innovation per puff +${points(u.minigameRewardBonus)}%`,
+    u.minigameForgiveness && `Missed taps forgiven +${u.minigameForgiveness}`,
+    u.minigamePerfectThresholdReduction && `Perfect cloud ${points(u.minigamePerfectThresholdReduction)} points lower`,
+  ].filter(Boolean).join(" · ");
+  return {
+    ...u,
+    description: describe({
+      money: 1 + (u.mpsBonus ?? 0), innovation: 1 + (u.innovationBonus ?? 0), valuation: 1 + (u.valuationBonus ?? 0),
+      equity: 1 + (u.equityBonus ?? 0), hires: 1 - (u.hireCostReduction ?? 0),
+    }),
+    ...(game ? { minigameDescription: game } : {}),
+  };
+};
+
+export const JUICE_SHOP_UPGRADES: JuiceShopUpgradeDef[] = ([
   {
     id: "juice_coil_polish",
     name: "Coil polish",
-    description: "+8% employee money output.",
     cost: 40,
     mpsBonus: 0.08,
     minigameTapWindowBonus: 0.15,
-    minigameDescription: "Tap windows 15% wider.",
   },
   {
     id: "juice_wick_soak",
     name: "Wick soak",
-    description: "−10% hire cost for all employees.",
     cost: 60,
     hireCostReduction: 0.1,
     minigameHoldThresholdReduction: 0.05,
-    minigameDescription: "Hold zones score at 55% sustained (was 60%).",
   },
   {
     id: "juice_cloud_chaser",
     name: "Cloud chaser",
-    description: "+12% innovation rate",
     cost: 90,
     innovationBonus: 0.12,
     minigameRewardBonus: 0.1,
-    minigameDescription: "+10% innovation reward per puff.",
   },
   {
     id: "juice_deep_steep",
     name: "Deep steep",
-    description: "+15% employee money output.",
     cost: 130,
     mpsBonus: 0.15,
     minigameTapWindowBonus: 0.2,
-    minigameDescription: "Tap windows 20% wider.",
   },
   {
     id: "juice_sub_ohm",
     name: "Sub-ohm rig",
-    description: "+20% valuation accrual rate.",
     cost: 180,
     valuationBonus: 0.2,
     minigameRewardBonus: 0.15,
-    minigameDescription: "+15% innovation reward per puff.",
   },
   {
     id: "juice_max_vg",
     name: "Max VG blend",
-    description: "+18% employee money output.",
     cost: 250,
     mpsBonus: 0.18,
     minigameForgiveness: 1,
-    minigameDescription: "1 missed tap zone forgiven per game.",
   },
   {
     id: "juice_nicotine_shot",
     name: "Nicotine shot",
-    description: "+20% innovation rate",
     cost: 330,
     innovationBonus: 0.2,
     minigameHoldThresholdReduction: 0.08,
-    minigameDescription: "Hold zones score at 47% sustained (was 60%).",
   },
   {
     id: "juice_ceramic_coil",
     name: "Ceramic coil",
-    description: "−20% hire cost for all employees.",
     cost: 420,
     hireCostReduction: 0.2,
     minigameTapWindowBonus: 0.25,
-    minigameDescription: "Tap windows 25% wider.",
   },
   {
     id: "juice_triple_coil",
     name: "Triple coil",
-    description: "+30% employee money output.",
     cost: 510,
     mpsBonus: 0.3,
     minigameRewardBonus: 0.2,
-    minigameDescription: "+20% innovation reward per puff.",
   },
   {
     id: "juice_squonk_mod",
     name: "Squonk mod",
-    description: "+30% valuation accrual rate.",
     cost: 600,
     valuationBonus: 0.3,
     minigameForgiveness: 1,
-    minigameDescription:
-      "2 missed tap zones forgiven per game (stacks with Max VG).",
   },
   {
     id: "juice_mesh_coil",
     name: "Mesh coil",
-    description: "+35% innovation rate",
     cost: 680,
     innovationBonus: 0.35,
     minigameRewardBonus: 0.25,
-    minigameDescription: "+25% innovation reward per puff.",
   },
   {
     id: "juice_dna_chip",
     name: "DNA chip",
-    description: "+10% equity payout on company acquisition.",
     cost: 750,
     equityBonus: 0.1,
     minigamePerfectThresholdReduction: 0.05,
-    minigameDescription: "Perfect cloud threshold drops from 92% → 87%.",
   },
-];
+] satisfies Raw[]).map(withLines);

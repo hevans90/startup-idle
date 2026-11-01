@@ -7,6 +7,7 @@
  * They are WORK, in Morale. @see plans/innovation-overhaul.md §3, moralePartsNow
  */
 import type { GeneratorId } from "../state/generators.store";
+import { describe } from "./wording";
 
 export type PolicyId =
   | "crunch" | "lunch" | "remote" | "freeze" | "stack" | "pipeline"
@@ -15,13 +16,13 @@ export type PolicyId =
 export type Policy = {
   id: PolicyId;
   name: string;
-  /** What it does, as the card says it. */
+  /** What it does, as the card says it: made from its numbers. @see game/wording */
   says: string;
   /** Only for one kind; every kind if absent. */
   only?: GeneratorId;
   /** Morale points it gives or takes. */
   morale: number;
-  /** Multiplies the kind's money. */
+  /** Multiplies the kind's money (not its innovation). */
   output?: number;
   /** Multiplies the kind's innovation. */
   innovation?: number;
@@ -33,17 +34,25 @@ export type Policy = {
   slop?: number;
 };
 
-export const POLICIES: readonly Policy[] = [
-  { id: "crunch", name: "Crunch Week", says: "Output +25% · morale −8", morale: -8, output: 1.25 },
-  { id: "stack", name: "Stack Ranking", says: "Output +15% · morale −5", morale: -5, output: 1.15 },
-  { id: "lunch", name: "Free Lunch", says: "Morale +6 · output −5% (the lunch)", morale: 6, output: 0.95 },
-  { id: "remote", name: "Remote Fridays", says: "Morale +4 · output −10%", morale: 4, output: 0.9 },
-  { id: "freeze", name: "Hire Freeze", says: "Hires 30% cheaper · morale −5", morale: -5, hireCost: 0.7 },
-  { id: "pipeline", name: "Always Be Hiring", says: "Hires one every 2 s when affordable · morale −3", morale: -3, autoBuy: 0.5 },
-  { id: "mentorship", name: "Mentorship Scheme", only: "intern", says: "Innovation +20% · output −5%", morale: 0, innovation: 1.2, output: 0.95 },
-  { id: "hackathon", name: "Hackathon Culture", only: "vibe_coder", says: "Innovation +25% · slop +20%", morale: 0, innovation: 1.25, slop: 1.2 },
-  { id: "sabbatical", name: "Research Sabbaticals", only: "10x_dev", says: "Innovation +35% · output −15%", morale: 0, innovation: 1.35, output: 0.85 },
-];
+/** Its effect line, from its numbers. */
+const says = (p: Omit<Policy, "says">): string =>
+  describe(
+    { money: p.output, innovation: p.innovation, hires: p.hireCost, slop: p.slop, morale: p.morale },
+    undefined,
+    p.autoBuy ? [{ text: `auto-buy one every ${1 / p.autoBuy} s`, good: true }] : [],
+  );
+
+export const POLICIES: readonly Policy[] = ([
+  { id: "crunch", name: "Crunch Week", morale: -8, output: 1.25 },
+  { id: "stack", name: "Stack Ranking", morale: -5, output: 1.15 },
+  { id: "lunch", name: "Free Lunch", morale: 6, output: 0.95 },
+  { id: "remote", name: "Remote Fridays", morale: 4, output: 0.9 },
+  { id: "freeze", name: "Hire Freeze", morale: -5, hireCost: 0.7 },
+  { id: "pipeline", name: "Always Be Hiring", morale: -3, autoBuy: 0.5 },
+  { id: "mentorship", name: "Mentorship Scheme", only: "intern", morale: 0, innovation: 1.2, output: 0.95 },
+  { id: "hackathon", name: "Hackathon Culture", only: "vibe_coder", morale: 0, innovation: 1.25, slop: 1.2 },
+  { id: "sabbatical", name: "Research Sabbaticals", only: "10x_dev", morale: 0, innovation: 1.35, output: 0.85 },
+] satisfies Omit<Policy, "says">[]).map((p) => ({ ...p, says: says(p) }));
 
 export const policy = (id: PolicyId): Policy => POLICIES.find((p) => p.id === id)!;
 

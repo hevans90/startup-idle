@@ -1,29 +1,23 @@
 # Polish: one voice for every modifier, and the rough edges of the UI
 
-**Status:** phase 1 done.
+**Status:** phases 1 and 2 done; phase 3 next.
 - **Answers taken:** "Money +8%"; no flavour lines written for modifiers that have none; the short scale's names; "Output" for a kind's whole production.
 - **`game/wording.ts`:**
   - `STATS`, the glossary: each stat's name, which way is good, share or points.
   - `NEVER`: the words a player never reads.
-  - `describe` (numbers → effect line), `change` and `helps`.
+  - `describe` (numbers → effect line, with `Plain` parts for what no stat says), `change`, `part` and `helps`.
   - `effectProblems` (grammar and glossary, a reason each).
   - `formatScale` and `formatMoneyScale` (K…Dc, then e-notation; not wired in yet, phase 4).
-- **`game/wording-audit.ts`:** every catalogue's effect lines and what is wrong with each. `bun run wording` prints the report.
-- **`wording.test.ts`:** holds the rules. Each catalogue is a todo until phase 2 adds it to `CLEARED`.
-- **First report:** 130 of 216 effect lines to put right:
-
-  | Catalogue | To put right |
-  |---|---|
-  | Skill tree | 67 of 92 |
-  | Juice | 24 of 24 |
-  | Founders | 11 of 25 |
-  | Machine | 9 of 9 |
-  | Mandates | 6 of 6 |
-  | Terms | 4 of 17 |
-  | Processors | 3 of 3 |
-  | Policies | 2 of 9 |
-  | Leaders | 2 of 16 |
-  | Training | 2 of 15 |
+- **`game/wording-audit.ts`:** every catalogue's effect lines; `bun run wording` prints what breaks the rules. Now 0 of 214.
+- **`wording.test.ts`:** holds every catalogue to the rules.
+- **Phase 2, what changed:**
+  - Generated from their numbers: policies, leaders, juice (and its mini-game lines), mandates ("a level"), founders' perks and rules, processors, project bonuses, and the skill tree's rows (its `effect` is now made from its grants; `STAT_META` takes the glossary's names).
+  - By hand to the rules: term clauses, training skills, and the Machine's root, notables and keystones (a short effect line, the old paragraph as `detail` in its popover).
+  - What "output" really moved: policies' and leaders' "output" was money alone, so they now say "Money".
+  - Two skill-tree lines claimed limits the code never had: "(vibe coders)" on Prompt Whisperer and "(as The Hustler)" on Cult of Personality. Both bonuses apply to everyone, and the lines now say so.
+  - Glossary labels on the managers' rows and the founder carry-over panel; the projects card names its builders ("vibe coders", not "vibe_coders").
+  - Project `pitch` strings are never shown (the card uses `opensText`); left as they are.
+- **Left for phase 3:** the modifier breakdowns still say "Skill tree — $", "Innovation rate", "Founder steepens curve"; the upgrades tab's "Cost growth"; the generators tab's raw "−0.020".
 
 ## Why
 

@@ -20,10 +20,10 @@ import Decimal from "break_infinity.js";
 
 /** A stat a modifier can move. */
 export type Stat =
-  | "money" | "innovation" | "valuation" | "output" | "equity"
+  | "money" | "innovation" | "valuation" | "output" | "equity" | "perEmployee"
   | "hires" | "mandates" | "builds"
   | "morale" | "desirability"
-  | "autoBuy" | "slop" | "aiMeter" | "managerSpeed" | "moraleRecovery" | "ranks";
+  | "autoBuy" | "slop" | "aiMeter" | "managerSpeed" | "moraleRecovery" | "xp";
 
 /**
  * THE GLOSSARY: each stat's one name, which way is good, and whether it moves
@@ -36,6 +36,8 @@ export const STATS: Record<Stat, { name: string; good: "up" | "down"; by: "share
   // A kind's whole production, money and innovation both.
   output: { name: "Output", good: "up", by: "share" },
   equity: { name: "Equity", good: "up", by: "share" },
+  // Money for each employee on the books, all kinds together.
+  perEmployee: { name: "Money per employee", good: "up", by: "share" },
   hires: { name: "Hires", good: "down", by: "share" },
   mandates: { name: "Mandates", good: "down", by: "share" },
   builds: { name: "Builds", good: "down", by: "share" },
@@ -46,7 +48,8 @@ export const STATS: Record<Stat, { name: string; good: "up" | "down"; by: "share
   aiMeter: { name: "AI meter", good: "up", by: "share" },
   managerSpeed: { name: "Manager speed", good: "up", by: "share" },
   moraleRecovery: { name: "Morale recovery", good: "up", by: "share" },
-  ranks: { name: "Ranking", good: "up", by: "share" },
+  // How fast a leader ranks up.
+  xp: { name: "XP", good: "up", by: "share" },
 };
 
 /** The order parts are written in, gains and costs each. */
@@ -83,8 +86,9 @@ function times(f: number): string {
   return `×${Number(f.toFixed(f < 2 ? 2 : 1))}`;
 }
 
-/** One stat's change, as a factor or as points: "+8%", "×3", "−8". */
+/** One stat's change, as a factor or as points: "+8%", "×3", "−8" — or "off", a factor of nought. */
 export function change(stat: Stat, value: number): string {
+  if (STATS[stat].by === "share" && value === 0) return "off";
   if (STATS[stat].by === "points") return `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(Math.round(value * 10) / 10)}`;
   if (value >= 2 || (value > 0 && value <= 0.5)) return times(value);
   return percent((value - 1) * 100);
@@ -96,30 +100,41 @@ export function helps(stat: Stat, value: number): boolean {
   return STATS[stat].good === "up" ? value >= neutral : value <= neutral;
 }
 
-/** A name mid-line: lower case, unless it opens with an acronym ("AI meter"). */
-const midLine = (name: string) => (/^[A-Z]{2}/.test(name) ? name : name[0].toLowerCase() + name.slice(1));
+/** A name mid-line: lower case, unless it opens with an acronym ("AI meter") or a proper name ("Equity", "LinkedOut"). */
+const KEEP_CAPITAL = /^([A-Z]{2}|R&D|Equity|LinkedOut|Data Centre|Campus|Overseer)/;
+const midLine = (name: string) => (KEEP_CAPITAL.test(name) ? name : name[0].toLowerCase() + name.slice(1));
+
+/** A part no stat can say — "auto-buy one every 2 s", "managers off" — and whether it helps. Written lower case; it opens a line in capitals. */
+export type Plain = { text: string; good: boolean };
 
 /**
  * AN EFFECT LINE from a modifier's numbers: shares as factors (`money: 1.08`),
  * points as points (`morale: -8`). Gains first, then costs, each in the
- * glossary's order; a `scope` — "Team", "Vibe coders'" — opens the line.
- * Stats that do nothing are left out.
+ * glossary's order, any `plain` parts after the stats of their side; a
+ * `scope` — "Team", "Vibe coders'" — opens the line. Stats that do nothing
+ * are left out.
  *
  *   describe({ output: 1.25, morale: -8 })               → "Output +25% · morale −8"
  *   describe({ output: 1.15, morale: -4 }, "Team")       → "Team output +15% · morale −4"
  */
-export function describe(effects: Partial<Record<Stat, number>>, scope?: string): string {
-  const parts = ORDER
-    .filter((s) => effects[s] !== undefined && effects[s] !== (STATS[s].by === "points" ? 0 : 1))
-    .map((s) => ({ s, v: effects[s]!, good: helps(s, effects[s]!) }));
+export function describe(effects: Partial<Record<Stat, number>>, scope?: string, plain: readonly Plain[] = []): string {
+  const parts = [
+    ...ORDER
+      .filter((s) => effects[s] !== undefined && effects[s] !== (STATS[s].by === "points" ? 0 : 1))
+      .map((s) => ({ text: `${STATS[s].name} ${change(s, effects[s]!)}`, good: helps(s, effects[s]!) })),
+    ...plain,
+  ];
   const ordered = [...parts.filter((p) => p.good), ...parts.filter((p) => !p.good)];
   return ordered
-    .map(({ s, v }, k) => {
-      const name = k === 0 && !scope ? STATS[s].name : midLine(STATS[s].name);
-      return `${k === 0 && scope ? `${scope} ` : ""}${name} ${change(s, v)}`;
+    .map(({ text }, k) => {
+      if (k > 0) return midLine(text);
+      return scope ? `${scope} ${midLine(text)}` : text[0].toUpperCase() + text.slice(1);
     })
     .join(" · ");
 }
+
+/** One stat's part on its own, as a row says it: "Money +6%", "Auto-buy off". */
+export const part = (stat: Stat, value: number): string => `${STATS[stat].name} ${change(stat, value)}`;
 
 /** The longest an effect line runs, characters: more goes in its popover's detail. */
 export const EFFECT_MAX = 60;
@@ -131,7 +146,7 @@ export const EFFECT_MAX = 60;
 export function effectProblems(line: string): string[] {
   const out: string[] = [];
   if (/\.\s*$/.test(line)) out.push("ends with a full stop");
-  if (/\s(and|but)\s|&|,\s*but\b/i.test(line)) out.push("joins parts with and, but or & — use ·");
+  if (/\s(and|but|&)\s|,\s*but\b/i.test(line)) out.push("joins parts with and, but or & — use ·");
   if (/(^|[\s(])-\d/.test(line)) out.push("a hyphen for a minus — use −");
   if (/\d(\.\d+)?x\b|\bx\d/.test(line)) out.push("an x for times — use ×");
   if (/^[+−-]?\d/.test(line)) out.push("the change before the stat — say the stat first");

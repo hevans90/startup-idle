@@ -9,6 +9,7 @@ import {
 } from "./_break_infinity.decimals";
 import { featureGateOpen } from "../game/projects";
 import { useFounderStore } from "./founder.store";
+import { describe } from "../game/wording";
 
 const LOCAL_STORAGE_KEY = "valuation";
 
@@ -23,6 +24,7 @@ export type MandateId =
 export type MandateDef = {
   id: MandateId;
   name: string;
+  /** Its effect line, a level's worth: made from its numbers. @see game/wording */
   description: string;
   baseCost: number;
   costGrowth: number;
@@ -47,11 +49,17 @@ export type MandateDef = {
   satisfactionGainPerLevel?: number;
 };
 
-export const MANDATES: MandateDef[] = [
+/** A mandate's effect line: what one level of it does. */
+const mandateLine = (m: Omit<MandateDef, "description">): string =>
+  `${describe({
+    money: 1 + m.moneyMultPerLevel, innovation: 1 + m.innovationMultPerLevel, equity: 1 + (m.equityBoostPerLevel ?? 0),
+    moraleRecovery: 1 + (m.satisfactionGainPerLevel ?? 0),
+  }, undefined, m.synergyMultPerLevel ? [{ text: `other mandates +${Math.round(m.synergyMultPerLevel * 100)}%`, good: true }] : [])} a level`;
+
+export const MANDATES: MandateDef[] = ([
   {
     id: "runway",
     name: "Runway extension",
-    description: "+2% money output",
     baseCost: 15,
     costGrowth: 1.35,
     moneyMultPerLevel: 0.02,
@@ -60,7 +68,6 @@ export const MANDATES: MandateDef[] = [
   {
     id: "talent",
     name: "Talent density",
-    description: "+1.5% innovation rate",
     baseCost: 25,
     costGrowth: 1.4,
     moneyMultPerLevel: 0,
@@ -69,7 +76,6 @@ export const MANDATES: MandateDef[] = [
   {
     id: "narrative",
     name: "Market narrative",
-    description: "+1% money output and +0.5% innovation rate",
     baseCost: 40,
     costGrowth: 1.45,
     moneyMultPerLevel: 0.01,
@@ -78,7 +84,6 @@ export const MANDATES: MandateDef[] = [
   {
     id: "board_synergy",
     name: "Board synergy",
-    description: "+4% to all other mandate bonuses per level",
     baseCost: 200,
     costGrowth: 1.5,
     moneyMultPerLevel: 0,
@@ -88,7 +93,6 @@ export const MANDATES: MandateDef[] = [
   {
     id: "acquihire_premium",
     name: "Acqui-hire premium",
-    description: "+3% equity payout per level at each acquisition",
     baseCost: 150,
     costGrowth: 1.45,
     moneyMultPerLevel: 0,
@@ -98,14 +102,13 @@ export const MANDATES: MandateDef[] = [
   {
     id: "culture_capital",
     name: "Culture capital",
-    description: "+10% morale recovery speed per level",
     baseCost: 100,
     costGrowth: 1.4,
     moneyMultPerLevel: 0,
     innovationMultPerLevel: 0,
     satisfactionGainPerLevel: 0.10,
   },
-];
+] satisfies Omit<MandateDef, "description">[]).map((m) => ({ ...m, description: mandateLine(m) }));
 
 type MandateLevels = Record<MandateId, number>;
 

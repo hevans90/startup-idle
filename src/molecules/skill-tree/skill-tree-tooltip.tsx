@@ -252,7 +252,9 @@ function MachineTip({ refEl, id, hovered }: { refEl: React.RefObject<HTMLDivElem
           <span className="font-display text-[11px] uppercase tracking-widest">{fog ? "Unrevealed" : n.title}</span>
           <span className="text-[10px] uppercase tracking-widest text-ai">The Machine</span>
         </div>
-        {!fog && <p className="px-3 py-2 text-good">{n.effect}</p>}
+        {!fog && <p className="px-3 pt-2 text-good">{n.effect}</p>}
+        {!fog && n.detail && <p className="px-3 pt-1 text-[11px] leading-snug text-fg-muted">{n.detail}</p>}
+        {!fog && <div className="pb-2" />}
         <div className={`border-t border-line-quiet bg-surface-2/50 px-3 py-2 text-[11px] tabular-nums ${status.cls}`}>{status.text}</div>
       </div>
     </div>

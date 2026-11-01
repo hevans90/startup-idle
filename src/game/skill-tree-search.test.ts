@@ -30,15 +30,15 @@ describe("searchNodeIds (fuse.js over title + effect)", () => {
   });
 
   test("matches on effect text, not just the title", () => {
-    // "automation" appears in effect descriptions but in no node title — so a
-    // hit on it proves the effect field is being searched.
+    // "auto-buy" appears in effect lines but in no node title — so a hit on it
+    // proves the effect field is being searched.
     const effectOnly = SKILL_TREE.nodes.filter(
       (n) =>
-        (n.effect ?? "").toLowerCase().includes("automation") &&
-        !n.title.toLowerCase().includes("automation"),
+        (n.effect ?? "").toLowerCase().includes("auto-buy") &&
+        !n.title.toLowerCase().includes("auto-buy"),
     );
     expect(effectOnly.length).toBeGreaterThan(0);
-    const hits = searchNodeIds("automation");
+    const hits = searchNodeIds("auto-buy");
     for (const n of effectOnly) expect(hits.has(n.id)).toBe(true);
   });
 });

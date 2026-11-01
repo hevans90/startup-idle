@@ -22,6 +22,7 @@ import { moodWord, type MoodParts } from "../agents/mood";
 import { growthShort, serviceOf, type ServiceId } from "../agents/services";
 import { LAB_SHARE } from "../projects/labs";
 import { KIND_COLOUR } from "../../game/kind-colours";
+import { describe } from "../../game/wording";
 
 /** What the live game says, for the labels. */
 export type InfoContext = {
@@ -97,12 +98,8 @@ export function opensText(p: ProjectDef): string {
   if (p.grants === "services") return "Opens cafés, parks and gyms";
   if (p.grants === "ports") return "Opens seaports";
   if (p.bonus) {
-    const b = p.bonus, parts: string[] = [];
-    if (b.money) parts.push(`income ×${b.money}`);
-    if (b.innovation) parts.push(`innovation ×${b.innovation}`);
-    if (b.valuation) parts.push(`valuation ×${b.valuation}`);
-    const text = `${parts.join(", ")}, for good`;
-    return text[0].toUpperCase() + text.slice(1);
+    const b = p.bonus;
+    return `${describe({ money: b.money, innovation: b.innovation, valuation: b.valuation })}, for good`;
   }
   if (p.grants === "mandates") return "Opens board mandates";
   return "";

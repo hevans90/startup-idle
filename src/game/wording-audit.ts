@@ -6,10 +6,10 @@
 import { JUICE_SHOP_UPGRADES } from "./achievements.juice-shop";
 import { FOUNDERS } from "./founders.catalog";
 import { LEADER_PERKS, PERSONALITIES } from "./leaders";
-import { NOTABLES } from "./machine";
+import { isMachine, machineGraph } from "./machine";
 import { POLICIES } from "./policies";
 import { PROCESSORS } from "./processors";
-import { SKILL_TREE } from "./skill-tree";
+import { nodeEffectRows, SKILL_TREE } from "./skill-tree";
 import { CLAUSES } from "./term-deal";
 import { DATASETS } from "./training";
 import { MANDATES } from "../state/valuation.store";
@@ -33,14 +33,14 @@ export const CATALOGUES: Record<CatalogueId, () => Line[]> = {
     ...(u.minigameDescription ? [{ name: `${u.name} (mini-game)`, line: u.minigameDescription }] : []),
   ]),
   mandates: () => MANDATES.map((m) => ({ name: m.name, line: m.description })),
-  // Every node of the tree that says something, each saying once.
+  // Every row the business tree's nodes show, each saying once. The Machine's are its own.
   skillTree: () => {
     const seen = new Set<string>();
-    return SKILL_TREE.nodes.flatMap((n) => {
-      if (!n.effect || seen.has(n.effect)) return [];
-      seen.add(n.effect);
-      return [{ name: n.title, line: n.effect }];
-    });
+    return SKILL_TREE.nodes.filter((n) => !isMachine(n.id)).flatMap((n) => nodeEffectRows(n).flatMap((r) => {
+      if (seen.has(r.label)) return [];
+      seen.add(r.label);
+      return [{ name: n.title, line: r.label }];
+    }));
   },
   // A founder's perks with no exits and with three, and the rule they play by.
   founders: () => FOUNDERS.flatMap((f) => [
@@ -48,7 +48,8 @@ export const CATALOGUES: Record<CatalogueId, () => Line[]> = {
   ].map((line) => ({ name: f.name, line })).concat(f.rule ? [{ name: `${f.name} (rule)`, line: f.rule }] : [])),
   terms: () => CLAUSES.flatMap((c) => c.options.map((o) => ({ name: `${c.title}: ${o.label}`, line: o.says }))),
   processors: () => Object.values(PROCESSORS).map((p) => ({ name: p.name, line: p.says })),
-  machine: () => NOTABLES.map((n) => ({ name: n.title, line: n.effect })),
+  // Its root, notables and keystones: the effect lines, not their detail.
+  machine: () => machineGraph().nodes.filter((n) => n.kind !== "minor").map((n) => ({ name: n.title, line: n.effect })),
   training: () => DATASETS.flatMap((d) => d.skills.map((line, k) => ({ name: `${d.name} ${k + 1}`, line }))),
 };
 

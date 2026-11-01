@@ -238,7 +238,7 @@ export const FounderSelect = () => {
               <div className="flex flex-col divide-y divide-line-quiet text-[11px]">
                 {combinedMoneyMult !== 1 && (
                   <PanelRow
-                    label="Money output"
+                    label="Money"
                     value={fmtMult(combinedMoneyMult)}
                     tone="good"
                     modKey="moneyOutput"
@@ -246,7 +246,7 @@ export const FounderSelect = () => {
                 )}
                 {combinedInnovMult !== 1 && (
                   <PanelRow
-                    label="Innovation rate"
+                    label="Innovation"
                     value={fmtMult(combinedInnovMult)}
                     tone="good"
                     modKey="innovationRate"
@@ -254,7 +254,7 @@ export const FounderSelect = () => {
                 )}
                 {combinedValMult !== 1 && (
                   <PanelRow
-                    label="Valuation rate"
+                    label="Valuation"
                     value={fmtMult(combinedValMult)}
                     tone="good"
                     modKey="valuationRate"
@@ -262,7 +262,7 @@ export const FounderSelect = () => {
                 )}
                 {combinedHireCost !== 1 && (
                   <PanelRow
-                    label="Hire cost"
+                    label="Hires"
                     value={fmtMult(combinedHireCost)}
                     tone={combinedHireCost < 1 ? "good" : "bad"}
                     modKey="hireCost"
@@ -270,7 +270,7 @@ export const FounderSelect = () => {
                 )}
                 {combinedEquityMult !== 1 && (
                   <PanelRow
-                    label="Equity payout"
+                    label="Equity"
                     value={fmtMult(combinedEquityMult)}
                     tone="good"
                     modKey="equityPayout"
@@ -278,7 +278,7 @@ export const FounderSelect = () => {
                 )}
                 {modifiers.autoBuyMult !== 1 && (
                   <PanelRow
-                    label="Auto-buy speed"
+                    label="Auto-buy"
                     value={fmtMult(modifiers.autoBuyMult)}
                     tone="good"
                     modKey="prestigeAutoBuy"
@@ -302,7 +302,7 @@ export const FounderSelect = () => {
                 )}
                 {modifiers.singularityMult !== 1 && (
                   <PanelRow
-                    label="Singularity rate"
+                    label="AI meter"
                     value={fmtMult(modifiers.singularityMult)}
                     tone="good"
                     modKey="prestigeSingularity"
@@ -310,7 +310,7 @@ export const FounderSelect = () => {
                 )}
                 {modifiers.internOutputMult !== 1 && (
                   <PanelRow
-                    label="Intern output"
+                    label="Interns"
                     value={fmtMult(modifiers.internOutputMult)}
                     tone="good"
                     modKey="prestigeInternOutput"

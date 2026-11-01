@@ -14,6 +14,7 @@
  */
 
 import { machineGraph } from "./machine";
+import { describe, helps, part, STATS, type Stat } from "./wording";
 
 export type SkillNodeKind = "root" | "travel" | "minor" | "notable" | "keystone";
 
@@ -27,7 +28,7 @@ export type SkillNode = {
   cluster: string;
   /** Optional background icon (texture URL/key) — icon pack lands later. */
   icon?: string;
-  /** Human-readable effect summary (shown in the tooltip / panel). */
+  /** Its effect line: made from its grants, or the Machine's own. Searched by the tree's finder. */
   effect?: string;
   /** Structured, aggregatable bonuses this node grants. Resolved into economy
    * modifiers by {@link resolvePrestigeModifiers} and applied at the founder-style
@@ -78,20 +79,18 @@ export type BonusStat =
 /** `pct` accumulates additively (percentage points); `mult` multiplies. */
 export type BonusGrant = { stat: BonusStat; kind: "pct" | "mult"; value: number };
 
-/** Display order + label + which direction is beneficial (for colouring). */
-export const STAT_META: Record<BonusStat, { label: string; good: "up" | "down" }> = {
-  money: { label: "Money output", good: "up" },
-  innovation: { label: "Innovation", good: "up" },
-  valuation: { label: "Valuation", good: "up" },
-  employeeOutput: { label: "Employee output", good: "up" },
-  headcount: { label: "Money per employee", good: "up" },
-  autoBuy: { label: "Automation speed", good: "up" },
-  managerSpeed: { label: "Manager speed", good: "up" },
-  hireCost: { label: "Hire cost", good: "down" },
-  singularity: { label: "Singularity rate", good: "up" },
-  equity: { label: "Equity payout", good: "up" },
-  satisfactionGain: { label: "Morale recovery", good: "up" },
+/** Each lever's stat in the game's glossary. @see game/wording */
+const AS: Record<BonusStat, Stat> = {
+  money: "money", innovation: "innovation", valuation: "valuation", employeeOutput: "output", headcount: "perEmployee",
+  autoBuy: "autoBuy", managerSpeed: "managerSpeed", hireCost: "hires", singularity: "aiMeter", equity: "equity",
+  satisfactionGain: "moraleRecovery",
 };
+
+/** Display order + label + which direction is beneficial (for colouring). */
+export const STAT_META: Record<BonusStat, { label: string; good: "up" | "down" }> = Object.fromEntries(
+  (["money", "innovation", "valuation", "employeeOutput", "headcount", "autoBuy", "managerSpeed", "hireCost", "singularity", "equity", "satisfactionGain"] as const)
+    .map((k) => [k, { label: STATS[AS[k]].name, good: STATS[AS[k]].good }]),
+) as Record<BonusStat, { label: string; good: "up" | "down" }>;
 
 const STAT_ORDER = Object.keys(STAT_META) as BonusStat[];
 
@@ -115,38 +114,24 @@ export function aggregateGrants(grants: BonusGrant[]): StatTotal[] {
 /** A single signed line for the overlays — green when it helps, red when it hurts. */
 export type EffectRow = { label: string; tone: "good" | "bad" };
 
-const trimNum = (n: number) => Number(n.toFixed(2)).toString();
-
-/** Render one grant as a coloured row, e.g. "+40% employee output" (good) or
- * "money ×0.5" (bad). Tone follows the stat's beneficial direction. */
+/** Render one grant as a coloured row in the game's words, e.g. "Output +40%"
+ * (good) or "Money ×0.5" (bad). Tone follows the stat's beneficial direction. */
 export function grantRow(g: BonusGrant): EffectRow {
-  const meta = STAT_META[g.stat];
-  const label =
-    g.kind === "mult"
-      ? `${meta.label} ×${trimNum(g.value)}`
-      : `${g.value > 0 ? "+" : ""}${trimNum(g.value)}% ${meta.label.toLowerCase()}`;
-  const beneficial =
-    g.kind === "mult"
-      ? meta.good === "up"
-        ? g.value >= 1
-        : g.value <= 1
-      : meta.good === "up"
-        ? g.value >= 0
-        : g.value <= 0;
-  return { label, tone: beneficial ? "good" : "bad" };
+  const factor = g.kind === "mult" ? g.value : 1 + g.value / 100;
+  return { label: part(AS[g.stat], factor), tone: helps(AS[g.stat], factor) ? "good" : "bad" };
 }
 
 /** Structural keystone reshapes as signed rows (their non-numeric side). */
 const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
-  disableManagers: { label: "Managers & auto-buy disabled", tone: "bad" },
-  neutralizeSatisfaction: { label: "Morale has no effect", tone: "bad" },
+  disableManagers: { label: "Managers off", tone: "bad" },
+  neutralizeSatisfaction: { label: "Morale does nothing", tone: "bad" },
   dampSatisfaction: { label: "Good morale counts half", tone: "bad" },
-  internsCrippled: { label: "Interns produce 10× less", tone: "bad" },
-  freeStartingLevels: { label: `+${ACQUIHIRE_FREE_LEVELS} starting interns`, tone: "good" },
-  foundingCafe: { label: "Every new town starts with a café", tone: "good" },
-  lightCleanup: { label: "Mopping up sludge takes half the people", tone: "good" },
-  foundingRoute: { label: "Every company starts with a regular shipping route", tone: "good" },
-  fastRepairs: { label: "Flood damage repaired twice as fast", tone: "good" },
+  internsCrippled: { label: `Interns ×${AGI_INTERN_OUTPUT_MULT}`, tone: "bad" },
+  freeStartingLevels: { label: `Start with ${ACQUIHIRE_FREE_LEVELS} interns`, tone: "good" },
+  foundingCafe: { label: "A café in every new town", tone: "good" },
+  lightCleanup: { label: "Half the people mop up sludge", tone: "good" },
+  foundingRoute: { label: "A shipping route from the start", tone: "good" },
+  fastRepairs: { label: "Flood repairs twice as fast", tone: "good" },
   extraTermSheet: { label: "A fifth term sheet at founding", tone: "good" },
 };
 
@@ -155,7 +140,8 @@ const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
 export function nodeEffectRows(node: SkillNode): EffectRow[] {
   const rows = (node.grants ?? []).map(grantRow);
   if (node.special) rows.push(SPECIAL_ROWS[node.special]);
-  return rows;
+  // Gains before costs, as every effect line. @see game/wording
+  return [...rows.filter((r) => r.tone === "good"), ...rows.filter((r) => r.tone === "bad")];
 }
 
 /** The signed row for a structural keystone reshape (for route summaries). */
@@ -166,32 +152,6 @@ const pct = (stat: BonusStat, value: number): BonusGrant => ({ stat, kind: "pct"
 const mult = (stat: BonusStat, value: number): BonusGrant => ({ stat, kind: "mult", value });
 
 const round1 = (n: number) => Number(n.toFixed(1));
-
-/** Short stat names for auto-generated effect strings (travel nodes). */
-const STAT_SHORT: Record<BonusStat, string> = {
-  money: "money",
-  innovation: "innovation",
-  valuation: "valuation",
-  autoBuy: "automation",
-  hireCost: "hire cost",
-  employeeOutput: "employee output",
-  headcount: "money/employee",
-  managerSpeed: "manager speed",
-  singularity: "singularity",
-  equity: "Equity",
-  satisfactionGain: "morale recovery",
-};
-
-/** One-line human summary of a grant list (used for travel-node effect text). */
-export function describeGrants(grants: BonusGrant[]): string {
-  return grants
-    .map((g) =>
-      g.kind === "mult"
-        ? `${STAT_SHORT[g.stat]} ×${round1(g.value)}`
-        : `${g.value > 0 ? "+" : ""}${round1(g.value)}% ${STAT_SHORT[g.stat]}`,
-    )
-    .join(", ");
-}
 
 /** Travel nodes carry a small but meaningful bonus. A hub junction grants half
  * of its cluster's minor; a generic path connector grants a tiny money bump. */
@@ -240,12 +200,11 @@ type ClusterShape = {
 type ClusterDef = {
   id: string;
   name: string;
-  minor: string;
   /** Per-minor bonus (each minor node grants this). */
   minorBonus: BonusGrant[];
   /** Signature notables — trunk first, then branch pods; extras get generic names. */
-  notables: { title: string; effect: string; bonus: BonusGrant[]; special?: KeystoneSpecial }[];
-  keystone?: { title: string; effect: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
+  notables: { title: string; bonus: BonusGrant[]; special?: KeystoneSpecial }[];
+  keystone?: { title: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
   shape: ClusterShape;
 };
 
@@ -253,123 +212,112 @@ const CLUSTERS: ClusterDef[] = [
   {
     id: "growth",
     name: "Growth Hacking",
-    minor: "+2% money output",
     minorBonus: [pct("money", 2)],
     notables: [
-      { title: "Blitzscaling", effect: "+0.2% money per total employee.", bonus: [pct("headcount", 0.2)] },
-      { title: "Network Effects", effect: "+6% money and +6% innovation.", bonus: [pct("money", 6), pct("innovation", 6)] },
+      { title: "Blitzscaling", bonus: [pct("headcount", 0.2)] },
+      { title: "Network Effects", bonus: [pct("money", 6), pct("innovation", 6)] },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 4 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "vc",
     name: "Venture Capital",
-    minor: "+3% valuation / sec",
     minorBonus: [pct("valuation", 3)],
-    notables: [{ title: "Term Sheet", effect: "+8% money and +8% valuation.", bonus: [pct("money", 8), pct("valuation", 8)] }],
-    keystone: { title: "Down Round", effect: "Money ×3, but valuation accrues 80% slower.", bonus: [mult("money", 3), mult("valuation", 0.2)] },
+    notables: [{ title: "Term Sheet", bonus: [pct("money", 8), pct("valuation", 8)] }],
+    keystone: { title: "Down Round", bonus: [mult("money", 3), mult("valuation", 0.2)] },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
   },
   {
     id: "movefast",
     name: "Move Fast",
-    minor: "+2% innovation, +2% automation speed",
     minorBonus: [pct("innovation", 2), pct("autoBuy", 2)],
-    notables: [{ title: "Ship It", effect: "+25% innovation and +25% automation speed.", bonus: [pct("innovation", 25), pct("autoBuy", 25)] }],
-    keystone: { title: "Move Fast, Break Things", effect: "Innovation ×2.5 & automation ×2, but money ×0.5.", bonus: [mult("innovation", 2.5), mult("autoBuy", 2), mult("money", 0.5)] },
+    notables: [{ title: "Ship It", bonus: [pct("innovation", 25), pct("autoBuy", 25)] }],
+    keystone: { title: "Move Fast, Break Things", bonus: [mult("innovation", 2.5), mult("autoBuy", 2), mult("money", 0.5)] },
     shape: { trunkMinors: 4, travelPerGap: 2, branches: [{ offset: -27, pods: 2, minors: 4 }, { offset: 27, pods: 1, minors: 4 }] },
   },
   {
     id: "lean",
     name: "Lean Startup",
-    minor: "−1.2% hire cost",
     minorBonus: [pct("hireCost", -1.2)],
     notables: [
-      { title: "Ramen Profitable", effect: "−10% hire cost on all generators.", bonus: [pct("hireCost", -10)] },
-      { title: "Cheap Real Estate", effect: "−12% hire cost on all generators.", bonus: [pct("hireCost", -12)] },
+      { title: "Ramen Profitable", bonus: [pct("hireCost", -10)] },
+      { title: "Cheap Real Estate", bonus: [pct("hireCost", -12)] },
     ],
-    keystone: { title: "Bootstrapped", effect: "Money ×4 and hire cost −25%, but managers and auto-buy are disabled.", bonus: [mult("money", 4), pct("hireCost", -25), mult("autoBuy", 0)], special: "disableManagers" },
+    keystone: { title: "Bootstrapped", bonus: [mult("money", 4), pct("hireCost", -25), mult("autoBuy", 0)], special: "disableManagers" },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "crunch",
     name: "Crunch Culture",
-    minor: "+2.5% employee output",
     minorBonus: [pct("employeeOutput", 2.5)],
     notables: [
-      { title: "996", effect: "+40% employee output, but morale recovers 50% slower.", bonus: [pct("employeeOutput", 40), pct("satisfactionGain", -50)] },
-      { title: "Clean Sweep", effect: "+10% employee output, and mopping up sludge takes half the people.", bonus: [pct("employeeOutput", 10)], special: "lightCleanup" },
+      { title: "996", bonus: [pct("employeeOutput", 40), pct("satisfactionGain", -50)] },
+      { title: "Clean Sweep", bonus: [pct("employeeOutput", 10)], special: "lightCleanup" },
     ],
-    keystone: { title: "Crunch Mode", effect: "Employee output ×2.5, but morale has no effect at all.", bonus: [mult("employeeOutput", 2.5)], special: "neutralizeSatisfaction" },
+    keystone: { title: "Crunch Mode", bonus: [mult("employeeOutput", 2.5)], special: "neutralizeSatisfaction" },
     shape: { trunkMinors: 4, travelPerGap: 4, branches: [{ offset: -27, pods: 1, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "aihype",
     name: "AI Hype",
-    minor: "+2% innovation, +1.5% singularity rate",
     minorBonus: [pct("innovation", 2), pct("singularity", 1.5)],
-    notables: [{ title: "Prompt Whisperer", effect: "+20% money and +25% innovation (vibe coders).", bonus: [pct("money", 20), pct("innovation", 25)] }],
-    keystone: { title: "AGI-Pilled", effect: "Innovation ×3 & singularity ×2, but interns produce 10× less.", bonus: [mult("innovation", 3), mult("singularity", 2)], special: "internsCrippled" },
+    notables: [{ title: "Prompt Whisperer", bonus: [pct("money", 20), pct("innovation", 25)] }],
+    keystone: { title: "AGI-Pilled", bonus: [mult("innovation", 3), mult("singularity", 2)], special: "internsCrippled" },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 4 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "empire",
     name: "Empire Building",
-    minor: "+3% manager speed",
     minorBonus: [pct("managerSpeed", 3)],
     notables: [
-      { title: "Headcount Is Strategy", effect: "+0.4% money per total employee.", bonus: [pct("headcount", 0.4)] },
-      { title: "Conglomerate", effect: "+4% money and +4% innovation, and every company starts with a regular shipping route.", bonus: [pct("money", 4), pct("innovation", 4)], special: "foundingRoute" },
-      { title: "Company Town", effect: "+25% manager speed.", bonus: [pct("managerSpeed", 25)] },
+      { title: "Headcount Is Strategy", bonus: [pct("headcount", 0.4)] },
+      { title: "Conglomerate", bonus: [pct("money", 4), pct("innovation", 4)], special: "foundingRoute" },
+      { title: "Company Town", bonus: [pct("managerSpeed", 25)] },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
   },
   {
     id: "opensource",
     name: "Open Source",
-    minor: "+2.5% innovation",
     minorBonus: [pct("innovation", 2.5)],
     notables: [
-      { title: "Open Core", effect: "+6% money, and flood damage is repaired twice as fast.", bonus: [pct("money", 6)], special: "fastRepairs" },
-      { title: "Foundation Grant", effect: "+20% innovation and +10% valuation.", bonus: [pct("innovation", 20), pct("valuation", 10)] },
+      { title: "Open Core", bonus: [pct("money", 6)], special: "fastRepairs" },
+      { title: "Foundation Grant", bonus: [pct("innovation", 20), pct("valuation", 10)] },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 1, minors: 6 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "exit",
     name: "Exit Strategy",
-    minor: "+1.5% Equity payout",
     minorBonus: [pct("equity", 1.5)],
-    notables: [{ title: "Serial Founder", effect: "+25% Equity from acquisitions.", bonus: [pct("equity", 25)] }],
-    keystone: { title: "Permanent Acqui-hire", effect: `Start every company with ${ACQUIHIRE_FREE_LEVELS} free intern levels, but Equity payout ×0.5.`, bonus: [mult("equity", 0.5)], special: "freeStartingLevels" },
+    notables: [{ title: "Serial Founder", bonus: [pct("equity", 25)] }],
+    keystone: { title: "Permanent Acqui-hire", bonus: [mult("equity", 0.5)], special: "freeStartingLevels" },
     shape: { trunkMinors: 4, travelPerGap: 4, branches: [{ offset: -27, pods: 2, minors: 4 }, { offset: 27, pods: 1, minors: 4 }] },
   },
   {
     id: "founder",
     name: "Founder Cult",
-    minor: "+1.5% money, +1.5% innovation",
     minorBonus: [pct("money", 1.5), pct("innovation", 1.5)],
     notables: [
-      { title: "Founder Worship", effect: "+5% money and +5% innovation, and a fifth term sheet to choose from at founding.", bonus: [pct("money", 5), pct("innovation", 5)], special: "extraTermSheet" },
-      { title: "Cult of Personality", effect: "+30% valuation / sec (as The Hustler).", bonus: [pct("valuation", 30)] },
-      { title: "Hometown Hero", effect: "+6% money and +6% innovation, and every new town starts with a café.", bonus: [pct("money", 6), pct("innovation", 6)], special: "foundingCafe" },
+      { title: "Founder Worship", bonus: [pct("money", 5), pct("innovation", 5)], special: "extraTermSheet" },
+      { title: "Cult of Personality", bonus: [pct("valuation", 30)] },
+      { title: "Hometown Hero", bonus: [pct("money", 6), pct("innovation", 6)], special: "foundingCafe" },
     ],
     shape: { trunkMinors: 4, travelPerGap: 2, branches: [{ offset: -27, pods: 1, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "enshit",
     name: "Enshittification",
-    minor: "+3% money, −1% innovation",
     minorBonus: [pct("money", 3), pct("innovation", -1)],
-    notables: [{ title: "Monetize Everything", effect: "+50% money, but −25% innovation.", bonus: [pct("money", 50), pct("innovation", -25)] }],
-    keystone: { title: "Enshittify", effect: "Money ×3, but innovation ×0.2 and good morale counts for half.", bonus: [mult("money", 3), mult("innovation", 0.2)], special: "dampSatisfaction" },
+    notables: [{ title: "Monetize Everything", bonus: [pct("money", 50), pct("innovation", -25)] }],
+    keystone: { title: "Enshittify", bonus: [mult("money", 3), mult("innovation", 0.2)], special: "dampSatisfaction" },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
   },
 ];
 
 const FREE_NOTABLE = {
   title: "Hockey Stick",
-  effect: "+10% money and +10% innovation — your opening multiplier.",
+  
   bonus: [pct("money", 10), pct("innovation", 10)],
 };
 
@@ -407,7 +355,9 @@ export function buildTree(seed: number): SkillTree {
   const jit = (amp: number) => (rng() * 2 - 1) * amp;
   const nodes: SkillNode[] = [];
   const edges: SkillEdge[] = [];
-  const add = (n: SkillNode) => nodes.push(n);
+  // Its effect line, made from what it grants. @see nodeEffectRows
+  const add = (n: SkillNode) =>
+    nodes.push({ ...n, effect: n.effect ?? describe({}, undefined, nodeEffectRows(n).map((r) => ({ text: r.label, good: r.tone === "good" }))) });
   const link = (a: string, b: string) => edges.push([a, b]);
 
   const SPACING = 430; // min distance between cluster hubs
@@ -428,8 +378,6 @@ export function buildTree(seed: number): SkillTree {
     title: "Incorporation",
     kind: "root",
     cluster: "core",
-    effect:
-      "Founding Charter — a foundation under everything: +6% money, innovation & valuation, +4% employee output, −4% hire cost, +6% Equity.",
     grants: [
       pct("money", 6),
       pct("innovation", 6),
@@ -440,7 +388,7 @@ export function buildTree(seed: number): SkillTree {
     ],
   });
   const hp = polar(195, -Math.PI / 2 + Math.PI / CLUSTERS.length);
-  add({ id: "hockey_stick", x: hp.x, y: hp.y, title: FREE_NOTABLE.title, kind: "notable", cluster: "core", effect: FREE_NOTABLE.effect, grants: FREE_NOTABLE.bonus });
+  add({ id: "hockey_stick", x: hp.x, y: hp.y, title: FREE_NOTABLE.title, kind: "notable", cluster: "core", grants: FREE_NOTABLE.bonus });
   link("core", "hockey_stick");
 
   // ── Scatter cluster hubs, one theme per angular sector, marching outward.
@@ -454,11 +402,10 @@ export function buildTree(seed: number): SkillTree {
     y: number;
     cluster: string;
     name: string;
-    minor: string;
     minorBonus: BonusGrant[];
-    end: { title: string; effect: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
+    end: { title: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
   };
-  type Keystone = { id: string; x: number; y: number; cluster: string; title: string; effect: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
+  type Keystone = { id: string; x: number; y: number; cluster: string; title: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
   const hubs: Hub[] = [];
   const keystones: Keystone[] = [];
   const farEnough = (x: number, y: number) =>
@@ -475,7 +422,7 @@ export function buildTree(seed: number): SkillTree {
       const sig = cluster.notables[cursor];
       const out = sig ?? {
         title: `${cluster.name} ${ROMAN[cursor] ?? cursor + 1}`,
-        effect: `Greater ${cluster.minor}`,
+        
         bonus: greaterNotableBonus(cluster.minorBonus),
       };
       cursor++;
@@ -497,13 +444,13 @@ export function buildTree(seed: number): SkillTree {
       if (isKey && cluster.keystone) {
         // Keystones are standalone — no spiral, no hub. Placed here for spacing;
         // attached later by a single long link from the nearest pathing node.
-        keystones.push({ id: `${cluster.id}_keystone`, x: placed.x, y: placed.y, cluster: cluster.id, title: cluster.keystone.title, effect: cluster.keystone.effect, bonus: cluster.keystone.bonus, special: cluster.keystone.special });
+        keystones.push({ id: `${cluster.id}_keystone`, x: placed.x, y: placed.y, cluster: cluster.id, title: cluster.keystone.title, bonus: cluster.keystone.bonus, special: cluster.keystone.special });
         continue;
       }
       const id = `${cluster.id}_h${s}`;
       const hubBonus = halfBonus(cluster.minorBonus);
-      add({ id, x: placed.x, y: placed.y, title: `${cluster.name} Junction`, kind: "travel", cluster: cluster.id, effect: describeGrants(hubBonus), grants: hubBonus });
-      hubs.push({ id, x: placed.x, y: placed.y, cluster: cluster.id, name: cluster.name, minor: cluster.minor, minorBonus: cluster.minorBonus, end: nextNotable() });
+      add({ id, x: placed.x, y: placed.y, title: `${cluster.name} Junction`, kind: "travel", cluster: cluster.id, grants: hubBonus });
+      hubs.push({ id, x: placed.x, y: placed.y, cluster: cluster.id, name: cluster.name, minorBonus: cluster.minorBonus, end: nextNotable() });
     }
   });
 
@@ -589,14 +536,14 @@ export function buildTree(seed: number): SkillTree {
       if (Math.hypot(p.x - last.x, p.y - last.y) < STEP) continue;
       k++;
       const mid = `${h.id}_m${k}`;
-      add({ id: mid, x: p.x, y: p.y, title: h.name, kind: "minor", cluster: h.cluster, effect: h.minor, grants: h.minorBonus });
+      add({ id: mid, x: p.x, y: p.y, title: h.name, kind: "minor", cluster: h.cluster, grants: h.minorBonus });
       link(prev, mid);
       prev = mid;
       last = p;
     }
     const tail = addv(h, unit(a0 + wind), SP_ROUT);
     const endId = `${h.id}_n`;
-    add({ id: endId, x: tail.x, y: tail.y, title: h.end.title, kind: "notable", cluster: h.cluster, effect: h.end.effect, grants: h.end.bonus, ...(h.end.special ? { special: h.end.special } : {}) });
+    add({ id: endId, x: tail.x, y: tail.y, title: h.end.title, kind: "notable", cluster: h.cluster, grants: h.end.bonus, ...(h.end.special ? { special: h.end.special } : {}) });
     link(prev, endId);
   });
 
@@ -619,7 +566,7 @@ export function buildTree(seed: number): SkillTree {
       const f = t / (travel + 1);
       const p = lerp(start, end, f);
       const id = `link_${u}_${t}`;
-      add({ id, x: p.x, y: p.y, title: "Pathway", kind: "travel", cluster: "path", effect: describeGrants(PATH_TRAVEL_BONUS), grants: PATH_TRAVEL_BONUS });
+      add({ id, x: p.x, y: p.y, title: "Pathway", kind: "travel", cluster: "path", grants: PATH_TRAVEL_BONUS });
       link(prev, id);
       prev = id;
     }
@@ -657,7 +604,7 @@ export function buildTree(seed: number): SkillTree {
   };
 
   for (const ks of keystones) {
-    add({ id: ks.id, x: ks.x, y: ks.y, title: ks.title, kind: "keystone", cluster: ks.cluster, effect: ks.effect, grants: ks.bonus, special: ks.special });
+    add({ id: ks.id, x: ks.x, y: ks.y, title: ks.title, kind: "keystone", cluster: ks.cluster, grants: ks.bonus, special: ks.special });
     // pathing targets = junction/travel nodes, nearest first
     const targets = nodes
       .filter((m) => m.kind === "travel")

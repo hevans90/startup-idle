@@ -298,8 +298,8 @@ describe("nodeEffectRows (signed, coloured breakdown)", () => {
     expect(rows.length).toBe(2);
     const good = rows.find((r) => r.tone === "good");
     const bad = rows.find((r) => r.tone === "bad");
-    expect(good?.label.toLowerCase()).toContain("employee output");
-    expect(bad?.label.toLowerCase()).toContain("morale recovery");
+    expect(good?.label).toBe("Output +40%");
+    expect(bad?.label).toBe("Morale recovery ×0.5");
   });
 
   test("a keystone appends its structural reshape as a row", () => {

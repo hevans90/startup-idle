@@ -15,7 +15,8 @@ import {
   PRIORITY_NAMES, PROJECTS, buildersFor, projectCost, type Priority, type ProjectDef,
 } from "../../game/projects";
 import { useFounderStore } from "../../state/founder.store";
-import { useGeneratorStore } from "../../state/generators.store";
+import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
+import { KIND_PLURAL } from "../../molecules/leaders-panel";
 import { useSessionStore } from "../../state/session.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
@@ -204,7 +205,7 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
   for (const g of generators) owned[g.id] = g.amount;
   const site = siteOf(grid, next);
   // Their name in the plural: "your interns", "your vibe coders".
-  const who = next.builders.map((id) => `${generators.find((g) => g.id === id)?.name ?? id}s`).join(" and ");
+  const who = next.builders.map((id) => KIND_PLURAL[id as GeneratorId] ?? id).join(" and ");
 
   // READY: what it opens, what it costs, and a site to choose.
   if (!site) {
