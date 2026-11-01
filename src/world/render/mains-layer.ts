@@ -150,6 +150,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   overlay.addChild(words);
   const pool: Text[] = [];
   let wordsAt = -Infinity;
+  /** The zoom the numbers were last set out for: a new one sets them out again at once. */
+  let wordsPx = 0, wordsScale = 0;
   let key = "";
 
   /** Each half-length of tube a cell draws: from its middle to the middle of a joined face. */
@@ -360,10 +362,13 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         flow.fill({ color: WATER });
       }
     }
-    // THE NUMBERS, twice a second: each tank's share, each intake's depth, each main's head.
+    // THE NUMBERS, twice a second — and at once after a zoom, or they stand at the old one's size:
+    // each tank's share, each intake's depth, each main's head.
     words.visible = true;
-    if (now - wordsAt < 500) return;
+    if (now - wordsAt < 500 && px === wordsPx && s === wordsScale) return;
     wordsAt = now;
+    wordsPx = px;
+    wordsScale = s;
     let k = 0;
     for (const [id, tank] of allTanks()) {
       const c = ringAt.get(id);
