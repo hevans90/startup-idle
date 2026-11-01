@@ -16,6 +16,9 @@
  *
  * Close in, everything; further out, a line a group. @see DETAIL_FROM
  *
+ * WITH THE WATER OVERLAY UP, only the buildings it is about — those with a
+ * water or slop port — keep theirs: the rest crowded its numbers. @see ports
+ *
  * THREE SPEEDS:
  *  - what each says, a few times a second;
  *  - which gather together, then too, and whenever the zoom has changed —
@@ -157,6 +160,7 @@ type Group = { key: string; ids: number[]; info: BuildingInfo };
 export function BuildingLabels({ className }: { className?: string }) {
   const on = useWorldStore((s) => s.labels);
   const grid = useWorldStore((s) => s.grid);
+  const waterView = useWorldStore((s) => s.playing && (s.waterOverlay || s.tool === "pipe"));
   const [groups, setGroups] = useState<Group[]>([]);
   const [full, setFull] = useState(true);
   const els = useRef(new Map<string, HTMLDivElement>());
@@ -177,6 +181,7 @@ export function BuildingLabels({ className }: { className?: string }) {
       const detail = scale >= DETAIL_FROM;
       const items: Parameters<typeof gatherLabels>[0][number][] = [];
       for (const s of st.grid.structures.values()) {
+        if (waterView && !structureDef(s.def)?.ports?.length) continue;
         const info = infoFor(s, ctx);
         const top = info && topOf(sl, s, vp);
         if (!info || !top) continue;
@@ -241,7 +246,7 @@ export function BuildingLabels({ className }: { className?: string }) {
     };
     frame();
     return () => { clearInterval(id); cancelAnimationFrame(raf); };
-  }, [on, grid]);
+  }, [on, grid, waterView]);
 
   if (!on) return null;
   return (
