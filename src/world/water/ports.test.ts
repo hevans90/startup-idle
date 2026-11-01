@@ -7,7 +7,7 @@ import { resetCooling } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { layMain, mainsToPorts, outletBuilding, planMain, routeMain } from "./mains";
-import { inletOpen, portsOf } from "./ports";
+import { inletOpen, keepsPorts, portTileSet, portsOf } from "./ports";
 
 afterEach(resetCooling);
 
@@ -66,5 +66,20 @@ describe("a building's ports", () => {
     for (const [x, y] of [[6, 5], [5, 6]]) commit(g, createHistory(), placeCommand(g, { ...structureDef("kit:intern.t0")!, placement: undefined }, x, y)!);
     expect(inletOpen(g, "ai-node", 5, 5, 1, 1)).toBe(false);
     expect(inletOpen(g, "kit:intern.t0", 5, 5, 1, 1)).toBe(true);
+  });
+});
+
+describe("a site that keeps the ports", () => {
+  test("covers no building's port, slop or water, and leaves one of its own open", () => {
+    const g = createGrid(24, 24);
+    fillTerrain(g, 1);
+    commit(g, createHistory(), placeCommand(g, { ...structureDef("office-vibe")!, placement: undefined }, 10, 10)!);
+    const office = [...g.structures.values()].find((s) => s.def === "office-vibe")!;
+    const slop = portsOf(g, office).find((p) => p.port.fluid === "slop")!;
+    const taken = portTileSet(g);
+    expect(taken.has(slop.i)).toBe(true);
+    // A lot on the slop port is refused; one a tile further on is not.
+    expect(keepsPorts(g, taken, "kit:intern.t0", slop.x, slop.y, 1, 1)).toBe(false);
+    expect(keepsPorts(g, taken, "kit:intern.t0", slop.x + 1, slop.y + 1, 1, 1)).toBe(true);
   });
 });

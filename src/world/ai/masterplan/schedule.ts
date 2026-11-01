@@ -26,6 +26,7 @@ import { isPaved } from "../../roads/mask";
 import { createNetwork } from "../../roads/network";
 import { structureDef } from "../../structures/def";
 import { validatePlacement, type PlaceRules } from "../../structures/place";
+import { keepsPorts, portTileSet } from "../../water/ports";
 import { DESKS, WORKPLACES } from "../../agents/commute";
 import { desireAt, desireMapsOf } from "../../agents/desirability";
 import { placesOf } from "../../agents/roads";
@@ -66,7 +67,9 @@ function spots(g: Grid, def: string, rules: PlaceRules): Cell[] {
   const d = structureDef(def);
   if (!d) return [];
   const out: Cell[] = [];
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (validatePlacement(g, d, x, y, rules).ok) out.push({ x, y });
+  // Never over a port, nor with its own all built over. @see keepsPorts
+  const ports = portTileSet(g), { w, h } = d.footprint;
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (validatePlacement(g, d, x, y, rules).ok && keepsPorts(g, ports, def, x, y, w, h)) out.push({ x, y });
   return out;
 }
 const manhattan = (a: Cell, b: Cell) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);

@@ -43,6 +43,26 @@ export function inletOpen(g: Grid, def: string, x: number, y: number, w: number,
   return !structureDef(def)?.ports?.length || tiles.some((t) => structureAt(g, t.x, t.y) < 0);
 }
 
+/** The tile in front of every port on the map — water and slop, in and out — by index. */
+export function portTileSet(g: Grid): Set<number> {
+  const out = new Set<number>();
+  for (const st of g.structures.values()) {
+    if (!structureDef(st.def)?.ports?.length) continue;
+    for (const t of portTiles(g, st.def, st.x, st.y, st.w, st.h)) out.add(t.y * g.w + t.x);
+  }
+  return out;
+}
+
+/**
+ * A SITE THAT KEEPS THE PORTS: covering no building's port (`taken`, from
+ * `portTileSet`), and leaving one of its own open — a building whose slop
+ * port is built over spills, and one whose inlets are cannot drink.
+ */
+export function keepsPorts(g: Grid, taken: ReadonlySet<number>, def: string, x: number, y: number, w: number, h: number): boolean {
+  for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) if (taken.has((y + dy) * g.w + x + dx)) return false;
+  return inletOpen(g, def, x, y, w, h);
+}
+
 /** The buildings beside a tile, once each. */
 function beside(g: Grid, x: number, y: number): Structure[] {
   const out: Structure[] = [];

@@ -40,7 +40,7 @@ import { connects, isPaved } from "../roads/mask";
 import { RACK_RANGE } from "../../game/agents";
 import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
-import { inletOpen, portTiles } from "../water/ports";
+import { inletOpen, keepsPorts, portTileSet } from "../water/ports";
 import { demolishAt, liftRoad, paveRoad, placeStructure, reshape, widenMain } from "../play/build-actions";
 import { layRoute, moreWater, neededPipe } from "./cooling-ai";
 import type { PipeRoute } from "./pipe-route";
@@ -125,14 +125,11 @@ function spots(g: Grid, defId: string, d: District, near?: { at: Cell; within: n
     x0 = Math.max(x0, Math.floor(d.cx - d.r)); y0 = Math.max(y0, Math.floor(d.cy - d.r));
     x1 = Math.min(x1, Math.ceil(d.cx + d.r)); y1 = Math.min(y1, Math.ceil(d.cy + d.r));
   }
-  // THE INLETS of what drinks are kept clear, and what drinks is put where one of its own is open. @see inletOpen
-  const inlets = new Set<number>();
-  for (const s of g.structures.values()) if (isDrinker(s.def)) for (const t of portTiles(g, s.def, s.x, s.y, s.w, s.h)) inlets.add(idx(g, t.x, t.y));
+  // EVERY PORT kept clear — inlets of what drinks, slop ports of what makes
+  // it — and a building with ports put where one of its own is open. @see keepsPorts
+  const ports = portTileSet(g);
   const { w, h } = def.footprint;
-  const clear = (x: number, y: number) => {
-    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) if (inlets.has(idx(g, x + dx, y + dy))) return false;
-    return inletOpen(g, defId, x, y, w, h);
-  };
+  const clear = (x: number, y: number) => keepsPorts(g, ports, defId, x, y, w, h);
   for (let y = Math.max(0, y0); y <= Math.min(g.h - 1, y1); y++) {
     for (let x = Math.max(0, x0); x <= Math.min(g.w - 1, x1); x++) {
       if (inDistrict(d, x, y) && validatePlacement(g, def, x, y, rules).ok && clear(x, y)) out.push({ x, y });
