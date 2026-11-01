@@ -283,7 +283,8 @@ export const PROCESSOR_DEFS: readonly StructureDef[] = [
  */
 export const SERVICES: readonly StructureDef[] = [
   { id: "cafe", name: "Café", footprint: { w: 2, h: 1 }, render: { kind: "custom", rendererId: "project" } },
-  { id: "park", name: "Park", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+  // A PARK goes anywhere: off the roads it serves the homes round it across the grass. @see coverageOf
+  { id: "park", name: "Park", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" }, placement: { noFrontage: true } },
   { id: "gym", name: "Gym", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
 ];
 

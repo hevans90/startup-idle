@@ -58,6 +58,9 @@ const DIRS = ["N", "E", "S", "W"] as const;
  * it reaches. A service `extra` says reaches further — the Machine's
  * Holo-Concierge — is searched apart, out to its own reach: one search from
  * doors of two reaches would number the roads wrong. @see CONCIERGE_REACH
+ *
+ * A PARK WITH NO ROAD beside it is walked to across the grass: it serves the
+ * homes within the same reach of it as the crow flies, edge to edge.
  */
 export function coverageOf(g: Grid, places: readonly Place[], extra: (s: Structure) => number = () => 0): Coverage {
   const doorOf = new Map<number, Place>();
@@ -93,13 +96,32 @@ export function coverageOf(g: Grid, places: readonly Place[], extra: (s: Structu
         if (!housedBy(s.def)) continue;
         const d = doorOf.get(s.id);
         if (!d || dist[idx(g, d.x, d.y)] < 0) continue;
-        let set = out.get(s.id);
-        if (!set) out.set(s.id, (set = new Set()));
-        set.add(service);
+        serve(out, s.id, service);
       }
     }
   }
+  // OFF THE ROADS, a park: the homes round it, as the crow flies.
+  for (const park of g.structures.values()) {
+    if (park.build || park.def !== "park" || doorOf.has(park.id)) continue;
+    const reach = RANGE + extra(park);
+    for (const s of g.structures.values()) {
+      if (housedBy(s.def) && gapBetween(park, s) <= reach) serve(out, s.id, "park");
+    }
+  }
   return out;
+}
+
+function serve(out: Coverage, house: number, service: ServiceId) {
+  let set = out.get(house);
+  if (!set) out.set(house, (set = new Set()));
+  set.add(service);
+}
+
+/** Tiles between two footprints, edge to edge: 0 for touching. */
+function gapBetween(a: Structure, b: Structure): number {
+  const gx = Math.max(0, a.x - (b.x + b.w), b.x - (a.x + a.w));
+  const gy = Math.max(0, a.y - (b.y + b.h), b.y - (a.y + a.h));
+  return Math.max(gx, gy);
 }
 
 /** Road tiles further a Holo-Concierge's service reaches. @see game/machine "concierge" */

@@ -5,7 +5,7 @@ import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx, type Grid } from "../grid";
 import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
-import { placeCommand } from "../structures/place";
+import { placeCommand, validatePlacement } from "../structures/place";
 import { placesOf } from "./roads";
 import {
   CONCIERGE_REACH, DECLINE_AFTER, GROW_AFTER, RANGE, coverageOf, createEvolution, growthShort, stepEvolution,
@@ -42,6 +42,18 @@ describe("services", () => {
     const c = cover(g);
     expect([...(c.get(ids[1]) ?? [])]).toEqual(["cafe"]);
     expect(c.get(ids[2])).toBeUndefined();
+  });
+
+  test("a park goes anywhere, and off the roads serves the homes round it across the grass", () => {
+    const { g, ids } = street([["kit:intern.t0", 10], ["kit:intern.t0", 12 + RANGE + 2]]);
+    const park = structureDef("park")!, cafe = structureDef("cafe")!;
+    // Off the road, three rows back from it: a park may stand there, a café may not.
+    expect(validatePlacement(g, park, 10, 0, { needsRoad: true }).ok).toBe(true);
+    expect(validatePlacement(g, cafe, 10, 0, { needsRoad: true }).ok).toBe(false);
+    commit(g, createHistory(), placeCommand(g, park, 10, 0)!);
+    const c = cover(g);
+    expect([...(c.get(ids[0]) ?? [])]).toEqual(["park"]);
+    expect(c.get(ids[1])).toBeUndefined();
   });
 
   test("a service with a Holo-Concierge reaches further — and only that one", () => {
