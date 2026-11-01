@@ -177,11 +177,19 @@ const TONE_CLASS: Record<Badge["tone"], string> = {
   info: "border-info-line bg-info-soft text-info",
 };
 
-/** One thing over the map: a badge, a dot, or the pointer's building's full label. */
+/** One thing over the map: a badge or a dot. */
 type Mark =
   | { key: string; kind: "badge"; badge: Badge; more: number }
-  | { key: string; kind: "dot" }
-  | { key: string; kind: "label"; info: BuildingInfo };
+  | { key: string; kind: "dot" };
+
+/** The pointer's building's full label: what it says, and its point in the world. */
+type Label = { id: number; info: BuildingInfo; x: number; y: number };
+
+/** Where a mark goes on the screen, as a transform, from its point in the world. */
+const placed = (vp: Viewport, w: { x: number; y: number }, dot: boolean) => {
+  const p = vp.toScreen(w.x, w.y);
+  return `translate(${Math.round(p.x)}px, ${Math.round(p.y - (dot ? 0 : 4))}px) translate(-50%, ${dot ? "-50%" : "-100%"})`;
+};
 
 export function BuildingLabels({ className }: { className?: string }) {
   const on = useWorldStore((s) => s.labels);
@@ -195,6 +203,12 @@ export function BuildingLabels({ className }: { className?: string }) {
   /** Each mark's point in the world, and the zoom they were placed at. */
   const anchors = useRef(new Map<string, { x: number; y: number }>());
   const placedAt = useRef(0);
+  /** What the last look gathered: the pointer's label is made from it at once, not from a look of its own. */
+  const ctxRef = useRef<BadgeContext | null>(null);
+  const [label, setLabel] = useState<Label | null>(null);
+  const labelRef = useRef<Label | null>(null);
+  labelRef.current = label;
+  const labelEl = useRef<HTMLDivElement | null>(null);
   const placedCentre = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -205,6 +219,7 @@ export function BuildingLabels({ className }: { className?: string }) {
       const vp = st.viewport, sl = shownStructures();
       if (!vp || !sl) return;
       const ctx = gather();
+      ctxRef.current = ctx;
       const scale = vp.scale.x;
       const dots = scale >= DOTS_FROM;
       const near = view === "build" ? st.hover : null;
@@ -219,7 +234,6 @@ export function BuildingLabels({ className }: { className?: string }) {
         // ON THE SCREEN, or near it: a mark nobody can see is not worth a node
         // in the page. A pan places them again. @see frame
         if (top.x < -OFF || top.y < -OFF || top.x > vp.screenWidth + OFF || top.y > vp.screenHeight + OFF) continue;
-        if (s.id === st.hoverBuilding) continue;
         const far = view === "build" && (!near || Math.abs(s.x - near.x) > BUILD_REACH || Math.abs(s.y - near.y) > BUILD_REACH);
         // THE WATER VIEW zoomed out: its rings and numbers say it, and badges would sit on them.
         const badge = far || (view === "water" && !dots) ? null : badgeFor(s, ctx, view);
@@ -230,11 +244,9 @@ export function BuildingLabels({ className }: { className?: string }) {
         keep(`b${b.id}`, b);
         list.push({ key: `b${b.id}`, kind: "badge", badge: b.badge, more: b.more });
       }
-      // THE POINTER'S BUILDING, everything about it, over the rest.
-      const s = st.hoverBuilding === null ? undefined : st.grid.structures.get(st.hoverBuilding);
-      const info = s && infoFor(s, ctx), top = s && topOf(sl, s, vp);
-      if (s && info && top) { keep(`l${s.id}`, top); list.push({ key: `l${s.id}`, kind: "label", info }); }
       anchors.current = next;
+      // And the pointer's label, said again from what was just gathered.
+      setLabel(labelFor(useWorldStore.getState().hoverBuilding));
       placedAt.current = scale;
       placedCentre.current = { x: vp.center.x, y: vp.center.y };
       setMarks(list);
@@ -266,12 +278,17 @@ export function BuildingLabels({ className }: { className?: string }) {
       if (moving) { lastView = { x: vp.x, y: vp.y, s: vp.scale.x }; stillSince = performance.now(); }
       if ((Math.abs(vp.scale.x / (placedAt.current || 1) - 1) > REZOOM || panned) && performance.now() - stillSince >= SETTLE_MS) read();
       const where = `${vp.x},${vp.y},${vp.scale.x},${els.current.size}`;
+      // The pointer's label follows the camera too.
+      const l = labelRef.current, le = labelEl.current;
+      if (l && le) {
+        const t = placed(vp, l, false);
+        if (wrote.get(le) !== t) { wrote.set(le, t); le.style.transform = t; }
+      }
       if (where === seen && anchors.current === seenAnchors) return;
       seen = where; seenAnchors = anchors.current;
       for (const [key, el] of els.current) {
         const w = anchors.current.get(key);
-        const lift = key[0] === "d" ? 0 : 4;
-        const next = w ? (() => { const p = vp.toScreen(w.x, w.y); return `translate(${Math.round(p.x)}px, ${Math.round(p.y - lift)}px) translate(-50%, ${key[0] === "d" ? "-50%" : "-100%"})`; })() : "hidden";
+        const next = w ? placed(vp, w, key[0] === "d") : "hidden";
         if (wrote.get(el) === next) continue;
         wrote.set(el, next);
         if (next === "hidden") { el.style.visibility = "hidden"; continue; }
@@ -281,13 +298,31 @@ export function BuildingLabels({ className }: { className?: string }) {
     };
     frame();
     return () => { clearInterval(id); cancelAnimationFrame(raf); };
-  }, [on, grid, view, hovered]);
+  }, [on, grid, view]);
+
+  /**
+   * THE POINTER'S BUILDING, everything about it, the moment the pointer is on
+   * it: made from what the last look gathered, one building's worth, and drawn
+   * in place on its first paint — not waiting on a look at the whole town.
+   */
+  function labelFor(id: number | null): Label | null {
+    const st = useWorldStore.getState(), vp = st.viewport, sl = shownStructures(), ctx = ctxRef.current;
+    const s = id === null ? undefined : st.grid.structures.get(id);
+    if (!s || !vp || !sl || !ctx) return null;
+    const info = infoFor(s, ctx), top = topOf(sl, s, vp);
+    if (!info || !top) return null;
+    const w = vp.toWorld(top.x, top.y);
+    return { id: s.id, info, x: w.x, y: w.y };
+  }
+  useEffect(() => { if (on) setLabel(labelFor(hovered)); }, [on, hovered]);
 
   if (!on) return null;
   const ref = (key: string) => (el: HTMLDivElement | null) => { if (el) els.current.set(key, el); else els.current.delete(key); };
   return (
     <div className={twMerge("pointer-events-none absolute inset-0 overflow-hidden", className)}>
       {marks.map((m) => {
+        // The pointer's building wears its full label instead.
+        if (hovered !== null && m.key.slice(1) === String(hovered)) return null;
         if (m.kind === "dot") {
           return <div key={m.key} ref={ref(m.key)} className="invisible absolute left-0 top-0 size-1.5 rounded-full bg-fg-muted/50" />;
         }
@@ -302,11 +337,15 @@ export function BuildingLabels({ className }: { className?: string }) {
             </div>
           );
         }
-        const { info } = m;
+        return null;
+      })}
+      {label && (() => {
+        const { info } = label;
+        const vp = useWorldStore.getState().viewport;
         return (
-          <div key={m.key} ref={ref(m.key)}
-            className="invisible absolute left-0 top-0 z-10 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/95 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-md backdrop-blur-sm"
-            style={{ borderLeftColor: hex(info.accent) }}>
+          <div ref={labelEl}
+            className="absolute left-0 top-0 z-10 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/95 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-md backdrop-blur-sm"
+            style={{ borderLeftColor: hex(info.accent), transform: vp ? placed(vp, label, false) : undefined }}>
             <p className="font-display uppercase tracking-wider">{info.title}</p>
             {info.lines.map((l, k) => (
               <p key={k} className={twMerge(
@@ -318,7 +357,7 @@ export function BuildingLabels({ className }: { className?: string }) {
             ))}
           </div>
         );
-      })}
+      })()}
     </div>
   );
 }
