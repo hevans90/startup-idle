@@ -381,8 +381,8 @@ function Cooling() {
       </div>
       {pumps > 0 && (
         <p className="mt-1 tabular-nums text-fg-muted">
-          {pumps} pump house{pumps === 1 ? "" : "s"} · $
-          {Math.round(upkeep).toLocaleString()} a second each while pumping
+          {pumps} pump house{pumps === 1 ? "" : "s"} ·{" "}
+          {formatCurrency(Math.round(upkeep))} a second each while pumping
         </p>
       )}
     </Panel>

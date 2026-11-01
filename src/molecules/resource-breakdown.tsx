@@ -1,8 +1,8 @@
 import type { ResourceBreakdown } from "../state/generators.store";
 import { PopCard, PopGroup, PopRow, type Tone } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
+import { times } from "../game/wording";
 
-const mult = (m: number) => `×${m.toFixed(2)}`;
 const isActive = (m: number) => Math.abs(m - 1) > 1e-9;
 
 /**
@@ -37,7 +37,7 @@ export const ResourceBreakdownView = ({
             {factors.map((f) => (
               <PopRow key={f.label} indent
                 label={f.modKey ? <ModifierTag modKey={f.modKey}>{f.label}</ModifierTag> : f.label}
-                value={mult(f.mult)} />
+                value={times(f.mult)} />
             ))}
           </PopGroup>
         );
@@ -47,7 +47,7 @@ export const ResourceBreakdownView = ({
           {activeGlobals.map((g) => (
             <PopRow key={g.label}
               label={g.modKey ? <ModifierTag modKey={g.modKey}>{g.label}</ModifierTag> : g.label}
-              value={mult(g.mult)} />
+              value={times(g.mult)} />
           ))}
         </PopGroup>
       )}

@@ -6,7 +6,7 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { twMerge } from "tailwind-merge";
 import { FOCUS, Panel, PopCard, PopGroup, PopRow, POPOVER_BARE } from "../ui/console";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
-import { fmtMult } from "../ui/BonusRow";
+import { percent, times } from "../game/wording";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
@@ -93,64 +93,64 @@ export const Generators = () => {
               foot={<>Each earns {formatCurrency(genMps(gen.id, 1))}/s.</>}>
               <PopGroup label="Money">
             <PopRow label="Base" value={formatCurrency(gen.baseProduction)} />
-            <PopRow label="Upgrades" value={fmtMult(gen.multiplier)} />
+            <PopRow label="Upgrades" value={times(gen.multiplier)} />
             {(founderGenMoneyMult[gen.id] ?? 1) !== 1 && (
               <PopRow
                 label="Founder"
-                value={fmtMult(founderGenMoneyMult[gen.id] ?? 1)}
+                value={times(founderGenMoneyMult[gen.id] ?? 1)}
                 valueClass="text-good"
               />
             )}
             {headcountMult !== 1 && (
               <PopRow
                 label="Founder, per employee"
-                value={fmtMult(headcountMult)}
+                value={times(headcountMult)}
                 valueClass="text-good"
               />
             )}
             {prestige.moneyMult !== 1 && (
               <PopRow
                 label="Skill tree: money"
-                value={fmtMult(prestige.moneyMult)}
+                value={times(prestige.moneyMult)}
                 valueClass="text-innovation"
               />
             )}
             {prestige.employeeOutputMult !== 1 && (
               <PopRow
                 label="Skill tree: output"
-                value={fmtMult(prestige.employeeOutputMult)}
+                value={times(prestige.employeeOutputMult)}
                 valueClass="text-innovation"
               />
             )}
             {equityHeadcountMult !== 1 && (
               <PopRow
                 label="Skill tree, per employee"
-                value={fmtMult(equityHeadcountMult)}
+                value={times(equityHeadcountMult)}
                 valueClass="text-innovation"
               />
             )}
             {gen.id === "intern" && prestige.internOutputMult !== 1 && (
               <PopRow
                 label="AGI-Pilled"
-                value={fmtMult(prestige.internOutputMult)}
+                value={times(prestige.internOutputMult)}
                 valueClass="text-bad"
               />
             )}
               </PopGroup>
               <PopGroup label="Hires">
-            <PopRow label="Upgrades" value={fmtMult(gen.costMultiplier)} />
-            <PopRow label="Each hire dearer" value={`+${Number(((gen.costExponent - 1) * 100).toFixed(1))}%`} />
+            <PopRow label="Upgrades" value={times(gen.costMultiplier)} />
+            <PopRow label="Each hire dearer" value={percent((gen.costExponent - 1) * 100)} />
             {costExponentReduction !== 0 && (
               <PopRow
                 label="Founder"
-                value={`${Number((costExponentReduction * 100).toFixed(1))}% slower`}
+                value={`${percent(costExponentReduction * 100).slice(1)} slower`}
                 valueClass="text-good"
               />
             )}
             {prestige.hireCostMult !== 1 && (
               <PopRow
                 label="Skill tree"
-                value={fmtMult(prestige.hireCostMult)}
+                value={times(prestige.hireCostMult)}
                 valueClass="text-good"
               />
             )}

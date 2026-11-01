@@ -17,11 +17,12 @@ import { useGenerationStore } from "../../state/generation.store";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import { useMoneyStore } from "../../state/money.store";
+import { formatCurrency } from "../../utils/money-utils";
 
 export type Memo = { id: string; stage: Stage; family?: Family; text: () => string; apply?: () => void };
 
 const income = () => Math.max(0, useGeneratorStore.getState().getMoneyPerSecond());
-const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+const money = (n: number) => formatCurrency(Math.round(n));
 
 /** What it says arriving at each stage. */
 export const ARRIVALS: Partial<Record<Stage, string>> = {

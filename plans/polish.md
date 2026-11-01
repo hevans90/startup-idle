@@ -1,13 +1,13 @@
 # Polish: one voice for every modifier, and the rough edges of the UI
 
-**Status:** phases 1–3 done; phase 4 next.
-- **Answers taken:** "Money +8%"; no flavour lines written for modifiers that have none; the short scale's names; "Output" for a kind's whole production.
+**Status:** phases 1–4 done; phase 5 next.
+- **Answers taken:** "Money +8%"; no flavour lines written for modifiers that have none; e-notation for big numbers, as it is (not the short scale's names); "Output" for a kind's whole production.
 - **`game/wording.ts`:**
   - `STATS`, the glossary: each stat's name, which way is good, share or points.
   - `NEVER`: the words a player never reads.
   - `describe` (numbers → effect line, with `Plain` parts for what no stat says), `change`, `part` and `helps`.
   - `effectProblems` (grammar and glossary, a reason each).
-  - `formatScale` and `formatMoneyScale` (K…Dc, then e-notation; not wired in yet, phase 4).
+  - `percent` and `times`: every percentage and multiple on screen.
 - **`game/wording-audit.ts`:** every catalogue's effect lines; `bun run wording` prints what breaks the rules. Now 0 of 214.
 - **`wording.test.ts`:** holds every catalogue to the rules.
 - **Phase 2, what changed:**
@@ -26,6 +26,12 @@
   - Mood reasons: one list, `WHY` in `mood-rules.ts`, for the mood and the desirability both; the desire readout puts the reason first ("Café +4").
   - The Build tool's hint says a park goes anywhere.
   - Placement refusals ("no road access", "uneven ground") are never shown yet; they get their words with the placement readout (UI item 9).
+- **Phase 4, what changed:**
+  - Every percentage and multiple on screen goes through `percent` and `times` (whole percentages unless under 10%; two places on a multiple under two): the breakdown popovers, hire and money popovers, founder and acquisition panels, skill tree, managers, mandates, morale, agents, term sheets.
+  - Every money figure goes through `formatCurrency`, with one switch-over to e-notation ($10M): memos, events, term clauses, the term sheet's cash, pump upkeep; innovation and rates too, which wrote out every digit.
+  - A debt takes the true minus before the dollar: "−$5".
+  - Morale's 10x dev line says "hires get dearer 1.2% faster", not "cost curve +0.012"; "/emp" is "an employee".
+  - The unused named scale (`formatScale`) is gone.
 
 ## Why
 
@@ -62,7 +68,6 @@ Seen while working on the map this session, the UI has its own rough edges:
 - **Covered map on load:** a welcome-back dialog, three achievement toasts and a tip card cover the map on every load.
 - **Covered hover label:** the tip card covers the hover label.
 - **Projects panel:** it opens expanded over the town.
-- **Big numbers:** these go to e-notation from $10M ("$1.00e+12" money, "$3.57e+828" a hire).
 - **Repeated badges:** a big town repeats one problem on every house ("−40 · 4 more" × dozens).
 
 ## The rules
@@ -126,10 +131,8 @@ Capitals: proper names (Campus, Data Centre, Town Hall) and the first word of a 
 
 - **Generated, not typed:** one formatter, `game/wording.ts`, turns a modifier's numbers into its effect line (`describe({ money: 1.08 }) → "Money +8%"`). Every catalogue that holds numbers calls it.
 - **Big numbers:**
-  - Use short scale names up to 1e33: $12.4K, $3.10M, $1.00T, then Qa, Qi, Sx, Sp, Oc, No, Dc.
-  - Use e-notation only past that.
-  - Three significant figures everywhere, in the HUD's steady width.
-  - Now: `formatCurrency` switches to e-notation at 1e7.
+  - Written out below $10M, e-notation from there ("$1.00e+12"): kept as it is, by choice.
+  - One switch-over everywhere: no call of `formatCurrency` sets its own (the tab title's short "$1e+6" aside).
 - **Rounding:** percentages to whole numbers unless under 10% ("+2.5%"). Multipliers to one decimal place, two under 2 ("×1.35", "×2.5").
 
 ## The work, by surface
@@ -193,7 +196,7 @@ Each of these was seen in the game this session, except where marked as not yet 
    - Then the hand-written: projects, the Machine, training.
    - The test turns on.
 3. **The explanations:** modifier breakdowns, mood reasons (one list), map hints and refusals.
-4. **Numbers:** `formatCurrency`'s named scale, rounding rules, everywhere it is called.
+4. **Numbers:** the rounding rules (`percent`, `times`) and `formatCurrency` everywhere a number is shown.
 5. **The UI/UX list,** one item a commit, each checked in the browser on the isolated server.
 6. **A read-through** of every tab, card and popover in both themes, at desktop and phone widths, for anything the test can't see.
 
@@ -201,5 +204,5 @@ Each of these was seen in the game this session, except where marked as not yet 
 
 1. **Money's "$" in effect lines:** "Money +8%" (proposed) or "$ +8%"?
 2. **Flavour lines on modifiers that have none today** (policies, juice, mandates): write some, or leave them bare?
-3. **The number scale:** short names (K, M, B, T, Qa…; proposed) or e-notation from a smaller threshold?
+3. **The number scale:** e-notation from $10M, kept (decided).
 4. **"Output" vs "money":** keep "Output" for a kind's whole production (money and innovation), or say "Money" only and list innovation separately?

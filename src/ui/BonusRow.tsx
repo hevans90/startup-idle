@@ -3,13 +3,6 @@ import { ModifierTag } from "./ModifierTag";
 
 export type BonusTone = "good" | "bad" | "neutral";
 
-/** ×1.25, ×2, etc. — trailing zeros stripped, always Unicode × symbol. */
-export const fmtMult = (n: number) => `×${Number(n.toFixed(2))}`;
-
-/** Signed percentage with 1 decimal place. */
-export const fmtPct = (v: number) =>
-  `${v > 0 ? "+" : ""}${Number(v.toFixed(1))}%`;
-
 const VALUE_CLS: Record<BonusTone, string> = {
   good: "text-good",
   bad: "text-bad",

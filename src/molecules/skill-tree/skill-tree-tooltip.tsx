@@ -18,12 +18,12 @@ import { useGenerationStore } from "../../state/generation.store";
 import { isMachine, machineBlocked, machineCost, machineNode } from "../../game/machine";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { useGlitch } from "../../ui/console";
+import { percent, times } from "../../game/wording";
 
 const NODES = nodeById(SKILL_TREE);
 const ADJ = buildAdjacency(SKILL_TREE);
 const clamp = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, n));
-const fmtPct = (v: number) => `${v > 0 ? "+" : ""}${Number(v.toFixed(1))}%`;
 const toneClass = (tone: "good" | "bad") =>
   tone === "good"
     ? "text-good"
@@ -204,12 +204,12 @@ export const SkillTreeTooltip = () => {
                     <span className="flex items-baseline gap-1 font-semibold">
                       {t.pct !== 0 && (
                         <span className={toneClass(pctGood ? "good" : "bad")}>
-                          {fmtPct(t.pct)}
+                          {percent(t.pct)}
                         </span>
                       )}
                       {t.mult !== 1 && (
                         <span className={toneClass(multGood ? "good" : "bad")}>
-                          ×{Number(t.mult.toFixed(2))}
+                          {times(t.mult)}
                         </span>
                       )}
                     </span>

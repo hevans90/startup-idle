@@ -8,15 +8,14 @@ import { leaderTeam } from "../projects";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useTeamLeadersEmployeesStore } from "../../state/team-leaders.store";
 import type { BreakdownRow, ModifierBreakdown } from "./types";
-import { fmt2 } from "./utils";
-import { describe } from "../wording";
+import { describe, times } from "../wording";
 
 function leaderEntry(role: GeneratorId): () => ModifierBreakdown {
   return () => {
     const l = useTeamLeadersEmployeesStore.getState().employees.find((e) => e.role === role);
     const owned = Object.fromEntries(useGeneratorStore.getState().generators.map((g) => [g.id, g.amount]));
     const e = leadersNow(owned).of[role];
-    if (!l || !e) return { label: "Money · leader", rows: [{ source: "No leader for this kind", value: "—", tone: "neutral" }], total: fmt2(1) };
+    if (!l || !e) return { label: "Money · leader", rows: [{ source: "No leader for this kind", value: "—", tone: "neutral" }], total: times(1) };
     const p = PERSONALITIES[l.personality];
     // What the rest of the kind feel: half, or Open Door's. @see teamShare
     const rest = Math.max(REST_SHARE, ...l.perks.map((k) => LEADER_PERKS[k].rest ?? 0));
@@ -27,9 +26,9 @@ function leaderEntry(role: GeneratorId): () => ModifierBreakdown {
         : { source: `Leads ${leaderTeam(role)} of ${owned[role] ?? 0} in their building; the rest feel ${Math.round(rest * 100)}%`, value: "", tone: "neutral" },
       { source: `Rank ${l.rank} · ${describe({ money: 1 + RANK_OUTPUT * l.rank }, "Team")}`, value: "", tone: "good" },
       ...l.perks.map((k) => ({ source: `${LEADER_PERKS[k].name}: ${LEADER_PERKS[k].says}`, value: "", tone: "good" as const })),
-      { source: "Innovation", value: fmt2(e.innovation), tone: e.innovation >= 1 ? "good" : "bad" },
+      { source: "Innovation", value: times(e.innovation), tone: e.innovation >= 1 ? "good" : "bad" },
     ];
-    return { label: `Money · ${l.name}, leader`, description: "Their kind's money: the team in full, the rest of the kind in part.", rows, total: fmt2(e.output) };
+    return { label: `Money · ${l.name}, leader`, description: "Their kind's money: the team in full, the rest of the kind in part.", rows, total: times(e.output) };
   };
 }
 

@@ -3,7 +3,8 @@ import { usePrestigeStore } from "../../state/prestige.store";
 import { INTERN_INNOVATION_SWING, internSatisfactionIpsMultiplier } from "../satisfaction";
 import type { BreakdownRow, ModifierBreakdown } from "./types";
 import { SAT_REV_BASE, satisfactionRevenueEntry } from "./factories";
-import { fmt2, satRows, titled } from "./utils";
+import { satRows, titled } from "./utils";
+import { times } from "../wording";
 
 /** Interns' morale on something other than their own output. */
 function internSatEntry(
@@ -17,7 +18,7 @@ function internSatEntry(
     const effScore = useGeneratorStore.getState().getEffectiveSatisfaction("intern");
     const prestige = usePrestigeStore.getState().modifiers;
     const mult = getMult(effScore);
-    return { label, description, rows: satRows(score, effScore, mult, tone(mult), prestige), total: fmt2(mult) };
+    return { label, description, rows: satRows(score, effScore, mult, tone(mult), prestige), total: times(mult) };
   };
 }
 

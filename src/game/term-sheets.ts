@@ -50,7 +50,7 @@ const clock = (s: number) => {
   const m = Math.max(0, Math.round(s / 60));
   return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
 };
-const amount = (n: number, money?: boolean) => (money ? formatCurrency(n, { exponentBreakpoint: 1e9 }) : n.toLocaleString("en-GB"));
+const amount = (n: number, money?: boolean) => (money ? formatCurrency(n) : n.toLocaleString("en-GB"));
 
 /** A count asked for at a scale: harder asks more (never under one, a meter never over 99, leaders never over the three there can be). */
 const more = (base: number, k: number, metric: Metric) => {

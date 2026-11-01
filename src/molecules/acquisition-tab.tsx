@@ -27,11 +27,11 @@ import { formatDuration } from "../utils/time-utils";
 import { useSellTransition } from "./sell-transition";
 import { MACHINE } from "../game/machine";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
+import { percent, times } from "../game/wording";
 
 // The business tree's nodes: the Machine is bought with Weights. @see game/machine
 const TOTAL_NODES = SKILL_TREE.nodes.filter((n) => n.cluster !== MACHINE).length;
 const plain = (n: Decimal) => formatCurrency(n, { showDollarSign: false });
-const trim = (n: number) => Number(n.toFixed(2)).toString();
 
 export type Chip = { label: string; value: string; good: boolean; modKey?: string };
 
@@ -141,7 +141,7 @@ export function modifierChips(
     if (v !== 1)
       chips.push({
         label,
-        value: `×${trim(v)}`,
+        value: times(v),
         good: betterUp ? v > 1 : v < 1,
         modKey,
       });
@@ -159,7 +159,7 @@ export function modifierChips(
   if (m.headcountPerEmployee > 0) {
     chips.push({
       label: "Synergy",
-      value: `+${trim(m.headcountPerEmployee * 100)}%/emp`,
+      value: `${percent(m.headcountPerEmployee * 100)} an employee`,
       good: true,
       modKey: "headcountMoney",
     });
@@ -171,7 +171,7 @@ export function modifierChips(
   if (m.internOutputMult !== 1)
     chips.push({
       label: "Weak interns",
-      value: `×${trim(m.internOutputMult)}`,
+      value: times(m.internOutputMult),
       good: false,
       modKey: "prestigeInternOutput",
     });

@@ -15,6 +15,7 @@
  */
 import { useSessionStore } from "../state/session.store";
 import { INVESTORS, type Investor } from "./term-investors";
+import { formatCurrency } from "../utils/money-utils";
 
 export type ClauseId = "investment" | "board" | "pool" | "milestone" | "exclusivity";
 
@@ -59,7 +60,7 @@ export type ClauseOption = {
 
 export type Clause = { id: ClauseId; number: number; title: string; options: readonly ClauseOption[] };
 
-const money = (n: number) => `$${n.toLocaleString("en-GB")}`;
+const money = (n: number) => formatCurrency(n);
 
 export const CLAUSES: readonly Clause[] = [
   {

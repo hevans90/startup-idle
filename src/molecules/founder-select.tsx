@@ -7,7 +7,7 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { MANDATES, useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { CURRENT_VERSION } from "../state/version.store";
-import { fmtMult } from "../ui/BonusRow";
+import { percent, times } from "../game/wording";
 import { Button, Dialog } from "../ui/console";
 import { FounderCard } from "./founder-card";
 import { FoundingShell } from "./founding-shell";
@@ -239,7 +239,7 @@ export const FounderSelect = () => {
                 {combinedMoneyMult !== 1 && (
                   <PanelRow
                     label="Money"
-                    value={fmtMult(combinedMoneyMult)}
+                    value={times(combinedMoneyMult)}
                     tone="good"
                     modKey="moneyOutput"
                   />
@@ -247,7 +247,7 @@ export const FounderSelect = () => {
                 {combinedInnovMult !== 1 && (
                   <PanelRow
                     label="Innovation"
-                    value={fmtMult(combinedInnovMult)}
+                    value={times(combinedInnovMult)}
                     tone="good"
                     modKey="innovationRate"
                   />
@@ -255,7 +255,7 @@ export const FounderSelect = () => {
                 {combinedValMult !== 1 && (
                   <PanelRow
                     label="Valuation"
-                    value={fmtMult(combinedValMult)}
+                    value={times(combinedValMult)}
                     tone="good"
                     modKey="valuationRate"
                   />
@@ -263,7 +263,7 @@ export const FounderSelect = () => {
                 {combinedHireCost !== 1 && (
                   <PanelRow
                     label="Hires"
-                    value={fmtMult(combinedHireCost)}
+                    value={times(combinedHireCost)}
                     tone={combinedHireCost < 1 ? "good" : "bad"}
                     modKey="hireCost"
                   />
@@ -271,7 +271,7 @@ export const FounderSelect = () => {
                 {combinedEquityMult !== 1 && (
                   <PanelRow
                     label="Equity"
-                    value={fmtMult(combinedEquityMult)}
+                    value={times(combinedEquityMult)}
                     tone="good"
                     modKey="equityPayout"
                   />
@@ -279,7 +279,7 @@ export const FounderSelect = () => {
                 {modifiers.autoBuyMult !== 1 && (
                   <PanelRow
                     label="Auto-buy"
-                    value={fmtMult(modifiers.autoBuyMult)}
+                    value={times(modifiers.autoBuyMult)}
                     tone="good"
                     modKey="prestigeAutoBuy"
                   />
@@ -287,7 +287,7 @@ export const FounderSelect = () => {
                 {modifiers.managerSpeedMult !== 1 && (
                   <PanelRow
                     label="Manager speed"
-                    value={fmtMult(modifiers.managerSpeedMult)}
+                    value={times(modifiers.managerSpeedMult)}
                     tone="good"
                     modKey="prestigeManagerSpeed"
                   />
@@ -295,7 +295,7 @@ export const FounderSelect = () => {
                 {modifiers.satisfactionGainMult !== 1 && (
                   <PanelRow
                     label="Morale recovery"
-                    value={fmtMult(modifiers.satisfactionGainMult)}
+                    value={times(modifiers.satisfactionGainMult)}
                     tone={modifiers.satisfactionGainMult > 1 ? "good" : "bad"}
                     modKey="prestigeSatisfactionGain"
                   />
@@ -303,7 +303,7 @@ export const FounderSelect = () => {
                 {modifiers.singularityMult !== 1 && (
                   <PanelRow
                     label="AI meter"
-                    value={fmtMult(modifiers.singularityMult)}
+                    value={times(modifiers.singularityMult)}
                     tone="good"
                     modKey="prestigeSingularity"
                   />
@@ -311,7 +311,7 @@ export const FounderSelect = () => {
                 {modifiers.internOutputMult !== 1 && (
                   <PanelRow
                     label="Interns"
-                    value={fmtMult(modifiers.internOutputMult)}
+                    value={times(modifiers.internOutputMult)}
                     tone="good"
                     modKey="prestigeInternOutput"
                   />
@@ -319,7 +319,7 @@ export const FounderSelect = () => {
                 {modifiers.headcountPerEmployee > 0 && (
                   <PanelRow
                     label="Money per employee"
-                    value={`+${(modifiers.headcountPerEmployee * 100).toFixed(1)}%/emp`}
+                    value={`${percent(modifiers.headcountPerEmployee * 100)} an employee`}
                     tone="good"
                     modKey="headcountMoney"
                   />

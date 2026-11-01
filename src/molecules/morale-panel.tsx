@@ -26,6 +26,7 @@ import { FOCUS, Panel } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
+import { dearer, times } from "../game/wording";
 
 const KINDS: readonly GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 
@@ -45,7 +46,6 @@ function Kind({ id }: { id: GeneratorId }) {
 }
 
 const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${Math.abs(Math.round(n))}`;
-const mult = (n: number) => `×${n.toFixed(2)}`;
 
 /** A bar from −40 to +40, filled from the middle. */
 function MoraleBar({ score }: { score: number }) {
@@ -79,10 +79,10 @@ function useMorale() {
 
 /** What a kind's morale does now, besides their output. */
 function sideEffect(id: GeneratorId, score: number): ReactNode {
-  if (id === "intern") return <ModifierTag modKey="internIpsMult">innovation {mult(internSatisfactionIpsMultiplier(score))}</ModifierTag>;
-  if (id === "vibe_coder") return <>slop made {mult(vibeSlopMultiplier(score))}</>;
+  if (id === "intern") return <ModifierTag modKey="internIpsMult">innovation {times(internSatisfactionIpsMultiplier(score))}</ModifierTag>;
+  if (id === "vibe_coder") return <>slop made {times(vibeSlopMultiplier(score))}</>;
   const d = dev10xSatisfactionExponentDelta(score);
-  return <>cost curve {d === 0 ? "unchanged" : `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(3)}`}</>;
+  return <>{d === 0 ? "hires priced as usual" : dearer(d, "hires")}</>;
 }
 
 /** The keystones that change what morale does. */
@@ -114,7 +114,7 @@ export function MoralePanel({ className }: { className?: string }) {
               <MoraleBar score={score} />
               <p className="flex flex-wrap justify-between gap-x-3 text-[11px] text-fg-muted">
                 <span>
-                  <ModifierTag modKey={`satisfactionRevenue.${id}`}>money {mult(satisfactionRevenueMultiplier(eff))}</ModifierTag>
+                  <ModifierTag modKey={`satisfactionRevenue.${id}`}>money {times(satisfactionRevenueMultiplier(eff))}</ModifierTag>
                   {" · "}{sideEffect(id, eff)}
                 </span>
                 {Math.round(target) !== Math.round(score) && <span className="tabular-nums">heading for {signed(target)}</span>}
@@ -163,7 +163,7 @@ export function MoraleStrip({ className }: { className?: string }) {
           <span className="truncate"><Kind id={id} /></span>
           <MoraleBar score={scores[id]} />
           <span className="tabular-nums text-fg-muted">
-            <b className="text-fg">{signed(scores[id])}</b> · <ModifierTag modKey={`satisfactionRevenue.${id}`}>{mult(satisfactionRevenueMultiplier(effective(id)))}</ModifierTag>
+            <b className="text-fg">{signed(scores[id])}</b> · <ModifierTag modKey={`satisfactionRevenue.${id}`}>{times(satisfactionRevenueMultiplier(effective(id)))}</ModifierTag>
           </span>
         </div>
       ))}

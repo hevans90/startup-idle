@@ -3,7 +3,7 @@ import { formatCurrency } from "../utils/money-utils";
 import { ResourceBreakdownView } from "./resource-breakdown";
 
 const money = (n: number) =>
-  `${formatCurrency(n, { exponentBreakpoint: 1e9 })}/s`;
+  `${formatCurrency(n)}/s`;
 
 /** Full $/sec breakdown for the toolbar money popover. */
 export const MoneySummary = () => {

@@ -732,10 +732,7 @@ export const VapeJuiceDisplay = ({
             Vape juice
           </p>
           <p className="tabular-nums text-sm font-bold text-fg">
-            {formatCurrency(vapeJuice, {
-              showDollarSign: false,
-              exponentBreakpoint: 1e9,
-            })}
+            {formatCurrency(vapeJuice, { showDollarSign: false })}
           </p>
         </>
       ) : null}

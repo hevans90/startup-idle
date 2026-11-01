@@ -6,6 +6,7 @@ import { Stat, StatGrid } from "../../ui/console";
 import { ModifierTag } from "../../ui/ModifierTag";
 import { formatRate } from "../../utils/rate-utils";
 import { ResourceBreakdownView } from "../resource-breakdown";
+import { times } from "../../game/wording";
 
 export const InnovationSummary = ({
   className,
@@ -41,9 +42,9 @@ export const InnovationSummary = ({
   if (!managersActive) return null;
   return (
     <StatGrid className={twMerge("w-full", className)}>
-      <Stat label={<ModifierTag modKey="managerInnovation">Innovation</ModifierTag>} value={`×${mgr.innovationIncome.toFixed(2)}`} role="innovation" />
-      <Stat label={<ModifierTag modKey="managerMoney">Money</ModifierTag>} value={`×${mgr.employeeMoney.toFixed(2)}`} role="money" />
-      <Stat label={<ModifierTag modKey="managerSalesValuation">Valuation</ModifierTag>} value={`×${mgr.salesValuation.toFixed(2)}`} role="valuation" />
+      <Stat label={<ModifierTag modKey="managerInnovation">Innovation</ModifierTag>} value={times(mgr.innovationIncome)} role="innovation" />
+      <Stat label={<ModifierTag modKey="managerMoney">Money</ModifierTag>} value={times(mgr.employeeMoney)} role="money" />
+      <Stat label={<ModifierTag modKey="managerSalesValuation">Valuation</ModifierTag>} value={times(mgr.salesValuation)} role="valuation" />
     </StatGrid>
   );
 };

@@ -69,7 +69,7 @@ export function AiModePanel({ className }: { className?: string }) {
           </span>
           {plan && choice && plan.steps.length > 0 && (
             <span className="tabular-nums text-fg-muted" title="Of the blocks it looked at, the one that adds the most for what it costs">
-              Chosen of {choice.of}: {plan.now > 0 ? `+${Math.round((choice.gain / plan.now) * 100)}% settled income` : `${choice.beds} beds`} for {formatCurrency(choice.cost, { decimals: 1 })}{choice.towers > 0 && ` (${choice.towers} to grow to III)`}
+              Chosen of {choice.of}: {plan.now > 0 ? `+${Math.round((choice.gain / plan.now) * 100)}% settled income` : `${choice.beds} beds`} for {formatCurrency(choice.cost)}{choice.towers > 0 && ` (${choice.towers} to grow to III)`}
             </span>
           )}
         </>

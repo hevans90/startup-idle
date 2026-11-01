@@ -12,6 +12,7 @@ import {
 import { usePrestigeStore } from "../../state/prestige.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { ModifierTag } from "../../ui/ModifierTag";
+import { percent, times } from "../../game/wording";
 
 const NODES = nodeById(SKILL_TREE);
 const toneClass = (tone: "good" | "bad") =>
@@ -23,8 +24,6 @@ const spotlight = (ids: string[]) =>
   useSkillTreeUiStore.getState().setHighlightIds(ids);
 const clearSpotlight = () => useSkillTreeUiStore.getState().setHighlightIds([]);
 
-const trim = (n: number) => Number(n.toFixed(2)).toString();
-const fmtPct = (v: number) => `${v > 0 ? "+" : ""}${Number(v.toFixed(1))}%`;
 const goodClass = "text-good";
 const badClass = "text-bad";
 
@@ -138,10 +137,10 @@ const TotalRow = ({ total }: { total: StatTotal }) => {
   const valueSpan = (
     <span className="flex items-baseline gap-1.5 text-xs font-semibold tabular-nums">
       {total.pct !== 0 && (
-        <span className={pctGood ? goodClass : badClass}>{fmtPct(total.pct)}</span>
+        <span className={pctGood ? goodClass : badClass}>{percent(total.pct)}</span>
       )}
       {total.mult !== 1 && (
-        <span className={multGood ? goodClass : badClass}>×{trim(total.mult)}</span>
+        <span className={multGood ? goodClass : badClass}>{times(total.mult)}</span>
       )}
     </span>
   );

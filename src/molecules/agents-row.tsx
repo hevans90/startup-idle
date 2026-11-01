@@ -14,6 +14,7 @@ import { useTicking } from "../hooks/use-ticking";
 import { agentTrade, runningAgents, useAgentsStore } from "../state/agents.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { InfoPop } from "../ui/InfoPop";
+import { percent } from "../game/wording";
 
 const fmt = (n: number) => (n < 100 ? n.toFixed(n < 10 ? 2 : 1) : Math.round(n).toLocaleString());
 
@@ -41,7 +42,7 @@ export function AgentsRow() {
   // WHAT THE NEXT IS WORTH: what it adds, against what its innovation takes
   // off the innovation multiplier. @see agentTrade
   const trade = agentTrade(agents);
-  const pct = (k: number) => `${k >= 1 ? "+" : "−"}${Math.abs((k - 1) * 100).toFixed(1)}%`;
+  const pct = (k: number) => percent((k - 1) * 100);
   const roomText = (Number.isFinite(room) ? `${agents}/${room}` : `${agents}`) + (running < agents ? ` · ${running} on` : "");
   return (
     <div className="flex items-center gap-1 border-t border-line-quiet px-2 py-1">

@@ -1,7 +1,8 @@
 import { useVapeAchievementsStore } from "../../state/vape-achievements.store";
 import type { ModifierBreakdown } from "./types";
 import { NO_JUICE_ROW, juiceEntry } from "./factories";
-import { pct1, titled } from "./utils";
+import { titled } from "./utils";
+import { percent } from "../wording";
 
 export const entries: Record<string, () => ModifierBreakdown> = {
   juiceMoney: juiceEntry(
@@ -19,7 +20,7 @@ export const entries: Record<string, () => ModifierBreakdown> = {
 
   juiceHireCostReduction: () => {
     const reduction = Math.min(0.9, useVapeAchievementsStore.getState().juiceHireCostReduction);
-    const pctStr = pct1(-reduction * 100);
+    const pctStr = percent(-reduction * 100);
     return {
       label: titled("Hires", "vape juice"),
       rows: reduction > 0
@@ -34,9 +35,9 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     return {
       label: titled("Equity", "vape juice"),
       rows: bonus > 0
-        ? [{ source: "Vape achievements", value: pct1(bonus * 100), tone: "good" }]
+        ? [{ source: "Vape achievements", value: percent(bonus * 100), tone: "good" }]
         : [NO_JUICE_ROW],
-      total: bonus > 0 ? pct1(bonus * 100) : "none",
+      total: bonus > 0 ? percent(bonus * 100) : "none",
     };
   },
 };

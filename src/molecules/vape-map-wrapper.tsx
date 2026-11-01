@@ -900,7 +900,7 @@ function VapeMinigame({
               </div>
             </div>
             <div className="font-display text-lg tabular-nums text-innovation">
-              +{formatCurrency(new Decimal(totalReward), { showDollarSign: false, exponentBreakpoint: 1e6 })} innovation
+              +{formatCurrency(new Decimal(totalReward), { showDollarSign: false })} innovation
             </div>
             <Button
               ref={claimButtonRef}
@@ -983,10 +983,7 @@ export function VapeMapWrapper() {
 
     useInnovationStore.getState().increaseInnovation(boost);
 
-    const boostStr = formatCurrency(new Decimal(boost), {
-      showDollarSign: false,
-      exponentBreakpoint: 1e6,
-    });
+    const boostStr = formatCurrency(new Decimal(boost), { showDollarSign: false });
     report(`${scoreLabel(score, perfectThreshold)} — +${boostStr} innovation (${(score * 100).toFixed(0)}%)`, { title: "Vape" });
   }, []);
 

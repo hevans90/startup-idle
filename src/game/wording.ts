@@ -16,8 +16,6 @@
  *  - One word for each thing (`STATS`); the words a player must never read
  *    are `NEVER`.
  */
-import Decimal from "break_infinity.js";
-
 /** A stat a modifier can move. */
 export type Stat =
   | "money" | "innovation" | "valuation" | "output" | "equity" | "perEmployee"
@@ -76,13 +74,13 @@ export const NEVER: readonly { word: RegExp; say: string }[] = [
 ];
 
 /** A percentage, whole unless under ten and not whole: "+25%", "−2.5%". */
-function percent(p: number): string {
+export function percent(p: number): string {
   const r = Math.abs(p) < 10 && Math.round(p * 10) % 10 !== 0 ? Math.round(p * 10) / 10 : Math.round(p);
   return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)}%`;
 }
 
 /** A multiple: two places under two, one from there — "×1.35", "×2.5", "×0.5". */
-function times(f: number): string {
+export function times(f: number): string {
   return `×${Number(f.toFixed(f < 2 ? 2 : 1))}`;
 }
 
@@ -162,35 +160,3 @@ export function effectProblems(line: string): string[] {
   for (const n of NEVER) if (n.word.test(line)) out.push(`says "${line.match(n.word)![0]}" — say ${n.say}`);
   return out;
 }
-
-/** The short scale's names, a thousand apart, from thousands to decillions (1e33). */
-const SCALE = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
-
-/**
- * A BIG NUMBER BY NAME, three figures: 605, 12.4K, 3.10M, 1.00T, 2.50Qa —
- * and past decillions, as e-notation: 3.57e+828.
- */
-export function formatScale(amount: number | Decimal, figures = 3): string {
-  const d = amount instanceof Decimal ? amount : new Decimal(amount);
-  const sign = d.lt(0) ? "−" : "";
-  const a = d.abs();
-  if (a.lt(1000)) {
-    const n = a.toNumber();
-    // Whole under a thousand once it has three figures; to three figures below.
-    return sign + (n >= 100 ? Math.round(n).toString() : Number(n.toPrecision(figures)).toString());
-  }
-  let group = Math.floor(a.e / 3);
-  if (group < SCALE.length) {
-    let m = a.div(Decimal.pow(10, group * 3)).toNumber();
-    // 999.95K rounds to a thousand of them: a million.
-    if (Number(m.toPrecision(figures)) >= 1000) { group++; m /= 1000; }
-    if (group < SCALE.length) return `${sign}${m.toPrecision(figures)}${SCALE[group]}`;
-  }
-  return `${sign}${a.mantissa.toFixed(figures - 1)}e+${a.e}`;
-}
-
-/** Money by name: "$12.4K", "−$3.10M". */
-export const formatMoneyScale = (amount: number | Decimal): string => {
-  const s = formatScale(amount);
-  return s.startsWith("−") ? `−$${s.slice(1)}` : `$${s}`;
-};

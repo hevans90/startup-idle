@@ -3,8 +3,8 @@ import { PopCard, PopGroup, PopRow } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
 import { formatRate } from "../utils/rate-utils";
+import { times } from "../game/wording";
 
-const mult = (m: number) => `×${m.toFixed(2)}`;
 const isActive = (m: number) => Math.abs(m - 1) > 1e-9;
 
 /**
@@ -32,7 +32,7 @@ export const ValuationSummary = () => {
           {activeFactors.map((f) => (
             <PopRow key={f.label}
               label={f.modKey ? <ModifierTag modKey={f.modKey}>{f.label}</ModifierTag> : f.label}
-              value={mult(f.mult)} />
+              value={times(f.mult)} />
           ))}
         </PopGroup>
       )}

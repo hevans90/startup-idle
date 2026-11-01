@@ -1,7 +1,7 @@
 import { useFounderStore } from "../../state/founder.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import type { BreakdownRow, ModifierBreakdown } from "./types";
-import { fmt2 } from "./utils";
+import { times } from "../wording";
 
 const innovRef = (i: number) => `×${(1 + Math.log10(i + 1)).toFixed(0)}`;
 
@@ -14,7 +14,7 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     const rows: BreakdownRow[] = [
       {
         source: `1 + log₁₀(${innovTotal.toFixed(0)} + 1)`,
-        value: fmt2(total),
+        value: times(total),
         tone: "good",
       },
     ];
@@ -28,7 +28,7 @@ export const entries: Record<string, () => ModifierBreakdown> = {
       label: "Innovation's boost",
       description: `Logarithmic:\n1k I → ${innovRef(1e3)}, 1M I → ${innovRef(1e6)}, 1B I → ${innovRef(1e9)}.`,
       rows,
-      total: fmt2(total),
+      total: times(total),
     };
   },
 };

@@ -91,7 +91,7 @@ export const AchievementsTab = () => {
     <div className="flex w-full flex-col gap-3 p-2 text-sm">
       {/* THE SHOP: what juice buys; locked behind vibe_army (100 vibe coders). */}
       <Panel title="Vape shop" tone="juice"
-        controls={<Num role="juice" className="font-display text-sm">{formatCurrency(vapeJuice, { showDollarSign: false, exponentBreakpoint: 1e9 })} <span className="text-[10px] text-fg-muted">juice</span></Num>}>
+        controls={<Num role="juice" className="font-display text-sm">{formatCurrency(vapeJuice, { showDollarSign: false })} <span className="text-[10px] text-fg-muted">juice</span></Num>}>
         {hasVibeArmy ? shop : <Locked needs="Hire 100 vibe coders to open the shop">{shop}</Locked>}
       </Panel>
 

@@ -1,8 +1,6 @@
 import { describe as group, expect, test } from "bun:test";
-import Decimal from "break_infinity.js";
-
 import { audit, CATALOGUES, type CatalogueId } from "./wording-audit";
-import { change, describe, effectProblems, formatMoneyScale, formatScale } from "./wording";
+import { change, describe, effectProblems, percent, times } from "./wording";
 
 group("an effect line, from numbers", () => {
   test("the stat first, gains before costs, joined by ·", () => {
@@ -78,32 +76,6 @@ group("an effect line, by hand", () => {
   });
 });
 
-group("a big number, by name", () => {
-  test("three figures, a name a thousand apart", () => {
-    expect(formatScale(605)).toBe("605");
-    expect(formatScale(12.345)).toBe("12.3");
-    expect(formatScale(12_400)).toBe("12.4K");
-    expect(formatScale(3_100_000)).toBe("3.10M");
-    expect(formatScale(1e12)).toBe("1.00T");
-    expect(formatScale(2.5e15)).toBe("2.50Qa");
-  });
-
-  test("rounding up to a thousand of one is one of the next", () => {
-    expect(formatScale(999_960)).toBe("1.00M");
-  });
-
-  test("past decillions, e-notation — far past what a number can hold", () => {
-    expect(formatScale(1e33)).toBe("1.00Dc");
-    expect(formatScale(1e36)).toBe("1.00e+36");
-    expect(formatScale(new Decimal("3.57e828"))).toBe("3.57e+828");
-  });
-
-  test("money carries its sign before the dollar", () => {
-    expect(formatMoneyScale(12_400)).toBe("$12.4K");
-    expect(formatMoneyScale(-3_100_000)).toBe("−$3.10M");
-  });
-});
-
 /**
  * THE CATALOGUES PUT RIGHT, held to the rules from here on. One joins this as
  * phase 2 rewrites it; the rest wait as todos — `bun run wording` lists what
@@ -115,4 +87,18 @@ group("every modifier's effect line keeps the rules", () => {
   for (const id of Object.keys(CATALOGUES) as CatalogueId[]) {
     (CLEARED.has(id) ? test : test.todo)(id, () => expect(audit(id)).toEqual([]));
   }
+});
+
+group("a number on screen", () => {
+  test("a percentage is whole, unless under ten and not whole", () => {
+    expect(percent(25.3)).toBe("+25%");
+    expect(percent(2.5)).toBe("+2.5%");
+    expect(percent(-4)).toBe("−4%");
+  });
+
+  test("a multiple has two places under two, one from there", () => {
+    expect(times(1.354)).toBe("×1.35");
+    expect(times(2.54)).toBe("×2.5");
+    expect(times(1)).toBe("×1");
+  });
 });

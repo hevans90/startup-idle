@@ -22,13 +22,16 @@ export const formatCurrency = (
   }: FormatCurrencyOptions = {}
 ): string => {
   const dec = typeof amount === "number" ? new Decimal(amount) : amount;
+  // The true minus, before the dollar: "−$5", "−$1.20e+9". @see game/wording
+  const sign = dec.lt(0) ? "−" : "";
+  const abs = dec.abs();
 
-  if (dec.gte(exponentBreakpoint)) {
-    const sci = dec.toExponential(decimals);
-    return showDollarSign ? `$${sci}` : sci;
+  if (abs.gte(exponentBreakpoint)) {
+    const sci = abs.toExponential(decimals);
+    return sign + (showDollarSign ? `$${sci}` : sci);
   }
 
-  return formatterFor(showDollarSign, steady).format(dec.toNumber());
+  return sign + formatterFor(showDollarSign, steady).format(abs.toNumber());
 };
 
 /**

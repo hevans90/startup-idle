@@ -11,6 +11,7 @@ import {
 import { IconButton, Tooltip } from "../../ui/console";
 import { ModifierTag } from "../../ui/ModifierTag";
 import { formatCurrency } from "../../utils/money-utils";
+import { percent, times } from "../../game/wording";
 
 interface ManagerRowProps {
   managerName: ManagerKeys;
@@ -54,12 +55,12 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
             <div className="h-full bg-innovation transition-[width] duration-300" style={{ width: `${pct}%` }} />
           </div>
           <div className="flex justify-between gap-2 text-[11px] text-fg-muted">
-            <span><ModifierTag modKey={bonus.modKey}>{bonus.label}</ModifierTag> <b className="tabular-nums text-fg">×{bonusMultiplier?.toFixed(3)}</b> · ×{bonusMultiplierGrowthPerTier?.toFixed(2)} a tier</span>
+            <span><ModifierTag modKey={bonus.modKey}>{bonus.label}</ModifierTag> <b className="tabular-nums text-fg">{times(bonusMultiplier?.toNumber() ?? 1)}</b> · {percent(((bonusMultiplierGrowthPerTier?.toNumber() ?? 1) - 1) * 100)} a tier</span>
             <span className="shrink-0 tabular-nums" title="Time to the next tier at this assignment">{estimateToNextTier === "-" || estimateToNextTier === "∞" ? "idle" : `next in ${estimateToNextTier}`}</span>
           </div>
         </div>
         <div className="flex gap-1">
-          <Tooltip content={<>Take back: +{totalRefund.toFixed(2)} innovation</>}>
+          <Tooltip content={<>Take back: +{formatCurrency(totalRefund, { showDollarSign: false })} innovation</>}>
             <span className="inline-flex"><IconButton label={`Take innovation back from ${managerName}`} onClick={onUnassign} disabled={assignment.equals(0)} className="h-8 w-8 border border-line">−</IconButton></span>
           </Tooltip>
           <Tooltip content={<>Assign{numberToAssign > 1 && ` ${numberToAssign}`}: {formatCurrency(totalCost, { showDollarSign: false })} innovation</>}>

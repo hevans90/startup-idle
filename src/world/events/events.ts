@@ -16,6 +16,7 @@ import { termEffects } from "../../game/term-deal";
 import { notable } from "../../game/machine";
 import { questFloodMult } from "../../game/quests/effects";
 import { FLOOD_SECONDS } from "./flood";
+import { formatCurrency } from "../../utils/money-utils";
 
 
 export type EventKind = "river-flood" | "convoy" | "investor-tour" | "hackathon" | "offer";
@@ -140,7 +141,7 @@ type Opportunity = {
   outcome: (e: GameEvent, w: EventWorld) => string;
 };
 
-const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+const money = (n: number) => formatCurrency(Math.round(n));
 /** "12 interns", "1 intern". */
 const people = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 

@@ -2,7 +2,8 @@ import { usePrestigeStore } from "../../state/prestige.store";
 import { useVapeAchievementsStore } from "../../state/vape-achievements.store";
 import type { ModifierBreakdown } from "./types";
 import { simplePrestigeEntry } from "./factories";
-import { fmt2, orNone, pct1, prestigeRows, titled } from "./utils";
+import { orNone, prestigeRows, titled } from "./utils";
+import { percent, times } from "../wording";
 
 export const entries: Record<string, () => ModifierBreakdown> = {
   prestigeMoney: simplePrestigeEntry(titled("Money", "skill tree"), "money", (m) => m.moneyMult),
@@ -15,9 +16,9 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     return {
       label: titled("Interns", "skill tree"),
       rows: mult !== 1
-        ? [{ source: "AGI-Pilled", value: fmt2(mult), tone: "bad" as const }]
+        ? [{ source: "AGI-Pilled", value: times(mult), tone: "bad" as const }]
         : [{ source: "Nothing yet", value: "—", tone: "neutral" as const }],
-      total: fmt2(mult),
+      total: times(mult),
     };
   },
 
@@ -33,7 +34,7 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     return {
       label: titled("Money", "skill tree"),
       rows: orNone([...prestigeRows("money"), ...prestigeRows("employeeOutput")]),
-      total: fmt2(m.moneyMult * m.employeeOutputMult),
+      total: times(m.moneyMult * m.employeeOutputMult),
     };
   },
 
@@ -42,7 +43,7 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     return {
       label: titled("Innovation", "skill tree"),
       rows: orNone([...prestigeRows("innovation"), ...prestigeRows("employeeOutput")]),
-      total: fmt2(m.innovationMult * m.employeeOutputMult),
+      total: times(m.innovationMult * m.employeeOutputMult),
     };
   },
 
@@ -54,19 +55,19 @@ export const entries: Record<string, () => ModifierBreakdown> = {
     if (prestige.hireCostMult !== 1)
       rows.push({
         source: "Skill tree",
-        value: fmt2(prestige.hireCostMult),
+        value: times(prestige.hireCostMult),
         tone: prestige.hireCostMult < 1 ? "good" : "bad",
       } as const);
     if (juiceReduction > 0)
       rows.push({
         source: "Vape juice",
-        value: pct1(-juiceReduction * 100),
+        value: percent(-juiceReduction * 100),
         tone: "good",
       } as const);
     return {
       label: "Hires",
       rows: orNone(rows),
-      total: fmt2(total),
+      total: times(total),
     };
   },
 };

@@ -1,3 +1,5 @@
+import { formatCurrency } from "./money-utils";
+
 type RateFormat = {
   value: number;
   unit: "/s" | "/min" | "/hr" | "/day";
@@ -14,7 +16,7 @@ export const formatRate = (ratePerSecond: number): RateFormat => {
   const ratePerDay = ratePerHour * 24;
 
   if (ratePerSecond >= 1) {
-    return { value: ratePerSecond, unit: "/s", formatted: `${ratePerSecond.toFixed(2)}/s` };
+    return { value: ratePerSecond, unit: "/s", formatted: `${formatCurrency(ratePerSecond, { showDollarSign: false })}/s` };
   } else if (ratePerMinute >= 0.1) {
     return { value: ratePerMinute, unit: "/min", formatted: `${ratePerMinute.toFixed(2)}/min` };
   } else if (ratePerHour >= 1) {

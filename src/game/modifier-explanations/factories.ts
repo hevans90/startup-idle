@@ -11,7 +11,8 @@ import {
 } from "../satisfaction";
 import type { BonusStat } from "../skill-tree";
 import type { BreakdownRow, ModifierBreakdown } from "./types";
-import { fmt2, orNone, pct1, PrestigeMods, prestigeRows, satRows } from "./utils";
+import { orNone, PrestigeMods, prestigeRows, satRows } from "./utils";
+import { percent, times } from "../wording";
 
 export const NO_JUICE_ROW: BreakdownRow = {
   source: "No juice yet: score milestones in the vape mini-game earn it",
@@ -32,7 +33,7 @@ export function simplePrestigeEntry(
   return () => ({
     label,
     rows: orNone(prestigeRows(stat, goodDir)),
-    total: fmt2(getMult(usePrestigeStore.getState().modifiers)),
+    total: times(getMult(usePrestigeStore.getState().modifiers)),
   });
 }
 
@@ -49,7 +50,7 @@ export function managerEntry(
     return {
       label,
       rows: active
-        ? [{ source: `Tier ${tier}`, value: fmt2(mult), tone: "good" }]
+        ? [{ source: `Tier ${tier}`, value: times(mult), tone: "good" }]
         : [{
             source: prestige.disableManagers
               ? "Off: Bootstrapped"
@@ -57,7 +58,7 @@ export function managerEntry(
             value: "—",
             tone: "neutral",
           }],
-      total: fmt2(active ? mult : 1),
+      total: times(active ? mult : 1),
     };
   };
 }
@@ -71,9 +72,9 @@ export function juiceEntry(
     return {
       label,
       rows: bonus > 0
-        ? [{ source: "Vape achievements", value: pct1(bonus * 100), tone: "good" }]
+        ? [{ source: "Vape achievements", value: percent(bonus * 100), tone: "good" }]
         : [NO_JUICE_ROW],
-      total: fmt2(1 + bonus),
+      total: times(1 + bonus),
     };
   };
 }
@@ -90,10 +91,10 @@ export function mandateEntry(
       (m) => m[perLevelKey] > 0 && mandateLevels[m.id] > 0,
     ).map((m) => ({
       source: `${m.name}, level ${mandateLevels[m.id]}`,
-      value: pct1(m[perLevelKey] * mandateLevels[m.id] * 100),
+      value: percent(m[perLevelKey] * mandateLevels[m.id] * 100),
       tone: "good" as const,
     }));
-    return { label, rows: orNone(rows), total: fmt2(total) };
+    return { label, rows: orNone(rows), total: times(total) };
   };
 }
 
@@ -109,6 +110,6 @@ export function satisfactionRevenueEntry(
     const mult = satisfactionRevenueMultiplier(effScore);
     const tone: BreakdownRow["tone"] = mult >= 1 ? "good" : "bad";
     const rows = satRows(score, effScore, mult, tone, prestige);
-    return { label, description, rows, total: fmt2(mult) };
+    return { label, description, rows, total: times(mult) };
   };
 }

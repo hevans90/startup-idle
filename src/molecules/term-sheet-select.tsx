@@ -19,6 +19,8 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { Backdrop, Badge, Button, Label, Meter, Panel, Segmented, Stat, StatGrid, Text, Tile } from "../ui/console";
 import { useConsoleMotion } from "../ui/motion";
 import { FoundingShell } from "./founding-shell";
+import { times } from "../game/wording";
+import { formatCurrency } from "../utils/money-utils";
 
 type Props = {
   /** The land's seed: the same land, the same investors. */
@@ -34,7 +36,6 @@ const SIGN_MS = 2200;
 
 const ROUND: Record<string, string> = { none: "Bootstrap agreement", angel: "Angel round", seed: "Seed round", seriesA: "Series A" };
 const pct = (k: number) => `${Math.round(k * 100)}%`;
-const mult = (k: number) => (k === 1 ? "×1" : `×${k.toFixed(2)}`);
 
 export function TermSheetSelect({ seed, founder, onBack, onSign }: Props) {
   // FOUR INVESTORS, five with Founder Worship; a different draw for each reroll, paid for with an Exit. @see PrestigeModifiers.termSheets
@@ -120,11 +121,11 @@ export function TermSheetSelect({ seed, founder, onBack, onSign }: Props) {
             <TermDocument sheet={sheet} clauses={clauses} founder={founder} seed={seed} version={versions[investor]} signing={signing} />
             {/* WHAT THE DEAL DOES to the run, all together. */}
             <StatGrid className="grid-flow-row grid-cols-3 xl:grid-cols-6">
-              <Stat label="Cash" value={`$${fx.cash.toLocaleString("en-GB")}`} role="money" />
+              <Stat label="Cash" value={formatCurrency(fx.cash)} role="money" />
               <Stat label="Your share" value={pct(share)} role={share < 0.75 ? "warn" : "good"} />
               <Stat label="Kicker" value={`+${pct(sheet.bonus * fx.bonusMult)}`} role="good" />
-              <Stat label="Hiring" value={mult(fx.hireCostMult)} />
-              <Stat label="Mandates" value={mult(fx.mandateCostMult)} />
+              <Stat label="Hiring" value={times(fx.hireCostMult)} />
+              <Stat label="Mandates" value={times(fx.mandateCostMult)} />
               <Stat label="Acquirers" value={fx.offers === "open" ? "Open" : fx.offers === "halved" ? "Half premium" : "None"} role={fx.offers === "none" ? "warn" : undefined} />
             </StatGrid>
           </div>
