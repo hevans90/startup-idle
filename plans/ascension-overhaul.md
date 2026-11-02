@@ -26,7 +26,7 @@ Status: **planned** (2026-11-02), agreed in conversation. Builds on `plans/singu
 | Aftermath | **A generation recap** and a **lineage view**. |
 | Weights and the Machine | **Kept, tied to the story:** each book reveals its ring; chapter choices reveal and discount its notables. |
 | Traits | **The AI's personality:** the trait voices the next book, shapes its build style and adds trait-specific options. Fusion into the founder stays, smaller. |
-| Wipe | **Less:** founders' exits survive Ascension too. Only the run (and mandates) reset. |
+| Wipe | **Less:** founders' exits and board mandates survive Ascension too. Only the run resets. |
 | The Model | **Book 5's founder:** the last book is played as the AI. |
 
 ## Design
@@ -93,11 +93,11 @@ A full-screen exchange with the AI, in the console look, after the Lattice is bu
 | Kept | Wiped |
 |---|---|
 | Equity, the skill tree, respecs | The run: money, staff, the map |
-| **Founders' exits** (new) | Board mandates |
+| **Founders' exits, board mandates** (new) | |
 | Weights, the Machine, the journal | The meter (to the next book's start) |
 | Fused traits, past generations | The culture deck (it's per run) |
 
-Keeping exits makes founders stronger over a campaign; re-measure in the progression sims.
+Keeping exits and mandates makes founders stronger over a campaign; re-measure in the progression sims.
 
 ### 7. The recap and the lineage
 
@@ -223,7 +223,7 @@ Then the credits, then endless play.
 | Generation 1, mid-arc | Book 1, its chapter state and flags kept (same ids). Last Light's Ascension opens the negotiation. |
 | Generation 2+ | Book 2, at its first chapter, whatever its generation count; `legacy` maps to book 1's ending: merge → partners, steward → steward, release → stranger, none → resentful if shut down ≥1, else steward. |
 | Past generations | Kept in `past`; drawn in the lineage with "before the books" on their nodes. |
-| Exits wiped by earlier Ascensions | Not restored. |
+| Exits and mandates wiped by earlier Ascensions | Not restored. |
 | Meter | Clamped to the new pacing's start for the book. |
 
 A new store field, `book` (1–5, then `endless`), on the generation store; the quest store's arc becomes per book.
@@ -233,7 +233,7 @@ A new store field, `book` (1–5, then `endless`), on the generation store; the 
 Each phase ends with typecheck, tests and a commit to main. Each phase that changes the screen gets screenshots (light and dark, desktop and phone) before the next starts.
 
 1. **Engine: books.** `Book` data (chapters, endings, variants, dark chapter), `book` in the generation store, the quest store's arc per book; book 1 = today's chapters; migration. Tests.
-2. **Pacing and waiting.** Meter retuned to ~5 sales; cadence sims re-guarded; the AI waits at 100% with a "Begin" button; exits kept through Ascension; progression sims re-measured.
+2. **Pacing and waiting.** Meter retuned to ~5 sales; cadence sims re-guarded; the AI waits at 100% with a "Begin" button; exits and mandates kept through Ascension; progression sims re-measured.
 3. **The negotiation engine.** Hand building (choices, deck, town), stance, trust, exchanges, trait counters, ending regions. Tests, and a sim: every book 1 ending reachable, none dominant.
 4. **The negotiation UI.** Greybox → styled → motion, each shown. The stance dial, the hand, the AI's lines.
 5. **Book 1's endings and dark chapter.** Merge, Steward, Release and Leash rewritten; Cold Start; Contain moved to the branch.
@@ -247,7 +247,6 @@ Each phase ends with typecheck, tests and a commit to main. Each phase that chan
 
 ## Open questions
 
-- **Mandates:** wiped at Ascension as now, or kept with the exits?
 - **Weights per Ascension:** at 2–3× the Ascensions, cut them to a third, or let the Machine fill faster?
 - **The culture deck at a book's start:** empty as now, or a starting card from the last ending?
 - **The negotiation's length in endless play:** the full 5–8 exchanges, or a shorter 3?
