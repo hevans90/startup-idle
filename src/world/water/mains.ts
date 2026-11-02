@@ -204,8 +204,8 @@ export function sewerSources(g: Grid, net: MainNet): number[] {
 /**
  * A SEWER SOLVED: what it takes slop from and where it can put it — a
  * processor's inlet (an outlet on a slop port) or an outfall — and what it
- * carries a second, by its bore alone. Nothing is carried yet: the
- * workplaces' tanks that fill it come with phase 7. @see sewerFlow
+ * carries a second, by its bore alone. What it does carry, `flow`, the
+ * slop tanks fill in each frame. @see sewerFlow, stepSlop
  */
 export function solveSewer(g: Grid, net: MainNet): MainReport {
   const sources = sewerSources(g, net);
