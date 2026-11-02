@@ -30,6 +30,7 @@ import { DEFAULT_GEN, type GenParams } from "./gen/params";
 import { commuteFactor, liveCommutes, liveSeating } from "./agents/commute";
 import { setTownBonusReader } from "../game/acquisition";
 import { setTownMoodReader } from "../game/town-mood";
+import { cultureVersion } from "../game/culture-now";
 import { liveMoods, moodOffsets } from "./agents/mood";
 import { townBonusOf } from "./projects/town-worth";
 import { serviceOf } from "./agents/services";
@@ -328,12 +329,14 @@ export const HELD_MS = 250;
  * of the economy's tick. @see setProjectReader, setHousingReader
  */
 function held<T>(read: () => T): () => T {
-  let grid: unknown = null, rev = -1, projects = -1, events: unknown = null, staff = "", at = -Infinity, value!: T;
+  let grid: unknown = null, rev = -1, projects = -1, events: unknown = null, staff = "", cards = -1, at = -Infinity, value!: T;
   return () => {
     const st = useWorldStore.getState(), now = performance.now();
     const people = useGeneratorStore.getState().generators.map((g) => g.amount).join();
-    if (st.grid !== grid || st.revision !== rev || st.projectRev !== projects || st.events !== events || people !== staff || now - at > HELD_MS) {
-      grid = st.grid; rev = st.revision; projects = st.projectRev; events = st.events; staff = people; at = now;
+    // And the culture deck, which moves beds, desks and moods. @see cultureNow
+    const deck = cultureVersion();
+    if (st.grid !== grid || st.revision !== rev || st.projectRev !== projects || st.events !== events || people !== staff || deck !== cards || now - at > HELD_MS) {
+      grid = st.grid; rev = st.revision; projects = st.projectRev; events = st.events; staff = people; cards = deck; at = now;
       value = read();
     }
     return value;

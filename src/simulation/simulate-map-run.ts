@@ -44,6 +44,7 @@ import { TOWN_BONUS_CAP, pendingEquity } from "../game/acquisition";
 import { syncUnlockedGenerators } from "../state/generators.store";
 import { advanceGameplayOneSecond } from "./run-sim";
 import { resetAllGameStores } from "./reset-game-stores";
+import { cultureNow } from "../game/culture-now";
 
 /** Tiles of sewer the run lays from its studio to the water, once there is slop, and again for each sewer's worth more. */
 const SIM_SEWER_TILES = 20;
@@ -381,7 +382,7 @@ export function simulateMapRun(
       // Work, once the crew is there, as far as the materials go.
       const there = t - s.startedAt >= (s.p.founderBuilds ? founderDrive : walkIn);
       const crew = plan.get(s)?.crew ?? 0;
-      if (there && s.stalled <= STALL_GRACE) s.done = Math.min(cap, s.done + crew);
+      if (there && s.stalled <= STALL_GRACE) s.done = Math.min(cap, s.done + crew * cultureNow().buildSpeed);
       if (s.done >= s.p.work - 1e-6 && s.delivered >= s.p.deliveries) {
         built.add(s.p.id);
         report.opened[s.p.id] = t;

@@ -30,6 +30,7 @@ import { connects } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
 import { notable } from "../../game/machine";
+import { cultureNow, cultureVersion } from "../../game/culture-now";
 
 /** Where each kind works: the building that opened them, and their offices. */
 export const WORKPLACES: Record<GeneratorId, readonly string[]> = {
@@ -65,7 +66,8 @@ export const STRANDED = 0.25;
 
 /** The share of a day's work a commute of `tiles` leaves; `null` tiles is no way there. */
 export const commuteEfficiency = (tiles: number | null): number =>
-  tiles === null ? STRANDED : Math.max(WORST, Math.min(1, 1 - (tiles - FREE) * PER_TILE));
+  // And as far again as Shuttle Bus takes them. @see CARDS
+  tiles === null ? STRANDED : Math.max(WORST, Math.min(1, 1 - (tiles - FREE - cultureNow().freeCommute) * PER_TILE));
 
 /**
  * One house's commute: how far its people go (to the desk most of them
@@ -139,7 +141,11 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
   for (const who of Object.keys(WORKPLACES) as GeneratorId[]) {
     const houses = [...g.structures.values()].filter((s) => housedBy(s.def)?.id === who);
     const works = [...g.structures.values()].filter((s) => !s.build && workplaceKind(s.def) === who);
-    for (const w of works) desks.set(w.id, { used: 0, of: DESKS[w.def] ?? 0 });
+    // THE CULTURE DECK: desks more or fewer, what the deskless manage, and
+    // who works from home — needing no desk, walking nowhere. @see CARDS
+    const deck = cultureNow(who);
+    const deskless = Math.max(desklessShare(), deck.deskless);
+    for (const w of works) desks.set(w.id, { used: 0, of: Math.round((DESKS[w.def] ?? 0) * deck.desks) });
     if (!houses.length) continue;
     // Every house and workplace a road joins, nearest first.
     const pairs: { house: number; work: number; tiles: number }[] = [];
@@ -154,7 +160,8 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
       }
     }
     pairs.sort((a, b) => a.tiles - b.tiles || a.house - b.house);
-    const left = new Map(houses.map((h) => [h.id, residentsIn(h)]));
+    const home = (n: number) => Math.round(n * deck.remote);
+    const left = new Map(houses.map((h) => [h.id, residentsIn(h) - home(residentsIn(h))]));
     const sat = new Map<number, { work: number; tiles: number; n: number }[]>();
     for (const p of pairs) {
       const want = left.get(p.house) ?? 0, room = desks.get(p.work)!;
@@ -168,10 +175,10 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
     }
     const reachable = new Set(pairs.map((p) => p.house));
     for (const h of houses) {
-      const n = residentsIn(h), list = sat.get(h.id) ?? [], deskless = left.get(h.id) ?? 0;
+      const n = residentsIn(h), list = sat.get(h.id) ?? [], desklessN = left.get(h.id) ?? 0;
       if (!reachable.has(h.id)) {
-        // No road to anywhere its people could work.
-        commutes.set(h.id, { tiles: null, eff: STRANDED, to: null, deskless: 0 });
+        // No road to anywhere its people could work — but those at home.
+        commutes.set(h.id, { tiles: null, eff: n ? (home(n) + (n - home(n)) * STRANDED) / n : STRANDED, to: null, deskless: 0 });
         continue;
       }
       // An empty house: the commute its people would have, to the nearest.
@@ -181,23 +188,23 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
         continue;
       }
       const main = list.reduce<{ work: number; tiles: number; n: number } | null>((m, x) => (!m || x.n > m.n ? x : m), null);
-      const work = list.reduce((sum, x) => sum + x.n * commuteEfficiency(x.tiles), 0) + deskless * desklessShare();
+      const work = list.reduce((sum, x) => sum + x.n * commuteEfficiency(x.tiles), 0) + desklessN * deskless + home(n);
       commutes.set(h.id, {
-        tiles: main?.tiles ?? nearest.tiles, eff: work / n, to: main?.work ?? nearest.work, deskless,
+        tiles: main?.tiles ?? nearest.tiles, eff: work / n, to: main?.work ?? nearest.work, deskless: desklessN,
       });
     }
   }
   return { commutes, desks };
 }
 
-let memo: { g: Grid | null; rev: number; sites: number; people: string; value: Seating } = {
-  g: null, rev: -1, sites: -1, people: "", value: { commutes: new Map(), desks: new Map() },
+let memo: { g: Grid | null; rev: number; sites: number; people: string; deck: number; value: Seating } = {
+  g: null, rev: -1, sites: -1, people: "", deck: -1, value: { commutes: new Map(), desks: new Map() },
 };
 
 /**
  * Who sits where on this map now, worked out again only when the map has
- * been edited, a site has opened, or people have moved in or out — roads,
- * buildings and residents are what it depends on. Shared by the economy,
+ * been edited, a site has opened, people have moved in or out, or the culture
+ * deck has changed — roads, buildings, residents and cards are what it depends on. Shared by the economy,
  * which asks every tick, and the labels. @see Grid.rev
  */
 export function liveSeating(g: Grid, net: Network): Seating {
@@ -209,8 +216,10 @@ export function liveSeating(g: Grid, net: Network): Seating {
     if (housedBy(st.def)) { const n = residentsIn(st); a += n; b = (b * 31 + n * st.id) | 0; }
   }
   const people = `${a}:${b}`;
-  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.people !== people) {
-    memo = { g, rev: g.rev, sites, people, value: seat(g, placesOf(g, net)) };
+  // And the culture deck, which moves desks, commutes and who stays home.
+  const deck = cultureVersion();
+  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.people !== people || memo.deck !== deck) {
+    memo = { g, rev: g.rev, sites, people, deck, value: seat(g, placesOf(g, net)) };
   }
   return memo.value;
 }

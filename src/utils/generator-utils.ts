@@ -14,6 +14,7 @@ import { useFounderStore } from "../state/founder.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { computeHireCostMultipliers } from "../game/modifiers";
+import { cultureNow } from "../game/culture-now";
 
 function effectiveCostExponent(generator: OwnedGenerator, id: string): number {
   let raw = generator.costExponent;
@@ -26,6 +27,8 @@ function effectiveCostExponent(generator: OwnedGenerator, id: string): number {
   }
   // Founder "Bootstrapper": leaner cost scaling (compounds at high counts).
   raw -= useFounderStore.getState().costExponentReduction;
+  // And the culture deck: Hire to Fire flattens it, Always Be Hiring steepens it. @see CARDS
+  raw += cultureNow(id as GeneratorId).costCurve;
   return Math.max(MIN_GENERATOR_COST_EXPONENT, raw);
 }
 

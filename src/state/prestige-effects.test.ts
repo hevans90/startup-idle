@@ -7,6 +7,7 @@ import {
   type KeystoneSpecial,
 } from "../game/skill-tree";
 import { equityForAccrued } from "../game/acquisition";
+import { addMorale, clearMorale } from "../game/morale";
 import { computeModifiers } from "../game/modifiers";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { resetRunStores } from "../simulation/reset-game-stores";
@@ -221,20 +222,19 @@ describe("prestige modifiers are wired to the economy", () => {
       useGeneratorStore.setState((s) => ({
         satisfactionScores: { intern: 0, vibe_coder: 0, "10x_dev": 0 },
         globalLastTick: Date.now() - 1000,
-        employeeManagement: {
-          ...s.employeeManagement,
-          // Free Lunch and Remote Fridays: a positive morale target.
-          deck: { ...s.employeeManagement.deck, slots: 2, ranks: { lunch: 1, remote: 1 }, slotted: ["lunch", "remote"] },
-        },
       }));
       useGeneratorStore.getState().tickGenerators();
       return useGeneratorStore.getState().satisfactionScores.intern;
     };
+    // A hackathon's lean: a positive morale target.
+    clearMorale();
+    addMorale("intern", 20);
     applyNodes([]);
     const base = stepOnce();
     expect(base).toBeGreaterThan(0);
     applyNodes([biggestPctNode("satisfactionGain").id]); // 996
     expect(stepOnce()).toBeLessThan(base);
+    clearMorale();
   });
 
   test("Bootstrapped neutralises active manager multipliers", () => {

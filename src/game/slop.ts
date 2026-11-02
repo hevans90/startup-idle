@@ -7,6 +7,7 @@
  * street, or into the water if it stands in it. What the economy works out
  * each tick the map reads each frame. @see world/slop/tanks, plans/pipes-and-slop.md §4
  */
+import { cultureNow } from "./culture-now";
 import { vibeSlopMultiplier } from "./satisfaction";
 
 /** Vibe coders there have to be before any of them makes slop. */
@@ -27,8 +28,8 @@ export function slopMade(coders: number, score: number, policy = 1): number {
   return coders * SLOP_PER_CODER * vibeSlopMultiplier(score) * policy;
 }
 
-/** A tank's size for a workplace making `rate` a second. */
-export const tankFor = (rate: number) => Math.max(TANK_LEAST, rate * TANK_SECONDS);
+/** A tank's size for a workplace making `rate` a second, and as Move Fast shrinks it. @see CARDS */
+export const tankFor = (rate: number) => Math.max(TANK_LEAST, rate * TANK_SECONDS * cultureNow().tank);
 
 /**
  * SLOP MADE A SECOND, as the economy last worked it out: what the map's

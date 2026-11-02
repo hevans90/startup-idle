@@ -14,6 +14,7 @@ import { roomFor } from "../game/housing";
 import { attendance, deskBonus, labBonus, wonderBonus } from "../game/projects";
 import { moralePartsNow } from "../game/morale-parts";
 import * as culture from "../game/culture";
+import { setDeckReader } from "../game/culture-now";
 import { cultureEffects, emptyDeck, readDeck, workMorale, type CardId, type CultureEffects, type Deck, type Track } from "../game/culture";
 import { fusionNow } from "../game/fusion";
 import {
@@ -448,6 +449,8 @@ export const useGeneratorStore = create<GeneratorState>()(
         return { ...em, autoBuyAcc: acc };
       };
 
+      /** Seconds Pivot Weekly has been slotted since its last swap. Not saved. */
+      let pivotFor = 0;
       const setDeck = (deck: Deck) => {
         if (deck !== get().employeeManagement.deck) set((state) => ({ employeeManagement: { ...state.employeeManagement, deck } }));
       };
@@ -512,7 +515,10 @@ export const useGeneratorStore = create<GeneratorState>()(
         getAutoBuyRate: (id) => {
           // Always Be Hiring, and a leader who is Always Recruiting. @see CARDS, LEADER_PERKS
           const leaders = useInnovationStore.getState().unlocks.leaders?.unlocked ? leadersNow(buildAmountsMap(get().generators)).of[id]?.autoBuy ?? 0 : 0;
-          const rate = get().getCultureEffects(id).autoBuy + leaders;
+          const e = get().getCultureEffects(id);
+          // Hire Freeze: nobody hired but by hand.
+          if (e.noAutoBuy) return 0;
+          const rate = e.autoBuy + leaders;
           if (rate <= 0) return 0;
           // Founder "Operator" + skill-tree automation modifiers.
           return rate * useFounderStore.getState().autoBuyMult * usePrestigeStore.getState().modifiers.autoBuyMult;
@@ -637,7 +643,15 @@ export const useGeneratorStore = create<GeneratorState>()(
           // before we read generators for the lastTick stamp below.
           const em = runAutoBuy(get().employeeManagement, seconds);
           // ── 6. Offers: each track whose tiers have reached its next card deals one. @see deal
-          const employeeManagement = emUnlocked ? { ...em, deck: culture.deal(em.deck, trackTiers(), employs()) } : em;
+          let employeeManagement = emUnlocked ? { ...em, deck: culture.deal(em.deck, trackTiers(), employs()) } : em;
+          // ── 7. Pivot Weekly: another slotted card swapped for one out. @see PIVOT_SECONDS
+          if (get().getCultureEffects("intern").pivot) {
+            pivotFor += seconds;
+            if (pivotFor >= culture.PIVOT_SECONDS) {
+              pivotFor = 0;
+              employeeManagement = { ...employeeManagement, deck: culture.pivot(employeeManagement.deck) };
+            }
+          } else pivotFor = 0;
 
           // ── Commit all four mutations in a single set() call ─────────────────
           // Read generators NOW (after auto-buy) so purchased units are preserved.
@@ -928,3 +942,6 @@ export const useGeneratorStore = create<GeneratorState>()(
 // Agentic Delusionist restricting it to vibe coders, or a reset clearing it).
 // One-directional dependency (generators → founder) avoids an import cycle.
 useFounderStore.subscribe(() => syncUnlockedGenerators());
+
+// The map's systems read the deck from here. @see cultureNow
+setDeckReader(() => useGeneratorStore.getState().employeeManagement.deck);

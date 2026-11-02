@@ -18,6 +18,7 @@
  * then: still hired, but gone from there, and new arrivals will not move into
  * it. A neglected street empties; a good one fills. @see stepMood
  */
+import { cultureNow, cultureVersion } from "../../game/culture-now";
 import { fusionNow } from "../../game/fusion";
 import { housedBy, residentsIn } from "../../game/housing";
 import { projectForStructure } from "../../game/projects";
@@ -61,6 +62,10 @@ export function moodsOf(
     const w = workplaceKind(s.def);
     if (w) working.add(w);
   }
+  // THE CULTURE DECK: what spills and floods take, and how far a workplace's
+  // lunch reaches. @see CARDS
+  const deck = cultureNow(), hazard = (n: number) => Math.round(n * deck.hazards);
+  const canteens = deck.lunch > 0 ? [...g.structures.values()].filter((s) => !s.build && workplaceKind(s.def)) : [];
   const out = new Map<number, MoodParts>();
   for (const s of g.structures.values()) {
     if (!housedBy(s.def) || s.build) continue;
@@ -71,7 +76,8 @@ export function moodsOf(
       // Without a desk, it is that more than the walk that weighs. @see DESKLESS
       else if (c.eff < 1) parts.push({ why: c.deskless > 0 ? WHY.deskless : WHY.commute, points: Math.round(((1 - c.eff) * 10) * MOOD.perTenthLost) });
     }
-    const have = coverage.get(s.id);
+    const fed = canteens.some((w) => gap(s, w) <= deck.lunch);
+    const have = fed ? new Set([...(coverage.get(s.id) ?? []), "cafe" as const]) : coverage.get(s.id);
     if (!have?.size) parts.push({ why: WHY.noServices, points: MOOD.noServices });
     else {
       if (have.has("cafe")) parts.push({ why: WHY.cafe, points: MOOD.cafe });
@@ -80,11 +86,14 @@ export function moodsOf(
     }
     const tier = tierOf(s.def);
     if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: WHY.crowded, points: MOOD.crowded });
-    if (water(s)) parts.push(polluted.has(s.id) ? { why: WHY.polluted, points: MOOD.polluted } : { why: WHY.waterView, points: fusionNow().waterView });
+    if (water(s)) parts.push(polluted.has(s.id) ? { why: WHY.polluted, points: hazard(MOOD.polluted) } : { why: WHY.waterView, points: fusionNow().waterView });
     if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: WHY.wonder, points: MOOD.wonder });
     if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: WHY.derelict, points: MOOD.derelict });
-    if (sludged.has(s.id)) parts.push({ why: WHY.sludge, points: MOOD.sludge });
-    if (flooded.has(s.id)) parts.push({ why: WHY.flooded, points: MOOD.flooded });
+    if (sludged.has(s.id)) parts.push({ why: WHY.sludge, points: hazard(MOOD.sludge) });
+    if (flooded.has(s.id)) parts.push({ why: WHY.flooded, points: hazard(MOOD.flooded) });
+    // And what the cards do to the homes of the kind. @see CARDS
+    const culture = cultureNow(housedBy(s.def)!.id).houseMood;
+    if (culture) parts.push({ why: WHY.culture, points: culture });
     if (planning) parts.push({ why: WHY.planned, points: planning });
     const total = Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, parts.reduce((n, p) => n + p.points, 0)));
     out.set(s.id, { total, parts });
@@ -134,7 +143,7 @@ export const setFouled = (s: ReadonlySet<number>) => { fouled = s; };
 
 /**
  * Every house's mood on this map now, worked out again when the map, its
- * sites, or what is spilled, flooded or fouled round them has changed.
+ * sites, what is spilled, flooded or fouled round them, or the culture deck has changed.
  * @see liveCommutes
  */
 export function liveMoods(g: Grid, net: Network): Map<number, MoodParts> {
@@ -142,7 +151,7 @@ export function liveMoods(g: Grid, net: Network): Map<number, MoodParts> {
   for (const s of g.structures.values()) if (s.build) sites++;
   // A Zoner fused into the founder. @see game/fusion
   const planning = fusionNow().houseDesire;
-  const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning;
+  const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning + "|" + cultureVersion();
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.sludge !== sludge) {
     const maps = liveDesireMaps(g, net);
     memo = {

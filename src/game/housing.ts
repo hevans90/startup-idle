@@ -19,6 +19,7 @@
  * @see setHousingReader
  */
 import type { GeneratorId } from "../state/generators.store";
+import { cultureNow } from "./culture-now";
 import type { Grid, Structure } from "../world/grid";
 
 /**
@@ -98,7 +99,9 @@ export function housedBy(defId: string): { id: GeneratorId; slots: number } | nu
   if (defId === "campus") return { id: "10x_dev", slots: CAMPUS_BEDS };
   const m = /^kit:(intern|vibe_coder|10x_dev)\.(t0|t1|t2|landmark)$/.exec(defId);
   if (!m) return null;
-  return { id: m[1] as GeneratorId, slots: SLOTS_BY_TIER[m[2]] ?? 0 };
+  // Company Housing: two to a bed, or three. @see CARDS
+  const id = m[1] as GeneratorId;
+  return { id, slots: Math.round((SLOTS_BY_TIER[m[2]] ?? 0) * cultureNow(id).beds) };
 }
 
 /** Beds on this map, per generator. */

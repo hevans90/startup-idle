@@ -31,7 +31,7 @@ export function TagMark({ tag, className }: { tag: Tag; className?: string }) {
 }
 
 /** The card's sizes: in the hand and slots, and larger when offered. */
-const SIZE = { md: "w-[9.5rem] h-[13.5rem]", lg: "w-[11rem] h-[15.5rem]" };
+const SIZE = { md: "w-[9.5rem] h-[14.5rem]", lg: "w-[11rem] h-[16.5rem]" };
 
 /** Its outline, chamfered at the corners as the console's frames are. */
 export const CARD_CLIP = "polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px)";
@@ -67,9 +67,9 @@ export function CultureCard({ id, rank, size = "md", className, style, children 
         <div className="flex min-h-0 flex-1 flex-col px-2.5 pb-2 pt-6">
           <span className={twMerge("text-center font-display leading-tight tracking-wide text-fg", size === "lg" ? "text-[15px]" : "text-[13px]")}>{c.name}</span>
           {c.only && <span className="mt-0.5 text-center text-[9px] uppercase tracking-wider text-tone">{ONLY_NAME[c.only]}</span>}
-          <ul className="mt-2 flex flex-col gap-0.5">
+          <ul className="mt-2 flex flex-col gap-1">
             {cardLines(c, rank).map((l) => (
-              <li key={l.text} className={twMerge("flex items-baseline gap-1.5 text-[11px] leading-snug", l.good ? "text-good" : "text-bad")}>
+              <li key={l.text} className={twMerge("flex items-baseline gap-1.5 text-[11px] leading-tight", l.good ? "text-good" : "text-bad")}>
                 <span aria-hidden className="text-[8px]">{l.good ? "▲" : "▼"}</span>{l.text}
               </li>
             ))}

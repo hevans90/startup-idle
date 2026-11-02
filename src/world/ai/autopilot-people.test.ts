@@ -26,7 +26,7 @@ describe("AI mode, its people", () => {
   /** Two offers waiting, of both styles' cards. */
   const offered = () => useGeneratorStore.setState((s) => ({
     employeeManagement: { ...s.employeeManagement, deck: { ...s.employeeManagement.deck, offers: [
-      { track: "corpo", cards: ["freeze", "lunch", "referral"], rerolls: 0 },
+      { track: "corpo", cards: ["freeze", "lunch", "shuttle"], rerolls: 0 },
       { track: "agile", cards: ["movefast", "crunch", "stack"], rerolls: 0 },
     ] } },
   }));
@@ -34,11 +34,13 @@ describe("AI mode, its people", () => {
 
   test("tall: takes its style's cards, slots one, ranks it up with the points, then leaves them be", () => {
     offered();
+    // Rank 2 is dear: eight tiers, for six points.
+    useInnovationStore.setState((s) => ({ managers: { ...s.managers, agile: { ...s.managers.agile, tier: new Decimal(8) } } }));
     const did = run(1);
     expect(did[0]).toBe("Hire Freeze taken");
     expect(did[1]).toBe("Crunch Week taken");
     expect(deck().slotted).toEqual(["freeze"]);
-    // Five tiers: rank 2 for the card it likes best that is slotted.
+    // Rank 2 for the card it likes best that is slotted.
     expect(deck().ranks.freeze).toBe(2);
     expect(peopleStep(g, 1)).toBeNull();
   });

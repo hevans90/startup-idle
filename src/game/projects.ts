@@ -18,6 +18,7 @@
  */
 import type { GeneratorId } from "../state/generators.store";
 import { useFounderStore } from "../state/founder.store";
+import { cultureNow } from "./culture-now";
 import { founderIs } from "./founder-rules";
 import { BLUEPRINT_CACHE, moduleLevel } from "./modules";
 import { BOOTSTRAP_BUILD, HACKER_LABS, VISIONARY_DATACENTRE } from "./founders.catalog";
@@ -547,5 +548,6 @@ export function attendance(id: GeneratorId, owned: number): number {
   const r = reader();
   const away = r.away[id] ?? 0;
   const here = Math.max(0, Math.min(1, (owned - away) / owned));
-  return here * Math.max(0, Math.min(1, r.commute?.[id] ?? 1));
+  // And the Four-Day Week, and sabbaticals. @see CARDS
+  return here * Math.max(0, Math.min(1, r.commute?.[id] ?? 1)) * cultureNow(id).attendance;
 }

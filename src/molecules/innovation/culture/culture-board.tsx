@@ -91,7 +91,7 @@ function OfferStage({ onDone, onLater }: { onDone: () => void; onLater: () => vo
           <div key={id} className={twMerge("card-deal", picked && (picked === id ? "card-pick" : "card-pass"))}
             style={{ animationDelay: picked ? "0ms" : `${k * 110}ms`, ["--deal-rot" as string]: `${(k - 1) * 5}deg` }}>
             <button type="button" onClick={() => pick(id)} aria-label={`Take ${card(id).name}`} className={twMerge("card-lift cursor-pointer", FOCUS)}>
-              <CultureCard id={id} rank={1} size="lg" className="max-sm:h-[13.5rem] max-sm:w-[9.5rem]" />
+              <CultureCard id={id} rank={1} size="lg" className="max-sm:h-[14.5rem] max-sm:w-[9.5rem]" />
             </button>
           </div>
         ))}
@@ -190,7 +190,7 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
                         ? <Held key={id} id={id} rank={d.ranks[id]!} shine={shone === id} held={held === id} onTap={() => tapSlot(at, id)} onDrag={setHeld} />
                         : (
                           <button type="button" onClick={() => tapSlot(at)} aria-label={`Slot ${at + 1}, empty`}
-                            className={twMerge("relative block h-[13.5rem] w-[9.5rem] cursor-pointer", FOCUS)}>
+                            className={twMerge("relative block h-[14.5rem] w-[9.5rem] cursor-pointer", FOCUS)}>
                             <span className={twMerge("absolute inset-0", lit ? "bg-console" : "bg-line")} style={{ clipPath: CARD_CLIP }} />
                             <span className="absolute inset-px bg-surface-0 shadow-[inset_0_4px_16px_rgb(0_0_0/0.45)]" style={{ clipPath: CARD_CLIP }} />
                             {/* A card's outline, waiting. */}
@@ -208,7 +208,7 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
               {/* On a phone, a bar of its own under them. */}
               <div className="flex flex-col items-center gap-2 max-sm:w-full">
                 <button type="button" disabled={points < slotPrice(d)} onClick={() => { g.buySlot(); sfx("confirm"); }}
-                  className={twMerge("group relative block h-[13.5rem] w-[9.5rem] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 max-sm:h-12 max-sm:w-full", FOCUS)}>
+                  className={twMerge("group relative block h-[14.5rem] w-[9.5rem] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 max-sm:h-12 max-sm:w-full", FOCUS)}>
                   <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center text-fg-muted transition-colors group-enabled:group-hover:text-fg max-sm:flex-row max-sm:gap-3">
                     <span className="flex h-10 w-10 items-center justify-center border border-current text-xl leading-none max-sm:h-7 max-sm:w-7 max-sm:text-base">+</span>
                     <span className="mt-1 font-display text-sm max-sm:mt-0">New slot</span>

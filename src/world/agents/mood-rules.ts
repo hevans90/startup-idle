@@ -51,6 +51,7 @@ export const WHY = {
   sludge: "sludge",
   flooded: "flooded",
   planned: "AI-planned",
+  culture: "company culture",
 } as const;
 export type Why = (typeof WHY)[keyof typeof WHY];
 

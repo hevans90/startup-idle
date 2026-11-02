@@ -18,6 +18,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { connects, isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
+import { cultureVersion } from "../../game/culture-now";
 import { commuteEfficiency, walkFrom, WORKPLACES } from "./commute";
 import { DERELICT_REACH, MOOD, MOOD_LIMIT, WATER_REACH, WHY, WONDER_REACH, type MoodParts } from "./mood-rules";
 import { fusionNow } from "../../game/fusion";
@@ -99,14 +100,16 @@ export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
   return { service, work, derelicts, wonders, water };
 }
 
-let memo: { g: Grid | null; rev: number; sites: number; value: DesireMaps | null } = { g: null, rev: -1, sites: -1, value: null };
+let memo: { g: Grid | null; rev: number; sites: number; deck: number; value: DesireMaps | null } = { g: null, rev: -1, sites: -1, deck: -1, value: null };
 
 /** The maps for this map now, worked out again only when it has changed. */
 export function liveDesireMaps(g: Grid, net: Network): DesireMaps {
   let sites = 0;
   for (const s of g.structures.values()) if (s.build) sites++;
-  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || !memo.value) {
-    memo = { g, rev: g.rev, sites, value: desireMapsOf(g, placesOf(g, net)) };
+  // And the culture deck: Shuttle Bus moves what a commute costs. @see CARDS
+  const deck = cultureVersion();
+  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.deck !== deck || !memo.value) {
+    memo = { g, rev: g.rev, sites, deck, value: desireMapsOf(g, placesOf(g, net)) };
   }
   return memo.value!;
 }

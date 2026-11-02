@@ -35,6 +35,7 @@ import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
 import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
 import { notable } from "../../game/machine";
+import { cultureNow } from "../../game/culture-now";
 
 /** Seconds a crew stands idle for want of materials before it walks home. */
 export const STALL_GRACE = 6;
@@ -356,7 +357,8 @@ export function stepWorks(
     }
 
     // WORK, by those on site, as far as the materials go.
-    b.done = Math.min(materialCap(b), b.done + crew.working * dt);
+    // Crews as fast as the culture deck drives them. @see CARDS
+    b.done = Math.min(materialCap(b), b.done + crew.working * dt * cultureNow().buildSpeed);
     b.updatedAt = now;
     // AWAY FROM THEIR DESKS: everyone the site has called, from the moment it
     // calls them. Paused or lowered, they are back on the books at once —
@@ -452,7 +454,7 @@ export function catchUpWorks(
     const b = s.build!, p = projectForStructure(s.def);
     if (!p) continue;
     let left = Math.min(maxSeconds, Math.max(0, (now - b.updatedAt) / 1000));
-    const crew = plan.get(s.id)?.want ?? 0;
+    const crew = (plan.get(s.id)?.want ?? 0) * cultureNow().buildSpeed;
     while (left > 0 && crew > 0) {
       const cap = materialCap(b);
       const toCap = (cap - b.done) / crew;

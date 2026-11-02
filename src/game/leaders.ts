@@ -6,6 +6,7 @@
  * nowhere, they do nothing. @see plans/innovation-overhaul.md §4, team-leaders.store
  */
 import type { GeneratorId } from "../state/generators.store";
+import { cultureNow } from "./culture-now";
 import type { RedFlagId } from "./linkedout";
 import { describe, type Plain } from "./wording";
 
@@ -124,7 +125,8 @@ function leans(l: Leader): Lean[] {
 /** How much of a leader the kind feels, together: the team in full, the rest at half (or Open Door's). 0 placed nowhere, or nobody of the kind. */
 export function teamShare(l: Leader, team: number, owned: number): number {
   if (l.placedAt === null || owned <= 0) return 0;
-  const rest = Math.max(...leans(l).map((x) => x.rest ?? REST_SHARE));
+  // Open Plan: everyone is on the team. @see CARDS
+  const rest = cultureNow(l.role).leadAll ? 1 : Math.max(...leans(l).map((x) => x.rest ?? REST_SHARE));
   const t = Math.min(team, owned);
   // Ghosts on Fridays: a fifth less of them. @see RED_FLAGS
   return ((t + rest * (owned - t)) / owned) * (l.flag === "ghost" ? 0.8 : 1);
@@ -139,20 +141,21 @@ export type LeaderEffects = { output: number; innovation: number; morale: number
  * at a morale-scaled `outputMult`.
  */
 export function leaderEffects(l: Leader, team: number, owned: number, outputMult = 1): LeaderEffects {
-  const share = teamShare(l, team, owned), all = leans(l);
+  const share = teamShare(l, team, owned), all = leans(l), deck = cultureNow(l.role);
   const sum = (k: keyof Lean) => all.reduce((n, x) => n + ((x[k] as number | undefined) ?? 0), 0);
   const placed = l.placedAt !== null;
   // Secretly brilliant ranks faster; a quiet quitter stops at rank 3. @see RED_FLAGS
   const xpMult = all.reduce((n, x) => n * (x.xp ?? 1), 1) * (l.flag === "brilliant" ? 1.5 : 1) * (l.flag === "quitter" && l.rank >= 3 ? 0 : 1);
   const t = Math.min(team, owned);
   return {
-    output: 1 + share * (sum("output") + RANK_OUTPUT * l.rank),
+    // Stack Ranking: a rank counts double, or triple. @see CARDS
+    output: 1 + share * (sum("output") + RANK_OUTPUT * l.rank * deck.leaderRank),
     innovation: 1 + share * sum("innovation"),
     // + 0: never a negative nought, for nobody to see as "−0".
     morale: share * (sum("morale") + (l.flag === "ego" ? -3 : 0)) + 0,
     hireCost: placed ? all.reduce((n, x) => n * (1 - (x.hireDiscount ?? 0)), 1) : 1,
     autoBuy: placed ? sum("autoBuy") : 0,
     everyone: placed ? sum("everyone") : 0,
-    xpPerSecond: placed && owned > 0 ? 0.25 * Math.sqrt(t + REST_SHARE * (owned - t)) * outputMult * xpMult : 0,
+    xpPerSecond: placed && owned > 0 ? 0.25 * Math.sqrt(t + REST_SHARE * (owned - t)) * outputMult * xpMult * deck.leaderXp : 0,
   };
 }

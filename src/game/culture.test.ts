@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { GeneratorId } from "../state/generators.store";
 import {
-  CARDS, buySlot, cardLines, place, cardAt, cultureEffects, deal, emptyDeck, pointsLeft, rankPrice, rankUp, readDeck, reroll, take, toggleSlot,
+  CARDS, buySlot, cardLines, pivot, place, cardAt, cultureEffects, deal, emptyDeck, pointsLeft, rankPrice, rankUp, readDeck, reroll, take, toggleSlot,
   workMorale, type Deck,
 } from "./culture";
 
@@ -13,11 +13,10 @@ const tiers = (agile = 0, corpo = 0, sales = 0) => ({ agile, corpo, sales });
 const first = () => 0;
 
 describe("the culture deck", () => {
-  test("every card a trade: something gained, something given", () => {
-    for (const c of CARDS) for (const r of c.ranks) {
-      const good = (r.morale ?? 0) > 0 || (r.output ?? 1) > 1 || (r.innovation ?? 1) > 1 || (r.hireCost ?? 1) < 1 || (r.autoBuy ?? 0) > 0;
-      const bad = (r.morale ?? 0) < 0 || (r.output ?? 1) < 1 || (r.hireCost ?? 1) > 1 || (r.slop ?? 1) > 1;
-      expect([c.id, good && bad]).toEqual([c.id, true]);
+  test("every card a trade, at each rank: something gained, something given, on its face", () => {
+    for (const c of CARDS) for (const rank of [1, 2]) {
+      const lines = cardLines(c, rank);
+      expect([c.id, rank, lines.some((l) => l.good) && lines.some((l) => !l.good)]).toEqual([c.id, rank, true]);
     }
   });
 
@@ -55,29 +54,35 @@ describe("the culture deck", () => {
     expect(toggleSlot(toggleSlot(d, a), b).slotted).toEqual([b]);
   });
 
-  test("points: a slot for 2, then 3; a rank for 2; none spent past the tiers", () => {
+  test("points: a slot for 2, then 3; rank 2 for 6; none spent past the tiers", () => {
     let d: Deck = { ...emptyDeck(), ranks: { crunch: 1 }, slotted: ["crunch"] };
     expect(pointsLeft(d, 5)).toBe(5);
     d = buySlot(d, 5);
     expect([d.slots, d.spent]).toEqual([2, 2]);
     // The third, 3: not with 2 of 4 left.
     expect(buySlot(d, 4)).toBe(d);
-    expect(rankPrice(d, "crunch")).toBe(2);
-    d = rankUp(d, "crunch", 5);
-    expect([d.ranks.crunch, d.spent]).toEqual([2, 4]);
+    expect(rankPrice(d, "crunch")).toBe(6);
+    expect(rankUp(d, "crunch", 7)).toBe(d);
+    d = rankUp(d, "crunch", 8);
+    expect([d.ranks.crunch, d.spent]).toEqual([2, 8]);
     expect(rankPrice(d, "crunch")).toBeNull();
     expect(rankUp(d, "lunch", 99)).toBe(d);
   });
 
   test("effects: the slotted cards at their ranks, a kind's own only to it", () => {
-    const d: Deck = { ...emptyDeck(), slots: 3, ranks: { crunch: 2, lunch: 1, hackathon: 1, stack: 1 }, slotted: ["crunch", "lunch", "hackathon"] };
+    const d: Deck = { ...emptyDeck(), slots: 4, ranks: { crunch: 2, hotdesk: 1, housing: 1, hackathon: 1, stack: 1 }, slotted: ["crunch", "hotdesk", "housing", "hackathon"] };
     const i = cultureEffects(d, "intern"), v = cultureEffects(d, "vibe_coder");
-    expect(i.output).toBeCloseTo(1.4 * 0.95);
-    expect(i.morale).toBe(-4);
+    expect(i.deskless).toBe(1);
+    expect(i.desks).toBe(1.5);
+    expect(i.beds).toBe(2);
+    expect(i.houseMood).toBe(-14);
+    expect(i.morale).toBe(-14);
     expect(i.innovation).toBe(1);
-    expect(v.innovation).toBeCloseTo(1.25);
-    expect(v.slop).toBeCloseTo(1.2);
-    expect(workMorale(d)).toEqual({ intern: -4, vibe_coder: -4, "10x_dev": -4 });
+    expect(v.innovation).toBe(2);
+    expect(v.slop).toBe(2);
+    // The company's: the vibe coders' own card left out.
+    expect(cultureEffects(d).slop).toBe(1);
+    expect(workMorale(d)).toEqual({ intern: -14, vibe_coder: -14, "10x_dev": -14 });
   });
 
   test("a reroll deals other cards of the track, and counts", () => {
@@ -112,6 +117,14 @@ describe("the culture deck", () => {
   });
 
   test("a card's face: gains first, each line marked", () => {
-    expect(cardLines(CARDS.find((c) => c.id === "crunch")!, 1)).toEqual([{ text: "Money +25%", good: true }, { text: "Morale −8", good: false }]);
+    expect(cardLines(CARDS.find((c) => c.id === "hotdesk")!, 1)).toEqual([{ text: "Desks +50%", good: true }, { text: "House mood −6", good: false }]);
+    expect(cardLines(CARDS.find((c) => c.id === "housing")!, 2)[0]).toEqual({ text: "Beds per house ×3", good: true });
+  });
+
+  test("Pivot Weekly swaps another slotted card for one out of the slots; alone, nothing", () => {
+    const d: Deck = { ...emptyDeck(), slots: 2, ranks: { pivot: 1, crunch: 1, lunch: 1 }, slotted: ["pivot", "crunch"] };
+    expect(pivot(d, () => 0).slotted).toEqual(["pivot", "lunch"]);
+    const alone: Deck = { ...d, slotted: ["pivot"] };
+    expect(pivot(alone)).toBe(alone);
   });
 });

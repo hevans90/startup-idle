@@ -36,7 +36,7 @@ Status: **phase 1 done** (2026-11-02): engine, store, migration, autopilot and a
 - **Points:** one per manager tier, on any track.
 - **Card progress:** each track has its own bar. A track's tiers fill its bar, and a full bar deals an offer from that track's families. The bar grows: the 1st card at 1 tier, then 3, 4, 5, 6… more tiers of that track (first guess; tune against the pacing sims so a new card lands every 10–15 minutes of mid-game).
 - **Slots:** the first is free. Each further slot costs 2, 3, 4, 5… points.
-- **Ranks:** rank 2 costs 2 points, rank 3 costs 4.
+- **Ranks:** rank 2 costs 6 points, rank 3 costs 15: max rank is a long climb. Trades are structural (desks, beds, commutes, leader ranks), not small percentages.
 - **Rerolls:** innovation, starting at a minute of income and doubling each reroll of the same offer.
 - **Pending offers queue up:** they wait if you're busy, and are never lost.
 
@@ -72,26 +72,26 @@ About 30 cards: 5 per base family (20) and 3–4 per AI family (10). Each has a 
 
 | Card | Tag | Trade (ranks 1–2) | Rank 3 rewrites | On the map |
 |---|---|---|---|---|
-| Crunch Week | Hustle | +output, −morale | Crunch comes in 5-minute sprints: double output, then a burnout dip | Office lights stay on at night |
-| Stack Ranking | Hustle | +output, −morale | The bottom 5% leave each hour; their beds go to new hires at half price | Desks with red flags |
-| On-Call Rotation | Hustle | +output at night, −morale | Night hours count double | Pagers flashing over homes |
-| Hire-to-Fire (I) | Hustle | +intern output, interns leave faster | Interns who leave become cheap vibe coders | Moving vans |
-| Ship It Fridays | Hustle | +output on Fridays (game minute cycle), +slop | Fridays never end while a spill is unmopped | Confetti over offices |
-| Free Lunch | Wellness | +morale, −income | Lunch draws commuters: workplaces with lunch fill first | Food trucks by offices |
-| Remote Fridays | Wellness | +morale, −output | Remote workers skip the commute: no traffic from them | Fewer cars on Fridays |
-| Sabbaticals (X) | Wellness | +10x innovation, −10x output | A 10x dev on sabbatical returns with a free leader XP rank | Empty desk, palm tree |
-| Therapy Budget | Wellness | +morale floor, −money | Spills no longer lower home morale | Clinic sign on HQ |
-| Four-Day Week | Wellness | +morale, −output | Morale above +20 gives output back with interest | Weekend crowds in parks |
-| Always Be Hiring | Growth | auto-buy, −morale | Auto-buy fills empty beds first, then nothing | Recruiter booths |
-| Hire Freeze | Growth | −hire price, −morale | Price falls further the longer the freeze holds | "Not hiring" signs |
-| Referral Bonus | Growth | cheaper hires near existing staff, −money | Each hire brings a housemate at half price | Pairs walking to work |
-| Company Housing | Growth | +beds per house, −desirability | Houses next to offices count as desks | Dorm signs |
-| Mentorship (I) | Growth | +intern innovation, −intern output | Interns mentored for 10 minutes become vibe coders | Pairs at desks |
-| Hackathon Culture (V) | Chaos | +innovation, +slop | Slop processed in a sewer counts as innovation | Pizza boxes |
-| Move Fast | Chaos | +output, random small spills | Spills are innovation events | Construction cones |
-| Vibes Only (V) | Chaos | +vibe output, −10x morale | Vibe coders work with no desks | Beanbags on lawns |
-| Pivot Weekly | Chaos | random buff each 5 min, −valuation | You choose the next pivot from three | Logo swaps on HQ |
-| Open Plan | Chaos | +innovation, −morale | Leaders' teams double in size | Walls removed |
+| Crunch Week | Hustle | those with no desk work at 70%, then in full; −morale | Crunch comes in 5-minute sprints: double output, then a burnout dip | Office lights stay on at night |
+| Stack Ranking | Hustle | leader ranks ×2, then ×3; −morale | The bottom 5% leave each hour; their beds go to new hires at half price | Desks with red flags |
+| Hot Desking | Hustle | desks ×1.5, then ×2; −house mood | People with no desk work in full | Shared desks, sticky notes |
+| Hire-to-Fire (I) | Hustle | intern price curve −0.04, then −0.07; −morale | Interns who leave become cheap vibe coders | Moving vans |
+| Ship It Fridays | Hustle | build speed ×2, then ×3; +slop | Fridays never end while a spill is unmopped | Confetti over offices |
+| Free Lunch | Wellness | workplaces count as a café 6, then 12 tiles out; build prices +15% | Lunch draws commuters: workplaces with lunch fill first | Food trucks by offices |
+| Remote Fridays | Wellness | 25%, then 50% work from home: no desk, no commute | Remote workers skip the commute: no traffic from them | Fewer cars on Fridays |
+| Sabbaticals (X) | Wellness | 10x innovation ×2, then ×3; −project attendance | A 10x dev on sabbatical returns with a free leader XP rank | Empty desk, palm tree |
+| Therapy Budget | Wellness | spill upset −50%, then none; +hire price | Spills no longer lower home morale | Clinic sign on HQ |
+| Four-Day Week | Wellness | +10, then +15 house mood; −project attendance | Morale above +20 gives output back with interest | Weekend crowds in parks |
+| Always Be Hiring | Growth | auto-buy 1/s, then 3/s; price curve +0.03 | Auto-buy fills empty beds first, then nothing | Recruiter booths |
+| Hire Freeze | Growth | hire price ×0.5, then ×0.33; no auto-buy, −morale | Price falls further the longer the freeze holds | "Not hiring" signs |
+| Shuttle Bus | Growth | free commute 8 tiles further, then unlimited; build prices +15% | Stranded houses get a shuttle | Buses on the streets |
+| Company Housing | Growth | beds per house ×2, then ×3; −house mood | Houses next to offices count as desks | Dorm signs |
+| Mentorship (I) | Growth | intern innovation ×3, then ×5; half the desks | Interns mentored for 10 minutes become vibe coders | Pairs at desks |
+| Hackathon Culture (V) | Chaos | innovation ×2, then ×3; slop ×2 | Slop processed in a sewer counts as innovation | Pizza boxes |
+| Move Fast | Chaos | build speed ×2, then ×3; slop tanks halved | Spills are innovation events | Construction cones |
+| Vibes Only (V) | Chaos | vibe coders work deskless at 70%, then in full; +slop, −house mood | Vibe coders work with no desks | Beanbags on lawns |
+| Pivot Weekly | Chaos | innovation ×1.5, then ×2; a card swapped out every 10 min | You choose the next pivot from three | Logo swaps on HQ |
+| Open Plan | Chaos | leaders lead everyone in full, then XP ×2; −morale | Leaders' teams double in size | Walls removed |
 | Autonomous Agents | Agentic | +agent boost, meter faster | Agents run tasks while you're offline | Racks blink |
 | Agent Swarm | Agentic | more agents per rack, meter faster | A full rack spawns a free agent each hour | Drones over racks |
 | Self-Improving | Agentic | training runs faster, meter faster | Each training run raises every card's rank by one for 5 minutes | Racks glow |

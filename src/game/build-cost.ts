@@ -23,6 +23,7 @@ import { fusionNow } from "./fusion";
 import { BOOTSTRAP_BUILD } from "./founders.catalog";
 import { aiActing } from "../world/ai/district";
 import { keystone } from "./machine";
+import { cultureNow } from "./culture-now";
 
 /** The least a lot costs, whatever the hire prices. */
 const LOT_FLOOR = 15;
@@ -38,7 +39,9 @@ export function buildCost(defId: string): Decimal | null {
   // WHAT THE FOUNDER'S FUSED TRAITS DO TO PRICES. @see game/fusion
   const price = listed && listed.times(fusedPriceMult(defId)).round();
   // THE BOOTSTRAPPER builds for less. @see BOOTSTRAP_BUILD
-  return price && founderIs("bootstrapper") ? price.times(BOOTSTRAP_BUILD).round() : price;
+  // And the culture deck's lunches and buses, paid for in every building. @see CARDS
+  const carded = price && price.times(cultureNow().buildPrice).round();
+  return carded && founderIs("bootstrapper") ? carded.times(BOOTSTRAP_BUILD).round() : carded;
 }
 
 /** What the founder's fused traits multiply a building's price by. */
