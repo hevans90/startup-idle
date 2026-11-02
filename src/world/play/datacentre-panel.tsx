@@ -5,11 +5,12 @@
  * singularity on; training runs; the racks; and what the AI is turning into.
  * @see runningAgents, singularityRate, game/training, game/traits
  */
+import { useRef } from "react";
 import { twMerge } from "tailwind-merge";
 import { LATTICE_AT } from "../../state/ai-singularity.store";
 import { useFounderStore } from "../../state/founder.store";
 import { useSessionStore } from "../../state/session.store";
-import { Empty, Label, Meter, Panel, Slider, Tile } from "../../ui/console";
+import { Empty, Label, Meter, Panel, Slider, Tile, useTakeoverGlitch } from "../../ui/console";
 import { formatCurrency } from "../../utils/money-utils";
 import { aiPace, getAiRunner } from "../ai/ai-runner";
 import { FOCUSES } from "../ai/focus";
@@ -59,19 +60,24 @@ export function DataCentre({ className }: { className?: string }) {
       ? Math.max(0, singularityRate(running, mult, agents))
       : singularityRate(running, mult, agents);
   const boost = Math.round((agentBonus(running) - 1) * 100);
+  // THE METER, torn as the takeover goes on. @see useTakeoverGlitch
+  const meter = useRef<HTMLDivElement>(null);
+  useTakeoverGlitch(meter);
   return (
     <div className={twMerge("text-xs text-fg", className)}>
       {/* THE SINGULARITY: how far, and which way. */}
-      <Meter
-        tone="ai"
-        value={value / 100}
-        label="The singularity"
-        detail={
-          <>
-            {value.toFixed(1)}% · {perMinute(rate)}
-          </>
-        }
-      />
+      <div ref={meter}>
+        <Meter
+          tone="ai"
+          value={value / 100}
+          label="The singularity"
+          detail={
+            <>
+              {value.toFixed(1)}% · {perMinute(rate)}
+            </>
+          }
+        />
+      </div>
 
       {built ? (
         <>
