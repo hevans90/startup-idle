@@ -159,7 +159,7 @@ describe("prestige modifiers are wired to the economy", () => {
     useGeneratorStore.setState((s) => ({
       employeeManagement: {
         ...s.employeeManagement,
-        policies: { ...s.employeeManagement.policies, intern: ["pipeline"] },
+        deck: { ...s.employeeManagement.deck, ranks: { pipeline: 1 }, slotted: ["pipeline"] },
       },
     }));
     const base = useGeneratorStore.getState().getAutoBuyRate("intern");
@@ -224,7 +224,7 @@ describe("prestige modifiers are wired to the economy", () => {
         employeeManagement: {
           ...s.employeeManagement,
           // Free Lunch and Remote Fridays: a positive morale target.
-          policies: { ...s.employeeManagement.policies, intern: ["lunch", "remote"] },
+          deck: { ...s.employeeManagement.deck, slots: 2, ranks: { lunch: 1, remote: 1 }, slotted: ["lunch", "remote"] },
         },
       }));
       useGeneratorStore.getState().tickGenerators();

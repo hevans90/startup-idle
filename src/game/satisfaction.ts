@@ -1,7 +1,7 @@
 /**
  * MORALE, each kind's: one number, −40 to +40 — the scale houses' morale is on
  * — made of its parts: HOME (the morale of the houses they live in, the town's
- * say, in full), WORK (its policies), LEADERS and EVENTS,
+ * say, in full), WORK (the culture deck), LEADERS and EVENTS,
  * the score drifting toward their sum. It scales what the kind produces,
  * ×0.5 at −40 to ×2 at +40, and does one thing more for each kind: interns'
  * moves innovation, vibe coders' the slop they make, 10x devs' their cost curve.
@@ -9,7 +9,6 @@
  * @see plans/innovation-overhaul.md §2
  */
 import type { GeneratorId } from "../state/generators.store";
-import { policyEffects, type PolicyId } from "./policies";
 
 export const SATISFACTION_MIN = -40;
 export const SATISFACTION_MAX = 40;
@@ -28,9 +27,9 @@ export function clampScore(n: number): number {
   return Math.min(SATISFACTION_MAX, Math.max(SATISFACTION_MIN, n));
 }
 
-/** WORK, for one kind: what its policies do to its morale. Not headcount: crowding is the town's to say, in Home. */
-export function satisfactionTargetForRole(policies: readonly PolicyId[]): number {
-  return clampScore(policyEffects(policies).morale);
+/** WORK, for one kind: what the cards it is run by do to its morale, within range. Not headcount: crowding is the town's to say, in Home. @see cultureEffects */
+export function satisfactionTargetForRole(work: number): number {
+  return clampScore(work);
 }
 
 /** Output at −40 (worst). */
@@ -46,17 +45,17 @@ export function satisfactionRevenueMultiplier(score: number): number {
   return s <= 0 ? 1 + t * (1 - SATISFACTION_REVENUE_MULT_AT_MIN) : 1 + t * (SATISFACTION_REVENUE_MULT_AT_MAX - 1);
 }
 
-/** Every kind's morale a step closer to its parts' sum: Work from its policies, the rest given. */
+/** Every kind's morale a step closer to its parts' sum: Work from its cards, the rest given. */
 export function stepSatisfactionScores(
   prev: SatisfactionScores,
-  policiesByRole: Record<GeneratorId, readonly PolicyId[]>,
+  workByRole: Partial<Record<GeneratorId, number>>,
   seconds: number,
   targetOffsets: Partial<Record<GeneratorId, number>> = {},
 ): SatisfactionScores {
   const k = 0.05;
   const next = { ...prev };
   for (const id of ["intern", "vibe_coder", "10x_dev"] as GeneratorId[]) {
-    const target = clampScore(satisfactionTargetForRole(policiesByRole[id] ?? []) + (targetOffsets[id] ?? 0));
+    const target = clampScore(satisfactionTargetForRole(workByRole[id] ?? 0) + (targetOffsets[id] ?? 0));
     const cur = prev[id];
     next[id] = clampScore(cur + (target - cur) * Math.min(1, k * seconds));
   }

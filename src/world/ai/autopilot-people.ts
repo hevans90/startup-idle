@@ -1,15 +1,15 @@
 /**
  * World v2 — AI MODE, ITS PEOPLE: on the Model's own runs, what the player
  * would do on the Innovation and Employees tabs, a step at a time — each
- * kind's work policies set to its style (tall runs them for output, wide for
- * morale), a job posted where a kind has no leader, the best applicant
+ * culture deck played to its style (tall takes Hustle and Chaos and ranks
+ * them up, wide takes Wellness and Growth and buys slots), a job posted where a kind has no leader, the best applicant
  * checked and hired unless they hide something bad, the leader put in their
  * kind's busiest workplace, a perk picked at each rank. Spends innovation,
  * not money. @see stepAutopilot, plans/innovation-overhaul.md §6
  */
 import { LEADER_PERKS, perkOffer, type LeaderPerkId, type PersonalityId } from "../../game/leaders";
 import { CHECK_COST, RED_FLAGS, hireCost, postCost, type Applicant } from "../../game/linkedout";
-import { policiesFor, policy, type PolicyId } from "../../game/policies";
+import { card, rankPrice, slotPrice, type CardId, type Tag } from "../../game/culture";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import { useLinkedOutStore } from "../../state/linkedout.store";
@@ -18,10 +18,10 @@ import { getNetwork } from "../../state/world.store";
 import { WORKPLACES, liveSeating } from "../agents/commute";
 import type { Grid } from "../grid";
 
-/** What each style runs its people by, most wanted first: tall for output, wide for morale. The kind's own policy is added for either. */
-const WANTS: Record<"tall" | "wide", readonly PolicyId[]> = {
-  tall: ["crunch", "pipeline", "stack", "freeze"],
-  wide: ["lunch", "pipeline", "remote", "freeze"],
+/** The tags each style takes, most wanted first: tall for output, wide for morale and headcount. */
+const WANTS: Record<"tall" | "wide", readonly Tag[]> = {
+  tall: ["hustle", "chaos", "growth", "wellness"],
+  wide: ["wellness", "growth", "hustle", "chaos"],
 };
 /** The personalities each style hires first. */
 const FITS: Record<"tall" | "wide", readonly PersonalityId[]> = {
@@ -53,16 +53,30 @@ export function peopleStep(g: Grid, tall: number): string | null {
   const gen = useGeneratorStore.getState();
   const kinds = gen.generators.filter((x) => x.amount > 0).map((x) => x.id as GeneratorId);
 
-  // POLICIES, in the slots there are, to its style.
-  const slots = gen.getPolicySlots();
-  for (const k of kinds) {
-    const own = policiesFor(k).find((p) => p.only)?.id;
-    const want = [...WANTS[way], ...(own ? [own] : [])].slice(0, slots);
-    const have = gen.getPolicies(k);
-    if (want.length === have.length && want.every((p) => have.includes(p))) continue;
-    for (const p of have) if (!want.includes(p)) gen.togglePolicy(k, p);
-    for (const p of want) if (!gen.getPolicies(k).includes(p)) gen.togglePolicy(k, p);
-    return `${KIND_NAME[k]} run by ${want.map((p) => policy(p).name).join(", ")}`;
+  // THE CULTURE DECK, to its style. @see game/culture
+  const deck = gen.employeeManagement.deck;
+  const liking = (id: CardId) => WANTS[way].indexOf(card(id).tag);
+  // An offer: the card of the tag it likes best. Never a reroll.
+  if (deck.offers.length) {
+    const pick = [...deck.offers[0].cards].sort((a, b) => liking(a) - liking(b))[0];
+    gen.takeCard(0, pick);
+    return `${card(pick).name} taken`;
+  }
+  // A free slot: the owned card it likes best.
+  const owned = (Object.keys(deck.ranks) as CardId[]).sort((a, b) => liking(a) - liking(b));
+  const spare = owned.find((id) => !deck.slotted.includes(id));
+  if (spare && deck.slotted.length < deck.slots) {
+    gen.toggleCard(spare);
+    return `${card(spare).name} slotted`;
+  }
+  // Points: tall ranks up its best slotted card; wide buys a slot.
+  const points = gen.getDeckPoints();
+  if (way === "tall") {
+    const up = [...deck.slotted].sort((a, b) => liking(a) - liking(b)).find((id) => (rankPrice(deck, id) ?? Infinity) <= points);
+    if (up) { gen.rankUpCard(up); return `${card(up).name} to rank ${deck.ranks[up]! + 1}`; }
+  } else if (spare && slotPrice(deck) <= points) {
+    gen.buySlot();
+    return `a slot bought, for ${card(spare).name}`;
   }
 
   const t = useTeamLeadersEmployeesStore.getState(), lo = useLinkedOutStore.getState();

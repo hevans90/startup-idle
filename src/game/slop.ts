@@ -11,7 +11,7 @@ import { vibeSlopMultiplier } from "./satisfaction";
 
 /** Vibe coders there have to be before any of them makes slop. */
 export const SLOP_FROM = 50;
-/** Slop a vibe coder makes a second, before morale and policies: a hundred of them, a sewer's worth. */
+/** Slop a vibe coder makes a second, before morale and cards: a hundred of them, a sewer's worth. */
 export const SLOP_PER_CODER = 0.01;
 /** A workplace's tank holds this many seconds of what it makes, and never less than this much. */
 export const TANK_SECONDS = 120;
@@ -21,7 +21,7 @@ export const SPILL_DEPTH = 0.5;
 /** Pollution a unit of slop puts into the water. @see world/water/pollution */
 export const POLLUTION_PER_SLOP = 1;
 
-/** Slop made a second by `coders` vibe coders at `score` morale, under policies' `policy` multiplier. */
+/** Slop made a second by `coders` vibe coders at `score` morale, under the culture deck's `policy` multiplier. */
 export function slopMade(coders: number, score: number, policy = 1): number {
   if (coders < SLOP_FROM) return 0;
   return coders * SLOP_PER_CODER * vibeSlopMultiplier(score) * policy;

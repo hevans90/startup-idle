@@ -9,6 +9,7 @@ import { twMerge } from "tailwind-merge";
 
 import { LEADER_PERKS, PERSONALITIES } from "../game/leaders";
 import { CHECK_COST, POST_OPEN, REHIRE_COST, RED_FLAGS, hireCost, postCost, reviewsOf, type Applicant } from "../game/linkedout";
+import { workMorale } from "../game/culture";
 import { moralePartsNow } from "../game/morale-parts";
 import { useTicking } from "../hooks/use-ticking";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
@@ -130,9 +131,9 @@ function Company() {
   const remembered = useLinkedOutStore((s) => s.moraleRemembered);
   const letGo = useLinkedOutStore((s) => s.letGoThisRun);
   const scores = useGeneratorStore((s) => s.satisfactionScores);
-  const policies = useGeneratorStore((s) => s.employeeManagement.policies);
+  const deck = useGeneratorStore((s) => s.employeeManagement.deck);
   const kinds = useGeneratorStore((s) => s.generators).filter((g) => g.amount > 0).map((g) => g.id as GeneratorId);
-  const parts = moralePartsNow(policies);
+  const parts = moralePartsNow(workMorale(deck));
   const reviews = reviewsOf(kinds.map((k) => ({ kind: k, ...parts[k], score: scores[k] })));
   return (
     <div className="flex flex-col gap-3 text-xs">

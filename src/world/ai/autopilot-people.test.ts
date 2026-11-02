@@ -23,12 +23,32 @@ describe("AI mode, its people", () => {
     useInnovationStore.setState((s) => ({ innovation: new Decimal(1e6), managers: { ...s.managers, agile: { ...s.managers.agile, tier: new Decimal(5) } } }));
   });
 
-  test("runs each kind by its style's policies, in the slots there are, and then leaves them be", () => {
-    expect(run(1)[0]).toContain("Crunch Week");
-    expect(useGeneratorStore.getState().getPolicies("intern")).toEqual(["crunch", "pipeline"]);
+  /** Two offers waiting, of both styles' cards. */
+  const offered = () => useGeneratorStore.setState((s) => ({
+    employeeManagement: { ...s.employeeManagement, deck: { ...s.employeeManagement.deck, offers: [
+      { track: "corpo", cards: ["freeze", "lunch", "referral"], rerolls: 0 },
+      { track: "agile", cards: ["movefast", "crunch", "stack"], rerolls: 0 },
+    ] } },
+  }));
+  const deck = () => useGeneratorStore.getState().employeeManagement.deck;
+
+  test("tall: takes its style's cards, slots one, ranks it up with the points, then leaves them be", () => {
+    offered();
+    const did = run(1);
+    expect(did[0]).toBe("Hire Freeze taken");
+    expect(did[1]).toBe("Crunch Week taken");
+    expect(deck().slotted).toEqual(["freeze"]);
+    // Five tiers: rank 2 for the card it likes best that is slotted.
+    expect(deck().ranks.freeze).toBe(2);
     expect(peopleStep(g, 1)).toBeNull();
-    peopleStep(g, 0);
-    expect([...useGeneratorStore.getState().getPolicies("intern")].sort()).toEqual(["lunch", "pipeline"]);
+  });
+
+  test("wide: takes its style's cards and buys a slot for the one left out", () => {
+    offered();
+    run(0);
+    expect(deck().ranks).toEqual({ lunch: 1, crunch: 1 });
+    expect(deck().slots).toBe(2);
+    expect([...deck().slotted].sort()).toEqual(["crunch", "lunch"]);
   });
 
   test("with leaders open: posts, checks the best applicant, hires one who hides nothing bad", () => {

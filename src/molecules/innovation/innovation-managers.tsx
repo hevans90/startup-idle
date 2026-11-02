@@ -7,7 +7,7 @@ import { Locked, Panel } from "../../ui/console";
 import { showProject } from "../../world/play/map-focus";
 import { CycleButton } from "../../ui/CyclingButton";
 import ManagerRow from "./manager-row";
-import { PoliciesPanel } from "./policies-panel";
+import { CultureDeckPanel } from "./culture-deck-panel";
 
 export const InnovationManagers = () => {
   const {
@@ -64,8 +64,8 @@ export const InnovationManagers = () => {
         </Panel>
       )}
 
-      {/* WORK POLICIES, in the slots the managers' tiers give. @see game/policies */}
-      {employeeManagementState?.unlocked && <PoliciesPanel />}
+      {/* THE CULTURE DECK, its points from the managers' tiers. @see game/culture */}
+      {employeeManagementState?.unlocked && <CultureDeckPanel />}
 
     </div>
   );

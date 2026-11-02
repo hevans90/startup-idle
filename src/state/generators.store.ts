@@ -13,7 +13,8 @@ import {
 import { roomFor } from "../game/housing";
 import { attendance, deskBonus, labBonus, wonderBonus } from "../game/projects";
 import { moralePartsNow } from "../game/morale-parts";
-import { policyEffects, policySlots, SLOT_TIERS, validPolicies, type PolicyEffects, type PolicyId } from "../game/policies";
+import * as culture from "../game/culture";
+import { cultureEffects, emptyDeck, readDeck, workMorale, type CardId, type CultureEffects, type Deck, type Track } from "../game/culture";
 import { fusionNow } from "../game/fusion";
 import {
   calcGeneratorIncome,
@@ -88,8 +89,8 @@ export type GeneratorId = "intern" | "vibe_coder" | "10x_dev";
 export const MIN_GENERATOR_COST_EXPONENT = 1.02;
 
 type EmployeeManagementData = {
-  /** Each kind's work policies, in the slots manager tiers give. @see game/policies */
-  policies: Record<GeneratorId, PolicyId[]>;
+  /** The culture deck: how the company is run, as cards. @see game/culture */
+  deck: Deck;
   autoBuyAcc: Partial<Record<GeneratorId, number>>;
 };
 
@@ -159,13 +160,19 @@ type GeneratorState = {
   /** Full breakdown of valuation/sec (for the valuation popover). */
   getValuationBreakdown: () => ValuationBreakdown;
 
-  /** A kind's policies, and what they do together. @see game/policies */
-  getPolicies: (id: GeneratorId) => PolicyId[];
-  getPolicyEffects: (id: GeneratorId) => PolicyEffects;
-  /** How many policies each kind may have now. */
-  getPolicySlots: () => number;
-  /** Turn a policy on or off for a kind, within its slots. */
-  togglePolicy: (id: GeneratorId, policy: PolicyId) => void;
+  /** What the slotted cards do to a kind, together. @see game/culture */
+  getCultureEffects: (id: GeneratorId) => CultureEffects;
+  /** Points to spend on slots and ranks: manager tiers not yet spent, once employee management is open. */
+  getDeckPoints: () => number;
+  /** Take a card from an offer. */
+  takeCard: (offer: number, id: CardId) => void;
+  /** Deal an offer again, for innovation. @see rerollSeconds */
+  rerollOffer: (offer: number) => void;
+  /** Buy a slot, or a card's next rank, with points. */
+  buySlot: () => void;
+  rankUpCard: (id: CardId) => void;
+  /** Put an owned card in a free slot, or take it out. */
+  toggleCard: (id: CardId) => void;
   getEmployeeOutputMults: (id: GeneratorId) => {
     money: number;
     innovation: number;
@@ -221,10 +228,8 @@ function clampPersistedScore(n: unknown, scale = 1): number {
   return Math.min(SATISFACTION_MAX, Math.max(SATISFACTION_MIN, n * scale));
 }
 
-const noPolicies = (): Record<GeneratorId, PolicyId[]> => ({ intern: [], vibe_coder: [], "10x_dev": [] });
-
 const defaultEmployeeManagement = (): EmployeeManagementData => ({
-  policies: noPolicies(),
+  deck: emptyDeck(),
   autoBuyAcc: {},
 });
 
@@ -233,17 +238,14 @@ const parseEmployeeManagementJson = (
 ): EmployeeManagementData => {
   if (!raw) return defaultEmployeeManagement();
   try {
-    // A save from before policies had perks and management points: they go,
-    // nothing to give back — the tiers that earned them give slots now.
+    // A save from before the culture deck: its work policies become cards,
+    // the tiers that earned their slots points to spend. @see readDeck
     const parsed = JSON.parse(raw) as {
+      deck?: unknown;
       policies?: Partial<Record<GeneratorId, unknown[]>>;
       autoBuyAcc?: Partial<Record<GeneratorId, number>>;
     };
-    const policies = noPolicies();
-    for (const id of ["intern", "vibe_coder", "10x_dev"] as GeneratorId[]) {
-      policies[id] = validPolicies(id, parsed.policies?.[id] ?? [], SLOT_TIERS.length);
-    }
-    return { policies, autoBuyAcc: parsed.autoBuyAcc ?? {} };
+    return { deck: readDeck(parsed.deck, parsed.policies), autoBuyAcc: parsed.autoBuyAcc ?? {} };
   } catch {
     return defaultEmployeeManagement();
   }
@@ -368,16 +370,26 @@ function buildAmountsMap(generators: OwnedGenerator[]): Record<GeneratorId, numb
   return amounts;
 }
 
+/** Manager tiers for the deck: none until employee management is open. */
+function deckTiers(): number {
+  return useInnovationStore.getState().unlocks.employeeManagement?.unlocked ? getManagementTierTotal() : 0;
+}
+/** Each track's tiers, which pace its offers. @see cardAt */
+function trackTiers(): Record<Track, number> {
+  const { managers } = useInnovationStore.getState();
+  return { agile: managers.agile.tier.floor().toNumber(), corpo: managers.corpo.tier.floor().toNumber(), sales: managers.sales.tier.floor().toNumber() };
+}
+
 function tickSatisfaction(
   scores: SatisfactionScores,
-  policies: Record<GeneratorId, PolicyId[]>,
+  work: Record<GeneratorId, number>,
   seconds: number,
   prestige: { satisfactionGainMult: number },
   led: ReturnType<typeof leadersNow>,
 ): SatisfactionScores {
   // EVERY PART BUT WORK, which the step adds itself: home, leaders, events,
   // the founder's fused lean. @see moralePartsNow
-  const parts = moralePartsNow(policies, led);
+  const parts = moralePartsNow(work, led);
   const satOffsets = Object.fromEntries(
     Object.entries(parts).map(([id, p]) => [id, p.home + p.leaders + p.events + p.founder]),
   ) as Partial<Record<GeneratorId, number>>;
@@ -386,7 +398,7 @@ function tickSatisfaction(
   const mandateSatGain = useValuationStore.getState().getEconomyMultipliers().satisfactionGain;
   return stepSatisfactionScores(
     scores,
-    policies,
+    work,
     seconds * prestige.satisfactionGainMult * driftMult * mandateSatGain,
     satOffsets,
   );
@@ -434,6 +446,12 @@ export const useGeneratorStore = create<GeneratorState>()(
         return { ...em, autoBuyAcc: acc };
       };
 
+      const setDeck = (deck: Deck) => {
+        if (deck !== get().employeeManagement.deck) set((state) => ({ employeeManagement: { ...state.employeeManagement, deck } }));
+      };
+      /** The kinds employed: their own cards are dealt from then. */
+      const employs = () => new Set(get().generators.filter((g) => g.amount > 0).map((g) => g.id as GeneratorId));
+
       return {
         purchaseMode: "single",
         generators: reconcileGeneratorsFromSavedArray([]),
@@ -441,29 +459,31 @@ export const useGeneratorStore = create<GeneratorState>()(
         employeeManagement: defaultEmployeeManagement(),
         satisfactionScores: defaultSatisfactionScores(),
 
-        getPolicies: (id) => get().employeeManagement.policies[id] ?? [],
+        getCultureEffects: (id) => cultureEffects(get().employeeManagement.deck, id),
 
-        getPolicyEffects: (id) => policyEffects(get().getPolicies(id)),
+        getDeckPoints: () => culture.pointsLeft(get().employeeManagement.deck, deckTiers()),
 
-        // SLOTS from manager tiers in all, once employee management is open. @see SLOT_TIERS
-        getPolicySlots: () =>
-          useInnovationStore.getState().unlocks.employeeManagement?.unlocked ? policySlots(getManagementTierTotal()) : 0,
+        takeCard: (offer, id) => setDeck(culture.take(get().employeeManagement.deck, offer, id)),
 
-        togglePolicy: (id, policy) => {
-          const had = get().getPolicies(id);
-          const next = had.includes(policy) ? had.filter((p) => p !== policy) : [...had, policy];
-          // Never more than the slots: a full row takes nothing new.
-          if (next.length > get().getPolicySlots()) return;
-          set((state) => ({
-            employeeManagement: {
-              ...state.employeeManagement,
-              policies: { ...state.employeeManagement.policies, [id]: validPolicies(id, next, SLOT_TIERS.length) },
-            },
-          }));
+        rerollOffer: (offer) => {
+          const d = get().employeeManagement.deck, o = d.offers[offer];
+          if (!o) return;
+          // A MINUTE'S INNOVATION, doubling each reroll of the offer. @see rerollSeconds
+          const price = culture.rerollSeconds(o) * get().getInnovationPerSecond();
+          const inv = useInnovationStore.getState();
+          if (inv.innovation.lt(price)) return;
+          inv.spendInnovation(price);
+          setDeck(culture.reroll(d, offer, employs()));
         },
 
+        buySlot: () => setDeck(culture.buySlot(get().employeeManagement.deck, deckTiers())),
+
+        rankUpCard: (id) => setDeck(culture.rankUp(get().employeeManagement.deck, id, deckTiers())),
+
+        toggleCard: (id) => setDeck(culture.toggleSlot(get().employeeManagement.deck, id)),
+
         getEmployeeOutputMults: (id) => {
-          const e = get().getPolicyEffects(id);
+          const e = get().getCultureEffects(id);
           // AWAY BUILDING: a desk with nobody at it makes nothing. One here,
           // so the live tick and every readout agree. @see attendance
           const here = attendance(id, get().generators.find((g) => g.id === id)?.amount ?? 0);
@@ -478,7 +498,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           };
         },
 
-        getEmployeeCostMult: (id) => get().getPolicyEffects(id).hireCost,
+        getEmployeeCostMult: (id) => get().getCultureEffects(id).hireCost,
 
         getEffectiveSatisfaction: (id) => {
           const m = usePrestigeStore.getState().modifiers;
@@ -486,9 +506,9 @@ export const useGeneratorStore = create<GeneratorState>()(
         },
 
         getAutoBuyRate: (id) => {
-          // Always Be Hiring, and a leader who is Always Recruiting. @see POLICIES, LEADER_PERKS
+          // Always Be Hiring, and a leader who is Always Recruiting. @see CARDS, LEADER_PERKS
           const leaders = useInnovationStore.getState().unlocks.leaders?.unlocked ? leadersNow(buildAmountsMap(get().generators)).of[id]?.autoBuy ?? 0 : 0;
-          const rate = get().getPolicyEffects(id).autoBuy + leaders;
+          const rate = get().getCultureEffects(id).autoBuy + leaders;
           if (rate <= 0) return 0;
           // Founder "Operator" + skill-tree automation modifiers.
           return rate * useFounderStore.getState().autoBuyMult * usePrestigeStore.getState().modifiers.autoBuyMult;
@@ -576,7 +596,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           }
           const satisfactionScores = tickSatisfaction(
             get().satisfactionScores,
-            get().employeeManagement.policies,
+            workMorale(get().employeeManagement.deck),
             seconds,
             prestige,
             led,
@@ -594,8 +614,8 @@ export const useGeneratorStore = create<GeneratorState>()(
           // ── 4. Income accrual (side effects only) ────────────────────────────
           // SLOP, made by the vibe coders, for the map's tanks to fill by.
           // Happy vibe coders ship cleaner; miserable ones rage-ship. @see vibeSlopMultiplier
-          // And their policies: Hackathon Culture ships faster, and dirtier. @see POLICIES
-          setSlopMaking(slopMade(amounts.vibe_coder, m.effectiveScores.vibe_coder ?? 0, get().getPolicyEffects("vibe_coder").slop));
+          // And their cards: Hackathon Culture ships faster, and dirtier. @see CARDS
+          setSlopMaking(slopMade(amounts.vibe_coder, m.effectiveScores.vibe_coder ?? 0, get().getCultureEffects("vibe_coder").slop));
 
           // Track which gens fire this tick; stamp lastTick after auto-buy so
           // increaseGenerator's set() calls are not overwritten by ours.
@@ -611,7 +631,9 @@ export const useGeneratorStore = create<GeneratorState>()(
           // ── 5. Auto-buy ───────────────────────────────────────────────────────
           // runAutoBuy calls increaseGenerator (its own set() calls) — must run
           // before we read generators for the lastTick stamp below.
-          const employeeManagement = runAutoBuy(get().employeeManagement, seconds);
+          const em = runAutoBuy(get().employeeManagement, seconds);
+          // ── 6. Offers: each track whose tiers have reached its next card deals one. @see deal
+          const employeeManagement = emUnlocked ? { ...em, deck: culture.deal(em.deck, trackTiers(), employs()) } : em;
 
           // ── Commit all four mutations in a single set() call ─────────────────
           // Read generators NOW (after auto-buy) so purchased units are preserved.

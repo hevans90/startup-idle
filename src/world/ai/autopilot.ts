@@ -230,7 +230,7 @@ function hire(spend: number): string | null {
 function act(g: Grid, budget: number): boolean {
   const money = useMoneyStore.getState().money.toNumber();
   const spend = money * budget;
-  // ITS PEOPLE: policies, leaders hired and placed, perks. Innovation, not money. @see peopleStep
+  // ITS PEOPLE: the culture deck, leaders hired and placed, perks. Innovation, not money. @see peopleStep
   const people = peopleStep(g, modelStyle().tall);
   if (people) { state.last = people; return true; }
   // THE UPGRADE THE NEXT PROJECT WAITS ON, bought as the Employees tab offers

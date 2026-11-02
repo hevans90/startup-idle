@@ -40,17 +40,18 @@ describe("morale's effects, on its −40…+40 scale", () => {
 });
 
 describe("stepSatisfactionScores", () => {
-  test("moves toward a lower target when policies cost morale", () => {
+  test("moves toward a lower target when the cards cost morale", () => {
     const prev = defaultSatisfactionScores();
-    const next = stepSatisfactionScores(prev, { intern: ["crunch"], vibe_coder: [], "10x_dev": [] }, 5);
+    const next = stepSatisfactionScores(prev, { intern: -8 }, 5);
     expect(next.intern).toBeLessThan(prev.intern);
     expect(next.vibe_coder).toBe(prev.vibe_coder);
   });
 });
 
-describe("work: the policies, on the new scale", () => {
-  test("work is the policies' morale added up; none, nothing", () => {
-    expect(satisfactionTargetForRole([])).toBe(0);
-    expect(satisfactionTargetForRole(["crunch", "lunch"])).toBe(-2);
+describe("work: the cards' morale, on the new scale", () => {
+  test("work is the cards' morale, within range", () => {
+    expect(satisfactionTargetForRole(0)).toBe(0);
+    expect(satisfactionTargetForRole(-2)).toBe(-2);
+    expect(satisfactionTargetForRole(-99)).toBe(-40);
   });
 });

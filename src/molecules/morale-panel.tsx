@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { leadersNow } from "../game/leader-economy";
+import { workMorale } from "../game/culture";
 import { MORALE_PARTS, moralePartsNow, moraleTarget, type MoralePart } from "../game/morale-parts";
 import {
   dev10xSatisfactionExponentDelta,
@@ -33,7 +34,7 @@ const KINDS: readonly GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 const PART_NAME: Record<MoralePart, string> = { home: "Home", work: "Work", leaders: "Leaders", events: "Events", founder: "Founder" };
 const PART_HINT: Record<MoralePart, string> = {
   home: "Their houses' morale: commutes, services, crowding, sludge and fouled water. Show it on the map",
-  work: "The work policies they are run by",
+  work: "The culture deck's cards they are run by",
   leaders: "Their leader: in full for the team in their building, half for the rest",
   events: "Hackathons, floods and the AI's memos, felt for a day",
   founder: "Traits fused into the founder",
@@ -65,14 +66,14 @@ function MoraleBar({ score }: { score: number }) {
 function useMorale() {
   useTicking(1000);
   const scores = useGeneratorStore((s) => s.satisfactionScores);
-  const policies = useGeneratorStore((s) => s.employeeManagement.policies);
+  const deck = useGeneratorStore((s) => s.employeeManagement.deck);
   const generators = useGeneratorStore((s) => s.generators);
   const effective = useGeneratorStore((s) => s.getEffectiveSatisfaction);
   const leadersOpen = useInnovationStore((s) => s.unlocks.leaders?.unlocked ?? false);
   const leaders = useTeamLeadersEmployeesStore((s) => s.employees);
   const amounts = Object.fromEntries(generators.map((g) => [g.id, g.amount])) as Record<GeneratorId, number>;
   const led = leadersOpen ? leadersNow(amounts, (id) => satisfactionRevenueMultiplier(effective(id)), leaders) : undefined;
-  const parts = moralePartsNow(policies, led);
+  const parts = moralePartsNow(workMorale(deck), led);
   const hired = (id: GeneratorId) => (amounts[id] ?? 0) > 0;
   return { scores, parts, effective, hired };
 }

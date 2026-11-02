@@ -202,7 +202,7 @@ describe("the gate", () => {
     useGeneratorStore.setState((st) => ({
       employeeManagement: {
         ...st.employeeManagement,
-        policies: { ...st.employeeManagement.policies, intern: ["pipeline"] },
+        deck: { ...st.employeeManagement.deck, ranks: { pipeline: 1 }, slotted: ["pipeline"] },
       },
     }));
     expect(useGeneratorStore.getState().getAutoBuyRate("intern")).toBeGreaterThan(0);

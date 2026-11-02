@@ -1,6 +1,6 @@
 # The culture deck: work policies, overhauled
 
-Status: **planned** (2026-11-02), agreed in conversation. Replaces the work policies of `plans/innovation-overhaul.md` §3.
+Status: **phase 1 done** (2026-11-02): engine, store, migration, autopilot and a greybox panel. Planned 2026-11-02, agreed in conversation. Replaces the work policies of `plans/innovation-overhaul.md` §3.
 
 ## Why
 
@@ -128,9 +128,16 @@ About 30 cards: 5 per base family (20) and 3–4 per AI family (10). Each has a 
 - **The journal:** a page of discovered cards, greyed for unfound ones.
 - Every card shows its trade in one line and its rank-3 rule in one line. Keep it short.
 
+## Polish, and showing the UI as it goes
+
+The user wants this **very polished**, and to **see the UI at each stage** to give feedback:
+- Every phase that touches the screen ends with screenshots of it, light and dark, at desktop and phone widths, before the next starts.
+- UI lands in stages: a working greybox first (to judge the flow), then the styled version, then motion and feel. Each is shown before moving on.
+- Card art, the offer reveal, rank-ups and tag-set completion each get a moment of feedback (motion, sound where the game has it), shown before they're kept.
+
 ## Phases
 
-1. **Engine.** Card catalogue, tags, deck state (points, slots, ranks, slotted, progress per track, offers), effects replacing `policyEffects`, migration. Tests. The six `getPolicyEffects` callers switch over.
+1. **Engine.** *(Done: `game/culture.ts`; ranks stop at 2 until phase 3; the tracks' multipliers are kept for now.)* Card catalogue, tags, deck state (points, slots, ranks, slotted, progress per track, offers), effects replacing `policyEffects`, migration. Tests. The six `getPolicyEffects` callers switch over.
 2. **Deck UI.** The deck panel, offer picker, rerolls, progress bars.
 3. **Tag sets and keystones.** Each rank-3 rule wired into its system (commutes, slop, leaders, housing, agents, the meter).
 4. **Map flavour.** Each card's look in the town.

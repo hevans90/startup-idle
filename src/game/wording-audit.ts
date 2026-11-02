@@ -7,7 +7,7 @@ import { JUICE_SHOP_UPGRADES } from "./achievements.juice-shop";
 import { FOUNDERS } from "./founders.catalog";
 import { LEADER_PERKS, PERSONALITIES } from "./leaders";
 import { isMachine, machineGraph } from "./machine";
-import { POLICIES } from "./policies";
+import { CARDS, says as cardSays } from "./culture";
 import { PROCESSORS } from "./processors";
 import { nodeEffectRows, SKILL_TREE } from "./skill-tree";
 import { CLAUSES } from "./term-deal";
@@ -23,7 +23,7 @@ export type Line = { name: string; line: string };
 
 /** Each catalogue's effect lines, as the player reads them now. */
 export const CATALOGUES: Record<CatalogueId, () => Line[]> = {
-  policies: () => POLICIES.map((p) => ({ name: p.name, line: p.says })),
+  policies: () => CARDS.flatMap((c) => [1, 2].map((r) => ({ name: `${c.name} ${r}`, line: cardSays(c, r) }))),
   leaders: () => [
     ...Object.values(PERSONALITIES).map((p) => ({ name: p.name, line: p.says })),
     ...Object.values(LEADER_PERKS).map((p) => ({ name: p.name, line: p.says })),
