@@ -20,7 +20,7 @@ import { KIND_PLURAL } from "../../molecules/leaders-panel";
 import { useSessionStore } from "../../state/session.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
-import { SLOP_FROM, SLOP_PER_CODER, TANK_SECONDS, slopMaking } from "../../game/slop";
+import { SLOP_FROM, SLOP_PER_CODER, slopMaking } from "../../game/slop";
 import { SEWER_RATE } from "../../game/mains";
 import { PROCESS_RATE } from "../../game/processors";
 import { InfoPop } from "../../ui/InfoPop";
@@ -202,9 +202,9 @@ export function SlopCard() {
         <b>Slop</b>
         <span className="tabular-nums text-fg-muted">{slopMaking().toFixed(2)} a second</span>
       </>}>
-        <p>From {SLOP_FROM} vibe coders on, each makes {SLOP_PER_CODER} slop a second into a tank at their workplace: half that when they are happy, twice it when they are miserable, and a fifth more under Hackathon Culture.</p>
-        <p>A tank holds {Math.round(TANK_SECONDS / 60)} minutes of what its workplace makes. Full, it spills at its slop port: sludge on the street, which homes hate and vibe coders leave their desks to mop, or pollution in water.</p>
-        <p>A sewer drains every tank whose slop port it reaches, by itself on a tile beside the port, up to {SEWER_RATE} a second for each width of bore. Refineries and the other processors take theirs first, {PROCESS_RATE} a second each; the rest goes out of an outfall into the water, and fouls it.</p>
+        <p>{SLOP_FROM}+ vibe coders each make {SLOP_PER_CODER}/s into their workplace's tank. Unhappy coders make more.</p>
+        <p>A full tank spills: sludge on the street, or pollution in water.</p>
+        <p>Sewers drain tanks, {SEWER_RATE}/s per bore: processors first ({PROCESS_RATE}/s each), the rest out to water.</p>
       </InfoPop>
       {condensed && (
         <div className="mt-1 flex flex-col gap-1">
