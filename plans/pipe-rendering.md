@@ -255,6 +255,17 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
   - Vertices on bigtown: 51k at the far tier, 82k at mid, 167k at near.
 - **Not done:** the tick still allocates its per-frame maps of streaks and lumps, as it did before this plan.
 
+### After phase 6, at the user's word
+
+- **Ports.** A main that ends at a building's port now runs on into the wall, bending or straight like any other join, with a collar there in the fluid's colour (`Limb.wall`).
+  - Before, the nozzle's lip and a steel knuckle met in the middle of the cell, and looked broken.
+  - An outlet's valve stands on the tube: in the middle of a straight, or on the length into the wall where the main bends.
+- **Windows.** What is in the glass is now geometry, rebuilt every frame into a mesh in the band's own render group (`windowGlass`, `pipeLiveDrawable`):
+  - the water, a lit tube inside the glass, with streaks of light as thin tubes running along its top;
+  - or a sewer's slop, with lumps sliding in it;
+  - then the glass itself over it all, mostly clear.
+  - The mesh's buffers keep their size each frame, so nothing around them is rebuilt.
+
 ## 8. Verification
 
 - Unit tests on `pipe-mesh.ts`: how many vertices each piece has, that pieces meet at their seams, and the draw order.

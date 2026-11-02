@@ -167,6 +167,40 @@ export function pipeDrawable(m: PipeMesh): Mesh<Geometry, Shader> {
   return mesh;
 }
 
+/**
+ * A pipe mesh WRITTEN AGAIN EVERY FRAME — the water in the windows — with
+ * room for `v` vertices and `i` indices: `write` copies a mesh in and pads
+ * what it does not use with empty triangles, so the buffers keep their size
+ * and the draw list round it never has to be rebuilt.
+ */
+export function pipeLiveDrawable(v: number, i: number): { mesh: Mesh<Geometry, Shader>; write: (m: PipeMesh) => void } {
+  const STRIDE = WORDS * 4;
+  const vertices = new Buffer({ data: new Float32Array(Math.max(1, v) * WORDS), usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
+  const indices = new Buffer({ data: new Uint32Array(Math.max(3, i)), usage: BufferUsage.INDEX | BufferUsage.COPY_DST });
+  const geometry = new Geometry({
+    attributes: {
+      aPosition: { buffer: vertices, format: "float32x2", stride: STRIDE, offset: 0 },
+      aNormal: { buffer: vertices, format: "float32x3", stride: STRIDE, offset: 8 },
+      aColor: { buffer: vertices, format: "unorm8x4", stride: STRIDE, offset: 20 },
+    },
+    indexBuffer: indices,
+  });
+  const mesh = new Mesh<Geometry, Shader>({ geometry, shader: pipeShader() });
+  mesh.eventMode = "none";
+  let used = 0;
+  const write = (m: PipeMesh) => {
+    const vd = vertices.data as Float32Array, id = indices.data as Uint32Array;
+    const nv = Math.min(m.nv, vd.length / WORDS), ni = Math.min(m.ni - (m.ni % 3), id.length - (id.length % 3));
+    vd.set(m.f32.subarray(0, nv * WORDS));
+    id.set(m.idx.subarray(0, ni));
+    if (ni < used) id.fill(0, ni, used);
+    used = ni;
+    vertices.update();
+    indices.update();
+  };
+  return { mesh, write };
+}
+
 /** Put one away: its geometry, not the shared shader. */
 export function destroyPipeDrawable(mesh: Mesh<Geometry, Shader>) {
   mesh.parent?.removeChild(mesh);

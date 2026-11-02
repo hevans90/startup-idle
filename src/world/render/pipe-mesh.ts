@@ -157,8 +157,12 @@ export function ball(m: PipeMesh, s: number, cu: number, cv: number, ch: number,
   }
 }
 
-/** One limb of a cell's tube: the way out (a unit step in u or v) and the level, half steps, at the face. */
-export type Limb = { dx: number; dy: number; zf: number };
+/**
+ * One limb of a cell's tube: the way out (a unit step in u or v) and the
+ * level, half steps, at the face — and, where it runs into a building's
+ * port, the `wall` collar's colour, its fluid's: the main meets the wall there.
+ */
+export type Limb = { dx: number; dy: number; zf: number; wall?: number };
 
 /** How a cell's main looks: its radius, tiles; its colours as `0xRRGGBB`; its faces round. */
 export type PipeLook = {
@@ -173,9 +177,13 @@ export type PipeLook = {
   /** What it stands on, and the ground there, half steps. */
   support?: Support;
   floor?: number;
-  /** A straight run's glass window: how far it reaches either side of the middle, tiles; its glass. */
+  /**
+   * A straight run's glass window: how far it reaches either side of the
+   * middle, tiles; its glass — or `null`, to leave the length open for the
+   * glass and what is in it to be written each frame. @see windowGlass
+   */
   window?: number;
-  glass?: number;
+  glass?: number | null;
   /** A band painted round a straight run's middle: an AI line's violet, a sewer's brown. */
   band?: number | null;
   /** The small parts, left off far away: an outlet's valve wheel, the frames round a window. */
@@ -193,6 +201,9 @@ export const FITTING = {
 } as const;
 /** A window's frame and a painted band: how much wider than the tube, and how long, tiles. */
 const FRAME_R = 1.12, FRAME_T = 0.035, BAND_R = 1.05, BAND_T = 0.09;
+
+/** How far off a building's wall its port's collar stands, tiles: clear of the wall's face. */
+const WALL_GAP = 0.03;
 
 /** A pump house's walls, half their length in u and in v; its height at least, half steps. */
 const PUMP_U = 0.22, PUMP_V = 0.18, PUMP_TALL = 2.6;
@@ -439,12 +450,17 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     if (far(l)) { length(l, r * COLLAR_TO); collar(l); } else { collar(l); length(l, r * COLLAR_TO); }
   };
 
-  if (look.flanges !== false) {
-    for (const l of limbs) {
-      if (!far(l)) continue;
-      const [fu, fv, fh] = face(l);
-      flange(m, s, fu, fv, fh, -l.dx, -l.dy, r, look.colour, sides, look.bolts !== false, false);
-    }
+  // A PORT'S COLLAR where a limb meets a building's wall: in its fluid's colour, on whichever side.
+  const wall = (l: Limb) => {
+    const [fu, fv, fh] = face(l);
+    flange(m, s, fu - l.dx * WALL_GAP, fv - l.dy * WALL_GAP, fh, -l.dx, -l.dy, r, l.wall!, sides, look.bolts !== false, false);
+  };
+  for (const l of limbs) {
+    if (!far(l)) continue;
+    if (l.wall !== undefined) { wall(l); continue; }
+    if (look.flanges === false) continue;
+    const [fu, fv, fh] = face(l);
+    flange(m, s, fu, fv, fh, -l.dx, -l.dy, r, look.colour, sides, look.bolts !== false, false);
   }
 
   // WHAT IT STANDS ON: a saddle up to its underside; or the far leg and the beam of a frame, its near leg after the tube.
@@ -483,13 +499,9 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     const win = look.window ?? 0;
     if (win > 0 && run.length === 2 && !stubs.length) {
       // A WINDOW: steel to its far frame, glass between its frames, steel on; then the frames round the joins.
-      const along = (k: number): Pt => {
-        const f = k < 0 ? a : b, q = Math.abs(k) / 0.5;
-        return [x + (f[0] - x) * q, y + (f[1] - y) * q, h + (f[2] - h) * q];
-      };
-      const w0 = along(-win), w1 = along(win), glass = solid(look.glass ?? 0xcfe6f2);
+      const [w0, w1] = windowSpan(x, y, z, run[0], run[1], win);
       tube(m, s, a[0], a[1], a[2], w0[0], w0[1], w0[2], r, c, sides);
-      tube(m, s, w0[0], w0[1], w0[2], w1[0], w1[1], w1[2], r, glass, sides);
+      if (look.glass !== null) tube(m, s, w0[0], w0[1], w0[2], w1[0], w1[1], w1[2], r, solid(look.glass ?? 0xcfe6f2), sides);
       tube(m, s, w1[0], w1[1], w1[2], b[0], b[1], b[2], r, c, sides);
       const du = -run[0].dx, dv = -run[0].dy;
       if (look.frames !== false) for (const p of [w0, w1]) hoop(m, s, p, du, dv, r, r * FRAME_R, FRAME_T, c, sides);
@@ -500,6 +512,7 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     }
     for (const l of stubs) if (!far(l)) stub(l);
   }
+  for (const l of limbs) if (l.wall !== undefined && !far(l)) wall(l);
   if (nearLeg) box(m, s, nearLeg[0], nearLeg[1], g, nearLeg[2], nearLeg[3], h - r - BEAM, concrete);
 }
 
@@ -531,8 +544,76 @@ function hring(m: PipeMesh, s: number, cu: number, cv: number, ch: number, rIn: 
   }
 }
 
+/**
+ * WHERE A WINDOW IS: its two ends, the far one first, `win` tiles either side
+ * of the middle of a straight run from the `far` limb's face to the `near` one's.
+ */
+export function windowSpan(x: number, y: number, z: number, far: Limb, near: Limb, win: number): [Pt, Pt] {
+  const h = z * ZT;
+  const at = (l: Limb): Pt => {
+    const q = win / 0.5;
+    return [x + l.dx * 0.5 * q, y + l.dy * 0.5 * q, h + (l.zf * ZT - h) * q];
+  };
+  return [at(far), at(near)];
+}
+
+/** Up the screen, square to the line of sight, in the map's axes: where the top of a tube is seen. @see pipe-gpu */
+const UP = (() => {
+  const c = Math.sqrt(1 - (HH / HW) ** 2);
+  return [-Math.SQRT1_2 * (HH / HW), -Math.SQRT1_2 * (HH / HW), c] as const;
+})();
+
+/** What a window shows: its fill's colour; marks along it, -1 to 1, in their colour — streaks on water, or lumps in slop. */
+export type WindowFill = { colour: number; marks: readonly number[]; mark: number; lumps: boolean };
+/** The fill inside the glass, and a streak's length and a lump's size, shares of the tube's radius. */
+const FILL_R = 0.8, STREAK = 1.1, STREAK_R = 0.16, LUMP_R = 0.28;
+
+/**
+ * A WINDOW'S GLASS, AND WHAT IS IN IT, from `w0` to `w1`, written each frame:
+ * the water a lit tube inside the glass, streaks of light running along the
+ * top of it, or slop with lumps sliding down it; then the glass itself over
+ * all of that, tinted and mostly clear. `inset` keeps clear of the frames.
+ */
+export function windowGlass(
+  m: PipeMesh, s: number, w0: readonly number[], w1: readonly number[], inset: number,
+  r: number, sides: number, fill: WindowFill | null, glass: number, clear: number,
+) {
+  const len = Math.hypot(w1[0] - w0[0], w1[1] - w0[1], w1[2] - w0[2]);
+  const du = (w1[0] - w0[0]) / len, dv = (w1[1] - w0[1]) / len, dh = (w1[2] - w0[2]) / len;
+  const at = (k: number, lift = 0): Pt => {
+    const q = 0.5 + k * (0.5 - inset / len);
+    return [w0[0] + (w1[0] - w0[0]) * q + top[0] * lift, w0[1] + (w1[1] - w0[1]) * q + top[1] * lift, w0[2] + (w1[2] - w0[2]) * q + top[2] * lift];
+  };
+  // Square to the tube, toward the top of it as the camera sees it.
+  const d = UP[0] * du + UP[1] * dv + UP[2] * dh;
+  const tu = UP[0] - d * du, tv = UP[1] - d * dv, th = UP[2] - d * dh, tl = Math.hypot(tu, tv, th) || 1;
+  const top = [tu / tl, tv / tl, th / tl];
+  if (fill) {
+    const a = at(-1), b = at(1), rf = r * FILL_R;
+    tube(m, s, a[0], a[1], a[2], b[0], b[1], b[2], rf, solid(fill.colour), sides);
+    const mark = solid(fill.mark), half = (STREAK * rf) / Math.max(1e-6, len - 2 * inset);
+    for (const k of fill.marks) {
+      if (fill.lumps) {
+        const p = at(Math.max(-0.85, Math.min(0.85, k)), rf * 0.35);
+        ball(m, s, p[0], p[1], p[2], r * LUMP_R, mark, Math.max(6, sides >> 1));
+        continue;
+      }
+      // A streak, cut off where the glass ends.
+      const k0 = Math.max(-1, k - half), k1 = Math.min(1, k + half);
+      if (k1 - k0 < half * 0.25) continue;
+      const p = at(k0, rf * 0.7), q = at(k1, rf * 0.7);
+      tube(m, s, p[0], p[1], p[2], q[0], q[1], q[2], r * STREAK_R, mark, Math.max(6, sides >> 1));
+    }
+  }
+  const a = at(-1), b = at(1);
+  tube(m, s, a[0], a[1], a[2], b[0], b[1], b[2], r, rgba(glass, clear), sides);
+}
+
+/** A window's frame, half its length, tiles: what the glass keeps clear of, either end. */
+export const FRAME_HALF = FRAME_T / 2;
+
 /** AN OUTLET'S VALVE: a stem up out of the top of the tube, and a red handwheel on it. */
-function valve(m: PipeMesh, s: number, x: number, y: number, h: number, r: number) {
+export function valve(m: PipeMesh, s: number, x: number, y: number, h: number, r: number) {
   const top = h + r + 0.07, steel = solid(FITTING.wheel), red = solid(FITTING.valve);
   box(m, s, x - 0.012, y - 0.012, h + r * 0.8, x + 0.012, y + 0.012, top, steel);
   hring(m, s, x, y, top, 0.045, 0.062, red, 16);
