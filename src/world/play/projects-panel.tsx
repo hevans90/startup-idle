@@ -20,7 +20,10 @@ import { KIND_PLURAL } from "../../molecules/leaders-panel";
 import { useSessionStore } from "../../state/session.store";
 import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
-import { SLOP_FROM, slopMaking } from "../../game/slop";
+import { SLOP_FROM, SLOP_PER_CODER, TANK_SECONDS, slopMaking } from "../../game/slop";
+import { SEWER_RATE } from "../../game/mains";
+import { PROCESS_RATE } from "../../game/processors";
+import { InfoPop } from "../../ui/InfoPop";
 import { tanksOf } from "../slop/tanks";
 import { mainReports } from "../water/mains";
 import { opensText } from "./building-info";
@@ -168,40 +171,67 @@ function LogSection({ title, children }: { title: string; children: ReactNode })
   );
 }
 
+/** Tanks the slop card lists one by one; past this, it sums them up and lists only the worst. */
+const SLOP_ROWS = 5, SLOP_WORST = 3;
+
 /**
  * SLOP: what the vibe coders make a second, and each workplace's tank — how
  * full, whether a sewer takes from it, and whether it is spilling onto the
- * street. A press on one shows it on the map. @see world/slop/tanks
+ * street. A press on one shows it on the map. With many workplaces it
+ * CONDENSES: how many spill, fill and are sewered, and only the worst few
+ * tanks. How it all works is on the title, on hover. @see world/slop/tanks
  */
 export function SlopCard() {
   useTicking(500);
   const grid = useWorldStore((s) => s.grid);
   const tanks = tanksOf(grid);
   const drained = new Set([...mainReports().values()].flatMap((r) => (r.sewer && r.state === "flowing" ? r.sewer.sources : [])));
-  const rows = [...tanks.entries()].map(([id, t]) => ({ id, t, s: grid.structures.get(id) })).filter((r) => r.s);
-  const spilling = rows.some((r) => r.t.spilling);
+  const rows = [...tanks.entries()]
+    .map(([id, t]) => ({ id, t, s: grid.structures.get(id), full: t.capacity > 0 ? t.level / t.capacity : 0, sewered: drained.has(id) }))
+    .filter((r) => r.s);
+  const spilling = rows.filter((r) => r.t.spilling).length;
+  const sewered = rows.filter((r) => !r.t.spilling && r.sewered).length;
+  const filling = rows.length - spilling - sewered;
+  // THE WORST FIRST: spilling, then the fullest a sewer does not take from.
+  const rank = (r: (typeof rows)[number]) => (r.t.spilling ? 2 : r.sewered ? -1 : r.full);
+  const condensed = rows.length > SLOP_ROWS;
+  const shown = condensed ? [...rows].sort((a, b) => rank(b) - rank(a)).filter((r) => !r.sewered || r.t.spilling).slice(0, SLOP_WORST) : rows;
   return (
     <div className={twMerge(SMALL, spilling ? "border-bad" : "")}>
-      <div className="flex items-baseline justify-between gap-2">
+      <InfoPop placement="right" className="justify-between gap-2" title="Slop" trigger={<>
         <b>Slop</b>
         <span className="tabular-nums text-fg-muted">{slopMaking().toFixed(2)} a second</span>
-      </div>
-      {rows.map(({ id, t, s }) => {
-        const full = t.capacity > 0 ? t.level / t.capacity : 0;
-        return (
-          <button key={id} type="button" onClick={() => showMe({ x: s!.x + 1, y: s!.y + 1 })}
-            className="mt-1 flex w-full cursor-pointer items-center gap-1.5 text-left">
-            <span className="w-24 truncate">{structureDef(s!.def)?.name}</span>
-            <span className="h-1 flex-1 bg-surface-3">
-              <span className={twMerge("block h-full", t.spilling ? "bg-bad" : full > 0.75 ? "bg-warn" : "bg-good")} style={{ width: `${Math.min(100, full * 100)}%` }} />
-            </span>
-            <span className={twMerge("w-14 text-right tabular-nums", t.spilling ? "text-bad" : drained.has(id) ? "text-good" : "text-fg-muted")}>
-              {t.spilling ? "spilling" : drained.has(id) ? "sewered" : `${Math.round(full * 100)}%`}
-            </span>
-          </button>
-        );
-      })}
-      {spilling && <p className="mt-1 text-bad">A full tank spills sludge at its slop port. Lay a sewer from it to water.</p>}
+      </>}>
+        <p>From {SLOP_FROM} vibe coders on, each makes {SLOP_PER_CODER} slop a second into a tank at their workplace: half that when they are happy, twice it when they are miserable, and a fifth more under Hackathon Culture.</p>
+        <p>A tank holds {Math.round(TANK_SECONDS / 60)} minutes of what its workplace makes. Full, it spills at its slop port: sludge on the street, which homes hate and vibe coders leave their desks to mop, or pollution in water.</p>
+        <p>A sewer drains every tank whose slop port it reaches, by itself on a tile beside the port, up to {SEWER_RATE} a second for each width of bore. Refineries and the other processors take theirs first, {PROCESS_RATE} a second each; the rest goes out of an outfall into the water, and fouls it.</p>
+      </InfoPop>
+      {condensed && (
+        <div className="mt-1 flex flex-col gap-1">
+          <span className="flex h-1 w-full bg-surface-3">
+            <span className="block h-full bg-bad" style={{ width: `${(spilling / rows.length) * 100}%` }} />
+            <span className="block h-full bg-warn" style={{ width: `${(filling / rows.length) * 100}%` }} />
+            <span className="block h-full bg-good" style={{ width: `${(sewered / rows.length) * 100}%` }} />
+          </span>
+          <span className="flex justify-between tabular-nums text-fg-muted">
+            <span className={spilling ? "text-bad" : ""}>{spilling} spilling</span>
+            <span>{filling} filling</span>
+            <span className={sewered ? "text-good" : ""}>{sewered} sewered</span>
+          </span>
+        </div>
+      )}
+      {shown.map(({ id, t, s, full, sewered: taken }) => (
+        <button key={id} type="button" onClick={() => showMe({ x: s!.x + 1, y: s!.y + 1 })}
+          className="mt-1 flex w-full cursor-pointer items-center gap-1.5 text-left">
+          <span className="w-24 truncate">{structureDef(s!.def)?.name}</span>
+          <span className="h-1 flex-1 bg-surface-3">
+            <span className={twMerge("block h-full", t.spilling ? "bg-bad" : full > 0.75 ? "bg-warn" : "bg-good")} style={{ width: `${Math.min(100, full * 100)}%` }} />
+          </span>
+          <span className={twMerge("w-14 text-right tabular-nums", t.spilling ? "text-bad" : taken ? "text-good" : "text-fg-muted")}>
+            {t.spilling ? "spilling" : taken ? "sewered" : `${Math.round(full * 100)}%`}
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
