@@ -46,7 +46,7 @@ import { mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import {
-  createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
+  bandShown, createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
   type BandLayer,
 } from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
@@ -111,7 +111,7 @@ import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
 import { stepEvolution, withTier } from "./agents/services";
-import { WORKPLACES, liveSeating } from "./agents/commute";
+import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
 import { CONVOY_PAYS, convoyPays } from "./events/convoy";
@@ -148,7 +148,7 @@ import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
 import { footprintCells, idx, inBounds, structureAt, surfaceHeightAt, surfaceSampler, type Grid, type Structure } from "./grid";
-import { HEIGHT_UNIT, HH, HW, cellToWorld, pickCell, worldToCellF } from "./iso";
+import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
 import { runPipes } from "./water/pipes";
@@ -185,6 +185,8 @@ const CUT_OUTLINE = 0xe8eef4;
 import { ambience, sfx } from "../audio/sound";
 
 /** The time of day, 0–1 from midnight; `__dayPhase` holds it, in development, to look at an hour. @see dayPhase */
+/** Seconds between Ship It Fridays' release parties, about. */
+const SHIP_EVERY = 5;
 const phaseNow = () => (import.meta.env.DEV ? (window as unknown as { __dayPhase?: number }).__dayPhase : undefined) ?? dayPhase(Date.now());
 
 /** Movers on the map at which the town sounds as busy as it gets. */
@@ -201,6 +203,9 @@ import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
 import { busyness, darkness, dayPhase, drawRain, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
+import { inForce } from "../game/culture";
+import { cultureNow } from "../game/culture-now";
+import { createCultureProps, type CultureProps } from "./render/culture-props";
 import { createLights, type Lights } from "./render/lights";
 import { keystone, notable } from "../game/machine";
 import { inAiDistrictNow } from "./ai/district";
@@ -349,6 +354,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const holoRef = useRef<Holograms | null>(null);
   /** A building dropping into place, a house hopping as it grows, dust where one came down. @see createJuice */
   const juiceRef = useRef<Juice | null>(null);
+  /** The culture deck's cards, seen by the buildings. @see createCultureProps */
+  const propsRef = useRef<CultureProps | null>(null);
+  /** Seconds to Ship It Fridays' next release party. @see SHIP_EVERY */
+  const shipIn = useRef(0);
   const soundClock = useRef(0);
   const holoScanRef = useRef<Graphics | null>(null);
   const tileHoloRef = useRef<TileHolograms | null>(null);
@@ -452,7 +461,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const night = useRef<Graphics | null>(null);
   const nightKey = useRef("");
   const lightsRef = useRef<Lights | null>(null);
-  const lightsAt = useRef<{ grid: unknown; rev: number }>({ grid: null, rev: -1 });
+  const lightsAt = useRef<{ grid: unknown; rev: number; crunch: boolean }>({ grid: null, rev: -1, crunch: false });
   // AND RAIN over it while a flood is coming or here. @see drawRain
   const rain = useRef<Graphics | null>(null);
   useEffect(() => {
@@ -1549,6 +1558,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         holoRef.current = createHolograms();
         tileHoloRef.current = createTileHolograms();
         juiceRef.current = createJuice();
+        propsRef.current = createCultureProps(bl);
         const scan = new Graphics();
         scan.eventMode = "none";
         scan.zIndex = 1001;
@@ -1589,6 +1599,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       holoRef.current = null;
       juiceRef.current?.clear();
       juiceRef.current = null;
+      propsRef.current?.destroy();
+      propsRef.current = null;
       tileHoloRef.current?.clear();
       tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
@@ -3208,6 +3220,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (landed.length && juiceRef.current && bl && tex) for (const at of landed) juiceRef.current.landed(at, { bands: bl, textures: tex, grid: useWorldStore.getState().grid, scale });
       landed.length = 0;
     }
+    // SHIP IT FRIDAYS: a release party now and then, off the roof of a
+    // workplace in view. @see Juice.confetti
+    shipIn.current -= raw;
+    if (shipIn.current <= 0 && juiceRef.current && bl && tex) {
+      shipIn.current = SHIP_EVERY * (0.6 + Math.random() * 0.8);
+      if (inForce(useGeneratorStore.getState().employeeManagement.deck).includes("shipit")) {
+        const grid = useWorldStore.getState().grid;
+        const seen = [...grid.structures.values()].filter((s) => !s.build && workplaceKind(s.def) && bandShown(bl, bandOf(s.x + s.w - 1, s.y + s.h - 1)));
+        if (seen.length) juiceRef.current.confetti(seen[Math.floor(Math.random() * seen.length)], { bands: bl, textures: tex, grid, scale });
+      }
+    }
     juiceRef.current?.tick(raw * 1000);
     // THE TOWN'S AMBIENCE, a few times a second: its hum by its size, birds by day, crickets by night. @see ambience
     soundClock.current += raw;
@@ -3223,6 +3246,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const on = useWorldStore.getState().playing && useGlobalSettingsStore.getState().dayNight;
       const phase = phaseNow();
       getTown().busy = on ? busyness(phase) : undefined;
+      // The culture deck on the streets. @see Town.culture
+      {
+        const deck = useGeneratorStore.getState().employeeManagement.deck, cards = inForce(deck);
+        getTown().culture = { remote: cultureNow().remote, shuttle: cards.includes("shuttle"), vans: cards.includes("hiretofire") };
+      }
       const g = night.current;
       const now = Date.now();
       const playing = useWorldStore.getState().playing;
@@ -3249,14 +3277,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
       }
       const blNow = blRef.current;
+      if (propsRef.current) {
+        const st = useWorldStore.getState();
+        propsRef.current.sync(st.grid, useGeneratorStore.getState().employeeManagement.deck, st.revision, scale);
+      }
       if (lightsRef.current && blNow) {
         // Put where the map is now whenever it has changed — whichever of the
         // scene and the lights was made first. @see createLights
         const st = useWorldStore.getState();
-        if (nightNow > 0.02 && (lightsAt.current.grid !== st.grid || lightsAt.current.rev !== st.revision)) {
-          lightsAt.current = { grid: st.grid, rev: st.revision };
+        // Crunch Week's offices lit cold and bright. @see CRUNCH_WINDOW
+        const crunch = inForce(useGeneratorStore.getState().employeeManagement.deck).includes("crunch");
+        if (nightNow > 0.02 && (lightsAt.current.grid !== st.grid || lightsAt.current.rev !== st.revision || lightsAt.current.crunch !== crunch)) {
+          lightsAt.current = { grid: st.grid, rev: st.revision, crunch };
           const e = section("tick: lights sync");
-          lightsRef.current.sync(st.grid, scale);
+          lightsRef.current.sync(st.grid, scale, crunch);
           e();
         }
         lightsRef.current.tick(nightNow, blNow.root.worldTransform, now / 1000);

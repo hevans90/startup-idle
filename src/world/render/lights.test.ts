@@ -24,4 +24,14 @@ describe("the town's lights", () => {
     expect(lamps.length).toBeGreaterThan(2);
     expect(lamps.length).toBeLessThan(12);
   });
+
+  test("Crunch Week: the workplaces lit cold and bright, the houses as they were", () => {
+    const g = createGrid(16, 16);
+    fillTerrain(g, 1);
+    g.structures.set(1, { id: 1, def: "garage", x: 2, y: 2, w: 2, h: 1 });
+    g.structures.set(2, { id: 2, def: "kit:intern.t0", x: 8, y: 8, w: 1, h: 1, residents: 1 });
+    const lit = (crunch: boolean) => lightsOf(g, crunch).filter((l) => l.kind === "window").map((l) => !!l.crunch);
+    expect(lit(false)).toEqual([false, false]);
+    expect(lit(true)).toEqual([true, false]);
+  });
 });

@@ -22,6 +22,8 @@ import { notable } from "../../game/machine";
 
 const WINDOW = 0xffc46b;
 const NIGHT_SHIFT_WINDOW = 0xb44aff;
+/** Crunch Week's: the offices' strip lights, cold and bright, everyone still in. */
+const CRUNCH_WINDOW = 0xd8ecff;
 const LAMP = 0xffe2a0;
 /** How high a building's glow sits over its ground, screen px at scale 1, by tier. */
 const RISE: Record<string, number> = { t0: 18, t1: 28, t2: 46, landmark: 80 };
@@ -30,7 +32,7 @@ const LAMP_EVERY = 4;
 
 export type Lights = {
   /** Put the lights where the map's buildings and streets are now. */
-  sync: (g: Grid, scale: number) => void;
+  sync: (g: Grid, scale: number, crunch?: boolean) => void;
   /** This frame: how dark it is (0–1) and the map's transform to the screen. */
   tick: (night: number, map: Matrix, t: number) => void;
   destroy: () => void;
@@ -54,7 +56,7 @@ function glowTexture(): Texture {
 }
 
 /** Where the lights go: a glow per lit building, a pool per lamp. Pure, for tests. */
-export function lightsOf(g: Grid): { kind: "window" | "lamp"; x: number; y: number; w: number; h: number; rise: number; violet?: boolean }[] {
+export function lightsOf(g: Grid, crunch = false): { kind: "window" | "lamp"; x: number; y: number; w: number; h: number; rise: number; violet?: boolean; crunch?: boolean }[] {
   // THE NIGHT SHIFT: workplaces lit violet, the AI at the empty desks. @see game/machine "nightshift"
   const night = notable("nightshift");
   const out: ReturnType<typeof lightsOf> = [];
@@ -64,7 +66,7 @@ export function lightsOf(g: Grid): { kind: "window" | "lamp"; x: number; y: numb
     // A house with nobody in it is dark.
     if (housed && !residentsIn(s)) continue;
     if (s.def === "derelict") continue;
-    out.push({ kind: "window", x: s.x, y: s.y, w: s.w, h: s.h, rise: RISE[tierOf(s.def) ?? ""] ?? 34, ...(night && s.def in DESKS ? { violet: true } : {}) });
+    out.push({ kind: "window", x: s.x, y: s.y, w: s.w, h: s.h, rise: RISE[tierOf(s.def) ?? ""] ?? 34, ...(night && s.def in DESKS ? { violet: true } : crunch && s.def in DESKS ? { crunch: true } : {}) });
   }
   const paved = (x: number, y: number) => inBounds(g, x, y) && isPaved(g, x, y);
   for (let y = 0; y < g.h; y++) {
@@ -85,8 +87,8 @@ export function createLights(stage: Container, zIndex: number): Lights {
   stage.addChild(root);
   const sprites: Sprite[] = [];
   return {
-    sync(g, scale) {
-      const want = lightsOf(g);
+    sync(g, scale, crunch = false) {
+      const want = lightsOf(g, crunch);
       while (sprites.length > want.length) sprites.pop()!.destroy();
       while (sprites.length < want.length) {
         const s = new Sprite(glowTexture());
@@ -102,9 +104,9 @@ export function createLights(stage: Container, zIndex: number): Lights {
         s.x = wx;
         s.y = wy - l.rise * scale;
         if (l.kind === "window") {
-          s.tint = l.violet ? NIGHT_SHIFT_WINDOW : WINDOW;
-          s.scale.set((1.1 + 0.5 * Math.max(l.w, l.h)) * scale);
-          s.alpha = 0.55;
+          s.tint = l.violet ? NIGHT_SHIFT_WINDOW : l.crunch ? CRUNCH_WINDOW : WINDOW;
+          s.scale.set((l.crunch ? 1.6 : 1) * (1.1 + 0.5 * Math.max(l.w, l.h)) * scale);
+          s.alpha = l.crunch ? 0.8 : 0.55;
         } else {
           s.tint = LAMP;
           // A pool on the ground: flattened, as the tiles are.

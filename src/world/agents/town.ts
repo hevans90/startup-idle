@@ -84,6 +84,12 @@ export type Town = {
    * share of trips that are to work and home. Set by the scene. @see busyness
    */
   busy?: { traffic: number; commute: number };
+  /**
+   * The culture deck, on the streets: the share working from home, off the
+   * roads; Shuttle Bus's buses among the cars; Hire to Fire's moving vans.
+   * Set by the scene. @see game/culture
+   */
+  culture?: { remote: number; shuttle: boolean; vans: boolean };
   movers: Mover[];
   /** Movers on a job that arrived since the last look. @see stepWorks */
   arrived: Mover[];
@@ -144,6 +150,12 @@ const BUS_CRUISE = 1.2;
 const BUS_COLOUR = 0xf2b51d;
 const LIMO_CRUISE = 1.45;
 const LIMO_COLOUR = 0x17181c;
+/** Shuttle Bus's buses, blue, and the share of the town's car trips they take. */
+const SHUTTLE_COLOUR = 0x3a78c9;
+const SHUTTLE_SHARE = 0.12;
+/** Hire to Fire's moving vans, white, a load of boxes on the back, and their share. */
+const VAN_COLOUR = 0xe9e6dd;
+const VAN_SHARE = 0.12;
 const PERSON_CRUISE = 0.45;
 const SPREAD = 0.2;
 /** Tiles a second squared. */
@@ -202,7 +214,7 @@ function along(m: Mover, s: number) {
 /** Cars and trucks: they drive, keep right and keep their distance. */
 const drives = (m: { kind: Mover["kind"] }) => m.kind !== "person";
 
-function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place): Mover | null {
+function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place, colour?: number): Mover | null {
   const path = routeBetween(g, from, to, kind !== "person");
   if (!path || path.length < 2) return null;
   const lean = kind === "person" ? (rand(t) - 0.5) * 0.08 : 0;
@@ -226,8 +238,8 @@ function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place): 
     cruise: base * (1 + (rand(t) - 0.5) * 2 * SPREAD),
     x: line[0].x, y: line[0].y, z: roadHeightAt(g, line[0].x, line[0].y), heading: 0,
     stuck: 0, pushing: 0,
-    colour: kind === "truck" ? TRUCK_COLOUR : kind === "bus" ? BUS_COLOUR : kind === "limo" ? LIMO_COLOUR
-      : pick(t, kind === "car" ? CAR_COLOURS : SHIRTS),
+    colour: colour ?? (kind === "truck" ? TRUCK_COLOUR : kind === "bus" ? BUS_COLOUR : kind === "limo" ? LIMO_COLOUR
+      : pick(t, kind === "car" ? CAR_COLOURS : SHIRTS)),
     phase: rand(t) * Math.PI * 2,
   };
   const p = along(m, 0);
@@ -435,7 +447,9 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   // SETTING OFF, one at a time, while the town is short.
   const base = wanted(t.places.filter((p) => !p.building));
   const busy = t.busy ?? { traffic: 1, commute: COMMUTE_SHARE };
-  const want = { cars: Math.round(base.cars * busy.traffic), people: Math.round(base.people * busy.traffic) };
+  const culture = t.culture ?? { remote: 0, shuttle: false, vans: false };
+  // Those at home are off the roads: fewer cars, the same people on foot.
+  const want = { cars: Math.round(base.cars * busy.traffic * (1 - culture.remote)), people: Math.round(base.people * busy.traffic) };
   // Everything that drives keeps its distance from everything else that does;
   // only the town's own trips count towards how many trips it has.
   const cars = t.movers.filter(drives);
@@ -445,7 +459,12 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   if (t.untilCar <= 0 && tripCars < want.cars) {
     t.untilCar = CAR_EVERY / townCaps.every;
     const trip = (rand(t) < busy.commute ? commuteTrip(t, g, net, "car") : null) ?? tripFor(t, "car");
-    const m = trip && setOff(t, g, "car", ...trip);
+    // A car's trip taken by a shuttle bus, or a moving van, as the cards say.
+    // Rolled only with one of them in force: the town's sequence as it was without.
+    const r = culture.shuttle || culture.vans ? rand(t) : 0.5;
+    const [kind, colour] = culture.shuttle && r < SHUTTLE_SHARE ? ["bus", SHUTTLE_COLOUR] as const
+      : culture.vans && r > 1 - VAN_SHARE ? ["truck", VAN_COLOUR] as const : ["car", undefined] as const;
+    const m = trip && setOff(t, g, kind, ...trip, colour);
     if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR)) t.movers.push(m);
   }
   t.untilPerson -= h;

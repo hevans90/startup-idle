@@ -1,6 +1,6 @@
 # The culture deck: work policies, overhauled
 
-Status: **phases 1–3 done** (2026-11-02): engine, store, migration, autopilot, the card board, every card's rank-3 rule wired into its system, and tag sets. Planned 2026-11-02, agreed in conversation. Replaces the work policies of `plans/innovation-overhaul.md` §3.
+Status: **phases 1–3 done, phase 4 nearly** (2026-11-02): engine, store, migration, autopilot, the card board, every card's rank-3 rule wired into its system, tag sets, and 19 of 20 cards shown in the town (Open Plan to come). Planned 2026-11-02, agreed in conversation. Replaces the work policies of `plans/innovation-overhaul.md` §3.
 
 ## Why
 
@@ -140,7 +140,7 @@ The user wants this **very polished**, and to **see the UI at each stage** to gi
 1. **Engine.** *(Done: `game/culture.ts`; ranks stop at 2 until phase 3; the tracks' multipliers are kept for now.)* Card catalogue, tags, deck state (points, slots, ranks, slotted, progress per track, offers), effects replacing `policyEffects`, migration. Tests. The six `getPolicyEffects` callers switch over.
 2. **Deck UI.** The deck panel, offer picker, rerolls, progress bars.
 3. **Tag sets and keystones.** Each rank-3 rule wired into its system (commutes, slop, leaders, housing, agents, the meter). *(Keystones done: `Card.rule`, read through `cultureNow`; a slotted rank-3 card's foot lit as its rule. Tag sets done: `TAG_SETS`, stronger than the table in §3 to match the cards; Agentic, Alignment and Hallucination wait for phase 5.)*
-4. **Map flavour.** Each card's look in the town.
+4. **Map flavour.** Each card's look in the town. *(Done but Open Plan: props by the buildings, `world/render/culture-props.ts`; Crunch's cold office lights; Remote's fewer cars, Shuttle's blue buses and Hire to Fire's moving vans, `Town.culture`; Ship It's release-party confetti. Hot Desking is a notice board of sticky notes, Four-Day Week people standing about the parks.)*
 5. **AI families and the journal.** Gated on ascension; discovery persisted.
 6. **Autopilot, sims, balance, README.** Pacing guards in `map-balance` and the progression sims re-measured.
 

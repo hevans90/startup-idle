@@ -143,3 +143,32 @@ describe("the traffic's neighbours", () => {
     expect(mean).toBeLessThan(40);
   });
 });
+
+describe("the culture deck on the streets", () => {
+  /** The town after a minute and a half with these cards: the most of each kind of vehicle seen at once. */
+  function run(culture?: { remote: number; shuttle: boolean; vans: boolean }) {
+    const g = avenue(24, 12);
+    street(g, [4, 8, 16, 20]);
+    const net = createNetwork(g);
+    const t = createTown();
+    t.culture = culture;
+    const most = { car: 0, bus: 0, truck: 0 };
+    for (let k = 0; k < 90 * 30; k++) {
+      stepTown(t, g, net, 0, 1 / 30);
+      for (const kind of ["car", "bus", "truck"] as const) most[kind] = Math.max(most[kind], t.movers.filter((m) => m.kind === kind).length);
+    }
+    return most;
+  }
+
+  test("Remote Fridays: those at home are off the roads", () => {
+    expect(run({ remote: 0.5, shuttle: false, vans: false }).car).toBeLessThan(run().car);
+  });
+
+  test("Shuttle Bus's buses and Hire to Fire's moving vans among the cars", () => {
+    expect(run()).toMatchObject({ bus: 0, truck: 0 });
+    const seen = run({ remote: 0, shuttle: true, vans: true });
+    expect(seen.bus).toBeGreaterThan(0);
+    expect(seen.truck).toBeGreaterThan(0);
+  });
+});
+
