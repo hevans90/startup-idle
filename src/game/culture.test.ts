@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { GeneratorId } from "../state/generators.store";
 import {
-  CARDS, buySlot, cardAt, cultureEffects, deal, emptyDeck, pointsLeft, rankPrice, rankUp, readDeck, reroll, take, toggleSlot,
+  CARDS, buySlot, cardLines, place, cardAt, cultureEffects, deal, emptyDeck, pointsLeft, rankPrice, rankUp, readDeck, reroll, take, toggleSlot,
   workMorale, type Deck,
 } from "./culture";
 
@@ -100,5 +100,18 @@ describe("the culture deck", () => {
     expect(d.slotted).toEqual(["crunch"]);
     expect(d.dealt).toEqual({ agile: 1, corpo: 0, sales: 0 });
     expect(d.offers).toEqual([{ track: "corpo", cards: ["lunch"], rerolls: 2 }]);
+  });
+
+  test("placing: into an empty slot, over a card (it goes out), or moved from another", () => {
+    const d: Deck = { ...emptyDeck(), slots: 2, ranks: { crunch: 1, lunch: 1, stack: 1 }, slotted: ["crunch"] };
+    expect(place(d, "lunch", 1).slotted).toEqual(["crunch", "lunch"]);
+    expect(place(d, "lunch", 0).slotted).toEqual(["lunch"]);
+    expect(place(place(d, "lunch", 1), "lunch", 0).slotted).toEqual(["lunch"]);
+    expect(place(d, "freeze", 1)).toBe(d);
+    expect(place(d, "lunch", 2)).toBe(d);
+  });
+
+  test("a card's face: gains first, each line marked", () => {
+    expect(cardLines(CARDS.find((c) => c.id === "crunch")!, 1)).toEqual([{ text: "Money +25%", good: true }, { text: "Morale −8", good: false }]);
   });
 });

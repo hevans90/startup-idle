@@ -173,6 +173,8 @@ type GeneratorState = {
   rankUpCard: (id: CardId) => void;
   /** Put an owned card in a free slot, or take it out. */
   toggleCard: (id: CardId) => void;
+  /** Put an owned card in a slot, what was there taken out. */
+  placeCard: (id: CardId, at: number) => void;
   getEmployeeOutputMults: (id: GeneratorId) => {
     money: number;
     innovation: number;
@@ -481,6 +483,8 @@ export const useGeneratorStore = create<GeneratorState>()(
         rankUpCard: (id) => setDeck(culture.rankUp(get().employeeManagement.deck, id, deckTiers())),
 
         toggleCard: (id) => setDeck(culture.toggleSlot(get().employeeManagement.deck, id)),
+
+        placeCard: (id, at) => setDeck(culture.place(get().employeeManagement.deck, id, at)),
 
         getEmployeeOutputMults: (id) => {
           const e = get().getCultureEffects(id);

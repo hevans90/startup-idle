@@ -10,7 +10,7 @@
  */
 import type { GeneratorId } from "../state/generators.store";
 import type { ManagerKeys } from "../state/innovation.store";
-import { describe } from "./wording";
+import { change, describe, helps, STATS, type Stat } from "./wording";
 
 export type Tag = "hustle" | "wellness" | "growth" | "chaos";
 export type Track = ManagerKeys;
@@ -100,6 +100,17 @@ export function says(c: Card, rank: number): string {
     undefined,
     e.autoBuy ? [{ text: `auto-buy one every ${1 / e.autoBuy} s`, good: true }] : [],
   );
+}
+
+/** What each effect is written as. */
+const STAT_OF: readonly [keyof CardEffects, Stat][] = [["output", "money"], ["innovation", "innovation"], ["hireCost", "hires"], ["slop", "slop"], ["morale", "morale"]];
+
+/** A card's trade at a rank as lines for its face, gains first: each with whether it helps. */
+export function cardLines(c: Card, rank: number): { text: string; good: boolean }[] {
+  const e = c.ranks[Math.min(rank, 2) - 1];
+  const lines = STAT_OF.filter(([k]) => e[k] !== undefined).map(([k, s]) => ({ text: `${STATS[s].name} ${change(s, e[k]!)}`, good: helps(s, e[k]!) }));
+  if (e.autoBuy) lines.push({ text: `Auto-buy every ${1 / e.autoBuy}s`, good: true });
+  return [...lines.filter((l) => l.good), ...lines.filter((l) => !l.good)];
 }
 
 /** An offer waiting: the track that dealt it, its cards, how often it has been rerolled. */
@@ -234,6 +245,16 @@ export function toggleSlot(d: Deck, id: CardId): Deck {
   if (!d.ranks[id]) return d;
   if (d.slotted.includes(id)) return { ...d, slotted: d.slotted.filter((c) => c !== id) };
   return d.slotted.length < d.slots ? { ...d, slotted: [...d.slotted, id] } : d;
+}
+
+/** A card owned PUT IN SLOT `at`: moved there if it is in another, what was there taken out. */
+export function place(d: Deck, id: CardId, at: number): Deck {
+  if (!d.ranks[id] || at < 0 || at >= d.slots) return d;
+  const slotted = d.slotted.filter((c) => c !== id);
+  const k = Math.min(at, slotted.length);
+  if (k < slotted.length) slotted[k] = id;
+  else slotted.push(id);
+  return { ...d, slotted };
 }
 
 /**

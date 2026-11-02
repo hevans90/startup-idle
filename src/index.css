@@ -143,8 +143,64 @@ html.ui-calm .hint-glow,
 html.ui-calm .ui-tab-in,
 html.ui-calm .ui-redline,
 html.ui-calm .quest-slide-in,
-html.ui-calm .news-line-enter {
+html.ui-calm .news-line-enter,
+html.ui-calm .card-deal,
+html.ui-calm .card-pick,
+html.ui-calm .card-pass,
+html.ui-calm .card-slot-in,
+html.ui-calm .card-shine {
   animation: none;
+}
+html.ui-calm .card-lift,
+html.ui-calm .card-lift:hover {
+  transform: none;
+  transition: none;
+}
+
+/* THE CULTURE DECK'S CARDS. @see CultureBoard */
+/* Dealt in: up from below, turned a little, settling. */
+@keyframes card-deal {
+  from { opacity: 0; transform: translateY(48px) rotate(var(--deal-rot, 0deg)) scale(0.88); }
+  to { opacity: 1; transform: none; }
+}
+.card-deal { animation: card-deal 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
+/* The one picked: up, brighter, away into the deck. */
+@keyframes card-pick {
+  0% { transform: none; filter: none; }
+  35% { transform: translateY(-14px) scale(1.07); filter: brightness(1.25); }
+  100% { transform: translateY(-140px) scale(0.55); opacity: 0; }
+}
+.card-pick { animation: card-pick 0.42s ease-in both; }
+/* The ones passed over: down and gone. */
+@keyframes card-pass {
+  to { transform: translateY(36px) scale(0.94); opacity: 0; }
+}
+.card-pass { animation: card-pass 0.3s ease-in both; }
+/* Into a slot, or back to the hand. */
+@keyframes card-slot-in {
+  0% { transform: scale(0.86); opacity: 0.2; }
+  60% { transform: scale(1.04); opacity: 1; }
+  100% { transform: none; }
+}
+.card-slot-in { animation: card-slot-in 0.32s ease-out both; }
+/* Ranked up: light across the face, once. */
+@keyframes card-shine {
+  from { background-position: -160% 0; }
+  to { background-position: 260% 0; }
+}
+.card-shine {
+  background: linear-gradient(105deg, transparent 35%, color-mix(in oklab, var(--tone) 55%, white) 50%, transparent 65%) no-repeat;
+  background-size: 60% 100%;
+  mix-blend-mode: screen;
+  animation: card-shine 0.8s ease-out both;
+}
+/* Picked up, by the pointer: raised. */
+.card-lift { transition: transform 0.18s ease-out, filter 0.18s ease-out; }
+.card-lift:hover { transform: translateY(-6px); filter: drop-shadow(0 10px 14px rgb(0 0 0 / 0.35)); }
+.card-held { transform: translateY(-10px); filter: drop-shadow(0 0 10px var(--ui-console)); }
+@media (prefers-reduced-motion: reduce) {
+  .card-deal, .card-pick, .card-pass, .card-slot-in, .card-shine { animation: none; }
+  .card-lift, .card-lift:hover { transition: none; transform: none; }
 }
 
 @layer utilities {
