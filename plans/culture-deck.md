@@ -1,6 +1,6 @@
 # The culture deck: work policies, overhauled
 
-Status: **phases 1–2 done, phase 3 keystones done** (2026-11-02): engine, store, migration, autopilot, the card board, and every card's rank-3 rule wired into its system. Tag sets still to come. Planned 2026-11-02, agreed in conversation. Replaces the work policies of `plans/innovation-overhaul.md` §3.
+Status: **phases 1–3 done** (2026-11-02): engine, store, migration, autopilot, the card board, every card's rank-3 rule wired into its system, and tag sets. Planned 2026-11-02, agreed in conversation. Replaces the work policies of `plans/innovation-overhaul.md` §3.
 
 ## Why
 
@@ -52,14 +52,14 @@ Alignment is a third AI family, proposed here (see open questions).
 
 ### 3. Tag sets
 
-Each slotted card counts toward its tag.
+Each card in force (Pivot's guest too) counts toward its tag; each step adds to the last, for every kind. As built:
 
 | Tag | 2 | 3 | 4 |
 |---|---|---|---|
-| Hustle | +5% output | morale drifts down 25% slower | Keystone: overtime as a resource (below) |
-| Wellness | +3 morale | homes near offices +desirability | Keystone: no morale floor penalty |
-| Growth | −5% hire price | +10% housing reach for commutes | Keystone: one free hire for every 20 hired |
-| Chaos | +10% innovation | slop also feeds innovation | Keystone: random daily "pivot" buff |
+| Hustle | desks ×1.25 | build speed ×2 | money ×2 |
+| Wellness | morale +6 | house mood +10 | attendance +30% |
+| Growth | hire prices −20% | beds ×1.5 | price curve −0.05 |
+| Chaos | innovation ×1.5 | spill upset −50% | innovation ×2 while a tank spills |
 | Agentic | meter +5%/min | agents boost +1% each | Keystone: agents act without racks for 30 s bursts |
 | Alignment | meter −5%/min | shutdowns cost half | Keystone: the meter can be held at a level |
 | Hallucination | ±10% output, rerolled each minute | — | Keystone: one card's rank-3 rule, borrowed at random each minute |
@@ -139,7 +139,7 @@ The user wants this **very polished**, and to **see the UI at each stage** to gi
 
 1. **Engine.** *(Done: `game/culture.ts`; ranks stop at 2 until phase 3; the tracks' multipliers are kept for now.)* Card catalogue, tags, deck state (points, slots, ranks, slotted, progress per track, offers), effects replacing `policyEffects`, migration. Tests. The six `getPolicyEffects` callers switch over.
 2. **Deck UI.** The deck panel, offer picker, rerolls, progress bars.
-3. **Tag sets and keystones.** Each rank-3 rule wired into its system (commutes, slop, leaders, housing, agents, the meter). *(Keystones done: `Card.rule`, read through `cultureNow`; a slotted rank-3 card's foot lit as its rule. Tag sets to come.)*
+3. **Tag sets and keystones.** Each rank-3 rule wired into its system (commutes, slop, leaders, housing, agents, the meter). *(Keystones done: `Card.rule`, read through `cultureNow`; a slotted rank-3 card's foot lit as its rule. Tag sets done: `TAG_SETS`, stronger than the table in §3 to match the cards; Agentic, Alignment and Hallucination wait for phase 5.)*
 4. **Map flavour.** Each card's look in the town.
 5. **AI families and the journal.** Gated on ascension; discovery persisted.
 6. **Autopilot, sims, balance, README.** Pacing guards in `map-balance` and the progression sims re-measured.

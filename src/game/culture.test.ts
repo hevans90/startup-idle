@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { GeneratorId } from "../state/generators.store";
 import {
   CARDS, buySlot, cardLines, pivot, place, cardAt, cultureEffects, deal, emptyDeck, pointsLeft, rankPrice, rankUp, readDeck, reroll, take, toggleSlot,
-  inForce, workMorale, type Deck,
+  inForce, setSteps, tagCounts, workMorale, type CardId, type Deck,
 } from "./culture";
 
 const all = new Set<GeneratorId>(["intern", "vibe_coder", "10x_dev"]);
@@ -76,7 +76,8 @@ describe("the culture deck", () => {
     const d: Deck = { ...emptyDeck(), slots: 4, ranks: { crunch: 2, hotdesk: 1, housing: 1, hackathon: 1, stack: 1 }, slotted: ["crunch", "hotdesk", "housing", "hackathon"] };
     const i = cultureEffects(d, "intern"), v = cultureEffects(d, "vibe_coder");
     expect(i.deskless).toBe(1);
-    expect(i.desks).toBe(1.5);
+    // Hot Desking's, and two Hustle's set.
+    expect(i.desks).toBe(1.5 * 1.25);
     expect(i.beds).toBe(2);
     expect(i.houseMood).toBe(-14);
     expect(i.morale).toBe(-14);
@@ -134,7 +135,7 @@ describe("the culture deck", () => {
   test("rank 3: rank 2's trade and its rule, only while slotted at the top", () => {
     const d: Deck = { ...emptyDeck(), slots: 2, ranks: { hotdesk: 3, crunch: 2 }, slotted: ["hotdesk", "crunch"] };
     const e = cultureEffects(d, "intern");
-    expect(e.desks).toBe(2);
+    expect(e.desks).toBe(2 * 1.25);
     expect(e.anyDesk).toBe(true);
     expect(e.dayOutput).toBe(1);
     expect(cultureEffects({ ...d, ranks: { hotdesk: 2, crunch: 2 } }).anyDesk).toBe(false);
@@ -163,5 +164,31 @@ describe("the culture deck", () => {
     // Pivot out of its slot: the guest goes with it.
     expect(inForce({ ...p, slotted: ["crunch"] })).toEqual(["crunch"]);
     expect(readDeck(p).guest).toBe("lunch");
+  });
+});
+
+describe("tag sets", () => {
+  const slotted = (ids: CardId[], rank = 1): Deck => ({ ...emptyDeck(), slots: 9, ranks: Object.fromEntries(ids.map((id) => [id, rank])), slotted: ids });
+
+  test("two, three and four of a tag in force bring its steps, each on the last", () => {
+    expect(tagCounts(slotted(["hotdesk", "crunch", "lunch"]))).toEqual({ hustle: 2, wellness: 1, growth: 0, chaos: 0 });
+    expect(setSteps("hustle", 1)).toHaveLength(0);
+    expect(setSteps("hustle", 3)).toHaveLength(2);
+    expect(setSteps("hustle", 5)).toHaveLength(3);
+  });
+
+  test("a set's step is in the effects, for every kind", () => {
+    // Two Wellness: +6 morale on top of the cards'.
+    const one = cultureEffects(slotted(["lunch"]), "intern").morale;
+    expect(cultureEffects(slotted(["lunch", "remote"]), "intern").morale).toBe(one + 6);
+    // Four Hustle: money ×2, though Hire to Fire is the interns' alone.
+    const four = slotted(["hotdesk", "crunch", "stack", "hiretofire"]);
+    expect(cultureEffects(four, "10x_dev").output).toBe(2);
+    expect(cultureEffects(four, "10x_dev").desks).toBeCloseTo(1.5 * 1.25, 9);
+  });
+
+  test("Pivot Weekly's guest counts toward its tag", () => {
+    const d = { ...slotted(["pivot", "hackathon"]), ranks: { pivot: 3, hackathon: 1, movefast: 1 }, guest: "movefast" as CardId };
+    expect(tagCounts(d).chaos).toBe(3);
   });
 });

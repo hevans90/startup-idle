@@ -104,7 +104,8 @@ describe("the culture deck, where the map works it out", () => {
     const mood = () => moodsOf(g, new Map(), new Map(), new Set([1])).get(1)!;
     expect(mood().total).toBe(MOOD.noServices + MOOD.sludge);
     deck({ fourday: 1, therapy: 1, lunch: 1 });
-    expect(mood().total).toBe(MOOD.cafe + Math.round(MOOD.sludge / 2) + 10);
+    // Four-Day Week's +10, and three Wellness's set +10.
+    expect(mood().total).toBe(MOOD.cafe + Math.round(MOOD.sludge / 2) + 10 + 10);
   });
 
   test("leaders: Stack Ranking multiplies a rank's output; Open Plan leads everyone in full", () => {

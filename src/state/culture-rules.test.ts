@@ -51,10 +51,10 @@ describe("the culture deck's rules, in the economy", () => {
   test("Hackathon Culture's and Vibes Only's: innovation for clean sewers, or for spills", () => {
     const base = g().getEmployeeOutputMults("vibe_coder").innovation;
     slot({ hackathon: 3, vibesonly: 3 });
-    // Hackathon's own ×3 at rank 2, before either rule.
-    expect(g().getEmployeeOutputMults("vibe_coder").innovation / base).toBeCloseTo(3 * 2, 9);
+    // Hackathon's own ×3 at rank 2, two Chaos's ×1.5, and a rule.
+    expect(g().getEmployeeOutputMults("vibe_coder").innovation / base).toBeCloseTo(3 * 1.5 * 2, 9);
     setSlopSpilling(true);
-    expect(g().getEmployeeOutputMults("vibe_coder").innovation / base).toBeCloseTo(3 * 3, 9);
+    expect(g().getEmployeeOutputMults("vibe_coder").innovation / base).toBeCloseTo(3 * 1.5 * 3, 9);
   });
 
   test("Hire Freeze's: the price halves again every ten minutes it holds", () => {

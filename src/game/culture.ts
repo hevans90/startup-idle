@@ -189,6 +189,29 @@ export const HAPPY_AT = 20;
 export const FREEZE_HALVES = 600;
 export const FREEZE_LEAST = 0.01;
 
+/**
+ * TAG SETS: two, three or four cards of a tag in force bring its set, each
+ * step on top of the last — for every kind, whatever the cards are for. Not a
+ * trade: what playing to a tag earns. @see plans/culture-deck.md §3
+ */
+export const SET_AT = [2, 3, 4] as const;
+export const TAG_SETS: Record<Tag, readonly [SetStep, SetStep, SetStep]> = {
+  hustle: [{ text: "Desks ×1.25", e: { desks: 1.25 } }, { text: "Build speed ×2", e: { buildSpeed: 2 } }, { text: "Money ×2", e: { output: 2 } }],
+  wellness: [{ text: "Morale +6", e: { morale: 6 } }, { text: "House mood +10", e: { houseMood: 10 } }, { text: "Attendance +30%", e: { attendance: 1.3 } }],
+  growth: [{ text: "Hire prices −20%", e: { hireCost: 0.8 } }, { text: "Beds per house ×1.5", e: { beds: 1.5 } }, { text: "Price curve −0.05", e: { costCurve: -0.05 } }],
+  chaos: [{ text: "Innovation ×1.5", e: { innovation: 1.5 } }, { text: "Spill upset −50%", e: { hazards: 0.5 } }, { text: "Innovation ×2 while a tank spills", e: { messInnovation: 2 } }],
+};
+export type SetStep = { text: string; e: CardEffects & Rules };
+
+/** Each tag's cards in force. */
+export function tagCounts(d: Deck): Record<Tag, number> {
+  const n: Record<Tag, number> = { hustle: 0, wellness: 0, growth: 0, chaos: 0 };
+  for (const id of inForce(d)) n[card(id).tag]++;
+  return n;
+}
+/** The steps of a tag's set that `count` cards reach. */
+export const setSteps = (tag: Tag, count: number): readonly SetStep[] => TAG_SETS[tag].filter((_, k) => count >= SET_AT[k]);
+
 /** A share as the card says it: ×2 and up, else a percentage. */
 const share = (v: number) => (v >= 2 ? times(v) : percent((v - 1) * 100));
 const signed = (v: number) => `${v > 0 ? "+" : "−"}${Math.abs(v)}`;
@@ -303,18 +326,23 @@ export const inForce = (d: Deck): CardId[] =>
  */
 export function cultureEffects(d: Deck, kind?: GeneratorId): CultureEffects {
   const e: Record<string, number | boolean> = { ...NO_EFFECTS };
-  for (const id of inForce(d)) {
-    const c = card(id), rank = d.ranks[id] ?? 1;
-    if (c.only && c.only !== kind) continue;
-    // Rank 3 keeps rank 2's trade, and adds its rule.
-    const r: CardEffects & Rules = { ...c.ranks[Math.min(rank, 2) - 1], ...(rank >= 3 ? c.rule : {}) };
+  const add = (r: CardEffects & Rules) => {
     for (const [k, v] of Object.entries(r) as [keyof CultureEffects, number | boolean][]) {
       if (typeof v === "boolean") e[k] = (e[k] as boolean) || v;
       else if (ADDED.has(k)) e[k] = (e[k] as number) + v;
       else if (LARGER.has(k)) e[k] = Math.max(e[k] as number, v);
       else e[k] = (e[k] as number) * v;
     }
+  };
+  for (const id of inForce(d)) {
+    const c = card(id), rank = d.ranks[id] ?? 1;
+    if (c.only && c.only !== kind) continue;
+    // Rank 3 keeps rank 2's trade, and adds its rule.
+    add({ ...c.ranks[Math.min(rank, 2) - 1], ...(rank >= 3 ? c.rule : {}) });
   }
+  // The tags' sets, for every kind: a kind's own cards count to them too.
+  const n = tagCounts(d);
+  for (const tag of Object.keys(n) as Tag[]) for (const step of setSteps(tag, n[tag])) add(step.e);
   // Never all of a kind at home — but under Sabbaticals' rule.
   e.remote = e.allHome ? 1 : Math.min(0.9, e.remote as number);
   return e as CultureEffects;

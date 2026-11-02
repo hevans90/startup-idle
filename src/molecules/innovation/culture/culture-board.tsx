@@ -11,7 +11,7 @@ import { createPortal } from "react-dom";
 import { twMerge } from "tailwind-merge";
 
 import { sfx } from "../../../audio/sound";
-import { CARDS, MAX_RANK, card, inForce, rankPrice, rerollSeconds, slotPrice, type CardId, type Track } from "../../../game/culture";
+import { CARDS, MAX_RANK, SET_AT, TAG_SETS, card, inForce, rankPrice, rerollSeconds, slotPrice, tagCounts, type CardId, type Tag, type Track } from "../../../game/culture";
 import { useTicking } from "../../../hooks/use-ticking";
 import { useGeneratorStore } from "../../../state/generators.store";
 import { useInnovationStore } from "../../../state/innovation.store";
@@ -19,7 +19,8 @@ import { Backdrop, Button, Label } from "../../../ui/console";
 import { FOCUS } from "../../../ui/console/controls";
 import { useConsoleMotion } from "../../../ui/motion";
 import { formatCurrency } from "../../../utils/money-utils";
-import { CARD_CLIP, CultureCard } from "./culture-card";
+import { toneVar } from "../../../ui/console/frame";
+import { CARD_CLIP, CultureCard, TAG_NAME, TAG_TONE, TagMark } from "./culture-card";
 
 const TRACK_NAME: Record<Track, string> = { agile: "Agile", corpo: "Corpo", sales: "Sales" };
 /** How long a picked card takes to leave, ms. */
@@ -31,6 +32,43 @@ const dragged = (e: DragEvent) => e.dataTransfer.getData("text/plain") as CardId
 /** Beneath a card, a card's width: a word on it. */
 const Under = ({ children }: { children: string }) =>
   <span className="h-6 w-[9.5rem] text-center text-[10px] uppercase leading-6 tracking-wider text-fg-muted">{children}</span>;
+
+/**
+ * THE SETS: each tag, its cards in force as four pips, and its three steps —
+ * lit as two, three and four of it reach them.
+ */
+function Sets({ counts }: { counts: Record<Tag, number> }) {
+  return (
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      {(Object.keys(TAG_SETS) as Tag[]).map((tag) => {
+        const n = counts[tag];
+        return (
+          <div key={tag} style={toneVar(TAG_TONE[tag])} aria-label={`${TAG_NAME[tag]} set, ${n} in force`}
+            className={twMerge("flex flex-col gap-1.5 border border-l-2 border-line-quiet border-l-tone bg-surface-1/60 px-2.5 py-2", n >= SET_AT[0] && "border-tone")}>
+            <div className="flex items-center gap-1.5">
+              <TagMark tag={tag} className="h-3.5 w-3.5 text-tone" />
+              <span className="flex-1 font-display text-[11px] uppercase tracking-wider">{TAG_NAME[tag]}</span>
+              <span className="flex gap-1" aria-hidden>
+                {[1, 2, 3, 4].map((k) => <span key={k} className={twMerge("h-1.5 w-1.5 rotate-45 border border-tone", k <= n && "bg-tone")} />)}
+              </span>
+            </div>
+            <ul className="flex flex-col gap-0.5">
+              {TAG_SETS[tag].map((step, k) => {
+                const lit = n >= SET_AT[k];
+                return (
+                  <li key={step.text} className={twMerge("flex gap-1.5 text-[11px] leading-tight", lit ? "text-fg" : "text-fg-muted")}>
+                    <span className={twMerge("w-3 shrink-0 tabular-nums", lit ? "text-tone" : "opacity-70")}>{SET_AT[k]}</span>
+                    <span className="min-w-0 flex-1">{step.text}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** Beneath a card: its next rank's price, if it has one — the last, its rule. */
 function RankUp({ id, points, onRanked }: { id: CardId; points: number; onRanked: (id: CardId) => void }) {
@@ -232,6 +270,8 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
                 <span className="h-6 max-sm:hidden" />
               </div>
             </div>
+            {/* What the tags in force add up to. */}
+            <Sets counts={tagCounts(d)} />
           </section>
 
           {/* THE HAND: owned, out of the slots. */}

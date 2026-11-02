@@ -5,14 +5,14 @@
  */
 import { useState } from "react";
 
-import { card, cardAt, inForce, type CardId, type Track } from "../../game/culture";
+import { card, cardAt, inForce, setSteps, tagCounts, type CardId, type Tag, type Track } from "../../game/culture";
 import { useTicking } from "../../hooks/use-ticking";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import { Button, Meter, Panel } from "../../ui/console";
 import { toneVar } from "../../ui/console/frame";
 import { CultureBoard } from "./culture/culture-board";
-import { TAG_TONE, TagMark } from "./culture/culture-card";
+import { TAG_NAME, TAG_TONE, TagMark } from "./culture/culture-card";
 
 const TRACK_NAME: Record<Track, string> = { agile: "Agile", corpo: "Corpo", sales: "Sales" };
 
@@ -56,6 +56,14 @@ export function CultureDeckPanel() {
             );
           })}
         </button>
+
+        {/* SETS a tag's cards in force have reached. */}
+        {Object.entries(tagCounts(deck)).filter(([, n]) => n >= 2).map(([tag, n]) => (
+          <span key={tag} style={toneVar(TAG_TONE[tag as Tag])} className="flex items-start gap-2 text-xs">
+            <TagMark tag={tag as Tag} className="mt-px h-3.5 w-3.5 shrink-0 text-tone" />
+            <span><span className="text-tone">{TAG_NAME[tag as Tag]} ×{n}</span> · {setSteps(tag as Tag, n).map((s) => s.text).join(" · ")}</span>
+          </span>
+        ))}
 
         {/* NEXT CARD, each track. */}
         <section aria-label="Next card" className="flex flex-col gap-1.5">
