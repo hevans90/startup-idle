@@ -16,7 +16,7 @@ import { useAgentsStore } from "../../state/agents.store";
 import { useAiSingularityStore } from "../../state/ai-singularity.store";
 import { useFounderStore } from "../../state/founder.store";
 import { useGenerationStore } from "../../state/generation.store";
-import { useGeneratorStore } from "../../state/generators.store";
+import { GENERATOR_TYPES, useGeneratorStore } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { startFixture } from "../../state/world.store";
 import { setTownCaps } from "../agents/town";
@@ -35,7 +35,13 @@ function seedBigTown(): void {
   resetAllGameStores();
   useFounderStore.setState({ selectedFounderId: "model" });
   useMoneyStore.setState({ money: new Decimal(1e12) });
-  for (const [id, n] of Object.entries(BIGTOWN_STAFF)) useGeneratorStore.getState().increaseGenerator(id as never, n);
+  // ON THE ROSTER FIRST: hiring only adds to a kind already listed, and the
+  // vibe coders wait on their studio's project — taken on, they stay listed.
+  for (const [id, n] of Object.entries(BIGTOWN_STAFF)) {
+    const base = GENERATOR_TYPES.find((g) => g.id === id)!;
+    useGeneratorStore.getState().addGenerator({ ...base, amount: 0, multiplier: 1, costMultiplier: 1, innovationMultiplier: 1, lastTick: Date.now() });
+    useGeneratorStore.getState().increaseGenerator(id, n);
+  }
   const crowd = new URLSearchParams(location.search).get("crowd");
   if (crowd !== null) {
     const n = Number(crowd) || CROWD_DEFAULT;
