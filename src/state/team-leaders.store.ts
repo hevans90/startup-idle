@@ -9,6 +9,7 @@ import { persist } from "zustand/middleware";
 
 import {
   MAX_LEADER_RANK,
+  leaderCap,
   PERSONALITIES,
   XP_AT,
   perkOffer,
@@ -133,10 +134,12 @@ export const useTeamLeadersEmployeesStore = create<TeamLeaderState>()(
         let changed = false;
         const next = employees.map((e) => {
           const r = rate(e);
-          if (r <= 0 || e.xp >= XP_AT[MAX_LEADER_RANK]) return e;
+          // Past the top only under Stack Ranking's rule. @see leaderCap
+          const uncapped = leaderCap(e.role) === Infinity;
+          if (r <= 0 || (!uncapped && e.xp >= XP_AT[MAX_LEADER_RANK])) return e;
           changed = true;
-          const xp = Math.min(XP_AT[MAX_LEADER_RANK], e.xp + r * seconds);
-          return { ...e, xp, rank: rankAt(xp) };
+          const xp = uncapped ? e.xp + r * seconds : Math.min(XP_AT[MAX_LEADER_RANK], e.xp + r * seconds);
+          return { ...e, xp, rank: Math.max(e.rank, rankAt(xp, uncapped)) };
         });
         if (changed) set({ employees: next });
       },

@@ -30,7 +30,7 @@ import { DEFAULT_GEN, type GenParams } from "./gen/params";
 import { commuteFactor, liveCommutes, liveSeating } from "./agents/commute";
 import { setTownBonusReader } from "../game/acquisition";
 import { setTownMoodReader } from "../game/town-mood";
-import { cultureVersion } from "../game/culture-now";
+import { cultureNow, cultureVersion } from "../game/culture-now";
 import { liveMoods, moodOffsets } from "./agents/mood";
 import { townBonusOf } from "./projects/town-worth";
 import { serviceOf } from "./agents/services";
@@ -280,7 +280,7 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const net = getNetwork();
       const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;
       // AT THEIR DESKS: a café next door. @see deskShare
-      const seating = net ? liveSeating(st.grid, net).desks : undefined;
+      const seated = net ? liveSeating(st.grid, net) : undefined, seating = seated?.desks;
       const desks = net && seating ? deskShare(
         st.grid,
         liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, liveMoods(st.grid, net)),
@@ -289,7 +289,8 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       // EACH LEADER'S TEAM: the people at the desks of the building they lead. @see game/leaders
       const teams: Partial<Record<GeneratorId, number>> = {};
       for (const l of useTeamLeadersEmployeesStore.getState().employees) {
-        if (l.placedAt !== null) teams[l.role] = seating?.get(l.placedAt)?.used ?? 0;
+        // And under Remote Fridays' rule, everyone of the kind at home. @see Rules.homeTeam
+        if (l.placedAt !== null) teams[l.role] = (seating?.get(l.placedAt)?.used ?? 0) + (cultureNow(l.role).homeTeam ? seated?.home[l.role] ?? 0 : 0);
       }
       // COOLING: agents the water does not reach run at half, and a dry spire
       // adds nothing. @see stepCooling

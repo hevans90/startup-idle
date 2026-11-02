@@ -6,7 +6,7 @@
  * street, or pollution in the water if it stands in it. Live state, not
  * saved with the map: what each holds. @see game/slop, serializeWorld
  */
-import { POLLUTION_PER_SLOP, SPILL_DEPTH, tankFor } from "../../game/slop";
+import { POLLUTION_PER_SLOP, SPILL_DEPTH, setSlopSpilling, tankFor } from "../../game/slop";
 import { PROCESS_RATE, processorKind, setProcessorUse, type ProcessorKind } from "../../game/processors";
 import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
@@ -122,6 +122,7 @@ export function stepSlop(
     const at = spillAt(g, s);
     if (field && at) release(g, field, at.x, at.y, over);
   }
+  setSlopSpilling(places.some((s) => tanks.get(s.id)!.spilling));
   // HOW BUSY each processor is, smoothed over a few seconds, and each kind's in all.
   const use: Record<ProcessorKind, number> = { refinery: 0, dataplant: 0, contentfarm: 0 };
   const seen = new Set<number>();

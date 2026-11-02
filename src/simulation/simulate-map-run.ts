@@ -382,7 +382,7 @@ export function simulateMapRun(
       // Work, once the crew is there, as far as the materials go.
       const there = t - s.startedAt >= (s.p.founderBuilds ? founderDrive : walkIn);
       const crew = plan.get(s)?.crew ?? 0;
-      if (there && s.stalled <= STALL_GRACE) s.done = Math.min(cap, s.done + crew * cultureNow().buildSpeed);
+      if (there && s.stalled <= STALL_GRACE) s.done = Math.min(cultureNow().noMaterialWait ? s.p.work : cap, s.done + crew * cultureNow().buildSpeed);
       if (s.done >= s.p.work - 1e-6 && s.delivered >= s.p.deliveries) {
         built.add(s.p.id);
         report.opened[s.p.id] = t;

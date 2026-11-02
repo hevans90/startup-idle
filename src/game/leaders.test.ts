@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { LEADER_PERKS, PERSONALITIES, REST_SHARE, XP_AT, leaderEffects, perkOffer, rankAt, teamShare, type Leader } from "./leaders";
+import { LEADER_PERKS, PERSONALITIES, REST_SHARE, XP_AT, XP_PAST, leaderEffects, perkOffer, rankAt, teamShare, type Leader } from "./leaders";
 
 const leader = (over: Partial<Leader> = {}): Leader => ({
   id: "tl_1", role: "intern", name: "Ada", personality: "overachiever", rank: 0, xp: 0, perks: [], placedAt: 7, ...over,
@@ -43,7 +43,9 @@ describe("a leader's team", () => {
 
 describe("ranks and perks", () => {
   test("ranks at their XP", () => {
-    expect([0, XP_AT[1] - 1, XP_AT[1], XP_AT[5], 1e9].map(rankAt)).toEqual([0, 0, 1, 5, 5]);
+    expect([0, XP_AT[1] - 1, XP_AT[1], XP_AT[5], 1e9].map((xp) => rankAt(xp))).toEqual([0, 0, 1, 5, 5]);
+    // Under Stack Ranking's rule, on past the top.
+    expect([XP_AT[5], XP_AT[5] + XP_PAST - 1, XP_AT[5] + 3 * XP_PAST].map((xp) => rankAt(xp, true))).toEqual([5, 5, 8]);
   });
 
   test("a rank reached offers three perks of their pool, the same three till one is taken, none taken twice", () => {

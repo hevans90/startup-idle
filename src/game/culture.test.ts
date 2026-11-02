@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { GeneratorId } from "../state/generators.store";
 import {
   CARDS, buySlot, cardLines, pivot, place, cardAt, cultureEffects, deal, emptyDeck, pointsLeft, rankPrice, rankUp, readDeck, reroll, take, toggleSlot,
-  workMorale, type Deck,
+  inForce, workMorale, type Deck,
 } from "./culture";
 
 const all = new Set<GeneratorId>(["intern", "vibe_coder", "10x_dev"]);
@@ -54,7 +54,7 @@ describe("the culture deck", () => {
     expect(toggleSlot(toggleSlot(d, a), b).slotted).toEqual([b]);
   });
 
-  test("points: a slot for 2, then 3; rank 2 for 6; none spent past the tiers", () => {
+  test("points: a slot for 2, then 3; rank 2 for 6, rank 3 for 15; none spent past the tiers", () => {
     let d: Deck = { ...emptyDeck(), ranks: { crunch: 1 }, slotted: ["crunch"] };
     expect(pointsLeft(d, 5)).toBe(5);
     d = buySlot(d, 5);
@@ -65,6 +65,9 @@ describe("the culture deck", () => {
     expect(rankUp(d, "crunch", 7)).toBe(d);
     d = rankUp(d, "crunch", 8);
     expect([d.ranks.crunch, d.spent]).toEqual([2, 8]);
+    expect(rankPrice(d, "crunch")).toBe(15);
+    d = rankUp(d, "crunch", 23);
+    expect([d.ranks.crunch, d.spent]).toEqual([3, 23]);
     expect(rankPrice(d, "crunch")).toBeNull();
     expect(rankUp(d, "lunch", 99)).toBe(d);
   });
@@ -101,7 +104,7 @@ describe("the culture deck", () => {
 
   test("a saved deck is checked: unknown cards and ranks past the top go", () => {
     const d = readDeck({ spent: 3, slots: 2, ranks: { crunch: 9, nope: 1 }, slotted: ["crunch", "nope", "lunch"], dealt: { agile: 1 }, offers: [{ track: "x", cards: [] }, { track: "corpo", cards: ["lunch", "crunch"], rerolls: 2 }] });
-    expect(d.ranks).toEqual({ crunch: 2 });
+    expect(d.ranks).toEqual({ crunch: 3 });
     expect(d.slotted).toEqual(["crunch"]);
     expect(d.dealt).toEqual({ agile: 1, corpo: 0, sales: 0 });
     expect(d.offers).toEqual([{ track: "corpo", cards: ["lunch"], rerolls: 2 }]);
@@ -126,5 +129,39 @@ describe("the culture deck", () => {
     expect(pivot(d, () => 0).slotted).toEqual(["pivot", "lunch"]);
     const alone: Deck = { ...d, slotted: ["pivot"] };
     expect(pivot(alone)).toBe(alone);
+  });
+
+  test("rank 3: rank 2's trade and its rule, only while slotted at the top", () => {
+    const d: Deck = { ...emptyDeck(), slots: 2, ranks: { hotdesk: 3, crunch: 2 }, slotted: ["hotdesk", "crunch"] };
+    const e = cultureEffects(d, "intern");
+    expect(e.desks).toBe(2);
+    expect(e.anyDesk).toBe(true);
+    expect(e.dayOutput).toBe(1);
+    expect(cultureEffects({ ...d, ranks: { hotdesk: 2, crunch: 2 } }).anyDesk).toBe(false);
+    // Every card has a rule, and says it.
+    for (const c of CARDS) {
+      expect(Object.keys(c.rule).length).toBe(1);
+      expect(c.keystone.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("Sabbaticals' rule: every 10x dev at home, past the cap the others keep", () => {
+    const d: Deck = { ...emptyDeck(), slots: 2, ranks: { sabbatical: 3, remote: 2 }, slotted: ["sabbatical", "remote"] };
+    expect(cultureEffects(d, "10x_dev").remote).toBe(1);
+    expect(cultureEffects(d, "intern").remote).toBe(0.5);
+  });
+
+  test("Pivot Weekly's rule: a guest brought in, none taken out, in force while it holds", () => {
+    const d: Deck = { ...emptyDeck(), slots: 2, ranks: { pivot: 3, crunch: 1, lunch: 2, stack: 1 }, slotted: ["pivot", "crunch"] };
+    const p = pivot(d, () => 0);
+    expect(p.slotted).toEqual(["pivot", "crunch"]);
+    expect(p.guest).toBe("lunch");
+    expect(inForce(p)).toEqual(["pivot", "crunch", "lunch"]);
+    expect(cultureEffects(p).lunch).toBe(12);
+    // The next pivot, another.
+    expect(pivot(p, () => 0).guest).toBe("stack");
+    // Pivot out of its slot: the guest goes with it.
+    expect(inForce({ ...p, slotted: ["crunch"] })).toEqual(["crunch"]);
+    expect(readDeck(p).guest).toBe("lunch");
   });
 });

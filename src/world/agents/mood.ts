@@ -77,7 +77,8 @@ export function moodsOf(
       else if (c.eff < 1) parts.push({ why: c.deskless > 0 ? WHY.deskless : WHY.commute, points: Math.round(((1 - c.eff) * 10) * MOOD.perTenthLost) });
     }
     const fed = canteens.some((w) => gap(s, w) <= deck.lunch);
-    const have = fed ? new Set([...(coverage.get(s.id) ?? []), "cafe" as const]) : coverage.get(s.id);
+    // Under Free Lunch's rule, a café, a park and a gym. @see Rules.lunchAll
+    const have = fed ? new Set([...(coverage.get(s.id) ?? []), "cafe" as const, ...(deck.lunchAll ? ["park" as const, "gym" as const] : [])]) : coverage.get(s.id);
     if (!have?.size) parts.push({ why: WHY.noServices, points: MOOD.noServices });
     else {
       if (have.has("cafe")) parts.push({ why: WHY.cafe, points: MOOD.cafe });
@@ -176,6 +177,9 @@ export function stepMood(u: Unrest, g: Grid, moods: ReadonlyMap<number, MoodPart
   for (const [id, m] of moods) {
     const s = g.structures.get(id);
     if (!s || s.residents === undefined || s.residents <= 0 || m.total > MOVE_OUT_AT) { u.delete(id); continue; }
+    // Therapy Budget's rule: miserable, but staying. @see Rules.noMoveOut
+    const who = housedBy(s.def)?.id;
+    if (who && cultureNow(who).noMoveOut) { u.delete(id); continue; }
     const t = (u.get(id) ?? 0) + dt;
     if (t >= MOVE_OUT_EVERY) {
       s.residents--;

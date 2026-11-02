@@ -28,6 +28,8 @@ export function mixColour(a: number, b: number, t: number): number {
 
 /** Where in the day it is, 0 to 1: midnight at 0, noon at a half. */
 export const dayPhase = (nowMs: number) => ((nowMs / 1000) % DAY_SECONDS) / DAY_SECONDS;
+/** Whether it is light: six in the morning to six at night. */
+export const isDaytime = (nowMs: number) => { const p = dayPhase(nowMs); return p >= 0.25 && p < 0.75; };
 
 /** How dark the map is, 0 at noon up to NIGHT_DARK at midnight, eased so the day is long. */
 export function darkness(phase: number): number {

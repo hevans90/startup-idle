@@ -48,7 +48,8 @@ import { usePrestigeStore } from "./prestige.store";
 import { useLinkedOutStore } from "./linkedout.store";
 import { useTeamLeadersEmployeesStore } from "./team-leaders.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
-import { setSlopMaking, slopMade } from "../game/slop";
+import { setSlopMaking, slopMade, slopSpilling } from "../game/slop";
+import { isDaytime } from "../world/daylight";
 import { contentFarmBonus, refineryBonus } from "../game/processors";
 import { useValuationStore } from "./valuation.store";
 
@@ -451,6 +452,21 @@ export const useGeneratorStore = create<GeneratorState>()(
 
       /** Seconds Pivot Weekly has been slotted since its last swap. Not saved. */
       let pivotFor = 0;
+      /** When Hire Freeze's rule came into force, while it holds. Not saved. @see FREEZE_HALVES */
+      let frozeAt: number | null = null;
+      /** Hire to Fire's rule: the share of a free vibe coder owed. Not saved. */
+      let vibeOwed = 0;
+      /** What a kind's hire price is down to under Hire Freeze's rule: halved each so long it holds. */
+      const thaw = (on: boolean) => {
+        if (!on) { frozeAt = null; return 1; }
+        frozeAt ??= Date.now();
+        return Math.max(culture.FREEZE_LEAST, 0.5 ** ((Date.now() - frozeAt) / 1000 / culture.FREEZE_HALVES));
+      };
+      /** Mentorship's rule: what a vibe coder earns a second, before anything, over what an intern does. */
+      const payAsVibe = () => {
+        const per = (id: GeneratorId) => { const g = GENERATOR_TYPES.find((x) => x.id === id); return g ? g.baseProduction / g.interval : 0; };
+        return per("intern") > 0 ? Math.max(1, per("vibe_coder") / per("intern")) : 1;
+      };
       const setDeck = (deck: Deck) => {
         if (deck !== get().employeeManagement.deck) set((state) => ({ employeeManagement: { ...state.employeeManagement, deck } }));
       };
@@ -496,16 +512,23 @@ export const useGeneratorStore = create<GeneratorState>()(
           const here = attendance(id, get().generators.find((g) => g.id === id)?.amount ?? 0);
           // AT THEIR DESKS: led by a team leader, a café next door. @see deskShare
           const atDesks = deskBonus(id);
+          // THE CARDS' RULES: Crunch Week's days, the Four-Day Week's happy
+          // kinds, Mentorship's pay, and the slop's — clean or spilling. @see Rules
+          const rules = {
+            money: (e.dayOutput !== 1 && isDaytime(Date.now()) ? e.dayOutput : 1) * (e.earnAsVibe ? payAsVibe() : 1)
+              * (get().satisfactionScores[id] > culture.HAPPY_AT ? e.happyAttendance : 1),
+            innovation: (get().satisfactionScores[id] > culture.HAPPY_AT ? e.happyAttendance : 1) * (slopSpilling() ? e.messInnovation : e.cleanInnovation),
+          };
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: e.output * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
+            money: e.output * rules.money * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
             // And the slop refineries, by how busy they are. @see game/processors
-            innovation: e.innovation * here * atDesks * wonderBonus("innovation") * labBonus() * refineryBonus(),
+            innovation: e.innovation * rules.innovation * here * atDesks * wonderBonus("innovation") * labBonus() * refineryBonus(),
           };
         },
 
-        getEmployeeCostMult: (id) => get().getCultureEffects(id).hireCost,
+        getEmployeeCostMult: (id) => { const e = get().getCultureEffects(id); return e.hireCost * thaw(e.freezeFalls); },
 
         getEffectiveSatisfaction: (id) => {
           const m = usePrestigeStore.getState().modifiers;
@@ -518,7 +541,8 @@ export const useGeneratorStore = create<GeneratorState>()(
           const e = get().getCultureEffects(id);
           // Hire Freeze: nobody hired but by hand.
           if (e.noAutoBuy) return 0;
-          const rate = e.autoBuy + leaders;
+          // And Always Be Hiring's rule: faster the more there are. @see Rules.autoBuyPer
+          const rate = e.autoBuy + leaders + e.autoBuyPer * (get().generators.find((g) => g.id === id)?.amount ?? 0);
           if (rate <= 0) return 0;
           // Founder "Operator" + skill-tree automation modifiers.
           return rate * useFounderStore.getState().autoBuyMult * usePrestigeStore.getState().modifiers.autoBuyMult;
@@ -556,6 +580,14 @@ export const useGeneratorStore = create<GeneratorState>()(
               gen.id === id ? { ...gen, amount: gen.amount + take } : gen,
             ),
           }));
+          // HIRE TO FIRE'S RULE: a vibe coder free with every so many interns, a bed allowing. @see Rules.vibePerIntern
+          const free = gid === "intern" ? get().getCultureEffects("intern").vibePerIntern : 0;
+          if (free > 0) {
+            vibeOwed += take * free;
+            const n = Math.floor(vibeOwed);
+            vibeOwed -= n;
+            if (n > 0) get().increaseGenerator("vibe_coder", n);
+          }
         },
 
         _buildModifiers: (): GameModifiers => {

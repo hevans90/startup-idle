@@ -5,13 +5,16 @@ import { createGrid, fillTerrain, idx, type Structure } from "../world/grid";
 import { createNetwork } from "../world/roads/network";
 import { structureDef } from "../world/structures/def";
 import { placeCommand } from "../world/structures/place";
-import { DESKLESS, FREE, commuteEfficiency, seat } from "../world/agents/commute";
-import { MOOD, moodsOf } from "../world/agents/mood";
+import { DESKLESS, FREE, STRANDED, commuteEfficiency, seat } from "../world/agents/commute";
+import { MOOD, moodsOf, stepMood } from "../world/agents/mood";
+import type { MoodParts } from "../world/agents/mood-rules";
+import type { Build } from "../world/grid";
 import { placesOf } from "../world/agents/roads";
 import { emptyDeck, type CardId, type Deck } from "./culture";
 import { cultureNow, cultureVersion, setDeckReader } from "./culture-now";
 import { housedBy } from "./housing";
 import { leaderEffects, RANK_OUTPUT, type Leader } from "./leaders";
+import { leadersNow } from "./leader-economy";
 import { tankFor, TANK_SECONDS } from "./slop";
 
 let undo = () => {};
@@ -113,6 +116,81 @@ describe("the culture deck, where the map works it out", () => {
     deck({ openplan: 1 });
     const all = leaderEffects(l, 10, 100), team = leaderEffects(l, 100, 100);
     expect(all.output).toBeCloseTo(team.output, 9);
+  });
+
+  test("Hot Desking's rule: vibe coders sit at the interns' garage", () => {
+    const { ids, seating } = street(6, 4, "kit:vibe_coder.t1");
+    expect(seating().commutes.get(ids[1])!.eff).toBe(STRANDED);
+    deck({ hotdesk: 3 });
+    const s = seating();
+    expect(s.commutes.get(ids[1])!.eff).toBe(1);
+    expect(s.desks.get(ids[0])!.used).toBe(4);
+  });
+
+  test("Company Housing's rule: a house beside its workplace needs no desks; one farther does", () => {
+    const near = street(2, 5);
+    deck({ housing: 3 });
+    expect(near.seating().desks.get(near.ids[0])!.used).toBe(0);
+    expect(near.seating().commutes.get(near.ids[1])!.eff).toBe(1);
+    const far = street(20, 5);
+    expect(far.seating().desks.get(far.ids[0])!.used).toBe(5);
+  });
+
+  test("Shuttle Bus's rule: a house with no road to work works in full", () => {
+    const { ids, seating } = street(6, 4, "kit:vibe_coder.t1");
+    deck({ shuttle: 3 });
+    expect(seating().commutes.get(ids[1])!.eff).toBe(1);
+  });
+
+  test("Move Fast's rule: a workplace still going up seats people", () => {
+    const { g, ids, seating } = street();
+    g.structures.get(ids[0])!.build = {} as Build;
+    expect(seating().desks.has(ids[0])).toBe(false);
+    deck({ movefast: 3 });
+    expect(seating().desks.get(ids[0])!.used).toBe(5);
+  });
+
+  test("Remote Fridays: who is at home, counted for their leader", () => {
+    const { seating } = street(6, 4);
+    deck({ remote: 3 });
+    expect(seating().home.intern).toBe(2);
+  });
+
+  test("Free Lunch's rule: a café, a park and a gym", () => {
+    const g = createGrid(40, 40);
+    g.structures.set(1, { id: 1, x: 5, y: 5, w: 1, h: 1, def: "kit:intern.t0", residents: 2 } as Structure);
+    g.structures.set(2, { id: 2, x: 9, y: 5, w: 2, h: 1, def: "garage" } as Structure);
+    deck({ lunch: 3 });
+    const m = moodsOf(g, new Map(), new Map(), new Set()).get(1)!;
+    expect(m.total).toBe(MOOD.cafe + MOOD.park + MOOD.gym);
+  });
+
+  test("Therapy Budget's rule: no one moves out, however miserable", () => {
+    const { g, ids } = street(6, 4);
+    const moods = new Map<number, MoodParts>([[ids[1], { total: -40, parts: [] }]]);
+    stepMood(new Map(), g, moods, 61);
+    expect(g.structures.get(ids[1])!.residents).toBe(3);
+    deck({ therapy: 3 });
+    stepMood(new Map(), g, moods, 61);
+    expect(g.structures.get(ids[1])!.residents).toBe(3);
+  });
+
+  test("Open Plan's rule: every leader leads every kind", () => {
+    const l: Leader = { id: "l", role: "intern", name: "L", personality: "overachiever", rank: 3, xp: 0, perks: [], placedAt: 1 };
+    const owned = { intern: 10, vibe_coder: 10 };
+    expect(leadersNow(owned, () => 1, [l]).of.vibe_coder).toBeUndefined();
+    deck({ openplan: 3 });
+    const of = leadersNow(owned, () => 1, [l]).of;
+    expect(of.vibe_coder!.output).toBeCloseTo(of.intern!.output, 9);
+    expect(of.vibe_coder!.output).toBeGreaterThan(1);
+  });
+
+  test("Stack Ranking's rule: ranks past five count", () => {
+    const l: Leader = { id: "l", role: "intern", name: "L", personality: "overachiever", rank: 8, xp: 0, perks: [], placedAt: 1 };
+    deck({ stack: 2 });
+    const capped = leaderEffects(l, 10, 10).output;
+    deck({ stack: 3 });
+    expect(leaderEffects(l, 10, 10).output - capped).toBeCloseTo(3 * RANK_OUTPUT * 3, 9);
   });
 
   test("Move Fast: slop tanks half the size", () => {

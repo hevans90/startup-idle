@@ -63,6 +63,8 @@ export const PER_TILE = 0.0125;
 export const WORST = 0.5;
 /** What people with no road to any workplace manage. */
 export const STRANDED = 0.25;
+/** Tiles of road a house's door is from a workplace's to be beside it. @see Rules.nextDoor */
+export const NEXT_DOOR = 3;
 
 /** The share of a day's work a commute of `tiles` leaves; `null` tiles is no way there. */
 export const commuteEfficiency = (tiles: number | null): number =>
@@ -88,8 +90,8 @@ export function commutesOf(g: Grid, places: readonly Place[]): Map<number, Commu
   return seat(g, places).commutes;
 }
 
-/** Every house's commute, and how full each workplace is: desks taken, and desks. */
-export type Seating = { commutes: Map<number, Commute>; desks: Map<number, { used: number; of: number }> };
+/** Every house's commute, how full each workplace is — desks taken, and desks — and how many of each kind work from home. */
+export type Seating = { commutes: Map<number, Commute>; desks: Map<number, { used: number; of: number }>; home: Partial<Record<GeneratorId, number>> };
 
 /** What a step of road up or down a level — onto a ramp — counts for on the way to work: a hill town's walk is longer. */
 export const CLIMB = 2;
@@ -138,14 +140,20 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
   for (const p of places) if (p.kind === "door" && p.structure !== undefined) doorOf.set(p.structure, p);
   const commutes = new Map<number, Commute>();
   const desks = new Map<number, { used: number; of: number }>();
+  const home: Partial<Record<GeneratorId, number>> = {};
+  // THE CULTURE DECK'S RULES: Move Fast's sites open as they go up, and Hot
+  // Desking's desks are anyone's. @see Rules
+  const rules = cultureNow();
+  const open = [...g.structures.values()].filter((s) => (!s.build || rules.openSites) && workplaceKind(s.def));
+  // Each workplace's desks, as its own kind's cards make them.
+  for (const w of open) desks.set(w.id, { used: 0, of: Math.round((DESKS[w.def] ?? 0) * cultureNow(workplaceKind(w.def)!).desks) });
   for (const who of Object.keys(WORKPLACES) as GeneratorId[]) {
     const houses = [...g.structures.values()].filter((s) => housedBy(s.def)?.id === who);
-    const works = [...g.structures.values()].filter((s) => !s.build && workplaceKind(s.def) === who);
-    // THE CULTURE DECK: desks more or fewer, what the deskless manage, and
-    // who works from home — needing no desk, walking nowhere. @see CARDS
+    const works = rules.anyDesk ? open : open.filter((s) => workplaceKind(s.def) === who);
+    // THE CULTURE DECK: what the deskless manage, and who works from home —
+    // needing no desk, walking nowhere. @see CARDS
     const deck = cultureNow(who);
     const deskless = Math.max(desklessShare(), deck.deskless);
-    for (const w of works) desks.set(w.id, { used: 0, of: Math.round((DESKS[w.def] ?? 0) * deck.desks) });
     if (!houses.length) continue;
     // Every house and workplace a road joins, nearest first.
     const pairs: { house: number; work: number; tiles: number }[] = [];
@@ -160,8 +168,12 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
       }
     }
     pairs.sort((a, b) => a.tiles - b.tiles || a.house - b.house);
-    const home = (n: number) => Math.round(n * deck.remote);
-    const left = new Map(houses.map((h) => [h.id, residentsIn(h) - home(residentsIn(h))]));
+    const reachable = new Set(pairs.map((p) => p.house));
+    // Company Housing's rule: a house beside a workplace is all at work, at no desk.
+    const beside = new Set(deck.nextDoor ? pairs.filter((p) => p.tiles <= NEXT_DOOR && workplaceKind(g.structures.get(p.work)!.def) === who).map((p) => p.house) : []);
+    // Shuttle Bus's rule: those with no road are taken, and work in full.
+    const atHome = (h: number, n: number) => (beside.has(h) || (deck.noStranded && !reachable.has(h)) ? n : Math.round(n * deck.remote));
+    const left = new Map(houses.map((h) => [h.id, residentsIn(h) - atHome(h.id, residentsIn(h))]));
     const sat = new Map<number, { work: number; tiles: number; n: number }[]>();
     for (const p of pairs) {
       const want = left.get(p.house) ?? 0, room = desks.get(p.work)!;
@@ -173,12 +185,12 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
       list.push({ work: p.work, tiles: p.tiles, n });
       sat.set(p.house, list);
     }
-    const reachable = new Set(pairs.map((p) => p.house));
     for (const h of houses) {
-      const n = residentsIn(h), list = sat.get(h.id) ?? [], desklessN = left.get(h.id) ?? 0;
+      const n = residentsIn(h), list = sat.get(h.id) ?? [], desklessN = left.get(h.id) ?? 0, homeN = atHome(h.id, n);
+      home[who] = (home[who] ?? 0) + homeN;
       if (!reachable.has(h.id)) {
         // No road to anywhere its people could work — but those at home.
-        commutes.set(h.id, { tiles: null, eff: n ? (home(n) + (n - home(n)) * STRANDED) / n : STRANDED, to: null, deskless: 0 });
+        commutes.set(h.id, { tiles: null, eff: n ? (homeN + (n - homeN) * STRANDED) / n : homeN ? 1 : STRANDED, to: null, deskless: 0 });
         continue;
       }
       // An empty house: the commute its people would have, to the nearest.
@@ -188,17 +200,17 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
         continue;
       }
       const main = list.reduce<{ work: number; tiles: number; n: number } | null>((m, x) => (!m || x.n > m.n ? x : m), null);
-      const work = list.reduce((sum, x) => sum + x.n * commuteEfficiency(x.tiles), 0) + desklessN * deskless + home(n);
+      const work = list.reduce((sum, x) => sum + x.n * commuteEfficiency(x.tiles), 0) + desklessN * deskless + homeN;
       commutes.set(h.id, {
         tiles: main?.tiles ?? nearest.tiles, eff: work / n, to: main?.work ?? nearest.work, deskless: desklessN,
       });
     }
   }
-  return { commutes, desks };
+  return { commutes, desks, home };
 }
 
 let memo: { g: Grid | null; rev: number; sites: number; people: string; deck: number; value: Seating } = {
-  g: null, rev: -1, sites: -1, people: "", deck: -1, value: { commutes: new Map(), desks: new Map() },
+  g: null, rev: -1, sites: -1, people: "", deck: -1, value: { commutes: new Map(), desks: new Map(), home: {} },
 };
 
 /**

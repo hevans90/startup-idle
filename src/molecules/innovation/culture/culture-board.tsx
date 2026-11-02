@@ -11,7 +11,7 @@ import { createPortal } from "react-dom";
 import { twMerge } from "tailwind-merge";
 
 import { sfx } from "../../../audio/sound";
-import { CARDS, card, rankPrice, rerollSeconds, slotPrice, type CardId, type Track } from "../../../game/culture";
+import { CARDS, MAX_RANK, card, inForce, rankPrice, rerollSeconds, slotPrice, type CardId, type Track } from "../../../game/culture";
 import { useTicking } from "../../../hooks/use-ticking";
 import { useGeneratorStore } from "../../../state/generators.store";
 import { useInnovationStore } from "../../../state/innovation.store";
@@ -28,14 +28,19 @@ const PICK_MS = 420;
 const deck = () => useGeneratorStore.getState().employeeManagement.deck;
 const dragged = (e: DragEvent) => e.dataTransfer.getData("text/plain") as CardId;
 
-/** Beneath a card: its next rank's price, if it has one. */
+/** Beneath a card, a card's width: a word on it. */
+const Under = ({ children }: { children: string }) =>
+  <span className="h-6 w-[9.5rem] text-center text-[10px] uppercase leading-6 tracking-wider text-fg-muted">{children}</span>;
+
+/** Beneath a card: its next rank's price, if it has one — the last, its rule. */
 function RankUp({ id, points, onRanked }: { id: CardId; points: number; onRanked: (id: CardId) => void }) {
   const price = rankPrice(deck(), id);
-  if (price === null) return <span className="h-6 text-[10px] uppercase leading-6 tracking-wider text-fg-muted">Top rank</span>;
+  if (price === null) return <Under>Top rank</Under>;
+  const next = (deck().ranks[id] ?? 1) + 1, rule = next === MAX_RANK;
   return (
-    <Button size="sm" variant="secondary" disabled={points < price}
-      onClick={() => { useGeneratorStore.getState().rankUpCard(id); sfx("confirm"); onRanked(id); }}>
-      Rank up · {price} {price === 1 ? "point" : "points"}
+    <Button size="sm" variant={rule ? "primary" : "secondary"} disabled={points < price} className="w-[9.5rem]"
+      onClick={() => { useGeneratorStore.getState().rankUpCard(id); sfx(rule ? "decision" : "confirm"); onRanked(id); }}>
+      Rank {next} · {price} {price === 1 ? "point" : "points"}
     </Button>
   );
 }
@@ -51,7 +56,8 @@ function Held({ id, rank, shine, held, onTap, onDrag }: {
       onDragStart={(e) => { e.dataTransfer.setData("text/plain", id); e.dataTransfer.effectAllowed = "move"; onDrag(id); }}
       onDragEnd={() => onDrag(null)}
       className={twMerge("card-lift cursor-grab active:cursor-grabbing", FOCUS, held && "card-held")}>
-      <CultureCard id={id} rank={rank} className="card-slot-in">
+      {/* Its rule unlocked: a flare, as well as the shine. */}
+      <CultureCard key={shine && rank >= MAX_RANK ? "ruled" : "card"} id={id} rank={rank} className={shine && rank >= MAX_RANK ? "card-rule-in" : "card-slot-in"}>
         {shine && <span key={rank} aria-hidden className="card-shine pointer-events-none absolute inset-0" style={{ clipPath: CARD_CLIP }} />}
       </CultureCard>
     </button>
@@ -91,7 +97,7 @@ function OfferStage({ onDone, onLater }: { onDone: () => void; onLater: () => vo
           <div key={id} className={twMerge("card-deal", picked && (picked === id ? "card-pick" : "card-pass"))}
             style={{ animationDelay: picked ? "0ms" : `${k * 110}ms`, ["--deal-rot" as string]: `${(k - 1) * 5}deg` }}>
             <button type="button" onClick={() => pick(id)} aria-label={`Take ${card(id).name}`} className={twMerge("card-lift cursor-pointer", FOCUS)}>
-              <CultureCard id={id} rank={1} size="lg" className="max-sm:h-[14.5rem] max-sm:w-[9.5rem]" />
+              <CultureCard id={id} rank={1} size="lg" className="max-sm:h-[18rem] max-sm:w-[9.5rem]" />
             </button>
           </div>
         ))}
@@ -129,7 +135,9 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
     return () => { window.removeEventListener("keydown", key); sfx("close"); back?.focus?.(); };
   }, []);
 
-  const hand = CARDS.filter((c) => d.ranks[c.id] && !d.slotted.includes(c.id)).map((c) => c.id);
+  // Pivot Weekly's guest, in force in a slot of its own. @see pivot
+  const guest = inForce(d).find((id) => !d.slotted.includes(id));
+  const hand = CARDS.filter((c) => d.ranks[c.id] && !d.slotted.includes(c.id) && c.id !== guest).map((c) => c.id);
   const free = d.slotted.length < d.slots;
 
   const placeAt = (id: CardId, at: number) => { g.placeCard(id, at); sfx("pop"); setHeld(null); setOver(null); };
@@ -190,7 +198,7 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
                         ? <Held key={id} id={id} rank={d.ranks[id]!} shine={shone === id} held={held === id} onTap={() => tapSlot(at, id)} onDrag={setHeld} />
                         : (
                           <button type="button" onClick={() => tapSlot(at)} aria-label={`Slot ${at + 1}, empty`}
-                            className={twMerge("relative block h-[14.5rem] w-[9.5rem] cursor-pointer", FOCUS)}>
+                            className={twMerge("relative block h-[18rem] w-[9.5rem] cursor-pointer", FOCUS)}>
                             <span className={twMerge("absolute inset-0", lit ? "bg-console" : "bg-line")} style={{ clipPath: CARD_CLIP }} />
                             <span className="absolute inset-px bg-surface-0 shadow-[inset_0_4px_16px_rgb(0_0_0/0.45)]" style={{ clipPath: CARD_CLIP }} />
                             {/* A card's outline, waiting. */}
@@ -204,11 +212,17 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
                   </div>
                 );
               })}
+              {guest && (
+                <div className="flex flex-col items-center gap-2">
+                  <CultureCard id={guest} rank={d.ranks[guest]!} className="card-slot-in" />
+                  <Under>Pivot's guest</Under>
+                </div>
+              )}
               {/* A NEW SLOT, for points. */}
               {/* On a phone, a bar of its own under them. */}
               <div className="flex flex-col items-center gap-2 max-sm:w-full">
                 <button type="button" disabled={points < slotPrice(d)} onClick={() => { g.buySlot(); sfx("confirm"); }}
-                  className={twMerge("group relative block h-[14.5rem] w-[9.5rem] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 max-sm:h-12 max-sm:w-full", FOCUS)}>
+                  className={twMerge("group relative block h-[18rem] w-[9.5rem] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 max-sm:h-12 max-sm:w-full", FOCUS)}>
                   <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center text-fg-muted transition-colors group-enabled:group-hover:text-fg max-sm:flex-row max-sm:gap-3">
                     <span className="flex h-10 w-10 items-center justify-center border border-current text-xl leading-none max-sm:h-7 max-sm:w-7 max-sm:text-base">+</span>
                     <span className="mt-1 font-display text-sm max-sm:mt-0">New slot</span>

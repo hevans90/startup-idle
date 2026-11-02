@@ -38,3 +38,8 @@ export const tankFor = (rate: number) => Math.max(TANK_LEAST, rate * TANK_SECOND
 let making = 0;
 export const setSlopMaking = (rate: number) => { making = Number.isFinite(rate) ? Math.max(0, rate) : 0; };
 export const slopMaking = () => making;
+
+/** WHETHER ANY TANK SPILLS, as the map last stepped them: what Hackathon Culture's and Vibes Only's rules read. Live state. @see Rules */
+let spilling = false;
+export const setSlopSpilling = (on: boolean) => { spilling = on; };
+export const slopSpilling = () => spilling;

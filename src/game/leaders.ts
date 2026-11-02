@@ -82,6 +82,13 @@ export const RANK_OUTPUT = 0.04;
 /** XP for each rank, from nought; five ranks. */
 export const XP_AT: readonly number[] = [0, 300, 1200, 3000, 6500, 12000];
 export const MAX_LEADER_RANK = XP_AT.length - 1;
+/** Past the top, under Stack Ranking's rule: a rank for each so much XP more. @see Rules.noLeaderCap */
+export const XP_PAST = 8000;
+/** The XP a rank takes, past the top too. */
+export const xpFor = (rank: number): number =>
+  rank <= MAX_LEADER_RANK ? XP_AT[rank] : XP_AT[MAX_LEADER_RANK] + (rank - MAX_LEADER_RANK) * XP_PAST;
+/** The highest rank a kind's leader reaches now: five, or none under Stack Ranking's rule. */
+export const leaderCap = (role: GeneratorId): number => (cultureNow(role).noLeaderCap ? Infinity : MAX_LEADER_RANK);
 
 export type Leader = {
   id: string;
@@ -99,10 +106,11 @@ export type Leader = {
   flag?: RedFlagId | null;
 };
 
-/** The rank an amount of XP reaches. */
-export const rankAt = (xp: number): number => {
+/** The rank an amount of XP reaches — past the top, `uncapped`. */
+export const rankAt = (xp: number, uncapped = false): number => {
   let r = 0;
   for (let k = 1; k < XP_AT.length; k++) if (xp >= XP_AT[k]) r = k;
+  if (uncapped && r === MAX_LEADER_RANK) r += Math.floor((xp - XP_AT[MAX_LEADER_RANK]) / XP_PAST);
   return r;
 };
 
@@ -147,9 +155,11 @@ export function leaderEffects(l: Leader, team: number, owned: number, outputMult
   // Secretly brilliant ranks faster; a quiet quitter stops at rank 3. @see RED_FLAGS
   const xpMult = all.reduce((n, x) => n * (x.xp ?? 1), 1) * (l.flag === "brilliant" ? 1.5 : 1) * (l.flag === "quitter" && l.rank >= 3 ? 0 : 1);
   const t = Math.min(team, owned);
+  // Ranks past the top count while Stack Ranking's rule holds.
+  const rank = Math.min(l.rank, leaderCap(l.role));
   return {
     // Stack Ranking: a rank counts double, or triple. @see CARDS
-    output: 1 + share * (sum("output") + RANK_OUTPUT * l.rank * deck.leaderRank),
+    output: 1 + share * (sum("output") + RANK_OUTPUT * rank * deck.leaderRank),
     innovation: 1 + share * sum("innovation"),
     // + 0: never a negative nought, for nobody to see as "−0".
     morale: share * (sum("morale") + (l.flag === "ego" ? -3 : 0)) + 0,

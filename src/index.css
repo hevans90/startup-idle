@@ -148,7 +148,8 @@ html.ui-calm .card-deal,
 html.ui-calm .card-pick,
 html.ui-calm .card-pass,
 html.ui-calm .card-slot-in,
-html.ui-calm .card-shine {
+html.ui-calm .card-shine,
+html.ui-calm .card-rule-in {
   animation: none;
 }
 html.ui-calm .card-lift,
@@ -194,12 +195,21 @@ html.ui-calm .card-lift:hover {
   mix-blend-mode: screen;
   animation: card-shine 0.8s ease-out both;
 }
+/* At the top rank, its rule its own: aglow in its tone. */
+.card-ruled { filter: drop-shadow(0 0 7px color-mix(in oklab, var(--tone) 55%, transparent)); }
+/* The rule, unlocked: a flare, and the glow settling. */
+@keyframes card-rule-in {
+  0% { transform: none; filter: drop-shadow(0 0 0 var(--tone)) brightness(1); }
+  30% { transform: scale(1.07); filter: drop-shadow(0 0 26px var(--tone)) brightness(1.4); }
+  100% { transform: none; filter: drop-shadow(0 0 7px color-mix(in oklab, var(--tone) 55%, transparent)); }
+}
+.card-rule-in { animation: card-rule-in 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
 /* Picked up, by the pointer: raised. */
 .card-lift { transition: transform 0.18s ease-out, filter 0.18s ease-out; }
 .card-lift:hover { transform: translateY(-6px); filter: drop-shadow(0 10px 14px rgb(0 0 0 / 0.35)); }
 .card-held { transform: translateY(-10px); filter: drop-shadow(0 0 10px var(--ui-console)); }
 @media (prefers-reduced-motion: reduce) {
-  .card-deal, .card-pick, .card-pass, .card-slot-in, .card-shine { animation: none; }
+  .card-deal, .card-pick, .card-pass, .card-slot-in, .card-shine, .card-rule-in { animation: none; }
   .card-lift, .card-lift:hover { transition: none; transform: none; }
 }
 

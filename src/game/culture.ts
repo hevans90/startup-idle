@@ -77,6 +77,54 @@ export type CardEffects = {
   pivot?: boolean;
 };
 
+/**
+ * WHAT RANK 3 REWRITES: not a bigger number, a different rule — who sits
+ * where, who leads whom, what a spill is worth. Each is read where its rule
+ * is. @see cultureNow
+ */
+export type Rules = {
+  /** Any kind sits at any kind's workplace. @see seat */
+  anyDesk?: boolean;
+  /** × money while it is light. @see isDaytime */
+  dayOutput?: number;
+  /** Leaders rank on past five. @see rankAt */
+  noLeaderCap?: boolean;
+  /** Vibe coders who come free with each intern hired. */
+  vibePerIntern?: number;
+  /** Crews work ahead of the deliveries. @see materialCap */
+  noMaterialWait?: boolean;
+  /** Lunch counts as a café, a park and a gym. @see moodsOf */
+  lunchAll?: boolean;
+  /** Those working from home are on their leader's team. */
+  homeTeam?: boolean;
+  /** × attendance while the kind's morale is over `HAPPY_AT`. */
+  happyAttendance?: number;
+  /** Nobody moves out over their house's mood. @see stepMood */
+  noMoveOut?: boolean;
+  /** Everyone of the kind works from home. @see seat */
+  allHome?: boolean;
+  /** Houses by a workplace need no desks. @see NEXT_DOOR */
+  nextDoor?: boolean;
+  /** Auto-buy a second added for each person of the kind. */
+  autoBuyPer?: number;
+  /** The hire price halves again each `FREEZE_HALVES` seconds slotted. */
+  freezeFalls?: boolean;
+  /** Houses with no road to work still get there, in full. @see STRANDED */
+  noStranded?: boolean;
+  /** The kind earns what vibe coders do. */
+  earnAsVibe?: boolean;
+  /** × innovation while no slop tank spills. */
+  cleanInnovation?: number;
+  /** × innovation while a slop tank spills. */
+  messInnovation?: number;
+  /** Workplaces seat people while still building. */
+  openSites?: boolean;
+  /** Pivot Weekly brings a card into a slot of its own, swapping none out. @see pivot */
+  pivotIn?: boolean;
+  /** Each leader leads every kind. @see leadersNow */
+  leadEvery?: boolean;
+};
+
 export type Card = {
   id: CardId;
   name: string;
@@ -85,36 +133,38 @@ export type Card = {
   only?: GeneratorId;
   /** Its trade at rank 1 and rank 2; rank 3 keeps rank 2's and adds its rule. */
   ranks: readonly [CardEffects, CardEffects];
-  /** What rank 3 rewrites, as the card says it. Not yet in force. @see MAX_RANK */
+  /** What rank 3 rewrites, as the card says it… */
   keystone: string;
+  /** …and as the game reads it. */
+  rule: Rules;
 };
 
 /** The deck, at launch: five cards a tag. Numbers are first guesses. @see plans/culture-deck.md §4 */
 export const CARDS: readonly Card[] = [
   // HUSTLE: more out of the same buildings; tired people.
-  { id: "hotdesk", name: "Hot Desking", tag: "hustle", ranks: [{ desks: 1.5, houseMood: -6 }, { desks: 2, houseMood: -6 }], keystone: "People with no desk work in full" },
-  { id: "crunch", name: "Crunch Week", tag: "hustle", ranks: [{ deskless: 0.7, morale: -10 }, { deskless: 1, morale: -14 }], keystone: "Crunch comes in sprints: double output, then a slump" },
-  { id: "stack", name: "Stack Ranking", tag: "hustle", ranks: [{ leaderRank: 2, morale: -8 }, { leaderRank: 3, morale: -10 }], keystone: "The bottom 5% leave each hour; their beds go to new hires at half price" },
-  { id: "hiretofire", name: "Hire to Fire", tag: "hustle", only: "intern", ranks: [{ costCurve: -0.04, morale: -12 }, { costCurve: -0.07, morale: -12 }], keystone: "Interns who leave come back as vibe coders" },
-  { id: "shipit", name: "Ship It Fridays", tag: "hustle", ranks: [{ buildSpeed: 2, slop: 1.5 }, { buildSpeed: 3, slop: 1.75 }], keystone: "No slop on Fridays" },
+  { id: "hotdesk", name: "Hot Desking", tag: "hustle", ranks: [{ desks: 1.5, houseMood: -6 }, { desks: 2, houseMood: -6 }], keystone: "Any kind sits at any workplace", rule: { anyDesk: true } },
+  { id: "crunch", name: "Crunch Week", tag: "hustle", ranks: [{ deskless: 0.7, morale: -10 }, { deskless: 1, morale: -14 }], keystone: "Output ×2 while it is light", rule: { dayOutput: 2 } },
+  { id: "stack", name: "Stack Ranking", tag: "hustle", ranks: [{ leaderRank: 2, morale: -8 }, { leaderRank: 3, morale: -10 }], keystone: "Leaders rank on past 5, without end", rule: { noLeaderCap: true } },
+  { id: "hiretofire", name: "Hire to Fire", tag: "hustle", only: "intern", ranks: [{ costCurve: -0.04, morale: -12 }, { costCurve: -0.07, morale: -12 }], keystone: "A free vibe coder with every 10 interns hired", rule: { vibePerIntern: 0.1 } },
+  { id: "shipit", name: "Ship It Fridays", tag: "hustle", ranks: [{ buildSpeed: 2, slop: 1.5 }, { buildSpeed: 3, slop: 1.75 }], keystone: "Crews build ahead of deliveries", rule: { noMaterialWait: true } },
   // WELLNESS: a happier town; space or speed given for it.
-  { id: "lunch", name: "Free Lunch", tag: "wellness", ranks: [{ lunch: 6, buildPrice: 1.15 }, { lunch: 12, buildPrice: 1.15 }], keystone: "Workplaces with lunch fill first" },
-  { id: "remote", name: "Remote Fridays", tag: "wellness", ranks: [{ remote: 0.25 }, { remote: 0.5 }], keystone: "Remote workers count toward their leader's team" },
-  { id: "fourday", name: "Four-Day Week", tag: "wellness", ranks: [{ houseMood: 10, attendance: 0.8 }, { houseMood: 15, attendance: 0.8 }], keystone: "Morale over +20 pays the output back" },
-  { id: "therapy", name: "Therapy Budget", tag: "wellness", ranks: [{ hazards: 0.5, hireCost: 1.15 }, { hazards: 0, hireCost: 1.15 }], keystone: "No one moves out over mood" },
-  { id: "sabbatical", name: "Research Sabbaticals", tag: "wellness", only: "10x_dev", ranks: [{ innovation: 2, attendance: 0.75 }, { innovation: 3, attendance: 0.75 }], keystone: "Each return gives their leader a rank" },
+  { id: "lunch", name: "Free Lunch", tag: "wellness", ranks: [{ lunch: 6, buildPrice: 1.15 }, { lunch: 12, buildPrice: 1.15 }], keystone: "Lunch counts as a café, park and gym", rule: { lunchAll: true } },
+  { id: "remote", name: "Remote Fridays", tag: "wellness", ranks: [{ remote: 0.25 }, { remote: 0.5 }], keystone: "Home workers join their leader's team", rule: { homeTeam: true } },
+  { id: "fourday", name: "Four-Day Week", tag: "wellness", ranks: [{ houseMood: 10, attendance: 0.8 }, { houseMood: 15, attendance: 0.8 }], keystone: "Morale over +20: attendance ×1.5", rule: { happyAttendance: 1.5 } },
+  { id: "therapy", name: "Therapy Budget", tag: "wellness", ranks: [{ hazards: 0.5, hireCost: 1.15 }, { hazards: 0, hireCost: 1.15 }], keystone: "No one moves out over mood", rule: { noMoveOut: true } },
+  { id: "sabbatical", name: "Sabbaticals", tag: "wellness", only: "10x_dev", ranks: [{ innovation: 2, attendance: 0.75 }, { innovation: 3, attendance: 0.75 }], keystone: "Every 10x dev works from home", rule: { allHome: true } },
   // GROWTH: headcount.
-  { id: "housing", name: "Company Housing", tag: "growth", ranks: [{ beds: 2, houseMood: -8 }, { beds: 3, houseMood: -8 }], keystone: "Houses beside offices count as desks" },
-  { id: "pipeline", name: "Always Be Hiring", tag: "growth", ranks: [{ autoBuy: 1, costCurve: 0.03 }, { autoBuy: 3, costCurve: 0.03 }], keystone: "Auto-buy fills empty beds first" },
-  { id: "freeze", name: "Hire Freeze", tag: "growth", ranks: [{ hireCost: 0.5, noAutoBuy: true, morale: -10 }, { hireCost: 0.33, noAutoBuy: true, morale: -10 }], keystone: "Prices keep falling while the freeze holds" },
-  { id: "shuttle", name: "Shuttle Bus", tag: "growth", ranks: [{ freeCommute: 8, buildPrice: 1.15 }, { freeCommute: Infinity, buildPrice: 1.15 }], keystone: "Stranded houses get a shuttle" },
-  { id: "mentorship", name: "Mentorship Scheme", tag: "growth", only: "intern", ranks: [{ innovation: 3, desks: 0.5 }, { innovation: 5, desks: 0.5 }], keystone: "Interns mentored long enough become vibe coders" },
+  { id: "housing", name: "Company Housing", tag: "growth", ranks: [{ beds: 2, houseMood: -8 }, { beds: 3, houseMood: -8 }], keystone: "Houses beside a workplace need no desks", rule: { nextDoor: true } },
+  { id: "pipeline", name: "Always Be Hiring", tag: "growth", ranks: [{ autoBuy: 1, costCurve: 0.03 }, { autoBuy: 3, costCurve: 0.03 }], keystone: "Auto-buy +1/s for every 1,000 hired", rule: { autoBuyPer: 0.001 } },
+  { id: "freeze", name: "Hire Freeze", tag: "growth", ranks: [{ hireCost: 0.5, noAutoBuy: true, morale: -10 }, { hireCost: 0.33, noAutoBuy: true, morale: -10 }], keystone: "Hire prices halve again every 10 min", rule: { freezeFalls: true } },
+  { id: "shuttle", name: "Shuttle Bus", tag: "growth", ranks: [{ freeCommute: 8, buildPrice: 1.15 }, { freeCommute: Infinity, buildPrice: 1.15 }], keystone: "Houses with no road get to work anyway", rule: { noStranded: true } },
+  { id: "mentorship", name: "Mentorship Scheme", tag: "growth", only: "intern", ranks: [{ innovation: 3, desks: 0.5 }, { innovation: 5, desks: 0.5 }], keystone: "Interns earn what vibe coders earn", rule: { earnAsVibe: true } },
   // CHAOS: innovation, and a mess.
-  { id: "hackathon", name: "Hackathon Culture", tag: "chaos", only: "vibe_coder", ranks: [{ innovation: 2, slop: 2 }, { innovation: 3, slop: 2 }], keystone: "Slop a sewer carries counts as innovation" },
-  { id: "movefast", name: "Move Fast", tag: "chaos", ranks: [{ buildSpeed: 2, tank: 0.5 }, { buildSpeed: 3, tank: 0.5 }], keystone: "Spills give innovation" },
-  { id: "vibesonly", name: "Vibes Only", tag: "chaos", only: "vibe_coder", ranks: [{ deskless: 0.7, slop: 1.5, houseMood: -6 }, { deskless: 1, slop: 1.5, houseMood: -6 }], keystone: "No studio is ever full" },
-  { id: "pivot", name: "Pivot Weekly", tag: "chaos", ranks: [{ innovation: 1.5, pivot: true }, { innovation: 2, pivot: true }], keystone: "You choose what is swapped" },
-  { id: "openplan", name: "Open Plan", tag: "chaos", ranks: [{ leadAll: true, morale: -8 }, { leadAll: true, leaderXp: 2, morale: -8 }], keystone: "Leaders' teams double" },
+  { id: "hackathon", name: "Hackathon Culture", tag: "chaos", only: "vibe_coder", ranks: [{ innovation: 2, slop: 2 }, { innovation: 3, slop: 2 }], keystone: "Innovation ×2 while no tank spills", rule: { cleanInnovation: 2 } },
+  { id: "movefast", name: "Move Fast", tag: "chaos", ranks: [{ buildSpeed: 2, tank: 0.5 }, { buildSpeed: 3, tank: 0.5 }], keystone: "Workplaces seat people while still building", rule: { openSites: true } },
+  { id: "vibesonly", name: "Vibes Only", tag: "chaos", only: "vibe_coder", ranks: [{ deskless: 0.7, slop: 1.5, houseMood: -6 }, { deskless: 1, slop: 1.5, houseMood: -6 }], keystone: "Innovation ×3 while a tank spills", rule: { messInnovation: 3 } },
+  { id: "pivot", name: "Pivot Weekly", tag: "chaos", ranks: [{ innovation: 1.5, pivot: true }, { innovation: 2, pivot: true }], keystone: "Pivots bring a card in, in a slot of its own", rule: { pivotIn: true } },
+  { id: "openplan", name: "Open Plan", tag: "chaos", ranks: [{ leadAll: true, morale: -8 }, { leadAll: true, leaderXp: 2, morale: -8 }], keystone: "Every leader leads every kind", rule: { leadEvery: true } },
 ];
 
 export const card = (id: CardId): Card => CARDS.find((c) => c.id === id)!;
@@ -127,12 +177,17 @@ export const TRACK_TAGS: Record<Track, readonly Tag[]> = {
   sales: ["growth", "hustle"],
 };
 
-/** The highest rank a card can be bought to. Rank 3's rules come with phase 3. @see plans/culture-deck.md */
-export const MAX_RANK = 2;
+/** The highest rank a card can be bought to: the third brings its rule. */
+export const MAX_RANK = 3;
 /** Cards an offer shows. */
 export const OFFER_SIZE = 3;
 /** Seconds between Pivot Weekly's swaps. */
 export const PIVOT_SECONDS = 600;
+/** Four-Day Week's rule: morale over this. */
+export const HAPPY_AT = 20;
+/** Hire Freeze's rule: seconds slotted for each halving of the price, and the least it falls to. */
+export const FREEZE_HALVES = 600;
+export const FREEZE_LEAST = 0.01;
 
 /** A share as the card says it: ×2 and up, else a percentage. */
 const share = (v: number) => (v >= 2 ? times(v) : percent((v - 1) * 100));
@@ -170,8 +225,9 @@ const LINES: { [K in keyof CardEffects]-?: (v: NonNullable<CardEffects[K]>) => {
 export function cardLines(c: Card, rank: number): { text: string; good: boolean }[] {
   const e = c.ranks[Math.min(rank, 2) - 1];
   const lines = (Object.keys(e) as (keyof CardEffects)[]).map((k) => (LINES[k] as (v: unknown) => { text: string; good: boolean })(e[k]));
-  // What working from home costs is not a number: who is home is on no leader's team. @see seat
-  if (e.remote) lines.push({ text: "Home workers on no team", good: false });
+  // What working from home costs is not a number: who is home is on no
+  // leader's team — till Remote Fridays' rule puts them on it. @see seat
+  if (e.remote && !(rank >= 3 && c.rule.homeTeam)) lines.push({ text: "Home workers on no team", good: false });
   return [...lines.filter((l) => l.good), ...lines.filter((l) => !l.good)];
 }
 
@@ -190,6 +246,8 @@ export type Deck = {
   ranks: Partial<Record<CardId, number>>;
   /** The cards in the slots, in order. */
   slotted: CardId[];
+  /** The card Pivot Weekly's rule has brought in, in a slot of its own. @see pivot */
+  guest?: CardId | null;
   /** Offers each track has dealt. */
   dealt: Record<Track, number>;
   offers: Offer[];
@@ -217,16 +275,27 @@ export const rerollSeconds = (o: Offer) => 60 * 2 ** o.rerolls;
  */
 export const cardAt = (n: number) => 1 + (n * (n + 1)) / 2 + 2 * n;
 
-/** What slotted cards do together. @see combine */
-export type CultureEffects = Required<CardEffects>;
+/** What slotted cards do together, their trades and rules. @see combine */
+export type CultureEffects = Required<CardEffects> & Required<Rules>;
 export const NO_EFFECTS: CultureEffects = {
   morale: 0, output: 1, innovation: 1, hireCost: 1, costCurve: 0, autoBuy: 0, noAutoBuy: false, slop: 1, tank: 1,
   desks: 1, deskless: 0, remote: 0, beds: 1, freeCommute: 0, houseMood: 0, hazards: 1, lunch: 0, attendance: 1,
   buildPrice: 1, buildSpeed: 1, leaderRank: 1, leadAll: false, leaderXp: 1, pivot: false,
+  anyDesk: false, dayOutput: 1, noLeaderCap: false, vibePerIntern: 0, noMaterialWait: false, lunchAll: false,
+  homeTeam: false, happyAttendance: 1, noMoveOut: false, allHome: false, nextDoor: false, autoBuyPer: 0,
+  freezeFalls: false, noStranded: false, earnAsVibe: false, cleanInnovation: 1, messInnovation: 1, openSites: false,
+  pivotIn: false, leadEvery: false,
 };
 /** How two cards' effects of a kind combine: added, multiplied, the larger, or either. */
-const ADDED = new Set<keyof CardEffects>(["morale", "costCurve", "autoBuy", "remote", "freeCommute", "houseMood"]);
-const LARGER = new Set<keyof CardEffects>(["deskless", "lunch"]);
+const ADDED = new Set<keyof CultureEffects>(["morale", "costCurve", "autoBuy", "remote", "freeCommute", "houseMood", "vibePerIntern", "autoBuyPer"]);
+const LARGER = new Set<keyof CultureEffects>(["deskless", "lunch"]);
+
+/** Whether a card is slotted at its top rank: its rule in force. */
+const ruled = (d: Deck, id: CardId) => d.slotted.includes(id) && (d.ranks[id] ?? 0) >= 3;
+
+/** The cards in force: those slotted, and Pivot Weekly's guest while its rule holds. */
+export const inForce = (d: Deck): CardId[] =>
+  d.guest && ruled(d, "pivot") && !d.slotted.includes(d.guest) && d.ranks[d.guest] ? [...d.slotted, d.guest] : d.slotted;
 
 /**
  * What the slotted cards do to a kind — or, with no kind, what they do to the
@@ -234,19 +303,20 @@ const LARGER = new Set<keyof CardEffects>(["deskless", "lunch"]);
  */
 export function cultureEffects(d: Deck, kind?: GeneratorId): CultureEffects {
   const e: Record<string, number | boolean> = { ...NO_EFFECTS };
-  for (const id of d.slotted) {
-    const c = card(id);
+  for (const id of inForce(d)) {
+    const c = card(id), rank = d.ranks[id] ?? 1;
     if (c.only && c.only !== kind) continue;
-    const r = c.ranks[Math.min(d.ranks[id] ?? 1, 2) - 1];
-    for (const [k, v] of Object.entries(r) as [keyof CardEffects, number | boolean][]) {
+    // Rank 3 keeps rank 2's trade, and adds its rule.
+    const r: CardEffects & Rules = { ...c.ranks[Math.min(rank, 2) - 1], ...(rank >= 3 ? c.rule : {}) };
+    for (const [k, v] of Object.entries(r) as [keyof CultureEffects, number | boolean][]) {
       if (typeof v === "boolean") e[k] = (e[k] as boolean) || v;
       else if (ADDED.has(k)) e[k] = (e[k] as number) + v;
       else if (LARGER.has(k)) e[k] = Math.max(e[k] as number, v);
       else e[k] = (e[k] as number) * v;
     }
   }
-  // Never all of a kind at home.
-  e.remote = Math.min(0.9, e.remote as number);
+  // Never all of a kind at home — but under Sabbaticals' rule.
+  e.remote = e.allHome ? 1 : Math.min(0.9, e.remote as number);
   return e as CultureEffects;
 }
 
@@ -316,8 +386,14 @@ export function buySlot(d: Deck, tiers: number): Deck {
 /**
  * PIVOT WEEKLY'S SWAP: a slotted card other than it, at random, out — and an
  * owned card out of the slots, at random, in its place. Nothing to swap, nothing.
+ * At rank 3, none out: an owned card out of the slots comes in as its GUEST,
+ * in a slot of its own, until the next pivot brings another.
  */
 export function pivot(d: Deck, rng: () => number = Math.random): Deck {
+  if (ruled(d, "pivot")) {
+    const bench = (Object.keys(d.ranks) as CardId[]).filter((id) => !d.slotted.includes(id) && id !== d.guest);
+    return bench.length ? { ...d, guest: bench[Math.floor(rng() * bench.length)] } : d;
+  }
   const outOf = d.slotted.filter((id) => !card(id).ranks[0].pivot);
   if (!outOf.length) return d;
   const out = outOf[Math.floor(rng() * outOf.length)];
@@ -368,6 +444,7 @@ export function readDeck(raw: unknown, oldPolicies?: Partial<Record<string, read
   d.slots = Math.max(1, Math.floor(Number(r.slots) || 1));
   for (const [id, rank] of Object.entries(r.ranks ?? {})) if (isCard(id)) d.ranks[id] = Math.min(MAX_RANK, Math.max(1, Math.floor(Number(rank) || 1)));
   d.slotted = [...new Set(r.slotted ?? [])].filter((id) => isCard(id) && d.ranks[id]).slice(0, d.slots);
+  d.guest = isCard(r.guest) && d.ranks[r.guest] ? r.guest : null;
   for (const t of Object.keys(d.dealt) as Track[]) d.dealt[t] = Math.max(0, Math.floor(Number(r.dealt?.[t]) || 0));
   d.offers = (r.offers ?? [])
     .filter((o): o is Offer => !!o && (o.track === "agile" || o.track === "corpo" || o.track === "sales"))

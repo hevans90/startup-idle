@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 
-import { card, cardAt, type Track } from "../../game/culture";
+import { card, cardAt, inForce, type CardId, type Track } from "../../game/culture";
 import { useTicking } from "../../hooks/use-ticking";
 import { useGeneratorStore } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
@@ -43,13 +43,14 @@ export function CultureDeckPanel() {
             <span className="font-display uppercase tracking-wider">In force · {deck.slotted.length}/{deck.slots}</span>
             <span className="text-[10px] uppercase tracking-widest text-fg-muted group-hover:text-fg">Open deck ›</span>
           </span>
-          {Array.from({ length: deck.slots }, (_, k) => deck.slotted[k]).map((id, k) => {
+          {/* And Pivot Weekly's guest, after them. @see pivot */}
+          {[...Array.from({ length: deck.slots }, (_, k) => deck.slotted[k]), ...inForce(deck).filter((id) => !deck.slotted.includes(id))].map((id: CardId | undefined, k) => {
             if (!id) return <span key={`e${k}`} className="border border-dashed border-line-quiet px-2 py-1 text-[10px] uppercase tracking-wider text-fg-muted">Empty slot</span>;
-            const c = card(id), rank = deck.ranks[id]!;
+            const c = card(id), rank = deck.ranks[id]!, guest = k >= deck.slots;
             return (
               <span key={id} style={toneVar(TAG_TONE[c.tag])} className="flex items-center gap-2 border border-l-2 border-line-quiet border-l-tone px-2 py-1 group-hover:border-line-strong group-hover:border-l-tone">
                 <TagMark tag={c.tag} className="h-3.5 w-3.5 text-tone" />
-                <span className="flex-1 text-xs">{c.name}</span>
+                <span className="flex-1 text-xs">{c.name}{guest && <span className="text-fg-muted"> · Pivot's guest</span>}</span>
                 <span className="flex gap-0.5">{[1, 2, 3].map((r) => <span key={r} className={`h-1.5 w-1.5 rotate-45 border border-tone ${r <= rank ? "bg-tone" : ""}`} />)}</span>
               </span>
             );

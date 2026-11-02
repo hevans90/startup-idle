@@ -357,8 +357,10 @@ export function stepWorks(
     }
 
     // WORK, by those on site, as far as the materials go.
-    // Crews as fast as the culture deck drives them. @see CARDS
-    b.done = Math.min(materialCap(b), b.done + crew.working * dt * cultureNow().buildSpeed);
+    // Crews as fast as the culture deck drives them — and under Ship It
+    // Fridays' rule, ahead of the loads, which still have to come. @see CARDS
+    const deck = cultureNow();
+    b.done = Math.min(deck.noMaterialWait ? b.need : materialCap(b), b.done + crew.working * dt * deck.buildSpeed);
     b.updatedAt = now;
     // AWAY FROM THEIR DESKS: everyone the site has called, from the moment it
     // calls them. Paused or lowered, they are back on the books at once —

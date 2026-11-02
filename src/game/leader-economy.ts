@@ -7,6 +7,7 @@ import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import type { GeneratorId } from "../state/generators.store";
 import { leaderEffects, type Leader, type LeaderEffects } from "./leaders";
 import { leaderTeam } from "./projects";
+import { cultureNow } from "./culture-now";
 
 const KINDS: readonly GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 
@@ -28,6 +29,17 @@ export function leadersNow(
     const e = leaderEffects(l, leaderTeam(id), owned[id] ?? 0, outputMult(id));
     of[id] = e;
     everyone += e.everyone;
+  }
+  // OPEN PLAN'S RULE: every leader leads every kind — each kind's output and
+  // innovation lifted by every leader's lift. @see Rules.leadEvery
+  if (cultureNow().leadEvery) {
+    const all = Object.values(of);
+    const lift = (k: "output" | "innovation") => 1 + all.reduce((n, e) => n + (e[k] - 1), 0);
+    const output = lift("output"), innovation = lift("innovation");
+    for (const id of KINDS) {
+      if ((owned[id] ?? 0) <= 0) continue;
+      of[id] = { ...(of[id] ?? { morale: 0, hireCost: 1, autoBuy: 0, everyone: 0, xpPerSecond: 0 }), output, innovation };
+    }
   }
   return { of, everyone };
 }

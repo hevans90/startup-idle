@@ -7,7 +7,7 @@
 import { twMerge } from "tailwind-merge";
 import { useShallow } from "zustand/shallow";
 
-import { LEADER_PERKS, MAX_LEADER_RANK, PERSONALITIES, XP_AT, perkOffer, type Leader } from "../game/leaders";
+import { LEADER_PERKS, PERSONALITIES, leaderCap, perkOffer, xpFor, type Leader } from "../game/leaders";
 import { RED_FLAGS } from "../game/linkedout";
 import { useLinkedOutStore } from "../state/linkedout.store";
 import { leaderTeam } from "../game/projects";
@@ -45,8 +45,8 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
   const p = PERSONALITIES[l.personality];
   const offer = perkOffer(l);
   const where = whereText(l, owned);
-  const top = l.rank >= MAX_LEADER_RANK;
-  const from = XP_AT[l.rank], to = XP_AT[Math.min(MAX_LEADER_RANK, l.rank + 1)];
+  const top = l.rank >= leaderCap(l.role);
+  const from = xpFor(l.rank), to = xpFor(l.rank + 1);
   const pct = top ? 100 : Math.min(100, ((l.xp - from) / (to - from)) * 100);
   const place = () => { useWorldStore.getState().setTool("inspect"); setPlacing(l.role); };
   return (
