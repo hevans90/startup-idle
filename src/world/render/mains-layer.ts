@@ -1,18 +1,17 @@
 /**
  * World v2 — THE WATER MAINS, DRAWN: a built thing, not a line. Each cell is
- * a length of tube lying on the ground — a dark casing, a galvanised body, a
- * highlight along its top — out to the middle of each face it is joined on,
- * with round ends so the lengths meet seamlessly; and at its ends a fitting:
- * an intake's grate in the water, a pump's housing, an outlet's valve at the
- * building, a red cap. And each building's PORTS, nozzles out of its walls
- * where a main may join it. Drawn once a cell, in its band's paved tier, so it
- * sorts with the town; again only when the mains or the scale change.
+ * a lit steel tube, out to the middle of each face it is joined on, flanged at
+ * its joins, on saddles or a frame; and at its ends a fitting: an intake in
+ * the water, a pump house, an outlet's valve at the building, a cap. And each
+ * building's PORTS, nozzles out of its walls where a main may join it. One
+ * mesh a band, in its paved tier, so it sorts with the town; built again only
+ * when the mains, the scale or the zoom's tier of detail change. @see pipe-mesh
  *
- * And THE WATER IN THEM, every frame: dashes of water running from the
- * intake to the building, as fast as the main carries — drawn in each band
- * over its tubes, so a building in front hides them as it hides the tube;
- * nothing in a dry main; and, over everything, an amber warning at the
- * intake of one that cannot reach its building.
+ * And THE WATER IN THEM, every frame: seen through the glass sections, dashes
+ * running from the intake to the building, as fast as the main carries —
+ * drawn in each band over its tubes, so a building in front hides them as it
+ * hides the tube; nothing in a dry main; and, over everything, an amber
+ * warning at the intake of one that cannot reach its building.
  *
  * A main lies just off the ground, but RIDES ON STILTS over a road, and over
  * a dip it spans level with the banks either side. A widened bore is a fatter
@@ -37,12 +36,9 @@ import { K, nozzle, pipeCell, pipeMesh, type Fitting, type Limb, type PipeMesh, 
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /**
- * The tube: its shade (the underside), body and highlight; how wide, in tile
- * units; how high its middle lies off the ground, in half steps. And the
- * overlay's line, wider than the tube so a main reads at any zoom.
+ * The overlay's line, wider than the tube so a main reads at any zoom, tile
+ * units; how high a tube's middle lies off the ground, in half steps.
  */
-const CASING = 0x2b3440, BODY = 0x8796a8, SHADE = 0x5d6b7c, SHINE = 0xd4dde6, COLLAR = 0x6f7d8e;
-const WIDE = 0.11;
 const OVERLAY_WIDE = 0.16;
 const LIFT = 1.1;
 /**
@@ -52,36 +48,41 @@ const LIFT = 1.1;
  * turns to grey rather than to violet. @see pipe-mesh, plans/pipe-rendering.md
  */
 const TUBE_R = 0.18 / Math.SQRT2;
-const TUBE_SIDES = 14;
 const STEEL = 0xb9b7b1, IRON = 0x7d5c40;
 /**
- * WHICH TUBES: the solid ones, or the old strokes — `__pipes = "old"` in the
- * console — to set them side by side while the new ones are built.
+ * HOW MUCH DETAIL, by how wide a tile is on the screen, px: far off, a
+ * six-sided tube with no flanges and a saddle every other tile; nearer, ten
+ * sides and flanges; near, fourteen sides, bolts, valve wheels and the
+ * frames round the glass. A tier's own edges stretch a tenth past the
+ * thresholds, so a zoom resting on one does not flip between the two.
  */
+export type Detail = "far" | "mid" | "near";
+const DETAIL_PX = { mid: 40, near: 100 } as const;
+const DETAIL_SIDES: Record<Detail, number> = { far: 6, mid: 10, near: 14 };
+export function detailFor(tilePx: number, was: Detail | null = null): Detail {
+  const at = (edge: number, above: boolean) => edge * (was === null ? 1 : above ? 0.9 : 1.1);
+  // Each threshold eased toward the tier it was in: above it, harder to drop below.
+  const near = at(DETAIL_PX.near, was === "near"), mid = at(DETAIL_PX.mid, was === "near" || was === "mid");
+  return tilePx >= near ? "near" : tilePx >= mid ? "mid" : "far";
+}
 /** Each `MAIN_END` as the fitting the solid tubes draw. */
 const FITTINGS: Record<number, Fitting> = {
   [MAIN_END.cap]: "cap", [MAIN_END.intake]: "intake", [MAIN_END.pump]: "pump",
   [MAIN_END.outlet]: "outlet", [MAIN_END.drain]: "drain", [MAIN_END.outfall]: "outfall",
 };
-const solidTubes = () => (globalThis as { __pipes?: string }).__pipes !== "old";
-/** Concrete for the saddles and posts it rests on. */
-const CONCRETE = 0xc9c4b8, CONCRETE_SIDE = 0xaaa59a, CONCRETE_DARK = 0x958f84;
 /** How high a main rides over a road, half steps; how much fatter a widened bore is. */
 const ROAD_LIFT = 2.4;
 const BORE_WIDE = 1.4;
-/** A SEWER: dark umber, a little wider, banded brown. */
-const SEWER_SHADE = 0x3f2d20, SEWER_BODY = 0x6b4e36, SEWER_BAND = 0x9a6a3a, SEWER_WIDE = 0.13;
-/** The AI's mains: a violet tint to the body, and its bands. */
-const AI_BODY = 0x9d8bbd, AI_BAND = 0xb44aff;
-/** The fittings. */
-const GRATE = 0x3d4a57, PUMP_BODY = 0x4f6f8f, PUMP_TRIM = 0xe0a23a, VALVE = 0xb8463a, CAP = 0xc0392b;
+/** A SEWER: a little wider, banded brown. The AI's mains: banded violet. */
+const SEWER_BAND = 0x9a6a3a, SEWER_WIDE = 1.18;
+const AI_BAND = 0xb44aff;
 /** A port's nozzle: blue for water, brown for slop. */
 const PORT_COLOUR = { water: 0x3f86c6, slop: 0x7a5230 } as const;
 /** The slop seen in a sewer's glass, and the lumps in it. */
 const SLOP_IN = 0x7a5230, SLOP_LUMP = 0x3f2a18;
 /** The water in a main, and the warning at one that cannot deliver. */
 const WATER = 0x5fb7ff, WARN = 0xf2a33a;
-/** A glass section's tint, and how far along each limb it reaches, as a share of the limb. */
+/** A glass section's tint, and how long it is, tiles. */
 const GLASS_TINT = 0xd9f1ff, GLASS = 0.62;
 /** Glass every fourth tile of a straight run (collars on the others). */
 const isGlass = (g: Grid, x: number, y: number) => {
@@ -97,8 +98,8 @@ const STATE_COLOUR: Record<MainState, number> = {
 };
 
 export type MainsLayer = {
-  /** Redraw the tubes where the mains changed. */
-  sync: (g: Grid, scale: number) => void;
+  /** Rebuild the tubes when the mains, the scale or the tier of detail for `zoom`, the viewport's, change. */
+  sync: (g: Grid, scale: number, zoom?: number) => void;
   /** The water moving in them, this frame; and the main being dragged out, a ghost of itself. */
   tick: (g: Grid, scale: number, now: number, preview?: readonly { x: number; y: number }[] | null, ok?: boolean, water?: boolean, hover?: { x: number; y: number } | null) => void;
   destroy: () => void;
@@ -107,33 +108,6 @@ export type MainsLayer = {
 /** The point in screen space of map coordinates (cell centres on the integers) at `z` half steps. */
 const P = (s: number, u: number, v: number, z: number): [number, number] => [(u - v) * HW * s, (u + v) * HH * s - z * HEIGHT_UNIT * s];
 
-/**
- * A RING ROUND THE TUBE: a collar or a flange, drawn as the ellipse it is in
- * the plane across the tube — the tube running along `u` (N–S) or `v` (E–W) —
- * `px` its radius on screen.
- */
-function ring(gfx: Graphics, s: number, u: number, v: number, z: number, along: "u" | "v", px: number, colour: number) {
-  const rT = px / (Math.hypot(HW, HH) * s), rZ = px / (HEIGHT_UNIT * s), pts: number[] = [];
-  for (let k = 0; k < 16; k++) {
-    const t = (k / 16) * Math.PI * 2, c = Math.cos(t) * rT;
-    pts.push(...P(s, u + (along === "v" ? c : 0), v + (along === "u" ? c : 0), z + Math.sin(t) * rZ));
-  }
-  gfx.poly(pts);
-  gfx.fill({ color: colour });
-}
-
-/**
- * A SOLID BOX in the map's own axes, from (u0, v0) to (u1, v1), z0 to z1 half
- * steps: its top and the two sides that face the camera (+v and +u), shaded.
- * What the saddles, posts and fittings are made of.
- */
-function isoBox(gfx: Graphics, s: number, u0: number, v0: number, u1: number, v1: number, z0: number, z1: number, top: number, left: number, right: number) {
-  const q = (u: number, v: number, z: number) => P(s, u, v, z);
-  const poly = (pts: [number, number][], colour: number) => { gfx.poly(pts.flat()); gfx.fill({ color: colour }); };
-  poly([q(u0, v1, z1), q(u1, v1, z1), q(u1, v1, z0), q(u0, v1, z0)], left);
-  poly([q(u1, v0, z1), q(u1, v1, z1), q(u1, v1, z0), q(u1, v0, z0)], right);
-  poly([q(u0, v0, z1), q(u1, v0, z1), q(u1, v1, z1), q(u0, v1, z1)], top);
-}
 
 const ground = (g: Grid, x: number, y: number) => (inBounds(g, x, y) ? g.height[idx(g, x, y)] : 0);
 
@@ -180,10 +154,8 @@ export function spaceWords(words: readonly Word[], px: number): Word[] {
 }
 
 export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLayer {
-  const drawn = new Map<number, Graphics>();
-  /** The solid tubes, a mesh a band. */
+  /** The tubes, a mesh a band. */
   const meshes = new Map<number, Mesh<Geometry, Shader>>();
-  const ports: Graphics[] = [];
   const scratch = new Matrix();
   /** The water in the tubes, a Graphics a band, over that band's tubes; and those drawn in last frame. */
   const water = new Map<number, Graphics>();
@@ -200,117 +172,18 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   /** The zoom the numbers were last set out for: a new one sets them out again at once. */
   let wordsPx = 0, wordsScale = 0;
   let key = "";
-
-  /** Each half-length of tube a cell draws: from its middle to the middle of a joined face. */
-  const limbs = (g: Grid, x: number, y: number, s: number) => {
-    const z = levelAt(g, x, y), out: [number, number, number, number][] = [];
-    for (const side of SIDES) {
-      if (!joined(g, x, y, side)) continue;
-      const [dx, dy] = NEIGHBOUR[side];
-      const zf = (z + levelAt(g, x + dx, y + dy)) / 2;
-      const a = P(s, x, y, z), b = P(s, x + dx * 0.5, y + dy * 0.5, zf);
-      out.push([a[0], a[1], b[0], b[1]]);
-    }
-    return out;
-  };
+  let detail: Detail | null = null;
 
   /** The solid tube's radius on a cell, tiles: a sewer a little wider, a bore fatter. */
-  const tubeR = (bits: number) => TUBE_R * (bits & MAIN_SEWER ? SEWER_WIDE / WIDE : 1) * (bits & MAIN_BORE ? BORE_WIDE : 1);
+  const tubeR = (bits: number) => TUBE_R * (bits & MAIN_SEWER ? SEWER_WIDE : 1) * (bits & MAIN_BORE ? BORE_WIDE : 1);
 
-  /** A CELL'S MAIN, drawn into `gfx` as strokes, its shadow and what it rests on too: the old look. @see solidTubes */
-  const drawCell = (g: Grid, i: number, s: number, gfx: Graphics) => {
-    const x = i % g.w, y = (i / g.w) | 0;
-    const legs = limbs(g, x, y, s);
-    const z = levelAt(g, x, y), floor = ground(g, x, y);
-    const c = P(s, x, y, z);
-    const bits = g.main[i], ai = (bits & MAIN_AI) !== 0, sewer = (bits & MAIN_SEWER) !== 0;
-    const bore = bits & MAIN_BORE ? BORE_WIDE : 1;
-    const wide = sewer ? SEWER_WIDE : WIDE;
-    const w = wide * HW * 2 * s * bore;
-    /** The tube's radius in half steps, for what it rests on. */
-    const rz = (wide * bore * HW * 2) / HEIGHT_UNIT / 2;
-    const straight = legs.length === 2 && (joined(g, x, y, "N") && joined(g, x, y, "S") || joined(g, x, y, "E") && joined(g, x, y, "W"));
-    {
-      // ITS SHADOW on the ground, softly, under where it lies.
-      const lift = (z - floor) * HEIGHT_UNIT * s;
-      for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay + lift).lineTo(bx, by + lift);
-      gfx.stroke({ color: 0x000000, width: w * 1.3, cap: "round", join: "round", alpha: 0.16 });
-      // WHAT IT RESTS ON: posts where it rides high, a low saddle every other tile.
-      const high = z - floor > LIFT + 0.4;
-      if (high) {
-        for (const o of [-0.09, 0.09]) isoBox(gfx, s, x + o - 0.025, y - o - 0.025, x + o + 0.025, y - o + 0.025, floor, z - rz, CONCRETE, CONCRETE_SIDE, CONCRETE_DARK);
-      } else if (straight && (x + y) % 2 === 0) {
-        isoBox(gfx, s, x - 0.07, y - 0.07, x + 0.07, y + 0.07, floor, z - rz * 0.4, CONCRETE, CONCRETE_SIDE, CONCRETE_DARK);
-      }
-    }
-    // THE TUBE, shaded as a cylinder: its underside, its body, the light along its top.
-    {
-      for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay + w * 0.12).lineTo(bx, by + w * 0.12);
-      if (!legs.length) gfx.circle(c[0], c[1], w * 0.5);
-      gfx.stroke({ color: sewer ? SEWER_SHADE : ai ? 0x6e5f8f : SHADE, width: w, cap: "round", join: "round" });
-      for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay - w * 0.05).lineTo(bx, by - w * 0.05);
-      gfx.stroke({ color: sewer ? SEWER_BODY : ai ? AI_BODY : BODY, width: w * 0.8, cap: "round", join: "round" });
-      for (const [ax, ay, bx, by] of legs) gfx.moveTo(ax, ay - w * 0.26).lineTo(bx, by - w * 0.26);
-      gfx.stroke({ color: SHINE, width: Math.max(0.6, w * 0.18), cap: "round", join: "round", alpha: sewer ? 0.35 : 0.85 });
-    }
-    // WHICH WAY it runs here: N–S along u, E–W along v. @see NEIGHBOUR
-    const along: "u" | "v" = joined(g, x, y, "N") || joined(g, x, y, "S") ? "u" : "v";
-    // A COLLAR every few tiles of a straight run, and the AI's violet band: rings round the tube.
-    if (straight && (x + y) % 4 === 0) ring(gfx, s, x, y, z, along, w * 0.6, COLLAR);
-    if ((ai || sewer) && straight && (x + y) % 4 === 3) ring(gfx, s, x, y, z, along, w * 0.58, sewer ? SEWER_BAND : AI_BAND);
-    // A GLASS SECTION every few tiles: a pale window down the tube, ringed at each end, where the water inside shows. @see isGlass
-    if (isGlass(g, x, y)) {
-      const [ax, ay, bx, by] = legs[0], [cx, cy, dx, dy] = legs[1];
-      const along2 = (k: number): [number, number] => k < 0 ? [ax + (bx - ax) * -k, ay + (by - ay) * -k] : [cx + (dx - cx) * k, cy + (dy - cy) * k];
-      const a = along2(-GLASS), b = along2(GLASS);
-      gfx.moveTo(a[0], a[1] - w * 0.05).lineTo(b[0], b[1] - w * 0.05);
-      gfx.stroke({ color: GLASS_TINT, width: w * 0.82, cap: "butt", alpha: 0.9 });
-      for (const k of [-1, 1]) {
-        const o = k * GLASS * 0.5;
-        ring(gfx, s, x + (along === "u" ? o : 0), y + (along === "v" ? o : 0), z, along, w * 0.55, COLLAR);
-      }
-    }
-    // THE FITTING at an end, sized to the tube.
-    const end = g.mainEnd[i];
-    if (end === MAIN_END.intake) {
-      // A grated bell mouth, set into the water at the bank.
-      isoBox(gfx, s, x - 0.09, y - 0.09, x + 0.09, y + 0.09, z - rz * 1.2, z + rz * 0.9, COLLAR, SHADE, CASING);
-      for (const k of [-0.045, 0, 0.045]) { const a = P(s, x - 0.07, y + k, z + rz * 0.9), b = P(s, x + 0.07, y + k, z + rz * 0.9); gfx.moveTo(a[0], a[1]).lineTo(b[0], b[1]); }
-      gfx.stroke({ color: GRATE, width: Math.max(0.5, w * 0.1) });
-    } else if (end === MAIN_END.pump && g.structures.get(structureAt(g, x, y))?.def !== "pump") {
-      // A small pump house on the bank, where no pump house building stands: walls, a roof in the pump's amber, a wheel on its side.
-      const top = Math.max(z + rz * 2, floor + 2.6);
-      isoBox(gfx, s, x - 0.22, y - 0.18, x + 0.22, y + 0.18, floor, top, 0x6f8fae, PUMP_BODY, 0x3e5872);
-      isoBox(gfx, s, x - 0.25, y - 0.21, x + 0.25, y + 0.21, top, top + 0.35, PUMP_TRIM, 0xb8812a, 0x9a6b22);
-      const hub = P(s, x + 0.22, y, (floor + top) / 2);
-      gfx.ellipse(hub[0], hub[1], w * 0.55, w * 0.8);
-      gfx.stroke({ color: CASING, width: Math.max(0.6, w * 0.16) });
-    } else if (end === MAIN_END.outlet) {
-      // A flange where it meets the building, and a small valve wheel on it.
-      ring(gfx, s, x, y, z, along, w * 0.72, COLLAR);
-      gfx.circle(c[0], c[1] - w * 1.05, w * 0.42);
-      gfx.stroke({ color: VALVE, width: Math.max(0.6, w * 0.16) });
-    } else if (end === MAIN_END.drain) {
-      // A SEWER'S DRAIN, at a workplace's slop port: a brown flange.
-      ring(gfx, s, x, y, z, along, w * 0.7, PORT_COLOUR.slop);
-    } else if (end === MAIN_END.outfall) {
-      // AN OUTFALL over the bank: the pipe's mouth, flared, dark inside, on a post to the water.
-      isoBox(gfx, s, x - 0.03, y - 0.03, x + 0.03, y + 0.03, Math.min(floor, z - rz) - 0.6, z - rz, CONCRETE, CONCRETE_SIDE, CONCRETE_DARK);
-      ring(gfx, s, x, y, z, along, w * 0.85, SEWER_SHADE);
-      ring(gfx, s, x, y, z, along, w * 0.55, 0x1a120c);
-    } else if (end === MAIN_END.cap) {
-      gfx.circle(c[0], c[1], w * 0.55);
-      gfx.fill({ color: CAP });
-    }
-  };
-
-  /** A CELL'S SOLID TUBE, into its band's mesh. @see pipeCell */
   /**
-   * A CELL'S SOLID TUBE, into its band's mesh, and the fitting at its end.
-   * What it stands on: a frame where it rides high, a saddle on the ground,
-   * nothing under a fitting — it stands on its own, or on its building's nozzle.
+   * A CELL'S TUBE, into its band's mesh, and the fitting at its end, in as
+   * much detail as the zoom calls for. What it stands on: a frame where it
+   * rides high, a saddle on the ground — every other tile, far off — nothing
+   * under a fitting: it stands on its own, or on its building's nozzle.
    */
-  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number) => {
+  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number, d: Detail) => {
     const x = i % g.w, y = (i / g.w) | 0, z = levelAt(g, x, y), floor = ground(g, x, y), out: Limb[] = [];
     for (const side of SIDES) {
       if (!joined(g, x, y, side)) continue;
@@ -318,7 +191,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       out.push({ dx, dy, zf: (z + levelAt(g, x + dx, y + dy)) / 2 });
     }
     const bits = g.main[i], end = g.mainEnd[i];
-    const support: Support = z - floor > LIFT + 0.4 ? "frame" : !end || end === MAIN_END.cap ? "saddle" : "none";
+    const saddled = (!end || end === MAIN_END.cap) && (d !== "far" || (x + y) % 2 === 0);
+    const support: Support = z - floor > LIFT + 0.4 ? "frame" : saddled ? "saddle" : "none";
     // A SEWER: cast iron, flanged at every other join, banded brown. The AI's: steel, banded violet.
     const sewer = (bits & MAIN_SEWER) !== 0, ai = (bits & MAIN_AI) !== 0;
     const colour = sewer ? IRON : STEEL;
@@ -327,44 +201,16 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     const fit = FITTINGS[end] ?? null;
     const own = fit === "pump" && g.structures.get(structureAt(g, x, y))?.def === "pump";
     pipeCell(m, s, x, y, z, out, {
-      r: tubeR(bits), colour, sides: TUBE_SIDES, end: own ? null : fit, support, floor,
-      flanges: !sewer || (x + y) % 2 === 0, band,
-      window: isGlass(g, x, y) ? GLASS / 2 : 0, glass: GLASS_TINT,
+      r: tubeR(bits), colour, sides: DETAIL_SIDES[d], end: own ? null : fit, support, floor,
+      flanges: d !== "far" && (!sewer || (x + y) % 2 === 0), bolts: d === "near", valve: d === "near", band,
+      window: isGlass(g, x, y) ? GLASS / 2 : 0, glass: GLASS_TINT, frames: d === "near",
     });
   };
 
-  /**
-   * A PORT'S NOZZLE: a short length of tube out of the wall to the middle of
-   * the tile in front, in its fluid's colour, a flange at its mouth — part of
-   * the building, there whether anything is joined to it or not.
-   */
-  const drawPort = (g: Grid, p: PortCell, s: number): Graphics => {
-    const gfx = new Graphics();
-    gfx.eventMode = "none";
-    const [dx, dy] = NEIGHBOUR[p.port.face];
-    const z = levelAt(g, p.x, p.y);
-    const w = WIDE * HW * 2 * s * 1.1;
-    const wall = P(s, p.x - dx * 0.5, p.y - dy * 0.5, z), mouth = P(s, p.x - dx * 0.12, p.y - dy * 0.12, z);
-    gfx.moveTo(wall[0], wall[1]).lineTo(mouth[0], mouth[1]);
-    gfx.stroke({ color: CASING, width: w, cap: "butt" });
-    gfx.moveTo(wall[0], wall[1]).lineTo(mouth[0], mouth[1]);
-    gfx.stroke({ color: PORT_COLOUR[p.port.fluid], width: w * 0.7, cap: "butt" });
-    gfx.moveTo(wall[0], wall[1] - w * 0.2).lineTo(mouth[0], mouth[1] - w * 0.2);
-    gfx.stroke({ color: SHINE, width: w * 0.16, cap: "butt", alpha: 0.7 });
-    const along = dx !== 0 ? "u" : "v";
-    ring(gfx, s, p.x - dx * 0.48, p.y - dy * 0.48, z, along, w * 0.62, COLLAR);
-    ring(gfx, s, p.x - dx * 0.12, p.y - dy * 0.12, z, along, w * 0.6, PORT_COLOUR[p.port.fluid]);
-    return gfx;
-  };
-
   const clear = () => {
-    for (const gfx of ports) { gfx.parent?.removeChild(gfx); gfx.destroy(); }
-    ports.length = 0;
-    for (const gfx of drawn.values()) { gfx.parent?.removeChild(gfx); gfx.destroy(); }
-    drawn.clear();
     for (const mesh of meshes.values()) destroyPipeDrawable(mesh);
     meshes.clear();
-    for (const gfx of water.values()) { gfx.parent?.removeChild(gfx); gfx.destroy(); }
+    for (const gfx of water.values()) { const own = gfx.parent; own?.parent?.removeChild(own); own?.destroy({ children: true }); }
     water.clear();
     wet.clear();
   };
@@ -487,83 +333,63 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   };
 
   return {
-    sync(g, scale) {
-      const solid = solidTubes();
-      const k = `${g.rev}|${scale}|${g.w}x${g.h}|${solid}`;
+    sync(g, scale, zoom = 1) {
+      detail = detailFor(2 * HW * scale * zoom, detail);
+      const k = `${g.rev}|${scale}|${g.w}x${g.h}|${detail}`;
       if (k === key) return;
       key = k;
       clear();
-      /** The bands with mains drawn in them, for the water's Graphics. */
-      const lit = new Set<number>();
-      // THE PORTS on the buildings, under any main that ends at them: strokes, or nozzles in their band's mesh.
+      const d = detail, sides = DETAIL_SIDES[d];
+      // THE PORTS on the buildings, as nozzles in their band's mesh, under any main that ends at them.
       const nozzles = new Map<number, PortCell[]>();
       for (const st of g.structures.values()) {
         for (const p of portsOf(g, st)) {
           const band = p.x + p.y;
           if (!bands.pavedOf[band]) continue;
-          if (solid) {
-            const list = nozzles.get(band) ?? [];
-            nozzles.set(band, list);
-            list.push(p);
-            continue;
-          }
-          const gfx = drawPort(g, p, scale);
-          bands.pavedOf[band].addChild(gfx);
-          ports.push(gfx);
+          const list = nozzles.get(band) ?? [];
+          nozzles.set(band, list);
+          list.push(p);
         }
       }
-      if (!solid) {
-        for (let i = 0; i < g.main.length; i++) {
-          if (!g.main[i] && !g.mainEnd[i]) continue;
-          const band = (i % g.w) + ((i / g.w) | 0);
-          if (!bands.pavedOf[band]) continue;
-          const gfx = new Graphics();
-          gfx.eventMode = "none";
-          drawCell(g, i, scale, gfx);
-          bands.pavedOf[band].addChild(gfx);
-          drawn.set(i, gfx);
-        }
-      } else {
-        // A BAND AT A TIME: its nozzles, its supports and tubes and fittings, the glass on them.
-        const cells = new Map<number, number[]>();
-        for (const band of nozzles.keys()) cells.set(band, []);
-        for (let i = 0; i < g.main.length; i++) {
-          if (!g.main[i] && !g.mainEnd[i]) continue;
-          const band = (i % g.w) + ((i / g.w) | 0);
-          if (!bands.pavedOf[band]) continue;
-          const list = cells.get(band) ?? [];
-          cells.set(band, list);
-          list.push(i);
-        }
-        for (const [band, list] of cells) {
-          const m = pipeMesh();
-          // A NOZZLE pointing away from the camera goes in before the mains, one pointing toward it after: nearer draws over farther.
-          const port = (toward: boolean) => {
-            for (const p of nozzles.get(band) ?? []) {
-              const [dx, dy] = NEIGHBOUR[p.port.face];
-              if ((dx + dy > 0) !== toward) continue;
-              const open = !g.mainEnd[idx(g, p.x, p.y)];
-              nozzle(m, scale, p.x, p.y, levelAt(g, p.x, p.y), dx, dy, TUBE_R, PORT_COLOUR[p.port.fluid], STEEL, TUBE_SIDES, open);
-            }
-          };
-          port(false);
-          for (const i of list) tubeCell(m, g, i, scale);
-          port(true);
-          if (m.ni) {
-            const mesh = pipeDrawable(m);
-            bands.pavedOf[band].addChild(mesh);
-            meshes.set(band, mesh);
-          }
-          lit.add(band);
-        }
+      // A BAND AT A TIME: its nozzles, its supports and tubes and fittings.
+      const cells = new Map<number, number[]>();
+      for (const band of nozzles.keys()) cells.set(band, []);
+      for (let i = 0; i < g.main.length; i++) {
+        if (!g.main[i] && !g.mainEnd[i]) continue;
+        const band = (i % g.w) + ((i / g.w) | 0);
+        if (!bands.pavedOf[band]) continue;
+        const list = cells.get(band) ?? [];
+        cells.set(band, list);
+        list.push(i);
       }
-      // The water's Graphics last in each band, over all its tubes.
-      for (const i of drawn.keys()) lit.add((i % g.w) + ((i / g.w) | 0));
-      for (const band of lit) {
-        if (water.has(band)) continue;
+      for (const [band, list] of cells) {
+        const m = pipeMesh();
+        // A NOZZLE pointing away from the camera goes in before the mains, one pointing toward it after: nearer draws over farther.
+        const port = (toward: boolean) => {
+          for (const p of nozzles.get(band) ?? []) {
+            const [dx, dy] = NEIGHBOUR[p.port.face];
+            if ((dx + dy > 0) !== toward) continue;
+            const open = !g.mainEnd[idx(g, p.x, p.y)];
+            nozzle(m, scale, p.x, p.y, levelAt(g, p.x, p.y), dx, dy, TUBE_R, PORT_COLOUR[p.port.fluid], STEEL, sides, open);
+          }
+        };
+        port(false);
+        for (const i of list) tubeCell(m, g, i, scale, d);
+        port(true);
+        if (m.ni) {
+          const mesh = pipeDrawable(m);
+          bands.pavedOf[band].addChild(mesh);
+          meshes.set(band, mesh);
+        }
+        // The water's Graphics last in the band, over all its tubes — IN A RENDER GROUP OF
+        // ITS OWN: redrawn every frame the water moves, which in the chunk's group rebuilt the
+        // draw list of every tile and building in the chunk, every frame. @see BandLayer.dynamicOf
+        if (!list.length) continue;
+        const own = new Container({ isRenderGroup: true });
+        own.eventMode = "none";
         const gfx = new Graphics();
-        gfx.eventMode = "none";
-        bands.pavedOf[band].addChild(gfx);
+        own.addChild(gfx);
+        bands.pavedOf[band].addChild(own);
         water.set(band, gfx);
       }
     },
@@ -573,7 +399,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       wet.clear();
       const t = now / 1000;
       // The tube's width on screen, which the water seen through its glass is sized to.
-      const w = (solidTubes() ? TUBE_R * 2 * K : WIDE * HW * 2) * scale, ow = OVERLAY_WIDE * HW * 2 * scale;
+      const w = TUBE_R * 2 * K * scale, ow = OVERLAY_WIDE * HW * 2 * scale;
       if (overlayOn) drawWater(g, scale, ow, now);
       else if (words.visible) words.visible = false;
       // THE MAIN BEING DRAGGED: its route as a tube of light, teal where it will work, amber where it won't.

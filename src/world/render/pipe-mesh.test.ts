@@ -79,6 +79,18 @@ describe("a main as a solid", () => {
     expect(Math.abs(y(15) - y(14))).toBeCloseTo(0.6 * HH);
   });
 
+  test("far off, a window has no frames and an outlet no valve", () => {
+    const framed = pipeMesh(), bare = pipeMesh(), valved = pipeMesh(), plain = pipeMesh();
+    const win = { ...look, flanges: false, window: 0.3 };
+    pipeCell(framed, 1, 5, 5, 1, [N, S], win);
+    pipeCell(bare, 1, 5, 5, 1, [N, S], { ...win, frames: false });
+    expect(bare.nv).toBe(3 * 14);
+    expect(framed.nv).toBeGreaterThan(bare.nv);
+    pipeCell(valved, 1, 5, 5, 1, [N], { ...look, flanges: false, end: "outlet" });
+    pipeCell(plain, 1, 5, 5, 1, [N], { ...look, flanges: false, end: "outlet", valve: false });
+    expect(plain.nv).toBeLessThan(valved.nv);
+  });
+
   test("a flange's face shows only on the camera's side", () => {
     const near = pipeMesh(), away = pipeMesh();
     flange(near, 1, 0, 0, 0, 1, 0, 0.1, 0x888888, 12, false, false);

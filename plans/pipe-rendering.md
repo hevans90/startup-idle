@@ -1,6 +1,6 @@
 # Pipe rendering overhaul
 
-Status: **phases 1–5 done** (2026-11-02). The cast shadows were taken out in phase 4, at the user's word. The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
+Status: **all six phases done** (2026-11-02). The cast shadows were taken out in phase 4, at the user's word. The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
 
 The goal is for pipes to look as solid and readable as Factorio's. That means:
 - round, lit metal tubes;
@@ -226,6 +226,34 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
 - **Checked by day and night on the singularity fixture:**
   - the x = 32 main, flowing, with water moving in its windows;
   - the same main flagged AI, and the y = 8 main flagged sewer, both made in the sandboxed grid.
+
+### Phase 6, as built
+
+- **Tiers of detail** (`detailFor` in `mains-layer.ts`), chosen by how wide a tile is on the screen. Each tier's edges stretch 10% past the thresholds, so a zoom resting near one doesn't flip back and forth.
+
+  | Tier | Tile width | Sides | What is drawn |
+  |---|---|---|---|
+  | far | under 40 px | 6 | no flanges; a saddle every other tile; no window frames or valve wheels |
+  | mid | 40 to 100 px | 10 | flanges, without bolts |
+  | near | 100 px and up | 14 | bolts, valve wheels, window frames |
+
+  - The tier is part of the sync key, so a change rebuilds every band once, in one frame.
+  - The scene passes the viewport's zoom to `sync`.
+- **The old `Graphics` path is gone**, along with the `__pipes` toggle: `drawCell`, `drawPort`, `ring`, `isoBox` and their colours.
+- **Rebuilds:** each band's water `Graphics` sits in a render group of its own.
+  - Redrawn every frame as the water moves, it used to rebuild the draw list of every chunk holding glass, every frame. On singularity that was five chunks.
+  - Now only those one-`Graphics` groups rebuild.
+  - This was chosen over moving the flow into the shader: it is the same fix as the movers' tier, and keeps the per-network speed and state on the CPU, where they already are.
+- **Measured** with `__waterBench(45, true)`, then `__gpuTime().of.render`, in a visible tab:
+
+  | Scene | No mains | Pipes |
+  |---|---|---|
+  | singularity, zoom 0.6, 65 cells | — | 0.46–0.75 ms with tubes; the old strokes 0.47–0.59 ms. Noise at this size. |
+  | bigtown, zoomed out (5 px a tile), 3,844 cells in a sandbox | 1.05 ms (median of 6) | 1.66 ms at the far tier; about 2.1 ms with every cell at the near tier |
+
+  - The old strokes **could not draw bigtown at all.** One `Graphics` per cell overflowed Pixi's uniform batch: "ubo batch got too big".
+  - Vertices on bigtown: 51k at the far tier, 82k at mid, 167k at near.
+- **Not done:** the tick still allocates its per-frame maps of streaks and lumps, as it did before this plan.
 
 ## 8. Verification
 

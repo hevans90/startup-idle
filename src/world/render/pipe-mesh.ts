@@ -178,6 +178,9 @@ export type PipeLook = {
   glass?: number;
   /** A band painted round a straight run's middle: an AI line's violet, a sewer's brown. */
   band?: number | null;
+  /** The small parts, left off far away: an outlet's valve wheel, the frames round a window. */
+  valve?: boolean;
+  frames?: boolean;
 };
 
 /** What can stand at a main's loose end. @see MAIN_END */
@@ -471,7 +474,7 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     const wall = kind === "pump" ? (l.dx ? PUMP_U : PUMP_V) : kind === "intake" ? INTAKE : 0;
     const end = () => kind ? fitting(m, s, kind, x, y, h, g, -l.dx, -l.dy, look) : ball(m, s, x, y, h, r, c, sides);
     if (far(l)) { length(l, wall); end(); } else { end(); length(l, wall); }
-    if (kind === "outlet") valve(m, s, x, y, h, r);
+    if (kind === "outlet" && look.valve !== false) valve(m, s, x, y, h, r);
   } else if (bend) {
     sweep(m, s, elbowPath(x, y, h, run[0], run[1]), r, c, sides);
   } else {
@@ -489,7 +492,7 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
       tube(m, s, w0[0], w0[1], w0[2], w1[0], w1[1], w1[2], r, glass, sides);
       tube(m, s, w1[0], w1[1], w1[2], b[0], b[1], b[2], r, c, sides);
       const du = -run[0].dx, dv = -run[0].dy;
-      for (const p of [w0, w1]) hoop(m, s, p, du, dv, r, r * FRAME_R, FRAME_T, c, sides);
+      if (look.frames !== false) for (const p of [w0, w1]) hoop(m, s, p, du, dv, r, r * FRAME_R, FRAME_T, c, sides);
     } else {
       // The run as one sweep, far face to near, so where it changes slope in the middle it bends, not kinks.
       sweep(m, s, [a, [x, y, h], b], r, c, sides);

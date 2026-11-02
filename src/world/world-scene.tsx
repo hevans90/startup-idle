@@ -2919,8 +2919,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
       boatRef.current?.draw(fleet, field.columns, scale, dt);
       sBoats();
-      // THE WATER MAINS: their tubes where they changed, and the water in them. @see createMainsLayer
-      mainsRef.current?.sync(grid, scale);
+      // THE WATER MAINS: their tubes where they changed — or the zoom asks for more or less detail — and the water in them. @see createMainsLayer
+      mainsRef.current?.sync(grid, scale, useWorldStore.getState().viewport?.scale.x ?? 1);
       { const st = useWorldStore.getState();
         mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe"), st.hover); }
       // THE TOWN: cars and people on their trips round the roads. @see world/agents
