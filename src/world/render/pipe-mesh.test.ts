@@ -194,6 +194,16 @@ describe("a main as a solid", () => {
     expect(last(steep)[2]).toBeCloseTo(1.5 / Math.hypot(1, 1.5));
   });
 
+  test("a bend is cut finer the rounder its tube: up close, no flat shows on it", () => {
+    const counts = [6, 10, 14].map((sides) => {
+      const m = pipeMesh();
+      pipeCell(m, 1, 5, 5, 1, [E, N], { ...look, sides, flanges: false });
+      return m.nv / ((sides >> 1) + 1);
+    });
+    // Rings: a face either end and the arc's points, 4, 6, then 12 lengths round it.
+    expect(counts).toEqual([2 + 5, 2 + 7, 2 + 13]);
+  });
+
   test("a bend has no ball; a loose end does, or a blind flange if capped", () => {
     const bend = pipeMesh(), end = pipeMesh(), capped = pipeMesh();
     pipeCell(bend, 1, 5, 5, 1, [E, N], { ...look, flanges: false });

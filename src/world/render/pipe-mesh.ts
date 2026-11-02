@@ -348,7 +348,9 @@ function midSlope(z: number, a: Limb, la: number, b: Limb, lb: number): number {
   return sa * sb > 0 ? (2 * sa * sb) / (sa + sb) : 0;
 }
 /** How many lengths a curved half is cut into: more, the rounder its tube. */
-const segsFor = (sides: number) => Math.max(2, Math.min(4, sides >> 2));
+const segsFor = (sides: number) => (sides >= 14 ? 6 : sides >= 10 ? 3 : 2);
+/** How many lengths a bend's quarter circle is cut into: up close, enough that no flat shows on it. */
+const arcSteps = (sides: number) => (sides >= 14 ? 12 : sides >= 10 ? 6 : 4);
 
 /**
  * HALF A CELL'S MAIN, out along `l`: from `from` tiles out of the middle, at
@@ -430,7 +432,7 @@ function shape(limbs: readonly Limb[]): { bend: boolean; run: Limb[]; stubs: Lim
 export function cellPaths(x: number, y: number, h: number, limbs: readonly Limb[], r: number, sides = 14): Pt[][] {
   const z = h / ZT;
   const { bend, run, stubs } = shape(limbs);
-  if (bend) return [bendPath(x, y, z, run[0], run[1]).path];
+  if (bend) return [bendPath(x, y, z, run[0], run[1], arcSteps(sides)).path];
   const out: Pt[][] = [];
   if (run.length === 2) out.push(runPath(x, y, z, run[0], run[1], sides).path);
   else if (run.length === 1) {
@@ -576,7 +578,7 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     if (far(l)) { length(l, wall); end(); } else { end(); length(l, wall); }
     if (kind === "outlet" && look.valve !== false) valve(m, s, x, y, h, r);
   } else if (bend) {
-    const { path, ends } = bendPath(x, y, z, run[0], run[1]);
+    const { path, ends } = bendPath(x, y, z, run[0], run[1], arcSteps(sides));
     sweep(m, s, path, r, c, sides, ends);
   } else {
     for (const l of stubs) if (far(l)) stub(l);
