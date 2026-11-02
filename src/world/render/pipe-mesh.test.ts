@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { BEND_R, BOLTS, FITTING, SUN, VIEW, WORDS, ZT, ball, elbowPath, flange, nozzle, pipeCell, pipeMesh, solid, tube, windowGlass, windowSpan, type PipeMesh } from "./pipe-mesh";
+import { BEND_R, BOLTS, FITTING, SUN, VIEW, WORDS, ZT, ball, cellPaths, elbowPath, flange, nozzle, pipeCell, pipeMesh, solid, tube, windowGlass, windowSpan, type PipeMesh } from "./pipe-mesh";
 import { pipeFragmentGlsl, pipeShaderSource } from "./pipe-gpu";
 
 const normalOf = (m: PipeMesh, v: number) => [m.f32[v * WORDS + 2], m.f32[v * WORDS + 3], m.f32[v * WORDS + 4]];
@@ -132,17 +132,66 @@ describe("a main as a solid", () => {
   });
 
   test("a bend's path leaves one face and arrives at the other, round a quarter circle", () => {
-    const path = elbowPath(5, 5, 0.2, W, S);
+    const path = elbowPath(5, 5, ZT, W, S);
     expect(path[0]).toEqual([4.5, 5, ZT]);
     expect(path[path.length - 1]).toEqual([5, 5.5, ZT]);
     // The arc: every point BEND_R from the circle's middle, out along both limbs.
     const [ou, ov] = [5 - BEND_R, 5 + BEND_R];
     for (const [u, v, h] of path.slice(1, -1)) {
       expect(Math.hypot(u - ou, v - ov)).toBeCloseTo(BEND_R);
-      expect(h).toBe(0.2);
+      expect(h).toBeCloseTo(ZT);
     }
     // It turns smoothly: no step between neighbours longer than the straights in and out.
     for (let k = 1; k < path.length; k++) expect(Math.hypot(path[k][0] - path[k - 1][0], path[k][1] - path[k - 1][1])).toBeLessThanOrEqual(0.5 - BEND_R + 1e-9);
+  });
+
+  /** How many of `b`'s vertices `a` has too: the same place on screen, the same normal. */
+  const shared = (a: PipeMesh, b: PipeMesh) => {
+    let n = 0;
+    for (let j = 0; j < b.nv; j++) {
+      for (let k = 0; k < a.nv; k++) {
+        if ([0, 1, 2, 3, 4].every((w) => Math.abs(a.f32[k * WORDS + w] - b.f32[j * WORDS + w]) < 1e-3)) { n++; break; }
+      }
+    }
+    return n;
+  };
+
+  test("where a main climbs, the ring at a join is one ring from either side", () => {
+    // Levels 0, 0 | 2 | 6, 6: a run at 2 between a step up and a steeper one; then a bend at 6.
+    const run = (z: number, a: number, b: number) => [{ dx: -1, dy: 0, zf: (z + a) / 2 }, { dx: 1, dy: 0, zf: (z + b) / 2 }];
+    const low = pipeMesh(), mid = pipeMesh(), bend = pipeMesh(), end = pipeMesh();
+    const bare = { ...look, sides: 14, flanges: false };
+    pipeCell(low, 1, 4, 5, 0, run(0, 0, 2), bare);
+    pipeCell(mid, 1, 5, 5, 2, run(2, 0, 6), bare);
+    pipeCell(bend, 1, 6, 5, 6, [{ dx: -1, dy: 0, zf: 4 }, { dx: 0, dy: 1, zf: 6 }], bare);
+    pipeCell(end, 1, 6, 6, 6, [{ dx: 0, dy: -1, zf: 6 }], bare);
+    // Each join: the whole near half of a ring, eight of fourteen.
+    expect(shared(low, mid)).toBeGreaterThanOrEqual(8);
+    expect(shared(mid, bend)).toBeGreaterThanOrEqual(8);
+    expect(shared(bend, end)).toBeGreaterThanOrEqual(8);
+  });
+
+  test("a climbing run curves through its middle, never above or below the levels it joins", () => {
+    const [path] = cellPaths(5, 5, 2 * ZT, [{ dx: -1, dy: 0, zf: 1 }, { dx: 1, dy: 0, zf: 4 }], 0.1);
+    // More than face, middle, face: the slope changes along it.
+    expect(path.length).toBeGreaterThan(3);
+    expect(path[0][2]).toBeCloseTo(ZT);
+    expect(path[path.length - 1][2]).toBeCloseTo(4 * ZT);
+    expect(path[path.length >> 1][2]).toBeCloseTo(2 * ZT);
+    for (let k = 1; k < path.length; k++) expect(path[k][2]).toBeGreaterThan(path[k - 1][2]);
+    // A crest, from 0 up to 2 and back: level at the top, no higher.
+    const [crest] = cellPaths(5, 5, 2 * ZT, [{ dx: -1, dy: 0, zf: 1 }, { dx: 1, dy: 0, zf: 1 }], 0.1);
+    for (const p of crest) expect(p[2]).toBeLessThanOrEqual(2 * ZT + 1e-9);
+  });
+
+  test("a flange on a climbing join is square to the tube", () => {
+    const level = pipeMesh(), steep = pipeMesh();
+    flange(level, 1, 0, 0, 0, 1, 0, 0.1, 0x888888, 12, false, false);
+    flange(steep, 1, 0, 0, 0, 1, 0, 0.1, 0x888888, 12, false, false, 1.5);
+    // Its face's normal is the tube's way, tilted up.
+    const last = (m: PipeMesh) => normalOf(m, m.nv - 1);
+    expect(last(level)[2]).toBeCloseTo(0);
+    expect(last(steep)[2]).toBeCloseTo(1.5 / Math.hypot(1, 1.5));
   });
 
   test("a bend has no ball; a loose end does, or a blind flange if capped", () => {

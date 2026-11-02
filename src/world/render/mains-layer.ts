@@ -96,7 +96,10 @@ const isGlass = (g: Grid, x: number, y: number) => {
   const i = idx(g, x, y);
   if (!g.main[i] || g.mainEnd[i]) return false;
   const ns = joined(g, x, y, "N") && joined(g, x, y, "S"), ew = joined(g, x, y, "E") && joined(g, x, y, "W");
-  return (ns !== ew) && !joined(g, x, y, ns ? "E" : "N") && !joined(g, x, y, ns ? "W" : "S") && (x + y) % 4 === 2;
+  if (ns === ew || joined(g, x, y, ns ? "E" : "N") || joined(g, x, y, ns ? "W" : "S") || (x + y) % 4 !== 2) return false;
+  // Only where the run is straight in its climb too: glass is a straight length.
+  const [ax, ay] = NEIGHBOUR[ns ? "N" : "W"], z = levelAt(g, x, y);
+  return levelAt(g, x + ax, y + ay) + levelAt(g, x - ax, y - ay) === 2 * z;
 };
 /** The Water overlay: the dimming, and each state's colour. */
 const DIM = 0x05080d;

@@ -265,6 +265,10 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
   - or a sewer's slop, with lumps sliding in it;
   - then the glass itself over it all, mostly clear.
   - The mesh's buffers keep their size each frame, so nothing around them is rebuilt.
+- **Climbs.** Where a main changed height, the two cells either side of a join each squared their ring to their own half, so the rings differed and the tube stepped there; a bend dropped its whole climb into the short straight before its arc, and kinked.
+  - Now a limb meets the next cell along the line between the two cells' middles, the same line from either side, so the join is one ring (`faceSlope`, `sweep`'s `ends`).
+  - Between the face and the middle, the height is a cubic that never overshoots: level at a crest or a dip (`halfPath`, `runPath`, `bendPath`). A bend climbs along its whole length.
+  - Flanges and bands tilt with the tube. Windows go only where a run climbs in a straight line.
 
 ## 8. Verification
 

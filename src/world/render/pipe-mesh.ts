@@ -222,29 +222,41 @@ const darker = (colour: number, k: number) =>
   (Math.round(((colour >> 16) & 255) * k) << 16) | (Math.round(((colour >> 8) & 255) * k) << 8) | Math.round((colour & 255) * k);
 
 /**
- * A FLAT RING square to a level axis (du, dv): from radius `rIn` to `rOut`
- * round (cu, cv, ch), facing along the axis — if the camera can see that
- * side of it. A whole disc when `rIn` is 0.
+ * An AXIS made whole: (du, dv, dh) to unit length, and the two across it — the
+ * level one, and the one square to both, straight up for a level axis.
+ */
+function across3(du: number, dv: number, dh: number) {
+  const l = Math.hypot(du, dv, dh);
+  du /= l; dv /= l; dh /= l;
+  const lp = Math.hypot(du, dv) || 1;
+  const e1u = dv / lp, e1v = -du / lp;
+  return { du, dv, dh, e1u, e1v, e2u: e1v * dh, e2v: -e1u * dh, e2h: e1u * dv - e1v * du };
+}
+
+/**
+ * A FLAT RING square to the axis (du, dv, dh) — level unless it climbs: from
+ * radius `rIn` to `rOut` round (cu, cv, ch), facing along the axis — if the
+ * camera can see that side of it. A whole disc when `rIn` is 0.
  */
 export function disc(
-  m: PipeMesh, s: number, cu: number, cv: number, ch: number, du: number, dv: number,
-  rIn: number, rOut: number, colour: number, sides: number,
+  m: PipeMesh, s: number, cu: number, cv: number, ch: number, du0: number, dv0: number,
+  rIn: number, rOut: number, colour: number, sides: number, dh0 = 0,
 ) {
-  if (facing(du, dv, 0) <= 0) return;
   // The same axes across it as a tube along it has, so its rings meet the tube's. @see tube
-  const e1u = dv, e1v = -du, e2h = e1u * dv - e1v * du;
+  const { du, dv, dh, e1u, e1v, e2u, e2v, e2h } = across3(du0, dv0, dh0);
+  if (facing(du, dv, dh) <= 0) return;
   room(m, sides * 2 + 1, sides * 6);
   const ring = (rad: number) => {
     const first = m.nv;
     for (let k = 0; k < sides; k++) {
       const a = (k / sides) * Math.PI * 2, c = Math.cos(a) * rad, sn = Math.sin(a) * rad;
-      vert(m, s, cu + e1u * c, cv + e1v * c, ch + e2h * sn, du, dv, 0, colour);
+      vert(m, s, cu + e1u * c + e2u * sn, cv + e1v * c + e2v * sn, ch + e2h * sn, du, dv, dh, colour);
     }
     return first;
   };
   const outer = ring(rOut);
   if (rIn <= 0) {
-    const mid = vert(m, s, cu, cv, ch, du, dv, 0, colour);
+    const mid = vert(m, s, cu, cv, ch, du, dv, dh, colour);
     for (let k = 0; k < sides; k++) tri(m, mid, outer + k, outer + ((k + 1) % sides));
     return;
   }
@@ -257,40 +269,47 @@ export function disc(
 }
 
 /**
- * A FLANGE where two lengths are bolted together, at (cu, cv, ch) across a
- * level axis (du, dv) that points to the camera's side: its rim, its face,
- * and the bolts round the face. `blind` closes it — a capped end.
+ * A FLANGE where two lengths are bolted together, at (cu, cv, ch) across an
+ * axis (du, dv, dh) — square to the tube, so tilted where it climbs — that
+ * points to the camera's side: its rim, its face, and the bolts round the
+ * face. `blind` closes it — a capped end.
  */
 export function flange(
-  m: PipeMesh, s: number, cu: number, cv: number, ch: number, du: number, dv: number,
-  r: number, colour: number, sides: number, bolts: boolean, blind: boolean,
+  m: PipeMesh, s: number, cu: number, cv: number, ch: number, du0: number, dv0: number,
+  r: number, colour: number, sides: number, bolts: boolean, blind: boolean, dh0 = 0,
 ) {
+  const { du, dv, dh, e1u, e1v, e2u, e2v, e2h } = across3(du0, dv0, dh0);
   const R = r * FLANGE_R, half = FLANGE_T / 2, c = solid(colour);
-  const fu = cu + du * half, fv = cv + dv * half;
-  tube(m, s, cu - du * half, cv - dv * half, ch, fu, fv, ch, R, c, sides);
-  disc(m, s, fu, fv, ch, du, dv, blind ? 0 : r, R, c, sides);
-  if (!bolts || facing(du, dv, 0) <= 0) return;
+  const fu = cu + du * half, fv = cv + dv * half, fh = ch + dh * half;
+  tube(m, s, cu - du * half, cv - dv * half, ch - dh * half, fu, fv, fh, R, c, sides);
+  disc(m, s, fu, fv, fh, du, dv, blind ? 0 : r, R, c, sides, dh);
+  if (!bolts || facing(du, dv, dh) <= 0) return;
   // THE BOLTS: on the face, between the bore and the rim — round the whole face of a blind one.
   const at = blind ? R * 0.72 : (r + R) / 2, size = Math.max(0.006, (R - r) * 0.36);
-  const e1u = dv, e1v = -du, e2h = e1u * dv - e1v * du, b = solid(darker(colour, 0.55));
+  const b = solid(darker(colour, 0.55));
   for (let k = 0; k < BOLTS; k++) {
     const a = ((k + 0.5) / BOLTS) * Math.PI * 2, cc = Math.cos(a) * at, sn = Math.sin(a) * at;
-    disc(m, s, fu + du * 0.003 + e1u * cc, fv + dv * 0.003 + e1v * cc, ch + e2h * sn, du, dv, 0, size, b, 6);
+    disc(m, s, fu + du * 0.003 + e1u * cc + e2u * sn, fv + dv * 0.003 + e1v * cc + e2v * sn, fh + dh * 0.003 + e2h * sn, du, dv, 0, size, b, 6, dh);
   }
 }
 
 /**
  * A SWEEP: a tube along a path of points, each ring square to the path
  * there, the lengths between written farthest from the camera first — so a
- * bend's near side draws over its far.
+ * bend's near side draws over its far. `ends`, the way it runs at its first
+ * point and its last, where a neighbour's ring must meet them exactly.
  */
-export function sweep(m: PipeMesh, s: number, path: readonly (readonly [number, number, number])[], r: number, colour: number, sides: number) {
+export function sweep(
+  m: PipeMesh, s: number, path: readonly (readonly [number, number, number])[], r: number, colour: number, sides: number,
+  ends?: readonly [readonly number[] | null, readonly number[] | null],
+) {
   const n = path.length, half = sides >> 1, row = half + 1;
   room(m, n * row, (n - 1) * half * 6);
   const first = m.nv;
   for (let p = 0; p < n; p++) {
     const a = path[Math.max(0, p - 1)], b = path[Math.min(n - 1, p + 1)];
-    const ring = halfRing(b[0] - a[0], b[1] - a[1], b[2] - a[2], half);
+    const end = ends && (p === 0 ? ends[0] : p === n - 1 ? ends[1] : null);
+    const ring = end ? halfRing(end[0], end[1], end[2], half) : halfRing(b[0] - a[0], b[1] - a[1], b[2] - a[2], half);
     for (let k = 0; k <= half; k++) {
       const nu = ring[k * 3], nv = ring[k * 3 + 1], nh = ring[k * 3 + 2];
       vert(m, s, path[p][0] + nu * r, path[p][1] + nv * r, path[p][2] + nh * r, nu, nv, nh, colour);
@@ -307,26 +326,88 @@ export function sweep(m: PipeMesh, s: number, path: readonly (readonly [number, 
   }
 }
 
+/** A point in the map's space, (u, v, h), h in tiles. */
+type Pt = [number, number, number];
+
+/**
+ * HOW A MAIN CLIMBS. Where it meets the next cell, a limb runs along the line
+ * between the two cells' middles — the same line seen from either side, so
+ * the two rings there are one ring. Between that and its own middle the
+ * height is a cubic: at the right slope at each end, never overshooting.
+ */
+/** A limb's slope at its face, outward, height over length: from this cell's middle to the next's. */
+const faceSlope = (l: Limb, z: number) => 2 * (l.zf - z) * ZT;
+/** Height along a cubic from `h0` at slope `m0` to `h1` at slope `m1`, `len` long, `t` of the way. */
+const hermite = (h0: number, m0: number, h1: number, m1: number, len: number, t: number) => {
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * h0 + (t3 - 2 * t2 + t) * len * m0 + (-2 * t3 + 3 * t2) * h1 + (t3 - t2) * len * m1;
+};
+/** A main's slope in its middle, from `a` toward `b`, each `len` long from it: level at a crest or a dip, else between the two halves' slopes. */
+function midSlope(z: number, a: Limb, la: number, b: Limb, lb: number): number {
+  const sa = ((z - a.zf) * ZT) / la, sb = ((b.zf - z) * ZT) / lb;
+  return sa * sb > 0 ? (2 * sa * sb) / (sa + sb) : 0;
+}
+/** How many lengths a curved half is cut into: more, the rounder its tube. */
+const segsFor = (sides: number) => Math.max(2, Math.min(4, sides >> 2));
+
+/**
+ * HALF A CELL'S MAIN, out along `l`: from `from` tiles out of the middle, at
+ * slope `m` there (outward) — level where it meets a fitting or a run — to
+ * the face. Points from the inside out, and the way it runs at the face.
+ */
+function halfPath(x: number, y: number, z: number, l: Limb, from: number, m: number, sides: number): { path: Pt[]; out: number[] } {
+  const h = z * ZT, hf = l.zf * ZT, sf = faceSlope(l, z);
+  // A straight line when the slopes all agree: one length.
+  const straight = Math.abs(m * 0.5 - (hf - h)) < 1e-9 && Math.abs(sf * 0.5 - (hf - h)) < 1e-9;
+  const n = straight ? 1 : segsFor(sides), t0 = from / 0.5, path: Pt[] = [];
+  for (let k = 0; k <= n; k++) {
+    const t = t0 + (1 - t0) * (k / n), d = t * 0.5;
+    path.push([x + l.dx * d, y + l.dy * d, hermite(h, m, hf, sf, 0.5, t)]);
+  }
+  return { path, out: [l.dx, l.dy, sf] };
+}
+
+/** A STRAIGHT RUN from face `a` through the middle to face `b`, and the way it runs at each end. */
+function runPath(x: number, y: number, z: number, a: Limb, b: Limb, sides: number): { path: Pt[]; ends: [number[], number[]] } {
+  const m = midSlope(z, a, 0.5, b, 0.5);
+  const pa = halfPath(x, y, z, a, 0, -m, sides), pb = halfPath(x, y, z, b, 0, m, sides);
+  return { path: [...pa.path.reverse(), ...pb.path.slice(1)], ends: [pa.out.map((c) => -c), pb.out] };
+}
+
 /**
  * A BEND'S PATH, (u, v, h) points: in from face `a` straight to where the
  * bend starts, round a quarter circle of radius BEND_R, and straight out to
- * face `b` — level through the bend at `h`, sloping to each face's level.
+ * face `b` — climbing along the whole of it, as a run does, at `h` in its
+ * middle. With the way it runs at each end.
  */
-export function elbowPath(x: number, y: number, h: number, a: Limb, b: Limb, steps = 6): [number, number, number][] {
-  const out: [number, number, number][] = [[x + a.dx * 0.5, y + a.dy * 0.5, a.zf * ZT]];
+export function bendPath(x: number, y: number, z: number, a: Limb, b: Limb, steps = 6): { path: Pt[]; ends: [number[], number[]] } {
+  const level = a.zf === z && b.zf === z;
+  // The plan: the straights in and out cut in two where it climbs, so their slope can change along them.
+  const lead = 0.5 - BEND_R, plan: [number, number][] = [[x + a.dx * 0.5, y + a.dy * 0.5]];
+  if (!level) plan.push([x + a.dx * (BEND_R + lead / 2), y + a.dy * (BEND_R + lead / 2)]);
   // The circle's middle sits BEND_R out along both limbs.
   const ou = x + (a.dx + b.dx) * BEND_R, ov = y + (a.dy + b.dy) * BEND_R;
   for (let k = 0; k <= steps; k++) {
     // From the point on limb a (the middle less b) round to the point on limb b (the middle less a).
     const t = (k / steps) * (Math.PI / 2), c = Math.cos(t), sn = Math.sin(t);
-    out.push([ou - b.dx * BEND_R * c - a.dx * BEND_R * sn, ov - b.dy * BEND_R * c - a.dy * BEND_R * sn, h]);
+    plan.push([ou - b.dx * BEND_R * c - a.dx * BEND_R * sn, ov - b.dy * BEND_R * c - a.dy * BEND_R * sn]);
   }
-  out.push([x + b.dx * 0.5, y + b.dy * 0.5, b.zf * ZT]);
-  return out;
+  if (!level) plan.push([x + b.dx * (BEND_R + lead / 2), y + b.dy * (BEND_R + lead / 2)]);
+  plan.push([x + b.dx * 0.5, y + b.dy * 0.5]);
+  // Heights by the length along it: a cubic either side of its middle.
+  const along = [0];
+  for (let k = 1; k < plan.length; k++) along.push(along[k - 1] + Math.hypot(plan[k][0] - plan[k - 1][0], plan[k][1] - plan[k - 1][1]));
+  const L = along[along.length - 1], half = L / 2, h = z * ZT;
+  const m = midSlope(z, a, half, b, half), sa = -faceSlope(a, z), sb = faceSlope(b, z);
+  const path = plan.map(([u, v], k): Pt => {
+    const s = along[k];
+    return [u, v, s <= half ? hermite(a.zf * ZT, sa, h, m, half, s / half) : hermite(h, m, b.zf * ZT, sb, half, (s - half) / half)];
+  });
+  return { path, ends: [[-a.dx, -a.dy, sa], [b.dx, b.dy, sb]] };
 }
 
-/** A point in the map's space, (u, v, h), h in tiles. */
-type Pt = [number, number, number];
+/** A BEND'S PATH alone. @see bendPath */
+export const elbowPath = (x: number, y: number, h: number, a: Limb, b: Limb, steps = 6): Pt[] => bendPath(x, y, h / ZT, a, b, steps).path;
 
 const far = (l: Limb) => l.dx + l.dy < 0;
 const across = (a: Limb, b: Limb) => a.dx === -b.dx && a.dy === -b.dy;
@@ -346,15 +427,17 @@ function shape(limbs: readonly Limb[]): { bend: boolean; run: Limb[]; stubs: Lim
 }
 
 /** The middle line of each length a cell's main is made of, as paths of points. */
-export function cellPaths(x: number, y: number, h: number, limbs: readonly Limb[], r: number): Pt[][] {
-  const face = (l: Limb): Pt => [x + l.dx * 0.5, y + l.dy * 0.5, l.zf * ZT];
-  const mid: Pt = [x, y, h];
+export function cellPaths(x: number, y: number, h: number, limbs: readonly Limb[], r: number, sides = 14): Pt[][] {
+  const z = h / ZT;
   const { bend, run, stubs } = shape(limbs);
-  if (bend) return [elbowPath(x, y, h, run[0], run[1])];
+  if (bend) return [bendPath(x, y, z, run[0], run[1]).path];
   const out: Pt[][] = [];
-  if (run.length === 2) out.push([face(run[0]), mid, face(run[1])]);
-  else if (run.length === 1) out.push(far(run[0]) ? [face(run[0]), mid] : [mid, face(run[0])]);
-  for (const l of stubs) out.push([[x + l.dx * r, y + l.dy * r, h], face(l)]);
+  if (run.length === 2) out.push(runPath(x, y, z, run[0], run[1], sides).path);
+  else if (run.length === 1) {
+    const p = halfPath(x, y, z, run[0], 0, 0, sides).path;
+    out.push(far(run[0]) ? p.reverse() : p);
+  }
+  for (const l of stubs) out.push(halfPath(x, y, z, l, r, 0, sides).path);
   return out;
 }
 
@@ -396,7 +479,7 @@ export function box(m: PipeMesh, s: number, u0: number, v0: number, h0: number, 
 function supportAt(x: number, y: number, h: number, limbs: readonly Limb[]): { u: number; v: number; along: "u" | "v" | null } {
   const { bend, run } = shape(limbs);
   if (bend) {
-    const path = elbowPath(x, y, h, run[0], run[1]);
+    const path = bendPath(x, y, h / ZT, run[0], run[1]).path;
     const [u, v] = path[path.length >> 1];
     return { u, v, along: null };
   }
@@ -435,11 +518,11 @@ function legs(at: { u: number; v: number; along: "u" | "v" | null }, r: number):
 export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number, limbs: readonly Limb[], look: PipeLook) {
   const h = z * ZT, { r, sides } = look, c = solid(look.colour);
   const face = (l: Limb): Pt => [x + l.dx * 0.5, y + l.dy * 0.5, l.zf * ZT];
+  // A LIMB ALONE, from `from` out of the middle — level there — to its face.
   const length = (l: Limb, from = 0) => {
-    const [fu, fv, fh] = face(l), k = from / 0.5;
-    const a: Pt = [x + l.dx * from, y + l.dy * from, h + (fh - h) * k];
-    if (far(l)) tube(m, s, fu, fv, fh, a[0], a[1], a[2], r, c, sides);
-    else tube(m, s, a[0], a[1], a[2], fu, fv, fh, r, c, sides);
+    const { path, out } = halfPath(x, y, z, l, from, 0, sides);
+    if (far(l)) sweep(m, s, path.reverse(), r, c, sides, [out.map((k) => -k), null]);
+    else sweep(m, s, path, r, c, sides, [null, out]);
   };
   // A STUB'S COLLAR, where it is welded to the run.
   const collar = (l: Limb) => {
@@ -453,14 +536,15 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
   // A PORT'S COLLAR where a limb meets a building's wall: in its fluid's colour, on whichever side.
   const wall = (l: Limb) => {
     const [fu, fv, fh] = face(l);
-    flange(m, s, fu - l.dx * WALL_GAP, fv - l.dy * WALL_GAP, fh, -l.dx, -l.dy, r, l.wall!, sides, look.bolts !== false, false);
+    flange(m, s, fu - l.dx * WALL_GAP, fv - l.dy * WALL_GAP, fh, -l.dx, -l.dy, r, l.wall!, sides, look.bolts !== false, false, -faceSlope(l, z));
   };
   for (const l of limbs) {
     if (!far(l)) continue;
     if (l.wall !== undefined) { wall(l); continue; }
     if (look.flanges === false) continue;
     const [fu, fv, fh] = face(l);
-    flange(m, s, fu, fv, fh, -l.dx, -l.dy, r, look.colour, sides, look.bolts !== false, false);
+    // Square to the tube there: tilted with it where it climbs.
+    flange(m, s, fu, fv, fh, -l.dx, -l.dy, r, look.colour, sides, look.bolts !== false, false, -faceSlope(l, z));
   }
 
   // WHAT IT STANDS ON: a saddle up to its underside; or the far leg and the beam of a frame, its near leg after the tube.
@@ -492,7 +576,8 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     if (far(l)) { length(l, wall); end(); } else { end(); length(l, wall); }
     if (kind === "outlet" && look.valve !== false) valve(m, s, x, y, h, r);
   } else if (bend) {
-    sweep(m, s, elbowPath(x, y, h, run[0], run[1]), r, c, sides);
+    const { path, ends } = bendPath(x, y, z, run[0], run[1]);
+    sweep(m, s, path, r, c, sides, ends);
   } else {
     for (const l of stubs) if (far(l)) stub(l);
     const [a, b] = [face(run[0]), face(run[1])];
@@ -503,12 +588,14 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
       tube(m, s, a[0], a[1], a[2], w0[0], w0[1], w0[2], r, c, sides);
       if (look.glass !== null) tube(m, s, w0[0], w0[1], w0[2], w1[0], w1[1], w1[2], r, solid(look.glass ?? 0xcfe6f2), sides);
       tube(m, s, w1[0], w1[1], w1[2], b[0], b[1], b[2], r, c, sides);
-      const du = -run[0].dx, dv = -run[0].dy;
-      if (look.frames !== false) for (const p of [w0, w1]) hoop(m, s, p, du, dv, r, r * FRAME_R, FRAME_T, c, sides);
+      const du = w1[0] - w0[0], dv = w1[1] - w0[1], dh = w1[2] - w0[2];
+      if (look.frames !== false) for (const p of [w0, w1]) hoop(m, s, p, du, dv, r, r * FRAME_R, FRAME_T, c, sides, dh);
     } else {
-      // The run as one sweep, far face to near, so where it changes slope in the middle it bends, not kinks.
-      sweep(m, s, [a, [x, y, h], b], r, c, sides);
-      if (look.band != null && run.length === 2) hoop(m, s, [x, y, h], -run[0].dx, -run[0].dy, r, r * BAND_R, BAND_T, solid(look.band), sides);
+      // The run as one sweep, far face to near, curving where it changes slope.
+      const { path, ends } = runPath(x, y, z, run[0], run[1], sides);
+      sweep(m, s, path, r, c, sides, ends);
+      const slope = midSlope(z, run[0], 0.5, run[1], 0.5);
+      if (look.band != null) hoop(m, s, [x, y, h], -run[0].dx, -run[0].dy, r, r * BAND_R, BAND_T, solid(look.band), sides, slope);
     }
     for (const l of stubs) if (!far(l)) stub(l);
   }
@@ -517,15 +604,15 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
 }
 
 /**
- * A HOOP round a tube at `p`, the tube running along the level (du, dv): a
+ * A HOOP round a tube at `p`, the tube running along (du, dv, dh): a
  * short wider length, and its face on the camera's side. A window's frame,
  * a painted band.
  */
-function hoop(m: PipeMesh, s: number, p: readonly number[], du: number, dv: number, r: number, rr: number, len: number, colour: number, sides: number) {
-  const half = len / 2;
-  tube(m, s, p[0] - du * half, p[1] - dv * half, p[2], p[0] + du * half, p[1] + dv * half, p[2], rr, colour, sides);
+function hoop(m: PipeMesh, s: number, p: readonly number[], du0: number, dv0: number, r: number, rr: number, len: number, colour: number, sides: number, dh0 = 0) {
+  const { du, dv, dh } = across3(du0, dv0, dh0), half = len / 2;
+  tube(m, s, p[0] - du * half, p[1] - dv * half, p[2] - dh * half, p[0] + du * half, p[1] + dv * half, p[2] + dh * half, rr, colour, sides);
   // One of the two faces is toward the camera; disc draws only that one.
-  for (const k of [1, -1]) disc(m, s, p[0] + du * half * k, p[1] + dv * half * k, p[2], du * k, dv * k, r, rr, colour, sides);
+  for (const k of [1, -1]) disc(m, s, p[0] + du * half * k, p[1] + dv * half * k, p[2] + dh * half * k, du * k, dv * k, r, rr, colour, sides, dh * k);
 }
 
 /** A FLAT RING lying level, (cu, cv, ch), from `rIn` to `rOut` — a handwheel, seen from above. */
