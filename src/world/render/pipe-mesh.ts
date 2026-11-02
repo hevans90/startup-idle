@@ -173,6 +173,11 @@ export type PipeLook = {
   /** What it stands on, and the ground there, half steps. */
   support?: Support;
   floor?: number;
+  /** A straight run's glass window: how far it reaches either side of the middle, tiles; its glass. */
+  window?: number;
+  glass?: number;
+  /** A band painted round a straight run's middle: an AI line's violet, a sewer's brown. */
+  band?: number | null;
 };
 
 /** What can stand at a main's loose end. @see MAIN_END */
@@ -183,6 +188,9 @@ export const FITTING = {
   cap: 0xc0392b, grate: 0x3d4a57, pumpWall: 0x6f8fae, pumpRoof: 0xe0a23a, pumpDoor: 0x3e5872,
   wheel: 0x2b3440, valve: 0xb8463a, slop: 0x7a5230, mouth: 0x5a4030, bore: 0x1a120c,
 } as const;
+/** A window's frame and a painted band: how much wider than the tube, and how long, tiles. */
+const FRAME_R = 1.12, FRAME_T = 0.035, BAND_R = 1.05, BAND_T = 0.09;
+
 /** A pump house's walls, half their length in u and in v; its height at least, half steps. */
 const PUMP_U = 0.22, PUMP_V = 0.18, PUMP_TALL = 2.6;
 /** An intake's box, half its width, tiles. */
@@ -467,12 +475,41 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
   } else if (bend) {
     sweep(m, s, elbowPath(x, y, h, run[0], run[1]), r, c, sides);
   } else {
-    // The run as one sweep, far face to near, so where it changes slope in the middle it bends, not kinks.
     for (const l of stubs) if (far(l)) stub(l);
-    sweep(m, s, [face(run[0]), [x, y, h], face(run[1])], r, c, sides);
+    const [a, b] = [face(run[0]), face(run[1])];
+    const win = look.window ?? 0;
+    if (win > 0 && run.length === 2 && !stubs.length) {
+      // A WINDOW: steel to its far frame, glass between its frames, steel on; then the frames round the joins.
+      const along = (k: number): Pt => {
+        const f = k < 0 ? a : b, q = Math.abs(k) / 0.5;
+        return [x + (f[0] - x) * q, y + (f[1] - y) * q, h + (f[2] - h) * q];
+      };
+      const w0 = along(-win), w1 = along(win), glass = solid(look.glass ?? 0xcfe6f2);
+      tube(m, s, a[0], a[1], a[2], w0[0], w0[1], w0[2], r, c, sides);
+      tube(m, s, w0[0], w0[1], w0[2], w1[0], w1[1], w1[2], r, glass, sides);
+      tube(m, s, w1[0], w1[1], w1[2], b[0], b[1], b[2], r, c, sides);
+      const du = -run[0].dx, dv = -run[0].dy;
+      for (const p of [w0, w1]) hoop(m, s, p, du, dv, r, r * FRAME_R, FRAME_T, c, sides);
+    } else {
+      // The run as one sweep, far face to near, so where it changes slope in the middle it bends, not kinks.
+      sweep(m, s, [a, [x, y, h], b], r, c, sides);
+      if (look.band != null && run.length === 2) hoop(m, s, [x, y, h], -run[0].dx, -run[0].dy, r, r * BAND_R, BAND_T, solid(look.band), sides);
+    }
     for (const l of stubs) if (!far(l)) stub(l);
   }
   if (nearLeg) box(m, s, nearLeg[0], nearLeg[1], g, nearLeg[2], nearLeg[3], h - r - BEAM, concrete);
+}
+
+/**
+ * A HOOP round a tube at `p`, the tube running along the level (du, dv): a
+ * short wider length, and its face on the camera's side. A window's frame,
+ * a painted band.
+ */
+function hoop(m: PipeMesh, s: number, p: readonly number[], du: number, dv: number, r: number, rr: number, len: number, colour: number, sides: number) {
+  const half = len / 2;
+  tube(m, s, p[0] - du * half, p[1] - dv * half, p[2], p[0] + du * half, p[1] + dv * half, p[2], rr, colour, sides);
+  // One of the two faces is toward the camera; disc draws only that one.
+  for (const k of [1, -1]) disc(m, s, p[0] + du * half * k, p[1] + dv * half * k, p[2], du * k, dv * k, r, rr, colour, sides);
 }
 
 /** A FLAT RING lying level, (cu, cv, ch), from `rIn` to `rOut` — a handwheel, seen from above. */

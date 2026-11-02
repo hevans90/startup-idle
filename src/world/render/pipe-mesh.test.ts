@@ -62,6 +62,23 @@ describe("a main as a solid", () => {
     expect(flanged.nv).toBe(3 * 7 + 14 + 24 + BOLTS * 7);
   });
 
+  test("a window is three lengths, glass between, framed at both ends; a band is a hoop round the middle", () => {
+    const win = pipeMesh(), band = pipeMesh();
+    pipeCell(win, 1, 5, 5, 1, [N, S], { ...look, flanges: false, window: 0.3, glass: 0xcfe6f2 });
+    pipeCell(band, 1, 5, 5, 1, [N, S], { ...look, flanges: false, band: 0xb44aff });
+    // A hoop: its tube, and the one face of its two toward the camera — rim to tube, twelve each.
+    const hoop = 14 + 24;
+    expect(win.nv).toBe(3 * 14 + 2 * hoop);
+    expect(band.nv).toBe(3 * 7 + hoop);
+    // The middle length is the glass, and runs 0.3 each way of the middle.
+    const colour = (m: PipeMesh, v: number) => new Uint32Array(m.f32.buffer)[v * WORDS + 5];
+    expect(colour(win, 14)).toBe(solid(0xcfe6f2));
+    expect(colour(win, 0)).toBe(solid(0x888888));
+    // Its ends, the two vertices of one line along it: 0.6 apart down v.
+    const y = (v: number) => win.f32[v * WORDS + 1];
+    expect(Math.abs(y(15) - y(14))).toBeCloseTo(0.6 * HH);
+  });
+
   test("a flange's face shows only on the camera's side", () => {
     const near = pipeMesh(), away = pipeMesh();
     flange(near, 1, 0, 0, 0, 1, 0, 0.1, 0x888888, 12, false, false);

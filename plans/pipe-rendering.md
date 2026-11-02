@@ -1,6 +1,6 @@
 # Pipe rendering overhaul
 
-Status: **phases 1–4 done** (2026-11-01). The cast shadows were taken out in phase 4, at the user's word. The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
+Status: **phases 1–5 done** (2026-11-02). The cast shadows were taken out in phase 4, at the user's word. The pipe network itself stays as `plans/pipes-overhaul.md` and `plans/pipes-and-slop.md` built it. This plan changes only how mains, fittings and ports are drawn.
 
 The goal is for pipes to look as solid and readable as Factorio's. That means:
 - round, lit metal tubes;
@@ -210,6 +210,22 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
   - the joined outlets at [34,30] and [22,40];
   - an open nozzle on a data centre;
   - an outfall and a cap, made by changing the pumps' ends in the sandboxed grid.
+
+### Phase 5, as built
+
+- **Variants** (`tubeCell` in `mains-layer.ts`):
+  - a **sewer** is cast iron, with a flange at every other join and a brown band every fourth tile;
+  - an **AI line** is the same steel as water, with a violet band every fourth tile;
+  - a **bore** keeps its wider radius (`tubeR`).
+- A **band** is a hoop round the tube (`hoop` in `pipe-mesh.ts`): a short, wider tube plus its face toward the camera.
+- **Glass windows**, every fourth tile of a straight run (`isGlass`), are part of the mesh:
+  - three lengths, steel, glass and steel, with the glass 0.62 of a tile long;
+  - a framing hoop at each end of the glass.
+- **The water** seen through the glass is still drawn by the per-band water `Graphics`, now sized to the solid tube. The flow dashes only ever showed in the glass, so nothing else had to be removed.
+- **The old flat over-layer** (glass, collars and rings drawn over solid tubes) is gone. `drawCell` draws only the old look now.
+- **Checked by day and night on the singularity fixture:**
+  - the x = 32 main, flowing, with water moving in its windows;
+  - the same main flagged AI, and the y = 8 main flagged sewer, both made in the sandboxed grid.
 
 ## 8. Verification
 
