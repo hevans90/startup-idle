@@ -269,6 +269,7 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
   - Now a limb meets the next cell along the line between the two cells' middles, the same line from either side, so the join is one ring (`faceSlope`, `sweep`'s `ends`).
   - Between the face and the middle, the height is a cubic that never overshoots: level at a crest or a dip (`halfPath`, `runPath`, `bendPath`). A bend climbs along its whole length.
   - Flanges and bands tilt with the tube. Windows go only where a run climbs in a straight line.
+- **The Water overlay on the tubes.** Its line now runs along each cell's tube, round the bends, up the climbs and on into a port's wall, not straight through the cell's middle (`cellPaths`, kept per cell at sync). Its arrows sit on that line, pointing the way the tube runs there (`chevronAt`). The drag preview still runs centre to centre: what it shows is not laid yet.
 
 ## 8. Verification
 

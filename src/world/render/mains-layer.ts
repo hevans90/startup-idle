@@ -33,7 +33,7 @@ import { portsOf, type PortCell } from "../water/ports";
 import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable, pipeLiveDrawable } from "./pipe-gpu";
 import {
-  FRAME_HALF, K, nozzle, pipeCell, pipeMesh, valve, windowGlass, windowSpan, ZT,
+  FRAME_HALF, K, cellPaths, nozzle, pipeCell, pipeMesh, valve, windowGlass, windowSpan, ZT,
   type Fitting, type Limb, type PipeMesh, type Support, type WindowFill,
 } from "./pipe-mesh";
 
@@ -115,6 +115,31 @@ export type MainsLayer = {
   destroy: () => void;
 };
 
+/**
+ * WHERE A CELL'S ARROW GOES on the length that leaves it at face (fu, fv): a
+ * point on it a little past the middle — of a run or a bend; halfway out
+ * along a stub or a loose end — and the way the tube runs there, level part a unit.
+ */
+export function chevronAt(paths: readonly (readonly (readonly number[])[])[], fu: number, fv: number): [number[], number[]] | null {
+  const at = (p: readonly number[]) => Math.abs(p[0] - fu) < 1e-6 && Math.abs(p[1] - fv) < 1e-6;
+  for (const raw of paths) {
+    if (raw.length < 2) continue;
+    const path = at(raw[raw.length - 1]) ? raw : at(raw[0]) ? [...raw].reverse() : null;
+    if (!path) continue;
+    // A run or a bend passes through the middle: past it. A length out to the face alone: halfway.
+    const f = Math.abs(path[0][0] - fu) + Math.abs(path[0][1] - fv) > 0.75 ? 0.64 : 0.5;
+    const along = [0];
+    for (let k = 1; k < path.length; k++) along.push(along[k - 1] + Math.hypot(path[k][0] - path[k - 1][0], path[k][1] - path[k - 1][1]));
+    const want = along[along.length - 1] * f;
+    let k = 1;
+    while (k < path.length - 1 && along[k] < want) k++;
+    const a = path[k - 1], b = path[k], seg = along[k] - along[k - 1] || 1, t = (want - along[k - 1]) / seg;
+    const du = b[0] - a[0], dv = b[1] - a[1], dh = b[2] - a[2], l = Math.hypot(du, dv) || 1;
+    return [[a[0] + du * t, a[1] + dv * t, a[2] + dh * t], [du / l, dv / l, dh / l]];
+  }
+  return null;
+}
+
 /** The point in screen space of map coordinates (cell centres on the integers) at `z` half steps. */
 const P = (s: number, u: number, v: number, z: number): [number, number] => [(u - v) * HW * s, (u + v) * HH * s - z * HEIGHT_UNIT * s];
 
@@ -189,6 +214,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   let wordsPx = 0, wordsScale = 0;
   let key = "";
   let detail: Detail | null = null;
+  /** Each cell's tube as the middle lines it is swept along, (u, v, h) in tiles: what the Water overlay draws on. */
+  const routes = new Map<number, ReturnType<typeof cellPaths>>();
 
   /** A WINDOW, into this frame's mesh: what is in it, if anything, and its glass over it. */
   const writePane = (m: PipeMesh, s: number, p: Pane, fill: WindowFill | null) =>
@@ -214,13 +241,18 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
    * rides high, a saddle on the ground — every other tile, far off — nothing
    * under a fitting: it stands on its own, or on its building's nozzle.
    */
-  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number, d: Detail, port?: PortCell) => {
-    const x = i % g.w, y = (i / g.w) | 0, z = levelAt(g, x, y), floor = ground(g, x, y), out = limbsAt(g, x, y);
-    // INTO A BUILDING'S PORT: on to the wall, like any other join, collared there in its fluid's colour.
+  /** A cell's limbs, and INTO A BUILDING'S PORT: on to the wall, like any other join, collared there in its fluid's colour. */
+  const cellLimbs = (g: Grid, x: number, y: number, port?: PortCell): Limb[] => {
+    const out = limbsAt(g, x, y);
     if (port) {
       const [dx, dy] = NEIGHBOUR[port.port.face];
-      out.push({ dx: -dx, dy: -dy, zf: z, wall: PORT_COLOUR[port.port.fluid] });
+      out.push({ dx: -dx, dy: -dy, zf: levelAt(g, x, y), wall: PORT_COLOUR[port.port.fluid] });
     }
+    return out;
+  };
+
+  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number, d: Detail, port?: PortCell) => {
+    const x = i % g.w, y = (i / g.w) | 0, z = levelAt(g, x, y), floor = ground(g, x, y), out = cellLimbs(g, x, y, port);
     const bits = g.main[i], end = port ? 0 : g.mainEnd[i];
     const saddled = (!end || end === MAIN_END.cap) && (d !== "far" || (x + y) % 2 === 0);
     const support: Support = z - floor > LIFT + 0.4 ? "frame" : saddled ? "saddle" : "none";
@@ -280,18 +312,17 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     for (const net of list) {
       const r = mainReportAt(g, net.cells[0] % g.w, (net.cells[0] / g.w) | 0);
       const colour = r ? STATE_COLOUR[r.state] : 0x8796a8;
+      // ALONG THE TUBES: each cell's middle lines, round its bends and up its climbs.
       for (const i of net.cells) {
         const x = i % g.w, y = (i / g.w) | 0;
-        const a = P(s, x, y, levelAt(g, x, y));
-        let any = false;
-        for (const side of SIDES) {
-          if (!joined(g, x, y, side)) continue;
-          const [dx, dy] = NEIGHBOUR[side];
-          const b = P(s, x + dx * 0.5, y + dy * 0.5, (levelAt(g, x, y) + levelAt(g, x + dx, y + dy)) / 2);
-          flow.moveTo(a[0], a[1]).lineTo(b[0], b[1]);
-          any = true;
+        const paths = routes.get(i) ?? [];
+        for (const path of paths) {
+          for (const [k, [u, v, h]] of path.entries()) {
+            const p = P(s, u, v, h / ZT);
+            if (k === 0) flow.moveTo(p[0], p[1]); else flow.lineTo(p[0], p[1]);
+          }
         }
-        if (!any) flow.circle(a[0], a[1], w * 0.6);
+        if (!paths.length) { const a = P(s, x, y, levelAt(g, x, y)); flow.circle(a[0], a[1], w * 0.6); }
       }
       flow.stroke({ color: colour, width: w * (net.bore > 1 ? 1.5 : 1.1), cap: "round", join: "round", alpha: 0.95 });
     }
@@ -390,6 +421,13 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       // A main ending at a port runs on into it: no nozzle there, the main to the wall. @see tubeCell
       const joinedPort = new Map<number, PortCell>();
       for (const list of nozzles.values()) for (const p of list) if (g.mainEnd[idx(g, p.x, p.y)]) joinedPort.set(idx(g, p.x, p.y), p);
+      // THE ROUTES, every cell's, drawn or not.
+      routes.clear();
+      for (let i = 0; i < g.main.length; i++) {
+        if (!g.main[i] && !g.mainEnd[i]) continue;
+        const x = i % g.w, y = (i / g.w) | 0;
+        routes.set(i, cellPaths(x, y, levelAt(g, x, y) * ZT, cellLimbs(g, x, y, joinedPort.get(i)), tubeR(g.main[i])));
+      }
       paneSides = sides;
       paneInset = d === "near" ? FRAME_HALF : 0;
       // A BAND AT A TIME: its nozzles, its supports and tubes and fittings.
@@ -544,8 +582,13 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
               if (!joined(g, x, y, side)) continue;
               const [dx, dy] = NEIGHBOUR[side];
               if ((dist.get(idx(g, x + dx, y + dy)) ?? 0) <= d) continue;
-              const z = levelAt(g, x, y);
-              const tip = P(scale, x + dx * 0.22, y + dy * 0.22, z), l = P(scale, x + dx * 0.06 - dy * 0.08, y + dy * 0.06 + dx * 0.08, z), rr = P(scale, x + dx * 0.06 + dy * 0.08, y + dy * 0.06 - dx * 0.08, z);
+              // On the tube: the length that leaves by this side, a little way along toward it.
+              const on = chevronAt(routes.get(i) ?? [], x + dx * 0.5, y + dy * 0.5);
+              if (!on) continue;
+              const [c, [tu, tv, th]] = on, A = 0.08;
+              const at = (k: number, side: number): [number, number] =>
+                P(scale, c[0] + tu * A * k - tv * A * side, c[1] + tv * A * k + tu * A * side, (c[2] + th * A * k) / ZT);
+              const tip = at(1, 0), l = at(-1, 1), rr = at(-1, -1);
               const lift = ow * 0.45;
               flow.moveTo(l[0], l[1] - lift).lineTo(tip[0], tip[1] - lift).lineTo(rr[0], rr[1] - lift);
               flow.stroke({ color: 0xffffff, width: Math.max(1, ow * 0.12), alpha: 0.9, join: "round", cap: "round" });
