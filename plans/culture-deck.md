@@ -123,7 +123,7 @@ About 30 cards: 5 per base family (20) and 3–4 per AI family (10). Each has a 
 ### 8. UI
 
 - **The deck:** replaces the Work policies panel. The slots in a row, the cards owned below, and tag-set progress (2/3/4) on the side.
-- **An offer:** three cards to choose from, with a reroll button and its price. Opened from a pulsing chip when an offer waits.
+- **An offer:** three cards to choose from, with a reroll button and its price. Opened from a pulsing chip when an offer waits. *(Greybox: done; the panel lists slots, then unslotted cards only.)*
 - **Each manager row:** its card progress bar beside the tier.
 - **The journal:** a page of discovered cards, greyed for unfound ones.
 - Every card shows its trade in one line and its rank-3 rule in one line. Keep it short.
