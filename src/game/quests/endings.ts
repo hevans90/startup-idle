@@ -32,6 +32,3 @@ export const ENDINGS: readonly Ending[] = [
     does: `Shut it down without the cost: no agents lost, no racks dark, the meter back to ${CONTAIN_AT}%. Its next Ascension banks half as many Weights again.`,
   },
 ];
-
-/** The ending open to an AI standing here, if any. */
-export const openEnding = (d: Disposition): Ending | null => ENDINGS.find((e) => e.open(d)) ?? null;

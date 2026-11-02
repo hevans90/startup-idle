@@ -16,7 +16,8 @@ import { useFounderStore } from "../state/founder.store";
 import { emptyLog, useGenerationStore, type BehaviourLog } from "../state/generation.store";
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
 import { cultureNow } from "./culture-now";
-import { CONTAIN_AT, CONTAIN_WEIGHTS, RELEASE_WEIGHTS, openEnding, type Ending, type EndingId } from "./quests/endings";
+import { bookNow, nextBook } from "./quests/books";
+import { CONTAIN_AT, CONTAIN_WEIGHTS, RELEASE_WEIGHTS, type Ending, type EndingId } from "./quests/endings";
 
 /** The chance the trait drawn mutates into a sibling. */
 export const MUTATION = 0.25;
@@ -90,13 +91,15 @@ export function ascend(rand: () => number = Math.random, ending: AscendingEnding
   const fused = { ...g.fused, [founder]: [...(g.fused[founder] ?? []), t, ...(also ? [also] : [])] };
   useGenerationStore.setState({
     generation: g.generation + 1,
+    // THE NEXT BOOK. @see game/quests/books
+    book: nextBook(g.book),
     sales: 0,
     log: emptyLog(),
     equity: 0,
     peakAgents: 0,
     weights: g.weights + weights,
     fused,
-    past: [...g.past, { generation: g.generation, trait: t, mutated, founder, weights }],
+    past: [...g.past, { generation: g.generation, trait: t, mutated, founder, weights, book: g.book }],
     announce: { generation: g.generation, trait: t, mutated, founder, weights },
     // WHAT THE ENDING LEAVES the next generation; a Contain's bonus, spent. @see legacy
     legacy: ending,
@@ -134,9 +137,9 @@ export function contain(): void {
   useQuestStore.setState({ flags: [...new Set([...q.flags, "ending:contain"])] });
 }
 
-/** The ending open now, by where the arc has left the AI — Contain only once a generation. */
+/** The ending open now, of its book's, by where the arc has left the AI — Contain only once a generation. */
 export function endingNow(): Ending | null {
   const q = useQuestStore.getState();
-  const e = openEnding(q.disposition);
+  const e = bookNow().endings.find((x) => x.open(q.disposition)) ?? null;
   return e && !(e.id === "contain" && q.flags.includes("ending:contain")) ? e : null;
 }

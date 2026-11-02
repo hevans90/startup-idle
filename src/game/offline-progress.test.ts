@@ -142,7 +142,7 @@ describe("computeOfflineProgress", () => {
 
     test("and the summary says which chapter it is waiting at", () => {
       startRunningGame(50);
-      useGenerationStore.setState({ generation: 1 });
+      useGenerationStore.setState({ generation: 1, book: 1 });
       // The first chapter answered before you left; the second is where it stops.
       useQuestStore.setState({ chapters: { ledger: 0 }, offer: null });
       useAgentsStore.setState({ agents: 40, running: null });
@@ -152,16 +152,16 @@ describe("computeOfflineProgress", () => {
       expect(computeOfflineProgress(now)!.chapter).toEqual({ number: 2, title: "The Commute Problem" });
     });
 
-    test("no chapter waiting, short of one, or after the first generation", () => {
+    test("no chapter waiting, short of one, or in a book with none written", () => {
       startRunningGame(50);
-      useGenerationStore.setState({ generation: 1 });
+      useGenerationStore.setState({ generation: 1, book: 1 });
       useQuestStore.setState({ chapters: { ledger: 0 }, offer: null });
       useAgentsStore.setState({ agents: 4, running: null });
       useAiSingularityStore.setState({ value: 25 });
       const now = Date.now();
       useSessionStore.setState({ lastSeenAt: now - HOUR });
       expect(computeOfflineProgress(now)!.chapter).toBeNull();
-      useGenerationStore.setState({ generation: 2 });
+      useGenerationStore.setState({ generation: 2, book: 2 });
       useQuestStore.setState({ chapters: {}, offer: null });
       expect(chapterWaiting(40)).toBeNull();
     });

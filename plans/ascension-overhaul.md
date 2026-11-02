@@ -1,6 +1,6 @@
 # Ascension, overhauled: five books, a negotiation at the end of each
 
-Status: **planned** (2026-11-02), agreed in conversation. Builds on `plans/singularity.md` and `plans/ai-takeover.md` §4–5; replaces their "later generations get a shorter sequel".
+Status: **phase 1 done** (2026-11-02), agreed in conversation. Builds on `plans/singularity.md` and `plans/ai-takeover.md` §4–5; replaces their "later generations get a shorter sequel".
 
 ## Why
 
@@ -232,7 +232,7 @@ A new store field, `book` (1–5, then `endless`), on the generation store; the 
 
 Each phase ends with typecheck, tests and a commit to main. Each phase that changes the screen gets screenshots (light and dark, desktop and phone) before the next starts.
 
-1. **Engine: books.** `Book` data (chapters, endings, variants, dark chapter), `book` in the generation store, the quest store's arc per book; book 1 = today's chapters; migration. Tests.
+1. **Engine: books.** `Book` data (chapters, endings, variants, dark chapter), `book` in the generation store, the quest store's arc per book; book 1 = today's chapters; migration. Tests. *(Done: `game/quests/books.ts`; the arc, comms, dossier, offline hold and endings read `bookNow()`; books 2–5 and endless hold nothing yet, so later generations play as before; `past` and the arc record keep their book.)*
 2. **Pacing and waiting.** Meter retuned to ~5 sales; cadence sims re-guarded; the AI waits at 100% with a "Begin" button; exits and mandates kept through Ascension; progression sims re-measured.
 3. **The negotiation engine.** Hand building (choices, deck, town), stance, trust, exchanges, trait counters, ending regions. Tests, and a sim: every book 1 ending reachable, none dominant.
 4. **The negotiation UI.** Greybox → styled → motion, each shown. The stance dial, the hand, the AI's lines.

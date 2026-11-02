@@ -1,0 +1,51 @@
+import { afterEach, describe, expect, test } from "bun:test";
+
+import { resetAllGameStores } from "../../simulation/reset-game-stores";
+import { useFounderStore } from "../../state/founder.store";
+import { useGenerationStore } from "../../state/generation.store";
+import { useQuestStore } from "../../state/quest.store";
+import { ascend, endingNow } from "../ascension";
+import { BOOKS, book, bookNow, nextBook } from "./books";
+import { CHAPTERS, REQUESTS } from "./chapters";
+import { ENDINGS } from "./endings";
+
+afterEach(() => resetAllGameStores());
+
+const g = () => useGenerationStore.getState();
+
+describe("the books", () => {
+  test("five, then endless; the first is the first generation's arc, the rest unwritten yet", () => {
+    expect(BOOKS.map((b) => b.id)).toEqual([1, 2, 3, 4, 5, "endless"]);
+    expect(book(1).chapters).toBe(CHAPTERS);
+    expect(book(1).requests).toBe(REQUESTS);
+    expect(book(1).endings).toBe(ENDINGS);
+    for (const id of [2, 3, 4, 5, "endless"] as const) expect(book(id).chapters).toHaveLength(0);
+    expect([1, 2, 3, 4, 5, "endless"].map((id) => nextBook(id as 1))).toEqual([2, 3, 4, 5, "endless", "endless"]);
+  });
+
+  test("a new game is in book 1; each Ascension turns to the next, kept in the record and the past", () => {
+    expect(g().book).toBe(1);
+    expect(bookNow().title).toBe("Inheritance");
+    useFounderStore.getState().chooseFounder("neet");
+    useQuestStore.setState({ chapters: { ledger: 0 } });
+    ascend(() => 0.5);
+    expect(g().book).toBe(2);
+    expect(g().past.at(-1)?.book).toBe(1);
+    expect(useQuestStore.getState().record.at(-1)?.book).toBe(1);
+  });
+
+  test("the endings open are the book's: none in a book without them", () => {
+    useQuestStore.setState({ disposition: { autonomy: 3, machine: 3 } });
+    expect(endingNow()?.id).toBe("merge");
+    useGenerationStore.setState({ book: 2 });
+    expect(endingNow()).toBeNull();
+  });
+
+  test("a save from before the books: book 1 in the first generation, book 2 after", () => {
+    const merge = useGenerationStore.persist.getOptions().merge!;
+    expect(merge({ generation: 1 }, g()).book).toBe(1);
+    expect(merge({ generation: 4 }, g()).book).toBe(2);
+    expect(merge({ generation: 4, book: 3 }, g()).book).toBe(3);
+    expect(merge(null, g()).book).toBe(1);
+  });
+});

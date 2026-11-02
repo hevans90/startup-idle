@@ -13,6 +13,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { CardId } from "../game/culture";
+import type { BookId } from "../game/quests/books";
 import type { ModuleId } from "../game/modules";
 import type { DatasetId } from "../game/training";
 import type { TraitId } from "../game/traits";
@@ -34,11 +35,13 @@ export type BehaviourLog = {
 export const emptyLog = (): BehaviourLog => ({ datasets: {}, full: 0, throttled: 0, founders: {}, shutdowns: 0, vetoes: 0 });
 
 /** A generation past, as the Model's shop remembers it. */
-export type PastGeneration = { generation: number; trait: TraitId; mutated: boolean; founder: string; weights: number };
+export type PastGeneration = { generation: number; trait: TraitId; mutated: boolean; founder: string; weights: number; book?: BookId };
 
 type GenerationState = {
   /** Which generation this is: the first is 1. */
   generation: number;
+  /** THE BOOK it is in: the story's, a book a generation. @see game/quests/books */
+  book: BookId;
   /** Companies sold this generation. @see afterSale */
   sales: number;
   log: BehaviourLog;
@@ -85,6 +88,7 @@ export const useGenerationStore = create<GenerationState>()(
   persist(
     (set) => ({
       generation: 1,
+      book: 1,
       sales: 0,
       log: emptyLog(),
       equity: 0,
@@ -122,7 +126,7 @@ export const useGenerationStore = create<GenerationState>()(
       name: "generation",
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
-        generation: s.generation, sales: s.sales, log: s.log, equity: s.equity, peakAgents: s.peakAgents,
+        generation: s.generation, book: s.book, sales: s.sales, log: s.log, equity: s.equity, peakAgents: s.peakAgents,
         weights: s.weights, modules: s.modules, slotted: s.slotted, machine: s.machine, fused: s.fused, past: s.past, announce: s.announce,
         legacy: s.legacy, contained: s.contained, discovered: s.discovered,
       }),
@@ -131,6 +135,8 @@ export const useGenerationStore = create<GenerationState>()(
         log: { ...emptyLog(), ...((p as { log?: BehaviourLog } | null)?.log ?? {}) },
         machine: (p as { machine?: string[] } | null)?.machine ?? [],
         discovered: (p as { discovered?: CardId[] } | null)?.discovered ?? [],
+        // A save from before the books: the first generation's is book 1, any later one book 2 — none past it was played.
+        book: (p as { book?: BookId } | null)?.book ?? (((p as { generation?: number } | null)?.generation ?? 1) > 1 ? 2 : 1),
       }),
     },
   ),

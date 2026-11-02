@@ -1,12 +1,12 @@
 /**
- * THE ARC: the first generation's story with its AI — what it has been asked,
+ * THE ARC: a generation's story with its AI, from its book — what it has been asked,
  * what was chosen, where that has left it (its disposition), what it
  * remembers (its echoes) and what is still running (an objective on the map).
  * Kept across sales, closed at the Ascension into the record the dossier
  * keeps. @see game/quests, plans/ai-takeover.md §5
  *
  * TRIGGERS: a chapter is offered the first time the meter reaches its stage,
- * in any company of the first generation; between chapters, from the
+ * in any company of the generation; between chapters, from the
  * Colleague on, a request every 8–12 minutes, leant by the trait the AI is
  * becoming. One thing is asked at a time. Ignored, it picks for itself: a
  * chapter after 10 minutes, a request after 2 — and what it picks does not
@@ -23,7 +23,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { AXIS_MOST, ONCE, type Chapter, type Disposition, type Effect, type Objective, type Option, type Request } from "../game/quests/types";
-import { CHAPTERS, REQUESTS } from "../game/quests/chapters";
+import { bookNow, type BookId } from "../game/quests/books";
 import { measure, type QuestWorld } from "../game/quests/objectives";
 import type { Family } from "../game/traits";
 import type { Stage } from "./ai-singularity.store";
@@ -49,7 +49,7 @@ export type Running = {
   held: number; baseline?: number; aiBuilt?: boolean;
 };
 /** A generation's arc, as the dossier keeps it. */
-export type ArcRecord = { generation: number; chapters: Record<string, number>; disposition: Disposition; flags: string[]; ending?: string | null };
+export type ArcRecord = { generation: number; book?: BookId; chapters: Record<string, number>; disposition: Disposition; flags: string[]; ending?: string | null };
 
 type QuestState = {
   offer: Offer | null;
@@ -119,7 +119,7 @@ const split = (es: readonly Effect[], clock: number) => ({
 const clamp = (n: number) => Math.max(-AXIS_MOST, Math.min(AXIS_MOST, n));
 
 /** The option an offer stands for. */
-export function offered(o: { kind: Offer["kind"]; id: string }, chapters: readonly Chapter[] = CHAPTERS, requests: readonly Request[] = REQUESTS): { options: readonly Option[]; preferred: number } | null {
+export function offered(o: { kind: Offer["kind"]; id: string }, chapters: readonly Chapter[] = bookNow().chapters, requests: readonly Request[] = bookNow().requests): { options: readonly Option[]; preferred: number } | null {
   const c = o.kind === "chapter" ? chapters.find((x) => x.id === o.id) : requests.find((x) => x.id === o.id);
   return c ?? null;
 }
@@ -185,7 +185,7 @@ export const useQuestStore = create<QuestState>()(
         record: [],
         dcCooled: false,
 
-        choose: (option, chapters = CHAPTERS, requests = REQUESTS) => { const o = get().offer; if (o) answer(o, option, chapters, requests); },
+        choose: (option, chapters = bookNow().chapters, requests = bookNow().requests) => { const o = get().offer; if (o) answer(o, option, chapters, requests); },
         noteAiBuilt: (def) => {
           const o = get().objective;
           if (o && o.spec.kind === "aiBuilds" && o.spec.def === def) set({ objective: { ...o, aiBuilt: true } });
@@ -196,11 +196,9 @@ export const useQuestStore = create<QuestState>()(
         setPicking: (picking) => set({ picking }),
         newCompany: () => set({ block: null, keep: null, site: null, picking: null }),
 
-        step: (world, dt, rand = Math.random, chapters = CHAPTERS, requests = REQUESTS) => {
+        step: (world, dt, rand = Math.random, chapters = bookNow().chapters, requests = bookNow().requests) => {
           if (dt <= 0 || dt > LONGEST_STEP) return;
           if (get().dcCooled !== world.dcCooled >= 1) set({ dcCooled: world.dcCooled >= 1 });
-          // THE ARC IS THE FIRST GENERATION'S. @see plans/ai-takeover.md open question 6
-          if (useGenerationStore.getState().generation !== 1) return;
           // THE ARC'S CLOCK, and what has run out on it.
           const clock = get().clock + dt;
           const expired = get().effects.some((e) => e.until !== undefined && e.until <= clock);
@@ -241,7 +239,7 @@ export const useQuestStore = create<QuestState>()(
         fixLatticeForm: (latticeForm) => { if (!get().latticeForm) set({ latticeForm }); },
         closeArc: (ending = null) => {
           const s = get();
-          const done: ArcRecord = { generation: useGenerationStore.getState().generation, chapters: s.chapters, disposition: s.disposition, flags: s.flags, ending };
+          const done: ArcRecord = { generation: useGenerationStore.getState().generation, book: useGenerationStore.getState().book, chapters: s.chapters, disposition: s.disposition, flags: s.flags, ending };
           set({ ...fresh(), record: Object.keys(s.chapters).length ? [...s.record, done] : s.record });
         },
         reset: () => set({ ...fresh(), record: [], dcCooled: false }),

@@ -9,7 +9,7 @@
 import { useEffect, useRef } from "react";
 
 import { sfx } from "../audio/sound";
-import { CHAPTERS, REQUESTS } from "../game/quests/chapters";
+import { bookNow } from "../game/quests/books";
 import { CHAPTER_WAIT, REQUEST_WAIT, offered, useQuestStore, type Running } from "../state/quest.store";
 import { useWorldStore } from "../state/world.store";
 import { idx, inBounds, structureAt, type Grid } from "../world/grid";
@@ -132,8 +132,8 @@ export function QuestLayer({ tracker = true, offer: showOffer = true }: { tracke
     sfx("transmission");
   }, [offer]);
   const q = offer ? offered(offer) : null;
-  const chapter = offer?.kind === "chapter" ? CHAPTERS.find((c) => c.id === offer.id) : null;
-  const request = offer?.kind === "request" ? REQUESTS.find((r) => r.id === offer.id) : null;
+  const chapter = offer?.kind === "chapter" ? bookNow().chapters.find((c) => c.id === offer.id) : null;
+  const request = offer?.kind === "request" ? bookNow().requests.find((r) => r.id === offer.id) : null;
   return (
     <>
         {tracker && objective && (

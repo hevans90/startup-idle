@@ -8,8 +8,7 @@
 import { useState } from "react";
 import { twMerge } from "tailwind-merge";
 
-import { CHAPTERS, REQUESTS } from "../game/quests/chapters";
-import { ENDINGS } from "../game/quests/endings";
+import { bookNow } from "../game/quests/books";
 import type { Chapter, Disposition } from "../game/quests/types";
 import { traitForecast } from "../game/traits";
 import { useGenerationStore } from "../state/generation.store";
@@ -84,7 +83,7 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
           <p className={TITLE}>What it might become</p>
           <p>{becoming.map((b) => `${b.name} ${Math.round(b.odds * 100)}%`).join(" · ")}</p>
           <ul className="mt-1">
-            {ENDINGS.map((e) => {
+            {bookNow().endings.map((e) => {
               const open = e.open(at);
               return (
                 <li key={e.id} className={open ? "text-good" : "text-fg-muted"}>
@@ -103,10 +102,11 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
 export function Dossier() {
   const q = useQuestStore();
   const log = useGenerationStore((s) => s.log);
-  const echoes = Object.assign({}, ...[...CHAPTERS, ...REQUESTS].map((c) => c.echoes ?? {})) as Record<string, string>;
+  const b = bookNow();
+  const echoes = Object.assign({}, ...[...b.chapters, ...b.requests].map((c) => c.echoes ?? {})) as Record<string, string>;
   return (
     <DossierView
-      chapters={CHAPTERS} chosen={q.chapters} current={q.offer?.kind === "chapter" ? q.offer.id : null}
+      chapters={b.chapters} chosen={q.chapters} current={q.offer?.kind === "chapter" ? q.offer.id : null}
       at={q.disposition} path={q.path}
       remembers={q.flags.map((f) => echoes[f]).filter((r): r is string => !!r)}
       becoming={traitForecast(log, 3).map((t) => ({ name: t.trait.name, odds: t.odds }))}

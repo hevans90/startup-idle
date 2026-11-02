@@ -1,8 +1,7 @@
 import Decimal from "break_infinity.js";
 import { holdWhileAway, nextQuestStep, stageFrom, useAiSingularityStore } from "../state/ai-singularity.store";
-import { useGenerationStore } from "../state/generation.store";
 import { useQuestStore } from "../state/quest.store";
-import { CHAPTERS } from "./quests/chapters";
+import { bookNow } from "./quests/books";
 import { useFounderStore } from "../state/founder.store";
 import { type GeneratorId, useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
@@ -39,15 +38,14 @@ export type OfflineSummary = {
 
 /**
  * THE CHAPTER WAITING FOR YOU: the one asked already, or the first unanswered
- * one the meter has reached — the first generation's arc only. The away hold
+ * one the meter has reached, in this generation's book. The away hold
  * stops the meter at it. @see holdWhileAway, useQuestStore.step
  */
 export function chapterWaiting(meter: number): OfflineSummary["chapter"] {
-  if (useGenerationStore.getState().generation !== 1) return null;
-  const q = useQuestStore.getState();
+  const q = useQuestStore.getState(), chapters = bookNow().chapters;
   const c = q.offer?.kind === "chapter"
-    ? CHAPTERS.find((x) => x.id === q.offer!.id)
-    : CHAPTERS.find((x) => !(x.id in q.chapters) && meter >= (x.at ?? stageFrom(x.stage)));
+    ? chapters.find((x) => x.id === q.offer!.id)
+    : chapters.find((x) => !(x.id in q.chapters) && meter >= (x.at ?? stageFrom(x.stage)));
   return c ? { number: c.number, title: c.title } : null;
 }
 

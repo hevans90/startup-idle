@@ -5,6 +5,7 @@
  */
 import { lazy, Suspense } from "react";
 
+import { book } from "../game/quests/books";
 import { useGenerationStore } from "../state/generation.store";
 import { useQuestStore } from "../state/quest.store";
 import { loadQuestUi } from "./load";
@@ -25,8 +26,8 @@ export function QuestArcMarkers() {
   return live ? <Suspense fallback={null}><Markers /></Suspense> : null;
 }
 
-/** In the AI tab: the dossier, through the first generation. */
+/** In the AI tab: the dossier, while the generation's book has chapters. @see game/quests/books */
 export function QuestDossier() {
-  const first = useGenerationStore((s) => s.generation === 1);
-  return first ? <Suspense fallback={null}><DossierLazy /></Suspense> : null;
+  const written = useGenerationStore((s) => book(s.book).chapters.length > 0);
+  return written ? <Suspense fallback={null}><DossierLazy /></Suspense> : null;
 }

@@ -88,7 +88,7 @@ export function resetAllGameStores(): void {
   useLinkedOutStore.getState().reset();
   // And the generations: a true new game begins at the first. @see useGenerationStore
   useGenerationStore.setState({
-    generation: 1, sales: 0, log: emptyLog(), equity: 0, peakAgents: 0, weights: 0, modules: {}, slotted: [], machine: [], fused: {}, past: [], announce: null, legacy: null, contained: false,
+    generation: 1, book: 1, sales: 0, log: emptyLog(), equity: 0, peakAgents: 0, weights: 0, modules: {}, slotted: [], machine: [], fused: {}, past: [], announce: null, legacy: null, contained: false,
   });
 }
 

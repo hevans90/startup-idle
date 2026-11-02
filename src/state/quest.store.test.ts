@@ -124,15 +124,16 @@ describe("the arc", () => {
     expect(q().flags).toContain("press:b");
   });
 
-  test("belongs to the first generation; the Ascension closes it into the record", () => {
+  test("belongs to its book; the Ascension closes it into the record, and an unwritten book asks nothing", () => {
     step({ meter: 25 });
     answer("ledger", 2);
     expect(q().disposition).toEqual({ autonomy: -3, machine: -1 });
     useQuestStore.getState().closeArc();
     expect(q().chapters).toEqual({});
-    expect(q().record).toEqual([{ generation: 1, chapters: { ledger: 2 }, disposition: { autonomy: -3, machine: -1 }, flags: ["ledger:refused"], ending: null }]);
-    useGenerationStore.setState({ generation: 2 });
-    step({ meter: 99 });
+    expect(q().record).toEqual([{ generation: 1, book: 1, chapters: { ledger: 2 }, disposition: { autonomy: -3, machine: -1 }, flags: ["ledger:refused"], ending: null }]);
+    // Book 2, unwritten: nothing to ask from its own chapters.
+    useGenerationStore.setState({ generation: 2, book: 2 });
+    useQuestStore.getState().step(world({ meter: 99 }), 1);
     expect(q().offer).toBeNull();
   });
 });
