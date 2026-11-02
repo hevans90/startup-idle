@@ -18,6 +18,7 @@ import { hasMachine, useGenerationStore } from "./generation.store";
 import { useSessionStore } from "./session.store";
 import { useFounderStore } from "./founder.store";
 import { QUIET_MODEL, moduleLevel } from "../game/modules";
+import { cultureNow } from "../game/culture-now";
 import { fusionNow } from "../game/fusion";
 
 /** How fast the meter rises with the Machine's Alignment keystone: half. @see game/machine KEYSTONES */
@@ -26,7 +27,7 @@ export const ALIGNMENT_METER = 0.5;
 /** Everything that makes the singularity come faster or slower, multiplied. */
 export const singularityMult = () =>
   usePrestigeStore.getState().modifiers.singularityMult * QUIET_MODEL[moduleLevel("quiet-model")] * fusionNow().meterMult
-  * (hasMachine("machine_k_alignment") ? ALIGNMENT_METER : 1) * questMeterMult();
+  * (hasMachine("machine_k_alignment") ? ALIGNMENT_METER : 1) * questMeterMult() * cultureNow().meter;
 
 /** Points a second each agent running adds: ~15 over a strong run's last hour, ramping to sixteen. */
 export const RATE_PER_AGENT = 0.0005;

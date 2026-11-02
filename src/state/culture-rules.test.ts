@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 
-import { emptyDeck, FREEZE_HALVES, HAPPY_AT, type CardId } from "../game/culture";
+import { agentBonus, agentCost, agentsARack } from "../game/agents";
+import { ascensionWeights, inheritTrait, shutDown } from "../game/ascension";
+import { emptyDeck, FREEZE_HALVES, HAPPY_AT, SURGE_SECONDS, type CardId } from "../game/culture";
 import { setSlopSpilling } from "../game/slop";
 import { resetRunStores } from "../simulation/reset-game-stores";
 import { DAY_SECONDS } from "../world/daylight";
+import { useAgentsStore } from "./agents.store";
+import { singularityMult } from "./ai-singularity.store";
+import { useGenerationStore } from "./generation.store";
 import { GENERATOR_TYPES, useGeneratorStore, type GeneratorId } from "./generators.store";
+import { useTrainingStore } from "./training.store";
 
 /** These cards slotted, at these ranks. */
 const slot = (cards: Partial<Record<CardId, number>>) =>
@@ -82,5 +88,51 @@ describe("the culture deck's rules, in the economy", () => {
     slot({ hiretofire: 3 });
     g().increaseGenerator("intern", 25);
     expect(g().generators.find((x) => x.id === "vibe_coder")!.amount).toBe(2);
+  });
+});
+
+describe("the AI families, in their systems", () => {
+  beforeEach(() => resetRunStores());
+  afterEach(() => { setSystemTime(); resetRunStores(); });
+
+  test("Agentic: the agents' boost, a rack's agents, and the meter faster", () => {
+    const boost = agentBonus(10) - 1, rack = agentsARack(), meter = singularityMult(), price = agentCost(3);
+    slot({ autonomous: 2, swarm: 2 });
+    // Autonomous's ×3 and the set of two's ×1.25; Swarm's +4 and the set's +1.
+    expect((agentBonus(10) - 1) / boost).toBeCloseTo(3 * 1.25, 9);
+    expect(agentsARack() - rack).toBe(4 + 1);
+    expect(singularityMult() / meter).toBeCloseTo(1.5 * 1.5, 9);
+    slot({ autonomous: 1, swarm: 1, selfimprove: 1 });
+    expect(agentCost(3) / price).toBeCloseTo(0.5, 9);
+  });
+
+  test("Self-Improving: training faster, and a finished run a surge — every card a rank up, a while", () => {
+    const run = useTrainingStore.getState().seconds();
+    slot({ selfimprove: 3 });
+    expect(run / useTrainingStore.getState().seconds()).toBeCloseTo(3, 9);
+    g().surgeDeck(1000);
+    expect(g().employeeManagement.deck.surgeUntil).toBe(1000 + SURGE_SECONDS * 1000);
+  });
+
+  test("Safety: the meter slower; Red Team keeps the agents through a shutdown, Kill Switch banks Weights", () => {
+    const meter = singularityMult();
+    slot({ redteam: 3, killswitch: 3 });
+    expect(singularityMult() / meter).toBeCloseTo(0.4 * 0.8, 9); // Red Team's, and the set of two's
+    useAgentsStore.setState({ agents: 7 });
+    const weights = useGenerationStore.getState().weights, banked = Math.round(ascensionWeights() * 0.5);
+    shutDown(0);
+    expect(useAgentsStore.getState().agents).toBe(7);
+    expect(useGenerationStore.getState().weights - weights).toBe(banked);
+    // The dark: Kill Switch's none at rank 2, then halved by the set of two.
+    expect(useAgentsStore.getState().darkUntil).toBe(0);
+  });
+
+  test("Constitution: no mutation at Ascension, and Weights the more", () => {
+    useGenerationStore.setState({ equity: 1e12, peakAgents: 50 });
+    const log = useGenerationStore.getState().log, weights = ascensionWeights();
+    expect(inheritTrait(log, () => 0).mutated).toBe(true);
+    slot({ constitution: 3 });
+    expect(inheritTrait(log, () => 0).mutated).toBe(false);
+    expect(ascensionWeights() / weights).toBeCloseTo(2, 1);
   });
 });

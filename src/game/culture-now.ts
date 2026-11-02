@@ -16,10 +16,11 @@ let last: Deck | null = null;
 let version = 0;
 const kept = new Map<GeneratorId | "all", CultureEffects>();
 
-/** The store's deck, for the rest to read. Returns the undo. */
+/** The store's deck, for the rest to read. Returns the undo: the reader before it, back. */
 export function setDeckReader(r: () => Deck): () => void {
+  const before = read;
   read = r;
-  return () => { read = () => NONE; };
+  return () => { read = before; };
 }
 
 function sync(): void {

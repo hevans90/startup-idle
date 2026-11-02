@@ -20,6 +20,7 @@ import { fusionNow } from "./fusion";
 import { moduleLevel } from "./modules";
 import { skillOf } from "../state/training.store";
 import { keystone } from "./machine";
+import { cultureNow } from "./culture-now";
 
 /** Income each agent at full power adds, as a share. */
 export const AGENT_BOOST = 0.04;
@@ -37,11 +38,11 @@ export const AGENT_BASE_COST = 2;
 export const AGENT_COST_GROWTH = 1.25;
 
 /** What the next agent costs, in innovation, with `owned` already running. */
-export const agentCost = (owned: number): number => AGENT_BASE_COST * Math.pow(AGENT_COST_GROWTH, owned) * fusionNow().agentCostMult;
+export const agentCost = (owned: number): number => AGENT_BASE_COST * Math.pow(AGENT_COST_GROWTH, owned) * fusionNow().agentCostMult * cultureNow().agentCost;
 
-/** Agents a rack runs: four, and more for a Hivemind fused in, the Rack Density module, and an AI trained on itself. @see game/fusion, game/modules, game/training */
+/** Agents a rack runs: four, and more for a Hivemind fused in, the Rack Density module, an AI trained on itself, and Agent Swarm. @see game/fusion, game/modules, game/training, game/culture */
 export const agentsARack = (): number =>
-  AGENTS_A_RACK + fusionNow().agentsPerRack + moduleLevel("rack-density") + (skillOf("itself") >= 1 ? 1 : 0);
+  AGENTS_A_RACK + fusionNow().agentsPerRack + moduleLevel("rack-density") + (skillOf("itself") >= 1 ? 1 : 0) + cultureNow().rackAgents;
 
 /** Whether agents can be spun up at all: the Data Centre stands, or there is no map to ask. */
 export function agentsOpen(): boolean {
@@ -73,7 +74,9 @@ export function agentBonus(agents: number): number {
   const spires = Math.min(MAX_SPIRES, projectReading()?.spires ?? 0);
   // AIR-GAPPED, every agent's boost the more. @see AIR_GAP_BOOST
   const gap = keystone("airgap") ? AIR_GAP_BOOST : 1;
-  return 1 + AGENT_BOOST * fusionNow().agentBoostMult * gap * (1 + SPIRE_BOOST * spires) * (powered + UNPOWERED_SHARE * unpowered);
+  // THE CULTURE DECK: the agents' boost, and Agent Swarm's racks all at full power. @see game/culture
+  const c = cultureNow();
+  return 1 + AGENT_BOOST * fusionNow().agentBoostMult * gap * c.agentBoost * (1 + SPIRE_BOOST * spires) * (powered + (c.fullPower ? 1 : UNPOWERED_SHARE) * unpowered);
 }
 
 /** How many racks stand, from the agents they can run. */

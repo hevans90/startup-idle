@@ -1,6 +1,6 @@
 # The culture deck: work policies, overhauled
 
-Status: **phases 1–3 done, phase 4 nearly** (2026-11-02): engine, store, migration, autopilot, the card board, every card's rank-3 rule wired into its system, tag sets, and 19 of 20 cards shown in the town (Open Plan to come). Planned 2026-11-02, agreed in conversation. Replaces the work policies of `plans/innovation-overhaul.md` §3.
+Status: **phases 1–3 and 5 done, phase 4 nearly** (2026-11-02): engine, store, migration, autopilot, the card board, every card's rank-3 rule wired into its system, tag sets, 19 of 20 cards shown in the town (Open Plan to come), the AI families and the journal. Planned 2026-11-02, agreed in conversation. Replaces the work policies of `plans/innovation-overhaul.md` §3.
 
 ## Why
 
@@ -45,10 +45,10 @@ Status: **phases 1–3 done, phase 4 nearly** (2026-11-02): engine, store, migra
 | Track | Deals | After a first ascension, also |
 |---|---|---|
 | Agile | Hustle, Chaos | Agentic |
-| Corpo | Wellness, Growth | Alignment |
+| Corpo | Wellness, Growth | Safety |
 | Sales | Growth, Hustle | Hallucination |
 
-Alignment is a third AI family, proposed here (see open questions).
+The third AI family is **Safety**, not Alignment: the Machine already has an Alignment keystone.
 
 ### 3. Tag sets
 
@@ -60,9 +60,9 @@ Each card in force (Pivot's guest too) counts toward its tag; each step adds to 
 | Wellness | morale +6 | house mood +10 | attendance +30% |
 | Growth | hire prices −20% | beds ×1.5 | price curve −0.05 |
 | Chaos | innovation ×1.5 | spill upset −50% | innovation ×2 while a tank spills |
-| Agentic | meter +5%/min | agents boost +1% each | Keystone: agents act without racks for 30 s bursts |
-| Alignment | meter −5%/min | shutdowns cost half | Keystone: the meter can be held at a level |
-| Hallucination | ±10% output, rerolled each minute | — | Keystone: one card's rank-3 rule, borrowed at random each minute |
+| Agentic (3 cards: at 2, 3) | agent boost ×1.25, agents a rack +1 | agent price −50% | — |
+| Hallucination (at 2, 3) | money and innovation ×1.5 | every die rolled twice, the better kept | — |
+| Safety (at 2, 3) | AI meter −20%, dark after a shutdown −50% | Weights at Ascension ×1.5 | — |
 
 These numbers are placeholders, to make the shape concrete.
 
@@ -98,9 +98,9 @@ About 30 cards: 5 per base family (20) and 3–4 per AI family (10). Each has a 
 | Confident Guess | Hallucination | ±output dice each minute | Bad rolls are re-rolled once | Question marks over offices |
 | Phantom Revenue | Hallucination | +valuation, sometimes it vanishes | Vanished revenue comes back as innovation | Ghost money signs |
 | Made-Up Benchmark | Hallucination | +innovation, sometimes −morale | Doubles the next project's grant, or halves it | Charts on billboards |
-| Red Team | Alignment | meter slower, −agent boost | Shutdown keeps the agents | Security fences |
-| Constitution | Alignment | meter capped per minute, −output | The meter's weights carry more into the next run | Plaques on racks |
-| Kill Switch | Alignment | shutdowns cost less, −innovation | A shutdown can be undone within a minute | Red button on the Data Centre |
+| Red Team | Safety | meter slower, −agent boost | Shutdown keeps the agents | Security fences |
+| Constitution | Safety | meter capped per minute, −output | The meter's weights carry more into the next run | Plaques on racks |
+| Kill Switch | Safety | shutdowns cost less, −innovation | A shutdown can be undone within a minute | Red button on the Data Centre |
 
 ### 5. Discovery
 
@@ -141,14 +141,14 @@ The user wants this **very polished**, and to **see the UI at each stage** to gi
 2. **Deck UI.** The deck panel, offer picker, rerolls, progress bars.
 3. **Tag sets and keystones.** Each rank-3 rule wired into its system (commutes, slop, leaders, housing, agents, the meter). *(Keystones done: `Card.rule`, read through `cultureNow`; a slotted rank-3 card's foot lit as its rule. Tag sets done: `TAG_SETS`, stronger than the table in §3 to match the cards; Agentic, Alignment and Hallucination wait for phase 5.)*
 4. **Map flavour.** Each card's look in the town. *(Done but Open Plan: props by the buildings, `world/render/culture-props.ts`; Crunch's cold office lights; Remote's fewer cars, Shuttle's blue buses and Hire to Fire's moving vans, `Town.culture`; Ship It's release-party confetti. Hot Desking is a notice board of sticky notes, Four-Day Week people standing about the parks.)*
-5. **AI families and the journal.** Gated on ascension; discovery persisted.
+5. **AI families and the journal.** Gated on ascension; discovery persisted. *(Done: nine cards, `TRACK_AI`; dice from a hash of card and minute, odds shown on the card; Self-Improving's surge, `surgeUntil`; the journal at the board's foot is a record only, discovered cards aren't offered more; autopilot leaves AI cards alone; no map flavour for them yet.)*
 6. **Autopilot, sims, balance, README.** Pacing guards in `map-balance` and the progression sims re-measured.
 
 ## Open questions
 
-- **Alignment:** a third AI family alongside Hallucination and Agentic, or a different name or theme?
+- ~~**Alignment**~~: built as **Safety**.
 - **Card pacing:** how often should a new card land, in real minutes, early and late?
-- **Discovery:** should discovered cards be offered more often than undiscovered ones, or is the journal only a record?
+- ~~**Discovery**~~: the journal is only a record.
 - **The tracks' old multipliers** (~3% a tier): dropped as agreed, but the economy leans on them. Make up the difference in base rates, or let the deck carry it?
 - **Kind-only cards** for 10x devs: only Sabbaticals so far. More, or fine?
-- **Hallucination dice:** honest odds shown on the card, or hidden?
+- ~~**Hallucination dice**~~: honest odds, shown on the card.

@@ -12,8 +12,14 @@ import { twMerge } from "tailwind-merge";
 import { MAX_RANK, card, cardLines, type CardId, type Tag } from "../../../game/culture";
 import { toneVar, type Tone } from "../../../ui/console/frame";
 
-export const TAG_TONE: Record<Tag, Tone> = { hustle: "warn", wellness: "good", growth: "info", chaos: "juice" };
-export const TAG_NAME: Record<Tag, string> = { hustle: "Hustle", wellness: "Wellness", growth: "Growth", chaos: "Chaos" };
+export const TAG_TONE: Record<Tag, Tone> = {
+  hustle: "warn", wellness: "good", growth: "info", chaos: "juice",
+  agentic: "ai", hallucination: "innovation", safety: "bad",
+};
+export const TAG_NAME: Record<Tag, string> = {
+  hustle: "Hustle", wellness: "Wellness", growth: "Growth", chaos: "Chaos",
+  agentic: "Agentic", hallucination: "Hallucination", safety: "Safety",
+};
 const ONLY_NAME = { intern: "Interns only", vibe_coder: "Vibe coders only", "10x_dev": "10x devs only" } as const;
 
 /** Each tag's mark, drawn on a 24 grid in the current colour. */
@@ -27,6 +33,12 @@ export function TagMark({ tag, className }: { tag: Tag; className?: string }) {
     growth: <><rect x="3.5" y="13" width="4.5" height="8" fill="currentColor" /><rect x="9.75" y="8.5" width="4.5" height="12.5" fill="currentColor" /><rect x="16" y="3" width="4.5" height="18" fill="currentColor" /></>,
     // A spiral.
     chaos: <path d="M12 12.2c0-1 1.6-1.2 2-.2.6 1.6-1.3 3-2.9 2.6-2.3-.5-2.8-3.5-1.3-5.2 2-2.2 5.8-1.6 7 1 1.5 3.3-1 7-4.6 7.2-4.2.3-7.4-3.4-6.6-7.5.9-4.6 6-7.2 10.3-5.4" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />,
+    // A chip, its pins.
+    agentic: <><rect x="6.5" y="6.5" width="11" height="11" fill="currentColor" /><path d="M9 3v3.5M12 3v3.5M15 3v3.5M9 17.5V21M12 17.5V21M15 17.5V21M3 9h3.5M3 12h3.5M3 15h3.5M17.5 9H21M17.5 12H21M17.5 15H21" stroke="currentColor" strokeWidth="1.6" /><rect x="9.5" y="9.5" width="5" height="5" fill="var(--card-head)" /></>,
+    // A die, mid-roll.
+    hallucination: <><rect x="4" y="4" width="16" height="16" rx="2.5" transform="rotate(12 12 12)" fill="currentColor" /><circle cx="9" cy="9.5" r="1.6" fill="var(--card-head)" /><circle cx="12.4" cy="12.6" r="1.6" fill="var(--card-head)" /><circle cx="15.6" cy="15.6" r="1.6" fill="var(--card-head)" /></>,
+    // A shield.
+    safety: <><path d="M12 2.5 20 5.5v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10v-6L12 2.5Z" fill="currentColor" /><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="var(--card-head)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></>,
   };
   return <svg viewBox="0 0 24 24" aria-hidden className={className}>{path[tag]}</svg>;
 }

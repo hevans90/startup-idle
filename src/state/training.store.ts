@@ -13,6 +13,8 @@ import { MAX_SKILL, TRAINING_SECONDS, dataset, type DatasetId } from "../game/tr
 import { meterCap, useAiSingularityStore } from "./ai-singularity.store";
 import { PRE_TRAINED, moduleLevel } from "../game/modules";
 import { fusionNow } from "../game/fusion";
+import { cultureNow } from "../game/culture-now";
+import { useGeneratorStore } from "./generators.store";
 import { useGenerationStore } from "./generation.store";
 
 type TrainingState = {
@@ -35,8 +37,8 @@ export const useTrainingStore = create<TrainingState>()(
     (set, get) => ({
       current: null,
       skills: {},
-      // Shorter with the Pre-trained module and Ego fused in, and the data plants busy. @see dataPlantSpeed
-      seconds: () => (TRAINING_SECONDS * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingTimeMult) / dataPlantSpeed(),
+      // Shorter with the Pre-trained module and Ego fused in, the data plants busy, and Self-Improving. @see dataPlantSpeed
+      seconds: () => (TRAINING_SECONDS * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingTimeMult) / dataPlantSpeed() / cultureNow().trainingSpeed,
       blocked: () => (get().current ? "running" : null),
       start: (id, now = Date.now()) => {
         if (get().blocked() || !dataset(id)) return false;
@@ -50,6 +52,8 @@ export const useTrainingStore = create<TrainingState>()(
         const d = dataset(c.dataset);
         if (d) useAiSingularityStore.setState((s) => ({ value: Math.min(meterCap(s.value), s.value + d.jump * fusionNow().trainingJumpMult * dataPlantJump()) }));
         useGenerationStore.getState().recordTraining(c.dataset);
+        // SELF-IMPROVING'S RULE: every card a rank up, a while. @see SURGE_SECONDS
+        if (cultureNow().surge) useGeneratorStore.getState().surgeDeck(now);
       },
       reset: () => set({ current: null, skills: {} }),
     }),

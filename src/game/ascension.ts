@@ -15,6 +15,7 @@ import { grantInheritance } from "./machine";
 import { useFounderStore } from "../state/founder.store";
 import { emptyLog, useGenerationStore, type BehaviourLog } from "../state/generation.store";
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
+import { cultureNow } from "./culture-now";
 import { CONTAIN_AT, CONTAIN_WEIGHTS, RELEASE_WEIGHTS, openEnding, type Ending, type EndingId } from "./quests/endings";
 
 /** The chance the trait drawn mutates into a sibling. */
@@ -47,7 +48,8 @@ export function weightsNow(): number {
  */
 export function inheritTrait(log: BehaviourLog, rand: () => number): { trait: TraitId; mutated: boolean } {
   const drawn = drawTrait(log, rand);
-  if (rand() >= MUTATION) return { trait: drawn, mutated: false };
+  // CONSTITUTION'S RULE: it is what it was brought up to be. @see game/culture
+  if (cultureNow().noMutation || rand() >= MUTATION) return { trait: drawn, mutated: false };
   const family = TRAITS.filter((t) => t.family === trait(drawn).family && t.id !== drawn);
   const pool = family.length ? family : TRAITS.filter((t) => t.id !== drawn);
   return { trait: pool[Math.floor(rand() * pool.length)].id, mutated: true };
@@ -60,7 +62,7 @@ export type AscendingEnding = Exclude<EndingId, "contain">;
 
 /** What an Ascension now would bank, by the ending taken: twice for a Release, half again after a Contain. */
 export function ascensionWeights(ending: AscendingEnding | null = null): number {
-  return Math.round(weightsNow() * (ending === "release" ? RELEASE_WEIGHTS : 1) * (useGenerationStore.getState().contained ? CONTAIN_WEIGHTS : 1));
+  return Math.round(weightsNow() * (ending === "release" ? RELEASE_WEIGHTS : 1) * (useGenerationStore.getState().contained ? CONTAIN_WEIGHTS : 1) * cultureNow().weights);
 }
 
 /**
@@ -106,9 +108,15 @@ export function ascend(rand: () => number = Math.random, ending: AscendingEnding
   return { trait: t, mutated, founder, weights, generation: g.generation + 1, ...(also ? { also } : {}) };
 }
 
-/** SHUT IT DOWN: every agent deleted, the racks dark a while, the meter halved — and remembered. */
+/**
+ * SHUT IT DOWN: every agent deleted, the racks dark a while, the meter halved
+ * — and remembered. The culture deck softens it: Red Team keeps the agents,
+ * Kill Switch shortens the dark and banks Weights for it. @see game/culture
+ */
 export function shutDown(now = Date.now()): void {
-  useAgentsStore.setState({ agents: 0, running: null, darkUntil: now + DARK_MS });
+  const c = cultureNow();
+  if (c.shutdownPays > 0) useGenerationStore.setState((g) => ({ weights: g.weights + Math.round(ascensionWeights() * c.shutdownPays) }));
+  useAgentsStore.setState((a) => ({ agents: c.keepAgents ? a.agents : 0, running: c.keepAgents ? a.running : null, darkUntil: now + DARK_MS * c.dark }));
   useAiSingularityStore.setState({ value: SHUTDOWN_AT });
   useGenerationStore.getState().recordShutdown();
 }

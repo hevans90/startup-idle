@@ -12,6 +12,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import type { CardId } from "../game/culture";
 import type { ModuleId } from "../game/modules";
 import type { DatasetId } from "../game/training";
 import type { TraitId } from "../game/traits";
@@ -65,6 +66,13 @@ type GenerationState = {
   contained: boolean;
   /** The Ascension just made, to announce at the next founding; cleared once seen. */
   announce: PastGeneration | null;
+  /**
+   * THE JOURNAL: every culture card ever offered or owned, kept through
+   * Ascensions — what the deck's journal shows face up. @see game/culture
+   */
+  discovered: CardId[];
+  /** Cards seen: into the journal, if they are new to it. */
+  discover: (ids: readonly CardId[]) => void;
   /** A company sold, by whoever founded it, for so much Equity. */
   recordSale: (founder?: string | null, equity?: number) => void;
   recordTraining: (dataset: DatasetId) => void;
@@ -90,6 +98,11 @@ export const useGenerationStore = create<GenerationState>()(
       legacy: null,
       contained: false,
       announce: null,
+      discovered: [],
+      discover: (ids) => set((s) => {
+        const fresh = ids.filter((id) => !s.discovered.includes(id));
+        return fresh.length ? { discovered: [...s.discovered, ...fresh] } : s;
+      }),
       recordSale: (founder, equity = 0) => set((s) => ({
         sales: s.sales + 1,
         equity: s.equity + Math.max(0, equity),
@@ -111,12 +124,13 @@ export const useGenerationStore = create<GenerationState>()(
       partialize: (s) => ({
         generation: s.generation, sales: s.sales, log: s.log, equity: s.equity, peakAgents: s.peakAgents,
         weights: s.weights, modules: s.modules, slotted: s.slotted, machine: s.machine, fused: s.fused, past: s.past, announce: s.announce,
-        legacy: s.legacy, contained: s.contained,
+        legacy: s.legacy, contained: s.contained, discovered: s.discovered,
       }),
       merge: (p, current) => ({
         ...current, ...(p as object),
         log: { ...emptyLog(), ...((p as { log?: BehaviourLog } | null)?.log ?? {}) },
         machine: (p as { machine?: string[] } | null)?.machine ?? [],
+        discovered: (p as { discovered?: CardId[] } | null)?.discovered ?? [],
       }),
     },
   ),

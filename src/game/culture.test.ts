@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { GeneratorId } from "../state/generators.store";
 import {
   CARDS, buySlot, cardLines, pivot, place, cardAt, cultureEffects, deal, emptyDeck, pointsLeft, rankPrice, rankUp, readDeck, reroll, take, toggleSlot,
-  inForce, setSteps, tagCounts, workMorale, type CardId, type Deck,
+  hallucination, inForce, isAiTag, poolFor, rankNow, setSteps, tagCounts, workMorale, type CardId, type Deck,
 } from "./culture";
 
 const all = new Set<GeneratorId>(["intern", "vibe_coder", "10x_dev"]);
@@ -171,7 +171,7 @@ describe("tag sets", () => {
   const slotted = (ids: CardId[], rank = 1): Deck => ({ ...emptyDeck(), slots: 9, ranks: Object.fromEntries(ids.map((id) => [id, rank])), slotted: ids });
 
   test("two, three and four of a tag in force bring its steps, each on the last", () => {
-    expect(tagCounts(slotted(["hotdesk", "crunch", "lunch"]))).toEqual({ hustle: 2, wellness: 1, growth: 0, chaos: 0 });
+    expect(tagCounts(slotted(["hotdesk", "crunch", "lunch"]))).toMatchObject({ hustle: 2, wellness: 1, growth: 0, chaos: 0, agentic: 0 });
     expect(setSteps("hustle", 1)).toHaveLength(0);
     expect(setSteps("hustle", 3)).toHaveLength(2);
     expect(setSteps("hustle", 5)).toHaveLength(3);
@@ -192,3 +192,56 @@ describe("tag sets", () => {
     expect(tagCounts(d).chaos).toBe(3);
   });
 });
+
+describe("the AI families", () => {
+  const slotted = (ranks: Partial<Record<CardId, number>>): Deck => ({ ...emptyDeck(), slots: 9, ranks, slotted: Object.keys(ranks) as CardId[] });
+  const MIN = 60_000;
+
+  test("dealt only after a first Ascension, a family a track", () => {
+    const tags = (ascended: boolean) => new Set(poolFor(emptyDeck(), "agile", all, ascended).map((id) => CARDS.find((c) => c.id === id)!.tag));
+    expect([...tags(false)].some(isAiTag)).toBe(false);
+    expect(tags(true).has("agentic")).toBe(true);
+    expect(tags(true).has("safety")).toBe(false);
+  });
+
+  test("a die rolls between its least and most, the same all minute, another the next", () => {
+    const d = slotted({ guess: 1 });
+    const seen = Array.from({ length: 200 }, (_, m) => hallucination(d, m * MIN).money);
+    expect(Math.min(...seen)).toBeGreaterThanOrEqual(0.5);
+    expect(Math.max(...seen)).toBeLessThanOrEqual(3);
+    expect(new Set(seen.map((v) => v.toFixed(3))).size).toBeGreaterThan(150);
+    expect(hallucination(d, 5 * MIN + 59_000).money).toBe(hallucination(d, 5 * MIN).money);
+    // Confident Guess's rule: fewer rolls under ×1.
+    const low = (r: number) => Array.from({ length: 400 }, (_, m) => hallucination(slotted({ guess: r }), m * MIN).money).filter((v) => v < 1).length;
+    expect(low(3)).toBeLessThan(low(2) / 2);
+  });
+
+  test("Phantom Revenue: a minute in four, the money gone — and innovation for it at rank 3", () => {
+    const minutes = Array.from({ length: 400 }, (_, m) => hallucination(slotted({ phantom: 3 }), m * MIN));
+    const gone = minutes.filter((h) => h.vanished);
+    expect(gone.length / minutes.length).toBeGreaterThan(0.18);
+    expect(gone.length / minutes.length).toBeLessThan(0.32);
+    expect(gone.every((h) => h.money === 0 && h.innovation === 5)).toBe(true);
+  });
+
+  test("Self-Improving's surge: every card a rank up, its rule with it, while it lasts", () => {
+    const d = slotted({ hotdesk: 2, crunch: 3 });
+    expect(rankNow(d, "hotdesk")).toBe(2);
+    expect(cultureEffects(d).anyDesk).toBe(false);
+    const up = { ...d, surgeUntil: 1 };
+    expect([rankNow(up, "hotdesk"), rankNow(up, "crunch")]).toEqual([3, 3]);
+    expect(cultureEffects(up).anyDesk).toBe(true);
+  });
+
+  test("their sets, at two and three of their three cards", () => {
+    expect(cultureEffects(slotted({ autonomous: 1, swarm: 1 })).rackAgents).toBe(2 + 1);
+    expect(cultureEffects(slotted({ autonomous: 1, swarm: 1, selfimprove: 1 })).agentCost).toBe(0.5);
+    expect(cultureEffects(slotted({ redteam: 1, constitution: 1, killswitch: 1 })).weights).toBeCloseTo(1.5 * 1.5, 9);
+    // Best of two: the same minutes, never the lower for it.
+    const one = slotted({ guess: 1, phantom: 1 }), all3 = slotted({ guess: 1, phantom: 1, benchmark: 1 });
+    expect(cultureEffects(all3).bestOfTwo).toBe(true);
+    const lows = (d: Deck) => Array.from({ length: 300 }, (_, m) => hallucination({ ...d, slotted: ["guess"] }, m * MIN, cultureEffects(d)).money).filter((v) => v < 1).length;
+    expect(lows(all3)).toBeLessThan(lows(one));
+  });
+});
+

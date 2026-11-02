@@ -11,8 +11,9 @@ import { createPortal } from "react-dom";
 import { twMerge } from "tailwind-merge";
 
 import { sfx } from "../../../audio/sound";
-import { CARDS, MAX_RANK, SET_AT, TAG_SETS, card, inForce, rankPrice, rerollSeconds, slotPrice, tagCounts, type CardId, type Tag, type Track } from "../../../game/culture";
+import { CARDS, MAX_RANK, rankNow, SURGE_SECONDS, TAG_SETS, setAt, card, hallucination, isAiTag, inForce, rankPrice, rerollSeconds, slotPrice, tagCounts, type CardId, type Tag, type Track } from "../../../game/culture";
 import { useTicking } from "../../../hooks/use-ticking";
+import { useGenerationStore } from "../../../state/generation.store";
 import { useGeneratorStore } from "../../../state/generators.store";
 import { useInnovationStore } from "../../../state/innovation.store";
 import { Backdrop, Button, Label } from "../../../ui/console";
@@ -33,31 +34,98 @@ const dragged = (e: DragEvent) => e.dataTransfer.getData("text/plain") as CardId
 const Under = ({ children }: { children: string }) =>
   <span className="h-6 w-[9.5rem] text-center text-[10px] uppercase leading-6 tracking-wider text-fg-muted">{children}</span>;
 
+const TAGS = Object.keys(TAG_SETS) as Tag[];
+
 /**
- * THE SETS: each tag, its cards in force as four pips, and its three steps —
- * lit as two, three and four of it reach them.
+ * THE JOURNAL: every card ever offered or owned, kept through Ascension —
+ * by family, found ones by name, the rest a blank each. @see GenerationState.discovered
  */
-function Sets({ counts }: { counts: Record<Tag, number> }) {
+function Journal({ ai }: { ai: boolean }) {
+  const found = useGenerationStore((s) => s.discovered);
+  return (
+    <section aria-label="Journal" className="flex flex-col gap-3 border-t border-line-quiet pt-5">
+      <Label>Journal · {found.length}/{CARDS.length} found</Label>
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {TAGS.map((tag) => {
+          const cards = CARDS.filter((c) => c.tag === tag), n = cards.filter((c) => found.includes(c.id)).length;
+          const locked = isAiTag(tag) && !ai;
+          return (
+            <div key={tag} style={toneVar(TAG_TONE[tag])} className={twMerge("flex flex-col gap-1.5 border border-l-2 border-line-quiet border-l-tone bg-surface-1/60 px-2.5 py-2", locked && "opacity-60")}>
+              <div className="flex items-center gap-1.5">
+                <TagMark tag={tag} className="h-3.5 w-3.5 text-tone" />
+                <span className="flex-1 font-display text-[11px] uppercase tracking-wider">{TAG_NAME[tag]}</span>
+                <span className="text-[10px] tabular-nums text-fg-muted">{n}/{cards.length}</span>
+              </div>
+              {locked
+                ? <span className="text-[11px] text-fg-muted">Dealt after a first Ascension</span>
+                : (
+                  <ul className="flex flex-wrap gap-1">
+                    {cards.map((c) => found.includes(c.id)
+                      ? <li key={c.id} className="border border-tone/60 px-1.5 py-0.5 text-[11px] leading-tight">{c.name}</li>
+                      : <li key={c.id} aria-label="Not found yet" className="border border-dashed border-line-quiet px-1.5 py-0.5 text-[11px] leading-tight text-fg-muted">?</li>)}
+                  </ul>
+                )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/** THE AI CARDS' MINUTE: a surge's time left, and this minute's dice. @see hallucination */
+function Minute({ d }: { d: Parameters<typeof hallucination>[0] }) {
+  const now = Date.now(), h = hallucination(d, now);
+  const dice = inForce(d).some((id) => card(id).tag === "hallucination");
+  const left = d.surgeUntil ? Math.max(0, Math.ceil((d.surgeUntil - now) / 1000)) : 0;
+  if (!dice && !left) return null;
+  const x = (v: number) => `×${v.toFixed(2).replace(/\.?0+$/, "")}`;
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+      {left > 0 && (
+        <span style={toneVar(TAG_TONE.agentic)} className="text-tone">
+          Surge · every card +1 rank · {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}
+          <span className="sr-only"> of {SURGE_SECONDS / 60} minutes</span>
+        </span>
+      )}
+      {dice && (
+        <span style={toneVar(TAG_TONE.hallucination)}>
+          <span className="text-tone">This minute's dice</span> · {h.vanished ? "money vanished" : `money ${x(h.money)}`} · innovation {x(h.innovation)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Once a first Ascension is behind you, or an AI card in hand. */
+const aiOpen = (d: { ranks: Partial<Record<CardId, number>> }) =>
+  useGenerationStore.getState().generation > 1 || CARDS.some((c) => isAiTag(c.tag) && d.ranks[c.id]);
+
+/**
+ * THE SETS: each tag, its cards in force as pips, and its steps — lit as two,
+ * three and four of it reach them (an AI family's, of three cards: two and three).
+ */
+function Sets({ counts, ai }: { counts: Record<Tag, number>; ai: boolean }) {
   return (
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-      {(Object.keys(TAG_SETS) as Tag[]).map((tag) => {
+      {(Object.keys(TAG_SETS) as Tag[]).filter((t) => ai || !isAiTag(t)).map((tag) => {
         const n = counts[tag];
         return (
           <div key={tag} style={toneVar(TAG_TONE[tag])} aria-label={`${TAG_NAME[tag]} set, ${n} in force`}
-            className={twMerge("flex flex-col gap-1.5 border border-l-2 border-line-quiet border-l-tone bg-surface-1/60 px-2.5 py-2", n >= SET_AT[0] && "border-tone")}>
+            className={twMerge("flex flex-col gap-1.5 border border-l-2 border-line-quiet border-l-tone bg-surface-1/60 px-2.5 py-2", n >= setAt(tag)[0] && "border-tone")}>
             <div className="flex items-center gap-1.5">
               <TagMark tag={tag} className="h-3.5 w-3.5 text-tone" />
               <span className="flex-1 font-display text-[11px] uppercase tracking-wider">{TAG_NAME[tag]}</span>
               <span className="flex gap-1" aria-hidden>
-                {[1, 2, 3, 4].map((k) => <span key={k} className={twMerge("h-1.5 w-1.5 rotate-45 border border-tone", k <= n && "bg-tone")} />)}
+                {Array.from({ length: setAt(tag)[setAt(tag).length - 1] }, (_, j) => j + 1).map((k) => <span key={k} className={twMerge("h-1.5 w-1.5 rotate-45 border border-tone", k <= n && "bg-tone")} />)}
               </span>
             </div>
             <ul className="flex flex-col gap-0.5">
               {TAG_SETS[tag].map((step, k) => {
-                const lit = n >= SET_AT[k];
+                const lit = n >= setAt(tag)[k];
                 return (
                   <li key={step.text} className={twMerge("flex gap-1.5 text-[11px] leading-tight", lit ? "text-fg" : "text-fg-muted")}>
-                    <span className={twMerge("w-3 shrink-0 tabular-nums", lit ? "text-tone" : "opacity-70")}>{SET_AT[k]}</span>
+                    <span className={twMerge("w-3 shrink-0 tabular-nums", lit ? "text-tone" : "opacity-70")}>{setAt(tag)[k]}</span>
                     <span className="min-w-0 flex-1">{step.text}</span>
                   </li>
                 );
@@ -177,6 +245,7 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
   const guest = inForce(d).find((id) => !d.slotted.includes(id));
   const hand = CARDS.filter((c) => d.ranks[c.id] && !d.slotted.includes(c.id) && c.id !== guest).map((c) => c.id);
   const free = d.slotted.length < d.slots;
+  const ai = aiOpen(d);
 
   const placeAt = (id: CardId, at: number) => { g.placeCard(id, at); sfx("pop"); setHeld(null); setOver(null); };
   const takeOut = (id: CardId) => { if (deck().slotted.includes(id)) { g.toggleCard(id); sfx("pop"); } setHeld(null); setOver(null); };
@@ -233,7 +302,7 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
                     onDrop={(e) => { e.preventDefault(); placeAt(dragged(e), at); }}>
                     <div className={twMerge("transition-[filter] duration-150", lit && "drop-shadow-[0_0_10px_var(--ui-console)]")}>
                       {id
-                        ? <Held key={id} id={id} rank={d.ranks[id]!} shine={shone === id} held={held === id} onTap={() => tapSlot(at, id)} onDrag={setHeld} />
+                        ? <Held key={id} id={id} rank={rankNow(d, id)} shine={shone === id} held={held === id} onTap={() => tapSlot(at, id)} onDrag={setHeld} />
                         : (
                           <button type="button" onClick={() => tapSlot(at)} aria-label={`Slot ${at + 1}, empty`}
                             className={twMerge("relative block h-[18rem] w-[9.5rem] cursor-pointer", FOCUS)}>
@@ -252,7 +321,7 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
               })}
               {guest && (
                 <div className="flex flex-col items-center gap-2">
-                  <CultureCard id={guest} rank={d.ranks[guest]!} className="card-slot-in" />
+                  <CultureCard id={guest} rank={rankNow(d, guest)} className="card-slot-in" />
                   <Under>Pivot's guest</Under>
                 </div>
               )}
@@ -271,7 +340,8 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
               </div>
             </div>
             {/* What the tags in force add up to. */}
-            <Sets counts={tagCounts(d)} />
+            <Minute d={d} />
+            <Sets counts={tagCounts(d)} ai={ai} />
           </section>
 
           {/* THE HAND: owned, out of the slots. */}
@@ -294,6 +364,7 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
                 </div>
               )}
           </section>
+          <Journal ai={ai} />
         </>)}
       </div>
     </div>,

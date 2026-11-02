@@ -7,19 +7,31 @@
  * sit in the slots is free to change — morale drifts to suit — but points
  * spent stay spent, and a card keeps its rank. Pure: the store keeps the
  * deck. @see plans/culture-deck.md, generators.store
+ *
+ * THE AI FAMILIES join the tracks' deals after a first Ascension — Agentic,
+ * Hallucination and Safety — cards about the agents, the meter and the dice.
  */
 import type { GeneratorId } from "../state/generators.store";
 import type { ManagerKeys } from "../state/innovation.store";
 import { change, helps, percent, STATS, times } from "./wording";
 
-export type Tag = "hustle" | "wellness" | "growth" | "chaos";
+export type Tag = "hustle" | "wellness" | "growth" | "chaos" | "agentic" | "hallucination" | "safety";
+/** The AI families: dealt only after a first Ascension. */
+export const AI_TAGS: readonly Tag[] = ["agentic", "hallucination", "safety"];
+export const isAiTag = (t: Tag) => AI_TAGS.includes(t);
 export type Track = ManagerKeys;
 
 export type CardId =
   | "crunch" | "hotdesk" | "stack" | "hiretofire" | "shipit"
   | "lunch" | "remote" | "sabbatical" | "therapy" | "fourday"
   | "pipeline" | "freeze" | "shuttle" | "housing" | "mentorship"
-  | "hackathon" | "movefast" | "vibesonly" | "pivot" | "openplan";
+  | "hackathon" | "movefast" | "vibesonly" | "pivot" | "openplan"
+  | "autonomous" | "swarm" | "selfimprove"
+  | "guess" | "phantom" | "benchmark"
+  | "redteam" | "constitution" | "killswitch";
+
+/** A die: the least and the most it rolls, evenly between. */
+export type Dice = readonly [number, number];
 
 /**
  * WHAT A CARD DOES at a rank, to each kind it touches: not a few percent here
@@ -75,6 +87,26 @@ export type CardEffects = {
   leaderXp?: number;
   /** Every so often, another slotted card is swapped out. @see PIVOT_SECONDS */
   pivot?: boolean;
+  /** × each AI agent's boost to income. @see agentBonus */
+  agentBoost?: number;
+  /** Agents more a rack runs. @see agentsARack */
+  rackAgents?: number;
+  /** × an agent's price. @see agentCost */
+  agentCost?: number;
+  /** × how fast the singularity meter rises. @see singularityMult */
+  meter?: number;
+  /** × how fast a training run goes. */
+  trainingSpeed?: number;
+  /** × the Weights an Ascension banks. @see ascensionWeights */
+  weights?: number;
+  /** × how long the racks stay dark after a shutdown. @see DARK_MS */
+  dark?: number;
+  /** Money × a roll of this die, each minute. @see hallucination */
+  moneyDice?: Dice;
+  /** Innovation × a roll of this die, each minute. */
+  innovationDice?: Dice;
+  /** The chance a minute's money vanishes. */
+  vanish?: number;
 };
 
 /**
@@ -123,6 +155,26 @@ export type Rules = {
   pivotIn?: boolean;
   /** Each leader leads every kind. @see leadersNow */
   leadEvery?: boolean;
+  /** The agents work on through a training run. @see trainedAgentBonus */
+  trainWhileWorking?: boolean;
+  /** Every rack at full power, near the Data Centre or not. @see UNPOWERED_SHARE */
+  fullPower?: boolean;
+  /** A training run finished puts every card a rank up, a while. @see SURGE_SECONDS */
+  surge?: boolean;
+  /** A roll under ×1 is rolled again. @see hallucination */
+  rerollLow?: boolean;
+  /** × innovation in a minute whose money vanished. */
+  vanishPays?: number;
+  /** Money rolls with innovation's die. */
+  benchMoney?: boolean;
+  /** Every die rolled twice, the better kept. */
+  bestOfTwo?: boolean;
+  /** A shutdown deletes no agents. @see shutDown */
+  keepAgents?: boolean;
+  /** The trait the AI inherits never mutates. @see MUTATION */
+  noMutation?: boolean;
+  /** A shutdown banks this share of what an Ascension would. @see shutDown */
+  shutdownPays?: number;
 };
 
 export type Card = {
@@ -165,17 +217,30 @@ export const CARDS: readonly Card[] = [
   { id: "vibesonly", name: "Vibes Only", tag: "chaos", only: "vibe_coder", ranks: [{ deskless: 0.7, slop: 1.5, houseMood: -6 }, { deskless: 1, slop: 1.5, houseMood: -6 }], keystone: "Innovation ×3 while a tank spills", rule: { messInnovation: 3 } },
   { id: "pivot", name: "Pivot Weekly", tag: "chaos", ranks: [{ innovation: 1.5, pivot: true }, { innovation: 2, pivot: true }], keystone: "Pivots bring a card in, in a slot of its own", rule: { pivotIn: true } },
   { id: "openplan", name: "Open Plan", tag: "chaos", ranks: [{ leadAll: true, morale: -8 }, { leadAll: true, leaderXp: 2, morale: -8 }], keystone: "Every leader leads every kind", rule: { leadEvery: true } },
+  // AGENTIC: the agents, harder — and the meter with them.
+  { id: "autonomous", name: "Autonomous Agents", tag: "agentic", ranks: [{ agentBoost: 2, meter: 1.5 }, { agentBoost: 3, meter: 1.5 }], keystone: "Agents keep working through training", rule: { trainWhileWorking: true } },
+  { id: "swarm", name: "Agent Swarm", tag: "agentic", ranks: [{ rackAgents: 2, meter: 1.25 }, { rackAgents: 4, meter: 1.5 }], keystone: "Every rack at full power, near or far", rule: { fullPower: true } },
+  { id: "selfimprove", name: "Self-Improving", tag: "agentic", ranks: [{ trainingSpeed: 2, meter: 1.5 }, { trainingSpeed: 3, meter: 1.5 }], keystone: "Each training run: every card +1 rank for 5 min", rule: { surge: true } },
+  // HALLUCINATION: dice, honestly shown.
+  { id: "guess", name: "Confident Guess", tag: "hallucination", ranks: [{ moneyDice: [0.5, 3] }, { moneyDice: [0.5, 4] }], keystone: "Rolls under ×1 are rolled again", rule: { rerollLow: true } },
+  { id: "phantom", name: "Phantom Revenue", tag: "hallucination", ranks: [{ output: 2, vanish: 0.25 }, { output: 3, vanish: 0.25 }], keystone: "A vanished minute pays innovation ×5", rule: { vanishPays: 5 } },
+  { id: "benchmark", name: "Made-Up Benchmark", tag: "hallucination", ranks: [{ innovationDice: [0.5, 3] }, { innovationDice: [0.5, 4] }], keystone: "Money rolls the same as innovation", rule: { benchMoney: true } },
+  // SAFETY: a slower, safer AI, for less now.
+  { id: "redteam", name: "Red Team", tag: "safety", ranks: [{ meter: 0.6, agentBoost: 0.8 }, { meter: 0.4, agentBoost: 0.8 }], keystone: "A shutdown keeps the agents", rule: { keepAgents: true } },
+  { id: "constitution", name: "Constitution", tag: "safety", ranks: [{ weights: 1.5, output: 0.8 }, { weights: 2, output: 0.8 }], keystone: "The AI's trait never mutates", rule: { noMutation: true } },
+  { id: "killswitch", name: "Kill Switch", tag: "safety", ranks: [{ dark: 0.5, innovation: 0.75 }, { dark: 0, innovation: 0.75 }], keystone: "A shutdown banks half an Ascension's Weights", rule: { shutdownPays: 0.5 } },
 ];
 
 export const card = (id: CardId): Card => CARDS.find((c) => c.id === id)!;
 const isCard = (id: unknown): id is CardId => CARDS.some((c) => c.id === id);
 
-/** What each track deals. */
+/** What each track deals; and, after a first Ascension, its AI family too. */
 export const TRACK_TAGS: Record<Track, readonly Tag[]> = {
   agile: ["hustle", "chaos"],
   corpo: ["wellness", "growth"],
   sales: ["growth", "hustle"],
 };
+export const TRACK_AI: Record<Track, Tag> = { agile: "agentic", corpo: "safety", sales: "hallucination" };
 
 /** The highest rank a card can be bought to: the third brings its rule. */
 export const MAX_RANK = 3;
@@ -188,6 +253,8 @@ export const HAPPY_AT = 20;
 /** Hire Freeze's rule: seconds slotted for each halving of the price, and the least it falls to. */
 export const FREEZE_HALVES = 600;
 export const FREEZE_LEAST = 0.01;
+/** Self-Improving's rule: how long a training run's surge lasts, seconds. */
+export const SURGE_SECONDS = 300;
 
 /**
  * TAG SETS: two, three or four cards of a tag in force bring its set, each
@@ -195,29 +262,37 @@ export const FREEZE_LEAST = 0.01;
  * trade: what playing to a tag earns. @see plans/culture-deck.md §3
  */
 export const SET_AT = [2, 3, 4] as const;
-export const TAG_SETS: Record<Tag, readonly [SetStep, SetStep, SetStep]> = {
+/** An AI family's, of three cards: at two and three. */
+export const AI_SET_AT = [2, 3] as const;
+/** The cards of a tag in force each step of its set needs. */
+export const setAt = (tag: Tag): readonly number[] => (isAiTag(tag) ? AI_SET_AT : SET_AT);
+export const TAG_SETS: Record<Tag, readonly SetStep[]> = {
   hustle: [{ text: "Desks ×1.25", e: { desks: 1.25 } }, { text: "Build speed ×2", e: { buildSpeed: 2 } }, { text: "Money ×2", e: { output: 2 } }],
   wellness: [{ text: "Morale +6", e: { morale: 6 } }, { text: "House mood +10", e: { houseMood: 10 } }, { text: "Attendance +30%", e: { attendance: 1.3 } }],
   growth: [{ text: "Hire prices −20%", e: { hireCost: 0.8 } }, { text: "Beds per house ×1.5", e: { beds: 1.5 } }, { text: "Price curve −0.05", e: { costCurve: -0.05 } }],
   chaos: [{ text: "Innovation ×1.5", e: { innovation: 1.5 } }, { text: "Spill upset −50%", e: { hazards: 0.5 } }, { text: "Innovation ×2 while a tank spills", e: { messInnovation: 2 } }],
+  agentic: [{ text: "Agent boost ×1.25 · agents a rack +1", e: { agentBoost: 1.25, rackAgents: 1 } }, { text: "Agent price −50%", e: { agentCost: 0.5 } }],
+  hallucination: [{ text: "Money and innovation ×1.5", e: { output: 1.5, innovation: 1.5 } }, { text: "Every die rolled twice, the better kept", e: { bestOfTwo: true } }],
+  safety: [{ text: "AI meter −20% · dark after a shutdown −50%", e: { meter: 0.8, dark: 0.5 } }, { text: "Weights at Ascension ×1.5", e: { weights: 1.5 } }],
 };
 export type SetStep = { text: string; e: CardEffects & Rules };
 
 /** Each tag's cards in force. */
 export function tagCounts(d: Deck): Record<Tag, number> {
-  const n: Record<Tag, number> = { hustle: 0, wellness: 0, growth: 0, chaos: 0 };
+  const n: Record<Tag, number> = { hustle: 0, wellness: 0, growth: 0, chaos: 0, agentic: 0, hallucination: 0, safety: 0 };
   for (const id of inForce(d)) n[card(id).tag]++;
   return n;
 }
 /** The steps of a tag's set that `count` cards reach. */
-export const setSteps = (tag: Tag, count: number): readonly SetStep[] => TAG_SETS[tag].filter((_, k) => count >= SET_AT[k]);
+export const setSteps = (tag: Tag, count: number): readonly SetStep[] => TAG_SETS[tag].filter((_, k) => count >= setAt(tag)[k]);
 
 /** A share as the card says it: ×2 and up, else a percentage. */
 const share = (v: number) => (v >= 2 ? times(v) : percent((v - 1) * 100));
 const signed = (v: number) => `${v > 0 ? "+" : "−"}${Math.abs(v)}`;
 
-/** Each effect as a line on the card's face, and whether it helps. */
-const LINES: { [K in keyof CardEffects]-?: (v: NonNullable<CardEffects[K]>) => { text: string; good: boolean } } = {
+type Line = { text: string; good: boolean };
+/** Each effect as a line on the card's face, and whether it helps — a die, two: its best and its worst. */
+const LINES: { [K in keyof CardEffects]-?: (v: NonNullable<CardEffects[K]>) => Line | Line[] } = {
   desks: (v) => ({ text: `Desks ${share(v)}`, good: v > 1 }),
   deskless: (v) => ({ text: `Deskless work at ${Math.round(v * 100)}%`, good: true }),
   remote: (v) => ({ text: `Working from home ${Math.round(v * 100)}%`, good: true }),
@@ -242,12 +317,22 @@ const LINES: { [K in keyof CardEffects]-?: (v: NonNullable<CardEffects[K]>) => {
   tank: (v) => ({ text: `Slop tanks ${percent((v - 1) * 100)}`, good: v > 1 }),
   noAutoBuy: () => ({ text: "No auto-buy", good: false }),
   pivot: () => ({ text: `A card swapped out /${PIVOT_SECONDS / 60} min`, good: false }),
+  agentBoost: (v) => ({ text: `Agent boost ${share(v)}`, good: v > 1 }),
+  rackAgents: (v) => ({ text: `Agents a rack +${v}`, good: true }),
+  agentCost: (v) => ({ text: `Agent price ${percent((v - 1) * 100)}`, good: v < 1 }),
+  meter: (v) => ({ text: `AI meter ${share(v)}`, good: v < 1 }),
+  trainingSpeed: (v) => ({ text: `Training ${times(v)} faster`, good: true }),
+  weights: (v) => ({ text: `Weights at Ascension ${share(v)}`, good: v > 1 }),
+  dark: (v) => ({ text: v === 0 ? "No dark racks after a shutdown" : `Dark after a shutdown ${percent((v - 1) * 100)}`, good: true }),
+  moneyDice: ([lo, hi]) => [{ text: `${STATS.money.name} up to ${times(hi)}, rolled a minute`, good: true }, { text: `…or down to ${times(lo)}`, good: false }],
+  innovationDice: ([lo, hi]) => [{ text: `${STATS.innovation.name} up to ${times(hi)}, rolled a minute`, good: true }, { text: `…or down to ${times(lo)}`, good: false }],
+  vanish: (v) => ({ text: `1 minute in ${Math.round(1 / v)} earns nothing`, good: false }),
 };
 
 /** A card's trade at a rank as lines for its face, gains first: each with whether it helps. */
-export function cardLines(c: Card, rank: number): { text: string; good: boolean }[] {
+export function cardLines(c: Card, rank: number): Line[] {
   const e = c.ranks[Math.min(rank, 2) - 1];
-  const lines = (Object.keys(e) as (keyof CardEffects)[]).map((k) => (LINES[k] as (v: unknown) => { text: string; good: boolean })(e[k]));
+  const lines = (Object.keys(e) as (keyof CardEffects)[]).flatMap((k) => (LINES[k] as (v: unknown) => Line | Line[])(e[k]));
   // What working from home costs is not a number: who is home is on no
   // leader's team — till Remote Fridays' rule puts them on it. @see seat
   if (e.remote && !(rank >= 3 && c.rule.homeTeam)) lines.push({ text: "Home workers on no team", good: false });
@@ -271,6 +356,8 @@ export type Deck = {
   slotted: CardId[];
   /** The card Pivot Weekly's rule has brought in, in a slot of its own. @see pivot */
   guest?: CardId | null;
+  /** Self-Improving's surge, till when: every card a rank up. Cleared by the store once past. @see SURGE_SECONDS */
+  surgeUntil?: number | null;
   /** Offers each track has dealt. */
   dealt: Record<Track, number>;
   offers: Offer[];
@@ -299,7 +386,9 @@ export const rerollSeconds = (o: Offer) => 60 * 2 ** o.rerolls;
 export const cardAt = (n: number) => 1 + (n * (n + 1)) / 2 + 2 * n;
 
 /** What slotted cards do together, their trades and rules. @see combine */
-export type CultureEffects = Required<CardEffects> & Required<Rules>;
+export type CultureEffects = Required<Omit<CardEffects, DiceKey>> & Required<Rules>;
+/** The dice: rolled where they are read, not combined. @see hallucination */
+type DiceKey = "moneyDice" | "innovationDice";
 export const NO_EFFECTS: CultureEffects = {
   morale: 0, output: 1, innovation: 1, hireCost: 1, costCurve: 0, autoBuy: 0, noAutoBuy: false, slop: 1, tank: 1,
   desks: 1, deskless: 0, remote: 0, beds: 1, freeCommute: 0, houseMood: 0, hazards: 1, lunch: 0, attendance: 1,
@@ -308,13 +397,19 @@ export const NO_EFFECTS: CultureEffects = {
   homeTeam: false, happyAttendance: 1, noMoveOut: false, allHome: false, nextDoor: false, autoBuyPer: 0,
   freezeFalls: false, noStranded: false, earnAsVibe: false, cleanInnovation: 1, messInnovation: 1, openSites: false,
   pivotIn: false, leadEvery: false,
+  agentBoost: 1, rackAgents: 0, agentCost: 1, meter: 1, trainingSpeed: 1, weights: 1, dark: 1, vanish: 0,
+  trainWhileWorking: false, fullPower: false, surge: false, rerollLow: false, vanishPays: 1, benchMoney: false,
+  bestOfTwo: false, keepAgents: false, noMutation: false, shutdownPays: 0,
 };
 /** How two cards' effects of a kind combine: added, multiplied, the larger, or either. */
-const ADDED = new Set<keyof CultureEffects>(["morale", "costCurve", "autoBuy", "remote", "freeCommute", "houseMood", "vibePerIntern", "autoBuyPer"]);
-const LARGER = new Set<keyof CultureEffects>(["deskless", "lunch"]);
+const ADDED = new Set<keyof CultureEffects>(["morale", "costCurve", "autoBuy", "remote", "freeCommute", "houseMood", "vibePerIntern", "autoBuyPer", "rackAgents"]);
+const LARGER = new Set<keyof CultureEffects>(["deskless", "lunch", "vanish", "shutdownPays"]);
+
+/** A card's rank as it works now: one up, to the top, in Self-Improving's surge. @see SURGE_SECONDS */
+export const rankNow = (d: Deck, id: CardId): number => Math.min(MAX_RANK, (d.ranks[id] ?? 1) + (d.surgeUntil ? 1 : 0));
 
 /** Whether a card is slotted at its top rank: its rule in force. */
-const ruled = (d: Deck, id: CardId) => d.slotted.includes(id) && (d.ranks[id] ?? 0) >= 3;
+const ruled = (d: Deck, id: CardId) => d.slotted.includes(id) && !!d.ranks[id] && rankNow(d, id) >= 3;
 
 /** The cards in force: those slotted, and Pivot Weekly's guest while its rule holds. */
 export const inForce = (d: Deck): CardId[] =>
@@ -327,7 +422,8 @@ export const inForce = (d: Deck): CardId[] =>
 export function cultureEffects(d: Deck, kind?: GeneratorId): CultureEffects {
   const e: Record<string, number | boolean> = { ...NO_EFFECTS };
   const add = (r: CardEffects & Rules) => {
-    for (const [k, v] of Object.entries(r) as [keyof CultureEffects, number | boolean][]) {
+    for (const [k, v] of Object.entries(r) as [keyof CultureEffects, number | boolean | Dice][]) {
+      if (typeof v === "object") continue;
       if (typeof v === "boolean") e[k] = (e[k] as boolean) || v;
       else if (ADDED.has(k)) e[k] = (e[k] as number) + v;
       else if (LARGER.has(k)) e[k] = Math.max(e[k] as number, v);
@@ -335,7 +431,7 @@ export function cultureEffects(d: Deck, kind?: GeneratorId): CultureEffects {
     }
   };
   for (const id of inForce(d)) {
-    const c = card(id), rank = d.ranks[id] ?? 1;
+    const c = card(id), rank = rankNow(d, id);
     if (c.only && c.only !== kind) continue;
     // Rank 3 keeps rank 2's trade, and adds its rule.
     add({ ...c.ranks[Math.min(rank, 2) - 1], ...(rank >= 3 ? c.rule : {}) });
@@ -345,7 +441,45 @@ export function cultureEffects(d: Deck, kind?: GeneratorId): CultureEffects {
   for (const tag of Object.keys(n) as Tag[]) for (const step of setSteps(tag, n[tag])) add(step.e);
   // Never all of a kind at home — but under Sabbaticals' rule.
   e.remote = e.allHome ? 1 : Math.min(0.9, e.remote as number);
-  return e as CultureEffects;
+  return e as unknown as CultureEffects;
+}
+
+/** A roll in [0, 1): the same for the same card, minute and throw. */
+function roll(id: string, minute: number, k: number): number {
+  let h = 2166136261 ^ minute;
+  for (const s of `${id}:${k}`) h = Math.imul(h ^ s.charCodeAt(0), 16777619);
+  h = Math.imul(h ^ (h >>> 15), 2246822507);
+  return ((h ^ (h >>> 13)) >>> 0) / 2 ** 32;
+}
+
+/**
+ * THE DICE THIS MINUTE: what the Hallucination cards in force make of money
+ * and innovation now — each die rolled evenly between its least and most, a
+ * new roll each minute; Phantom Revenue's money gone in a minute it vanishes.
+ * Rolled from the card and the minute, so every read agrees, and nothing kept.
+ */
+export function hallucination(d: Deck, now: number, e: CultureEffects = cultureEffects(d)): { money: number; innovation: number; vanished: boolean } {
+  const minute = Math.floor(now / 60_000);
+  let money = 1, innovation = 1, vanished = false;
+  for (const id of inForce(d)) {
+    const r = card(id).ranks[Math.min(rankNow(d, id), 2) - 1];
+    /** Its die, thrown: twice, the better kept, with the set; again if under ×1, with Confident Guess's rule. */
+    const throwIt = ([lo, hi]: Dice, salt: number) => {
+      const once = (k: number) => lo + (hi - lo) * roll(id, minute, salt + k);
+      let v = e.bestOfTwo ? Math.max(once(0), once(1)) : once(0);
+      if (v < 1 && e.rerollLow) v = e.bestOfTwo ? Math.max(once(2), once(3)) : once(2);
+      return v;
+    };
+    if (r.moneyDice) money *= throwIt(r.moneyDice, 0);
+    if (r.innovationDice) {
+      const v = throwIt(r.innovationDice, 10);
+      innovation *= v;
+      if (e.benchMoney) money *= v;
+    }
+    if (r.vanish && roll(id, minute, 20) < r.vanish) vanished = true;
+  }
+  if (vanished) { money = 0; innovation *= e.vanishPays; }
+  return { money, innovation, vanished };
 }
 
 /** WORK, in Morale: what the slotted cards do to each kind's. @see moralePartsNow */
@@ -356,9 +490,10 @@ export const workMorale = (d: Deck): Record<GeneratorId, number> => ({
 });
 
 /** The cards a track can deal now: its tags', not owned, not on an offer already, a kind's own only once it is employed. */
-export function poolFor(d: Deck, track: Track, employs: ReadonlySet<GeneratorId>): CardId[] {
+export function poolFor(d: Deck, track: Track, employs: ReadonlySet<GeneratorId>, ascended = false): CardId[] {
   const waiting = new Set(d.offers.flatMap((o) => o.cards));
-  return CARDS.filter((c) => TRACK_TAGS[track].includes(c.tag) && !d.ranks[c.id] && !waiting.has(c.id) && (!c.only || employs.has(c.only))).map((c) => c.id);
+  const tags = ascended ? [...TRACK_TAGS[track], TRACK_AI[track]] : TRACK_TAGS[track];
+  return CARDS.filter((c) => tags.includes(c.tag) && !d.ranks[c.id] && !waiting.has(c.id) && (!c.only || employs.has(c.only))).map((c) => c.id);
 }
 
 /** Up to `n` of `from`, drawn without repeats. */
@@ -369,11 +504,11 @@ function draw(from: readonly CardId[], n: number, rng: () => number): CardId[] {
 }
 
 /** OFFERS DUE: each track whose tiers have reached its next card's deals one — while it has cards to deal. */
-export function deal(d: Deck, tiers: Record<Track, number>, employs: ReadonlySet<GeneratorId>, rng: () => number = Math.random): Deck {
+export function deal(d: Deck, tiers: Record<Track, number>, employs: ReadonlySet<GeneratorId>, rng: () => number = Math.random, ascended = false): Deck {
   let next = d;
   for (const track of Object.keys(TRACK_TAGS) as Track[]) {
     while (tiers[track] >= cardAt(next.dealt[track])) {
-      const cards = draw(poolFor(next, track, employs), OFFER_SIZE, rng);
+      const cards = draw(poolFor(next, track, employs, ascended), OFFER_SIZE, rng);
       if (!cards.length) break;
       next = { ...next, dealt: { ...next.dealt, [track]: next.dealt[track] + 1 }, offers: [...next.offers, { track, cards, rerolls: 0 }] };
     }
@@ -394,11 +529,11 @@ export function take(d: Deck, offer: number, id: CardId): Deck {
 }
 
 /** A REROLL: the offer's cards dealt again from its track — none of them again, while others are left. */
-export function reroll(d: Deck, offer: number, employs: ReadonlySet<GeneratorId>, rng: () => number = Math.random): Deck {
+export function reroll(d: Deck, offer: number, employs: ReadonlySet<GeneratorId>, rng: () => number = Math.random, ascended = false): Deck {
   const o = d.offers[offer];
   if (!o) return d;
   const without = { ...d, offers: d.offers.filter((_, k) => k !== offer) };
-  const pool = poolFor(without, o.track, employs);
+  const pool = poolFor(without, o.track, employs, ascended);
   const fresh = pool.filter((id) => !o.cards.includes(id));
   const cards = draw(fresh.length >= OFFER_SIZE ? fresh : pool, OFFER_SIZE, rng);
   const offers = [...d.offers];
@@ -473,6 +608,7 @@ export function readDeck(raw: unknown, oldPolicies?: Partial<Record<string, read
   for (const [id, rank] of Object.entries(r.ranks ?? {})) if (isCard(id)) d.ranks[id] = Math.min(MAX_RANK, Math.max(1, Math.floor(Number(rank) || 1)));
   d.slotted = [...new Set(r.slotted ?? [])].filter((id) => isCard(id) && d.ranks[id]).slice(0, d.slots);
   d.guest = isCard(r.guest) && d.ranks[r.guest] ? r.guest : null;
+  d.surgeUntil = Number(r.surgeUntil) > 0 ? Number(r.surgeUntil) : null;
   for (const t of Object.keys(d.dealt) as Track[]) d.dealt[t] = Math.max(0, Math.floor(Number(r.dealt?.[t]) || 0));
   d.offers = (r.offers ?? [])
     .filter((o): o is Offer => !!o && (o.track === "agile" || o.track === "corpo" || o.track === "sales"))

@@ -16,6 +16,8 @@ import { moralePartsNow } from "../game/morale-parts";
 import * as culture from "../game/culture";
 import { setDeckReader } from "../game/culture-now";
 import { cultureEffects, emptyDeck, readDeck, workMorale, type CardId, type CultureEffects, type Deck, type Track } from "../game/culture";
+import { cultureNow } from "../game/culture-now";
+import { useGenerationStore } from "./generation.store";
 import { fusionNow } from "../game/fusion";
 import {
   calcGeneratorIncome,
@@ -58,7 +60,8 @@ import { useValuationStore } from "./valuation.store";
  * a training run's price — and more for an AI that has studied itself.
  * @see game/training, ITSELF_BOOST
  */
-const trainedAgentBonus = () => training() ? 1 : 1 + (agentBonus(runningAgents()) - 1) * (skillOf("itself") >= 3 ? ITSELF_BOOST : 1);
+/** The agents' boost: none while they train — but under Autonomous Agents' rule. @see game/culture */
+const trainedAgentBonus = () => training() && !cultureNow().trainWhileWorking ? 1 : 1 + (agentBonus(runningAgents()) - 1) * (skillOf("itself") >= 3 ? ITSELF_BOOST : 1);
 
 export type UnlockCondition = {
   requiredId: GeneratorId;
@@ -170,6 +173,8 @@ type GeneratorState = {
   takeCard: (offer: number, id: CardId) => void;
   /** Deal an offer again, for innovation. @see rerollSeconds */
   rerollOffer: (offer: number) => void;
+  /** Self-Improving's rule: every card a rank up, from now for `SURGE_SECONDS`. */
+  surgeDeck: (now?: number) => void;
   /** Buy a slot, or a card's next rank, with points. */
   buySlot: () => void;
   rankUpCard: (id: CardId) => void;
@@ -470,6 +475,8 @@ export const useGeneratorStore = create<GeneratorState>()(
       const setDeck = (deck: Deck) => {
         if (deck !== get().employeeManagement.deck) set((state) => ({ employeeManagement: { ...state.employeeManagement, deck } }));
       };
+      /** Whether a first Ascension is made: the AI families are dealt from then. */
+      const ascended = () => useGenerationStore.getState().generation > 1;
       /** The kinds employed: their own cards are dealt from then. */
       const employs = () => new Set(get().generators.filter((g) => g.amount > 0).map((g) => g.id as GeneratorId));
 
@@ -494,8 +501,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           const inv = useInnovationStore.getState();
           if (inv.innovation.lt(price)) return;
           inv.spendInnovation(price);
-          setDeck(culture.reroll(d, offer, employs()));
+          setDeck(culture.reroll(d, offer, employs(), Math.random, ascended()));
         },
+
+        surgeDeck: (now = Date.now()) => setDeck({ ...get().employeeManagement.deck, surgeUntil: now + culture.SURGE_SECONDS * 1000 }),
 
         buySlot: () => setDeck(culture.buySlot(get().employeeManagement.deck, deckTiers())),
 
@@ -519,12 +528,14 @@ export const useGeneratorStore = create<GeneratorState>()(
               * (get().satisfactionScores[id] > culture.HAPPY_AT ? e.happyAttendance : 1),
             innovation: (get().satisfactionScores[id] > culture.HAPPY_AT ? e.happyAttendance : 1) * (slopSpilling() ? e.messInnovation : e.cleanInnovation),
           };
+          // THE DICE: Hallucination's cards, rolled this minute. @see hallucination
+          const dice = culture.hallucination(get().employeeManagement.deck, Date.now(), e);
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: e.output * rules.money * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
+            money: e.output * rules.money * dice.money * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
             // And the slop refineries, by how busy they are. @see game/processors
-            innovation: e.innovation * rules.innovation * here * atDesks * wonderBonus("innovation") * labBonus() * refineryBonus(),
+            innovation: e.innovation * rules.innovation * dice.innovation * here * atDesks * wonderBonus("innovation") * labBonus() * refineryBonus(),
           };
         },
 
@@ -675,7 +686,11 @@ export const useGeneratorStore = create<GeneratorState>()(
           // before we read generators for the lastTick stamp below.
           const em = runAutoBuy(get().employeeManagement, seconds);
           // ── 6. Offers: each track whose tiers have reached its next card deals one. @see deal
-          let employeeManagement = emUnlocked ? { ...em, deck: culture.deal(em.deck, trackTiers(), employs()) } : em;
+          let employeeManagement = emUnlocked ? { ...em, deck: culture.deal(em.deck, trackTiers(), employs(), Math.random, ascended()) } : em;
+          // Self-Improving's surge, over. @see surgeDeck
+          if (employeeManagement.deck.surgeUntil && now >= employeeManagement.deck.surgeUntil) {
+            employeeManagement = { ...employeeManagement, deck: { ...employeeManagement.deck, surgeUntil: null } };
+          }
           // ── 7. Pivot Weekly: another slotted card swapped for one out. @see PIVOT_SECONDS
           if (get().getCultureEffects("intern").pivot) {
             pivotFor += seconds;
@@ -977,3 +992,10 @@ useFounderStore.subscribe(() => syncUnlockedGenerators());
 
 // The map's systems read the deck from here. @see cultureNow
 setDeckReader(() => useGeneratorStore.getState().employeeManagement.deck);
+
+// THE JOURNAL: every card offered or owned, the moment it is. @see GenerationState.discovered
+const discoverFrom = (d: Deck) => useGenerationStore.getState().discover([...(Object.keys(d.ranks) as CardId[]), ...d.offers.flatMap((o) => o.cards)]);
+discoverFrom(useGeneratorStore.getState().employeeManagement.deck);
+useGeneratorStore.subscribe((s, prev) => {
+  if (s.employeeManagement.deck !== prev.employeeManagement.deck) discoverFrom(s.employeeManagement.deck);
+});

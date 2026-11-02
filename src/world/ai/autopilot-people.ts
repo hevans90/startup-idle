@@ -9,7 +9,7 @@
  */
 import { LEADER_PERKS, perkOffer, type LeaderPerkId, type PersonalityId } from "../../game/leaders";
 import { CHECK_COST, RED_FLAGS, hireCost, postCost, type Applicant } from "../../game/linkedout";
-import { card, rankPrice, slotPrice, type CardId, type Tag } from "../../game/culture";
+import { card, isAiTag, rankPrice, slotPrice, type CardId, type Tag } from "../../game/culture";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useInnovationStore } from "../../state/innovation.store";
 import { useLinkedOutStore } from "../../state/linkedout.store";
@@ -56,14 +56,18 @@ export function peopleStep(g: Grid, tall: number): string | null {
   // THE CULTURE DECK, to its style. @see game/culture
   const deck = gen.employeeManagement.deck;
   const liking = (id: CardId) => WANTS[way].indexOf(card(id).tag);
-  // An offer: the card of the tag it likes best. Never a reroll.
-  if (deck.offers.length) {
-    const pick = [...deck.offers[0].cards].sort((a, b) => liking(a) - liking(b))[0];
-    gen.takeCard(0, pick);
+  // THE AI FAMILIES' cards are the player's to play: never taken, never slotted.
+  const mine = (id: CardId) => !isAiTag(card(id).tag);
+  // An offer: the card of the tag it likes best. Never a reroll; an offer of
+  // AI cards only, left for the player.
+  const at = deck.offers.findIndex((o) => o.cards.some(mine));
+  if (at >= 0) {
+    const pick = deck.offers[at].cards.filter(mine).sort((a, b) => liking(a) - liking(b))[0];
+    gen.takeCard(at, pick);
     return `${card(pick).name} taken`;
   }
   // A free slot: the owned card it likes best.
-  const owned = (Object.keys(deck.ranks) as CardId[]).sort((a, b) => liking(a) - liking(b));
+  const owned = (Object.keys(deck.ranks) as CardId[]).filter(mine).sort((a, b) => liking(a) - liking(b));
   const spare = owned.find((id) => !deck.slotted.includes(id));
   if (spare && deck.slotted.length < deck.slots) {
     gen.toggleCard(spare);
@@ -72,7 +76,7 @@ export function peopleStep(g: Grid, tall: number): string | null {
   // Points: tall ranks up its best slotted card; wide buys a slot.
   const points = gen.getDeckPoints();
   if (way === "tall") {
-    const up = [...deck.slotted].sort((a, b) => liking(a) - liking(b)).find((id) => (rankPrice(deck, id) ?? Infinity) <= points);
+    const up = deck.slotted.filter(mine).sort((a, b) => liking(a) - liking(b)).find((id) => (rankPrice(deck, id) ?? Infinity) <= points);
     if (up) { gen.rankUpCard(up); return `${card(up).name} to rank ${deck.ranks[up]! + 1}`; }
   } else if (spare && slotPrice(deck) <= points) {
     gen.buySlot();
