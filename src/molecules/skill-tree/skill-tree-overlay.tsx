@@ -15,7 +15,7 @@ import { SkillTreeTooltip } from "./skill-tree-tooltip";
  * room to breathe (a 1/3-width sidebar is too cramped for a PoE-style tree).
  * Close with the corner ✕ or the Esc key.
  */
-export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
+export const SkillTreeOverlay = ({ onClose, focus }: { onClose: () => void; focus?: "machine" }) => {
   const equity = usePrestigeStore((s) => s.equity);
   const exits = usePrestigeStore((s) => s.exits);
   const respecPoints = usePrestigeStore((s) => s.respecPoints);
@@ -109,7 +109,7 @@ export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
       </div>
 
       <div className="relative min-h-0 flex-1">
-        <SkillTreeCanvas />
+        <SkillTreeCanvas focus={focus} />
         <SkillTreeTooltip />
         <SkillTreeBonuses />
         {respecMode && (

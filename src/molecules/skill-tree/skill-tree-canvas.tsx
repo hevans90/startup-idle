@@ -15,7 +15,7 @@ import {
 } from "../../game/skill-tree";
 import { usePrestigeStore } from "../../state/prestige.store";
 import { useGenerationStore } from "../../state/generation.store";
-import { buyMachine, isMachine, machineBlocked } from "../../game/machine";
+import { buyMachine, isMachine, machineBlocked, machineGraph } from "../../game/machine";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { useThemeStore } from "../../state/theme.store";
 import { tokenNumber, type Theme } from "../../ui/theme/tokens";
@@ -403,9 +403,11 @@ const TreeScene = memo(function TreeScene() {
 /** Self-contained pan/zoom viewport (does NOT touch the office/city viewport). */
 const TreeViewport = memo(function TreeViewport({
   screenSize,
+  focus,
   children,
 }: {
   screenSize: { width: number; height: number };
+  focus?: "machine";
   children: React.ReactNode;
 }) {
   const pixiApp = useApplication();
@@ -435,7 +437,17 @@ const TreeViewport = memo(function TreeViewport({
       maxScale: TREE_CAMERA.maxScale,
     });
 
-    const { width } = sizeRef.current;
+    const { width, height } = sizeRef.current;
+    // THE MACHINE, opened on to spend Weights: the whole of it, fog and all, fitted to the screen. @see game/machine
+    if (focus === "machine") {
+      const m = treeBounds({ nodes: machineGraph().nodes, edges: [], roots: [] });
+      const pad = TREE_CAMERA.fitPaddingPx / 2;
+      const scale = Math.min(1, width / (m.maxX - m.minX + pad), height / (m.maxY - m.minY + pad));
+      vp.setZoom(Math.max(TREE_CAMERA.minScale, scale), true);
+      vp.moveCenter((m.minX + m.maxX) / 2, (m.minY + m.maxY) / 2);
+      useSkillTreeUiStore.getState().setViewport(vp);
+      return;
+    }
     const b = treeBounds(SKILL_TREE);
     const cx = TREE_CAMERA.center?.x ?? (b.minX + b.maxX) / 2;
     const cy = TREE_CAMERA.center?.y ?? (b.minY + b.maxY) / 2;
@@ -444,7 +456,7 @@ const TreeViewport = memo(function TreeViewport({
     vp.setZoom(TREE_CAMERA.initialScale ?? fitScale, true);
     vp.moveCenter(cx, cy);
     useSkillTreeUiStore.getState().setViewport(vp);
-  }, []);
+  }, [focus]);
 
   if (!ticker || !events) return null;
 
@@ -465,7 +477,7 @@ const TreeViewport = memo(function TreeViewport({
 });
 
 
-export const SkillTreeCanvas = () => {
+export const SkillTreeCanvas = ({ focus }: { focus?: "machine" }) => {
   const { ref, setRef, size } = useResizeToWrapper();
   useDisableDOMZoom({ wrapperRef: ref });
   const theme = useThemeStore((s) => s.theme);
@@ -480,7 +492,7 @@ export const SkillTreeCanvas = () => {
           background={PALETTE[theme].bg}
           resolution={2}
         >
-          <TreeViewport screenSize={size}>
+          <TreeViewport screenSize={size} focus={focus}>
             <TreeScene />
           </TreeViewport>
         </Application>

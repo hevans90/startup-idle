@@ -131,7 +131,7 @@ export const FounderSelect = () => {
     modifiers.hireCostMult * (1 - juiceHireCostReduction);
   const combinedEquityMult = modifiers.equityMult * (1 + juiceEquityBonus);
 
-  const [treeOpen, setTreeOpen] = useState(false);
+  const [treeOpen, setTreeOpen] = useState<boolean | "machine">(false);
   const [shopOpen, setShopOpen] = useState(false);
   const weights = useGenerationStore((s) => s.weights);
   const showPrestige = exits > 0 || equity.gt(0);
@@ -343,12 +343,12 @@ export const FounderSelect = () => {
         </aside>
       ) : undefined}
     >
-      {treeOpen && <SkillTreeOverlay onClose={() => setTreeOpen(false)} />}
+      {treeOpen && <SkillTreeOverlay focus={treeOpen === "machine" ? "machine" : undefined} onClose={() => setTreeOpen(false)} />}
       {shopOpen && (
         // THE MODEL'S SHOP, between companies: Weights spent before the next run. @see ModelShop
         <Dialog title="The Model" kicker="Weights" tone="ai" wide onClose={() => setShopOpen(false)}>
           <div className="-mx-5 max-h-[70vh] overflow-y-auto pb-1">
-            <ModelShop onOpenTree={() => { setShopOpen(false); setTreeOpen(true); }} />
+            <ModelShop onOpenTree={() => { setShopOpen(false); setTreeOpen("machine"); }} />
           </div>
         </Dialog>
       )}
