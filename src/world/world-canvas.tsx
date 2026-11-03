@@ -297,16 +297,18 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       // Before the first drink — time away, credited on load — the tanks are full.
       const hot = Math.min(racks.powered, Math.round(hotAgents()));
       const cooled = hot ? { powered: racks.powered - hot, unpowered: racks.unpowered + hot } : racks;
-      let spires = 0;
+      let spires = 0, farms = 0, monolith = false;
       // AND THE SLOP PROCESSORS standing, by kind, for their prices. @see game/processors
       const processors: Partial<Record<ProcessorKind, number>> = {};
       for (const s of st.grid.structures.values()) {
         if (s.build) continue;
         if (s.def === "compute-spire") spires++;
+        if (s.def === "gpu-farm") farms++;
+        if (s.def === "monolith") monolith = true;
         const k = processorKind(s.def);
         if (k) processors[k] = (processors[k] ?? 0) + 1;
       }
-      return { built, away, commute, labs, racks: cooled, desks, teams, processors, spires: allTanks().size ? cooledSpires() : spires };
+      return { built, away, commute, labs, racks: cooled, desks, teams, processors, spires: allTanks().size ? cooledSpires() : spires, farms, monolith };
     }));
   }, [play]);
   // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is

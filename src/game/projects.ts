@@ -484,6 +484,10 @@ export type ProjectReading = {
   racks?: { powered: number; unpowered: number };
   /** Compute spires the AI has put up. @see SPIRE_BOOST */
   spires?: number;
+  /** GPU farms standing. @see FARM_TRAINING */
+  farms?: number;
+  /** Whether the Monolith stands. @see MONOLITH_WEIGHTS */
+  monolith?: boolean;
   /** What cafés add to each kind's work at its desks, as a share: 0.1 is +10%. @see deskShare */
   desks?: Partial<Record<GeneratorId, number>>;
   /** Each kind's leader's TEAM: the people at the desks of the building they lead. @see game/leaders */

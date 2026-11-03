@@ -31,6 +31,11 @@ import { WORKPLACES } from "../agents/commute";
 import { idx } from "../grid";
 import { isPaved } from "../roads/mask";
 import { nextStep, roadTiles } from "./masterplan/schedule";
+import { aiBuildingSite } from "./planner";
+import { HANGAR_SPEED, MAX_HANGARS, MAX_NODES, MAX_SPIRES } from "../../game/agents";
+import { MAX_FARMS } from "../../game/training";
+import { useAgentsStore } from "../../state/agents.store";
+import { rackReading } from "../projects/racks";
 import { layRoute, neededPipe } from "./cooling-ai";
 import { neededSewer, wantsRefinery } from "./sewer-ai";
 import type { PipeRoute } from "./pipe-route";
@@ -226,6 +231,30 @@ function hire(spend: number): string | null {
   return n > 0 ? `${n} ${best.name.toLowerCase()}${n === 1 ? "" : "s"} hired` : null;
 }
 
+/**
+ * THE AI'S OWN, as AI mode builds them — free, as the AI's are: nodes while its
+ * agents want room, then GPU farms, compute spires and drone hangars to as
+ * many as count, then the Monolith. What was built, in words, or null.
+ * @see AI_BUILDINGS, aiBuildingSite
+ */
+export function aiBuildingStep(g: Grid): string | null {
+  const all = [...g.structures.values()];
+  const dc = all.find((x) => x.def === "datacentre" && !x.build);
+  if (!dc) return null;
+  const n = (def: string) => all.filter((x) => x.def === def).length;
+  const room = rackReading(g);
+  const want = room.powered + room.unpowered < useAgentsStore.getState().agents && n("ai-node") < MAX_NODES ? "ai-node"
+    : n("gpu-farm") < MAX_FARMS ? "gpu-farm"
+      : n("compute-spire") < MAX_SPIRES ? "compute-spire"
+        : n("drone-hangar") < MAX_HANGARS ? "drone-hangar"
+          : n("monolith") < 1 ? "monolith" : null;
+  if (!want || state.failed.has(want)) return null;
+  const at = aiBuildingSite(g, want, dc);
+  if (at && placeStructure(want, at)) { fly(at, g); return structureDef(want)?.name ?? want; }
+  state.failed.add(want);
+  return null;
+}
+
 /** Take one step. Whether anything was built. */
 function act(g: Grid, budget: number): boolean {
   const money = useMoneyStore.getState().money.toNumber();
@@ -299,6 +328,11 @@ function act(g: Grid, budget: number): boolean {
       if (at && startProject(p.id, at)) { fly(at, g); state.last = p.name; return true; }
     }
   }
+  // THE AI'S OWN BUILDINGS, once the Data Centre stands. @see aiBuildingStep
+  if (!pipe) {
+    const own = aiBuildingStep(g);
+    if (own) { state.last = own; return true; }
+  }
   // Within the block, all of it: its lots, its office, its services. @see blockAt
   const rules = playRules(g), box = state.box;
   const s = state.plan && box && nextStep(g, state.plan, {
@@ -343,7 +377,10 @@ export function stepAutopilot(g: Grid, dt: number, now = Date.now()) {
     state.failed.clear(); requestPlan(g);
   }
   state.clock += dt;
-  if (state.clock < AUTOPILOT_EVERY) return;
+  // ITS HANGARS: each a step the sooner. @see HANGAR_SPEED
+  let hangars = 0;
+  for (const x of g.structures.values()) if (x.def === "drone-hangar" && !x.build) hangars++;
+  if (state.clock < AUTOPILOT_EVERY / (1 + HANGAR_SPEED * Math.min(MAX_HANGARS, hangars))) return;
   state.clock = 0;
   if (act(g, s.aiBudget)) state.done++;
 }

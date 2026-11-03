@@ -12,8 +12,8 @@ const gap = (a: Structure, b: Structure) =>
     Math.max(0, b.y - (a.y + a.h - 1), a.y - (b.y + b.h - 1)),
   );
 
-/** Whether a rack is powered: a finished Data Centre within reach. */
-export const powered = (g: Grid, rack: Structure) =>
+/** Whether a rack is powered: a finished Data Centre within reach. An AI node, wherever it stands. */
+export const powered = (g: Grid, rack: Structure) => rack.def === "ai-node" ||
   [...g.structures.values()].some((d) => d.def === "datacentre" && !d.build && gap(rack, d) <= RACK_RANGE);
 
 /** The agents the racks standing can run, at full power and at half. */

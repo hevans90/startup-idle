@@ -16,6 +16,8 @@ import { useFounderStore } from "../state/founder.store";
 import { emptyLog, useGenerationStore, type BehaviourLog, type PastGeneration } from "../state/generation.store";
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
 import { cultureNow } from "./culture-now";
+import { MONOLITH_WEIGHTS } from "./agents";
+import { projectReading } from "./projects";
 import { nextBook } from "./quests/books";
 import { questWeightsMult } from "./quests/effects";
 import { CONTAIN_AFTER, CONTAIN_AT, CONTAIN_WEIGHTS, LEASH_REMEMBERED, RELEASE_WEIGHTS, type AscendingEnding } from "./quests/endings";
@@ -71,7 +73,7 @@ export type { AscendingEnding };
 
 /** What an Ascension now would bank, by the ending taken: twice for a Release, half again after a Contain. */
 export function ascensionWeights(ending: AscendingEnding | null = null): number {
-  return Math.round(weightsNow() * (ending === "release" ? RELEASE_WEIGHTS : 1) * (useGenerationStore.getState().contained ? CONTAIN_WEIGHTS : 1) * cultureNow().weights * questWeightsMult());
+  return Math.round(weightsNow() * (ending === "release" ? RELEASE_WEIGHTS : 1) * (useGenerationStore.getState().contained ? CONTAIN_WEIGHTS : 1) * cultureNow().weights * questWeightsMult() * (projectReading()?.monolith ? 1 + MONOLITH_WEIGHTS : 1));
 }
 
 /**

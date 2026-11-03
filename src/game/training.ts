@@ -24,6 +24,9 @@ export type Dataset = {
 /** How long a run lasts, seconds; the most levels a dataset teaches. */
 export const TRAINING_SECONDS = 120;
 export const MAX_SKILL = 3;
+/** What each GPU farm adds to a training run's speed, and the most that count. @see farmSpeed */
+export const FARM_TRAINING = 0.2;
+export const MAX_FARMS = 2;
 
 /** What the skills do, where they do it. @see planner, wallet, ai-runner, game/agents */
 export const WALLET_FASTER = 1.25;

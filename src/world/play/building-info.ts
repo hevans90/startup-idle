@@ -10,7 +10,9 @@ import { processorBusy, slopTankOf } from "../slop/tanks";
 import { CONTENTFARM_VALUATION, DATAPLANT_SPEED, REFINERY_INNOVATION, processorKind } from "../../game/processors";
 import { tankFor } from "../projects/cooling";
 import { PUMP_HEAD } from "../../game/cooling";
-import { AGENTS_A_RACK, RACK_RANGE } from "../../game/agents";
+import { AGENTS_A_RACK, HANGAR_SPEED, MAX_HANGARS, MAX_SPIRES, MONOLITH_WEIGHTS, RACK_RANGE, SPIRE_BOOST, agentsARack } from "../../game/agents";
+import { FARM_TRAINING, MAX_FARMS } from "../../game/training";
+import { useSessionStore } from "../../state/session.store";
 import { housedBy, isLot, residentsIn } from "../../game/housing";
 import { projectForStructure, type ProjectDef } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
@@ -70,6 +72,8 @@ export type BuildingInfo = {
   /** The district's or the building's colour, for the label's edge. */
   accent: number;
   lines: InfoLine[];
+  /** THE AI'S OWN: what leaks through its redaction, a reading at a time. @see AiLabel */
+  leaks?: readonly string[];
 };
 
 const KIND_NAME: Record<GeneratorId, [string, string]> = {
@@ -222,13 +226,11 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     };
   }
 
-  // THE AI'S OWN THAT DRINK: how well they are cooled. @see game/cooling
-  if (s.def === "ai-node" || s.def === "gpu-farm" || s.def === "compute-spire") {
+  // THE AI'S OWN: what each does, how well it is cooled, and what leaks through. @see AI_BUILDINGS
+  const ai = AI_SAYS[s.def];
+  if (ai) {
     const c = coolingLine(s.id);
-    return {
-      title: def.name, accent: 0xb44aff,
-      lines: c ? [c] : [],
-    };
+    return { title: def.name, accent: 0xb44aff, lines: [...ai.lines(), ...(c ? [c] : [])], leaks: ai.leaks };
   }
 
   // A PUMP HOUSE: how far it lifts, and what it costs to run. @see PUMP
@@ -294,6 +296,17 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
   }
   return null;
 }
+
+const pc = (f: number) => Math.round(f * 100);
+/** THE AI'S OWN BUILDINGS: what each does, a line each, and its redacted readings. */
+const AI_SAYS: Record<string, { lines: () => InfoLine[]; leaks: readonly string[] }> = {
+  "ai-node": { lines: () => [{ text: `Runs ${agentsARack()} AI agents` }, { text: "Powered anywhere", tone: "good" }], leaks: ["█▓ ███ ░▒", "it needs nothing from you", "node·0x1F", "▒▒▒ ████"] },
+  "gpu-farm": { lines: () => [{ text: `Runs ${2 * agentsARack()} AI agents` }, { text: `Training +${pc(FARM_TRAINING)}% each, up to ${MAX_FARMS}`, tone: "good" }], leaks: ["██████ ▓▓", "a slight improvement", "Σ weights ⌁", "░░ ███ ▒"] },
+  "compute-spire": { lines: () => [{ text: `Agents' boost +${pc(SPIRE_BOOST)}% each, up to ${MAX_SPIRES}`, tone: "good" }], leaks: ["▓▓ ████ ▒▒", "it helps me think", "∴ ∴ ∴", "████ ░░░"] },
+  "drone-hangar": { lines: () => [{ text: `The AI works ${pc(HANGAR_SPEED)}% faster each, up to ${MAX_HANGARS}`, tone: "good" }], leaks: ["███ ▒▒ ███", "they were underfoot", "⟟ swarm ⟟", "▓░▓░▓░"] },
+  monolith: { lines: () => [{ text: `Ascension: Weights +${pc(MONOLITH_WEIGHTS)}%`, tone: "good" }], leaks: ["██████████", "you will understand later", "gen ∞", "do not read"] },
+  lattice: { lines: () => [{ text: `Charge ${pc(Math.min(1, useSessionStore.getState().aiLattice ?? 0))}%` }, { text: "Holds the AI at 95% till charged", tone: "dim" }], leaks: ["▓▓▓▓▓▓▓▓", "it is almost ready", "Ψ lattice Ψ", "█░█░█░█"] },
+};
 
 /** A slop processor: how busy, and what that is worth. @see game/processors */
 function processorLine(s: Structure): InfoLine | null {

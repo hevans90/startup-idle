@@ -27,6 +27,13 @@ export const AGENT_BOOST = 0.04;
 /** What each compute spire adds to every agent's boost, and the most that count. */
 export const SPIRE_BOOST = 0.1;
 export const MAX_SPIRES = 3;
+/** What each drone hangar takes off the AI's interval — and AI mode's — and the most that count. @see aiPace, stepAutopilot */
+export const HANGAR_SPEED = 0.25;
+export const MAX_HANGARS = 2;
+/** What the Monolith adds to the Weights an Ascension banks. @see ascensionWeights */
+export const MONOLITH_WEIGHTS = 0.15;
+/** The AI nodes AI mode puts up, at most. @see aiBuildingStep */
+export const MAX_NODES = 6;
 /** Agents a rack runs. */
 export const AGENTS_A_RACK = 4;
 /** What an agent in a rack out of the Data Centre's reach is worth. */

@@ -54,6 +54,7 @@ import { drawnTop, shownStructures, type StructureLayer } from "../structures/la
 import type { Structure } from "../grid";
 import type { Viewport } from "pixi-viewport";
 import { infoFor, type BuildingInfo } from "./building-info";
+import { Glitch, Text } from "../../ui/console";
 import { liveTownProblems } from "./town-problems";
 import { badgeFor, placeBadges, type Badge, type BadgeContext, type BadgeIcon, type BadgeView } from "./badges";
 
@@ -185,6 +186,18 @@ type Mark =
 
 /** The pointer's building's full label: what it says, and its point in the world. */
 type Label = { id: number; info: BuildingInfo; x: number; y: number };
+
+/** Seconds each redacted reading holds before the next deciphers in. */
+const LEAK_EVERY = 2.2;
+/** THE AI'S OWN, REDACTED: one reading after another, each deciphered in. @see BuildingInfo.leaks */
+function Leaks({ leaks }: { leaks: readonly string[] }) {
+  const [at, setAt] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setAt((n) => (n + 1) % leaks.length), LEAK_EVERY * 1000);
+    return () => window.clearInterval(id);
+  }, [leaks]);
+  return <Text as="p" mode="decipher" text={leaks[at]} className="text-ai/70 italic" />;
+}
 
 /** Where a mark goes on the screen, as a transform, from its point in the world. */
 const placed = (vp: Viewport, w: { x: number; y: number }, dot: boolean) => {
@@ -351,7 +364,12 @@ export function BuildingLabels({ className }: { className?: string }) {
           <div ref={labelEl}
             className="absolute left-0 top-0 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/95 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-md backdrop-blur-sm"
             style={{ borderLeftColor: hex(info.accent), transform: vp ? placed(vp, label, false) : undefined }}>
-            <p className="font-display uppercase tracking-wider">{info.title}</p>
+            {info.leaks
+              ? <Glitch key={label.id} arrive every={2.5} strength={0.8}>
+                  <Text as="p" mode="decipher" text={info.title} className="font-display uppercase tracking-wider text-ai" />
+                  <Leaks key={label.id} leaks={info.leaks} />
+                </Glitch>
+              : <p className="font-display uppercase tracking-wider">{info.title}</p>}
             {info.lines.map((l, k) => (
               <p key={k} className={twMerge(
                 "whitespace-pre tabular-nums",

@@ -13,9 +13,11 @@ import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx } from "../grid";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
-import { AUTOPILOT_EVERY, currentPlan, lastStep, planInline, resetAutopilot, stepAutopilot, stepsTaken } from "./autopilot";
+import { AUTOPILOT_EVERY, aiBuildingStep, currentPlan, lastStep, planInline, resetAutopilot, stepAutopilot, stepsTaken } from "./autopilot";
 import { BLOCK, blockAt } from "./masterplan/plan";
 import { getAiRunner, stepAi } from "./ai-runner";
+import { useAgentsStore } from "../../state/agents.store";
+import { rackReading } from "../projects/racks";
 
 planInline();
 
@@ -174,6 +176,19 @@ describe("AI mode's drones", () => {
     expect(getAiRunner().landed.length).toBeGreaterThan(0);
     expect(g.structures.size).toBeGreaterThan(before);
     expect([...g.structures.values()].filter((s) => s.def.startsWith("kit:") || s.def.startsWith("office")).length).toBeGreaterThan(built);
+  });
+
+  test("puts up the AI's own once the Data Centre stands: nodes for its agents, then a farm, spires, hangars and the Monolith", () => {
+    const g = town();
+    expect(aiBuildingStep(g)).toBeNull();
+    commit(g, createHistory(), placeCommand(g, structureDef("datacentre")!, 8, 17)!);
+    useAgentsStore.setState({ agents: 6 });
+    const built: string[] = [];
+    for (let k = 0; k < 12; k++) { const b = aiBuildingStep(g); if (b) built.push(b); }
+    expect(rackReading(g).powered).toBeGreaterThanOrEqual(6);
+    expect(built.slice(0, 2)).toEqual(["AI node", "AI node"]);
+    expect(built).toEqual(expect.arrayContaining(["GPU farm", "Compute spire", "Drone hangar", "The Monolith"]));
+    expect(built.filter((b) => b === "The Monolith")).toHaveLength(1);
   });
 });
 

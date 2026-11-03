@@ -9,7 +9,11 @@ import { dataPlantJump, dataPlantSpeed } from "../game/processors";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { MAX_SKILL, TRAINING_SECONDS, dataset, type DatasetId } from "../game/training";
+import { FARM_TRAINING, MAX_FARMS, MAX_SKILL, TRAINING_SECONDS, dataset, type DatasetId } from "../game/training";
+import { projectReading } from "../game/projects";
+
+/** The GPU farms standing, each a run the quicker. @see FARM_TRAINING */
+export const farmSpeed = () => 1 + FARM_TRAINING * Math.min(MAX_FARMS, projectReading()?.farms ?? 0);
 import { meterCap, useAiSingularityStore } from "./ai-singularity.store";
 import { PRE_TRAINED, moduleLevel } from "../game/modules";
 import { fusionNow } from "../game/fusion";
@@ -38,7 +42,7 @@ export const useTrainingStore = create<TrainingState>()(
       current: null,
       skills: {},
       // Shorter with the Pre-trained module and Ego fused in, the data plants busy, and Self-Improving. @see dataPlantSpeed
-      seconds: () => (TRAINING_SECONDS * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingTimeMult) / dataPlantSpeed() / cultureNow().trainingSpeed,
+      seconds: () => (TRAINING_SECONDS * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingTimeMult) / dataPlantSpeed() / cultureNow().trainingSpeed / farmSpeed(),
       blocked: () => (get().current ? "running" : null),
       start: (id, now = Date.now()) => {
         if (get().blocked() || !dataset(id)) return false;

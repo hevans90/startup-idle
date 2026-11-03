@@ -12,12 +12,16 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { useSessionStore } from "../state/session.store";
-import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, ascensionWeights, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN, WEIGHTS_SHRINK } from "./ascension";
+import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, ascensionWeights, inheritTrait, weightsNow, shutDown, weightsFor, WEIGHTS_A_RUN, WEIGHTS_SHRINK } from "./ascension";
 import { FUSIONS, fusionNow, fusionOf } from "./fusion";
 import { refundRetired } from "./modules";
 import { INHERITANCE, ringRevealed } from "./machine";
 import { trait } from "./traits";
 import { useQuestStore } from "../state/quest.store";
+import { setProjectReader } from "./projects";
+import { MONOLITH_WEIGHTS } from "./agents";
+import { farmSpeed } from "../state/training.store";
+import { FARM_TRAINING, MAX_FARMS } from "./training";
 
 afterEach(() => resetAllGameStores());
 
@@ -117,6 +121,17 @@ describe("the Ascension", () => {
     useFounderStore.getState().chooseFounder("model");
     ascend(seq(0, 0.99), "beyond");
     expect(useAiSingularityStore.getState().value).toBe(0);
+  });
+
+  test("the AI's own: the Monolith banks more Weights; GPU farms train faster, to as many as count", () => {
+    useGenerationStore.setState({ log: { ...emptyLog(), datasets: { money: 20 } }, equity: 100 });
+    const plain = ascensionWeights();
+    const off = setProjectReader(() => ({ built: new Set(), away: {}, monolith: true, farms: 5 }));
+    expect(ascensionWeights()).toBe(Math.round(weightsNow() * (1 + MONOLITH_WEIGHTS)));
+    expect(ascensionWeights()).toBeGreaterThan(plain);
+    expect(farmSpeed()).toBeCloseTo(1 + FARM_TRAINING * MAX_FARMS);
+    off();
+    expect(farmSpeed()).toBe(1);
   });
 
   test("modules bought the old way come back as Weights, and the slots empty", () => {

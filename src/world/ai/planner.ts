@@ -146,6 +146,16 @@ function spots(g: Grid, defId: string, d: District, near?: { at: Cell; within: n
   return out;
 }
 
+/** Anywhere on the map: AI mode's own, which has no district. */
+const NO_DISTRICT: District = { cx: 0, cy: 0, r: Infinity };
+/** Where AI mode puts one of the AI's buildings: within a rack's reach of the Data Centre, the nearest to it. @see aiBuildingStep */
+export function aiBuildingSite(g: Grid, defId: string, dc: Structure): Cell | null {
+  const c = centre(dc);
+  const options = spots(g, defId, NO_DISTRICT, { at: c, within: RACK_RANGE });
+  options.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
+  return options[0] ?? null;
+}
+
 /** The jobs that put up something that drinks — a takeover too, a house made a node, a service a farm: none of them while its cooling is short. @see coolingState */
 const DRINKING = new Set<Kind>(["node", "farm", "spire", "convert", "repurpose"]);
 /** How full every tank must be before it adds another drinker: water coming in faster than it goes. */

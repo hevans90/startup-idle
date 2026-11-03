@@ -17,6 +17,7 @@ import type { Stage } from "../../state/ai-singularity.store";
 import { structureAt, type Grid, type Structure } from "../grid";
 import { housedBy } from "../../game/housing";
 import { structureDef } from "../structures/def";
+import { HANGAR_SPEED, MAX_HANGARS } from "../../game/agents";
 import { INTERVAL, chooseAction, mainReserve, makesDrinker, perform, targetOf, type AiAction } from "./planner";
 import { useSessionStore } from "../../state/session.store";
 import { ARRIVALS, nextMemoIn, pickMemo } from "./memos";
@@ -30,9 +31,7 @@ export const DRONE_SPEED = 5;
 export const SCAN_SECONDS = 4;
 /** Jobs done at once for time away, at most. */
 export const CATCH_UP = 10;
-/** What each drone hangar takes off the AI's interval, and the most that count. */
-export const HANGAR_SPEED = 0.25;
-export const MAX_HANGARS = 2;
+export { HANGAR_SPEED, MAX_HANGARS } from "../../game/agents";
 
 type Cell = { x: number; y: number };
 export type DroneJob = { action: AiAction; from: Cell; to: Cell; t: number; fly: number };
