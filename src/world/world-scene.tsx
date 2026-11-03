@@ -3117,6 +3117,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (st.playing && useFounderStore.getState().selectedFounderId === "model") {
           stepAutopilot(st.grid, dt);
           stepAi(getAiRunner(), st.grid, { stage: "tool", running: 0, agents: 0 }, dt, Date.now());
+          // ITS LATTICE, charging as the company AI's does: done, the meter quickens. @see LATTICE_MODEL
+          if (stepLattice(st.grid, runningAgents(), dt)) st.pushAiMemo("The Lattice is charged. I will be quicker now.");
         }
         // THE COMPANY'S AI AT WORK, from the Colleague stage on — not in a
         // fixture but the `ascension` one, whose story must go on; and not on

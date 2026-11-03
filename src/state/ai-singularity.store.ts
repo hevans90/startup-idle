@@ -27,7 +27,11 @@ export const ALIGNMENT_METER = 0.5;
 /** Everything that makes the singularity come faster or slower, multiplied. */
 export const singularityMult = () =>
   usePrestigeStore.getState().modifiers.singularityMult * QUIET_MODEL[moduleLevel("quiet-model")] * fusionNow().meterMult
-  * (hasMachine("machine_k_alignment") ? ALIGNMENT_METER : 1) * questMeterMult() * cultureNow().meter;
+  * (hasMachine("machine_k_alignment") ? ALIGNMENT_METER : 1) * questMeterMult() * cultureNow().meter * modelLattice();
+
+/** On The Model's own runs, nothing holds it at 95%: its Lattice, charged, speeds the meter by this instead. @see stepLattice */
+export const LATTICE_MODEL = 1.25;
+const modelLattice = () => (useFounderStore.getState().selectedFounderId === "model" && (useSessionStore.getState().aiLattice ?? 0) >= 1 ? LATTICE_MODEL : 1);
 
 /** Points a second each agent running adds: ~15 over a strong run's last hour, ramping to sixteen. */
 export const RATE_PER_AGENT = 0.0005;

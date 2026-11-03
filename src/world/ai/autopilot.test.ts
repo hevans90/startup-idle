@@ -178,16 +178,16 @@ describe("AI mode's drones", () => {
     expect([...g.structures.values()].filter((s) => s.def.startsWith("kit:") || s.def.startsWith("office")).length).toBeGreaterThan(built);
   });
 
-  test("puts up the AI's own once the Data Centre stands: nodes for its agents, then a farm, spires, hangars and the Monolith", () => {
+  test("puts up the AI's own once the Data Centre stands: nodes for its agents, then a farm, spires, hangars, the Monolith and the Lattice", () => {
     const g = town();
     expect(aiBuildingStep(g)).toBeNull();
     commit(g, createHistory(), placeCommand(g, structureDef("datacentre")!, 8, 17)!);
     useAgentsStore.setState({ agents: 6 });
     const built: string[] = [];
-    for (let k = 0; k < 12; k++) { const b = aiBuildingStep(g); if (b) built.push(b); }
+    for (let k = 0; k < 14; k++) { const b = aiBuildingStep(g); if (b) built.push(b); }
     expect(rackReading(g).powered).toBeGreaterThanOrEqual(6);
     expect(built.slice(0, 2)).toEqual(["AI node", "AI node"]);
-    expect(built).toEqual(expect.arrayContaining(["GPU farm", "Compute spire", "Drone hangar", "The Monolith"]));
+    expect(built).toEqual(expect.arrayContaining(["GPU farm", "Compute spire", "Drone hangar", "The Monolith", "The Lattice"]));
     expect(built.filter((b) => b === "The Monolith")).toHaveLength(1);
   });
 });

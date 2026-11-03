@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { useAiSingularityStore } from "./ai-singularity.store";
+import { LATTICE_MODEL, singularityMult, useAiSingularityStore } from "./ai-singularity.store";
+import { useFounderStore } from "./founder.store";
+import { useSessionStore } from "./session.store";
 
 describe("ai-singularity persistence", () => {
   beforeEach(() => {
@@ -80,5 +82,18 @@ describe("the singularity", () => {
     const { stageOf } = await import("./ai-singularity.store");
     expect([0, 19.9, 20, 45, 60, 85, 100].map((v) => stageOf(v).stage))
       .toEqual(["tool", "tool", "assistant", "colleague", "manager", "overseer", "ascension"]);
+  });
+});
+
+describe("the Lattice on The Model's runs", () => {
+  test("charged, it speeds the meter; on anyone else's, it does not", () => {
+    useFounderStore.setState({ selectedFounderId: "model" });
+    const plain = singularityMult();
+    useSessionStore.setState({ aiLattice: 1 });
+    expect(singularityMult()).toBeCloseTo(plain * LATTICE_MODEL, 9);
+    useFounderStore.setState({ selectedFounderId: "hustler" });
+    expect(singularityMult()).toBeCloseTo(plain, 9);
+    useSessionStore.setState({ aiLattice: 0 });
+    useFounderStore.setState({ selectedFounderId: null });
   });
 });

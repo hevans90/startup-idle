@@ -234,7 +234,7 @@ function hire(spend: number): string | null {
 /**
  * THE AI'S OWN, as AI mode builds them — free, as the AI's are: nodes while its
  * agents want room, then GPU farms, compute spires and drone hangars to as
- * many as count, then the Monolith. What was built, in words, or null.
+ * many as count, then the Monolith, then the Lattice. What was built, in words, or null.
  * @see AI_BUILDINGS, aiBuildingSite
  */
 export function aiBuildingStep(g: Grid): string | null {
@@ -247,7 +247,8 @@ export function aiBuildingStep(g: Grid): string | null {
     : n("gpu-farm") < MAX_FARMS ? "gpu-farm"
       : n("compute-spire") < MAX_SPIRES ? "compute-spire"
         : n("drone-hangar") < MAX_HANGARS ? "drone-hangar"
-          : n("monolith") < 1 ? "monolith" : null;
+          : n("monolith") < 1 ? "monolith"
+            : n("lattice") < 1 ? "lattice" : null;
   if (!want || state.failed.has(want)) return null;
   const at = aiBuildingSite(g, want, dc);
   if (at && placeStructure(want, at)) { fly(at, g); return structureDef(want)?.name ?? want; }

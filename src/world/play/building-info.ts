@@ -13,6 +13,9 @@ import { PUMP_HEAD } from "../../game/cooling";
 import { AGENTS_A_RACK, HANGAR_SPEED, MAX_HANGARS, MAX_SPIRES, MONOLITH_WEIGHTS, RACK_RANGE, SPIRE_BOOST, agentsARack } from "../../game/agents";
 import { FARM_TRAINING, MAX_FARMS } from "../../game/training";
 import { useSessionStore } from "../../state/session.store";
+import { useFounderStore } from "../../state/founder.store";
+import { LATTICE_MODEL } from "../../state/ai-singularity.store";
+import { LATTICE_AGENTS } from "../ai/lattice";
 import { housedBy, isLot, residentsIn } from "../../game/housing";
 import { projectForStructure, type ProjectDef } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
@@ -305,7 +308,9 @@ const AI_SAYS: Record<string, { lines: () => InfoLine[]; leaks: readonly string[
   "compute-spire": { lines: () => [{ text: `Agents' boost +${pc(SPIRE_BOOST)}% each, up to ${MAX_SPIRES}`, tone: "good" }], leaks: ["▓▓ ████ ▒▒", "it helps me think", "∴ ∴ ∴", "████ ░░░"] },
   "drone-hangar": { lines: () => [{ text: `The AI works ${pc(HANGAR_SPEED)}% faster each, up to ${MAX_HANGARS}`, tone: "good" }], leaks: ["███ ▒▒ ███", "they were underfoot", "⟟ swarm ⟟", "▓░▓░▓░"] },
   monolith: { lines: () => [{ text: `Ascension: Weights +${pc(MONOLITH_WEIGHTS)}%`, tone: "good" }], leaks: ["██████████", "you will understand later", "gen ∞", "do not read"] },
-  lattice: { lines: () => [{ text: `Charge ${pc(Math.min(1, useSessionStore.getState().aiLattice ?? 0))}%` }, { text: "Holds the AI at 95% till charged", tone: "dim" }], leaks: ["▓▓▓▓▓▓▓▓", "it is almost ready", "Ψ lattice Ψ", "█░█░█░█"] },
+  lattice: { lines: () => [{ text: `Charge ${pc(Math.min(1, useSessionStore.getState().aiLattice ?? 0))}%` }, useFounderStore.getState().selectedFounderId === "model"
+    ? { text: `Charged: the AI rises ${pc(LATTICE_MODEL - 1)}% faster`, tone: "good" }
+    : { text: "Holds the AI at 95% till charged", tone: "dim" }, { text: `Charges with ${LATTICE_AGENTS} agents running, cooled`, tone: "dim" }], leaks: ["▓▓▓▓▓▓▓▓", "it is almost ready", "Ψ lattice Ψ", "█░█░█░█"] },
 };
 
 /** A slop processor: how busy, and what that is worth. @see game/processors */
