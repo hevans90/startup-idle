@@ -107,12 +107,11 @@ function Stat({ icon, value, tone, title, children }: {
 }
 
 /** The tools the AI takes over in its district at the Overseer stage. @see aiHoldsRoads */
-const ROAD_TOOLS = new Set<ToolId>(["paintRoad", "eraseRoad"]);
+const ROAD_TOOLS = new Set<ToolId>(["paintRoad", "demolish"]);
 
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
-  { id: "eraseRoad", label: "Lift", hint: "Drag to take road up — or pipe, with Pipe chosen beside it" },
   { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main: it finds its own way" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to lift it" },
@@ -266,7 +265,7 @@ export function BuildBar({ className }: { className?: string }) {
   const choose = (id: ToolId) => {
     setTool(id);
     // Road goes down in a line, as a road does; everything else is a click.
-    setBrush(id === "paintRoad" || id === "eraseRoad" || id === "pipe" || id === "demolish" ? "line" : "point");
+    setBrush(id === "paintRoad" || id === "pipe" || id === "demolish" ? "line" : "point");
     setBrushRadius(0);
     setPicking(id === "placeStructure" ? !(tool === id && picking) : false);
     // Something on offer in hand, not whatever was last: a lot for people the
@@ -282,15 +281,13 @@ export function BuildBar({ className }: { className?: string }) {
   const mainsOpen = agentsOpen();
   const sewersOpen = (generators.find((g) => g.id === "vibe_coder")?.amount ?? 0) >= SLOP_FROM;
   const pipesOpen = mainsOpen || sewersOpen;
-  const liftPipe = useWorldStore((s) => s.liftPipe);
-  const setLiftPipe = useWorldStore((s) => s.setLiftPipe);
   const pipeSewer = useWorldStore((s) => s.pipeSewer);
   const setPipeSewer = useWorldStore((s) => s.setPipeSewer);
   // ONE KIND OPEN, the tool lays that kind. @see pipeSewer
   useEffect(() => {
     if (mainsOpen !== sewersOpen && pipeSewer !== sewersOpen) setPipeSewer(sewersOpen);
   }, [mainsOpen, sewersOpen, pipeSewer, setPipeSewer]);
-  // THE TOOLS ON OFFER, and their keys: 1 to 6, as shown on each. Not while typing in a field, nor with a modifier.
+  // THE TOOLS ON OFFER, and their keys: 1 to 5, as shown on each. Not while typing in a field, nor with a modifier.
   const shown = useMemo(() => TOOLS.filter((t) => t.id !== "pipe" || pipesOpen), [pipesOpen]);
   const keyed = useRef(choose);
   keyed.current = choose;
@@ -359,14 +356,6 @@ export function BuildBar({ className }: { className?: string }) {
           <span className="text-fg-muted">Pipe</span>
           <Segmented label="What the Pipe tool lays" value={pipeSewer ? "sewer" : "water"} onChange={(v) => setPipeSewer(v === "sewer")}
             options={[{ value: "water", label: "Water" }, { value: "sewer", label: "Sewer" }]} />
-        </div>
-      )}
-      {/* LIFT: road, or pipe — never both at once. @see liftPipe */}
-      {tool === "eraseRoad" && pipesOpen && (
-        <div className={twMerge(PANEL, "flex items-center gap-2 px-2 py-1 text-xs")}>
-          <span className="text-fg-muted">Lift</span>
-          <Segmented label="What Lift takes up" value={liftPipe ? "pipe" : "road"} onChange={(v) => setLiftPipe(v === "pipe")}
-            options={[{ value: "road", label: "Road" }, { value: "pipe", label: "Pipe" }]} />
         </div>
       )}
       {picking && !wondersOpen && (

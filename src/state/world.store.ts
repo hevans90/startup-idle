@@ -158,7 +158,7 @@ export const VOID_MATERIAL = 0;
 
 /**
  * WHAT DEMOLISH LIFTS, from where its drag starts: no building there, a main
- * comes up before a road — along the drag, as Lift takes them. @see endStroke
+ * comes up before a road — along the drag. @see endStroke
  */
 export function demolishLifts(g: Grid, c: { x: number; y: number }): "pipe" | "road" | null {
   if (c.x < 0 || c.y < 0 || c.x >= g.w || c.y >= g.h || structureAt(g, c.x, c.y) >= 0) return null;
@@ -422,7 +422,7 @@ type WorldState = {
    * artset also has, and the smallest change the height field can express.
    */
   heightStep: number;
-  /** Whether the Lift tool lifts pipe rather than road. @see the Lift tool */
+  /** Whether a lifting stroke takes up pipe rather than road. @see demolishLifts */
   liftPipe: boolean;
   setLiftPipe: (on: boolean) => void;
   /** Whether the Pipe tool lays a sewer rather than a water main: set by the build bar when only one is open. */
@@ -1074,7 +1074,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // What a road stroke cost, for taking it back. @see undoLastBuild
     let roadPaid = 0;
     let pumpAfter: WorldState["pumpOffer"] = null;
-    // DEMOLISH ON A PIPE OR A ROAD lifts it, as Lift would. @see demolishLifts
+    // DEMOLISH ON A PIPE OR A ROAD lifts it. @see demolishLifts
     const lifts = s0.tool === "demolish" && st.playing ? demolishLifts(st.grid, s0.anchor) : null;
     if (lifts) {
       const kept = st.liftPipe;
@@ -1171,7 +1171,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       }
     } else if (s0.tool === "eraseRoad" && st.playing && st.liftPipe) {
       // LIFTING PIPE, not road: the mains on these tiles come up, and a
-      // neighbour left with an open end is capped. @see the Lift tool
+      // neighbour left with an open end is capped. @see demolishLifts
       const on = new Set(cells.map((c) => idx(st.grid, c.x, c.y)));
       for (const c of cells) {
         const i = idx(st.grid, c.x, c.y);
