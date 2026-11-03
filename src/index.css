@@ -245,18 +245,19 @@ html.ui-calm .talk-line-in, html.ui-calm .talk-beacon { animation: none; }
   from { background-position: -160% 0; }
   to { background-position: 260% 0; }
 }
+/* Off the card when still (calm, reduced motion): only a passing light, never left over the text. */
 .card-shine {
-  background: linear-gradient(105deg, transparent 35%, color-mix(in oklab, var(--tone) 55%, white) 50%, transparent 65%) no-repeat;
+  background: linear-gradient(105deg, transparent 35%, color-mix(in oklab, var(--tone) 45%, transparent) 50%, transparent 65%) no-repeat;
   background-size: 60% 100%;
-  mix-blend-mode: screen;
+  background-position: 260% 0;
   animation: card-shine 0.8s ease-out both;
 }
 /* At the top rank, its rule its own: aglow in its tone. */
 .card-ruled { filter: drop-shadow(0 0 7px color-mix(in oklab, var(--tone) 55%, transparent)); }
 /* The rule, unlocked: a flare, and the glow settling. */
 @keyframes card-rule-in {
-  0% { transform: none; filter: drop-shadow(0 0 0 var(--tone)) brightness(1); }
-  30% { transform: scale(1.07); filter: drop-shadow(0 0 26px var(--tone)) brightness(1.4); }
+  0% { transform: none; filter: drop-shadow(0 0 0 var(--tone)); }
+  30% { transform: scale(1.05); filter: drop-shadow(0 0 12px color-mix(in oklab, var(--tone) 80%, transparent)); }
   100% { transform: none; filter: drop-shadow(0 0 7px color-mix(in oklab, var(--tone) 55%, transparent)); }
 }
 .card-rule-in { animation: card-rule-in 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
