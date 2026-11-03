@@ -16,6 +16,7 @@ import type { CardId } from "../game/culture";
 import type { BookId } from "../game/quests/books";
 import type { ModuleId } from "../game/modules";
 import type { DatasetId } from "../game/training";
+import type { LatticeForm } from "../game/quests/finale";
 import type { TraitId } from "../game/traits";
 
 export type BehaviourLog = {
@@ -37,7 +38,11 @@ export type BehaviourLog = {
 export const emptyLog = (): BehaviourLog => ({ datasets: {}, full: 0, throttled: 0, founders: {}, shutdowns: 0, vetoes: 0 });
 
 /** A generation past, as the Model's shop remembers it. */
-export type PastGeneration = { generation: number; trait: TraitId; mutated: boolean; founder: string; weights: number; book?: BookId };
+export type PastGeneration = {
+  generation: number; trait: TraitId; mutated: boolean; founder: string; weights: number; book?: BookId;
+  /** How its book ended; a Merge's second trait; companies sold; the Lattice's form. Missing from saves before the recap. @see AscensionRecap */
+  ending?: "merge" | "steward" | "release" | "leash" | null; also?: TraitId; sales?: number; form?: LatticeForm | null;
+};
 
 type GenerationState = {
   /** Which generation this is: the first is 1. */

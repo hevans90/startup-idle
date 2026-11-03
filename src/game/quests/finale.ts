@@ -10,6 +10,8 @@ import { useQuestStore } from "../../state/quest.store";
 import type { Chapter, Disposition } from "./types";
 
 export type LatticeForm = "spire" | "garden" | "open" | "vault" | "river";
+/** Each form, named. @see AscensionRecap, Lineage */
+export const FORM_NAMES: Record<LatticeForm, string> = { spire: "Glass spire", garden: "Garden lattice", open: "Open frame", vault: "Black vault", river: "River monolith" };
 
 /** The form for an AI standing here, with these echoes. */
 export function formFor(d: Disposition, flags: readonly string[]): LatticeForm {

@@ -70,7 +70,7 @@ function seedAscension(): void {
   useMoneyStore.setState({ money: new Decimal(FIXTURE_MONEY) });
   useGeneratorStore.getState().increaseGenerator("intern", FIXTURE_INTERNS);
   useAgentsStore.setState({ agents: FIXTURE_AGENTS, running: null });
-  useGenerationStore.setState({ equity: 9, peakAgents: FIXTURE_AGENTS });
+  useGenerationStore.setState({ equity: 9, peakAgents: FIXTURE_AGENTS, sales: 5 });
   useQuestStore.setState({
     chapters: { ledger: 1, commute: 0, thirst: 1, charter: 1, trust: 0, "last-light": 0 },
     flags: ["ledger:logged", "block:rebuilt", "river:piped", "charter:partnership", "site:given", "lattice:helped"],

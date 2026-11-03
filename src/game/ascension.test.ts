@@ -15,8 +15,9 @@ import { useSessionStore } from "../state/session.store";
 import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN } from "./ascension";
 import { FUSIONS, fusionNow, fusionOf } from "./fusion";
 import { refundRetired } from "./modules";
-import { INHERITANCE } from "./machine";
+import { INHERITANCE, ringRevealed } from "./machine";
 import { trait } from "./traits";
+import { useQuestStore } from "../state/quest.store";
 
 afterEach(() => resetAllGameStores());
 
@@ -67,6 +68,20 @@ describe("the Ascension", () => {
     expect(useAiSingularityStore.getState().value).toBe(20);
     expect(useMoneyStore.getState().money.toNumber()).toBe(0);
     expect(useVapeAchievementsStore.getState().juiceMpsMultBonus).toBe(0.5);
+  });
+
+  test("keeps what the recap and the lineage say: its book, ending, sales, Lattice form and a Merge's second trait", () => {
+    useFounderStore.getState().chooseFounder("neet");
+    useGenerationStore.setState({ sales: 5, log: { ...emptyLog(), datasets: { money: 4, town: 4 } } });
+    useQuestStore.setState({ latticeForm: "spire" });
+    const r = ascend(seq(0, 0.99, 0.9, 0.99), "merge")!;
+    const g = useGenerationStore.getState();
+    expect(g.announce).toMatchObject({ generation: 1, book: 1, ending: "merge", sales: 5, form: "spire", trait: r.trait });
+    expect(g.announce?.also).toBe(r.also);
+    expect(g.past.at(-1)).toEqual(g.announce!);
+    expect(ringRevealed(1)).toBe("Ring 1 of the Machine");
+    expect(ringRevealed(4)).toBe("The Machine's keystones");
+    expect(ringRevealed(5)).toBeNull();
   });
 
   test("modules bought the old way come back as Weights, and the slots empty", () => {

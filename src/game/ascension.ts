@@ -13,7 +13,7 @@ import { useAgentsStore } from "../state/agents.store";
 import { inheritedStart, useAiSingularityStore } from "../state/ai-singularity.store";
 import { grantInheritance } from "./machine";
 import { useFounderStore } from "../state/founder.store";
-import { emptyLog, useGenerationStore, type BehaviourLog } from "../state/generation.store";
+import { emptyLog, useGenerationStore, type BehaviourLog, type PastGeneration } from "../state/generation.store";
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
 import { cultureNow } from "./culture-now";
 import { nextBook } from "./quests/books";
@@ -84,6 +84,8 @@ export function ascend(rand: () => number = Math.random, ending: AscendingEnding
   for (let k = 0; ending === "merge" && k < 8 && (!also || also === t); k++) also = inheritTrait(g.log, rand).trait;
   if (also === t) also = undefined;
   const weights = ascensionWeights(ending);
+  // WHAT THE RECAP SAYS of it, read before the wipe. @see AscensionRecap
+  const gone: PastGeneration = { generation: g.generation, trait: t, mutated, founder, weights, book: g.book, ending, sales: g.sales, form: useQuestStore.getState().latticeForm, ...(also ? { also } : {}) };
 
   resetForAscension();
   // THE ARC closed: kept in the record with its ending, a fresh one for the next generation. @see useQuestStore.closeArc
@@ -101,8 +103,8 @@ export function ascend(rand: () => number = Math.random, ending: AscendingEnding
     peakAgents: 0,
     weights: g.weights + weights,
     fused,
-    past: [...g.past, { generation: g.generation, trait: t, mutated, founder, weights, book: g.book }],
-    announce: { generation: g.generation, trait: t, mutated, founder, weights },
+    past: [...g.past, gone],
+    announce: gone,
     // WHAT THE ENDING LEAVES the next generation; a Contain's bonus, spent. @see legacy
     legacy: ending,
     contained: false,

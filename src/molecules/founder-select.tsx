@@ -15,9 +15,10 @@ import { TermSheetSelect } from "./term-sheet-select";
 import { dealEffects } from "../game/term-deal";
 import { useMoneyStore } from "../state/money.store";
 import { fusedInto } from "../game/fusion";
-import { trait } from "../game/traits";
 import { useGenerationStore } from "../state/generation.store";
 import { ModelShop } from "./model-shop";
+import { AscensionRecap } from "./ascension-recap";
+import { Lineage } from "./lineage";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
@@ -133,6 +134,8 @@ export const FounderSelect = () => {
 
   const [treeOpen, setTreeOpen] = useState<boolean | "machine">(false);
   const [shopOpen, setShopOpen] = useState(false);
+  const [lineageOpen, setLineageOpen] = useState(false);
+  const past = useGenerationStore((s) => s.past.length);
   const weights = useGenerationStore((s) => s.weights);
   const showPrestige = exits > 0 || equity.gt(0);
   const hasPoints = equity.gt(0);
@@ -353,14 +356,9 @@ export const FounderSelect = () => {
         </Dialog>
       )}
 
-      {/* THE ASCENSION JUST MADE, said once. @see ascend */}
-      {announce && (
-        <div className="mx-auto mb-4 w-full max-w-[110rem] border border-ai-line bg-ai-soft px-3 py-2 text-sm text-ai">
-          Generation {announce.generation} ascended: the AI became <b>{trait(announce.trait).name}</b>
-          {announce.mutated ? " (it mutated)" : ""}, fused into <b>{FOUNDERS.find((x) => x.id === announce.founder)?.name ?? announce.founder}</b>.
-          {" "}+{announce.weights} Weights. Generation {announce.generation + 1} begins.
-        </div>
-      )}
+      {/* THE ASCENSION JUST MADE, recapped once; the lineage, any time. @see ascend */}
+      {announce && <AscensionRecap gone={announce} onLineage={() => setLineageOpen(true)} onDone={() => useGenerationStore.setState({ announce: null })} />}
+      {lineageOpen && <Lineage onClose={() => setLineageOpen(false)} />}
 
       {/* WEIGHTS, to spend before the next company starts. @see ModelShop */}
       {(generation > 1 || weights > 0) && (
@@ -368,7 +366,10 @@ export const FounderSelect = () => {
           <span>
             Generation {generation} · <b className="tabular-nums text-weights">{weights}</b> Weights
           </span>
-          <Button size="sm" className="shrink-0" onClick={() => setShopOpen(true)}>Spend Weights →</Button>
+          <span className="flex shrink-0 gap-2">
+            {past > 0 && <Button size="sm" variant="secondary" onClick={() => setLineageOpen(true)}>Lineage</Button>}
+            <Button size="sm" onClick={() => setShopOpen(true)}>Spend Weights →</Button>
+          </span>
         </div>
       )}
 

@@ -148,6 +148,11 @@ export const isMachine = (id: string): boolean => BY_ID.has(id);
 
 /** Rings shown: one an Ascension. */
 export const revealedRing = (): number => useGenerationStore.getState().generation - 1;
+/** The ring an Ascension from this generation revealed, said; none past the keystones. @see AscensionRecap */
+export function ringRevealed(generation: number): string | null {
+  if (generation <= MACHINE_RINGS) return `Ring ${generation} of the Machine`;
+  return generation === KEYSTONE_RING ? "The Machine's keystones" : null;
+}
 /** Whether a node is still under the fog: "Ascend to reveal". */
 export const fogged = (id: string): boolean =>
   ((machineNode(id)?.ring ?? 0) > revealedRing() && !questMachineReveal(id).revealed) || !hasMachine(INHERITANCE);
