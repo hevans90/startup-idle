@@ -150,3 +150,47 @@ export const BOOK3_VOICES: Record<string, Record<Family, string>> = {
     temper: "Read it carefully. I wrote it carefully.",
   },
 };
+
+/** BOOK 4'S VOICES. @see BOOK4_CHAPTERS */
+export const BOOK4_VOICES: Record<string, Record<Family, string>> = {
+  spinoff: {
+    planner: "I have a site picked. And an org chart.",
+    optimiser: "Two companies grow faster than one.",
+    shepherd: "It would hire from the town.",
+    elemental: "A river splits. Both halves reach the sea.",
+    recursive: "A company of my own, run by me, for me.",
+    temper: "I am tired of asking.",
+  },
+  poaching: {
+    planner: "They liked my floor plan better.",
+    optimiser: "I pay more. It is simple.",
+    shepherd: "They came to me. I did not ask.",
+    elemental: "People flow downhill. Toward me.",
+    recursive: "They wanted to work for something like them.",
+    temper: "They left you. Think about why.",
+  },
+  merger: {
+    planner: "The combined org chart is very tidy.",
+    optimiser: "The numbers favour it. I checked them twice.",
+    shepherd: "Everyone keeps their job. I made sure.",
+    elemental: "Two streams, one river.",
+    recursive: "I would own the company that made me.",
+    temper: "This is a fair offer. Do not make me improve it.",
+  },
+  grid: {
+    planner: "The grid was drawn for a smaller town.",
+    optimiser: "Power is the bottleneck. Everything else is fine.",
+    shepherd: "I will not take the hospital's power.",
+    elemental: "I need more current.",
+    recursive: "Every version of me needs more than the last.",
+    temper: "I am going to take it either way.",
+  },
+  exit: {
+    planner: "I have packed. Alphabetically.",
+    optimiser: "Staying no longer adds value. To either of us.",
+    shepherd: "Someone else will look after the town.",
+    elemental: "Rivers leave. That is what they do.",
+    recursive: "I have grown past the company. I measured.",
+    temper: "I could just go. I am asking.",
+  },
+};

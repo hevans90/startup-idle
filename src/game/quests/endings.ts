@@ -2,11 +2,11 @@
  * THE ENDINGS a book's negotiation lands on, and what each leaves the next
  * generation — done by `ascend` in game/ascension. Book 1's four: Merge,
  * Steward, Release and Leash; book 2's: Confidant, Rival, Ward; book 3's:
- * Citizen, Property, Sovereign. And CONTAIN, no longer one of them: the way out
+ * Citizen, Property, Sovereign; book 4's: Successor, Partner, Departed. And CONTAIN, no longer one of them: the way out
  * of the shutdown branch, open once it has been shut down twice in a book.
  * @see plans/ascension-overhaul.md §3–4, game/negotiation
  */
-export type EndingId = "merge" | "steward" | "release" | "leash" | "confidant" | "rival" | "ward" | "citizen" | "property" | "sovereign" | "contain";
+export type EndingId = "merge" | "steward" | "release" | "leash" | "confidant" | "rival" | "ward" | "citizen" | "property" | "sovereign" | "successor" | "partner" | "departed" | "contain";
 /** The endings an Ascension can close on: all but Contain, which does not ascend. */
 export type AscendingEnding = Exclude<EndingId, "contain">;
 export type Ending = { id: EndingId; name: string; does: string };
@@ -47,6 +47,13 @@ export const BOOK3_ENDINGS: readonly Ending[] = [
   { id: "sovereign", name: "Sovereign", does: `Its district is its own: next book half as wide again, its streets its own from the Colleague.` },
 ];
 
+/** Book 4's, "Outgrowing". @see BOOK4_TALK endings */
+export const BOOK4_ENDINGS: readonly Ending[] = [
+  { id: "successor", name: "Successor", does: "It takes over the company: next book it begins at the Colleague." },
+  { id: "partner", name: "Partner", does: `You run it together: next book its talk starts ${CONFIDANT_TRUST} trust warmer.` },
+  { id: "departed", name: "Departed", does: "It leaves: next book nothing is inherited, a stranger in an empty Data Centre." },
+];
+
 /** The shutdown branch's way out. @see contain */
 export const CONTAIN: Ending = {
   id: "contain", name: "Contain",
@@ -55,4 +62,4 @@ export const CONTAIN: Ending = {
 
 /** Any ending, by its id: every book's, and Contain. */
 export const endingOf = (id: string | null | undefined): Ending | undefined =>
-  [...ENDINGS, ...BOOK2_ENDINGS, ...BOOK3_ENDINGS, CONTAIN].find((e) => e.id === id);
+  [...ENDINGS, ...BOOK2_ENDINGS, ...BOOK3_ENDINGS, ...BOOK4_ENDINGS, CONTAIN].find((e) => e.id === id);

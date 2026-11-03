@@ -27,6 +27,7 @@ import { CHAPTERS } from "../game/quests/chapters";
 import { REQUESTS } from "../game/quests/requests";
 import { BOOK2_CHAPTERS } from "../game/quests/book2";
 import { BOOK3_CHAPTERS } from "../game/quests/book3";
+import { BOOK4_CHAPTERS } from "../game/quests/book4";
 import { BOOK1_TALK } from "../game/quests/book1-talk";
 import { AXIS_MOST, type Disposition, type Effect, type Option } from "../game/quests/types";
 
@@ -98,7 +99,7 @@ export function arcDominance(draws = 4000, seed = 11): Record<string, Record<str
   let s = seed;
   const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
   const out: Record<string, Record<string, number>> = {};
-  for (const q of [...CHAPTERS, ...BOOK2_CHAPTERS, ...BOOK3_CHAPTERS, ...REQUESTS]) {
+  for (const q of [...CHAPTERS, ...BOOK2_CHAPTERS, ...BOOK3_CHAPTERS, ...BOOK4_CHAPTERS, ...REQUESTS]) {
     const wins = q.options.map(() => 0);
     for (let k = 0; k < draws; k++) {
       const c = draw(rand);

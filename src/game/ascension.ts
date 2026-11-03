@@ -100,7 +100,7 @@ export function ascend(rand: () => number = Math.random, ending: AscendingEnding
     sales: 0,
     // LEASHED, or a Rival, it remembers it: Resentful likelier, its next talk colder; a Confidant's, warmer. @see traitScores, startTalk
     log: ending === "leash" || ending === "rival" || ending === "property" ? { ...emptyLog(), leashed: LEASH_REMEMBERED }
-      : ending === "confidant" || ending === "citizen" ? { ...emptyLog(), confided: 1 } : emptyLog(),
+      : ending === "confidant" || ending === "citizen" || ending === "partner" ? { ...emptyLog(), confided: 1 } : emptyLog(),
     equity: 0,
     peakAgents: 0,
     weights: g.weights + weights,

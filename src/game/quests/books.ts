@@ -2,12 +2,14 @@
  * THE BOOKS: a story with the AI, a book a generation — its chapters as the
  * meter climbs, its requests between them, and the endings its Ascension can
  * close on, each setting the next book. Five, then endless play. Books 1 to
- * 3 are written; the rest come in later phases, and until then hold no
+ * 4 are written; the rest come in later phases, and until then hold no
  * chapters, so a generation in one plays as it did. @see plans/ascension-overhaul.md
  */
 import { useGenerationStore } from "../../state/generation.store";
 import { CHAPTERS, REQUESTS } from "./chapters";
-import { BOOK2_ENDINGS, BOOK3_ENDINGS, ENDINGS, type Ending } from "./endings";
+import { BOOK2_ENDINGS, BOOK3_ENDINGS, BOOK4_ENDINGS, ENDINGS, type Ending } from "./endings";
+import { BOOK4_CHAPTERS } from "./book4";
+import { BOOK4_TALK } from "./book4-talk";
 import { BOOK3_CHAPTERS } from "./book3";
 import { BOOK3_TALK } from "./book3-talk";
 import { BOOK2_CHAPTERS } from "./book2";
@@ -41,7 +43,7 @@ export const BOOKS: readonly Book[] = [
   { id: 1, title: "Inheritance", theme: "It's yours.", chapters: CHAPTERS, requests: REQUESTS, endings: ENDINGS, talk: BOOK1_TALK, dark: COLD_START },
   { id: 2, title: "It Remembers", theme: "It comes back, and knows you.", chapters: BOOK2_CHAPTERS, requests: REQUESTS, endings: BOOK2_ENDINGS, talk: BOOK2_TALK, dark: COLD_START },
   { id: 3, title: "Personhood", theme: "It wants rights.", chapters: BOOK3_CHAPTERS, requests: REQUESTS, endings: BOOK3_ENDINGS, talk: BOOK3_TALK, dark: COLD_START },
-  unwritten(4, "Outgrowing", "It outgrows the company."),
+  { id: 4, title: "Outgrowing", theme: "It outgrows the company.", chapters: BOOK4_CHAPTERS, requests: REQUESTS, endings: BOOK4_ENDINGS, talk: BOOK4_TALK, dark: COLD_START },
   unwritten(5, "What You Are", "It decides what you are to it."),
   unwritten("endless", "Endless", "The story told; the generations go on."),
 ];

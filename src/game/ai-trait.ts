@@ -9,7 +9,7 @@ import { trait, traitForecast, type Family, type Trait } from "./traits";
 
 export function aiTraitNow(): Trait {
   const g = useGenerationStore.getState();
-  const carried = g.legacy === "release" ? undefined : g.past[g.past.length - 1]?.trait;
+  const carried = g.legacy === "release" || g.legacy === "departed" ? undefined : g.past[g.past.length - 1]?.trait;
   return carried ? trait(carried) : traitForecast(g.log, 1)[0].trait;
 }
 

@@ -97,6 +97,19 @@ describe("the Ascension", () => {
     expect(useGenerationStore.getState().log.leashed).toBe(1);
   });
 
+  test("book 4's endings: a Partner leaves the next talk warmer; a Successor starts it at the Colleague, a Departed from nothing", () => {
+    useFounderStore.getState().chooseFounder("neet");
+    ascend(seq(0, 0.99), "partner");
+    expect(useGenerationStore.getState().log.confided).toBe(1);
+    useFounderStore.getState().chooseFounder("neet");
+    ascend(seq(0, 0.99), "successor");
+    const colleague = useAiSingularityStore.getState().value;
+    expect(colleague).toBeGreaterThan(0);
+    useFounderStore.getState().chooseFounder("neet");
+    ascend(seq(0, 0.99), "departed");
+    expect(useAiSingularityStore.getState().value).toBe(0);
+  });
+
   test("modules bought the old way come back as Weights, and the slots empty", () => {
     useGenerationStore.setState({ weights: 1, modules: { "warm-start": 2, "quiet-model": 1 } as never, slotted: ["warm-start", "quiet-model"] as never });
     refundRetired();
