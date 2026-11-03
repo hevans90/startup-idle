@@ -5,7 +5,7 @@
  * with it. @see comms.store
  */
 import { sfx } from "../../audio/sound";
-import { bookNow } from "../../game/quests/books";
+import { bookNow, chapterKicker, chapterOf } from "../../game/quests/books";
 import { useCommsStore } from "../../state/comms.store";
 import { useQuestStore } from "../../state/quest.store";
 import { useWorldStore } from "../../state/world.store";
@@ -28,9 +28,9 @@ export function startCommsBridge(): () => void {
   });
   const stopQuest = useQuestStore.subscribe((q, was) => {
     if (!q.offer || q.offer.id === was.offer?.id) return;
-    const chapter = q.offer.kind === "chapter" ? bookNow().chapters.find((x) => x.id === q.offer!.id) : null;
+    const chapter = q.offer.kind === "chapter" ? chapterOf(q.offer.id) : null;
     const request = q.offer.kind === "request" ? bookNow().requests.find((x) => x.id === q.offer!.id) : null;
-    c().note({ kind: "transmission", from: "ai", title: chapter ? `Chapter ${chapter.number} · ${chapter.title}` : "A request", text: chapter ? chapter.transmission(new Set(q.flags)).join(" ") : request?.text ?? "" });
+    c().note({ kind: "transmission", from: "ai", title: chapter ? `${chapterKicker(chapter)} · ${chapter.title}` : "A request", text: chapter ? chapter.transmission(new Set(q.flags)).join(" ") : request?.text ?? "" });
   });
   return () => { stopWorld(); stopQuest(); };
 }

@@ -10,6 +10,7 @@ import {
 import { talkContextNow } from "./negotiation-now";
 import { BOOK1_TALK } from "./quests/book1-talk";
 import { book } from "./quests/books";
+import { LEASH_TRUST } from "./quests/endings";
 
 afterEach(() => resetAllGameStores());
 
@@ -42,6 +43,16 @@ describe("the negotiation", () => {
     // +1, −1, and a broken promise's −1 at half.
     expect(s.trust).toBe(TRUST_START - 0.5);
     expect(startTalk(talk, ctx({ shutdowns: 1 })).trust).toBe(TRUST_START - SHUTDOWN_TRUST);
+  });
+
+  test("before it asks: a grievance for each shutdown, played against you; the leash remembered; your amends", () => {
+    const s = startTalk(talk, ctx({ shutdowns: 2, flags: ["dark:apologised"] }));
+    expect(s.before?.map((b) => b.by)).toEqual(["it", "it", "you"]);
+    expect(s.before?.[0].says).toBe(talk.grievance!.says);
+    expect(s.trust).toBe(TRUST_START - 2 * SHUTDOWN_TRUST + 2);
+    expect(s.stance.autonomy).toBe(2 * (talk.grievance!.axis.autonomy ?? 0));
+    expect(startTalk(talk, ctx({ leashed: 1 })).before?.[0]).toMatchObject({ by: "it", trust: -LEASH_TRUST });
+    expect(startTalk(talk, ctx()).before).toEqual([]);
   });
 
   test("an argument on the topic asked counts double; a weak one half; a regret pulls the other way, softly", () => {

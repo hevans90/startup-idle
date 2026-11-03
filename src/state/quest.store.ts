@@ -120,7 +120,8 @@ const clamp = (n: number) => Math.max(-AXIS_MOST, Math.min(AXIS_MOST, n));
 
 /** The option an offer stands for. */
 export function offered(o: { kind: Offer["kind"]; id: string }, chapters: readonly Chapter[] = bookNow().chapters, requests: readonly Request[] = bookNow().requests): { options: readonly Option[]; preferred: number } | null {
-  const c = o.kind === "chapter" ? chapters.find((x) => x.id === o.id) : requests.find((x) => x.id === o.id);
+  // A chapter of the list given, or the book's dark one. @see Book.dark
+  const c = o.kind === "chapter" ? chapters.find((x) => x.id === o.id) ?? (bookNow().dark?.id === o.id ? bookNow().dark : undefined) : requests.find((x) => x.id === o.id);
   return c ?? null;
 }
 
@@ -225,6 +226,9 @@ export const useQuestStore = create<QuestState>()(
             else set({ offer: { ...s.offer, waited } });
             return;
           }
+          // THE DARK CHAPTER, the first time it is shut down this book. @see Book.dark
+          const dark = bookNow().dark;
+          if (dark && !(dark.id in s.chapters) && useGenerationStore.getState().log.shutdowns > 0) { set({ offer: { kind: "chapter", id: dark.id, waited: 0 } }); return; }
           // A CHAPTER, the first time the meter reaches it.
           const due = chapters.find((c) => !(c.id in s.chapters) && world.meter >= (c.at ?? world.stageFrom[c.stage]));
           if (due) { set({ offer: { kind: "chapter", id: due.id, waited: 0 } }); return; }

@@ -30,6 +30,8 @@ export type BehaviourLog = {
   shutdowns: number;
   /** Takeover jobs the player refused. @see vetoAt */
   vetoes: number;
+  /** Ended on a Leash last book: remembered as so many shutdowns. @see ENDINGS leash */
+  leashed?: number;
 };
 
 export const emptyLog = (): BehaviourLog => ({ datasets: {}, full: 0, throttled: 0, founders: {}, shutdowns: 0, vetoes: 0 });
@@ -64,7 +66,7 @@ type GenerationState = {
    * turns; Release, none inherited. Null for an Ascension without one.
    * @see game/quests/endings
    */
-  legacy: "merge" | "steward" | "release" | null;
+  legacy: "merge" | "steward" | "release" | "leash" | null;
   /** Contained: the next Ascension banks half as many Weights again. */
   contained: boolean;
   /** The Ascension just made, to announce at the next founding; cleared once seen. */

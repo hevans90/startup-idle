@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { clock, effectRows, within } from "./describe";
-import { ENDINGS } from "./endings";
+import { BOOK1_TALK } from "./book1-talk";
+import { CONTAIN, ENDINGS } from "./endings";
 
 describe("the arc, said", () => {
   test("effects as signed rows: good for the company green, costs red; echoes say nothing", () => {
@@ -19,12 +20,10 @@ describe("the arc, said", () => {
     expect(within({ kind: "selectBlock", window: 45, says: "" })).toBe("within 45 s");
   });
 
-  test("each ending opens in its own corner, none at the middle", () => {
-    const open = (autonomy: number, machine: number) => ENDINGS.filter((e) => e.open({ autonomy, machine })).map((e) => e.id);
-    expect(open(0, 0)).toEqual([]);
-    expect(open(2, 2)).toEqual(["merge"]);
-    expect(open(-2, -2)).toEqual(["steward"]);
-    expect(open(3, -2)).toEqual(["release"]);
-    expect(open(-2, 3)).toEqual(["contain"]);
+  test("book 1's endings are its talk's, each saying what it leaves; Contain apart, the shutdown branch's", () => {
+    expect(ENDINGS.map((e) => e.id)).toEqual(BOOK1_TALK.endings.map((e) => e.id));
+    for (const e of ENDINGS) expect(e.does.length).toBeGreaterThan(20);
+    expect(ENDINGS.some((e) => e.id === "contain")).toBe(false);
+    expect(CONTAIN.id).toBe("contain");
   });
 });

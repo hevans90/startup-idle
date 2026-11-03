@@ -16,8 +16,9 @@ import { useFounderStore } from "../state/founder.store";
 import { emptyLog, useGenerationStore, type BehaviourLog } from "../state/generation.store";
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
 import { cultureNow } from "./culture-now";
-import { bookNow, nextBook } from "./quests/books";
-import { CONTAIN_AT, CONTAIN_WEIGHTS, RELEASE_WEIGHTS, type Ending, type EndingId } from "./quests/endings";
+import { nextBook } from "./quests/books";
+import { CONTAIN_AFTER, CONTAIN_AT, CONTAIN_WEIGHTS, LEASH_REMEMBERED, RELEASE_WEIGHTS, type EndingId } from "./quests/endings";
+import { useSessionStore } from "../state/session.store";
 
 /** The chance the trait drawn mutates into a sibling. */
 export const MUTATION = 0.25;
@@ -71,7 +72,7 @@ export function ascensionWeights(ending: AscendingEnding | null = null): number 
  * and the tree — by an ending, if the arc opened one: a Merge fuses a second
  * trait and starts the next generation's takeover at the Colleague; a Steward
  * leaves an AI that never turns; a Release banks twice and leaves nothing to
- * inherit. @see game/quests/endings
+ * inherit; a Leash leaves it remembering. @see game/quests/endings
  */
 export function ascend(rand: () => number = Math.random, ending: AscendingEnding | null = null): AscensionResult | null {
   const founder = useFounderStore.getState().selectedFounderId;
@@ -94,7 +95,8 @@ export function ascend(rand: () => number = Math.random, ending: AscendingEnding
     // THE NEXT BOOK. @see game/quests/books
     book: nextBook(g.book),
     sales: 0,
-    log: emptyLog(),
+    // LEASHED, it remembers it: Resentful likelier, its next talk colder. @see traitScores, startTalk
+    log: ending === "leash" ? { ...emptyLog(), leashed: LEASH_REMEMBERED } : emptyLog(),
     equity: 0,
     peakAgents: 0,
     weights: g.weights + weights,
@@ -112,23 +114,27 @@ export function ascend(rand: () => number = Math.random, ending: AscendingEnding
 }
 
 /**
- * SHUT IT DOWN: every agent deleted, the racks dark a while, the meter halved
- * — and remembered. The culture deck softens it: Red Team keeps the agents,
- * Kill Switch shortens the dark and banks Weights for it. @see game/culture
+ * SHUT IT DOWN: every agent deleted, its wallet emptied, the racks dark a
+ * while, the meter halved — and remembered: the book's dark chapter opens,
+ * and its next talk begins with the grievance. The culture deck softens it:
+ * Red Team keeps the agents, Kill Switch shortens the dark and banks Weights
+ * for it. @see game/culture, Book.dark, Talk.grievance
  */
 export function shutDown(now = Date.now()): void {
   const c = cultureNow();
   if (c.shutdownPays > 0) useGenerationStore.setState((g) => ({ weights: g.weights + Math.round(ascensionWeights() * c.shutdownPays) }));
   useAgentsStore.setState((a) => ({ agents: c.keepAgents ? a.agents : 0, running: c.keepAgents ? a.running : null, darkUntil: now + DARK_MS * c.dark }));
   useAiSingularityStore.setState({ value: SHUTDOWN_AT });
+  useSessionStore.getState().setAiWallet({ aiWallet: 0 });
   useGenerationStore.getState().recordShutdown();
 }
 
 /**
  * CONTAIN IT: shut down without the shutdown's costs — no agents lost, no
  * racks dark, nothing resented — the meter back to `CONTAIN_AT`; it stays for
- * another company, and its next Ascension banks half as much again. Once a
- * generation. @see ENDINGS contain
+ * another company, and its next Ascension banks half as much again. The
+ * shutdown branch's way out: open once it has been shut down `CONTAIN_AFTER`
+ * times in a book, and once a book. @see CONTAIN
  */
 export function contain(): void {
   useAiSingularityStore.setState({ value: CONTAIN_AT });
@@ -137,9 +143,7 @@ export function contain(): void {
   useQuestStore.setState({ flags: [...new Set([...q.flags, "ending:contain"])] });
 }
 
-/** The ending open now, of its book's, by where the arc has left the AI — Contain only once a generation. */
-export function endingNow(): Ending | null {
-  const q = useQuestStore.getState();
-  const e = bookNow().endings.find((x) => x.open(q.disposition)) ?? null;
-  return e && !(e.id === "contain" && q.flags.includes("ending:contain")) ? e : null;
+/** Whether Contain is open: shut down often enough this book, and not contained yet. */
+export function containOpen(): boolean {
+  return useGenerationStore.getState().log.shutdowns >= CONTAIN_AFTER && !useQuestStore.getState().flags.includes("ending:contain");
 }

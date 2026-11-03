@@ -60,7 +60,9 @@ export const FIXTURE_METER = 45;
  * every chapter answered down the middle, two culture cards slotted, the
  * Lattice built and the meter full — so the whole Ascension can be played
  * from the map's sequence, through the card and the negotiation, to the
- * founders. @see NegotiationScreen
+ * founders. With `&shutdowns=N`, shut down N times already and Cold Start
+ * answered with an apology: Contain on the card, its grievances in the talk.
+ * @see NegotiationScreen
  */
 function seedAscension(): void {
   resetAllGameStores();
@@ -79,6 +81,12 @@ function seedAscension(): void {
   useGeneratorStore.setState((s) => ({
     employeeManagement: { ...s.employeeManagement, deck: { ...s.employeeManagement.deck, slots: 2, ranks: { crunch: 1, redteam: 1 }, slotted: ["crunch", "redteam"] } },
   }));
+  // THE SHUTDOWN BRANCH, already taken. @see Book.dark
+  const shutdowns = Number(new URLSearchParams(location.search).get("shutdowns")) || 0;
+  if (shutdowns > 0) {
+    useGenerationStore.setState((g) => ({ log: { ...g.log, shutdowns } }));
+    useQuestStore.setState((q) => ({ chapters: { ...q.chapters, "cold-start": 0 }, flags: [...q.flags, "dark:apologised"] }));
+  }
   useAiSingularityStore.setState({ value: 100 });
   const had = useVapeAchievementsStore.getState().unlockedAchievementIds;
   const met = achievementsNewlyMet(buildAchievementContext(), new Set(had)).map((a) => a.id);

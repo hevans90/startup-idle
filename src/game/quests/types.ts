@@ -52,6 +52,8 @@ type EffectKind =
   | { kind: "charter"; charter: Charter }
   /** Its buildings in its district kept in water, whatever their pipes: a standing source. */
   | { kind: "standingWater" }
+  /** ONCE: the AI's wallet filled to what it may hold. */
+  | { kind: "fillWallet" }
   /** ONCE: so many seconds of income paid, or as much as there is. */
   | { kind: "pay"; seconds: number }
   /** ONCE, when it comes into force: the block picked rebuilt to its plan — its starter houses cleared, but for the building kept. */
@@ -60,7 +62,7 @@ type EffectKind =
   | { kind: "flag"; name: string };
 
 /** The effects done once, when they come into force, rather than read while they last. @see useQuestStore.actions */
-export const ONCE: ReadonlySet<Effect["kind"]> = new Set(["rebuildBlock", "pay"]);
+export const ONCE: ReadonlySet<Effect["kind"]> = new Set(["rebuildBlock", "pay", "fillWallet"]);
 
 /**
  * THE CHARTERS: the rules of the takeover. The Oversight Board keeps your
@@ -126,6 +128,8 @@ export type Chapter = {
   /** Its number in the arc: a chapter's second part shares it. */
   number: number;
   title: string;
+  /** What it is, over the title, when not "Chapter N": the dark chapter's. */
+  kicker?: string;
   stage: Stage;
   /** A meter value it fires at instead of its stage's start: the Lattice's 95. */
   at?: number;

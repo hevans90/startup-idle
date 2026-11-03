@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { twMerge } from "tailwind-merge";
 
+import { landing, TRUST_START } from "../game/negotiation";
 import { bookNow } from "../game/quests/books";
 import type { Chapter, Disposition } from "../game/quests/types";
 import { traitForecast } from "../game/traits";
@@ -83,11 +84,12 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
           <p className={TITLE}>What it might become</p>
           <p>{becoming.map((b) => `${b.name} ${Math.round(b.odds * 100)}%`).join(" · ")}</p>
           <ul className="mt-1">
+            {/* THE ENDING IT LEANS TO, as the talk would begin now. @see landing */}
             {bookNow().endings.map((e) => {
-              const open = e.open(at);
+              const talk = bookNow().talk, leans = talk && landing(talk, { stance: at, trust: TRUST_START }).id === e.id;
               return (
-                <li key={e.id} className={open ? "text-good" : "text-fg-muted"}>
-                  {open ? "✓" : "·"} <b>{e.name}</b>{open ? ` — open to it. ${e.does}` : ` — needs ${e.needs}`}
+                <li key={e.id} className={leans ? "text-ai" : "text-fg-muted"}>
+                  {leans ? "→" : "·"} <b>{e.name}</b>{leans ? ` — where it leans. ${e.does}` : ""}
                 </li>
               );
             })}

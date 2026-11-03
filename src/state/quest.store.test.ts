@@ -138,6 +138,34 @@ describe("the arc", () => {
   });
 });
 
+describe("the dark chapter", () => {
+  test("offered the first time it is shut down this book, whatever the meter, once; apologising fills its wallet and is remembered", () => {
+    step({ meter: 50 });
+    expect(q().offer?.id).toBe("ledger");
+    q().choose(0, ARC);
+    step({ meter: 50 });
+    expect(q().offer).toBeNull();
+    useGenerationStore.getState().recordShutdown();
+    step({ meter: 50 });
+    expect(q().offer).toEqual({ kind: "chapter", id: "cold-start", waited: 0 });
+    q().choose(0, ARC);
+    expect(q().flags).toContain("dark:apologised");
+    expect(q().actions.map((e) => e.kind)).toContain("fillWallet");
+    useGenerationStore.getState().recordShutdown();
+    step({ meter: 50 });
+    expect(q().offer).toBeNull();
+  });
+
+  test("keeping the leash: toward Control, its agents slowed a while", () => {
+    useGenerationStore.getState().recordShutdown();
+    step({ meter: 0 });
+    q().choose(1, ARC);
+    expect(q().flags).toContain("dark:leashed");
+    expect(q().disposition.autonomy).toBe(-1);
+    expect(q().effects.some((e) => e.kind === "agentCap" && e.until !== undefined)).toBe(true);
+  });
+});
+
 /** Answer the offer, which must be this chapter. */
 function answer(id: string, option: number) {
   expect(q().offer?.id).toBe(id);

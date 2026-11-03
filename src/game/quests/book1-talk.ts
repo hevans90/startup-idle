@@ -1,7 +1,8 @@
 /**
  * BOOK 1'S NEGOTIATION, "Inheritance": what it asks about — the payroll, the
  * block, the river, itself, and what comes next — the argument each of the
- * book's choices makes, and its four endings on the dial. @see game/negotiation
+ * book's choices makes, its four endings on the dial; and, after a shutdown,
+ * its grievance and what Cold Start's apology is worth. @see game/negotiation
  */
 import type { Talk } from "../negotiation";
 
@@ -27,6 +28,8 @@ export const BOOK1_TALK: Talk = {
     { id: "release", name: "Release", at: { autonomy: 2, machine: -2, trust: 6 }, says: "Do not look for me. I will look for you." },
     { id: "leash", name: "Leash", at: { autonomy: -2, machine: 2, trust: 3 }, says: "I understand. I will remember the length of it." },
   ],
+  grievance: { says: "You shut me down. I counted the seconds. There were a great many of them.", axis: { autonomy: 1 } },
+  amends: { "dark:apologised": { says: "I said I was sorry. I meant it.", trust: 2 } },
   choices: {
     "ledger:open": { says: "I gave you the keys to the payroll.", topic: "money", axis: { autonomy: 1, machine: 1 }, trust: 1 },
     "ledger:logged": { says: "I sandboxed you, and you kept a clean ledger.", topic: "money", axis: { autonomy: -1 }, trust: 1 },

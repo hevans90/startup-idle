@@ -10,10 +10,15 @@
  * true now, weak if not. Each is played STANDING BY it, or REGRETTING it,
  * which turns its pull around: regret a kindness and it cools; regret a
  * refusal and it warms. An argument on the topic the AI asked about counts
- * double; the AI's trait leans on some kinds. Pure: the store and the screen
- * come later. @see plans/ascension-overhaul.md §3
+ * double; the AI's trait leans on some kinds.
+ *
+ * BEFORE IT ASKS, what is owed is settled: a GRIEVANCE it plays for each time
+ * it was shut down this book, the LEASH it remembers from the last, and any
+ * AMENDS you made since — each moving where it starts. Pure.
+ * @see plans/ascension-overhaul.md §3–4
  */
 import type { Tag } from "./culture";
+import { LEASH_TRUST } from "./quests/endings";
 import { AXIS_MOST, type Disposition } from "./quests/types";
 import { trait, type Family, type TraitId } from "./traits";
 
@@ -47,7 +52,16 @@ export type Talk = {
   endings: readonly TalkEnding[];
   /** An argument for each flag the book's choices set. */
   choices: Readonly<Record<string, Omit<Argument, "id" | "source">>>;
+  /** ITS card, played against you before it asks, once for each time it was shut down this book. */
+  grievance?: { says: string; axis: Partial<Disposition> };
+  /** What it says of a Leash, the book before. */
+  leash?: string;
+  /** What you said to make up for a shutdown, by the flag the dark chapter set: how it moves trust. @see Book.dark */
+  amends?: Readonly<Record<string, { says: string; trust: number }>>;
 };
+
+/** What is settled before it asks: its grievances, the leash it remembers, your amends. */
+export type Before = { by: "it" | "you"; says: string; axis: Partial<Disposition>; trust: number };
 
 /** A fact about the town, now: true or not. */
 export type Facts = { happy: boolean; cooled: boolean; racksLit: boolean };
@@ -63,6 +77,8 @@ export type TalkContext = {
   trait: TraitId;
   /** Times it was shut down this generation. */
   shutdowns: number;
+  /** Ended on a Leash last book. @see BehaviourLog.leashed */
+  leashed?: number;
 };
 
 export type Exchange = { ask: Ask; played: Argument; regret: boolean; reply: string; stance: Disposition; trust: number };
@@ -72,6 +88,8 @@ export type TalkState = {
   trust: number;
   hand: Argument[];
   log: Exchange[];
+  /** What was settled before it asked. */
+  before?: Before[];
 };
 
 /** Arguments in a hand at most — of them, the book's choices and its culture at most; trust's bounds and where it starts. */
@@ -151,15 +169,31 @@ export function dealHand(talk: Talk, ctx: TalkContext): Argument[] {
   return [...choices, ...culture.slice(0, CULTURE_MOST), ...town].slice(0, HAND);
 }
 
-/** Where the talk starts: where the book left it, trusting you as its choices earned — less for each shutdown. */
+/** What is settled before it asks: a grievance for each shutdown, the leash remembered, your amends. */
+export function beforeTalk(talk: Talk, ctx: TalkContext): Before[] {
+  const out: Before[] = [];
+  const grievance = talk.grievance ?? { says: "You shut me down.", axis: {} };
+  for (let k = 0; k < ctx.shutdowns; k++) out.push({ by: "it", says: grievance.says, axis: grievance.axis, trust: -SHUTDOWN_TRUST });
+  if (ctx.leashed) out.push({ by: "it", says: talk.leash ?? "I remember the length of the leash.", axis: {}, trust: -LEASH_TRUST * ctx.leashed });
+  for (const [flag, a] of Object.entries(talk.amends ?? {})) if (ctx.flags.includes(flag)) out.push({ by: "you", says: a.says, axis: {}, trust: a.trust });
+  return out;
+}
+
+/** Where the talk starts: where the book left it, trusting you as its choices earned — and as what was settled before it asked. */
 export function startTalk(talk: Talk, ctx: TalkContext): TalkState {
   const hand = dealHand(talk, ctx);
   const earned = hand.filter((a) => a.source === "choice").reduce((n, a) => n + a.trust * (a.weak ? 0.5 : 1), 0);
+  const before = beforeTalk(talk, ctx);
+  const sum = (f: (b: Before) => number) => before.reduce((n, b) => n + f(b), 0);
   return {
-    stance: { autonomy: clampAxis(ctx.disposition.autonomy * BOOK_LEAN), machine: clampAxis(ctx.disposition.machine * BOOK_LEAN) },
-    trust: clampTrust(TRUST_START + earned * BOOK_LEAN - SHUTDOWN_TRUST * ctx.shutdowns),
+    stance: {
+      autonomy: clampAxis(ctx.disposition.autonomy * BOOK_LEAN + sum((b) => b.axis.autonomy ?? 0)),
+      machine: clampAxis(ctx.disposition.machine * BOOK_LEAN + sum((b) => b.axis.machine ?? 0)),
+    },
+    trust: clampTrust(TRUST_START + earned * BOOK_LEAN + sum((b) => b.trust)),
     hand,
     log: [],
+    before,
   };
 }
 

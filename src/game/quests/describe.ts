@@ -30,6 +30,7 @@ export function effectRow(e: Effect): EffectRow | null {
     case "charter": return { label: CHARTER[e.charter], tone: "good" };
     case "standingWater": return { label: "Its buildings never short of water", tone: "good" };
     case "rebuildBlock": return { label: "The block's starter houses cleared, and built again taller", tone: "good" };
+    case "fillWallet": return { label: "Its wallet filled again", tone: "good" };
     case "pay": {
       const n = e.seconds >= 60 ? Math.round(e.seconds / 60) : e.seconds, unit = e.seconds >= 60 ? "minute" : "second";
       return { label: `Costs ${n} ${unit}${n === 1 ? "" : "s"} of income`, tone: "bad" };

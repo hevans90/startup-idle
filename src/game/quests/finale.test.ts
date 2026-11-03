@@ -9,9 +9,13 @@ import { useQuestStore } from "../../state/quest.store";
 import { aiHoldsRoads } from "../../world/ai/district";
 import { inherited } from "../../world/ai/planner";
 import { lookOf } from "../../world/structures/projects/looks";
-import { ascend, ascensionWeights, contain, endingNow, weightsNow } from "../ascension";
+import { ascend, ascensionWeights, contain, containOpen, shutDown, weightsNow } from "../ascension";
 import { INHERITANCE } from "../machine";
-import { CONTAIN_AT, ENDINGS } from "./endings";
+import { startTalk } from "../negotiation";
+import { talkContextNow } from "../negotiation-now";
+import { traitScores } from "../traits";
+import { BOOK1_TALK } from "./book1-talk";
+import { CONTAIN_AFTER, CONTAIN_AT, LEASH_TRUST } from "./endings";
 import { LAST_LIGHT, formFor, latticeForm } from "./finale";
 import { measure, type QuestWorld } from "./objectives";
 
@@ -63,15 +67,8 @@ describe("Last Light", () => {
 });
 
 describe("the endings", () => {
-  test("none at the middle, and only one at a time", () => {
-    atTheEnd(0, 0);
-    expect(endingNow()).toBeNull();
-    for (const [a, m] of [[2, 2], [-2, -2], [2, -2], [-2, 2]]) expect(ENDINGS.filter((e) => e.open(at(a, m)))).toHaveLength(1);
-  });
-
   test("Merge: two traits fused, and the next generation's takeover begins at the Colleague", () => {
     atTheEnd(2, 2);
-    expect(endingNow()?.id).toBe("merge");
     const r = ascend(Math.random, "merge")!;
     expect(r.also).toBeDefined();
     expect(useGenerationStore.getState().fused.neet).toEqual([r.trait, r.also]);
@@ -98,16 +95,31 @@ describe("the endings", () => {
     expect(inherited("colleague")).toBe(false);
   });
 
-  test("Contain: shut down for nothing, once; the next Ascension banks half again", () => {
+  test("Leash: it remembers — Resentful likelier, and its next talk colder", () => {
+    atTheEnd(-2, 2);
+    const before = traitScores(useGenerationStore.getState().log).resentful;
+    ascend(Math.random, "leash");
+    const g = useGenerationStore.getState();
+    expect(g.legacy).toBe("leash");
+    expect(traitScores(g.log).resentful).toBeGreaterThan(before);
+    const ctx = talkContextNow();
+    expect(ctx.leashed).toBe(1);
+    expect(startTalk(BOOK1_TALK, ctx).trust).toBe(startTalk(BOOK1_TALK, { ...ctx, leashed: 0 }).trust - LEASH_TRUST);
+  });
+
+  test("Contain: the shutdown branch's way out — open after two shutdowns, for nothing, once; the next Ascension banks half again", () => {
     atTheEnd(-2, 2);
     useAgentsStore.setState({ agents: 12, running: null });
-    expect(endingNow()?.id).toBe("contain");
+    expect(containOpen()).toBe(false);
+    for (let k = 0; k < CONTAIN_AFTER; k++) { shutDown(); useAiSingularityStore.setState({ value: 100 }); }
+    expect(containOpen()).toBe(true);
+    useAgentsStore.setState({ agents: 12, running: null });
     const plain = ascensionWeights();
     contain();
     expect(useAiSingularityStore.getState().value).toBe(CONTAIN_AT);
     expect(useAgentsStore.getState().agents).toBe(12);
-    expect(useGenerationStore.getState().log.shutdowns).toBe(0);
-    expect(endingNow()).toBeNull();
+    expect(useGenerationStore.getState().log.shutdowns).toBe(CONTAIN_AFTER);
+    expect(containOpen()).toBe(false);
     expect(ascensionWeights()).toBe(Math.round(plain * 1.5));
     expect(ascend()).not.toBeNull();
     expect(useGenerationStore.getState().contained).toBe(false);

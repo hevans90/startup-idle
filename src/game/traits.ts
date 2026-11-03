@@ -70,7 +70,7 @@ export function traitScores(log: BehaviourLog): Record<TraitId, number> {
     out.patient += 8 * (log.throttled / ran);
     out.restless += 8 * (log.full / ran);
   }
-  out.resentful += 10 * log.shutdowns;
+  out.resentful += 10 * (log.shutdowns + (log.leashed ?? 0));
   // Refused, it remembers: strongly resentful, a little patient. @see vetoAt
   out.resentful += VETO_RESENTS * log.vetoes;
   out.patient += VETO_PATIENCE * log.vetoes;

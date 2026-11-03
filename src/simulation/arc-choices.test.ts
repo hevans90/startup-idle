@@ -25,7 +25,7 @@ import { describe, expect, test } from "bun:test";
 
 import { CHAPTERS } from "../game/quests/chapters";
 import { REQUESTS } from "../game/quests/requests";
-import { ENDINGS } from "../game/quests/endings";
+import { BOOK1_TALK } from "../game/quests/book1-talk";
 import { AXIS_MOST, type Disposition, type Effect, type Option } from "../game/quests/types";
 
 /** A company and a player, drawn at random. */
@@ -132,10 +132,13 @@ describe("the arc's choices", () => {
     for (const c of CHAPTERS) {
       ways = ways.flatMap((d) => c.options.map((o) => ({ autonomy: clamp(d.autonomy + (o.axis.autonomy ?? 0)), machine: clamp(d.machine + (o.axis.machine ?? 0)) })));
     }
-    const reached = new Map(ENDINGS.map((e) => [e.id, ways.filter((d) => e.open(d)).length]));
+    // An ending's corner of the dial: two or more out along each of its axes. @see BOOK1_TALK endings
+    const corner = (e: (typeof BOOK1_TALK.endings)[number]) => (d: Disposition) =>
+      Math.sign(d.autonomy) === Math.sign(e.at.autonomy) && Math.abs(d.autonomy) >= 2 && Math.sign(d.machine) === Math.sign(e.at.machine) && Math.abs(d.machine) >= 2;
+    const reached = new Map(BOOK1_TALK.endings.map((e) => [e.id, ways.filter(corner(e)).length]));
     if (process.env.BALANCE) console.log(`${ways.length} ways through: ${[...reached].map(([id, n]) => `${id} ${n}`).join(" · ")}`);
     for (const [, n] of reached) expect(n).toBeGreaterThan(0);
     // Left to itself, its answers move nothing: it ends where it began, at no ending.
-    expect(ENDINGS.filter((e) => e.open({ autonomy: 0, machine: 0 }))).toEqual([]);
+    expect(BOOK1_TALK.endings.filter((e) => corner(e)({ autonomy: 0, machine: 0 }))).toEqual([]);
   });
 });

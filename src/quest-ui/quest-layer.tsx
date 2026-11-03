@@ -9,7 +9,7 @@
 import { useEffect, useRef } from "react";
 
 import { sfx } from "../audio/sound";
-import { bookNow } from "../game/quests/books";
+import { bookNow, chapterKicker, chapterOf } from "../game/quests/books";
 import { CHAPTER_WAIT, REQUEST_WAIT, offered, useQuestStore, type Running } from "../state/quest.store";
 import { useWorldStore } from "../state/world.store";
 import { idx, inBounds, structureAt, type Grid } from "../world/grid";
@@ -132,7 +132,7 @@ export function QuestLayer({ tracker = true, offer: showOffer = true }: { tracke
     sfx("transmission");
   }, [offer]);
   const q = offer ? offered(offer) : null;
-  const chapter = offer?.kind === "chapter" ? bookNow().chapters.find((c) => c.id === offer.id) : null;
+  const chapter = offer?.kind === "chapter" ? chapterOf(offer.id) : null;
   const request = offer?.kind === "request" ? bookNow().requests.find((r) => r.id === offer.id) : null;
   return (
     <>
@@ -143,7 +143,7 @@ export function QuestLayer({ tracker = true, offer: showOffer = true }: { tracke
         {showOffer && offer && q && (chapter || request) && (
           <Transmission
             className="quest-slide-in"
-            kicker={chapter ? `Chapter ${chapter.number}` : "Between chapters"}
+            kicker={chapter ? chapterKicker(chapter) : "Between chapters"}
             title={chapter ? chapter.title : "A request"}
             lines={chapter ? chapter.transmission(new Set(flags)) : [request!.text]}
             options={q.options}

@@ -4,8 +4,8 @@ import { resetAllGameStores } from "../../simulation/reset-game-stores";
 import { useFounderStore } from "../../state/founder.store";
 import { useGenerationStore } from "../../state/generation.store";
 import { useQuestStore } from "../../state/quest.store";
-import { ascend, endingNow } from "../ascension";
-import { BOOKS, book, bookNow, nextBook } from "./books";
+import { ascend } from "../ascension";
+import { BOOKS, book, bookNow, chapterKicker, chapterOf, nextBook } from "./books";
 import { CHAPTERS, REQUESTS } from "./chapters";
 import { ENDINGS } from "./endings";
 
@@ -34,11 +34,12 @@ describe("the books", () => {
     expect(useQuestStore.getState().record.at(-1)?.book).toBe(1);
   });
 
-  test("the endings open are the book's: none in a book without them", () => {
-    useQuestStore.setState({ disposition: { autonomy: 3, machine: 3 } });
-    expect(endingNow()?.id).toBe("merge");
+  test("its dark chapter is found as its chapters are, and said as what it is; none in a book without one", () => {
+    expect(chapterOf("cold-start")?.title).toBe("Cold Start");
+    expect(chapterKicker(chapterOf("cold-start")!)).toBe("After the shutdown");
+    expect(chapterKicker(chapterOf("ledger")!)).toBe("Chapter 1");
     useGenerationStore.setState({ book: 2 });
-    expect(endingNow()).toBeNull();
+    expect(chapterOf("cold-start")).toBeUndefined();
   });
 
   test("a save from before the books: book 1 in the first generation, book 2 after", () => {

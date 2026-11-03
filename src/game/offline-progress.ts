@@ -1,7 +1,7 @@
 import Decimal from "break_infinity.js";
 import { holdWhileAway, nextQuestStep, stageFrom, useAiSingularityStore } from "../state/ai-singularity.store";
 import { useQuestStore } from "../state/quest.store";
-import { bookNow } from "./quests/books";
+import { bookNow, chapterOf } from "./quests/books";
 import { useFounderStore } from "../state/founder.store";
 import { type GeneratorId, useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
@@ -44,7 +44,7 @@ export type OfflineSummary = {
 export function chapterWaiting(meter: number): OfflineSummary["chapter"] {
   const q = useQuestStore.getState(), chapters = bookNow().chapters;
   const c = q.offer?.kind === "chapter"
-    ? chapters.find((x) => x.id === q.offer!.id)
+    ? chapterOf(q.offer.id)
     : chapters.find((x) => !(x.id in q.chapters) && meter >= (x.at ?? stageFrom(x.stage)));
   return c ? { number: c.number, title: c.title } : null;
 }

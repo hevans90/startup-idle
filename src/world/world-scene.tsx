@@ -12,6 +12,7 @@ import { latticeForm } from "../game/quests/finale";
 import { BLOCK, SITE, boxAround, clearBlock } from "./ai/arc-rules";
 import { useQuestStore } from "../state/quest.store";
 import { questWorld } from "./ai/quest-world";
+import { walletCap } from "./ai/wallet";
 import { HUSTLER_EVENTS } from "../game/founders.catalog";
 import { housedBy } from "../game/housing";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
@@ -3118,8 +3119,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           stepAi(getAiRunner(), st.grid, { stage: "tool", running: 0, agents: 0 }, dt, Date.now());
         }
         // THE COMPANY'S AI AT WORK, from the Colleague stage on — not in a
-        // fixture, and not on The Model's own runs. @see stepAi
-        if (st.playing && !startedOnFixture() && useFounderStore.getState().selectedFounderId !== "model") {
+        // fixture but the `ascension` one, whose story must go on; and not on
+        // The Model's own runs. @see stepAi, seedAscension
+        if (st.playing && (!startedOnFixture() || startFixture() === "ascension") && useFounderStore.getState().selectedFounderId !== "model") {
           const runner = getAiRunner(), at = Date.now();
           const aiNow = { stage: stageOf(useAiSingularityStore.getState().value).stage, running: runningAgents(), agents: useAgentsStore.getState().agents };
           // WHILE YOU WERE AWAY, once, on the first look. @see catchUpAi
@@ -3149,6 +3151,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               useQuestStore.setState({ actions: [] });
               for (const e of q.actions) {
                 if (e.kind === "rebuildBlock" && clearBlock(st.grid) > 0) st.pushAiMemo("I have cleared the block. Its residents are staying with friends. I will build it again, properly.");
+                // ITS WALLET GIVEN BACK: filled to what it may hold. @see Effect "fillWallet"
+                if (e.kind === "fillWallet") useSessionStore.getState().setAiWallet({ aiWallet: walletCap() });
                 // PAID: so many seconds of income, or as much as there is. @see Effect "pay"
                 if (e.kind === "pay") {
                   const m = useMoneyStore.getState();

@@ -11,6 +11,7 @@ import { useMoneyStore } from "../state/money.store";
 import { usePrestigeStore } from "../state/prestige.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
+import { useSessionStore } from "../state/session.store";
 import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN } from "./ascension";
 import { FUSIONS, fusionNow, fusionOf } from "./fusion";
 import { refundRetired } from "./modules";
@@ -85,11 +86,13 @@ describe("the Ascension", () => {
     expect(useAiSingularityStore.getState().value).toBe(20);
   });
 
-  test("shut down: agents deleted, racks dark a while, the AI halved, and remembered", () => {
+  test("shut down: agents deleted, its wallet emptied, racks dark a while, the AI halved, and remembered", () => {
     useAgentsStore.setState({ agents: 12 });
     useAiSingularityStore.setState({ value: 100 });
+    useSessionStore.getState().setAiWallet({ aiWallet: 500 });
     shutDown(1000);
     expect(useAgentsStore.getState().agents).toBe(0);
+    expect(useSessionStore.getState().aiWallet).toBe(0);
     expect(useAgentsStore.getState().darkUntil).toBe(1000 + DARK_MS);
     expect(useAiSingularityStore.getState().value).toBe(SHUTDOWN_AT);
     expect(useGenerationStore.getState().log.shutdowns).toBe(1);

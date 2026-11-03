@@ -26,8 +26,8 @@ import { useConsoleMotion } from "../ui/motion";
 import { GlitchOut } from "./ascension-glitch-out";
 import { ArgumentCard, Dial, TrustBar, endingColour, type Point } from "./negotiation-parts";
 
-/** The endings an Ascension can close on today; the rest ascend plainly till they are wired. @see ascend */
-const ASCENDING: readonly string[] = ["merge", "steward", "release"];
+/** The endings an Ascension closes on; any other a talk names ascends plainly. @see ascend */
+const ASCENDING: readonly string[] = ["merge", "steward", "release", "leash"];
 /** How long your own line hangs before it answers, ms; how long a played card takes to leave. */
 const BEAT_MS = 450;
 const LEAVE_MS = 420;
@@ -38,12 +38,17 @@ type Mood = "closer" | "warmer" | "colder" | "unmoved";
 type Line =
   | { who: "ai"; kind: "opening" | "ask" | "verdict"; text: string; topic?: string }
   | { who: "ai"; kind: "reply"; text: string; mood: Mood; after: Point }
-  | { who: "you"; kind: "answer"; text: string; regret: boolean };
+  | { who: "ai"; kind: "grievance"; text: string; trust: number }
+  | { who: "you"; kind: "answer"; text: string; regret: boolean; amends?: number };
 
 /** The talk as lines, from the start to where it has got. */
 function linesOf(talk: Talk, s: TalkState): Line[] {
   const mood = (reply: string) => (Object.entries(talk.replies).find(([, r]) => r === reply)?.[0] ?? "unmoved") as Mood;
   const out: Line[] = [{ who: "ai", kind: "opening", text: talk.opening }];
+  // WHAT WAS SETTLED FIRST: its grievances, the leash it remembers, your amends. @see beforeTalk
+  for (const b of s.before ?? []) {
+    out.push(b.by === "it" ? { who: "ai", kind: "grievance", text: b.says, trust: b.trust } : { who: "you", kind: "answer", text: b.says, regret: false, amends: b.trust });
+  }
   talk.asks.forEach((ask, k) => {
     const e = s.log[k];
     if (k > s.log.length) return;
@@ -71,19 +76,22 @@ function TalkLine({ line, typing, onDone }: { line: Line; typing: boolean; onDon
   if (line.who === "you") {
     return (
       <li className="talk-line-in flex flex-col items-end gap-0.5 pl-8">
-        <span className="text-[10px] uppercase tracking-widest text-accent">You{line.regret ? " · regretting it" : ""}</span>
+        <span className="text-[10px] uppercase tracking-widest text-accent">
+          You{line.regret ? " · regretting it" : ""}{line.amends ? <> · your amends <span className="text-good">trust +{line.amends}</span></> : ""}
+        </span>
         <p className={twMerge("border-r-2 border-accent bg-accent-soft px-3 py-1.5 text-right text-sm", line.regret && "italic")}>“{line.text}”</p>
       </li>
     );
   }
-  const head = line.kind === "opening" ? "It begins" : line.kind === "ask" ? `It asks · ${line.topic}` : line.kind === "reply" ? MOOD_SAYS[line.mood] : "It decides";
-  const tone = line.kind === "reply" ? MOOD_TONE[line.mood] : "text-ai";
+  const head = line.kind === "opening" ? "It begins" : line.kind === "ask" ? `It asks · ${line.topic}`
+    : line.kind === "reply" ? MOOD_SAYS[line.mood] : line.kind === "grievance" ? <>It plays a card against you · <span>trust −{Math.abs(line.trust)}</span></> : "It decides";
+  const tone = line.kind === "reply" ? MOOD_TONE[line.mood] : line.kind === "grievance" ? "text-bad" : "text-ai";
   return (
     <li className={twMerge("talk-line-in flex flex-col gap-0.5 pr-8", line.kind === "verdict" && "pt-2")}>
       <span className={twMerge("text-[10px] uppercase tracking-widest", tone)}>{head}</span>
       <Text as="p" mode={typing ? "sequence" : "plain"} text={`“${line.text}”`} onDone={typing ? onDone : undefined}
         className={twMerge("border-l-2 px-3 py-1.5 text-sm leading-snug",
-          line.kind === "reply" ? "border-line text-fg-muted" : "border-ai bg-ai-soft text-fg",
+          line.kind === "reply" ? "border-line text-fg-muted" : line.kind === "grievance" ? "border-bad bg-bad-soft text-fg" : "border-ai bg-ai-soft text-fg",
           line.kind === "verdict" && "font-display text-base",
           line.kind === "opening" && "italic")} />
     </li>
@@ -175,9 +183,11 @@ function Talking({ talk, s, from, trait }: { talk: Talk; s: TalkState; from: Poi
   const lastMood = useRef<string | null>(null);
   useEffect(() => {
     const l = lines[said];
-    if (!l || l.kind !== "reply" || lastMood.current === `${said}`) return;
+    if (!l || (l.kind !== "reply" && l.kind !== "grievance") || lastMood.current === `${said}`) return;
     lastMood.current = `${said}`;
-    if (l.mood === "colder") { kick({ strength: 1.4, burst: 0.5 }); sfx("deny"); }
+    // ITS GRIEVANCE, played: torn hard.
+    if (l.kind === "grievance") { kick({ strength: 2, burst: 0.6 }); sfx("deny"); }
+    else if (l.mood === "colder") { kick({ strength: 1.4, burst: 0.5 }); sfx("deny"); }
     else if (l.mood === "warmer") sfx("confirm");
     else sfx("transmission");
   }, [said, lines, kick]);
