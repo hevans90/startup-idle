@@ -25,7 +25,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "singularity" | "bigtown";
+  | "firstRoad" | "projects" | "singularity" | "bigtown" | "ascension";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -954,7 +954,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "singularity", "bigtown",
+  "firstRoad", "projects", "singularity", "bigtown", "ascension",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -984,6 +984,8 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "brink": buildBrink(g, material); recomputeHeightRange(g); return;
     case "projects": buildProjects(g, material); recomputeHeightRange(g); return;
     case "singularity": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
+    // The same town, its company at the end of book 1. @see seedAscension
+    case "ascension": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
     case "bigtown": buildBigTown(g, material); recomputeHeightRange(g); return;
   }
 }

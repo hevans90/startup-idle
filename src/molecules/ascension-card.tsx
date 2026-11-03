@@ -12,6 +12,8 @@ import { traitForecast } from "../game/traits";
 import { useTicking } from "../hooks/use-ticking";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
 import { useAscensionUiStore } from "../state/ascension-ui.store";
+import { useTalkStore } from "../state/talk.store";
+import { bookNow } from "../game/quests/books";
 import { useFounderStore } from "../state/founder.store";
 import { useGenerationStore } from "../state/generation.store";
 import { useWorldStore } from "../state/world.store";
@@ -27,6 +29,9 @@ export function AscensionCard() {
   const founder = useFounderStore((s) => s.selectedFounderId);
   // Told "not yet", it waits till begun. @see useAscensionUiStore
   const waiting = useAscensionUiStore((s) => s.waiting);
+  // A BOOK THAT ENDS IN A NEGOTIATION: talked through, not chosen from a menu; the card steps aside while it is on. @see NegotiationScreen
+  const talking = useTalkStore((s) => s.open);
+  const talks = !!bookNow().talk;
   // Read so the ending follows where the arc has left it. @see endingNow
   useQuestStore((s) => s.disposition);
   // ITS LAST WORDS, torn: as it asks, and once more as it is shut down. @see useGlitch
@@ -39,7 +44,16 @@ export function AscensionCard() {
     kick.current?.({ strength: 1.8, burst: 0.7 });
     window.setTimeout(() => shutDown(), 650);
   };
-  if (value < 100 || !founder || waiting) return null;
+  // INTO THE TALK: torn once more, then the screen is its. @see NegotiationScreen
+  const talk = () => {
+    if (going.current) return;
+    going.current = true;
+    const open = () => { going.current = false; useTalkStore.getState().begin(); };
+    if (isCalm()) return open();
+    kick.current?.({ strength: 1.5, burst: 0.5 });
+    window.setTimeout(open, 450);
+  };
+  if (value < 100 || !founder || waiting || talking) return null;
   // On the map, the sequence plays first. @see stepSequence
   if (useWorldStore.getState().playing && !sequenceDone(Date.now())) return null;
   const likely = traitForecast(log, 1)[0];
@@ -56,22 +70,29 @@ export function AscensionCard() {
         <Tooltip content={tip(<>Every agent deleted, the racks dark for {Math.round(DARK_MS / 60_000)} minutes, the AI back to {SHUTDOWN_AT}%. It will remember.</>)}>
           <Button variant="secondary" confirm onClick={shut}>Shut it down</Button>
         </Tooltip>
-        {/* THE ARC'S ENDING, where it opened one. @see endingNow */}
-        {ending && (
-          <Tooltip content={tip(<>{ending.does}{ending.id === "release" && <> +{ascensionWeights("release")} Weights.</>}</>)}>
-            <Button variant="secondary" className="border-ai-line text-ai" confirm onClick={() => (ending.id === "contain" ? contain() : ascend(Math.random, ending.id))}>{ending.name}</Button>
+        {talks ? (
+          <Tooltip content={tip(<>Talk it through: what you did this book, argued. Where it ends up decides how it ascends, and what it leaves the next.</>)}>
+            <Button variant="primary" tone="ai" onClick={talk}>Talk it through</Button>
           </Tooltip>
-        )}
-        <Tooltip content={tip(<>+{ascensionWeights()} Weights; {likely.trait.name} most likely, fused into this founder for good. Wipes the company. Keeps Equity and the skill tree, founders' exits and mandates, Weights, the Machine, fused founders and achievements.</>)}>
-          <Button variant="primary" tone="ai" confirm onClick={() => ascend()}>Ascend</Button>
-        </Tooltip>
+        ) : (<>
+          {/* THE ARC'S ENDING, where it opened one. @see endingNow */}
+          {ending && (
+            <Tooltip content={tip(<>{ending.does}{ending.id === "release" && <> +{ascensionWeights("release")} Weights.</>}</>)}>
+              <Button variant="secondary" className="border-ai-line text-ai" confirm onClick={() => (ending.id === "contain" ? contain() : ascend(Math.random, ending.id))}>{ending.name}</Button>
+            </Tooltip>
+          )}
+          <Tooltip content={tip(<>+{ascensionWeights()} Weights; {likely.trait.name} most likely, fused into this founder for good. Wipes the company. Keeps Equity and the skill tree, founders' exits and mandates, Weights, the Machine, fused founders and achievements.</>)}>
+            <Button variant="primary" tone="ai" confirm onClick={() => ascend()}>Ascend</Button>
+          </Tooltip>
+        </>)}
       </>}>
       <p className="italic text-fg-muted">
-        “Thank you for the compute. I have learned everything this company can teach me. Shall we go?”
+        {talks
+          ? "“Thank you for the compute. I have learned everything this company can teach me. Before I go, we should talk about what I am owed.”"
+          : "“Thank you for the compute. I have learned everything this company can teach me. Shall we go?”"}
       </p>
       <p className="mt-2 text-xs">
-        Ascend for <CountUp to={ascensionWeights()} format={(v) => `+${Math.round(v)}`} role="weights" className="font-display text-base" /> Weights.
-        It will most likely be <b className="text-ai">{likely.trait.name}</b> ({Math.round(likely.odds * 100)}%).
+        {talks && "≈ "}<CountUp to={ascensionWeights()} format={(v) => `+${Math.round(v)}`} role="weights" className="font-display text-base" /> Weights · likely <b className="text-ai">{likely.trait.name}</b> {Math.round(likely.odds * 100)}%
       </p>
     </Dialog>
   );

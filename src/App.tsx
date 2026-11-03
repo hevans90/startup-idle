@@ -11,6 +11,7 @@ import {
 } from "./game/offline-progress";
 import { useCompareVersion } from "./hooks/use-compare-version";
 import { AscensionCard } from "./molecules/ascension-card";
+import { NegotiationScreen } from "./molecules/negotiation-screen";
 import { DevDrawer } from "./molecules/dev-panel";
 import { FounderSelect } from "./molecules/founder-select";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
@@ -215,6 +216,9 @@ function App() {
               {/* THE COMPANY: the sidebar, its panels the screen's width. @see Sidebar */}
               {phoneTab === "company" && <Sidebar className="absolute inset-0" />}
             </div>
+            {/* THE ASCENSION, on a phone too: both whole-screen. @see AscensionCard, NegotiationScreen */}
+            <AscensionCard />
+            <NegotiationScreen />
           </div>
         ) : (
           <div className="flex h-full min-h-0 w-full">
@@ -239,6 +243,7 @@ function App() {
                 <DevDrawer />
 
                 <AscensionCard />
+                <NegotiationScreen />
 
                 <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1 items-start">
                   {vapeVisible && <VapeMapWrapper />}

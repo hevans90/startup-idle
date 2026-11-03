@@ -158,6 +158,62 @@ html.ui-calm .card-lift:hover {
   transition: none;
 }
 
+/* THE NEGOTIATION. @see NegotiationScreen */
+/* A line of the talk, arriving. */
+@keyframes talk-line-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.talk-line-in { animation: talk-line-in 0.3s ease-out both; }
+/* The ending it is heading for, on the dial: a ring going out from it. */
+@keyframes talk-beacon {
+  from { transform: scale(0.8); opacity: 0.9; }
+  to { transform: scale(2.2); opacity: 0; }
+}
+.talk-beacon { transform-box: fill-box; transform-origin: center; animation: talk-beacon 1.6s ease-out infinite; }
+/* THE GLITCH-OUT. @see GlitchOut */
+/* Scanlines, crawling. */
+.talk-scanlines {
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, rgb(0 0 0 / 0.45) 2px 3px);
+  animation: talk-crawl 0.4s linear infinite;
+}
+@keyframes talk-crawl { to { background-position: 0 3px; } }
+/* A bright band rolling down the tube. */
+.talk-roll {
+  background: linear-gradient(to bottom, transparent, rgb(255 255 255 / 0.18), transparent);
+  animation: talk-roll 1.1s linear infinite;
+}
+@keyframes talk-roll { from { top: -6rem; } to { top: 100%; } }
+/* ASCENDING: two copies, magenta and cyan, sliced and jolted against it. */
+.talk-glitch-title { position: relative; text-shadow: 0 0 18px var(--ui-ai); animation: talk-flicker 0.12s steps(2) infinite; }
+.talk-glitch-title::before, .talk-glitch-title::after {
+  content: attr(data-text); position: absolute; inset: 0; overflow: hidden;
+}
+.talk-glitch-title::before { color: #ff2bd6; animation: talk-slice 0.35s steps(4) infinite; transform: translate(-4px, 0); mix-blend-mode: screen; }
+.talk-glitch-title::after { color: #00f0ff; animation: talk-slice 0.27s steps(3) infinite reverse; transform: translate(4px, 0); mix-blend-mode: screen; }
+@keyframes talk-slice {
+  0% { clip-path: inset(10% 0 70% 0); transform: translate(-8px, 0); }
+  25% { clip-path: inset(55% 0 20% 0); transform: translate(6px, 0); }
+  50% { clip-path: inset(30% 0 45% 0); transform: translate(-3px, 0); }
+  75% { clip-path: inset(80% 0 5% 0); transform: translate(9px, 0); }
+  100% { clip-path: inset(0 0 85% 0); transform: translate(-5px, 0); }
+}
+@keyframes talk-flicker { 50% { opacity: 0.82; } }
+/* The tube dies: crushed to a line, then a point, flaring white. */
+.talk-crt-off { animation: talk-crt-off 0.85s cubic-bezier(0.7, 0, 0.9, 0.4) forwards; transform-origin: center; }
+@keyframes talk-crt-off {
+  0% { transform: scale(1, 1); filter: brightness(1); }
+  55% { transform: scale(1, 0.005); filter: brightness(4) contrast(2); }
+  85% { transform: scale(0.2, 0.005); filter: brightness(6); }
+  100% { transform: scale(0, 0); filter: brightness(8); }
+}
+.talk-crt-flash { background: white; animation: talk-crt-flash 0.85s ease-out forwards; }
+@keyframes talk-crt-flash { 0% { opacity: 0; } 40% { opacity: 0.9; } 100% { opacity: 0.6; } }
+html.ui-calm .talk-line-in, html.ui-calm .talk-beacon { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .talk-line-in, .talk-beacon { animation: none; }
+}
+
 /* THE CULTURE DECK'S CARDS. @see CultureBoard */
 /* Dealt in: up from below, turned a little, settling. */
 @keyframes card-deal {

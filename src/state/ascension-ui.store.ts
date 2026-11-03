@@ -5,6 +5,8 @@
  */
 import { create } from "zustand";
 
+import { useTalkStore } from "./talk.store";
+
 type AscensionUiState = {
   /** Told "not yet": the card stays shut till begun. */
   waiting: boolean;
@@ -15,5 +17,9 @@ type AscensionUiState = {
 export const useAscensionUiStore = create<AscensionUiState>()((set) => ({
   waiting: false,
   later: () => set({ waiting: true }),
-  begin: () => set({ waiting: false }),
+  // A talk already under way: straight back into it. @see useTalkStore
+  begin: () => {
+    set({ waiting: false });
+    if (useTalkStore.getState().state) useTalkStore.getState().begin();
+  },
 }));

@@ -18,6 +18,7 @@ import { useFounderStore } from "../../state/founder.store";
 import { useGenerationStore } from "../../state/generation.store";
 import { GENERATOR_TYPES, useGeneratorStore } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
+import { useQuestStore } from "../../state/quest.store";
 import { startFixture } from "../../state/world.store";
 import { setTownCaps } from "../agents/town";
 
@@ -54,8 +55,39 @@ export const FIXTURE_INTERNS = 40;
 export const FIXTURE_AGENTS = 16;
 export const FIXTURE_METER = 45;
 
+/**
+ * THE `ascension` FIXTURE, PLAYED: the first generation at the end of book 1 —
+ * every chapter answered down the middle, two culture cards slotted, the
+ * Lattice built and the meter full — so the whole Ascension can be played
+ * from the map's sequence, through the card and the negotiation, to the
+ * founders. @see NegotiationScreen
+ */
+function seedAscension(): void {
+  resetAllGameStores();
+  useFounderStore.setState({ selectedFounderId: "hustler" });
+  useMoneyStore.setState({ money: new Decimal(FIXTURE_MONEY) });
+  useGeneratorStore.getState().increaseGenerator("intern", FIXTURE_INTERNS);
+  useAgentsStore.setState({ agents: FIXTURE_AGENTS, running: null });
+  useGenerationStore.setState({ equity: 9, peakAgents: FIXTURE_AGENTS });
+  useQuestStore.setState({
+    chapters: { ledger: 1, commute: 0, thirst: 1, charter: 1, trust: 0, "last-light": 0 },
+    flags: ["ledger:logged", "block:rebuilt", "river:piped", "charter:partnership", "site:given", "lattice:helped"],
+    disposition: { autonomy: 0, machine: -1 },
+    path: [{ autonomy: -1, machine: 0 }, { autonomy: 0, machine: -1 }, { autonomy: -1, machine: -2 }, { autonomy: 0, machine: -2 }, { autonomy: 1, machine: -1 }, { autonomy: 0, machine: -1 }],
+    latticeForm: "garden",
+  });
+  useGeneratorStore.setState((s) => ({
+    employeeManagement: { ...s.employeeManagement, deck: { ...s.employeeManagement.deck, slots: 2, ranks: { crunch: 1, redteam: 1 }, slotted: ["crunch", "redteam"] } },
+  }));
+  useAiSingularityStore.setState({ value: 100 });
+  const had = useVapeAchievementsStore.getState().unlockedAchievementIds;
+  const met = achievementsNewlyMet(buildAchievementContext(), new Set(had)).map((a) => a.id);
+  useVapeAchievementsStore.setState({ unlockedAchievementIds: [...had, ...met] });
+}
+
 export function seedFixtureCompany(): void {
   if (startFixture() === "bigtown") { seedBigTown(); return; }
+  if (startFixture() === "ascension") { seedAscension(); return; }
   if (startFixture() !== "singularity") return;
   resetAllGameStores();
   useGenerationStore.setState({
