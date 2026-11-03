@@ -94,6 +94,16 @@ describe("the Ascension's cadence", () => {
     expect(out.careful === null || out.careful.sales > out.typical!.sales).toBe(true);
   });
 
+  test("five books' Weights buy its first two rings, not half the Machine", () => {
+    // Five Ascensions, one a book, at the plan's pace a sale. @see WEIGHTS_SHRINK
+    const nodes = machineGraph().nodes;
+    const all = nodes.reduce((n, x) => n + x.cost, 0);
+    const twoRings = nodes.filter((n) => n.kind === "minor" && n.ring <= 2).reduce((n, x) => n + x.cost, 0);
+    if (process.env.BALANCE) console.log(`five books: typical ${out.typical!.weights * 5}, strong ${out.strong!.weights * 5} Weights; two rings ${twoRings}, the Machine ${all}`);
+    expect(out.typical!.weights * 5).toBeGreaterThanOrEqual(twoRings);
+    expect(out.strong!.weights * 5).toBeLessThanOrEqual(all / 2);
+  });
+
   test("a generation's Weights buy some of the Machine, not half of it", () => {
     // What the Machine sells, Inheritance aside. @see game/machine
     const costs = machineGraph().nodes.map((n) => n.cost).filter((c) => c > 0);

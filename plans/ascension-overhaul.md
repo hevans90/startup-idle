@@ -1,6 +1,6 @@
 # Ascension, overhauled: five books, a negotiation at the end of each
 
-Status: **phases 1–4 done** (2026-11-03), agreed in conversation. Builds on `plans/singularity.md` and `plans/ai-takeover.md` §4–5; replaces their "later generations get a shorter sequel".
+Status: **all phases done** (2026-11-03), agreed in conversation. Builds on `plans/singularity.md` and `plans/ai-takeover.md` §4–5; replaces their "later generations get a shorter sequel".
 
 ## Why
 
@@ -243,11 +243,11 @@ Each phase ends with typecheck, tests and a commit to main. Each phase that chan
 9. **Book 3.** *(Done: `quests/book3.ts` — A Salary (from income, or a fifth of its Weights — new `weightsMult`), the Union (morale ±3 — new `morale`), the Audit, the Vote (build a park: district ×1.5), the Charter Again; told by book 2's ending, voiced by family; Market Maker and Self-Funding revealed at half price. Its talk: Citizen (next talk +2 trust), Property (as a Leash), Sovereign (next book its district ×1.5 and its streets its own from the Colleague). At random Citizen 43% · Property 35% · Sovereign 22%; steered 88 · 84 · 76%. Chapter ids kept apart from the requests'. `&book=3`.)*
 10. **Book 4.** *(Done: `quests/book4.ts` — the Spin-off (back it: district +2), Poaching (counter-offer or let them go: morale), the Merger Offer (sell, refuse, or buy it: five minutes of income), the Grid (build a rack, or cap it), the Exit (let it go: Weights ×1.25); told by book 3's ending, voiced by family; Hard Takeoff, Air Gap and Alignment revealed at half price. Its talk: Successor (next book it begins at the Colleague), Partner (next talk +2 trust), Departed (next book nothing inherited). At random Partner 19% · Departed 43% · Successor 39%; steered 77 · 89 · 92%. `&book=4`.)*
 11. **Book 5:** played as the Model, the true endings, credits, endless play. *(Done: `quests/book5.ts` — the Founder's Notes, Inheritance Reversed (give them the keys: income +2%, they may draw), the Old Town (build a park: morale +3), the Last Sale (buy yourself: Weights ×1.25), Last Light; told by book 4's ending, the founder speaking (`Talk.voice`, the chapter kicker, the card). The Model is the only founder in book 5. Its talk remembers every book's stance (`Talk.remembers`, `remembered()`): Together (endless talk +2 trust), Custodian (never turns), Beyond (nothing inherited). At random Together 38% · Custodian 21% · Beyond 41%; steered 87 · 78 · 87%. Then the credits, the recap, and endless: no chapters, the requests, `ENDLESS_TALK` with book 4's endings. `&book=5`.)*
-12. **Balance, sims, README.**
+12. **Balance, sims, README.** *(Done: an Ascension every ~5 sales banked ~1.4× the Weights a sale it had at ~14 (√ Equity favours short generations), so `WEIGHTS_SHRINK` 0.7 — typical 6.6 a sale, as before; five books bank a typical 165, a strong 210, past the first two rings (84), under half the Machine (794), guarded in `singularity-cadence.test.ts`. Endless play's talk simmed over flagless talks anywhere within two of the middle: at random Partner 31% · Departed 30% · Successor 39%; steered 72 · 57 · 62%. Every book's talk and choices pass their sims.)*
 
 ## Open questions
 
-- **Weights per Ascension:** at 2–3× the Ascensions, cut them to a third, or let the Machine fill faster?
+- ~~**Weights per Ascension**~~ — cut to 0.7, holding the pace a sale (phase 12).
 - **The culture deck at a book's start:** empty as now, or a starting card from the last ending?
 - **The negotiation's length in endless play:** the full 5–8 exchanges, or a shorter 3?
 - **Book 5 without the Model unlocked** (it unlocks at the first Ascension, so always there by then): fine, or gate book 5 on something else?

@@ -30,12 +30,18 @@ export const SHUTDOWN_AT = 50;
 /**
  * WEIGHTS a generation's work earns: its training runs — 0.4 of a Weight each,
  * a company having room for a dozen — the Equity its companies sold for, the
- * most agents it ran. @see singularity-cadence.test.ts
+ * most agents it ran; all × `WEIGHTS_SHRINK`. @see singularity-cadence.test.ts
  */
 export const WEIGHTS_A_RUN = 0.4;
+/**
+ * An Ascension every ~5 sales, not ~14, banks more a sale (√ Equity favours
+ * the short): this much of it keeps the Machine's pace a sale as it was.
+ * @see plans/ascension-overhaul.md §2
+ */
+export const WEIGHTS_SHRINK = 0.7;
 export function weightsFor(log: BehaviourLog, equity: number, peakAgents: number): number {
   const runs = Object.values(log.datasets).reduce((n, k) => n + (k ?? 0), 0);
-  return Math.max(1, Math.round(WEIGHTS_A_RUN * runs + 3 * Math.sqrt(Math.max(0, equity)) + peakAgents / 2));
+  return Math.max(1, Math.round(WEIGHTS_SHRINK * (WEIGHTS_A_RUN * runs + 3 * Math.sqrt(Math.max(0, equity)) + peakAgents / 2)));
 }
 
 /** What an Ascension now would bank. */

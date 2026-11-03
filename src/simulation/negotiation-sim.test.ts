@@ -15,7 +15,7 @@ import { BOOK2_TALK } from "../game/quests/book2-talk";
 import { BOOK3_CHAPTERS } from "../game/quests/book3";
 import { BOOK3_TALK } from "../game/quests/book3-talk";
 import { BOOK4_CHAPTERS } from "../game/quests/book4";
-import { BOOK4_TALK } from "../game/quests/book4-talk";
+import { BOOK4_TALK, ENDLESS_TALK } from "../game/quests/book4-talk";
 import { BOOK5_CHAPTERS } from "../game/quests/book5";
 import { BOOK5_TALK } from "../game/quests/book5-talk";
 import type { Chapter, Disposition } from "../game/quests/types";
@@ -117,3 +117,5 @@ balance("book 2", BOOK2_TALK, contexts(BOOK2, 8));
 balance("book 3", BOOK3_TALK, contexts(BOOK3, 2));
 balance("book 4", BOOK4_TALK, contexts(BOOK4, 2));
 balance("book 5", BOOK5_TALK, contexts(BOOK5, 2));
+// ENDLESS: no chapters, so no flags; the requests leave it anywhere within two of the middle. @see ENDLESS_TALK
+balance("endless", ENDLESS_TALK, contexts([], 600).map((c, k) => ({ ...c, disposition: { autonomy: (k % 5) - 2, machine: (Math.floor(k / 5) % 5) - 2 } })));

@@ -12,7 +12,7 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { useSessionStore } from "../state/session.store";
-import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, ascensionWeights, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN } from "./ascension";
+import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, ascensionWeights, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN, WEIGHTS_SHRINK } from "./ascension";
 import { FUSIONS, fusionNow, fusionOf } from "./fusion";
 import { refundRetired } from "./modules";
 import { INHERITANCE, ringRevealed } from "./machine";
@@ -28,7 +28,7 @@ describe("the Ascension", () => {
   test("pays Weights for the generation's work", () => {
     expect(weightsFor(emptyLog(), 0, 0)).toBe(1);
     const log = { ...emptyLog(), datasets: { money: 3, town: 2 } };
-    expect(weightsFor(log, 100, 20)).toBe(Math.round(WEIGHTS_A_RUN * 5 + 3 * 10 + 10));
+    expect(weightsFor(log, 100, 20)).toBe(Math.round(WEIGHTS_SHRINK * (WEIGHTS_A_RUN * 5 + 3 * 10 + 10)));
   });
 
   test("draws a trait from the log, and now and then mutates it into a sibling", () => {
