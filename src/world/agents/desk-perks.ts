@@ -1,16 +1,18 @@
 /**
- * World v2 — WHAT A WORKPLACE'S DESKS GET FROM WHERE IT IS: a café next door,
- * a share more work from the people at its desks, shown on its label and on
- * the café's ghost before it goes down. Who leads it is said beside, and what
+ * World v2 — WHAT A WORKPLACE'S DESKS GET FROM WHERE IT IS: coffee next door
+ * — a café or a kombucha bar, in a building or a ground floor — a share more
+ * work from the people at its desks, shown on its label. Who leads it is said beside, and what
  * a leader does is game/leaders'.
  * @see deskShare, deskBonus
  */
 import type { GeneratorId } from "../../state/generators.store";
 import type { Grid, Structure } from "../grid";
 import { workplaceKind } from "./commute";
+import { serviceDef } from "./needs";
+import { serviceIn } from "./services";
 import type { Leadership } from "./leaders";
 
-/** What a café within `CAFE_REACH` tiles adds to a workplace's desks. One café counts, however many. */
+/** What coffee within `CAFE_REACH` tiles adds to a workplace's desks. One counts, however many. */
 export const CAFE_BOOST = 0.1;
 export const CAFE_REACH = 3;
 
@@ -18,15 +20,14 @@ export const CAFE_REACH = 3;
 const gap = (a: Structure, b: Structure) =>
   Math.max(Math.max(0, b.x - (a.x + a.w - 1), a.x - (b.x + b.w - 1)), Math.max(0, b.y - (a.y + a.h - 1), a.y - (b.y + b.h - 1)));
 
-/** Whether a café stands near enough a workplace — or near enough where one would go. */
+/** Whether coffee is served near enough a workplace. */
 export function cafeNear(g: Grid, at: Structure): boolean {
-  for (const s of g.structures.values()) if (s.def === "cafe" && !s.build && gap(s, at) <= CAFE_REACH) return true;
+  for (const s of g.structures.values()) {
+    if (s.build || gap(s, at) > CAFE_REACH) continue;
+    const sv = serviceIn(s);
+    if (sv && serviceDef(sv)!.need === "coffee") return true;
+  }
   return false;
-}
-
-/** The standing workplaces a café at `at` would serve. */
-export function servedByCafe(g: Grid, at: Structure): Structure[] {
-  return [...g.structures.values()].filter((s) => !s.build && workplaceKind(s.def) && gap(s, at) <= CAFE_REACH);
 }
 
 /** What a workplace's desks get: the share more work, and why. */
@@ -37,7 +38,7 @@ export function deskPerks(g: Grid, lead: Leadership, work: Structure): { share: 
   if (names?.length) why.push(`Led by ${names.join(" & ")}`);
   if (cafeNear(g, work)) {
     share += CAFE_BOOST;
-    why.push(`Café next door · +${Math.round(CAFE_BOOST * 100)}%`);
+    why.push(`Coffee next door · +${Math.round(CAFE_BOOST * 100)}%`);
   }
   return { share, why };
 }

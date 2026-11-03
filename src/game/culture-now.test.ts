@@ -7,6 +7,7 @@ import { structureDef } from "../world/structures/def";
 import { placeCommand } from "../world/structures/place";
 import { DESKLESS, FREE, STRANDED, commuteEfficiency, seat } from "../world/agents/commute";
 import { MOOD, moodsOf, stepMood } from "../world/agents/mood";
+import { NEED_MOOD } from "../world/agents/mood-rules";
 import type { MoodParts } from "../world/agents/mood-rules";
 import type { Build } from "../world/grid";
 import { placesOf } from "../world/agents/roads";
@@ -96,7 +97,7 @@ describe("the culture deck, where the map works it out", () => {
     expect(housedBy("kit:vibe_coder.t2")!.slots).toBe(36);
   });
 
-  test("house moods: the cards' own, spills halved by Therapy, and a workplace's lunch as a café", () => {
+  test("house moods: the cards' own, spills halved by Therapy, and a workplace's lunch as food and coffee", () => {
     const g = createGrid(40, 40);
     const at = (s: Partial<Structure>, id: number) => g.structures.set(id, { id, x: 0, y: 0, w: 1, h: 1, def: "kit:intern.t0", ...s } as Structure);
     at({ x: 5, y: 5, residents: 2 }, 1);
@@ -105,7 +106,7 @@ describe("the culture deck, where the map works it out", () => {
     expect(mood().total).toBe(MOOD.noServices + MOOD.sludge);
     deck({ fourday: 1, therapy: 1, lunch: 1 });
     // Four-Day Week's +10, and three Wellness's set +10.
-    expect(mood().total).toBe(MOOD.cafe + Math.round(MOOD.sludge / 2) + 10 + 10);
+    expect(mood().total).toBe(NEED_MOOD.intern + Math.round(MOOD.sludge / 2) + 10 + 10);
   });
 
   test("leaders: Stack Ranking multiplies a rank's output; Open Plan leads everyone in full", () => {
@@ -157,13 +158,13 @@ describe("the culture deck, where the map works it out", () => {
     expect(seating().home.intern).toBe(2);
   });
 
-  test("Free Lunch's rule: a café, a park and a gym", () => {
+  test("Free Lunch's rule: every need met", () => {
     const g = createGrid(40, 40);
     g.structures.set(1, { id: 1, x: 5, y: 5, w: 1, h: 1, def: "kit:intern.t0", residents: 2 } as Structure);
     g.structures.set(2, { id: 2, x: 9, y: 5, w: 2, h: 1, def: "garage" } as Structure);
     deck({ lunch: 3 });
     const m = moodsOf(g, new Map(), new Map(), new Set()).get(1)!;
-    expect(m.total).toBe(MOOD.cafe + MOOD.park + MOOD.gym);
+    expect(m.total).toBe(2 * NEED_MOOD.intern);
   });
 
   test("Therapy Budget's rule: no one moves out, however miserable", () => {

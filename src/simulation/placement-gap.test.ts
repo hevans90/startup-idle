@@ -22,7 +22,7 @@ import { DIRT, GRASS, SAND, WOODS } from "../state/world.store";
 import { commuteFactor, liveCommutes } from "../world/agents/commute";
 import { desireAt, liveDesireMaps } from "../world/agents/desirability";
 import { liveMoods } from "../world/agents/mood";
-import { createEvolution, stepEvolution } from "../world/agents/services";
+import { createEvolution, liveCoverage, stepEvolution } from "../world/agents/services";
 import { commit, createHistory } from "../world/edit/commands";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN } from "../world/gen/params";
@@ -57,7 +57,7 @@ function founded(seed: number) {
     Math.hypot(a.x - to.x, a.y - to.y) - Math.hypot(b.x - to.x, b.y - to.y);
   const garage = spots(structureDef("garage")!).sort(near(mid))[0];
   put(structureDef("garage")!, garage);
-  for (const id of ["cafe", "park", "office-intern", "office-intern", "office-intern", "office-intern", "office-intern"]) put(structureDef(id)!, spots(structureDef(id)!).sort(near(garage))[3]);
+  for (const id of ["club", "office-intern", "office-intern", "office-intern", "office-intern", "office-intern"]) put(structureDef(id)!, spots(structureDef(id)!).sort(near(garage))[3]);
   return { g, spots, put };
 }
 
@@ -67,7 +67,7 @@ function grownWorth(g: Grid): { beds: number; commute: number; worth: number } {
   const fill = () => { for (const s of g.structures.values()) { const h = housedBy(s.def); if (h) s.residents = h.slots; } };
   fill();
   for (let t = 0; t < GROW_FOR; t += 5) {
-    if (stepEvolution(evo, g, liveMoods(g, net), 5).length) { fill(); g.rev++; }
+    if (stepEvolution(evo, g, liveMoods(g, net), liveCoverage(g, net), 5).length) { fill(); g.rev++; }
   }
   let beds = 0;
   for (const s of g.structures.values()) beds += housedBy(s.def)?.slots ?? 0;

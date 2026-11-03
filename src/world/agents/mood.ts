@@ -5,10 +5,11 @@
  * A house's MOOD is the sum of what it lives with:
  *  - its COMMUTE: nothing within the free distance, then worse the more of
  *    the day it costs, and worst with no road to work at all;
- *  - its SERVICES: a café, a park and a gym in reach each lift it, and none
- *    at all drags it down;
+ *  - its NEEDS: each of its kind's met by a service in reach lifts it, and
+ *    none at all drags it down;
  *  - SLUDGE spilled from a vibe workplace's full slop tank, on its doorstep;
- *  - CROWDING: a dense house — grown to III or a tower — with no park;
+ *  - CROWDING: a dense house of a kind that needs quiet — grown to III or a
+ *    tower — with no park;
  *  - the WATER in view, a pleasure — unless slop has fouled it;
  *  - a WONDER near it, which people like living by.
  * Each kind of employee's satisfaction leans toward the mood of the houses
@@ -26,11 +27,12 @@ import type { GeneratorId } from "../../state/generators.store";
 import type { Grid, Structure } from "../grid";
 import type { Network } from "../roads/network";
 import { liveCommutes, workplaceKind, type Commute } from "./commute";
-import { liveCoverage, tierOf, type Coverage } from "./services";
+import { liveCoverage, mindsCrowding, tierOf, townRevNow, type Coverage } from "./services";
+import { NEEDS, type NeedId } from "./needs";
 
 export * from "./mood-rules";
 import {
-  DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, WHY, WONDER_REACH, type MoodParts,
+  DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, NEED_MOOD, NEED_WHY, WHY, WONDER_REACH, type MoodParts,
 } from "./mood-rules";
 import { liveDesireMaps, seesWater } from "./desirability";
 
@@ -76,17 +78,16 @@ export function moodsOf(
       // Without a desk, it is that more than the walk that weighs. @see DESKLESS
       else if (c.eff < 1) parts.push({ why: c.deskless > 0 ? WHY.deskless : WHY.commute, points: Math.round(((1 - c.eff) * 10) * MOOD.perTenthLost) });
     }
+    const who = housedBy(s.def)!.id;
     const fed = canteens.some((w) => gap(s, w) <= deck.lunch);
-    // Under Free Lunch's rule, a café, a park and a gym. @see Rules.lunchAll
-    const have = fed ? new Set([...(coverage.get(s.id) ?? []), "cafe" as const, ...(deck.lunchAll ? ["park" as const, "gym" as const] : [])]) : coverage.get(s.id);
-    if (!have?.size) parts.push({ why: WHY.noServices, points: MOOD.noServices });
-    else {
-      if (have.has("cafe")) parts.push({ why: WHY.cafe, points: MOOD.cafe });
-      if (have.has("park")) parts.push({ why: WHY.park, points: MOOD.park });
-      if (have.has("gym")) parts.push({ why: WHY.gym, points: MOOD.gym });
-    }
+    // A workplace's lunch: food and coffee — and under Free Lunch's rule, everything. @see Rules.lunchAll
+    const lunch: readonly NeedId[] = !fed ? [] : deck.lunchAll ? NEEDS[who] : ["food", "coffee"];
+    const have = new Set<NeedId>([...(coverage.get(s.id) ?? []), ...lunch]);
+    const met = NEEDS[who].filter((n) => have.has(n));
+    if (!met.length) parts.push({ why: WHY.noServices, points: MOOD.noServices });
+    for (const n of met) parts.push({ why: NEED_WHY[n], points: NEED_MOOD[who] });
     const tier = tierOf(s.def);
-    if ((tier === "t2" || tier === "landmark") && !have?.has("park")) parts.push({ why: WHY.crowded, points: MOOD.crowded });
+    if ((tier === "t2" || tier === "landmark") && mindsCrowding(s.def) && !have.has("quiet")) parts.push({ why: WHY.crowded, points: MOOD.crowded });
     if (water(s)) parts.push(polluted.has(s.id) ? { why: WHY.polluted, points: hazard(MOOD.polluted) } : { why: WHY.waterView, points: fusionNow().waterView });
     if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: WHY.wonder, points: MOOD.wonder });
     if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: WHY.derelict, points: MOOD.derelict });
@@ -152,7 +153,7 @@ export function liveMoods(g: Grid, net: Network): Map<number, MoodParts> {
   for (const s of g.structures.values()) if (s.build) sites++;
   // A Zoner fused into the founder. @see game/fusion
   const planning = fusionNow().houseDesire;
-  const sludge = [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning + "|" + cultureVersion();
+  const sludge = townRevNow() + "|" + [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning + "|" + cultureVersion();
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.sludge !== sludge) {
     const maps = liveDesireMaps(g, net);
     memo = {

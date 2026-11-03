@@ -6,7 +6,7 @@
  * is where — with one, it is a decision about when.
  *
  * HOUSING IS ONE LOT A KIND, priced off the beds it holds and what the people
- * in them cost to hire; it grows from there, served by cafés, parks and gyms.
+ * in them cost to hire; it grows from there, by the needs met near it.
  * @see world/agents/services
  */
 import Decimal from "break_infinity.js";
@@ -47,7 +47,6 @@ export function buildCost(defId: string): Decimal | null {
 /** What the founder's fused traits multiply a building's price by. */
 function fusedPriceMult(defId: string): number {
   const f = fusionNow();
-  if (SERVICE_PRICE[defId]) return f.servicesCostMult;
   if (OFFICE_FOR[defId]) return f.officeCostMult;
   if (defId === "rack") return f.rackCostMult;
   if (housedBy(defId)) return f.lotCostMult;
@@ -58,9 +57,6 @@ function fusedPriceMult(defId: string): number {
 function listPrice(defId: string): Decimal | null {
   // THE AI'S OWN: put up for nothing, by itself. @see AI_BUILDINGS
   if (isAiBuilding(defId)) return new Decimal(0);
-  // A SERVICE: seconds of income, never under a floor.
-  const service = SERVICE_PRICE[defId];
-  if (service) return Decimal.max(new Decimal(service.floor), new Decimal(safeIncome()).times(service.seconds)).round();
   // AN R&D LAB: a minute of income, half as much again for each one standing.
   if (defId === "lab") {
     return Decimal.max(new Decimal(LAB_FLOOR), new Decimal(safeIncome()).times(LAB_SECONDS)).times(LAB_STEP ** labsBuilt()).round();
@@ -92,7 +88,7 @@ function listPrice(defId: string): Decimal | null {
   const h = housedBy(defId);
   if (!h || h.slots <= 0) return null;
   // ONE LOT A KIND IS FOR SALE: the smallest. The bigger ones are what a lot
-  // GROWS into, served by cafés, parks and gyms — not something to buy.
+  // GROWS into, by the needs met near it — not something to buy.
   // @see world/agents/services
   if (!/\.t0$/.test(defId)) return null;
   // NONE FOR 10X DEVS: they live on the Campus. @see hasLots
@@ -114,12 +110,6 @@ function listPrice(defId: string): Decimal | null {
  *  - a seaport, seconds of income for each boat a minute it turns round.
  */
 const BED_SHARE = 0.25;
-/** Cafés, parks and gyms: seconds of income, never under a floor. @see world/agents/services */
-const SERVICE_PRICE: Record<string, { seconds: number; floor: number }> = {
-  cafe: { seconds: 4, floor: 150 },
-  park: { seconds: 8, floor: 400 },
-  gym: { seconds: 16, floor: 2000 },
-};
 /** A slop processor: seconds of income, never under a floor, dearer by this for each of its kind standing. */
 const PROCESSOR_PRICE: Record<string, { seconds: number; floor: number }> = {
   refinery: { seconds: 30, floor: 2000 },

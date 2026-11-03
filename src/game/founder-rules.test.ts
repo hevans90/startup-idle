@@ -45,7 +45,7 @@ describe("a founder held to one kind", () => {
   test("is gated on that kind alone: no other kind's upgrade, no headcount they cannot hire", () => {
     useFounderStore.setState({ onlyGenerator: "vibe_coder" });
     try {
-      expect(projectDef("townhall")!.ready({}, new Set())).toBe(true);
+      expect(projectDef("harbour")!.ready({}, new Set())).toBe(true);
       expect(projectDef("hq")!.ready({}, new Set())).toBe(false);
       expect(projectDef("datacentre")!.ready({ vibe_coder: 50 }, new Set())).toBe(true);
       expect(projectDef("datacentre")!.ready({ vibe_coder: 49 }, new Set())).toBe(false);

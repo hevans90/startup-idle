@@ -703,7 +703,7 @@ describe("projects under play rules", () => {
     s().placeProject("studio");
     s().commitStructure({ x: 12, y: 6 });
     expect([...s().grid.structures.values()].filter((x) => x.build).map((x) => x.def)).toEqual(["studio"]);
-    s().placeProject("townhall");
+    s().placeProject("hq");
     expect(s().placingProject).toBeNull();
     expect(s().notice?.text).toMatch(/One project at a time: Vibe Coder Studio/);
   });

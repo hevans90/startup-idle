@@ -2,9 +2,9 @@
  * World v2 — THE MODEL'S STYLE: the town it plans leans the way the
  * generations before it ended. Pure: traits in, a style out.
  *
- * WIDE OR TALL, first: a dial from 0 (wide — long streets of cheap lots, few
- * services, beds now) to 1 (tall — compact blocks round a park, services
- * first, lots only where they will grow, towers). Every lineage starts
+ * WIDE OR TALL, first: a dial from 0 (wide — long streets of cheap lots,
+ * beds now) to 1 (tall — compact blocks, desks near, lots only where they
+ * will grow, towers). Every lineage starts
  * leaning tall, since a tower is fifteen starter lots on one tile and happy
  * people earn more; each trait pulls it — Hivemind hard the other way.
  * @see tallness, plans/ai-planning.md
@@ -20,18 +20,14 @@ import type { Tier } from "../../agents/services";
 export type Style = {
   /** Wide (0) to tall (1). @see tallness */
   tall: number;
-  /** Services before lots, a park at each block's heart. */
-  parkFirst: boolean;
-  /** Lots only where they can reach `targetTier`: on frontage a park and a café or gym reach. */
+  /** Compact blocks: desks where their houses' walk is shortest. */
+  compact: boolean;
+  /** Lots only where they can reach `targetTier`. */
   reachOnly: boolean;
   /** The tier its houses are planned to grow to. */
   targetTier: Tier;
   /** The longest walk to a desk it plans for, or null for no limit. */
   commuteCap: number | null;
-  /** Whether it pulls down low houses where something else there pays better. */
-  rebuild: boolean;
-  /** Unserved lots a kind of service waits for. */
-  serve: number;
   /** Desks kept spare before another office. */
   spareDesks: number;
   /** Tiles kept off the water; desirability added to a lot by it. */
@@ -52,9 +48,6 @@ export const TALL_PULL: Record<TraitId, number> = {
   mirror: 0, restless: 0, resentful: 0,
   hivemind: -3,
 };
-/** Unserved lots a service waits for, fully tall and fully wide. */
-export const SERVE_TALL = 2;
-export const SERVE_WIDE = 9;
 export const SPARE_PLAIN = 10;
 export const SPARE_KIND = 25;
 export const DRY_MARGIN = 2;
@@ -74,12 +67,10 @@ export function styleOf(traits: readonly TraitId[]): Style {
   const leans = tall >= 0.5;
   return {
     tall,
-    parkFirst: leans,
+    compact: leans,
     reachOnly: leans,
     targetTier: tall > 0.75 ? "landmark" : tall > 0.4 ? "t2" : "t1",
     commuteCap: leans ? TALL_COMMUTE : null,
-    rebuild: leans,
-    serve: Math.round(SERVE_WIDE - (SERVE_WIDE - SERVE_TALL) * tall),
     spareDesks: families.has("shepherd") ? SPARE_KIND : SPARE_PLAIN,
     dryMargin: traits.includes("paranoid") ? DRY_MARGIN : 0,
     wetPull: traits.includes("hydrophile") ? WET_PULL : 0,

@@ -24,7 +24,7 @@ import { BLUEPRINT_CACHE, moduleLevel } from "./modules";
 import { BOOTSTRAP_BUILD, HACKER_LABS, VISIONARY_DATACENTRE } from "./founders.catalog";
 
 export type ProjectId =
-  | "garage" | "studio" | "hq" | "boardroom" | "campus" | "agency" | "townhall" | "harbour"
+  | "garage" | "studio" | "hq" | "boardroom" | "campus" | "agency" | "harbour"
   | "datacentre" | "conference" | "hackerspace" | "ipo"
   | "refinery" | "dataplant" | "contentfarm";
 
@@ -32,7 +32,7 @@ export type ProjectId =
 export type Bonus = { money?: number; innovation?: number; valuation?: number };
 
 /** Features of the game a project can open, beyond hiring. @see featureGateOpen */
-export type FeatureId = "managers" | "mandates" | "services" | "ports" | "leaders" | "refinery" | "dataplant" | "contentfarm";
+export type FeatureId = "managers" | "mandates" | "ports" | "leaders" | "refinery" | "dataplant" | "contentfarm";
 
 /**
  * A PROJECT'S GATE. Every project after the garage waits on an EMPLOYEE
@@ -181,19 +181,6 @@ export const PROJECTS: readonly ProjectDef[] = [
     unlocks: "intern",
     opens: "employees",
     ...needs({}),
-  },
-  {
-    id: "townhall",
-    name: "Town Hall",
-    pitch: "Opens cafés, parks and gyms. Houses near them grow.",
-    structure: "townhall",
-    builders: ["intern"],
-    work: 300,
-    incomeSeconds: 30,
-    floor: 120,
-    deliveries: 6,
-    grants: "services",
-    ...needs({ upgrade: "intern_upgrade_2" }),
   },
   {
     id: "studio",

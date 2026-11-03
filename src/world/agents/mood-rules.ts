@@ -1,5 +1,6 @@
 import type { GeneratorId } from "../../state/generators.store";
 import type { Tier } from "./services";
+import type { NeedId } from "./needs";
 
 /**
  * World v2 — what each thing near a house is worth to it: the numbers the mood
@@ -9,9 +10,6 @@ import type { Tier } from "./services";
 export const MOOD = {
   perTenthLost: -6,
   stranded: -30,
-  cafe: 4,
-  park: 6,
-  gym: 4,
   noServices: -6,
   crowded: -6,
   wonder: 5,
@@ -21,6 +19,11 @@ export const MOOD = {
   flooded: -20,
   derelict: -5,
 } as const;
+/**
+ * What each need met adds, by the kind it is met for: about what a café, a
+ * park and a gym together did, over a kind's needs. @see NEEDS
+ */
+export const NEED_MOOD: Record<GeneratorId, number> = { intern: 7, vibe_coder: 7, "10x_dev": 5 };
 /** How near a wonder and a derelict count, in tiles. */
 export const WONDER_REACH = 10;
 export const DERELICT_REACH = 4;
@@ -40,9 +43,13 @@ export const WHY = {
   commute: "long commute",
   deskless: "no desk",
   noServices: "no services",
-  cafe: "café",
-  park: "park",
-  gym: "gym",
+  food: "food",
+  nightlife: "nightlife",
+  coffee: "coffee",
+  scene: "a scene",
+  health: "a doctor",
+  fitness: "fitness",
+  quiet: "quiet",
   crowded: "crowded",
   polluted: "polluted water",
   waterView: "water view",
@@ -55,6 +62,11 @@ export const WHY = {
 } as const;
 export type Why = (typeof WHY)[keyof typeof WHY];
 
+/** The word for each need met. */
+export const NEED_WHY: Record<NeedId, Why> = {
+  food: WHY.food, nightlife: WHY.nightlife, coffee: WHY.coffee, scene: WHY.scene, health: WHY.health, fitness: WHY.fitness, quiet: WHY.quiet,
+};
+
 /** What a house's mood is made of, each part signed. */
 export type MoodParts = { total: number; parts: { why: Why; points: number }[] };
 
@@ -64,10 +76,10 @@ export const WATER_REACH = 2;
 
 /**
  * THE DESIRABILITY A HOUSE GROWS INTO EACH TIER AT. A lot becomes II with a
- * café near and nothing against it; III wants a park as well, or water, or a
- * wonder; a tower the best of everything. It declines only `DECLINE_MARGIN`
- * under the threshold it grew past, so a house on the line does not flicker
- * between two. @see stepEvolution
+ * need met and nothing against it; III wants more, or water, or a wonder; a
+ * tower the best of everything — and its needs met besides. It declines only
+ * `DECLINE_MARGIN` under the threshold it grew past, so a house on the line
+ * does not flicker between two. @see stepEvolution, NEEDS_FOR
  */
 export const GROW_AT: Record<Tier, number> = { t0: -Infinity, t1: 4, t2: 10, landmark: 16 };
 export const DECLINE_MARGIN = 4;

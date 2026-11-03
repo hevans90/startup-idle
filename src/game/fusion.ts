@@ -32,7 +32,8 @@ export type FusionEffects = {
   houseDesire: number;
   /** Whether floods damage what they reach. */
   floodsDamage: boolean;
-  servicesCostMult: number;
+  /** Road tiles further every service reaches. @see liveCoverage */
+  serviceReach: number;
   lotCostMult: number;
   officeCostMult: number;
   /** Exits the founder's own bonus counts on top of their real ones. */
@@ -42,12 +43,12 @@ export type FusionEffects = {
 export const NO_FUSION: FusionEffects = {
   incomeMult: 1, moraleLean: 0, hireCostMult: 1, agentBoostMult: 1, meterMult: 1, trainingJumpMult: 1, trainingTimeMult: 1,
   rackCostMult: 1, agentCostMult: 1, agentsPerRack: 0, waterView: 5, houseDesire: 0, floodsDamage: true,
-  servicesCostMult: 1, lotCostMult: 1, officeCostMult: 1, exitsBonus: 0,
+  serviceReach: 0, lotCostMult: 1, officeCostMult: 1, exitsBonus: 0,
 };
 
 /** Each trait, fused: what it changes, and how the founder card says it. Half what it was: the story is the reward now. @see plans/ascension-overhaul.md §5 */
 export const FUSIONS: Record<TraitId, { text: string; apply: (e: FusionEffects) => void }> = {
-  aesthete: { text: "Services −25%; lots +10%", apply: (e) => { e.servicesCostMult *= 0.75; e.lotCostMult *= 1.1; } },
+  aesthete: { text: "Services reach +2 tiles; lots +10%", apply: (e) => { e.serviceReach += 2; e.lotCostMult *= 1.1; } },
   zoner: { text: "Every house +2 desirability; offices +50%", apply: (e) => { e.houseDesire += 2; e.officeCostMult *= 1.5; } },
   accountant: { text: "Income +5%", apply: (e) => { e.incomeMult *= 1.05; } },
   ruthless: { text: "Income +12%; everyone's morale −2", apply: (e) => { e.incomeMult *= 1.12; e.moraleLean -= 2; } },

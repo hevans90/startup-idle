@@ -62,9 +62,9 @@ describe("the requests", () => {
   test("an objective of one: built in time, the rest follows", () => {
     useQuestStore.setState({ offer: { kind: "request", id: "gym", waited: 0 } });
     q().choose(0);
-    q().step(world({ counts: { gym: 1 } }), 1, () => 0.99, [], REQUESTS);
+    q().step(world({ counts: { "need:fitness": 1 } }), 1, () => 0.99, [], REQUESTS);
     expect(q().objective?.progress).toBe(0);
-    q().step(world({ counts: { gym: 2 } }), 1, () => 0.99, [], REQUESTS);
+    q().step(world({ counts: { "need:fitness": 2 } }), 1, () => 0.99, [], REQUESTS);
     expect(q().objective).toBeNull();
     expect(questIncomeMult()).toBeCloseTo(1.03);
   });

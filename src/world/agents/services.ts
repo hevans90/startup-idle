@@ -1,16 +1,18 @@
 /**
  * World v2 — SERVICES, and housing that EVOLVES where it is good to live.
  *
- * A café, a park and a gym each SERVE the homes within `RANGE` tiles of it
- * along the roads — measured from door to door, like a commute — and serving
- * one is a large part of what makes a house DESIRABLE. A house that is FULL
- * GROWS into the next tier of its kind where it stands — more beds on the same
- * ground, for nothing — once it has stood above that tier's desirability for
+ * Each service — opened by the town itself where it is needed — MEETS A NEED
+ * of the homes within `RANGE` tiles of it along the roads, measured from door
+ * to door like a commute; a need met is a large part of what makes a house
+ * DESIRABLE. A house that is FULL GROWS into the next tier of its kind where
+ * it stands — more beds on the same ground, for nothing — once it has stood
+ * above that tier's desirability, with enough of its kind's needs met, for
  * `GROW_AFTER` seconds; and a house that grew and has fallen well below the
- * tier it grew to DECLINES one after `DECLINE_AFTER` seconds, whoever no
- * longer has a bed moving out (hired still; they come back when there is
- * room). Housing bought at a tier never declines below it. @see GROW_AT,
- * world/agents/desirability
+ * tier it grew to, or lost the needs it grew on, DECLINES one after
+ * `DECLINE_AFTER` seconds, whoever no longer has a bed moving out (hired
+ * still; they come back when there is room). Housing bought at a tier never
+ * declines below it. @see GROW_AT, NEEDS_FOR, world/agents/desirability,
+ * world/agents/town-services
  *
  * And 10X DEVS ARE PARTICULAR: they move only into a house desirable enough.
  * @see MOVE_IN_AT, stepArrivals
@@ -22,12 +24,12 @@ import { connects } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
 import { notable } from "../../game/machine";
+import { fusionNow } from "../../game/fusion";
 import { inAiDistrictNow } from "../ai/district";
-import { DECLINE_MARGIN, GROW_AT, MOOD, type MoodParts } from "./mood-rules";
+import { DECLINE_MARGIN, GROW_AT, MOOD, NEED_WHY, type MoodParts } from "./mood-rules";
+import { NEEDS, needsAt, serviceDef, type NeedId, serviceIn } from "./needs";
 
-export type ServiceId = "cafe" | "park" | "gym";
-export const SERVICE_IDS: readonly ServiceId[] = ["cafe", "park", "gym"];
-export const SERVICE_NAME: Record<ServiceId, string> = { cafe: "café", park: "park", gym: "gym" };
+export { SERVICE_IDS, serviceIn, serviceOf, type NeedId, type ServiceId } from "./needs";
 
 /** Road tiles a service reaches from its door. */
 export const RANGE = 8;
@@ -43,78 +45,87 @@ export const tierOf = (defId: string): Tier | null =>
   (/\.(t0|t1|t2|landmark)$/.exec(defId)?.[1] as Tier | undefined) ?? null;
 export const withTier = (defId: string, t: Tier) => defId.replace(/\.(t0|t1|t2|landmark)$/, `.${t}`);
 
-/** Which service a structure is, if it is one. */
-export const serviceOf = (defId: string): ServiceId | null =>
-  (SERVICE_IDS as readonly string[]).includes(defId) ? (defId as ServiceId) : null;
+/** What need each house has met near it, by its id. */
+export type Coverage = Map<number, Set<NeedId>>;
 
-/** What serves each house, by its id. */
-export type Coverage = Map<number, Set<ServiceId>>;
+/** A house's own needs met, of its kind's. */
+export const needsMet = (s: Structure, cover: Coverage): NeedId[] => {
+  const who = housedBy(s.def)?.id;
+  const have = cover.get(s.id);
+  return who && have ? NEEDS[who].filter((n) => have.has(n)) : [];
+};
 
 const DIRS = ["N", "E", "S", "W"] as const;
 
+/** How much further every service reaches: an Aesthete fused into the founder. @see game/fusion */
+const reachNow = () => RANGE + fusionNow().serviceReach;
+
 /**
- * What serves every house: a breadth-first search along the roads from each
- * kind of service's doors at once, out to `RANGE`, and the houses whose doors
- * it reaches. A service `extra` says reaches further — the Machine's
- * Holo-Concierge — is searched apart, out to its own reach: one search from
- * doors of two reaches would number the roads wrong. @see CONCIERGE_REACH
+ * What need is met at every house: a breadth-first search along the roads
+ * from the doors of each need's services at once — buildings of their own,
+ * and shops in the ground floors of houses — out to `RANGE`, and the houses
+ * whose doors it reaches. A service `extra` says reaches further — the
+ * Machine's Holo-Concierge — is searched apart, out to its own reach: one
+ * search from doors of two reaches would number the roads wrong.
+ * @see CONCIERGE_REACH
  *
  * A PARK WITH NO ROAD beside it is walked to across the grass: it serves the
  * homes within the same reach of it as the crow flies, edge to edge.
  */
-export function coverageOf(g: Grid, places: readonly Place[], extra: (s: Structure) => number = () => 0): Coverage {
+export function coverageOf(g: Grid, places: readonly Place[], extra: (s: Structure) => number = () => 0, range = RANGE): Coverage {
   const doorOf = new Map<number, Place>();
   for (const p of places) if (p.kind === "door" && p.structure !== undefined) doorOf.set(p.structure, p);
   const out: Coverage = new Map();
-  for (const service of SERVICE_IDS) {
-    const groups = new Map<number, Structure[]>();
-    for (const s of g.structures.values()) {
-      if (s.build || serviceOf(s.def) !== service || !doorOf.has(s.id)) continue;
-      const k = extra(s);
-      groups.set(k, [...(groups.get(k) ?? []), s]);
+  const groups = new Map<string, { need: NeedId; more: number; from: Structure[] }>();
+  for (const s of g.structures.values()) {
+    const sv = s.build ? null : serviceIn(s);
+    if (!sv || !doorOf.has(s.id)) continue;
+    const need = serviceDef(sv)!.need, more = extra(s), k = `${need}|${more}`;
+    const grp = groups.get(k) ?? { need, more, from: [] };
+    grp.from.push(s);
+    groups.set(k, grp);
+  }
+  for (const { need, more, from } of groups.values()) {
+    const dist = new Int32Array(g.w * g.h).fill(-1);
+    const queue: number[] = [];
+    for (const s of from) {
+      const d = doorOf.get(s.id)!;
+      const i = idx(g, d.x, d.y);
+      if (dist[i] < 0) { dist[i] = 0; queue.push(i); }
     }
-    for (const [more, from] of groups) {
-      const dist = new Int32Array(g.w * g.h).fill(-1);
-      const queue: number[] = [];
-      for (const s of from) {
-        const d = doorOf.get(s.id)!;
-        const i = idx(g, d.x, d.y);
-        if (dist[i] < 0) { dist[i] = 0; queue.push(i); }
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q], x = i % g.w, y = (i - x) / g.w;
+      if (dist[i] >= range + more) continue;
+      for (const dir of DIRS) {
+        if (!connects(g, x, y, dir)) continue;
+        const [dx, dy] = NEIGHBOUR[dir];
+        const j = idx(g, x + dx, y + dy);
+        if (dist[j] >= 0) continue;
+        dist[j] = dist[i] + 1; queue.push(j);
       }
-      for (let q = 0; q < queue.length; q++) {
-        const i = queue[q], x = i % g.w, y = (i - x) / g.w;
-        if (dist[i] >= RANGE + more) continue;
-        for (const dir of DIRS) {
-          if (!connects(g, x, y, dir)) continue;
-          const [dx, dy] = NEIGHBOUR[dir];
-          const j = idx(g, x + dx, y + dy);
-          if (dist[j] >= 0) continue;
-          dist[j] = dist[i] + 1; queue.push(j);
-        }
-      }
-      for (const s of g.structures.values()) {
-        if (!housedBy(s.def)) continue;
-        const d = doorOf.get(s.id);
-        if (!d || dist[idx(g, d.x, d.y)] < 0) continue;
-        serve(out, s.id, service);
-      }
+    }
+    for (const s of g.structures.values()) {
+      if (!housedBy(s.def)) continue;
+      const d = doorOf.get(s.id);
+      if (!d || dist[idx(g, d.x, d.y)] < 0) continue;
+      serve(out, s.id, need);
     }
   }
   // OFF THE ROADS, a park: the homes round it, as the crow flies.
   for (const park of g.structures.values()) {
     if (park.build || park.def !== "park" || doorOf.has(park.id)) continue;
-    const reach = RANGE + extra(park);
+    const reach = range + extra(park);
     for (const s of g.structures.values()) {
-      if (housedBy(s.def) && gapBetween(park, s) <= reach) serve(out, s.id, "park");
+      if (housedBy(s.def) && gapBetween(park, s) <= reach) serve(out, s.id, "quiet");
     }
   }
   return out;
 }
 
-function serve(out: Coverage, house: number, service: ServiceId) {
+function serve(out: Coverage, house: number, need: NeedId) {
   let set = out.get(house);
   if (!set) out.set(house, (set = new Set()));
-  set.add(service);
+  set.add(need);
 }
 
 /** Tiles between two footprints, edge to edge: 0 for touching. */
@@ -129,32 +140,46 @@ export const CONCIERGE_REACH = 4;
 /** What a service in the AI's district reaches further, with the Holo-Concierge. */
 const concierge = (g: Grid) => (s: Structure) => (notable("concierge") && inAiDistrictNow(g, s.x, s.y) ? CONCIERGE_REACH : 0);
 
-let memo: { g: Grid | null; rev: number; sites: number; reach: string; value: Coverage } = { g: null, rev: -1, sites: -1, reach: "", value: new Map() };
+/**
+ * THE TOWN'S OWN CHANGES — a shop opening in a house, or closing — which no
+ * edit to the map's layers bumps its `rev` for. What is worked out from the
+ * services keys on this as well. @see stepTown
+ */
+let townRev = 0;
+export const townChanged = () => { townRev++; };
+export const townRevNow = () => townRev;
 
-/** What serves every house on this map now, worked out again only when it has changed. @see liveCommutes */
+let memo: { g: Grid | null; rev: number; town: number; sites: number; reach: string; value: Coverage } = { g: null, rev: -1, town: -1, sites: -1, reach: "", value: new Map() };
+
+/** What need is met at every house on this map now, worked out again only when it has changed. @see liveCommutes */
 export function liveCoverage(g: Grid, net: Network): Coverage {
   let sites = 0;
   for (const s of g.structures.values()) if (s.build) sites++;
   // Which services reach further: the Holo-Concierge's, as the district grows. @see CONCIERGE_REACH
   const more = concierge(g);
-  const reach = notable("concierge") ? [...g.structures.values()].filter((s) => serviceOf(s.def) && more(s)).map((s) => s.id).join() : "";
-  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.reach !== reach) {
-    memo = { g, rev: g.rev, sites, reach, value: coverageOf(g, placesOf(g, net), more) };
+  const range = reachNow();
+  const reach = range + (notable("concierge") ? ":" + [...g.structures.values()].filter((s) => serviceIn(s) && more(s)).map((s) => s.id).join() : "");
+  if (memo.g !== g || memo.rev !== g.rev || memo.town !== townRev || memo.sites !== sites || memo.reach !== reach) {
+    memo = { g, rev: g.rev, town: townRev, sites, reach, value: coverageOf(g, placesOf(g, net), more, range) };
   }
   return memo.value;
 }
 
-/** Tiers dense enough to feel crowded without a park. @see MOOD.crowded */
+/** Tiers dense enough to feel crowded without a park, to those who need quiet. @see MOOD.crowded */
 const CROWDED: ReadonlySet<Tier> = new Set(["t2", "landmark"]);
+/** Whether a kind minds crowding: those who need quiet. */
+export const mindsCrowding = (defId: string) => {
+  const who = housedBy(defId)?.id;
+  return !!who && NEEDS[who].includes("quiet");
+};
 
 /**
  * A house's desirability AT ANOTHER TIER: crowding comes with density, so a
  * house growing into III without a park has the crowding to count against it
  * before it grows — or it would grow, find itself crowded, and decline.
  */
-export function desirabilityAt(m: MoodParts, from: Tier, to: Tier): number {
-  const park = m.parts.some((p) => p.why === "park");
-  if (park) return m.total;
+export function desirabilityAt(m: MoodParts, from: Tier, to: Tier, crowds = true): number {
+  if (!crowds || m.parts.some((p) => p.why === NEED_WHY.quiet)) return m.total;
   const crowd = (t: Tier) => (CROWDED.has(t) ? MOOD.crowded : 0);
   return m.total - crowd(from) + crowd(to);
 }
@@ -165,7 +190,17 @@ export function growthShort(s: Structure, m: MoodParts | undefined): number | nu
   const k = t ? TIERS.indexOf(t) : -1;
   if (k < 0 || k >= TIERS.length - 1 || !m) return null;
   const next = TIERS[k + 1];
-  return Math.max(0, GROW_AT[next] - desirabilityAt(m, t!, next));
+  return Math.max(0, GROW_AT[next] - desirabilityAt(m, t!, next, mindsCrowding(s.def)));
+}
+
+/** Which of its kind's needs a house still lacks to grow, or null if it is at the top or lacks none. */
+export function needsShort(s: Structure, cover: Coverage): NeedId[] | null {
+  const t = tierOf(s.def), who = housedBy(s.def)?.id;
+  const k = t ? TIERS.indexOf(t) : -1;
+  if (!who || k < 0 || k >= TIERS.length - 1) return null;
+  const met = needsMet(s, cover);
+  if (met.length >= needsAt(who, TIERS[k + 1])) return null;
+  return NEEDS[who].filter((n) => !met.includes(n));
 }
 
 /** Seconds each house has been ready to grow, or lacking, by id. Live state; not saved. */
@@ -174,18 +209,19 @@ export const createEvolution = (): Evolution => ({ ready: new Map(), lacking: ne
 
 /**
  * One step of the town evolving: full houses desirable enough for the next
- * tier grow into it, and houses that grew and have fallen well below their
- * tier decline one. Returns the houses changed. @see GROW_AFTER, DECLINE_AFTER
+ * tier, with enough of their kind's needs met, grow into it; and houses that
+ * grew and have fallen well below their tier, or lost the needs it wants,
+ * decline one. Returns the houses changed. @see GROW_AFTER, DECLINE_AFTER, NEEDS_FOR
  */
-export function stepEvolution(e: Evolution, g: Grid, moods: ReadonlyMap<number, MoodParts>, dt: number): number[] {
+export function stepEvolution(e: Evolution, g: Grid, moods: ReadonlyMap<number, MoodParts>, cover: Coverage, dt: number): number[] {
   const changed: number[] = [];
   for (const s of g.structures.values()) {
     const h = housedBy(s.def), t = tierOf(s.def), m = moods.get(s.id);
     if (!h || !t || s.build || !m) continue;
-    const k = TIERS.indexOf(t);
-    // GROWING: full, and desirable enough for the next tier.
+    const k = TIERS.indexOf(t), met = needsMet(s, cover).length;
+    // GROWING: full, desirable enough for the next tier, and its needs met.
     const next = TIERS[k + 1];
-    if (next && residentsIn(s) >= h.slots && desirabilityAt(m, t, next) >= GROW_AT[next]) {
+    if (next && residentsIn(s) >= h.slots && met >= needsAt(h.id, next) && desirabilityAt(m, t, next, mindsCrowding(s.def)) >= GROW_AT[next]) {
       const r = (e.ready.get(s.id) ?? 0) + dt;
       e.ready.set(s.id, r);
       if (r >= GROW_AFTER) {
@@ -195,8 +231,8 @@ export function stepEvolution(e: Evolution, g: Grid, moods: ReadonlyMap<number, 
         changed.push(s.id);
       }
     } else e.ready.delete(s.id);
-    // DECLINING: grown, and fallen well below the tier it grew to.
-    if ((s.grown ?? 0) > 0 && m.total < GROW_AT[t] - DECLINE_MARGIN) {
+    // DECLINING: grown, and fallen well below the tier it grew to, or short of its needs.
+    if ((s.grown ?? 0) > 0 && (m.total < GROW_AT[t] - DECLINE_MARGIN || met < needsAt(h.id, t))) {
       const l = (e.lacking.get(s.id) ?? 0) + dt;
       e.lacking.set(s.id, l);
       if (l >= DECLINE_AFTER) {

@@ -12,7 +12,7 @@ import { gateUnlocksNow } from "./gates";
 import { useSessionStore } from "../../state/session.store";
 import { getNetwork, useWorldStore } from "../../state/world.store";
 import { liveCommutes, workplaceKind } from "../agents/commute";
-import { serviceOf } from "../agents/services";
+import { serviceIn } from "../agents/services";
 import { liveMoods } from "../agents/mood";
 import { builtProjects, ruledOut, sitesOf } from "../projects/works";
 import { projectForStructure } from "../../game/projects";
@@ -35,7 +35,7 @@ function snapshot(): HintState {
     if (s.def === "rack" && !s.build) racks++;
     if (s.def === "levee") levees++;
     if (housedBy(s.def)) lots++;
-    if (serviceOf(s.def)) services++;
+    if (serviceIn(s)) services++;
     if (workplaceKind(s.def) && s.def.startsWith("office")) offices++;
   }
   const residents = housingResidents(grid);

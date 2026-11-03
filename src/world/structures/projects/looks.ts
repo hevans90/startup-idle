@@ -923,6 +923,8 @@ export const LOOKS: Record<string, (f: Footprint) => Building> = {
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
   cafe, park, gym, lab, levee, derelict, rack, pump,
+  // The town's own services, drawn as their nearest kin until they have looks of their own.
+  club: gym, coworking: studio, cinema: gym, doctor: cafe, climbing: gym,
   // The slop processors. @see game/processors
   refinery, dataplant, contentfarm,
   "ai-node": aiNode, "gpu-farm": gpuFarm, "compute-spire": computeSpire, "drone-hangar": droneHangar, monolith, lattice,

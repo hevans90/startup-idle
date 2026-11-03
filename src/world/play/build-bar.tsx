@@ -34,7 +34,6 @@ import { UNDO_WINDOW_MS, getArrivals, getNetwork, useWorldStore } from "../../st
 import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
 import { DESKS, liveSeating, workplaceKind } from "../agents/commute";
-import { RANGE, serviceOf } from "../agents/services";
 import type { ToolId } from "../edit/tools";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
@@ -86,7 +85,7 @@ const ICONS: Record<string, ReactNode> = {
 const BLOCKED: Record<string, { icon: ReactNode; title: string; why: string }> = {
   "no-lot": { icon: ICONS.noLot, title: "No free lot", why: "Every lot is taken. Build more housing for them to move into." },
   "no-road": { icon: ICONS.noRoad, title: "No road in", why: "There's no road from the edge of the map to a free lot." },
-  "no-services": { icon: ICONS.noServices, title: "Nowhere good enough", why: "They only move in somewhere desirable enough: a café, a park, water or a wonder nearby raise it." },
+  "no-services": { icon: ICONS.noServices, title: "Nowhere good enough", why: "They only move in somewhere desirable enough: needs met, water or a wonder nearby raise it." },
   unhappy: { icon: ICONS.unhappy, title: "Unhappy homes", why: "The free lots are too miserable. Services nearby, and fewer derelicts, cheer them up." },
 };
 
@@ -148,9 +147,7 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
   // (A pump is a main's, at its intake now: no pump house to place. @see MainCard)
   const racks = all.filter((d) => d.def.id === "rack");
   if (racks.length && agentsOpen() && hireable.has("10x_dev")) out.push({ title: "AI agents", colour: 0x6c7cff, items: racks });
-  // Services and ports once their projects have opened them. @see featureGateOpen
-  const services = all.filter((d) => serviceOf(d.def.id)).sort((a, b) => a.price - b.price);
-  if (services.length && featureGateOpen("services")) out.push({ title: "Services", colour: 0x2f8f6b, items: services });
+  // Ports once their project has opened them. @see featureGateOpen
   const ports = all.filter((d) => d.def.port).sort((a, b) => a.price - b.price);
   if (ports.length && featureGateOpen("ports")) out.push({ title: "Ports", colour: 0x4a90c8, items: ports });
   // SLOP PROCESSORS, each kind once its project has opened it. @see game/processors
@@ -172,7 +169,6 @@ function tileNote(def: StructureDef): string {
   const h = housedBy(def.id);
   if (h) return `${h.slots} beds · grows`;
   if (workplaceKind(def.id)) return `${DESKS[def.id] ?? 0} desks`;
-  if (serviceOf(def.id)) return `serves ${RANGE} tiles`;
   if (def.port) return `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}`;
   if (def.id === "levee") return "drag along a bank";
   if (def.id === "lab") return `innovation +${LAB_SHARE * 100}%`;

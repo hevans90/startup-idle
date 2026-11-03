@@ -33,7 +33,6 @@ import { setTownMoodReader } from "../game/town-mood";
 import { cultureNow, cultureVersion } from "../game/culture-now";
 import { liveMoods, moodOffsets } from "./agents/mood";
 import { townBonusOf } from "./projects/town-worth";
-import { serviceOf } from "./agents/services";
 import { structureDef } from "./structures/def";
 import { builtProjects, catchUpWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -218,9 +217,8 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     // A save with leaders from before the Talent Agency has earned it.
     if (useTeamLeadersEmployeesStore.getState().employees.length) features.add("leaders");
     if (Object.values(useValuationStore.getState().mandateLevels).some((l) => l > 0)) features.add("mandates");
-    // A map that already has services or ports has already earned them.
+    // A map that already has ports has already earned them.
     for (const s of useWorldStore.getState().grid.structures.values()) {
-      if (serviceOf(s.def)) features.add("services");
       if (structureDef(s.def)?.port) features.add("ports");
     }
     useWorldStore.getState().foundEarnedProjects(owned, features);

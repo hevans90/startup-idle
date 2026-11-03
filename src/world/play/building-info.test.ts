@@ -15,7 +15,7 @@ describe("a building's label", () => {
     const info = infoFor(at("kit:intern.t1", { residents: 3 }), ctx({ arriving: new Map([[7, 2]]), moods }))!;
     expect(info.title).toBe("Intern house II");
     // III at 10, and with no park its crowding counts against it: 4 − 6.
-    expect(info.lines.map((l) => l.text)).toEqual(["3/5 interns living here", "Earns $6/s", "Grows at +12 more desirability", "Morale +4 · content", "2 on the way"]);
+    expect(info.lines.map((l) => l.text)).toEqual(["3/5 interns living here", "Earns $6/s", "Grows with food or nightlife near", "Morale +4 · content", "2 on the way"]);
   });
 
   test("an empty lot is a lot, and says how many beds are free", () => {

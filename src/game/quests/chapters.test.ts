@@ -123,10 +123,10 @@ describe("the chapters", () => {
     useSessionStore.setState({ aiWallet: 1e9 });
     useQuestStore.setState({ offer: { kind: "chapter", id: "charter", waited: 0 } });
     q().choose(1);
-    const price = buildCost("cafe")!.toNumber();
+    const price = buildCost("lab")!.toNumber();
     const before = useMoneyStore.getState().money.toNumber();
     expect(aiDistrict(g, "overseer")).not.toBeNull();
-    useWorldStore.setState({ tool: "placeStructure", structureDefId: "cafe" });
+    useWorldStore.setState({ tool: "placeStructure", structureDefId: "lab" });
     useWorldStore.getState().commitStructure({ x: 16, y: 13 });
     expect(before - useMoneyStore.getState().money.toNumber()).toBeCloseTo(price / 2);
     expect(useSessionStore.getState().aiWallet).toBeCloseTo(1e9 - price / 2);
@@ -139,7 +139,7 @@ describe("the chapters", () => {
     q().giveSite({ x: 20, y: 14 });
     q().step(world({ meter: 85, site: true }), 1);
     expect(q().flags).toContain("site:given");
-    useWorldStore.setState({ tool: "placeStructure", structureDefId: "cafe" });
+    useWorldStore.setState({ tool: "placeStructure", structureDefId: "lab" });
     useWorldStore.getState().commitStructure({ x: 20, y: 13 });
     expect(useWorldStore.getState().notice?.text).toContain("AI's site");
     expect(structureAt(useWorldStore.getState().grid, 20, 13)).toBe(-1);

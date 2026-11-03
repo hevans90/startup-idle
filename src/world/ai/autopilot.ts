@@ -9,7 +9,7 @@
  */
 import { buildCost, roadCost } from "../../game/build-cost";
 import { hasLots, roomFor } from "../../game/housing";
-import { PROJECTS, featureGateOpen, gateParts } from "../../game/projects";
+import { PROJECTS, gateParts } from "../../game/projects";
 import { nextPerSet, upgradeSet } from "../../game/upgrade-sets";
 import { useUpgradeStore } from "../../state/upgrades.store";
 import { getGeneratorCost } from "../../utils/generator-utils";
@@ -42,7 +42,7 @@ import type { PipeRoute } from "./pipe-route";
 import { styleOf } from "./masterplan/style";
 import { fusedInto } from "../../game/fusion";
 import { peopleStep } from "./autopilot-people";
-import { chooseWithRebuild, type PlanReply, type PlanRequest } from "./masterplan/choose";
+import { chooseNext, type PlanReply, type PlanRequest } from "./masterplan/choose";
 
 /** Seconds between the autopilot's steps; seconds before a plan is planned again regardless. */
 export const AUTOPILOT_EVERY = 2;
@@ -72,7 +72,6 @@ const named = (s: PlanStep) =>
     : s.kind === "level" ? "ground levelled for a street"
       : s.kind === "lift" ? "a spur that went nowhere, lifted"
         : s.kind === "clear" ? "a house cleared for a street"
-          : s.kind === "replace" ? `${(structureDef(s.def) ? saleName(structureDef(s.def)!) : s.def).toLowerCase()}, in place of ${s.clears.length === 1 ? "a lot" : `${s.clears.length} lots`}`
           : s.def.startsWith("kit:") ? "a lot" : (structureDef(s.def) ? saleName(structureDef(s.def)!) : s.def).toLowerCase();
 
 /** A step, as a key: to remember the ones that failed. */
@@ -89,8 +88,6 @@ function take(s: PlanStep): boolean {
     case "lift": return liftRoad(s.at, s.at);
     case "clear": return demolishAt(s.at);
     case "build": return placeStructure(s.def, s.at);
-    // Pulled down, then put up: free to pull down, to a player too.
-    case "replace": return s.clears.every((c) => demolishAt(c)) && placeStructure(s.def, s.at);
   }
 }
 
@@ -111,7 +108,7 @@ export const planInline = () => { inline = true; };
 /** What the buildings a block plan might put up cost now, and road by the tile: for the look-ahead. */
 function pricesNow(kinds: GeneratorId[]): Prices {
   const defs: Record<string, number> = {};
-  for (const def of ["park", "cafe", "gym", ...kinds.map((k) => `kit:${k}.t0`), ...kinds.flatMap((k) => WORKPLACES[k] ?? [])]) {
+  for (const def of [...kinds.map((k) => `kit:${k}.t0`), ...kinds.flatMap((k) => WORKPLACES[k] ?? [])]) {
     const c = buildCost(def);
     if (c) defs[def] = c.toNumber();
   }
@@ -121,7 +118,7 @@ function pricesNow(kinds: GeneratorId[]): Prices {
 /** Ask for the next block: chosen of several, looked ahead at, in a worker or here. @see chooseBlock */
 function requestPlan(g: Grid) {
   const kinds = kindsByNeed();
-  const services = featureGateOpen("services"), offices = true;
+  const offices = true;
   const style = modelStyle();
   const centre = townCentre(g, style);
   const prices = pricesNow(kinds);
@@ -133,8 +130,7 @@ function requestPlan(g: Grid) {
     state.choice = c?.choice ?? null;
     state.plannedAt = Date.now(); state.doneAtPlan = state.done;
   };
-  const income = useGeneratorStore.getState().getMoneyPerSecond();
-  const here = () => chooseWithRebuild(g, centre, [...state.tried], kinds, services, offices, style, prices, income);
+  const here = () => chooseNext(g, centre, [...state.tried], kinds, offices, style, prices);
   if (inline) { arrived(here()); return; }
   state.worker ??= new Worker(new URL("./masterplan/masterplan.worker.ts", import.meta.url), { type: "module" });
   state.worker.onmessage = (e: MessageEvent<PlanReply>) => {
@@ -149,7 +145,7 @@ function requestPlan(g: Grid) {
     inline = true;
     arrived(here());
   };
-  const req: PlanRequest = { id: state.asked, file: serializeWorld(g, { terrain: [], paved: [null] }), kinds, services, offices, style, centre, tried: [...state.tried], prices, income };
+  const req: PlanRequest = { id: state.asked, file: serializeWorld(g, { terrain: [], paved: [null] }), kinds, offices, style, centre, tried: [...state.tried], prices };
   state.worker.postMessage(req);
 }
 
@@ -157,7 +153,7 @@ function requestPlan(g: Grid) {
 function priceOf(g: Grid, s: PlanStep): number {
   // Levelling, lifting road and pulling a house down are free, to a player too.
   if (s.kind === "road") return roadCost(roadTiles(g, s)).toNumber();
-  if (s.kind !== "build" && s.kind !== "replace") return 0;
+  if (s.kind !== "build") return 0;
   return buildCost(s.def)?.toNumber() ?? Infinity;
 }
 
@@ -192,7 +188,7 @@ function send(g: Grid, s: PlanStep): boolean {
     else state.failed.add(key);
     return ok;
   };
-  const holo = s.kind === "build" || s.kind === "replace" ? { def: s.def, x: s.at.x, y: s.at.y } : undefined;
+  const holo = s.kind === "build" ? { def: s.def, x: s.at.x, y: s.at.y } : undefined;
   r.jobs.push({ action: { kind: "deferred", at: to, why: "", run, holo }, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / DRONE_SPEED });
   state.last = `${named(s)}, on its way`;
   return true;
@@ -334,11 +330,11 @@ function act(g: Grid, budget: number): boolean {
     const own = aiBuildingStep(g);
     if (own) { state.last = own; return true; }
   }
-  // Within the block, all of it: its lots, its office, its services. @see blockAt
+  // Within the block, all of it: its lots and its office. @see blockAt
   const rules = playRules(g), box = state.box;
   const s = state.plan && box && nextStep(g, state.plan, {
     rules: { ...rules, owned: (x, y) => (rules.owned?.(x, y) ?? true) && inBox(box, x, y) },
-    kinds: kindsByNeed(), services: featureGateOpen("services"), offices: true,
+    kinds: kindsByNeed(), offices: true,
     skip: (p) => state.failed.has(keyOf(p)) || state.flying.has(keyOf(p)),
     style: modelStyle(),
   });

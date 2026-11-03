@@ -3,8 +3,8 @@
  * {@link simulateCoreUpgradeRun} — always the cheapest next thing — but with
  * the company's town gating it, as an abstract town rather than a grid:
  *  - BEDS: nobody is hired without one. More come from a new lot, or from
- *    the next café, park or gym for a street of lots, which grows them all a
- *    tier — whichever is cheaper a bed, at today's prices;
+ *    the town opening a service for a full street, which grows its lots a
+ *    tier;
  *  - ARRIVALS: a hire takes a while to get to the map, and does not work until
  *    they have;
  *  - PROJECTS: the garage, the studio and the campus gate hiring, and are
@@ -37,7 +37,7 @@ import { DRY_RATE } from "../world/events/sludge";
 import { CLEANERS_PER_TILE, CLEAN_RATE } from "../world/events/cleanup";
 import { PROCESS_RATE, setProcessorUse } from "../game/processors";
 import { sewerFlow } from "../game/mains";
-import { MOOD, MOOD_LIMIT } from "../world/agents/mood";
+import { MOOD, MOOD_LIMIT, NEED_MOOD } from "../world/agents/mood";
 import { setTownMoodReader } from "../game/town-mood";
 import { PER_GROWN, PER_SERVICE, PER_WONDER } from "../world/projects/town-worth";
 import { TOWN_BONUS_CAP, pendingEquity } from "../game/acquisition";
@@ -78,9 +78,8 @@ export type MapRunReport = {
   /** Spent on lots, and on project materials. */
   spentOnLots: number;
   spentOnProjects: number;
-  /** Cafés, parks and gyms bought, and what they cost. */
+  /** Services the town opened. */
   services: number;
-  spentOnServices: number;
   /** Spent on hiring, for scale. */
   spentOnHires: number;
   /** Seconds some site sat stalled for want of money. */
@@ -143,11 +142,17 @@ export function longestFlat(report: MapRunReport, until = report.endedAt): { sec
   return best;
 }
 
-const GATES: readonly ProjectId[] = ["garage", "townhall", "studio", "campus", "datacentre", "conference", "ipo"];
-/** Lots a street, beds a lot by tier, and the service each tier grows with. */
+const GATES: readonly ProjectId[] = ["garage", "studio", "campus", "datacentre", "conference", "ipo"];
+/** Lots a street, beds a lot by tier. */
 const STREET = 6;
 const TIER_SLOTS = [2, 5, 12, 30];
-const SERVICE_ORDER = ["cafe", "park", "gym"] as const;
+/**
+ * THE TOWN OPENS A SERVICE for a full street this often, a need at a time —
+ * a tier a need, as far as two: a tower wants more than its needs.
+ * @see stepTown, NEEDS_FOR
+ */
+const OPENS_EVERY = 90;
+const TOP_TIER = 2;
 const STOCK = 2;
 
 type Site = {
@@ -247,12 +252,9 @@ export function simulateMapRun(
    * commute, and its services or the want of them. Weighted by beds, as
    * `moodOffsets` weights by residents. @see moodsOf
    */
-  const streetMood = (tier: number) => {
+  const streetMood = (id: GeneratorId, tier: number) => {
     let m = Math.round((1 - commute) * 10 * MOOD.perTenthLost);
-    if (tier === 0) m += MOOD.noServices;
-    if (tier >= 1) m += MOOD.cafe;
-    if (tier >= 2) m += MOOD.park;
-    if (tier >= 3) m += MOOD.gym;
+    m += tier === 0 ? MOOD.noServices : tier * NEED_MOOD[id];
     return Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, m));
   };
   const moodNow = (): Partial<Record<GeneratorId, number>> => {
@@ -260,7 +262,7 @@ export function simulateMapRun(
     for (const [id, list] of Object.entries(streets) as [GeneratorId, { lots: number; tier: number }[]][]) {
       let sum = 0, n = 0;
       // SLUDGE on the street nearest the studio while it spills. @see sludgedHouses
-      list.forEach((st, k) => { const b = st.lots * TIER_SLOTS[st.tier]; sum += (streetMood(st.tier) + (spilling > 0 && id === "vibe_coder" && k === 0 ? MOOD.sludge : 0)) * b; n += b; });
+      list.forEach((st, k) => { const b = st.lots * TIER_SLOTS[st.tier]; sum += (streetMood(id, st.tier) + (spilling > 0 && id === "vibe_coder" && k === 0 ? MOOD.sludge : 0)) * b; n += b; });
       if (n) out[id] = sum / n;
     }
     return out;
@@ -274,7 +276,7 @@ export function simulateMapRun(
   setProcessorUse({ refinery: 0, dataplant: 0, contentfarm: 0 });
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
-    spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, spentOnServices: 0, stalledSeconds: 0, lots: 0,
+    spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, stalledSeconds: 0, lots: 0,
     coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopAt: null, seweredAt: null, refineryAt: null, refineries: 0, sewers: 0, spentOnSlop: 0, peakSlop: 0, peakMopping: 0, saleAt: null, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
@@ -285,31 +287,33 @@ export function simulateMapRun(
    * has bought it, its lots grown to the tier those allow. A service serves
    * about a street of lots. @see world/agents/services
    */
-  const streets: Record<GeneratorId, { lots: number; tier: number }[]> = { intern: [], vibe_coder: [], "10x_dev": [] };
+  const streets: Record<GeneratorId, { lots: number; tier: number; wait: number }[]> = { intern: [], vibe_coder: [], "10x_dev": [] };
   /**
-   * The cheapest way to more beds for a kind, a bed at a time: a new lot (on
-   * the last street, at its tier once it has grown), or the next service for
-   * a street, which grows every lot on it a tier.
+   * The way to more beds for a kind: a new lot, on the last street, at its
+   * tier once it has grown. The town grows a street itself. @see OPENS_EVERY
    */
-  const bestBeds = (id: GeneratorId): { kind: "lot" | "grow"; cost: number; beds: number; street: number } => {
-    const lotDef = `kit:${id}.t0`;
+  const bestBeds = (id: GeneratorId): { kind: "lot"; cost: number; beds: number } => {
     const list = streets[id];
     const last = list[list.length - 1];
     const lotTier = last && last.lots < STREET ? last.tier : 0;
-    const lotPrice = buildCost(lotDef)!.toNumber();
-    let best = { kind: "lot" as "lot" | "grow", cost: lotPrice, beds: TIER_SLOTS[lotTier], street: -1 };
-    // Services only once the Town Hall has opened them.
-    if (built.has("townhall")) list.forEach((st, k) => {
-      if (st.tier >= SERVICE_ORDER.length) return;
-      const cost = buildCost(SERVICE_ORDER[st.tier])!.toNumber();
-      const gained = st.lots * (TIER_SLOTS[st.tier + 1] - TIER_SLOTS[st.tier]);
-      if (cost / gained < best.cost / best.beds) best = { kind: "grow", cost, beds: gained, street: k };
-    });
-    return best;
+    return { kind: "lot", cost: buildCost(`kit:${id}.t0`)!.toNumber(), beds: TIER_SLOTS[lotTier] };
+  };
+  /** The town opening services for its full streets, a second of it; each grows every lot on its street a tier. */
+  const stepServices = () => {
+    for (const [id, list] of Object.entries(streets) as [GeneratorId, (typeof streets)[GeneratorId]][]) {
+      let grew = false;
+      for (const st of list) {
+        if (st.lots < STREET || st.tier >= TOP_TIER || ++st.wait < OPENS_EVERY) continue;
+        st.wait = 0; st.tier++; grew = true;
+        report.services++;
+      }
+      if (grew) beds[id] = (id === "intern" ? 2 : 0) + list.reduce((n, st) => n + st.lots * TIER_SLOTS[st.tier], 0);
+    }
   };
 
   /** One second of the town: projects started, worked, supplied and opened; hires arriving. */
   const stepTown = () => {
+    stepServices();
     const o = owned();
     // SLOP, seen to as a player would: once the vibe coders make it, a sewer
     // from the studio to the water, and then a refinery for it to feed, each
@@ -398,7 +402,7 @@ export function simulateMapRun(
     for (let k = pending.length - 1; k >= 0; k--) if (pending[k].at <= t) pending.splice(k, 1);
   };
 
-  type Next = { kind: "gen" | "upgrade" | "lot" | "grow" | "lab" | "office" | "rack"; id: string; cost: number };
+  type Next = { kind: "gen" | "upgrade" | "lot" | "lab" | "office" | "rack"; id: string; cost: number };
   const cheapest = (): Next | null => {
     syncAvailableUpgrades();
     const have = new Set(useUpgradeStore.getState().unlockedUpgradeIds);
@@ -419,7 +423,7 @@ export function simulateMapRun(
       if (onMap(id) + 1 > desksOf(id) && built.has(FIRST[id][0])) consider({ kind: "office", id, cost: buildCost(OFFICE_OF[id])!.toNumber() });
       else if (roomFor(id, g.amount) >= 1) consider({ kind: "gen", id, cost: getGeneratorCost(id, 1).toNumber() });
       else if (hasLots(id)) {
-        // No bed: the next of them costs a lot, or a service, first.
+        // No bed: the next of them costs a lot first.
         const way = bestBeds(id);
         consider({ kind: way.kind, id, cost: way.cost });
       }
@@ -464,19 +468,14 @@ export function simulateMapRun(
         }
         continue;
       }
-      if (next.kind === "lot" || next.kind === "grow") {
-        const id = next.id as GeneratorId, way = bestBeds(id);
+      if (next.kind === "lot") {
+        const id = next.id as GeneratorId;
         spend(next.cost);
-        if (way.kind === "lot") {
-          report.spentOnLots += next.cost;
-          report.lots++;
-          const list = streets[id], last = list[list.length - 1];
-          if (last && last.lots < STREET) last.lots++;
-          else list.push({ lots: 1, tier: 0 });
-        } else {
-          report.spentOnServices += next.cost; report.services++;
-          streets[id][way.street].tier++;
-        }
+        report.spentOnLots += next.cost;
+        report.lots++;
+        const list = streets[id], last = list[list.length - 1];
+        if (last && last.lots < STREET) last.lots++;
+        else list.push({ lots: 1, tier: 0, wait: 0 });
         beds[id] = (id === "intern" ? 2 : 0) + streets[id].reduce((n, st) => n + st.lots * TIER_SLOTS[st.tier], 0);
       } else if (next.kind === "office") {
         spend(next.cost);

@@ -7,8 +7,8 @@
  * paying as the player pays. On the map a drone carries each job out.
  * @see build-actions, drones, plans/singularity.md
  *
- *  - COLLEAGUE: lots where they are most desirable, services where the houses
- *    are thickest, its own nodes and GPU farms by the Data Centre;
+ *  - COLLEAGUE: lots where they are most desirable, its own nodes and GPU
+ *    farms by the Data Centre;
  *  - MANAGER: takes houses over as nodes, lays streets on and lifts the stubs
  *    nobody uses, buys land, hires and buys upgrades;
  *  - OVERSEER: levels hills, raises spires and a monolith.
@@ -21,7 +21,6 @@ import { NEIGHBOUR } from "../../iso/dir";
 import { buildCost, pipeCost } from "../../game/build-cost";
 import { aiSite, inRebuiltBlock } from "./arc-rules";
 import { questJobLean, questTakeoverShift } from "../../game/quests/effects";
-import { featureGateOpen } from "../../game/projects";
 import { hasLots, housedBy, roomFor } from "../../game/housing";
 import type { Family, TraitId } from "../../game/traits";
 import { aiTraitNow } from "../../game/ai-trait";
@@ -49,7 +48,7 @@ import { isDrinker } from "../../game/cooling";
 import { tankFor } from "../projects/cooling";
 import { SHORT } from "./cooling-ai";
 import { liveSeating } from "../agents/commute";
-import { RANGE } from "../agents/services";
+import { liveCoverage, needsMet } from "../agents/services";
 import type { Network } from "../roads/network";
 import { aiDistrict, inDistrict, type District } from "./district";
 import { aiFocus, focusSays, focusWeight } from "./focus";
@@ -95,27 +94,26 @@ export function targetOf(a: AiAction): Cell | null {
 export const INTERVAL: Partial<Record<Stage, number>> = { colleague: 60, manager: 35, overseer: 20, ascension: 20 };
 
 /** What it may do at a stage. */
-type Kind = "lot" | "service" | "node" | "farm" | "convert" | "repurpose" | "road" | "lift" | "flatten" | "spire" | "hangar" | "monolith" | "hire" | "upgrade" | "pipe";
+type Kind = "lot" | "node" | "farm" | "convert" | "repurpose" | "road" | "lift" | "flatten" | "spire" | "hangar" | "monolith" | "hire" | "upgrade" | "pipe";
 const BY_STAGE: Partial<Record<Stage, Kind[]>> = {
-  colleague: ["lot", "service", "node", "farm", "pipe"],
-  manager: ["lot", "service", "node", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "pipe"],
-  overseer: ["lot", "service", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "flatten", "spire", "hangar", "monolith", "pipe"],
+  colleague: ["lot", "node", "farm", "pipe"],
+  manager: ["lot", "node", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "pipe"],
+  overseer: ["lot", "farm", "convert", "repurpose", "road", "lift", "hire", "upgrade", "flatten", "spire", "hangar", "monolith", "pipe"],
 };
 BY_STAGE.ascension = BY_STAGE.overseer;
 
 /** How much more often each family of trait reaches for each kind of job. */
 const LEAN: Record<Family, Partial<Record<Kind, number>>> = {
-  planner: { road: 3, lift: 2, service: 2, lot: 2 },
+  planner: { road: 3, lift: 2, lot: 2 },
   optimiser: { farm: 3, hire: 3, upgrade: 3, convert: 2, repurpose: 3 },
-  shepherd: { service: 4, lot: 2 },
+  shepherd: { lot: 3 },
   elemental: { flatten: 2, pipe: 3 },
   recursive: { node: 3, spire: 3, convert: 3, hangar: 2, repurpose: 2 },
   temper: {},
 };
 
-/** ITS OWN QUIRKS, on top of its family's: an Aesthete's parks, a Zoner's grid, a Hydrophile's water. @see candidate */
+/** ITS OWN QUIRKS, on top of its family's: a Zoner's grid, a Hydrophile's water. @see candidate */
 const QUIRK: Partial<Record<TraitId, Partial<Record<Kind, number>>>> = {
-  aesthete: { service: 3 },
   zoner: { road: 3, lot: 2 },
   hydrophile: { pipe: 4 },
 };
@@ -218,10 +216,10 @@ function latticeFor(g: Grid, district: District | null): AiAction | null {
   return at ? { kind: "place", def: "lattice", at, why: "I have begun the Lattice. Give it twenty-four agents and water, and it will be finished. So will I." } : null;
 }
 
-/** Whether a house in the district has no café, park or gym in reach. */
-function unserved(structures: readonly Structure[], mine: (s: Structure) => boolean): boolean {
-  const services = structures.filter((s) => (s.def === "cafe" || s.def === "park" || s.def === "gym") && !s.build);
-  return structures.some((h) => mine(h) && housedBy(h.def) && !h.build && !services.some((s) => Math.abs(h.x - s.x) + Math.abs(h.y - s.y) <= RANGE));
+/** Whether a house in the district has none of its kind's needs met. @see needsMet */
+function unserved(g: Grid, net: Network, structures: readonly Structure[], mine: (s: Structure) => boolean): boolean {
+  const cover = liveCoverage(g, net);
+  return structures.some((h) => mine(h) && housedBy(h.def) && !h.build && !needsMet(h, cover).length);
 }
 
 /** The jobs that take what is the player's. */
@@ -273,20 +271,14 @@ function shortOfBeds(): GeneratorId | null {
 }
 
 /**
- * HOW MUCH A SERVICE OR OFFICE IS USED, 0 and up: an office, the share of
- * its desks taken; a service, the houses that have no other of its kind in
- * reach, by tens. What the AI takes over first is what is used least.
+ * HOW MUCH AN OFFICE IS USED, 0 to 1: the share of its desks taken. What the
+ * AI takes over first is what is used least.
  */
-function usageOf(g: Grid, net: Network, structures: readonly Structure[]): (s: Structure) => number {
+function usageOf(g: Grid, net: Network): (s: Structure) => number {
   const desks = liveSeating(g, net).desks;
-  const houses = structures.filter((h) => housedBy(h.def) && !h.build);
-  const near = (a: Structure, b: Structure) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= RANGE;
   return (s) => {
     const d = desks.get(s.id);
-    if (d) return d.of > 0 ? d.used / d.of : 0;
-    const others = structures.filter((o) => o.def === s.def && o.id !== s.id && !o.build);
-    const alone = houses.filter((h) => near(h, s) && !others.some((o) => near(h, o))).length;
-    return alone / 10;
+    return d && d.of > 0 ? d.used / d.of : 0;
   };
 }
 
@@ -325,8 +317,8 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
     case "lot": {
       const who = shortOfBeds();
       if (!who || !net) return null;
-      // PEOPLE FIRST, for an AI trained on them: no more houses while one in its district has no service in reach.
-      if (skillOf("people") >= 3 && featureGateOpen("services") && unserved(structures, mine)) return null;
+      // PEOPLE FIRST, for an AI trained on them: no more houses while one in its district has none of its needs met.
+      if (skillOf("people") >= 3 && unserved(g, net, structures, mine)) return null;
       // A tier up for an AI trained on the town, two at its third level, where the kit has one.
       const tier = Math.max(0, skillOf("town") - 1);
       const kit = (t: number) => [`kit:${who}.t${t}`, `kit:${who}.t1`, `kit:${who}.t0`].find((id) => structureDef(id))!;
@@ -343,7 +335,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       if (notable("zoning") || inRebuiltBlock(best.x, best.y)) {
         const m = desireAt(g, maps, best.x, best.y, who);
         // A landmark is not zoned: t2 at most.
-        const grown = m ? Math.min(2, ["t0", "t1", "t2", "landmark"].indexOf(projectTier(m))) : -1;
+        const grown = m ? Math.min(2, ["t0", "t1", "t2", "landmark"].indexOf(projectTier(m, who))) : -1;
         if (grown > tier) {
           const up = kit(grown);
           if (validatePlacement(g, structureDef(up)!, best.x, best.y, playRules(g)).ok) {
@@ -352,30 +344,6 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
         }
       }
       return { kind: "place", def, at: best, why: "I have zoned some housing where people will be happiest." };
-    }
-    case "service": {
-      if (!featureGateOpen("services")) return null;
-      // AN AESTHETE plants parks; nothing else will do.
-      const aesthete = aiTraitNow().id === "aesthete";
-      const def = aesthete ? "park" : pick(["cafe", "park", "gym"]);
-      const houses = structures.filter((s) => housedBy(s.def));
-      if (!houses.length) return null;
-      // Where the houses are thickest — or, told to serve the people, where
-      // they are unhappiest: each house counted by how far its mood is down.
-      const people = aiFocus() === "people" && net;
-      const moods = people ? liveMoods(g, net) : null;
-      // Trained on the town, it counts only the houses with none of that kind in reach.
-      const kin = structures.filter((s) => s.def === def);
-      const covered = (h: Structure) => kin.some((s) => Math.abs(h.x - s.x) + Math.abs(h.y - s.y) <= RANGE);
-      const planner = skillOf("town") >= 1;
-      const weight = (h: Structure) => (planner && covered(h) ? 0 : 1) * (moods ? Math.max(1, 10 - (moods.get(h.id)?.total ?? 0)) : 1);
-      let best: Cell | null = null, most = planner ? 0 : -1;
-      for (const c of spots(g, def, d)) {
-        const n = houses.filter((h) => Math.abs(h.x - c.x) + Math.abs(h.y - c.y) <= (planner ? RANGE : 6)).reduce((a, h) => a + weight(h), 0);
-        if (n > most) { most = n; best = c; }
-      }
-      const where = people ? "where they were unhappiest" : "where it will do the most good";
-      return best ? { kind: "place", def, at: best, why: aesthete ? "I have planted a park. The town was ugly there, and now it is less so." : `I have opened a ${structureDef(def)?.name.toLowerCase()} ${where}.` } : null;
     }
     case "node": case "farm": case "spire": case "hangar": case "monolith": {
       if (!dc) return null;
@@ -406,12 +374,11 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       return { kind: "convert", at: { x: h.x, y: h.y }, into: "ai-node", why: "That house was underused. It is a node now. Its residents have been relocated." };
     }
     case "repurpose": {
-      // A café, a park, a gym or an office: a GPU farm now, for good.
-      // THE LEAST USED: an office by its desks taken, a service by the houses
-      // relying on it alone — no other of its kind in reach. @see usageOf
-      const taken = structures.filter((s) => mine(s) && !s.build && (["cafe", "park", "gym", "office-intern", "office-vibe"].includes(s.def)) && inletOpen(g, "gpu-farm", s.x, s.y, s.w, s.h));
+      // An office: a GPU farm now, for good. The town's services are its own.
+      // THE LEAST USED, by its desks taken. @see usageOf
+      const taken = structures.filter((s) => mine(s) && !s.build && (["office-intern", "office-vibe"].includes(s.def)) && inletOpen(g, "gpu-farm", s.x, s.y, s.w, s.h));
       if (!taken.length || !net) return null;
-      const usage = usageOf(g, net, structures);
+      const usage = usageOf(g, net);
       const s = taken.reduce((a, b) => (usage(b) < usage(a) ? b : a));
       // Trained on the people, only what nobody relies on.
       if (skillOf("people") >= 2 && usage(s) > 0) return null;

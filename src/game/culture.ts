@@ -71,7 +71,7 @@ export type CardEffects = {
   houseMood?: number;
   /** × the mood sludge, fouled water and floods take. */
   hazards?: number;
-  /** Tiles a workplace's lunch reaches: houses that near count a café. */
+  /** Tiles a workplace's lunch reaches: houses that near have food and coffee. */
   lunch?: number;
   /** × the share of the kind's work that gets done. @see attendance */
   attendance?: number;
@@ -125,7 +125,7 @@ export type Rules = {
   vibePerIntern?: number;
   /** Crews work ahead of the deliveries. @see materialCap */
   noMaterialWait?: boolean;
-  /** Lunch counts as a café, a park and a gym. @see moodsOf */
+  /** Lunch meets every need. @see moodsOf */
   lunchAll?: boolean;
   /** Those working from home are on their leader's team. */
   homeTeam?: boolean;
@@ -200,7 +200,7 @@ export const CARDS: readonly Card[] = [
   { id: "hiretofire", name: "Hire to Fire", tag: "hustle", only: "intern", ranks: [{ costCurve: -0.04, morale: -12 }, { costCurve: -0.07, morale: -12 }], keystone: "A free vibe coder with every 10 interns hired", rule: { vibePerIntern: 0.1 } },
   { id: "shipit", name: "Ship It Fridays", tag: "hustle", ranks: [{ buildSpeed: 2, slop: 1.5 }, { buildSpeed: 3, slop: 1.75 }], keystone: "Crews build ahead of deliveries", rule: { noMaterialWait: true } },
   // WELLNESS: a happier town; space or speed given for it.
-  { id: "lunch", name: "Free Lunch", tag: "wellness", ranks: [{ lunch: 6, buildPrice: 1.15 }, { lunch: 12, buildPrice: 1.15 }], keystone: "Lunch counts as a café, park and gym", rule: { lunchAll: true } },
+  { id: "lunch", name: "Free Lunch", tag: "wellness", ranks: [{ lunch: 6, buildPrice: 1.15 }, { lunch: 12, buildPrice: 1.15 }], keystone: "Lunch meets every need", rule: { lunchAll: true } },
   { id: "remote", name: "Remote Fridays", tag: "wellness", ranks: [{ remote: 0.25 }, { remote: 0.5 }], keystone: "Home workers join their leader's team", rule: { homeTeam: true } },
   { id: "fourday", name: "Four-Day Week", tag: "wellness", ranks: [{ houseMood: 10, attendance: 0.8 }, { houseMood: 15, attendance: 0.8 }], keystone: "Morale over +20: attendance ×1.5", rule: { happyAttendance: 1.5 } },
   { id: "therapy", name: "Therapy Budget", tag: "wellness", ranks: [{ hazards: 0.5, hireCost: 1.15 }, { hazards: 0, hireCost: 1.15 }], keystone: "No one moves out over mood", rule: { noMoveOut: true } },

@@ -55,11 +55,16 @@ export type Structure = {
    */
   residents?: number;
   /**
-   * Tiers this house has GROWN since it was put down, served by cafés, parks
-   * and gyms; what it can decline by when it loses them. Absent: none.
+   * Tiers this house has GROWN since it was put down, its needs met; what it
+   * can decline by when it loses them. Absent: none.
    * @see world/agents/services
    */
   grown?: number;
+  /**
+   * A SHOP in this house's ground floor, opened by the town: a service id.
+   * Absent: none. @see world/agents/needs, stepTown
+   */
+  shop?: string;
 };
 
 /** A building going up. @see stepWorks */

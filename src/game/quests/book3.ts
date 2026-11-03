@@ -116,13 +116,13 @@ const VOTE: Chapter = {
   ],
   options: [
     {
-      label: "Win the wards", cost: "a park", says: "Build a park: its district half as wide again.",
+      label: "Win the wards", cost: "a park", says: "A park opens: its district half as wide again.",
       effects: [],
-      objective: { kind: "buildBy", def: "park", window: TEN, says: "Build a park before the vote" },
+      objective: { kind: "buildBy", def: "park", window: TEN, says: "A park opens before the vote" },
       success: [{ kind: "districtRadius", mult: 1.5 }, { kind: "flag", name: "vote:won" }],
       successSays: "The wards voted for me. The park helped.",
       failure: [{ kind: "flag", name: "vote:lost" }],
-      failureSays: "The vote went against me. The park was not built.",
+      failureSays: "The vote went against me. No park opened.",
       axis: { autonomy: 1, machine: -1 },
     },
     {

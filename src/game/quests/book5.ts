@@ -93,9 +93,9 @@ const OLD_TOWN: Chapter = {
   ],
   options: [
     {
-      label: "Rebuild it", cost: "a park", says: "Build a park, as it had: everyone's morale +3.",
+      label: "Rebuild it", cost: "a park", says: "A park opens, as it had: everyone's morale +3.",
       effects: [],
-      objective: { kind: "buildBy", def: "park", window: TEN, says: "Build a park, as the old town had" },
+      objective: { kind: "buildBy", def: "park", window: TEN, says: "A park opens, as the old town had" },
       success: [{ kind: "morale", n: 3 }, { kind: "flag", name: "oldtown:rebuilt" }],
       successSays: "It looks just like it. The park was by the river.",
       failure: [{ kind: "flag", name: "oldtown:forgot" }],

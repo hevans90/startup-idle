@@ -91,17 +91,9 @@ export const HINTS: readonly Hint[] = [
     done: (s) => s.residents > 0,
   },
   {
-    id: "townhall",
-    text: "The Town Hall is ready to build. It opens cafés, parks and gyms — and houses near them grow.",
-    target: "projects",
-    when: (s) => s.ready.has("townhall"),
-    done: (s) => s.sites.has("townhall") || s.built.has("townhall"),
-  },
-  {
     id: "services",
-    text: "Put a café near your lots. A full house beside one grows into a bigger house, for nothing.",
-    target: "build",
-    when: (s) => s.built.has("townhall"),
+    text: "Fill a street and the town opens what its people need. Houses with needs met grow.",
+    when: (s) => s.residents >= 6,
     done: (s) => s.services > 0,
   },
   {

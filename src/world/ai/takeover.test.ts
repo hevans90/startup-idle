@@ -86,10 +86,10 @@ describe("what it takes over", () => {
     expect(chooseAction(g, "overseer", rand, take)).not.toBeNull();
   });
 
-  test("a service: the one fewest houses rely on", () => {
+  test("never a service: the town's own", () => {
     const g = town([["kit:intern.t0", 6, 13], ["kit:intern.t0", 7, 13], ["cafe", 5, 11], ["cafe", 20, 11]]);
     const a = chooseAction(g, "manager", rand, (x) => x.kind === "convert" && x.into === "gpu-farm");
-    expect(a && a.kind === "convert" ? a.at : null).toEqual({ x: 20, y: 11 });
+    expect(a).toBeNull();
   });
 
   test("announced a minute ahead, and done then — unless the building has changed", () => {

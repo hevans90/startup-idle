@@ -278,11 +278,18 @@ export const PROCESSOR_DEFS: readonly StructureDef[] = [
 ];
 
 /**
- * SERVICES: a café, a park and a gym, which serve the homes near them along
- * the roads, and are what houses grow by. @see world/agents/services
+ * SERVICES with buildings of their own, which the town opens where they are
+ * needed and which meet a need of the homes near them along the roads; the
+ * small ones open in houses' ground floors instead. A café standing on its own
+ * is from before. @see world/agents/needs, world/agents/town-services
  */
 export const SERVICES: readonly StructureDef[] = [
   { id: "cafe", name: "Café", footprint: { w: 2, h: 1 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "club", name: "Night club", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "coworking", name: "Co-working", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "cinema", name: "Cinema", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "doctor", name: "Doctor", footprint: { w: 2, h: 1 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "climbing", name: "Climbing wall", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },
   // A PARK goes anywhere: off the roads it serves the homes round it across the grass. @see coverageOf
   { id: "park", name: "Park", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" }, placement: { noFrontage: true } },
   { id: "gym", name: "Gym", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" } },

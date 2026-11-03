@@ -45,8 +45,8 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**; no la
 - **R&D labs** (`world/projects/labs.ts`): +10% innovation, 20% near the campus or Data Centre.
 - **AI agents** (`game/agents.ts`, `world/projects/racks.ts`): after the Data Centre, for innovation; racks hold 4; +4% income each.
 - **Cooling water** (`game/cooling.ts`, `world/projects/cooling.ts`): the Data Centre and the AI's buildings drink from a 30 s tank fed by **water mains** (`world/water/mains.ts`, `game/mains.ts`; solved by head and length, `mainFlow`). The **Pipe tool** routes (`routeMain`, `planMain`, `play/main-card.tsx`); **ports** (`water/ports.ts`) are a building's nozzles; drawn as tube meshes (`render/pipe-mesh.ts`, `pipe-gpu.ts`), the **Water** overlay in `render/mains-layer.ts`. **Pollution** (`game/pollution.ts`, `water/pollution.ts`) runs downhill and fouls intakes. The AI pipes (`world/ai/pipe-route.ts`, `cooling-ai.ts`) and digs reservoirs (`world/ai/reservoir.ts`). Plan: `plans/datacentre-water.md`.
-- **Services and growth** (`agents/services.ts`): café, park, gym within 8 road tiles (a park goes anywhere; off the roads it serves homes 8 tiles round it); full houses grow at desirability 4/10/16.
-- **Mood is desirability** (`agents/mood.ts`, `agents/mood-rules.ts`): commute, services, water view (+5, polluted −8), crowding, wonders, sludge −15, flood −20; cap ±40; their words one list (`WHY`). **Earnings** tints streets gold (`roads/streets.ts`).
+- **Needs and services** (`agents/needs.ts`, `agents/services.ts`): each kind has needs (interns food, nightlife; vibe coders coffee, a scene; 10x devs health, fitness, quiet), met by a service within 8 road tiles. **The town opens them itself** (`agents/town-services.ts`): each neighbourhood (streets joined at junctions, ≤24 homes) opens one thing a minute for its most-lacked need (≥6 people) — a shop in a house's ground floor (`Structure.shop`) or a building of its own — and closes what nobody of its kind is near for 3 min. Not for sale; the AI leaves them alone. Full houses grow at desirability 4/10/16 with 1/2/all needs met.
+- **Mood is desirability** (`agents/mood.ts`, `agents/mood-rules.ts`): commute, needs met, water view (+5, polluted −8), crowding, wonders, sludge −15, flood −20; cap ±40; their words one list (`WHY`). **Earnings** tints streets gold (`roads/streets.ts`).
 - **Prices** (`game/build-cost.ts`): max(floor, a share of income).
 
 **Map events** (`world/events/`, `play/event-cards.tsx`): one at a time, a choice card each — river flood (sandbags, evacuate, brace; flood walls), convoy (then a regular route), investor tour, hackathon, the agents' decision, an acquisition offer (+25% Equity, `OFFER_PREMIUM`).
@@ -56,7 +56,6 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**; no la
 | Project | Gate | Opens |
 | --- | --- | --- |
 | Founder's Garage | — | interns |
-| Town Hall | Mandatory Weekend Work | services |
 | Vibe Coder Studio | Micromanagement | vibe coders |
 | Harbour Office | Promotion Griefing, river maps | seaports |
 | Company HQ | Focus Vibing | managers |

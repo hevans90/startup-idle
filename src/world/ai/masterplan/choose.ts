@@ -1,30 +1,24 @@
 /**
- * World v2 — THE NEXT BLOCK, AND ANY REBUILD ABOUT IT: what the planning
- * worker works out, here so the main thread can work it out too, where there
- * is no worker. @see chooseBlock, replacementFor, masterplan.worker
+ * World v2 — THE NEXT BLOCK: what the planning worker works out, here so the
+ * main thread can work it out too, where there is no worker. @see chooseBlock,
+ * masterplan.worker
  */
 import type { GeneratorId } from "../../../state/generators.store";
 import type { Grid } from "../../grid";
 import { chooseBlock, type Chosen, type Prices } from "./lookahead";
-import { replacementFor } from "./replace";
 import type { Style } from "./style";
 
 export type PlanRequest = {
-  id: number; file: unknown; kinds: GeneratorId[]; services: boolean; offices: boolean; style: Style;
-  /** Where the town is; street tiles of blocks that came to nothing; what things cost; money a second. */
-  centre: { x: number; y: number }; tried: number[]; prices: Prices; income: number;
+  id: number; file: unknown; kinds: GeneratorId[]; offices: boolean; style: Style;
+  /** Where the town is; street tiles of blocks that came to nothing; what things cost. */
+  centre: { x: number; y: number }; tried: number[]; prices: Prices;
 };
 export type PlanReply = { id: number; chosen: Chosen | null };
 
-/** The block chosen, with the rebuild about it that pays best, if one does, ahead of its steps. */
-export function chooseWithRebuild(
-  g: Grid, centre: { x: number; y: number }, tried: number[], kinds: GeneratorId[],
-  services: boolean, offices: boolean, style: Style, prices: Prices, income: number,
+/** The block chosen, planned. */
+export function chooseNext(
+  g: Grid, centre: { x: number; y: number }, tried: number[], kinds: GeneratorId[], offices: boolean, style: Style, prices: Prices,
 ): Chosen | null {
   // The whole map is the company's to build on.
-  const owned = () => true;
-  const chosen = chooseBlock(g, owned, centre, new Set(tried), { kinds, services, offices, style }, prices);
-  if (!chosen) return null;
-  const r = replacementFor(g, chosen.box, owned, { kinds, services, style }, income, prices);
-  return r ? { ...chosen, plan: { ...chosen.plan, steps: [r, ...chosen.plan.steps] } } : chosen;
+  return chooseBlock(g, () => true, centre, new Set(tried), { kinds, offices, style }, prices);
 }

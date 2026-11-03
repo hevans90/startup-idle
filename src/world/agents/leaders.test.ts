@@ -86,14 +86,14 @@ describe("who the leaders lead", () => {
     expect(deskShare(g, lead, new Map([[id("office-intern", 17), { used: 4 }]]), { intern: 10 }).intern ?? 0).toBe(0);
   });
 
-  test("a café next door is a tenth more at a workplace's desks, and says so", () => {
+  test("coffee next door is a tenth more at a workplace's desks, and says so", () => {
     const { g, id } = street();
     const office = g.structures.get(id("office-intern", 17))!;
     const none = { of: new Map(), leads: new Map() };
     expect(deskPerks(g, none, office)).toEqual({ share: 0, why: [] });
     const history = createHistory();
     commit(g, history, placeCommand(g, structureDef("cafe")!, 20, 4)!);
-    expect(deskPerks(g, none, office)).toEqual({ share: CAFE_BOOST, why: ["Café next door · +10%"] });
+    expect(deskPerks(g, none, office)).toEqual({ share: CAFE_BOOST, why: ["Coffee next door · +10%"] });
     expect(deskPerks(g, none, g.structures.get(id("garage", 0))!).share).toBe(0);
   });
 });

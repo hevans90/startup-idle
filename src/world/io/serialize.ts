@@ -19,6 +19,7 @@ import { DECK_SLOT, poolSnapshot, type WaterField } from "../water/field";
 import { pollutionOf, stashPollution } from "../water/pollution";
 import { restoreTanks, tankLevels } from "../slop/tanks";
 import { TRACE } from "../../game/pollution";
+import { serviceDef } from "../agents/needs";
 
 export const WORLD_FILE_VERSION = 1;
 
@@ -274,14 +275,17 @@ function readStructure(raw: unknown): Structure | null {
   if (typeof s.def !== "string" || !nums.every((v) => Number.isInteger(v))) return null;
   // THE SLOP PIT is gone: slop goes into tanks and sewers now. @see world/slop/tanks
   if (s.def === "slop-pit") return null;
+  // NOR THE TOWN HALL'S SITE: services open by themselves now; one finished stands. @see world/agents/town-services
+  if (s.def === "townhall" && s.build) return null;
   if ((s.w as number) <= 0 || (s.h as number) <= 0 || (s.id as number) < 0) return null;
   const build = readBuild(s.build);
   const residents = Number.isInteger(s.residents) && s.residents! >= 0 ? s.residents : undefined;
   const grown = Number.isInteger(s.grown) && s.grown! > 0 ? s.grown : undefined;
+  const shop = typeof s.shop === "string" && serviceDef(s.shop)?.shop ? s.shop : undefined;
   return {
     id: s.id!, def: s.def, x: s.x!, y: s.y!, w: s.w!, h: s.h!,
     ...(build ? { build } : {}), ...(residents !== undefined ? { residents } : {}),
-    ...(grown !== undefined ? { grown } : {}),
+    ...(grown !== undefined ? { grown } : {}), ...(shop ? { shop } : {}),
   };
 }
 

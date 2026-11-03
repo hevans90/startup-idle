@@ -268,28 +268,27 @@ describe("what a project costs", () => {
   });
 });
 
-describe("the Town Hall and the Harbour Office", () => {
-  test("open services and ports, shut until they stand where there is a map", () => {
-    const TOWNHALL = projectDef("townhall")!, HARBOUR = projectDef("harbour")!;
-    expect(TOWNHALL.grants).toBe("services");
+describe("the Harbour Office", () => {
+  test("opens ports, shut until it stands where there is a map", () => {
+    const HARBOUR = projectDef("harbour")!;
     expect(HARBOUR.grants).toBe("ports");
-    expect(TOWNHALL.ready({ intern: 500 }, new Set())).toBe(false);
-    expect(TOWNHALL.ready({}, new Set(["intern_upgrade_2"]))).toBe(true);
+    expect(HARBOUR.ready({ intern: 500 }, new Set())).toBe(false);
     expect(HARBOUR.ready({}, new Set(["intern_upgrade_3"]))).toBe(true);
     const stop = setProjectReader(() => ({ built: new Set(["garage"]), away: {} }));
-    expect(featureGateOpen("services")).toBe(false);
     expect(featureGateOpen("ports")).toBe(false);
     stop();
-    const stop2 = setProjectReader(() => ({ built: new Set(["townhall", "harbour"]), away: {} }));
-    expect(featureGateOpen("services")).toBe(true);
+    const stop2 = setProjectReader(() => ({ built: new Set(["harbour"]), away: {} }));
     expect(featureGateOpen("ports")).toBe(true);
     stop2();
   });
 
-  test("are given finished to a company whose map already has services, or ports", () => {
-    expect(alreadyEarned(projectDef("townhall")!, {}, new Set(["services"]))).toBe(true);
+  test("is given finished to a company whose map already has ports", () => {
     expect(alreadyEarned(projectDef("harbour")!, {}, new Set(["ports"]))).toBe(true);
-    expect(alreadyEarned(projectDef("harbour")!, {}, new Set(["services"]))).toBe(false);
+    expect(alreadyEarned(projectDef("harbour")!, {}, new Set(["managers"]))).toBe(false);
+  });
+
+  test("the Town Hall is gone: the town opens its own services", () => {
+    expect(projectDef("townhall")).toBeNull();
   });
 });
 
@@ -350,7 +349,7 @@ describe("two sites at once", () => {
   test("each takes its share of whoever is still at a desk, so somebody is always earning", () => {
     const { g, history } = town();
     commit(g, history, startSiteCommand(g, STUDIO, 12, 6, { needsRoad: true }, 0)!);
-    commit(g, history, startSiteCommand(g, projectDef("townhall")!, 20, 6, { needsRoad: true }, 0)!);
+    commit(g, history, startSiteCommand(g, projectDef("hq")!, 20, 6, { needsRoad: true }, 0)!);
     const net = createNetwork(g), t = createTown(), w = createWorks();
     stepWorks(w, g, net, t, { intern: 20 }, () => true, 1 / 30, 0);
     // Normal is half: ten for the first, then half the ten left for the second.

@@ -6,7 +6,7 @@ import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { desireAt, desireMapsOf } from "./desirability";
-import { MOOD, WATER_VIEW } from "./mood-rules";
+import { NEED_MOOD, WATER_VIEW } from "./mood-rules";
 import { RANGE } from "./services";
 import { placesOf } from "./roads";
 
@@ -26,16 +26,18 @@ const maps = (g: ReturnType<typeof street>) => desireMapsOf(g, placesOf(g, creat
 const why = (d: ReturnType<typeof desireAt>) => d!.parts.map((p) => p.why).sort();
 
 describe("desirability", () => {
-  test("an empty tile beside the road gets what a house there would: a café in reach", () => {
+  test("an empty tile beside the road gets what a house there would: its kind's need met in reach", () => {
     const g = street([["cafe", 10]]);
-    const d = desireAt(g, maps(g), 12, 4, "intern");
-    expect(why(d)).toEqual(["café"]);
-    expect(d!.total).toBe(MOOD.cafe);
+    const d = desireAt(g, maps(g), 12, 4, "vibe_coder");
+    expect(why(d)).toEqual(["coffee"]);
+    expect(d!.total).toBe(NEED_MOOD.vibe_coder);
+    // Not another kind's.
+    expect(why(desireAt(g, maps(g), 12, 4, "intern"))).toEqual(["no services"]);
   });
 
   test("out of a service's reach, a tile has nothing", () => {
     const g = street([["cafe", 2]]);
-    const d = desireAt(g, maps(g), 2 + RANGE + 6, 4, "intern");
+    const d = desireAt(g, maps(g), 2 + RANGE + 6, 4, "vibe_coder");
     expect(why(d)).toEqual(["no services"]);
   });
 
@@ -47,9 +49,9 @@ describe("desirability", () => {
   test("water in view counts", () => {
     const g = street([["cafe", 10]]);
     g.pool[idx(g, 13, 2)] = 3;
-    const d = desireAt(g, maps(g), 12, 4, "intern");
-    expect(why(d)).toEqual(["café", "water view"]);
-    expect(d!.total).toBe(MOOD.cafe + WATER_VIEW);
+    const d = desireAt(g, maps(g), 12, 4, "vibe_coder");
+    expect(why(d)).toEqual(["coffee", "water view"]);
+    expect(d!.total).toBe(NEED_MOOD.vibe_coder + WATER_VIEW);
   });
 
   test("a long way from work costs, and a workplace near does not", () => {

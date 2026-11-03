@@ -89,7 +89,7 @@ describe("AI mode", () => {
     useGeneratorStore.getState().increaseGenerator("intern", 60);
     syncAvailableUpgrades();
     useSessionStore.getState().setAiMode({ aiMode: true });
-    const gate = projectDef("townhall")!.gate.upgrade!;
+    const gate = projectDef("studio")!.gate.upgrade!;
     expect(useUpgradeStore.getState().unlockedUpgradeIds).not.toContain(gate);
     for (let k = 0; k < 10 && !useUpgradeStore.getState().unlockedUpgradeIds.includes(gate); k++) { run(g, 1); syncAvailableUpgrades(); }
     expect(useUpgradeStore.getState().unlockedUpgradeIds).toContain(gate);
@@ -142,7 +142,7 @@ describe("AI mode", () => {
     useSessionStore.getState().setAiMode({ aiMode: true });
     run(g, 1);
     const first = currentPlan();
-    run(g, 40);
+    run(g, 60);
     expect(currentPlan()).not.toBe(first);
   });
 });

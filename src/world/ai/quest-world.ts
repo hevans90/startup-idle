@@ -15,6 +15,7 @@ import type { Grid } from "../grid";
 import { tankFor } from "../projects/cooling";
 import { SHORT } from "./cooling-ai";
 import { latticeCharge } from "./lattice";
+import { serviceDef, serviceIn } from "../agents/needs";
 
 export function questWorld(g: Grid): QuestWorld {
   const counts: Record<string, number> = {};
@@ -22,6 +23,13 @@ export function questWorld(g: Grid): QuestWorld {
   for (const s of g.structures.values()) {
     if (s.build) continue;
     counts[s.def] = (counts[s.def] ?? 0) + 1;
+    // THE TOWN'S SERVICES, by what they are and the need they meet: a shop downstairs too. @see stepTown
+    const sv = serviceIn(s);
+    if (sv) {
+      if (s.shop) counts[sv] = (counts[sv] ?? 0) + 1;
+      const need = `need:${serviceDef(sv)!.need}`;
+      counts[need] = (counts[need] ?? 0) + 1;
+    }
     if (!isDrinker(s.def)) continue;
     const share = tankFor(s.id)?.share ?? 0;
     drinkers++;

@@ -43,7 +43,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, pizzaPrice, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { demolishLifts, getTownServices, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, pizzaPrice, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import {
@@ -111,7 +111,8 @@ import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
-import { stepEvolution, withTier } from "./agents/services";
+import { liveCoverage, stepEvolution, withTier } from "./agents/services";
+import { stepTown as stepTownServices } from "./agents/town-services";
 import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
@@ -2057,15 +2058,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const there = id >= 0 ? g.structures.get(id) : undefined;
             if (there) holos.push({ key: `clear:${there.id}`, def: there.def, x: there.x, y: there.y, ok: false, planned: true });
           }
-          // ITS REBUILD: what goes up in glass, the lots it pulls down red under it.
-          if (s.kind === "replace" && !flying.has(`${s.def}@${s.at.x},${s.at.y}`)) {
-            holos.push({ key: `plan:${s.def}@${s.at.x},${s.at.y}`, def: s.def, x: s.at.x, y: s.at.y, ok: true, planned: true });
-            for (const c of s.clears) {
-              const id = structureAt(g, c.x, c.y);
-              const there = id >= 0 ? g.structures.get(id) : undefined;
-              if (there) holos.push({ key: `clear:${there.id}`, def: there.def, x: there.x, y: there.y, ok: false, planned: true });
-            }
-          }
         }
       }
       // AND THE PUMP HOUSE OF A PIPE IT MEANS TO LAY.
@@ -2983,8 +2975,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // door, the studio — each only once built.
             const built = (ids: string[]) => [...st.grid.structures.values()].find((s) => ids.includes(s.def) && !s.build);
             const port = getTraffic().ports.size ? [...st.grid.structures.values()].find((s) => getTraffic().ports.has(s.id)) : undefined;
-            const door = built(["hq", "townhall", "garage"]), studio = built(["studio"]);
-            const front = built(["ipo", "hq", "townhall", "garage"]);
+            const door = built(["hq", "garage"]), studio = built(["studio"]);
+            const front = built(["ipo", "hq", "garage"]);
             const income = useGeneratorStore.getState().getMoneyPerSecond();
             const tour = st.events.find((e) => e.kind === "investor-tour" && e.phase !== "over");
             const convoy = st.events.find((e) => e.kind === "convoy" && e.phase !== "over");
@@ -3186,11 +3178,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const left = stepMood(unrestRef.current, st.grid, liveMoods(st.grid, net), dt);
           if (left.length) useWorldStore.getState().housingMoved(left);
         }
-        // THE TOWN EVOLVING, in the game: houses growing round the cafés,
-        // parks and gyms that serve them, and declining when they lose them.
+        // THE TOWN EVOLVING, in the game: houses growing where their needs
+        // are met, and declining when they lose them; and the town opening
+        // what its people need, and closing what nobody does. @see stepTown
         if (st.playing) {
-          const grew = stepEvolution(getEvolution(), st.grid, liveMoods(st.grid, net), dt);
+          const cover = liveCoverage(st.grid, net);
+          const grew = stepEvolution(getEvolution(), st.grid, liveMoods(st.grid, net), cover, dt);
           if (grew.length) useWorldStore.getState().housingMoved(grew);
+          const ws = useWorldStore.getState();
+          const changed = stepTownServices(getTownServices(), st.grid, net, cover, dt, {
+            canPlace: (def, x, y) => { const d = structureDef(def); return !!d && validatePlacement(st.grid, d, x, y, playRules(st.grid)).ok; },
+            place: ws.townPlace, clear: ws.townClear, rand: Math.random,
+          });
+          if (changed.length) ws.housingMoved(changed.map((e) => e.structure));
         }
         sMood();
         const sWorks = section("tick: works");

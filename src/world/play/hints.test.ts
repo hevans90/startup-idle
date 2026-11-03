@@ -28,12 +28,12 @@ describe("first-run hints", () => {
 
   test("an established company is told nothing it has already done, and those are put away unseen", () => {
     const s = state({
-      ready: new Set(), built: new Set(["garage", "townhall", "studio"]), lots: 12, residents: 30, services: 2,
+      ready: new Set(), built: new Set(["garage", "studio"]), lots: 12, residents: 30, services: 2,
       owned: { intern: 40, vibe_coder: 0, "10x_dev": 0 },
     });
     const { show, settled } = nextHint(s, new Set());
     expect(show).toBeNull();
-    expect(settled).toEqual(expect.arrayContaining(["garage-site", "garage-wait", "first-hire", "zone-lots", "arrivals", "townhall", "services"]));
+    expect(settled).toEqual(expect.arrayContaining(["garage-site", "garage-wait", "first-hire", "zone-lots", "arrivals", "services"]));
   });
 
   test("a dismissed hint is not shown again", () => {
@@ -41,26 +41,26 @@ describe("first-run hints", () => {
   });
 
   test("a long commute with no office suggests one", () => {
-    const s = state({ ready: new Set(), built: new Set(["garage", "townhall"]), lots: 4, residents: 8, services: 1, owned: { intern: 10, vibe_coder: 0, "10x_dev": 0 }, worstCommute: 0.6 });
+    const s = state({ ready: new Set(), built: new Set(["garage"]), lots: 4, residents: 8, services: 1, owned: { intern: 10, vibe_coder: 0, "10x_dev": 0 }, worstCommute: 0.6 });
     expect(nextHint(s, new Set()).show?.id).toBe("commute");
   });
 
   test("the newer systems, each when it comes up", () => {
-    const settled = { ready: new Set<string>(), built: new Set(["garage", "townhall"]), lots: 4, residents: 8, services: 1, owned: { intern: 10, vibe_coder: 0, "10x_dev": 0 } };
-    expect(nextHint(state({ ...settled, built: new Set(["garage", "townhall", "campus"]) }), new Set()).show?.id).toBe("labs");
+    const settled = { ready: new Set<string>(), built: new Set(["garage"]), lots: 4, residents: 8, services: 1, owned: { intern: 10, vibe_coder: 0, "10x_dev": 0 } };
+    expect(nextHint(state({ ...settled, built: new Set(["garage", "campus"]) }), new Set()).show?.id).toBe("labs");
     expect(nextHint(state({ ...settled, floodWarning: true }), new Set()).show?.id).toBe("flood-walls");
     expect(nextHint(state({ ...settled, floodWarning: true, levees: 3 }), new Set()).show).toBeNull();
   });
 
   test("people without desks are told an office adds some", () => {
-    const s = state({ ready: new Set(), built: new Set(["garage", "townhall"]), lots: 12, residents: 30, services: 2, owned: { intern: 30, vibe_coder: 0, "10x_dev": 0 }, deskless: 6 });
+    const s = state({ ready: new Set(), built: new Set(["garage"]), lots: 12, residents: 30, services: 2, owned: { intern: 30, vibe_coder: 0, "10x_dev": 0 }, deskless: 6 });
     expect(nextHint(s, new Set()).show?.id).toBe("desks");
   });
 });
 
 describe("the gate hint", () => {
   test("comes when the studio is the thing in the way, and goes when it can be started", () => {
-    const s = state({ ready: new Set(), built: new Set(["garage"]), lots: 8, residents: 16, owned: { intern: 16, vibe_coder: 0, "10x_dev": 0 } });
+    const s = state({ ready: new Set(), built: new Set(["garage"]), lots: 8, residents: 16, services: 1, owned: { intern: 16, vibe_coder: 0, "10x_dev": 0 } });
     expect(nextHint(s, new Set()).show?.id).toBe("gates");
     expect(nextHint({ ...s, ready: new Set(["studio"]) }, new Set()).show?.id).not.toBe("gates");
   });

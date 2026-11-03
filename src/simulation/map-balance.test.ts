@@ -31,7 +31,7 @@ describe("the map's pacing", () => {
         "IPO tower": { base: "—", map: fmt(map.opened.ipo) },
         "core complete": { base: fmt(base.totalSeconds), map: fmt(map.totalSeconds) },
       });
-      console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, services: map.services, spentOnServices: map.spentOnServices, stalled: map.stalledSeconds, offices: map.offices, spentOnOffices: map.spentOnOffices });
+      console.log({ lots: map.lots, spentOnHires: map.spentOnHires, spentOnLots: map.spentOnLots, spentOnProjects: map.spentOnProjects, services: map.services, stalled: map.stalledSeconds, offices: map.offices, spentOnOffices: map.spentOnOffices });
     }
     // PACING GUARDS, from the balance passes (2026-10-12: core 1.45 h
     // ungated, 1.25 h on a town with an 85% commute, ~50 lots and 10 services

@@ -58,7 +58,8 @@ describe("what training teaches the AI", () => {
   });
 
   test("Generative Zoning: a lot born at the tier its spot can carry, where that is higher", () => {
-    const g = town([["cafe", 16, 13], ["park", 20, 13], ["gym", 8, 13]]);
+    const g = town([["club", 16, 13], ["kit:intern.t0", 8, 13]]);
+    g.structures.get(structureAt(g, 8, 13))!.shop = "bakery";
     const lot = (x: AiAction) => x.kind === "place" && x.def.startsWith("kit:");
     const tier = () => { const a = chooseAction(g, "manager", rand, lot); return a?.kind === "place" ? a.def.split(".").pop() : null; };
     expect(tier()).toBe("t0");

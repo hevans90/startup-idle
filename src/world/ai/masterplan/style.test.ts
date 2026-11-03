@@ -6,33 +6,25 @@ import { structureDef } from "../../structures/def";
 import { placeCommand } from "../../structures/place";
 import { planTown } from "./plan";
 import { nextStep } from "./schedule";
-import { DRY_MARGIN, PLAIN, SERVE_TALL, SERVE_WIDE, nearWater, styleOf, tallness } from "./style";
+import { DRY_MARGIN, PLAIN, nearWater, styleOf, tallness } from "./style";
 
 describe("The Model's style", () => {
   test("leans tall with no past at all, and Hivemind alone makes it wide", () => {
     expect(styleOf([])).toEqual(PLAIN);
     expect(PLAIN.tall).toBeGreaterThan(0.5);
-    expect(PLAIN.parkFirst).toBe(true);
+    expect(PLAIN.compact).toBe(true);
     expect(tallness(["hivemind"])).toBe(0);
     const wide = styleOf(["hivemind"]);
-    expect(wide.parkFirst || wide.reachOnly || wide.rebuild).toBe(false);
-    expect(wide.serve).toBe(SERVE_WIDE);
+    expect(wide.compact || wide.reachOnly).toBe(false);
     expect(wide.commuteCap).toBeNull();
   });
 
   test("quality traits push it to the top; a mixed lineage lands between", () => {
     expect(tallness(["aesthete"])).toBe(1);
-    expect(styleOf(["aesthete"]).serve).toBe(SERVE_TALL);
     expect(styleOf(["aesthete", "patient"]).targetTier).toBe("landmark");
     const mixed = tallness(["hivemind", "aesthete", "patient"]);
     expect(mixed).toBeGreaterThan(0);
     expect(mixed).toBeLessThan(1);
-  });
-
-  test("the services it waits for fall the taller it is", () => {
-    const order = [["hivemind"], ["hivemind", "aesthete"], [], ["aesthete"]] as const;
-    const serve = order.map((t) => styleOf(t).serve);
-    for (let k = 1; k < serve.length; k++) expect(serve[k]).toBeLessThanOrEqual(serve[k - 1]);
   });
 
   test("and the old pulls stay", () => {
@@ -53,7 +45,7 @@ function town(): Grid {
   for (let x = 19; x <= 21; x++) g.paved[idx(g, x, 12)] = 0;
   return g;
 }
-const base = { owned: () => true, kinds: ["intern" as const], services: true, offices: false };
+const base = { owned: () => true, kinds: ["intern" as const], offices: false };
 const at = (s: { kind: string; at?: { x: number; y: number }; from?: { x: number; y: number }; to?: { x: number; y: number } }) =>
   s.at ? [s.at] : [s.from!, s.to!];
 
@@ -66,23 +58,21 @@ describe("a town planned in a style", () => {
     expect(dry.some((c) => nearWater(g, c.x, c.y, DRY_MARGIN))).toBe(false);
   });
 
-  test("TALL: a park before any lot, and every lot planned to grow to III", () => {
+  test("TALL: no services of its own — the town opens them — and every lot planned to grow to III", () => {
     const g = town();
     const box = { owned: (x: number, y: number) => x >= 2 && x <= 12 && y >= 6 && y <= 18 };
-    const builds = planTown(g, { ...base, ...box, style: styleOf(["aesthete"]) }).steps.filter((s) => s.kind === "build");
-    const park = builds.findIndex((s) => s.def === "park");
+    const builds = planTown(g, { ...base, ...box, offices: true, style: styleOf(["aesthete"]) }).steps.filter((s) => s.kind === "build");
     const lots = builds.filter((s) => s.def.startsWith("kit:"));
-    expect(park).toBeGreaterThanOrEqual(0);
+    expect(builds.every((s) => s.def.startsWith("kit:") || s.def.startsWith("office"))).toBe(true);
     expect(lots.length).toBeGreaterThan(0);
-    expect(builds.findIndex((s) => s.def.startsWith("kit:"))).toBeGreaterThan(park);
     for (const l of lots) expect(l.tier).toBe("t2");
   });
 
-  test("WIDE: lots on all the frontage, and no park first", () => {
+  test("WIDE: lots on all the frontage", () => {
     const g = town();
     const box = { owned: (x: number, y: number) => x >= 2 && x <= 12 && y >= 6 && y <= 18 };
     const lots = (traits: Parameters<typeof styleOf>[0]) =>
-      planTown(g, { ...base, ...box, style: styleOf(traits) }).steps.filter((s) => s.kind === "build" && s.def.startsWith("kit:")).length;
+      planTown(g, { ...base, ...box, offices: true, style: styleOf(traits) }).steps.filter((s) => s.kind === "build" && s.def.startsWith("kit:")).length;
     expect(lots(["hivemind"])).toBeGreaterThan(lots(["aesthete"]));
   });
 
@@ -97,7 +87,7 @@ describe("a town planned in a style", () => {
     const g = town();
     const style = styleOf(["paranoid"]);
     const plan = planTown(g, { ...base, style });
-    const w = { rules: { needsRoad: true, owned: () => true }, kinds: ["intern" as const], services: false, offices: false, style };
+    const w = { rules: { needsRoad: true, owned: () => true }, kinds: ["intern" as const], offices: false, style };
     for (let k = 0; k < 40; k++) {
       const s = nextStep(g, plan, w);
       if (!s) break;

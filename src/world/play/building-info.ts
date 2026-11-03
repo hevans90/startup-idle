@@ -24,7 +24,9 @@ import { structureDef, type StructureDef } from "../structures/def";
 import { workplaceKind, type Commute } from "../agents/commute";
 import { NEAR_CONFERENCE_PAYS } from "../events/convoy";
 import { moodWord, type MoodParts } from "../agents/mood";
-import { growthShort, serviceOf, type ServiceId } from "../agents/services";
+import { growthShort, needsShort, serviceOf, type NeedId } from "../agents/services";
+import { NEED_KIND, serviceDef } from "../agents/needs";
+import { NEED_WHY } from "../agents/mood-rules";
 import { LAB_SHARE } from "../projects/labs";
 import { KIND_COLOUR } from "../../game/kind-colours";
 import { describe } from "../../game/wording";
@@ -42,8 +44,8 @@ export type InfoContext = {
   residents: ReadonlyMap<number, number>;
   /** How happy each house is, and why, by its id. */
   moods: ReadonlyMap<number, MoodParts>;
-  /** What serves each house, by its id. */
-  coverage: ReadonlyMap<number, ReadonlySet<ServiceId>>;
+  /** What need is met at each house, by its id. */
+  coverage: ReadonlyMap<number, ReadonlySet<NeedId>>;
   /** Each house's commute, by its id. Missing: nobody worked it out (no roads yet). */
   commutes: ReadonlyMap<number, Commute>;
   /** Each workplace's desks: taken, and how many. @see seat */
@@ -102,7 +104,6 @@ const perkLines = (id: number, ctx: InfoContext): InfoLine[] =>
 export function opensText(p: ProjectDef): string {
   if (p.unlocks) return `Opens hiring ${KIND_NAME[p.unlocks][1]}`;
   if (p.grants === "managers") return "Opens managers";
-  if (p.grants === "services") return "Opens cafés, parks and gyms";
   if (p.grants === "ports") return "Opens seaports";
   if (p.bonus) {
     const b = p.bonus;
@@ -149,14 +150,20 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const commute = ctx.commutes.get(s.id);
     const eff = commute?.eff ?? 1;
     const lines: InfoLine[] = [{ text: `${here}/${h.slots} ${plural} living here` }];
+    // A SHOP the town opened downstairs. @see stepTown
+    const shop = s.shop ? serviceDef(s.shop) : undefined;
+    if (shop) lines.push({ text: `${shop.name} downstairs`, tone: "good" });
     const broken = damageLine(s, ctx);
     if (broken) lines.push(broken);
     else if (here > 0 && rate !== undefined) lines.push({ text: `Earns ${ctx.money(here * rate * eff)}/s`, tone: "good" });
     // GROWING: how much more desirable it must get, or that it is growing.
     // @see GROW_AT
+    // Or which of its needs it lacks first. @see NEEDS_FOR
     const short = growthShort(s, ctx.moods.get(s.id));
+    const lacks = needsShort(s, ctx.coverage as Map<number, Set<NeedId>>);
     if (short !== null && here > 0) {
-      if (short > 0) lines.push({ text: `Grows at +${short} more desirability`, tone: "dim" });
+      if (lacks) lines.push({ text: `Grows with ${lacks.map((n) => NEED_WHY[n]).join(" or ")} near`, tone: "dim" });
+      else if (short > 0) lines.push({ text: `Grows at +${short} more desirability`, tone: "dim" });
       else if (here >= h.slots) lines.push({ text: "Growing", tone: "good" });
     }
     // ITS MORALE, and what weighs on it most if it is down. @see world/agents/mood
@@ -261,14 +268,15 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     };
   }
 
-  // A SERVICE: how many homes it serves.
+  // A SERVICE: whose need it meets, and how many homes have it met.
   const service = serviceOf(s.def);
   if (service) {
+    const need = serviceDef(service)!.need;
     let homes = 0;
-    for (const [, set] of ctx.coverage) if (set.has(service)) homes++;
+    for (const [, set] of ctx.coverage) if (set.has(need)) homes++;
     return {
       title: def.name, accent: 0x2f8f6b,
-      lines: [{ text: `Serves ${homes} home${homes === 1 ? "" : "s"}` }],
+      lines: [{ text: `For ${KIND_NAME[NEED_KIND[need]][1]} · ${NEED_WHY[need]}` }, { text: `${homes} home${homes === 1 ? "" : "s"} near`, tone: "dim" }],
     };
   }
 

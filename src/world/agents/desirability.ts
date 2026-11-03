@@ -2,15 +2,15 @@
  * World v2 — DESIRABILITY: how good a place a tile is to live, as one number
  * the player can read before they build. @see world/agents/mood
  *
- * It is the house's mood, and the same parts: the commute, the services in
+ * It is the house's mood, and the same parts: the commute, the needs met in
  * reach, a view of water, a wonder nearby, and derelicts. A house
  * GROWS by it — a tier at each threshold, and back down when it falls below —
  * and new hires move in by it, so a good street fills and climbs and a bad one
  * stays lots. @see GROW_AT, stepEvolution
  *
  * And it can be asked of an EMPTY tile: what a house would get if it stood
- * there, from maps of every tile's road distance to the services and the
- * workplaces. That is what the placing heat map shows. @see desireAt
+ * there, from maps of every tile's road distance to what meets each need and
+ * the workplaces. That is what the placing heat map shows. @see desireAt
  */
 import { NEIGHBOUR } from "../../iso/dir";
 import { projectForStructure } from "../../game/projects";
@@ -20,10 +20,11 @@ import { connects, isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { cultureVersion } from "../../game/culture-now";
 import { commuteEfficiency, walkFrom, WORKPLACES } from "./commute";
-import { DERELICT_REACH, MOOD, MOOD_LIMIT, WATER_REACH, WHY, WONDER_REACH, type MoodParts } from "./mood-rules";
+import { DERELICT_REACH, MOOD, MOOD_LIMIT, NEED_MOOD, NEED_WHY, WATER_REACH, WHY, WONDER_REACH, type MoodParts } from "./mood-rules";
 import { fusionNow } from "../../game/fusion";
 import { placesOf, type Place } from "./roads";
-import { RANGE, SERVICE_IDS, serviceOf, type ServiceId } from "./services";
+import { RANGE, serviceIn, townRevNow } from "./services";
+import { NEED_KIND, NEEDS, serviceDef, type NeedId } from "./needs";
 
 const DIRS = ["N", "E", "S", "W"] as const;
 
@@ -49,8 +50,8 @@ function roadsFrom(g: Grid, starts: readonly number[], reach = Infinity): Int32A
 
 /** Everything a tile's desirability is read from, worked out once per map. */
 export type DesireMaps = {
-  /** Road distance from each service's doors, out to its range. */
-  service: Record<ServiceId, Int32Array>;
+  /** Road distance from the doors of what meets each need, out to its range. */
+  need: Record<NeedId, Int32Array>;
   /** Road distance from each kind's workplaces' doors; absent for a kind with none. */
   work: Partial<Record<GeneratorId, Int32Array>>;
   derelicts: Structure[];
@@ -72,8 +73,8 @@ export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
     }
     return out;
   };
-  const service = {} as Record<ServiceId, Int32Array>;
-  for (const sv of SERVICE_IDS) service[sv] = roadsFrom(g, doorsOf((s) => serviceOf(s.def) === sv), RANGE);
+  const need = {} as Record<NeedId, Int32Array>;
+  for (const n of Object.keys(NEED_KIND) as NeedId[]) need[n] = roadsFrom(g, doorsOf((s) => { const sv = serviceIn(s); return !!sv && serviceDef(sv)!.need === n; }), RANGE);
   const work: Partial<Record<GeneratorId, Int32Array>> = {};
   for (const [who, defs] of Object.entries(WORKPLACES) as [GeneratorId, readonly string[]][]) {
     const doors = doorsOf((s) => defs.includes(s.def));
@@ -97,10 +98,10 @@ export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
       }
     }
   }
-  return { service, work, derelicts, wonders, water };
+  return { need, work, derelicts, wonders, water };
 }
 
-let memo: { g: Grid | null; rev: number; sites: number; deck: number; value: DesireMaps | null } = { g: null, rev: -1, sites: -1, deck: -1, value: null };
+let memo: { g: Grid | null; rev: number; town: number; sites: number; deck: number; value: DesireMaps | null } = { g: null, rev: -1, town: -1, sites: -1, deck: -1, value: null };
 
 /** The maps for this map now, worked out again only when it has changed. */
 export function liveDesireMaps(g: Grid, net: Network): DesireMaps {
@@ -108,8 +109,8 @@ export function liveDesireMaps(g: Grid, net: Network): DesireMaps {
   for (const s of g.structures.values()) if (s.build) sites++;
   // And the culture deck: Shuttle Bus moves what a commute costs. @see CARDS
   const deck = cultureVersion();
-  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.deck !== deck || !memo.value) {
-    memo = { g, rev: g.rev, sites, deck, value: desireMapsOf(g, placesOf(g, net)) };
+  if (memo.g !== g || memo.rev !== g.rev || memo.town !== townRevNow() || memo.sites !== sites || memo.deck !== deck || !memo.value) {
+    memo = { g, rev: g.rev, town: townRevNow(), sites, deck, value: desireMapsOf(g, placesOf(g, net)) };
   }
   return memo.value!;
 }
@@ -139,9 +140,9 @@ export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: G
     if (t < 0) parts.push({ why: WHY.stranded, points: MOOD.stranded });
     else if (eff < 1) parts.push({ why: WHY.commute, points: Math.round((1 - eff) * 10 * MOOD.perTenthLost) });
   }
-  const have = SERVICE_IDS.filter((sv) => best(maps.service[sv]) >= 0);
-  if (!have.length) parts.push({ why: WHY.noServices, points: MOOD.noServices });
-  for (const sv of have) parts.push({ why: WHY[sv], points: MOOD[sv] });
+  const met = NEEDS[who].filter((n) => best(maps.need[n]) >= 0);
+  if (!met.length) parts.push({ why: WHY.noServices, points: MOOD.noServices });
+  for (const n of met) parts.push({ why: NEED_WHY[n], points: NEED_MOOD[who] });
   if (maps.water[idx(g, x, y)]) parts.push({ why: WHY.waterView, points: fusionNow().waterView });
   // A Zoner fused into the founder, for every house. @see game/fusion
   if (fusionNow().houseDesire) parts.push({ why: WHY.planned, points: fusionNow().houseDesire });

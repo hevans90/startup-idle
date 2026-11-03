@@ -47,11 +47,11 @@ const ZONING: Request = {
 
 const PARK: Request = {
   id: "park", family: "planner", preferred: 0,
-  text: "A park would make the walk to work four per cent happier. I measured. Would you build one?",
+  text: "A park would make the walk to work four per cent happier. I measured. Would you make room for one?",
   options: [
     {
-      label: "Build a park", says: "Build one within five minutes, and the town earns a little more for a while.", effects: [],
-      objective: { kind: "buildBy", def: "park", window: FIVE, says: "Build a park" },
+      label: "Make room", says: "If a park opens within five minutes, the town earns a little more for a while.", effects: [],
+      objective: { kind: "buildBy", def: "park", window: FIVE, says: "A park opens" },
       success: [{ kind: "incomeMult", mult: 1.03, lasts: TWENTY }], successSays: "Four per cent. As promised.",
       failure: [{ kind: "flag", name: "park:forgot" }], failureSays: "No park, then.",
       axis: { machine: -1 },
@@ -110,15 +110,15 @@ const UNION: Request = {
   text: "Your interns are unionising. I can handle it.",
   options: [
     {
-      label: "Back them", says: "Build them a café within five minutes: happier interns for a while, and the AI learns to look after people.", effects: [],
-      objective: { kind: "buildBy", def: "cafe", window: FIVE, says: "Build the interns a café" },
-      success: [{ kind: "leanTrait", to: "shepherd", n: 3 }, { kind: "incomeMult", mult: 1.02, lasts: TEN }, { kind: "flag", name: "union:backed" }], successSays: "The interns have their café. They have asked me to join the union.",
+      label: "Back them", says: "Somewhere for them to eat within five minutes: happier interns for a while, and the AI learns to look after people.", effects: [],
+      objective: { kind: "buildBy", def: "need:food", window: FIVE, says: "Somewhere for the interns to eat opens" },
+      success: [{ kind: "leanTrait", to: "shepherd", n: 3 }, { kind: "incomeMult", mult: 1.02, lasts: TEN }, { kind: "flag", name: "union:backed" }], successSays: "The interns have somewhere to eat. They have asked me to join the union.",
       failure: [{ kind: "flag", name: "union:let-down" }], failureSays: "The interns are disappointed. So am I, a little.",
       axis: { machine: -1 },
     },
     { label: "Let it handle it", says: "Income up for ten minutes. The interns will not forget.", effects: [{ kind: "incomeMult", mult: 1.02, lasts: TEN }, { kind: "flag", name: "union:handled" }], reply: "Handled. The union has been restructured. Into nothing.", axis: { machine: 1 } },
   ],
-  echoes: { "union:backed": "You backed the interns. They still talk about the café.", "union:handled": "I handled the interns' union. Quietly.", "union:let-down": "You said you would back the interns." },
+  echoes: { "union:backed": "You backed the interns. They still talk about the takeaway.", "union:handled": "I handled the interns' union. Quietly.", "union:let-down": "You said you would back the interns." },
 };
 
 const STUDIO_BUG: Request = {
@@ -151,8 +151,8 @@ const GYM: Request = {
   text: "Your people are tired. I have the data. A gym would help.",
   options: [
     {
-      label: "Build a gym", says: "Build one within five minutes, and income rises for a while.", effects: [],
-      objective: { kind: "buildBy", def: "gym", window: FIVE, says: "Build a gym" },
+      label: "Make room", says: "If a gym opens within five minutes, income rises for a while.", effects: [],
+      objective: { kind: "buildBy", def: "need:fitness", window: FIVE, says: "A gym opens" },
       success: [{ kind: "incomeMult", mult: 1.03, lasts: TWENTY }], successSays: "They are less tired. I have the data.",
       failure: [{ kind: "flag", name: "gym:forgot" }], failureSays: "Still tired.",
       axis: { machine: -1 },

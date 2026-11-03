@@ -13,9 +13,14 @@ import type { Grid, Structure } from "../../grid";
 import { createNetwork } from "../../roads/network";
 import { placesOf } from "../../agents/roads";
 import { desireAt, desireMapsOf, type DesireMaps } from "../../agents/desirability";
-import { DECLINE_MARGIN, GROW_AT, MOOD, MOOD_LIMIT, MOVE_IN_AT, type MoodParts } from "../../agents/mood-rules";
+import { DECLINE_MARGIN, GROW_AT, MOOD, MOOD_LIMIT, MOVE_IN_AT, NEED_WHY, type MoodParts } from "../../agents/mood-rules";
+import { NEEDS, needsAt } from "../../agents/needs";
 import { seat, type Commute } from "../../agents/commute";
-import { TIERS, desirabilityAt, tierOf, withTier, type Tier } from "../../agents/services";
+import { TIERS, coverageOf, desirabilityAt, tierOf, withTier, type Tier } from "../../agents/services";
+import { CHECK_EVERY, createTownServices, stepTown, type TownHands } from "../../agents/town-services";
+import { commit, createHistory } from "../../edit/commands";
+import { structureDef } from "../../structures/def";
+import { placeCommand, validatePlacement } from "../../structures/place";
 import { satisfactionRevenueMultiplier } from "../../../game/satisfaction";
 import type { GeneratorId } from "../../../state/generators.store";
 
@@ -40,21 +45,61 @@ export type Settled = {
   tiers: Map<number, Tier>;
 };
 
+/** How many of a house's needs its mood says are met. */
+const NEED_WORDS = new Set<string>(Object.values(NEED_WHY));
+const metIn = (m: MoodParts) => m.parts.filter((p) => NEED_WORDS.has(p.why)).length;
+
 /**
  * THE TIER A HOUSE'S MOOD WOULD GROW IT TO, from `from`: up a tier at a time
- * while the mood holds the next one's, crowding counted. @see desirabilityAt
+ * while the mood holds the next one's, crowding counted, and its needs met
+ * allow it. @see desirabilityAt, needsAt
  */
-export function projectTier(m: MoodParts, from: Tier = "t0"): Tier {
+export function projectTier(m: MoodParts, who: GeneratorId, from: Tier = "t0"): Tier {
   let t = from;
+  const met = metIn(m);
   for (let k = TIERS.indexOf(from) + 1; k < TIERS.length; k++) {
     const next = TIERS[k];
-    if (desirabilityAt(m, t, next) < GROW_AT[next]) break;
+    if (desirabilityAt(m, t, next, NEEDS[who].includes("quiet")) < GROW_AT[next] || met < needsAt(who, next)) break;
     t = next;
   }
   return t;
 }
 /** Whether one tier is at least another. */
 export const atLeast = (t: Tier, want: Tier) => TIERS.indexOf(t) >= TIERS.indexOf(want);
+
+/** Looks the town takes at what it needs, at most, each round. */
+const OPEN_LOOKS = 12;
+
+/**
+ * WHAT THE TOWN WOULD OPEN FOR ITSELF, opened: its own look at what its people
+ * lack (`stepTown`), again and again, with no wait between, till it opens
+ * nothing more — the first service of each need, so the plan comes out the
+ * same each time. Whether anything opened. @see stepTown
+ */
+function townOpens(g: Grid): boolean {
+  const t = createTownServices(), h = createHistory();
+  const rules = { needsRoad: true };
+  const hands: TownHands = {
+    canPlace: (def, x, y) => { const d = structureDef(def); return !!d && validatePlacement(g, d, x, y, rules).ok; },
+    place: (def, x, y) => {
+      const cmd = placeCommand(g, structureDef(def)!, x, y, rules);
+      if (!cmd) return null;
+      commit(g, h, cmd);
+      return cmd.structures?.added[0]?.id ?? null;
+    },
+    clear: () => {},
+    rand: () => 0,
+  };
+  let opened = false;
+  for (let k = 0; k < OPEN_LOOKS; k++) {
+    const net = createNetwork(g);
+    t.since = CHECK_EVERY;
+    t.wait.clear();
+    if (!stepTown(t, g, net, coverageOf(g, placesOf(g, net)), 0, hands).some((e) => e.kind === "open")) break;
+    opened = true;
+  }
+  return opened;
+}
 
 /** Rounds of a tier at a time: three to grow from nought to a tower, and some to settle. */
 const ROUNDS = 8;
@@ -72,9 +117,11 @@ function moodWith(g: Grid, maps: DesireMaps, s: Structure, who: GeneratorId, c: 
 }
 
 /**
- * What a town comes to once it has settled, by the game's own rules: every
+ * What a town comes to once it has settled, by the game's own rules: what
+ * the town opens for its people opened (`townOpens`); every
  * house grown — from the tier it was bought at, never below — as far as its
- * mood holds, a park against crowding and all (`desirabilityAt`); filled, but
+ * mood holds, crowding and all (`desirabilityAt`), and its needs met allow
+ * (`needsAt`); filled, but
  * for 10x devs who will not move into a house under their mood (`MOVE_IN_AT`);
  * everyone seated, and the commute that leaves them — desks running out
  * included — fed back into the mood, round again till it holds. Then its
@@ -84,7 +131,7 @@ function moodWith(g: Grid, maps: DesireMaps, s: Structure, who: GeneratorId, c: 
 export function settledTown(g: Grid): Settled {
   const net = createNetwork(g);
   const places = placesOf(g, net);
-  const maps = desireMapsOf(g, places);
+  let maps = desireMapsOf(g, places);
   // LOTS, which grow: not the Campus, whose beds are as many as there are 10x devs. @see CAMPUS_BEDS
   const houses = [...g.structures.values()].filter((s) => !s.build && isLot(s.def));
   // THE TIER BOUGHT: what it was, less what it has grown since.
@@ -116,11 +163,14 @@ export function settledTown(g: Grid): Settled {
       moods.set(s.id, m);
       const t = tiers.get(s.id)!, k = TIERS.indexOf(t), next = TIERS[k + 1];
       let to = t;
-      if (next && desirabilityAt(m, t, next) >= GROW_AT[next]) to = next;
-      else if (k > TIERS.indexOf(floor.get(s.id)!) && m.total < GROW_AT[t] - DECLINE_MARGIN) to = TIERS[k - 1];
+      const met = metIn(m);
+      if (next && desirabilityAt(m, t, next, NEEDS[who].includes("quiet")) >= GROW_AT[next] && met >= needsAt(who, next)) to = next;
+      else if (k > TIERS.indexOf(floor.get(s.id)!) && (m.total < GROW_AT[t] - DECLINE_MARGIN || met < needsAt(who, t))) to = TIERS[k - 1];
       if (to !== t) moved = true;
       house(s, to, m);
     }
+    // What the town opens for the people it now has, felt next round.
+    if (townOpens(g)) { moved = true; maps = desireMapsOf(g, placesOf(g, createNetwork(g))); }
     commutes = seat(g, placesOf(g, createNetwork(g))).commutes;
     if (!moved) break;
   }

@@ -22,6 +22,7 @@ import { createExports, type Exports } from "../world/boats/exports";
 import { createTown, type Town } from "../world/agents/town";
 import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
 import { createEvolution, serviceOf, type Evolution } from "../world/agents/services";
+import { createTownServices, type TownServices } from "../world/agents/town-services";
 import { HACKATHON_PIZZA, type GameEvent } from "../world/events/events";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
@@ -286,6 +287,9 @@ export const pizzaPrice = () => Math.max(50, Math.round(incomeNow() * HACKATHON_
 /** How the town's houses are growing and declining. @see world/agents/services */
 let evolution: Evolution = createEvolution();
 export const getEvolution = () => evolution;
+/** The town seeing to its own services. @see stepTown */
+let townServices: TownServices = createTownServices();
+export const getTownServices = () => townServices;
 
 /** What the ports have earned. @see world/boats/exports */
 let exports_: Exports = createExports();
@@ -480,6 +484,13 @@ type WorldState = {
    * studio, on the best spot near the middle of its map. @see game/projects
    */
   foundEarnedProjects: (owned: Partial<Record<string, number>>, features?: ReadonlySet<FeatureId>) => void;
+  /**
+   * THE TOWN'S OWN BUILDING: a service it opens, by the rules of play and for
+   * nothing — and nothing for the player to undo. Its id, or null. @see stepTown
+   */
+  townPlace: (def: string, x: number, y: number) => number | null;
+  /** And one it closes. */
+  townClear: (id: number) => void;
   /**
    * EVERYONE HOME: whoever should live on the map moved in at once — after
    * time away, or into housing from before lots. @see settleHousing
@@ -906,6 +917,28 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       set({ revision: get().revision + 1, projectRev: get().projectRev + 1, ...historyMeta(), ...netMeta() });
     }
   },
+  townPlace: (defId, x, y) => {
+    const st = get();
+    const def = structureDef(defId);
+    const cmd = def && placeCommand(st.grid, def, x, y, playRules(st.grid));
+    const added = cmd?.structures?.added ?? [];
+    if (!cmd || onAiSite(added)) return null;
+    // Off the player's history: it is the town's, not theirs to take back.
+    const touched = commit(st.grid, createHistory(), cmd);
+    if (water && touchesSurface(cmd)) syncGround(water, st.grid);
+    if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
+    set({ revision: st.revision + 1, lastTouched: markDirty(st.grid, touched, true), ...netMeta() });
+    return added[0]?.id ?? null;
+  },
+  townClear: (id) => {
+    const st = get();
+    const cmd = demolishCommand(st.grid, id);
+    if (!cmd) return;
+    const touched = commit(st.grid, createHistory(), cmd);
+    if (water && touchesSurface(cmd)) syncGround(water, st.grid);
+    if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
+    set({ revision: st.revision + 1, lastTouched: markDirty(st.grid, touched, true), ...netMeta() });
+  },
   setProjectPriority: (structureId, priority) => {
     const b = get().grid.structures.get(structureId)?.build;
     if (!b) return;
@@ -978,6 +1011,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     arrivals = createArrivals();
     exports_ = createExports();
     evolution = createEvolution();
+    townServices = createTownServices();
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
@@ -1407,9 +1441,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const price = new Decimal(clearingPrice());
       if (!spendForBuild(price)) { refuse(`Not enough money to clear it: ${formatCurrency(price.toNumber())}`); return; }
     }
-    // NOR SERVICES OR PORTS before the projects that open them. @see featureGateOpen
+    // NOR PORTS before the project that opens them; nor services ever — the town opens its own. @see featureGateOpen, stepTown
     if (st.playing && !demolishing && target) {
-      if (serviceOf(target.id) && !featureGateOpen("services")) { refuse("Services need the Town Hall"); return; }
+      if (serviceOf(target.id)) { refuse("The town opens its own services"); return; }
       if (target.port && !featureGateOpen("ports")) { refuse("Seaports need the Harbour Office"); return; }
     }
     // THE AI'S SITE is its own, given in the arc: nothing of the player's goes there. @see onAiSite
@@ -1538,6 +1572,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     arrivals = createArrivals();
     exports_ = createExports();
     evolution = createEvolution();
+    townServices = createTownServices();
     // The file's boats, on the file's water. @see restoreFleet
     if (boats?.length) restoreFleet(fleet, water.columns, boats);
     // And the slop in it. @see restorePollution
