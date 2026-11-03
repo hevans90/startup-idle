@@ -367,7 +367,7 @@ function Cooling() {
                 </span>
               </span>
               <span className="tabular-nums">
-                {t.demand.toFixed(2)} a second
+                {t.demand.toFixed(2)}/s
               </span>
             </span>
             <span className="mt-0.5 block h-1 w-full overflow-hidden bg-surface-2">
@@ -483,25 +483,24 @@ function Roster() {
       left -= n;
       return { ...r, n };
     });
+  const each = agentsARack();
+  const halves = rows.filter((r) => !r.on).length;
   return (
-    <Panel tone="ai" title="Racks" className={SECTION}>
-      <div className="flex max-h-28 flex-col divide-y divide-line-quiet overflow-y-auto">
+    <Panel tone="ai" title={`Racks · ${rows.reduce((a, r) => a + r.n, 0)}/${rows.length * each} running${halves ? ` · ${halves} at half power` : ""}`} className={SECTION}>
+      {/* A TILE A RACK: a pip an agent, lit when running; its edge, its power. A click to look. */}
+      <div className="flex flex-wrap gap-1">
         {rows.map(({ s, on, n }, k) => (
           <button
             key={s.id}
             type="button"
+            title={`Rack ${k + 1} · ${on ? "powered" : "half power"} · ${n}/${each}`}
+            aria-label={`Rack ${k + 1}, ${on ? "powered" : "half power"}, ${n} of ${each} running`}
             onClick={() => showMe({ x: s.x, y: s.y })}
-            className="flex cursor-pointer justify-between px-1 py-1 text-left hover:bg-surface-2"
+            className={`grid cursor-pointer grid-cols-2 gap-0.5 border bg-surface-1 p-1 hover:bg-surface-2 ${on ? "border-line" : "border-warn"}`}
           >
-            <span>
-              Rack {k + 1} ·{" "}
-              <span className={on ? "text-good" : "text-warn"}>
-                {on ? "powered" : "half power"}
-              </span>
-            </span>
-            <span className="tabular-nums">
-              {n}/{agentsARack()} running
-            </span>
+            {Array.from({ length: each }, (_, i) => (
+              <span key={i} className={`size-1.5 ${i < n ? "bg-ai" : "bg-surface-3"}`} />
+            ))}
           </button>
         ))}
       </div>
