@@ -31,7 +31,7 @@ const TITLE = "text-[10px] font-bold uppercase tracking-widest text-ai";
 export function DossierView({ chapters, chosen, current, at, path, remembers }: DossierProps) {
   const [open, setOpen] = useState<string | null>(null);
   return (
-    <Panel title="The dossier" tone="ai" className="text-xs">
+    <Panel title="The dossier" tone="ai" help="The book so far: chapters answered, where it stands, and the ending it leans to. Hover for more." className="text-xs">
       <div className="flex flex-col gap-3">
         {/* THE CHAPTERS on a line. */}
         <div>

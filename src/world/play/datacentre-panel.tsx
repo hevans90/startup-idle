@@ -92,7 +92,7 @@ export function DataCentre({ className }: { className?: string }) {
       {built ? (
         <>
           {/* THE THROTTLE. */}
-          <Panel tone="ai" title="The throttle" className={SECTION}>
+          <Panel tone="ai" title="The throttle" help="More agents running: more income, and the AI rises faster." className={SECTION}>
             {agents > 0 ? (
               <>
                 <label
@@ -167,7 +167,7 @@ function Lattice() {
     </li>
   );
   return (
-    <Panel tone="ai" title={`The Lattice · holds at ${LATTICE_AT}%`} className={SECTION}>
+    <Panel tone="ai" title={`The Lattice · holds at ${LATTICE_AT}%`} help="Its last build. Meet all four to charge it; charged, the AI can reach 100%." className={SECTION}>
       <ul>
         {need(
           n.built,
@@ -207,7 +207,7 @@ function Focus() {
   // AIR-GAPPED, there is nothing for it to work at. @see game/machine KEYSTONES
   if (keystone("airgap"))
     return (
-      <Panel tone="ai" title="Air-gapped" className={SECTION}>
+      <Panel tone="ai" title="Air-gapped" help="A Machine keystone: no district, no drones, no takeover." className={SECTION}>
         <p>Off the map · agents ×1.6</p>
       </Panel>
     );
@@ -222,7 +222,7 @@ function Focus() {
   const shares = [...allTanks().values()].map((t) => t.share);
   const cooled = shares.length ? Math.round(Math.min(...shares) * 100) : null;
   return (
-    <Panel tone="ai" title="Its focus" className={SECTION}>
+    <Panel tone="ai" title="Its focus" help="What it builds in its district. Hover a focus for what it does." className={SECTION}>
       <div
         className="grid grid-cols-2 gap-1"
         role="radiogroup"
@@ -269,7 +269,7 @@ function Allowance() {
   if (founder === "model" || keystone("airgap")) return null;
   const cap = walletCap();
   return (
-    <Panel tone="ai" title="Its allowance" className={SECTION}>
+    <Panel tone="ai" title="Its allowance" help="The share of income it may spend. From the Colleague, it pays for its builds from this." className={SECTION}>
       <label
         className="flex justify-between tabular-nums"
         htmlFor="dc-allowance"
@@ -344,7 +344,7 @@ function Cooling() {
       }) as Record<string, string>
     )[def] ?? def;
   return (
-    <Panel tone="ai" title="Cooling" className={SECTION}>
+    <Panel tone="ai" title="Cooling" help="What it runs drinks water. Under 100%, agents run hot and slow." className={SECTION}>
       {hot > 0 && (
         <p className="mb-1 text-warn">
           Running hot: {hot} agent{hot === 1 ? "" : "s"} at half power. Pipe
@@ -404,7 +404,7 @@ function Training() {
   const on = dataset(current?.dataset);
   const level = on ? (skills[on.id] ?? 0) : 0;
   return (
-    <Panel tone="ai" title="Training" className={SECTION}>
+    <Panel tone="ai" title="Training" help="Trades the agent boost for a skill this company, and jumps the AI. Shapes what it becomes." className={SECTION}>
       {current && on ? (
         <>
           <p className="flex justify-between">
@@ -486,7 +486,7 @@ function Roster() {
   const each = agentsARack();
   const halves = rows.filter((r) => !r.on).length;
   return (
-    <Panel tone="ai" title={`Racks · ${rows.reduce((a, r) => a + r.n, 0)}/${rows.length * each} running${halves ? ` · ${halves} at half power` : ""}`} className={SECTION}>
+    <Panel tone="ai" title={`Racks · ${rows.reduce((a, r) => a + r.n, 0)}/${rows.length * each} running${halves ? ` · ${halves} at half power` : ""}`} help="A tile a rack, a pip an agent. Unpowered racks run at half. Click one to find it." className={SECTION}>
       {/* A TILE A RACK: a pip an agent, lit when running; its edge, its power. A click to look. */}
       <div className="flex flex-wrap gap-1">
         {rows.map(({ s, on, n }, k) => (
@@ -513,7 +513,7 @@ function Forecast() {
   const log = useGenerationStore((s) => s.log);
   const forecast = traitForecast(log);
   return (
-    <Panel tone="ai" title="Training log" className={SECTION}>
+    <Panel tone="ai" title="Training log" help="The trait it will likely become at the Ascension, from how you run and train it." className={SECTION}>
       {forecast.map(({ trait, odds }) => (
         <p key={trait.id} className="flex flex-col gap-1 py-1">
           <span className="flex justify-between gap-2">
