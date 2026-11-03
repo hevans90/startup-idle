@@ -23,6 +23,7 @@ import { createTown, type Town } from "../world/agents/town";
 import { createArrivals, settleHousing, type Arrivals } from "../world/agents/arrivals";
 import { createEvolution, serviceOf, type Evolution } from "../world/agents/services";
 import { createTownServices, type TownServices } from "../world/agents/town-services";
+import { ladderOf, startLadder } from "../world/agents/unlocks";
 import { HACKATHON_PIZZA, type GameEvent } from "../world/events/events";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
@@ -1012,6 +1013,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     exports_ = createExports();
     evolution = createEvolution();
     townServices = createTownServices();
+    // The services it has unlocked: as saved, or caught up on the first step. @see startLadder
+    if (!ladderOf(grid)) startLadder(grid);
     setWaterEdge(water, get().openEdge);          // a new field, the same world
     dirty.clear();
     set({
@@ -1573,6 +1576,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     exports_ = createExports();
     evolution = createEvolution();
     townServices = createTownServices();
+    // The services it has unlocked: as saved, or caught up on the first step. @see startLadder
+    if (!ladderOf(grid)) startLadder(grid);
     // The file's boats, on the file's water. @see restoreFleet
     if (boats?.length) restoreFleet(fleet, water.columns, boats);
     // And the slop in it. @see restorePollution

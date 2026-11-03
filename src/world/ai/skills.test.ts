@@ -17,6 +17,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { drainAt } from "../water/field";
 import { chooseAction, type AiAction } from "./planner";
+import { ladderOf, stepLadder } from "../agents/unlocks";
 import { DEPTH, RESERVOIR, digReservoir } from "./reservoir";
 import { creditWallet, walletCap } from "./wallet";
 
@@ -60,6 +61,8 @@ describe("what training teaches the AI", () => {
   test("Generative Zoning: a lot born at the tier its spot can carry, where that is higher", () => {
     const g = town([["club", 16, 13], ["kit:intern.t0", 8, 13]]);
     g.structures.get(structureAt(g, 8, 13))!.shop = "bakery";
+    // Interns enough for both to have unlocked. @see stepLadder
+    stepLadder(ladderOf(g)!, { intern: 1000 }, 1);
     const lot = (x: AiAction) => x.kind === "place" && x.def.startsWith("kit:");
     const tier = () => { const a = chooseAction(g, "manager", rand, lot); return a?.kind === "place" ? a.def.split(".").pop() : null; };
     expect(tier()).toBe("t0");

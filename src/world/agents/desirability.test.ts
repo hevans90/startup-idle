@@ -32,13 +32,13 @@ describe("desirability", () => {
     expect(why(d)).toEqual(["coffee"]);
     expect(d!.total).toBe(NEED_MOOD.vibe_coder);
     // Not another kind's.
-    expect(why(desireAt(g, maps(g), 12, 4, "intern"))).toEqual(["no services"]);
+    expect(why(desireAt(g, maps(g), 12, 4, "intern"))).toEqual(["unmet needs"]);
   });
 
   test("out of a service's reach, a tile has nothing", () => {
     const g = street([["cafe", 2]]);
     const d = desireAt(g, maps(g), 2 + RANGE + 6, 4, "vibe_coder");
-    expect(why(d)).toEqual(["no services"]);
+    expect(why(d)).toEqual(["unmet needs"]);
   });
 
   test("with no road beside it there is no door, and nothing to say", () => {

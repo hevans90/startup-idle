@@ -36,9 +36,9 @@ describe("a house's mood", () => {
     const commute = new Map([[1, { tiles: 40, eff: 0.6, to: 2 }]]);
     const clean = moodsOf(g, commute, new Map()).get(1)!;
     const sludged = moodsOf(g, commute, new Map(), new Set([1])).get(1)!;
-    expect(clean.parts.map((p) => p.why)).toEqual(["long commute", "no services"]);
-    expect(sludged.parts.map((p) => p.why)).toEqual(["long commute", "no services", "sludge"]);
-    expect(sludged.total).toBe(Math.max(-40, -24 + MOOD.noServices + MOOD.sludge));
+    expect(clean.parts.map((p) => p.why)).toEqual(["long commute", "unmet needs"]);
+    expect(sludged.parts.map((p) => p.why)).toEqual(["long commute", "unmet needs", "sludge"]);
+    expect(sludged.total).toBe(Math.max(-40, -24 + MOOD.unmet + MOOD.sludge));
     expect(tooUnhappy(sludged)).toBe(true);
   });
 

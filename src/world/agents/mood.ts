@@ -29,6 +29,7 @@ import type { Network } from "../roads/network";
 import { liveCommutes, workplaceKind, type Commute } from "./commute";
 import { liveCoverage, mindsCrowding, tierOf, townRevNow, type Coverage } from "./services";
 import { NEEDS, type NeedId } from "./needs";
+import { wantsAny } from "./unlocks";
 
 export * from "./mood-rules";
 import {
@@ -84,7 +85,7 @@ export function moodsOf(
     const lunch: readonly NeedId[] = !fed ? [] : deck.lunchAll ? NEEDS[who] : ["food", "coffee"];
     const have = new Set<NeedId>([...(coverage.get(s.id) ?? []), ...lunch]);
     const met = NEEDS[who].filter((n) => have.has(n));
-    if (!met.length) parts.push({ why: WHY.noServices, points: MOOD.noServices });
+    if (!met.length && wantsAny(g, who)) parts.push({ why: WHY.unmet, points: MOOD.unmet });
     for (const n of met) parts.push({ why: NEED_WHY[n], points: NEED_MOOD[who] });
     const tier = tierOf(s.def);
     if ((tier === "t2" || tier === "landmark") && mindsCrowding(s.def) && !have.has("quiet")) parts.push({ why: WHY.crowded, points: MOOD.crowded });

@@ -45,6 +45,8 @@ import { syncUnlockedGenerators } from "../state/generators.store";
 import { advanceGameplayOneSecond } from "./run-sim";
 import { resetAllGameStores } from "./reset-game-stores";
 import { cultureNow } from "../game/culture-now";
+import { NEEDS, type ServiceId } from "../world/agents/needs";
+import { needOpen, startLadder, stepLadder, wantsAny } from "../world/agents/unlocks";
 
 /** Tiles of sewer the run lays from its studio to the water, once there is slop, and again for each sewer's worth more. */
 const SIM_SEWER_TILES = 20;
@@ -80,6 +82,8 @@ export type MapRunReport = {
   spentOnProjects: number;
   /** Services the town opened. */
   services: number;
+  /** When each service unlocked, in order. @see stepLadder */
+  unlocks: { id: ServiceId; at: number }[];
   /** Spent on hiring, for scale. */
   spentOnHires: number;
   /** Seconds some site sat stalled for want of money. */
@@ -242,11 +246,31 @@ export function simulateMapRun(
     const seated = Math.min(here, desksOf(id)), without = here - seated;
     return ((total - here) + seated * commute + without * DESKLESS) / total;
   };
+  /**
+   * STREETS: lots in sixes, each street served by the services the town
+   * opens it, its lots grown to the tier those allow. A service serves about
+   * a street of lots. @see world/agents/services
+   */
+  const streets: Record<GeneratorId, { lots: number; tier: number; wait: number }[]> = { intern: [], vibe_coder: [], "10x_dev": [] };
   const stopProjects = setProjectReader(() => ({
     built, away: away(), commute: { intern: commuteOf("intern"), vibe_coder: commuteOf("vibe_coder"), "10x_dev": commuteOf("10x_dev") },
     labs: { count: labs, mult: 1 + labs * LAB_SHARE * 1.5 },
     racks: { powered: racks * AGENTS_A_RACK, unpowered: 0 },
+    needs: needsNow(),
   }));
+  /** THE LADDER, as the game climbs it: by headcount, one at a time. @see stepLadder */
+  const ladderKey = {}, ladder = startLadder(ladderKey, []);
+  const unlockedNeeds = (id: GeneratorId) => NEEDS[id].filter((n) => needOpen(ladderKey, n)).length;
+  /** The share of each kind's beds with every need met: streets grown a tier a need, all of them. @see needsShare */
+  const needsNow = (): Partial<Record<GeneratorId, number>> => {
+    const out: Partial<Record<GeneratorId, number>> = {};
+    for (const [id, list] of Object.entries(streets) as [GeneratorId, { lots: number; tier: number }[]][]) {
+      let all = 0, met = 0;
+      for (const st of list) { const b = st.lots * TIER_SLOTS[st.tier]; all += b; if (st.tier >= NEEDS[id].length) met += b; }
+      if (all) out[id] = met / all;
+    }
+    return out;
+  };
   /**
    * MOOD, a street at a time, as the game scores each of its houses: the
    * commute, and its services or the want of them. Weighted by beds, as
@@ -254,7 +278,7 @@ export function simulateMapRun(
    */
   const streetMood = (id: GeneratorId, tier: number) => {
     let m = Math.round((1 - commute) * 10 * MOOD.perTenthLost);
-    m += tier === 0 ? MOOD.noServices : tier * NEED_MOOD[id];
+    m += tier > 0 ? tier * NEED_MOOD[id] : wantsAny(ladderKey, id) ? MOOD.unmet : 0;
     return Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, m));
   };
   const moodNow = (): Partial<Record<GeneratorId, number>> => {
@@ -276,18 +300,12 @@ export function simulateMapRun(
   setProcessorUse({ refinery: 0, dataplant: 0, contentfarm: 0 });
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
-    spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, stalledSeconds: 0, lots: 0,
+    spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, unlocks: [], stalledSeconds: 0, lots: 0,
     coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopAt: null, seweredAt: null, refineryAt: null, refineries: 0, sewers: 0, spentOnSlop: 0, peakSlop: 0, peakMopping: 0, saleAt: null, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
 
-  /**
-   * STREETS: lots in sixes, each street served by the services the player
-   * has bought it, its lots grown to the tier those allow. A service serves
-   * about a street of lots. @see world/agents/services
-   */
-  const streets: Record<GeneratorId, { lots: number; tier: number; wait: number }[]> = { intern: [], vibe_coder: [], "10x_dev": [] };
   /**
    * The way to more beds for a kind: a new lot, on the last street, at its
    * tier once it has grown. The town grows a street itself. @see OPENS_EVERY
@@ -303,7 +321,8 @@ export function simulateMapRun(
     for (const [id, list] of Object.entries(streets) as [GeneratorId, (typeof streets)[GeneratorId]][]) {
       let grew = false;
       for (const st of list) {
-        if (st.lots < STREET || st.tier >= TOP_TIER || ++st.wait < OPENS_EVERY) continue;
+        // A tier a need, of those its kind has unlocked. @see stepLadder
+        if (st.lots < STREET || st.tier >= TOP_TIER || ++st.wait < OPENS_EVERY || unlockedNeeds(id) <= st.tier) continue;
         st.wait = 0; st.tier++; grew = true;
         report.services++;
       }
@@ -313,8 +332,9 @@ export function simulateMapRun(
 
   /** One second of the town: projects started, worked, supplied and opened; hires arriving. */
   const stepTown = () => {
-    stepServices();
     const o = owned();
+    for (const id of stepLadder(ladder, o, 1)) report.unlocks.push({ id, at: t });
+    stepServices();
     // SLOP, seen to as a player would: once the vibe coders make it, a sewer
     // from the studio to the water, and then a refinery for it to feed, each
     // paid for as soon as it can be. @see game/slop, game/processors

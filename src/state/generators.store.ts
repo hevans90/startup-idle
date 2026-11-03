@@ -11,7 +11,7 @@ import {
   type StateStorage,
 } from "zustand/middleware";
 import { roomFor } from "../game/housing";
-import { attendance, deskBonus, labBonus, wonderBonus } from "../game/projects";
+import { attendance, deskBonus, labBonus, needsBonus, wonderBonus } from "../game/projects";
 import { moralePartsNow } from "../game/morale-parts";
 import * as culture from "../game/culture";
 import { setDeckReader } from "../game/culture-now";
@@ -521,6 +521,8 @@ export const useGeneratorStore = create<GeneratorState>()(
           const here = attendance(id, get().generators.find((g) => g.id === id)?.amount ?? 0);
           // AT THEIR DESKS: led by a team leader, a café next door. @see deskShare
           const atDesks = deskBonus(id);
+          // AT HOME: every need met near it, up to a quarter faster. @see needsBonus
+          const atHome = needsBonus(id);
           // THE CARDS' RULES: Crunch Week's days, the Four-Day Week's happy
           // kinds, Mentorship's pay, and the slop's — clean or spilling. @see Rules
           const rules = {
@@ -533,9 +535,9 @@ export const useGeneratorStore = create<GeneratorState>()(
           // AND THE WONDERS standing on the map, its R&D labs, and the AI
           // agents running in its racks. @see wonderBonus, labBonus, agentBonus
           return {
-            money: e.output * rules.money * dice.money * here * atDesks * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
+            money: e.output * rules.money * dice.money * here * atDesks * atHome * wonderBonus("money") * trainedAgentBonus() * fusionNow().incomeMult * questIncomeMult(),
             // And the slop refineries, by how busy they are. @see game/processors
-            innovation: e.innovation * rules.innovation * dice.innovation * here * atDesks * wonderBonus("innovation") * labBonus() * refineryBonus(),
+            innovation: e.innovation * rules.innovation * dice.innovation * here * atDesks * atHome * wonderBonus("innovation") * labBonus() * refineryBonus(),
           };
         },
 

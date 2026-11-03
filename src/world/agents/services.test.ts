@@ -128,8 +128,8 @@ describe("services", () => {
   test("only those who need quiet mind crowding, and a park takes it away", () => {
     const { g, ids } = street([["kit:10x_dev.t1", 16], ["kit:vibe_coder.t1", 20]]);
     const dev = g.structures.get(ids[0])!, vibe = g.structures.get(ids[1])!;
-    expect(growthShort(dev, moods(g).get(dev.id))).toBe(GROW_AT.t2 - (MOOD.noServices + MOOD.crowded));
-    expect(growthShort(vibe, moods(g).get(vibe.id))).toBe(GROW_AT.t2 - MOOD.noServices);
+    expect(growthShort(dev, moods(g).get(dev.id))).toBe(GROW_AT.t2 - (MOOD.unmet + MOOD.crowded));
+    expect(growthShort(vibe, moods(g).get(vibe.id))).toBe(GROW_AT.t2 - MOOD.unmet);
     commit(g, createHistory(), placeCommand(g, structureDef("park")!, 13, 3)!);
     expect(growthShort(dev, moods(g).get(dev.id))).toBe(GROW_AT.t2 - NEED_MOOD["10x_dev"]);
   });

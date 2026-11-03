@@ -20,6 +20,7 @@ import { pollutionOf, stashPollution } from "../water/pollution";
 import { restoreTanks, tankLevels } from "../slop/tanks";
 import { TRACE } from "../../game/pollution";
 import { serviceDef } from "../agents/needs";
+import { startLadder, unlockedOf } from "../agents/unlocks";
 
 export const WORLD_FILE_VERSION = 1;
 
@@ -140,6 +141,11 @@ export type WorldFile = {
    */
   pollution?: string;
   slopTanks?: { id: number; level: number }[];
+  /**
+   * THE SERVICES THE TOWN HAS UNLOCKED, by id. OPTIONAL: a file from before
+   * the ladder catches up to its headcount on its first step. @see stepLadder
+   */
+  services?: string[];
   /** Index → material id. Index 0 is VOID. Saved so indices keep their meaning. */
   palette: { terrain: (string | null)[]; paved: (string | null)[] };
 };
@@ -246,6 +252,7 @@ export function serializeWorld(
     ...(fleet ? { boats: saveFleet(fleet) } : {}),
     ...(water && pollutionOf(water.columns).mass.some((m) => m > TRACE) ? { pollution: encodeF32(pollutionOf(water.columns).mass) } : {}),
     ...(tankLevels(grid).length ? { slopTanks: tankLevels(grid) } : {}),
+    ...(unlockedOf(grid) ? { services: unlockedOf(grid) } : {}),
     palette: { terrain: [...palette.terrain], paved: [...palette.paved] },
   };
 }
@@ -376,6 +383,7 @@ export function deserializeWorld(
     restoreTanks(grid, f.slopTanks.filter((t): t is { id: number; level: number } =>
       !!t && Number.isInteger(t.id) && typeof t.level === "number" && Number.isFinite(t.level) && t.level > 0 && grid.structures.has(t.id)));
   }
+  if (Array.isArray(f.services)) startLadder(grid, f.services.filter((s): s is string => typeof s === "string"));
   return { grid, palette, boats };
 }
 

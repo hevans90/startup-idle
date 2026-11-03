@@ -3,8 +3,8 @@
  * NEIGHBOURHOOD — streets with homes on them, joined at their junctions, a
  * couple of dozen homes at most — looks every few seconds at what its people
  * need and do not have near, and where enough of them want the same thing it
- * opens something for it: a small one in the ground floor of a house among
- * them, a big one on a free lot. Then it waits before the next. A service
+ * opens something for it — of the services unlocked (`stepLadder`): a small
+ * one in the ground floor of a house among them, a big one on a free lot. Then it waits before the next. A service
  * nobody of its kind lives near any more closes. @see NEEDS, coverageOf
  */
 import { housedBy, isLot, residentsIn } from "../../game/housing";
@@ -16,6 +16,7 @@ import { streetsOf, type Streets } from "../roads/streets";
 import { NEED_KIND, NEEDS, SERVICES_FOR, serviceDef, type NeedId, type ServiceId } from "./needs";
 import { placesOf } from "./roads";
 import { RANGE, serviceIn, townChanged, type Coverage } from "./services";
+import { serviceOpen } from "./unlocks";
 
 /** Seconds between looks at what the town needs. */
 export const CHECK_EVERY = 5;
@@ -131,9 +132,12 @@ export function neighbourhoodsOf(g: Grid, streets: Streets, doors: ReadonlyMap<n
 
 const manhattan = (a: number, b: number, w: number) => Math.abs((a % w) - (b % w)) + Math.abs(Math.floor(a / w) - Math.floor(b / w));
 
+/** The services a need has unlocked. @see stepLadder */
+const openFor = (g: Grid, need: NeedId) => SERVICES_FOR[need].filter((s) => serviceOpen(g, s));
+
 /** The service to open for a need: one the neighbourhood has none of yet, if any. */
-function pickService(need: NeedId, here: ReadonlySet<ServiceId>, rand: () => number): ServiceId {
-  const all = SERVICES_FOR[need];
+function pickService(g: Grid, need: NeedId, here: ReadonlySet<ServiceId>, rand: () => number): ServiceId {
+  const all = openFor(g, need);
   const fresh = all.filter((s) => !here.has(s));
   const pool = fresh.length ? fresh : all;
   return pool[Math.floor(rand() * pool.length) % pool.length];
@@ -179,7 +183,8 @@ export function stepTown(t: TownServices, g: Grid, net: Network, cover: Coverage
     const want = new Map<NeedId, number>();
     for (const s of people) {
       const have = cover.get(s.id);
-      for (const need of NEEDS[housedBy(s.def)!.id]) if (!have?.has(need)) want.set(need, (want.get(need) ?? 0) + residentsIn(s));
+      // Only what the town knows how to open yet.
+      for (const need of NEEDS[housedBy(s.def)!.id]) if (!have?.has(need) && openFor(g, need).length) want.set(need, (want.get(need) ?? 0) + residentsIn(s));
     }
     const [need, demand] = [...want].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] ?? [];
     if (!need || demand < MIN_DEMAND) continue;
@@ -187,7 +192,7 @@ export function stepTown(t: TownServices, g: Grid, net: Network, cover: Coverage
     if (!lacking.length) continue;
     const here = new Set<ServiceId>();
     for (const id of n.homes) { const sv = g.structures.get(id)?.shop; if (sv) here.add(sv as ServiceId); }
-    const sv = pickService(need, here, hands.rand);
+    const sv = pickService(g, need, here, hands.rand);
     const at = serviceDef(sv)!.shop ? openShop(g, n, lacking, doors, sv) : openBuilding(g, lacking, doors, sv, hands);
     // Tried and failed: not again straight away.
     t.wait.set(n.id, at === null ? OPEN_GAP / 2 : OPEN_GAP);

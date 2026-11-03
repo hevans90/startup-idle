@@ -32,6 +32,7 @@ import { setTownBonusReader } from "../game/acquisition";
 import { setTownMoodReader } from "../game/town-mood";
 import { cultureNow, cultureVersion } from "../game/culture-now";
 import { liveMoods, moodOffsets } from "./agents/mood";
+import { needsShare } from "./agents/services";
 import { townBonusOf } from "./projects/town-worth";
 import { structureDef } from "./structures/def";
 import { builtProjects, catchUpWorks } from "./projects/works";
@@ -306,7 +307,9 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
         const k = processorKind(s.def);
         if (k) processors[k] = (processors[k] ?? 0) + 1;
       }
-      return { built, away, commute, labs, racks: cooled, desks, teams, processors, spires: allTanks().size ? cooledSpires() : spires, farms, monolith };
+      // AT HOME: the share of each kind with every need met. @see needsBonus
+      const needs = net ? needsShare(st.grid, liveMoods(st.grid, net)) : undefined;
+      return { built, away, commute, labs, racks: cooled, desks, teams, needs, processors, spires: allTanks().size ? cooledSpires() : spires, farms, monolith };
     }));
   }, [play]);
   // AND NOW THE ECONOMY CAN ASK: every reader above is in, so time away is

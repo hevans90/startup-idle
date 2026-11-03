@@ -18,6 +18,7 @@
  * @see MOVE_IN_AT, stepArrivals
  */
 import { housedBy, residentsIn } from "../../game/housing";
+import type { GeneratorId } from "../../state/generators.store";
 import { NEIGHBOUR } from "../../iso/dir";
 import { idx, type Grid, type Structure } from "../grid";
 import { connects } from "../roads/mask";
@@ -26,8 +27,9 @@ import { placesOf, type Place } from "./roads";
 import { notable } from "../../game/machine";
 import { fusionNow } from "../../game/fusion";
 import { inAiDistrictNow } from "../ai/district";
-import { DECLINE_MARGIN, GROW_AT, MOOD, NEED_WHY, type MoodParts } from "./mood-rules";
+import { DECLINE_MARGIN, GROW_AT, MOOD, NEED_WHY, needsCounted, type MoodParts } from "./mood-rules";
 import { NEEDS, needsAt, serviceDef, type NeedId, serviceIn } from "./needs";
+import { serviceOpen } from "./unlocks";
 
 export { SERVICE_IDS, serviceIn, serviceOf, type NeedId, type ServiceId } from "./needs";
 
@@ -79,7 +81,8 @@ export function coverageOf(g: Grid, places: readonly Place[], extra: (s: Structu
   const groups = new Map<string, { need: NeedId; more: number; from: Structure[] }>();
   for (const s of g.structures.values()) {
     const sv = s.build ? null : serviceIn(s);
-    if (!sv || !doorOf.has(s.id)) continue;
+    // Not yet unlocked: standing, but the town does not count it. @see stepLadder
+    if (!sv || !serviceOpen(g, sv) || !doorOf.has(s.id)) continue;
     const need = serviceDef(sv)!.need, more = extra(s), k = `${need}|${more}`;
     const grp = groups.get(k) ?? { need, more, from: [] };
     grp.from.push(s);
@@ -113,7 +116,7 @@ export function coverageOf(g: Grid, places: readonly Place[], extra: (s: Structu
   }
   // OFF THE ROADS, a park: the homes round it, as the crow flies.
   for (const park of g.structures.values()) {
-    if (park.build || park.def !== "park" || doorOf.has(park.id)) continue;
+    if (park.build || park.def !== "park" || doorOf.has(park.id) || !serviceOpen(g, "park")) continue;
     const reach = range + extra(park);
     for (const s of g.structures.values()) {
       if (housedBy(s.def) && gapBetween(park, s) <= reach) serve(out, s.id, "quiet");
@@ -194,13 +197,14 @@ export function growthShort(s: Structure, m: MoodParts | undefined): number | nu
 }
 
 /** Which of its kind's needs a house still lacks to grow, or null if it is at the top or lacks none. */
-export function needsShort(s: Structure, cover: Coverage): NeedId[] | null {
+export function needsShort(s: Structure, cover: Coverage, open: (n: NeedId) => boolean = () => true): NeedId[] | null {
   const t = tierOf(s.def), who = housedBy(s.def)?.id;
   const k = t ? TIERS.indexOf(t) : -1;
   if (!who || k < 0 || k >= TIERS.length - 1) return null;
   const met = needsMet(s, cover);
   if (met.length >= needsAt(who, TIERS[k + 1])) return null;
-  return NEEDS[who].filter((n) => !met.includes(n));
+  // Only what the town can open yet: none, and it waits on the ladder. @see stepLadder
+  return NEEDS[who].filter((n) => !met.includes(n) && open(n));
 }
 
 /** Seconds each house has been ready to grow, or lacking, by id. Live state; not saved. */
@@ -247,4 +251,22 @@ export function stepEvolution(e: Evolution, g: Grid, moods: ReadonlyMap<number, 
     } else e.lacking.delete(s.id);
   }
   return changed;
+}
+
+/**
+ * THE SHARE OF EACH KIND WITH EVERY NEED MET, by resident: what quickens its
+ * work. @see needsBonus
+ */
+export function needsShare(g: Grid, moods: ReadonlyMap<number, MoodParts>): Partial<Record<GeneratorId, number>> {
+  const all: Partial<Record<GeneratorId, number>> = {}, met: Partial<Record<GeneratorId, number>> = {};
+  for (const s of g.structures.values()) {
+    const h = s.build ? null : housedBy(s.def), n = h ? residentsIn(s) : 0;
+    if (!h || !n) continue;
+    all[h.id] = (all[h.id] ?? 0) + n;
+    const m = moods.get(s.id);
+    if (m && needsCounted(m) >= NEEDS[h.id].length) met[h.id] = (met[h.id] ?? 0) + n;
+  }
+  const out: Partial<Record<GeneratorId, number>> = {};
+  for (const [who, n] of Object.entries(all) as [GeneratorId, number][]) out[who] = (met[who] ?? 0) / n;
+  return out;
 }

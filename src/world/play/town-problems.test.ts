@@ -14,14 +14,14 @@ function town(moods: MoodParts[]): { g: Grid; moods: Map<number, MoodParts> } {
   });
   return { g: { structures } as unknown as Grid, moods: out };
 }
-const noServices = (total = -6): MoodParts => ({ total, parts: [{ why: WHY.noServices, points: total }] });
+const noServices = (total = -6): MoodParts => ({ total, parts: [{ why: WHY.unmet, points: total }] });
 const happy: MoodParts = { total: 4, parts: [{ why: WHY.cafe, points: 4 }] };
 
 describe("a problem the whole town shares", () => {
   test("most houses of a kind unhappy for one reason: said once, their badges quiet", () => {
     const { g, moods } = town([...Array(10).fill(noServices()), happy, happy]);
     const { problems, quiet } = townProblems(g, moods, () => 0);
-    expect(problems).toEqual([{ kind: "intern", houses: 10, why: WHY.noServices }]);
+    expect(problems).toEqual([{ kind: "intern", houses: 10, why: WHY.unmet }]);
     expect(quiet.size).toBe(10);
   });
 

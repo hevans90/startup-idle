@@ -13,7 +13,7 @@ import type { Grid, Structure } from "../../grid";
 import { createNetwork } from "../../roads/network";
 import { placesOf } from "../../agents/roads";
 import { desireAt, desireMapsOf, type DesireMaps } from "../../agents/desirability";
-import { DECLINE_MARGIN, GROW_AT, MOOD, MOOD_LIMIT, MOVE_IN_AT, NEED_WHY, type MoodParts } from "../../agents/mood-rules";
+import { DECLINE_MARGIN, GROW_AT, MOOD, MOOD_LIMIT, MOVE_IN_AT, needsCounted, type MoodParts } from "../../agents/mood-rules";
 import { NEEDS, needsAt } from "../../agents/needs";
 import { seat, type Commute } from "../../agents/commute";
 import { TIERS, coverageOf, desirabilityAt, tierOf, withTier, type Tier } from "../../agents/services";
@@ -45,10 +45,6 @@ export type Settled = {
   tiers: Map<number, Tier>;
 };
 
-/** How many of a house's needs its mood says are met. */
-const NEED_WORDS = new Set<string>(Object.values(NEED_WHY));
-const metIn = (m: MoodParts) => m.parts.filter((p) => NEED_WORDS.has(p.why)).length;
-
 /**
  * THE TIER A HOUSE'S MOOD WOULD GROW IT TO, from `from`: up a tier at a time
  * while the mood holds the next one's, crowding counted, and its needs met
@@ -56,7 +52,7 @@ const metIn = (m: MoodParts) => m.parts.filter((p) => NEED_WORDS.has(p.why)).len
  */
 export function projectTier(m: MoodParts, who: GeneratorId, from: Tier = "t0"): Tier {
   let t = from;
-  const met = metIn(m);
+  const met = needsCounted(m);
   for (let k = TIERS.indexOf(from) + 1; k < TIERS.length; k++) {
     const next = TIERS[k];
     if (desirabilityAt(m, t, next, NEEDS[who].includes("quiet")) < GROW_AT[next] || met < needsAt(who, next)) break;
@@ -163,7 +159,7 @@ export function settledTown(g: Grid): Settled {
       moods.set(s.id, m);
       const t = tiers.get(s.id)!, k = TIERS.indexOf(t), next = TIERS[k + 1];
       let to = t;
-      const met = metIn(m);
+      const met = needsCounted(m);
       if (next && desirabilityAt(m, t, next, NEEDS[who].includes("quiet")) >= GROW_AT[next] && met >= needsAt(who, next)) to = next;
       else if (k > TIERS.indexOf(floor.get(s.id)!) && (m.total < GROW_AT[t] - DECLINE_MARGIN || met < needsAt(who, t))) to = TIERS[k - 1];
       if (to !== t) moved = true;

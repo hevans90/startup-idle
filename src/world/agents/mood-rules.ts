@@ -10,7 +10,7 @@ import type { NeedId } from "./needs";
 export const MOOD = {
   perTenthLost: -6,
   stranded: -30,
-  noServices: -6,
+  unmet: -6,
   crowded: -6,
   wonder: 5,
   sludge: -15,
@@ -42,7 +42,7 @@ export const WHY = {
   stranded: "no road to work",
   commute: "long commute",
   deskless: "no desk",
-  noServices: "no services",
+  unmet: "unmet needs",
   food: "food",
   nightlife: "nightlife",
   coffee: "coffee",
@@ -69,6 +69,10 @@ export const NEED_WHY: Record<NeedId, Why> = {
 
 /** What a house's mood is made of, each part signed. */
 export type MoodParts = { total: number; parts: { why: Why; points: number }[] };
+
+const NEED_WORDS = new Set<string>(Object.values(NEED_WHY));
+/** How many of a house's needs its mood says are met: near it, or a workplace's lunch. */
+export const needsCounted = (m: MoodParts) => m.parts.filter((p) => NEED_WORDS.has(p.why)).length;
 
 /** What a view of water adds, and how near the water has to be, in tiles. */
 export const WATER_VIEW = 5;

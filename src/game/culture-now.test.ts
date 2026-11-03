@@ -103,7 +103,7 @@ describe("the culture deck, where the map works it out", () => {
     at({ x: 5, y: 5, residents: 2 }, 1);
     at({ def: "garage", x: 9, y: 5, w: 2 }, 2);
     const mood = () => moodsOf(g, new Map(), new Map(), new Set([1])).get(1)!;
-    expect(mood().total).toBe(MOOD.noServices + MOOD.sludge);
+    expect(mood().total).toBe(MOOD.unmet + MOOD.sludge);
     deck({ fourday: 1, therapy: 1, lunch: 1 });
     // Four-Day Week's +10, and three Wellness's set +10.
     expect(mood().total).toBe(NEED_MOOD.intern + Math.round(MOOD.sludge / 2) + 10 + 10);

@@ -11,6 +11,7 @@ import { workplaceKind } from "./commute";
 import { serviceDef } from "./needs";
 import { serviceIn } from "./services";
 import type { Leadership } from "./leaders";
+import { serviceOpen } from "./unlocks";
 
 /** What coffee within `CAFE_REACH` tiles adds to a workplace's desks. One counts, however many. */
 export const CAFE_BOOST = 0.1;
@@ -25,7 +26,7 @@ export function cafeNear(g: Grid, at: Structure): boolean {
   for (const s of g.structures.values()) {
     if (s.build || gap(s, at) > CAFE_REACH) continue;
     const sv = serviceIn(s);
-    if (sv && serviceDef(sv)!.need === "coffee") return true;
+    if (sv && serviceOpen(g, sv) && serviceDef(sv)!.need === "coffee") return true;
   }
   return false;
 }

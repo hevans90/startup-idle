@@ -46,6 +46,8 @@ export type InfoContext = {
   moods: ReadonlyMap<number, MoodParts>;
   /** What need is met at each house, by its id. */
   coverage: ReadonlyMap<number, ReadonlySet<NeedId>>;
+  /** Whether the town has unlocked a service for a need. Missing: all of them. @see stepLadder */
+  needOpen?: (n: NeedId) => boolean;
   /** Each house's commute, by its id. Missing: nobody worked it out (no roads yet). */
   commutes: ReadonlyMap<number, Commute>;
   /** Each workplace's desks: taken, and how many. @see seat */
@@ -160,9 +162,10 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     // @see GROW_AT
     // Or which of its needs it lacks first. @see NEEDS_FOR
     const short = growthShort(s, ctx.moods.get(s.id));
-    const lacks = needsShort(s, ctx.coverage as Map<number, Set<NeedId>>);
+    const lacks = needsShort(s, ctx.coverage as Map<number, Set<NeedId>>, ctx.needOpen);
     if (short !== null && here > 0) {
-      if (lacks) lines.push({ text: `Grows with ${lacks.map((n) => NEED_WHY[n]).join(" or ")} near`, tone: "dim" });
+      if (lacks?.length) lines.push({ text: `Grows with ${lacks.map((n) => NEED_WHY[n]).join(" or ")} near`, tone: "dim" });
+      else if (lacks) lines.push({ text: "Grows once the town unlocks more", tone: "dim" });
       else if (short > 0) lines.push({ text: `Grows at +${short} more desirability`, tone: "dim" });
       else if (here >= h.slots) lines.push({ text: "Growing", tone: "good" });
     }

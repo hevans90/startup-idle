@@ -37,6 +37,7 @@ import { formatCurrency } from "../../utils/money-utils";
 import { perMinute } from "../boats/exports";
 import { liveSeating } from "../agents/commute";
 import { liveCoverage } from "../agents/services";
+import { needOpen } from "../agents/unlocks";
 import { useSessionStore } from "../../state/session.store";
 import { ROUTE_BONUS } from "../events/events";
 import { repairedIn } from "../events/flood";
@@ -140,7 +141,7 @@ function gather(): BadgeContext {
     }
   }
   const nearConference = new Set([...st.grid.structures.values()].filter((s) => structureDef(s.def)?.port && conferenceNear(st.grid, s)).map((s) => s.id));
-  return { quiet: liveTownProblems().quiet, deskless, perks, nearConference, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
+  return { quiet: liveTownProblems().quiet, deskless, perks, nearConference, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, needOpen: (n) => needOpen(st.grid, n), moods, labsNear, racksPowered, desks, repairedIn, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
 }
 
 /**

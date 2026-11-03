@@ -49,7 +49,7 @@ describe("a building's label", () => {
 
 describe("mood on the labels", () => {
   test("a house says how happy it is, and what weighs on it most", () => {
-    const moods = new Map([[7, { total: -12, parts: [{ why: "café", points: 4 }, { why: "long commute", points: -12 }, { why: "no services", points: -4 }] }]]);
+    const moods = new Map([[7, { total: -12, parts: [{ why: "café", points: 4 }, { why: "long commute", points: -12 }, { why: "unmet needs", points: -4 }] }]]);
     const info = infoFor(at("kit:intern.t1", { residents: 3 }), ctx({ moods }))!;
     expect(info.lines.map((l) => l.text)).toContain("Morale -12 · unhappy: long commute");
   });

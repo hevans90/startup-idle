@@ -25,6 +25,7 @@ import { fusionNow } from "../../game/fusion";
 import { placesOf, type Place } from "./roads";
 import { RANGE, serviceIn, townRevNow } from "./services";
 import { NEED_KIND, NEEDS, serviceDef, type NeedId } from "./needs";
+import { serviceOpen, wantsAny } from "./unlocks";
 
 const DIRS = ["N", "E", "S", "W"] as const;
 
@@ -74,7 +75,7 @@ export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
     return out;
   };
   const need = {} as Record<NeedId, Int32Array>;
-  for (const n of Object.keys(NEED_KIND) as NeedId[]) need[n] = roadsFrom(g, doorsOf((s) => { const sv = serviceIn(s); return !!sv && serviceDef(sv)!.need === n; }), RANGE);
+  for (const n of Object.keys(NEED_KIND) as NeedId[]) need[n] = roadsFrom(g, doorsOf((s) => { const sv = serviceIn(s); return !!sv && serviceOpen(g, sv) && serviceDef(sv)!.need === n; }), RANGE);
   const work: Partial<Record<GeneratorId, Int32Array>> = {};
   for (const [who, defs] of Object.entries(WORKPLACES) as [GeneratorId, readonly string[]][]) {
     const doors = doorsOf((s) => defs.includes(s.def));
@@ -141,7 +142,7 @@ export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: G
     else if (eff < 1) parts.push({ why: WHY.commute, points: Math.round((1 - eff) * 10 * MOOD.perTenthLost) });
   }
   const met = NEEDS[who].filter((n) => best(maps.need[n]) >= 0);
-  if (!met.length) parts.push({ why: WHY.noServices, points: MOOD.noServices });
+  if (!met.length && wantsAny(g, who)) parts.push({ why: WHY.unmet, points: MOOD.unmet });
   for (const n of met) parts.push({ why: NEED_WHY[n], points: NEED_MOOD[who] });
   if (maps.water[idx(g, x, y)]) parts.push({ why: WHY.waterView, points: fusionNow().waterView });
   // A Zoner fused into the founder, for every house. @see game/fusion

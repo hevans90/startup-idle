@@ -391,6 +391,11 @@ export const labBonus = () => {
  */
 export const deskBonus = (id: GeneratorId) => 1 + (reader ? reader().desks?.[id] ?? 0 : 0);
 
+/** What a kind with every need met works faster by, at most. @see needsBonus */
+export const NEEDS_SPEED = 0.25;
+/** A kind's work quickened by the share of it with every need met near home. One with no map. @see needsShare */
+export const needsBonus = (id: GeneratorId) => 1 + NEEDS_SPEED * (reader ? reader().needs?.[id] ?? 0 : 0);
+
 /** The people a kind's leader leads in their building; nought with no map. @see leaderEffects */
 export const leaderTeam = (id: GeneratorId) => (reader ? reader().teams?.[id] ?? 0 : 0);
 
@@ -479,6 +484,8 @@ export type ProjectReading = {
   desks?: Partial<Record<GeneratorId, number>>;
   /** Each kind's leader's TEAM: the people at the desks of the building they lead. @see game/leaders */
   teams?: Partial<Record<GeneratorId, number>>;
+  /** The share of each kind with every need met near home. @see needsShare, needsBonus */
+  needs?: Partial<Record<GeneratorId, number>>;
   /** The slop processors standing, by kind. @see game/processors */
   processors?: Partial<Record<string, number>>;
 };

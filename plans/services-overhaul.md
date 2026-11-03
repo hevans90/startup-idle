@@ -59,6 +59,7 @@ The town builds its own shops. Neighbourhoods form from the roads. Each employee
 - **Tests:** streets and neighbourhoods on fixtures, the gates, spawn and close, determinism, and the migration.
 
 ## 2. Unlock ladder & per-kind effects
+**Done.** As built: `world/agents/unlocks.ts` — `UNLOCK_AT` per service by its kind's headcount, a queue `UNLOCK_GAP` (90 s) apart, kept per map and saved (`WorldFile.services`); a map from before catches up at once. Locked services don't count for coverage, desirability or the café desk perk, and the town doesn't open them. Unmet needs (−6) only once one of the kind's needs is unlocked. `needsBonus`: +25% × share of the kind (by resident) with every need met, for money and innovation. On the map run: 1.8 → 72.5 min, mean 4.7 min apart (`simulation/services-pacing.test.ts`). No AI-mode run: the gap is held by the queue whoever hires.
 - Each service unlocks at its kind's population. The thresholds come from a pacing sim: the town's normal growth gives about one new unlock every 4–6 minutes overall, never two within 90 s. A queue enforces that gap, so a sudden jump in hires still reveals them one at a time.
 - **Work speed:** a kind works faster by the share of its homes with all needs met, up to +25% (NEEDS_SPEED).
 - **Mood:** each met need adds to mood for its kind. The noServices penalty becomes "unmet need".

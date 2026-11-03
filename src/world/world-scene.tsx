@@ -111,8 +111,9 @@ import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
 import { stepArrivals } from "./agents/arrivals";
-import { liveCoverage, stepEvolution, withTier } from "./agents/services";
+import { liveCoverage, stepEvolution, townChanged, withTier } from "./agents/services";
 import { stepTown as stepTownServices } from "./agents/town-services";
+import { ladderOf, stepLadder } from "./agents/unlocks";
 import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
@@ -3182,6 +3183,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // are met, and declining when they lose them; and the town opening
         // what its people need, and closing what nobody does. @see stepTown
         if (st.playing) {
+          // WHAT IT KNOWS HOW TO OPEN, by its headcount, one at a time. @see stepLadder
+          const ladder = ladderOf(st.grid);
+          if (ladder && stepLadder(ladder, ownedNow(), dt).length) townChanged();
           const cover = liveCoverage(st.grid, net);
           const grew = stepEvolution(getEvolution(), st.grid, liveMoods(st.grid, net), cover, dt);
           if (grew.length) useWorldStore.getState().housingMoved(grew);
