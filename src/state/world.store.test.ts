@@ -776,6 +776,26 @@ describe("lifting under play rules", () => {
     expect(s().grid.mainEnd[idx(s().grid, 11, 6)]).toBe(4);
     expect(s().grid.mainEnd[idx(s().grid, 14, 6)]).toBe(4);
   });
+
+  test("Demolish dragged from a pipe lifts pipe; from a road, road", () => {
+    const g = createGrid(20, 12);
+    fillTerrain(g, 1);
+    for (let x = 2; x < 18; x++) { g.paved[idx(g, x, 6)] = 1; g.paved[idx(g, x, 8)] = 1; g.main[idx(g, x, 6)] = x === 2 ? 4 : x === 17 ? 1 : 5; }
+    g.mainEnd[idx(g, 2, 6)] = 4; g.mainEnd[idx(g, 17, 6)] = 4;
+    s().loadGrid(g);
+    s().setPlaying(true);
+    s().setTool("demolish");
+    useWorldStore.setState({ stroke: { tool: "demolish", brush: "line", anchor: { x: 8, y: 6 }, head: { x: 10, y: 6 } } });
+    s().endStroke();
+    expect(s().grid.main[idx(s().grid, 9, 6)]).toBe(0);
+    expect(s().grid.paved[idx(s().grid, 9, 6)]).toBe(1);
+    useWorldStore.setState({ stroke: { tool: "demolish", brush: "line", anchor: { x: 8, y: 8 }, head: { x: 10, y: 8 } } });
+    s().endStroke();
+    expect(s().grid.paved[idx(s().grid, 9, 8)]).toBe(0);
+    // Demolish still in hand, Lift's choice as it was.
+    expect(s().tool).toBe("demolish");
+    expect(s().liftPipe).toBe(false);
+  });
 });
 
 describe("mains under play rules", () => {

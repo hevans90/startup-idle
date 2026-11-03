@@ -155,6 +155,16 @@ export const SAND = 3;
 /** Grass under one, two and three trees — thin wood to thick. */
 export const WOODS = [4, 5, 6] as const;
 export const VOID_MATERIAL = 0;
+
+/**
+ * WHAT DEMOLISH LIFTS, from where its drag starts: no building there, a main
+ * comes up before a road — along the drag, as Lift takes them. @see endStroke
+ */
+export function demolishLifts(g: Grid, c: { x: number; y: number }): "pipe" | "road" | null {
+  if (c.x < 0 || c.y < 0 || c.x >= g.w || c.y >= g.h || structureAt(g, c.x, c.y) >= 0) return null;
+  const i = c.y * g.w + c.x;
+  return hasMain(g, i) ? "pipe" : g.paved[i] !== VOID_MATERIAL ? "road" : null;
+}
 /** Kept in step with the generator's own default, which is where size lives. */
 export const DEFAULT_SIZE = DEFAULT_GEN.size;
 
@@ -1064,6 +1074,14 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // What a road stroke cost, for taking it back. @see undoLastBuild
     let roadPaid = 0;
     let pumpAfter: WorldState["pumpOffer"] = null;
+    // DEMOLISH ON A PIPE OR A ROAD lifts it, as Lift would. @see demolishLifts
+    const lifts = s0.tool === "demolish" && st.playing ? demolishLifts(st.grid, s0.anchor) : null;
+    if (lifts) {
+      const kept = st.liftPipe;
+      set({ tool: "eraseRoad", liftPipe: lifts === "pipe", stroke: { ...s0, tool: "eraseRoad", brush: "line" } });
+      try { get().endStroke(); } finally { set({ tool: "demolish", liftPipe: kept }); }
+      return;
+    }
     // A STRUCTURE is placed at one cell by one command, so it skips the stroke
     // machinery — brush size and drag shape mean nothing to it.
     // LOTS GO DOWN IN A LINE: dragged along a street, a lot on every cell of

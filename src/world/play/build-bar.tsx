@@ -115,7 +115,7 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "eraseRoad", label: "Lift", hint: "Drag to take road up — or pipe, with Pipe chosen beside it" },
   { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main: it finds its own way" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
-  { id: "demolish", label: "Demolish", hint: "Click a building to take it down" },
+  { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to lift it" },
 ];
 
 const KINDS: GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
@@ -266,7 +266,7 @@ export function BuildBar({ className }: { className?: string }) {
   const choose = (id: ToolId) => {
     setTool(id);
     // Road goes down in a line, as a road does; everything else is a click.
-    setBrush(id === "paintRoad" || id === "eraseRoad" || id === "pipe" ? "line" : "point");
+    setBrush(id === "paintRoad" || id === "eraseRoad" || id === "pipe" || id === "demolish" ? "line" : "point");
     setBrushRadius(0);
     setPicking(id === "placeStructure" ? !(tool === id && picking) : false);
     // Something on offer in hand, not whatever was last: a lot for people the

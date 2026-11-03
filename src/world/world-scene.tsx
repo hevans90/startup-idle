@@ -43,7 +43,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, pizzaPrice, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, pizzaPrice, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import {
@@ -2416,12 +2416,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
 
       // A STRUCTURE tool previews its footprint, not a brush: the same function
       // the commit uses, so the rect you drag out is the rect you get.
-      let cells = isStructureTool(s0.tool)
+      // Demolish dragged from a pipe or a road previews the line it lifts. @see demolishLifts
+      const lifting = s0.tool === "demolish" && useWorldStore.getState().playing && demolishLifts(grid, s0.anchor) !== null;
+      let cells = isStructureTool(s0.tool) && !lifting
         ? (() => {
             const fp = structureFootprint(structureDef(structureDefId), s0.anchor, s0.head);
             return footprintCells(fp.x, fp.y, fp.w, fp.h);
           })()
-        : strokeFootprint(grid, s0, brushRadius);
+        : strokeFootprint(grid, lifting ? { ...s0, brush: "line" } : s0, brushRadius);
       // A MAIN, in the game, shows its route — drawn by the mains layer — not the straight line it is dragged along. @see mainPreview
       if (s0.tool === "pipe" && useWorldStore.getState().playing) cells = [...(mainPreview()[0] ?? [])];
 
