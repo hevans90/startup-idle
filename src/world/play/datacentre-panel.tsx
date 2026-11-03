@@ -404,19 +404,13 @@ function Training() {
   const on = dataset(current?.dataset);
   const level = on ? (skills[on.id] ?? 0) : 0;
   return (
-    <Panel tone="ai" title="Training" help="Trades the agent boost for a skill this company, and jumps the AI. Shapes what it becomes." className={SECTION}>
+    <Panel tone="ai" title={`Training · ${fmtSeconds(seconds)}`} help="Trades the agent boost for a skill this company, and jumps the AI. Shapes what it becomes." className={SECTION}>
       {current && on ? (
-        <>
+        <div title={`No agent boost till it ends${level < MAX_SKILL ? ` · then: ${on.skills[level]}` : ""}`}>
           <p className="flex justify-between">
-            <span>
-              Training on <b>{on.name}</b>
-            </span>
-            <span className="tabular-nums">{clock(current.endsAt)}</span>
+            <b>{on.name}</b>
+            <span className="tabular-nums text-warn">{clock(current.endsAt)}</span>
           </p>
-          <p className="text-warn">No agent boost till it ends</p>
-          {level < MAX_SKILL && (
-            <p className="text-good">Then: {on.skills[level]}</p>
-          )}
           <div className="mt-1 h-1 w-full overflow-hidden bg-surface-2">
             <div
               className="h-full bg-ai"
@@ -425,42 +419,28 @@ function Training() {
               }}
             />
           </div>
-        </>
+        </div>
       ) : (
-        <>
-          <p className="mb-1 tabular-nums text-fg-muted" title="Costs the agents' boost to income while it runs; teaches a skill for this company">
-            {fmtSeconds(seconds)} · costs the agent boost
-          </p>
-          <div className="flex flex-col gap-1">
-            {DATASETS.map((d) => {
-              const n = skills[d.id] ?? 0;
-              return (
-                <Tile
-                  key={d.id}
-                  lit={!blocked}
-                  disabled={!!blocked}
-                  onClick={() => start(d.id)}
-                  title={n < MAX_SKILL ? `Next: ${d.skills[n]}` : "Learned"}
-                  className="flex w-full flex-col items-start gap-0.5 px-2 py-1.5"
-                >
-                  <span className="flex w-full justify-between">
-                    <b>
-                      {d.name}{" "}
-                      <span
-                        className="tabular-nums font-normal text-ai"
-                        aria-label={`level ${n} of ${MAX_SKILL}`}
-                      >
-                        {"●".repeat(n)}
-                        {"○".repeat(MAX_SKILL - n)}
-                      </span>
-                    </b>
-                    <span className="tabular-nums text-ai">+{d.jump}%</span>
-                  </span>
-                </Tile>
-              );
-            })}
-          </div>
-        </>
+        <div className="flex flex-col gap-1">
+          {DATASETS.map((d) => {
+            const n = skills[d.id] ?? 0;
+            return (
+              <Tile
+                key={d.id}
+                lit={!blocked}
+                disabled={!!blocked}
+                onClick={() => start(d.id)}
+                title={n < MAX_SKILL ? `Next: ${d.skills[n]}` : "Learned"}
+                className="flex w-full items-center justify-between gap-1 px-2 py-1"
+              >
+                <b className="truncate">{d.name}</b>
+                <span className="shrink-0 tabular-nums text-ai" aria-label={`level ${n} of ${MAX_SKILL}, jumps ${d.jump}%`}>
+                  {"●".repeat(n)}{"○".repeat(MAX_SKILL - n)} +{d.jump}%
+                </span>
+              </Tile>
+            );
+          })}
+        </div>
       )}
     </Panel>
   );
@@ -536,7 +516,7 @@ function Forecast() {
 
 /** A length of time, as minutes or seconds. */
 const fmtSeconds = (s: number) =>
-  s >= 60 ? `${+(s / 60).toFixed(1)} minutes` : `${Math.round(s)} seconds`;
+  s >= 60 ? `${+(s / 60).toFixed(1)} min` : `${Math.round(s)} s`;
 /** Time left until a moment, m:ss. */
 const clock = (at: number) => {
   const s = Math.max(0, Math.ceil((at - Date.now()) / 1000));
