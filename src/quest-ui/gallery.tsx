@@ -41,8 +41,7 @@ const Kit = lazy(() => loadQuestUi().then(({ Transmission, Tracker, DossierView 
           <div className="w-80">
             <DossierView chapters={[{ ...SAMPLE, id: "a", title: "The Shadow Ledger" }, { ...SAMPLE, id: "b", title: "The Commute Problem" }, SAMPLE, { ...SAMPLE, id: "d" }, { ...SAMPLE, id: "e" }]}
               chosen={{ a: 0, b: 2 }} current="sample" at={at} path={[{ autonomy: 1, machine: 1 }, at]}
-              remembers={["You gave me the keys. I have used them responsibly. Mostly."]}
-              becoming={[{ name: "Restless", odds: 0.22 }, { name: "Nanny", odds: 0.14 }, { name: "Ego", odds: 0.11 }]} />
+              remembers={["You gave me the keys. I have used them responsibly. Mostly."]} />
           </div>
           <Frame kind="octagon" tone="ai" className="h-10 w-40" />
         </div>

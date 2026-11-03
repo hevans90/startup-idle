@@ -45,7 +45,7 @@ import { showMe } from "./map-focus";
 
 /** A rate a second as so much a minute, signed. */
 const perMinute = (r: number) =>
-  `${r >= 0 ? "+" : "−"}${Math.abs(r * 60).toFixed(2)} a minute`;
+  `${r >= 0 ? "+" : "−"}${Math.abs(r * 60).toFixed(2)}/min`;
 
 export function DataCentre({ className }: { className?: string }) {
   useTicking(500);
@@ -117,14 +117,14 @@ export function DataCentre({ className }: { className?: string }) {
                 />
                 <p className="tabular-nums text-fg-muted">
                   {training()
-                    ? "Training: no boost to income till it ends"
-                    : `Income +${boost}% from them`}{" "}
-                  · the AI {perMinute(rate)}
+                    ? "Training: no boost"
+                    : `Income +${boost}%`}{" "}
+                  · AI {perMinute(rate)}
                 </p>
               </>
             ) : (
               <p className="text-fg-muted">
-                No AI agents yet: spin them up on the Employees tab.
+                No agents yet (Employees tab)
               </p>
             )}
           </Panel>
@@ -167,26 +167,22 @@ function Lattice() {
     </li>
   );
   return (
-    <Panel tone="ai" title="The Lattice" className={SECTION}>
-      <p className="text-fg-muted">
-        The AI holds at {LATTICE_AT}% until it has built the Lattice and charged
-        it.
-      </p>
-      <ul className="mt-1">
+    <Panel tone="ai" title={`The Lattice · holds at ${LATTICE_AT}%`} className={SECTION}>
+      <ul>
         {need(
           n.built,
           n.built
-            ? "Built, in its district"
-            : "Not yet built: its drone will come",
+            ? "Built"
+            : "Not built yet",
         )}
-        {need(n.dc, "The Data Centre cooled")}
-        {need(n.agents, `${LATTICE_AGENTS} agents running (${running} now)`)}
-        {need(n.water, "Water piped to the Lattice")}
+        {need(n.dc, "Data Centre cooled")}
+        {need(n.agents, `${LATTICE_AGENTS} agents (${running})`)}
+        {need(n.water, "Water piped")}
       </ul>
       <Meter
         tone="ai"
         value={charge}
-        label="The Lattice's charge"
+        label="Charge"
         detail={`${Math.round(charge * 100)}%`}
         className="mt-1"
       />
@@ -212,20 +208,17 @@ function Focus() {
   if (keystone("airgap"))
     return (
       <Panel tone="ai" title="Air-gapped" className={SECTION}>
-        <p>
-          It never touches the map: no district, no drones, no takeover. Every
-          agent's boost is 1.6 times what it was.
-        </p>
+        <p>Off the map · agents ×1.6</p>
       </Panel>
     );
   const stage = stageOf(value).stage;
   const interval = INTERVAL[stage];
   const pace = aiPace(grid, { stage, running: runningAgents(), agents }, 1);
   const next = !interval
-    ? "It does nothing on the map before the Colleague stage."
+    ? "Idle till the Colleague"
     : pace <= 0
-      ? "Its next job waits: no agents running."
-      : `Next job in about ${Math.max(1, Math.ceil((interval - getAiRunner().clock) / pace))} s.`;
+      ? "Waiting: no agents running"
+      : `Next job ${Math.max(1, Math.ceil((interval - getAiRunner().clock) / pace))} s`;
   const shares = [...allTanks().values()].map((t) => t.share);
   const cooled = shares.length ? Math.round(Math.min(...shares) * 100) : null;
   return (
@@ -249,17 +242,12 @@ function Focus() {
           </Tile>
         ))}
       </div>
-      <p className="mt-1 text-fg-muted">
-        {FOCUSES.find((f) => f.id === focus)?.blurb}
-      </p>
-      <p className="mt-1 tabular-nums">
+      <p className="mt-1 tabular-nums text-fg-muted">
         {next}
         {cooled !== null && (
           <>
-            {" "}
-            Its worst-cooled building:{" "}
+            {" · cooled "}
             <b className={cooled > 95 ? "text-good" : "text-warn"}>{cooled}%</b>
-            .
           </>
         )}
       </p>
@@ -286,7 +274,7 @@ function Allowance() {
         className="flex justify-between tabular-nums"
         htmlFor="dc-allowance"
       >
-        <span>Share of income it may spend</span>
+        <span>Share of income</span>
         <b>{Math.round(share * 100)}%</b>
       </label>
       <Slider
@@ -300,10 +288,8 @@ function Allowance() {
         onChange={(v) => set({ aiShare: v })}
         className="my-1 w-full"
       />
-      <p className="tabular-nums text-fg-muted">
-        {formatCurrency(wallet)} to spend, of {formatCurrency(cap)} at most (
-        {WALLET_MINUTES} minutes of its share). From the Colleague stage it pays
-        for what it builds from this, and waits when it is empty.
+      <p className="tabular-nums text-fg-muted" title={`Holds ${WALLET_MINUTES} minutes of its share. It pays for what it builds from this, from the Colleague on.`}>
+        {formatCurrency(wallet)} / {formatCurrency(cap)}
       </p>
       {/* ITS LEDGER, kept for you since the sandbox. @see walletLedger, chapter "ledger" */}
       {questFlag("ledger:logged") && (
@@ -397,8 +383,7 @@ function Cooling() {
       </div>
       {pumps > 0 && (
         <p className="mt-1 tabular-nums text-fg-muted">
-          {pumps} pump house{pumps === 1 ? "" : "s"} ·{" "}
-          {formatCurrency(Math.round(upkeep))} a second each while pumping
+          {pumps} pump{pumps === 1 ? "" : "s"} · {formatCurrency(Math.round(upkeep))}/s each
         </p>
       )}
     </Panel>
@@ -428,14 +413,10 @@ function Training() {
             </span>
             <span className="tabular-nums">{clock(current.endsAt)}</span>
           </p>
-          <p className="text-warn">
-            The agents are training, not working: no boost to income till it
-            ends.
-          </p>
+          <p className="text-warn">No agent boost till it ends</p>
           {level < MAX_SKILL && (
             <p className="text-good">Then: {on.skills[level]}</p>
           )}
-          <p className="italic text-fg-muted">“{on.memo}”</p>
           <div className="mt-1 h-1 w-full overflow-hidden bg-surface-2">
             <div
               className="h-full bg-ai"
@@ -447,9 +428,8 @@ function Training() {
         </>
       ) : (
         <>
-          <p className="mb-1 tabular-nums text-fg-muted">
-            {fmtSeconds(seconds)} of the agents' boost to income · teaches the
-            AI a skill for this company, then it jumps
+          <p className="mb-1 tabular-nums text-fg-muted" title="Costs the agents' boost to income while it runs; teaches a skill for this company">
+            {fmtSeconds(seconds)} · costs the agent boost
           </p>
           <div className="flex flex-col gap-1">
             {DATASETS.map((d) => {
@@ -460,6 +440,7 @@ function Training() {
                   lit={!blocked}
                   disabled={!!blocked}
                   onClick={() => start(d.id)}
+                  title={n < MAX_SKILL ? `Next: ${d.skills[n]}` : "Learned"}
                   className="flex w-full flex-col items-start gap-0.5 px-2 py-1.5"
                 >
                   <span className="flex w-full justify-between">
@@ -474,11 +455,6 @@ function Training() {
                       </span>
                     </b>
                     <span className="tabular-nums text-ai">+{d.jump}%</span>
-                  </span>
-                  <span className="text-fg-muted">
-                    {n < MAX_SKILL
-                      ? `Next: ${d.skills[n]}`
-                      : "Learned. Another run still leans it and jumps the AI."}
                   </span>
                 </Tile>
               );
@@ -553,7 +529,6 @@ function Forecast() {
               style={{ width: `${Math.round(odds * 100)}%` }}
             />
           </span>
-          <span className="italic text-fg-muted">{trait.memo}</span>
         </p>
       ))}
     </Panel>

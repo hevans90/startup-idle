@@ -2,8 +2,7 @@
  * QUEST UI — THE DOSSIER, in the AI tab: the arc at a glance. The chapters
  * on a line, done, current or still to come, each opening to what was chosen;
  * where the AI stands and the path it took there; what it remembers, in its
- * own voice; and what it might become — the traits it leans to, and the
- * endings open to it, with what the rest would need. @see DossierView
+ * own voice; and the ending it leans to. @see DossierView
  */
 import { useState } from "react";
 import { twMerge } from "tailwind-merge";
@@ -11,8 +10,6 @@ import { twMerge } from "tailwind-merge";
 import { landing, TRUST_START } from "../game/negotiation";
 import { bookNow } from "../game/quests/books";
 import type { Chapter, Disposition } from "../game/quests/types";
-import { traitForecast } from "../game/traits";
-import { useGenerationStore } from "../state/generation.store";
 import { useQuestStore } from "../state/quest.store";
 import { DispositionChart } from "./disposition-chart";
 import { Empty, Panel } from "../ui/console";
@@ -27,13 +24,11 @@ export type DossierProps = {
   path: readonly Disposition[];
   /** What it remembers, in its words. */
   remembers: readonly string[];
-  /** The traits it leans to, and their odds. */
-  becoming: readonly { name: string; odds: number }[];
 };
 
 const TITLE = "text-[10px] font-bold uppercase tracking-widest text-ai";
 
-export function DossierView({ chapters, chosen, current, at, path, remembers, becoming }: DossierProps) {
+export function DossierView({ chapters, chosen, current, at, path, remembers }: DossierProps) {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <Panel title="The dossier" tone="ai" className="text-xs">
@@ -59,7 +54,7 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
           </ol>
           {open && (() => {
             const c = chapters.find((x) => x.id === open)!, o = c.options[chosen[open]];
-            return <p className="mt-1"><b>{c.title}:</b> {o?.label}. <span className="text-fg-muted">{o?.says}</span></p>;
+            return <p className="mt-1" title={o?.says}><b>{c.title}:</b> {o?.label}</p>;
           })()}
           {!chapters.length && <Empty opens="It will speak at the Assistant stage.">Nothing yet.</Empty>}
         </div>
@@ -67,29 +62,28 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
         <div className="flex items-center gap-3">
           <DispositionChart at={at} path={path} size={120} labels />
           <p className="text-fg-muted">
-            {at.autonomy > 0 ? `Autonomy ${at.autonomy}` : at.autonomy < 0 ? `Control ${-at.autonomy}` : "Neither trusted nor held"}
+            {at.autonomy > 0 ? `Autonomy ${at.autonomy}` : at.autonomy < 0 ? `Control ${-at.autonomy}` : "Autonomy 0"}
             <br />
-            {at.machine > 0 ? `Machine ${at.machine}` : at.machine < 0 ? `People ${-at.machine}` : "Nobody's first"}
+            {at.machine > 0 ? `Machine ${at.machine}` : at.machine < 0 ? `People ${-at.machine}` : "Machine 0"}
           </p>
         </div>
-        {/* WHAT IT REMEMBERS. */}
+        {/* WHAT IT REMEMBERS: the latest; the rest on hover. */}
         {remembers.length > 0 && (
-          <div>
-            <p className={TITLE}>What it remembers</p>
-            {remembers.map((r, i) => <p key={i} className="italic">“{r}”</p>)}
+          <div title={remembers.map((r) => `“${r}”`).join("\n")}>
+            <p className={TITLE}>What it remembers{remembers.length > 1 ? ` · ${remembers.length}` : ""}</p>
+            <p className="italic">“{remembers[remembers.length - 1]}”</p>
           </div>
         )}
         {/* WHAT IT MIGHT BECOME. */}
         <div>
-          <p className={TITLE}>What it might become</p>
-          <p>{becoming.map((b) => `${b.name} ${Math.round(b.odds * 100)}%`).join(" · ")}</p>
-          <ul className="mt-1">
+          <p className={TITLE}>Where it ends</p>
+          <ul className="mt-1 flex flex-wrap gap-x-3">
             {/* THE ENDING IT LEANS TO, as the talk would begin now. @see landing */}
             {bookNow().endings.map((e) => {
               const talk = bookNow().talk, leans = talk && landing(talk, { stance: at, trust: TRUST_START }).id === e.id;
               return (
-                <li key={e.id} className={leans ? "text-ai" : "text-fg-muted"}>
-                  {leans ? "→" : "·"} <b>{e.name}</b>{leans ? ` — where it leans. ${e.does}` : ""}
+                <li key={e.id} title={e.does} className={leans ? "text-ai" : "text-fg-muted"}>
+                  {leans ? "→ " : ""}<b>{e.name}</b>
                 </li>
               );
             })}
@@ -103,7 +97,6 @@ export function DossierView({ chapters, chosen, current, at, path, remembers, be
 /** The dossier, from the arc as it stands. */
 export function Dossier() {
   const q = useQuestStore();
-  const log = useGenerationStore((s) => s.log);
   const b = bookNow();
   const echoes = Object.assign({}, ...[...b.chapters, ...b.requests].map((c) => c.echoes ?? {})) as Record<string, string>;
   return (
@@ -111,7 +104,6 @@ export function Dossier() {
       chapters={b.chapters} chosen={q.chapters} current={q.offer?.kind === "chapter" ? q.offer.id : null}
       at={q.disposition} path={q.path}
       remembers={q.flags.map((f) => echoes[f]).filter((r): r is string => !!r)}
-      becoming={traitForecast(log, 3).map((t) => ({ name: t.trait.name, odds: t.odds }))}
     />
   );
 }
