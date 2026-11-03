@@ -6,7 +6,7 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { twMerge } from "tailwind-merge";
 import { FOCUS, Panel, PopCard, PopGroup, PopRow, POPOVER_BARE } from "../ui/console";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
-import { percent, times } from "../game/wording";
+import { times } from "../game/wording";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
@@ -138,12 +138,12 @@ export const Generators = () => {
             )}
               </PopGroup>
               <PopGroup label="Hires">
-            <PopRow label="Upgrades" value={times(gen.costMultiplier)} />
-            <PopRow label="Each hire dearer" value={percent((gen.costExponent - 1) * 100)} />
+            <PopRow label="Cost multiplier" value={times(gen.costMultiplier)} />
+            <PopRow label="Cost exponent" value={gen.costExponent.toFixed(3)} />
             {costExponentReduction !== 0 && (
               <PopRow
-                label="Founder"
-                value={`${percent(costExponentReduction * 100).slice(1)} slower`}
+                label="Founder exponent"
+                value={`−${Number(costExponentReduction.toFixed(3))}`}
                 valueClass="text-good"
               />
             )}

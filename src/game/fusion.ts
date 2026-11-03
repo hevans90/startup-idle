@@ -47,13 +47,13 @@ export const NO_FUSION: FusionEffects = {
 
 /** Each trait, fused: what it changes, and how the founder card says it. Half what it was: the story is the reward now. @see plans/ascension-overhaul.md §5 */
 export const FUSIONS: Record<TraitId, { text: string; apply: (e: FusionEffects) => void }> = {
-  aesthete: { text: "Services 25% cheaper; lots 10% dearer", apply: (e) => { e.servicesCostMult *= 0.75; e.lotCostMult *= 1.1; } },
-  zoner: { text: "Every house +2 desirability; offices 50% dearer", apply: (e) => { e.houseDesire += 2; e.officeCostMult *= 1.5; } },
+  aesthete: { text: "Services −25%; lots +10%", apply: (e) => { e.servicesCostMult *= 0.75; e.lotCostMult *= 1.1; } },
+  zoner: { text: "Every house +2 desirability; offices +50%", apply: (e) => { e.houseDesire += 2; e.officeCostMult *= 1.5; } },
   accountant: { text: "Income +5%", apply: (e) => { e.incomeMult *= 1.05; } },
   ruthless: { text: "Income +12%; everyone's morale −2", apply: (e) => { e.incomeMult *= 1.12; e.moraleLean -= 2; } },
   nanny: { text: "Everyone's morale +2; income −3%", apply: (e) => { e.moraleLean += 2; e.incomeMult *= 0.97; } },
   hr: { text: "Hiring 8% cheaper", apply: (e) => { e.hireCostMult *= 0.92; } },
-  paranoid: { text: "Racks half price; agents 50% dearer", apply: (e) => { e.rackCostMult *= 0.5; e.agentCostMult *= 1.5; } },
+  paranoid: { text: "Racks half price; agents +50%", apply: (e) => { e.rackCostMult *= 0.5; e.agentCostMult *= 1.5; } },
   hydrophile: { text: "A water view is +8; floods damage nothing", apply: (e) => { e.waterView = 8; e.floodsDamage = false; } },
   hivemind: { text: "+1 agent a rack", apply: (e) => { e.agentsPerRack += 1; } },
   ego: { text: "Training jumps the AI a quarter further, in three quarters the time", apply: (e) => { e.trainingJumpMult *= 1.25; e.trainingTimeMult *= 0.75; } },

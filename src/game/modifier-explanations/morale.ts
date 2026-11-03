@@ -45,6 +45,6 @@ export const entries: Record<string, () => ModifierBreakdown> = {
   "satisfactionRevenue.10x_dev": satisfactionRevenueEntry(
     titled("Money", "10x dev morale"),
     "10x_dev",
-    `10x devs' money, by their morale.\n${SAT_REV_BASE}\nHigh morale also makes each hire of them get dearer slower.`,
+    `10x devs' money, by their morale.\n${SAT_REV_BASE}\nHigh morale also lowers their cost exponent.`,
   ),
 };

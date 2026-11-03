@@ -2,7 +2,7 @@ import { IconBuildingCommunity } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { PROJECTS } from "../game/projects";
 import { nextPerSet } from "../game/upgrade-sets";
-import { change, dearer, helps } from "../game/wording";
+import { change, costExponent, helps, times } from "../game/wording";
 import { GENERATOR_TYPES } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import {
@@ -71,12 +71,10 @@ export const UpgradeSummary = ({ upg }: { upg: Upgrade }) => {
       case "multiplier":
         return <>Money <span className="text-good">{change("money", effect.value)}</span></>;
       case "costMultiplier":
-        return <>Hires <span className={helps("hires", effect.value) ? "text-good" : "text-bad"}>{change("hires", effect.value)}</span></>;
+        return <>Cost multiplier <span className={helps("hires", effect.value) ? "text-good" : "text-bad"}>{times(effect.value)}</span></>;
       case "costExponent":
         return (
-          <span className={effect.delta < 0 ? "text-good" : "text-bad"}>
-            {dearer(effect.delta)}
-          </span>
+          <span className={effect.delta < 0 ? "text-good" : "text-bad"}>{costExponent(effect.delta)}</span>
         );
       default:
         return null;

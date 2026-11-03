@@ -9,7 +9,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import type { GeneratorId } from "../state/generators.store";
-import { dearer, describe } from "./wording";
+import { costExponent, describe } from "./wording";
 
 export type FounderModifiers = {
   /** Subtract from every generator's cost-growth exponent. */
@@ -91,8 +91,8 @@ export const HACKER_LABS = 2;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-/** How much less a hire or a mandate gets dearer, the next over the last. @see dearer */
-const slower = (what: string, by: number) => dearer(-by, what);
+/** A cut to a hire's or a mandate's cost exponent. @see costExponent */
+const slower = (what: string | undefined, by: number) => costExponent(-by, what);
 
 // ─── founders ─────────────────────────────────────────────────────────────────
 
@@ -128,13 +128,13 @@ export const FOUNDERS: FounderDef[] = [
     startingCash: 30,
     scalingModifier: {
       label: "Scar Tissue",
-      perExitDescription: "Hires get dearer 1.2% slower an exit",
+      perExitDescription: "Cost exponent −0.012 an exit",
       compute: (exits) => ({
         costExponentReduction: 0.02 + exits * 0.012,
         autoBuyMult: 1.4,
       }),
     },
-    perks: (exits) => [slower("Hires", 0.02 + exits * 0.012), describe({ autoBuy: 1.4 })],
+    perks: (exits) => [slower(undefined, 0.02 + exits * 0.012), describe({ autoBuy: 1.4 })],
   },
 
   // ── The Hacker (2 exits) ─────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ export const FOUNDERS: FounderDef[] = [
         mandateCostGrowthReduction: 0.025,
       }),
     },
-    perks: (exits) => [describe({ valuation: 1.35 * Math.pow(1.25, exits) }), slower("Mandates", 0.025)],
+    perks: (exits) => [describe({ valuation: 1.35 * Math.pow(1.25, exits) }), slower("Mandate", 0.025)],
   },
 
   // ── The Hustler (5 exits + $50k) ─────────────────────────────────────────────

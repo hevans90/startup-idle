@@ -68,7 +68,7 @@ export const NEVER: readonly { word: RegExp; say: string }[] = [
   { word: /\bequity payout\b/i, say: "Equity" },
   { word: /\b10x (developer|engineer)s?\b/i, say: "10x devs" },
   { word: /\bautomation\b/i, say: "auto-buy" },
-  { word: /\bcost growth\b/i, say: "how fast hires get dearer" },
+  { word: /\bcost growth\b/i, say: "cost exponent" },
   { word: /\bcheaper\b/i, say: "a minus on the price: Hires −10%" },
   { word: /\$(?!\d)/, say: "money" },
 ];
@@ -135,11 +135,12 @@ export function describe(effects: Partial<Record<Stat, number>>, scope?: string,
 export const part = (stat: Stat, value: number): string => `${STATS[stat].name} ${change(stat, value)}`;
 
 /**
- * A CHANGE TO HOW FAST HIRES GET DEARER, the next over the last: an exponent's
- * points, as a percentage — `dearer(-0.02)` is "Hires get dearer 2% slower".
+ * A CHANGE TO THE COST EXPONENT, the next price over the last: its points —
+ * `costExponent(-0.02)` is "Cost exponent −0.02", `costExponent(-0.025, "Mandate")`
+ * "Mandate cost exponent −0.025".
  */
-export const dearer = (delta: number, what = "Hires"): string =>
-  `${what} get dearer ${Number(Math.abs(delta * 100).toFixed(1))}% ${delta < 0 ? "slower" : "faster"}`;
+export const costExponent = (delta: number, what?: string): string =>
+  `${what ? `${what} cost` : "Cost"} exponent ${delta < 0 ? "−" : "+"}${Number(Math.abs(delta).toFixed(3))}`;
 
 /** The longest an effect line runs, characters: more goes in its popover's detail. */
 export const EFFECT_MAX = 60;

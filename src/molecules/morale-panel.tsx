@@ -27,7 +27,7 @@ import { Empty, FOCUS, Panel } from "../ui/console";
 import { ModifierTag } from "../ui/ModifierTag";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
-import { dearer, times } from "../game/wording";
+import { costExponent, times } from "../game/wording";
 
 const KINDS: readonly GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 
@@ -83,7 +83,7 @@ function sideEffect(id: GeneratorId, score: number): ReactNode {
   if (id === "intern") return <ModifierTag modKey="internIpsMult">innovation {times(internSatisfactionIpsMultiplier(score))}</ModifierTag>;
   if (id === "vibe_coder") return <>slop made {times(vibeSlopMultiplier(score))}</>;
   const d = dev10xSatisfactionExponentDelta(score);
-  return <>{d === 0 ? "hires priced as usual" : dearer(d, "hires")}</>;
+  return <>{d === 0 ? "hires priced as usual" : costExponent(d).toLowerCase()}</>;
 }
 
 /** The keystones that change what morale does. */
