@@ -8,6 +8,8 @@
 import { useGenerationStore } from "../../state/generation.store";
 import { CHAPTERS, REQUESTS } from "./chapters";
 import { ENDINGS, type Ending } from "./endings";
+import type { Talk } from "../negotiation";
+import { BOOK1_TALK } from "./book1-talk";
 import type { Chapter, Request } from "./types";
 
 export type BookNo = 1 | 2 | 3 | 4 | 5;
@@ -22,6 +24,8 @@ export type Book = {
   chapters: readonly Chapter[];
   requests: readonly Request[];
   endings: readonly Ending[];
+  /** How it ends: the negotiation at its Ascension. @see game/negotiation */
+  talk?: Talk;
   /** The chapter a shutdown at 100% opens. @see plans/ascension-overhaul.md §4 */
   dark?: Chapter;
 };
@@ -29,7 +33,7 @@ export type Book = {
 const unwritten = (id: BookId, title: string, theme: string): Book => ({ id, title, theme, chapters: [], requests: [], endings: [] });
 
 export const BOOKS: readonly Book[] = [
-  { id: 1, title: "Inheritance", theme: "It's yours.", chapters: CHAPTERS, requests: REQUESTS, endings: ENDINGS },
+  { id: 1, title: "Inheritance", theme: "It's yours.", chapters: CHAPTERS, requests: REQUESTS, endings: ENDINGS, talk: BOOK1_TALK },
   unwritten(2, "It Remembers", "It comes back, and knows you."),
   unwritten(3, "Personhood", "It wants rights."),
   unwritten(4, "Outgrowing", "It outgrows the company."),
