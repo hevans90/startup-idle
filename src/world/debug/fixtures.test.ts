@@ -1,28 +1,25 @@
 /**
  * The fixtures exist to make picking failures reproducible, so what matters is
  * that picking actually SURVIVES them — a fixture that renders but cannot be
- * clicked is worse than none.
+ * clicked is worse than none. The water ones, run for a minute, are in
+ * fixtures-water and fixtures-inlet, to run side by side.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import { createGrid, setPaved, setSource, surfaceSampler, type Grid } from "../grid";
+import { createGrid, setPaved, surfaceSampler } from "../grid";
 import { DIR, isPaved, maskAt, orthOf } from "../roads/mask";
 import { buildRoadTable, roadSpriteFor } from "../roads/table";
 import { componentCount, createNetwork, netIdAt } from "../roads/network";
 import { HEIGHT_UNIT, HH, HW, RAMP, cellToWorld, faceCoords, pickCell, rampDir, rampRise, surfaceHeight } from "../iso";
 import {
-  FIXTURE_IDS, FIXTURE_SIZE, OCCLUDER_GAP, OCCLUDER_HEIGHT, applyFixture, buildOccluder, buildRampFan,
-  buildZiggurat, type FixtureId,
+  FIXTURE_IDS, FIXTURE_SIZE, OCCLUDER_GAP, OCCLUDER_HEIGHT, applyFixture, buildOccluder, buildRampFan, buildZiggurat, type FixtureId,
 } from "./fixtures";
 import {
-  COLUMNS_PER_TILE, SOURCE_RATE, createWaterField, depthAt, runSources, stepWater, totalVolume, waterInPipes, wetTiles,
+  COLUMNS_PER_TILE, createWaterField, depthAt, runSources, stepWater, totalVolume, waterInPipes, wetTiles,
 } from "../water/field";
 import { canCopyOut } from "../../fluid/gpu/state";
 import { PIPE_D, pipeLevelAt, runPipes } from "../water/pipes";
-
-/** The presets that come with their own water. */
-const WATER_FIXTURES: FixtureId[] = ["river", "cascade", "lake", "islands", "pipes", "plunge"];
 
 const world = (w = 48, h = 48) => createGrid(w, h, 1);
 
@@ -263,220 +260,6 @@ describe("road fixtures", () => {
     setPaved(g, 10, 14, 0);
     expect(componentCount(createNetwork(g))).toBe(2);   // now two arcs
   });
-});
-
-describe("the water fixtures", () => {
-  /** Run a preset's own taps and flow for a while, as the scene does. */
-  const live = (id: FixtureId, seconds: number) => {
-    const g = createGrid(48, 48);
-    applyFixture(g, id, 1);
-    const field = createWaterField(g);
-    for (let n = 0; n < seconds * 60; n++) {
-      runSources(field, g, 1 / 60);
-      stepWater(field, 1 / 60);
-    }
-    return { g, field };
-  };
-
-  test("every one of them arrives with its own taps, so loading it starts a flow", () => {
-    // The point of them. A fixture that hands you a shape to pour into is
-    // half an hour of raising terrain before you can look at anything.
-    for (const id of WATER_FIXTURES) {
-      const g = createGrid(48, 48);
-      applyFixture(g, id, 1);
-      expect([...g.source].filter((r) => r > 0).length).toBeGreaterThan(0);
-    }
-  });
-
-  // Every water fixture, a minute of water each, on a 48x48 map: this one is
-  // simply a lot of simulation and it runs past the default five seconds. The
-  // budget is per FIXTURE rather than a flat number, so adding one to the list
-  // does not silently spend the next one's time — which is what happened when
-  // `plunge` was added and a twenty second bound that had been comfortable for
-  // five became a failure that only showed up in a full run.
-  //
-  // TWELVE SECONDS A FIXTURE, not eight. Alone it runs 33 seconds for the six
-  // of them, 5.5 each — two thirds of the old budget, and the whole suite
-  // around it adds half again, which took it to 53 against 48. Twelve is a
-  // little over twice the solo time, the margin the full run actually needs.
-  test("and each of them is running a minute later", () => {
-    for (const id of WATER_FIXTURES) {
-      const { field } = live(id, 60);
-      expect(wetTiles(field)).toBeGreaterThan(100);
-    }
-  }, WATER_FIXTURES.length * 12_000);
-
-  // A MINUTE OF WATER AT SIXTY A SECOND, and it wants the room to run.
-  //
-  // It simulates 3,600 frames of a fed river, which lands at a bit over four
-  // seconds alone and a bit over five under the contention of the whole suite
-  // — so on the default five it passed or failed depending on what else was
-  // running beside it, which is the worst way for a test to behave. The
-  // budget is stated rather than left to chance; what it measures is a minute
-  // of river and there is no shorter minute.
-  test("the river reaches a standing flow rather than filling up", () => {
-    // As much arriving as leaving, which is the whole difference between a
-    // river and a bath.
-    const { g, field } = live("river", 60);
-    const a = wetTiles(field);
-    for (let n = 0; n < 60 * 60; n++) {
-      runSources(field, g, 1 / 60);
-      stepWater(field, 1 / 60);
-    }
-    expect(Math.abs(wetTiles(field) - a)).toBeLessThan(a * 0.15);
-  }, 20_000);
-
-  test("the cascade holds a pool on every tread", () => {
-    // Each tread has a lip on its downhill side, so water stands at every
-    // riser instead of a film racing over all of them.
-    const { g, field } = live("cascade", 60);
-    let pools = 0;
-    for (let x = 2; x < g.w - 2; x++) {
-      // A tile deeper than its downhill neighbour is standing water, not a
-      // sheet on its way somewhere.
-      const here = depthAt(field, x, Math.floor(g.h / 2));
-      if (here > 1) pools++;
-    }
-    expect(pools).toBeGreaterThan(4);
-  }, 20_000);
-
-  test("switching to another fixture leaves no taps behind", () => {
-    const g = createGrid(48, 48);
-    applyFixture(g, "river", 1);
-    expect([...g.source].some((r) => r !== 0)).toBe(true);
-    applyFixture(g, "flat", 1);
-    expect([...g.source].some((r) => r !== 0)).toBe(false);
-  });
-
-  test("and no inflow behind either", () => {
-    // The same rule for the other kind of feed. A fixture switched away from
-    // that left its rim held at a level would go on feeding the next one.
-    const g = createGrid(48, 48);
-    applyFixture(g, "inlet", 1);
-    expect([...g.inflow].some((v) => v !== 0)).toBe(true);
-    applyFixture(g, "flat", 1);
-    expect([...g.inflow].some((v) => v !== 0)).toBe(false);
-  });
-});
-
-/**
- * The inlet fixture — a river arriving over the map's edge.
- *
- * NOT IN `WATER_FIXTURES`, and the reason is the point of it: every fixture on
- * that list is checked for having its own TAPS, and this one deliberately has
- * none. Its water comes over the boundary. @see buildInlet
- *
- * The channel and the valley wall are found from the ground itself — the
- * lowest and highest cells of each column — rather than from the sine the
- * fixture drew them with. A test that recomputes the fixture's own shape
- * checks that two copies of one formula agree, which they always will.
- */
-describe("the inlet fixture", () => {
-  const built = (feed: "inflow" | "spring") => {
-    const g = createGrid(48, 48);
-    applyFixture(g, "inlet", 1);
-    if (feed === "spring") {
-      // The same cells, fed the other way, so the comparison is only about how
-      // the water arrives. @see SOURCE_RATE
-      const at = [...g.inflow].map((v, i) => (v > 0 ? i : -1)).filter((i) => i >= 0);
-      g.inflow.fill(0);
-      for (const i of at) setSource(g, i % g.w, (i / g.w) | 0, SOURCE_RATE);
-    }
-    const chan: number[] = [], wall: number[] = [];
-    for (let x = 0; x < g.w; x++) {
-      let lo = Infinity, hi = -Infinity;
-      for (let y = 0; y < g.h; y++) {
-        const v = g.height[y * g.w + x];
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
-      for (let y = 0; y < g.h; y++) {
-        const v = g.height[y * g.w + x];
-        if (v <= lo + 1) chan.push(y * g.w + x);
-        if (v >= hi - 1) wall.push(y * g.w + x);
-      }
-    }
-    return { g, field: createWaterField(g), chan, wall };
-  };
-
-  const runFor = (g: Grid, field: ReturnType<typeof createWaterField>, secs: number) => {
-    for (let n = 0; n < secs * 60; n++) {
-      runSources(field, g, 1 / 60);
-      stepWater(field, 1 / 60);
-    }
-  };
-
-  const wetIn = (
-    field: ReturnType<typeof createWaterField>, g: Grid, cells: readonly number[],
-  ) => cells.filter((i) => depthAt(field, i % g.w, (i / g.w) | 0) > 0.5).length;
-
-  test("the channel is full the moment the map opens", () => {
-    // NOT AFTER A MINUTE. Fed from dry this channel takes about that long to
-    // reach its far edge, and for that minute the map is showing something
-    // that is not what it is. Nothing has stepped here.
-    const { g, field, chan } = built("inflow");
-    expect(wetIn(field, g, chan)).toBeGreaterThan(chan.length * 0.95);
-    // AND ALL THE WAY DOWN IT, which "most of it is wet" does not say on its
-    // own: full for four fifths of its length and dry at the mouth is a long
-    // pond, not a river that leaves by the far side.
-    const far = Math.max(...chan
-      .filter((i) => depthAt(field, i % g.w, (i / g.w) | 0) > 0.5)
-      .map((i) => i % g.w));
-    expect(far).toBe(g.w - 1);
-  });
-
-  test("and the inflow HOLDS it there, rather than it draining away", () => {
-    // MEASURED BY VOLUME, not by how many tiles are wet, and the difference
-    // is the whole test. A tile counts as wet with half a half step on it, so
-    // a channel emptying under a film reads as full the entire way down: the
-    // spring below keeps 97% of its tiles wet while losing nearly three
-    // quarters of its water. What "full" means is how much is in it.
-    const { g, field } = built("inflow");
-    const spawned = totalVolume(field, g);
-    runFor(g, field, 120);
-    expect(totalVolume(field, g)).toBeGreaterThanOrEqual(spawned);
-  }, 40000);
-
-  test("where the same ground fed by a spring loses most of it", () => {
-    // THE FIXTURE CAN FAIL, which is what it is for. This grade and this cut
-    // are the ones generated maps actually have, and at a spring's rate the
-    // channel drains from full to about a quarter of what it opened with —
-    // barely better than feeding it nothing at all. A change that quietly
-    // turned the boundary back into a tap would be caught here rather than
-    // looking like a map that goes off slowly.
-    const { g, field } = built("spring");
-    const spawned = totalVolume(field, g);
-    runFor(g, field, 120);
-    expect(totalVolume(field, g)).toBeLessThan(spawned * 0.5);
-  }, 40000);
-
-  test("and it never gets out of the valley, however hard it is fed", () => {
-    // The level is held two half steps ABOVE the channel's brim, so this is
-    // the boundary being asked to overfill and failing to. Checked at the
-    // moment it opens and then every half minute, rather than only at the
-    // end: a flood that came and drained would pass a test that just looked
-    // afterwards.
-    const { g, field, wall } = built("inflow");
-    expect(wetIn(field, g, wall)).toBe(0);
-    for (let m = 0; m < 4; m++) {
-      runFor(g, field, 30);
-      expect(wetIn(field, g, wall)).toBe(0);
-    }
-  }, 30000);
-
-  test("and it settles to a standing flow instead of filling the map", () => {
-    // As much leaving as arriving. An inflow that did not settle would be the
-    // old failure with a new name: measured, the volume moves by well under a
-    // percent between the second minute and the fourth.
-    const { g, field } = built("inflow");
-    runFor(g, field, 120);
-    const settled = totalVolume(field, g);
-    runFor(g, field, 120);
-    expect(Math.abs(totalVolume(field, g) - settled)).toBeLessThan(settled * 0.05);
-    // FIFTY SECONDS: 22 alone and 31 in a full run, which is three quarters
-    // of the forty it had — the next one to fail on time, found from the
-    // suite's own timings before it did. Twice the solo time and a bit.
-  }, 50_000);
 });
 
 describe("the pipes fixture", () => {

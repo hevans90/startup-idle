@@ -84,7 +84,8 @@ React 19 + TypeScript (Vite, SWC); Tailwind CSS v4 with the console's tokens (`s
 | `bun run dev` | Dev server (HMR) |
 | `bun run build` | Type-check + production build |
 | `bun run typecheck` | `tsc -b`. A bare `tsc -p tsconfig.json` checks nothing here. |
-| `bun test` | The test suite |
+| `bun test` | The test suite, a file at a time (~11 min) |
+| `bun run test:par` | The same, a process a file, slowest first (~70 s; `JOBS=n`, or a path); shared cases in `*.test-kit.ts` |
 | `bun run lint` | ESLint |
 | `bun run preview` | Preview the build |
 | `bun run tauri:dev` / `tauri:build` | Desktop app |

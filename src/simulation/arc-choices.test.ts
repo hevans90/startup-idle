@@ -22,6 +22,10 @@
  * prints every split. @see plans/ai-takeover.md §5 "Balance"
  */
 import { describe, expect, test } from "bun:test";
+// THE BOOKS FIRST, as the game loads them: chapters → finale → quest.store →
+// books → chapters is a cycle, and entered at the chapters it reads CHAPTERS
+// before they exist. Alone in its own process this file would enter there.
+import "../game/quests/books";
 
 import { CHAPTERS } from "../game/quests/chapters";
 import { REQUESTS } from "../game/quests/requests";

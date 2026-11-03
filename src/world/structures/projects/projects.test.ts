@@ -4,6 +4,10 @@
  * out of the arithmetic.
  */
 import { describe, expect, test } from "bun:test";
+// THE BOOKS FIRST, as the game loads them: chapters → finale → quest.store →
+// books → chapters is a cycle, and entered at the chapters it reads CHAPTERS
+// before they exist. Alone in its own process this file would enter there.
+import "../../../game/quests/books";
 import type { Graphics } from "pixi.js";
 
 import { HW } from "../../iso";

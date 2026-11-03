@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "test": "bun test",
+    "test:par": "bun run scripts/test-parallel.ts",
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri:dev": "tauri dev",
