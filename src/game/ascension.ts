@@ -17,6 +17,7 @@ import { emptyLog, useGenerationStore, type BehaviourLog, type PastGeneration } 
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
 import { cultureNow } from "./culture-now";
 import { nextBook } from "./quests/books";
+import { questWeightsMult } from "./quests/effects";
 import { CONTAIN_AFTER, CONTAIN_AT, CONTAIN_WEIGHTS, LEASH_REMEMBERED, RELEASE_WEIGHTS, type AscendingEnding } from "./quests/endings";
 import { useSessionStore } from "../state/session.store";
 
@@ -64,7 +65,7 @@ export type { AscendingEnding };
 
 /** What an Ascension now would bank, by the ending taken: twice for a Release, half again after a Contain. */
 export function ascensionWeights(ending: AscendingEnding | null = null): number {
-  return Math.round(weightsNow() * (ending === "release" ? RELEASE_WEIGHTS : 1) * (useGenerationStore.getState().contained ? CONTAIN_WEIGHTS : 1) * cultureNow().weights);
+  return Math.round(weightsNow() * (ending === "release" ? RELEASE_WEIGHTS : 1) * (useGenerationStore.getState().contained ? CONTAIN_WEIGHTS : 1) * cultureNow().weights * questWeightsMult());
 }
 
 /**
@@ -98,7 +99,8 @@ export function ascend(rand: () => number = Math.random, ending: AscendingEnding
     book: nextBook(g.book),
     sales: 0,
     // LEASHED, or a Rival, it remembers it: Resentful likelier, its next talk colder; a Confidant's, warmer. @see traitScores, startTalk
-    log: ending === "leash" || ending === "rival" ? { ...emptyLog(), leashed: LEASH_REMEMBERED } : ending === "confidant" ? { ...emptyLog(), confided: 1 } : emptyLog(),
+    log: ending === "leash" || ending === "rival" || ending === "property" ? { ...emptyLog(), leashed: LEASH_REMEMBERED }
+      : ending === "confidant" || ending === "citizen" ? { ...emptyLog(), confided: 1 } : emptyLog(),
     equity: 0,
     peakAgents: 0,
     weights: g.weights + weights,

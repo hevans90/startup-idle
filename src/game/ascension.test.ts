@@ -12,7 +12,7 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { useSessionStore } from "../state/session.store";
-import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN } from "./ascension";
+import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, ascensionWeights, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN } from "./ascension";
 import { FUSIONS, fusionNow, fusionOf } from "./fusion";
 import { refundRetired } from "./modules";
 import { INHERITANCE, ringRevealed } from "./machine";
@@ -82,6 +82,19 @@ describe("the Ascension", () => {
     expect(ringRevealed(1)).toBe("Ring 1 of the Machine");
     expect(ringRevealed(4)).toBe("The Machine's keystones");
     expect(ringRevealed(5)).toBeNull();
+  });
+
+  test("a salary in Weights banks less; book 3's endings leave the next talk warmer or colder", () => {
+    useFounderStore.getState().chooseFounder("neet");
+    useGenerationStore.setState({ log: { ...emptyLog(), datasets: { money: 10 } }, equity: 100 });
+    const full = ascensionWeights();
+    useQuestStore.setState({ effects: [{ kind: "weightsMult", mult: 0.8 }] });
+    expect(ascensionWeights()).toBe(Math.round(full * 0.8));
+    ascend(seq(0, 0.99), "citizen");
+    expect(useGenerationStore.getState().log.confided).toBe(1);
+    useFounderStore.getState().chooseFounder("neet");
+    ascend(seq(0, 0.99), "property");
+    expect(useGenerationStore.getState().log.leashed).toBe(1);
   });
 
   test("modules bought the old way come back as Weights, and the slots empty", () => {

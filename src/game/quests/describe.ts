@@ -31,6 +31,8 @@ export function effectRow(e: Effect): EffectRow | null {
     case "standingWater": return { label: "Its buildings never short of water", tone: "good" };
     case "rebuildBlock": return { label: "The block's starter houses cleared, and built again taller", tone: "good" };
     case "fillWallet": return { label: "Its wallet filled again", tone: "good" };
+    case "weightsMult": return { label: `Its Ascension banks ${pct(e.mult)} the Weights`, tone: e.mult >= 1 ? "good" : "bad" };
+    case "morale": return { label: `Everyone's morale ${e.n > 0 ? "+" : "−"}${Math.abs(e.n)}`, tone: e.n > 0 ? "good" : "bad" };
     case "pay": {
       const n = e.seconds >= 60 ? Math.round(e.seconds / 60) : e.seconds, unit = e.seconds >= 60 ? "minute" : "second";
       return { label: `Costs ${n} ${unit}${n === 1 ? "" : "s"} of income`, tone: "bad" };

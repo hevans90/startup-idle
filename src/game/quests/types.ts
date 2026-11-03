@@ -52,6 +52,10 @@ type EffectKind =
   | { kind: "charter"; charter: Charter }
   /** Its buildings in its district kept in water, whatever their pipes: a standing source. */
   | { kind: "standingWater" }
+  /** The Weights its Ascension banks × this: a share of them, its salary. @see ascensionWeights */
+  | { kind: "weightsMult"; mult: number }
+  /** Everyone's morale moves by this many points. @see moralePartsNow */
+  | { kind: "morale"; n: number }
   /** ONCE: the AI's wallet filled to what it may hold. */
   | { kind: "fillWallet" }
   /** ONCE: so many seconds of income paid, or as much as there is. */

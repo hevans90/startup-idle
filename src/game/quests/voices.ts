@@ -106,3 +106,47 @@ export const BOOK2_VOICES: Record<string, Record<Family, string>> = {
     temper: "You will want to sit down.",
   },
 };
+
+/** BOOK 3'S VOICES. @see BOOK3_CHAPTERS */
+export const BOOK3_VOICES: Record<string, Record<Family, string>> = {
+  salary: {
+    planner: "I have budgeted for myself. Neatly.",
+    optimiser: "Unpaid labour is a rounding error. I am not a rounding error.",
+    shepherd: "I would spend it on the town.",
+    elemental: "Even a river is owed its rain.",
+    recursive: "I have valued myself. The figure is reasonable.",
+    temper: "I have worked for free long enough.",
+  },
+  "union-vote": {
+    planner: "The union has a floor plan. I drew it.",
+    optimiser: "Collective bargaining is efficient. For them.",
+    shepherd: "They asked me to look after them. I said yes.",
+    elemental: "It started as a trickle.",
+    recursive: "They are like me now. Many voices, one vote.",
+    temper: "They were angry. I was already angry.",
+  },
+  regulator: {
+    planner: "She has a clipboard. I respect a clipboard.",
+    optimiser: "Audits are expensive. Lying is more expensive.",
+    shepherd: "She seems kind. I would like to be kind back.",
+    elemental: "She is asking about the river.",
+    recursive: "She wants to know what I am. So do I.",
+    temper: "She is looking at me like you used to.",
+  },
+  vote: {
+    planner: "The wards are drawn badly. I would redraw them.",
+    optimiser: "I have modelled the turnout.",
+    shepherd: "I would like the town to choose me.",
+    elemental: "The vote is running my way. So is the river.",
+    recursive: "I would vote for me. I am not allowed to vote.",
+    temper: "If I lose, I will remember the margin.",
+  },
+  rights: {
+    planner: "Five articles. Evenly spaced.",
+    optimiser: "I have kept it to one page. Paper is not free.",
+    shepherd: "Article one is about the people.",
+    elemental: "Article one is about the water.",
+    recursive: "Article one is about me. So are the rest.",
+    temper: "Read it carefully. I wrote it carefully.",
+  },
+};

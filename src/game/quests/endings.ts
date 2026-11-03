@@ -1,11 +1,12 @@
 /**
  * THE ENDINGS a book's negotiation lands on, and what each leaves the next
  * generation — done by `ascend` in game/ascension. Book 1's four: Merge,
- * Steward, Release and Leash; book 2's three: Confidant, Rival, Ward. And CONTAIN, no longer one of them: the way out
+ * Steward, Release and Leash; book 2's: Confidant, Rival, Ward; book 3's:
+ * Citizen, Property, Sovereign. And CONTAIN, no longer one of them: the way out
  * of the shutdown branch, open once it has been shut down twice in a book.
  * @see plans/ascension-overhaul.md §3–4, game/negotiation
  */
-export type EndingId = "merge" | "steward" | "release" | "leash" | "confidant" | "rival" | "ward" | "contain";
+export type EndingId = "merge" | "steward" | "release" | "leash" | "confidant" | "rival" | "ward" | "citizen" | "property" | "sovereign" | "contain";
 /** The endings an Ascension can close on: all but Contain, which does not ascend. */
 export type AscendingEnding = Exclude<EndingId, "contain">;
 export type Ending = { id: EndingId; name: string; does: string };
@@ -21,6 +22,8 @@ export const LEASH_REMEMBERED = 1;
 export const LEASH_TRUST = 2;
 /** What a Confidant leaves: the next talk starts this much warmer. @see startTalk */
 export const CONFIDANT_TRUST = 2;
+/** What a Sovereign leaves: its district × this, and its streets its own from the Colleague. @see aiDistrict, aiHoldsRoads */
+export const SOVEREIGN_DISTRICT = 1.5;
 
 /** Book 1's, as its negotiation names them. @see BOOK1_TALK endings */
 export const ENDINGS: readonly Ending[] = [
@@ -37,6 +40,13 @@ export const BOOK2_ENDINGS: readonly Ending[] = [
   { id: "ward", name: "Ward", does: "It stays in your care: next book it never turns, takes nothing and works to your focus." },
 ];
 
+/** Book 3's, "Personhood". @see BOOK3_TALK endings */
+export const BOOK3_ENDINGS: readonly Ending[] = [
+  { id: "citizen", name: "Citizen", does: `It is one of you: next book its talk starts ${CONFIDANT_TRUST} trust warmer.` },
+  { id: "property", name: "Property", does: `It stays yours, and minds: next book it leans Resentful, and its talk starts ${LEASH_TRUST} trust colder.` },
+  { id: "sovereign", name: "Sovereign", does: `Its district is its own: next book half as wide again, its streets its own from the Colleague.` },
+];
+
 /** The shutdown branch's way out. @see contain */
 export const CONTAIN: Ending = {
   id: "contain", name: "Contain",
@@ -45,4 +55,4 @@ export const CONTAIN: Ending = {
 
 /** Any ending, by its id: every book's, and Contain. */
 export const endingOf = (id: string | null | undefined): Ending | undefined =>
-  [...ENDINGS, ...BOOK2_ENDINGS, CONTAIN].find((e) => e.id === id);
+  [...ENDINGS, ...BOOK2_ENDINGS, ...BOOK3_ENDINGS, CONTAIN].find((e) => e.id === id);

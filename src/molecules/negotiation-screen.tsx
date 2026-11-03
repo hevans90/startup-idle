@@ -27,7 +27,7 @@ import { GlitchOut } from "./ascension-glitch-out";
 import { ArgumentCard, Dial, TrustBar, endingColour, type Point } from "./negotiation-parts";
 
 /** The endings an Ascension closes on; any other a talk names ascends plainly. @see ascend */
-const ASCENDING: readonly string[] = ["merge", "steward", "release", "leash", "confidant", "rival", "ward"];
+const ASCENDING: readonly string[] = ["merge", "steward", "release", "leash", "confidant", "rival", "ward", "citizen", "property", "sovereign"];
 /** How long your own line hangs before it answers, ms; how long a played card takes to leave. */
 const BEAT_MS = 450;
 const LEAVE_MS = 420;

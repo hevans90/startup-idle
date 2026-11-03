@@ -11,6 +11,7 @@
  */
 import type { GeneratorId } from "../state/generators.store";
 import { fusionNow } from "./fusion";
+import { questMorale } from "./quests/effects";
 import { moraleOffsets } from "./morale";
 import { clampScore, satisfactionTargetForRole } from "./satisfaction";
 import type { leadersNow } from "./leader-economy";
@@ -35,7 +36,8 @@ export function moralePartsNow(
       home: home[id] ?? 0,
       work: satisfactionTargetForRole(work[id] ?? 0),
       leaders: (led.of[id]?.morale ?? 0) + led.everyone,
-      events: events[id] ?? 0,
+      // And the arc's: a union recognised, or broken. @see questMorale
+      events: (events[id] ?? 0) + questMorale(),
       founder,
     };
   }

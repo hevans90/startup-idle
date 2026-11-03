@@ -25,6 +25,12 @@ const machine = () => state().disposition.machine;
 /** Income ×. @see generators.store getEmployeeOutputMults */
 export const questIncomeMult = (): number => product(of("incomeMult").map((e) => e.mult));
 
+/** The Weights its Ascension banks ×. @see ascensionWeights */
+export const questWeightsMult = (): number => product(of("weightsMult").map((e) => e.mult));
+
+/** Everyone's morale, moved by so many points. @see moralePartsNow */
+export const questMorale = (): number => of("morale").reduce((n, e) => n + e.n, 0);
+
 /** The AI's wallet holds ×. @see walletCap */
 export const questWalletMult = (): number => {
   const a = autonomy();

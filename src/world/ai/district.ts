@@ -14,6 +14,7 @@ import { useGenerationStore } from "../../state/generation.store";
 import { questCharter, questDistrictCentre, questDistrictMult, questDistrictTiles } from "../../game/quests/effects";
 import { useFounderStore } from "../../state/founder.store";
 import { keystone } from "../../game/machine";
+import { SOVEREIGN_DISTRICT } from "../../game/quests/endings";
 import type { Grid } from "../grid";
 
 /** Tiles from the Data Centre's middle the district reaches, by stage; none before the Colleague. */
@@ -36,7 +37,8 @@ export function aiDistrict(g: Grid, stage: Stage): District | null {
   const at = questDistrictCentre();
   return {
     cx: at ? at.x : dc.x + (dc.w - 1) / 2, cy: at ? at.y : dc.y + (dc.h - 1) / 2,
-    r: keystone("takeoff") ? Infinity : Math.max(2, (r + questDistrictTiles()) * questDistrictMult()),
+    // A SOVEREIGN's, wider: its own. @see SOVEREIGN_DISTRICT
+    r: keystone("takeoff") ? Infinity : Math.max(2, (r + questDistrictTiles()) * questDistrictMult() * (useGenerationStore.getState().legacy === "sovereign" ? SOVEREIGN_DISTRICT : 1)),
   };
 }
 
@@ -58,7 +60,8 @@ export const aiHoldsRoads = (): boolean =>
   && !["steward", "ward"].includes(useGenerationStore.getState().legacy ?? "")
   // The Oversight Board's streets stay yours; the Partnership's are shared. @see questCharter
   && questCharter() !== "oversight" && questCharter() !== "partnership"
-  && useAiSingularityStore.getState().value >= stageFrom("overseer");
+  // A Sovereign's are its own from the Colleague. @see SOVEREIGN_DISTRICT
+  && useAiSingularityStore.getState().value >= stageFrom(useGenerationStore.getState().legacy === "sovereign" ? "colleague" : "overseer");
 
 /**
  * WHETHER THE AI IS THE ONE ACTING: set while its actions go through the

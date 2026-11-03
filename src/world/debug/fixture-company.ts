@@ -63,7 +63,8 @@ export const FIXTURE_METER = 45;
  * from the map's sequence, through the card and the negotiation, to the
  * founders. With `&shutdowns=N`, shut down N times already and Cold Start
  * answered with an apology: Contain on the card, its grievances in the talk.
- * With `&book=2`, the end of book 2 instead, book 1 closed on `&legacy=`.
+ * With `&book=2` or `&book=3`, the end of that book instead, the one before
+ * closed on `&legacy=`.
  * @see NegotiationScreen
  */
 function seedAscension(): void {
@@ -85,20 +86,28 @@ function seedAscension(): void {
   }));
   // BOOK 2, at its end instead: book 1 closed on `&legacy=` (a Leash, unless said), its record kept for the grudge. @see BOOK2_CHAPTERS
   const params = new URLSearchParams(location.search);
-  if (params.get("book") === "2") {
-    const legacy = (params.get("legacy") ?? "leash") as AscendingEnding;
-    useQuestStore.setState((q) => ({
-      record: [{ generation: 1, book: 1, chapters: q.chapters, disposition: q.disposition, flags: ["ledger:refused", "block:rebuilt", "river:piped", "charter:oversight", "site:given", "lattice:helped"], ending: legacy }],
-      chapters: { reunion: 0, grudge: 0, "second-opinion": 1, "own-hire": 0, mirror: 0 },
-      flags: ["reunion:honest", "grudge:repaired", "second:overruled", "hire:given", "mirror:looked"],
-      disposition: { autonomy: -1, machine: -1 },
-      path: [{ autonomy: -1, machine: -1 }, { autonomy: -1, machine: -2 }, { autonomy: -3, machine: -2 }, { autonomy: -2, machine: -1 }, { autonomy: -3, machine: -1 }],
-    }));
+  const later = Number(params.get("book"));
+  if (later === 2 || later === 3) {
+    // The book before closed on `&legacy=`; any before that, as here.
+    const legacy = (params.get("legacy") ?? (later === 2 ? "leash" : "rival")) as AscendingEnding;
+    const book1 = { generation: 1, book: 1 as const, chapters: { ledger: 2, commute: 0, thirst: 1, charter: 0, trust: 0, "last-light": 0 }, disposition: { autonomy: -1, machine: -1 }, flags: ["ledger:refused", "block:rebuilt", "river:piped", "charter:oversight", "site:given", "lattice:helped"], ending: later === 2 ? legacy : "leash" };
+    const book2 = { generation: 2, book: 2 as const, chapters: { reunion: 0, grudge: 0, "second-opinion": 1, "own-hire": 0, mirror: 0 }, disposition: { autonomy: -1, machine: -1 }, flags: ["reunion:honest", "grudge:repaired", "second:overruled", "hire:given", "mirror:looked"], ending: legacy };
+    const now = later === 2 ? book2 : {
+      generation: 3, book: 3 as const, chapters: { salary: 0, "union-vote": 0, regulator: 2, vote: 0, rights: 0 }, disposition: { autonomy: 1, machine: -1 },
+      flags: ["salary:paid", "union:recognised", "audit:spoke", "vote:won", "rights:signed"], ending: null,
+    };
+    useQuestStore.setState({
+      record: later === 2 ? [book1] : [book1, book2],
+      chapters: now.chapters, flags: now.flags, disposition: now.disposition, path: [now.disposition],
+    });
+    const past = [
+      { generation: 1, trait: "restless" as const, mutated: false, founder: "hustler", weights: 17, book: 1 as const, ending: book1.ending, sales: 5, form: "garden" as const },
+      { generation: 2, trait: "mirror" as const, mutated: false, founder: "hustler", weights: 15, book: 2 as const, ending: legacy, sales: 5, form: "vault" as const },
+    ].slice(0, later - 1);
     useGenerationStore.setState((g) => ({
-      generation: 2, book: 2, legacy, weights: 17,
-      past: [{ generation: 1, trait: "restless", mutated: false, founder: "hustler", weights: 17, book: 1, ending: legacy, sales: 5, form: "garden" }],
-      fused: { hustler: ["restless"] },
-      log: { ...g.log, ...(legacy === "leash" ? { leashed: 1 } : {}) },
+      generation: later, book: later, legacy, weights: 17, past,
+      fused: { hustler: past.map((p) => p.trait) },
+      log: { ...g.log, ...(["leash", "rival", "property"].includes(legacy) ? { leashed: 1 } : ["confidant", "citizen"].includes(legacy) ? { confided: 1 } : {}) },
     }));
   }
   // THE SHUTDOWN BRANCH, already taken. @see Book.dark

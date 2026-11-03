@@ -131,8 +131,8 @@ describe("the arc", () => {
     useQuestStore.getState().closeArc();
     expect(q().chapters).toEqual({});
     expect(q().record).toEqual([{ generation: 1, book: 1, chapters: { ledger: 2 }, disposition: { autonomy: -3, machine: -1 }, flags: ["ledger:refused"], ending: null }]);
-    // Book 3, unwritten: nothing to ask from its own chapters.
-    useGenerationStore.setState({ generation: 3, book: 3 });
+    // Book 4, unwritten: nothing to ask from its own chapters.
+    useGenerationStore.setState({ generation: 4, book: 4 });
     useQuestStore.getState().step(world({ meter: 99 }), 1);
     expect(q().offer).toBeNull();
   });

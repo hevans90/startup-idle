@@ -12,7 +12,9 @@ import { distance, effectOf, landing, play, startTalk, talkDone, type Facts, typ
 import { BOOK1_TALK } from "../game/quests/book1-talk";
 import { BOOK2_CHAPTERS } from "../game/quests/book2";
 import { BOOK2_TALK } from "../game/quests/book2-talk";
-import type { Disposition } from "../game/quests/types";
+import { BOOK3_CHAPTERS } from "../game/quests/book3";
+import { BOOK3_TALK } from "../game/quests/book3-talk";
+import type { Chapter, Disposition } from "../game/quests/types";
 import { TRAITS, type TraitId } from "../game/traits";
 
 /** What each chapter can have left, flags and the axes its choice moved. */
@@ -37,11 +39,12 @@ function* paths(chapters = CHAPTERS, k = 0, flags: string[] = [], d: Disposition
   }
 }
 
-/** Book 2's: each chapter's options, from the book itself. */
-const BOOK2: typeof CHAPTERS = BOOK2_CHAPTERS.map((c) => c.options.map((o) => ({
+/** A later book's: each chapter's options, from the book itself. */
+const asPaths = (chapters: readonly Chapter[]): typeof CHAPTERS => chapters.map((c) => c.options.map((o) => ({
   flags: [...o.effects, ...(o.success ?? [])].flatMap((e) => (e.kind === "flag" ? [e.name] : [])),
   axis: o.axis,
 })));
+const BOOK2 = asPaths(BOOK2_CHAPTERS), BOOK3 = asPaths(BOOK3_CHAPTERS);
 
 const TAGS: Tag[] = ["hustle", "wellness", "growth", "chaos", "agentic", "safety", "hallucination"];
 const contexts = (chapters = CHAPTERS, reps = 1): TalkContext[] => {
@@ -105,5 +108,6 @@ const balance = (name: string, talk: Talk, all: TalkContext[]) => describe(`the 
 });
 
 balance("book 1", BOOK1_TALK, contexts());
-// Book 2's chapters make fewer paths: each played over several cultures and towns.
+// Later books' chapters make fewer paths: each played over several cultures and towns.
 balance("book 2", BOOK2_TALK, contexts(BOOK2, 8));
+balance("book 3", BOOK3_TALK, contexts(BOOK3, 2));
