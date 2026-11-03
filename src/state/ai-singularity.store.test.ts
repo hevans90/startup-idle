@@ -64,6 +64,18 @@ describe("the singularity", () => {
     expect(afterSale(10, 100)).toBe(FLOOR_CAP);
   });
 
+  test("full, it waits: no sinking with its agents stopped, and a sale keeps it full", async () => {
+    const { useAgentsStore } = await import("./agents.store");
+    const { afterSale } = await import("./ai-singularity.store");
+    useAgentsStore.setState({ agents: 10, running: 0 });
+    useAiSingularityStore.setState({ value: 100 });
+    useAiSingularityStore.getState().tick(100);
+    expect(useAiSingularityStore.getState().value).toBe(100);
+    expect(afterSale(100, 1)).toBe(100);
+    useAgentsStore.setState({ agents: 0, running: null });
+    useAiSingularityStore.setState({ value: 0 });
+  });
+
   test("names its stage", async () => {
     const { stageOf } = await import("./ai-singularity.store");
     expect([0, 19.9, 20, 45, 60, 85, 100].map((v) => stageOf(v).stage))

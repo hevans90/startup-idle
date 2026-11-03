@@ -10,7 +10,8 @@ import { twMerge } from "tailwind-merge";
 import { LATTICE_AT } from "../../state/ai-singularity.store";
 import { useFounderStore } from "../../state/founder.store";
 import { useSessionStore } from "../../state/session.store";
-import { Empty, Label, Meter, Panel, Slider, Tile, useTakeoverGlitch } from "../../ui/console";
+import { Button, Empty, Label, Meter, Panel, Slider, Tile, useTakeoverGlitch } from "../../ui/console";
+import { useAscensionUiStore } from "../../state/ascension-ui.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { aiPace, getAiRunner } from "../ai/ai-runner";
 import { FOCUSES } from "../ai/focus";
@@ -51,12 +52,15 @@ export function DataCentre({ className }: { className?: string }) {
   const agents = useAgentsStore((s) => s.agents);
   const setRunning = useAgentsStore((s) => s.setRunning);
   const value = useAiSingularityStore((s) => s.value);
+  const waiting = useAscensionUiStore((s) => s.waiting);
   const built = agentsOpen();
   const running = runningAgents();
   const mult = singularityMult();
-  // Nothing to sink from at nought.
+  // Nothing to sink from at nought; full, it waits and does not move.
   const rate =
-    value <= 0
+    value >= 100
+      ? 0
+      : value <= 0
       ? Math.max(0, singularityRate(running, mult, agents))
       : singularityRate(running, mult, agents);
   const boost = Math.round((agentBonus(running) - 1) * 100);
@@ -78,6 +82,12 @@ export function DataCentre({ className }: { className?: string }) {
           }
         />
       </div>
+      {/* FULL, AND WAITING: begun when you are ready. @see useAscensionUiStore */}
+      {value >= 100 && waiting && (
+        <Button variant="primary" tone="ai" className="mt-2 w-full" onClick={() => useAscensionUiStore.getState().begin()}>
+          The AI is waiting · Begin
+        </Button>
+      )}
 
       {built ? (
         <>

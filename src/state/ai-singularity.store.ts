@@ -35,12 +35,12 @@ export const RATE_PER_AGENT = 0.0005;
 export const DECAY = 0.002;
 /**
  * The share of it a sale keeps, and the floor under that: so much a sale this
- * generation, up to a cap. Tuned so a strong player ascends in 8–10 sales, a
- * typical one in 14–18, and one who runs half the agents later still: the
- * floor does most of it. @see singularity-cadence.test.ts
+ * generation, up to a cap. Tuned so a strong player ascends in about 4 sales, a
+ * typical one in 5, and one who runs half the agents later still: the floor
+ * does most of it — an Ascension a book. @see singularity-cadence.test.ts, plans/ascension-overhaul.md §2
  */
 export const CARRY = 0.5;
-export const FLOOR_PER_SALE = 6;
+export const FLOOR_PER_SALE = 20;
 export const FLOOR_CAP = 90;
 
 export type Stage = "tool" | "assistant" | "colleague" | "manager" | "overseer" | "ascension";
@@ -117,9 +117,11 @@ export const inheritedStart = (): number => {
 /**
  * What a sale leaves the meter at: a share of it, never under the floor this
  * generation's sales have built — the floor built `floor` as fast: half, with
- * the Machine's Alignment, whose meter is half as quick in all of it.
+ * the Machine's Alignment, whose meter is half as quick in all of it. Full, all of it.
  */
 export function afterSale(value: number, sales: number, floor = 1): number {
+  // Waiting at 100%, it waits through the sale. @see useAscensionUiStore
+  if (value >= 100) return 100;
   return Math.min(100, Math.max(value * CARRY, Math.min(FLOOR_CAP, sales * FLOOR_PER_SALE * floor)));
 }
 
@@ -153,6 +155,8 @@ export const useAiSingularityStore = create<AiSingularityState>()(
         // And the Quiet Model module, and the founder's fused tempers. @see QUIET_MODEL, game/fusion
         const rate = singularityRate(running, singularityMult(), agents);
         const cur = Math.min(100, Math.max(0, get().value));
+        // THE AI WAITS at 100%, till you begin. @see useAscensionUiStore
+        if (cur >= 100) return;
         const next = Math.min(meterCap(cur), Math.max(0, cur + rate * seconds));
         if (next === cur) return;
         set({ value: next });

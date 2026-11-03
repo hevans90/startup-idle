@@ -7,8 +7,8 @@
  * them, the training runs it does — fed through the game's own constants:
  * the rate an agent, the decay, what a sale keeps, the jumps, the Weights.
  *
- * The plan's bar: a strong player ascends in about 5 sales, a typical one by
- * 10; running half the agents holds it off. `BALANCE=1` prints each profile.
+ * The plan's bar: an Ascension a book — a strong player in about 4 sales, a
+ * typical one in 5; running half the agents holds it off. @see plans/ascension-overhaul.md §2 `BALANCE=1` prints each profile.
  * @see plans/singularity.md §1, §7
  */
 import { describe, expect, test } from "bun:test";
@@ -83,11 +83,11 @@ describe("the Ascension's cadence", () => {
   const out = Object.fromEntries(Object.entries(PROFILES).map(([k, p]) => [k, generation(p)]));
   if (process.env.BALANCE) for (const [k, g] of Object.entries(out)) console.log(`${k.padEnd(8)} ${g ? `${g.sales} sales · ${g.weights} Weights` : "never"}`);
 
-  test("a strong player ascends in 8–10 sales, a typical one in 14–18", () => {
-    expect(out.strong!.sales).toBeGreaterThanOrEqual(8);
-    expect(out.strong!.sales).toBeLessThanOrEqual(10);
-    expect(out.typical!.sales).toBeGreaterThanOrEqual(14);
-    expect(out.typical!.sales).toBeLessThanOrEqual(18);
+  test("a strong player ascends in 3–5 sales, a typical one in 4–6", () => {
+    expect(out.strong!.sales).toBeGreaterThanOrEqual(3);
+    expect(out.strong!.sales).toBeLessThanOrEqual(5);
+    expect(out.typical!.sales).toBeGreaterThanOrEqual(4);
+    expect(out.typical!.sales).toBeLessThanOrEqual(6);
   });
 
   test("running half the agents holds it off: the throttle is a real lever", () => {
@@ -121,8 +121,8 @@ describe("the Ascension's cadence", () => {
   }
 
   test("the arc can hurry it or hold it back, but not make it trivial nor out of reach", () => {
-    expect(bent["strong, the arc at its fastest"]!.sales).toBeGreaterThanOrEqual(6);
-    expect(bent["typical, the arc at its slowest"]!.sales).toBeLessThanOrEqual(22);
+    expect(bent["strong, the arc at its fastest"]!.sales).toBeGreaterThanOrEqual(3);
+    expect(bent["typical, the arc at its slowest"]!.sales).toBeLessThanOrEqual(7);
   });
 
   test("an inherited AI comes sooner; Alignment's half a meter still gets there; a Merge sooner still", () => {
@@ -131,7 +131,7 @@ describe("the Ascension's cadence", () => {
     expect(bent["typical, inherited, Alignment"]!.sales).toBeGreaterThanOrEqual(bent["typical, inherited"]!.sales + 3);
     expect(bent["typical, inherited, Alignment"]!.sales).toBeLessThanOrEqual(30);
     expect(bent["strong, after a Merge"]!.sales).toBeLessThanOrEqual(bent["strong, inherited"]!.sales);
-    expect(bent["strong, after a Merge"]!.sales).toBeGreaterThanOrEqual(4);
+    expect(bent["strong, after a Merge"]!.sales).toBeGreaterThanOrEqual(3);
   });
 
   test("the company that ascends reaches the Lattice's hold with time to charge it", () => {

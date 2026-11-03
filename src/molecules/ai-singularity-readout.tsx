@@ -4,6 +4,7 @@ import { ClassNameValue, twMerge } from "tailwind-merge";
 import { useTicking } from "../hooks/use-ticking";
 import { runningAgents, useAgentsStore } from "../state/agents.store";
 import { singularityMult, singularityRate, stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
+import { useAscensionUiStore } from "../state/ascension-ui.store";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 import { FOCUS, Meter, useTakeoverGlitch } from "../ui/console";
 
@@ -19,6 +20,9 @@ export const AiSingularityReadout = ({ className, compact = false }: { className
   const value = useAiSingularityStore((s) => s.value);
   const agents = useAgentsStore((s) => s.agents);
   const setTab = useGlobalSettingsStore((s) => s.setSidebarTab);
+  // Full and waiting, a click begins. @see useAscensionUiStore
+  const waiting = useAscensionUiStore((s) => s.waiting) && value >= 100;
+  const open = () => (waiting ? useAscensionUiStore.getState().begin() : setTab("ai"));
   // TORN as the takeover goes on, and hard as it crosses into a new stage. @see useTakeoverGlitch
   const box = useRef<HTMLButtonElement>(null);
   const kick = useTakeoverGlitch(box);
@@ -32,17 +36,19 @@ export const AiSingularityReadout = ({ className, compact = false }: { className
   if (pct <= 0 && agents <= 0) return null;
   const rate = singularityRate(runningAgents(), singularityMult(), agents);
   const stage = stageOf(pct);
-  const detail = <>{pct.toFixed(1)}% <span className={rate > 0 ? "text-ai" : "text-fg-faint"}>{rate > 0 ? "▲" : pct > 0 ? "▼" : ""}</span></>;
+  const detail = waiting
+    ? <span className="text-ai">Begin ›</span>
+    : <>{pct.toFixed(1)}% <span className={rate > 0 ? "text-ai" : "text-fg-faint"}>{rate > 0 ? "▲" : pct > 0 ? "▼" : ""}</span></>;
   if (compact) {
     return (
-      <button ref={box} type="button" onClick={() => setTab("ai")} title={`The AI · ${stage.name}: open its tab`}
+      <button ref={box} type="button" onClick={open} title={waiting ? "The AI is waiting: begin" : `The AI · ${stage.name}: open its tab`}
         className={twMerge("shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap font-display text-xs tabular-nums text-ai hover:bg-surface-2", FOCUS, className)}>
         AI <span className="text-fg">{detail}</span>
       </button>
     );
   }
   return (
-    <button ref={box} type="button" onClick={() => setTab("ai")} title="The AI: open its tab" className={twMerge("w-44 shrink-0 cursor-pointer flex-col justify-center text-left hover:bg-surface-2", FOCUS, className)}>
+    <button ref={box} type="button" onClick={open} title={waiting ? "The AI is waiting: begin" : "The AI: open its tab"} className={twMerge("w-44 shrink-0 cursor-pointer flex-col justify-center text-left hover:bg-surface-2", FOCUS, className)}>
       <Meter tone="ai" value={pct / 100} label={`AI · ${stage.name}`} detail={detail} />
     </button>
   );

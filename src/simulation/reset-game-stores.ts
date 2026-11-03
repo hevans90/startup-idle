@@ -80,7 +80,10 @@ export function resetAllGameStores(): void {
   // Prestige FIRST, so the run reset below sees neutral modifiers (no free
   // Acqui-hire levels granted on a total wipe).
   usePrestigeStore.getState().reset();
-  resetForAscension();
+  resetRunStores();
+  // Board mandates and founders' exits outlast runs and Ascensions: cleared only here.
+  useValuationStore.getState().clearMandates();
+  useExitsStore.getState().clearAll();
   useVapeAchievementsStore.getState().clearAll();
   // And the arc, its record with it. @see useQuestStore
   useQuestStore.getState().reset();
@@ -93,16 +96,10 @@ export function resetAllGameStores(): void {
 }
 
 /**
- * AN ASCENSION'S WIPE: a run reset plus the founders' exits and board
- * mandates — keeping Equity and the skill tree, the generation's own store
- * and the achievements. @see game/ascension
+ * AN ASCENSION'S WIPE: the run, as a sale resets it — keeping Equity and the
+ * skill tree, the founders' exits and board mandates, the generation's own
+ * store and the achievements. @see game/ascension, plans/ascension-overhaul.md §6
  */
 export function resetForAscension(): void {
-  // EQUITY AND THE SKILL TREE are kept: the next company starts as one after a
-  // sale does, with the tree's modifiers. @see ascend
   resetRunStores();
-  // Board mandates persist across runs, so the run reset keeps them — clear them
-  // explicitly here for a true full wipe.
-  useValuationStore.getState().clearMandates();
-  useExitsStore.getState().clearAll();
 }

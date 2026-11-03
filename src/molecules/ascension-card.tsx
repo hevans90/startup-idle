@@ -2,7 +2,7 @@
  * THE ASCENSION, asked for: when the singularity reaches 100 the company's AI
  * wants to go. Let it — Ascend — for Weights and a trait fused into this
  * founder, at the cost of everything else; or shut it down. And, if the arc
- * has opened one, its ending beside them. @see game/ascension, game/quests/endings
+ * has opened one, its ending beside them. Or not yet: it waits. @see game/ascension, game/quests/endings
  */
 import { useRef, type ReactNode } from "react";
 
@@ -11,6 +11,7 @@ import { useQuestStore } from "../state/quest.store";
 import { traitForecast } from "../game/traits";
 import { useTicking } from "../hooks/use-ticking";
 import { useAiSingularityStore } from "../state/ai-singularity.store";
+import { useAscensionUiStore } from "../state/ascension-ui.store";
 import { useFounderStore } from "../state/founder.store";
 import { useGenerationStore } from "../state/generation.store";
 import { useWorldStore } from "../state/world.store";
@@ -24,6 +25,8 @@ export function AscensionCard() {
   const log = useGenerationStore((s) => s.log);
   const generation = useGenerationStore((s) => s.generation);
   const founder = useFounderStore((s) => s.selectedFounderId);
+  // Told "not yet", it waits till begun. @see useAscensionUiStore
+  const waiting = useAscensionUiStore((s) => s.waiting);
   // Read so the ending follows where the arc has left it. @see endingNow
   useQuestStore((s) => s.disposition);
   // ITS LAST WORDS, torn: as it asks, and once more as it is shut down. @see useGlitch
@@ -36,7 +39,7 @@ export function AscensionCard() {
     kick.current?.({ strength: 1.8, burst: 0.7 });
     window.setTimeout(() => shutDown(), 650);
   };
-  if (value < 100 || !founder) return null;
+  if (value < 100 || !founder || waiting) return null;
   // On the map, the sequence plays first. @see stepSequence
   if (useWorldStore.getState().playing && !sequenceDone(Date.now())) return null;
   const likely = traitForecast(log, 1)[0];
@@ -47,6 +50,9 @@ export function AscensionCard() {
     <Dialog title="The AI would like to move on." kicker={`Generation ${generation} · the singularity`} tone="ai"
       glitch={{ arrive: true, every: null, strength: 1.3, burst: 0.6, kick }}
       actions={<>
+        <Tooltip content={tip(<>It waits at 100% while you sell on. Begin from the AI tab, or the AI in the bar, when you are ready.</>)}>
+          <Button variant="quiet" onClick={() => useAscensionUiStore.getState().later()}>Not yet</Button>
+        </Tooltip>
         <Tooltip content={tip(<>Every agent deleted, the racks dark for {Math.round(DARK_MS / 60_000)} minutes, the AI back to {SHUTDOWN_AT}%. It will remember.</>)}>
           <Button variant="secondary" confirm onClick={shut}>Shut it down</Button>
         </Tooltip>
@@ -56,7 +62,7 @@ export function AscensionCard() {
             <Button variant="secondary" className="border-ai-line text-ai" confirm onClick={() => (ending.id === "contain" ? contain() : ascend(Math.random, ending.id))}>{ending.name}</Button>
           </Tooltip>
         )}
-        <Tooltip content={tip(<>+{ascensionWeights()} Weights; {likely.trait.name} most likely, fused into this founder for good. Wipes the company, founders' exits and mandates. Keeps Equity and the skill tree, Weights, modules, fused founders and achievements.</>)}>
+        <Tooltip content={tip(<>+{ascensionWeights()} Weights; {likely.trait.name} most likely, fused into this founder for good. Wipes the company. Keeps Equity and the skill tree, founders' exits and mandates, Weights, the Machine, fused founders and achievements.</>)}>
           <Button variant="primary" tone="ai" confirm onClick={() => ascend()}>Ascend</Button>
         </Tooltip>
       </>}>

@@ -9,6 +9,7 @@ import { useFounderStore } from "../state/founder.store";
 import { emptyLog, useGenerationStore } from "../state/generation.store";
 import { useMoneyStore } from "../state/money.store";
 import { usePrestigeStore } from "../state/prestige.store";
+import { useValuationStore } from "../state/valuation.store";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { DARK_MS, MUTATION, SHUTDOWN_AT, ascend, inheritTrait, shutDown, weightsFor, WEIGHTS_A_RUN } from "./ascension";
 import { FUSIONS, fusionNow, fusionOf } from "./fusion";
@@ -39,10 +40,11 @@ describe("the Ascension", () => {
     expect(trait(mutated.trait).family).toBe("elemental");
   });
 
-  test("wipes the company but keeps the generation, the achievements, Equity and the skill tree, and fuses the trait into the founder played", () => {
+  test("wipes the company but keeps the generation, the achievements, Equity and the skill tree, founders' exits and board mandates, and fuses the trait into the founder played", () => {
     useFounderStore.getState().chooseFounder("neet");
     usePrestigeStore.setState({ equity: new Decimal(500), exits: 7, allocated: ["x"] });
     useExitsStore.getState().recordExit("neet", 1000);
+    useValuationStore.setState((v) => ({ mandateLevels: { ...v.mandateLevels, runway: 2 } }));
     useVapeAchievementsStore.setState({ juiceMpsMultBonus: 0.5 });
     useGenerationStore.setState({ log: { ...emptyLog(), datasets: { money: 4 } }, equity: 100, weights: 3 });
     useAiSingularityStore.setState({ value: 100 });
@@ -57,7 +59,8 @@ describe("the Ascension", () => {
     expect(g.announce?.trait).toBe(r.trait);
     expect(usePrestigeStore.getState().equity.toNumber()).toBe(500);
     expect(usePrestigeStore.getState().allocated).toEqual(["x"]);
-    expect(useExitsStore.getState().exits).toEqual({});
+    expect(Object.keys(useExitsStore.getState().exits)).toEqual(["neet"]);
+    expect(useValuationStore.getState().mandateLevels.runway).toBe(2);
     expect(useFounderStore.getState().selectedFounderId).toBeNull();
     // Inheritance, granted: the AI starts the next company at the Assistant.
     expect(useAiSingularityStore.getState().value).toBe(20);
