@@ -7,7 +7,9 @@ import { useQuestStore } from "../../state/quest.store";
 import { ascend } from "../ascension";
 import { BOOKS, book, bookNow, chapterKicker, chapterOf, nextBook } from "./books";
 import { CHAPTERS, REQUESTS } from "./chapters";
-import { BOOK2_ENDINGS, BOOK3_ENDINGS, BOOK4_ENDINGS, ENDINGS } from "./endings";
+import { BOOK2_ENDINGS, BOOK3_ENDINGS, BOOK4_ENDINGS, ENDINGS, TRUE_ENDINGS } from "./endings";
+import { BOOK5_CHAPTERS, variant5Now } from "./book5";
+import { BOOK4_TALK, ENDLESS_TALK } from "./book4-talk";
 import { BOOK4_CHAPTERS, variant4Now } from "./book4";
 import { BOOK3_CHAPTERS, variant3Now } from "./book3";
 import { BOOK2_CHAPTERS, grudge, variantNow } from "./book2";
@@ -17,7 +19,7 @@ afterEach(() => resetAllGameStores());
 const g = () => useGenerationStore.getState();
 
 describe("the books", () => {
-  test("five, then endless; books 1 to 4 written, the rest unwritten yet", () => {
+  test("five, then endless: no chapters, the requests, and book 4's endings", () => {
     expect(BOOKS.map((b) => b.id)).toEqual([1, 2, 3, 4, 5, "endless"]);
     expect(book(1).chapters).toBe(CHAPTERS);
     expect(book(1).requests).toBe(REQUESTS);
@@ -28,7 +30,12 @@ describe("the books", () => {
     expect(book(3).endings).toBe(BOOK3_ENDINGS);
     expect(book(4).chapters).toBe(BOOK4_CHAPTERS);
     expect(book(4).endings).toBe(BOOK4_ENDINGS);
-    for (const id of [5, "endless"] as const) expect(book(id).chapters).toHaveLength(0);
+    expect(book(5).chapters).toBe(BOOK5_CHAPTERS);
+    expect(book(5).endings).toBe(TRUE_ENDINGS);
+    expect(book("endless").chapters).toHaveLength(0);
+    expect(book("endless").requests).toBe(REQUESTS);
+    expect(book("endless").endings).toBe(BOOK4_ENDINGS);
+    expect(ENDLESS_TALK.endings).toBe(BOOK4_TALK.endings);
     expect([1, 2, 3, 4, 5, "endless"].map((id) => nextBook(id as 1))).toEqual([2, 3, 4, 5, "endless", "endless"]);
   });
 
@@ -47,8 +54,7 @@ describe("the books", () => {
     expect(chapterOf("cold-start")?.title).toBe("Cold Start");
     expect(chapterKicker(chapterOf("cold-start")!)).toBe("After the shutdown");
     expect(chapterKicker(chapterOf("ledger")!)).toBe("Chapter 1");
-    useGenerationStore.setState({ book: 5 });
-    expect(chapterOf("cold-start")).toBeUndefined();
+    expect(chapterOf("cold-start", { ...book(1), dark: undefined })).toBeUndefined();
   });
 
   test("a save from before the books: book 1 in the first generation, book 2 after", () => {
@@ -70,7 +76,7 @@ describe("the books", () => {
     expect(grudge()).toBe(CHAPTERS.find((c) => c.id === "ledger")!.echoes!["ledger:refused"]);
   });
 
-  test("books 3 and 4 are told as the book before ended; chapter ids stay apart from the requests'", () => {
+  test("books 3 to 5 are told as the book before ended; chapter ids stay apart from the requests'", () => {
     expect(variant3Now()).toBeNull();
     for (const legacy of ["confidant", "rival", "ward"] as const) {
       useGenerationStore.setState({ legacy });
@@ -81,6 +87,12 @@ describe("the books", () => {
     for (const legacy of ["citizen", "property", "sovereign"] as const) {
       useGenerationStore.setState({ legacy });
       expect(variant4Now()).toBe(legacy);
+    }
+    useGenerationStore.setState({ legacy: null });
+    expect(variant5Now()).toBeNull();
+    for (const legacy of ["successor", "partner", "departed"] as const) {
+      useGenerationStore.setState({ legacy });
+      expect(variant5Now()).toBe(legacy);
     }
     const asked = new Set(REQUESTS.map((r) => r.id));
     for (const b of BOOKS) for (const c of b.chapters) expect(asked.has(c.id)).toBe(false);

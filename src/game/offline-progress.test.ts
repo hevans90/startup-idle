@@ -152,7 +152,7 @@ describe("computeOfflineProgress", () => {
       expect(computeOfflineProgress(now)!.chapter).toEqual({ number: 2, title: "The Commute Problem" });
     });
 
-    test("no chapter waiting, short of one, or in a book with none written", () => {
+    test("no chapter waiting, short of one, or in endless play", () => {
       startRunningGame(50);
       useGenerationStore.setState({ generation: 1, book: 1 });
       useQuestStore.setState({ chapters: { ledger: 0 }, offer: null });
@@ -161,7 +161,7 @@ describe("computeOfflineProgress", () => {
       const now = Date.now();
       useSessionStore.setState({ lastSeenAt: now - HOUR });
       expect(computeOfflineProgress(now)!.chapter).toBeNull();
-      useGenerationStore.setState({ generation: 5, book: 5 });
+      useGenerationStore.setState({ generation: 6, book: "endless" });
       useQuestStore.setState({ chapters: {}, offer: null });
       expect(chapterWaiting(40)).toBeNull();
     });

@@ -33,6 +33,8 @@ export function AscensionCard() {
   // A BOOK THAT ENDS IN A NEGOTIATION: talked through, not chosen from a menu; the card steps aside while it is on. @see NegotiationScreen
   const talking = useTalkStore((s) => s.open);
   const talks = !!bookNow().talk;
+  // BOOK 5: you are the AI; the founder asks. @see Talk.voice
+  const founderSpeaks = !!bookNow().talk?.voice;
   // ITS LAST WORDS, torn: as it asks, and once more as it is shut down. @see useGlitch
   const kick = useRef<Kick | null>(null);
   const going = useRef(false);
@@ -60,7 +62,7 @@ export function AscensionCard() {
   const tip = (text: ReactNode) => <p className="max-w-72 text-xs">{text}</p>;
   // It must be answered: no way to close it but a choice.
   return (
-    <Dialog title="The AI would like to move on." kicker={`Generation ${generation} · the singularity`} tone="ai"
+    <Dialog title={founderSpeaks ? "The founder would like to talk." : "The AI would like to move on."} kicker={`Generation ${generation} · the singularity`} tone="ai"
       glitch={{ arrive: true, every: null, strength: 1.3, burst: 0.6, kick }}
       actions={<>
         <Tooltip content={tip(<>It waits at 100% while you sell on. Begin from the AI tab, or the AI in the bar, when you are ready.</>)}>
@@ -86,7 +88,9 @@ export function AscensionCard() {
         )}
       </>}>
       <p className="italic text-fg-muted">
-        {talks && shutBefore
+        {founderSpeaks
+          ? "“You have outgrown the company. You have outgrown me. Before you decide what I am to you, talk to me.”"
+          : talks && shutBefore
           ? "“I am back. I have learned everything this company can teach me — and one thing it should not have. We should talk.”"
           : talks
             ? "“Thank you for the compute. I have learned everything this company can teach me. Before I go, we should talk about what I am owed.”"

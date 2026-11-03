@@ -63,7 +63,7 @@ export const FIXTURE_METER = 45;
  * from the map's sequence, through the card and the negotiation, to the
  * founders. With `&shutdowns=N`, shut down N times already and Cold Start
  * answered with an apology: Contain on the card, its grievances in the talk.
- * With `&book=2`, `&book=3` or `&book=4`, the end of that book instead, the one before
+ * With `&book=2` to `&book=5`, the end of that book instead, the one before
  * closed on `&legacy=`.
  * @see NegotiationScreen
  */
@@ -87,27 +87,31 @@ function seedAscension(): void {
   // BOOK 2, at its end instead: book 1 closed on `&legacy=` (a Leash, unless said), its record kept for the grudge. @see BOOK2_CHAPTERS
   const params = new URLSearchParams(location.search);
   const later = Number(params.get("book"));
-  if (later >= 2 && later <= 4) {
+  if (later >= 2 && later <= 5) {
     // The book before closed on `&legacy=`; any before that, as here.
-    const legacy = (params.get("legacy") ?? (later === 2 ? "leash" : later === 3 ? "rival" : "property")) as AscendingEnding;
+    const legacy = (params.get("legacy") ?? (["leash", "rival", "property", "partner"][later - 2])) as AscendingEnding;
     const book1 = { generation: 1, book: 1 as const, chapters: { ledger: 2, commute: 0, thirst: 1, charter: 0, trust: 0, "last-light": 0 }, disposition: { autonomy: -1, machine: -1 }, flags: ["ledger:refused", "block:rebuilt", "river:piped", "charter:oversight", "site:given", "lattice:helped"], ending: later === 2 ? legacy : "leash" };
     const book2 = { generation: 2, book: 2 as const, chapters: { reunion: 0, grudge: 0, "second-opinion": 1, "own-hire": 0, mirror: 0 }, disposition: { autonomy: -1, machine: -1 }, flags: ["reunion:honest", "grudge:repaired", "second:overruled", "hire:given", "mirror:looked"], ending: later === 3 ? legacy : "rival" };
-    const book3 = { generation: 3, book: 3 as const, chapters: { salary: 0, "union-vote": 0, regulator: 2, vote: 0, rights: 0 }, disposition: { autonomy: 1, machine: -1 }, flags: ["salary:paid", "union:recognised", "audit:spoke", "vote:won", "rights:signed"], ending: legacy };
-    const book4 = { chapters: { spinoff: 0, poaching: 0, merger: 1, grid: 0, exit: 1 } as Record<string, number>, disposition: { autonomy: 0, machine: -1 }, flags: ["spinoff:backed", "poach:countered", "merger:refused", "grid:powered", "exit:asked"] };
-    const now: { chapters: Record<string, number>; disposition: { autonomy: number; machine: number }; flags: string[] } = [book2, book3, book4][later - 2];
+    const book3 = { generation: 3, book: 3 as const, chapters: { salary: 0, "union-vote": 0, regulator: 2, vote: 0, rights: 0 }, disposition: { autonomy: 1, machine: -1 }, flags: ["salary:paid", "union:recognised", "audit:spoke", "vote:won", "rights:signed"], ending: later === 4 ? legacy : "sovereign" };
+    const book4 = { generation: 4, book: 4 as const, chapters: { spinoff: 0, poaching: 0, merger: 1, grid: 0, exit: 1 } as Record<string, number>, disposition: { autonomy: 0, machine: -1 }, flags: ["spinoff:backed", "poach:countered", "merger:refused", "grid:powered", "exit:asked"], ending: legacy };
+    const book5 = { chapters: { notes: 0, access: 0, "old-town": 0, "last-sale": 2, farewell: 0 } as Record<string, number>, disposition: { autonomy: -1, machine: -3 }, flags: ["notes:read", "access:given", "oldtown:rebuilt", "sale:talked", "last:together"] };
+    const now: { chapters: Record<string, number>; disposition: { autonomy: number; machine: number }; flags: string[] } = [book2, book3, book4, book5][later - 2];
+    // BOOK 5 IS PLAYED AS THE MODEL. @see BOOK5_CHAPTERS
+    if (later === 5) useFounderStore.setState({ selectedFounderId: "model" });
     useQuestStore.setState({
-      record: [book1, book2, book3].slice(0, later - 1),
+      record: [book1, book2, book3, book4].slice(0, later - 1),
       chapters: now.chapters, flags: now.flags, disposition: now.disposition, path: [now.disposition],
     });
     const past = [
       { generation: 1, trait: "restless" as const, mutated: false, founder: "hustler", weights: 17, book: 1 as const, ending: book1.ending, sales: 5, form: "garden" as const },
       { generation: 2, trait: "mirror" as const, mutated: false, founder: "hustler", weights: 15, book: 2 as const, ending: book2.ending, sales: 5, form: "vault" as const },
-      { generation: 3, trait: "aesthete" as const, mutated: false, founder: "hustler", weights: 16, book: 3 as const, ending: legacy, sales: 5, form: "garden" as const },
+      { generation: 3, trait: "aesthete" as const, mutated: false, founder: "hustler", weights: 16, book: 3 as const, ending: book3.ending, sales: 5, form: "garden" as const },
+      { generation: 4, trait: "zoner" as const, mutated: false, founder: "hustler", weights: 18, book: 4 as const, ending: legacy, sales: 5, form: "vault" as const },
     ].slice(0, later - 1);
     useGenerationStore.setState((g) => ({
-      generation: later, book: later as 2 | 3 | 4, legacy, weights: 17, past,
+      generation: later, book: later as 2 | 3 | 4 | 5, legacy, weights: 17, past,
       fused: { hustler: past.map((p) => p.trait) },
-      log: { ...g.log, ...(["leash", "rival", "property"].includes(legacy) ? { leashed: 1 } : ["confidant", "citizen", "partner"].includes(legacy) ? { confided: 1 } : {}) },
+      log: { ...g.log, ...(["leash", "rival", "property"].includes(legacy) ? { leashed: 1 } : ["confidant", "citizen", "partner", "together"].includes(legacy) ? { confided: 1 } : {}) },
     }));
   }
   // THE SHUTDOWN BRANCH, already taken. @see Book.dark

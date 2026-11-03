@@ -110,7 +110,7 @@ export function stageOf(value: number) {
  */
 export const inheritedStart = (): number => {
   const legacy = useGenerationStore.getState().legacy;
-  if (legacy === "release" || legacy === "departed") return 0;
+  if (legacy === "release" || legacy === "departed" || legacy === "beyond") return 0;
   if (legacy === "merge" || legacy === "successor") return STAGES.find((s) => s.stage === "colleague")!.from;
   return hasMachine("machine_root") ? STAGES.find((s) => s.stage === "assistant")!.from : 0;
 };

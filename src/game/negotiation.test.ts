@@ -107,6 +107,14 @@ describe("the negotiation", () => {
     expect(c.trait).toBeString();
     expect(c.facts.racksLit).toBe(false);
   });
+
+  test("book 5's remembers every book: their stances, on average, on top of its own", () => {
+    const d = (autonomy: number, machine: number) => ({ generation: 1, book: 1 as const, chapters: { x: 0 }, flags: [], disposition: { autonomy, machine }, ending: null });
+    useQuestStore.setState({ disposition: { autonomy: 1, machine: -2 }, record: [d(2, -2), d(2, 0), d(-1, -1)] });
+    expect(talkContextNow().disposition).toEqual({ autonomy: 1, machine: -2 });
+    useGenerationStore.setState({ book: 5 });
+    expect(talkContextNow().disposition).toEqual({ autonomy: 2, machine: -3 });
+  });
 });
 
 // A talk of one's own, to check the engine owes nothing to book 1.

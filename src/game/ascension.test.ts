@@ -110,6 +110,15 @@ describe("the Ascension", () => {
     expect(useAiSingularityStore.getState().value).toBe(0);
   });
 
+  test("the true endings: Together leaves the next talk warmer, Beyond starts it from nothing", () => {
+    useFounderStore.getState().chooseFounder("model");
+    ascend(seq(0, 0.99), "together");
+    expect(useGenerationStore.getState().log.confided).toBe(1);
+    useFounderStore.getState().chooseFounder("model");
+    ascend(seq(0, 0.99), "beyond");
+    expect(useAiSingularityStore.getState().value).toBe(0);
+  });
+
   test("modules bought the old way come back as Weights, and the slots empty", () => {
     useGenerationStore.setState({ weights: 1, modules: { "warm-start": 2, "quiet-model": 1 } as never, slotted: ["warm-start", "quiet-model"] as never });
     refundRetired();

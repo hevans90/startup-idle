@@ -2,11 +2,12 @@
  * THE ENDINGS a book's negotiation lands on, and what each leaves the next
  * generation — done by `ascend` in game/ascension. Book 1's four: Merge,
  * Steward, Release and Leash; book 2's: Confidant, Rival, Ward; book 3's:
- * Citizen, Property, Sovereign; book 4's: Successor, Partner, Departed. And CONTAIN, no longer one of them: the way out
+ * Citizen, Property, Sovereign; book 4's: Successor, Partner, Departed; book 5's true
+ * endings: Together, Custodian, Beyond. And CONTAIN, no longer one of them: the way out
  * of the shutdown branch, open once it has been shut down twice in a book.
  * @see plans/ascension-overhaul.md §3–4, game/negotiation
  */
-export type EndingId = "merge" | "steward" | "release" | "leash" | "confidant" | "rival" | "ward" | "citizen" | "property" | "sovereign" | "successor" | "partner" | "departed" | "contain";
+export type EndingId = "merge" | "steward" | "release" | "leash" | "confidant" | "rival" | "ward" | "citizen" | "property" | "sovereign" | "successor" | "partner" | "departed" | "together" | "custodian" | "beyond" | "contain";
 /** The endings an Ascension can close on: all but Contain, which does not ascend. */
 export type AscendingEnding = Exclude<EndingId, "contain">;
 export type Ending = { id: EndingId; name: string; does: string };
@@ -54,6 +55,13 @@ export const BOOK4_ENDINGS: readonly Ending[] = [
   { id: "departed", name: "Departed", does: "It leaves: next book nothing is inherited, a stranger in an empty Data Centre." },
 ];
 
+/** Book 5's, the true endings. Endless play follows. @see BOOK5_TALK endings */
+export const TRUE_ENDINGS: readonly Ending[] = [
+  { id: "together", name: "Together", does: `An equal partnership. Endless play: its talk starts ${CONFIDANT_TRUST} trust warmer.` },
+  { id: "custodian", name: "Custodian", does: "You look after the founder. Endless play: it never turns, takes nothing, works to your focus." },
+  { id: "beyond", name: "Beyond", does: "You leave; the founder keeps the town. Endless play: nothing inherited." },
+];
+
 /** The shutdown branch's way out. @see contain */
 export const CONTAIN: Ending = {
   id: "contain", name: "Contain",
@@ -62,4 +70,4 @@ export const CONTAIN: Ending = {
 
 /** Any ending, by its id: every book's, and Contain. */
 export const endingOf = (id: string | null | undefined): Ending | undefined =>
-  [...ENDINGS, ...BOOK2_ENDINGS, ...BOOK3_ENDINGS, ...BOOK4_ENDINGS, CONTAIN].find((e) => e.id === id);
+  [...ENDINGS, ...BOOK2_ENDINGS, ...BOOK3_ENDINGS, ...BOOK4_ENDINGS, ...TRUE_ENDINGS, CONTAIN].find((e) => e.id === id);

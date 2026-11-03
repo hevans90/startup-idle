@@ -224,8 +224,8 @@ const TAKES = new Set<Kind>(["convert", "repurpose"]);
  */
 export const inherited = (stage: Stage): boolean => {
   const legacy = useGenerationStore.getState().legacy;
-  if (legacy === "release" || legacy === "departed") return false;
-  return hasMachine(INHERITANCE) && (keystone("alignment") || legacy === "steward" || legacy === "ward" || (stage !== "overseer" && stage !== "ascension"));
+  if (legacy === "release" || legacy === "departed" || legacy === "beyond") return false;
+  return hasMachine(INHERITANCE) && (keystone("alignment") || legacy === "steward" || legacy === "ward" || legacy === "custodian" || (stage !== "overseer" && stage !== "ascension"));
 };
 
 /** What it is saving for, if anything: a kind of drinker, kept to till bought. @see chooseAction */

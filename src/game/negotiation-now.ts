@@ -11,6 +11,8 @@ import { useAgentsStore } from "../state/agents.store";
 import { useGenerationStore } from "../state/generation.store";
 import { useGeneratorStore } from "../state/generators.store";
 import { useQuestStore } from "../state/quest.store";
+import { AXIS_MOST } from "./quests/types";
+import { bookNow } from "./quests/books";
 
 /** The morale, on average, that makes "the people here are happy" true. */
 export const HAPPY_FACT = 10;
@@ -27,10 +29,18 @@ export function factsNow(): Facts {
   };
 }
 
+/** Where the books before left it, on average, and this one's stance on top. @see Talk.remembers */
+export function remembered(): { autonomy: number; machine: number } {
+  const q = useQuestStore.getState(), past = q.record.filter((r) => r.book !== "endless");
+  const mean = (k: "autonomy" | "machine") => (past.length ? Math.round(past.reduce((n, r) => n + r.disposition[k], 0) / past.length) : 0);
+  const c = (n: number) => Math.max(-AXIS_MOST, Math.min(AXIS_MOST, n));
+  return { autonomy: c(q.disposition.autonomy + mean("autonomy")), machine: c(q.disposition.machine + mean("machine")) };
+}
+
 export function talkContextNow(): TalkContext {
   const q = useQuestStore.getState(), g = useGenerationStore.getState();
   return {
-    disposition: q.disposition,
+    disposition: bookNow().talk?.remembers ? remembered() : q.disposition,
     flags: q.flags,
     tags: tagCounts(useGeneratorStore.getState().employeeManagement.deck),
     facts: factsNow(),

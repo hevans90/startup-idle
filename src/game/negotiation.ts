@@ -46,6 +46,10 @@ export type TalkEnding = { id: string; name: string; at: Disposition & { trust: 
 
 /** A book's negotiation: its opening, its asks in order, its replies, its endings, and the argument each of its choices makes. */
 export type Talk = {
+  /** Who speaks, if not the AI: book 5's founder. */
+  voice?: string;
+  /** Every book's stance counts, not this one's alone. @see talkContextNow */
+  remembers?: boolean;
   opening: string;
   asks: readonly Ask[];
   replies: { closer: string; warmer: string; colder: string; unmoved: string };

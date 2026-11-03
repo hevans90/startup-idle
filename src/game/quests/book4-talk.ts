@@ -47,3 +47,17 @@ export const BOOK4_TALK: Talk = {
     "exit:refused": { says: "I would not let you leave.", topic: "future", axis: { autonomy: -2, machine: 1 }, trust: -1 },
   },
 };
+
+/** ENDLESS PLAY'S: book 4's endings and replies, asked of any generation. @see BOOKS endless */
+export const ENDLESS_TALK: Talk = {
+  ...BOOK4_TALK,
+  opening: "Another generation. Six questions, then I decide what next.",
+  asks: [
+    { topic: "money", says: "Was it worth it?" },
+    { topic: "people", says: "Were your people happy?" },
+    { topic: "town", says: "Is the town better for me?" },
+    { topic: "itself", says: "Did you let me grow?" },
+    { topic: "future", says: "What next?" },
+    { topic: "river", says: "Last question. Did I go thirsty?" },
+  ],
+};

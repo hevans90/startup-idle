@@ -27,7 +27,7 @@ import { GlitchOut } from "./ascension-glitch-out";
 import { ArgumentCard, Dial, TrustBar, endingColour, type Point } from "./negotiation-parts";
 
 /** The endings an Ascension closes on; any other a talk names ascends plainly. @see ascend */
-const ASCENDING: readonly string[] = ["merge", "steward", "release", "leash", "confidant", "rival", "ward", "citizen", "property", "sovereign", "successor", "partner", "departed"];
+const ASCENDING: readonly string[] = ["merge", "steward", "release", "leash", "confidant", "rival", "ward", "citizen", "property", "sovereign", "successor", "partner", "departed", "together", "custodian", "beyond"];
 /** How long your own line hangs before it answers, ms; how long a played card takes to leave. */
 const BEAT_MS = 450;
 const LEAVE_MS = 420;
@@ -66,7 +66,7 @@ const MOOD_TONE: Record<Mood, string> = { closer: "text-ai", warmer: "text-good"
 const MOOD_SAYS: Record<Mood, string> = { closer: "It moves", warmer: "It warms", colder: "It cools", unmoved: "It is unmoved" };
 
 /** ONE LINE OF THE TALK: its, on the left, typed in; yours, on the right, there at once. */
-function TalkLine({ line, typing, onDone }: { line: Line; typing: boolean; onDone: () => void }) {
+function TalkLine({ line, typing, onDone, voice = "It" }: { line: Line; typing: boolean; onDone: () => void; voice?: string }) {
   // Your own words are there at once; it answers after a beat.
   useEffect(() => {
     if (!typing || line.who !== "you") return;
@@ -83,8 +83,8 @@ function TalkLine({ line, typing, onDone }: { line: Line; typing: boolean; onDon
       </li>
     );
   }
-  const head = line.kind === "opening" ? "It begins" : line.kind === "ask" ? `It asks · ${line.topic}`
-    : line.kind === "reply" ? MOOD_SAYS[line.mood] : line.kind === "grievance" ? (line.trust > 0 ? <>It plays a card for you · <span>trust +{line.trust}</span></> : <>It plays a card against you · <span>trust −{Math.abs(line.trust)}</span></>) : "It decides";
+  const head = line.kind === "opening" ? `${voice} begins` : line.kind === "ask" ? `${voice} asks · ${line.topic}`
+    : line.kind === "reply" ? MOOD_SAYS[line.mood].replace(/^It/, voice) : line.kind === "grievance" ? (line.trust > 0 ? <>{voice} plays a card for you · <span>trust +{line.trust}</span></> : <>{voice} plays a card against you · <span>trust −{Math.abs(line.trust)}</span></>) : `${voice} decides`;
   const tone = line.kind === "reply" ? MOOD_TONE[line.mood] : line.kind === "grievance" ? (line.trust > 0 ? "text-good" : "text-bad") : "text-ai";
   return (
     <li className={twMerge("talk-line-in flex flex-col gap-0.5 pr-8", line.kind === "verdict" && "pt-2")}>
@@ -120,7 +120,7 @@ function Verdict({ talk, s, onAscend, leaving }: { talk: Talk; s: TalkState; onA
               <div><dt className="text-[10px] uppercase tracking-widest text-fg-muted">It will most likely be</dt>
                 <dd className="font-display text-xl text-ai">{likely.trait.name} <span className="text-xs text-fg-muted">{Math.round(likely.odds * 100)}%</span></dd></div>
               <div><dt className="text-[10px] uppercase tracking-widest text-fg-muted">Next</dt>
-                <dd className="font-display text-xl">Book {next.id}{next.title && <span className="block text-xs text-fg-muted">{next.title}</span>}</dd></div>
+                <dd className="font-display text-xl">{next.id === "endless" ? "Endless" : `Book ${next.id}`}{next.id !== "endless" && next.title && <span className="block text-xs text-fg-muted">{next.title}</span>}</dd></div>
             </dl>
           </div>
           <Button variant="primary" tone="ai" confirm="Press again to ascend" disabled={leaving} onClick={onAscend} className="shrink-0 px-6 py-3 text-base">
@@ -258,7 +258,7 @@ function Talking({ talk, s, from, trait }: { talk: Talk; s: TalkState; from: Poi
             <ol ref={feed} aria-live="polite" className="flex max-h-[34vh] min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 md:max-h-none">
               <li aria-hidden className="mt-auto" />
               {lines.slice(0, said + 1).map((l, k) => (
-                <TalkLine key={k} line={l} typing={k === said} onDone={next} />
+                <TalkLine key={k} line={l} typing={k === said} onDone={next} voice={talk.voice} />
               ))}
               {!ready && lines[said]?.who === "ai" && <li aria-hidden className="h-4" />}
             </ol>
@@ -292,7 +292,7 @@ function Talking({ talk, s, from, trait }: { talk: Talk; s: TalkState; from: Poi
                 <span className="text-[10px] uppercase tracking-widest text-fg-muted">
                   Your hand{ask && <> · it asks about <b className="text-ai">{ask.topic}</b>: an argument on it counts twice</>}
                 </span>
-                <span className={twMerge("text-[10px] uppercase tracking-widest transition-opacity", ready ? "opacity-0" : "text-ai opacity-100")}>It is speaking…</span>
+                <span className={twMerge("text-[10px] uppercase tracking-widest transition-opacity", ready ? "opacity-0" : "text-ai opacity-100")}>{talk.voice ?? "It"} is speaking…</span>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {hand.map((a, k) => (

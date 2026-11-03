@@ -18,6 +18,7 @@ import { fusedInto } from "../game/fusion";
 import { useGenerationStore } from "../state/generation.store";
 import { ModelShop } from "./model-shop";
 import { AscensionRecap } from "./ascension-recap";
+import { Credits } from "./credits";
 import { Lineage } from "./lineage";
 import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
@@ -75,7 +76,11 @@ function PanelRow({
 
 export const FounderSelect = () => {
   const chooseFounder = useFounderStore((s) => s.chooseFounder);
-  const [selected, setSelected] = useState<string | null>(null);
+  // BOOK 5 IS PLAYED AS THE MODEL: its only founder. @see BOOK5_CHAPTERS
+  const asModel = useGenerationStore((s) => s.book) === 5;
+  const [selected, setSelected] = useState<string | null>(asModel ? "model" : null);
+  // THE CREDITS, once, after book 5's Ascension, before its recap. @see Credits
+  const [credited, setCredited] = useState(false);
   // FOUNDING IS THREE STEPS: who, where, then on what terms. @see MapSetup, TermSheetSelect
   const [step, setStep] = useState<"founder" | "land" | "terms">("founder");
   const [land, setLand] = useState<{ seed: number; params: Record<string, number> } | null>(null);
@@ -357,14 +362,15 @@ export const FounderSelect = () => {
       )}
 
       {/* THE ASCENSION JUST MADE, recapped once; the lineage, any time. @see ascend */}
-      {announce && <AscensionRecap gone={announce} onLineage={() => setLineageOpen(true)} onDone={() => useGenerationStore.setState({ announce: null })} />}
+      {announce && announce.book === 5 && !credited && <Credits gone={announce} onDone={() => setCredited(true)} />}
+      {announce && (announce.book !== 5 || credited) && <AscensionRecap gone={announce} onLineage={() => setLineageOpen(true)} onDone={() => useGenerationStore.setState({ announce: null })} />}
       {lineageOpen && <Lineage onClose={() => setLineageOpen(false)} />}
 
       {/* WEIGHTS, to spend before the next company starts. @see ModelShop */}
       {(generation > 1 || weights > 0) && (
         <div className="mx-auto mb-4 flex w-full max-w-[110rem] items-center justify-between gap-3 border border-ai-line bg-ai-soft px-3 py-2 text-sm">
           <span>
-            Generation {generation} · <b className="tabular-nums text-weights">{weights}</b> Weights
+            Generation {generation} · <b className="tabular-nums text-weights">{weights}</b> Weights{asModel && <> · <b className="text-ai">Book 5: you are the Model</b></>}
           </span>
           <span className="flex shrink-0 gap-2">
             {past > 0 && <Button size="sm" variant="secondary" onClick={() => setLineageOpen(true)}>Lineage</Button>}
@@ -376,7 +382,7 @@ export const FounderSelect = () => {
       {/* AS MANY ACROSS AS FIT, a dossier at least 15rem wide: every founder in a row on a wide screen. */}
       <div className="mx-auto w-full max-w-[110rem]">
           <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 [grid-auto-rows:1fr]">
-            {FOUNDERS.map((f, i) => (
+            {FOUNDERS.filter((f) => !asModel || f.id === "model").map((f, i) => (
               <FounderCard key={f.id} founder={f} index={i} exits={founderExits[f.id]?.count ?? 0}
                 selected={selected === f.id} onSelect={() => setSelected(f.id)}
                 // A founder fused with the AI is always playable; the Model, from the first Ascension. @see game/fusion
