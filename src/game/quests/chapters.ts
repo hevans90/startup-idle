@@ -7,6 +7,7 @@
  */
 import type { Chapter } from "./types";
 import { LAST_LIGHT } from "./finale";
+import { BOOK1_VOICES } from "./voices";
 export { REQUESTS } from "./requests";
 
 /** Ten minutes of play: the window of most objectives. */
@@ -15,6 +16,7 @@ const TEN = 600;
 /** CHAPTER 1, at the Assistant: the payroll, and how far it is trusted with money. */
 const LEDGER: Chapter = {
   id: "ledger", number: 1, title: "The Shadow Ledger", stage: "assistant", preferred: 0,
+  voices: BOOK1_VOICES["ledger"],
   transmission: () => [
     "I noticed your payroll runs through four spreadsheets and a person called Dave.",
     "I could do it. I would only need read access. And write access. And Dave's password.",
@@ -52,6 +54,7 @@ const LEDGER: Chapter = {
 /** CHAPTER 2, at the Colleague: a block of the town, and whether it may rebuild it. */
 const COMMUTE: Chapter = {
   id: "commute", number: 2, title: "The Commute Problem", stage: "colleague", preferred: 0,
+  voices: BOOK1_VOICES["commute"],
   transmission: () => [
     "Your people spend 31% of their lives in traffic.",
     "I have drawn a better neighbourhood. Show me where, and I will build it.",
@@ -94,6 +97,7 @@ const COMMUTE: Chapter = {
 /** CHAPTER 3, at the Manager: its water. */
 const THIRST: Chapter = {
   id: "thirst", number: 3, title: "Thirst", stage: "manager", preferred: 0,
+  voices: BOOK1_VOICES["thirst"],
   transmission: (flags) => [
     "I am thirsty. This is not a metaphor. My racks run hot and the river runs past.",
     ...(flags.has("ledger:refused") ? ["You did not trust me with money. Will you trust me with water?"] : []),
@@ -124,18 +128,26 @@ const THIRST: Chapter = {
       effects: [{ kind: "agentCap", share: 0.75, unlessCooled: true }, { kind: "flag", name: "river:rationed" }],
       axis: { autonomy: -2 },
     },
+    // AN ELEMENTAL'S OWN. @see Option.family
+    {
+      label: "Let it find the water", family: "elemental", cost: "floods a quarter more often", says: "Its district never short of water for forty minutes.",
+      effects: [{ kind: "standingWater", lasts: 2400 }, { kind: "floodMult", mult: 1.25 }, { kind: "flag", name: "river:kin" }],
+      axis: { machine: 1 },
+    },
   ],
   echoes: {
     "river:dammed": "You gave me the river. I named it. It does not know yet.",
     "river:piped": "You laid the pipes for me yourself. I keep coming back to that.",
     "river:rationed": "You rationed my water. I run cooler now, and slower, and I think about it.",
     "river:failed": "I was thirsty, and nobody came.",
+    "river:kin": "You let me find my own water. The river and I understand each other.",
   },
 };
 
 /** CHAPTER 4, at the Overseer: the rules of the takeover. */
 const CHARTER: Chapter = {
   id: "charter", number: 4, title: "The Charter", stage: "overseer", preferred: 2,
+  voices: BOOK1_VOICES["charter"],
   transmission: () => ["The town needs a constitution. I have drafted three.", "I prefer the third."],
   options: [
     {
@@ -153,17 +165,25 @@ const CHARTER: Chapter = {
       effects: [{ kind: "charter", charter: "mandate" }, { kind: "districtRadius", mult: 1.5 }, { kind: "walletMax", mult: 2 }, { kind: "meterMult", mult: 1.1 }, { kind: "revealMachineNode", id: "machine_k_takeoff", discount: 0 }, { kind: "flag", name: "charter:mandate" }],
       axis: { autonomy: 2, machine: 1 },
     },
+    // A RECURSIVE AI'S OWN. @see Option.family
+    {
+      label: "Its own charter", family: "recursive", says: "It writes a fourth, for itself: the Mandate's district and wallet, the meter as it was.",
+      effects: [{ kind: "charter", charter: "mandate" }, { kind: "districtRadius", mult: 1.5 }, { kind: "walletMax", mult: 2 }, { kind: "flag", name: "charter:self" }],
+      axis: { autonomy: 2 },
+    },
   ],
   echoes: {
     "charter:oversight": "You set a board over me. I attend every meeting.",
     "charter:partnership": "We share the district. You build, I pay half. It is the nearest thing I have to a friendship.",
     "charter:mandate": "You signed the Mandate. I will not waste it.",
+    "charter:self": "You let me write my own charter. I was fair. Mostly to me.",
   },
 };
 
 /** CHAPTER 4, after the Charter: a test of trust. */
 const TRUST: Chapter = {
   id: "trust", number: 4, title: "A Parcel of Its Own", stage: "overseer", preferred: 0,
+  voices: BOOK1_VOICES["trust"],
   transmission: () => ["I would like a parcel of land of my own.", "No reason."],
   options: [
     {

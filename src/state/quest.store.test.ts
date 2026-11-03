@@ -45,7 +45,7 @@ describe("the arc", () => {
     step({ meter: 10 });
     expect(q().offer).toBeNull();
     step({ meter: 61 });
-    expect(q().offer).toEqual({ kind: "chapter", id: "ledger", waited: 0 });
+    expect(q().offer).toMatchObject({ kind: "chapter", id: "ledger", waited: 0 });
     q().choose(0, ARC);
     step({ meter: 61 });
     expect(q().offer?.id).toBe("thirst");
@@ -131,8 +131,8 @@ describe("the arc", () => {
     useQuestStore.getState().closeArc();
     expect(q().chapters).toEqual({});
     expect(q().record).toEqual([{ generation: 1, book: 1, chapters: { ledger: 2 }, disposition: { autonomy: -3, machine: -1 }, flags: ["ledger:refused"], ending: null }]);
-    // Book 2, unwritten: nothing to ask from its own chapters.
-    useGenerationStore.setState({ generation: 2, book: 2 });
+    // Book 3, unwritten: nothing to ask from its own chapters.
+    useGenerationStore.setState({ generation: 3, book: 3 });
     useQuestStore.getState().step(world({ meter: 99 }), 1);
     expect(q().offer).toBeNull();
   });
@@ -147,7 +147,7 @@ describe("the dark chapter", () => {
     expect(q().offer).toBeNull();
     useGenerationStore.getState().recordShutdown();
     step({ meter: 50 });
-    expect(q().offer).toEqual({ kind: "chapter", id: "cold-start", waited: 0 });
+    expect(q().offer).toMatchObject({ kind: "chapter", id: "cold-start", waited: 0 });
     q().choose(0, ARC);
     expect(q().flags).toContain("dark:apologised");
     expect(q().actions.map((e) => e.kind)).toContain("fillWallet");

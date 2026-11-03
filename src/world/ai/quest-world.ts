@@ -9,7 +9,8 @@ import { TRAITS, traitForecast, type Family } from "../../game/traits";
 import { runningAgents, useAgentsStore } from "../../state/agents.store";
 import { stagesNow, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
 import { useGenerationStore } from "../../state/generation.store";
-import { setFamilyLean, useQuestStore } from "../../state/quest.store";
+import { setFamilyLean, setVoice, useQuestStore } from "../../state/quest.store";
+import { aiTraitNow } from "../../game/ai-trait";
 import type { Grid } from "../grid";
 import { tankFor } from "../projects/cooling";
 import { SHORT } from "./cooling-ai";
@@ -49,3 +50,6 @@ setFamilyLean(() => {
   for (const { trait, odds } of traitForecast(useGenerationStore.getState().log, TRAITS.length)) out[trait.family] = (out[trait.family] ?? 0) + odds;
   return out;
 });
+
+// THE VOICE a chapter is asked in: the family of the AI it is. @see aiTraitNow
+setVoice(() => aiTraitNow().family);

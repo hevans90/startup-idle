@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef } from "react";
 
+import { openTo, voiceOf } from "../game/ai-trait";
 import { sfx } from "../audio/sound";
 import { bookNow, chapterKicker, chapterOf } from "../game/quests/books";
 import { CHAPTER_WAIT, REQUEST_WAIT, offered, useQuestStore, type Running } from "../state/quest.store";
@@ -132,6 +133,8 @@ export function QuestLayer({ tracker = true, offer: showOffer = true }: { tracke
     sfx("transmission");
   }, [offer]);
   const q = offer ? offered(offer) : null;
+  // ITS OWN: the options open to the family it asked in, each answered by its place among them all. @see Option.family
+  const open = q ? openTo(q.options, offer?.voice) : [];
   const chapter = offer?.kind === "chapter" ? chapterOf(offer.id) : null;
   const request = offer?.kind === "request" ? bookNow().requests.find((r) => r.id === offer.id) : null;
   return (
@@ -145,12 +148,12 @@ export function QuestLayer({ tracker = true, offer: showOffer = true }: { tracke
             className="quest-slide-in"
             kicker={chapter ? chapterKicker(chapter) : "Between chapters"}
             title={chapter ? chapter.title : "A request"}
-            lines={chapter ? chapter.transmission(new Set(flags)) : [request!.text]}
-            options={q.options}
-            preferred={q.preferred}
+            lines={chapter ? [...[voiceOf(chapter.voices, offer.voice)].filter((l): l is string => !!l), ...chapter.transmission(new Set(flags))] : [request!.text]}
+            options={open.map((x) => x.o)}
+            preferred={Math.max(0, open.findIndex((x) => x.i === q.preferred))}
             at={at}
             left={(offer.kind === "chapter" ? CHAPTER_WAIT : REQUEST_WAIT) - offer.waited}
-            onChoose={(i) => { sfx("decision"); useQuestStore.getState().choose(i); }}
+            onChoose={(i) => { sfx("decision"); useQuestStore.getState().choose(open[i].i); }}
           />
         )}
     </>

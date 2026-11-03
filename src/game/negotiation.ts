@@ -13,12 +13,12 @@
  * double; the AI's trait leans on some kinds.
  *
  * BEFORE IT ASKS, what is owed is settled: a GRIEVANCE it plays for each time
- * it was shut down this book, the LEASH it remembers from the last, and any
+ * it was shut down this book, the LEASH (or the trust) it remembers from the last, and any
  * AMENDS you made since — each moving where it starts. Pure.
  * @see plans/ascension-overhaul.md §3–4
  */
 import type { Tag } from "./culture";
-import { LEASH_TRUST } from "./quests/endings";
+import { CONFIDANT_TRUST, LEASH_TRUST } from "./quests/endings";
 import { AXIS_MOST, type Disposition } from "./quests/types";
 import { trait, type Family, type TraitId } from "./traits";
 
@@ -56,6 +56,8 @@ export type Talk = {
   grievance?: { says: string; axis: Partial<Disposition> };
   /** What it says of a Leash, the book before. */
   leash?: string;
+  /** What it says of a Confidant's trust, the book before. */
+  confided?: string;
   /** What you said to make up for a shutdown, by the flag the dark chapter set: how it moves trust. @see Book.dark */
   amends?: Readonly<Record<string, { says: string; trust: number }>>;
 };
@@ -79,6 +81,8 @@ export type TalkContext = {
   shutdowns: number;
   /** Ended on a Leash last book. @see BehaviourLog.leashed */
   leashed?: number;
+  /** Ended as a Confidant last book. @see BehaviourLog.confided */
+  confided?: number;
 };
 
 export type Exchange = { ask: Ask; played: Argument; regret: boolean; reply: string; stance: Disposition; trust: number };
@@ -175,6 +179,7 @@ export function beforeTalk(talk: Talk, ctx: TalkContext): Before[] {
   const grievance = talk.grievance ?? { says: "You shut me down.", axis: {} };
   for (let k = 0; k < ctx.shutdowns; k++) out.push({ by: "it", says: grievance.says, axis: grievance.axis, trust: -SHUTDOWN_TRUST });
   if (ctx.leashed) out.push({ by: "it", says: talk.leash ?? "I remember the length of the leash.", axis: {}, trust: -LEASH_TRUST * ctx.leashed });
+  if (ctx.confided) out.push({ by: "it", says: talk.confided ?? "We trusted each other, last time. Let us start there.", axis: {}, trust: CONFIDANT_TRUST * ctx.confided });
   for (const [flag, a] of Object.entries(talk.amends ?? {})) if (ctx.flags.includes(flag)) out.push({ by: "you", says: a.says, axis: {}, trust: a.trust });
   return out;
 }

@@ -17,7 +17,7 @@ import { emptyLog, useGenerationStore, type BehaviourLog, type PastGeneration } 
 import { TRAITS, drawTrait, trait, type TraitId } from "./traits";
 import { cultureNow } from "./culture-now";
 import { nextBook } from "./quests/books";
-import { CONTAIN_AFTER, CONTAIN_AT, CONTAIN_WEIGHTS, LEASH_REMEMBERED, RELEASE_WEIGHTS, type EndingId } from "./quests/endings";
+import { CONTAIN_AFTER, CONTAIN_AT, CONTAIN_WEIGHTS, LEASH_REMEMBERED, RELEASE_WEIGHTS, type AscendingEnding } from "./quests/endings";
 import { useSessionStore } from "../state/session.store";
 
 /** The chance the trait drawn mutates into a sibling. */
@@ -60,7 +60,7 @@ export function inheritTrait(log: BehaviourLog, rand: () => number): { trait: Tr
 export type AscensionResult = { trait: TraitId; mutated: boolean; founder: string; weights: number; generation: number; also?: TraitId };
 
 /** The endings that ascend; Contain shuts it down instead. @see game/quests/endings */
-export type AscendingEnding = Exclude<EndingId, "contain">;
+export type { AscendingEnding };
 
 /** What an Ascension now would bank, by the ending taken: twice for a Release, half again after a Contain. */
 export function ascensionWeights(ending: AscendingEnding | null = null): number {
@@ -97,8 +97,8 @@ export function ascend(rand: () => number = Math.random, ending: AscendingEnding
     // THE NEXT BOOK. @see game/quests/books
     book: nextBook(g.book),
     sales: 0,
-    // LEASHED, it remembers it: Resentful likelier, its next talk colder. @see traitScores, startTalk
-    log: ending === "leash" ? { ...emptyLog(), leashed: LEASH_REMEMBERED } : emptyLog(),
+    // LEASHED, or a Rival, it remembers it: Resentful likelier, its next talk colder; a Confidant's, warmer. @see traitScores, startTalk
+    log: ending === "leash" || ending === "rival" ? { ...emptyLog(), leashed: LEASH_REMEMBERED } : ending === "confidant" ? { ...emptyLog(), confided: 1 } : emptyLog(),
     equity: 0,
     peakAgents: 0,
     weights: g.weights + weights,

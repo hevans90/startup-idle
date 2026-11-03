@@ -16,6 +16,7 @@ import type { CardId } from "../game/culture";
 import type { BookId } from "../game/quests/books";
 import type { ModuleId } from "../game/modules";
 import type { DatasetId } from "../game/training";
+import type { AscendingEnding } from "../game/quests/endings";
 import type { LatticeForm } from "../game/quests/finale";
 import type { TraitId } from "../game/traits";
 
@@ -31,8 +32,10 @@ export type BehaviourLog = {
   shutdowns: number;
   /** Takeover jobs the player refused. @see vetoAt */
   vetoes: number;
-  /** Ended on a Leash last book: remembered as so many shutdowns. @see ENDINGS leash */
+  /** Ended on a Leash (or a Rival) last book: remembered as so many shutdowns. @see ENDINGS leash */
   leashed?: number;
+  /** Ended as a Confidant last book: its talk starts warmer. @see BOOK2_ENDINGS confidant */
+  confided?: number;
 };
 
 export const emptyLog = (): BehaviourLog => ({ datasets: {}, full: 0, throttled: 0, founders: {}, shutdowns: 0, vetoes: 0 });
@@ -41,7 +44,7 @@ export const emptyLog = (): BehaviourLog => ({ datasets: {}, full: 0, throttled:
 export type PastGeneration = {
   generation: number; trait: TraitId; mutated: boolean; founder: string; weights: number; book?: BookId;
   /** How its book ended; a Merge's second trait; companies sold; the Lattice's form. Missing from saves before the recap. @see AscensionRecap */
-  ending?: "merge" | "steward" | "release" | "leash" | null; also?: TraitId; sales?: number; form?: LatticeForm | null;
+  ending?: AscendingEnding | null; also?: TraitId; sales?: number; form?: LatticeForm | null;
 };
 
 type GenerationState = {
@@ -71,7 +74,7 @@ type GenerationState = {
    * turns; Release, none inherited. Null for an Ascension without one.
    * @see game/quests/endings
    */
-  legacy: "merge" | "steward" | "release" | "leash" | null;
+  legacy: AscendingEnding | null;
   /** Contained: the next Ascension banks half as many Weights again. */
   contained: boolean;
   /** The Ascension just made, to announce at the next founding; cleared once seen. */

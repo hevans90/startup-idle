@@ -37,5 +37,6 @@ export function talkContextNow(): TalkContext {
     trait: traitForecast(g.log, 1)[0].trait.id,
     shutdowns: g.log.shutdowns,
     leashed: g.log.leashed ?? 0,
+    confided: g.log.confided ?? 0,
   };
 }

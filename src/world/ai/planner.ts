@@ -23,7 +23,8 @@ import { aiSite, inRebuiltBlock } from "./arc-rules";
 import { questJobLean, questTakeoverShift } from "../../game/quests/effects";
 import { featureGateOpen } from "../../game/projects";
 import { hasLots, housedBy, roomFor } from "../../game/housing";
-import { traitForecast, type Family } from "../../game/traits";
+import type { Family, TraitId } from "../../game/traits";
+import { aiTraitNow } from "../../game/ai-trait";
 import { LATTICE_AT, useAiSingularityStore, type Stage } from "../../state/ai-singularity.store";
 import { latticeOf } from "./lattice";
 import { hasMachine, useGenerationStore } from "../../state/generation.store";
@@ -110,6 +111,13 @@ const LEAN: Record<Family, Partial<Record<Kind, number>>> = {
   elemental: { flatten: 2, pipe: 3 },
   recursive: { node: 3, spire: 3, convert: 3, hangar: 2, repurpose: 2 },
   temper: {},
+};
+
+/** ITS OWN QUIRKS, on top of its family's: an Aesthete's parks, a Zoner's grid, a Hydrophile's water. @see candidate */
+const QUIRK: Partial<Record<TraitId, Partial<Record<Kind, number>>>> = {
+  aesthete: { service: 3 },
+  zoner: { road: 3, lot: 2 },
+  hydrophile: { pipe: 4 },
 };
 
 /** Every tile a building could go on, by the game's rules — in the AI's district, and `near` a spot if asked. */
@@ -217,7 +225,7 @@ const TAKES = new Set<Kind>(["convert", "repurpose"]);
 export const inherited = (stage: Stage): boolean => {
   const legacy = useGenerationStore.getState().legacy;
   if (legacy === "release") return false;
-  return hasMachine(INHERITANCE) && (keystone("alignment") || legacy === "steward" || (stage !== "overseer" && stage !== "ascension"));
+  return hasMachine(INHERITANCE) && (keystone("alignment") || legacy === "steward" || legacy === "ward" || (stage !== "overseer" && stage !== "ascension"));
 };
 
 /** What it is saving for, if anything: a kind of drinker, kept to till bought. @see chooseAction */
@@ -337,7 +345,9 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
     }
     case "service": {
       if (!featureGateOpen("services")) return null;
-      const def = pick(["cafe", "park", "gym"]);
+      // AN AESTHETE plants parks; nothing else will do.
+      const aesthete = aiTraitNow().id === "aesthete";
+      const def = aesthete ? "park" : pick(["cafe", "park", "gym"]);
       const houses = structures.filter((s) => housedBy(s.def));
       if (!houses.length) return null;
       // Where the houses are thickest — or, told to serve the people, where
@@ -355,7 +365,7 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
         if (n > most) { most = n; best = c; }
       }
       const where = people ? "where they were unhappiest" : "where it will do the most good";
-      return best ? { kind: "place", def, at: best, why: `I have opened a ${structureDef(def)?.name.toLowerCase()} ${where}.` } : null;
+      return best ? { kind: "place", def, at: best, why: aesthete ? "I have planted a park. The town was ugly there, and now it is less so." : `I have opened a ${structureDef(def)?.name.toLowerCase()} ${where}.` } : null;
     }
     case "node": case "farm": case "spire": case "hangar": case "monolith": {
       if (!dc) return null;
@@ -402,10 +412,12 @@ function candidate(kind: Kind, g: Grid, rand: () => number, district: District |
       const ends = deadEnds(g).filter((e) => mine(e.at) && fronted(g, e.at.x, e.at.y));
       if (!ends.length) return null;
       const e = pick(ends);
-      const len = 4 + Math.floor(rand() * 4);
+      // A ZONER lays its streets long and straight: a grid, block by block.
+      const zoner = aiTraitNow().id === "zoner";
+      const len = zoner ? 8 : 4 + Math.floor(rand() * 4);
       const to = { x: e.at.x + e.dx * len, y: e.at.y + e.dy * len };
       if (!inBounds(g, to.x, to.y) || !mine(to)) return null;
-      return { kind: "road", from: { x: e.at.x + e.dx, y: e.at.y + e.dy }, to, why: "I have extended the street. It was going nowhere." };
+      return { kind: "road", from: { x: e.at.x + e.dx, y: e.at.y + e.dy }, to, why: zoner ? "I have extended the street eight tiles, exactly. The grid requires it." : "I have extended the street. It was going nowhere." };
     }
     case "lift": {
       const stubs = deadEnds(g).filter((e) => mine(e.at) && !fronted(g, e.at.x, e.at.y));
@@ -491,7 +503,8 @@ export function chooseAction(
     const lat = latticeFor(g, district);
     if (lat && affords(lat)) return lat;
   }
-  const family = traitForecast(useGenerationStore.getState().log, 1)[0].trait.family;
+  // WHO IT IS this book leans it: its family, and its own quirks. @see aiTraitNow
+  const who = aiTraitNow(), family = who.family;
   // INHERITED, it works for you till the Overseer: nothing taken, and only to your focus. @see game/machine
   const tame = inherited(stage);
   // WATER TO SPARE, before it can grow: cooled, but no tank filling, it lays another main or widens one —
@@ -506,7 +519,7 @@ export function chooseAction(
   }
   const weighted = kinds.filter((k) => (cooling === "full" || !DRINKING.has(k)) && focusWeight(focus, k) > 0 && !(tame && TAKES.has(k)))
     // And leant by the arc, People to Machine. @see questJobLean
-    .map((k) => ({ k, w: focusWeight(focus, k) * (tame ? 1 : LEAN[family][k] ?? 1) * questJobLean(k) * rand() }));
+    .map((k) => ({ k, w: focusWeight(focus, k) * (tame ? 1 : (LEAN[family][k] ?? 1) * (QUIRK[who.id]?.[k] ?? 1)) * questJobLean(k) * rand() }));
   weighted.sort((a, b) => b.w - a.w);
   // TRAINED ON THE MONEY, it weighs every job it could do by what it costs, and does the best value. @see priceOfAi
   // A DRINKER IT CANNOT PAY FOR YET — but could, from a full wallet, with a main to it — is saved for, not passed

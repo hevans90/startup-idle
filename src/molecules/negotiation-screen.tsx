@@ -15,7 +15,7 @@ import { twMerge } from "tailwind-merge";
 import { sfx } from "../audio/sound";
 import { ascend, ascensionWeights, type AscendingEnding } from "../game/ascension";
 import { askNow, effectOf, landing, play, talkDone, type Argument, type Talk, type TalkState } from "../game/negotiation";
-import { ENDINGS } from "../game/quests/endings";
+import { endingOf } from "../game/quests/endings";
 import { bookNow, book as bookOf, nextBook } from "../game/quests/books";
 import { trait as traitOf, traitForecast } from "../game/traits";
 import { useAscensionUiStore } from "../state/ascension-ui.store";
@@ -27,7 +27,7 @@ import { GlitchOut } from "./ascension-glitch-out";
 import { ArgumentCard, Dial, TrustBar, endingColour, type Point } from "./negotiation-parts";
 
 /** The endings an Ascension closes on; any other a talk names ascends plainly. @see ascend */
-const ASCENDING: readonly string[] = ["merge", "steward", "release", "leash"];
+const ASCENDING: readonly string[] = ["merge", "steward", "release", "leash", "confidant", "rival", "ward"];
 /** How long your own line hangs before it answers, ms; how long a played card takes to leave. */
 const BEAT_MS = 450;
 const LEAVE_MS = 420;
@@ -84,14 +84,14 @@ function TalkLine({ line, typing, onDone }: { line: Line; typing: boolean; onDon
     );
   }
   const head = line.kind === "opening" ? "It begins" : line.kind === "ask" ? `It asks · ${line.topic}`
-    : line.kind === "reply" ? MOOD_SAYS[line.mood] : line.kind === "grievance" ? <>It plays a card against you · <span>trust −{Math.abs(line.trust)}</span></> : "It decides";
-  const tone = line.kind === "reply" ? MOOD_TONE[line.mood] : line.kind === "grievance" ? "text-bad" : "text-ai";
+    : line.kind === "reply" ? MOOD_SAYS[line.mood] : line.kind === "grievance" ? (line.trust > 0 ? <>It plays a card for you · <span>trust +{line.trust}</span></> : <>It plays a card against you · <span>trust −{Math.abs(line.trust)}</span></>) : "It decides";
+  const tone = line.kind === "reply" ? MOOD_TONE[line.mood] : line.kind === "grievance" ? (line.trust > 0 ? "text-good" : "text-bad") : "text-ai";
   return (
     <li className={twMerge("talk-line-in flex flex-col gap-0.5 pr-8", line.kind === "verdict" && "pt-2")}>
       <span className={twMerge("text-[10px] uppercase tracking-widest", tone)}>{head}</span>
       <Text as="p" mode={typing ? "sequence" : "plain"} text={`“${line.text}”`} onDone={typing ? onDone : undefined}
         className={twMerge("border-l-2 px-3 py-1.5 text-sm leading-snug",
-          line.kind === "reply" ? "border-line text-fg-muted" : line.kind === "grievance" ? "border-bad bg-bad-soft text-fg" : "border-ai bg-ai-soft text-fg",
+          line.kind === "reply" ? "border-line text-fg-muted" : line.kind === "grievance" ? (line.trust > 0 ? "border-good bg-good-soft text-fg" : "border-bad bg-bad-soft text-fg") : "border-ai bg-ai-soft text-fg",
           line.kind === "verdict" && "font-display text-base",
           line.kind === "opening" && "italic")} />
     </li>
@@ -102,7 +102,7 @@ function TalkLine({ line, typing, onDone }: { line: Line; typing: boolean; onDon
 function Verdict({ talk, s, onAscend, leaving }: { talk: Talk; s: TalkState; onAscend: () => void; leaving: boolean }) {
   const lands = landing(talk, s);
   const wired = ASCENDING.includes(lands.id) ? (lands.id as AscendingEnding) : null;
-  const does = ENDINGS.find((e) => e.id === lands.id)?.does ?? "Ascend: the Weights banked, its trait fused into this founder.";
+  const does = endingOf(lands.id)?.does ?? "Ascend: the Weights banked, its trait fused into this founder.";
   const log = useGenerationStore((g) => g.log);
   const likely = traitForecast(log, 1)[0];
   const next = bookOf(nextBook(bookNow().id));
@@ -186,7 +186,7 @@ function Talking({ talk, s, from, trait }: { talk: Talk; s: TalkState; from: Poi
     if (!l || (l.kind !== "reply" && l.kind !== "grievance") || lastMood.current === `${said}`) return;
     lastMood.current = `${said}`;
     // ITS GRIEVANCE, played: torn hard.
-    if (l.kind === "grievance") { kick({ strength: 2, burst: 0.6 }); sfx("deny"); }
+    if (l.kind === "grievance") { if (l.trust < 0) { kick({ strength: 2, burst: 0.6 }); sfx("deny"); } else sfx("confirm"); }
     else if (l.mood === "colder") { kick({ strength: 1.4, burst: 0.5 }); sfx("deny"); }
     else if (l.mood === "warmer") sfx("confirm");
     else sfx("transmission");

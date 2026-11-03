@@ -45,22 +45,22 @@ export const NO_FUSION: FusionEffects = {
   servicesCostMult: 1, lotCostMult: 1, officeCostMult: 1, exitsBonus: 0,
 };
 
-/** Each trait, fused: what it changes, and how the founder card says it. */
+/** Each trait, fused: what it changes, and how the founder card says it. Half what it was: the story is the reward now. @see plans/ascension-overhaul.md §5 */
 export const FUSIONS: Record<TraitId, { text: string; apply: (e: FusionEffects) => void }> = {
-  aesthete: { text: "Services half price; lots a quarter dearer", apply: (e) => { e.servicesCostMult *= 0.5; e.lotCostMult *= 1.25; } },
-  zoner: { text: "Every house +4 desirability; offices cost double", apply: (e) => { e.houseDesire += 4; e.officeCostMult *= 2; } },
-  accountant: { text: "Income +10%", apply: (e) => { e.incomeMult *= 1.1; } },
-  ruthless: { text: "Income +25%; everyone's morale −4", apply: (e) => { e.incomeMult *= 1.25; e.moraleLean -= 4; } },
-  nanny: { text: "Everyone's morale +4; income −5%", apply: (e) => { e.moraleLean += 4; e.incomeMult *= 0.95; } },
-  hr: { text: "Hiring 15% cheaper", apply: (e) => { e.hireCostMult *= 0.85; } },
-  paranoid: { text: "Racks free; agents cost double", apply: (e) => { e.rackCostMult = 0; e.agentCostMult *= 2; } },
-  hydrophile: { text: "A water view is +10; floods damage nothing", apply: (e) => { e.waterView = 10; e.floodsDamage = false; } },
+  aesthete: { text: "Services 25% cheaper; lots 10% dearer", apply: (e) => { e.servicesCostMult *= 0.75; e.lotCostMult *= 1.1; } },
+  zoner: { text: "Every house +2 desirability; offices 50% dearer", apply: (e) => { e.houseDesire += 2; e.officeCostMult *= 1.5; } },
+  accountant: { text: "Income +5%", apply: (e) => { e.incomeMult *= 1.05; } },
+  ruthless: { text: "Income +12%; everyone's morale −2", apply: (e) => { e.incomeMult *= 1.12; e.moraleLean -= 2; } },
+  nanny: { text: "Everyone's morale +2; income −3%", apply: (e) => { e.moraleLean += 2; e.incomeMult *= 0.97; } },
+  hr: { text: "Hiring 8% cheaper", apply: (e) => { e.hireCostMult *= 0.92; } },
+  paranoid: { text: "Racks half price; agents 50% dearer", apply: (e) => { e.rackCostMult *= 0.5; e.agentCostMult *= 1.5; } },
+  hydrophile: { text: "A water view is +8; floods damage nothing", apply: (e) => { e.waterView = 8; e.floodsDamage = false; } },
   hivemind: { text: "+1 agent a rack", apply: (e) => { e.agentsPerRack += 1; } },
-  ego: { text: "Training jumps the AI half as far again, in half the time", apply: (e) => { e.trainingJumpMult *= 1.5; e.trainingTimeMult *= 0.5; } },
-  mirror: { text: `The founder's own bonus counts ${MIRROR_EXITS} more exits`, apply: (e) => { e.exitsBonus += MIRROR_EXITS; } },
-  patient: { text: "The AI rises 30% slower; each agent +25%", apply: (e) => { e.meterMult *= 0.7; e.agentBoostMult *= 1.25; } },
-  restless: { text: "The AI rises 30% faster; each agent +50%", apply: (e) => { e.meterMult *= 1.3; e.agentBoostMult *= 1.5; } },
-  resentful: { text: "Each agent +25%; the AI rises 20% faster", apply: (e) => { e.agentBoostMult *= 1.25; e.meterMult *= 1.2; } },
+  ego: { text: "Training jumps the AI a quarter further, in three quarters the time", apply: (e) => { e.trainingJumpMult *= 1.25; e.trainingTimeMult *= 0.75; } },
+  mirror: { text: `The founder's own bonus counts ${MIRROR_EXITS} more exit${MIRROR_EXITS === 1 ? "" : "s"}`, apply: (e) => { e.exitsBonus += MIRROR_EXITS; } },
+  patient: { text: "The AI rises 15% slower; each agent +12%", apply: (e) => { e.meterMult *= 0.85; e.agentBoostMult *= 1.12; } },
+  restless: { text: "The AI rises 15% faster; each agent +25%", apply: (e) => { e.meterMult *= 1.15; e.agentBoostMult *= 1.25; } },
+  resentful: { text: "Each agent +12%; the AI rises 10% faster", apply: (e) => { e.agentBoostMult *= 1.12; e.meterMult *= 1.1; } },
 };
 
 /** What a list of fused traits comes to. */

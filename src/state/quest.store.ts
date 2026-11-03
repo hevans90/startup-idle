@@ -40,7 +40,8 @@ export const REQUESTS_FROM: Stage = "colleague";
 export const LONGEST_STEP = 5;
 
 /** What is being asked now. */
-export type Offer = { kind: "chapter" | "request"; id: string; waited: number };
+/** What is asked; a chapter, in the voice of the family the AI was when it asked. @see Chapter.voices */
+export type Offer = { kind: "chapter" | "request"; id: string; waited: number; voice?: Family };
 /** An objective under way: whose, how long it has run, and what it has measured. */
 export type Running = {
   kind: "chapter" | "request"; id: string; option: number; spec: Objective;
@@ -141,6 +142,9 @@ function pickRequest(requests: readonly Request[], done: Record<string, number>,
 /** Where the family odds come from: a reader the AI registers, so this store does not reach into the trait model. */
 let familyLean: () => Partial<Record<Family, number>> = () => ({});
 export const setFamilyLean = (read: () => Partial<Record<Family, number>>) => { familyLean = read; };
+/** Whose voice a chapter is asked in: a reader the AI registers, as above. @see aiTraitNow */
+let voiceNow: () => Family | undefined = () => undefined;
+export const setVoice = (read: () => Family) => { voiceNow = read; };
 
 export const useQuestStore = create<QuestState>()(
   persist(
@@ -228,10 +232,10 @@ export const useQuestStore = create<QuestState>()(
           }
           // THE DARK CHAPTER, the first time it is shut down this book. @see Book.dark
           const dark = bookNow().dark;
-          if (dark && !(dark.id in s.chapters) && useGenerationStore.getState().log.shutdowns > 0) { set({ offer: { kind: "chapter", id: dark.id, waited: 0 } }); return; }
+          if (dark && !(dark.id in s.chapters) && useGenerationStore.getState().log.shutdowns > 0) { set({ offer: { kind: "chapter", id: dark.id, waited: 0, voice: voiceNow() } }); return; }
           // A CHAPTER, the first time the meter reaches it.
           const due = chapters.find((c) => !(c.id in s.chapters) && world.meter >= (c.at ?? world.stageFrom[c.stage]));
-          if (due) { set({ offer: { kind: "chapter", id: due.id, waited: 0 } }); return; }
+          if (due) { set({ offer: { kind: "chapter", id: due.id, waited: 0, voice: voiceNow() } }); return; }
           // A REQUEST, between them, from the Colleague on.
           if (world.meter < world.stageFrom[REQUESTS_FROM] || !requests.length) return;
           const left = (s.requestIn ?? nextRequestIn(rand())) - dt;

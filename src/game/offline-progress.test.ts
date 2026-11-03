@@ -161,7 +161,7 @@ describe("computeOfflineProgress", () => {
       const now = Date.now();
       useSessionStore.setState({ lastSeenAt: now - HOUR });
       expect(computeOfflineProgress(now)!.chapter).toBeNull();
-      useGenerationStore.setState({ generation: 2, book: 2 });
+      useGenerationStore.setState({ generation: 3, book: 3 });
       useQuestStore.setState({ chapters: {}, offer: null });
       expect(chapterWaiting(40)).toBeNull();
     });

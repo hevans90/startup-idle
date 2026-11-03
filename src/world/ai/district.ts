@@ -55,7 +55,7 @@ export const inDistrict = (d: District | null, x: number, y: number): boolean =>
 export const aiHoldsRoads = (): boolean =>
   useFounderStore.getState().selectedFounderId !== "model" && !keystone("alignment") && !keystone("airgap")
   // A Steward's AI keeps out of your streets for the generation after. @see game/quests/endings
-  && useGenerationStore.getState().legacy !== "steward"
+  && !["steward", "ward"].includes(useGenerationStore.getState().legacy ?? "")
   // The Oversight Board's streets stay yours; the Partnership's are shared. @see questCharter
   && questCharter() !== "oversight" && questCharter() !== "partnership"
   && useAiSingularityStore.getState().value >= stageFrom("overseer");

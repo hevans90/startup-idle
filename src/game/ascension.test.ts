@@ -78,7 +78,7 @@ describe("the Ascension", () => {
     const g = useGenerationStore.getState();
     expect(g.announce).toMatchObject({ generation: 1, book: 1, ending: "merge", sales: 5, form: "spire", trait: r.trait });
     expect(g.announce?.also).toBe(r.also);
-    expect(g.past.at(-1)).toEqual(g.announce!);
+    expect(g.past[g.past.length - 1]).toEqual(g.announce!);
     expect(ringRevealed(1)).toBe("Ring 1 of the Machine");
     expect(ringRevealed(4)).toBe("The Machine's keystones");
     expect(ringRevealed(5)).toBeNull();
@@ -119,7 +119,7 @@ describe("fusion", () => {
     for (const id of Object.keys(FUSIONS) as (keyof typeof FUSIONS)[]) {
       expect(fusionOf([id])).not.toEqual(fusionOf([]));
     }
-    expect(fusionOf(["accountant", "accountant"]).incomeMult).toBeCloseTo(1.21);
+    expect(fusionOf(["accountant", "accountant"]).incomeMult).toBeCloseTo(1.05 * 1.05);
   });
 
   test("applies to the founder who carries it", () => {

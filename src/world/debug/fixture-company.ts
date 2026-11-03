@@ -15,6 +15,7 @@ import { useVapeAchievementsStore } from "../../state/vape-achievements.store";
 import { useAgentsStore } from "../../state/agents.store";
 import { useAiSingularityStore } from "../../state/ai-singularity.store";
 import { useFounderStore } from "../../state/founder.store";
+import type { AscendingEnding } from "../../game/quests/endings";
 import { useGenerationStore } from "../../state/generation.store";
 import { GENERATOR_TYPES, useGeneratorStore } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
@@ -62,6 +63,7 @@ export const FIXTURE_METER = 45;
  * from the map's sequence, through the card and the negotiation, to the
  * founders. With `&shutdowns=N`, shut down N times already and Cold Start
  * answered with an apology: Contain on the card, its grievances in the talk.
+ * With `&book=2`, the end of book 2 instead, book 1 closed on `&legacy=`.
  * @see NegotiationScreen
  */
 function seedAscension(): void {
@@ -81,8 +83,26 @@ function seedAscension(): void {
   useGeneratorStore.setState((s) => ({
     employeeManagement: { ...s.employeeManagement, deck: { ...s.employeeManagement.deck, slots: 2, ranks: { crunch: 1, redteam: 1 }, slotted: ["crunch", "redteam"] } },
   }));
+  // BOOK 2, at its end instead: book 1 closed on `&legacy=` (a Leash, unless said), its record kept for the grudge. @see BOOK2_CHAPTERS
+  const params = new URLSearchParams(location.search);
+  if (params.get("book") === "2") {
+    const legacy = (params.get("legacy") ?? "leash") as AscendingEnding;
+    useQuestStore.setState((q) => ({
+      record: [{ generation: 1, book: 1, chapters: q.chapters, disposition: q.disposition, flags: ["ledger:refused", "block:rebuilt", "river:piped", "charter:oversight", "site:given", "lattice:helped"], ending: legacy }],
+      chapters: { reunion: 0, grudge: 0, "second-opinion": 1, "own-hire": 0, mirror: 0 },
+      flags: ["reunion:honest", "grudge:repaired", "second:overruled", "hire:given", "mirror:looked"],
+      disposition: { autonomy: -1, machine: -1 },
+      path: [{ autonomy: -1, machine: -1 }, { autonomy: -1, machine: -2 }, { autonomy: -3, machine: -2 }, { autonomy: -2, machine: -1 }, { autonomy: -3, machine: -1 }],
+    }));
+    useGenerationStore.setState((g) => ({
+      generation: 2, book: 2, legacy, weights: 17,
+      past: [{ generation: 1, trait: "restless", mutated: false, founder: "hustler", weights: 17, book: 1, ending: legacy, sales: 5, form: "garden" }],
+      fused: { hustler: ["restless"] },
+      log: { ...g.log, ...(legacy === "leash" ? { leashed: 1 } : {}) },
+    }));
+  }
   // THE SHUTDOWN BRANCH, already taken. @see Book.dark
-  const shutdowns = Number(new URLSearchParams(location.search).get("shutdowns")) || 0;
+  const shutdowns = Number(params.get("shutdowns")) || 0;
   if (shutdowns > 0) {
     useGenerationStore.setState((g) => ({ log: { ...g.log, shutdowns } }));
     useQuestStore.setState((q) => ({ chapters: { ...q.chapters, "cold-start": 0 }, flags: [...q.flags, "dark:apologised"] }));

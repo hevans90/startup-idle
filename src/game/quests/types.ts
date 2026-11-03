@@ -105,6 +105,8 @@ export type Objective = ObjectiveSpec & {
 
 export type Option = {
   label: string;
+  /** A TRAIT OPTION: open only to an AI of this family; kept after the others, so the rest keep their places. */
+  family?: Family;
   /** What it costs, said plainly; the cost itself is in its effects or objective. */
   cost?: string;
   /** What it does, said plainly, for the card. */
@@ -135,6 +137,8 @@ export type Chapter = {
   at?: number;
   /** The AI's words; a line may change with an echo. */
   transmission: (flags: ReadonlySet<string>) => string[];
+  /** A line before them, in the voice of the family it is. @see Offer.voice, plans/ascension-overhaul.md §5 */
+  voices?: Record<Family, string>;
   options: Option[];
   /** The option it picks itself, ignored for `CHAPTER_WAIT` seconds. */
   preferred: number;

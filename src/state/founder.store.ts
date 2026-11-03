@@ -8,7 +8,7 @@ import { useSessionStore } from "./session.store";
 
 /** Neutral (no-op) modifier values — read by every chokepoint when no founder is active. */
 /** Exits a Mirror fused into a founder counts on top of theirs. @see FUSIONS.mirror */
-export const MIRROR_EXITS = 2;
+export const MIRROR_EXITS = 1;
 
 export const NEUTRAL: Required<FounderModifiers> = {
   costExponentReduction: 0,

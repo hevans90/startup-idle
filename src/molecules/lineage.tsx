@@ -5,7 +5,7 @@
  */
 import { useGenerationStore } from "../state/generation.store";
 import { book as bookOf } from "../game/quests/books";
-import { ENDINGS } from "../game/quests/endings";
+import { endingOf } from "../game/quests/endings";
 import { FORM_NAMES } from "../game/quests/finale";
 import { trait as traitOf } from "../game/traits";
 import { FOUNDERS } from "../game/founders.catalog";
@@ -18,7 +18,7 @@ export function Lineage({ onClose }: { onClose: () => void }) {
     <Dialog title="The lineage" kicker={`${past.length} generation${past.length === 1 ? "" : "s"}`} tone="ai" wide onClose={onClose}>
       <ol aria-label="Every generation" className="-mx-1 flex max-h-[70vh] flex-col overflow-y-auto px-1 pb-1">
         {past.map((p, k) => {
-          const ending = ENDINGS.find((e) => e.id === p.ending);
+          const ending = endingOf(p.ending);
           const colour = ending ? endingColour(ending.id) : "var(--ui-ai)";
           const b = bookOf(p.book ?? 1);
           return (

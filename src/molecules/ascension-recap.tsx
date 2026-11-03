@@ -7,7 +7,7 @@
 import { useQuestStore } from "../state/quest.store";
 import { useGenerationStore, type PastGeneration } from "../state/generation.store";
 import { book as bookOf, chapterKicker, chapterOf } from "../game/quests/books";
-import { ENDINGS } from "../game/quests/endings";
+import { endingOf } from "../game/quests/endings";
 import { FORM_NAMES } from "../game/quests/finale";
 import { ringRevealed } from "../game/machine";
 import { trait as traitOf } from "../game/traits";
@@ -21,7 +21,7 @@ export function AscensionRecap({ gone, onLineage, onDone }: { gone: PastGenerati
   const record = useQuestStore((q) => q.record.find((r) => r.generation === gone.generation));
   const past = useGenerationStore((g) => g.past.length);
   const b = bookOf(gone.book ?? 1);
-  const ending = ENDINGS.find((e) => e.id === gone.ending);
+  const ending = endingOf(gone.ending);
   // EACH CHAPTER'S CHOICE, in the book's order, its dark chapter last.
   const order = [...b.chapters, ...(b.dark ? [b.dark] : [])].map((c) => c.id);
   const chosen = Object.entries(record?.chapters ?? {})

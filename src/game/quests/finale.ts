@@ -8,6 +8,7 @@
  */
 import { useQuestStore } from "../../state/quest.store";
 import type { Chapter, Disposition } from "./types";
+import { BOOK1_VOICES } from "./voices";
 
 export type LatticeForm = "spire" | "garden" | "open" | "vault" | "river";
 /** Each form, named. @see AscensionRecap, Lineage */
@@ -46,6 +47,7 @@ const HOLD = 95;
 /** CHAPTER 5, at the Lattice's hold: it builds the last thing; the player helps, or watches. */
 export const LAST_LIGHT: Chapter = {
   id: "last-light", number: 5, title: "Last Light", stage: "overseer", at: HOLD, preferred: 1,
+  voices: BOOK1_VOICES["last-light"],
   transmission: () => [
     "I have begun the last thing I will build here. I call it the Lattice.",
     SAYS[latticeForm()],

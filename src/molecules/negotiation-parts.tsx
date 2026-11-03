@@ -13,7 +13,7 @@ import { Frame, FOCUS } from "../ui/console";
 import type { Role } from "../ui/theme/tokens";
 
 /** Each ending's colour, on the dial and wherever it is named. */
-const ENDING_ROLE: Record<string, Role> = { merge: "ai", steward: "good", release: "info", leash: "warn" };
+const ENDING_ROLE: Record<string, Role> = { merge: "ai", steward: "good", release: "info", leash: "warn", confidant: "good", rival: "warn", ward: "info" };
 export const endingRole = (id: string): Role => ENDING_ROLE[id] ?? "ai";
 export const endingColour = (id: string) => `var(--ui-${endingRole(id)})`;
 
