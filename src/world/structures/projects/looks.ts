@@ -550,6 +550,168 @@ export function gym(f: Footprint): Building {
   };
 }
 
+// ─── THE TOWN'S OWN SERVICES ───────────────────────────────────────────────
+
+/** A sign's lettering: a few strokes on a board's face, along `u` at `v`. */
+function lettering(p: Pen, v: number, u0: number, u1: number, z0: number, z1: number, colour: number, n = 5) {
+  const w = (u1 - u0) / (n * 1.35);
+  for (let k = 0; k < n; k++) p.onV(v, u0 + k * w * 1.35, u0 + k * w * 1.35 + w, z0, k % 2 ? z1 : z0 + (z1 - z0) * 0.75, colour);
+}
+
+/**
+ * The cinema's marquee, where its bulbs chase: the hall's sides in, its front
+ * in — far enough for the marquee to stand out over it inside the plot — so
+ * far out, so high. @see drawMoving
+ */
+export const MARQUEE = { inset: 0.2, front: 0.48, out: 0.36, z0: 1.7, z1: 2.05 };
+/** The night club's height: its beams go up off the roof. @see drawMoving */
+export const CLUB_TOP = PLINTH.h + 2.6;
+
+/** THE NIGHT CLUB: a black box, no windows, a neon band round its top and a rope at the door. */
+export function club(f: Footprint): Building {
+  const NEON = 0xd25bff;
+  const m: Mass = {
+    ...inside(f, 0.2, PLINTH.h, CLUB_TOP), wall: 0x2a2633, storey: 2.3,
+    facade: { kind: "plain", lines: 0x24202c, every: 0.5 },
+    roof: { kind: "parapet", deck: 0x1d1a24, rim: 0x3a3546, h: 0.16 },
+  };
+  return {
+    plinth: { ...PLINTH, top: 0x4a4752 }, masses: [m], crane: "none",
+    grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0x4a4752),
+    details: (p) => {
+      // The neon, round the top of the two faces seen.
+      p.onV(m.v1, m.u0, m.u1, m.z1 - 0.42, m.z1 - 0.34, NEON);
+      p.onU(m.u1, m.v0, m.v1, m.z1 - 0.42, m.z1 - 0.34, NEON);
+      // The sign, lettered in neon, over the door.
+      const mid = (m.u0 + m.u1) / 2;
+      p.box(mid - 0.55, m.v1, mid + 0.55, m.v1 + 0.04, m.z0 + 1.55, m.z0 + 2.0, 0x15131b);
+      lettering(p, m.v1 + 0.042, mid - 0.45, mid + 0.45, m.z0 + 1.65, m.z0 + 1.9, NEON);
+      door(p, m, mid, 0.36, 1.25, 0x111015, 0x6b5a7a);
+      // The rope: posts and a red cord, out front.
+      for (const u of [mid - 0.45, mid - 0.15, mid + 0.15]) p.box(u - 0.02, m.v1 + 0.3, u + 0.02, m.v1 + 0.34, PLINTH.h, PLINTH.h + 0.5, 0xd8c070);
+      p.box(mid - 0.45, m.v1 + 0.31, mid + 0.15, m.v1 + 0.33, PLINTH.h + 0.38, PLINTH.h + 0.43, 0xb0182e);
+      // The lights on the roof the beams come off. @see drawMoving
+      for (const du of [-0.3, 0.3]) p.box(f.w / 2 + du - 0.07, f.h / 2 - 0.07, f.w / 2 + du + 0.07, f.h / 2 + 0.07, m.z1, m.z1 + 0.18, 0x55505f);
+    },
+  };
+}
+
+/** THE CINEMA: a tall red hall, posters along its front, and a marquee over the doors. */
+export function cinema(f: Footprint): Building {
+  const RED = 0xa8242e, CREAM = 0xf1e4c4;
+  const m: Mass = {
+    ...inside(f, [MARQUEE.inset, MARQUEE.inset, MARQUEE.inset, MARQUEE.front], PLINTH.h, PLINTH.h + 3.4), wall: RED, storey: 3.4,
+    facade: { kind: "plain" },
+    roof: { kind: "parapet", deck: 0x4b3a33, rim: CREAM, h: 0.2 },
+    cornice: { colour: CREAM, h: 0.14, out: 0.03 },
+  };
+  return {
+    plinth: PLINTH, masses: [m], crane: "none",
+    grounds: paved,
+    details: (p) => {
+      const mid = (m.u0 + m.u1) / 2;
+      // Glass doors under the marquee.
+      p.onV(m.v1, mid - 0.5, mid + 0.5, m.z0, m.z0 + 1.25, FRAME);
+      p.onV(m.v1, mid - 0.46, mid + 0.46, m.z0, m.z0 + 1.2, tone(GLASS, 0.6));
+      for (const u of [mid - 0.16, mid + 0.16]) p.onV(m.v1, u - 0.012, u + 0.012, m.z0, m.z0 + 1.2, FRAME);
+      // THE MARQUEE: a deep slab out over the doors, its board cream, lettered.
+      p.box(m.u0 + 0.06, m.v1, m.u1 - 0.06, m.v1 + MARQUEE.out, MARQUEE.z0, MARQUEE.z1, 0x2b2228, { top: 0x3a2f35 });
+      p.onV(m.v1 + MARQUEE.out + 0.002, m.u0 + 0.16, m.u1 - 0.16, MARQUEE.z0 + 0.06, MARQUEE.z1 - 0.12, CREAM);
+      lettering(p, m.v1 + MARQUEE.out + 0.004, m.u0 + 0.3, m.u1 - 0.3, MARQUEE.z0 + 0.1, MARQUEE.z1 - 0.18, 0x2b2228, 7);
+      // Posters either side, and a tall sign up the corner.
+      for (const u of [m.u0 + 0.12, m.u1 - 0.36]) {
+        p.onV(m.v1, u, u + 0.24, m.z0 + 0.25, m.z0 + 1.05, CREAM);
+        p.onV(m.v1, u + 0.03, u + 0.21, m.z0 + 0.3, m.z0 + 1.0, u < mid ? 0x2f5f9f : 0xe0a030);
+      }
+      p.box(m.u1 - 0.1, m.v1, m.u1 + 0.02, m.v1 + 0.3, m.z0 + 2.2, m.z1 + 0.6, CREAM);
+      for (let k = 0; k < 5; k++) p.onU(m.u1 + 0.021, m.v1 + 0.08, m.v1 + 0.22, m.z0 + 2.35 + k * 0.32, m.z0 + 2.55 + k * 0.32, RED);
+    },
+  };
+}
+
+/** CO-WORKING: a warehouse done up — brick, big steel windows, a yellow sign and bikes out front. */
+export function coworking(f: Footprint): Building {
+  const YELLOW = 0xf2c230;
+  const m: Mass = {
+    ...inside(f, 0.2, PLINTH.h, PLINTH.h + 3.6), wall: 0x9c5a44, storey: 1.8,
+    facade: { kind: "windows", glass: GLASS, frame: 0x2b2f33, w: 0.36, gap: 0.12, sill: 0.25, head: 0.25 },
+    ground: { kind: "ribbon", glass: GLASS, frame: 0x2b2f33, sill: 0.1, head: 0.3, edge: 0.12 },
+    roof: { kind: "parapet", deck: ROOF, rim: 0x7e4a38, h: 0.18 },
+  };
+  return {
+    plinth: PLINTH, masses: [m], crane: "none",
+    grounds: paved,
+    details: (p) => {
+      const mid = (m.u0 + m.u1) / 2;
+      p.box(mid - 0.6, m.v1, mid + 0.6, m.v1 + 0.04, m.z0 + 1.55, m.z0 + 1.85, YELLOW);
+      lettering(p, m.v1 + 0.042, mid - 0.5, mid + 0.5, m.z0 + 1.62, m.z0 + 1.78, 0x22262b, 6);
+      // A bike rack and two bikes.
+      p.box(m.u0 + 0.1, m.v1 + 0.24, m.u0 + 0.7, m.v1 + 0.27, PLINTH.h, PLINTH.h + 0.3, 0x9aa3ad);
+      for (const [u, c] of [[m.u0 + 0.25, 0x2f8f6b], [m.u0 + 0.5, 0xd8432f]] as const) {
+        p.box(u - 0.01, m.v1 + 0.18, u + 0.01, m.v1 + 0.34, PLINTH.h + 0.12, PLINTH.h + 0.38, c);
+      }
+      plant(p, m.u0 + 0.45, m.v0 + 0.4, m.z1);
+      planter(p, m.u1 - 0.2, m.v1 + 0.2, PLINTH.h);
+    },
+  };
+}
+
+/** THE DOCTOR'S: a white clinic, blue glass, a green cross out from the wall. */
+export function doctor(f: Footprint): Building {
+  const GREEN = 0x2fa35a;
+  const m: Mass = {
+    u0: 0.18, v0: 0.12, u1: f.w - 0.18, v1: f.h - 0.36, z0: 0.12, z1: 2.4, wall: 0xf1f2ee, storey: 2.28,
+    facade: { kind: "ribbon", glass: 0x7fb0d6, frame: 0xdfe3e0, sill: 0.8, head: 0.4, edge: 0.15 },
+    roof: { kind: "parapet", deck: 0x8a9096, rim: 0xdfe3e0, h: 0.14 },
+  };
+  return {
+    plinth: { inset: 0.04, h: 0.12, colour: STONE, top: PAVING }, masses: [m], crane: "none",
+    grounds: paved,
+    details: (p) => {
+      door(p, m, m.u0 + 0.35, 0.34, 1.2, 0x7fb0d6, 0xdfe3e0);
+      p.box(m.u0 + 0.6, m.v1, m.u1 - 0.1, m.v1 + 0.03, m.z0 + 1.45, m.z0 + 1.75, GREEN);
+      lettering(p, m.v1 + 0.032, m.u0 + 0.7, m.u1 - 0.2, m.z0 + 1.52, m.z0 + 1.66, WHITE, 5);
+      // The cross, on a bracket at the corner.
+      const u = m.u1 - 0.05, z = m.z1 - 0.35;
+      p.box(u - 0.01, m.v1, u + 0.01, m.v1 + 0.2, z - 0.02, z + 0.02, 0x9aa3ad);
+      p.box(u - 0.03, m.v1 + 0.2, u + 0.03, m.v1 + 0.23, z - 0.3, z + 0.3, GREEN);
+      p.box(u - 0.1, m.v1 + 0.2, u + 0.1, m.v1 + 0.23, z - 0.09, z + 0.09, GREEN);
+      // A bench out front.
+      p.box(m.u0 + 0.7, f.h - 0.2, m.u0 + 1.1, f.h - 0.1, 0.12, 0.35, 0x9a7349);
+    },
+  };
+}
+
+/** THE CLIMBING WALL: a tall shed, its front a wall of holds in every colour, and a big window. */
+export function climbing(f: Footprint): Building {
+  const HOLDS = [0xe0603a, 0x3d8be0, 0xf2c230, 0x45b07a, 0xa65ad6, 0xf27aa8];
+  const m: Mass = {
+    ...inside(f, 0.2, PLINTH.h, PLINTH.h + 4.2), wall: 0x8f9aa5, storey: 4.2,
+    facade: { kind: "plain", lines: 0x84909b, every: 0.6 },
+    roof: { kind: "flat", deck: 0x5d666f },
+  };
+  return {
+    plinth: PLINTH, masses: [m], crane: "none",
+    grounds: paved,
+    details: (p) => {
+      // THE WALL: a grey panel up the lit face, holds dotted all over it.
+      const a0 = m.u0 + 0.12, a1 = m.u0 + 0.95;
+      p.onV(m.v1, a0, a1, m.z0 + 0.2, m.z1 - 0.2, 0xb7bec4);
+      for (let k = 0; k < 22; k++) {
+        const u = a0 + 0.05 + ((k * 37) % 19) / 19 * (a1 - a0 - 0.1);
+        const z = m.z0 + 0.4 + ((k * 23) % 17) / 17 * (m.z1 - m.z0 - 0.9);
+        p.dot(u, m.v1 + 0.01, z, 0.022, HOLDS[k % HOLDS.length]);
+      }
+      // A window on the rest of it, and the door and sign.
+      p.onV(m.v1, m.u0 + 1.1, m.u1 - 0.1, m.z0 + 1.6, m.z1 - 0.4, tone(GLASS, 0.85));
+      door(p, m, m.u0 + 1.35, 0.32, 1.2, DARK, 0xe0603a);
+      p.box(m.u0 + 1.1, m.v1, m.u1 - 0.1, m.v1 + 0.03, m.z0 + 1.3, m.z0 + 1.5, 0xe0603a);
+      // A rope hanging off the top.
+      p.onV(m.v1 + 0.02, a0 + 0.4, a0 + 0.415, m.z0 + 0.5, m.z1 - 0.2, 0xf2efe6);
+    },
+  };
+}
+
 /** SLOP REFINERY: a squat brick works, two brown-banded tanks beside it and a stack venting on the roof. */
 export function refinery(f: Footprint): Building {
   const m: Mass = {
@@ -923,8 +1085,8 @@ export const LOOKS: Record<string, (f: Footprint) => Building> = {
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
   cafe, park, gym, lab, levee, derelict, rack, pump,
-  // The town's own services, drawn as their nearest kin until they have looks of their own.
-  club: gym, coworking: studio, cinema: gym, doctor: cafe, climbing: gym,
+  // The town's own services.
+  club, coworking, cinema, doctor, climbing,
   // The slop processors. @see game/processors
   refinery, dataplant, contentfarm,
   "ai-node": aiNode, "gpu-farm": gpuFarm, "compute-spire": computeSpire, "drone-hangar": droneHangar, monolith, lattice,

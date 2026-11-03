@@ -66,6 +66,7 @@ The town builds its own shops. Neighbourhoods form from the roads. Each employee
 - **Sim:** `simulation/services-pacing.test.ts` checks the unlock times over a typical run and an AI-mode run.
 
 ## 3. Shopfront rendering
+**Done.** As built: `render/shopfronts.ts` draws a shop's front (window, door, striped awning, lettered sign, neon or a cross, a pavement prop) on its house's face toward the street — the lit face where the street is behind — a Graphics a band among the movers, redrawn on map change; what moves (café/bakery/kombucha steam, arcade screen, club beams, cinema marquee) a Graphics each, redrawn at 12 Hz in visible bands only. Own looks for club, cinema, co-working, doctor and climbing wall (`looks.ts`). Signs glow in their colour at night (`lightsOf` "sign"). Names: `agents/shop-names.ts`, six a service, by building id; shown in the label. Opening: `Juice.opened` — a pop, a sparkle and the name floating up. Fixture `shops`.
 - Each service gets a real look:
   - an awning or façade in its own colour and a sign with its name;
   - lit windows at night;

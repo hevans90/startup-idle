@@ -7,11 +7,13 @@
  *  - PUFF: a building that comes down leaves a cloud where it stood;
  *  - CONFETTI: Ship It Fridays' release parties — a burst off a roof,
  *    fluttering down. @see game/culture
+ *  - OPENED: a shop the town opens pops, sparkles in its colour, and its
+ *    name floats up off it and fades. @see stepTown
  *
  * Only for what changes while the map is up — not for what is there when it
  * loads, which arrives all at once and would be a storm. @see syncStructures
  */
-import { Sprite, Texture, type Container } from "pixi.js";
+import { Sprite, Text, Texture, type Container } from "pixi.js";
 
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { bandOf, cellToWorld } from "../iso";
@@ -36,6 +38,11 @@ const SPARKLE = 0xfff3b0;
 const CONFETTI = [0xe0533d, 0x3d8be0, 0x45b07a, 0xf2c230, 0xa65ad6, 0xf27aa8];
 const CONFETTI_N = 36;
 const CONFETTI_FALL = 260;
+/** A shop's opening: how much it swells, over how long; how far its name rises, over how long. */
+const POP = 0.12;
+const POP_MS = 380;
+const NAME_PX = 34;
+const NAME_MS = 2600;
 /** A drone's light, as it is drawn: the overseer's violet. @see ai-layer */
 const DRONE = 0xb44aff;
 
@@ -48,6 +55,12 @@ export type Juice = {
   gone: (s: Structure, ctx: RenderCtx) => void;
   /** A burst of confetti off a building's roof. */
   confetti: (s: Structure, ctx: RenderCtx) => void;
+  /**
+   * The town has opened a shop here: the building pops — if it is drawn yet,
+   * a house with a shop new in it — sparkles in `colour`, and `name` floats
+   * up off it. @see stepTown
+   */
+  opened: (s: Structure, handle: StructureHandle | undefined, ctx: RenderCtx, name: string, colour: number) => void;
   /** A drone has landed its job here: a burst of its violet light, rising. */
   landed: (at: { x: number; y: number }, ctx: RenderCtx) => void;
   /** Step everything on by `dtMs`. */
@@ -180,6 +193,36 @@ export function createJuice(): Juice {
     },
     confetti(s, ctx) {
       confetti(ctx, s, 30 + 12 * Math.max(s.w, s.h));
+    },
+    opened(s, handle, ctx, name, colour) {
+      const { wx, wy, band } = footOf(ctx.grid, s, ctx.scale);
+      // THE POP: swelling out of its foot and back, its parts together.
+      for (const p of handle ? partsOf(handle) : []) {
+        const x = p.x, y = p.y, sx = p.scale.x, sy = p.scale.y;
+        tweens.add({
+          from: 0, to: 1, ms: POP_MS, ease: EASE.hop, alive: live(p),
+          set: (v) => { const k = 1 + POP * v; p.scale.set(sx * k, sy * k); p.x = wx + (x - wx) * k; p.y = wy + (y - wy) * k; },
+        });
+      }
+      puff(ctx, s, 9, colour, 40);
+      // ITS NAME, rising off the roof and fading.
+      const layer = ctx.bands.dynamicOf[band];
+      if (layer) {
+        const t = new Text({ text: name, style: { fontFamily: "Space Mono, monospace", fontSize: 13, fontWeight: "700", fill: 0xffffff, stroke: { color: colour, width: 3 } } });
+        t.anchor.set(0.5, 1);
+        t.scale.set(ctx.scale);
+        t.zIndex = 1e6;
+        t.eventMode = "none";
+        const y0 = wy - (50 + 14 * Math.max(s.w, s.h)) * ctx.scale;
+        t.position.set(wx, y0);
+        layer.addChild(t);
+        tweens.add({
+          from: 0, to: 1, ms: NAME_MS, ease: EASE.linear, alive: live(t),
+          set: (v) => { t.y = y0 - NAME_PX * ctx.scale * EASE.outCubic(v); t.alpha = v < 0.6 ? Math.min(1, v * 8) : (1 - v) / 0.4; },
+          done: () => { t.parent?.removeChild(t); t.destroy(); },
+        });
+      }
+      sfx("pop");
     },
     landed(at, ctx) {
       const x = Math.round(at.x), y = Math.round(at.y);

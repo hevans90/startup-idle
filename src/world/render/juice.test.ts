@@ -34,4 +34,18 @@ describe("juice", () => {
     for (let k = 0; k < 30; k++) j.tick(16);
     expect(part.y).toBeCloseTo(100);
   });
+
+  test("a shop opening: the house pops out of its foot and settles exactly where it was", () => {
+    const j = createJuice();
+    const part = new Container();
+    part.x = 10; part.y = 100;
+    const ctx = { bands: { dynamicOf: [] }, textures: {}, grid: createGrid(4, 4), scale: 1 } as unknown as RenderCtx;
+    j.opened({ id: 1, def: "kit:intern.t1", x: 1, y: 1, w: 1, h: 1 }, { sprites: [part] } as never, ctx, "Root Access", 0x23573f);
+    j.tick(190);
+    expect(part.scale.x).toBeGreaterThan(1);
+    for (let k = 0; k < 40; k++) j.tick(16);
+    expect(part.scale.x).toBeCloseTo(1);
+    expect(part.x).toBeCloseTo(10);
+    expect(part.y).toBeCloseTo(100);
+  });
 });

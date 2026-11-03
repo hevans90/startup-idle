@@ -19,6 +19,8 @@ import { isPaved } from "../roads/mask";
 import { tierOf } from "../agents/services";
 import { DESKS } from "../agents/commute";
 import { notable } from "../../game/machine";
+import { serviceOf } from "../agents/needs";
+import { SHOP_LOOK, shopfrontsOf } from "./shopfronts";
 
 const WINDOW = 0xffc46b;
 const NIGHT_SHIFT_WINDOW = 0xb44aff;
@@ -27,6 +29,8 @@ const CRUNCH_WINDOW = 0xd8ecff;
 const LAMP = 0xffe2a0;
 /** How high a building's glow sits over its ground, screen px at scale 1, by tier. */
 const RISE: Record<string, number> = { t0: 18, t1: 28, t2: 46, landmark: 80 };
+/** How high a shop's sign glows over its ground, screen px at scale 1. */
+const SIGN_RISE = 26;
 /** A lamp every this many tiles along a straight street. */
 const LAMP_EVERY = 4;
 
@@ -56,7 +60,7 @@ function glowTexture(): Texture {
 }
 
 /** Where the lights go: a glow per lit building, a pool per lamp. Pure, for tests. */
-export function lightsOf(g: Grid, crunch = false): { kind: "window" | "lamp"; x: number; y: number; w: number; h: number; rise: number; violet?: boolean; crunch?: boolean }[] {
+export function lightsOf(g: Grid, crunch = false): { kind: "window" | "lamp" | "sign"; x: number; y: number; w: number; h: number; rise: number; violet?: boolean; crunch?: boolean; tint?: number; neon?: boolean }[] {
   // THE NIGHT SHIFT: workplaces lit violet, the AI at the empty desks. @see game/machine "nightshift"
   const night = notable("nightshift");
   const out: ReturnType<typeof lightsOf> = [];
@@ -67,6 +71,17 @@ export function lightsOf(g: Grid, crunch = false): { kind: "window" | "lamp"; x:
     if (housed && !residentsIn(s)) continue;
     if (s.def === "derelict") continue;
     out.push({ kind: "window", x: s.x, y: s.y, w: s.w, h: s.h, rise: RISE[tierOf(s.def) ?? ""] ?? 34, ...(night && s.def in DESKS ? { violet: true } : crunch && s.def in DESKS ? { crunch: true } : {}) });
+  }
+  // THE SHOPS' SIGNS, each in its own colour — a neon one brighter — at its front.
+  for (const f of shopfrontsOf(g)) {
+    const L = SHOP_LOOK[f.sv];
+    out.push({ kind: "sign", x: f.x, y: f.y, w: 1, h: 1, rise: SIGN_RISE, tint: L.glow, ...(L.neon ? { neon: true } : {}) });
+  }
+  for (const s of g.structures.values()) {
+    const sv = !s.build && serviceOf(s.def);
+    if (!sv) continue;
+    const L = SHOP_LOOK[sv];
+    out.push({ kind: "sign", x: s.x, y: s.y, w: s.w, h: s.h, rise: SIGN_RISE, tint: L.glow, ...(L.neon ? { neon: true } : {}) });
   }
   const paved = (x: number, y: number) => inBounds(g, x, y) && isPaved(g, x, y);
   for (let y = 0; y < g.h; y++) {
@@ -107,6 +122,12 @@ export function createLights(stage: Container, zIndex: number): Lights {
           s.tint = l.violet ? NIGHT_SHIFT_WINDOW : l.crunch ? CRUNCH_WINDOW : WINDOW;
           s.scale.set((l.crunch ? 1.6 : 1) * (1.1 + 0.5 * Math.max(l.w, l.h)) * scale);
           s.alpha = l.crunch ? 0.8 : 0.55;
+        } else if (l.kind === "sign") {
+          // Toward the front, where the sign is.
+          s.y += 10 * scale;
+          s.tint = l.tint ?? WINDOW;
+          s.scale.set((l.neon ? 1.1 : 0.8) * Math.max(l.w, l.h) * scale);
+          s.alpha = l.neon ? 0.85 : 0.6;
         } else {
           s.tint = LAMP;
           // A pool on the ground: flattened, as the tiles are.

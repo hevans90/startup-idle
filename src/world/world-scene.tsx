@@ -209,6 +209,8 @@ import { busyness, darkness, dayPhase, drawRain, mixColour, NIGHT_DARK, NIGHT_GR
 import { inForce } from "../game/culture";
 import { cultureNow } from "../game/culture-now";
 import { createCultureProps, type CultureProps } from "./render/culture-props";
+import { SHOP_LOOK, createShopfronts, type Shopfronts } from "./render/shopfronts";
+import { shopName } from "./agents/shop-names";
 import { createLights, type Lights } from "./render/lights";
 import { keystone, notable } from "../game/machine";
 import { inAiDistrictNow } from "./ai/district";
@@ -359,6 +361,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const juiceRef = useRef<Juice | null>(null);
   /** The culture deck's cards, seen by the buildings. @see createCultureProps */
   const propsRef = useRef<CultureProps | null>(null);
+  /** The town's shops' fronts, and what of them moves. @see createShopfronts */
+  const shopsRef = useRef<Shopfronts | null>(null);
   /** Seconds to Ship It Fridays' next release party. @see SHIP_EVERY */
   const shipIn = useRef(0);
   const soundClock = useRef(0);
@@ -1562,6 +1566,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         tileHoloRef.current = createTileHolograms();
         juiceRef.current = createJuice();
         propsRef.current = createCultureProps(bl);
+        shopsRef.current = createShopfronts(bl);
         const scan = new Graphics();
         scan.eventMode = "none";
         scan.zIndex = 1001;
@@ -1604,6 +1609,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       juiceRef.current = null;
       propsRef.current?.destroy();
       propsRef.current = null;
+      shopsRef.current?.destroy();
+      shopsRef.current = null;
       tileHoloRef.current?.clear();
       tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
@@ -3195,6 +3202,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             place: ws.townPlace, clear: ws.townClear, rand: Math.random,
           });
           if (changed.length) ws.housingMoved(changed.map((e) => e.structure));
+          // A SHOP OPENED: its pop, and its name floating up. @see Juice.opened
+          const juice = juiceRef.current, bands = blRef.current, tex = texRef.current;
+          for (const e of changed) {
+            const s = e.kind === "open" && st.grid.structures.get(e.structure);
+            if (!s || !juice || !bands || !tex) continue;
+            juice.opened(s, slRef.current?.mounted.get(s.id)?.handle, { bands, textures: tex, grid: st.grid, scale }, shopName(e.service, s.id), SHOP_LOOK[e.service].neon ? SHOP_LOOK[e.service].letters : SHOP_LOOK[e.service].awning);
+          }
         }
         sMood();
         const sWorks = section("tick: works");
@@ -3292,6 +3306,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (propsRef.current) {
         const st = useWorldStore.getState();
         propsRef.current.sync(st.grid, useGeneratorStore.getState().employeeManagement.deck, st.revision, scale);
+      }
+      if (shopsRef.current) {
+        shopsRef.current.sync(useWorldStore.getState().grid, useWorldStore.getState().revision, scale);
+        shopsRef.current.tick(now / 1000);
       }
       if (lightsRef.current && blNow) {
         // Put where the map is now whenever it has changed — whichever of the

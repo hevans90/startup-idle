@@ -25,6 +25,7 @@ import { workplaceKind, type Commute } from "../agents/commute";
 import { NEAR_CONFERENCE_PAYS } from "../events/convoy";
 import { moodWord, type MoodParts } from "../agents/mood";
 import { growthShort, needsShort, serviceOf, type NeedId } from "../agents/services";
+import { shopName } from "../agents/shop-names";
 import { NEED_KIND, serviceDef } from "../agents/needs";
 import { NEED_WHY } from "../agents/mood-rules";
 import { LAB_SHARE } from "../projects/labs";
@@ -154,7 +155,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const lines: InfoLine[] = [{ text: `${here}/${h.slots} ${plural} living here` }];
     // A SHOP the town opened downstairs. @see stepTown
     const shop = s.shop ? serviceDef(s.shop) : undefined;
-    if (shop) lines.push({ text: `${shop.name} downstairs`, tone: "good" });
+    if (shop) lines.push({ text: `${shopName(shop.id, s.id)} · ${shop.name.toLowerCase()} downstairs`, tone: "good" });
     const broken = damageLine(s, ctx);
     if (broken) lines.push(broken);
     else if (here > 0 && rate !== undefined) lines.push({ text: `Earns ${ctx.money(here * rate * eff)}/s`, tone: "good" });
@@ -278,8 +279,8 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     let homes = 0;
     for (const [, set] of ctx.coverage) if (set.has(need)) homes++;
     return {
-      title: def.name, accent: 0x2f8f6b,
-      lines: [{ text: `For ${KIND_NAME[NEED_KIND[need]][1]} · ${NEED_WHY[need]}` }, { text: `${homes} home${homes === 1 ? "" : "s"} near`, tone: "dim" }],
+      title: shopName(service, s.id), accent: 0x2f8f6b,
+      lines: [{ text: def.name }, { text: `For ${KIND_NAME[NEED_KIND[need]][1]} · ${NEED_WHY[need]}` }, { text: `${homes} home${homes === 1 ? "" : "s"} near`, tone: "dim" }],
     };
   }
 

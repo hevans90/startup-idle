@@ -8,6 +8,7 @@
  */
 import { DIR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
+import { SERVICE_DEFS } from "../agents/needs";
 import { commit, createHistory } from "../edit/commands";
 import {
   AI_BUILDINGS, DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, PUMP, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
@@ -25,7 +26,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "singularity" | "bigtown" | "ascension";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -942,7 +943,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, bigtown: 128 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -954,7 +955,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "singularity", "bigtown", "ascension",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -983,6 +984,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "waterfall": buildWaterfall(g, material); recomputeHeightRange(g); return;
     case "brink": buildBrink(g, material); recomputeHeightRange(g); return;
     case "projects": buildProjects(g, material); recomputeHeightRange(g); return;
+    case "shops": buildShops(g, material, cx, cy); recomputeHeightRange(g); return;
     case "singularity": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
     // The same town, its company at the end of book 1. @see seedAscension
     case "ascension": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
@@ -1053,6 +1055,40 @@ export function buildProjects(g: Grid, material: number) {
     rx += def.footprint.w + GAP;
     if (rx > g.w - 6) { rx = 2 + GALLERY_STAGES.length * (4 + GAP) + 2; ry += 4 + GAP; }
   }
+}
+
+/**
+ * EVERY SERVICE THE TOWN OPENS, open, to look at: a street with a house a
+ * shop on the north side — its front on the street — and one a shop on the
+ * south, its street behind it; the buildings of their own across the road.
+ */
+export function buildShops(g: Grid, material: number, cx: number, cy: number) {
+  clear(g, material);
+  const history = createHistory();
+  const put = (id: string, x: number, y: number, shop?: string) => {
+    const def = structureDef(id);
+    if (!def) return;
+    const cmd = placeCommand(g, { ...def, placement: undefined }, x, y);
+    if (!cmd) return;
+    commit(g, history, cmd);
+    const live = cmd.structures?.added[0] && g.structures.get(cmd.structures.added[0].id);
+    if (!live) return;
+    delete live.residents;
+    if (shop) live.shop = shop;
+  };
+  const shops = SERVICE_DEFS.filter((d) => d.shop).map((d) => d.id);
+  const big = SERVICE_DEFS.filter((d) => !d.shop).map((d) => d.id);
+  const kinds = ["intern", "vibe_coder", "10x_dev"];
+  const x0 = Math.max(1, cx - shops.length);
+  for (let x = x0; x <= x0 + 2 * shops.length + 1; x++) g.paved[idx(g, x, cy)] = 1;
+  shops.forEach((sv, k) => put(`kit:${kinds[k % 3]}.t${1 + (k % 2)}`, x0 + 1 + 2 * k, cy - 1, sv));
+  shops.forEach((sv, k) => put(`kit:${kinds[(k + 1) % 3]}.t1`, x0 + 1 + 2 * k, cy + 1, sv));
+  // Across a second street, the buildings of their own.
+  const y2 = cy + 5;
+  for (let x = x0; x <= x0 + 2 * shops.length + 1; x++) g.paved[idx(g, x, y2)] = 1;
+  let x = x0 + 1;
+  for (const id of big) { put(id, x, y2 - (structureDef(id)?.footprint.h ?? 1)); x += (structureDef(id)?.footprint.w ?? 1) + 1; }
+  edited(g);
 }
 
 /**
