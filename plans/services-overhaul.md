@@ -108,6 +108,6 @@ The town builds its own shops. Neighbourhoods form from the roads. Each employee
 - **Migration:** built projects map to their landmark's tier.
 - Quests, books, fixtures and the AI's Data Centre logic are re-pointed. Data Centre wings keep their ids so `racks`, `slop` and so on hold.
 
-## Open questions
-- Is a doctor needed by every kind at tier III+? I lean no; it is simpler.
-- What are the exact work-speed caps per kind?
+## Settled
+- No doctor rule for every kind at tier III+: health stays a 10x-dev need.
+- One work-speed cap for every kind: +25% (`NEEDS_SPEED`).
