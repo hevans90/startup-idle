@@ -203,7 +203,7 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
   {
     id: "studio",
     name: "Vibe Coder Studio",
-    // The Campus's size, which it grows into. @see LANDMARKS
+    // The Campus's size; its own building, not a tier of the Campus. @see LANDMARKS
     footprint: { w: 4, h: 4 },
     render: { kind: "custom", rendererId: "project" },
     ports: SLOP_OUT(1),

@@ -37,7 +37,7 @@ export const WORKPLACES: Record<GeneratorId, readonly string[]> = {
   // The Garage, and the HQ it grows into: still where the interns go.
   intern: ["garage", "hq", "boardroom", "ipo", "office-intern"],
   vibe_coder: ["studio", "office-vibe"],
-  // The Campus, the Studio grown up, and the Agency it grows into. @see LANDMARKS
+  // The Campus, and the Agency it grows into. @see LANDMARKS
   "10x_dev": ["campus", "agency", "office-10x"],
 };
 

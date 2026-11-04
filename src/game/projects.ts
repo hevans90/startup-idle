@@ -368,7 +368,7 @@ export const PROJECTS: readonly ProjectDef[] = [
 ];
 
 /** A LANDMARK: one building that rises tier by tier, each tier a project. @see plans/services-overhaul.md §5 */
-export type LandmarkId = "hq" | "campus" | "harbour" | "datacentre" | "conference" | "hackerspace";
+export type LandmarkId = "hq" | "studio" | "campus" | "harbour" | "datacentre" | "conference" | "hackerspace";
 export type Landmark = {
   id: LandmarkId;
   name: string;
@@ -380,7 +380,9 @@ export type Landmark = {
 
 export const LANDMARKS: readonly Landmark[] = [
   { id: "hq", name: "HQ", tiers: ["garage", "hq", "boardroom", "ipo"] },
-  { id: "campus", name: "Campus", tiers: ["studio", "campus", "agency"] },
+  // The vibe coders' own: a Campus does not rise over it, or they would lose their desks.
+  { id: "studio", name: "Studio", tiers: ["studio"] },
+  { id: "campus", name: "Campus", tiers: ["campus", "agency"] },
   { id: "harbour", name: "Harbour", tiers: ["harbour"] },
   { id: "datacentre", name: "Data Centre", tiers: ["datacentre"], wings: ["refinery", "dataplant", "contentfarm"] },
   { id: "conference", name: "Conference Centre", tiers: ["conference"] },

@@ -94,7 +94,8 @@ The town builds its own shops. Neighbourhoods form from the roads. Each employee
 | Landmark | Tiers |
 |---|---|
 | HQ | Garage → HQ → Boardroom → IPO Tower |
-| Campus | Studio → Campus → Agency |
+| Studio | Studio (its own, 2026-11-04: a Campus over it took the vibe coders' desks) |
+| Campus | Campus → Agency |
 | Harbour | ports |
 | Data Centre | + Refinery, Data Plant and Content Farm as wings |
 | Conference Centre | — |

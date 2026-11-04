@@ -44,7 +44,8 @@ const AGAINST = 0.2;
 const work = (s: Structure) => !s.build && workplaceKind(s.def) !== null;
 const workOf = (kind: string) => (s: Structure) => !s.build && workplaceKind(s.def) === kind;
 const house = (s: Structure) => !s.build && housedBy(s.def) !== null && s.id % HOUSE_EVERY === 0;
-const hq = (s: Structure) => !s.build && s.def === "hq";
+/** The HQ, and the Boardroom and IPO Tower it grows into. @see LANDMARKS */
+const hq = (s: Structure) => !s.build && (s.def === "hq" || s.def === "boardroom" || s.def === "ipo");
 const park = (s: Structure) => !s.build && s.def === "park";
 
 /** What each card puts by which buildings. */

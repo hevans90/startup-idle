@@ -31,7 +31,7 @@ import { useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
 import { incomeNow } from "../world/projects/economy";
 import { builtProjects, createWorks, nearestSpot, projectUnderWay, ruledOut, siteOf, startSiteCommand, startUpgradeCommand, upgradeFrom, type Works } from "../world/projects/works";
-import { PROJECTS, alreadyEarned, featureGateOpen, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
+import { PROJECTS, alreadyEarned, featureGateOpen, projectDef, tierBelow, type FeatureId, type Priority, type ProjectId } from "../game/projects";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
 
@@ -912,20 +912,13 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     let changed = false;
     for (const p of PROJECTS) {
       if (!alreadyEarned(p, owned, features) || built.has(p.id) || siteOf(st.grid, p)) continue;
+      // ONLY A FIRST TIER OR A WING. A landmark's later tier rises over a
+      // building that stands, and a guess here would build over it — it once
+      // turned the Campus into the Agency, and the HQ into the Boardroom, for
+      // leaders rehired and mandates kept from the last run. Dropped on its
+      // own, it would count every tier under it built. @see tierBelow, tiersIn
+      if (tierBelow(p.id)) continue;
       const def = structureDef(p.structure);
-      // A LANDMARK'S TIER, over the one it rises from, finished. @see upgradeFrom
-      const from = upgradeFrom(st.grid, p);
-      if (from && def) {
-        const up = upgradeCommand(st.grid, from.id, rules, def) ?? upgradeCommand(st.grid, from.id, {}, def);
-        if (up) {
-          commit(st.grid, history, up);
-          if (water && touchesSurface(up)) syncGround(water, st.grid);
-          if (network && touchesNetwork(up)) rebuildNet(network, st.grid);
-          built.add(p.id);
-          changed = true;
-          continue;
-        }
-      }
       // On its own land if it fits there; anywhere on the road if not.
       const spot = def && (nearestSpot(st.grid, def, rules) ?? (st.playing ? nearestSpot(st.grid, def, { needsRoad: true }) : null));
       const cmd = spot && placeCommand(st.grid, def!, spot.x, spot.y, rules);

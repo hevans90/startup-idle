@@ -25,7 +25,6 @@ import { deskShare } from "./agents/desk-perks";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { MAX_ROUTES } from "./events/defs/convoy";
 import { useInnovationStore } from "../state/innovation.store";
-import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
 import { commuteFactor, liveCommutes, liveSeating } from "./agents/commute";
 import { setTownBonusReader } from "../game/acquisition";
@@ -203,10 +202,9 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     if (!play) return;
     const owned = ownedNow();
     const features = new Set<FeatureId>();
-    if (useInnovationStore.getState().unlocks.managers?.unlocked) features.add("managers");
-    // A save with leaders from before the Talent Agency has earned it.
-    if (useTeamLeadersEmployeesStore.getState().employees.length) features.add("leaders");
-    if (Object.values(useValuationStore.getState().mandateLevels).some((l) => l > 0)) features.add("mandates");
+    // (Not managers, leaders nor mandates: they open later tiers, which are
+    // never stood up on a guess — and mandates and rehired leaders say
+    // nothing of this company's map. @see foundEarnedProjects)
     // A map that already has ports has already earned them.
     for (const s of useWorldStore.getState().grid.structures.values()) {
       if (structureDef(s.def)?.port) features.add("ports");
