@@ -208,12 +208,13 @@ function ReadyFoot({ p }: { p: ProjectDef }) {
   }
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="min-w-0 tabular-nums"
-        title={p.founderBuilds ? "You drive in and build it yourself."
-          : `About ${formatDuration(p.incomeSeconds)} of income, fixed when you start. Your ${who} build it, away from their desks.`}>
-        <b className="text-money">{p.founderBuilds ? "Free" : formatCurrency(projectCost(p, income))}</b>
-        <span className="text-fg-muted"> · {p.founderBuilds ? "you build it" : who}</span>
-      </span>
+      {p.founderBuilds ? <span /> : (
+        <span className="min-w-0 tabular-nums"
+          title={`About ${formatDuration(p.incomeSeconds)} of income, fixed when you start. Your ${who} build it, away from their desks.`}>
+          <b className="text-money">{formatCurrency(projectCost(p, income))}</b>
+          <span className="text-fg-muted"> · {who}</span>
+        </span>
+      )}
       <Button size="sm" variant="primary" className="shrink-0 font-bold" onClick={() => placeProject(p.id)}
         title={here ? `Built over the ${structureDef(here.def)?.name ?? "building"}, where it stands` : "Then click a spot beside a road"}>
         {here ? "Build" : "Choose site"}
