@@ -125,20 +125,21 @@ import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, sludgedHouses } from "./events/sludge";
 import { stepSlop, tanksOf } from "./slop/tanks";
 import { slopRate } from "../game/slop";
+import { convoyTally, tallyCall, townMood } from "./events/town-events";
+import { createDirector, eventStarted, pickEvent, tickDirector } from "./events/director";
+import { EVENT_DEFS } from "./events/defs";
+import { HACKATHON_CODERS } from "./events/defs/hackathon";
+import { FLOOD_MS } from "./events/defs/flood";
 import {
-  convoyTally, createPacing, endedBetween, HACKATHON_CODERS, isDue, repace, tallyCall, tickPacing, townMood,
-} from "./events/town-events";
-import {
-  damage, evacuatedAway, floodBaseline, isDamaged, floodedNow, floodMisery, floodPeak, portShut, stepRepairs, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
+  evacuatedAway, floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
-import {
-  CREW_SHARE, EVACUEE_MORALE, FLOOD_MS, HACKATHON_MORALE, HACKATHON_SNUB, tourFailed, MAX_ROUTES, ROUTE_BONUS, routeWon, stepEvents, tourReward,
-} from "./events/events";
+import { damage, isDamaged, stepRepairs } from "./events/damage";
+import { startEvent, stepEvents, type TownView } from "./events/events";
 import { perMinute, recordCall } from "./boats/exports";
 import { portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
-import { addMorale } from "../game/morale";
+import { ROUTE_BONUS } from "./events/defs/convoy";
 import { fusionNow } from "../game/fusion";
 import { skillOf, training, useTrainingStore } from "../state/training.store";
 import { useSessionStore } from "../state/session.store";
@@ -416,10 +417,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const cleanup = useRef(createCleanup());
   /** The team leaders out and about. @see stepLeaders */
   const leaders = useRef(createLeaders());
-  // WHEN EACH EVENT IS NEXT DUE, and for a flood the water against each
+  // WHEN THE NEXT EVENT IS DUE, and for a flood the water against each
   // building before it, how far the river is risen, and what it has reached.
   // @see world/events/flood
-  const pacing = useRef(createPacing(useSessionStore.getState().eventPacing));
+  const director = useRef(createDirector(useSessionStore.getState().eventDirector));
   const pacingSaved = useRef(0);
   const floodBase = useRef<FloodBase | null>(null);
   /** Whether the AI has been caught up on time away, and when it last said where it was. @see catchUpAi */
@@ -2982,60 +2983,53 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           eventClock.current += dt;
           if (eventClock.current >= 0.5) {
             eventClock.current = 0;
-            const vibe = ownedNow().vibe_coder ?? 0;
-            const now = Date.now();
-            const head = riverHead(st.grid);
-            const pace = pacing.current;
-            // WHAT THE OPPORTUNITIES ARE ABOUT: a port, the company's front
-            // door, the studio — each only once built.
+            const owned = ownedNow();
+            // WHAT THE EVENTS ARE ABOUT: a port, the company's front door,
+            // the studio — each only once built. @see TownView
             const built = (ids: string[]) => [...st.grid.structures.values()].find((s) => ids.includes(s.def) && !s.build);
             const port = getTraffic().ports.size ? [...st.grid.structures.values()].find((s) => getTraffic().ports.has(s.id)) : undefined;
             const door = built(["ipo", "boardroom", "hq", "garage"]), studio = built(["studio"]);
-            const front = door;
-            const income = useGeneratorStore.getState().getMoneyPerSecond();
-            const tour = st.events.find((e) => e.kind === "investor-tour" && e.phase !== "over");
             const convoy = st.events.find((e) => e.kind === "convoy" && e.phase !== "over");
             const tally = convoyTally(convoy?.id ?? -1);
-            const reward = tourReward(income, townMood(st.grid, liveMoods(st.grid, net)), tour?.chosen === "tidy");
-            const next = stepEvents(st.events, {
-              now,
-              river: head ? {
-                ...head, due: isDue(pace, "river-flood"), flooded: floodedCount.current, sandbagCrew: Math.floor((ownedNow().intern ?? 0) * CREW_SHARE.sandbags),
+            const equity = canAcquire() ? Math.floor(pendingEquity().toNumber()) : 0;
+            const view: TownView = {
+              now: Date.now(),
+              income: useGeneratorStore.getState().getMoneyPerSecond(),
+              owned,
+              river: riverHead(st.grid),
+              flooded: floodedCount.current,
+              evacuated: [...evacuees.current],
+              port: port ? { x: port.x, y: port.y } : null,
+              convoy: { calls: tally.calls, earned: tally.earned },
+              routes: useSessionStore.getState().routes ?? 0,
+              door: door ? { x: door.x, y: door.y } : null,
+              mood: townMood(st.grid, liveMoods(st.grid, net)),
+              studio: studio && (owned.vibe_coder ?? 0) >= HACKATHON_CODERS ? { x: studio.x, y: studio.y } : null,
+              pizza: pizzaPrice(),
+              // AN ACQUIRER, once the company can be sold; the best street is what caught their eye.
+              sale: canAcquire() ? {
+                equity, withPremium: Math.floor(equity * offerPremium()),
+                street: () => { const best = liveStreetEarnings()[0]; return best ? streetName(best) : undefined; },
               } : null,
-              convoy: port ? {
-                x: port.x, y: port.y, due: isDue(pace, "convoy"), calls: tally.calls, earned: tally.earned, handsCrew: Math.floor((ownedNow().intern ?? 0) * CREW_SHARE.hands),
-                routes: useSessionStore.getState().routes ?? 0,
-              } : null,
-              tour: door ? { x: door.x + 1, y: door.y, due: isDue(pace, "investor-tour"), reward, income, tidyCrew: Math.floor(vibe * CREW_SHARE.tidy) } : null,
-              hackathon: studio && vibe >= HACKATHON_CODERS ? { x: studio.x + 1, y: studio.y + 1, due: isDue(pace, "hackathon"), pizza: pizzaPrice() } : null,
-              // AN ACQUIRER, at the company's grandest door, once it can be sold.
-              offer: front && canAcquire() ? (() => {
-                const equity = Math.floor(pendingEquity().toNumber());
-                const best = isDue(pace, "offer") ? liveStreetEarnings()[0] : undefined;
-                return {
-                  x: front.x + 1, y: front.y, due: isDue(pace, "offer"), equity, withPremium: Math.floor(equity * offerPremium()),
-                  ...(best ? { street: streetName(best) } : {}),
-                };
-              })() : null,
-              enabled: !useSessionStore.getState().mapEventsOff,
-            }, () => eventIds.current++);
-            repace(pace, st.events, next);
-            // WHAT AN EVENT LEAVES BEHIND, once over: the investors' money,
-            // the hackathon's good mood, a convoy's regular route. @see stepOpportunities
-            for (const e of endedBetween(st.events, next)) {
-              if (e.kind === "investor-tour" && reward > 0) useMoneyStore.getState().increaseMoney(reward);
-              // INVESTORS UNIMPRESSED tell the next acquirer. @see SNUB
-              if (e.kind === "investor-tour") useSessionStore.getState().setSnubbed(tourFailed(income, reward));
-              // An offer made has heard it. @see offerPremium
-              if (e.kind === "offer") useSessionStore.getState().setSnubbed(false);
-              if (routeWon(e, tally.calls)) useSessionStore.getState().addRoute(MAX_ROUTES);
-              // EVACUEES, put out for a day. @see EVACUEE_MORALE
-              if (e.kind === "river-flood") {
-                if (e.chosen === "evacuate") for (const who of evacuees.current) addMorale(who, -EVACUEE_MORALE);
-                evacuees.current.clear();
-              }
-              // A HACKATHON, hosted or turned down, is felt for a day. @see addMorale
-              if (e.kind === "hackathon") addMorale("vibe_coder", e.chosen === "host" ? HACKATHON_MORALE : -HACKATHON_SNUB);
+            };
+            const on = !useSessionStore.getState().mapEventsOff;
+            const stepped = on ? stepEvents(st.events, view, EVENT_DEFS) : { events: [], ended: [] };
+            let next = stepped.events;
+            // THE DIRECTOR: one drawn, if one is due. (`__eventNow`, in development: that one, now.) @see pickEvent
+            const live = next.some((e) => e.phase !== "over");
+            const forced = import.meta.env.DEV && window.__eventNow ? EVENT_DEFS[window.__eventNow] : null;
+            if (import.meta.env.DEV) window.__eventNow = undefined;
+            const def = !on || live ? null : forced ?? pickEvent(director.current, view, Object.values(EVENT_DEFS), false, Math.random());
+            const fresh = def && startEvent(def, view, eventIds.current++);
+            if (fresh) {
+              next = [...next, fresh];
+              eventStarted(director.current, fresh.kind, Math.random());
+            }
+            // WHAT AN EVENT LEAVES BEHIND, once over. @see Outcome
+            for (const { event, outcome } of stepped.ended) {
+              if (outcome.money) useMoneyStore.getState().increaseMoney(outcome.money);
+              outcome.then?.();
+              if (event.kind === "river-flood") evacuees.current.clear();
             }
             if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
           }
@@ -3073,12 +3067,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (st.playing) {
           const field = st.getWaterField();
           const flood = st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
-          // THE HUSTLER's come round faster. @see HUSTLER_EVENTS
-          tickPacing(pacing.current, st.events, founderIs("hustler") ? dt * HUSTLER_EVENTS : dt);
-          // KEPT WITH THE COMPANY every few seconds, so short sessions add up. @see Session.eventPacing
+          // THE DIRECTOR'S CLOCK, once the company is big enough; the Hustler's come round faster. @see HUSTLER_EVENTS
+          const headcount = Object.values(ownedNow()).reduce((a, n) => a + (n ?? 0), 0);
+          tickDirector(director.current, founderIs("hustler") ? dt * HUSTLER_EVENTS : dt, headcount);
+          // KEPT WITH THE COMPANY every few seconds, so short sessions add up. @see Session.eventDirector
           pacingSaved.current += dt;
-          if (pacingSaved.current >= 5) { pacingSaved.current = 0; useSessionStore.getState().setEventPacing({ ...pacing.current }); }
-          if (import.meta.env.DEV && window.__eventNow) { pacing.current[window.__eventNow] = 0; window.__eventNow = undefined; }
+          if (pacingSaved.current >= 5) { pacingSaved.current = 0; useSessionStore.getState().setEventDirector({ ...director.current }); }
           // A CONVOY with extra hands at the quays turns boats round twice as fast.
           const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
           getTraffic().rush = convoy?.chosen === "hands" ? 2 : 1;

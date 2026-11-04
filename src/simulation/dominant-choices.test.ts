@@ -16,10 +16,13 @@ import { describe, expect, test } from "bun:test";
 
 import { MORALE_SECONDS } from "../game/morale";
 import { SATISFACTION_MAX, SATISFACTION_MIN } from "../game/satisfaction";
-import {
-  CREW_SHARE, EVACUEE_MORALE, HACKATHON_MORALE, HACKATHON_PIZZA, HACKATHON_SNUB, ROUTE_BONUS, TIDY_MOOD,
-} from "../world/events/events";
-import { FLOOD_SECONDS, REPAIR_SECONDS } from "../world/events/flood";
+import { CREW_SHARE } from "../world/events/events";
+import { EVACUEE_MORALE } from "../world/events/defs/flood";
+import { HACKATHON_MORALE, HACKATHON_PIZZA, HACKATHON_SNUB } from "../world/events/defs/hackathon";
+import { ROUTE_BONUS } from "../world/events/defs/convoy";
+import { TIDY_MOOD } from "../world/events/defs/investor-tour";
+import { FLOOD_SECONDS } from "../world/events/flood";
+import { REPAIR_SECONDS } from "../world/events/damage";
 
 /** The window a choice is judged over, seconds. */
 const WINDOW = 600;

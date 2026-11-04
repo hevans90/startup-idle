@@ -8,7 +8,7 @@ import { useSessionStore } from "../../state/session.store";
 import { DESKLESS, NIGHT_SHIFT, desklessShare } from "../agents/commute";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain } from "../grid";
-import { PACING, nextDueIn } from "../events/events";
+import { CONVOY } from "../events/defs/convoy";
 import { resetCooling, stepCooling, tankFor } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
@@ -40,10 +40,9 @@ describe("the Machine's notables, the second set", () => {
   });
 
   test("Market Maker: convoys twice as often", () => {
-    const plain = nextDueIn("convoy", 0.5);
+    const plain = CONVOY.weight!({} as never);
     own("market");
-    expect(nextDueIn("convoy", 0.5)).toBeCloseTo(plain / 2);
-    expect(nextDueIn("hackathon", 0)).toBe(PACING.hackathon.between[0]);
+    expect(CONVOY.weight!({} as never)).toBe(plain * 2);
   });
 
   test("Night Shift: those without a desk work at 70%", () => {

@@ -14,7 +14,7 @@ import { placeCommand } from "../../world/structures/place";
 import { aiDistrict, aiHoldsRoads } from "../../world/ai/district";
 import { takesFrom } from "../../world/ai/planner";
 import { WARN_MS, warnMs } from "../../world/ai/ai-runner";
-import { nextDueIn } from "../../world/events/events";
+import { FLOOD } from "../../world/events/defs/flood";
 import { INHERITANCE, fogged, machineCost } from "../machine";
 import { traitScores } from "../traits";
 import type { Disposition, Effect } from "./types";
@@ -92,10 +92,9 @@ describe("the arc's effects, each where the game reads it", () => {
   });
 
   test("floods", () => {
-    const plain = nextDueIn("river-flood", 0.5);
+    const plain = FLOOD.weight!({} as never);
     arc([{ kind: "floodMult", mult: 1.5 }]);
-    expect(nextDueIn("river-flood", 0.5)).toBeCloseTo(plain / 1.5);
-    expect(nextDueIn("hackathon", 0.5)).toBeGreaterThan(0);
+    expect(FLOOD.weight!({} as never)).toBeCloseTo(plain * 1.5);
   });
 
   test("the agents held to a share, unless the Data Centre is cooled", () => {

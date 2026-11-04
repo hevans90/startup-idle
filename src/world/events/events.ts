@@ -3,31 +3,40 @@
  * something to be done about them.
  *
  * Every event has a WARNING — a countdown and a place on the map — and
- * CHOICES, each with a plain cost, and then it strikes, runs its course, and
- * is over. Nothing here is a punishment from nowhere: the point is the
- * decision. @see EventCard, stepEvents
+ * CHOICES, each with its price, and then it strikes, runs its course, and is
+ * over. Nothing here is a punishment from nowhere: the point is the decision.
+ * @see EventCard
  *
- * This file holds the events themselves and the DIRECTOR that starts and
- * moves them along, as plain functions of what the town is doing. What an
- * event DOES to the map — sludge poured, trucks sent — is the scene's and the
- * store's. @see world-scene, respondToEvent
+ * This file is the ENGINE: what an event is (`EventDef`, one file each in
+ * `defs/`), what it is shown of the town (`TownView`), and `stepEvents`,
+ * which moves every event along. Which event comes, and when, is the
+ * director's. @see director
  */
-import { termEffects } from "../../game/term-deal";
-import { notable } from "../../game/machine";
-import { questFloodMult } from "../../game/quests/effects";
-import { FLOOD_SECONDS } from "./flood";
+import type { GeneratorId } from "../../state/generators.store";
 import { formatCurrency } from "../../utils/money-utils";
 
-
 export type EventKind = "river-flood" | "convoy" | "investor-tour" | "hackathon" | "offer";
+
+type Spot = { x: number; y: number };
+
+/**
+ * PEOPLE A CHOICE TAKES OFF WORK: a share of a kind, while the event is
+ * coming, while it is on, or both — people, not money, so the price grows
+ * with the company and never becomes a rounding error. @see eventCrew
+ */
+export type Crew = { who: GeneratorId; share: number; during: "warning" | "active" | "both" };
 
 export type EventChoice = {
   id: string;
   label: string;
-  /** What it costs, said plainly. */
+  /** What it costs and does, said plainly: the engine's, from its price, crew and note. */
   cost?: string;
   /** Why it cannot be chosen just now, if it cannot. */
   unavailable?: string;
+  /** Money paid on choosing it. @see respondToEvent */
+  price?: number;
+  /** Who it takes off work, and when. */
+  crew?: Crew;
 };
 
 export type GameEvent = {
@@ -36,13 +45,13 @@ export type GameEvent = {
   title: string;
   text: string;
   /** The tile it is about, for the marker and "Show me". */
-  where: { x: number; y: number };
+  where: Spot;
   /** Coming, happening, or done. */
   phase: "warning" | "active" | "over";
   /** When it strikes, ms since the epoch, while it is coming. */
   strikesAt: number | null;
   choices: EventChoice[];
-  /** What the player chose, if anything yet. */
+  /** What the player chose, if anything yet — or, unanswered, the event's default once it strikes. */
   chosen?: string;
   /** When it ended, so it can be shown as over for a moment and then put away. */
   overAt?: number;
@@ -54,270 +63,163 @@ export type GameEvent = {
   hit?: number;
 };
 
-/** What the director can see. */
-export type EventWorld = {
+/**
+ * WHAT EVERY EVENT IS SHOWN OF THE TOWN, twice a second: built by the scene,
+ * read by the events and the director. Nothing here is an event's own state.
+ */
+export type TownView = {
   now: number;
-  /**
-   * The rivers, on a map with any: where they come on, whether a flood is
-   * due, the houses and ports it has reached, and what sandbags cost.
-   */
-  river: { x: number; y: number; due: boolean; flooded: number; sandbagCrew: number } | null;
-  /** The ports, on a map with any: where, whether a convoy is due, and how it is going. */
-  convoy: { x: number; y: number; due: boolean; calls: number; earned: number; handsCrew: number; routes: number } | null;
-  /** Where investors would be shown round, whether a tour is due, and what it would come to as things are. */
-  tour: { x: number; y: number; due: boolean; reward: number; tidyCrew: number; income: number } | null;
-  /** The vibe coders' studio, with enough of them in it for a hackathon, and whether one is due. */
-  hackathon: { x: number; y: number; due: boolean; pizza: number } | null;
-  /**
-   * An ACQUIRER, once the company can be sold: where its front door is,
-   * whether an offer is due, and the Equity a sale pays now and with the
-   * acquirer's premium. Null while there is nothing to sell. @see OFFER_PREMIUM
-   */
-  offer: { x: number; y: number; due: boolean; equity: number; withPremium: number; street?: string } | null;
-  /** Whether events happen at all: false, and every one is put away. */
-  enabled: boolean;
+  /** Money a second. */
+  income: number;
+  /** Everyone hired, by kind. */
+  owned: Partial<Record<GeneratorId, number>>;
+  /** Where the river comes on, on a map with one. */
+  river: Spot | null;
+  /** Buildings under a flood's water now. */
+  flooded: number;
+  /** The kinds a flood's evacuation has put out of their homes. */
+  evacuated: readonly GeneratorId[];
+  /** A port, on a map with any. */
+  port: Spot | null;
+  /** The calls made, and what they paid, while the convoy under way is in. */
+  convoy: { calls: number; earned: number };
+  /** Regular routes won so far. @see ROUTE_BONUS */
+  routes: number;
+  /** The company's grandest door: the garage, up to the IPO. */
+  door: Spot | null;
+  /** The town's mood, every house's weighted by who lives there. @see townMood */
+  mood: number;
+  /** The vibe coders' studio, with enough of them for a hackathon. @see HACKATHON_CODERS */
+  studio: Spot | null;
+  /** What a hackathon's pizza costs. @see pizzaPrice */
+  pizza: number;
+  /** A sale, once the company can be sold: its Equity, with an acquirer's premium, and the street that would catch their eye. */
+  sale: { equity: number; withPremium: number; street: () => string | undefined } | null;
 };
 
-/**
- * HOW OFTEN EACH COMES, in seconds of play: the first after so long, and the
- * next some time in a range after that. Only counted while nothing else is
- * under way, so they do not pile up. @see nextDueIn
- */
-export const PACING = {
-  "river-flood": { first: 15 * 60, between: [20 * 60, 35 * 60] },
-  convoy: { first: 10 * 60, between: [15 * 60, 25 * 60] },
-  "investor-tour": { first: 20 * 60, between: [25 * 60, 40 * 60] },
-  hackathon: { first: 8 * 60, between: [20 * 60, 30 * 60] },
-  // The first as soon as there is a company worth buying; then now and again.
-  offer: { first: 60, between: [15 * 60, 25 * 60] },
-} as const satisfies Partial<Record<EventKind, { first: number; between: readonly [number, number] }>>;
-export type PacedKind = keyof typeof PACING;
+/** A choice, as an event defines it. */
+export type ChoiceDef = {
+  id: string;
+  label: string;
+  /** Money, paid on choosing. */
+  price?: (v: TownView) => number;
+  crew?: Crew;
+  /** What else it costs or does, said plainly. */
+  note?: (v: TownView) => string;
+};
 
-/** Seconds to the next of a kind, for a roll of the dice in [0, 1). */
-export const nextDueIn = (kind: PacedKind, roll: number) => {
-  const [lo, hi] = PACING[kind].between;
-  // Convoys twice as often with the Machine's Market Maker. @see game/machine "market"
-  // Floods more or less often by the arc. @see questFloodMult
-  return (lo + roll * (hi - lo)) / (kind === "convoy" && notable("market") ? 2 : 1) / (kind === "river-flood" ? questFloodMult() : 1);
+/** What an event came to: a line for the card, money, and anything else it leaves. */
+export type Outcome = { text: string; money?: number; then?: () => void };
+
+/**
+ * AN EVENT: where it can come, how likely, its warning, its choices, what it
+ * does if nobody answers, and what it leaves. @see stepEvents, director
+ */
+export type EventDef = {
+  kind: EventKind;
+  /** Where it would be — or null, and it cannot come, and one under way is called off. */
+  where: (v: TownView) => Spot | null;
+  /** How likely it is drawn, against the others that can come; 1 without. @see pickEvent */
+  weight?: (v: TownView) => number;
+  warnMs: number;
+  activeMs: number;
+  warning: { title: string; text: (v: TownView) => string };
+  active: { title: string; text: string };
+  choices: ChoiceDef[];
+  /** Taken for the player when the warning runs out unanswered. Never the worst of them. */
+  default: string;
+  /** Whether it goes ahead when it strikes, given what was chosen. */
+  goesAhead?: (e: GameEvent) => boolean;
+  /** What it keeps of the town while it is on. */
+  during?: (e: GameEvent, v: TownView) => Partial<GameEvent>;
+  outcome: (e: GameEvent, v: TownView) => Outcome;
+  /** Said when it is called off; "Called off." without. */
+  calledOff?: string;
 };
 
 /** How long an ended event stays up, ms. */
 export const OVER_SHOWN_MS = 10_000;
 
-/** Warning before a flood, and how long it runs once it strikes, ms. */
-export const FLOOD_WARN_MS = 60_000;
-export const FLOOD_MS = FLOOD_SECONDS * 1000;
+/** WHO A CHOICE TAKES OFF WORK, as a share of the kind: every event's prices in one place. @see Crew */
+export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 1, hackathon: 1 } as const;
 
-/** What investors shown round pay, in seconds of income, by how happy the town's homes are: 30, and 1.5 a point. */
-export function tourReward(income: number, mood: number, tidied: boolean): number {
-  const seconds = Math.max(0, Math.min(90, 30 + 1.5 * (mood + (tidied ? TIDY_MOOD : 0))));
-  return Math.round(Math.max(0, income) * seconds);
-}
-/** Mood points tidying up is worth, to the investors. */
-export const TIDY_MOOD = 10;
-/** Satisfaction a hackathon gives the vibe coders, and what turning one down costs. */
-export const HACKATHON_MORALE = 6;
-export const HACKATHON_SNUB = 4;
-/** The pizza for a hackathon, in seconds of income. @see pizzaPrice */
-export const HACKATHON_PIZZA = 20;
-/** What being evacuated puts a flooded home's people out, in morale for a day. */
-export const EVACUEE_MORALE = 2;
-/** Whether a tour left the investors unimpressed: they paid less than the base 30 s of income. @see SNUB */
-export const tourFailed = (income: number, reward: number) => reward < Math.max(0, income) * 30;
-
-/**
- * AN OPPORTUNITY: announced, then on for a while, then over — something to
- * make the most of rather than something to survive.
- */
-type Opportunity = {
-  warnMs: number;
-  activeMs: number;
-  warning: { title: string; text: string };
-  active: { title: string; text: string };
-  /** Where it is, whether one is due, and its choices — and its warning's text, where that depends on the town — or null when there can be none. */
-  of: (w: EventWorld) => { x: number; y: number; due: boolean; choices: EventChoice[]; text?: string } | null;
-  /** Whether it goes ahead when it strikes, given what was chosen. */
-  goesAhead?: (e: GameEvent) => boolean;
-  outcome: (e: GameEvent, w: EventWorld) => string;
-};
-
-const money = (n: number) => formatCurrency(Math.round(n));
+export const money = (n: number) => formatCurrency(Math.round(n));
+const NAMES: Partial<Record<GeneratorId, string>> = { intern: "intern", vibe_coder: "vibe coder", "10x_dev": "10x dev" };
 /** "12 interns", "1 intern". */
-const people = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+export const people = (n: number, who: GeneratorId) => `${n} ${NAMES[who] ?? who}${n === 1 ? "" : "s"}`;
+const DURING: Record<Crew["during"], string> = { warning: "until it strikes", active: "while it is on", both: "until it is over" };
+/** How many a crew takes, of those hired. */
+export const crewOf = (c: Crew, owned: Partial<Record<GeneratorId, number>>) => Math.floor((owned[c.who] ?? 0) * c.share);
 
-/**
- * WHO A CHOICE TAKES OFF WORK, as a share of a kind: what sandbags, extra
- * hands at the quays and tidying up for investors cost — people, not money,
- * so the price grows with the company and never becomes a rounding error.
- * @see eventAway
- */
-export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 1 } as const;
+/** A choice as the card shows it: its price, its crew and its note, said in that order. */
+export function choiceOf(c: ChoiceDef, v: TownView): EventChoice {
+  const price = c.price?.(v);
+  const parts = [
+    price ? money(price) : null,
+    c.crew ? `${people(crewOf(c.crew, v.owned), c.crew.who)} off work ${DURING[c.crew.during]}` : null,
+    c.note?.(v) || null,
+  ].filter(Boolean);
+  return { id: c.id, label: c.label, cost: parts.length ? parts.join(" · ") : "free", ...(price ? { price } : {}), ...(c.crew ? { crew: c.crew } : {}) };
+}
 
-
-/**
- * A CONVOY SERVED — extra hands at the quays, and calls made while it was in —
- * comes back as a regular route: every call at every port pays this much more,
- * for good, up to `MAX_ROUTES` of them. @see routeWon
- */
-export const ROUTE_BONUS = 0.2;
-export const MAX_ROUTES = 5;
-/** Whether a convoy, over, was served well enough to become a regular route. */
-export const routeWon = (e: GameEvent, calls: number) => e.kind === "convoy" && e.chosen === "hands" && calls > 0;
-const pct = (k: number) => `+${Math.round(k * 100)}%`;
-
-const OPPORTUNITIES: Partial<Record<EventKind, Opportunity>> = {
-  convoy: {
-    warnMs: 30_000, activeMs: 60_000,
-    warning: { title: "A convoy is coming down the river", text: "For a minute, every call at your ports pays double." },
-    active: { title: "The convoy is in", text: "Every call pays double until it has passed." },
-    of: (w) => w.convoy && {
-      ...w.convoy,
-      choices: [
-        {
-          id: "hands", label: "Extra hands at the quays",
-          cost: `${people(w.convoy.handsCrew, "intern")} off work while it is in · calls take half as long${w.convoy.routes < MAX_ROUTES ? ` · it becomes a regular route: ${pct(ROUTE_BONUS)} on every call` : ""}`,
-        },
-        { id: "usual", label: "Business as usual", cost: "free" },
-      ],
-    },
-    outcome: (e, w) => {
-      const calls = w.convoy?.calls ?? 0, routes = w.convoy?.routes ?? 0;
-      const won = routeWon(e, calls) && routes < MAX_ROUTES;
-      return `${calls} calls while it was in, for ${money(w.convoy?.earned ?? 0)}.${won ? ` It will be back: a regular route, ${pct(ROUTE_BONUS * (routes + 1))} on every call.` : ""}`;
-    },
-  },
-  "investor-tour": {
-    warnMs: 45_000, activeMs: 30_000,
-    warning: { title: "Investors are coming to look round", text: "They will judge the company by how happy its people are at home." },
-    active: { title: "The investors are touring the town", text: "Every unhappy house is being noticed." },
-    of: (w) => w.tour && {
-      ...w.tour,
-      choices: [
-        { id: "tidy", label: "Tidy up first", cost: `${people(w.tour.tidyCrew, "vibe coder")} off work until they come · the town's morale looks ${TIDY_MOOD} better` },
-        { id: "as-is", label: "Show it as it is", cost: `they would pay ${money(w.tour.reward)} now` },
-      ],
-    },
-    outcome: (_e, w) => {
-      const r = w.tour?.reward ?? 0;
-      if (r <= 0) return "The investors were not impressed, and they talk: the next acquirer will offer less.";
-      return w.tour && tourFailed(w.tour.income, r)
-        ? `The investors paid ${money(r)}, unimpressed — the next acquirer will offer less.`
-        : `The investors liked what they saw: ${money(r)}.`;
-    },
-  },
-  offer: {
-    warnMs: 20_000, activeMs: 120_000,
-    warning: { title: "An acquirer is circling", text: "Someone wants to buy the company. An offer is coming." },
-    active: { title: "An offer is on the table", text: "Sell now and they pay a premium. Hold out, and the company — and the next offer — may grow." },
-    // A NO-SHOP in the term sheet: no acquirer comes knocking this run. @see term-deal
-    of: (w) => (termEffects().offers === "none" ? null : w.offer && {
-      ...w.offer,
-      // THE BEST STREET is what caught their eye. @see liveStreetEarnings
-      ...(w.offer.street ? { text: `Someone wants to buy the company — they have been walking ${w.offer.street}. An offer is coming.` } : {}),
-      choices: [
-        { id: "accept", label: "Look at the offer", cost: `+${w.offer.withPremium} Equity, against ${w.offer.equity} without them · sells the company` },
-        { id: "hold", label: "Hold out", cost: "the premium goes with them" },
-      ],
-    }),
-    // A sale ends the company, and this with it; still here, it lapsed.
-    outcome: (e) => (e.chosen === "accept" ? "The offer lapsed before you signed. Another may come." : "The acquirer has walked away. Another may come."),
-  },
-  hackathon: {
-    warnMs: 45_000, activeMs: 60_000,
-    warning: { title: "The vibe coders want a hackathon", text: "A minute off work, all of them, and they come back happier." },
-    active: { title: "Hackathon!", text: "The vibe coders are off work, building something nobody asked for." },
-    of: (w) => w.hackathon && {
-      ...w.hackathon,
-      choices: [
-        { id: "host", label: "Host it", cost: `${money(w.hackathon.pizza)} of pizza, vibe coders off work a minute, then +${HACKATHON_MORALE} vibe coder morale for a day` },
-        { id: "decline", label: "Not now", cost: `−${HACKATHON_SNUB} vibe coder morale for a day` },
-      ],
-    },
-    goesAhead: (e) => e.chosen === "host",
-    outcome: (e) => (e.chosen === "host" ? `They are back, and happier for it: +${HACKATHON_MORALE} vibe coder morale for a day.` : `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder morale for a day.`),
-  },
-};
-
-/** Opportunities started, moved along and ended. */
-function stepOpportunities(out: GameEvent[], w: EventWorld, next: () => number): GameEvent[] {
-  for (const [kind, o] of Object.entries(OPPORTUNITIES) as [EventKind, Opportunity][]) {
-    const at = o.of(w);
-    const ev = out.find((e) => e.kind === kind && e.phase !== "over");
-    if (!ev) {
-      if (!at?.due || out.some((e) => e.phase !== "over")) continue;
-      out = [...out, {
-        id: next(), kind, phase: "warning", ...o.warning, ...(at.text ? { text: at.text } : {}),
-        where: { x: at.x, y: at.y }, strikesAt: w.now + o.warnMs, choices: at.choices,
-      }];
-      continue;
-    }
-    const e: GameEvent = { ...ev, choices: at?.choices ?? ev.choices };
-    if (!at) Object.assign(e, { phase: "over", overAt: w.now, outcome: "Called off." });
-    else if (e.phase === "warning" && e.strikesAt !== null && w.now >= e.strikesAt) {
-      if (o.goesAhead && !o.goesAhead(e)) Object.assign(e, { phase: "over", overAt: w.now, outcome: o.outcome(e, w) });
-      else Object.assign(e, { phase: "active", strikesAt: null, endsAt: w.now + o.activeMs, ...o.active });
-    } else if (e.phase === "active" && e.endsAt !== undefined && w.now >= e.endsAt) {
-      Object.assign(e, { phase: "over", overAt: w.now, outcome: o.outcome(e, w) });
-    }
-    out = out.map((x) => (x.id === e.id ? e : x));
+/** Who every event under way has taken off work, by kind: its chosen choice's crew, in its phase. */
+export function eventCrew(events: readonly GameEvent[], owned: Partial<Record<GeneratorId, number>>): Partial<Record<GeneratorId, number>> {
+  const out: Partial<Record<GeneratorId, number>> = {};
+  for (const e of events) {
+    if (e.phase === "over") continue;
+    const c = e.choices.find((x) => x.id === e.chosen)?.crew;
+    if (!c || (c.during !== "both" && c.during !== e.phase)) continue;
+    out[c.who] = Math.min(owned[c.who] ?? 0, (out[c.who] ?? 0) + crewOf(c, owned));
   }
   return out;
 }
 
-/** The choices a flood gives. */
-export function floodChoices(w: NonNullable<EventWorld["river"]>): EventChoice[] {
-  return [
-    { id: "sandbags", label: "Sandbag the riverside", cost: `${people(w.sandbagCrew, "intern")} filling sandbags until it passes` },
-    { id: "evacuate", label: "Evacuate", cost: `flooded homes stop work until it passes, and are put out: −${EVACUEE_MORALE} morale for a day` },
-    { id: "brace", label: "Brace for it", cost: "whatever the water reaches is damaged: idle until repaired, one at a time" },
-  ];
-}
-
-/** What a flood came to, by what was chosen. */
-function floodOutcome(e: GameEvent): string {
-  const n = e.hit ?? 0;
-  if (!n) return "The river stayed in its banks.";
-  const what = `${n} building${n === 1 ? "" : "s"}`;
-  if (e.chosen === "sandbags") return `The sandbags held: ${what} kept dry.`;
-  if (e.chosen === "evacuate") return `${what} cleared in time; everyone is back.`;
-  return `The water reached ${what}. They are idle until the repair crew has been round each.`;
-}
-
-/** The river's flood, moved along. */
-function stepFlood(out: GameEvent[], w: EventWorld, next: () => number): GameEvent[] {
-  const r = w.river;
-  const flood = out.find((e) => e.kind === "river-flood" && e.phase !== "over");
-  if (!flood) {
-    // ONE THING AT A TIME: a flood waits for anything else under way.
-    if (!r?.due || out.some((e) => e.phase !== "over")) return out;
-    return [...out, {
-      id: next(), kind: "river-flood", phase: "warning",
-      title: "The river is going to flood",
-      text: "Heavy rain upstream. The river will rise over its banks for a minute; anything low beside it will be under water.",
-      where: { x: r.x, y: r.y }, strikesAt: w.now + FLOOD_WARN_MS, choices: floodChoices(r),
-    }];
-  }
-  const e: GameEvent = { ...flood, choices: r ? floodChoices(r) : flood.choices };
-  if (!r) Object.assign(e, { phase: "over", overAt: w.now, outcome: "The river is gone." });
-  else if (e.phase === "warning" && e.strikesAt !== null && w.now >= e.strikesAt) {
-    Object.assign(e, {
-      phase: "active", strikesAt: null, endsAt: w.now + FLOOD_MS, title: "The river is in flood",
-      text: "The water is over the banks. It goes down on its own.",
-    });
-  } else if (e.phase === "active") {
-    e.hit = Math.max(e.hit ?? 0, r.flooded);
-    if (e.endsAt !== undefined && w.now >= e.endsAt) Object.assign(e, { phase: "over", overAt: w.now, outcome: floodOutcome(e) });
-  }
-  return out.map((x) => (x.id === e.id ? e : x));
+/** An event the director has just drawn, warned of. */
+export function startEvent(d: EventDef, v: TownView, id: number): GameEvent | null {
+  const at = d.where(v);
+  if (!at) return null;
+  return {
+    id, kind: d.kind, phase: "warning", title: d.warning.title, text: d.warning.text(v),
+    where: at, strikesAt: v.now + d.warnMs, choices: d.choices.map((c) => choiceOf(c, v)),
+  };
 }
 
 /**
- * One look at the town: events started, moved on, and put away. Returns the
- * list as it should now be; `next` numbers new ones.
+ * One look at the town: every event moved on, and those long over put away.
+ * Returns the list as it should now be, and what each that ended came to —
+ * for the scene to pay out. @see Outcome
  */
-export function stepEvents(events: readonly GameEvent[], w: EventWorld, next: () => number): GameEvent[] {
-  if (!w.enabled) return [];
-  // And the slop pit's overflow, from a save made before the pit went. @see world/slop/tanks
-  const out = events.filter((e) => (e.kind as string) !== "slop-overflow" && !(e.phase === "over" && e.overAt !== undefined && w.now - e.overAt > OVER_SHOWN_MS));
-  return stepOpportunities(stepFlood(out, w, next), w, next);
+export function stepEvents(
+  events: readonly GameEvent[], v: TownView, defs: Readonly<Partial<Record<EventKind, EventDef>>>,
+): { events: GameEvent[]; ended: { event: GameEvent; outcome: Outcome }[] } {
+  const ended: { event: GameEvent; outcome: Outcome }[] = [];
+  const out: GameEvent[] = [];
+  for (const ev of events) {
+    const d = defs[ev.kind];
+    // And the slop pit's overflow, from a save made before the pit went. @see world/slop/tanks
+    if (!d) continue;
+    if (ev.phase === "over") {
+      if (ev.overAt === undefined || v.now - ev.overAt <= OVER_SHOWN_MS) out.push(ev);
+      continue;
+    }
+    const at = d.where(v);
+    const e: GameEvent = { ...ev, choices: at ? d.choices.map((c) => choiceOf(c, v)) : ev.choices };
+    const end = () => {
+      const o = d.outcome(e, v);
+      Object.assign(e, { phase: "over", overAt: v.now, outcome: o.text });
+      ended.push({ event: e, outcome: o });
+    };
+    if (!at) Object.assign(e, { phase: "over", overAt: v.now, outcome: d.calledOff ?? "Called off." });
+    else if (e.phase === "warning" && e.strikesAt !== null && v.now >= e.strikesAt) {
+      // UNANSWERED: the event's default, taken for the player.
+      e.chosen ??= d.default;
+      if (d.goesAhead && !d.goesAhead(e)) end();
+      else Object.assign(e, { phase: "active", strikesAt: null, endsAt: v.now + d.activeMs, title: d.active.title, text: d.active.text });
+    } else if (e.phase === "active") {
+      Object.assign(e, d.during?.(e, v));
+      if (e.endsAt !== undefined && v.now >= e.endsAt) end();
+    }
+    out.push(e);
+  }
+  return { events: out, ended };
 }

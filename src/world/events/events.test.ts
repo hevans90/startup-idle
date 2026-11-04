@@ -1,128 +1,157 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  FLOOD_MS, FLOOD_WARN_MS, HACKATHON_SNUB, MAX_ROUTES, OVER_SHOWN_MS, ROUTE_BONUS, routeWon, stepEvents, tourFailed, tourReward, type EventWorld, type GameEvent,
-} from "./events";
+import { EVENT_DEFS } from "./defs";
+import { MAX_ROUTES, ROUTE_BONUS, routeWon } from "./defs/convoy";
+import { FLOOD_MS, FLOOD_WARN_MS } from "./defs/flood";
+import { HACKATHON_SNUB } from "./defs/hackathon";
+import { tourFailed, tourReward } from "./defs/investor-tour";
+import { OVER_SHOWN_MS, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
 
-const river = (now: number, due: boolean, flooded = 0): EventWorld => ({
-  now, river: { x: 0, y: 9, due, flooded, sandbagCrew: 6 }, convoy: null, tour: null, hackathon: null, offer: null, enabled: true,
+const town = (now: number, over: Partial<TownView> = {}): TownView => ({
+  now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, evacuated: [], port: null,
+  convoy: { calls: 0, earned: 0 }, routes: 0, door: null, mood: 0, studio: null, pizza: 2000, sale: null, ...over,
 });
 let n = 1;
-const next = () => n++;
+const start = (kind: EventKind, v: TownView) => [startEvent(EVENT_DEFS[kind], v, n++)!];
+const step = (evs: GameEvent[], v: TownView) => stepEvents(evs, v, EVENT_DEFS);
 
 describe("a river flood", () => {
-  test("is warned of when due, strikes a minute later, and is over a minute after that", () => {
-    expect(stepEvents([], river(0, false), next)).toEqual([]);
-    let evs = stepEvents([], river(0, true), next);
+  const at = (now: number, flooded = 0) => town(now, { river: { x: 0, y: 9 }, flooded });
+
+  test("is warned of, strikes a minute later, and is over a minute after that", () => {
+    let evs = start("river-flood", at(0));
     expect(evs[0]).toMatchObject({ kind: "river-flood", phase: "warning", strikesAt: FLOOD_WARN_MS });
     expect(evs[0].choices.map((c) => c.id)).toEqual(["sandbags", "evacuate", "brace"]);
-    evs = stepEvents(evs, river(FLOOD_WARN_MS, false), next);
+    evs = step(evs, at(FLOOD_WARN_MS)).events;
     expect(evs[0]).toMatchObject({ phase: "active", endsAt: FLOOD_WARN_MS + FLOOD_MS });
-    evs = stepEvents(evs, river(FLOOD_WARN_MS + 1000, false, 3), next);
-    evs = stepEvents(evs, river(FLOOD_WARN_MS + 2000, false, 1), next);
-    evs = stepEvents(evs, river(FLOOD_WARN_MS + FLOOD_MS, false), next);
-    expect(evs[0].phase).toBe("over");
-    expect(evs[0].outcome).toMatch(/3 buildings/);
+    evs = step(evs, at(FLOOD_WARN_MS + 1000, 3)).events;
+    evs = step(evs, at(FLOOD_WARN_MS + 2000, 1)).events;
+    const over = step(evs, at(FLOOD_WARN_MS + FLOOD_MS));
+    expect(over.events[0].phase).toBe("over");
+    expect(over.events[0].outcome).toMatch(/3 buildings/);
+    expect(over.ended.map((x) => x.event.id)).toEqual([evs[0].id]);
   });
 
-  test("events switched off puts every one away", () => {
-    const evs = stepEvents([], river(0, true), next);
-    expect(stepEvents(evs, { ...river(1, true), enabled: false }, next)).toEqual([]);
+  test("unanswered, it evacuates: never the worst choice", () => {
+    const evs = step(start("river-flood", at(0)), at(FLOOD_WARN_MS)).events;
+    expect(evs[0].chosen).toBe("evacuate");
+  });
+
+  test("a choice made is kept when it strikes", () => {
+    const evs = start("river-flood", at(0)).map((e) => ({ ...e, chosen: "brace" }));
+    expect(step(evs, at(FLOOD_WARN_MS)).events[0].chosen).toBe("brace");
+  });
+
+  test("sandbags take half the interns, for as long as it is coming and on", () => {
+    let evs = start("river-flood", at(0)).map((e) => ({ ...e, chosen: "sandbags" }));
+    expect(evs[0].choices[0].cost).toContain("6 interns off work");
+    expect(eventCrew(evs, { intern: 12 })).toEqual({ intern: 6 });
+    evs = step(evs, at(FLOOD_WARN_MS)).events;
+    expect(eventCrew(evs, { intern: 12 })).toEqual({ intern: 6 });
+  });
+
+  test("is called off once the river is gone, and put away a while after it ended", () => {
+    const evs = step(start("river-flood", at(0)), town(1000)).events;
+    expect(evs[0]).toMatchObject({ phase: "over", outcome: "The river is gone." });
+    expect(step(evs, town(1000 + OVER_SHOWN_MS + 1)).events).toEqual([]);
   });
 });
 
-describe("opportunities", () => {
-  const base = (now: number): EventWorld => ({ now, river: null, convoy: null, tour: null, hackathon: null, offer: null, enabled: true });
+describe("a convoy", () => {
+  const at = (now: number, calls = 0, earned = 0, routes = 0) => town(now, { port: { x: 1, y: 1 }, convoy: { calls, earned }, routes });
 
-  test("a convoy is warned of, comes in, and says what it earned", () => {
-    const w = (now: number, due: boolean, calls = 0, earned = 0, routes = 0) => ({
-      ...base(now), convoy: { x: 1, y: 1, due, calls, earned, handsCrew: 3, routes },
-    });
-    let evs = stepEvents([], w(0, true), next);
-    expect(evs[0]).toMatchObject({ kind: "convoy", phase: "warning", strikesAt: 30_000 });
-    evs = stepEvents(evs, w(30_000, false), next);
+  test("is warned of, comes in, and says what it earned", () => {
+    let evs = start("convoy", at(0));
+    expect(evs[0]).toMatchObject({ phase: "warning", strikesAt: 30_000 });
+    evs = step(evs, at(30_000)).events;
     expect(evs[0]).toMatchObject({ phase: "active", endsAt: 90_000 });
-    evs = stepEvents(evs, w(90_000, false, 7, 140), next);
-    expect(evs[0].outcome).toBe("7 calls while it was in, for $140.");
+    expect(step(evs, at(90_000, 7, 140)).events[0].outcome).toBe("7 calls while it was in, for $140.");
   });
 
-  test("a convoy served with extra hands comes back as a regular route, up to the most there can be", () => {
-    const w = (now: number, due: boolean, calls = 0, routes = 1) => ({
-      ...base(now), convoy: { x: 1, y: 1, due, calls, earned: 50, handsCrew: 3, routes },
-    });
-    let evs = stepEvents([], w(0, true), next);
-    expect(evs[0].choices?.[0].cost).toContain("regular route");
+  test("served with extra hands, it comes back as a regular route, up to the most there can be", () => {
+    let evs = start("convoy", at(0, 0, 0, 1));
+    expect(evs[0].choices[0].cost).toContain("regular route");
     evs = evs.map((e) => ({ ...e, chosen: "hands" }));
-    evs = stepEvents(stepEvents(evs, w(30_000, false), next), w(90_000, false, 4), next);
-    expect(routeWon(evs[0], 4)).toBe(true);
-    expect(evs[0].outcome).toContain(`regular route, +${Math.round(ROUTE_BONUS * 200)}% on every call`);
-    expect(routeWon({ ...evs[0], chosen: "usual" }, 4)).toBe(false);
-    expect(routeWon(evs[0], 0)).toBe(false);
-    expect(stepEvents([], w(0, true, 0, MAX_ROUTES), next)[0].choices?.[0].cost).not.toContain("regular route");
+    evs = step(evs, at(30_000, 0, 0, 1)).events;
+    expect(eventCrew(evs, { intern: 12 })).toEqual({ intern: 3 });
+    const over = step(evs, at(90_000, 4, 50, 1));
+    expect(routeWon(over.events[0], 4)).toBe(true);
+    expect(over.events[0].outcome).toContain(`regular route, +${Math.round(ROUTE_BONUS * 200)}% on every call`);
+    expect(over.ended[0].outcome.then).toBeDefined();
+    expect(start("convoy", at(0, 0, 0, MAX_ROUTES))[0].choices[0].cost).not.toContain("regular route");
   });
+});
 
-  test("investors paid less than the base thirty seconds leave unimpressed", () => {
-    expect(tourFailed(100, 2999)).toBe(true);
-    expect(tourFailed(100, 3000)).toBe(false);
-    const w = (now: number) => ({ ...base(now), tour: { x: 1, y: 1, due: now === 0, reward: 1000, tidyCrew: 1, income: 100 } });
-    let evs = stepEvents([], w(0), next);
-    evs = stepEvents(evs, w(45_000), next);
-    evs = stepEvents(evs, w(75_000), next);
-    expect(evs[0].outcome).toContain("the next acquirer will offer less");
-  });
+describe("investors", () => {
+  const at = (now: number, mood = 0) => town(now, { door: { x: 1, y: 1 }, mood });
 
-  test("an acquirer names the street that caught their eye", () => {
-    const w = (street?: string) => ({ ...base(0), offer: { x: 1, y: 1, due: true, equity: 5, withPremium: 6, ...(street ? { street } : {}) } });
-    expect(stepEvents([], w("the street by the Studio"), next)[0].text).toContain("walking the street by the Studio");
-    expect(stepEvents([], w(), next)[0].text).toBe("Someone wants to buy the company. An offer is coming.");
-  });
-
-  test("a hackathon nobody hosted never starts", () => {
-    const w = (now: number) => ({ ...base(now), hackathon: { x: 1, y: 1, due: now === 0 } });
-    let evs = stepEvents([], w(0), next);
-    evs = stepEvents(evs, w(45_000), next);
-    expect(evs[0]).toMatchObject({ phase: "over", outcome: `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder morale for a day.` });
-  });
-
-  test("investors pay by the town's mood, and tidying up helps", () => {
+  test("pay by the town's mood, and tidying up helps", () => {
     expect(tourReward(10, 0, false)).toBe(300);
     expect(tourReward(10, 0, true)).toBe(450);
     expect(tourReward(10, -40, false)).toBe(0);
     expect(tourReward(10, 40, true)).toBe(900);
   });
+
+  test("paid less than the base thirty seconds, they leave unimpressed", () => {
+    expect(tourFailed(100, 2999)).toBe(true);
+    expect(tourFailed(100, 3000)).toBe(false);
+    let evs = start("investor-tour", at(0, -10));
+    evs = step(evs, at(45_000, -10)).events;
+    const over = step(evs, at(75_000, -10));
+    expect(over.events[0].outcome).toContain("the next acquirer will offer less");
+    expect(over.ended[0].outcome.money).toBe(1500);
+  });
+});
+
+describe("a hackathon", () => {
+  const at = (now: number) => town(now, { studio: { x: 1, y: 1 } });
+
+  test("costs its pizza, and takes every vibe coder while it is on", () => {
+    let evs = start("hackathon", at(0));
+    expect(evs[0].choices[0]).toMatchObject({ id: "host", price: 2000 });
+    expect(evs[0].choices[0].cost).toContain("$2");
+    evs = evs.map((e) => ({ ...e, chosen: "host" }));
+    expect(eventCrew(evs, { vibe_coder: 20 })).toEqual({});
+    evs = step(evs, at(45_000)).events;
+    expect(eventCrew(evs, { vibe_coder: 20 })).toEqual({ vibe_coder: 20 });
+  });
+
+  test("nobody hosted never starts", () => {
+    const evs = step(start("hackathon", at(0)), at(45_000)).events;
+    expect(evs[0]).toMatchObject({ phase: "over", outcome: `No hackathon this time, and they noticed: −${HACKATHON_SNUB} vibe coder morale for a day.` });
+  });
 });
 
 describe("an acquirer's offer", () => {
-  const at = (now: number, due: boolean, equity = 16): EventWorld => ({
-    now, river: null, convoy: null, tour: null, hackathon: null, enabled: true,
-    offer: { x: 4, y: 4, due, equity, withPremium: Math.floor(equity * 1.25) },
+  const sale = (street?: string) => ({ equity: 16, withPremium: 20, street: () => street });
+  const at = (now: number, street?: string) => town(now, { door: { x: 4, y: 4 }, sale: sale(street) });
+
+  test("can come only once the company can be sold", () => {
+    expect(startEvent(EVENT_DEFS.offer, town(0, { door: { x: 4, y: 4 } }), 1)).toBeNull();
   });
 
-  test("comes when due and the company can be sold, is on the table a while, and lapses", () => {
-    expect(stepEvents([], { ...at(0, true), offer: null }, next)).toEqual([]);
-    let evs = stepEvents([], at(0, true), next);
-    expect(evs[0].kind).toBe("offer");
-    expect(evs[0].phase).toBe("warning");
+  test("is on the table a while, and lapses", () => {
+    let evs = start("offer", at(0));
     expect(evs[0].choices.map((c) => c.id)).toEqual(["accept", "hold"]);
     expect(evs[0].choices[0].cost).toContain("+20 Equity, against 16");
-    evs = stepEvents(evs, at(20_000, false), next);
-    expect(evs[0].phase).toBe("active");
-    evs = stepEvents(evs, at(20_000 + 120_000, false), next);
-    expect(evs[0].phase).toBe("over");
-    expect(evs[0].outcome).toMatch(/walked away/);
+    evs = step(evs, at(20_000)).events;
+    expect(evs[0]).toMatchObject({ phase: "active", chosen: "hold" });
+    expect(step(evs, at(140_000)).events[0].outcome).toMatch(/walked away/);
+  });
+
+  test("names the street that caught their eye", () => {
+    expect(start("offer", at(0, "the street by the Studio"))[0].text).toContain("walking the street by the Studio");
+    expect(start("offer", at(0))[0].text).toBe("Someone wants to buy the company. An offer is coming.");
   });
 
   test("is called off if the company can no longer be sold", () => {
-    const evs = stepEvents([], at(0, true), next);
-    const after = stepEvents(evs, { ...at(1000, false), offer: null }, next);
-    expect(after[0].phase).toBe("over");
+    expect(step(start("offer", at(0)), town(1000, { door: { x: 4, y: 4 } })).events[0].phase).toBe("over");
   });
 });
 
 describe("the slop pit's overflow, from a save made before the pit went", () => {
   test("is put away on the first look", () => {
     const old = { id: 1, kind: "slop-overflow", phase: "active", title: "", text: "", where: { x: 0, y: 0 }, strikesAt: null, choices: [] } as unknown as GameEvent;
-    const w: EventWorld = { now: 0, river: null, convoy: null, tour: null, hackathon: null, offer: null, enabled: true };
-    expect(stepEvents([old], w, next)).toEqual([]);
+    expect(step([old], town(0)).events).toEqual([]);
   });
 });

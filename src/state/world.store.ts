@@ -24,7 +24,8 @@ import { createArrivals, settleHousing, type Arrivals } from "../world/agents/ar
 import { createEvolution, serviceOf, type Evolution } from "../world/agents/services";
 import { createTownServices, type TownServices } from "../world/agents/town-services";
 import { ladderOf, startLadder } from "../world/agents/unlocks";
-import { HACKATHON_PIZZA, type GameEvent } from "../world/events/events";
+import type { GameEvent } from "../world/events/events";
+import { HACKATHON_PIZZA } from "../world/events/defs/hackathon";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
@@ -280,8 +281,6 @@ function recordBuild(cmd: Command, refund: number) {
 
 /** What clearing a derelict building costs: fifteen seconds of income. @see DERELICT */
 export const clearingPrice = () => Math.max(200, Math.round(incomeNow() * 15));
-/** What each choice an event offers costs in money, for those that cost any. */
-const CHOICE_PRICE: Record<string, () => number> = { host: () => pizzaPrice() };
 /** What a hackathon's pizza costs: seconds of income, never under a floor. @see HACKATHON_PIZZA */
 export const pizzaPrice = () => Math.max(50, Math.round(incomeNow() * HACKATHON_PIZZA));
 
@@ -831,10 +830,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const ev = st.events.find((e) => e.id === id);
     if (!ev || ev.phase === "over") return;
     // A CHOICE PAID FOR IS KEPT: nobody gets their money back by changing their mind.
-    if (ev.chosen && CHOICE_PRICE[ev.chosen]) return;
-    const priced = CHOICE_PRICE[choice];
-    if (priced) {
-      const price = priced();
+    if (ev.choices.find((c) => c.id === ev.chosen)?.price) return;
+    const price = ev.choices.find((c) => c.id === choice)?.price;
+    if (price) {
       if (useMoneyStore.getState().money.lt(price)) {
         set({ notice: { text: `Not enough money: ${formatCurrency(price)}`, at: Date.now() } });
         return;

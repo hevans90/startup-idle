@@ -33,8 +33,8 @@ declare global {
      * persisted stores. @see stepArrivals
      */
     __fakeHires?: Record<string, number>;
-    /** Set to bring the next event of a kind forward to now. @see PACING */
-    __eventNow?: import("../events/events").PacedKind;
+    /** Set to start an event of a kind now, if it can come. @see pickEvent */
+    __eventNow?: import("../events/events").EventKind;
     /** A look at the AI's map layer without a late game: the meter, and the Ascension's intensity. @see createAiLayer */
     __aiPreview?: { value: number; ascension?: number; training?: boolean; plan?: import("../ai/masterplan/plan").Masterplan };
     /**

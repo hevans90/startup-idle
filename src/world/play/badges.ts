@@ -59,7 +59,7 @@ export function badgeFor(s: Structure, ctx: BadgeContext, view: BadgeView): Badg
 export function problemOf(s: Structure, ctx: BadgeContext): Badge | null {
   const def = structureDef(s.def);
   if (!def || s.def === "levee") return null;
-  if (ctx.repairedIn?.(s.id) != null) return { icon: "damage", text: "Flood damaged", tone: "bad" };
+  if (ctx.repairedIn?.(s.id) != null) return { icon: "damage", text: ctx.damagedAs?.(s.id) ?? "Damaged", tone: "bad" };
   // A SITE: stalled for money, or paused.
   if (s.build) {
     if (!projectForStructure(s.def)) return null;

@@ -93,7 +93,7 @@ export const questMachineReveal = (id: string): { revealed: boolean; discount: n
   return { revealed: es.length > 0, discount: Math.max(0, ...es.map((e) => e.discount)) };
 };
 
-/** Floods come × as often. @see nextDueIn */
+/** Floods drawn × as often. @see FLOOD.weight */
 export const questFloodMult = (): number => product(of("floodMult").map((e) => e.mult));
 
 /** The most of the agents that may run, as a share: 1 with no cap, or a cap lifted by the Data Centre cooled. @see runningAgents */

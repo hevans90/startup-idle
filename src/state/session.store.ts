@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import { loadConditions, setConditionsSink, type Condition } from "../game/conditions";
+import type { Director } from "../world/events/director";
+
 /** What the company's AI is told to work at. @see world/ai/focus */
 export type AiFocus = "grow" | "machine" | "people" | "hands-off";
 
@@ -53,9 +56,11 @@ type SessionState = {
   hintsOff: boolean;
   /** Whether floods, overflows and the like stay away. @see stepEvents */
   mapEventsOff: boolean;
-  /** Seconds of play until each kind of map event is next due, kept across loads. @see Pacing */
-  eventPacing: Record<string, number> | null;
-  setEventPacing: (p: Record<string, number>) => void;
+  /** The map events' director: when the next comes, and what came last; kept across loads. @see Director */
+  eventDirector: Director | null;
+  setEventDirector: (d: Director) => void;
+  /** What events have left on the company, kept across loads. @see game/conditions */
+  conditions: readonly Condition[];
   /** Regular routes won by serving convoys: each adds to every port call. @see ROUTE_BONUS */
   routes: number;
   addRoute: (max: number) => void;
@@ -137,8 +142,9 @@ export const useSessionStore = create<SessionState>()(
       }),
       hintsOff: false,
       mapEventsOff: false,
-      eventPacing: null,
-      setEventPacing: (eventPacing) => set({ eventPacing }),
+      eventDirector: null,
+      setEventDirector: (eventDirector) => set({ eventDirector }),
+      conditions: [],
       routes: 0,
       addRoute: (max) => set((s) => ({ routes: Math.min(max, (s.routes ?? 0) + 1) })),
       termSheet: null,
@@ -176,7 +182,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], eventPacing: null, routes: 0, termSheet: null, termClauses: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
+        portIncomePerSecond: 0, hintsDone: [], eventDirector: null, conditions: [], routes: 0, termSheet: null, termClauses: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
       }),
     }),
     {
@@ -193,7 +199,8 @@ export const useSessionStore = create<SessionState>()(
         hintsDone: s.hintsDone,
         hintsOff: s.hintsOff,
         mapEventsOff: s.mapEventsOff,
-        eventPacing: s.eventPacing,
+        eventDirector: s.eventDirector,
+        conditions: s.conditions,
         routes: s.routes,
         termSheet: s.termSheet,
         termClauses: s.termClauses,
@@ -213,3 +220,15 @@ export const useSessionStore = create<SessionState>()(
     },
   ),
 );
+
+/**
+ * THE CONDITIONS, kept: every change made to them saved here, and whatever
+ * this store is given — a load, a reset, another company — handed back.
+ * @see game/conditions
+ */
+let sunk: readonly Condition[] | null = null;
+loadConditions(useSessionStore.getState().conditions);
+setConditionsSink((l) => { sunk = l; useSessionStore.setState({ conditions: l }); });
+useSessionStore.subscribe((s, prev) => {
+  if (s.conditions !== prev.conditions && s.conditions !== sunk) loadConditions(s.conditions);
+});

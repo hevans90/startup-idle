@@ -67,6 +67,8 @@ export type InfoContext = {
   racksPowered?: ReadonlySet<number>;
   /** Seconds until a flood-damaged building is repaired; null when it is not damaged. @see damage */
   repairedIn?: (id: number) => number | null;
+  /** What a damaged building is called, by what damaged it. @see damagedAs */
+  damagedAs?: (id: number) => string | null;
   /** What regular routes add to every port call, as a share: 0.4 is +40%. @see ROUTE_BONUS */
   routeBonus?: number;
   /** Seaports near a standing Conference Centre, by id. @see convoyPays */
@@ -134,10 +136,10 @@ export function saleName(def: StructureDef): string {
   return housingName(def.id, true) ?? def.name.replace(/^seaport/, "Seaport");
 }
 
-/** A flood-damaged building's line: idle until the repair crew has been. */
+/** A damaged building's line: idle until the repair crew has been. */
 function damageLine(s: Structure, ctx: InfoContext): InfoLine | null {
   const t = ctx.repairedIn?.(s.id);
-  return t == null ? null : { text: `Flood damaged · repaired in ${Math.ceil(t)}s`, tone: "warn" };
+  return t == null ? null : { text: `${ctx.damagedAs?.(s.id) ?? "Damaged"} · repaired in ${Math.ceil(t)}s`, tone: "warn" };
 }
 
 /** What a building's label says, or null for one with nothing to say. */

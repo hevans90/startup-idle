@@ -8,7 +8,7 @@
  * @see App, WorldEditor
  */
 import { processorKind, type ProcessorKind } from "../game/processors";
-import { CREW_SHARE } from "./events/events";
+import { eventCrew } from "./events/events";
 import { Application } from "@pixi/react";
 import { useEffect, useState, type RefObject } from "react";
 
@@ -23,7 +23,7 @@ import { setTermReader } from "../game/term-sheets";
 import { liveLeadership } from "./agents/leaders";
 import { deskShare } from "./agents/desk-perks";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
-import { MAX_ROUTES } from "./events/events";
+import { MAX_ROUTES } from "./events/defs/convoy";
 import { useInnovationStore } from "../state/innovation.store";
 import { useValuationStore } from "../state/valuation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
@@ -43,7 +43,8 @@ import { loadSaved, setSaveSlot, type SaveSlot } from "./io/world-save";
 import { rendererAsked, usePixiGpu } from "./render/use-gpu";
 import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
-import { damagedAway, evacuatedAway } from "./events/flood";
+import { evacuatedAway } from "./events/flood";
+import { damagedAway } from "./events/damage";
 import { cleanupAway } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
 import { markWorldGone, markWorldReady } from "../game/world-ready";
@@ -247,21 +248,11 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       // MOPPING UP SLUDGE spilled from a full slop tank. @see stepCleanup
       const mopping = cleanupAway();
       if (mopping) away.vibe_coder = Math.min(ownedNow().vibe_coder ?? 0, (away.vibe_coder ?? 0) + mopping);
-      // AT A HACKATHON, every vibe coder, for as long as it runs.
-      if (st.events.some((e) => e.kind === "hackathon" && e.phase === "active" && e.chosen === "host")) {
-        away.vibe_coder = ownedNow().vibe_coder ?? 0;
-      }
       // AND WHOEVER AN EVENT'S CHOICE TOOK OFF WORK: sandbaggers until the
       // flood passes, hands at the quays while the convoy is in, tidiers
-      // until the investors come. @see CREW_SHARE
-      const crew = (who: GeneratorId, share: number) => {
-        away[who] = Math.min(ownedNow()[who] ?? 0, (away[who] ?? 0) + Math.floor((ownedNow()[who] ?? 0) * share));
-      };
-      for (const e of st.events) {
-        if (e.phase === "over") continue;
-        if (e.kind === "river-flood" && e.chosen === "sandbags") crew("intern", CREW_SHARE.sandbags);
-        if (e.kind === "convoy" && e.chosen === "hands" && e.phase === "active") crew("intern", CREW_SHARE.hands);
-        if (e.kind === "investor-tour" && e.chosen === "tidy" && e.phase === "warning") crew("vibe_coder", CREW_SHARE.tidy);
+      // until the investors come, everyone at a hackathon. @see eventCrew
+      for (const [id, n] of Object.entries(eventCrew(st.events, ownedNow()))) {
+        away[id as GeneratorId] = Math.min(ownedNow()[id as GeneratorId] ?? 0, (away[id as GeneratorId] ?? 0) + n);
       }
       const remote = useSessionStore.getState().remoteBeds ?? {};
       const net = getNetwork();

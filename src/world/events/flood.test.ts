@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  FLOOD_HOLD, FLOOD_OVER, FLOOD_SECONDS, FLOOD_UP, REPAIR_SECONDS, damage, damagedAway, floodPeak, isDamaged, portShut, repairedIn, riseAt, riverHead, stepRepairs,
+  FLOOD_HOLD, FLOOD_OVER, FLOOD_SECONDS, FLOOD_UP, floodPeak, portShut, riseAt, riverHead,
 } from "./flood";
+import { REPAIR_SECONDS, damage, damagedAway, isDamaged, repairedIn, stepRepairs } from "./damage";
 import { createGrid, setInflow } from "../grid";
 
 describe("a flood's rise", () => {
