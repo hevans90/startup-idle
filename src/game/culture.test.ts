@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import type { GeneratorId } from "../state/generators.store";
+import { useInnovationStore } from "../state/innovation.store";
 import {
   CARDS, buySlot, cardLines, pivot, place, cardAt, cultureEffects, deal, emptyDeck, pointsLeft, rankPrice, rankUp, readDeck, reroll, take, toggleSlot,
-  hallucination, inForce, isAiTag, poolFor, rankNow, setSteps, tagCounts, workMorale, type CardId, type Deck,
+  TRACK_PACE, hallucination, inForce, isAiTag, poolFor, rankNow, setSteps, tagCounts, workMorale, type CardId, type Deck,
 } from "./culture";
 
 const all = new Set<GeneratorId>(["intern", "vibe_coder", "10x_dev"]);
@@ -20,16 +21,33 @@ describe("the culture deck", () => {
     }
   });
 
-  test("a track's cards come at 1, 4, 8, 13 of its tiers, from its own tags", () => {
-    expect([0, 1, 2, 3].map(cardAt)).toEqual([1, 4, 8, 13]);
-    let d = deal(emptyDeck(), tiers(4), all, first);
+  test("a track's cards come minutes apart, however its tiers climb, from its own tags", () => {
+    expect([0, 1, 2, 3].map((n) => cardAt("agile", n))).toEqual([8, 16, 22, 26]);
+    expect([0, 1, 2, 3].map((n) => cardAt("corpo", n))).toEqual([4, 8, 10, 12]);
+    expect([0, 1, 2, 3].map((n) => cardAt("sales", n))).toEqual([2, 3, 5, 6]);
+    // One manager on a track: its first card past 3 minutes, its fourth past 40.
+    for (const t of ["agile", "corpo", "sales"] as const) {
+      const { scaling: s, growth: g } = TRACK_PACE[t];
+      const at = (tiers: number) => (20 / g) * (s ** tiers - 1) / (s - 1);
+      expect(at(cardAt(t, 0))).toBeGreaterThan(180);
+      expect(at(cardAt(t, 3))).toBeGreaterThan(2400);
+    }
+    let d = deal(emptyDeck(), tiers(16), all, first);
     expect(d.offers.length).toBe(2);
     expect(d.dealt).toEqual({ agile: 2, corpo: 0, sales: 0 });
     for (const o of d.offers) for (const id of o.cards) expect(["hustle", "chaos"]).toContain(CARDS.find((c) => c.id === id)!.tag);
     // Never the same card on two offers.
     expect(new Set(d.offers.flatMap((o) => o.cards)).size).toBe(6);
-    d = deal(d, tiers(7), all, first);
+    d = deal(d, tiers(21), all, first);
     expect(d.offers.length).toBe(2);
+  });
+
+  test("the pace is the managers' own", () => {
+    const { managers } = useInnovationStore.getState();
+    for (const t of ["agile", "corpo", "sales"] as const) {
+      expect(managers[t].tierScalingExponent.toNumber()).toBe(TRACK_PACE[t].scaling);
+      expect(managers[t].growthRate.toNumber()).toBe(TRACK_PACE[t].growth);
+    }
   });
 
   test("a kind's own cards only once it is employed", () => {
@@ -42,7 +60,7 @@ describe("the culture deck", () => {
   });
 
   test("taking a card: owned at rank 1, in the free slot, the offer gone; a second waits unslotted", () => {
-    let d = deal(emptyDeck(), tiers(4), all, first);
+    let d = deal(emptyDeck(), tiers(16), all, first);
     const [a, b] = [d.offers[0].cards[0], d.offers[1].cards[0]];
     d = take(d, 0, a);
     expect(d.ranks[a]).toBe(1);
@@ -77,20 +95,20 @@ describe("the culture deck", () => {
     const i = cultureEffects(d, "intern"), v = cultureEffects(d, "vibe_coder");
     expect(i.deskless).toBe(1);
     // Hot Desking's, and two Hustle's set.
-    expect(i.desks).toBe(1.5 * 1.25);
+    expect(i.desks).toBe(2 * 1.5);
     expect(i.beds).toBe(2);
-    expect(i.houseMood).toBe(-14);
-    expect(i.morale).toBe(-14);
+    expect(i.houseMood).toBe(-10);
+    expect(i.morale).toBe(-10);
     expect(i.innovation).toBe(1);
-    expect(v.innovation).toBe(2);
+    expect(v.innovation).toBe(3);
     expect(v.slop).toBe(2);
     // The company's: the vibe coders' own card left out.
     expect(cultureEffects(d).slop).toBe(1);
-    expect(workMorale(d)).toEqual({ intern: -14, vibe_coder: -14, "10x_dev": -14 });
+    expect(workMorale(d)).toEqual({ intern: -10, vibe_coder: -10, "10x_dev": -10 });
   });
 
   test("a reroll deals other cards of the track, and counts", () => {
-    const d = deal(emptyDeck(), tiers(1), all, first);
+    const d = deal(emptyDeck(), tiers(8), all, first);
     const r = reroll(d, 0, all, first);
     expect(r.offers[0].rerolls).toBe(1);
     expect(r.offers[0].cards.some((id) => d.offers[0].cards.includes(id))).toBe(false);
@@ -121,7 +139,7 @@ describe("the culture deck", () => {
   });
 
   test("a card's face: gains first, each line marked", () => {
-    expect(cardLines(CARDS.find((c) => c.id === "hotdesk")!, 1)).toEqual([{ text: "Desks +50%", good: true }, { text: "House mood −6", good: false }]);
+    expect(cardLines(CARDS.find((c) => c.id === "hotdesk")!, 1)).toEqual([{ text: "Desks ×2", good: true }, { text: "House mood −5", good: false }]);
     expect(cardLines(CARDS.find((c) => c.id === "housing")!, 2)[0]).toEqual({ text: "Beds per house ×3", good: true });
   });
 
@@ -135,7 +153,7 @@ describe("the culture deck", () => {
   test("rank 3: rank 2's trade and its rule, only while slotted at the top", () => {
     const d: Deck = { ...emptyDeck(), slots: 2, ranks: { hotdesk: 3, crunch: 2 }, slotted: ["hotdesk", "crunch"] };
     const e = cultureEffects(d, "intern");
-    expect(e.desks).toBe(2 * 1.25);
+    expect(e.desks).toBe(3 * 1.5);
     expect(e.anyDesk).toBe(true);
     expect(e.dayOutput).toBe(1);
     expect(cultureEffects({ ...d, ranks: { hotdesk: 2, crunch: 2 } }).anyDesk).toBe(false);
@@ -149,7 +167,7 @@ describe("the culture deck", () => {
   test("Sabbaticals' rule: every 10x dev at home, past the cap the others keep", () => {
     const d: Deck = { ...emptyDeck(), slots: 2, ranks: { sabbatical: 3, remote: 2 }, slotted: ["sabbatical", "remote"] };
     expect(cultureEffects(d, "10x_dev").remote).toBe(1);
-    expect(cultureEffects(d, "intern").remote).toBe(0.5);
+    expect(cultureEffects(d, "intern").remote).toBe(0.7);
   });
 
   test("Pivot Weekly's rule: a guest brought in, none taken out, in force while it holds", () => {
@@ -158,7 +176,7 @@ describe("the culture deck", () => {
     expect(p.slotted).toEqual(["pivot", "crunch"]);
     expect(p.guest).toBe("lunch");
     expect(inForce(p)).toEqual(["pivot", "crunch", "lunch"]);
-    expect(cultureEffects(p).lunch).toBe(12);
+    expect(cultureEffects(p).lunch).toBe(20);
     // The next pivot, another.
     expect(pivot(p, () => 0).guest).toBe("stack");
     // Pivot out of its slot: the guest goes with it.
@@ -178,13 +196,13 @@ describe("tag sets", () => {
   });
 
   test("a set's step is in the effects, for every kind", () => {
-    // Two Wellness: +6 morale on top of the cards'.
+    // Two Wellness: +10 morale on top of the cards'.
     const one = cultureEffects(slotted(["lunch"]), "intern").morale;
-    expect(cultureEffects(slotted(["lunch", "remote"]), "intern").morale).toBe(one + 6);
-    // Four Hustle: money ×2, though Hire to Fire is the interns' alone.
+    expect(cultureEffects(slotted(["lunch", "remote"]), "intern").morale).toBe(one + 10);
+    // Four Hustle: money ×3, though Hire to Fire is the interns' alone.
     const four = slotted(["hotdesk", "crunch", "stack", "hiretofire"]);
-    expect(cultureEffects(four, "10x_dev").output).toBe(2);
-    expect(cultureEffects(four, "10x_dev").desks).toBeCloseTo(1.5 * 1.25, 9);
+    expect(cultureEffects(four, "10x_dev").output).toBe(3);
+    expect(cultureEffects(four, "10x_dev").desks).toBeCloseTo(2 * 1.5, 9);
   });
 
   test("Pivot Weekly's guest counts toward its tag", () => {
@@ -234,9 +252,9 @@ describe("the AI families", () => {
   });
 
   test("their sets, at two and three of their three cards", () => {
-    expect(cultureEffects(slotted({ autonomous: 1, swarm: 1 })).rackAgents).toBe(2 + 1);
+    expect(cultureEffects(slotted({ autonomous: 1, swarm: 1 })).rackAgents).toBe(3 + 2);
     expect(cultureEffects(slotted({ autonomous: 1, swarm: 1, selfimprove: 1 })).agentCost).toBe(0.5);
-    expect(cultureEffects(slotted({ redteam: 1, constitution: 1, killswitch: 1 })).weights).toBeCloseTo(1.5 * 1.5, 9);
+    expect(cultureEffects(slotted({ redteam: 1, constitution: 1, killswitch: 1 })).weights).toBeCloseTo(2 * 2, 9);
     // Best of two: the same minutes, never the lower for it.
     const one = slotted({ guess: 1, phantom: 1 }), all3 = slotted({ guess: 1, phantom: 1, benchmark: 1 });
     expect(cultureEffects(all3).bestOfTwo).toBe(true);

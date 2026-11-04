@@ -57,21 +57,21 @@ describe("the culture deck's rules, in the economy", () => {
   test("Hackathon Culture's and Vibes Only's: innovation for clean sewers, or for spills", () => {
     const base = g().getEmployeeOutputMults("vibe_coder").innovation;
     slot({ hackathon: 3, vibesonly: 3 });
-    // Hackathon's own ×3 at rank 2, two Chaos's ×1.5, and a rule.
-    expect(g().getEmployeeOutputMults("vibe_coder").innovation / base).toBeCloseTo(3 * 1.5 * 2, 9);
+    // Hackathon's own ×5 at rank 2, two Chaos's ×2, and a rule.
+    expect(g().getEmployeeOutputMults("vibe_coder").innovation / base).toBeCloseTo(5 * 2 * 2, 9);
     setSlopSpilling(true);
-    expect(g().getEmployeeOutputMults("vibe_coder").innovation / base).toBeCloseTo(3 * 1.5 * 3, 9);
+    expect(g().getEmployeeOutputMults("vibe_coder").innovation / base).toBeCloseTo(5 * 2 * 3, 9);
   });
 
   test("Hire Freeze's: the price halves again every ten minutes it holds", () => {
     setSystemTime(1_000_000);
     slot({ freeze: 3 });
-    expect(g().getEmployeeCostMult("intern")).toBeCloseTo(0.33, 9);
+    expect(g().getEmployeeCostMult("intern")).toBeCloseTo(0.25, 9);
     setSystemTime(1_000_000 + FREEZE_HALVES * 2000);
-    expect(g().getEmployeeCostMult("intern")).toBeCloseTo(0.33 / 4, 9);
+    expect(g().getEmployeeCostMult("intern")).toBeCloseTo(0.25 / 4, 9);
     // Out of force, and back: from the start again.
     slot({ freeze: 2 });
-    expect(g().getEmployeeCostMult("intern")).toBeCloseTo(0.33, 9);
+    expect(g().getEmployeeCostMult("intern")).toBeCloseTo(0.25, 9);
   });
 
   test("Always Be Hiring's: auto-buy faster the more there are", () => {
@@ -79,7 +79,7 @@ describe("the culture deck's rules, in the economy", () => {
     slot({ pipeline: 2 });
     const r2 = g().getAutoBuyRate("intern");
     slot({ pipeline: 3 });
-    expect(g().getAutoBuyRate("intern") - r2).toBeCloseTo(2 * (r2 / 3), 9);
+    expect(g().getAutoBuyRate("intern") - r2).toBeCloseTo(2 * (r2 / 6), 9);
   });
 
   test("Hire to Fire's: a vibe coder free with every ten interns", () => {
@@ -98,9 +98,9 @@ describe("the AI families, in their systems", () => {
   test("Agentic: the agents' boost, a rack's agents, and the meter faster", () => {
     const boost = agentBonus(10) - 1, rack = agentsARack(), meter = singularityMult(), price = agentCost(3);
     slot({ autonomous: 2, swarm: 2 });
-    // Autonomous's ×3 and the set of two's ×1.25; Swarm's +4 and the set's +1.
-    expect((agentBonus(10) - 1) / boost).toBeCloseTo(3 * 1.25, 9);
-    expect(agentsARack() - rack).toBe(4 + 1);
+    // Autonomous's ×4 and the set of two's ×1.5; Swarm's +6 and the set's +2.
+    expect((agentBonus(10) - 1) / boost).toBeCloseTo(4 * 1.5, 9);
+    expect(agentsARack() - rack).toBe(6 + 2);
     expect(singularityMult() / meter).toBeCloseTo(1.5 * 1.5, 9);
     slot({ autonomous: 1, swarm: 1, selfimprove: 1 });
     expect(agentCost(3) / price).toBeCloseTo(0.5, 9);
@@ -109,7 +109,7 @@ describe("the AI families, in their systems", () => {
   test("Self-Improving: training faster, and a finished run a surge — every card a rank up, a while", () => {
     const run = useTrainingStore.getState().seconds();
     slot({ selfimprove: 3 });
-    expect(run / useTrainingStore.getState().seconds()).toBeCloseTo(3, 9);
+    expect(run / useTrainingStore.getState().seconds()).toBeCloseTo(5, 9);
     g().surgeDeck(1000);
     expect(g().employeeManagement.deck.surgeUntil).toBe(1000 + SURGE_SECONDS * 1000);
   });
@@ -117,7 +117,7 @@ describe("the AI families, in their systems", () => {
   test("Safety: the meter slower; Red Team keeps the agents through a shutdown, Kill Switch banks Weights", () => {
     const meter = singularityMult();
     slot({ redteam: 3, killswitch: 3 });
-    expect(singularityMult() / meter).toBeCloseTo(0.4 * 0.8, 9); // Red Team's, and the set of two's
+    expect(singularityMult() / meter).toBeCloseTo(0.3 * 0.7, 9); // Red Team's, and the set of two's
     useAgentsStore.setState({ agents: 7 });
     const weights = useGenerationStore.getState().weights, banked = Math.round(ascensionWeights() * 0.5);
     shutDown(0);
@@ -133,6 +133,6 @@ describe("the AI families, in their systems", () => {
     expect(inheritTrait(log, () => 0).mutated).toBe(true);
     slot({ constitution: 3 });
     expect(inheritTrait(log, () => 0).mutated).toBe(false);
-    expect(ascensionWeights() / weights).toBeCloseTo(2, 1);
+    expect(ascensionWeights() / weights).toBeCloseTo(3, 1);
   });
 });

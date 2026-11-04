@@ -34,7 +34,7 @@ Status: **phases 1–3 and 5 done, phase 4 nearly** (2026-11-02): engine, store,
 ### 1. The economy
 
 - **Points:** one per manager tier, on any track.
-- **Card progress:** each track has its own bar. A track's tiers fill its bar, and a full bar deals an offer from that track's families. The bar grows: the 1st card at 1 tier, then 3, 4, 5, 6… more tiers of that track (first guess; tune against the pacing sims so a new card lands every 10–15 minutes of mid-game).
+- **Card progress:** each track has its own bar. A track's tiers fill its bar, and a full bar deals an offer from that track's families. Paced by time, not tiers (balance pass 2026-11-04): a track's `n`th card comes at the tiers one manager reaches in `240·(n+1)^1.75` s (4, 13, 27, 45, 67 min), converted through that track's own tier curve (`TRACK_PACE`): Agile 8, 16, 22, 26…; Corpo 4, 8, 10, 12…; Sales 2, 3, 5, 6…. More managers, sooner. It was 1, 4, 8, 13 tiers for every track, so Agile dealt four cards in two minutes.
 - **Slots:** the first is free. Each further slot costs 2, 3, 4, 5… points.
 - **Ranks:** rank 2 costs 6 points, rank 3 costs 15: max rank is a long climb. Trades are structural (desks, beds, commutes, leader ranks), not small percentages.
 - **Rerolls:** innovation, starting at a minute of income and doubling each reroll of the same offer.
@@ -64,7 +64,7 @@ Each card in force (Pivot's guest too) counts toward its tag; each step adds to 
 | Hallucination (at 2, 3) | money and innovation ×1.5 | every die rolled twice, the better kept | — |
 | Safety (at 2, 3) | AI meter −20%, dark after a shutdown −50% | Weights at Ascension ×1.5 | — |
 
-These numbers are placeholders, to make the shape concrete.
+As tuned in the balance pass (2026-11-04): Hustle desks ×1.5, build ×2, money ×3; Wellness morale +10, house mood +15, attendance +50%; Growth hire prices −30%; Chaos innovation ×2, ×3 while a tank spills; Agentic boost ×1.5 and +2 a rack; Hallucination ×2; Safety meter −30%, Weights ×2. The table above is the first guess. Card trades got the same pass: gains up about half to double, costs eased (see `CARDS`).
 
 ### 4. The cards
 
@@ -147,7 +147,7 @@ The user wants this **very polished**, and to **see the UI at each stage** to gi
 ## Open questions
 
 - ~~**Alignment**~~: built as **Safety**.
-- **Card pacing:** how often should a new card land, in real minutes, early and late?
+- ~~**Card pacing**~~: by time, a track's cards 4, 13, 27, 45, 67 minutes of one manager apart.
 - ~~**Discovery**~~: the journal is only a record.
 - **The tracks' old multipliers** (~3% a tier): dropped as agreed, but the economy leans on them. Make up the difference in base rates, or let the deck carry it?
 - **Kind-only cards** for 10x devs: only Sabbaticals so far. More, or fine?

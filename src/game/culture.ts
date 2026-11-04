@@ -191,44 +191,44 @@ export type Card = {
   rule: Rules;
 };
 
-/** The deck, at launch: five cards a tag. Numbers are first guesses. @see plans/culture-deck.md §4 */
+/** The deck: five cards a tag. @see plans/culture-deck.md §4 */
 export const CARDS: readonly Card[] = [
   // HUSTLE: more out of the same buildings; tired people.
-  { id: "hotdesk", name: "Hot Desking", tag: "hustle", ranks: [{ desks: 1.5, houseMood: -6 }, { desks: 2, houseMood: -6 }], keystone: "Any kind sits at any workplace", rule: { anyDesk: true } },
-  { id: "crunch", name: "Crunch Week", tag: "hustle", ranks: [{ deskless: 0.7, morale: -10 }, { deskless: 1, morale: -14 }], keystone: "Output ×2 while it is light", rule: { dayOutput: 2 } },
-  { id: "stack", name: "Stack Ranking", tag: "hustle", ranks: [{ leaderRank: 2, morale: -8 }, { leaderRank: 3, morale: -10 }], keystone: "Leaders rank on past 5, without end", rule: { noLeaderCap: true } },
-  { id: "hiretofire", name: "Hire to Fire", tag: "hustle", only: "intern", ranks: [{ costCurve: -0.04, morale: -12 }, { costCurve: -0.07, morale: -12 }], keystone: "A free vibe coder with every 10 interns hired", rule: { vibePerIntern: 0.1 } },
-  { id: "shipit", name: "Ship It Fridays", tag: "hustle", ranks: [{ buildSpeed: 2, slop: 1.5 }, { buildSpeed: 3, slop: 1.75 }], keystone: "Crews build ahead of deliveries", rule: { noMaterialWait: true } },
+  { id: "hotdesk", name: "Hot Desking", tag: "hustle", ranks: [{ desks: 2, houseMood: -5 }, { desks: 3, houseMood: -5 }], keystone: "Any kind sits at any workplace", rule: { anyDesk: true } },
+  { id: "crunch", name: "Crunch Week", tag: "hustle", ranks: [{ deskless: 0.8, morale: -8 }, { deskless: 1, output: 1.5, morale: -10 }], keystone: "Output ×2 while it is light", rule: { dayOutput: 2 } },
+  { id: "stack", name: "Stack Ranking", tag: "hustle", ranks: [{ leaderRank: 3, morale: -6 }, { leaderRank: 5, morale: -8 }], keystone: "Leaders rank on past 5, without end", rule: { noLeaderCap: true } },
+  { id: "hiretofire", name: "Hire to Fire", tag: "hustle", only: "intern", ranks: [{ costCurve: -0.05, morale: -8 }, { costCurve: -0.08, morale: -8 }], keystone: "A free vibe coder with every 10 interns hired", rule: { vibePerIntern: 0.1 } },
+  { id: "shipit", name: "Ship It Fridays", tag: "hustle", ranks: [{ buildSpeed: 3, slop: 1.5 }, { buildSpeed: 5, slop: 1.5 }], keystone: "Crews build ahead of deliveries", rule: { noMaterialWait: true } },
   // WELLNESS: a happier town; space or speed given for it.
-  { id: "lunch", name: "Free Lunch", tag: "wellness", ranks: [{ lunch: 6, buildPrice: 1.15 }, { lunch: 12, buildPrice: 1.15 }], keystone: "Lunch meets every need", rule: { lunchAll: true } },
-  { id: "remote", name: "Remote Fridays", tag: "wellness", ranks: [{ remote: 0.25 }, { remote: 0.5 }], keystone: "Home workers join their leader's team", rule: { homeTeam: true } },
-  { id: "fourday", name: "Four-Day Week", tag: "wellness", ranks: [{ houseMood: 10, attendance: 0.8 }, { houseMood: 15, attendance: 0.8 }], keystone: "Morale over +20: attendance ×1.5", rule: { happyAttendance: 1.5 } },
-  { id: "therapy", name: "Therapy Budget", tag: "wellness", ranks: [{ hazards: 0.5, hireCost: 1.15 }, { hazards: 0, hireCost: 1.15 }], keystone: "No one moves out over mood", rule: { noMoveOut: true } },
-  { id: "sabbatical", name: "Sabbaticals", tag: "wellness", only: "10x_dev", ranks: [{ innovation: 2, attendance: 0.75 }, { innovation: 3, attendance: 0.75 }], keystone: "Every 10x dev works from home", rule: { allHome: true } },
+  { id: "lunch", name: "Free Lunch", tag: "wellness", ranks: [{ lunch: 10, buildPrice: 1.1 }, { lunch: 20, buildPrice: 1.1 }], keystone: "Lunch meets every need", rule: { lunchAll: true } },
+  { id: "remote", name: "Remote Fridays", tag: "wellness", ranks: [{ remote: 0.4 }, { remote: 0.7 }], keystone: "Home workers join their leader's team", rule: { homeTeam: true } },
+  { id: "fourday", name: "Four-Day Week", tag: "wellness", ranks: [{ houseMood: 15, attendance: 0.85 }, { houseMood: 25, attendance: 0.85 }], keystone: "Morale over +20: attendance ×1.5", rule: { happyAttendance: 1.5 } },
+  { id: "therapy", name: "Therapy Budget", tag: "wellness", ranks: [{ hazards: 0.25, hireCost: 1.1 }, { hazards: 0, hireCost: 1.1 }], keystone: "No one moves out over mood", rule: { noMoveOut: true } },
+  { id: "sabbatical", name: "Sabbaticals", tag: "wellness", only: "10x_dev", ranks: [{ innovation: 3, attendance: 0.8 }, { innovation: 5, attendance: 0.8 }], keystone: "Every 10x dev works from home", rule: { allHome: true } },
   // GROWTH: headcount.
-  { id: "housing", name: "Company Housing", tag: "growth", ranks: [{ beds: 2, houseMood: -8 }, { beds: 3, houseMood: -8 }], keystone: "Houses beside a workplace need no desks", rule: { nextDoor: true } },
-  { id: "pipeline", name: "Always Be Hiring", tag: "growth", ranks: [{ autoBuy: 1, costCurve: 0.03 }, { autoBuy: 3, costCurve: 0.03 }], keystone: "Auto-buy +1/s for every 1,000 hired", rule: { autoBuyPer: 0.001 } },
-  { id: "freeze", name: "Hire Freeze", tag: "growth", ranks: [{ hireCost: 0.5, noAutoBuy: true, morale: -10 }, { hireCost: 0.33, noAutoBuy: true, morale: -10 }], keystone: "Hire prices halve again every 10 min", rule: { freezeFalls: true } },
-  { id: "shuttle", name: "Shuttle Bus", tag: "growth", ranks: [{ freeCommute: 8, buildPrice: 1.15 }, { freeCommute: Infinity, buildPrice: 1.15 }], keystone: "Houses with no road get to work anyway", rule: { noStranded: true } },
-  { id: "mentorship", name: "Mentorship Scheme", tag: "growth", only: "intern", ranks: [{ innovation: 3, desks: 0.5 }, { innovation: 5, desks: 0.5 }], keystone: "Interns earn what vibe coders earn", rule: { earnAsVibe: true } },
+  { id: "housing", name: "Company Housing", tag: "growth", ranks: [{ beds: 2, houseMood: -5 }, { beds: 3, houseMood: -5 }], keystone: "Houses beside a workplace need no desks", rule: { nextDoor: true } },
+  { id: "pipeline", name: "Always Be Hiring", tag: "growth", ranks: [{ autoBuy: 2, costCurve: 0.02 }, { autoBuy: 6, costCurve: 0.02 }], keystone: "Auto-buy +1/s for every 1,000 hired", rule: { autoBuyPer: 0.001 } },
+  { id: "freeze", name: "Hire Freeze", tag: "growth", ranks: [{ hireCost: 0.4, noAutoBuy: true, morale: -8 }, { hireCost: 0.25, noAutoBuy: true, morale: -8 }], keystone: "Hire prices halve again every 10 min", rule: { freezeFalls: true } },
+  { id: "shuttle", name: "Shuttle Bus", tag: "growth", ranks: [{ freeCommute: 12, buildPrice: 1.1 }, { freeCommute: Infinity, buildPrice: 1.1 }], keystone: "Houses with no road get to work anyway", rule: { noStranded: true } },
+  { id: "mentorship", name: "Mentorship Scheme", tag: "growth", only: "intern", ranks: [{ innovation: 5, desks: 0.5 }, { innovation: 10, desks: 0.5 }], keystone: "Interns earn what vibe coders earn", rule: { earnAsVibe: true } },
   // CHAOS: innovation, and a mess.
-  { id: "hackathon", name: "Hackathon Culture", tag: "chaos", only: "vibe_coder", ranks: [{ innovation: 2, slop: 2 }, { innovation: 3, slop: 2 }], keystone: "Innovation ×2 while no tank spills", rule: { cleanInnovation: 2 } },
-  { id: "movefast", name: "Move Fast", tag: "chaos", ranks: [{ buildSpeed: 2, tank: 0.5 }, { buildSpeed: 3, tank: 0.5 }], keystone: "Workplaces seat people while still building", rule: { openSites: true } },
-  { id: "vibesonly", name: "Vibes Only", tag: "chaos", only: "vibe_coder", ranks: [{ deskless: 0.7, slop: 1.5, houseMood: -6 }, { deskless: 1, slop: 1.5, houseMood: -6 }], keystone: "Innovation ×3 while a tank spills", rule: { messInnovation: 3 } },
-  { id: "pivot", name: "Pivot Weekly", tag: "chaos", ranks: [{ innovation: 1.5, pivot: true }, { innovation: 2, pivot: true }], keystone: "Pivots bring a card in, in a slot of its own", rule: { pivotIn: true } },
-  { id: "openplan", name: "Open Plan", tag: "chaos", ranks: [{ leadAll: true, morale: -8 }, { leadAll: true, leaderXp: 2, morale: -8 }], keystone: "Every leader leads every kind", rule: { leadEvery: true } },
+  { id: "hackathon", name: "Hackathon Culture", tag: "chaos", only: "vibe_coder", ranks: [{ innovation: 3, slop: 2 }, { innovation: 5, slop: 2 }], keystone: "Innovation ×2 while no tank spills", rule: { cleanInnovation: 2 } },
+  { id: "movefast", name: "Move Fast", tag: "chaos", ranks: [{ buildSpeed: 3, tank: 0.5 }, { buildSpeed: 5, tank: 0.5 }], keystone: "Workplaces seat people while still building", rule: { openSites: true } },
+  { id: "vibesonly", name: "Vibes Only", tag: "chaos", only: "vibe_coder", ranks: [{ deskless: 0.8, slop: 1.5, houseMood: -5 }, { deskless: 1, slop: 1.25, houseMood: -5 }], keystone: "Innovation ×3 while a tank spills", rule: { messInnovation: 3 } },
+  { id: "pivot", name: "Pivot Weekly", tag: "chaos", ranks: [{ innovation: 2, pivot: true }, { innovation: 3, pivot: true }], keystone: "Pivots bring a card in, in a slot of its own", rule: { pivotIn: true } },
+  { id: "openplan", name: "Open Plan", tag: "chaos", ranks: [{ leadAll: true, morale: -6 }, { leadAll: true, leaderXp: 3, morale: -6 }], keystone: "Every leader leads every kind", rule: { leadEvery: true } },
   // AGENTIC: the agents, harder — and the meter with them.
-  { id: "autonomous", name: "Autonomous Agents", tag: "agentic", ranks: [{ agentBoost: 2, meter: 1.5 }, { agentBoost: 3, meter: 1.5 }], keystone: "Agents keep working through training", rule: { trainWhileWorking: true } },
-  { id: "swarm", name: "Agent Swarm", tag: "agentic", ranks: [{ rackAgents: 2, meter: 1.25 }, { rackAgents: 4, meter: 1.5 }], keystone: "Every rack at full power, near or far", rule: { fullPower: true } },
-  { id: "selfimprove", name: "Self-Improving", tag: "agentic", ranks: [{ trainingSpeed: 2, meter: 1.5 }, { trainingSpeed: 3, meter: 1.5 }], keystone: "Each training run: every card +1 rank for 5 min", rule: { surge: true } },
+  { id: "autonomous", name: "Autonomous Agents", tag: "agentic", ranks: [{ agentBoost: 2.5, meter: 1.5 }, { agentBoost: 4, meter: 1.5 }], keystone: "Agents keep working through training", rule: { trainWhileWorking: true } },
+  { id: "swarm", name: "Agent Swarm", tag: "agentic", ranks: [{ rackAgents: 3, meter: 1.25 }, { rackAgents: 6, meter: 1.5 }], keystone: "Every rack at full power, near or far", rule: { fullPower: true } },
+  { id: "selfimprove", name: "Self-Improving", tag: "agentic", ranks: [{ trainingSpeed: 3, meter: 1.5 }, { trainingSpeed: 5, meter: 1.5 }], keystone: "Each training run: every card +1 rank for 5 min", rule: { surge: true } },
   // HALLUCINATION: dice, honestly shown.
-  { id: "guess", name: "Confident Guess", tag: "hallucination", ranks: [{ moneyDice: [0.5, 3] }, { moneyDice: [0.5, 4] }], keystone: "Rolls under ×1 are rolled again", rule: { rerollLow: true } },
-  { id: "phantom", name: "Phantom Revenue", tag: "hallucination", ranks: [{ output: 2, vanish: 0.25 }, { output: 3, vanish: 0.25 }], keystone: "A vanished minute pays innovation ×5", rule: { vanishPays: 5 } },
-  { id: "benchmark", name: "Made-Up Benchmark", tag: "hallucination", ranks: [{ innovationDice: [0.5, 3] }, { innovationDice: [0.5, 4] }], keystone: "Money rolls the same as innovation", rule: { benchMoney: true } },
+  { id: "guess", name: "Confident Guess", tag: "hallucination", ranks: [{ moneyDice: [0.75, 3] }, { moneyDice: [0.75, 4.5] }], keystone: "Rolls under ×1 are rolled again", rule: { rerollLow: true } },
+  { id: "phantom", name: "Phantom Revenue", tag: "hallucination", ranks: [{ output: 3, vanish: 0.25 }, { output: 5, vanish: 0.25 }], keystone: "A vanished minute pays innovation ×5", rule: { vanishPays: 5 } },
+  { id: "benchmark", name: "Made-Up Benchmark", tag: "hallucination", ranks: [{ innovationDice: [0.75, 3] }, { innovationDice: [0.75, 4.5] }], keystone: "Money rolls the same as innovation", rule: { benchMoney: true } },
   // SAFETY: a slower, safer AI, for less now.
-  { id: "redteam", name: "Red Team", tag: "safety", ranks: [{ meter: 0.6, agentBoost: 0.8 }, { meter: 0.4, agentBoost: 0.8 }], keystone: "A shutdown keeps the agents", rule: { keepAgents: true } },
-  { id: "constitution", name: "Constitution", tag: "safety", ranks: [{ weights: 1.5, output: 0.8 }, { weights: 2, output: 0.8 }], keystone: "The AI's trait never mutates", rule: { noMutation: true } },
-  { id: "killswitch", name: "Kill Switch", tag: "safety", ranks: [{ dark: 0.5, innovation: 0.75 }, { dark: 0, innovation: 0.75 }], keystone: "A shutdown banks half an Ascension's Weights", rule: { shutdownPays: 0.5 } },
+  { id: "redteam", name: "Red Team", tag: "safety", ranks: [{ meter: 0.5, agentBoost: 0.85 }, { meter: 0.3, agentBoost: 0.85 }], keystone: "A shutdown keeps the agents", rule: { keepAgents: true } },
+  { id: "constitution", name: "Constitution", tag: "safety", ranks: [{ weights: 2, output: 0.85 }, { weights: 3, output: 0.85 }], keystone: "The AI's trait never mutates", rule: { noMutation: true } },
+  { id: "killswitch", name: "Kill Switch", tag: "safety", ranks: [{ dark: 0.5, innovation: 0.85 }, { dark: 0, innovation: 0.85 }], keystone: "A shutdown banks half an Ascension's Weights", rule: { shutdownPays: 0.5 } },
 ];
 
 export const card = (id: CardId): Card => CARDS.find((c) => c.id === id)!;
@@ -267,13 +267,13 @@ export const AI_SET_AT = [2, 3] as const;
 /** The cards of a tag in force each step of its set needs. */
 export const setAt = (tag: Tag): readonly number[] => (isAiTag(tag) ? AI_SET_AT : SET_AT);
 export const TAG_SETS: Record<Tag, readonly SetStep[]> = {
-  hustle: [{ text: "Desks ×1.25", e: { desks: 1.25 } }, { text: "Build speed ×2", e: { buildSpeed: 2 } }, { text: "Money ×2", e: { output: 2 } }],
-  wellness: [{ text: "Morale +6", e: { morale: 6 } }, { text: "House mood +10", e: { houseMood: 10 } }, { text: "Attendance +30%", e: { attendance: 1.3 } }],
-  growth: [{ text: "Hire prices −20%", e: { hireCost: 0.8 } }, { text: "Beds per house ×1.5", e: { beds: 1.5 } }, { text: "Price curve −0.05", e: { costCurve: -0.05 } }],
-  chaos: [{ text: "Innovation ×1.5", e: { innovation: 1.5 } }, { text: "Spill upset −50%", e: { hazards: 0.5 } }, { text: "Innovation ×2 while a tank spills", e: { messInnovation: 2 } }],
-  agentic: [{ text: "Agent boost ×1.25 · agents a rack +1", e: { agentBoost: 1.25, rackAgents: 1 } }, { text: "Agent price −50%", e: { agentCost: 0.5 } }],
-  hallucination: [{ text: "Money and innovation ×1.5", e: { output: 1.5, innovation: 1.5 } }, { text: "Every die rolled twice, the better kept", e: { bestOfTwo: true } }],
-  safety: [{ text: "AI meter −20% · dark after a shutdown −50%", e: { meter: 0.8, dark: 0.5 } }, { text: "Weights at Ascension ×1.5", e: { weights: 1.5 } }],
+  hustle: [{ text: "Desks ×1.5", e: { desks: 1.5 } }, { text: "Build speed ×2", e: { buildSpeed: 2 } }, { text: "Money ×3", e: { output: 3 } }],
+  wellness: [{ text: "Morale +10", e: { morale: 10 } }, { text: "House mood +15", e: { houseMood: 15 } }, { text: "Attendance +50%", e: { attendance: 1.5 } }],
+  growth: [{ text: "Hire prices −30%", e: { hireCost: 0.7 } }, { text: "Beds per house ×1.5", e: { beds: 1.5 } }, { text: "Price curve −0.05", e: { costCurve: -0.05 } }],
+  chaos: [{ text: "Innovation ×2", e: { innovation: 2 } }, { text: "Spill upset −50%", e: { hazards: 0.5 } }, { text: "Innovation ×3 while a tank spills", e: { messInnovation: 3 } }],
+  agentic: [{ text: "Agent boost ×1.5 · agents a rack +2", e: { agentBoost: 1.5, rackAgents: 2 } }, { text: "Agent price −50%", e: { agentCost: 0.5 } }],
+  hallucination: [{ text: "Money and innovation ×2", e: { output: 2, innovation: 2 } }, { text: "Every die rolled twice, the better kept", e: { bestOfTwo: true } }],
+  safety: [{ text: "AI meter −30% · dark after a shutdown −50%", e: { meter: 0.7, dark: 0.5 } }, { text: "Weights at Ascension ×2", e: { weights: 2 } }],
 };
 export type SetStep = { text: string; e: CardEffects & Rules };
 
@@ -380,10 +380,36 @@ export const rankPrice = (d: Deck, id: CardId): number | null => {
 export const rerollSeconds = (o: Offer) => 60 * 2 ** o.rerolls;
 
 /**
- * THE TIERS A TRACK NEEDS for its `n`th card (from 0): 1, 4, 8, 13, 19… — the
- * wait a little longer each time. First guesses, tuned against the sims.
+ * HOW EACH TRACK TIERS UP, as the managers do: each tier `scaling` times the
+ * last's work, `growth` of it a manager a tick. Kept in step with the
+ * managers' own by a test. @see innovation.store
  */
-export const cardAt = (n: number) => 1 + (n * (n + 1)) / 2 + 2 * n;
+export const TRACK_PACE: Record<Track, { scaling: number; growth: number }> = {
+  agile: { scaling: 1.1, growth: 0.8 },
+  corpo: { scaling: 1.3, growth: 0.5 },
+  sales: { scaling: 1.5, growth: 0.1 },
+};
+/** Seconds of one manager's work, from no tiers, for a track's `n`th card (from 0): 4 min, 13, 27, 45, 67… */
+export const cardSeconds = (n: number) => 240 * (n + 1) ** 1.75;
+/** A tier's work, in seconds of one manager at tier 0: 100 progress at 5 ticks a second. */
+const tierSeconds = (track: Track) => 100 / (5 * TRACK_PACE[track].growth);
+const thresholds: Record<Track, number[]> = { agile: [], corpo: [], sales: [] };
+/**
+ * THE TIERS A TRACK NEEDS for its `n`th card (from 0): those one manager
+ * reaches in `cardSeconds(n)` — every track's cards as far apart in time,
+ * however its tiers climb, and a card at least a tier past the last. More
+ * managers, sooner.
+ */
+export function cardAt(track: Track, n: number): number {
+  const list = thresholds[track];
+  const { scaling: s } = TRACK_PACE[track];
+  while (list.length <= n) {
+    const k = list.length;
+    const tiers = Math.ceil(Math.log(1 + ((s - 1) * cardSeconds(k)) / tierSeconds(track)) / Math.log(s) - 1e-9);
+    list.push(Math.max(tiers, (list[k - 1] ?? 0) + 1));
+  }
+  return list[n];
+}
 
 /** What slotted cards do together, their trades and rules. @see combine */
 export type CultureEffects = Required<Omit<CardEffects, DiceKey>> & Required<Rules>;
@@ -507,7 +533,7 @@ function draw(from: readonly CardId[], n: number, rng: () => number): CardId[] {
 export function deal(d: Deck, tiers: Record<Track, number>, employs: ReadonlySet<GeneratorId>, rng: () => number = Math.random, ascended = false): Deck {
   let next = d;
   for (const track of Object.keys(TRACK_TAGS) as Track[]) {
-    while (tiers[track] >= cardAt(next.dealt[track])) {
+    while (tiers[track] >= cardAt(track, next.dealt[track])) {
       const cards = draw(poolFor(next, track, employs, ascended), OFFER_SIZE, rng);
       if (!cards.length) break;
       next = { ...next, dealt: { ...next.dealt, [track]: next.dealt[track] + 1 }, offers: [...next.offers, { track, cards, rerolls: 0 }] };

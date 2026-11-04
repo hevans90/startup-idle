@@ -47,7 +47,7 @@ describe("the culture deck, where the map works it out", () => {
     expect(cultureNow().desks).toBe(1);
     const v = cultureVersion();
     deck({ hotdesk: 1 });
-    expect(cultureNow("intern").desks).toBe(1.5);
+    expect(cultureNow("intern").desks).toBe(2);
     expect(cultureVersion()).toBeGreaterThan(v);
   });
 
@@ -55,7 +55,7 @@ describe("the culture deck, where the map works it out", () => {
     const { ids, seating } = street();
     expect(seating().desks.get(ids[0])!.of).toBe(20);
     deck({ hotdesk: 2 });
-    expect(seating().desks.get(ids[0])!.of).toBe(40);
+    expect(seating().desks.get(ids[0])!.of).toBe(60);
   });
 
   test("Crunch Week: those with no desk work at 70%, then in full", () => {
@@ -76,8 +76,8 @@ describe("the culture deck, where the map works it out", () => {
     expect(walked).toBeLessThan(1);
     deck({ remote: 2 });
     const s = seating();
-    expect(s.desks.get(ids[0])!.used).toBe(2);
-    expect(s.commutes.get(ids[1])!.eff).toBeCloseTo((2 * walked + 2) / 4, 9);
+    expect(s.desks.get(ids[0])!.used).toBe(1);
+    expect(s.commutes.get(ids[1])!.eff).toBeCloseTo((walked + 3) / 4, 9);
   });
 
   test("Shuttle Bus: free commutes twice as far, then all the way", () => {
@@ -105,16 +105,16 @@ describe("the culture deck, where the map works it out", () => {
     const mood = () => moodsOf(g, new Map(), new Map(), new Set([1])).get(1)!;
     expect(mood().total).toBe(MOOD.unmet + MOOD.sludge);
     deck({ fourday: 1, therapy: 1, lunch: 1 });
-    // Four-Day Week's +10, and three Wellness's set +10.
-    expect(mood().total).toBe(NEED_MOOD.intern + Math.round(MOOD.sludge / 2) + 10 + 10);
+    // Four-Day Week's +15, and three Wellness's set +15; Therapy's spills at a quarter.
+    expect(mood().total).toBe(NEED_MOOD.intern + Math.round(MOOD.sludge / 4) + 15 + 15);
   });
 
   test("leaders: Stack Ranking multiplies a rank's output; Open Plan leads everyone in full", () => {
     const l: Leader = { id: "l", role: "intern", name: "L", personality: "overachiever", rank: 3, xp: 0, perks: [], placedAt: 1 };
     const base = leaderEffects(l, 10, 100).output;
     deck({ stack: 1 });
-    // The team in full, the other ninety at half: the rank's output once more over that.
-    expect(leaderEffects(l, 10, 100).output - base).toBeCloseTo(3 * RANK_OUTPUT * ((10 + 0.5 * 90) / 100), 9);
+    // The team in full, the other ninety at half: the rank's output twice more over that.
+    expect(leaderEffects(l, 10, 100).output - base).toBeCloseTo(2 * 3 * RANK_OUTPUT * ((10 + 0.5 * 90) / 100), 9);
     deck({ openplan: 1 });
     const all = leaderEffects(l, 10, 100), team = leaderEffects(l, 100, 100);
     expect(all.output).toBeCloseTo(team.output, 9);
@@ -155,7 +155,7 @@ describe("the culture deck, where the map works it out", () => {
   test("Remote Fridays: who is at home, counted for their leader", () => {
     const { seating } = street(6, 4);
     deck({ remote: 3 });
-    expect(seating().home.intern).toBe(2);
+    expect(seating().home.intern).toBe(3);
   });
 
   test("Free Lunch's rule: every need met", () => {
@@ -192,7 +192,7 @@ describe("the culture deck, where the map works it out", () => {
     deck({ stack: 2 });
     const capped = leaderEffects(l, 10, 10).output;
     deck({ stack: 3 });
-    expect(leaderEffects(l, 10, 10).output - capped).toBeCloseTo(3 * RANK_OUTPUT * 3, 9);
+    expect(leaderEffects(l, 10, 10).output - capped).toBeCloseTo(3 * RANK_OUTPUT * 5, 9);
   });
 
   test("Move Fast: slop tanks half the size", () => {

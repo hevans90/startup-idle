@@ -70,7 +70,7 @@ export function CultureDeckPanel() {
           <span className="text-xs font-display uppercase tracking-wider">Next card</span>
           {(Object.keys(TRACK_NAME) as Track[]).map((t) => {
             const tier = managers[t].tier.floor().toNumber(), n = deck.dealt[t];
-            const from = n ? cardAt(n - 1) : 0, to = cardAt(n);
+            const from = n ? cardAt(t, n - 1) : 0, to = cardAt(t, n);
             return <Meter key={t} label={TRACK_NAME[t]} value={(tier - from) / (to - from)} detail={`${tier}/${to} tiers`} />;
           })}
         </section>
