@@ -13,6 +13,7 @@
  * doc). See docs/acquisition-skill-tree-design.md.
  */
 
+import { combineEffects, effectLines, type CardEffects } from "./culture";
 import { machineGraph } from "./machine";
 import { describe, helps, part, STATS, type Stat } from "./wording";
 
@@ -34,6 +35,8 @@ export type SkillNode = {
    * modifiers by {@link resolvePrestigeModifiers} and applied at the founder-style
    * chokepoints; the preview panel sums the same data. */
   grants?: BonusGrant[];
+  /** What it does to the TOWN — desks, beds, builds, commutes, leaders — as the culture deck's cards do, under them. @see cultureEffects */
+  town?: CardEffects;
   /** A keystone's qualitative, structural side-effect (beyond its numeric grants). */
   special?: KeystoneSpecial;
 };
@@ -51,11 +54,14 @@ export type KeystoneSpecial =
   | "lightCleanup" // Clean Sweep — mopping up sludge takes half the people
   | "foundingRoute" // Conglomerate — every company starts with a regular shipping route
   | "fastRepairs" // Open Core — flood damage is repaired twice as fast
-  | "extraTermSheet"; // Founder Worship — a fifth term sheet at founding
+  | "extraTermSheet" // Founder Worship — a fifth term sheet at founding
+  | "culturePoints"; // Company Handbook — culture points to spend, on top of the managers' tiers
 
 /** Free generator (intern) levels granted at the start of each run while the
  * "Permanent Acqui-hire" keystone is allocated — the upside offsetting its halved Equity. */
 export const ACQUIHIRE_FREE_LEVELS = 25;
+/** Culture points Company Handbook adds. @see deckTiers */
+export const HANDBOOK_POINTS = 5;
 /** Interns' output multiplier under "AGI-Pilled". */
 export const AGI_INTERN_OUTPUT_MULT = 0.1;
 /** How much "Enshittify" scales the POSITIVE side of satisfaction multipliers. */
@@ -123,7 +129,7 @@ export function grantRow(g: BonusGrant): EffectRow {
 
 /** Structural keystone reshapes as signed rows (their non-numeric side). */
 const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
-  disableManagers: { label: "Managers off", tone: "bad" },
+  disableManagers: { label: "No managers: no culture deck", tone: "bad" },
   neutralizeSatisfaction: { label: "Morale does nothing", tone: "bad" },
   dampSatisfaction: { label: "Good morale counts half", tone: "bad" },
   internsCrippled: { label: `Interns ×${AGI_INTERN_OUTPUT_MULT}`, tone: "bad" },
@@ -133,16 +139,21 @@ const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
   foundingRoute: { label: "A shipping route from the start", tone: "good" },
   fastRepairs: { label: "Flood repairs twice as fast", tone: "good" },
   extraTermSheet: { label: "A fifth term sheet at founding", tone: "good" },
+  culturePoints: { label: `Culture points +${HANDBOOK_POINTS}`, tone: "good" },
 };
 
 /** Full signed breakdown for a node: one row per grant, plus its structural
  * keystone reshape (if any). Drives the tooltip and the bonuses panel. */
 export function nodeEffectRows(node: SkillNode): EffectRow[] {
-  const rows = (node.grants ?? []).map(grantRow);
+  const rows = [...(node.grants ?? []).map(grantRow), ...(node.town ? townRows([node.town]) : [])];
   if (node.special) rows.push(SPECIAL_ROWS[node.special]);
   // Gains before costs, as every effect line. @see game/wording
   return [...rows.filter((r) => r.tone === "good"), ...rows.filter((r) => r.tone === "bad")];
 }
+
+/** What town effects come to together, as rows: one a lever, in the cards' words. @see combineEffects */
+export const townRows = (list: readonly CardEffects[]): EffectRow[] =>
+  list.length ? effectLines(combineEffects(list)).map((l) => ({ label: l.text, tone: l.good ? "good" : "bad" })) : [];
 
 /** The signed row for a structural keystone reshape (for route summaries). */
 export const specialEffectRow = (s: KeystoneSpecial): EffectRow => SPECIAL_ROWS[s];
@@ -157,7 +168,7 @@ const round1 = (n: number) => Number(n.toFixed(1));
  * of its cluster's minor; a generic path connector grants a tiny money bump. */
 const halfBonus = (grants: BonusGrant[]): BonusGrant[] =>
   grants.map((g) => (g.kind === "pct" ? { ...g, value: round1(g.value / 2) } : g));
-const PATH_TRAVEL_BONUS: BonusGrant[] = [pct("money", 0.5)];
+const PATH_TRAVEL_BONUS: BonusGrant[] = [pct("money", 1)];
 
 /** Undirected connection between two node ids. */
 export type SkillEdge = [string, string];
@@ -197,118 +208,141 @@ type ClusterShape = {
   travelPerGap: number;
 };
 
+type Notable = { title: string; bonus: BonusGrant[]; town?: CardEffects; special?: KeystoneSpecial };
+
 type ClusterDef = {
   id: string;
   name: string;
-  /** Per-minor bonus (each minor node grants this). */
+  /** Per-minor bonus (each minor node grants this), and what each does to the town. */
   minorBonus: BonusGrant[];
+  minorTown?: CardEffects;
+  /** What a generic ("… II") notable does to the town, past the signature ones. */
+  greaterTown?: CardEffects;
   /** Signature notables — trunk first, then branch pods; extras get generic names. */
-  notables: { title: string; bonus: BonusGrant[]; special?: KeystoneSpecial }[];
-  keystone?: { title: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
+  notables: Notable[];
+  keystone?: Notable;
   shape: ClusterShape;
 };
 
+/**
+ * THE CLUSTERS, a theme each: what a few nodes of it do, as much as a culture
+ * card does — and the town's own levers as well as the economy's: build speed
+ * and prices, desks, beds, leaders, the culture deck's points.
+ */
 const CLUSTERS: ClusterDef[] = [
   {
     id: "growth",
     name: "Growth Hacking",
-    minorBonus: [pct("money", 2)],
+    minorBonus: [pct("money", 4), pct("autoBuy", 5)],
     notables: [
-      { title: "Blitzscaling", bonus: [pct("headcount", 0.2)] },
-      { title: "Network Effects", bonus: [pct("money", 6), pct("innovation", 6)] },
+      { title: "Blitzscaling", bonus: [pct("headcount", 0.5)] },
+      { title: "Network Effects", bonus: [pct("money", 20), pct("innovation", 20)] },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 4 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "vc",
     name: "Venture Capital",
-    minorBonus: [pct("valuation", 3)],
-    notables: [{ title: "Term Sheet", bonus: [pct("money", 8), pct("valuation", 8)] }],
+    minorBonus: [pct("valuation", 6)],
+    notables: [{ title: "Term Sheet", bonus: [pct("money", 15), pct("valuation", 15)] }],
     keystone: { title: "Down Round", bonus: [mult("money", 3), mult("valuation", 0.2)] },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
   },
   {
+    // BUILDING: crews faster.
     id: "movefast",
     name: "Move Fast",
-    minorBonus: [pct("innovation", 2), pct("autoBuy", 2)],
-    notables: [{ title: "Ship It", bonus: [pct("innovation", 25), pct("autoBuy", 25)] }],
-    keystone: { title: "Move Fast, Break Things", bonus: [mult("innovation", 2.5), mult("autoBuy", 2), mult("money", 0.5)] },
+    minorBonus: [pct("innovation", 4)],
+    minorTown: { buildSpeed: 1.05 },
+    greaterTown: { buildSpeed: 1.2 },
+    notables: [{ title: "Ship It", bonus: [pct("innovation", 25)], town: { buildSpeed: 1.5 } }],
+    keystone: { title: "Move Fast, Break Things", bonus: [mult("innovation", 2.5), mult("money", 0.5)], town: { buildSpeed: 2 } },
     shape: { trunkMinors: 4, travelPerGap: 2, branches: [{ offset: -27, pods: 2, minors: 4 }, { offset: 27, pods: 1, minors: 4 }] },
   },
   {
+    // BUILDING: cheaper, and cheaper hires.
     id: "lean",
     name: "Lean Startup",
-    minorBonus: [pct("hireCost", -1.2)],
+    minorBonus: [pct("hireCost", -2)],
+    minorTown: { buildPrice: 0.97 },
+    greaterTown: { buildPrice: 0.9 },
     notables: [
-      { title: "Ramen Profitable", bonus: [pct("hireCost", -10)] },
-      { title: "Cheap Real Estate", bonus: [pct("hireCost", -12)] },
+      { title: "Ramen Profitable", bonus: [pct("hireCost", -15)] },
+      { title: "Cheap Real Estate", bonus: [], town: { buildPrice: 0.8 } },
     ],
-    keystone: { title: "Bootstrapped", bonus: [mult("money", 4), pct("hireCost", -25), mult("autoBuy", 0)], special: "disableManagers" },
+    keystone: { title: "Bootstrapped", bonus: [mult("money", 4), pct("hireCost", -25)], town: { buildPrice: 0.7 }, special: "disableManagers" },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
+    // DESKS: more of them, and more done without one.
     id: "crunch",
     name: "Crunch Culture",
-    minorBonus: [pct("employeeOutput", 2.5)],
+    minorBonus: [pct("employeeOutput", 3)],
+    minorTown: { desks: 1.04 },
+    greaterTown: { desks: 1.15 },
     notables: [
-      { title: "996", bonus: [pct("employeeOutput", 40), pct("satisfactionGain", -50)] },
+      { title: "996", bonus: [pct("employeeOutput", 40)], town: { deskless: 0.7, houseMood: -8 } },
       { title: "Clean Sweep", bonus: [pct("employeeOutput", 10)], special: "lightCleanup" },
     ],
-    keystone: { title: "Crunch Mode", bonus: [mult("employeeOutput", 2.5)], special: "neutralizeSatisfaction" },
+    keystone: { title: "Crunch Mode", bonus: [mult("employeeOutput", 2.5)], town: { houseMood: -15 }, special: "neutralizeSatisfaction" },
     shape: { trunkMinors: 4, travelPerGap: 4, branches: [{ offset: -27, pods: 1, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "aihype",
     name: "AI Hype",
-    minorBonus: [pct("innovation", 2), pct("singularity", 1.5)],
+    minorBonus: [pct("innovation", 4), pct("singularity", 3)],
     notables: [{ title: "Prompt Whisperer", bonus: [pct("money", 20), pct("innovation", 25)] }],
     keystone: { title: "AGI-Pilled", bonus: [mult("innovation", 3), mult("singularity", 2)], special: "internsCrippled" },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 4 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
+    // THE CULTURE DECK: its cards sooner, points to spend; and beds.
     id: "empire",
     name: "Empire Building",
-    minorBonus: [pct("managerSpeed", 3)],
+    minorBonus: [pct("managerSpeed", 6)],
     notables: [
-      { title: "Headcount Is Strategy", bonus: [pct("headcount", 0.4)] },
-      { title: "Conglomerate", bonus: [pct("money", 4), pct("innovation", 4)], special: "foundingRoute" },
-      { title: "Company Town", bonus: [pct("managerSpeed", 25)] },
+      { title: "Company Handbook", bonus: [pct("managerSpeed", 20)], special: "culturePoints" },
+      { title: "Conglomerate", bonus: [pct("money", 8), pct("innovation", 8)], special: "foundingRoute" },
+      { title: "Company Town", bonus: [], town: { beds: 1.25 } },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
   },
   {
+    // LEADERS, and the floods mended.
     id: "opensource",
     name: "Open Source",
-    minorBonus: [pct("innovation", 2.5)],
+    minorBonus: [pct("innovation", 4)],
     notables: [
-      { title: "Open Core", bonus: [pct("money", 6)], special: "fastRepairs" },
-      { title: "Foundation Grant", bonus: [pct("innovation", 20), pct("valuation", 10)] },
+      { title: "Open Core", bonus: [pct("money", 10)], special: "fastRepairs" },
+      { title: "Foundation Grant", bonus: [pct("innovation", 25), pct("valuation", 15)] },
+      { title: "Maintainers", bonus: [], town: { leaderXp: 1.5 } },
     ],
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 1, minors: 6 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "exit",
     name: "Exit Strategy",
-    minorBonus: [pct("equity", 1.5)],
+    minorBonus: [pct("equity", 3)],
     notables: [{ title: "Serial Founder", bonus: [pct("equity", 25)] }],
     keystone: { title: "Permanent Acqui-hire", bonus: [mult("equity", 0.5)], special: "freeStartingLevels" },
     shape: { trunkMinors: 4, travelPerGap: 4, branches: [{ offset: -27, pods: 2, minors: 4 }, { offset: 27, pods: 1, minors: 4 }] },
   },
   {
+    // A STRONGER START: a café, a term sheet, and the walk to work.
     id: "founder",
     name: "Founder Cult",
-    minorBonus: [pct("money", 1.5), pct("innovation", 1.5)],
+    minorBonus: [pct("money", 3), pct("innovation", 3)],
     notables: [
-      { title: "Founder Worship", bonus: [pct("money", 5), pct("innovation", 5)], special: "extraTermSheet" },
-      { title: "Cult of Personality", bonus: [pct("valuation", 30)] },
-      { title: "Hometown Hero", bonus: [pct("money", 6), pct("innovation", 6)], special: "foundingCafe" },
+      { title: "Founder Worship", bonus: [pct("money", 8), pct("innovation", 8)], special: "extraTermSheet" },
+      { title: "Cult of Personality", bonus: [pct("valuation", 30)], town: { freeCommute: 4 } },
+      { title: "Hometown Hero", bonus: [pct("money", 8), pct("innovation", 8)], special: "foundingCafe" },
     ],
     shape: { trunkMinors: 4, travelPerGap: 2, branches: [{ offset: -27, pods: 1, minors: 5 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
     id: "enshit",
     name: "Enshittification",
-    minorBonus: [pct("money", 3), pct("innovation", -1)],
+    minorBonus: [pct("money", 6), pct("innovation", -2)],
     notables: [{ title: "Monetize Everything", bonus: [pct("money", 50), pct("innovation", -25)] }],
     keystone: { title: "Enshittify", bonus: [mult("money", 3), mult("innovation", 0.2)], special: "dampSatisfaction" },
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
@@ -317,8 +351,7 @@ const CLUSTERS: ClusterDef[] = [
 
 const FREE_NOTABLE = {
   title: "Hockey Stick",
-  
-  bonus: [pct("money", 10), pct("innovation", 10)],
+  bonus: [pct("money", 20), pct("innovation", 20)],
 };
 
 /** Generic ("Greater …") notable past a cluster's signature list: a scaled-up
@@ -333,7 +366,7 @@ const greaterNotableBonus = (minorBonus: BonusGrant[]): BonusGrant[] =>
 // travel paths in a mostly-tree structure (core → inner cluster → satellites),
 // so there are no regular polygons / connected rings. Deterministic per `seed`.
 const ROMAN = ["I", "II", "III", "IV", "V", "VI"];
-const LAYOUT_SEED = 1437; // zero node/edge overlaps — verified by geometry check
+const LAYOUT_SEED = 1433; // every notable placed, zero node/edge overlaps — verified by geometry check
 
 type Pt = { x: number; y: number };
 const unit = (a: number): Pt => ({ x: Math.cos(a), y: Math.sin(a) });
@@ -379,12 +412,12 @@ export function buildTree(seed: number): SkillTree {
     kind: "root",
     cluster: "core",
     grants: [
-      pct("money", 6),
-      pct("innovation", 6),
-      pct("valuation", 6),
-      pct("employeeOutput", 4),
-      pct("hireCost", -4),
-      pct("equity", 6),
+      pct("money", 10),
+      pct("innovation", 10),
+      pct("valuation", 10),
+      pct("employeeOutput", 5),
+      pct("hireCost", -5),
+      pct("equity", 10),
     ],
   });
   const hp = polar(195, -Math.PI / 2 + Math.PI / CLUSTERS.length);
@@ -403,9 +436,10 @@ export function buildTree(seed: number): SkillTree {
     cluster: string;
     name: string;
     minorBonus: BonusGrant[];
-    end: { title: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
+    minorTown?: CardEffects;
+    end: Notable;
   };
-  type Keystone = { id: string; x: number; y: number; cluster: string; title: string; bonus: BonusGrant[]; special?: KeystoneSpecial };
+  type Keystone = Notable & { id: string; x: number; y: number; cluster: string };
   const hubs: Hub[] = [];
   const keystones: Keystone[] = [];
   const farEnough = (x: number, y: number) =>
@@ -415,15 +449,16 @@ export function buildTree(seed: number): SkillTree {
 
   CLUSTERS.forEach((cluster, i) => {
     const sector = (i / CLUSTERS.length) * Math.PI * 2 - Math.PI / 2;
-    const constellationCount = 4;
+    // Three constellations a cluster: fewer nodes, each worth more.
+    const constellationCount = 3;
     const slots = constellationCount + (cluster.keystone ? 1 : 0);
     let cursor = 0;
     const nextNotable = () => {
       const sig = cluster.notables[cursor];
-      const out = sig ?? {
+      const out: Notable = sig ?? {
         title: `${cluster.name} ${ROMAN[cursor] ?? cursor + 1}`,
-        
         bonus: greaterNotableBonus(cluster.minorBonus),
+        ...(cluster.greaterTown ? { town: cluster.greaterTown } : {}),
       };
       cursor++;
       return out;
@@ -432,9 +467,11 @@ export function buildTree(seed: number): SkillTree {
     for (let s = 0; s < slots; s++) {
       const band = BANDS[Math.min(s, BANDS.length - 1)];
       let placed: { x: number; y: number } | null = null;
-      for (let tries = 0; tries < 16 && !placed; tries++) {
+      // CROWDED, it moves out a ring rather than being left out: every
+      // signature notable on the tree.
+      for (let tries = 0; tries < 64 && !placed; tries++) {
         const a = sector + jit(0.3);
-        const r = band + jit(95);
+        const r = band + jit(95) + Math.floor(tries / 16) * 160;
         const p = polar(r, a);
         if (farEnough(p.x, p.y)) placed = p;
       }
@@ -444,13 +481,13 @@ export function buildTree(seed: number): SkillTree {
       if (isKey && cluster.keystone) {
         // Keystones are standalone — no spiral, no hub. Placed here for spacing;
         // attached later by a single long link from the nearest pathing node.
-        keystones.push({ id: `${cluster.id}_keystone`, x: placed.x, y: placed.y, cluster: cluster.id, title: cluster.keystone.title, bonus: cluster.keystone.bonus, special: cluster.keystone.special });
+        keystones.push({ ...cluster.keystone, id: `${cluster.id}_keystone`, x: placed.x, y: placed.y, cluster: cluster.id });
         continue;
       }
       const id = `${cluster.id}_h${s}`;
       const hubBonus = halfBonus(cluster.minorBonus);
       add({ id, x: placed.x, y: placed.y, title: `${cluster.name} Junction`, kind: "travel", cluster: cluster.id, grants: hubBonus });
-      hubs.push({ id, x: placed.x, y: placed.y, cluster: cluster.id, name: cluster.name, minorBonus: cluster.minorBonus, end: nextNotable() });
+      hubs.push({ id, x: placed.x, y: placed.y, cluster: cluster.id, name: cluster.name, minorBonus: cluster.minorBonus, minorTown: cluster.minorTown, end: nextNotable() });
     }
   });
 
@@ -524,7 +561,7 @@ export function buildTree(seed: number): SkillTree {
     // Step minors along the spiral by arc-length so consecutive nodes keep a
     // fixed gap (≈ STEP) regardless of how tightly the spiral is wound — this is
     // what prevents radial bunching when a wedge is narrow.
-    const STEP = 40;
+    const STEP = 78;
     const at = (t: number) => addv(h, unit(a0 + t * wind), SP_RIN + (SP_ROUT - SP_RIN) * t);
     let prev = h.id;
     let last = { x: h.x, y: h.y };
@@ -536,14 +573,14 @@ export function buildTree(seed: number): SkillTree {
       if (Math.hypot(p.x - last.x, p.y - last.y) < STEP) continue;
       k++;
       const mid = `${h.id}_m${k}`;
-      add({ id: mid, x: p.x, y: p.y, title: h.name, kind: "minor", cluster: h.cluster, grants: h.minorBonus });
+      add({ id: mid, x: p.x, y: p.y, title: h.name, kind: "minor", cluster: h.cluster, grants: h.minorBonus, ...(h.minorTown ? { town: h.minorTown } : {}) });
       link(prev, mid);
       prev = mid;
       last = p;
     }
     const tail = addv(h, unit(a0 + wind), SP_ROUT);
     const endId = `${h.id}_n`;
-    add({ id: endId, x: tail.x, y: tail.y, title: h.end.title, kind: "notable", cluster: h.cluster, grants: h.end.bonus, ...(h.end.special ? { special: h.end.special } : {}) });
+    add({ id: endId, x: tail.x, y: tail.y, title: h.end.title, kind: "notable", cluster: h.cluster, grants: h.end.bonus, ...(h.end.town ? { town: h.end.town } : {}), ...(h.end.special ? { special: h.end.special } : {}) });
     link(prev, endId);
   });
 
@@ -560,7 +597,8 @@ export function buildTree(seed: number): SkillTree {
     const start = { x: a.x + ux * clearOf(u), y: a.y + uy * clearOf(u) };
     const end = { x: b.x - ux * clearOf(parent[u]), y: b.y - uy * clearOf(parent[u]) };
     const span = Math.hypot(end.x - start.x, end.y - start.y);
-    const travel = Math.max(1, Math.min(4, Math.round(span / 120)));
+    // Fewer stops on a long link: a pathway is a way through, not a reward.
+    const travel = Math.max(1, Math.min(3, Math.round(span / 180)));
     let prev = b.id;
     for (let t = travel; t >= 1; t--) {
       const f = t / (travel + 1);
@@ -604,7 +642,7 @@ export function buildTree(seed: number): SkillTree {
   };
 
   for (const ks of keystones) {
-    add({ id: ks.id, x: ks.x, y: ks.y, title: ks.title, kind: "keystone", cluster: ks.cluster, grants: ks.bonus, special: ks.special });
+    add({ id: ks.id, x: ks.x, y: ks.y, title: ks.title, kind: "keystone", cluster: ks.cluster, grants: ks.bonus, ...(ks.town ? { town: ks.town } : {}), special: ks.special });
     // pathing targets = junction/travel nodes, nearest first
     const targets = nodes
       .filter((m) => m.kind === "travel")
@@ -644,6 +682,13 @@ function withMachine(tree: SkillTree): SkillTree {
 }
 
 export const SKILL_TREE: SkillTree = withMachine(buildTree(LAYOUT_SEED));
+
+/**
+ * THE TREE'S SHAPE, numbered: a save allocated on another is refunded in full
+ * and starts the tree again, its Equity back. @see prestige.store merge
+ * 2 — rescaled and re-themed for the map and the culture deck (2026-11-04).
+ */
+export const TREE_VERSION = 2;
 
 export const nodeById = (tree: SkillTree): Map<string, SkillNode> =>
   new Map(tree.nodes.map((n) => [n.id, n]));
@@ -686,6 +731,10 @@ export type PrestigeModifiers = {
   repairMult: number;
   /** Founder Worship: term sheets offered at founding. @see termSheetsFor */
   termSheets: number;
+  /** Company Handbook: culture points on top of the managers' tiers. @see deckTiers */
+  culturePoints: number;
+  /** What the allocated nodes do to the town, each node's: read under the culture deck's cards. @see setTownReader */
+  town: CardEffects[];
 };
 
 export const NEUTRAL_PRESTIGE_MODIFIERS: PrestigeModifiers = {
@@ -710,6 +759,8 @@ export const NEUTRAL_PRESTIGE_MODIFIERS: PrestigeModifiers = {
   startingRoutes: 0,
   repairMult: 1,
   termSheets: 4,
+  culturePoints: 0,
+  town: [],
 };
 
 const NODE_INDEX = nodeById(SKILL_TREE);
@@ -721,11 +772,12 @@ export function resolvePrestigeModifiers(
   allocated: Iterable<string>,
 ): PrestigeModifiers {
   const grants: BonusGrant[] = [];
-  const out: PrestigeModifiers = { ...NEUTRAL_PRESTIGE_MODIFIERS };
+  const out: PrestigeModifiers = { ...NEUTRAL_PRESTIGE_MODIFIERS, town: [] };
   for (const id of allocated) {
     const node = NODE_INDEX.get(id);
     if (!node) continue;
     if (node.grants) grants.push(...node.grants);
+    if (node.town) out.town.push(node.town);
     switch (node.special) {
       case "disableManagers":
         out.disableManagers = true;
@@ -756,6 +808,9 @@ export function resolvePrestigeModifiers(
         break;
       case "extraTermSheet":
         out.termSheets = 5;
+        break;
+      case "culturePoints":
+        out.culturePoints += HANDBOOK_POINTS;
         break;
     }
   }

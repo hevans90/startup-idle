@@ -12,6 +12,7 @@ import {
   SKILL_TREE,
   specialEffectRow,
   STAT_META,
+  townRows,
 } from "../../game/skill-tree";
 import { usePrestigeStore } from "../../state/prestige.store";
 import { useGenerationStore } from "../../state/generation.store";
@@ -111,7 +112,9 @@ export const SkillTreeTooltip = () => {
             .map((id) => NODES.get(id)?.special)
             .filter((s): s is KeystoneSpecial => !!s),
         ),
-      ].map(specialEffectRow)
+      ].map(specialEffectRow).concat(
+        townRows(routePath.flatMap((id) => { const t = NODES.get(id)?.town; return t ? [t] : []; })),
+      )
     : [];
   // Respec mode: routePath is the subtree this node's refund would remove.
   const refundCount = respecMode ? routePath.length : 0;

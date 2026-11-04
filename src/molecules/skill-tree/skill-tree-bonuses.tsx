@@ -8,6 +8,7 @@ import {
   SKILL_TREE,
   STAT_META,
   type StatTotal,
+  townRows,
 } from "../../game/skill-tree";
 import { usePrestigeStore } from "../../state/prestige.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
@@ -60,6 +61,8 @@ export const SkillTreeBonuses = () => {
     .filter((n): n is SkillNode => !!n);
 
   const totals = aggregateGrants(nodes.flatMap((n) => n.grants ?? []));
+  // The map's effects (build speed, desks, rent…) folded as the deck folds them.
+  const townTotals = townRows(nodes.flatMap((n) => (n.town ? [n.town] : [])));
   const keystones = nodes.filter((n) => n.kind === "keystone");
   const notables = nodes.filter((n) => n.kind === "notable");
 
@@ -91,10 +94,15 @@ export const SkillTreeBonuses = () => {
         <Empty opens="Allocate one to see what they add up to.">No nodes yet.</Empty>
       )}
 
-      {totals.length > 0 && (
+      {(totals.length > 0 || townTotals.length > 0) && (
         <Section label="Totals" color="text-innovation">
           {totals.map((t) => (
             <TotalRow key={t.stat} total={t} />
+          ))}
+          {townTotals.map((r) => (
+            <div key={r.label} className={`bg-surface-2/70 px-2 py-1 text-xs font-semibold ${toneClass(r.tone)}`}>
+              {r.label}
+            </div>
           ))}
         </Section>
       )}

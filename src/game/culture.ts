@@ -290,7 +290,7 @@ export const setSteps = (tag: Tag, count: number): readonly SetStep[] => TAG_SET
 const share = (v: number) => (v >= 2 ? times(v) : percent((v - 1) * 100));
 const signed = (v: number) => `${v > 0 ? "+" : "−"}${Math.abs(v)}`;
 
-type Line = { text: string; good: boolean };
+export type Line = { text: string; good: boolean };
 /** Each effect as a line on the card's face, and whether it helps — a die, two: its best and its worst. */
 const LINES: { [K in keyof CardEffects]-?: (v: NonNullable<CardEffects[K]>) => Line | Line[] } = {
   desks: (v) => ({ text: `Desks ${share(v)}`, good: v > 1 }),
@@ -329,10 +329,14 @@ const LINES: { [K in keyof CardEffects]-?: (v: NonNullable<CardEffects[K]>) => L
   vanish: (v) => ({ text: `1 minute in ${Math.round(1 / v)} earns nothing`, good: false }),
 };
 
+/** Effects as lines, in the cards' words: each with whether it helps. @see LINES */
+export const effectLines = (e: CardEffects): Line[] =>
+  (Object.keys(e) as (keyof CardEffects)[]).filter((k) => e[k] !== undefined).flatMap((k) => (LINES[k] as (v: unknown) => Line | Line[])(e[k]));
+
 /** A card's trade at a rank as lines for its face, gains first: each with whether it helps. */
 export function cardLines(c: Card, rank: number): Line[] {
   const e = c.ranks[Math.min(rank, 2) - 1];
-  const lines = (Object.keys(e) as (keyof CardEffects)[]).flatMap((k) => (LINES[k] as (v: unknown) => Line | Line[])(e[k]));
+  const lines = effectLines(e);
   // What working from home costs is not a number: who is home is on no
   // leader's team — till Remote Fridays' rule puts them on it. @see seat
   if (e.remote && !(rank >= 3 && c.rule.homeTeam)) lines.push({ text: "Home workers on no team", good: false });
@@ -441,21 +445,35 @@ const ruled = (d: Deck, id: CardId) => d.slotted.includes(id) && !!d.ranks[id] &
 export const inForce = (d: Deck): CardId[] =>
   d.guest && ruled(d, "pivot") && !d.slotted.includes(d.guest) && d.ranks[d.guest] ? [...d.slotted, d.guest] : d.slotted;
 
-/**
- * What the slotted cards do to a kind — or, with no kind, what they do to the
- * whole company: the cards for one kind left out.
- */
-export function cultureEffects(d: Deck, kind?: GeneratorId): CultureEffects {
-  const e: Record<string, number | boolean> = { ...NO_EFFECTS };
-  const add = (r: CardEffects & Rules) => {
-    for (const [k, v] of Object.entries(r) as [keyof CultureEffects, number | boolean | Dice][]) {
-      if (typeof v === "object") continue;
+/** Effects folded in, one after another, as the cards' are: added, multiplied, the larger, or either. */
+function folder(e: Record<string, number | boolean>) {
+  return (r: CardEffects & Rules) => {
+    for (const [k, v] of Object.entries(r) as [keyof CultureEffects, number | boolean | Dice | undefined][]) {
+      if (v === undefined || typeof v === "object") continue;
       if (typeof v === "boolean") e[k] = (e[k] as boolean) || v;
       else if (ADDED.has(k)) e[k] = (e[k] as number) + v;
       else if (LARGER.has(k)) e[k] = Math.max(e[k] as number, v);
       else e[k] = (e[k] as number) * v;
     }
   };
+}
+
+/** Several sets of effects as one, as the cards' fold: what differs from none, only. @see cultureEffects */
+export function combineEffects(list: readonly (CardEffects & Rules)[]): CardEffects & Rules {
+  const e: Record<string, number | boolean> = { ...NO_EFFECTS };
+  list.forEach(folder(e));
+  return Object.fromEntries(Object.entries(e).filter(([k, v]) => v !== NO_EFFECTS[k as keyof CultureEffects])) as CardEffects & Rules;
+}
+
+/**
+ * What the slotted cards do to a kind — or, with no kind, what they do to the
+ * whole company: the cards for one kind left out. `base`, what holds whatever
+ * the cards: the acquisition tree's town nodes. @see setTownReader
+ */
+export function cultureEffects(d: Deck, kind?: GeneratorId, base: readonly CardEffects[] = []): CultureEffects {
+  const e: Record<string, number | boolean> = { ...NO_EFFECTS };
+  const add = folder(e);
+  base.forEach(add);
   for (const id of inForce(d)) {
     const c = card(id), rank = rankNow(d, id);
     if (c.only && c.only !== kind) continue;

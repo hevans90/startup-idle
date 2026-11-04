@@ -7,7 +7,7 @@
  * @see game/culture, setDeckReader
  */
 import type { GeneratorId } from "../state/generators.store";
-import { cultureEffects, emptyDeck, type CultureEffects, type Deck } from "./culture";
+import { cultureEffects, emptyDeck, type CardEffects, type CultureEffects, type Deck } from "./culture";
 
 /** No cards: the one empty deck, so it reads as unchanged. */
 const NONE = emptyDeck();
@@ -23,20 +23,33 @@ export function setDeckReader(r: () => Deck): () => void {
   return () => { read = before; };
 }
 
+/** THE ACQUISITION TREE'S TOWN NODES: what holds under the cards, whatever is slotted. */
+const NO_TOWN: readonly CardEffects[] = [];
+let readTown: () => readonly CardEffects[] = () => NO_TOWN;
+let lastTown: readonly CardEffects[] = NO_TOWN;
+
+/** The prestige store's town effects, for the rest to read. Returns the undo. @see PrestigeModifiers.town */
+export function setTownReader(r: () => readonly CardEffects[]): () => void {
+  const before = readTown;
+  readTown = r;
+  return () => { readTown = before; };
+}
+
 function sync(): void {
-  const d = read();
-  if (d === last) return;
+  const d = read(), town = readTown();
+  if (d === last && town === lastTown) return;
   last = d;
+  lastTown = town;
   version++;
   kept.clear();
 }
 
-/** What the cards do to a kind now — or, with none, to the whole company. */
+/** What the cards, and the tree's town nodes under them, do to a kind now — or, with none, to the whole company. */
 export function cultureNow(kind?: GeneratorId): CultureEffects {
   sync();
   const key = kind ?? "all";
   let e = kept.get(key);
-  if (!e) kept.set(key, (e = cultureEffects(last!, kind)));
+  if (!e) kept.set(key, (e = cultureEffects(last!, kind, lastTown)));
   return e;
 }
 

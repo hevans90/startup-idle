@@ -379,9 +379,10 @@ function buildAmountsMap(generators: OwnedGenerator[]): Record<GeneratorId, numb
   return amounts;
 }
 
-/** Manager tiers for the deck: none until employee management is open. */
+/** Manager tiers for the deck, points to spend: none until employee management is open. */
 function deckTiers(): number {
-  return useInnovationStore.getState().unlocks.employeeManagement?.unlocked ? getManagementTierTotal() : 0;
+  // And Company Handbook's points, on top of the managers'. @see HANDBOOK_POINTS
+  return useInnovationStore.getState().unlocks.employeeManagement?.unlocked ? getManagementTierTotal() + usePrestigeStore.getState().modifiers.culturePoints : 0;
 }
 /** Each track's tiers, which pace its offers. @see cardAt */
 function trackTiers(): Record<Track, number> {

@@ -7,7 +7,7 @@ import {
   type KeystoneSpecial,
 } from "../game/skill-tree";
 import { equityForAccrued } from "../game/acquisition";
-import { addMorale, clearMorale } from "../game/morale";
+import { cultureNow } from "../game/culture-now";
 import { computeModifiers } from "../game/modifiers";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { resetRunStores } from "../simulation/reset-game-stores";
@@ -211,30 +211,14 @@ describe("prestige modifiers are wired to the economy", () => {
     expect(runOnce()).toBeGreaterThan(base);
   });
 
-  test("996's satisfaction-gain penalty slows satisfaction growth", () => {
-    useInnovationStore.setState((s) => ({
-      unlocks: {
-        ...s.unlocks,
-        employeeManagement: { ...s.unlocks.employeeManagement!, unlocked: true },
-      },
-    }));
-    const stepOnce = () => {
-      useGeneratorStore.setState((s) => ({
-        satisfactionScores: { intern: 0, vibe_coder: 0, "10x_dev": 0 },
-        globalLastTick: Date.now() - 1000,
-      }));
-      useGeneratorStore.getState().tickGenerators();
-      return useGeneratorStore.getState().satisfactionScores.intern;
-    };
-    // A hackathon's lean: a positive morale target.
-    clearMorale();
-    addMorale("intern", 20);
+  test("a node's map effects reach the culture the map reads", () => {
+    const shipIt = SKILL_TREE.nodes.find((n) => n.title === "Ship It")!;
     applyNodes([]);
-    const base = stepOnce();
-    expect(base).toBeGreaterThan(0);
-    applyNodes([biggestPctNode("satisfactionGain").id]); // 996
-    expect(stepOnce()).toBeLessThan(base);
-    clearMorale();
+    const base = cultureNow().buildSpeed;
+    applyNodes([shipIt.id]);
+    expect(cultureNow().buildSpeed).toBeCloseTo(base * shipIt.town!.buildSpeed!);
+    applyNodes([]);
+    expect(cultureNow().buildSpeed).toBe(base);
   });
 
   test("Bootstrapped neutralises active manager multipliers", () => {

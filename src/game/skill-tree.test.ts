@@ -17,8 +17,8 @@ import {
 } from "./skill-tree";
 
 describe("generated skill tree", () => {
-  test("has at least 300 nodes", () => {
-    expect(SKILL_TREE.nodes.length).toBeGreaterThanOrEqual(300);
+  test("has at least 150 nodes", () => {
+    expect(SKILL_TREE.nodes.length).toBeGreaterThanOrEqual(150);
   });
 
   test("node ids are unique", () => {
@@ -71,9 +71,9 @@ describe("generated skill tree", () => {
   test("reachability gates non-roots behind allocation", () => {
     const empty = new Set<string>();
     expect(isReachable(SKILL_TREE, empty, "core")).toBe(true);
-    expect(isReachable(SKILL_TREE, empty, "link_1_2")).toBe(false);
-    expect(isReachable(SKILL_TREE, new Set(["core"]), "link_1_2")).toBe(true);
-    expect(isReachable(SKILL_TREE, new Set(["core"]), "link_1_1")).toBe(false);
+    expect(isReachable(SKILL_TREE, empty, "link_1_1")).toBe(false);
+    expect(isReachable(SKILL_TREE, new Set(["core"]), "link_1_1")).toBe(true);
+    expect(isReachable(SKILL_TREE, new Set(["core"]), "growth_h0")).toBe(false);
   });
 });
 
@@ -130,16 +130,16 @@ describe("frontierPath + pathEquityCost", () => {
   const adj = buildAdjacency(SKILL_TREE);
 
   test("from nothing allocated, the path includes the root and ends at the target", () => {
-    const path = frontierPath(SKILL_TREE, new Set(), "link_1_1", adj);
+    const path = frontierPath(SKILL_TREE, new Set(), "growth_h0", adj);
     expect(path[0]).toBe("core");
-    expect(path[path.length - 1]).toBe("link_1_1");
+    expect(path[path.length - 1]).toBe("growth_h0");
   });
 
   test("path contains only unallocated nodes and ends at the target", () => {
     const allocated = new Set(["core"]);
-    const path = frontierPath(SKILL_TREE, allocated, "link_1_1", adj);
+    const path = frontierPath(SKILL_TREE, allocated, "growth_h0", adj);
     expect(path).not.toContain("core");
-    expect(path[path.length - 1]).toBe("link_1_1");
+    expect(path[path.length - 1]).toBe("growth_h0");
     // allocating along the path, each node is reachable from the prior frontier
     const acc = new Set(allocated);
     for (const id of path) {
@@ -159,35 +159,35 @@ describe("frontierPath + pathEquityCost", () => {
   });
 
   test("nodesToRemove returns the node plus its orphaned dependents", () => {
-    const alloc = new Set(["core", "link_1_2", "link_1_1"]);
+    const alloc = new Set(["core", "link_1_1", "growth_h0"]);
     // removing the middle node must also take the leaf that depends on it
-    expect(nodesToRemove(SKILL_TREE, alloc, "link_1_2", adj)).toEqual([
-      "link_1_2",
+    expect(nodesToRemove(SKILL_TREE, alloc, "link_1_1", adj)).toEqual([
       "link_1_1",
+      "growth_h0",
     ]);
     // a leaf removes only itself
-    expect(nodesToRemove(SKILL_TREE, alloc, "link_1_1", adj)).toEqual(["link_1_1"]);
+    expect(nodesToRemove(SKILL_TREE, alloc, "growth_h0", adj)).toEqual(["growth_h0"]);
     // a root is never removable
     expect(nodesToRemove(SKILL_TREE, alloc, "core", adj)).toEqual([]);
   });
 });
 
 describe("node bonuses", () => {
-  test("every non-root node grants at least one bonus (travel included)", () => {
+  test("every non-root node does something (travel included)", () => {
     // The Machine's nodes are features, bought with Weights: no Equity-tree grants.
     const bearing = SKILL_TREE.nodes.filter((n) => n.kind !== "root" && n.cluster !== MACHINE);
     expect(bearing.length).toBeGreaterThan(0);
     for (const n of bearing) {
-      expect(n.grants && n.grants.length).toBeGreaterThan(0);
+      expect((n.grants?.length ?? 0) + (n.town ? 1 : 0) + (n.special ? 1 : 0)).toBeGreaterThan(0);
     }
   });
 
-  test("travel-node bonuses are small (≤ 2% per stat, no multipliers)", () => {
+  test("travel-node bonuses are small (≤ 3% per stat, no multipliers)", () => {
     for (const n of SKILL_TREE.nodes) {
       if (n.kind !== "travel") continue;
       for (const g of n.grants ?? []) {
         expect(g.kind).toBe("pct");
-        expect(Math.abs(g.value)).toBeLessThanOrEqual(2);
+        expect(Math.abs(g.value)).toBeLessThanOrEqual(3);
       }
     }
   });
@@ -254,11 +254,6 @@ describe("resolvePrestigeModifiers", () => {
     expect(resolvePrestigeModifiers([n.id]).headcountPerEmployee).toBeCloseTo(g.value / 100);
   });
 
-  test("a satisfactionGain node slows satisfaction (mult < 1)", () => {
-    const n = nodeWith((g) => g.stat === "satisfactionGain" && g.value < 0);
-    expect(resolvePrestigeModifiers([n.id]).satisfactionGainMult).toBeLessThan(1);
-  });
-
   test("keystone structural flags resolve from their `special` tag", () => {
     const bySpecial = (s: string) => SKILL_TREE.nodes.find((n) => n.special === s)!;
     expect(resolvePrestigeModifiers([bySpecial("disableManagers").id]).disableManagers).toBe(true);
@@ -292,14 +287,11 @@ describe("resolvePrestigeModifiers", () => {
 });
 
 describe("nodeEffectRows (signed, coloured breakdown)", () => {
-  test("996 splits into a green output gain and a red morale downside", () => {
+  test("996 lists its gains in green, then the house-mood cost in red", () => {
     const n996 = SKILL_TREE.nodes.find((n) => n.title === "996")!;
     const rows = nodeEffectRows(n996);
-    expect(rows.length).toBe(2);
-    const good = rows.find((r) => r.tone === "good");
-    const bad = rows.find((r) => r.tone === "bad");
-    expect(good?.label).toBe("Output +40%");
-    expect(bad?.label).toBe("Morale recovery ×0.5");
+    expect(rows.map((r) => r.label)).toEqual(["Output +40%", "Deskless work at 70%", "House mood −8"]);
+    expect(rows.map((r) => r.tone)).toEqual(["good", "good", "bad"]);
   });
 
   test("a keystone appends its structural reshape as a row", () => {
@@ -332,10 +324,10 @@ describe("nodeCost (escalating)", () => {
 describe("canRemoveWithoutOrphan", () => {
   const adj = buildAdjacency(SKILL_TREE);
   test("a leaf can be removed; a cut node and roots cannot", () => {
-    const allocated = new Set(["core", "link_1_2", "link_1_1"]);
-    expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "link_1_1", adj)).toBe(true);
+    const allocated = new Set(["core", "link_1_1", "growth_h0"]);
+    expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "growth_h0", adj)).toBe(true);
     // removing spoke_0 would orphan spoke_1
-    expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "link_1_2", adj)).toBe(false);
+    expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "link_1_1", adj)).toBe(false);
     // roots are never removable
     expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "core", adj)).toBe(false);
   });
@@ -351,8 +343,8 @@ describe("town perks", () => {
     const m = resolvePrestigeModifiers(["Hometown Hero", "Clean Sweep"].map((t) => byTitle.get(t)!.id));
     expect(m.foundingCafe).toBe(true);
     expect(m.cleanupMult).toBe(0.5);
-    // Land is gone: what were its notables are plain bonuses now.
-    expect(byTitle.get("Company Town")!.grants).toEqual([{ stat: "managerSpeed", kind: "pct", value: 25 }]);
+    // Company Town shapes the map itself: more beds a house.
+    expect(byTitle.get("Company Town")!.town).toEqual({ beds: 1.25 });
     expect(byTitle.get("Company Town")!.special).toBeUndefined();
   });
 

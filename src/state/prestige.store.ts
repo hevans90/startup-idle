@@ -13,7 +13,9 @@ import {
   type PrestigeModifiers,
   resolvePrestigeModifiers,
   SKILL_TREE,
+  TREE_VERSION,
 } from "../game/skill-tree";
+import { setTownReader } from "../game/culture-now";
 import { isMachine } from "../game/machine";
 import {
   coerceDecimal,
@@ -239,6 +241,7 @@ export const usePrestigeStore = create<PrestigeState>()(
         reviver: decimalReviver,
       }),
       partialize: (s) => ({
+        treeVersion: TREE_VERSION,
         equity: s.equity,
         exits: s.exits,
         respecPoints: s.respecPoints,
@@ -246,13 +249,19 @@ export const usePrestigeStore = create<PrestigeState>()(
         everEarnedEquity: s.everEarnedEquity,
       }),
       merge: (persisted, current) => {
-        const p = (persisted ?? {}) as Partial<PrestigeState>;
+        const p = (persisted ?? {}) as Partial<PrestigeState> & { treeVersion?: number };
+        const had = p.allocated ?? [];
+        // A TREE OF ANOTHER SHAPE: every node it bought refunded, at what it
+        // cost, and the tree started again. @see TREE_VERSION
+        const reshaped = (p.treeVersion ?? 1) !== TREE_VERSION && had.length > 0;
+        const refund = reshaped ? had.reduce((n, _, k) => n + nodeCost(k), 0) : 0;
         // Drop any allocated ids that no longer exist in the tree.
-        const allocated = (p.allocated ?? []).filter((id) => NODES.has(id));
-        const equity = coerceDecimal(p.equity, current.equity);
+        const allocated = reshaped ? [] : had.filter((id) => NODES.has(id));
+        const equity = coerceDecimal(p.equity, current.equity).add(refund);
+        const { treeVersion: _, ...rest } = p;
         return {
           ...current,
-          ...p,
+          ...rest,
           equity,
           // A save from before the flag: anything Equity bought, or is, says it was earned.
           everEarnedEquity: p.everEarnedEquity ?? (equity.gt(0) || (p.exits ?? 0) > 0 || allocated.length > 0 || (p.respecPoints ?? 0) > 0),
@@ -263,3 +272,7 @@ export const usePrestigeStore = create<PrestigeState>()(
     },
   ),
 );
+
+// THE TREE'S TOWN NODES, read under the culture deck's cards wherever the map
+// works out desks, beds, builds and commutes. @see cultureNow
+setTownReader(() => usePrestigeStore.getState().modifiers.town);
