@@ -130,7 +130,7 @@ describe("the culture deck, where the map works it out", () => {
   });
 
   test("Company Housing's rule: a house beside its workplace needs no desks; one farther does", () => {
-    const near = street(2, 5);
+    const near = street(3, 5);
     deck({ housing: 3 });
     expect(near.seating().desks.get(near.ids[0])!.used).toBe(0);
     expect(near.seating().commutes.get(near.ids[1])!.eff).toBe(1);

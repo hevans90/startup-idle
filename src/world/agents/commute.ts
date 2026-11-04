@@ -34,9 +34,11 @@ import { cultureNow, cultureVersion } from "../../game/culture-now";
 
 /** Where each kind works: the building that opened them, and their offices. */
 export const WORKPLACES: Record<GeneratorId, readonly string[]> = {
-  intern: ["garage", "office-intern"],
+  // The Garage, and the HQ it grows into: still where the interns go.
+  intern: ["garage", "hq", "boardroom", "ipo", "office-intern"],
   vibe_coder: ["studio", "office-vibe"],
-  "10x_dev": ["campus", "office-10x"],
+  // The Campus, the Studio grown up, and the Agency it grows into. @see LANDMARKS
+  "10x_dev": ["campus", "agency", "office-10x"],
 };
 
 /** The kind a workplace is for, or null. */
@@ -47,9 +49,9 @@ export function workplaceKind(defId: string): GeneratorId | null {
 
 /** Desks at each kind of workplace. @see seat */
 export const DESKS: Record<string, number> = {
-  garage: 20, "office-intern": 40,
+  garage: 20, hq: 20, boardroom: 20, ipo: 20, "office-intern": 40,
   studio: 30, "office-vibe": 40,
-  campus: 10, "office-10x": 10,
+  campus: 10, agency: 10, "office-10x": 10,
 };
 /** What people manage with no desk to go to: perched wherever they can. */
 export const DESKLESS = 0.35;

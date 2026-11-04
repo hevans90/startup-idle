@@ -286,21 +286,25 @@ export type UpgradePlan = PlacementCheck & {
 };
 
 export function planUpgrade(
-  grid: Grid, id: number, rules: PlaceRules = NO_RULES,
+  grid: Grid, id: number, rules: PlaceRules = NO_RULES, into?: StructureDef,
 ): UpgradePlan | null {
   const from = grid.structures.get(id);
-  const to = from && structureDef(structureDef(from.def)?.upgradesTo ?? "");
+  const to = from && (into ?? structureDef(structureDef(from.def)?.upgradesTo ?? ""));
   if (!from || !to) return null;
-  const grow = to.footprint.w - from.w;
+  const grow = Math.max(0, to.footprint.w - from.w), growV = Math.max(0, to.footprint.h - from.h);
   const old = footprintCells(from.x, from.y, from.w, from.h).filter((c) => inBounds(grid, c.x, c.y));
   // Judged as if the old footprint were empty, and put back exactly after.
   const held = old.map((c) => grid.structureAt[idx(grid, c.x, c.y)]);
   for (const c of old) grid.structureAt[idx(grid, c.x, c.y)] = -1;
   let first: UpgradePlan | null = null;
   try {
-    for (const x of [from.x, from.x - grow]) {
-      const check = validatePlacement(grid, to, x, from.y, rules);
-      const plan = { ...check, from, to, x, y: from.y };
+    // Where it stands first, then grown out back or left. A landmark from an
+    // older save grows out of a smaller first tier. @see tierBelow
+    const at: [number, number][] = [];
+    for (let dy = 0; dy <= growV; dy++) for (const dx of grow ? [0, grow, ...Array.from({ length: grow - 1 }, (_, k) => k + 1)] : [0]) at.push([from.x - dx, from.y - dy]);
+    for (const [x, y] of at) {
+      const check = validatePlacement(grid, to, x, y, rules);
+      const plan = { ...check, from, to, x, y };
       if (check.ok) return plan;
       first ??= plan;
     }
@@ -318,8 +322,8 @@ export function planUpgrade(
  * bound for it — the new cells stamped, and the ground under them levelled to
  * the height the building already stands at, so it does not step.
  */
-export function upgradeCommand(grid: Grid, id: number, rules: PlaceRules = NO_RULES): Command | null {
-  const plan = planUpgrade(grid, id, rules);
+export function upgradeCommand(grid: Grid, id: number, rules: PlaceRules = NO_RULES, into?: StructureDef): Command | null {
+  const plan = planUpgrade(grid, id, rules, into);
   if (!plan?.ok) return null;
   const { from, to } = plan;
   const b = new PatchBuilder(grid);

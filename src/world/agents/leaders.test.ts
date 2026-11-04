@@ -17,7 +17,7 @@ describe("team leaders on the map", () => {
     for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 5)] = 1;
     const history = createHistory();
     commit(g, history, placeCommand(g, structureDef("kit:intern.t1")!, 3, 4)!);
-    commit(g, history, placeCommand(g, structureDef("garage")!, 22, 4)!);
+    commit(g, history, placeCommand(g, structureDef("garage")!, 18, 2)!);
     for (const s of g.structures.values()) if (s.def.startsWith("kit")) s.residents = 3;
     const net = createNetwork(g), town = createTown(), L = createLeaders();
     const garage = [...g.structures.values()].find((s) => s.def === "garage")!.id;
@@ -51,7 +51,7 @@ describe("who the leaders lead", () => {
     fillTerrain(g, 1);
     for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 5)] = 1;
     const history = createHistory();
-    commit(g, history, placeCommand(g, structureDef("garage")!, 0, 4)!);
+    commit(g, history, placeCommand(g, structureDef("garage")!, 0, 2)!);
     commit(g, history, placeCommand(g, structureDef("kit:intern.t1")!, 4, 4)!);
     commit(g, history, placeCommand(g, structureDef("kit:intern.t1")!, 14, 4)!);
     commit(g, history, placeCommand(g, structureDef("office-intern")!, 17, 3)!);

@@ -195,13 +195,16 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
   {
     id: "garage",
     name: "Founder's Garage",
-    footprint: { w: 2, h: 1 },
+    // ITS LANDMARK'S SIZE FROM THE START, so the HQ, the Boardroom and the IPO
+    // Tower rise where it stands. @see LANDMARKS
+    footprint: { w: 3, h: 3 },
     render: { kind: "custom", rendererId: "project" },
   },
   {
     id: "studio",
     name: "Vibe Coder Studio",
-    footprint: { w: 3, h: 2 },
+    // The Campus's size, which it grows into. @see LANDMARKS
+    footprint: { w: 4, h: 4 },
     render: { kind: "custom", rendererId: "project" },
     ports: SLOP_OUT(1),
   },
@@ -226,7 +229,7 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
   {
     id: "agency",
     name: "Talent Agency",
-    footprint: { w: 3, h: 2 },
+    footprint: { w: 4, h: 4 },
     render: { kind: "custom", rendererId: "project" },
   },
   {

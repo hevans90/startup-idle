@@ -18,7 +18,7 @@ import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
 import { clearingPrice, playRules } from "../../state/world.store";
 import { serializeWorld } from "../io/serialize";
-import { builtProjects, nearestSpot, projectUnderWay } from "../projects/works";
+import { builtProjects, nearestSpot, projectUnderWay, upgradeFrom } from "../projects/works";
 import { structureDef } from "../structures/def";
 import { saleName } from "../play/building-info";
 import type { Grid } from "../grid";
@@ -167,7 +167,7 @@ function fly(to: { x: number; y: number }, g: Grid) {
 /** Where AI mode's drones fly from: the Data Centre, or the garage before there is one. */
 function droneHome(g: Grid): { x: number; y: number } | null {
   const home = [...g.structures.values()].find((s) => s.def === "datacentre" && !s.build)
-    ?? [...g.structures.values()].find((s) => s.def === "garage" && !s.build);
+    ?? [...g.structures.values()].find((s) => ["garage", "hq", "boardroom", "ipo"].includes(s.def) && !s.build);
   return home ? { x: home.x + home.w / 2, y: home.y + home.h / 2 } : null;
 }
 
@@ -321,7 +321,9 @@ function act(g: Grid, budget: number): boolean {
       if (built.has(p.id) || p.bonus) continue;
       const def = structureDef(p.structure);
       if (!def) continue;
-      const at = nearestSpot(g, def, playRules(g), state.plan?.centre);
+      // A landmark's next tier rises where it stands. @see upgradeFrom
+      const from = upgradeFrom(g, p);
+      const at = from ? { x: from.x, y: from.y } : nearestSpot(g, def, playRules(g), state.plan?.centre);
       if (at && startProject(p.id, at)) { fly(at, g); state.last = p.name; return true; }
     }
   }

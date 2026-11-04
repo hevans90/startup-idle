@@ -24,11 +24,11 @@
  */
 import { housedBy } from "../../game/housing";
 import {
-  BUILDERS_PER_TILE, buildersFor, projectCost, projectDef, projectForStructure, type ProjectDef, type ProjectId,
+  BUILDERS_PER_TILE, buildersFor, projectCost, projectDef, projectForStructure, tierBelow, tiersIn, type ProjectDef, type ProjectId,
 } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
 import { idx, type Build, type Grid, type Structure } from "../grid";
-import { placeCommand, validatePlacement, type PlaceRules } from "../structures/place";
+import { placeCommand, upgradeCommand, validatePlacement, type PlaceRules } from "../structures/place";
 import { structureDef, type StructureDef } from "../structures/def";
 import type { Command } from "../edit/commands";
 import type { Network } from "../roads/network";
@@ -36,6 +36,9 @@ import { placesOf, type Place } from "../agents/roads";
 import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
 import { notable } from "../../game/machine";
 import { cultureNow } from "../../game/culture-now";
+
+/** The Garage and what it grows into: the yard materials come from. @see depotFor */
+const HQ_LINE = ["garage", "hq", "boardroom", "ipo"];
 
 /** Seconds a crew stands idle for want of materials before it walks home. */
 export const STALL_GRACE = 6;
@@ -121,10 +124,36 @@ export const sitesOf = (g: Grid): Structure[] => [...g.structures.values()].filt
 export function builtProjects(g: Grid): Set<ProjectId> {
   const out = new Set<ProjectId>();
   for (const s of g.structures.values()) {
-    const p = projectForStructure(s.def);
-    if (p && !s.build) out.add(p.id);
+    // A LANDMARK is every tier it has risen through; going up, all but its own. @see tiersIn
+    const tiers = tiersIn(s.def);
+    for (const id of s.build ? tiers.slice(0, -1) : tiers) out.add(id);
   }
   return out;
+}
+
+/**
+ * THE BUILDING A TIER RISES FROM: its landmark's standing building of the
+ * tier just under it. Null for a first tier, a wing, or with that tier not
+ * standing. @see tierBelow
+ */
+export function upgradeFrom(g: Grid, p: ProjectDef): Structure | null {
+  const below = tierBelow(p.id);
+  if (!below) return null;
+  for (const s of g.structures.values()) if (!s.build && s.def === below.structure) return s;
+  return null;
+}
+
+/**
+ * The command that starts a tier where its landmark stands: the building
+ * becomes the next tier's site, under the same id, residents and all.
+ * @see upgradeCommand, startSiteCommand
+ */
+export function startUpgradeCommand(g: Grid, p: ProjectDef, rules: PlaceRules, now: number, income = 0): Command | null {
+  const from = upgradeFrom(g, p), def = structureDef(p.structure);
+  const cmd = from && def ? upgradeCommand(g, from.id, rules, def) : null;
+  if (!cmd?.structures?.added.length) return null;
+  cmd.structures.added[0].build = newBuild(p, now, income);
+  return cmd;
 }
 
 /** The site of a project, if it has been started and is not finished. */
@@ -398,7 +427,7 @@ function pickGateway(places: readonly Place[], net: number): Place | null {
 export function depotFor(g: Grid, places: readonly Place[], site: Structure, net: number, freight = false): Place | null {
   const yards: { pl: Place; d: number }[] = [];
   for (const st of g.structures.values()) {
-    if ((st.def !== "garage" && !(freight && st.def === "datacentre")) || st.build || st.id === site.id) continue;
+    if ((!HQ_LINE.includes(st.def) && !(freight && st.def === "datacentre")) || st.build || st.id === site.id) continue;
     const yard = places.find((pl) => pl.structure === st.id && pl.net === net);
     if (yard) yards.push({ pl: yard, d: Math.abs(st.x - site.x) + Math.abs(st.y - site.y) });
   }

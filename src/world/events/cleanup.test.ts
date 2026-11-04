@@ -17,7 +17,7 @@ function spill() {
   fillTerrain(g, 1);
   for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 5)] = 1;
   const history = createHistory();
-  commit(g, history, placeCommand(g, structureDef("studio")!, 4, 3)!);
+  commit(g, history, placeCommand(g, structureDef("studio")!, 4, 1)!);
   const studio = [...g.structures.values()].find((s) => s.def === "studio")!;
   const field = createWaterField(g);
   for (const [x, y] of [[17, 8], [17, 9], [21, 8], [19, 10]]) pourAt(field, x, y, 0.6, fluidIndexOf("slop"));

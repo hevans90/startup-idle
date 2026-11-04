@@ -101,7 +101,8 @@ function paved(p: Pen, f: Footprint) {
 export function garage(f: Footprint): Building {
   const BLOCK = 0xd8d2c4;
   const m: Mass = {
-    ...inside(f, [0.16, 0.14, 0.16, 0.2], 0.15, 2.5), wall: BLOCK, storey: 2.35,
+    // ON ITS LANDMARK'S PLOT, a two-tile box at the back, a yard in front. @see LANDMARKS
+    ...inside(f, [0.16, Math.max(0.14, f.h - 1.9), Math.max(0.16, f.w - 2.16), f.h > 1 ? 0.8 : 0.2], 0.15, 2.5), wall: BLOCK, storey: 2.35,
     facade: { kind: "plain", lines: tone(BLOCK, 0.88), every: 0.38 },
     roof: { kind: "parapet", deck: 0x50565d, rim: 0x8f8a80, h: 0.16, t: 0.06 },
   };
@@ -135,7 +136,8 @@ export function garage(f: Footprint): Building {
 /** VIBE CODER STUDIO: two floors of glass on a stone plinth, a neon sign on the roof. */
 export function studio(f: Footprint): Building {
   const m: Mass = {
-    ...inside(f, 0.22, PLINTH.h, PLINTH.h + 3.6), wall: 0xeceae2, storey: 1.8,
+    // Three tiles of it at the back of the Campus's plot, the rest paved. @see LANDMARKS
+    ...inside(f, [0.22, Math.max(0.22, f.h - 2.4), Math.max(0.22, f.w - 3.22), 0.5], PLINTH.h, PLINTH.h + 3.6), wall: 0xeceae2, storey: 1.8,
     facade: { kind: "curtain", glass: GLASS, mullion: 0xf4f3ee, every: 0.34, spandrel: 0xe2dfd4 },
     roof: { kind: "parapet", deck: ROOF, rim: 0xeceae2, h: 0.24 },
   };

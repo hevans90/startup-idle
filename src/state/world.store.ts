@@ -29,7 +29,7 @@ import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
 import { incomeNow } from "../world/projects/economy";
-import { builtProjects, createWorks, nearestSpot, projectUnderWay, ruledOut, siteOf, startSiteCommand, type Works } from "../world/projects/works";
+import { builtProjects, createWorks, nearestSpot, projectUnderWay, ruledOut, siteOf, startSiteCommand, startUpgradeCommand, upgradeFrom, type Works } from "../world/projects/works";
 import { PROJECTS, alreadyEarned, featureGateOpen, projectDef, type FeatureId, type Priority, type ProjectId } from "../game/projects";
 import { Viewport } from "pixi-viewport";
 import { create } from "zustand";
@@ -805,6 +805,23 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       set({ notice: { text: `${p!.name} or ${rival.name}: you chose ${rival.name}`, at: Date.now() } });
       return;
     }
+    // A LANDMARK'S NEXT TIER rises where it stands: no site to choose. @see upgradeFrom
+    if (p && upgradeFrom(get().grid, p)) {
+      const st = get();
+      const cmd = startUpgradeCommand(st.grid, p, st.playing ? playRules(st.grid) : {}, Date.now(), st.playing ? incomeNow() : 0);
+      if (!cmd) {
+        set({ notice: { text: `No room for the ${p.name} here`, at: Date.now() } });
+        return;
+      }
+      const touched = commit(st.grid, history, cmd);
+      if (water && touchesSurface(cmd)) syncGround(water, st.grid);
+      if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
+      set({
+        placingProject: null, tool: "inspect", revision: st.revision + 1, projectRev: st.projectRev + 1,
+        lastTouched: markDirty(st.grid, touched, true), ...historyMeta(), ...netMeta(),
+      });
+      return;
+    }
     if (p) set({ placingProject: id, tool: "placeStructure", structureDefId: p.structure, brush: "point", brushRadius: 0 });
     else set({ placingProject: null, tool: "inspect" });
   },
@@ -903,6 +920,19 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     for (const p of PROJECTS) {
       if (!alreadyEarned(p, owned, features) || built.has(p.id) || siteOf(st.grid, p)) continue;
       const def = structureDef(p.structure);
+      // A LANDMARK'S TIER, over the one it rises from, finished. @see upgradeFrom
+      const from = upgradeFrom(st.grid, p);
+      if (from && def) {
+        const up = upgradeCommand(st.grid, from.id, rules, def) ?? upgradeCommand(st.grid, from.id, {}, def);
+        if (up) {
+          commit(st.grid, history, up);
+          if (water && touchesSurface(up)) syncGround(water, st.grid);
+          if (network && touchesNetwork(up)) rebuildNet(network, st.grid);
+          built.add(p.id);
+          changed = true;
+          continue;
+        }
+      }
       // On its own land if it fits there; anywhere on the road if not.
       const spot = def && (nearestSpot(st.grid, def, rules) ?? (st.playing ? nearestSpot(st.grid, def, { needsRoad: true }) : null));
       const cmd = spot && placeCommand(st.grid, def!, spot.x, spot.y, rules);

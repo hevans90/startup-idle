@@ -17,7 +17,7 @@ describe("payday", () => {
     fillTerrain(g, 1);
     for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 5)] = 1;
     const h = createHistory();
-    commit(g, h, placeCommand(g, structureDef("garage")!, 3, 4)!);
+    commit(g, h, placeCommand(g, structureDef("garage")!, 3, 2)!);
     for (const x of [10, 12]) {
       const cmd = placeCommand(g, structureDef("kit:intern.t0")!, x, 4)!;
       cmd.structures!.added[0].residents = 2;

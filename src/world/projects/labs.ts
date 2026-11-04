@@ -8,7 +8,7 @@ import type { Grid, Structure } from "../grid";
 /** What a lab adds to innovation, and twice that within LAB_REACH tiles of the campus or Data Centre. */
 export const LAB_SHARE = 0.1;
 export const LAB_REACH = 10;
-const HUBS = new Set(["campus", "datacentre"]);
+const HUBS = new Set(["campus", "agency", "datacentre"]);
 
 /** Tiles between two footprints, edge to edge. */
 const gap = (a: Structure, b: Structure) =>

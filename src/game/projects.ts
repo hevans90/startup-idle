@@ -367,6 +367,52 @@ export const PROJECTS: readonly ProjectDef[] = [
   },
 ];
 
+/** A LANDMARK: one building that rises tier by tier, each tier a project. @see plans/services-overhaul.md §5 */
+export type LandmarkId = "hq" | "campus" | "harbour" | "datacentre" | "conference" | "hackerspace";
+export type Landmark = {
+  id: LandmarkId;
+  name: string;
+  /** Its tiers, first to last: each built over the one before, where it stands. */
+  tiers: readonly ProjectId[];
+  /** Buildings of their own, shown with it. */
+  wings?: readonly ProjectId[];
+};
+
+export const LANDMARKS: readonly Landmark[] = [
+  { id: "hq", name: "HQ", tiers: ["garage", "hq", "boardroom", "ipo"] },
+  { id: "campus", name: "Campus", tiers: ["studio", "campus", "agency"] },
+  { id: "harbour", name: "Harbour", tiers: ["harbour"] },
+  { id: "datacentre", name: "Data Centre", tiers: ["datacentre"], wings: ["refinery", "dataplant", "contentfarm"] },
+  { id: "conference", name: "Conference Centre", tiers: ["conference"] },
+  { id: "hackerspace", name: "Hackerspace", tiers: ["hackerspace"] },
+];
+
+/** The landmark a project is a tier or a wing of. */
+export const landmarkOf = (id: ProjectId): Landmark =>
+  LANDMARKS.find((l) => l.tiers.includes(id) || l.wings?.includes(id))!;
+
+/** The tier a project is built over, where it stands: null for a first tier or a wing. */
+export function tierBelow(id: ProjectId): ProjectDef | null {
+  const t = landmarkOf(id).tiers, k = t.indexOf(id);
+  return k > 0 ? projectDef(t[k - 1]) : null;
+}
+
+/**
+ * The tiers a building has risen through: its own project and every one
+ * under it in its line, so a Boardroom is the Garage and the HQ too. Empty
+ * for a structure that is no project's.
+ */
+export function tiersIn(defId: string): ProjectId[] {
+  const p = projectForStructure(defId);
+  if (!p) return [];
+  const t = landmarkOf(p.id).tiers, k = t.indexOf(p.id);
+  return k < 0 ? [p.id] : t.slice(0, k + 1) as ProjectId[];
+}
+
+/** The structures of a landmark's tiers, first to last. */
+export const lineDefs = (l: LandmarkId): string[] =>
+  LANDMARKS.find((x) => x.id === l)!.tiers.map((id) => projectDef(id)!.structure);
+
 /**
  * WHAT THE WONDERS STANDING MULTIPLY one kind of output by: the product of
  * every built wonder's bonus for it. One with no map, or none built.

@@ -2990,8 +2990,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // door, the studio — each only once built.
             const built = (ids: string[]) => [...st.grid.structures.values()].find((s) => ids.includes(s.def) && !s.build);
             const port = getTraffic().ports.size ? [...st.grid.structures.values()].find((s) => getTraffic().ports.has(s.id)) : undefined;
-            const door = built(["hq", "garage"]), studio = built(["studio"]);
-            const front = built(["ipo", "hq", "garage"]);
+            const door = built(["ipo", "boardroom", "hq", "garage"]), studio = built(["studio"]);
+            const front = door;
             const income = useGeneratorStore.getState().getMoneyPerSecond();
             const tour = st.events.find((e) => e.kind === "investor-tour" && e.phase !== "over");
             const convoy = st.events.find((e) => e.kind === "convoy" && e.phase !== "over");

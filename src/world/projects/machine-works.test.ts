@@ -11,7 +11,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { AIRLIFT_PRICE, CONVOY, PREFAB_WORK, createWorks, newBuild, siteOf, startSiteCommand, stepWorks } from "./works";
 
-const STUDIO = projectDef("studio")!, GARAGE = projectDef("garage")!;
+const STUDIO = projectDef("studio")!, SMALL = projectDef("refinery")!;
 const own = (...ids: string[]) => useGenerationStore.setState({ machine: ids.map((id) => `machine_n_${id}`) });
 
 /** A road along row 5, intern housing north of it; a Data Centre too, if asked. */
@@ -52,9 +52,10 @@ describe("the Machine on site", () => {
   test("Drone Airlift: a small site's loads fly from the Data Centre, a quarter dearer, and no lorry comes", () => {
     own("airlift");
     const { g, h } = town(true);
-    commit(g, h, startSiteCommand(g, GARAGE, 12, 6, { needsRoad: true }, 0)!);
-    const site = siteOf(g, GARAGE)!;
-    site.build!.cost = 400;
+    commit(g, h, startSiteCommand(g, SMALL, 12, 6, { needsRoad: true }, 0)!);
+    const site = siteOf(g, SMALL)!;
+    // A small job: one load, half a minute's work, as the Garage was.
+    Object.assign(site.build!, { cost: 400, deliveries: 1, need: 30 });
     const net = createNetwork(g), t = createTown(), w = createWorks();
     let paid = 0, flew = 0;
     for (let k = 0; k < 30 * 20 && site.build; k++) {
@@ -65,6 +66,6 @@ describe("the Machine on site", () => {
     }
     expect(flew).toBe(1);
     expect(paid).toBeCloseTo(400 * AIRLIFT_PRICE);
-    expect(site.build?.delivered ?? GARAGE.deliveries).toBe(GARAGE.deliveries);
+    expect(site.build?.delivered ?? 1).toBe(1);
   });
 });
