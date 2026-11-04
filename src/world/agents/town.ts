@@ -125,8 +125,12 @@ export const STRIDE = 2 * LEG * Math.sin(SWING) * HALF_STEP_IN_TILES;
 /** At most this many cars and people. */
 export const MAX_CARS = 40;
 export const MAX_PEOPLE = 50;
-/** Cars and people a building brings, and cars a road out of the map does. */
-const CARS_PER_BUILDING = 1.5;
+/**
+ * People living on the map to a car on its roads: cars follow the headcount,
+ * not how many buildings it is spread over. People a building brings, and
+ * cars a road out of the map does.
+ */
+const RESIDENTS_PER_CAR = 4;
 const PEOPLE_PER_BUILDING = 2;
 const CARS_FOR_GATEWAYS = 3;
 /** Seconds between setting one more off, while there are fewer than there should be. */
@@ -291,13 +295,18 @@ function commuteTrip(t: Town, g: Grid, net: Network, kind: Mover["kind"]): [Plac
 const COMMUTE_SHARE = 0.6;
 const WALK_TO_WORK = 12;
 
-/** How many cars and people a town this size has. */
-export function wanted(places: readonly Place[]): { cars: number; people: number } {
+/** How many cars and people a town this size has: cars by who lives at its doors. @see RESIDENTS_PER_CAR */
+export function wanted(places: readonly Place[], g: Grid): { cars: number; people: number } {
   const doors = places.filter((p) => p.kind === "door").length;
   const gateways = places.length - doors;
   if (places.length < 2) return { cars: 0, people: 0 };
+  let residents = 0;
+  for (const p of places) {
+    const s = p.kind === "door" && p.structure !== undefined ? g.structures.get(p.structure) : undefined;
+    if (s) residents += residentsIn(s);
+  }
   return {
-    cars: Math.min(townCaps.cars, Math.round(doors * CARS_PER_BUILDING + (gateways >= 2 ? CARS_FOR_GATEWAYS : 0))),
+    cars: Math.min(townCaps.cars, Math.round(residents / RESIDENTS_PER_CAR + (gateways >= 2 ? CARS_FOR_GATEWAYS : 0))),
     people: doors ? Math.min(townCaps.people, Math.round(doors * PEOPLE_PER_BUILDING)) : 0,
   };
 }
@@ -447,11 +456,12 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   }
 
   // SETTING OFF, one at a time, while the town is short.
-  const base = wanted(t.places.filter((p) => !p.building));
+  const base = wanted(t.places.filter((p) => !p.building), g);
   const busy = t.busy ?? { traffic: 1, commute: COMMUTE_SHARE };
   const culture = t.culture ?? { remote: 0, shuttle: false, vans: false };
   // Those at home are off the roads: fewer cars, the same people on foot.
-  const want = { cars: Math.round(base.cars * busy.traffic * (1 - culture.remote)), people: Math.min(townCaps.people, Math.round((base.people + (t.strollers ?? 0)) * busy.traffic)) };
+  // The cap holds at the rush too.
+  const want = { cars: Math.min(townCaps.cars, Math.round(base.cars * busy.traffic * (1 - culture.remote))), people: Math.min(townCaps.people, Math.round((base.people + (t.strollers ?? 0)) * busy.traffic)) };
   // Everything that drives keeps its distance from everything else that does;
   // only the town's own trips count towards how many trips it has.
   const cars = t.movers.filter(drives);

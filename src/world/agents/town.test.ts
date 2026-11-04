@@ -69,9 +69,14 @@ describe("the town", () => {
     const places = placesOf(g, createNetwork(g));
     expect(places.filter((p) => p.kind === "door")).toHaveLength(6);
     expect(places.filter((p) => p.kind === "gateway")).toHaveLength(4);
-    expect(wanted(places)).toEqual({ cars: 12, people: 12 });
+    // Six houses of two: twelve people, three cars, and three more for the roads off the map.
+    expect(wanted(places, g)).toEqual({ cars: 6, people: 12 });
+    // CARS FOLLOW THE HEADCOUNT, not the buildings: the same six houses with nine in them, two cars and the three.
+    const homes = [...g.structures.values()];
+    homes.forEach((s, k) => { s.residents = k < 3 ? 2 : 1; });
+    expect(wanted(placesOf(g, createNetwork(g)), g).cars).toBe(5);
     // An empty map, or a road with nowhere to go, has nobody on it.
-    expect(wanted([])).toEqual({ cars: 0, people: 0 });
+    expect(wanted([], g)).toEqual({ cars: 0, people: 0 });
   });
 
   test("goes about its business: on the road, never into each other, and getting where it is going", () => {
