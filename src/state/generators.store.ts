@@ -50,7 +50,7 @@ import { usePrestigeStore } from "./prestige.store";
 import { useLinkedOutStore } from "./linkedout.store";
 import { useTeamLeadersEmployeesStore } from "./team-leaders.store";
 import { syncAvailableUpgrades } from "./upgrades.store";
-import { setSlopMaking, slopMade, slopSpilling } from "../game/slop";
+import { setSlopRate, slopPerCoder, slopSpilling } from "../game/slop";
 import { isDaytime } from "../world/daylight";
 import { contentFarmBonus, refineryBonus } from "../game/processors";
 import { useValuationStore } from "./valuation.store";
@@ -667,10 +667,10 @@ export const useGeneratorStore = create<GeneratorState>()(
           useAiSingularityStore.getState().tick(seconds);
 
           // ── 4. Income accrual (side effects only) ────────────────────────────
-          // SLOP, made by the vibe coders, for the map's tanks to fill by.
+          // SLOP, made by each vibe coder at a desk, for the map's tanks to fill by.
           // Happy vibe coders ship cleaner; miserable ones rage-ship. @see vibeSlopMultiplier
           // And their cards: Hackathon Culture ships faster, and dirtier. @see CARDS
-          setSlopMaking(slopMade(amounts.vibe_coder, m.effectiveScores.vibe_coder ?? 0, get().getCultureEffects("vibe_coder").slop));
+          setSlopRate(slopPerCoder(amounts.vibe_coder, m.effectiveScores.vibe_coder ?? 0, get().getCultureEffects("vibe_coder").slop));
 
           // Track which gens fire this tick; stamp lastTick after auto-buy so
           // increaseGenerator's set() calls are not overwritten by ours.

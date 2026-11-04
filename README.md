@@ -18,7 +18,7 @@ A satirical idle game: hire interns, vibe coders and 10x devs, and build your co
 
 ### Slop
 
-- **Made** (`game/slop.ts`, `world/slop/tanks.ts`) from 50 vibe coders, 0.01 a coder a second (×morale, ×cards), into a 2-minute **tank** at each vibe workplace by desks taken. Full, it **spills** at the slop port: **sludge** on the street (`events/sludge.ts`; houses −15, mopped by vibe coders, `events/cleanup.ts`) or **pollution** if it lands in water. Tank levels and pollution save with the map.
+- **Made** (`game/slop.ts`, `world/slop/tanks.ts`) from 50 vibe coders, 0.01 a second for each one at a desk (×morale, ×cards; none from those without a desk, at home or off the map), into a 2-minute **tank** at that vibe workplace. Full, it **spills** at the slop port: **sludge** on the street (`events/sludge.ts`; houses −15, mopped by vibe coders, `events/cleanup.ts`) or **pollution** if it lands in water. Tank levels and pollution save with the map.
 - **Sewers** (`MAIN_SEWER`, the Pipe tool's Sewer mode) drain the tanks: into **processors** first (`game/processors.ts`; Slop Refinery +15% innovation, Training Data Plant faster training, Content Farm +10% valuation and a LinkedOut star; each 0.5 slop/s, opened by a project, then bought in the build bar's Slop row), the rest out of an **outfall** into the water.
 - **AI mode** (`world/ai/sewer-ai.ts`) sewers each workplace to a processor, a sewer or water downstream of the town (`upstreamOfTown`), and buys refineries while slop outruns them. The balance sim runs slop four ways (`MapRunOptions.slop`). Plan: `plans/pipes-and-slop.md`.
 

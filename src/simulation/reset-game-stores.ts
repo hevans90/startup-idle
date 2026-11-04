@@ -4,7 +4,7 @@ import { useQuestStore } from "../state/quest.store";
 import { SEED_ROUND, moduleLevel } from "../game/modules";
 import { useTrainingStore } from "../state/training.store";
 import { clearMorale } from "../game/morale";
-import { setSlopMaking } from "../game/slop";
+import { setSlopMaking, setSlopRate } from "../game/slop";
 import { setProcessorUse } from "../game/processors";
 import { resetAutopilot } from "../world/ai/autopilot";
 import { resetCooling } from "../world/projects/cooling";
@@ -46,6 +46,7 @@ export function resetRunStores(): void {
   clearMorale();
   // No vibe coders, no slop, and nothing for a processor to take.
   setSlopMaking(0);
+  setSlopRate(0);
   setProcessorUse({ refinery: 0, dataplant: 0, contentfarm: 0 });
   resetAutopilot();
   resetCooling();

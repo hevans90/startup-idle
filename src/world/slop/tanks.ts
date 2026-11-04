@@ -6,7 +6,7 @@
  * street, or pollution in the water if it stands in it. Live state, not
  * saved with the map: what each holds. @see game/slop, serializeWorld
  */
-import { POLLUTION_PER_SLOP, SPILL_DEPTH, setSlopSpilling, tankFor } from "../../game/slop";
+import { POLLUTION_PER_SLOP, SPILL_DEPTH, setSlopMaking, setSlopSpilling, tankFor } from "../../game/slop";
 import { PROCESS_RATE, processorKind, setProcessorUse, type ProcessorKind } from "../../game/processors";
 import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
@@ -54,8 +54,9 @@ export function release(g: Grid, field: WaterField, x: number, y: number, amount
 }
 
 /**
- * ONE FRAME OF SLOP: `making` a second, shared out among the workplaces by
- * the desks taken in each (evenly, with nobody seated anywhere); each sewer
+ * ONE FRAME OF SLOP: `perCoder` a second from each desk taken at each
+ * workplace — nobody without a desk makes any, so a workplace makes no more
+ * than its desks allow; each sewer
  * draining the tanks it serves, as much as it carries, into the processors it
  * feeds — each up to `PROCESS_RATE` a second — and the rest out of its
  * outfalls; each tank over full spilling at its port; and how busy each kind
@@ -63,23 +64,24 @@ export function release(g: Grid, field: WaterField, x: number, y: number, amount
  * reports it fills in with what they carried.
  */
 export function stepSlop(
-  g: Grid, field: WaterField | null, desks: ReadonlyMap<number, { used: number }> | null, making: number, dt: number,
+  g: Grid, field: WaterField | null, desks: ReadonlyMap<number, { used: number }> | null, perCoder: number, dt: number,
 ): void {
   const tanks = tanksOf(g);
   latest = tanks;
   const places = [...g.structures.values()].filter((s) => !s.build && WORKPLACES.vibe_coder.includes(s.def));
   // GONE: a workplace taken down takes its tank with it.
   for (const id of tanks.keys()) if (!places.some((s) => s.id === id)) tanks.delete(id);
-  const seated = places.map((s) => desks?.get(s.id)?.used ?? 0);
-  const all = seated.reduce((a, b) => a + b, 0);
-  // FILLING, by who works there.
-  for (const [k, s] of places.entries()) {
+  // FILLING, by who sits at its desks.
+  let making = 0;
+  for (const s of places) {
     const t = tanks.get(s.id) ?? { level: 0, capacity: 0, rate: 0, spilling: false };
-    t.rate = making * (all > 0 ? seated[k] / all : 1 / places.length);
+    t.rate = perCoder * (desks?.get(s.id)?.used ?? 0);
+    making += t.rate;
     t.capacity = tankFor(t.rate);
     t.level += t.rate * dt;
     tanks.set(s.id, t);
   }
+  setSlopMaking(making);
   // What each processor has taken this frame. @see PROCESS_RATE
   const taken = new Map<number, number>();
   // DRAINED by the sewers: each its share of what it carries from every tank it serves.
@@ -114,7 +116,7 @@ export function stepSlop(
   for (const s of places) {
     const t = tanks.get(s.id)!;
     // NOTHING COMING IN, nothing pushed out: a tank read from a file before
-    // the economy says what is made keeps what it holds. @see setSlopMaking
+    // the economy says what is made keeps what it holds. @see setSlopRate
     t.spilling = t.rate > 0 && t.level > t.capacity;
     if (!t.spilling) continue;
     const over = t.level - t.capacity;

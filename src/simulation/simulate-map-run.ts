@@ -32,7 +32,7 @@ import { structureDef } from "../world/structures/def";
 import { STALL_GRACE } from "../world/projects/works";
 import { LAB_SHARE } from "../world/projects/labs";
 import { DESKLESS, DESKS } from "../world/agents/commute";
-import { SLOP_FROM, SPILL_DEPTH, slopMaking } from "../game/slop";
+import { SLOP_FROM, SPILL_DEPTH, slopRate } from "../game/slop";
 import { DRY_RATE } from "../world/events/sludge";
 import { CLEANERS_PER_TILE, CLEAN_RATE } from "../world/events/cleanup";
 import { PROCESS_RATE, setProcessorUse } from "../game/processors";
@@ -338,7 +338,8 @@ export function simulateMapRun(
     // SLOP, seen to as a player would: once the vibe coders make it, a sewer
     // from the studio to the water, and then a refinery for it to feed, each
     // paid for as soon as it can be. @see game/slop, game/processors
-    const slop = (o.vibe_coder ?? 0) >= SLOP_FROM ? slopMaking() : 0;
+    // Made at the desks only: those on the map with a desk to sit at. @see stepSlop
+    const slop = (o.vibe_coder ?? 0) >= SLOP_FROM ? slopRate() * Math.min(onMap("vibe_coder"), desksOf("vibe_coder")) : 0;
     if (slop > 0) {
       report.slopAt ??= t;
       report.peakSlop = Math.max(report.peakSlop, slop);

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { SLOP_FROM, SLOP_PER_CODER, TANK_SECONDS, slopMade } from "../../game/slop";
+import { SLOP_FROM, SLOP_PER_CODER, TANK_SECONDS, slopMade, slopMaking, slopPerCoder } from "../../game/slop";
+import { sewerFlow } from "../../game/mains";
+import { SATISFACTION_MAX } from "../../game/satisfaction";
+import { DESKS } from "../agents/commute";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
 import { resetCooling } from "../projects/cooling";
@@ -37,12 +40,22 @@ describe("slop", () => {
 
   test("fills each workplace's tank by who sits at its desks", () => {
     const { g, a, b, field } = street();
-    stepSlop(g, field, new Map([[a.id, { used: 30 }], [b.id, { used: 10 }]]), 1, 10);
+    stepSlop(g, field, new Map([[a.id, { used: 30 }], [b.id, { used: 10 }]]), 1 / 40, 10);
     const t = tanksOf(g);
     expect(t.get(a.id)!.level).toBeCloseTo(7.5, 6);
     expect(t.get(b.id)!.level).toBeCloseTo(2.5, 6);
     expect(t.get(a.id)!.capacity).toBeCloseTo(0.75 * TANK_SECONDS, 6);
     expect(t.get(a.id)!.spilling).toBe(false);
+    expect(slopMaking()).toBeCloseTo(1, 9);
+  });
+
+  test("nobody without a desk makes any: an empty office's tank stays dry, however many are hired", () => {
+    const { g, a, b, field } = street();
+    stepSlop(g, field, new Map([[a.id, { used: 40 }]]), slopPerCoder(500, 0), 10);
+    expect(tanksOf(g).get(a.id)!.rate).toBeCloseTo(40 * SLOP_PER_CODER, 9);
+    expect(tanksOf(g).get(b.id)!.level).toBe(0);
+    // A full office makes no more than a sewer carries, at any morale.
+    expect(DESKS["office-vibe"] * slopPerCoder(500, -SATISFACTION_MAX)).toBeLessThan(sewerFlow());
   });
 
   test("full, spills at its port: sludge on the street", () => {

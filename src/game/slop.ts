@@ -22,18 +22,33 @@ export const SPILL_DEPTH = 0.5;
 /** Pollution a unit of slop puts into the water. @see world/water/pollution */
 export const POLLUTION_PER_SLOP = 1;
 
-/** Slop made a second by `coders` vibe coders at `score` morale, under the culture deck's `policy` multiplier. */
-export function slopMade(coders: number, score: number, policy = 1): number {
+/**
+ * Slop a vibe coder AT A DESK makes a second, with `coders` of them employed
+ * at `score` morale, under the culture deck's `policy` multiplier: none till
+ * there are `SLOP_FROM`. Those with no desk, at home or off the map make none.
+ */
+export function slopPerCoder(coders: number, score: number, policy = 1): number {
   if (coders < SLOP_FROM) return 0;
-  return coders * SLOP_PER_CODER * vibeSlopMultiplier(score) * policy;
+  return SLOP_PER_CODER * vibeSlopMultiplier(score) * policy;
 }
+/** Slop made a second by `coders` vibe coders, every one at a desk. */
+export const slopMade = (coders: number, score: number, policy = 1): number => coders * slopPerCoder(coders, score, policy);
 
 /** A tank's size for a workplace making `rate` a second, and as Move Fast shrinks it. @see CARDS */
 export const tankFor = (rate: number) => Math.max(TANK_LEAST, rate * TANK_SECONDS * cultureNow().tank);
 
 /**
- * SLOP MADE A SECOND, as the economy last worked it out: what the map's
- * tanks fill by. Live state; not saved. @see generators.store tick
+ * SLOP A SEATED VIBE CODER MAKES A SECOND, as the economy last worked it out:
+ * what each tank fills by, for each of its workplace's desks taken. Live
+ * state; not saved. @see generators.store tick, stepSlop
+ */
+let rate = 0;
+export const setSlopRate = (perCoder: number) => { rate = Number.isFinite(perCoder) ? Math.max(0, perCoder) : 0; };
+export const slopRate = () => rate;
+
+/**
+ * SLOP MADE A SECOND on the map, as the tanks were last stepped: every
+ * workplace's, by who sits at its desks. Live state; not saved. @see stepSlop
  */
 let making = 0;
 export const setSlopMaking = (rate: number) => { making = Number.isFinite(rate) ? Math.max(0, rate) : 0; };

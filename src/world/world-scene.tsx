@@ -124,7 +124,7 @@ import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from ".
 import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, sludgedHouses } from "./events/sludge";
 import { stepSlop, tanksOf } from "./slop/tanks";
-import { slopMaking } from "../game/slop";
+import { slopRate } from "../game/slop";
 import {
   convoyTally, createPacing, endedBetween, HACKATHON_CODERS, isDue, repace, tallyCall, tickPacing, townMood,
 } from "./events/town-events";
@@ -2968,8 +2968,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (arrivals.moved.length) useWorldStore.getState().housingMoved(arrivals.moved.splice(0));
         }
         // THE SLOP TANKS at the vibe workplaces, filled by what the vibe coders
-        // make, drained by the sewers, spilling when full. @see stepSlop
-        if (st.playing) stepSlop(st.grid, st.getWaterField(), liveSeating(st.grid, net).desks, slopMaking(), dt);
+        // at their desks make, drained by the sewers, spilling when full. @see stepSlop
+        if (st.playing) stepSlop(st.grid, st.getWaterField(), liveSeating(st.grid, net).desks, slopRate(), dt);
         // EVENTS, in the game: the director's look twice a second, and what
         // an event under way does to the map. @see world/events
         const sEvents = section("tick: leaders, events, flood");
