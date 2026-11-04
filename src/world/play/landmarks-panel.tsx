@@ -13,7 +13,7 @@ import { useEffect, useMemo, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import {
-  LANDMARKS, PRIORITY_NAMES, PROJECTS, buildersFor, landmarkOf, projectCost, projectDef, type Priority, type ProjectDef,
+  LANDMARKS, PRIORITY_NAMES, PROJECTS, buildersFor, projectCost, projectDef, type Priority, type ProjectDef,
 } from "../../game/projects";
 import { SLOP_FROM } from "../../game/slop";
 import { useTicking } from "../../hooks/use-ticking";
@@ -36,12 +36,6 @@ import { SlopCard } from "./slop-card";
 
 /** AT MOST TWO AT A TIME: what is going up or ready first, then what comes next in the game. */
 const SHOWN = 2;
-
-/** A tier's place in its landmark: "HQ · 2 of 4", "Data Centre wing". @see LANDMARKS */
-export function tierLabel(p: ProjectDef): string {
-  const l = landmarkOf(p.id), k = l.tiers.indexOf(p.id);
-  return k < 0 ? `${l.name} wing` : l.tiers.length > 1 ? `${l.name} · ${k + 1} of ${l.tiers.length}` : "Landmark";
-}
 
 /** "45 seconds", "2 minutes". */
 const formatDuration = (s: number) => (s < 90 ? `${s} seconds` : `${Math.round(s / 60)} minutes`);
@@ -160,10 +154,9 @@ function Landmark({ p, state }: { p: ProjectDef; state: "going" | "ready" | "wai
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-[10px] uppercase tracking-widest text-fg-faint">{tierLabel(p)}</span>
+            <LandmarkName p={p} className={twMerge("text-sm font-bold", waiting && "text-fg-muted")} />
             {state === "ready" && <Badge tone="good">Ready</Badge>}
           </div>
-          <LandmarkName p={p} className={twMerge("text-sm font-bold", waiting && "text-fg-muted")} />
           <p className={twMerge("truncate", waiting ? "text-fg-muted" : "text-good")}>{opensText(p)}</p>
           {or && <p className="truncate text-[11px] text-warn">Or the {or.name}, never both</p>}
         </div>
@@ -272,7 +265,6 @@ export function LandmarkName({ p, className }: { p: ProjectDef; className?: stri
   return (
     <InfoPop placement="right" className={twMerge("min-w-0", className)} title={p.name}
       trigger={<span className="truncate">{p.name}</span>}>
-      <p className="text-[10px] uppercase tracking-widest text-fg-faint">{tierLabel(p)}</p>
       <p>{p.pitch}</p>
     </InfoPop>
   );
