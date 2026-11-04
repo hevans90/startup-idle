@@ -15,6 +15,7 @@ import {
   STALL_GRACE, builtProjects, catchUpWorks, createWorks, depotFor, projectUnderWay, ruledOut, siteOf, startSiteCommand, stepWorks,
 } from "./works";
 import { placesOf } from "../agents/roads";
+import { setHaulageReader } from "../../game/site-trucks";
 
 const STUDIO = projectDef("studio")!;
 
@@ -102,6 +103,26 @@ describe("a project", () => {
     expect(b.done).toBeCloseTo((b.need * 2) / b.deliveries, 3);
     expect(w.stalled.get(siteOf(g, STUDIO)!.id)! > STALL_GRACE).toBe(true);
     expect(w.away.intern ?? 0).toBe(0);
+  });
+
+  test("Refactoring and Monorepo: trucks leave together, each load at the tree's price", () => {
+    for (const [trucks, price] of [[2, 2], [3, 2]]) {
+      const undo = setHaulageReader(() => ({ trucks, price }));
+      const { g, history } = town();
+      commit(g, history, startSiteCommand(g, STUDIO, 12, 6, { needsRoad: true }, 0)!);
+      const net = createNetwork(g), t = createTown(), w = createWorks();
+      const spent: number[] = [];
+      let most = 0;
+      for (let k = 0; k < 30 * 5; k++) {
+        stepTown(t, g, net, 0, 1 / 30);
+        stepWorks(w, g, net, t, { intern: 10 }, (n) => (spent.push(n), true), 1 / 30, k * 33);
+        most = Math.max(most, t.movers.filter((m) => m.job?.role === "truck").length);
+      }
+      undo();
+      const b = siteOf(g, STUDIO)!.build!;
+      expect(most).toBe(trucks);
+      expect(spent[0]).toBeCloseTo((b.cost / b.deliveries) * price);
+    }
   });
 
   test("goes on while you are away, as far as the money does", () => {

@@ -16,6 +16,7 @@ import {
   TREE_VERSION,
 } from "../game/skill-tree";
 import { setTownReader } from "../game/culture-now";
+import { setHaulageReader } from "../game/site-trucks";
 import { isMachine } from "../game/machine";
 import {
   coerceDecimal,
@@ -276,3 +277,9 @@ export const usePrestigeStore = create<PrestigeState>()(
 // THE TREE'S TOWN NODES, read under the culture deck's cards wherever the map
 // works out desks, beds, builds and commutes. @see cultureNow
 setTownReader(() => usePrestigeStore.getState().modifiers.town);
+
+// THE TREE'S TRUCKS, read by every building site. @see siteTrucks
+setHaulageReader(() => {
+  const m = usePrestigeStore.getState().modifiers;
+  return { trucks: 1 + m.extraTrucks, price: m.loadPrice };
+});

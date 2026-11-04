@@ -14,7 +14,7 @@ A satirical idle game: hire interns, vibe coders and 10x devs, and build your co
 - **Vape shop:** 53 achievements earn juice for 12 upgrades; a rhythm minigame at 50 vibe coders. Both survive prestige.
 - **Founders:** six archetypes (Hacker, Bootstrapper, Visionary, Hustler, Agentic Delusionist, NEET) with map rules (`game/founder-rules.ts`). **Unlocks by project** (`grantFeatures`): the HQ opens Innovation; Valuation and Acquisition follow. Plan: `plans/innovation-overhaul.md`.
 - **Offline progress:** the real tick replayed (cap 2 days); the AI meter holds at the next quest step (`holdWhileAway`).
-- **Acquisition (prestige):** sell for **Equity**, spent in a ~190-node skill tree (`game/skill-tree.ts`); notables also shape the map (`town` effects folded into `cultureNow`). Bump `TREE_VERSION` when the tree changes: old allocations are refunded.
+- **Acquisition (prestige):** sell for **Equity**, spent in a ~190-node skill tree (`game/skill-tree.ts`); notables also shape the map (`town` effects folded into `cultureNow`). Bump `TREE_VERSION` when the tree changes: old allocations are refunded. Refactoring/Monorepo add trucks per site send (`game/site-trucks.ts`).
 
 ### Slop
 

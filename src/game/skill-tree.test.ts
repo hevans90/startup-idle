@@ -65,15 +65,15 @@ describe("generated skill tree", () => {
     expect(kinds.has("notable")).toBe(true);
     expect(kinds.has("travel")).toBe(true);
     const keystones = SKILL_TREE.nodes.filter((n) => n.kind === "keystone" && n.cluster !== MACHINE);
-    expect(keystones.length).toBe(7); // design doc §4
+    expect(keystones.length).toBe(8); // design doc §4, and Refactoring
   });
 
   test("reachability gates non-roots behind allocation", () => {
     const empty = new Set<string>();
     expect(isReachable(SKILL_TREE, empty, "core")).toBe(true);
-    expect(isReachable(SKILL_TREE, empty, "link_1_1")).toBe(false);
-    expect(isReachable(SKILL_TREE, new Set(["core"]), "link_1_1")).toBe(true);
-    expect(isReachable(SKILL_TREE, new Set(["core"]), "growth_h0")).toBe(false);
+    expect(isReachable(SKILL_TREE, empty, "link_10_1")).toBe(false);
+    expect(isReachable(SKILL_TREE, new Set(["core"]), "link_10_1")).toBe(true);
+    expect(isReachable(SKILL_TREE, new Set(["core"]), "lean_h0")).toBe(false);
   });
 });
 
@@ -130,16 +130,16 @@ describe("frontierPath + pathEquityCost", () => {
   const adj = buildAdjacency(SKILL_TREE);
 
   test("from nothing allocated, the path includes the root and ends at the target", () => {
-    const path = frontierPath(SKILL_TREE, new Set(), "growth_h0", adj);
+    const path = frontierPath(SKILL_TREE, new Set(), "lean_h0", adj);
     expect(path[0]).toBe("core");
-    expect(path[path.length - 1]).toBe("growth_h0");
+    expect(path[path.length - 1]).toBe("lean_h0");
   });
 
   test("path contains only unallocated nodes and ends at the target", () => {
     const allocated = new Set(["core"]);
-    const path = frontierPath(SKILL_TREE, allocated, "growth_h0", adj);
+    const path = frontierPath(SKILL_TREE, allocated, "lean_h0", adj);
     expect(path).not.toContain("core");
-    expect(path[path.length - 1]).toBe("growth_h0");
+    expect(path[path.length - 1]).toBe("lean_h0");
     // allocating along the path, each node is reachable from the prior frontier
     const acc = new Set(allocated);
     for (const id of path) {
@@ -159,14 +159,14 @@ describe("frontierPath + pathEquityCost", () => {
   });
 
   test("nodesToRemove returns the node plus its orphaned dependents", () => {
-    const alloc = new Set(["core", "link_1_1", "growth_h0"]);
+    const alloc = new Set(["core", "link_10_1", "lean_h0"]);
     // removing the middle node must also take the leaf that depends on it
-    expect(nodesToRemove(SKILL_TREE, alloc, "link_1_1", adj)).toEqual([
-      "link_1_1",
-      "growth_h0",
+    expect(nodesToRemove(SKILL_TREE, alloc, "link_10_1", adj)).toEqual([
+      "link_10_1",
+      "lean_h0",
     ]);
     // a leaf removes only itself
-    expect(nodesToRemove(SKILL_TREE, alloc, "growth_h0", adj)).toEqual(["growth_h0"]);
+    expect(nodesToRemove(SKILL_TREE, alloc, "lean_h0", adj)).toEqual(["lean_h0"]);
     // a root is never removable
     expect(nodesToRemove(SKILL_TREE, alloc, "core", adj)).toEqual([]);
   });
@@ -324,10 +324,10 @@ describe("nodeCost (escalating)", () => {
 describe("canRemoveWithoutOrphan", () => {
   const adj = buildAdjacency(SKILL_TREE);
   test("a leaf can be removed; a cut node and roots cannot", () => {
-    const allocated = new Set(["core", "link_1_1", "growth_h0"]);
-    expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "growth_h0", adj)).toBe(true);
+    const allocated = new Set(["core", "link_10_1", "lean_h0"]);
+    expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "lean_h0", adj)).toBe(true);
     // removing spoke_0 would orphan spoke_1
-    expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "link_1_1", adj)).toBe(false);
+    expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "link_10_1", adj)).toBe(false);
     // roots are never removable
     expect(canRemoveWithoutOrphan(SKILL_TREE, allocated, "core", adj)).toBe(false);
   });
@@ -346,6 +346,16 @@ describe("town perks", () => {
     // Company Town shapes the map itself: more beds a house.
     expect(byTitle.get("Company Town")!.town).toEqual({ beds: 1.25 });
     expect(byTitle.get("Company Town")!.special).toBeUndefined();
+  });
+
+  test("Refactoring and Monorepo: three trucks to a site, loads at twice the price", () => {
+    const byTitle = new Map(SKILL_TREE.nodes.map((n) => [n.title, n]));
+    expect(resolvePrestigeModifiers([])).toMatchObject({ extraTrucks: 0, loadPrice: 1 });
+    expect(resolvePrestigeModifiers([byTitle.get("Monorepo")!.id])).toMatchObject({ extraTrucks: 1, loadPrice: 1 });
+    const both = resolvePrestigeModifiers(["Refactoring", "Monorepo"].map((t) => byTitle.get(t)!.id));
+    expect(both).toMatchObject({ extraTrucks: 2, loadPrice: 2 });
+    expect(byTitle.get("Refactoring")!.kind).toBe("keystone");
+    expect(nodeEffectRows(byTitle.get("Refactoring")!).map((r) => [r.label, r.tone])).toEqual([["Trucks +1", "good"], ["Loads cost ×2", "bad"]]);
   });
 
   test("three more bring rules: a shipping route, quick repairs, a fifth term sheet", () => {

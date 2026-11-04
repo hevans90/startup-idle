@@ -33,6 +33,7 @@ import { GateChips } from "./gate-chips";
 import { useGateUnlocks } from "./gates";
 import { useLandmarkPicture } from "./landmark-picture";
 import { SlopCard } from "./slop-card";
+import { siteTrucks } from "../../game/site-trucks";
 
 /** AT MOST TWO AT A TIME: what is going up or ready first, then what comes next in the game. */
 const SHOWN = 2;
@@ -232,7 +233,7 @@ function GoingFoot({ p }: { p: ProjectDef }) {
   const truck = (works.trucks.get(site.id) ?? 0) > 0;
   const caughtUp = b.done >= materialCap(b) - 1e-6;
   const problem = b.priority === 0 ? null
-    : stalledFor > 0 ? `Stalled: next load ${formatCurrency(b.cost / b.deliveries)}${stalledFor > STALL_GRACE ? ", crew gone home" : ""}`
+    : stalledFor > 0 ? `Stalled: next load ${formatCurrency((b.cost / b.deliveries) * siteTrucks().price)}${stalledFor > STALL_GRACE ? ", crew gone home" : ""}`
       : caughtUp && truck ? "Waiting for a load"
         : crew.working === 0 && crew.walking > 0 ? "Crew on the way" : null;
   const who = p.builders.map((id) => KIND_PLURAL[id as GeneratorId] ?? id).join(" and ");

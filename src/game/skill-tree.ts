@@ -55,7 +55,10 @@ export type KeystoneSpecial =
   | "foundingRoute" // Conglomerate — every company starts with a regular shipping route
   | "fastRepairs" // Open Core — flood damage is repaired twice as fast
   | "extraTermSheet" // Founder Worship — a fifth term sheet at founding
-  | "culturePoints"; // Company Handbook — culture points to spend, on top of the managers' tiers
+  | "culturePoints" // Company Handbook — culture points to spend, on top of the managers' tiers
+  // THE TRUCKS a building site sends for at a time. @see siteTrucks
+  | "doubleLoads" // Refactoring — a second truck to each send, every load at twice the price
+  | "extraTruck"; // Monorepo — a truck more to each send
 
 /** Free generator (intern) levels granted at the start of each run while the
  * "Permanent Acqui-hire" keystone is allocated — the upside offsetting its halved Equity. */
@@ -128,7 +131,7 @@ export function grantRow(g: BonusGrant): EffectRow {
 }
 
 /** Structural keystone reshapes as signed rows (their non-numeric side). */
-const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
+const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow | EffectRow[]> = {
   disableManagers: { label: "No managers: no culture deck", tone: "bad" },
   neutralizeSatisfaction: { label: "Morale does nothing", tone: "bad" },
   dampSatisfaction: { label: "Good morale counts half", tone: "bad" },
@@ -140,13 +143,15 @@ const SPECIAL_ROWS: Record<KeystoneSpecial, EffectRow> = {
   fastRepairs: { label: "Flood repairs twice as fast", tone: "good" },
   extraTermSheet: { label: "A fifth term sheet at founding", tone: "good" },
   culturePoints: { label: `Culture points +${HANDBOOK_POINTS}`, tone: "good" },
+  doubleLoads: [{ label: "Trucks +1", tone: "good" }, { label: "Loads cost ×2", tone: "bad" }],
+  extraTruck: { label: "Trucks +1", tone: "good" },
 };
 
 /** Full signed breakdown for a node: one row per grant, plus its structural
  * keystone reshape (if any). Drives the tooltip and the bonuses panel. */
 export function nodeEffectRows(node: SkillNode): EffectRow[] {
   const rows = [...(node.grants ?? []).map(grantRow), ...(node.town ? townRows([node.town]) : [])];
-  if (node.special) rows.push(SPECIAL_ROWS[node.special]);
+  if (node.special) rows.push(...specialEffectRows(node.special));
   // Gains before costs, as every effect line. @see game/wording
   return [...rows.filter((r) => r.tone === "good"), ...rows.filter((r) => r.tone === "bad")];
 }
@@ -155,8 +160,8 @@ export function nodeEffectRows(node: SkillNode): EffectRow[] {
 export const townRows = (list: readonly CardEffects[]): EffectRow[] =>
   list.length ? effectLines(combineEffects(list)).map((l) => ({ label: l.text, tone: l.good ? "good" : "bad" })) : [];
 
-/** The signed row for a structural keystone reshape (for route summaries). */
-export const specialEffectRow = (s: KeystoneSpecial): EffectRow => SPECIAL_ROWS[s];
+/** The signed rows for a structural keystone reshape (for route summaries). */
+export const specialEffectRows = (s: KeystoneSpecial): EffectRow[] => [SPECIAL_ROWS[s]].flat();
 
 /** Sugar for authoring cluster bonus data. */
 const pct = (stat: BonusStat, value: number): BonusGrant => ({ stat, kind: "pct", value });
@@ -221,6 +226,8 @@ type ClusterDef = {
   /** Signature notables — trunk first, then branch pods; extras get generic names. */
   notables: Notable[];
   keystone?: Notable;
+  /** Constellations it spreads over (3 unless it has a fourth notable to place). */
+  constellations?: number;
   shape: ClusterShape;
 };
 
@@ -308,7 +315,7 @@ const CLUSTERS: ClusterDef[] = [
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 2, minors: 5 }, { offset: 27, pods: 1, minors: 4 }] },
   },
   {
-    // LEADERS, and the floods mended.
+    // LEADERS, the floods mended, and the trucks to a site.
     id: "opensource",
     name: "Open Source",
     minorBonus: [pct("innovation", 4)],
@@ -316,7 +323,11 @@ const CLUSTERS: ClusterDef[] = [
       { title: "Open Core", bonus: [pct("money", 10)], special: "fastRepairs" },
       { title: "Foundation Grant", bonus: [pct("innovation", 25), pct("valuation", 15)] },
       { title: "Maintainers", bonus: [], town: { leaderXp: 1.5 } },
+      // Last, so the constellation nearest the keystone.
+      { title: "Monorepo", bonus: [], special: "extraTruck" },
     ],
+    keystone: { title: "Refactoring", bonus: [], special: "doubleLoads" },
+    constellations: 4,
     shape: { trunkMinors: 4, travelPerGap: 3, branches: [{ offset: -27, pods: 1, minors: 6 }, { offset: 27, pods: 1, minors: 5 }] },
   },
   {
@@ -366,7 +377,7 @@ const greaterNotableBonus = (minorBonus: BonusGrant[]): BonusGrant[] =>
 // travel paths in a mostly-tree structure (core → inner cluster → satellites),
 // so there are no regular polygons / connected rings. Deterministic per `seed`.
 const ROMAN = ["I", "II", "III", "IV", "V", "VI"];
-const LAYOUT_SEED = 1433; // every notable placed, zero node/edge overlaps — verified by geometry check
+const LAYOUT_SEED = 1569; // every notable placed, zero node/edge overlaps — verified by geometry check
 
 type Pt = { x: number; y: number };
 const unit = (a: number): Pt => ({ x: Math.cos(a), y: Math.sin(a) });
@@ -450,7 +461,7 @@ export function buildTree(seed: number): SkillTree {
   CLUSTERS.forEach((cluster, i) => {
     const sector = (i / CLUSTERS.length) * Math.PI * 2 - Math.PI / 2;
     // Three constellations a cluster: fewer nodes, each worth more.
-    const constellationCount = 3;
+    const constellationCount = cluster.constellations ?? 3;
     const slots = constellationCount + (cluster.keystone ? 1 : 0);
     let cursor = 0;
     const nextNotable = () => {
@@ -688,7 +699,7 @@ export const SKILL_TREE: SkillTree = withMachine(buildTree(LAYOUT_SEED));
  * and starts the tree again, its Equity back. @see prestige.store merge
  * 2 — rescaled and re-themed for the map and the culture deck (2026-11-04).
  */
-export const TREE_VERSION = 2;
+export const TREE_VERSION = 3;
 
 export const nodeById = (tree: SkillTree): Map<string, SkillNode> =>
   new Map(tree.nodes.map((n) => [n.id, n]));
@@ -733,6 +744,10 @@ export type PrestigeModifiers = {
   termSheets: number;
   /** Company Handbook: culture points on top of the managers' tiers. @see deckTiers */
   culturePoints: number;
+  /** Refactoring and Monorepo: trucks more than one a building site sends for at a time. @see siteTrucks */
+  extraTrucks: number;
+  /** Refactoring: what a load costs, times its price (1 normal). */
+  loadPrice: number;
   /** What the allocated nodes do to the town, each node's: read under the culture deck's cards. @see setTownReader */
   town: CardEffects[];
 };
@@ -760,6 +775,8 @@ export const NEUTRAL_PRESTIGE_MODIFIERS: PrestigeModifiers = {
   repairMult: 1,
   termSheets: 4,
   culturePoints: 0,
+  extraTrucks: 0,
+  loadPrice: 1,
   town: [],
 };
 
@@ -811,6 +828,13 @@ export function resolvePrestigeModifiers(
         break;
       case "culturePoints":
         out.culturePoints += HANDBOOK_POINTS;
+        break;
+      case "doubleLoads":
+        out.extraTrucks += 1;
+        out.loadPrice *= 2;
+        break;
+      case "extraTruck":
+        out.extraTrucks += 1;
         break;
     }
   }

@@ -10,7 +10,7 @@ import {
   nodesToRemove,
   pathEquityCost,
   SKILL_TREE,
-  specialEffectRow,
+  specialEffectRows,
   STAT_META,
   townRows,
 } from "../../game/skill-tree";
@@ -112,7 +112,7 @@ export const SkillTreeTooltip = () => {
             .map((id) => NODES.get(id)?.special)
             .filter((s): s is KeystoneSpecial => !!s),
         ),
-      ].map(specialEffectRow).concat(
+      ].flatMap(specialEffectRows).concat(
         townRows(routePath.flatMap((id) => { const t = NODES.get(id)?.town; return t ? [t] : []; })),
       )
     : [];

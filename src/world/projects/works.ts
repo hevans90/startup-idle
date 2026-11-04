@@ -36,6 +36,7 @@ import { placesOf, type Place } from "../agents/roads";
 import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
 import { notable } from "../../game/machine";
 import { cultureNow } from "../../game/culture-now";
+import { siteTrucks } from "../../game/site-trucks";
 
 /** The Garage and what it grows into: the yard materials come from. @see depotFor */
 const HQ_LINE = ["garage", "hq", "boardroom", "ipo"];
@@ -318,8 +319,9 @@ export function stepWorks(
     // BY AIR, a small site with Drone Airlift and a Data Centre to fly from:
     // straight over the town, dearer a load. @see AIRLIFT_TILES
     const airlift = notable("airlift") && !!dc && s.w * s.h <= AIRLIFT_TILES;
+    const haul = siteTrucks(), perLoad = (b.cost / b.deliveries) * haul.price;
     if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries && airlift) {
-      if (spend((b.cost / b.deliveries) * AIRLIFT_PRICE)) {
+      if (spend(perLoad * AIRLIFT_PRICE)) {
         const from = { x: dc!.x + dc!.w / 2, y: dc!.y + dc!.h / 2 }, to = { x: s.x + s.w / 2, y: s.y + s.h / 2 };
         w.airlifts.push({ site: s.id, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / AIRLIFT_SPEED });
         w.trucks.set(s.id, 1);
@@ -329,35 +331,23 @@ export function stepWorks(
         if (!w.stalled.has(s.id)) w.rev++;
         w.stalled.set(s.id, (w.stalled.get(s.id) ?? 0) + dt);
       }
-    } else if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries && notable("freight")) {
-      // A CONVOY, with Autonomous Freight: up to three lorries at once, each a
-      // load paid for as it is sent — as many as the money runs to. @see CONVOY
-      const from = door && depotFor(g, places, s, door.net, true);
+    } else if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries) {
+      // THE TRUCKS: one, or as many as the tree adds (Refactoring, Monorepo),
+      // and a convoy of three more with Autonomous Freight — each a load paid
+      // for as it is sent, as many as the money runs to. @see CONVOY @see siteTrucks
+      const freight = notable("freight");
+      const from = door && depotFor(g, places, s, door.net, freight);
       let sent = 0, paid = 0;
-      for (let k = Math.min(CONVOY, b.deliveries - b.delivered); k > 0 && spend(b.cost / b.deliveries); k--) {
+      for (let k = Math.min(haul.trucks + (freight ? CONVOY - 1 : 0), b.deliveries - b.delivered); k > 0 && spend(perLoad); k--) {
         paid++;
+        // With no garage or road out of the map in its network, a load comes
+        // by means unseen — it still has to be paid for.
         const m = door && from ? sendOnJob(town, g, "truck", from, door, { site: s.id, role: "truck" }) : null;
-        if (m) { m.colour = AI_TRUCK_COLOUR; sent++; }
-        else b.delivered++;    // by means unseen, as a lone lorry's
+        if (m) { if (freight) m.colour = AI_TRUCK_COLOUR; sent++; }
+        else b.delivered++;
       }
       if (paid) { w.trucks.set(s.id, sent); w.stalled.delete(s.id); w.rev++; }
       else if (caughtUp) {
-        if (!w.stalled.has(s.id)) w.rev++;
-        w.stalled.set(s.id, (w.stalled.get(s.id) ?? 0) + dt);
-      }
-    } else if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries) {
-      if (spend(b.cost / b.deliveries)) {
-        w.trucks.set(s.id, 1);
-        w.stalled.delete(s.id);
-        const from = door && depotFor(g, places, s, door.net);
-        // With no garage or road out of the map in its network, a load comes
-        // by means unseen — it still has to be paid for.
-        if (!door || !from || !sendOnJob(town, g, "truck", from, door, { site: s.id, role: "truck" })) {
-          w.trucks.set(s.id, 0);
-          b.delivered++;
-        }
-        w.rev++;
-      } else if (caughtUp) {
         // STALLED only once the work has run out: short of money for the
         // next load with some of this one left is not yet a stall.
         if (!w.stalled.has(s.id)) w.rev++;
@@ -492,13 +482,13 @@ export function catchUpWorks(
       if (toCap > left) { b.done += crew * left; left = 0; break; }
       b.done = cap;
       left -= Math.max(0, toCap);
-      if (b.delivered >= b.deliveries || !spend(b.cost / b.deliveries)) break;
+      if (b.delivered >= b.deliveries || !spend((b.cost / b.deliveries) * siteTrucks().price)) break;
       b.delivered++;
     }
     // And the trucks kept coming: the stock on hand as it would have been, so
     // a crew back on site is not left waiting for a load from the map's edge.
     while (crew > 0 && b.delivered < b.deliveries
-      && (materialCap(b) - b.done) / (b.need / b.deliveries) < STOCK && spend(b.cost / b.deliveries)) {
+      && (materialCap(b) - b.done) / (b.need / b.deliveries) < STOCK && spend((b.cost / b.deliveries) * siteTrucks().price)) {
       b.delivered++;
     }
     b.updatedAt = now;
