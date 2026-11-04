@@ -119,7 +119,7 @@ export function GateChips({ project, className }: { project: ProjectDef; classNa
   return (
     <div className={twMerge("flex flex-col gap-1", className)}>
       {chips.length > 0 && (
-        <div className="flex flex-wrap justify-end gap-1">
+        <div className="flex flex-wrap gap-1">
           {chips.map((p, k) => <GateChip key={k} part={p} project={project} owned={owned} />)}
         </div>
       )}
