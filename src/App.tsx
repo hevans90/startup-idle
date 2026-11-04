@@ -2,7 +2,7 @@ import { isPhone } from "./hooks/use-phone";
 import { useAiSingularityStore } from "./state/ai-singularity.store";
 import { Num, Segmented } from "./ui/console";
 import { FloatingTree } from "@floating-ui/react";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { evaluateAchievements } from "./game/achievements.engine";
 import {
   computeOfflineProgress,
@@ -19,6 +19,8 @@ import { OfflineSummaryModal } from "./molecules/offline-summary";
 import { whenWorldReady } from "./game/world-ready";
 import { onFixture } from "./fixture-sandbox";
 import { SellTransitionProvider } from "./molecules/sell-transition";
+/** The company's map, in its own chunk. @see CompanyMap */
+import { CompanyMap } from "./world/play/company-map-loader";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Sidebar } from "./molecules/sidebar";
 import { Toolbar } from "./molecules/toolbar";
@@ -37,8 +39,6 @@ import { NoticeToast } from "./ui/comms/notice-toast";
 /** Vibe coders this run before the vape appears on the map. */
 const VAPE_UNLOCK_VIBE_CODERS = 50;
 
-/** The company's map, in its own chunk. @see CompanyMap */
-const CompanyMap = lazy(() => import("./world/play/company-map"));
 
 const useDynamicTitle = (interval = 1000) => {
   useEffect(() => {

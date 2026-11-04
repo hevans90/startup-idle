@@ -11,6 +11,7 @@ import { structureDef } from "../structures/def";
 import { lookOf } from "../structures/projects/looks";
 import { makePen } from "../structures/projects/pen";
 import { drawFinished } from "../structures/projects/site";
+import { gpuForPixi, rendererAsked } from "../render/use-gpu";
 
 /** How big it is drawn: half the map's size at its closest. */
 const SCALE = 0.5;
@@ -21,7 +22,9 @@ const pictures = new Map<string, Promise<string | null>>();
 function draw(defId: string): Promise<string | null> {
   const def = structureDef(defId);
   if (!def) return Promise.resolve(null);
-  renderer ??= autoDetectRenderer({ preference: "webgl", backgroundAlpha: 0, antialias: true, width: 8, height: 8 });
+  // On WebGPU, the map's own device. @see usePixiGpu
+  renderer ??= gpuForPixi().then((gpu) =>
+    autoDetectRenderer({ preference: rendererAsked(), ...(gpu ? { gpu } : {}), backgroundAlpha: 0, antialias: true, width: 8, height: 8 }));
   return renderer.then(async (r) => {
     const g = new Graphics();
     drawFinished(makePen(g, 0, 0, 0, SCALE, null), lookOf(defId, def.footprint), def.footprint);

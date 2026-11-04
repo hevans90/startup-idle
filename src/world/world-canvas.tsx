@@ -40,7 +40,7 @@ import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
 import { useSessionStore } from "../state/session.store";
 import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
 import { loadSaved, setSaveSlot, type SaveSlot } from "./io/world-save";
-import { openDevice, type HeldGpu } from "./render/device";
+import { rendererAsked, usePixiGpu } from "./render/use-gpu";
 import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
 import { damagedAway, evacuatedAway } from "./events/flood";
@@ -51,19 +51,7 @@ import { labReading } from "./projects/labs";
 import { rackReading } from "./projects/racks";
 import { allTanks, cooledSpires, hotAgents } from "./projects/cooling";
 
-/**
- * Which renderer to ask for: WebGPU, unless `?webgl=1` says otherwise.
- *
- * Not a preference so much as a way to LOOK at the other one. Everything here
- * runs on WebGPU in practice, so the WebGL path is the one that rots quietly
- * until somebody opens the page in a browser that has no WebGPU and gets a
- * blank map. This makes it one URL away.
- */
-export const rendererAsked = (): "webgpu" | "webgl" =>
-  typeof location !== "undefined" &&
-  new URLSearchParams(location.search).has("webgl")
-    ? "webgl"
-    : "webgpu";
+export { rendererAsked } from "./render/use-gpu";
 
 /**
  * The map this page shows, from mount to unmount: loaded or founded, saved as
@@ -363,20 +351,7 @@ export function WorldCanvas({
   wrapperRef: RefObject<HTMLDivElement | null>;
   size: { width: number; height: number } | null;
 }) {
-  const [gpu, setGpu] = useState<HeldGpu | null | undefined>(undefined);
-  useEffect(() => {
-    if (rendererAsked() === "webgl") {
-      setGpu(null);
-      return;
-    }
-    let live = true;
-    void openDevice().then((g) => {
-      if (live) setGpu(g);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+  const gpu = usePixiGpu();
   useDisableDOMZoom({ wrapperRef });
   if (!size || gpu === undefined) return null;
   return (

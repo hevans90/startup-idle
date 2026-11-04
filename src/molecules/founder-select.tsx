@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { twMerge } from "tailwind-merge";
 import { FOUNDERS } from "../game/founders.catalog";
 import { useExitsStore } from "../state/exits.store";
@@ -24,12 +24,30 @@ import { ModifierTag } from "../ui/ModifierTag";
 import { formatCurrency } from "../utils/money-utils";
 import { SkillTreeOverlay } from "./skill-tree/skill-tree-overlay";
 import { useSessionStore } from "../state/session.store";
+import { gpuForPixi } from "../world/render/use-gpu";
+import { loadCompanyMap } from "../world/play/company-map-loader";
 
 /**
  * STEP TWO of founding: choosing the land the company is founded on. In its
  * own chunk, with the map generator it runs. @see MapSetup
  */
 const MapSetup = lazy(() => import("../world/play/map-setup"));
+
+/**
+ * THE MAP, MADE READY WHILE FOUNDING: its chunk fetched and the GPU device
+ * opened while the player picks, so the map draws as soon as the term sheet is
+ * signed rather than starting to load then. @see loadCompanyMap, usePixiGpu
+ */
+const READY_AFTER_MS = 500;
+function useMapMadeReady(): void {
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      void loadCompanyMap();
+      void gpuForPixi();
+    }, READY_AFTER_MS);
+    return () => window.clearTimeout(id);
+  }, []);
+}
 
 // ─── local helpers ────────────────────────────────────────────────────────────
 
@@ -75,6 +93,7 @@ function PanelRow({
 // ─── main component ───────────────────────────────────────────────────────────
 
 export const FounderSelect = () => {
+  useMapMadeReady();
   const chooseFounder = useFounderStore((s) => s.chooseFounder);
   // BOOK 5 IS PLAYED AS THE MODEL: its only founder. @see BOOK5_CHAPTERS
   const asModel = useGenerationStore((s) => s.book) === 5;

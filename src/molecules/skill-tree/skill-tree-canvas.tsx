@@ -23,6 +23,7 @@ import { useResizeToWrapper } from "../../hooks/use-resize-to-wrapper";
 import { useDisableDOMZoom } from "../../utils/use-disable-dom-zoom";
 import { applyViewportControls } from "../../utils/viewport-controls";
 import { searchNodeIds } from "../../game/skill-tree-search";
+import { rendererAsked, usePixiGpu } from "../../world/render/use-gpu";
 
 extend({ Container, Graphics, Sprite, Viewport });
 
@@ -481,12 +482,16 @@ export const SkillTreeCanvas = ({ focus }: { focus?: "machine" }) => {
   const { ref, setRef, size } = useResizeToWrapper();
   useDisableDOMZoom({ wrapperRef: ref });
   const theme = useThemeStore((s) => s.theme);
+  // On WebGPU, the map's own device. @see usePixiGpu
+  const gpu = usePixiGpu();
 
   return (
     <div ref={setRef} className="absolute inset-0 min-h-0">
-      {size && (
+      {size && gpu !== undefined && (
         <Application
           resizeTo={ref}
+          {...(gpu ? { gpu } : {})}
+          preference={rendererAsked()}
           antialias={true}
           autoDensity={true}
           background={PALETTE[theme].bg}
