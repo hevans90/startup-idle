@@ -270,7 +270,7 @@ export const PROJECTS: readonly ProjectDef[] = [
   {
     id: "datacentre",
     name: "Data Centre",
-    pitch: "Racks of GPUs humming in the dark. Doubles the company's innovation, for good.",
+    pitch: "Racks of GPUs humming in the dark. Doubles the company's innovation.",
     structure: "datacentre",
     builders: ["vibe_coder", "10x_dev"],
     work: 10_000,
@@ -285,7 +285,7 @@ export const PROJECTS: readonly ProjectDef[] = [
   {
     id: "conference",
     name: "Conference Centre",
-    pitch: "Keynotes, lanyards and a stage. Valuation grows half as fast again, for good, and convoys pay treble at seaports near it.",
+    pitch: "Keynotes, lanyards and a stage. Valuation grows half as fast again, and convoys pay treble at seaports near it.",
     structure: "conference",
     builders: ["vibe_coder", "10x_dev"],
     work: 14_000,
@@ -299,7 +299,7 @@ export const PROJECTS: readonly ProjectDef[] = [
   {
     id: "hackerspace",
     name: "Hackerspace",
-    pitch: "An old warehouse of soldering irons, beanbags and whiteboards. All income a third again, for good.",
+    pitch: "An old warehouse of soldering irons, beanbags and whiteboards. All income a third again.",
     structure: "hackerspace",
     builders: ["vibe_coder", "10x_dev"],
     work: 14_000,

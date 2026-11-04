@@ -110,7 +110,7 @@ export function opensText(p: ProjectDef): string {
   if (p.grants === "ports") return "Opens seaports";
   if (p.bonus) {
     const b = p.bonus;
-    return `${describe({ money: b.money, innovation: b.innovation, valuation: b.valuation })}, for good`;
+    return describe({ money: b.money, innovation: b.innovation, valuation: b.valuation });
   }
   if (p.grants === "mandates") return "Opens board mandates";
   if (p.grants === "leaders") return "Opens team leaders";
@@ -225,7 +225,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const proc = processorLine(s);
     if (proc) lines.push(proc);
     lines.push(...perkLines(s.id, ctx));
-    if (p.bonus) lines.push({ text: opensText(p).replace(/, for good$/, ""), tone: "good" });
+    if (p.bonus) lines.push({ text: opensText(p), tone: "good" });
     if (p.opens) lines.push({ text: `Click for ${TAB_NAME[p.opens]}`, tone: "dim" });
     if (p.id === "datacentre") {
       const c = coolingLine(s.id);
