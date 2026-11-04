@@ -88,6 +88,7 @@ The town builds its own shops. Neighbourhoods form from the roads. Each employee
 - Props go in a per-chunk prop layer, rebuilt only when a street's level changes.
 
 ## 5. Landmarks & projects UI
+**Done.** As built: `LANDMARKS` in `game/projects.ts` groups the projects, ids kept, so quests, books, saves and the AI hold. A line's tiers share a footprint from the first (Garage 3×3, Studio 4×4); a tier is started over the standing tier under it (`upgradeFrom`, `startUpgradeCommand`: same id, residents kept) with no site to choose; a building counts every tier under it (`tiersIn` → `builtProjects`), so old saves with separate buildings need no migration. A tier takes its top role: the HQ line is the interns' workplace and the materials yard throughout; the Studio is the vibe coders', the Campus and Agency the 10x devs' workplace and home. Costs unchanged. `play/landmarks-panel.tsx` replaces the projects log and the Wonders menu: a card a ready tier (`landmark-picture.ts` draws its building once, off screen), the rest dimmed with their gates.
 **Landmarks:**
 
 | Landmark | Tiers |
@@ -110,4 +111,3 @@ The town builds its own shops. Neighbourhoods form from the roads. Each employee
 ## Open questions
 - Is a doctor needed by every kind at tier III+? I lean no; it is simpler.
 - What are the exact work-speed caps per kind?
-- Do landmark tiers cost the same as the projects they replace?

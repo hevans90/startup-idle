@@ -42,7 +42,6 @@ import { runningAgents } from "../../state/agents.store";
 import { useFounderStore } from "../../state/founder.store";
 import { getAiRunner } from "../ai/ai-runner";
 import { useTicking } from "../../hooks/use-ticking";
-import { WondersPanel } from "./wonders-panel";
 import { AiModePanel } from "./ai-mode-panel";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
@@ -65,7 +64,6 @@ const ICONS: Record<string, ReactNode> = {
   placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
   labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
-  wonders: <Icon><path d="M8 1.5l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11l-3.7 2 .8-4.2L2 5.9l4.2-.5z" /></Icon>,
   water: <Icon><path d="M8 2.5c2.5 3 4 5.2 4 7a4 4 0 0 1-8 0c0-1.8 1.5-4 4-7z" /></Icon>,
   mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
   earnings: <Icon><path d="M8 1.5v13M11 4.5H6.5a2 2 0 000 4h3a2 2 0 010 4H5" /></Icon>,
@@ -218,14 +216,12 @@ export function BuildBar({ className }: { className?: string }) {
     return () => clearTimeout(id);
   }, [lastBuild]);
   const canUndo = lastBuild && Date.now() - lastBuild.at < UNDO_WINDOW_MS;
-  const wondersOpen = useWorldStore((s) => s.wondersOpen);
   const moodOverlay = useWorldStore((s) => s.moodOverlay);
   const setMoodOverlay = useWorldStore((s) => s.setMoodOverlay);
   const earningsOverlay = useWorldStore((s) => s.earningsOverlay);
   const setEarningsOverlay = useWorldStore((s) => s.setEarningsOverlay);
   const waterOverlay = useWorldStore((s) => s.waterOverlay);
   const setWaterOverlay = useWorldStore((s) => s.setWaterOverlay);
-  const setWondersOpen = useWorldStore((s) => s.setWondersOpen);
 
   // Who the company can hire: the generators it has unlocked. @see getUnlockedGeneratorIds
   const hireable = new Set(generators.map((g) => g.id));
@@ -303,12 +299,6 @@ export function BuildBar({ className }: { className?: string }) {
 
   const views = (
     <>
-      <button type="button" title="The wonders: great buildings, each a bonus for good" data-hint="wonders"
-        onClick={() => { setWondersOpen(!wondersOpen); setPicking(false); }}
-        className={twMerge(TOOL, wondersOpen && TOOL_ON)}>
-        {ICONS.wonders}
-        <span className="@max-6xl:hidden">Wonders</span>
-      </button>
       <button type="button" title="Tint every house by its morale" data-hint="mood"
         onClick={() => setMoodOverlay(!moodOverlay)} className={twMerge(TOOL, moodOverlay && TOOL_ON)}>
         {ICONS.mood}
@@ -343,7 +333,6 @@ export function BuildBar({ className }: { className?: string }) {
 
   return (
     <div className={twMerge("flex flex-col items-center gap-1.5 text-fg", className)}>
-      <WondersPanel />
       <AiModePanel />
       <MainCard />
       {/* PIPE: a water main, or a sewer, when both are open. @see pipeSewer */}
@@ -354,7 +343,7 @@ export function BuildBar({ className }: { className?: string }) {
             options={[{ value: "water", label: "Water" }, { value: "sewer", label: "Sewer" }]} />
         </div>
       )}
-      {picking && !wondersOpen && (
+      {picking && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
           {sale.map((sec) => (

@@ -60,7 +60,6 @@ function snapshot(): HintState {
     owned, built, sites, ready, lots, services, offices, worstCommute,
     residents: residents.intern + residents.vibe_coder + residents["10x_dev"],
     awaiting: Object.values(away).reduce((n, v) => n + (v ?? 0), 0),
-    wondersOpened: false,
     worstMood, moodShown: useWorldStore.getState().moodOverlay,
     labs, levees, racks,
     deskless,

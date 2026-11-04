@@ -113,6 +113,10 @@ export function opensText(p: ProjectDef): string {
     return `${describe({ money: b.money, innovation: b.innovation, valuation: b.valuation })}, for good`;
   }
   if (p.grants === "mandates") return "Opens board mandates";
+  if (p.grants === "leaders") return "Opens team leaders";
+  if (p.grants === "refinery") return "Opens slop refineries";
+  if (p.grants === "dataplant") return "Opens data plants";
+  if (p.grants === "contentfarm") return "Opens content farms";
   return "";
 }
 

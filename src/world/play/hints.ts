@@ -26,7 +26,6 @@ export type HintState = {
   offices: number;
   /** The worst commute on the map, as the share of a day it leaves; 1 for none. */
   worstCommute: number;
-  wondersOpened: boolean;
   /** The unhappiest lived-in house's mood; 0 for none. @see world/agents/mood */
   worstMood: number;
   moodShown: boolean;
@@ -157,10 +156,10 @@ export const HINTS: readonly Hint[] = [
   },
   {
     id: "wonders",
-    text: "A wonder can be built. Open Wonders on the build bar: each is a bonus for good.",
-    target: "wonders",
+    text: "A wonder can be built: see Landmarks. Each is a bonus for good.",
+    target: "projects",
     when: (s) => [...s.ready].some((id) => WONDER_IDS.includes(id)),
-    done: (s) => s.wondersOpened,
+    done: (s) => WONDER_IDS.some((id) => s.sites.has(id) || s.built.has(id)),
   },
 ];
 

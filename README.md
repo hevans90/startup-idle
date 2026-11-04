@@ -39,7 +39,7 @@ A satirical idle game: hire interns, vibe coders and 10x devs, and build your co
 
 The town (`world/play/company-map.tsx`): buildings need **road frontage**; no land to buy. **Hints** (`play/hints.ts`). A shared mood problem is one comms card, not a badge a house (`play/town-problems.ts`); a building in hand shows its price or refusal under the pointer (`play/place-readout.tsx`). The sidebar (`molecules/sidebar.tsx`) shows locked features with "Show me" (`play/map-focus.ts`). **Phone** (≤ 768 px, `hooks/use-phone.ts`): Map/Company tabs.
 
-- **Build bar** (`build-bar.tsx`): tools on keys 1–5 (Look, Road, Pipe, Build, Demolish — dragged from a road or pipe it lifts it), views (Wonders, Mood, Earnings, Water, AI mode, Labels). **Undo** for 15 s, money included. **Labels** (`building-labels.tsx`, `badges.ts`): at rest only problems wear a badge (worst kept where they meet, a street of one problem one badge), the rest a dot; Water (zoomed in), Mood and Build show their own numbers; the pointer gets any building's full label.
+- **Build bar** (`build-bar.tsx`): tools on keys 1–5 (Look, Road, Pipe, Build, Demolish — dragged from a road or pipe it lifts it), views (Mood, Earnings, Water, AI mode, Labels). **Undo** for 15 s, money included. **Labels** (`building-labels.tsx`, `badges.ts`): at rest only problems wear a badge (worst kept where they meet, a street of one problem one badge), the rest a dot; Water (zoomed in), Mood and Build show their own numbers; the pointer gets any building's full label.
 - **Housing** (`world/agents/arrivals.ts`): **lots** (1×1, 2 beds) dragged in rows for interns and vibe coders; 10x devs live on the **Campus**, room for every one hired (`CAMPUS_BEDS`); hires travel in and wait for a bed (`attendance`).
 - **Desks** (`agents/commute.ts`): nearest free desk first (`seat`); deskless work at 35%; commutes free to 8 tiles, then worse.
 - **R&D labs** (`world/projects/labs.ts`): +10% innovation, 20% near the campus or Data Centre.
@@ -51,7 +51,7 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**; no la
 
 **Map events** (`world/events/`, `play/event-cards.tsx`): one at a time, a choice card each — river flood (sandbags, evacuate, brace; flood walls), convoy (then a regular route), investor tour, hackathon, the agents' decision, an acquisition offer (+25% Equity, `OFFER_PREMIUM`).
 
-**Projects** (`game/projects.ts`, `world/projects/works.ts`): gated by an upgrade, wonders by headcounts (`ProjectDef.gate`) or another project standing (`Gate.after`); one at a time; a crew builds and trucks bring materials paid per load. A finished building that opens something takes the click (`world/play/opens.ts`).
+**Landmarks** (`game/projects.ts` `LANDMARKS`, `world/projects/works.ts`): six, each a building rising tier by tier where it stands — HQ (Garage → HQ → Boardroom → IPO Tower, 3×3 throughout), Campus (Studio → Campus → Agency, 4×4), Harbour, Data Centre (wings: the slop processors), Conference Centre, Hackerspace. Each tier is a project, gated by an upgrade, headcounts (`ProjectDef.gate`) or another standing (`Gate.after`); a building counts every tier under it (`tiersIn`); one at a time; a crew builds and trucks bring materials paid per load. **Shown** top left (`play/landmarks-panel.tsx`): a card with its picture for each tier ready, what waits dimmed under them. A finished building that opens something takes the click (`world/play/opens.ts`).
 
 | Project | Gate | Opens |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**; no la
 | IPO Tower ★ | 325 · 150 · 8 | income ×1.5, valuation ×2 |
 | Slop Refinery · Data Plant · Content Farm | 50 vibe coders · Data Centre · Boardroom | slop processors |
 
-★ Wonders (`play/wonders-panel.tsx`; headcounts interns · vibe · 10x).
+★ Wonders: a bonus for good (headcounts interns · vibe · 10x).
 
 - **Seaports** (`boats/traffic.ts`): three tiers, paid per call. **Town life** (`agents/town.ts`): traffic, a 10-minute day. **Leaders on the map** (`agents/leaders.ts`) boost their workplace's desks.
 - **At a sale** (`projects/town-worth.ts`): the town adds up to +50% Equity. Run and editor maps save apart (`world-run`, `world-map`).

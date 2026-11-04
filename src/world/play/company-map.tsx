@@ -26,7 +26,7 @@ import { useFoundWorld, WorldCanvas } from "../world-canvas";
 import { BuildBar } from "./build-bar";
 import { BuildingLabels } from "./building-labels";
 import { PortIncome } from "./port-income";
-import { ProjectsPanel } from "./projects-panel";
+import { LandmarksPanel } from "./landmarks-panel";
 import { EventMarkers } from "./event-cards";
 import { CommsDock, DOCK_MOST } from "../../ui/comms/comms-dock";
 import { isPhone } from "../../hooks/use-phone";
@@ -92,14 +92,14 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
         // ON A PHONE, ONE COLUMN: comms' one card, then the work under it. @see isPhone
         <div className="absolute inset-x-2 top-2 z-20 flex max-h-[calc(100%-9rem)] flex-col items-stretch gap-2 overflow-y-auto">
           <CommsDock most={1} />
-          <ProjectsPanel className="w-full" />
+          <LandmarksPanel className="w-full" />
           <TopStreets />
         </div>
       ) : (
         <>
-          {/* THE WORK, top left: the projects, then the streets that earn most. @see plans/ui-overhaul.md §3.2 */}
+          {/* THE WORK, top left: the landmarks, then the streets that earn most. @see plans/ui-overhaul.md §3.2 */}
           <div className="absolute left-2 top-9 z-10 flex max-h-[calc(100%-9rem)] flex-col items-start gap-2 overflow-y-auto">
-            <ProjectsPanel />
+            <LandmarksPanel />
             <TopStreets />
           </div>
           {/* COMMS: the objective, what the AI asks, events, reports, a hint — three at most, the rest in the log. @see CommsDock */}

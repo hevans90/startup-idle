@@ -524,9 +524,6 @@ type WorldState = {
   /** Whether the Water overlay is on — it is, too, while the Pipe tool is in hand. @see createMainsLayer */
   waterOverlay: boolean;
   setWaterOverlay: (on: boolean) => void;
-  /** Whether the wonders menu is open. @see WondersPanel */
-  wondersOpen: boolean;
-  setWondersOpen: (open: boolean) => void;
   /** What the AI did while nobody was watching, to say once; null when said. @see catchUpAi */
   aiReport: string[] | null;
   setAiReport: (report: string[] | null) => void;
@@ -852,8 +849,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setEarningsOverlay: (earningsOverlay) => set({ earningsOverlay }),
   waterOverlay: false,
   setWaterOverlay: (waterOverlay) => set({ waterOverlay }),
-  wondersOpen: false,
-  setWondersOpen: (wondersOpen) => set({ wondersOpen }),
   aiReport: null,
   // INTO COMMS: what it did while you were out, up till dismissed; each memo, a report from the AI. @see comms.store
   setAiReport: (aiReport) => {
