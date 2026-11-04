@@ -18,6 +18,7 @@ import { getWorks, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { SLOP_FROM, SLOP_PER_CODER, slopMaking } from "../../game/slop";
 import { useLandmarkPicture } from "./landmark-picture";
+import { LandmarkName } from "./landmarks-panel";
 import { SEWER_RATE } from "../../game/mains";
 import { PROCESS_RATE } from "../../game/processors";
 import { InfoPop } from "../../ui/InfoPop";
@@ -143,7 +144,7 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
           {picture && <img src={picture} alt="" className="max-h-24 max-w-full object-contain" />}
         </div>
         <p className="text-[10px] uppercase tracking-widest text-fg-faint">{tierLabel(next)}</p>
-        <p className="font-bold">{next.name}</p>
+        <LandmarkName p={next} className="font-bold" />
         <p className="text-fg-muted">{opensText(next)}</p>
         {or && <p className="text-warn">Or the {or.name}, never both</p>}
         <p className="tabular-nums text-fg-muted"
@@ -185,7 +186,7 @@ export function ProjectCard({ next, className }: { next: ProjectDef; className?:
   return (
     <div className={twMerge(CARD, className)}>
       <div className="flex items-baseline justify-between">
-        <b>{next.name}</b>
+        <LandmarkName p={next} className="font-bold" />
         <span className="tabular-nums">{Math.floor((b.done / b.need) * 100)}%</span>
       </div>
       <Bar value={b.done / b.need} className="mt-1" />

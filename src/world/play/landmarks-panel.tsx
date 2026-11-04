@@ -24,11 +24,16 @@ import { builtProjects, ruledOut, siteOf } from "../projects/works";
 import { GateChips } from "./gate-chips";
 import { useGateUnlocks } from "./gates";
 import { useLandmarkPicture } from "./landmark-picture";
+import { InfoPop } from "../../ui/InfoPop";
+import { opensText } from "./building-info";
 import { ProjectCard, SlopCard, tierLabel } from "./projects-panel";
 
 const PANEL = "border border-line-quiet bg-surface-1/95 text-xs text-fg shadow-lg backdrop-blur-sm";
 /** A card inside the panel: no frame or shadow of its own. */
 const IN_PANEL = "w-full border-0 bg-transparent p-0 shadow-none dark:bg-transparent";
+
+/** AT MOST TWO AT A TIME: what is going up or ready first, then what comes next in the game. */
+const SHOWN = 2;
 
 /** Each landmark's next tier, and each wing not built: what this company could build, now or later. */
 function nextUp(built: ReadonlySet<string>, offered: (p: ProjectDef) => boolean): ProjectDef[] {
@@ -67,7 +72,10 @@ export function LandmarksPanel({ className }: { className?: string }) {
   const busy = going.length > 0;
   const ready = busy ? [] : next.filter((p) => p.ready(owned, unlocked));
   // Not what waits on a building not yet standing: two steps off.
-  const waiting = next.filter((p) => !ready.includes(p) && !going.includes(p) && !(p.gate.after && !built.has(p.gate.after)));
+  const waitingAll = next.filter((p) => !ready.includes(p) && !going.includes(p) && !(p.gate.after && !built.has(p.gate.after)))
+    .sort((a, b) => PROJECTS.indexOf(a) - PROJECTS.indexOf(b));
+  const readyShown = ready.slice(0, Math.max(0, SHOWN - going.length));
+  const waiting = waitingAll.slice(0, Math.max(0, SHOWN - going.length - readyShown.length));
   const fresh = ready.filter((p) => !seen.includes(p.id));
   const slop = (owned.vibe_coder ?? 0) >= SLOP_FROM;
 
@@ -113,9 +121,9 @@ export function LandmarksPanel({ className }: { className?: string }) {
             <div className="flex min-h-0 flex-col gap-2 overflow-y-auto border-t border-line-quiet p-2">
               {going.map((p) => <ProjectCard key={p.id} next={p} className={IN_PANEL} />)}
               {/* READY: a card each, side by side. */}
-              {ready.length > 0 && (
+              {readyShown.length > 0 && (
                 <div className="flex gap-2 overflow-x-auto">
-                  {ready.map((p) => <ProjectCard key={p.id} next={p} className="w-56 shrink-0 shadow-none" />)}
+                  {readyShown.map((p) => <ProjectCard key={p.id} next={p} className="w-56 shrink-0 shadow-none" />)}
                 </div>
               )}
               {/* WAITING, dimmed: what each waits on. */}
@@ -132,18 +140,30 @@ export function LandmarksPanel({ className }: { className?: string }) {
   );
 }
 
-/** A tier not ready: its picture small, its name, and its gate. */
+/** A tier not ready: its picture small, its name, what it does, and its gate. */
 function Waiting({ p }: { p: ProjectDef }) {
   const picture = useLandmarkPicture(p.structure);
   return (
-    <li className="flex items-center gap-2 text-fg-muted opacity-70">
-      <span className="flex h-8 w-10 shrink-0 items-end justify-center grayscale">
+    <li className="flex items-center gap-2 text-fg-muted">
+      <span className="flex h-8 w-10 shrink-0 items-end justify-center opacity-70 grayscale">
         {picture && <img src={picture} alt="" className="max-h-8 max-w-10 object-contain" />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-fg" title={tierLabel(p)}>{p.name}</span>
+        <LandmarkName p={p} className="text-fg" />
+        <span className="block truncate text-[11px]">{opensText(p)}</span>
         <GateChips project={p} />
       </span>
     </li>
+  );
+}
+
+/** A tier's name, and on hover or a press what it does, in full. */
+export function LandmarkName({ p, className }: { p: ProjectDef; className?: string }) {
+  return (
+    <InfoPop placement="right" className={className} title={p.name}
+      trigger={<span className="truncate">{p.name}</span>}>
+      <p className="text-[10px] uppercase tracking-widest text-fg-faint">{tierLabel(p)}</p>
+      <p>{p.pitch}</p>
+    </InfoPop>
   );
 }
