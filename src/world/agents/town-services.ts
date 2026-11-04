@@ -53,7 +53,7 @@ export type TownHands = {
 };
 
 /** The street a door opens on: its own, or, on a junction, the first it leads on to. */
-function streetAt(g: Grid, streets: Streets, door: number): number {
+export function streetAt(g: Grid, streets: Streets, door: number): number {
   let street = streets.of[door];
   if (street >= 0) return street;
   const x = door % g.w, y = (door - x) / g.w;

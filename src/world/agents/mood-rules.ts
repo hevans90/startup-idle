@@ -59,6 +59,7 @@ export const WHY = {
   flooded: "flooded",
   planned: "AI-planned",
   culture: "company culture",
+  street: "a fine street",
 } as const;
 export type Why = (typeof WHY)[keyof typeof WHY];
 

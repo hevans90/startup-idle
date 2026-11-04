@@ -36,6 +36,7 @@ import {
   DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, NEED_MOOD, NEED_WHY, WHY, WONDER_REACH, type MoodParts,
 } from "./mood-rules";
 import { liveDesireMaps, seesWater } from "./desirability";
+import { BEAUTY_MOOD, liveBeauty } from "./beauty";
 
 /** Tiles between two footprints, the nearer edges, along either axis. */
 function gap(a: Structure, b: Structure): number {
@@ -53,6 +54,8 @@ export function moodsOf(
   planning = 0,
   /** Houses whose water in view slop has fouled. @see fouledHouses */
   polluted: ReadonlySet<number> = new Set(),
+  /** The level of the street each house is on. @see liveBeauty */
+  street: ReadonlyMap<number, number> = new Map(),
 ): Map<number, MoodParts> {
   const wonders: Structure[] = [], derelicts: Structure[] = [];
   // Kinds with somewhere to work: with none at all, there is no commute to
@@ -92,6 +95,8 @@ export function moodsOf(
     if (water(s)) parts.push(polluted.has(s.id) ? { why: WHY.polluted, points: hazard(MOOD.polluted) } : { why: WHY.waterView, points: fusionNow().waterView });
     if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: WHY.wonder, points: MOOD.wonder });
     if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: WHY.derelict, points: MOOD.derelict });
+    const fine = street.get(s.id) ?? 0;
+    if (fine > 0) parts.push({ why: WHY.street, points: BEAUTY_MOOD[fine] });
     if (sludged.has(s.id)) parts.push({ why: WHY.sludge, points: hazard(MOOD.sludge) });
     if (flooded.has(s.id)) parts.push({ why: WHY.flooded, points: hazard(MOOD.flooded) });
     // And what the cards do to the homes of the kind. @see CARDS
@@ -159,7 +164,7 @@ export function liveMoods(g: Grid, net: Network): Map<number, MoodParts> {
     const maps = liveDesireMaps(g, net);
     memo = {
       g, rev: g.rev, sites, sludge,
-      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled),
+      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled, liveBeauty(g, net).home),
     };
   }
   return memo.value;

@@ -9,6 +9,7 @@
 import { DIR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { SERVICE_DEFS } from "../agents/needs";
+import { startLadder } from "../agents/unlocks";
 import { commit, createHistory } from "../edit/commands";
 import {
   AI_BUILDINGS, DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, PUMP, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
@@ -1085,9 +1086,14 @@ export function buildShops(g: Grid, material: number, cx: number, cy: number) {
   shops.forEach((sv, k) => put(`kit:${kinds[(k + 1) % 3]}.t1`, x0 + 1 + 2 * k, cy + 1, sv));
   // Across a second street, the buildings of their own.
   const y2 = cy + 5;
-  for (let x = x0; x <= x0 + 2 * shops.length + 1; x++) g.paved[idx(g, x, y2)] = 1;
+  const end = x0 + 1 + big.reduce((n, id) => n + (structureDef(id)?.footprint.w ?? 1) + 1, 0);
+  for (let x = x0; x <= Math.min(g.w - 1, end); x++) g.paved[idx(g, x, y2)] = 1;
   let x = x0 + 1;
   for (const id of big) { put(id, x, y2 - (structureDef(id)?.footprint.h ?? 1)); x += (structureDef(id)?.footprint.w ?? 1) + 1; }
+  // The two streets joined at one end, so what is on one serves the other.
+  for (let y = cy; y <= y2; y++) g.paved[idx(g, x0, y)] = 1;
+  // EVERYTHING UNLOCKED, so its streets are as fine as what is on them makes them. @see liveBeauty
+  startLadder(g, SERVICE_DEFS.map((d) => d.id));
   edited(g);
 }
 

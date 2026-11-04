@@ -114,6 +114,7 @@ import { stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution, townChanged, withTier } from "./agents/services";
 import { stepTown as stepTownServices } from "./agents/town-services";
 import { ladderOf, stepLadder } from "./agents/unlocks";
+import { liveBeauty } from "./agents/beauty";
 import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
@@ -210,6 +211,7 @@ import { inForce } from "../game/culture";
 import { cultureNow } from "../game/culture-now";
 import { createCultureProps, type CultureProps } from "./render/culture-props";
 import { SHOP_LOOK, createShopfronts, type Shopfronts } from "./render/shopfronts";
+import { createStreetProps, type StreetProps } from "./render/street-props";
 import { shopName } from "./agents/shop-names";
 import { createLights, type Lights } from "./render/lights";
 import { keystone, notable } from "../game/machine";
@@ -363,6 +365,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const propsRef = useRef<CultureProps | null>(null);
   /** The town's shops' fronts, and what of them moves. @see createShopfronts */
   const shopsRef = useRef<Shopfronts | null>(null);
+  /** What a fine street puts on its pavements. @see createStreetProps */
+  const streetPropsRef = useRef<StreetProps | null>(null);
   /** Seconds to Ship It Fridays' next release party. @see SHIP_EVERY */
   const shipIn = useRef(0);
   const soundClock = useRef(0);
@@ -1567,6 +1571,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         juiceRef.current = createJuice();
         propsRef.current = createCultureProps(bl);
         shopsRef.current = createShopfronts(bl);
+        streetPropsRef.current = createStreetProps(bl);
         const scan = new Graphics();
         scan.eventMode = "none";
         scan.zIndex = 1001;
@@ -1611,6 +1616,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       propsRef.current = null;
       shopsRef.current?.destroy();
       shopsRef.current = null;
+      streetPropsRef.current?.destroy();
+      streetPropsRef.current = null;
       tileHoloRef.current?.clear();
       tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
@@ -3194,6 +3201,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const ladder = ladderOf(st.grid);
           if (ladder && stepLadder(ladder, ownedNow(), dt).length) townChanged();
           const cover = liveCoverage(st.grid, net);
+          // THE FINEST STREETS, out for a stroll. @see Town.strollers
+          let strollers = 0;
+          for (const level of liveBeauty(st.grid, net).home.values()) if (level >= 3) strollers++;
+          getTown().strollers = strollers;
           const grew = stepEvolution(getEvolution(), st.grid, liveMoods(st.grid, net), cover, dt);
           if (grew.length) useWorldStore.getState().housingMoved(grew);
           const ws = useWorldStore.getState();
@@ -3310,6 +3321,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (shopsRef.current) {
         shopsRef.current.sync(useWorldStore.getState().grid, useWorldStore.getState().revision, scale);
         shopsRef.current.tick(now / 1000);
+      }
+      const streetNet = getNetwork();
+      if (streetPropsRef.current && streetNet) {
+        const st = useWorldStore.getState();
+        streetPropsRef.current.sync(st.grid, liveBeauty(st.grid, streetNet), st.revision, scale);
       }
       if (lightsRef.current && blNow) {
         // Put where the map is now whenever it has changed — whichever of the

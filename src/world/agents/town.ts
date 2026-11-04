@@ -90,6 +90,8 @@ export type Town = {
    * Set by the scene. @see game/culture
    */
   culture?: { remote: number; shuttle: boolean; vans: boolean };
+  /** People out for a stroll, over the town's own: one a home on the finest streets. Set by the scene. @see liveBeauty */
+  strollers?: number;
   movers: Mover[];
   /** Movers on a job that arrived since the last look. @see stepWorks */
   arrived: Mover[];
@@ -449,7 +451,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   const busy = t.busy ?? { traffic: 1, commute: COMMUTE_SHARE };
   const culture = t.culture ?? { remote: 0, shuttle: false, vans: false };
   // Those at home are off the roads: fewer cars, the same people on foot.
-  const want = { cars: Math.round(base.cars * busy.traffic * (1 - culture.remote)), people: Math.round(base.people * busy.traffic) };
+  const want = { cars: Math.round(base.cars * busy.traffic * (1 - culture.remote)), people: Math.min(townCaps.people, Math.round((base.people + (t.strollers ?? 0)) * busy.traffic)) };
   // Everything that drives keeps its distance from everything else that does;
   // only the town's own trips count towards how many trips it has.
   const cars = t.movers.filter(drives);

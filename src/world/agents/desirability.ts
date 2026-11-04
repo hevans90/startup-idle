@@ -12,6 +12,7 @@
  * there, from maps of every tile's road distance to what meets each need and
  * the workplaces. That is what the placing heat map shows. @see desireAt
  */
+import { BEAUTY_MOOD, liveBeauty } from "./beauty";
 import { NEIGHBOUR } from "../../iso/dir";
 import { projectForStructure } from "../../game/projects";
 import type { GeneratorId } from "../../state/generators.store";
@@ -59,6 +60,8 @@ export type DesireMaps = {
   wonders: Structure[];
   /** Tiles with standing water within `WATER_REACH`. */
   water: Uint8Array;
+  /** The level of the street each road tile is on, on the live map. @see liveBeauty */
+  street?: Int8Array;
 };
 
 /** The maps, from the map and where its doors are. */
@@ -111,7 +114,7 @@ export function liveDesireMaps(g: Grid, net: Network): DesireMaps {
   // And the culture deck: Shuttle Bus moves what a commute costs. @see CARDS
   const deck = cultureVersion();
   if (memo.g !== g || memo.rev !== g.rev || memo.town !== townRevNow() || memo.sites !== sites || memo.deck !== deck || !memo.value) {
-    memo = { g, rev: g.rev, town: townRevNow(), sites, deck, value: desireMapsOf(g, placesOf(g, net)) };
+    memo = { g, rev: g.rev, town: townRevNow(), sites, deck, value: { ...desireMapsOf(g, placesOf(g, net)), street: liveBeauty(g, net).tile } };
   }
   return memo.value!;
 }
@@ -149,6 +152,8 @@ export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: G
   if (fusionNow().houseDesire) parts.push({ why: WHY.planned, points: fusionNow().houseDesire });
   if (maps.wonders.some((w) => gapTo(x, y, w) <= WONDER_REACH)) parts.push({ why: WHY.wonder, points: MOOD.wonder });
   if (maps.derelicts.some((d) => gapTo(x, y, d) <= DERELICT_REACH)) parts.push({ why: WHY.derelict, points: MOOD.derelict });
+  const fine = maps.street ? Math.max(0, ...doors.map((d) => maps.street![d])) : 0;
+  if (fine > 0) parts.push({ why: WHY.street, points: BEAUTY_MOOD[fine] });
   const total = Math.max(-MOOD_LIMIT, Math.min(MOOD_LIMIT, parts.reduce((n, p) => n + p.points, 0)));
   return { total, parts };
 }

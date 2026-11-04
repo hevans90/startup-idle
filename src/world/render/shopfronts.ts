@@ -106,7 +106,7 @@ const FRAME = 0xeeebe0;
  * A pen turned to a face: `a` along it from 0 to 1, `out` from its wall, `z`
  * up. On the +v face `a` is `u`; on the +u face, `v`.
  */
-type Face = {
+export type Face = {
   /** A rectangle on the wall itself, a hair proud of it. */
   on: (a0: number, a1: number, z0: number, z1: number, colour: number, alpha?: number) => void;
   /** A box standing out from the wall. */
@@ -115,7 +115,7 @@ type Face = {
   dot: (a: number, out: number, z: number, r: number, colour: number, alpha?: number) => void;
 };
 
-function faceOf(p: Pen, face: "u" | "v", lo = 1 - WALL, hi = WALL): Face {
+export function faceOf(p: Pen, face: "u" | "v", lo = 1 - WALL, hi = WALL): Face {
   const A = (a: number) => lo + (hi - lo) * a;
   if (face === "v") {
     return {

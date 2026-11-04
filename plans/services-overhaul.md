@@ -79,6 +79,7 @@ The town builds its own shops. Neighbourhoods form from the roads. Each employee
 - Keep render-group cost flat: no per-frame structural changes (memory render-group-rebuilds).
 
 ## 4. Street beautification
+**Done.** As built: `agents/beauty.ts` — a street's homes by their door's street, its level by the share with every need of their kind met (`BEAUTY_AT`); +2/4/6 to mood ("a fine street") and to desirability by the best street at a house's doors. `render/street-props.ts` — a Graphics a band among the movers, rebuilt only when the levels or the map change; props by each kerb on a beat along the street, crossings at its ends, murals on every other shopless house of a level-3 street. Level-3 homes add to the town's pedestrians (`Town.strollers`).
 - Each street's level rises with the share of its homes whose needs are met (33% / 66% / 90%):
   1. Street trees, planters and bins.
   2. Lamps (lit at night), benches and a paving upgrade (brick or crossings).
