@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { BEND_R, BOLTS, FITTING, SUN, VIEW, WORDS, ZT, ball, cellPaths, elbowPath, flange, nozzle, pipeCell, pipeMesh, solid, tube, windowGlass, windowSpan, type PipeMesh } from "./pipe-mesh";
+import { BEND_R, BOLTS, FITTING, NEAR_SPLIT, SUN, VIEW, WORDS, ZT, ball, cellPaths, elbowPath, flange, nozzle, pipeCell, pipeMesh, solid, tube, windowGlass, windowSpan, type PipeMesh } from "./pipe-mesh";
 import { pipeFragmentGlsl, pipeShaderSource } from "./pipe-gpu";
 
 const normalOf = (m: PipeMesh, v: number) => [m.f32[v * WORDS + 2], m.f32[v * WORDS + 3], m.f32[v * WORDS + 4]];
@@ -60,6 +60,21 @@ describe("a main as a solid", () => {
     expect(bare.nv).toBe(3 * 7);
     // One flange: its rim, its face, and six bolts on the face.
     expect(flanged.nv).toBe(3 * 7 + 14 + 24 + BOLTS * 7);
+  });
+
+  test("over a road, the length past NEAR_SPLIT goes to the next band's mesh, and the far leg under the traffic", () => {
+    // A run along v over a road along u: the far half and middle in `m`, the near end in `near`, the far leg in `back`.
+    const m = pipeMesh(), near = pipeMesh(), back = pipeMesh();
+    pipeCell(m, 1, 5, 5, 1, [N, S], { ...look, flanges: false, support: "frame", floor: 0, verges: "u", near, back });
+    expect(m.nv).toBeGreaterThan(0);
+    expect(near.nv).toBeGreaterThan(0);
+    // Along v at u = 5, a point's screen x is (5 − v)·HW: the near length lies past the split, give or take the tube's radius.
+    const vOf = (mesh: PipeMesh, k: number) => 5 - mesh.f32[k * WORDS] / HW;
+    for (let k = 0; k < near.nv; k++) expect(vOf(near, k)).toBeGreaterThan(5 + NEAR_SPLIT - look.r - 1e-6);
+    for (let k = 0; k < m.nv; k++) expect(vOf(m, k)).toBeLessThan(5 + 0.5 + 1e-6);
+    // The far leg stands at the road's far edge, v = 5 − (½ − its width), not beside the tube in the lane.
+    expect(back.nv).toBeGreaterThan(0);
+    for (let k = 0; k < back.nv; k++) expect(back.f32[k * WORDS] / HW).toBeGreaterThan(0.39);
   });
 
   test("a window is three lengths, glass between, framed at both ends; a band is a hoop round the middle", () => {

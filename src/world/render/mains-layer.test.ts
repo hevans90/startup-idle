@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { chevronAt, detailFor, spaceWords, type Word } from "./mains-layer";
+import { createGrid, idx } from "../grid";
+import { chevronAt, detailFor, roadAxis, spaceWords, type Word } from "./mains-layer";
 import { BEND_R, ZT, cellPaths } from "./pipe-mesh";
 
 describe("the Water overlay's numbers", () => {
@@ -64,5 +65,17 @@ describe("the overlay's arrows", () => {
 
   test("a face the cell has no length to gets none", () => {
     expect(chevronAt(cellPaths(5, 5, 0, [{ dx: 1, dy: 0, zf: 0 }], 0.1), 5, 4.5)).toBeNull();
+  });
+});
+
+describe("a main's frame over a road", () => {
+  test("stands at the edges of the way the road runs; none at a junction or off the road", () => {
+    const g = createGrid(8, 8);
+    for (let x = 1; x <= 6; x++) g.paved[idx(g, x, 3)] = 1;     // a road along u
+    for (let y = 4; y <= 6; y++) g.paved[idx(g, 4, y)] = 1;     // a spur along v off it
+    expect(roadAxis(g, 2, 3)).toBe("u");
+    expect(roadAxis(g, 4, 5)).toBe("v");
+    expect(roadAxis(g, 4, 3)).toBeNull();                      // the junction
+    expect(roadAxis(g, 2, 2)).toBeNull();                      // grass
   });
 });

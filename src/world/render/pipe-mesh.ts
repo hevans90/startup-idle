@@ -189,7 +189,28 @@ export type PipeLook = {
   /** The small parts, left off far away: an outlet's valve wheel, the frames round a window. */
   valve?: boolean;
   frames?: boolean;
+  /**
+   * OVER A ROAD, the way it runs: a frame's legs then stand at its two edges,
+   * clear of the traffic, its beam spanning between them under the tube.
+   */
+  verges?: "u" | "v" | null;
+  /**
+   * WHERE THE TRAFFIC IS, the pieces drawn apart from the rest: what stands
+   * behind it (a frame's far leg) into `back`, under the movers; and the
+   * length nearest the camera — past {@link NEAR_SPLIT} into the next band —
+   * into `near`, over the next band's movers too, whose tails run under it.
+   */
+  back?: PipeMesh;
+  near?: PipeMesh;
 };
+
+/**
+ * Where a road main's length goes into the next band's mesh, tiles toward the
+ * camera from its middle: past where a car filed in the next band reaches
+ * back under it, and clear of a building beside the road in that band, whose
+ * corner stands right at the middle's column on the screen.
+ */
+export const NEAR_SPLIT = 0.22;
 
 /** What can stand at a main's loose end. @see MAIN_END */
 export type Fitting = "cap" | "intake" | "pump" | "outlet" | "drain" | "outfall";
@@ -328,6 +349,33 @@ export function sweep(
 
 /** A point in the map's space, (u, v, h), h in tiles. */
 type Pt = [number, number, number];
+
+/**
+ * A SWEEP CUT IN TWO by how near the camera it is: what lies more than
+ * `NEAR_SPLIT` toward it from (x, y)'s middle into `near`, the rest into `m`.
+ * The ring at each cut is the same from either side, so the two meet.
+ */
+function sweepSplit(
+  m: PipeMesh, near: PipeMesh, x: number, y: number, s: number, path: readonly Pt[], r: number, colour: number, sides: number,
+  ends?: readonly [readonly number[] | null, readonly number[] | null],
+) {
+  const d0 = x + y + NEAR_SPLIT, dep = (p: readonly number[]) => p[0] + p[1] - d0;
+  let cur: Pt[] = [path[0]], inNear = dep(path[0]) > 0, from: readonly number[] | null = ends?.[0] ?? null;
+  for (let k = 1; k < path.length; k++) {
+    const a = path[k - 1], b = path[k], da = dep(a), db = dep(b);
+    if (db > 0 !== inNear) {
+      const t = da / (da - db), dir = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      const cut: Pt = [a[0] + dir[0] * t, a[1] + dir[1] * t, a[2] + dir[2] * t];
+      cur.push(cut);
+      sweep(inNear ? near : m, s, cur, r, colour, sides, [from, dir]);
+      cur = [cut];
+      from = dir;
+      inNear = !inNear;
+    }
+    cur.push(b);
+  }
+  sweep(inNear ? near : m, s, cur, r, colour, sides, [from, ends?.[1] ?? null]);
+}
 
 /**
  * HOW A MAIN CLIMBS. Where it meets the next cell, a limb runs along the line
@@ -498,6 +546,15 @@ function saddle(at: { u: number; v: number; along: "u" | "v" | null }, r: number
   return [at.u - du, at.v - dv, at.u + du, at.v + dv];
 }
 
+/** A frame's two legs over a road running along `road`, far one first: at its edges, clear of the traffic. */
+function vergeLegs(at: { u: number; v: number }, x: number, y: number, road: "u" | "v"): [number, number, number, number][] {
+  const half = LEG / 2, off = 0.5 - LEG;
+  return [-1, 1].map((k) => {
+    const cu = road === "u" ? at.u : x + off * k, cv = road === "u" ? y + off * k : at.v;
+    return [cu - half, cv - half, cu + half, cv + half];
+  });
+}
+
 /** A frame's two legs, far one first: either side of the tube, across it. */
 function legs(at: { u: number; v: number; along: "u" | "v" | null }, r: number): [number, number, number, number][] {
   const off = r + LEG, half = LEG / 2;
@@ -520,11 +577,14 @@ function legs(at: { u: number; v: number; along: "u" | "v" | null }, r: number):
 export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number, limbs: readonly Limb[], look: PipeLook) {
   const h = z * ZT, { r, sides } = look, c = solid(look.colour);
   const face = (l: Limb): Pt => [x + l.dx * 0.5, y + l.dy * 0.5, l.zf * ZT];
+  // Over a road, the length nearest the camera into the next band's mesh. @see PipeLook.near
+  const sw = (path: readonly Pt[], ends?: readonly [readonly number[] | null, readonly number[] | null]) =>
+    look.near ? sweepSplit(m, look.near, x, y, s, path, r, c, sides, ends) : sweep(m, s, path, r, c, sides, ends);
   // A LIMB ALONE, from `from` out of the middle — level there — to its face.
   const length = (l: Limb, from = 0) => {
     const { path, out } = halfPath(x, y, z, l, from, 0, sides);
-    if (far(l)) sweep(m, s, path.reverse(), r, c, sides, [out.map((k) => -k), null]);
-    else sweep(m, s, path, r, c, sides, [null, out]);
+    if (far(l)) sw(path.reverse(), [out.map((k) => -k), null]);
+    else sw(path, [null, out]);
   };
   // A STUB'S COLLAR, where it is welded to the run.
   const collar = (l: Limb) => {
@@ -556,6 +616,17 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
   if (support === "saddle" && limbs.length) {
     const [u0, v0, u1, v1] = saddle(at, r);
     box(m, s, u0, v0, g, u1, v1, h - r * 0.5, concrete);
+  } else if (support === "frame" && limbs.length && look.verges) {
+    // OVER A ROAD: a leg at either edge of it, the beam right across under the
+    // tube — under its lowest point, where it climbs. The far leg behind the traffic.
+    const road = look.verges, under = Math.min(h, ...limbs.map((l) => l.zf * ZT)) - r, top = under - BEAM;
+    const [farLeg, near] = vergeLegs(at, x, y, road);
+    box(look.back ?? m, s, farLeg[0], farLeg[1], g, farLeg[2], farLeg[3], top, concrete);
+    const span = 0.5 - LEG / 2;
+    const [du, dv] = road === "u" ? [BEAM / 2, span] : [span, BEAM / 2];
+    const [bu, bv] = road === "u" ? [at.u, y] : [x, at.v];
+    box(m, s, bu - du, bv - dv, top, bu + du, bv + dv, under, concrete);
+    nearLeg = near;
   } else if (support === "frame" && limbs.length) {
     const [farLeg, near] = legs(at, r), top = h - r - BEAM;
     box(m, s, farLeg[0], farLeg[1], g, farLeg[2], farLeg[3], top, concrete);
@@ -579,7 +650,7 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     if (kind === "outlet" && look.valve !== false) valve(m, s, x, y, h, r);
   } else if (bend) {
     const { path, ends } = bendPath(x, y, z, run[0], run[1], arcSteps(sides));
-    sweep(m, s, path, r, c, sides, ends);
+    sw(path, ends);
   } else {
     for (const l of stubs) if (far(l)) stub(l);
     const [a, b] = [face(run[0]), face(run[1])];
@@ -589,20 +660,24 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
       const [w0, w1] = windowSpan(x, y, z, run[0], run[1], win);
       tube(m, s, a[0], a[1], a[2], w0[0], w0[1], w0[2], r, c, sides);
       if (look.glass !== null) tube(m, s, w0[0], w0[1], w0[2], w1[0], w1[1], w1[2], r, solid(look.glass ?? 0xcfe6f2), sides);
-      tube(m, s, w1[0], w1[1], w1[2], b[0], b[1], b[2], r, c, sides);
+      if (look.near) sw([w1, b], [[b[0] - w1[0], b[1] - w1[1], b[2] - w1[2]], [b[0] - w1[0], b[1] - w1[1], b[2] - w1[2]]]);
+      else tube(m, s, w1[0], w1[1], w1[2], b[0], b[1], b[2], r, c, sides);
       const du = w1[0] - w0[0], dv = w1[1] - w0[1], dh = w1[2] - w0[2];
       if (look.frames !== false) for (const p of [w0, w1]) hoop(m, s, p, du, dv, r, r * FRAME_R, FRAME_T, c, sides, dh);
     } else {
       // The run as one sweep, far face to near, curving where it changes slope.
       const { path, ends } = runPath(x, y, z, run[0], run[1], sides);
-      sweep(m, s, path, r, c, sides, ends);
+      sw(path, ends);
       const slope = midSlope(z, run[0], 0.5, run[1], 0.5);
       if (look.band != null) hoop(m, s, [x, y, h], -run[0].dx, -run[0].dy, r, r * BAND_R, BAND_T, solid(look.band), sides, slope);
     }
     for (const l of stubs) if (!far(l)) stub(l);
   }
   for (const l of limbs) if (l.wall !== undefined && !far(l)) wall(l);
-  if (nearLeg) box(m, s, nearLeg[0], nearLeg[1], g, nearLeg[2], nearLeg[3], h - r - BEAM, concrete);
+  if (nearLeg) {
+    const top = look.verges ? Math.min(h, ...limbs.map((l) => l.zf * ZT)) - r - BEAM : h - r - BEAM;
+    box(m, s, nearLeg[0], nearLeg[1], g, nearLeg[2], nearLeg[3], top, concrete);
+  }
 }
 
 /**

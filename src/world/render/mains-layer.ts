@@ -25,9 +25,9 @@
 import { Container, Graphics, Matrix, Text, type Geometry, type Mesh, type Shader } from "pixi.js";
 
 import { NEIGHBOUR } from "../../iso/dir";
-import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, idx, inBounds, structureAt, type Grid } from "../grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, idx, inBounds, rampDir, rampRise, structureAt, type Grid } from "../grid";
 import { allTanks } from "../projects/cooling";
-import { HEIGHT_UNIT, HH, HW } from "../iso";
+import { HEIGHT_UNIT, HH, HW, surfaceHeight } from "../iso";
 import { findMains, joined, mainReportAt, mainReports, type MainState } from "../water/mains";
 import { portsOf, type PortCell } from "../water/ports";
 import type { BandLayer } from "./bands";
@@ -101,6 +101,12 @@ const isGlass = (g: Grid, x: number, y: number) => {
   const [ax, ay] = NEIGHBOUR[ns ? "N" : "W"], z = levelAt(g, x, y);
   return levelAt(g, x + ax, y + ay) + levelAt(g, x - ax, y - ay) === 2 * z;
 };
+/**
+ * WHERE THE MAINS GO in a band's movers' tier: over the movers, whose depth
+ * is their place in the band, −½ to ½ — under a building site's pieces, the
+ * juice and the cursor. @see BandLayer.dynamicOf
+ */
+const PIPE_Z = 0.75;
 /** The Water overlay: the dimming, and each state's colour. */
 const DIM = 0x05080d;
 const STATE_COLOUR: Record<MainState, number> = {
@@ -144,7 +150,26 @@ export function chevronAt(paths: readonly (readonly (readonly number[])[])[], fu
 const P = (s: number, u: number, v: number, z: number): [number, number] => [(u - v) * HW * s, (u + v) * HH * s - z * HEIGHT_UNIT * s];
 
 
-const ground = (g: Grid, x: number, y: number) => (inBounds(g, x, y) ? g.height[idx(g, x, y)] : 0);
+/**
+ * THE GROUND under a point of a cell, half steps: (fu, fv) from its middle, a
+ * half tile to each face — up its slope, on a ramp. @see surfaceHeight
+ */
+const groundAt = (g: Grid, x: number, y: number, fu = 0, fv = 0) => {
+  if (!inBounds(g, x, y)) return 0;
+  const i = idx(g, x, y), packed = g.ramp[i];
+  return surfaceHeight({ height: g.height[i], ramp: rampDir(packed), rise: rampRise(packed) }, 0.5 + fu, 0.5 + fv);
+};
+/** The ground in a cell's middle. */
+const ground = (g: Grid, x: number, y: number) => groundAt(g, x, y);
+
+/**
+ * How far above the ground a tube's middle line keeps where two cells meet,
+ * half steps: its radius, and a little air. Without it a run over a step or up
+ * a ramp met its neighbour at the mean of their levels, below the higher
+ * ground there, and the tube went into the hill — showing where the terrain
+ * nearer the camera did not hide it.
+ */
+const faceClear = (r: number) => r / ZT + 0.2;
 
 /**
  * The level a main lies at on a cell: just off its ground — but on stilts
@@ -162,6 +187,18 @@ function levelAt(g: Grid, x: number, y: number): number {
   }
   if (banks >= 2) z = low;
   return z + (g.paved[idx(g, x, y)] ? ROAD_LIFT : LIFT);
+}
+
+/**
+ * WHICH WAY A ROAD RUNS on a paved cell, for a main's frame over it to stand
+ * clear of the traffic: along u, along v — or null at a junction or a lone
+ * paving, where there is no edge the traffic keeps off.
+ */
+export function roadAxis(g: Grid, x: number, y: number): "u" | "v" | null {
+  if (!inBounds(g, x, y) || !g.paved[idx(g, x, y)]) return null;
+  const paved = (dx: number, dy: number) => inBounds(g, x + dx, y + dy) && g.paved[idx(g, x + dx, y + dy)] !== 0;
+  const u = paved(1, 0) || paved(-1, 0), v = paved(0, 1) || paved(0, -1);
+  return u === v ? null : u ? "u" : "v";
 }
 
 /** One of the Water overlay's numbers: what it says, where, and how much it matters (a warning most). */
@@ -189,8 +226,8 @@ export function spaceWords(words: readonly Word[], px: number): Word[] {
 }
 
 export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLayer {
-  /** The tubes, a mesh a band. */
-  const meshes = new Map<number, Mesh<Geometry, Shader>>();
+  /** The tubes, a mesh a band — and a band's far legs over a road, and the lengths over the next band's traffic. */
+  const drawn: Mesh<Geometry, Shader>[] = [];
   const scratch = new Matrix();
   /**
    * THE WINDOWS, a band at a time: their glass and what is in it, a mesh
@@ -221,13 +258,19 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   const writePane = (m: PipeMesh, s: number, p: Pane, fill: WindowFill | null) =>
     windowGlass(m, s, p.w0, p.w1, paneInset, p.r, paneSides, fill, GLASS_TINT, GLASS_CLEAR);
 
-  /** The ways a main on a cell is joined out, and the level at each face. */
+  /**
+   * The ways a main on a cell is joined out, and the level at each face: the
+   * mean of the two cells' — but never closer to the ground there than its
+   * radius and some air, the higher of the two sides' ground at a step.
+   */
   const limbsAt = (g: Grid, x: number, y: number): Limb[] => {
     const z = levelAt(g, x, y), out: Limb[] = [];
     for (const side of SIDES) {
       if (!joined(g, x, y, side)) continue;
       const [dx, dy] = NEIGHBOUR[side];
-      out.push({ dx, dy, zf: (z + levelAt(g, x + dx, y + dy)) / 2 });
+      const nx = x + dx, ny = y + dy, r = Math.max(tubeR(g.main[idx(g, x, y)]), inBounds(g, nx, ny) ? tubeR(g.main[idx(g, nx, ny)]) : 0);
+      const edge = Math.max(groundAt(g, x, y, dx / 2, dy / 2), groundAt(g, nx, ny, -dx / 2, -dy / 2));
+      out.push({ dx, dy, zf: Math.max((z + levelAt(g, nx, ny)) / 2, edge + faceClear(r)) });
     }
     return out;
   };
@@ -251,11 +294,13 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     return out;
   };
 
-  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number, d: Detail, port?: PortCell) => {
+  const tubeCell = (m: PipeMesh, g: Grid, i: number, s: number, d: Detail, port?: PortCell, split: { back?: PipeMesh; near?: PipeMesh } = {}) => {
     const x = i % g.w, y = (i / g.w) | 0, z = levelAt(g, x, y), floor = ground(g, x, y), out = cellLimbs(g, x, y, port);
     const bits = g.main[i], end = port ? 0 : g.mainEnd[i];
     const saddled = (!end || end === MAIN_END.cap) && (d !== "far" || (x + y) % 2 === 0);
-    const support: Support = z - floor > LIFT + 0.4 ? "frame" : saddled ? "saddle" : "none";
+    // OVER A ROAD, a frame across it, its legs at its edges; none at a junction, where the traffic turns.
+    const verges = roadAxis(g, x, y);
+    const support: Support = g.paved[i] && !verges ? "none" : z - floor > LIFT + 0.4 ? "frame" : saddled ? "saddle" : "none";
     // A SEWER: cast iron, flanged at every other join, banded brown. The AI's: steel, banded violet.
     const sewer = (bits & MAIN_SEWER) !== 0, ai = (bits & MAIN_AI) !== 0;
     const colour = sewer ? IRON : STEEL;
@@ -267,6 +312,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       r: tubeR(bits), colour, sides: DETAIL_SIDES[d], end: own ? null : fit, support, floor,
       flanges: d !== "far" && (!sewer || (x + y) % 2 === 0), bolts: d === "near", valve: d === "near", band,
       window: isGlass(g, x, y) ? GLASS / 2 : 0, glass: null, frames: d === "near",
+      verges, ...(g.paved[i] ? split : {}),
     });
     // AN OUTLET'S VALVE, on top of the tube: in the middle of a straight, on the length into the wall where it bends.
     if (port && g.mainEnd[i] === MAIN_END.outlet && d === "near") {
@@ -277,8 +323,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   };
 
   const clear = () => {
-    for (const mesh of meshes.values()) destroyPipeDrawable(mesh);
-    meshes.clear();
+    for (const mesh of drawn) destroyPipeDrawable(mesh);
+    drawn.length = 0;
     for (const { own } of windows.values()) { own.parent?.removeChild(own); own.destroy({ children: true }); }
     windows.clear();
   };
@@ -441,8 +487,28 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         cells.set(band, list);
         list.push(i);
       }
+      // EACH BAND'S MESHES, in its movers' tier and over them: a main is above
+      // anything that moves past it — on stilts over the road, or by it on the
+      // ground where nothing walks — and a mover under one is BEHIND it at every
+      // point where the two overlap on the screen. In the paved tier, every car
+      // in its band drew over it. Over a road, a frame's far leg goes under the
+      // movers (they pass in front of it), and the length nearest the camera into
+      // the next band's mesh, over the cars filed there by their noses. @see PipeLook.near
+      const nears = new Map<number, PipeMesh>();
+      const nearOf = (band: number) => {
+        let n = nears.get(band);
+        if (!n) nears.set(band, (n = pipeMesh()));
+        return n;
+      };
+      const place = (m: PipeMesh, layer: Container | undefined, z: number) => {
+        if (!m.ni || !layer) return;
+        const mesh = pipeDrawable(m);
+        mesh.zIndex = z;
+        layer.addChild(mesh);
+        drawn.push(mesh);
+      };
       for (const [band, list] of cells) {
-        const m = pipeMesh();
+        const m = pipeMesh(), back = pipeMesh();
         // A NOZZLE pointing away from the camera goes in before the mains, one pointing toward it after: nearer draws over farther.
         const port = (toward: boolean) => {
           for (const p of nozzles.get(band) ?? []) {
@@ -452,13 +518,13 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
           }
         };
         port(false);
-        for (const i of list) tubeCell(m, g, i, scale, d, joinedPort.get(i));
-        port(true);
-        if (m.ni) {
-          const mesh = pipeDrawable(m);
-          bands.pavedOf[band].addChild(mesh);
-          meshes.set(band, mesh);
+        for (const i of list) {
+          const road = g.paved[i] !== 0 && band + 1 < bands.dynamicOf.length;
+          tubeCell(m, g, i, scale, d, joinedPort.get(i), road ? { back, near: nearOf(band + 1) } : {});
         }
+        port(true);
+        place(back, bands.pavedOf[band], 0);
+        place(m, bands.dynamicOf[band], PIPE_Z);
         // ITS WINDOWS last in the band, over all its tubes — IN A RENDER GROUP OF THEIR OWN:
         // written again every frame the water moves, which in the chunk's group rebuilt the
         // draw list of every tile and building in the chunk, every frame. @see BandLayer.dynamicOf
@@ -479,9 +545,12 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         const own = new Container({ isRenderGroup: true });
         own.eventMode = "none";
         own.addChild(mesh);
-        bands.pavedOf[band].addChild(own);
+        own.zIndex = PIPE_Z + 0.01;
+        bands.dynamicOf[band].addChild(own);
         windows.set(band, { own, write, panes });
       }
+      // The lengths over each band's traffic from the band behind it: under that band's own mains, which meet them.
+      for (const [band, n] of nears) place(n, bands.dynamicOf[band], PIPE_Z - 0.01);
     },
     tick(g, scale, now, preview, ok = true, overlayOn = false, hover = null) {
       flow.clear();

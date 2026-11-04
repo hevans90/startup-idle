@@ -272,6 +272,16 @@ Each phase ends with screenshots at fixed zooms (far, mid, near) on the singular
 - **The Water overlay on the tubes.** Its line now runs along each cell's tube, round the bends, up the climbs and on into a port's wall, not straight through the cell's middle (`cellPaths`, kept per cell at sync). Its arrows sit on that line, pointing the way the tube runs there (`chevronAt`). The drag preview still runs centre to centre: what it shows is not laid yet.
 - **Smoother up close.** A bend's quarter circle is cut into 4 lengths far off, 6 mid and 12 near (`arcSteps`); a climbing half into 2, 3 and 6 (`segsFor`). Only near gets more than before.
 
+### Depth and supports, after a look at what clipped
+
+- **Movers.** Each band's mains moved from the paved tier into the movers' tier, at zIndex 0.75 (`PIPE_Z`): over the movers, under a site's pieces and the cursor.
+  - A mover under a main is behind it wherever the two overlap on screen. Everything that moves is under 1.1 half steps tall; a main over a road rides at 2.4.
+  - In the paved tier every car in the main's band drew over it.
+  - Over a road, the length more than `NEAR_SPLIT` (0.22) toward the camera from the cell's middle goes into the next band's mesh, over the cars filed there by their noses whose tails run under it. The split is past the middle so a building beside the road in that band still covers the tube.
+- **Terrain.** A cell's level reads its ramp (`groundAt`). A join is never closer to the ground there than the tube's radius and 0.2 (`faceClear`), taken at the higher side of a step. Before, a run met a step or the top of a ramp at the mean of the two levels, under the ground, and the terrain nearer the camera cut it or it came up through the grass.
+- **Frames over roads.** Legs at the road's two edges, the beam spanning it under the tube (`roadAxis`, `PipeLook.verges`). None at a junction. The far leg is drawn under the movers (`PipeLook.back`), in the paved tier.
+- **Left as it is:** a lorry's tail can still reach under the band's own half of a main and draw over it, and a window's near end isn't split.
+
 ## 8. Verification
 
 - Unit tests on `pipe-mesh.ts`: how many vertices each piece has, that pieces meet at their seams, and the draw order.
