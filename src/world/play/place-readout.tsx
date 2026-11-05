@@ -36,10 +36,15 @@ export function PlaceReadout({ className }: { className?: string }) {
   useTicking(250);
   const ref = useRef<HTMLDivElement>(null);
   useCellAnchorFollow(ref);
-  const { tool, structureDefId, hover, grid, playing } = useWorldStore.getState();
+  const { tool, structureDefId, hover, grid, playing, placingProject } = useWorldStore.getState();
   const def = structureDef(structureDefId);
   let line: { text: string; price: string | null; tone: "ok" | "bad" } | null = null;
-  if (tool === "placeStructure" && def && hover && playing) {
+  if (tool === "placeStructure" && def && hover && playing && placingProject) {
+    // A LANDMARK'S SITE: nothing paid to lay it out — its loads are paid as
+    // they are sent — so no price, and never "not enough money". @see startSiteCommand
+    const check = validatePlacement(grid, def, hover.x, hover.y, playRules(grid));
+    line = check.ok ? { text: def.name, price: null, tone: "ok" } : { text: REFUSAL[check.reason ?? "blocked"] ?? REFUSAL.blocked, price: null, tone: "bad" };
+  } else if (tool === "placeStructure" && def && hover && playing) {
     const rules = playRules(grid);
     // OVER A BUILDING WITH A NEXT TIER, the click upgrades it. @see planUpgrade
     const under = structureAt(grid, hover.x, hover.y);

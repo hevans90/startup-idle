@@ -39,7 +39,8 @@ export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
       setSidebarTab: (tab: SidebarTab) => {
         set({ sidebarTab: tab });
       },
-      dayNight: true,
+      // OFF: the map stays in daylight unless turned on in Settings.
+      dayNight: false,
       setDayNight: (dayNight) => set({ dayNight }),
       volume: 0.6,
       muted: false,
@@ -54,6 +55,9 @@ export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
     }),
     {
       name: "global-settings", // name of item in localStorage
+      // 1: day and night turned off for everyone once, the setting's new default. @see dayNight
+      version: 1,
+      migrate: (persisted, version) => (version < 1 ? { ...(persisted as object), dayNight: false } : persisted) as GlobalSettingsStore,
       // The Model tab is the AI tab now: a save left on it opens there.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Omit<Partial<GlobalSettingsStore>, "sidebarTab"> & { sidebarTab?: string };
