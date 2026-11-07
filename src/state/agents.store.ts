@@ -74,8 +74,13 @@ export const useAgentsStore = create<AgentsState>()(
   ),
 );
 
-/** The agents running now: all of them, unless the Data Centre has throttled some. */
+/** Every agent stopped for a while: a heatwave's throttle, the scene's to set. @see HEATWAVE */
+let throttled = false;
+export const setThrottled = (on: boolean) => { throttled = on; };
+
+/** The agents running now: all of them, unless the Data Centre has throttled some — or a heatwave all. */
 export function runningAgents(): number {
+  if (throttled) return 0;
   const { agents, running } = useAgentsStore.getState();
   // Held to a share by the arc, unless that is lifted. @see questAgentCap
   const most = Math.floor(agents * questAgentCap());

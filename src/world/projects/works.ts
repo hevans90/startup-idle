@@ -37,7 +37,7 @@ import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/tow
 import { notable } from "../../game/machine";
 import { cultureNow } from "../../game/culture-now";
 import { siteTrucks } from "../../game/site-trucks";
-import { convoyIsIn, loadPriceMult } from "../events/convoy";
+import { convoyIsIn, loadPriceMult, strikeNow } from "../events/convoy";
 
 /** The Garage and what it grows into: the yard materials come from. @see depotFor */
 const HQ_LINE = ["garage", "hq", "boardroom", "ipo"];
@@ -332,13 +332,21 @@ export function stepWorks(
         if (!w.stalled.has(s.id)) w.rev++;
         w.stalled.set(s.id, (w.stalled.get(s.id) ?? 0) + dt);
       }
+    } else if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries && strikeNow() === "held") {
+      // STRUCK: no loads at all until it is over. @see STRIKE
+      if (caughtUp) {
+        if (!w.stalled.has(s.id)) w.rev++;
+        w.stalled.set(s.id, (w.stalled.get(s.id) ?? 0) + dt);
+      }
     } else if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries) {
       // THE TRUCKS: one, or as many as the tree adds (Refactoring, Monorepo),
       // and a convoy of three more with Autonomous Freight — each a load paid
       // for as it is sent, as many as the money runs to. @see CONVOY @see siteTrucks
       const freight = notable("freight");
       // WITH A CONVOY IN, off the boats at the port. @see CONVOY_LOADS
-      const from = door && ((convoyIsIn() && portDepot(g, places, s, door.net)) || depotFor(g, places, s, door.net, freight));
+      // PAST A STRIKE, from where a road leaves the map. @see STRIKE
+      const from = door && ((convoyIsIn() && portDepot(g, places, s, door.net))
+        || (strikeNow() === "edge" && pickGateway(places, door.net)) || depotFor(g, places, s, door.net, freight));
       let sent = 0, paid = 0;
       for (let k = Math.min(haul.trucks + (freight ? CONVOY - 1 : 0), b.deliveries - b.delivered); k > 0 && spend(perLoad); k--) {
         paid++;

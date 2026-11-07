@@ -15,6 +15,16 @@ import { cooledOf, demandOf, drink, isDrinker, tankOf, type Drinker } from "../.
 import type { Grid, Structure } from "../grid";
 import { powered } from "./racks";
 import { notable } from "../../game/machine";
+import { isDamaged } from "../events/damage";
+
+/**
+ * THE WEATHER ON THE DRINKERS, the scene's to set from the events under way:
+ * what their demand is multiplied by (a heatwave's), and whether every tank
+ * is kept full whatever the pipes bring (pumps or water trucked in, or
+ * rationed from the homes). @see HEATWAVE, DROUGHT
+ */
+let heat = { thirst: 1, topUp: false };
+export const setHeat = (thirst: number, topUp: boolean) => { heat = { thirst, topUp }; };
 
 export type Tank = { level: number; share: number; capacity: number; demand: number; agents: number; def: Drinker };
 
@@ -70,12 +80,13 @@ export function stepCooling(g: Grid, running: number, river: boolean, dt: number
     if (s.build || !isDrinker(s.def)) continue;
     live.add(s.id);
     const n = agents.get(s.id) ?? 0;
-    const demand = demandOf(s.def, n, river);
+    const demand = demandOf(s.def, n, river) * heat.thirst;
     const capacity = tankOf(demand);
     const t = tanks.get(s.id) ?? { level: capacity, share: 1, capacity, demand, agents: n, def: s.def };
     // A STANDING SOURCE, the river given to it in the arc: its own kept in water. @see questStandingWater
-    if (standing && inAiDistrictNow(g, s.x, s.y)) t.level = capacity;
-    const next = drink(Math.min(t.level, capacity), t.share, demand, dt);
+    if ((standing && inAiDistrictNow(g, s.x, s.y)) || heat.topUp) t.level = capacity;
+    // OVERHEATED, until the repair crew has been: it cools nothing. @see damage
+    const next = isDamaged(s.id) ? { level: t.level, share: 0 } : drink(Math.min(t.level, capacity), t.share, demand, dt);
     Object.assign(t, next, { capacity, demand, agents: n, def: s.def });
     tanks.set(s.id, t);
     if (s.def === "compute-spire") spires += t.share;
@@ -121,6 +132,7 @@ export const allTanks = (): ReadonlyMap<number, Tank> => tanks;
 /** A new company, or a map loaded: every tank forgotten, to start full. */
 export function resetCooling(): void {
   tanks.clear();
+  heat = { thirst: 1, topUp: false };
   hot = 0; spireShare = 0;
 }
 

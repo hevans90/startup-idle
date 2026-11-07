@@ -26,7 +26,7 @@ import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { MAX_ROUTES } from "./events/defs/convoy";
 import { useInnovationStore } from "../state/innovation.store";
 import { DEFAULT_GEN, type GenParams } from "./gen/params";
-import { commuteFactor, liveCommutes, liveSeating } from "./agents/commute";
+import { commuteFactor, liveCommutes, liveSeating, workplaceKind } from "./agents/commute";
 import { setTownBonusReader } from "../game/acquisition";
 import { setTownMoodReader } from "../game/town-mood";
 import { cultureNow, cultureVersion } from "../game/culture-now";
@@ -43,7 +43,7 @@ import { rendererAsked, usePixiGpu } from "./render/use-gpu";
 import { WorldScene } from "./world-scene";
 import { WorldViewport } from "./world-viewport";
 import { evacuatedAway } from "./events/flood";
-import { damagedAway } from "./events/damage";
+import { damagedAway, damagedDesksAway } from "./events/damage";
 import { cleanupAway } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
 import { markWorldGone, markWorldReady } from "../game/world-ready";
@@ -257,6 +257,12 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
       const commute = net ? commuteFactor(st.grid, liveCommutes(st.grid, net), ownedNow(), remote) : undefined;
       // AT THEIR DESKS: a café next door. @see deskShare
       const seated = net ? liveSeating(st.grid, net) : undefined, seating = seated?.desks;
+      // OUT OF A WORKPLACE closed by the inspector, or damaged: those at its desks. @see closeFor
+      if (seating) {
+        for (const [id, n] of Object.entries(damagedDesksAway(st.grid, seating, workplaceKind))) {
+          away[id as GeneratorId] = Math.min(ownedNow()[id as GeneratorId] ?? 0, (away[id as GeneratorId] ?? 0) + n);
+        }
+      }
       const desks = net && seating ? deskShare(
         st.grid,
         liveLeadership(st.grid, net, useTeamLeadersEmployeesStore.getState().employees, liveMoods(st.grid, net)),

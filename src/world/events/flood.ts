@@ -73,6 +73,13 @@ export function floodPeak(g: Grid): number {
   return Math.max(MIN_RISE, Math.min(MAX_RISE, rise));
 }
 
+/** HOW FAR A DROUGHT LETS THE RIVER DOWN at its head, half steps: past its deepest stage, so none comes on. */
+export function droughtDrop(g: Grid): number {
+  let most = 0;
+  for (let i = 0; i < g.inflow.length; i++) most = Math.max(most, g.inflow[i]);
+  return most;
+}
+
 /** Where the map's rivers come on: the middle of their inflow, or null with none. */
 export function riverHead(g: Grid): { x: number; y: number } | null {
   let n = 0, sx = 0, sy = 0;

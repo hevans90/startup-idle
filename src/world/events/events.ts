@@ -16,7 +16,7 @@ import type { HackathonGain } from "../../game/culture";
 import type { GeneratorId } from "../../state/generators.store";
 import { formatCurrency } from "../../utils/money-utils";
 
-export type EventKind = "river-flood" | "convoy" | "diligence" | "hackathon" | "offer";
+export type EventKind = "river-flood" | "convoy" | "diligence" | "hackathon" | "offer" | "heatwave" | "drought" | "inspector" | "strike";
 
 type Spot = { x: number; y: number };
 
@@ -80,6 +80,8 @@ export type TownView = {
   river: Spot | null;
   /** Buildings under a flood's water now. */
   flooded: number;
+  /** What a heatwave has overheated so far. @see HEATWAVE */
+  overheated: number;
   /** The levee a flood could be met with: the walls it would be, their price, and raising it. @see leveeCells */
   levee: { walls: number; price: number; build: () => void } | null;
   /** The kinds a flood's evacuation has put out of their homes. */
@@ -105,6 +107,20 @@ export type TownView = {
    * culture deck. @see HACKATHON_CODERS, hackathonDeal
    */
   studio: (Spot & { spike: (share: number) => void; ideas: () => HackathonGain }) | null;
+  /**
+   * WHAT DRINKS: the Data Centre, or the thirstiest of the AI's buildings —
+   * and digging a reservoir by it, where one would go (null where none would).
+   * Null with nothing drinking. @see HEATWAVE, DROUGHT, digReservoir
+   */
+  drinkers: (Spot & { dig: (() => void) | null }) | null;
+  /**
+   * THE OFFICES, for the health inspector: the vibe coders' workplace with the
+   * most spilled round it (or any, with none spilled), whether any has spilled,
+   * and shutting one for a while. Null with none. @see INSPECTOR
+   */
+  offices: (Spot & { id: number; dirty: boolean; close: (id: number, seconds: number) => void }) | null;
+  /** A building site still waiting on loads, and what they have left to cost. Null with none. @see STRIKE */
+  site: (Spot & { left: number }) | null;
   /** A sale, once the company can be sold: its Equity, with an acquirer's premium, and the street that would catch their eye. */
   sale: { equity: number; withPremium: number; street: () => string | undefined } | null;
 };
@@ -157,7 +173,7 @@ export type EventDef = {
 export const OVER_SHOWN_MS = 10_000;
 
 /** WHO A CHOICE TAKES OFF WORK, as a share of the kind: every event's prices in one place. @see Crew */
-export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 1, mop: 0.5, hackathon: 1 } as const;
+export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 1, mop: 0.5, hackathon: 1, sprint: 1 } as const;
 
 export const money = (n: number) => formatCurrency(Math.round(n));
 const NAMES: Partial<Record<GeneratorId, string>> = { intern: "intern", vibe_coder: "vibe coder", "10x_dev": "10x dev" };

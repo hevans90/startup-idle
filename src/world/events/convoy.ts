@@ -5,6 +5,7 @@
  * ghost. @see stepOpportunities "convoy"
  */
 import { useSessionStore } from "../../state/session.store";
+import { EDGE_LOADS } from "./defs/strike";
 import type { Grid, Structure } from "../grid";
 
 export const CONVOY_PAYS = 2;
@@ -40,4 +41,14 @@ let convoyIn = false;
 export const setConvoyIn = (on: boolean) => { convoyIn = on; };
 export const convoyIsIn = () => convoyIn;
 /** What a load costs now, against its usual price: the convoy in, and the routes won. */
-export const loadPriceMult = () => (convoyIn ? CONVOY_LOADS : 1) * Math.max(0, 1 - ROUTE_LOADS * (useSessionStore.getState().routes ?? 0));
+export const loadPriceMult = () => (convoyIn ? CONVOY_LOADS : 1) * (strike === "edge" ? EDGE_LOADS : 1) * Math.max(0, 1 - ROUTE_LOADS * (useSessionStore.getState().routes ?? 0));
+
+/**
+ * A SUPPLIER STRIKE, the scene's to say from the event under way: loads held
+ * back altogether ("held"), or sent from where a road leaves the map, past the
+ * yard on strike ("edge"); null, as usual. @see STRIKE
+ */
+export type Strike = "held" | "edge" | null;
+let strike: Strike = null;
+export const setStrike = (s: Strike) => { strike = s; };
+export const strikeNow = () => strike;

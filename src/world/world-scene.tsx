@@ -26,7 +26,7 @@ import { useGenerationStore } from "../state/generation.store";
 import { currentPlan, pendingPipe, stepAutopilot } from "./ai/autopilot";
 import { useFounderStore } from "../state/founder.store";
 import { showMe } from "./play/map-focus";
-import { runningAgents, useAgentsStore } from "../state/agents.store";
+import { runningAgents, setThrottled, useAgentsStore } from "../state/agents.store";
 import { setLatticeReader, stageOf, useAiSingularityStore } from "../state/ai-singularity.store";
 import { latticeDone, stepLattice } from "./ai/lattice";
 import { liveStreetEarnings, liveStreets, streetName } from "./play/street-earnings";
@@ -118,11 +118,11 @@ import { liveBeauty } from "./agents/beauty";
 import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
-import { CONVOY_PAYS, convoyPays, setConvoyIn } from "./events/convoy";
+import { CONVOY_PAYS, convoyPays, loadPriceMult, setConvoyIn, setStrike } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
-import { dryUp, mopAll, sludgedHouses } from "./events/sludge";
+import { dryUp, mopAll, ring, sludgeAt, sludgedHouses } from "./events/sludge";
 import { emptyFull, slopSpike, stepSlop, tanksOf } from "./slop/tanks";
 import { slopRate } from "../game/slop";
 import { convoyTally, tallyCall, townMood } from "./events/town-events";
@@ -131,9 +131,9 @@ import { EVENT_DEFS } from "./events/defs";
 import { HACKATHON_CODERS } from "./events/defs/hackathon";
 import { FLOOD_MS } from "./events/defs/flood";
 import {
-  evacuatedAway, floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
+  droughtDrop, evacuatedAway, floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
-import { damage, isDamaged, stepRepairs } from "./events/damage";
+import { closeFor, damage, isDamaged, stepRepairs } from "./events/damage";
 import { startEvent, stepEvents, type TownView } from "./events/events";
 import { LEVEE_RUSH, leveeCells } from "./events/levee";
 import { perMinute, recordCall } from "./boats/exports";
@@ -144,7 +144,7 @@ import { ROUTE_BONUS } from "./events/defs/convoy";
 import { fusionNow } from "../game/fusion";
 import { skillOf, training, useTrainingStore } from "../state/training.store";
 import { useSessionStore } from "../state/session.store";
-import { stepWorks } from "./projects/works";
+import { sitesOf, stepWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
 import { stepFleet, wantFleet } from "./boats/fleet";
 import { stepTraffic, trafficSteer } from "./boats/traffic";
@@ -158,7 +158,12 @@ import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
 import { runPipes } from "./water/pipes";
-import { stepCooling, tankFor, wateredShare } from "./projects/cooling";
+import { allTanks, setHeat, stepCooling, tankFor, wateredShare } from "./projects/cooling";
+import { HEAT_THIRST, OVERHEAT_SHARE } from "./events/defs/heatwave";
+import { CLEAN_RECORD } from "./events/defs/inspector";
+import { removeConditions } from "../game/conditions";
+import { digReservoir, siteFor } from "./ai/reservoir";
+import { isDrinker } from "../game/cooling";
 import { pumpUpkeep } from "../game/cooling";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
 import {
@@ -208,7 +213,7 @@ import {
 import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, maxStep } from "../fluid/columns";
-import { busyness, darkness, dayPhase, drawRain, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
+import { busyness, darkness, dayPhase, drawRain, HEAT_GRADE, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
 import { inForce } from "../game/culture";
 import { cultureNow } from "../game/culture-now";
 import { createCultureProps, type CultureProps } from "./render/culture-props";
@@ -433,6 +438,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const floodShield = useRef<FloodShield>(null);
   const floodClock = useRef(0);
   const floodedCount = useRef(0);
+  /** What a heatwave ridden out has overheated. @see HEATWAVE */
+  const overheated = useRef(new Set<number>());
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -2996,12 +3003,50 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const river = riverHead(st.grid);
             // THE LEVEE a flood could be met with: walls on the low bank near the head. @see leveeCells
             const bank = river && field ? leveeCells(st.grid, field) : [];
+            // WHAT DRINKS: the Data Centre, or the thirstiest of the rest. @see HEATWAVE, DROUGHT
+            const drinker = (() => {
+              let best: Structure | undefined, most = -1;
+              for (const s of st.grid.structures.values()) {
+                if (s.build || !isDrinker(s.def)) continue;
+                const d = s.def === "datacentre" ? Infinity : tankFor(s.id)?.demand ?? 0;
+                if (d > most) { most = d; best = s; }
+              }
+              return best;
+            })();
+            const thirsty = [...allTanks().values()].some((t) => t.demand > 0);
+            // THE OFFICES, for the inspector: the one with the most spilled by it. @see INSPECTOR
+            const office = (() => {
+              const tanks = tanksOf(st.grid);
+              let best: Structure | undefined, worst = -1;
+              for (const s of st.grid.structures.values()) {
+                if (s.build || !WORKPLACES.vibe_coder.includes(s.def)) continue;
+                let mess = tanks.get(s.id)?.spilling ? 1 : 0;
+                if (field) for (const t of ring(st.grid, s)) mess += sludgeAt(field, t.x, t.y);
+                if (mess > worst) { worst = mess; best = s; }
+              }
+              return best && { s: best, dirty: worst > 0 };
+            })();
+            // A SITE STILL WAITING ON LOADS, for a strike. @see STRIKE
+            const waiting = sitesOf(st.grid).find((s) => s.build && s.build.delivered < s.build.deliveries);
             const view: TownView = {
               now: Date.now(),
               income: useGeneratorStore.getState().getMoneyPerSecond(),
               owned,
               river,
               flooded: floodedCount.current,
+              overheated: overheated.current.size,
+              drinkers: drinker && thirsty ? {
+                x: drinker.x, y: drinker.y,
+                dig: (() => { const at = siteFor(st.grid, drinker, null); return at ? () => { digReservoir(at); } : null; })(),
+              } : null,
+              offices: office ? {
+                x: office.s.x, y: office.s.y, id: office.s.id, dirty: office.dirty,
+                close: (id: number, seconds: number) => closeFor(st.grid, id, seconds),
+              } : null,
+              site: waiting?.build ? {
+                x: waiting.x, y: waiting.y,
+                left: waiting.build.cost * (1 - waiting.build.delivered / waiting.build.deliveries) * loadPriceMult(),
+              } : null,
               levee: river ? {
                 walls: bank.length,
                 price: bank.length * (buildCost("levee")?.toNumber() ?? 0) * LEVEE_RUSH,
@@ -3050,6 +3095,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               if (outcome.money) useMoneyStore.getState().increaseMoney(outcome.money);
               outcome.then?.();
               if (event.kind === "river-flood") evacuees.current.clear();
+              if (event.kind === "heatwave") overheated.current.clear();
             }
             if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
           }
@@ -3058,7 +3104,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const waterNow = st.getWaterField();
           if (fouledClock.current >= 2 && waterNow) { setFouled(fouledHouses(waterNow, st.grid)); fouledClock.current = 0; }
           // A TANK SPILLING, kept for the run: a clean run is a term sheet's goal. @see game/term-sheets
-          if ([...tanksOf(st.grid).values()].some((t) => t.spilling)) useSessionStore.getState().markOverflowed();
+          if ([...tanksOf(st.grid).values()].some((t) => t.spilling)) {
+            useSessionStore.getState().markOverflowed();
+            // AND A CLEAN RECORD lost. @see CLEAN_RECORD
+            removeConditions((c) => c.source === CLEAN_RECORD);
+          }
           // MOPPING UP what has spilled: vibe coders off work, walking to it
           // and draining it by hand. @see stepCleanup
           // (In development, `__fakeHires` counts: a crew to watch with nobody hired.)
@@ -3098,9 +3148,26 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           getTraffic().rush = convoy?.chosen === "hands" ? 2 : 1;
           // AND BRINGS MATERIALS: a site's loads off the boats, at half price. @see CONVOY_LOADS
           setConvoyIn(!!convoy);
+          // THE WEATHER ON WHAT DRINKS: a heatwave's thirst, and every tank
+          // kept full by pumps, trucks or rationing. @see setHeat
+          const heatwave = st.events.find((e) => e.kind === "heatwave" && e.phase === "active");
+          const drought = st.events.find((e) => e.kind === "drought" && e.phase === "active");
+          setHeat(heatwave ? HEAT_THIRST : 1, heatwave?.chosen === "pumps" || (!!drought && drought.chosen !== "dig"));
+          setThrottled(heatwave?.chosen === "throttle");
+          // RIDDEN OUT: whatever runs short overheats. @see OVERHEAT_SHARE
+          if (heatwave?.chosen === "ride") {
+            const hot: number[] = [];
+            for (const [id, t] of allTanks()) if (t.demand > 0 && t.share < OVERHEAT_SHARE && !overheated.current.has(id)) hot.push(id);
+            if (hot.length) { damage(st.grid, hot, "heat"); for (const id of hot) overheated.current.add(id); }
+          }
+          // A SUPPLIER STRIKE: loads held, or from the map's edge. @see STRIKE
+          const strike = st.events.find((e) => e.kind === "strike" && e.phase === "active");
+          setStrike(strike?.chosen === "wait" ? "held" : strike?.chosen === "edge" ? "edge" : null);
           if (flood && !floodBase.current && field) floodBase.current = floodBaseline(field, st.grid);
           if (flood) floodShield.current = flood.chosen === "sandbags" || flood.chosen === "evacuate" ? flood.chosen : null;
-          const rise = flood?.phase === "active" && flood.endsAt !== undefined ? riseAt((Date.now() - (flood.endsAt - FLOOD_MS)) / 1000, floodPeak(st.grid)) : 0;
+          // A DROUGHT: the river let down to nothing at its head. @see droughtDrop
+          const rise = flood?.phase === "active" && flood.endsAt !== undefined ? riseAt((Date.now() - (flood.endsAt - FLOOD_MS)) / 1000, floodPeak(st.grid))
+            : drought ? -droughtDrop(st.grid) : 0;
           if (field && rise !== floodRise.current) {
             floodRise.current = rise;
             field.inflowRise = rise;
@@ -3320,7 +3387,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // By the stage, so Hard Takeoff's early Overseer brings it with it. @see stagesNow
         const skyStage = stageOf(meter).stage;
         const tint = (skyStage === "overseer" || skyStage === "ascension" ? 0.08 : skyStage === "manager" ? 0.04 : 0) + 0.3 * ascension;
-        const colour = mixColour(mixColour(0xffffff, NIGHT_GRADE, nightNow), STAGE_COLOUR.overseer, tint);
+        // A HEATWAVE OR A DROUGHT: the map graded warm, half while it is coming.
+        const dry = playing ? useWorldStore.getState().events.find((e) => (e.kind === "heatwave" || e.kind === "drought") && e.phase !== "over") : undefined;
+        const warm = dry ? (dry.phase === "active" ? 1 : 0.5) : 0;
+        const colour = mixColour(mixColour(mixColour(0xffffff, HEAT_GRADE, warm), NIGHT_GRADE, nightNow), STAGE_COLOUR.overseer, tint);
         // Redrawn only when it changes: a colour a step at a time, or the screen's size.
         const key = `${colour}|${app.screen.width}x${app.screen.height}`;
         if (key !== nightKey.current) {

@@ -19,6 +19,9 @@ export const NIGHT_COLOUR = 0x0b1030;
  */
 export const NIGHT_GRADE = 0x6a74b0;
 
+/** What a heatwave or a drought MULTIPLIES the map by, at its height: warm and dry. */
+export const HEAT_GRADE = 0xffdcae;
+
 /** `a` toward `b` by `t`, channel by channel. */
 export function mixColour(a: number, b: number, t: number): number {
   const k = Math.max(0, Math.min(1, t));

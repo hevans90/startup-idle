@@ -5,11 +5,16 @@ import { MAX_ROUTES, ROUTE_BONUS, routeWon } from "./defs/convoy";
 import { FLOOD_MS, FLOOD_WARN_MS } from "./defs/flood";
 import { HACKATHON_MS, HACKATHON_SLOP, HACKATHON_SNUB } from "./defs/hackathon";
 import { DILIGENCE_MULT, TIDY_MOOD } from "./defs/diligence";
+import { DROUGHT_MS, RATION_MORALE, TRUCK_SECONDS } from "./defs/drought";
+import { HEAT_MS, PUMP_SECONDS } from "./defs/heatwave";
+import { CLEAN_MOOD, CLOSED_SECONDS, FINE_SECONDS } from "./defs/inspector";
+import { STRIKE_PAY } from "./defs/strike";
 import type { HackathonGain } from "../../game/culture";
 import { OVER_SHOWN_MS, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
 
 const town = (now: number, over: Partial<TownView> = {}): TownView => ({
-  now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, levee: null, evacuated: [], port: null,
+  now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, overheated: 0, levee: null, evacuated: [], port: null,
+  drinkers: null, offices: null, site: null,
   convoy: { calls: 0, earned: 0 }, routes: 0, door: null, studio: null, sale: null,
   diligence: { mood: 0, spills: 0, watered: null, mop: () => {} }, ...over,
 });
@@ -197,6 +202,94 @@ describe("an acquirer's offer", () => {
 
   test("is called off if the company can no longer be sold", () => {
     expect(step(start("offer", at(0)), town(1000, { door: { x: 4, y: 4 } })).events[0].phase).toBe("over");
+  });
+});
+
+describe("a heatwave", () => {
+  const at = (now: number, overheated = 0) => town(now, { drinkers: { x: 3, y: 3, dig: null }, overheated });
+
+  test("comes only where something drinks, and costs a minute of income for pumps", () => {
+    expect(startEvent(EVENT_DEFS.heatwave, town(0), 1)).toBeNull();
+    const evs = start("heatwave", at(0));
+    expect(evs[0].choices.map((c) => c.id)).toEqual(["pumps", "throttle", "ride"]);
+    expect(evs[0].choices[0].price).toBe(100 * PUMP_SECONDS);
+  });
+
+  test("unanswered, the agents are throttled; ridden out, it counts what overheated", () => {
+    expect(step(start("heatwave", at(0)), at(45_000)).events[0].chosen).toBe("throttle");
+    let evs = step(start("heatwave", at(0)).map((e) => ({ ...e, chosen: "ride" })), at(45_000)).events;
+    evs = step(evs, at(50_000, 2)).events;
+    expect(step(evs, at(45_000 + HEAT_MS, 0)).events[0].outcome).toMatch(/^2 overheated/);
+  });
+});
+
+describe("a drought", () => {
+  const at = (now: number, dig: (() => void) | null = null) => town(now, { river: { x: 0, y: 5 }, drinkers: { x: 3, y: 3, dig } });
+
+  test("needs a river and something drinking", () => {
+    expect(startEvent(EVENT_DEFS.drought, town(0, { river: { x: 0, y: 5 } }), 1)).toBeNull();
+    expect(start("drought", at(0))[0].where).toEqual({ x: 0, y: 5 });
+  });
+
+  test("a reservoir is dug once chosen, and offered only where one would go", () => {
+    expect(start("drought", at(0))[0].choices[0].unavailable).toBe("Nowhere level to dig");
+    let dug = 0;
+    const evs = start("drought", at(0, () => { dug++; })).map((e) => ({ ...e, chosen: "dig" }));
+    step(evs, at(1000, () => { dug++; })).acts.forEach((a) => a());
+    expect(dug).toBe(1);
+  });
+
+  test("trucking is paid a minute at a time; unanswered, the homes are rationed", () => {
+    expect(start("drought", at(0))[0].choices[2].price).toBe(100 * TRUCK_SECONDS * (DROUGHT_MS / 60_000));
+    let evs = step(start("drought", at(0)), at(60_000)).events;
+    expect(evs[0].chosen).toBe("ration");
+    const over = step(evs, at(60_000 + DROUGHT_MS));
+    expect(over.events[0].outcome).toContain(`−${RATION_MORALE} morale`);
+    expect(over.ended[0].outcome.then).toBeDefined();
+  });
+});
+
+describe("the health inspector", () => {
+  let closed: [number, number] | null = null;
+  const office = (dirty: boolean) => ({ x: 2, y: 2, id: 9, dirty, close: (id: number, s: number) => { closed = [id, s]; } });
+  const at = (now: number, dirty: boolean, spills = 0) => town(now, { offices: office(dirty), diligence: { mood: 0, spills, watered: null, mop: () => {} } });
+  const run = (chosen: string | undefined, dirty: boolean) => {
+    let evs = start("inspector", at(0, true));
+    if (chosen) evs = evs.map((e) => ({ ...e, chosen }));
+    evs = step(evs, at(45_000, dirty)).events;
+    return step(evs, at(50_000, dirty)).ended[0];
+  };
+
+  test("is drawn only once an office has spilled", () => {
+    expect(EVENT_DEFS.inspector.weight!(at(0, false))).toBe(0);
+    expect(EVENT_DEFS.inspector.weight!(at(0, true))).toBe(1);
+    expect(start("inspector", at(0, true))[0].choices.find((c) => c.id === "fine")?.price).toBe(100 * FINE_SECONDS);
+  });
+
+  test("found clean, a clean record; dirty and unanswered, the worst office closed", () => {
+    expect(run("sprint", false).outcome.text).toContain(`+${CLEAN_MOOD} morale`);
+    closed = null;
+    const shut = run(undefined, true);
+    expect(shut.event.chosen).toBe("close");
+    shut.outcome.then?.();
+    expect(closed).toEqual([9, CLOSED_SECONDS]);
+    expect(run("fine", true).outcome.then).toBeUndefined();
+  });
+});
+
+describe("a supplier strike", () => {
+  const at = (now: number) => town(now, { site: { x: 5, y: 5, left: 1000 } });
+
+  test("comes while a site waits on loads; paying the strikers ends it before it starts", () => {
+    expect(startEvent(EVENT_DEFS.strike, town(0), 1)).toBeNull();
+    const evs = start("strike", at(0));
+    expect(evs[0].choices[0].price).toBe(1000 * STRIKE_PAY);
+    expect(step(evs.map((e) => ({ ...e, chosen: "pay" })), at(30_000)).events[0].phase).toBe("over");
+    expect(step(evs, at(30_000)).events[0]).toMatchObject({ phase: "active", chosen: "edge" });
+  });
+
+  test("is called off once the site has its loads", () => {
+    expect(step(start("strike", at(0)), town(1000)).events[0].outcome).toBe("The site is supplied.");
   });
 });
 

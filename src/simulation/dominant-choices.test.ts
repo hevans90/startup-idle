@@ -22,6 +22,10 @@ import { HACKATHON_MORALE, HACKATHON_MS, HACKATHON_SNUB } from "../world/events/
 import { ROUTE_BONUS } from "../world/events/defs/convoy";
 import { DILIGENCE_MOOD, DILIGENCE_MULT, DILIGENCE_WATERED, TIDY_MOOD } from "../world/events/defs/diligence";
 import { FLOOD_SECONDS } from "../world/events/flood";
+import { HEAT_MS, HEAT_THIRST, OVERHEAT_SHARE, PUMP_SECONDS } from "../world/events/defs/heatwave";
+import { DIG_SECONDS, DROUGHT_MS, RATION_MORALE, TRUCK_SECONDS } from "../world/events/defs/drought";
+import { CLEAN_MOOD, CLOSED_SECONDS, FINE_SECONDS } from "../world/events/defs/inspector";
+import { EDGE_LOADS, STRIKE_MS, STRIKE_PAY } from "../world/events/defs/strike";
 import { REPAIR_SECONDS } from "../world/events/damage";
 
 /** The window a choice is judged over, seconds. */
@@ -50,6 +54,20 @@ function company(rand: () => number) {
     watered: rand() < 0.3 ? 1 : rand(),
     /** Seconds of income the sale's valuation is worth, per whole of it. */
     saleWorth: 100 + rand() * 1500,
+    /** Share of income the agents' boost makes, and how much of what drinks the river waters. */
+    agentShare: rand() * 0.5,
+    onRiver: rand(),
+    /** Vibe workplaces: the closed one's share of them. */
+    offices: 1 + Math.floor(rand() * 6),
+    /** A site's loads left, in seconds of income; and a second of its stall, in seconds of income. */
+    siteLeft: 20 + rand() * 400,
+    stall: rand() * 0.8,
+    /** Loads a site takes a second, in seconds of income. */
+    loadsRate: 0.05 + rand() * 0.6,
+    /** The pipes' headroom over what drinks asks, usually. */
+    headroom: 0.4 + rand() * 1.4,
+    /** How long a clean record lasts before the next spill, in days. */
+    cleanFor: rand() * 0.6,
     agents: 1 + Math.floor(rand() * 20),
     /** Money in hand, in seconds of income. */
     money: 30 + rand() * 3000,
@@ -88,6 +106,33 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
     tidy: (c) => c.vibe * CREW_SHARE.tidy * 45 - judged(c, TIDY_MOOD, c.spills),
     mop: (c) => (c.spills ? c.intern * CREW_SHARE.mop * 45 - judged(c, 0, 0) : Infinity),
     "as-is": (c) => -judged(c, 0, c.spills),
+  },
+  heatwave: {
+    // Pumps paid; the agents' boost off for it; or what the doubled thirst leaves short runs hot, and below half overheats.
+    pumps: () => PUMP_SECONDS,
+    throttle: (c) => c.agentShare * HEAT_MS / 1000,
+    ride: (c) => {
+      const met = Math.min(1, c.headroom / HEAT_THIRST);
+      return c.agentShare * ((1 - met) * 0.5 * HEAT_MS / 1000 + (met < OVERHEAT_SHARE ? 0.5 * (HEAT_MS / 1000 + REPAIR_SECONDS * 2) : 0));
+    },
+  },
+  drought: {
+    // What the river waters runs hot for it — a reservoir, piped, covers a little of it; or the homes put out; or trucks.
+    dig: (c) => DIG_SECONDS + c.agentShare * c.onRiver * 0.5 * 0.8 * DROUGHT_MS / 1000,
+    ration: (c) => c.intern * leanSeconds(RATION_MORALE, c.internScore) + c.vibe * leanSeconds(RATION_MORALE, c.vibeScore),
+    truck: () => TRUCK_SECONDS * DROUGHT_MS / 60_000,
+  },
+  inspector: {
+    // The vibe coders off for the warning, then a clean record till the next spill; a fine; or an office shut.
+    sprint: (c) => c.vibe * CREW_SHARE.sprint * 45 - c.cleanFor * c.vibe * leanSeconds(CLEAN_MOOD, c.vibeScore),
+    fine: () => FINE_SECONDS,
+    close: (c) => (c.vibe / c.offices) * CLOSED_SECONDS,
+  },
+  strike: {
+    // A share of the loads' cost; the site stalled throughout; or the loads dearer the long way round, and a little slower.
+    pay: (c) => c.siteLeft * STRIKE_PAY,
+    wait: (c) => c.stall * STRIKE_MS / 1000,
+    edge: (c) => Math.min(c.siteLeft, c.loadsRate * STRIKE_MS / 1000) * (EDGE_LOADS - 1) + c.stall * 0.2 * STRIKE_MS / 1000,
   },
   hackathon: {
     // Every vibe coder off for it, the studio's tank half filled — a spill risked, taken as 20 s of income
