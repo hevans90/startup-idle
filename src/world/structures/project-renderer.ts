@@ -200,6 +200,12 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
   const site = b ? siteAt(h.model, Math.min(1, b.done / b.need)) : null;
   h.site = site;
   h.columns.forEach((g, k) => {
+    // A SITE IS NEVER BATCHED: redrawn every quarter percent, a small tile's
+    // piece crossed Pixi's batching limit back and forth as the work grew, and
+    // each crossing re-packed its chunk — the 3×3 garage's pieces flickered,
+    // smeared toward its back tile and lagged the rest. A finished building
+    // is drawn once, and batches as it likes.
+    g.context.batchMode = site ? "no-batch" : "auto";
     g.clear();
     const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k]);
     if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
