@@ -88,3 +88,13 @@ export function dryUp(field: WaterField, g: Grid, around: readonly Structure[], 
     if (!inPit(g, t.x, t.y) && sludgeAt(field, t.x, t.y) > 0) drainAt(field, t.x, t.y, DRY_RATE * dt);
   }
 }
+
+/** EVERY SPILL MOPPED UP, at once, but what lies in a pit (the slop pit's own). @see DILIGENCE "mop" */
+export function mopAll(field: WaterField, g: Grid): void {
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const d = sludgeAt(field, x, y);
+      if (d > 0 && !inPit(g, x, y)) drainAt(field, x, y, d);
+    }
+  }
+}

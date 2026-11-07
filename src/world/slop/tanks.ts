@@ -38,6 +38,11 @@ export function slopSpike(g: Grid, id: number, share: number): void {
   if (t) t.level = Math.min(t.capacity, t.level + t.capacity * share);
 }
 
+/** Every full tank emptied, hauled away by hand: spilling no more. @see DILIGENCE "mop" */
+export function emptyFull(g: Grid): void {
+  for (const t of tanksOf(g).values()) if (t.spilling) { t.level = 0; t.spilling = false; }
+}
+
 /** Water deep enough on a tile to take what is poured into it as pollution, not sludge. */
 const WET = 0.5;
 /** The water beside or on a tile, deepest first, or null: where an outfall or a spill goes in. Water, not sludge already spilt. */

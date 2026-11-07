@@ -13,6 +13,7 @@
  * and sale code can read it without a cycle. A run founded before there were
  * clauses has none, and keeps the old terms exactly. @see term-sheets, TermSheetSelect
  */
+import { useExitsStore } from "../state/exits.store";
 import { useSessionStore } from "../state/session.store";
 import { INVESTORS, type Investor } from "./term-investors";
 import { formatCurrency } from "../utils/money-utils";
@@ -199,13 +200,19 @@ export function appetite(investor: string, clauses: Clauses): number {
   return i ? appetiteOf(i, clauses) : 0;
 }
 
+/** What a due diligence passed on every count, last company, takes off every investor's demand. @see world/events/defs/diligence */
+export const SWEETENER = 1;
+/** The appetite they need to sign: their demand, less the sweetener. */
+export const demandOf = (investor: string): number =>
+  (NEGOTIATORS[investor]?.demand ?? 0) - (useExitsStore.getState().sweetener ? SWEETENER : 0);
+
 /** Whether they would sign it. */
-export const willSign = (investor: string, clauses: Clauses) => appetite(investor, clauses) >= (NEGOTIATORS[investor]?.demand ?? 0);
+export const willSign = (investor: string, clauses: Clauses) => appetite(investor, clauses) >= demandOf(investor);
 
 /** What they say to a draft: eager well over their demand, fine at it, no below. */
 export function reply(investor: string, clauses: Clauses): string {
-  const n = NEGOTIATORS[investor], a = appetite(investor, clauses);
-  return a < n.demand ? n.says.no : a >= n.demand + 2 ? n.says.eager : n.says.fine;
+  const n = NEGOTIATORS[investor], a = appetite(investor, clauses), need = demandOf(investor);
+  return a < need ? n.says.no : a >= need + 2 ? n.says.eager : n.says.fine;
 }
 
 /** A deal's effects, its clauses combined. */

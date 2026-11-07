@@ -20,7 +20,7 @@ import { CREW_SHARE } from "../world/events/events";
 import { EVACUEE_MORALE } from "../world/events/defs/flood";
 import { HACKATHON_MORALE, HACKATHON_MS, HACKATHON_SNUB } from "../world/events/defs/hackathon";
 import { ROUTE_BONUS } from "../world/events/defs/convoy";
-import { TIDY_MOOD } from "../world/events/defs/investor-tour";
+import { DILIGENCE_MOOD, DILIGENCE_MULT, DILIGENCE_WATERED, TIDY_MOOD } from "../world/events/defs/diligence";
 import { FLOOD_SECONDS } from "../world/events/flood";
 import { REPAIR_SECONDS } from "../world/events/damage";
 
@@ -45,6 +45,11 @@ function company(rand: () => number) {
     portsFlooded: rand(),
     routes: Math.floor(rand() * 6),
     mood: -20 + rand() * 40,
+    /** What due diligence finds: spills on the streets, and the share of what drinks that is watered. */
+    spills: rand() < 0.5 ? 0 : 1 + Math.floor(rand() * 4),
+    watered: rand() < 0.3 ? 1 : rand(),
+    /** Seconds of income the sale's valuation is worth, per whole of it. */
+    saleWorth: 100 + rand() * 1500,
     agents: 1 + Math.floor(rand() * 20),
     /** Money in hand, in seconds of income. */
     money: 30 + rand() * 3000,
@@ -54,6 +59,12 @@ function company(rand: () => number) {
   };
 }
 type Company = ReturnType<typeof company>;
+
+/** What due diligence's multiplier is worth, in seconds of income, as the town would be judged. @see inspect */
+const judged = (c: Company, tidied: number, spills: number) => {
+  const passed = Number(c.mood + tidied >= DILIGENCE_MOOD) + Number(spills === 0) + Number(c.watered >= DILIGENCE_WATERED);
+  return DILIGENCE_MULT[passed] * c.saleWorth;
+};
 
 /** Each choice's COST over the window, in seconds of total income (less is better). */
 const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
@@ -72,11 +83,11 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
       - c.port * 2 * 60 - (c.routes < 5 ? ROUTE_BONUS * c.port * (WINDOW - 90) : 0),
     usual: () => 0,
   },
-  "investor-tour": {
-    // The tidying crew off for the warning; the town looks TIDY_MOOD better, 1.5 s of income a point.
-    // (Left out: dodging the snub on the next offer.)
-    tidy: (c) => c.vibe * CREW_SHARE.tidy * 45 - Math.min(90, Math.max(0, 30 + 1.5 * (c.mood + TIDY_MOOD))) + Math.min(90, Math.max(0, 30 + 1.5 * c.mood)),
-    "as-is": () => 0,
+  diligence: {
+    // The crew off for the warning; then the sale valued by the checks passed. (Left out: the sweetener.)
+    tidy: (c) => c.vibe * CREW_SHARE.tidy * 45 - judged(c, TIDY_MOOD, c.spills),
+    mop: (c) => (c.spills ? c.intern * CREW_SHARE.mop * 45 - judged(c, 0, 0) : Infinity),
+    "as-is": (c) => -judged(c, 0, c.spills),
   },
   hackathon: {
     // Every vibe coder off for it, the studio's tank half filled — a spill risked, taken as 20 s of income

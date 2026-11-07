@@ -103,6 +103,13 @@ export const tankRoom = (id: number) => {
   return t ? Math.max(0, t.capacity - t.level) : 0;
 };
 
+/** The share of what drinks that is watered, averaged over every tank with a thirst: null with nothing drinking. @see DILIGENCE */
+export function wateredShare(): number | null {
+  let sum = 0, n = 0;
+  for (const t of tanks.values()) if (t.demand > 0) { sum += t.share; n++; }
+  return n ? sum / n : null;
+}
+
 /** Agents at work who are not cooled: they run at half. */
 export const hotAgents = () => hot;
 /** The compute spires standing, each counted by how well it is cooled. */

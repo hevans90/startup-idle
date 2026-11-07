@@ -198,6 +198,8 @@ export const FounderSelect = () => {
           setMapChoice(land);
           setTermSheet(id);
           setTermClauses(clauses);
+          // A SWEETENER is spent on the deal it sweetened. @see SWEETENER
+          useExitsStore.getState().setSweetener(false);
           // Announced; a new company is under way.
           useGenerationStore.setState({ announce: null });
           chooseFounder(selected);

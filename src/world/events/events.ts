@@ -16,7 +16,7 @@ import type { HackathonGain } from "../../game/culture";
 import type { GeneratorId } from "../../state/generators.store";
 import { formatCurrency } from "../../utils/money-utils";
 
-export type EventKind = "river-flood" | "convoy" | "investor-tour" | "hackathon" | "offer";
+export type EventKind = "river-flood" | "convoy" | "diligence" | "hackathon" | "offer";
 
 type Spot = { x: number; y: number };
 
@@ -92,8 +92,13 @@ export type TownView = {
   routes: number;
   /** The company's grandest door: the garage, up to the IPO. */
   door: Spot | null;
-  /** The town's mood, every house's weighted by who lives there. @see townMood */
-  mood: number;
+  /**
+   * WHAT DUE DILIGENCE INSPECTS: the town's mood (every house's, weighted by
+   * who lives there), the spills on the map (sludged houses and tanks
+   * spilling), the share of what drinks that is watered (null with nothing
+   * that drinks), and mopping every spill up. @see townMood, DILIGENCE
+   */
+  diligence: { mood: number; spills: number; watered: number | null; mop: () => void };
   /**
    * The vibe coders' studio, with enough of them for a hackathon: where it
    * is, filling its slop tank by a share, and dealing their ideas onto the
@@ -152,7 +157,7 @@ export type EventDef = {
 export const OVER_SHOWN_MS = 10_000;
 
 /** WHO A CHOICE TAKES OFF WORK, as a share of the kind: every event's prices in one place. @see Crew */
-export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 1, hackathon: 1 } as const;
+export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 1, mop: 0.5, hackathon: 1 } as const;
 
 export const money = (n: number) => formatCurrency(Math.round(n));
 const NAMES: Partial<Record<GeneratorId, string>> = { intern: "intern", vibe_coder: "vibe coder", "10x_dev": "10x dev" };

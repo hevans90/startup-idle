@@ -1,6 +1,6 @@
 # Map events: overhauled
 
-Status: **phase 2 under way** (2026-11-07): the flood's levee, the convoy's materials and the hackathon's card done (the hackathon kept at a minute: at two, declining won 86%). **Phase 1 done** (2026-11-04): engine, director (100 hired, then 15–25 min), defaults, conditions, general damage. Economy multipliers on conditions wait for an event that needs them. Replaces the director in `world/events/events.ts` and the events block in `world-scene.tsx`. Floods, sludge and clean-up stay as map systems; this plan is about what starts them and what they leave behind.
+Status: **phase 2 done** (2026-11-07): the flood's levee, the convoy's materials, the hackathon's card (kept at a minute: at two, declining won 86%), due diligence (the snub gone; water read from what drinks, as homes have no water need) and the offer reading first refusal (there is no drag-along clause). **Phase 1 done** (2026-11-04): engine, director (100 hired, then 15–25 min), defaults, conditions, general damage. Economy multipliers on conditions wait for an event that needs them. Replaces the director in `world/events/events.ts` and the events block in `world-scene.tsx`. Floods, sludge and clean-up stay as map systems; this plan is about what starts them and what they leave behind.
 
 ## Why: what is there now
 

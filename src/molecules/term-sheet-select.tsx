@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { twMerge } from "tailwind-merge";
 
 import {
-  CLAUSES, NEGOTIATORS, appetite, clause, clauseAppetite, dealEffects, openingDeal, option, reply, willSign,
+  CLAUSES, NEGOTIATORS, appetite, clause, clauseAppetite, dealEffects, demandOf, openingDeal, option, reply, willSign,
   type ClauseId, type Clauses,
 } from "../game/term-deal";
 import { termSheetsFor, type TermSheet } from "../game/term-sheets";
@@ -65,7 +65,7 @@ export function TermSheetSelect({ seed, founder, onBack, onSign }: Props) {
 
   const sheet = sheets.find((t) => t.id === investor)!;
   const clauses = drafts[investor];
-  const n = NEGOTIATORS[investor];
+  const n = NEGOTIATORS[investor], need = demandOf(investor);
   const a = appetite(investor, clauses), ok = willSign(investor, clauses);
   const fx = dealEffects(clauses);
   const share = (1 - fx.dilution) * fx.saleMult;
@@ -133,8 +133,8 @@ export function TermSheetSelect({ seed, founder, onBack, onSign }: Props) {
           {/* THE NEGOTIATION: every clause's options, what each does, and how the investor takes it. */}
           <div className="flex flex-col gap-3">
             <Panel title="Their answer" tone={ok ? "good" : "bad"}>
-              <Meter tone={ok ? "good" : "bad"} value={Math.max(0, Math.min(1, (a + 4) / (n.demand + 8)))}
-                label="Their appetite" detail={<>{a} <span className="text-fg-muted">· needs {n.demand}</span></>} />
+              <Meter tone={ok ? "good" : "bad"} value={Math.max(0, Math.min(1, (a + 4) / (need + 8)))}
+                label="Their appetite" detail={<>{a} <span className="text-fg-muted">· needs {need}</span></>} />
               <p className={twMerge("italic", ok ? "text-fg" : "text-bad")}>“{reply(investor, clauses)}” <span className="not-italic text-[11px] text-fg-muted">★ counts twice.</span></p>
 
             </Panel>

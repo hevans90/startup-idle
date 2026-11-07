@@ -4,13 +4,14 @@ import { EVENT_DEFS } from "./defs";
 import { MAX_ROUTES, ROUTE_BONUS, routeWon } from "./defs/convoy";
 import { FLOOD_MS, FLOOD_WARN_MS } from "./defs/flood";
 import { HACKATHON_MS, HACKATHON_SLOP, HACKATHON_SNUB } from "./defs/hackathon";
-import { tourFailed, tourReward } from "./defs/investor-tour";
+import { DILIGENCE_MULT, TIDY_MOOD } from "./defs/diligence";
 import type { HackathonGain } from "../../game/culture";
 import { OVER_SHOWN_MS, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
 
 const town = (now: number, over: Partial<TownView> = {}): TownView => ({
   now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, levee: null, evacuated: [], port: null,
-  convoy: { calls: 0, earned: 0 }, routes: 0, door: null, mood: 0, studio: null, sale: null, ...over,
+  convoy: { calls: 0, earned: 0 }, routes: 0, door: null, studio: null, sale: null,
+  diligence: { mood: 0, spills: 0, watered: null, mop: () => {} }, ...over,
 });
 let n = 1;
 const start = (kind: EventKind, v: TownView) => [startEvent(EVENT_DEFS[kind], v, n++)!];
@@ -98,24 +99,40 @@ describe("a convoy", () => {
   });
 });
 
-describe("investors", () => {
-  const at = (now: number, mood = 0) => town(now, { door: { x: 1, y: 1 }, mood });
+describe("due diligence", () => {
+  const at = (now: number, d: Partial<TownView["diligence"]> = {}) =>
+    town(now, { door: { x: 1, y: 1 }, diligence: { mood: 0, spills: 0, watered: null, mop: () => {}, ...d } });
+  const run = (d: Partial<TownView["diligence"]>, chosen?: string) => {
+    let evs = start("diligence", at(0, d));
+    if (chosen) evs = evs.map((e) => ({ ...e, chosen }));
+    evs = step(evs, at(45_000, d)).events;
+    return step(evs, at(75_000, d)).ended[0];
+  };
 
-  test("pay by the town's mood, and tidying up helps", () => {
-    expect(tourReward(10, 0, false)).toBe(300);
-    expect(tourReward(10, 0, true)).toBe(450);
-    expect(tourReward(10, -40, false)).toBe(0);
-    expect(tourReward(10, 40, true)).toBe(900);
+  test("values the company by how many of its three checks pass", () => {
+    const all = run({ mood: 20, spills: 0, watered: 1 });
+    expect(all.outcome.text).toMatch(/^Homes pass, spills pass, water pass: the company is valued ×1\.25/);
+    expect(all.outcome.text).toContain("ask 1 less");
+    const none = run({ mood: -20, spills: 3, watered: 0.2 });
+    expect(none.outcome.text).toContain(`×${DILIGENCE_MULT[0].toFixed(2)}`);
+    expect(none.outcome.text).not.toContain("ask");
+    // Nothing that drinks, nothing to fail.
+    expect(run({ mood: 20, spills: 2, watered: null }).outcome.text).toContain("water pass");
   });
 
-  test("paid less than the base thirty seconds, they leave unimpressed", () => {
-    expect(tourFailed(100, 2999)).toBe(true);
-    expect(tourFailed(100, 3000)).toBe(false);
-    let evs = start("investor-tour", at(0, -10));
-    evs = step(evs, at(45_000, -10)).events;
-    const over = step(evs, at(75_000, -10));
-    expect(over.events[0].outcome).toContain("the next acquirer will offer less");
-    expect(over.ended[0].outcome.money).toBe(1500);
+  test("tidying lifts the homes' reading; mopping is offered only with a spill, and done once chosen", () => {
+    expect(run({ mood: 6 - TIDY_MOOD }).outcome.text).toMatch(/^Homes fail/);
+    expect(run({ mood: 6 - TIDY_MOOD }, "tidy").outcome.text).toMatch(/^Homes pass/);
+    expect(start("diligence", at(0))[0].choices.find((c) => c.id === "mop")?.unavailable).toBe("Nothing has spilled");
+    let mopped = 0;
+    const evs = start("diligence", at(0, { spills: 2 })).map((e) => ({ ...e, chosen: "mop" }));
+    step(evs, at(1000, { spills: 2, mop: () => { mopped++; } })).acts.forEach((a) => a());
+    expect(mopped).toBe(1);
+  });
+
+  test("shown as it is, the card says what they would find", () => {
+    expect(start("diligence", at(0, { mood: 20, spills: 1 }))[0].choices.find((c) => c.id === "as-is")?.cost)
+      .toBe("they would find: homes pass, spills fail, water pass");
   });
 });
 

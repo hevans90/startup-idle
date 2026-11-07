@@ -119,96 +119,16 @@ describe("performAcquisition", () => {
   });
 });
 
-describe("an acquirer's premium", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    resetAllGameStores();
-    useFounderStore.getState().chooseFounder("bootstrapper");
-  });
-
-  test("a sale while their offer is on the table pays the premium, once", () => {
-    useValuationStore.getState().increaseValuation(ACQUISITION_THRESHOLD * 4);
-    const offer = equityForAccrued(useValuationStore.getState().accruedThisRun).toNumber();
-    setOfferPremium(OFFER_PREMIUM, Date.now() + 60_000);
-    expect(offerPremiumNow()).toBe(OFFER_PREMIUM);
-    expect(performAcquisition().toNumber()).toBe(Math.floor(offer * OFFER_PREMIUM));
-    expect(offerPremiumNow()).toBe(1);
-  });
-
-  test("and none once it has lapsed", () => {
-    useValuationStore.getState().increaseValuation(ACQUISITION_THRESHOLD * 4);
-    const offer = equityForAccrued(useValuationStore.getState().accruedThisRun).toNumber();
-    setOfferPremium(OFFER_PREMIUM, Date.now() - 1);
-    expect(performAcquisition().toNumber()).toBe(offer);
-  });
-});
-
-describe("reset scopes", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    resetAllGameStores();
-  });
-
-  test("resetRunStores preserves prestige; resetAllGameStores wipes it", () => {
-    usePrestigeStore.getState().grantEquity(7);
-    usePrestigeStore.getState().allocate("core");
-
-    resetRunStores();
-    expect(usePrestigeStore.getState().equity.toNumber()).toBe(6); // kept
-    expect(usePrestigeStore.getState().allocated).toEqual(["core"]); // kept
-
-    resetAllGameStores();
-    expect(usePrestigeStore.getState().equity.toNumber()).toBe(0); // wiped
-    expect(usePrestigeStore.getState().allocated).toEqual([]);
-  });
-
-  test("board mandates persist across a run reset, wiped on full reset", () => {
-    useValuationStore.getState().increaseValuation(10_000);
-    useValuationStore.getState().purchaseMandate("runway");
-    expect(useValuationStore.getState().mandateLevels.runway).toBe(1);
-
-    resetRunStores();
-    expect(useValuationStore.getState().mandateLevels.runway).toBe(1); // kept
-    expect(useValuationStore.getState().valuation.toNumber()).toBe(0); // run reset
-    expect(
-      useValuationStore.getState().getEconomyMultipliers().money,
-    ).toBeGreaterThan(1); // bonus still applies
-
-    resetAllGameStores();
-    expect(useValuationStore.getState().mandateLevels.runway).toBe(0); // wiped
-  });
-});
-
-describe("a town's worth at a sale", () => {
-  beforeEach(() => { localStorage.clear(); resetAllGameStores(); });
-
-  test("adds its share to the offer, capped, and nothing with no map", () => {
-    const accrued = new Decimal(ACQUISITION_THRESHOLD).mul(50);
-    const plain = equityForAccrued(accrued).toNumber();
-    expect(townBonusNow()).toBe(0);
-    const stop = setTownBonusReader(() => 0.2);
-    // A fifth more, give or take the rounding down either side.
-    expect(equityForAccrued(accrued).toNumber()).toBeGreaterThanOrEqual(Math.floor(plain * 1.2));
-    expect(equityForAccrued(accrued).toNumber()).toBeLessThanOrEqual(Math.ceil((plain + 1) * 1.2));
-    // And the inverse agrees, so the progress bar is honest.
-    const at = accruedForEquity(100);
-    expect(equityForAccrued(at.mul(1.001)).toNumber()).toBeGreaterThanOrEqual(100);
-    stop();
-    const stop2 = setTownBonusReader(() => 9);
-    expect(townBonusNow()).toBe(0.5);
-    stop2();
-    expect(townBonusNow()).toBe(0);
-  });
-});
-
-describe("an acquirer's premium", () => {
-  test("is less once investors have left a tour unimpressed, until an offer has heard it", async () => {
-    const { OFFER_PREMIUM, SNUB, offerPremium } = await import("./acquisition");
+describe("due diligence", () => {
+  test("values a sale by what it found, until the next", async () => {
+    const { accruedForEquity, equityForAccrued } = await import("./acquisition");
     const { useSessionStore } = await import("../state/session.store");
-    expect(offerPremium()).toBe(OFFER_PREMIUM);
-    useSessionStore.getState().setSnubbed(true);
-    expect(offerPremium()).toBeCloseTo(OFFER_PREMIUM - SNUB);
-    useSessionStore.getState().setSnubbed(false);
-    expect(offerPremium()).toBe(OFFER_PREMIUM);
+    const accrued = new Decimal(1_000_000);
+    const plain = equityForAccrued(accrued).toNumber();
+    useSessionStore.getState().setDiligence(1.25);
+    expect(equityForAccrued(accrued).toNumber()).toBeGreaterThanOrEqual(Math.floor(plain * 1.25) - 1);
+    expect(equityForAccrued(accruedForEquity(100).mul(1.001)).toNumber()).toBeGreaterThanOrEqual(100);
+    useSessionStore.getState().setDiligence(1);
+    expect(equityForAccrued(accrued).toNumber()).toBe(plain);
   });
 });

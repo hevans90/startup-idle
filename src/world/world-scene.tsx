@@ -122,8 +122,8 @@ import { CONVOY_PAYS, convoyPays, setConvoyIn } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
-import { dryUp, sludgedHouses } from "./events/sludge";
-import { slopSpike, stepSlop, tanksOf } from "./slop/tanks";
+import { dryUp, mopAll, sludgedHouses } from "./events/sludge";
+import { emptyFull, slopSpike, stepSlop, tanksOf } from "./slop/tanks";
 import { slopRate } from "../game/slop";
 import { convoyTally, tallyCall, townMood } from "./events/town-events";
 import { createDirector, eventStarted, pickEvent, tickDirector } from "./events/director";
@@ -158,7 +158,7 @@ import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
 import { runPipes } from "./water/pipes";
-import { stepCooling, tankFor } from "./projects/cooling";
+import { stepCooling, tankFor, wateredShare } from "./projects/cooling";
 import { pumpUpkeep } from "../game/cooling";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
 import {
@@ -3012,7 +3012,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               convoy: { calls: tally.calls, earned: tally.earned },
               routes: useSessionStore.getState().routes ?? 0,
               door: door ? { x: door.x, y: door.y } : null,
-              mood: townMood(st.grid, liveMoods(st.grid, net)),
+              // WHAT DUE DILIGENCE INSPECTS: homes, spills, and what drinks watered. @see DILIGENCE
+              diligence: {
+                mood: townMood(st.grid, liveMoods(st.grid, net)),
+                spills: (field ? sludgedHouses(field, st.grid).size : 0) + [...tanksOf(st.grid).values()].filter((t) => t.spilling).length,
+                watered: wateredShare(),
+                mop: () => { if (field) mopAll(field, st.grid); emptyFull(st.grid); },
+              },
               studio: studio && (owned.vibe_coder ?? 0) >= HACKATHON_CODERS ? {
                 x: studio.x, y: studio.y,
                 spike: (share: number) => slopSpike(st.grid, studio.id, share),

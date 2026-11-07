@@ -76,9 +76,9 @@ type SessionState = {
   /** Whether the slop pit has overflowed this run. */
   overflowed: boolean;
   markOverflowed: () => void;
-  /** Whether investors left a tour unimpressed, until the next acquirer's offer. @see SNUB */
-  snubbed: boolean;
-  setSnubbed: (snubbed: boolean) => void;
+  /** What the last due diligence made of the company: on a sale's Equity, until the next. @see DILIGENCE_MULT */
+  diligence: number;
+  setDiligence: (mult: number) => void;
   /** When the company's AI last worked, for what it did while nobody watched. @see catchUpAi */
   aiAt: number | null;
   setAiAt: (at: number) => void;
@@ -153,8 +153,8 @@ export const useSessionStore = create<SessionState>()(
       setTermClauses: (termClauses) => set({ termClauses }),
       overflowed: false,
       markOverflowed: () => set((s) => (s.overflowed ? s : { overflowed: true })),
-      snubbed: false,
-      setSnubbed: (snubbed) => set({ snubbed }),
+      diligence: 1,
+      setDiligence: (diligence) => set({ diligence }),
       aiAt: null,
       setAiAt: (aiAt) => set({ aiAt }),
       aiMode: false,
@@ -182,7 +182,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], eventDirector: null, conditions: [], routes: 0, termSheet: null, termClauses: null, overflowed: false, snubbed: false, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
+        portIncomePerSecond: 0, hintsDone: [], eventDirector: null, conditions: [], routes: 0, termSheet: null, termClauses: null, overflowed: false, diligence: 1, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
       }),
     }),
     {
@@ -205,7 +205,7 @@ export const useSessionStore = create<SessionState>()(
         termSheet: s.termSheet,
         termClauses: s.termClauses,
         overflowed: s.overflowed,
-        snubbed: s.snubbed,
+        diligence: s.diligence,
         aiAt: s.aiAt,
         aiSaid: s.aiSaid,
         aiMode: s.aiMode,
