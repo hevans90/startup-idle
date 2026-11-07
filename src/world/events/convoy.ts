@@ -4,6 +4,7 @@
  * done next door. Shown on the port's label and on the Conference Centre's
  * ghost. @see stepOpportunities "convoy"
  */
+import { useSessionStore } from "../../state/session.store";
 import type { Grid, Structure } from "../grid";
 
 export const CONVOY_PAYS = 2;
@@ -26,3 +27,17 @@ export const convoyPays = (g: Grid, port: Structure) => (conferenceNear(g, port)
 /** The ports a Conference Centre at `at` would be near. */
 export const portsNear = (g: Grid, at: Structure, isPort: (s: Structure) => boolean) =>
   [...g.structures.values()].filter((s) => isPort(s) && gap(s, at) <= CONFERENCE_REACH);
+
+/**
+ * A CONVOY BRINGS MATERIALS: while one is in, a building site's loads come
+ * off it at the port, at half price; and every regular route it has left
+ * takes a tenth off a load, for good. @see ROUTE_BONUS, depotFor
+ */
+export const CONVOY_LOADS = 0.5;
+export const ROUTE_LOADS = 0.1;
+let convoyIn = false;
+/** Whether a convoy is in now: the scene's to say. */
+export const setConvoyIn = (on: boolean) => { convoyIn = on; };
+export const convoyIsIn = () => convoyIn;
+/** What a load costs now, against its usual price: the convoy in, and the routes won. */
+export const loadPriceMult = () => (convoyIn ? CONVOY_LOADS : 1) * Math.max(0, 1 - ROUTE_LOADS * (useSessionStore.getState().routes ?? 0));

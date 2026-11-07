@@ -118,7 +118,7 @@ import { liveBeauty } from "./agents/beauty";
 import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, stepMood, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
-import { CONVOY_PAYS, convoyPays } from "./events/convoy";
+import { CONVOY_PAYS, convoyPays, setConvoyIn } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
@@ -3087,6 +3087,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // A CONVOY with extra hands at the quays turns boats round twice as fast.
           const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
           getTraffic().rush = convoy?.chosen === "hands" ? 2 : 1;
+          // AND BRINGS MATERIALS: a site's loads off the boats, at half price. @see CONVOY_LOADS
+          setConvoyIn(!!convoy);
           if (flood && !floodBase.current && field) floodBase.current = floodBaseline(field, st.grid);
           if (flood) floodShield.current = flood.chosen === "sandbags" || flood.chosen === "evacuate" ? flood.chosen : null;
           const rise = flood?.phase === "active" && flood.endsAt !== undefined ? riseAt((Date.now() - (flood.endsAt - FLOOD_MS)) / 1000, floodPeak(st.grid)) : 0;

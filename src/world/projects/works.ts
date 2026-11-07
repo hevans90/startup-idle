@@ -37,6 +37,7 @@ import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/tow
 import { notable } from "../../game/machine";
 import { cultureNow } from "../../game/culture-now";
 import { siteTrucks } from "../../game/site-trucks";
+import { convoyIsIn, loadPriceMult } from "../events/convoy";
 
 /** The Garage and what it grows into: the yard materials come from. @see depotFor */
 const HQ_LINE = ["garage", "hq", "boardroom", "ipo"];
@@ -319,7 +320,7 @@ export function stepWorks(
     // BY AIR, a small site with Drone Airlift and a Data Centre to fly from:
     // straight over the town, dearer a load. @see AIRLIFT_TILES
     const airlift = notable("airlift") && !!dc && s.w * s.h <= AIRLIFT_TILES;
-    const haul = siteTrucks(), perLoad = (b.cost / b.deliveries) * haul.price;
+    const haul = siteTrucks(), perLoad = (b.cost / b.deliveries) * haul.price * loadPriceMult();
     if (onHand < STOCK && inFlight === 0 && b.delivered < b.deliveries && airlift) {
       if (spend(perLoad * AIRLIFT_PRICE)) {
         const from = { x: dc!.x + dc!.w / 2, y: dc!.y + dc!.h / 2 }, to = { x: s.x + s.w / 2, y: s.y + s.h / 2 };
@@ -336,7 +337,8 @@ export function stepWorks(
       // and a convoy of three more with Autonomous Freight — each a load paid
       // for as it is sent, as many as the money runs to. @see CONVOY @see siteTrucks
       const freight = notable("freight");
-      const from = door && depotFor(g, places, s, door.net, freight);
+      // WITH A CONVOY IN, off the boats at the port. @see CONVOY_LOADS
+      const from = door && ((convoyIsIn() && portDepot(g, places, s, door.net)) || depotFor(g, places, s, door.net, freight));
       let sent = 0, paid = 0;
       for (let k = Math.min(haul.trucks + (freight ? CONVOY - 1 : 0), b.deliveries - b.delivered); k > 0 && spend(perLoad); k--) {
         paid++;
@@ -425,6 +427,18 @@ export function depotFor(g: Grid, places: readonly Place[], site: Structure, net
   return pickGateway(places, net);
 }
 
+/** The nearest port standing on a network, for loads come in on a convoy; null with none. */
+export function portDepot(g: Grid, places: readonly Place[], site: Structure, net: number): Place | null {
+  let best: Place | null = null, bestD = Infinity;
+  for (const st of g.structures.values()) {
+    if (st.build || !structureDef(st.def)?.port) continue;
+    const pl = places.find((p) => p.structure === st.id && p.net === net);
+    const d = Math.abs(st.x - site.x) + Math.abs(st.y - site.y);
+    if (pl && d < bestD) { best = pl; bestD = d; }
+  }
+  return best;
+}
+
 /** Shirts for a crew found already on site. */
 const SHIRTS = [0xd35454, 0x4a7fc1, 0xe6c35c, 0x5aa36b, 0x9b6bc2, 0xe08a3c];
 
@@ -482,13 +496,13 @@ export function catchUpWorks(
       if (toCap > left) { b.done += crew * left; left = 0; break; }
       b.done = cap;
       left -= Math.max(0, toCap);
-      if (b.delivered >= b.deliveries || !spend((b.cost / b.deliveries) * siteTrucks().price)) break;
+      if (b.delivered >= b.deliveries || !spend((b.cost / b.deliveries) * siteTrucks().price * loadPriceMult())) break;
       b.delivered++;
     }
     // And the trucks kept coming: the stock on hand as it would have been, so
     // a crew back on site is not left waiting for a load from the map's edge.
     while (crew > 0 && b.delivered < b.deliveries
-      && (materialCap(b) - b.done) / (b.need / b.deliveries) < STOCK && spend((b.cost / b.deliveries) * siteTrucks().price)) {
+      && (materialCap(b) - b.done) / (b.need / b.deliveries) < STOCK && spend((b.cost / b.deliveries) * siteTrucks().price * loadPriceMult())) {
       b.delivered++;
     }
     b.updatedAt = now;
