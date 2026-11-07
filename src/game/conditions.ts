@@ -8,15 +8,15 @@
  * sink it registers. @see setConditionsSink, cultureNow, moraleOffsets
  */
 import type { GeneratorId } from "../state/generators.store";
-import type { CardEffects } from "./culture";
+import type { CardEffects, Rules } from "./culture";
 
 export type Condition = {
   /** What made it: an event's kind, a memo. */
   source: string;
   /** For one kind only; every kind without. */
   only?: GeneratorId;
-  /** Culture-deck effects, held under the slotted cards. @see cultureNow */
-  effects?: CardEffects;
+  /** Culture-deck effects — and rules — held under the slotted cards. @see cultureNow */
+  effects?: CardEffects & Rules;
   /** A lean on satisfaction's target, in points. @see moraleOffsets */
   lean?: number;
   /** When it wears off, ms since the epoch; null, it lasts the run. */
@@ -78,6 +78,6 @@ export function setConditionsSink(s: (l: readonly Condition[]) => void): () => v
 }
 
 /** The culture effects in force on a kind, or with none, on the whole company. @see cultureNow */
-export function conditionEffects(kind?: GeneratorId, now = Date.now()): CardEffects[] {
+export function conditionEffects(kind?: GeneratorId, now = Date.now()): (CardEffects & Rules)[] {
   return conditionsNow(now).flatMap((c) => (c.effects && (!c.only || c.only === kind) ? [c.effects] : []));
 }

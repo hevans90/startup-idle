@@ -31,6 +31,7 @@ import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
 import { notable } from "../../game/machine";
 import { cultureNow, cultureVersion } from "../../game/culture-now";
+import { closuresVersion, houseWork, isClosed } from "../events/closures";
 
 /** Where each kind works: the building that opened them, and their offices. */
 export const WORKPLACES: Record<GeneratorId, readonly string[]> = {
@@ -118,6 +119,8 @@ export function walkFrom(g: Grid, starts: readonly number[]): Int32Array {
         if (!connects(g, x, y, dir)) continue;
         const [dx, dy] = NEIGHBOUR[dir];
         const j = idx(g, x + dx, y + dy);
+        // CLOSED for road works: no way through. @see ROAD_WORKS
+        if (isClosed(j)) continue;
         // Onto a ramp is up or down a level. @see Grid.ramp
         const nd = d + (g.ramp[j] && !g.deck[j] ? CLIMB : 1);
         if (dist[j] >= 0 && dist[j] <= nd) continue;
@@ -211,8 +214,8 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
   return { commutes, desks, home };
 }
 
-let memo: { g: Grid | null; rev: number; sites: number; people: string; deck: number; value: Seating } = {
-  g: null, rev: -1, sites: -1, people: "", deck: -1, value: { commutes: new Map(), desks: new Map(), home: {} },
+let memo: { g: Grid | null; rev: number; sites: number; people: string; deck: number; closures: number; value: Seating } = {
+  g: null, rev: -1, sites: -1, people: "", deck: -1, closures: -1, value: { commutes: new Map(), desks: new Map(), home: {} },
 };
 
 /**
@@ -232,8 +235,10 @@ export function liveSeating(g: Grid, net: Network): Seating {
   const people = `${a}:${b}`;
   // And the culture deck, which moves desks, commutes and who stays home.
   const deck = cultureVersion();
-  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.people !== people || memo.deck !== deck) {
-    memo = { g, rev: g.rev, sites, people, deck, value: seat(g, placesOf(g, net)) };
+  // And a junction closed, or opened again. @see setClosed
+  const closures = closuresVersion();
+  if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.people !== people || memo.deck !== deck || memo.closures !== closures) {
+    memo = { g, rev: g.rev, sites, people, deck, closures, value: seat(g, placesOf(g, net)) };
   }
   return memo.value;
 }
@@ -259,7 +264,8 @@ export function commuteFactor(
       if (housedBy(s.def)?.id !== who) continue;
       const n = residentsIn(s);
       people += n;
-      work += n * (commutes.get(s.id)?.eff ?? 1);
+      // On a tenants' strike, at a share. @see setHouseWork
+      work += n * (commutes.get(s.id)?.eff ?? 1) * houseWork(s.id);
     }
     out[who] = people > 0 ? work / people : 1;
   }

@@ -27,6 +27,7 @@ export const STRIKE: EventDef = {
     { id: "edge", label: "Truck from the map's edge", note: () => `loads ×${EDGE_LOADS} the price, the long way round` },
   ],
   default: "edge",
+  ai: () => "pay",
   goesAhead: (e) => e.chosen !== "pay",
   outcome: (e) => ({ text: e.chosen === "pay" ? "Paid: the yard is sending loads again." : "The strike is over." }),
 };

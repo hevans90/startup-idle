@@ -188,7 +188,12 @@ const CALL_FLOOR: Record<number, number> = { 1: 4, 2: 8, 3: 16 };
  * things should go and not for what the road costs, but not nothing, so it is
  * not painted everywhere.
  */
+/** Road free for a while: a bypass round road works. The scene's to set. @see ROAD_WORKS */
+let roadsFree = false;
+export const setRoadsFree = (on: boolean) => { roadsFree = on; };
+
 export function roadCost(tiles: number): Decimal {
+  if (roadsFree) return new Decimal(0);
   const each = Math.max(ROAD_FLOOR, safeIncome() * ROAD_INCOME_SECONDS);
   return new Decimal(Math.round(each * tiles));
 }

@@ -139,6 +139,8 @@ type AiSingularityState = {
   value: number;
   everCompleted: boolean;
   tick: (seconds: number) => void;
+  /** The meter moved by `points`, between nothing and what it may reach: an agent incident. @see AGENT_INCIDENT */
+  nudge: (points: number) => void;
   reset: () => void;
 };
 
@@ -166,6 +168,12 @@ export const useAiSingularityStore = create<AiSingularityState>()(
         if (next === cur) return;
         set({ value: next });
         if (next >= 100 && cur < 100 && !get().everCompleted) set({ everCompleted: true });
+      },
+
+      nudge: (points) => {
+        const cur = Math.min(100, Math.max(0, get().value));
+        if (cur >= 100) return;
+        set({ value: Math.min(meterCap(cur), Math.max(0, cur + points)) });
       },
 
       // A SALE: part of it kept, over a floor this generation's sales have built.

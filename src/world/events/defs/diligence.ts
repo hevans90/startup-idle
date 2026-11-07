@@ -62,6 +62,7 @@ export const DILIGENCE: EventDef = {
     { id: "as-is", label: "Show it as it is", note: (v) => `they would find: ${said(inspect(v))}` },
   ],
   default: "as-is",
+  ai: () => "mop",
   outcome: (e, v) => {
     const r = inspect(v, e.chosen);
     const passed = CHECKS.filter((c) => r[c]).length;

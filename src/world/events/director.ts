@@ -14,6 +14,8 @@ export type Director = {
   gap: number | null;
   /** The last that came. */
   last: EventKind | null;
+  /** A follow-up due, and when (ms since the epoch): it comes then, ahead of the gap. @see Outcome.next */
+  next?: { kind: EventKind; at: number } | null;
 };
 
 /** People hired, every kind summed, before any event comes. */
@@ -26,7 +28,7 @@ export const GAP: readonly [number, number] = [15 * 60, 25 * 60];
 const AGAIN = 0.25;
 
 export function createDirector(saved?: Partial<Director> | null): Director {
-  return { gap: typeof saved?.gap === "number" ? saved.gap : null, last: saved?.last ?? null };
+  return { gap: typeof saved?.gap === "number" ? saved.gap : null, last: saved?.last ?? null, next: saved?.next ?? null };
 }
 
 /** `dt` seconds of play; the clock is started once there are `headcount` enough. */
@@ -38,14 +40,30 @@ export function tickDirector(d: Director, dt: number, headcount: number): void {
   d.gap -= dt;
 }
 
+/** The kinds that are a stroke of luck, not trouble: what the Hustler draws more of. @see HUSTLER_EVENTS */
+export const OPPORTUNITIES: readonly EventKind[] = ["convoy", "hackathon", "offer", "viral"];
+
+/** A follow-up due now, and nothing under way: its kind, once it can come. Null without. @see Outcome.next */
+export function dueFollowUp(d: Director, v: TownView, defs: readonly EventDef[], live: boolean): EventDef | null {
+  if (!d.next || live || v.now < d.next.at) return null;
+  const def = defs.find((x) => x.kind === d.next!.kind);
+  return def?.where(v) ? def : null;
+}
+
+/** A follow-up queued, to come `inMs` from `now`. */
+export function queueFollowUp(d: Director, kind: EventKind, now: number, inMs: number): void {
+  d.next = { kind, at: now + inMs };
+}
+
 /**
  * The event to start now, if one is due and none is under way: drawn by
- * weight from those that can come, `roll` in [0, 1). Null with none.
+ * weight from those that can come, `roll` in [0, 1). Null with none. The
+ * opportunities weigh `luck` times as much. @see OPPORTUNITIES
  */
-export function pickEvent(d: Director, v: TownView, defs: readonly EventDef[], live: boolean, roll: number): EventDef | null {
+export function pickEvent(d: Director, v: TownView, defs: readonly EventDef[], live: boolean, roll: number, luck = 1): EventDef | null {
   if (d.gap === null || d.gap > 0 || live) return null;
   const pool = defs.flatMap((def) => {
-    const w = def.where(v) ? (def.weight?.(v) ?? 1) * (def.kind === d.last ? AGAIN : 1) : 0;
+    const w = def.where(v) ? (def.weight?.(v) ?? 1) * (def.kind === d.last ? AGAIN : 1) * (OPPORTUNITIES.includes(def.kind) ? luck : 1) : 0;
     return w > 0 ? [{ def, w }] : [];
   });
   const total = pool.reduce((s, p) => s + p.w, 0);

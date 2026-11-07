@@ -41,6 +41,7 @@ export const HACKATHON: EventDef = {
     { id: "decline", label: "Not now", note: () => `−${HACKATHON_SNUB} vibe coder morale for a day` },
   ],
   default: "decline",
+  ai: () => "host",
   goesAhead: (e) => e.chosen === "host",
   outcome: (e, v) => {
     if (e.chosen !== "host") {

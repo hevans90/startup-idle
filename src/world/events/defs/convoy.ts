@@ -43,6 +43,7 @@ export const CONVOY: EventDef = {
     { id: "usual", label: "Business as usual" },
   ],
   default: "usual",
+  ai: () => "hands",
   outcome: (e, v) => {
     const { calls, earned } = v.convoy;
     const won = routeWon(e, calls) && v.routes < MAX_ROUTES;

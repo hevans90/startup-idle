@@ -38,6 +38,7 @@ export const DROUGHT: EventDef = {
     { id: "truck", label: "Truck water in", price: (v) => v.income * TRUCK_SECONDS * (DROUGHT_MS / 60_000), note: () => "every tank kept full while it lasts" },
   ],
   default: "ration",
+  ai: () => "truck",
   outcome: (e, v) => {
     if (e.chosen !== "ration") return { text: "The river is back." };
     const kinds = (Object.keys(v.owned) as GeneratorId[]).filter((k) => (v.owned[k] ?? 0) > 0);

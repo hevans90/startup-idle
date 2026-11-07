@@ -30,6 +30,7 @@ export const HEATWAVE: EventDef = {
     { id: "ride", label: "Ride it out", note: () => "whatever runs short of water overheats: idle until repaired" },
   ],
   default: "throttle",
+  ai: () => "pumps",
   during: (e, v) => ({ hit: Math.max(e.hit ?? 0, v.overheated) }),
   outcome: (e) => {
     if (e.chosen === "pumps") return { text: "The pumps kept every tank full. It is over." };

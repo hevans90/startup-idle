@@ -9,12 +9,18 @@ import { DROUGHT_MS, RATION_MORALE, TRUCK_SECONDS } from "./defs/drought";
 import { HEAT_MS, PUMP_SECONDS } from "./defs/heatwave";
 import { CLEAN_MOOD, CLOSED_SECONDS, FINE_SECONDS } from "./defs/inspector";
 import { STRIKE_PAY } from "./defs/strike";
+import { OVERTIME_MS, OVERTIME_SECONDS, WORKS_MS } from "./defs/road-works";
+import { COUNTER_VALUE } from "./defs/poaching";
+import { VIRAL_MORALE } from "./defs/viral";
+import { FREEZE_WORK, IGNORE_WORK } from "./defs/tenants";
+import { INCIDENT_METER, RUN_SECONDS } from "./defs/agents";
+import { REINSPECT_MS } from "./defs/inspector";
 import type { HackathonGain } from "../../game/culture";
-import { OVER_SHOWN_MS, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
+import { OVER_SHOWN_MS, answerFor, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
 
 const town = (now: number, over: Partial<TownView> = {}): TownView => ({
   now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, overheated: 0, levee: null, evacuated: [], port: null,
-  drinkers: null, offices: null, site: null,
+  drinkers: null, offices: null, site: null, junction: null, poach: null, viral: null, unhappy: null, datacentre: null,
   convoy: { calls: 0, earned: 0 }, routes: 0, door: null, studio: null, sale: null,
   diligence: { mood: 0, spills: 0, watered: null, mop: () => {} }, ...over,
 });
@@ -274,6 +280,122 @@ describe("the health inspector", () => {
     shut.outcome.then?.();
     expect(closed).toEqual([9, CLOSED_SECONDS]);
     expect(run("fine", true).outcome.then).toBeUndefined();
+  });
+});
+
+describe("the health inspector, come back", () => {
+  const office = (dirty: boolean) => ({ x: 2, y: 2, id: 9, dirty, close: () => {} });
+  const at = (now: number) => town(now, { offices: office(true) });
+  const run = (chained: boolean) => {
+    const evs = step(start("inspector", at(0)).map((e) => ({ ...e, chained })), at(45_000)).events;
+    return step(evs, at(50_000)).ended[0].outcome;
+  };
+
+  test("an office closed the first time brings them back; the second time, a fine as well", () => {
+    expect(run(false).next).toEqual({ kind: "inspector", inMs: REINSPECT_MS });
+    const again = run(true);
+    expect(again.next).toBeUndefined();
+    expect(again.text).toContain("fined");
+  });
+});
+
+describe("the AI, in AI mode", () => {
+  test("answers with its pick when it can take and pay for it, and the default when not", () => {
+    const v = town(0, { drinkers: { x: 3, y: 3, dig: null } });
+    const e = start("heatwave", v)[0];
+    expect(answerFor(EVENT_DEFS.heatwave, e, v, 1e9)).toBe("pumps");
+    expect(answerFor(EVENT_DEFS.heatwave, e, v, 10)).toBe("throttle");
+    const d = start("diligence", town(0, { door: { x: 1, y: 1 } }))[0];
+    expect(answerFor(EVENT_DEFS.diligence, d, town(0), 1e9)).toBe("as-is");
+  });
+});
+
+describe("road works", () => {
+  const at = (now: number) => town(now, { junction: { x: 4, y: 6 } });
+
+  test("close the busiest junction for five minutes, or one with overtime", () => {
+    expect(startEvent(EVENT_DEFS["road-works"], town(0), 1)).toBeNull();
+    const evs = start("road-works", at(0));
+    expect(evs[0].where).toEqual({ x: 4, y: 6 });
+    expect(evs[0].choices[0].price).toBe(100 * OVERTIME_SECONDS);
+    expect(step(evs, at(45_000)).events[0]).toMatchObject({ chosen: "put-up", endsAt: 45_000 + WORKS_MS });
+    expect(step(evs.map((e) => ({ ...e, chosen: "overtime" })), at(45_000)).events[0].endsAt).toBe(45_000 + OVERTIME_MS);
+  });
+});
+
+describe("poaching", () => {
+  let lost = 0;
+  const poach = (score: number) => ({ x: 1, y: 1, n: 3, score, price: 900, lose: () => { lost++; } });
+  const at = (now: number, score = 0) => town(now, { poach: poach(score) });
+  const run = (chosen?: string) => {
+    let evs = start("poaching", at(0));
+    if (chosen) evs = evs.map((e) => ({ ...e, chosen }));
+    evs = step(evs, at(45_000)).events;
+    return step(evs, at(46_000)).ended[0];
+  };
+
+  test("is likelier the unhappier the 10x devs, and matching it costs", () => {
+    expect(EVENT_DEFS.poaching.weight!(at(0, -40))).toBeGreaterThan(EVENT_DEFS.poaching.weight!(at(0, 20)));
+    expect(start("poaching", at(0))[0].choices[0].price).toBe(900);
+  });
+
+  test("unanswered, they go; counter-poached, as many come and the valuation dips", () => {
+    lost = 0;
+    const gone = run();
+    expect(gone.outcome.text).toBe("3 10x devs left for the rival.");
+    gone.outcome.then?.();
+    expect(lost).toBe(1);
+    expect(run("counter").outcome.text).toContain(`×${COUNTER_VALUE}`);
+    expect(run("match").outcome.then).toBeUndefined();
+  });
+});
+
+describe("a viral post", () => {
+  const at = (now: number) => town(now, { door: { x: 1, y: 1 }, viral: { card: "crunch", name: "Crunch Week", slotted: 2 } });
+
+  test("names the card, weighs by what is slotted, and is banked unanswered", () => {
+    const evs = start("viral", at(0));
+    expect(evs[0].text).toContain("Crunch Week");
+    expect(EVENT_DEFS.viral.weight!(at(0))).toBe(2);
+    expect(evs[0].choices[0].cost).toContain("Output ×2 while it is light for 5 minutes");
+    const banked = step(evs, at(20_000));
+    expect(banked.events[0]).toMatchObject({ phase: "over", chosen: "bank" });
+    expect(banked.ended[0].outcome.then).toBeDefined();
+  });
+
+  test("leant into, it runs, and everyone is tired after", () => {
+    let evs = step(start("viral", at(0)).map((e) => ({ ...e, chosen: "lean" })), at(20_000)).events;
+    expect(evs[0].phase).toBe("active");
+    evs = step(evs, at(20_000 + 300_000)).events;
+    expect(evs[0].outcome).toContain(`−${VIRAL_MORALE} morale`);
+  });
+});
+
+describe("a tenants' strike", () => {
+  const at = (now: number, gift = true) => town(now, { unhappy: { x: 3, y: 3, homes: [5, 6, 7], who: "intern", gift: () => gift } });
+
+  test("on a street of unhappy homes, ignored unanswered", () => {
+    expect(startEvent(EVENT_DEFS.tenants, town(0), 1)).toBeNull();
+    const evs = start("tenants", at(0));
+    expect(evs[0].text).toContain("3 unhappy homes");
+    expect(evs[0].choices.find((c) => c.id === "freeze")?.cost).toContain(`×${FREEZE_WORK}`);
+    expect(evs[0].choices.find((c) => c.id === "ignore")?.cost).toContain(`×${IGNORE_WORK}`);
+    const over = step(step(evs, at(45_000)).events, at(46_000));
+    expect(over.events[0]).toMatchObject({ chosen: "ignore" });
+  });
+});
+
+describe("an agent incident", () => {
+  const at = (now: number, policy = true) => town(now, { datacentre: { x: 2, y: 2, policy } });
+
+  test("comes once agents run; let run, it pays; made policy only with AI cards left", () => {
+    expect(startEvent(EVENT_DEFS.agents, town(0), 1)).toBeNull();
+    const evs = start("agents", at(0));
+    expect(evs[0].choices.find((c) => c.id === "run")?.cost).toContain(`the meter +${INCIDENT_METER}`);
+    expect(start("agents", at(0, false))[0].choices.find((c) => c.id === "policy")?.unavailable).toBe("No AI cards to deal");
+    const over = step(step(evs, at(30_000)).events, at(31_000)).ended[0];
+    expect(over.event.chosen).toBe("run");
+    expect(over.outcome.money).toBe(100 * RUN_SECONDS);
   });
 });
 

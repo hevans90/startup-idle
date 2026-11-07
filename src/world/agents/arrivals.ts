@@ -282,6 +282,21 @@ export function stepArrivals(
   }
 }
 
+/** `n` of a kind moved out of their homes, the emptiest first: they have left the company. Returns the homes changed. */
+export function moveOut(g: Grid, who: GeneratorId, n: number): number[] {
+  const homes = [...g.structures.values()].filter((s) => housedBy(s.def)?.id === who && residentsIn(s) > 0)
+    .sort((p, q) => residentsIn(p) - residentsIn(q) || q.id - p.id);
+  const changed: number[] = [];
+  for (const s of homes) {
+    if (n <= 0) break;
+    const k = Math.min(n, residentsIn(s));
+    s.residents = residentsIn(s) - k;
+    n -= k;
+    changed.push(s.id);
+  }
+  return changed;
+}
+
 /**
  * EVERYONE HOME, at once: the people who should live on the map moved in
  * straight away, as many as there are beds for, fullest first — and any

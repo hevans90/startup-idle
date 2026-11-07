@@ -25,6 +25,11 @@ import { FLOOD_SECONDS } from "../world/events/flood";
 import { HEAT_MS, HEAT_THIRST, OVERHEAT_SHARE, PUMP_SECONDS } from "../world/events/defs/heatwave";
 import { DIG_SECONDS, DROUGHT_MS, RATION_MORALE, TRUCK_SECONDS } from "../world/events/defs/drought";
 import { CLEAN_MOOD, CLOSED_SECONDS, FINE_SECONDS } from "../world/events/defs/inspector";
+import { OVERTIME_MS, OVERTIME_SECONDS, WORKS_MS } from "../world/events/defs/road-works";
+import { COUNTER_VALUE, MATCH_SHARE } from "../world/events/defs/poaching";
+import { VIRAL_MORALE, VIRAL_MS } from "../world/events/defs/viral";
+import { FREEZE_MORALE, FREEZE_WORK, IGNORE_MORALE, IGNORE_WORK } from "../world/events/defs/tenants";
+import { INCIDENT_METER, ROLLBACK_SECONDS, RUN_SECONDS } from "../world/events/defs/agents";
 import { EDGE_LOADS, STRIKE_MS, STRIKE_PAY } from "../world/events/defs/strike";
 import { REPAIR_SECONDS } from "../world/events/damage";
 
@@ -68,6 +73,30 @@ function company(rand: () => number) {
     headroom: 0.4 + rand() * 1.4,
     /** How long a clean record lasts before the next spill, in days. */
     cleanFor: rand() * 0.6,
+    /** The share of income whose commutes cross the busiest junction, and how much going round costs them. */
+    across: rand() * 0.3,
+    detour: rand(),
+    /** The 10x devs' share of income, and what one costs to hire, in seconds of income. */
+    tenx: rand() * 0.3,
+    tenxHire: 5 + rand() * 60,
+    tenxN: 1 + Math.floor(rand() * 5),
+    /** What leaning into a card's rule is worth, a second, as a share of income. */
+    rule: rand() * 0.6,
+    /** A culture point, in seconds of income. */
+    point: 10 + rand() * 120,
+    /** Room to lay a bypass round the junction, 0 to 1; and a café's price, in seconds of income. */
+    room: rand(),
+    cafePrice: 5 + rand() * 120,
+    /** How much of losing a 10x dev is the price of hiring another: beds, and a hire price that has since risen. */
+    rehire: 0.2 + rand(),
+    /** The striking homes' share of income. */
+    street: 0.02 + rand() * 0.15,
+    /** What a free café is worth to them, against being ignored: a share of their work back. */
+    cafe: rand(),
+    /** Seconds of income a point of the meter costs. */
+    meter: rand() * 20,
+    /** What an AI card offer is worth, in seconds of income: nothing without the deck. */
+    aiCard: rand() < 0.3 ? -Infinity : rand() * 150,
     agents: 1 + Math.floor(rand() * 20),
     /** Money in hand, in seconds of income. */
     money: 30 + rand() * 3000,
@@ -133,6 +162,35 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
     pay: (c) => c.siteLeft * STRIKE_PAY,
     wait: (c) => c.stall * STRIKE_MS / 1000,
     edge: (c) => Math.min(c.siteLeft, c.loadsRate * STRIKE_MS / 1000) * (EDGE_LOADS - 1) + c.stall * 0.2 * STRIKE_MS / 1000,
+  },
+  "road-works": {
+    // Overtime paid; or those across it going round for five minutes — or, with road free, a bypass laid for good.
+    overtime: (c) => OVERTIME_SECONDS + c.across * c.detour * OVERTIME_MS / 1000,
+    bypass: (c) => c.across * c.detour * (1 - 0.6 * c.room) * WORKS_MS / 1000 + 5 - c.across * 0.02 * WINDOW * c.room,
+    "put-up": (c) => c.across * c.detour * WORKS_MS / 1000,
+  },
+  poaching: {
+    // Half their hire price a head; or their share of the 10x devs' work gone till rehired; or as many free and the valuation dipped.
+    match: (c) => c.tenxN * c.tenxHire * MATCH_SHARE,
+    "let-go": (c) => c.tenxN * c.tenxHire * c.rehire,
+    counter: (c) => (1 - COUNTER_VALUE) * c.saleWorth,
+  },
+  viral: {
+    // A card's rule for five minutes, then everyone put out; or a point.
+    lean: (c) => -c.rule * VIRAL_MS / 1000 + c.intern * leanSeconds(VIRAL_MORALE, c.internScore) + c.vibe * leanSeconds(VIRAL_MORALE, c.vibeScore),
+    bank: (c) => -c.point,
+  },
+  tenants: {
+    // A café: their work back, but for what it does not fix; a rent freeze: half their work for a day, but glad of it; ignored: a quarter, and put out.
+    cafe: (c) => c.cafePrice + c.street * (1 - c.cafe) * (1 - IGNORE_WORK) * MORALE_SECONDS,
+    freeze: (c) => c.street * (1 - FREEZE_WORK) * MORALE_SECONDS - c.intern * leanSeconds(FREEZE_MORALE, c.internScore),
+    ignore: (c) => c.street * (1 - IGNORE_WORK) * MORALE_SECONDS + c.intern * leanSeconds(IGNORE_MORALE, c.internScore),
+  },
+  agents: {
+    // The meter is a clock to the Ascension: each point of it costs; money for the clean-up, or made by it; or an AI card.
+    rollback: (c) => ROLLBACK_SECONDS - INCIDENT_METER * c.meter,
+    run: (c) => INCIDENT_METER * c.meter - RUN_SECONDS,
+    policy: (c) => -c.aiCard,
   },
   hackathon: {
     // Every vibe coder off for it, the studio's tank half filled — a spill risked, taken as 20 s of income

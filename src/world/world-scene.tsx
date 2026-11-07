@@ -14,7 +14,8 @@ import { useQuestStore } from "../state/quest.store";
 import { questWorld } from "./ai/quest-world";
 import { walletCap } from "./ai/wallet";
 import { HUSTLER_EVENTS } from "../game/founders.catalog";
-import { housedBy } from "../game/housing";
+import { housedBy, residentsIn } from "../game/housing";
+import { useInnovationStore } from "../state/innovation.store";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
 import { createStreetHeat, type StreetHeat } from "./render/street-heat";
 import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
@@ -110,7 +111,7 @@ import { createBuildCursor, type BuildCursor, type Validator } from "./edit/curs
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { stepTown } from "./agents/town";
-import { stepArrivals } from "./agents/arrivals";
+import { moveOut, stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution, townChanged, withTier } from "./agents/services";
 import { stepTown as stepTownServices } from "./agents/town-services";
 import { ladderOf, stepLadder } from "./agents/unlocks";
@@ -126,7 +127,7 @@ import { dryUp, mopAll, ring, sludgeAt, sludgedHouses } from "./events/sludge";
 import { emptyFull, slopSpike, stepSlop, tanksOf } from "./slop/tanks";
 import { slopRate } from "../game/slop";
 import { convoyTally, tallyCall, townMood } from "./events/town-events";
-import { createDirector, eventStarted, pickEvent, tickDirector } from "./events/director";
+import { createDirector, dueFollowUp, eventStarted, pickEvent, queueFollowUp, tickDirector } from "./events/director";
 import { EVENT_DEFS } from "./events/defs";
 import { HACKATHON_CODERS } from "./events/defs/hackathon";
 import { FLOOD_MS } from "./events/defs/flood";
@@ -134,10 +135,15 @@ import {
   droughtDrop, evacuatedAway, floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
 import { closeFor, damage, isDamaged, stepRepairs } from "./events/damage";
-import { startEvent, stepEvents, type TownView } from "./events/events";
+import { answerFor, startEvent, stepEvents, type TownView } from "./events/events";
+import { busiestJunction, setClosed, tileOf } from "./events/closures";
+import { POACH_LEAST, POACH_SHARE, MATCH_SHARE } from "./events/defs/poaching";
+import { STRIKE_HOMES, STRIKE_MOOD } from "./events/defs/tenants";
+import { getGeneratorCost } from "../utils/generator-utils";
+import { AI_TAGS, CARDS, card as cultureCard, rankNow } from "../game/culture";
 import { LEVEE_RUSH, leveeCells } from "./events/levee";
 import { perMinute, recordCall } from "./boats/exports";
-import { buildCost, portCallFee } from "../game/build-cost";
+import { buildCost, portCallFee, setRoadsFree } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { ROUTE_BONUS } from "./events/defs/convoy";
@@ -438,6 +444,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const floodShield = useRef<FloodShield>(null);
   const floodClock = useRef(0);
   const floodedCount = useRef(0);
+  /** The busiest junction, worked out again only when the map or who lives where changes. @see busiestJunction */
+  const junctionAt = useRef<{ key: string; at: { x: number; y: number } | null }>({ key: "", at: null });
   /** What a heatwave ridden out has overheated. @see HEATWAVE */
   const overheated = useRef(new Set<number>());
   /**
@@ -2994,7 +3002,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const owned = ownedNow();
             // WHAT THE EVENTS ARE ABOUT: a port, the company's front door,
             // the studio — each only once built. @see TownView
-            const built = (ids: string[]) => [...st.grid.structures.values()].find((s) => ids.includes(s.def) && !s.build);
+            const built = (ids: readonly string[]) => [...st.grid.structures.values()].find((s) => ids.includes(s.def) && !s.build);
             const port = getTraffic().ports.size ? [...st.grid.structures.values()].find((s) => getTraffic().ports.has(s.id)) : undefined;
             const door = built(["ipo", "boardroom", "hq", "garage"]), studio = built(["studio"]);
             const convoy = st.events.find((e) => e.kind === "convoy" && e.phase !== "over");
@@ -3026,6 +3034,29 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               }
               return best && { s: best, dirty: worst > 0 };
             })();
+            // THE BUSIEST JUNCTION, for road works. @see ROAD_WORKS
+            const homes = [...st.grid.structures.values()].filter((s) => housedBy(s.def) && residentsIn(s) > 0);
+            const homesKey = `${st.grid.rev}:${homes.reduce((n, s) => n + residentsIn(s), 0)}`;
+            if (junctionAt.current.key !== homesKey) {
+              junctionAt.current = { key: homesKey, at: busiestJunction(st.grid, homes.map((s) => ({ x: s.x, y: s.y, n: residentsIn(s) }))) };
+            }
+            // A RIVAL AFTER THE 10X DEVS. @see POACHING
+            const tenx = owned["10x_dev"] ?? 0;
+            const tenxWork = built(WORKPLACES["10x_dev"] ?? []) ?? door;
+            const poachN = Math.ceil(tenx * POACH_SHARE);
+            // A CARD TO GO VIRAL: slotted, short of its rule. @see VIRAL
+            const deckOpen = !!useInnovationStore.getState().unlocks.employeeManagement?.unlocked;
+            const deck = useGeneratorStore.getState().employeeManagement.deck;
+            const viralCard = deckOpen ? deck.slotted.find((id) => rankNow(deck, id) < 3) : undefined;
+            // A STREET OF UNHAPPY HOMES. @see TENANTS
+            const moods = liveMoods(st.grid, net);
+            const sad = homes.filter((s) => (moods.get(s.id)?.total ?? 0) <= STRIKE_MOOD)
+              .sort((a, b) => (moods.get(a.id)?.total ?? 0) - (moods.get(b.id)?.total ?? 0));
+            const worstHome = sad[0];
+            const street = worstHome ? sad.filter((s) => housedBy(s.def)?.id === housedBy(worstHome.def)?.id && Math.abs(s.x - worstHome.x) + Math.abs(s.y - worstHome.y) <= 6) : [];
+            // THE DATA CENTRE, once agents run. @see AGENT_INCIDENT
+            const dcBuilt = built(["datacentre"]);
+            const aiCardsLeft = CARDS.some((c) => AI_TAGS.includes(c.tag) && !deck.ranks[c.id] && !deck.offers.some((o) => o.cards.includes(c.id)));
             // A SITE STILL WAITING ON LOADS, for a strike. @see STRIKE
             const waiting = sitesOf(st.grid).find((s) => s.build && s.build.delivered < s.build.deliveries);
             const view: TownView = {
@@ -3043,6 +3074,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 x: office.s.x, y: office.s.y, id: office.s.id, dirty: office.dirty,
                 close: (id: number, seconds: number) => closeFor(st.grid, id, seconds),
               } : null,
+              junction: junctionAt.current.at,
+              poach: tenx >= POACH_LEAST && tenxWork ? {
+                x: tenxWork.x, y: tenxWork.y, n: poachN,
+                score: useGeneratorStore.getState().satisfactionScores["10x_dev"] ?? 0,
+                price: poachN * getGeneratorCost("10x_dev", 1).toNumber() * MATCH_SHARE,
+                lose: () => {
+                  useGeneratorStore.getState().loseGenerator("10x_dev", poachN);
+                  useWorldStore.getState().housingMoved(moveOut(st.grid, "10x_dev", poachN));
+                },
+              } : null,
+              viral: viralCard ? { card: viralCard, name: cultureCard(viralCard).name, slotted: deck.slotted.length } : null,
+              unhappy: worstHome && street.length >= STRIKE_HOMES ? {
+                x: worstHome.x, y: worstHome.y, homes: street.map((s) => s.id), who: housedBy(worstHome.def)!.id,
+                cafe: buildCost("cafe")?.toNumber() ?? 0,
+                gift: () => useWorldStore.getState().giftAt("cafe", { x: worstHome.x, y: worstHome.y }),
+              } : null,
+              datacentre: dcBuilt && useAgentsStore.getState().agents > 0 ? { x: dcBuilt.x, y: dcBuilt.y, policy: deckOpen && aiCardsLeft } : null,
               site: waiting?.build ? {
                 x: waiting.x, y: waiting.y,
                 left: waiting.build.cost * (1 - waiting.build.delivered / waiting.build.deliveries) * loadPriceMult(),
@@ -3082,22 +3130,32 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const live = next.some((e) => e.phase !== "over");
             const forced = import.meta.env.DEV && window.__eventNow ? EVENT_DEFS[window.__eventNow] : null;
             if (import.meta.env.DEV) window.__eventNow = undefined;
-            const def = !on || live ? null : forced ?? pickEvent(director.current, view, Object.values(EVENT_DEFS), false, Math.random());
+            // A FOLLOW-UP DUE comes first, outside the gap. @see Outcome.next
+            const followUp = !on || live || forced ? null : dueFollowUp(director.current, view, Object.values(EVENT_DEFS), false);
+            // THE HUSTLER'S LUCK: the opportunities twice as likely. @see HUSTLER_EVENTS
+            const luck = founderIs("hustler") ? HUSTLER_EVENTS : 1;
+            const def = !on || live ? null : forced ?? followUp ?? pickEvent(director.current, view, Object.values(EVENT_DEFS), false, Math.random(), luck);
             const fresh = def && startEvent(def, view, eventIds.current++);
             if (fresh) {
+              if (followUp) { fresh.chained = true; director.current.next = null; }
+              else eventStarted(director.current, fresh.kind, Math.random());
               next = [...next, fresh];
-              eventStarted(director.current, fresh.kind, Math.random());
             }
             // WHAT A CHOICE DOES the moment it is taken. @see ChoiceDef.act
             for (const act of stepped.acts) act();
             // WHAT AN EVENT LEAVES BEHIND, once over. @see Outcome
             for (const { event, outcome } of stepped.ended) {
               if (outcome.money) useMoneyStore.getState().increaseMoney(outcome.money);
+              if (outcome.next) queueFollowUp(director.current, outcome.next.kind, view.now, outcome.next.inMs);
               outcome.then?.();
               if (event.kind === "river-flood") evacuees.current.clear();
               if (event.kind === "heatwave") overheated.current.clear();
             }
             if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
+            // IN AI MODE, the AI answers the moment it comes. @see answerFor
+            if (fresh && def && useSessionStore.getState().aiMode) {
+              useWorldStore.getState().respondToEvent(fresh.id, answerFor(def, fresh, view, useMoneyStore.getState().money.toNumber()));
+            }
           }
           // HOUSES BY FOULED WATER, looked for every couple of seconds. @see fouledHouses
           fouledClock.current += dt;
@@ -3139,7 +3197,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const flood = st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
           // THE DIRECTOR'S CLOCK, once the company is big enough; the Hustler's come round faster. @see HUSTLER_EVENTS
           const headcount = Object.values(ownedNow()).reduce((a, n) => a + (n ?? 0), 0);
-          tickDirector(director.current, founderIs("hustler") ? dt * HUSTLER_EVENTS : dt, headcount);
+          tickDirector(director.current, dt, headcount);
           // KEPT WITH THE COMPANY every few seconds, so short sessions add up. @see Session.eventDirector
           pacingSaved.current += dt;
           if (pacingSaved.current >= 5) { pacingSaved.current = 0; useSessionStore.getState().setEventDirector({ ...director.current }); }
@@ -3160,6 +3218,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             for (const [id, t] of allTanks()) if (t.demand > 0 && t.share < OVERHEAT_SHARE && !overheated.current.has(id)) hot.push(id);
             if (hot.length) { damage(st.grid, hot, "heat"); for (const id of hot) overheated.current.add(id); }
           }
+          // ROAD WORKS: the junction closed while they are on, and road free for a bypass. @see ROAD_WORKS
+          const works = st.events.find((e) => e.kind === "road-works" && e.phase === "active");
+          setClosed(works ? [tileOf(st.grid, works.where)] : []);
+          setRoadsFree(works?.chosen === "bypass");
           // A SUPPLIER STRIKE: loads held, or from the map's edge. @see STRIKE
           const strike = st.events.find((e) => e.kind === "strike" && e.phase === "active");
           setStrike(strike?.chosen === "wait" ? "held" : strike?.chosen === "edge" ? "edge" : null);

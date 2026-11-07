@@ -84,7 +84,7 @@ export type FounderDef = {
 export const BOOTSTRAP_BUILD = 0.65;
 /** The share of the Data Centre's headcounts the Visionary needs. */
 export const VISIONARY_DATACENTRE = 0.5;
-/** How much faster the Hustler's map events come round. */
+/** How much likelier the Hustler draws a map event that is a stroke of luck: a convoy, a hackathon, an offer, a viral post. @see OPPORTUNITIES */
 export const HUSTLER_EVENTS = 2;
 /** How many times over the Hacker's R&D labs count. */
 export const HACKER_LABS = 2;
@@ -186,7 +186,7 @@ export const FOUNDERS: FounderDef[] = [
   // ── The Hustler (5 exits + $50k) ─────────────────────────────────────────────
   {
     id: "hustler",
-    rule: `Map events ×${HUSTLER_EVENTS}`,
+    rule: `Lucky map events ×${HUSTLER_EVENTS}`,
     name: "The Hustler",
     tagline: "Always be closing",
     unlockCondition: {

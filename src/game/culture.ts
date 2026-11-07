@@ -470,7 +470,7 @@ export function combineEffects(list: readonly (CardEffects & Rules)[]): CardEffe
  * whole company: the cards for one kind left out. `base`, what holds whatever
  * the cards: the acquisition tree's town nodes. @see setTownReader
  */
-export function cultureEffects(d: Deck, kind?: GeneratorId, base: readonly CardEffects[] = []): CultureEffects {
+export function cultureEffects(d: Deck, kind?: GeneratorId, base: readonly (CardEffects & Rules)[] = []): CultureEffects {
   const e: Record<string, number | boolean> = { ...NO_EFFECTS };
   const add = folder(e);
   base.forEach(add);
@@ -578,6 +578,18 @@ export function hackathonDeal(d: Deck, employs: ReadonlySet<GeneratorId>, rng: (
   if (!up.length) return { deck: d, gain: null };
   const id = up[Math.floor(rng() * up.length)];
   return { deck: { ...d, ranks: { ...d.ranks, [id]: (d.ranks[id] ?? 1) + 1 } }, gain: { kind: "rank", card: id } };
+}
+
+/**
+ * AN AGENT'S DOINGS MADE POLICY: an offer of the AI's own cards — agentic,
+ * hallucination, safety — one of three, none owned or waiting; null with none
+ * left. @see world/events/defs/agents
+ */
+export function policyDeal(d: Deck, employs: ReadonlySet<GeneratorId>, rng: () => number = Math.random): Deck | null {
+  const waiting = new Set(d.offers.flatMap((o) => o.cards));
+  const pool = CARDS.filter((c) => isAiTag(c.tag) && !d.ranks[c.id] && !waiting.has(c.id) && (!c.only || employs.has(c.only))).map((c) => c.id);
+  const cards = draw(pool, OFFER_SIZE, rng);
+  return cards.length ? { ...d, offers: [...d.offers, { track: HACKATHON_TRACK, cards, rerolls: 0 }] } : null;
 }
 
 /** TAKE a card from an offer: owned at rank 1, in a slot if one is free; the offer gone. */

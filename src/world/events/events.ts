@@ -12,11 +12,13 @@
  * which moves every event along. Which event comes, and when, is the
  * director's. @see director
  */
-import type { HackathonGain } from "../../game/culture";
+import type { CardId, HackathonGain } from "../../game/culture";
 import type { GeneratorId } from "../../state/generators.store";
 import { formatCurrency } from "../../utils/money-utils";
 
-export type EventKind = "river-flood" | "convoy" | "diligence" | "hackathon" | "offer" | "heatwave" | "drought" | "inspector" | "strike";
+export type EventKind =
+  | "river-flood" | "convoy" | "diligence" | "hackathon" | "offer" | "heatwave" | "drought" | "inspector" | "strike"
+  | "road-works" | "poaching" | "viral" | "tenants" | "agents";
 
 type Spot = { x: number; y: number };
 
@@ -64,6 +66,8 @@ export type GameEvent = {
   hit?: number;
   /** The choice whose act has been done, so it is done once. @see ChoiceDef.act */
   acted?: string;
+  /** Come back as a follow-up of one before it. @see Outcome.next */
+  chained?: boolean;
 };
 
 /**
@@ -121,6 +125,22 @@ export type TownView = {
   offices: (Spot & { id: number; dirty: boolean; close: (id: number, seconds: number) => void }) | null;
   /** A building site still waiting on loads, and what they have left to cost. Null with none. @see STRIKE */
   site: (Spot & { left: number }) | null;
+  /** The busiest junction, for road works: the one the most people live near. @see busiestJunction */
+  junction: Spot | null;
+  /**
+   * A RIVAL AFTER THE 10X DEVS: where they work, how many would go, their
+   * satisfaction, what matching costs, and letting them go. Null with too few to poach. @see POACHING
+   */
+  poach: (Spot & { n: number; score: number; price: number; lose: () => void }) | null;
+  /** A slotted card short of its rule, to go viral, and how many are slotted. Null with none. @see VIRAL */
+  viral: { card: CardId; name: string; slotted: number } | null;
+  /**
+   * A STREET OF UNHAPPY HOMES: the unhappiest, the homes round it as unhappy,
+   * whose they are, what a café costs, and putting one down by them. Null with none. @see TENANTS
+   */
+  unhappy: (Spot & { homes: number[]; who: GeneratorId; cafe: number; gift: () => boolean }) | null;
+  /** The Data Centre, once agents run in it; and whether the deck can deal the AI's cards. @see AGENT_INCIDENT */
+  datacentre: (Spot & { policy: boolean }) | null;
   /** A sale, once the company can be sold: its Equity, with an acquirer's premium, and the street that would catch their eye. */
   sale: { equity: number; withPremium: number; street: () => string | undefined } | null;
 };
@@ -140,8 +160,12 @@ export type ChoiceDef = {
   act?: (v: TownView) => void;
 };
 
-/** What an event came to: a line for the card, money, and anything else it leaves. */
-export type Outcome = { text: string; money?: number; then?: () => void };
+/**
+ * What an event came to: a line for the card, money, and anything else it
+ * leaves — and, maybe, a FOLLOW-UP: an event of a kind to come back in so
+ * long, ahead of the director's own. @see Director.next
+ */
+export type Outcome = { text: string; money?: number; then?: () => void; next?: { kind: EventKind; inMs: number } };
 
 /**
  * AN EVENT: where it can come, how likely, its warning, its choices, what it
@@ -155,6 +179,8 @@ export type EventDef = {
   weight?: (v: TownView) => number;
   warnMs: number;
   activeMs: number;
+  /** How long it runs once struck, given what was chosen, if not always `activeMs`. */
+  activeFor?: (e: GameEvent) => number;
   warning: { title: string; text: (v: TownView) => string };
   active: { title: string; text: string };
   choices: ChoiceDef[];
@@ -167,6 +193,8 @@ export type EventDef = {
   outcome: (e: GameEvent, v: TownView) => Outcome;
   /** Said when it is called off; "Called off." without. */
   calledOff?: string;
+  /** IN AI MODE, what the AI chooses the moment it comes; its default without. @see answerFor */
+  ai?: (v: TownView) => string;
 };
 
 /** How long an ended event stays up, ms. */
@@ -208,6 +236,16 @@ export function eventCrew(events: readonly GameEvent[], owned: Partial<Record<Ge
     out[c.who] = Math.min(owned[c.who] ?? 0, (out[c.who] ?? 0) + crewOf(c, owned));
   }
   return out;
+}
+
+/**
+ * WHAT THE AI ANSWERS, in AI mode: its pick if it is on the card and can be
+ * taken and paid for, else the default. @see EventDef.ai
+ */
+export function answerFor(d: EventDef, e: GameEvent, v: TownView, money: number): string {
+  const pick = d.ai?.(v);
+  const c = pick !== undefined ? e.choices.find((x) => x.id === pick) : undefined;
+  return c && !c.unavailable && (c.price ?? 0) <= money ? c.id : d.default;
 }
 
 /** An event the director has just drawn, warned of. */
@@ -256,7 +294,7 @@ export function stepEvents(
       // UNANSWERED: the event's default, taken for the player.
       e.chosen ??= d.default;
       if (d.goesAhead && !d.goesAhead(e)) end();
-      else Object.assign(e, { phase: "active", strikesAt: null, endsAt: v.now + d.activeMs, title: d.active.title, text: d.active.text });
+      else Object.assign(e, { phase: "active", strikesAt: null, endsAt: v.now + (d.activeFor?.(e) ?? d.activeMs), title: d.active.title, text: d.active.text });
     } else if (e.phase === "active") {
       Object.assign(e, d.during?.(e, v));
       if (e.endsAt !== undefined && v.now >= e.endsAt) end();

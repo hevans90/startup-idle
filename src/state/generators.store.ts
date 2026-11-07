@@ -173,6 +173,12 @@ type GeneratorState = {
   takeCard: (offer: number, id: CardId) => void;
   /** A hackathon's ideas dealt onto the deck: null with the deck not open, or nothing to give. @see hackathonDeal */
   dealHackathon: () => culture.HackathonGain;
+  /** An agent's doings made policy: an offer of the AI's cards; whether one was dealt. @see policyDeal */
+  dealPolicy: () => boolean;
+  /** A culture point, banked: one more to spend on the deck. @see VIRAL */
+  bankPoint: () => void;
+  /** People gone: poached, say — never below none. @see POACHING */
+  loseGenerator: (id: GeneratorId, n: number) => void;
   /** Deal an offer again, for innovation. @see rerollSeconds */
   rerollOffer: (offer: number) => void;
   /** Self-Improving's rule: every card a rank up, from now for `SURGE_SECONDS`. */
@@ -501,6 +507,20 @@ export const useGeneratorStore = create<GeneratorState>()(
           setDeck(deck);
           return gain;
         },
+
+        dealPolicy: () => {
+          if (!useInnovationStore.getState().unlocks.employeeManagement?.unlocked) return false;
+          const deck = culture.policyDeal(get().employeeManagement.deck, employs());
+          if (deck) setDeck(deck);
+          return !!deck;
+        },
+        bankPoint: () => {
+          const d = get().employeeManagement.deck;
+          setDeck({ ...d, spent: d.spent - 1 });
+        },
+        loseGenerator: (id, n) => set((state) => ({
+          generators: state.generators.map((gen) => (gen.id === id ? { ...gen, amount: Math.max(0, gen.amount - Math.max(0, Math.floor(n))) } : gen)),
+        })),
 
         rerollOffer: (offer) => {
           const d = get().employeeManagement.deck, o = d.offers[offer];

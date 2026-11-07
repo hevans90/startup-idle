@@ -540,6 +540,8 @@ type WorldState = {
   setMapHidden: (hidden: boolean) => void;
   /** A café by the road, free: a founding gift. @see foundingCafe */
   foundCafe: () => void;
+  /** A building put down free, as near `near` as it fits; whether it was. A tenants' strike settled. @see TENANTS */
+  giftAt: (defId: string, near: Cell) => boolean;
   /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
   housingMoved: (ids: readonly number[]) => void;
   lastTouched: Cell[];
@@ -892,17 +894,19 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   mapHidden: false,
   setMapHidden: (mapHidden) => set({ mapHidden }),
-  foundCafe: () => {
+  foundCafe: () => { get().giftAt("cafe", { x: get().grid.w / 2, y: get().grid.h / 2 }); },
+  giftAt: (defId, near) => {
     const st = get();
-    const def = structureDef("cafe");
-    const spot = def && nearestSpot(st.grid, def, playRules(st.grid));
+    const def = structureDef(defId);
+    const spot = def && nearestSpot(st.grid, def, playRules(st.grid), near);
     const cmd = spot && placeCommand(st.grid, def!, spot.x, spot.y, playRules(st.grid));
-    if (!cmd) return;
+    if (!cmd) return false;
     commit(st.grid, history, cmd);
     if (water && touchesSurface(cmd)) syncGround(water, st.grid);
     if (network && touchesNetwork(cmd)) rebuildNet(network, st.grid);
     history = createHistory();
     set({ revision: get().revision + 1, ...historyMeta(), ...netMeta() });
+    return true;
   },
   settleHousing: (owned, remote) => {
     // A FIXTURE'S HOUSES ARE AS IT BUILT THEM. It is a rig, not the company's

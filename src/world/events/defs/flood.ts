@@ -41,6 +41,7 @@ export const FLOOD: EventDef = {
     { id: "brace", label: "Brace for it", note: () => "whatever the water reaches is damaged: idle until repaired, one at a time" },
   ],
   default: "evacuate",
+  ai: () => "levee",
   during: (e, v) => ({ hit: Math.max(e.hit ?? 0, v.flooded) }),
   calledOff: "The river is gone.",
   outcome: (e, v) => {
