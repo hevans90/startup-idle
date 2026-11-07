@@ -47,6 +47,10 @@ import { resetAllGameStores } from "./reset-game-stores";
 import { cultureNow } from "../game/culture-now";
 import { NEEDS, type ServiceId } from "../world/agents/needs";
 import { needOpen, startLadder, stepLadder, wantsAny } from "../world/agents/unlocks";
+import { EVENT_HEADCOUNT, FIRST_GAP, GAP } from "../world/events/director";
+import { EVENT_DEFS } from "../world/events/defs";
+import type { EventKind } from "../world/events/events";
+import { EVENTS, company } from "./event-model";
 
 /** Tiles of sewer the run lays from its studio to the water, once there is slop, and again for each sewer's worth more. */
 const SIM_SEWER_TILES = 20;
@@ -68,6 +72,8 @@ export type MapRunOptions = {
   founder?: string;
   /** Slop: seen to with sewers and refineries (the default), or content farms; sewers alone, or left to spill. */
   slop?: "refine" | "farm" | "sewer" | "spill";
+  /** Map events, on the director's clock and left to their defaults (the default); false for none. @see eventDraw */
+  events?: boolean;
 };
 
 export type MapRunReport = {
@@ -104,6 +110,8 @@ export type MapRunReport = {
   townBonus: number;
   /** Income a second at the end. */
   income: number;
+  /** The map events drawn, when, and what their defaults cost, money. @see eventDraw */
+  events: { kind: string; at: number; cost: number }[];
   /** When slop started, and when a sewer for it was paid for; null for never. @see SIM_SEWER_TILES */
   slopAt: number | null;
   seweredAt: number | null;
@@ -301,7 +309,7 @@ export function simulateMapRun(
   const report: MapRunReport = {
     totalSeconds: 0, opened: {}, firstHire: {}, tenth: {},
     spentOnLots: 0, spentOnProjects: 0, spentOnHires: 0, services: 0, unlocks: [], stalledSeconds: 0, lots: 0,
-    coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopAt: null, seweredAt: null, refineryAt: null, refineries: 0, sewers: 0, spentOnSlop: 0, peakSlop: 0, peakMopping: 0, saleAt: null, milestones: [], endedAt: 0, agents: 0, racks: 0, firstAgent: null,
+    coreAt: null, offices: 0, spentOnOffices: 0, labs: 0, spentOnLabs: 0, mood: {}, townBonus: 0, income: 0, headcount: [], slopAt: null, seweredAt: null, refineryAt: null, refineries: 0, sewers: 0, spentOnSlop: 0, peakSlop: 0, peakMopping: 0, saleAt: null, milestones: [], endedAt: 0, events: [], agents: 0, racks: 0, firstAgent: null,
   };
   const money = () => useMoneyStore.getState().money.toNumber();
   const spend = (n: number) => { useMoneyStore.getState().spendMoney(n); };
@@ -334,6 +342,7 @@ export function simulateMapRun(
   const stepTown = () => {
     const o = owned();
     for (const id of stepLadder(ladder, o, 1)) report.unlocks.push({ id, at: t });
+    eventDraw();
     stepServices();
     // SLOP, seen to as a player would: once the vibe coders make it, a sewer
     // from the studio to the water, and then a refinery for it to feed, each
@@ -450,6 +459,33 @@ export function simulateMapRun(
       }
     }
     return best;
+  };
+
+  /**
+   * MAP EVENTS, a deterministic draw: none till the company is
+   * EVENT_HEADCOUNT strong, the first FIRST_GAP after, then one every GAP —
+   * each a kind the model prices, for a company drawn by the same seed, left
+   * to its default, and charged at once in seconds of the income then. A
+   * cost past the money in hand takes what there is. @see director, event-model
+   */
+  let seed = 11;
+  const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const kinds = Object.keys(EVENTS);
+  let nextEvent: number | null = null;
+  const eventDraw = () => {
+    if (options.events === false) return;
+    if (nextEvent === null) {
+      const hired = Object.values(owned()).reduce((n, v) => n + (v ?? 0), 0);
+      if (hired >= EVENT_HEADCOUNT) nextEvent = t + FIRST_GAP;
+      return;
+    }
+    if (t < nextEvent) return;
+    nextEvent = t + GAP[0] + Math.floor(rand() * (GAP[1] - GAP[0]));
+    const kind = kinds[Math.floor(rand() * kinds.length)];
+    const cost = EVENTS[kind][EVENT_DEFS[kind as EventKind].default](company(rand)) * useGeneratorStore.getState().getMoneyPerSecond();
+    if (cost >= 0) spend(Math.min(money(), cost));
+    else useMoneyStore.getState().increaseMoney(-cost);
+    report.events.push({ kind, at: t, cost: Math.round(cost) });
   };
 
   const coreComplete = () => UPGRADES_CORE.every((u) => useUpgradeStore.getState().unlockedUpgradeIds.includes(u.id));

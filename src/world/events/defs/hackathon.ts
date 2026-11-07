@@ -7,13 +7,13 @@
  */
 import { card, type HackathonGain } from "../../../game/culture";
 import { addMorale } from "../../../game/morale";
-import { CREW_SHARE, type EventDef } from "../events";
+import { CREW_SHARE, cap, minutes, type EventDef } from "../events";
 
 /** What a hackathon gives the vibe coders with the culture deck not open yet, and what turning one down costs. */
 export const HACKATHON_MORALE = 6;
-export const HACKATHON_SNUB = 4;
+export const HACKATHON_SNUB = 2;
 /** How long the vibe coders are off, ms. */
-export const HACKATHON_MS = 60_000;
+export const HACKATHON_MS = 180_000;
 /** How much of the studio's slop tank a hackathon fills, once it is over. */
 export const HACKATHON_SLOP = 0.5;
 /** Vibe coders a studio needs before they ask for a hackathon. */
@@ -31,7 +31,7 @@ export const HACKATHON: EventDef = {
   where: (v) => v.studio && { x: v.studio.x + 1, y: v.studio.y + 1 },
   warnMs: 45_000,
   activeMs: HACKATHON_MS,
-  warning: { title: "The vibe coders want a hackathon", text: () => "A minute off work, all of them, and they come back with ideas." },
+  warning: { title: "The vibe coders want a hackathon", text: () => `${cap(minutes(HACKATHON_MS))} off work, all of them, and they come back with ideas.` },
   active: { title: "Hackathon!", text: "The vibe coders are off work, building something nobody asked for." },
   choices: [
     {

@@ -21,7 +21,7 @@ export const DILIGENCE_MOOD = 5;
 /** The share of what drinks that must be watered to pass. */
 export const DILIGENCE_WATERED = 0.8;
 /** What the company is valued at, on a sale's Equity, by how many of the three passed. */
-export const DILIGENCE_MULT = [0.85, 0.95, 1.1, 1.25] as const;
+export const DILIGENCE_MULT = [0.8, 0.95, 1.1, 1.3] as const;
 
 export type Check = "homes" | "spills" | "water";
 export const CHECKS: readonly Check[] = ["homes", "spills", "water"];

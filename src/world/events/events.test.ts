@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { EVENT_DEFS } from "./defs";
-import { MAX_ROUTES, ROUTE_BONUS, routeWon } from "./defs/convoy";
+import { CONVOY_MS, MAX_ROUTES, ROUTE_BONUS, routeWon } from "./defs/convoy";
 import { FLOOD_MS, FLOOD_WARN_MS } from "./defs/flood";
 import { HACKATHON_MS, HACKATHON_SLOP, HACKATHON_SNUB } from "./defs/hackathon";
 import { DILIGENCE_MULT, TIDY_MOOD } from "./defs/diligence";
@@ -11,12 +11,12 @@ import { CLEAN_MOOD, CLOSED_SECONDS, FINE_SECONDS } from "./defs/inspector";
 import { STRIKE_PAY } from "./defs/strike";
 import { OVERTIME_MS, OVERTIME_SECONDS, WORKS_MS } from "./defs/road-works";
 import { COUNTER_VALUE } from "./defs/poaching";
-import { VIRAL_MORALE } from "./defs/viral";
+import { VIRAL_MORALE, VIRAL_MS } from "./defs/viral";
 import { FREEZE_WORK, IGNORE_WORK } from "./defs/tenants";
 import { INCIDENT_METER, RUN_SECONDS } from "./defs/agents";
-import { REINSPECT_MS } from "./defs/inspector";
+import { INSPECT_WARN_MS, REINSPECT_MS } from "./defs/inspector";
 import type { HackathonGain } from "../../game/culture";
-import { OVER_SHOWN_MS, answerFor, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
+import { CREW_SHARE, OVER_SHOWN_MS, answerFor, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
 
 const town = (now: number, over: Partial<TownView> = {}): TownView => ({
   now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, overheated: 0, levee: null, evacuated: [], port: null,
@@ -92,8 +92,8 @@ describe("a convoy", () => {
     let evs = start("convoy", at(0));
     expect(evs[0]).toMatchObject({ phase: "warning", strikesAt: 30_000 });
     evs = step(evs, at(30_000)).events;
-    expect(evs[0]).toMatchObject({ phase: "active", endsAt: 90_000 });
-    expect(step(evs, at(90_000, 7, 140)).events[0].outcome).toBe("7 calls while it was in, for $140.");
+    expect(evs[0]).toMatchObject({ phase: "active", endsAt: 30_000 + CONVOY_MS });
+    expect(step(evs, at(30_000 + CONVOY_MS, 7, 140)).events[0].outcome).toBe("7 calls while it was in, for $140.");
   });
 
   test("served with extra hands, it comes back as a regular route, up to the most there can be", () => {
@@ -101,8 +101,8 @@ describe("a convoy", () => {
     expect(evs[0].choices[0].cost).toContain("regular route");
     evs = evs.map((e) => ({ ...e, chosen: "hands" }));
     evs = step(evs, at(30_000, 0, 0, 1)).events;
-    expect(eventCrew(evs, { intern: 12 })).toEqual({ intern: 3 });
-    const over = step(evs, at(90_000, 4, 50, 1));
+    expect(eventCrew(evs, { intern: 12 })).toEqual({ intern: Math.floor(12 * CREW_SHARE.hands) });
+    const over = step(evs, at(30_000 + CONVOY_MS, 4, 50, 1));
     expect(routeWon(over.events[0], 4)).toBe(true);
     expect(over.events[0].outcome).toContain(`regular route, +${Math.round(ROUTE_BONUS * 200)}% on every call`);
     expect(over.ended[0].outcome.then).toBeDefined();
@@ -122,7 +122,7 @@ describe("due diligence", () => {
 
   test("values the company by how many of its three checks pass", () => {
     const all = run({ mood: 20, spills: 0, watered: 1 });
-    expect(all.outcome.text).toMatch(/^Homes pass, spills pass, water pass: the company is valued ×1\.25/);
+    expect(all.outcome.text).toMatch(new RegExp(`^Homes pass, spills pass, water pass: the company is valued ×${DILIGENCE_MULT[3].toFixed(2)}`));
     expect(all.outcome.text).toContain("ask 1 less");
     const none = run({ mood: -20, spills: 3, watered: 0.2 });
     expect(none.outcome.text).toContain(`×${DILIGENCE_MULT[0].toFixed(2)}`);
@@ -262,8 +262,8 @@ describe("the health inspector", () => {
   const run = (chosen: string | undefined, dirty: boolean) => {
     let evs = start("inspector", at(0, true));
     if (chosen) evs = evs.map((e) => ({ ...e, chosen }));
-    evs = step(evs, at(45_000, dirty)).events;
-    return step(evs, at(50_000, dirty)).ended[0];
+    evs = step(evs, at(INSPECT_WARN_MS, dirty)).events;
+    return step(evs, at(INSPECT_WARN_MS + 5_000, dirty)).ended[0];
   };
 
   test("is drawn only once an office has spilled", () => {
@@ -287,8 +287,8 @@ describe("the health inspector, come back", () => {
   const office = (dirty: boolean) => ({ x: 2, y: 2, id: 9, dirty, close: () => {} });
   const at = (now: number) => town(now, { offices: office(true) });
   const run = (chained: boolean) => {
-    const evs = step(start("inspector", at(0)).map((e) => ({ ...e, chained })), at(45_000)).events;
-    return step(evs, at(50_000)).ended[0].outcome;
+    const evs = step(start("inspector", at(0)).map((e) => ({ ...e, chained })), at(INSPECT_WARN_MS)).events;
+    return step(evs, at(INSPECT_WARN_MS + 5_000)).ended[0].outcome;
   };
 
   test("an office closed the first time brings them back; the second time, a fine as well", () => {
@@ -357,7 +357,7 @@ describe("a viral post", () => {
     const evs = start("viral", at(0));
     expect(evs[0].text).toContain("Crunch Week");
     expect(EVENT_DEFS.viral.weight!(at(0))).toBe(2);
-    expect(evs[0].choices[0].cost).toContain("Output ×2 while it is light for 5 minutes");
+    expect(evs[0].choices[0].cost).toContain(`Output ×2 while it is light for ${VIRAL_MS / 60_000} minutes`);
     const banked = step(evs, at(20_000));
     expect(banked.events[0]).toMatchObject({ phase: "over", chosen: "bank" });
     expect(banked.ended[0].outcome.then).toBeDefined();
@@ -366,7 +366,7 @@ describe("a viral post", () => {
   test("leant into, it runs, and everyone is tired after", () => {
     let evs = step(start("viral", at(0)).map((e) => ({ ...e, chosen: "lean" })), at(20_000)).events;
     expect(evs[0].phase).toBe("active");
-    evs = step(evs, at(20_000 + 300_000)).events;
+    evs = step(evs, at(20_000 + VIRAL_MS)).events;
     expect(evs[0].outcome).toContain(`−${VIRAL_MORALE} morale`);
   });
 });

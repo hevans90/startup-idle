@@ -7,24 +7,24 @@
  */
 import { addMorale } from "../../../game/morale";
 import type { GeneratorId } from "../../../state/generators.store";
-import type { EventDef } from "../events";
+import { minutes, type EventDef } from "../events";
 
 /** How long it lasts, and the warning, ms. */
-export const DROUGHT_MS = 600_000;
+export const DROUGHT_MS = 900_000;
 export const DROUGHT_WARN_MS = 60_000;
 /** What rationing puts the homes out, in morale for a day. */
-export const RATION_MORALE = 8;
+export const RATION_MORALE = 24;
 /** Seconds of income trucking water in costs, a minute of the drought. */
-export const TRUCK_SECONDS = 8;
+export const TRUCK_SECONDS = 16;
 /** Seconds of income digging a reservoir costs. */
-export const DIG_SECONDS = 60;
+export const DIG_SECONDS = 150;
 
 export const DROUGHT: EventDef = {
   kind: "drought",
   where: (v) => (v.river && v.drinkers ? v.river : null),
   warnMs: DROUGHT_WARN_MS,
   activeMs: DROUGHT_MS,
-  warning: { title: "A drought is coming", text: () => "The river will stop coming onto the map for ten minutes. What drinks from it will go short." },
+  warning: { title: "A drought is coming", text: () => `The river will stop coming onto the map for ${minutes(DROUGHT_MS)}. What drinks from it will go short.` },
   active: { title: "Drought", text: "The river has stopped coming. It comes back on its own." },
   calledOff: "The river is gone.",
   choices: [

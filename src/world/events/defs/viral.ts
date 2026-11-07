@@ -8,9 +8,9 @@ import { card } from "../../../game/culture";
 import { addCondition } from "../../../game/conditions";
 import { addMorale } from "../../../game/morale";
 import { useGeneratorStore, type GeneratorId } from "../../../state/generators.store";
-import type { EventDef } from "../events";
+import { minutes, type EventDef } from "../events";
 
-export const VIRAL_MS = 300_000;
+export const VIRAL_MS = 480_000;
 const VIRAL_WARN_MS = 20_000;
 /** What leaning in costs everyone, once it is over, in morale for a day. */
 export const VIRAL_MORALE = 3;
@@ -27,7 +27,7 @@ export const VIRAL: EventDef = {
   choices: [
     {
       id: "lean", label: "Lean in",
-      note: (v) => (v.viral ? `${card(v.viral.card).keystone} for 5 minutes · then −${VIRAL_MORALE} morale for a day` : ""),
+      note: (v) => (v.viral ? `${card(v.viral.card).keystone} for ${minutes(VIRAL_MS)} · then −${VIRAL_MORALE} morale for a day` : ""),
       act: (v) => { if (v.viral) addCondition({ source: "viral", effects: card(v.viral.card).rule, until: v.now + VIRAL_WARN_MS + VIRAL_MS }); },
     },
     { id: "bank", label: "Bank it", note: () => "a culture point" },

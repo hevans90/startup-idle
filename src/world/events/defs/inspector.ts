@@ -9,14 +9,16 @@
 import { addCondition } from "../../../game/conditions";
 import type { GeneratorId } from "../../../state/generators.store";
 import { useMoneyStore } from "../../../state/money.store";
-import { CREW_SHARE, type EventDef } from "../events";
+import { CREW_SHARE, minutes, type EventDef } from "../events";
 
+/** How long until they come, ms: a sprint's vibe coders are off for it. */
+export const INSPECT_WARN_MS = 240_000;
 /** How long the office is closed, seconds. */
-export const CLOSED_SECONDS = 120;
+export const CLOSED_SECONDS = 840;
 /** Seconds of income the fine is. */
-export const FINE_SECONDS = 15;
+export const FINE_SECONDS = 110;
 /** What a clean record is worth, in morale, for the run — lost at the next spill. */
-export const CLEAN_MOOD = 3;
+export const CLEAN_MOOD = 4;
 export const CLEAN_RECORD = "clean-record";
 /** How long after a closure they come back to look again, ms. */
 export const REINSPECT_MS = 300_000;
@@ -25,7 +27,7 @@ export const INSPECTOR: EventDef = {
   kind: "inspector",
   where: (v) => v.offices && { x: v.offices.x, y: v.offices.y },
   weight: (v) => (v.offices?.dirty ? 1 : 0),
-  warnMs: 45_000,
+  warnMs: INSPECT_WARN_MS,
   activeMs: 5_000,
   warning: { title: "The health inspector is coming", text: () => "An office has spilled, and someone told them." },
   active: { title: "The health inspector", text: "They are looking round." },
@@ -35,7 +37,7 @@ export const INSPECTOR: EventDef = {
       note: () => "every spill mopped now", act: (v) => v.diligence.mop(),
     },
     { id: "fine", label: "Pay the fine", price: (v) => v.income * FINE_SECONDS },
-    { id: "close", label: "Let them close it", note: () => `the worst office closed for ${CLOSED_SECONDS / 60} minutes` },
+    { id: "close", label: "Let them close it", note: () => `the worst office closed for ${minutes(CLOSED_SECONDS * 1000)}` },
   ],
   default: "close",
   ai: () => "sprint",
@@ -52,10 +54,10 @@ export const INSPECTOR: EventDef = {
     // A SECOND TIME, a fine as well as the closure; the first, they will be back. @see Outcome.next
     if (e.chained) {
       const fine = v.income * FINE_SECONDS;
-      return { text: `Closed again for ${CLOSED_SECONDS / 60} minutes, and fined.`, then: () => { o?.close(o.id, CLOSED_SECONDS); const m = useMoneyStore.getState(); m.spendMoney(Math.min(fine, Math.max(0, m.money.toNumber()))); } };
+      return { text: `Closed again for ${minutes(CLOSED_SECONDS * 1000)}, and fined.`, then: () => { o?.close(o.id, CLOSED_SECONDS); const m = useMoneyStore.getState(); m.spendMoney(Math.min(fine, Math.max(0, m.money.toNumber()))); } };
     }
     return {
-      text: `The worst office is closed for ${CLOSED_SECONDS / 60} minutes. They will be back.`,
+      text: `The worst office is closed for ${minutes(CLOSED_SECONDS * 1000)}. They will be back.`,
       then: () => o?.close(o.id, CLOSED_SECONDS),
       next: { kind: "inspector", inMs: REINSPECT_MS },
     };

@@ -18,6 +18,6 @@ describe("a closure", () => {
     stepRepairs(g, 60, true);
     expect(isDamaged(1)).toBe(true);
     expect(repairedIn(2)).toBe(40);
-    expect(stepRepairs(g, 50, false).sort()).toEqual([1, 2]);
+    expect(stepRepairs(g, REPAIR_SECONDS, false).sort()).toEqual([1, 2]);
   });
 });

@@ -17,7 +17,7 @@ export type DamageCause = "flood" | "heat" | "closed";
 export const DAMAGE_NAME: Record<DamageCause, string> = { flood: "Flood damaged", heat: "Overheated", closed: "Closed by the inspector" };
 
 /** Seconds the repair crew takes over each damaged building, one at a time. */
-export const REPAIR_SECONDS = 40;
+export const REPAIR_SECONDS = 180;
 
 /** `timed`: shut for its time, the crew not needed — and not in its queue. */
 const damaged = new Map<number, { left: number; cause: DamageCause; timed?: boolean }>();

@@ -5,7 +5,7 @@
  * out), or truck from the map's edge (dearer, and a longer way).
  * @see setStrike
  */
-import type { EventDef } from "../events";
+import { minutes, type EventDef } from "../events";
 
 export const STRIKE_MS = 240_000;
 /** What paying the strikers costs, as a share of what the site's loads have left to cost. */
@@ -18,7 +18,7 @@ export const STRIKE: EventDef = {
   where: (v) => v.site && { x: v.site.x, y: v.site.y },
   warnMs: 30_000,
   activeMs: STRIKE_MS,
-  warning: { title: "The suppliers are going on strike", text: () => "For four minutes the yard will send no loads to the site." },
+  warning: { title: "The suppliers are going on strike", text: () => `For ${minutes(STRIKE_MS)} the yard will send no loads to the site.` },
   active: { title: "Supplier strike", text: "The yard is sending nothing." },
   calledOff: "The site is supplied.",
   choices: [

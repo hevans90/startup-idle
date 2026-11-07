@@ -9,19 +9,22 @@
 import { notable } from "../../../game/machine";
 import { useSessionStore } from "../../../state/session.store";
 import { CONVOY_LOADS, ROUTE_LOADS } from "../convoy";
-import { CREW_SHARE, money, type EventDef, type GameEvent } from "../events";
+import { CREW_SHARE, minutes, money, type EventDef, type GameEvent } from "../events";
 
 /**
  * A CONVOY SERVED — extra hands at the quays, and calls made while it was in —
  * comes back as a regular route: every call at every port pays this much more,
  * for good, up to `MAX_ROUTES` of them. @see routeWon
  */
-export const ROUTE_BONUS = 0.2;
+export const ROUTE_BONUS = 0.4;
 export const MAX_ROUTES = 5;
 /** Whether a convoy, over, was served well enough to become a regular route. */
 export const routeWon = (e: GameEvent, calls: number) => e.kind === "convoy" && e.chosen === "hands" && calls > 0;
 const pct = (k: number) => `+${Math.round(k * 100)}%`;
 const off = (k: number) => `−${Math.round(k * 100)}%`;
+
+/** How long a convoy is in, ms. */
+export const CONVOY_MS = 300_000;
 
 export const CONVOY: EventDef = {
   kind: "convoy",
@@ -29,10 +32,10 @@ export const CONVOY: EventDef = {
   // Twice as often with the Machine's Market Maker. @see game/machine "market"
   weight: () => (notable("market") ? 2 : 1),
   warnMs: 30_000,
-  activeMs: 60_000,
+  activeMs: CONVOY_MS,
   warning: {
     title: "A convoy is coming down the river",
-    text: () => `For a minute, every call at your ports pays double, and building materials come in on it: loads ${off(1 - CONVOY_LOADS)}.`,
+    text: () => `For ${minutes(CONVOY_MS)}, every call at your ports pays double, and building materials come in on it: loads ${off(1 - CONVOY_LOADS)}.`,
   },
   active: { title: "The convoy is in", text: "Every call pays double, and loads come off it at the port at half price, until it has passed." },
   choices: [

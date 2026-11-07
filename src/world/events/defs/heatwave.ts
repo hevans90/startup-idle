@@ -5,15 +5,15 @@
  * whatever runs short of water overheats, idle until the repair crew has been.
  * The weather is the scene's. @see setHeat, setThrottled
  */
-import type { EventDef } from "../events";
+import { minutes, type EventDef } from "../events";
 
 /** How long it lasts, and the warning, ms. */
-export const HEAT_MS = 180_000;
+export const HEAT_MS = 900_000;
 export const HEAT_WARN_MS = 45_000;
 /** What it multiplies the drinkers' demand by. */
-export const HEAT_THIRST = 2;
+export const HEAT_THIRST = 3;
 /** Seconds of income the emergency pumps cost. */
-export const PUMP_SECONDS = 60;
+export const PUMP_SECONDS = 600;
 /** The share of its demand a drinker can fall to, riding it out, before it overheats. */
 export const OVERHEAT_SHARE = 0.5;
 
@@ -22,7 +22,7 @@ export const HEATWAVE: EventDef = {
   where: (v) => v.drinkers && { x: v.drinkers.x, y: v.drinkers.y },
   warnMs: HEAT_WARN_MS,
   activeMs: HEAT_MS,
-  warning: { title: "A heatwave is coming", text: () => `For three minutes, what cools the agents will drink ${HEAT_THIRST} times as much.` },
+  warning: { title: "A heatwave is coming", text: () => `For ${minutes(HEAT_MS)}, what cools the agents will drink ${HEAT_THIRST} times as much.` },
   active: { title: "Heatwave", text: "Everything that cools the agents is drinking twice as much." },
   choices: [
     { id: "pumps", label: "Emergency pumps", price: (v) => v.income * PUMP_SECONDS, note: () => "every tank kept full while it lasts" },

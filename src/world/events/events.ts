@@ -201,9 +201,19 @@ export type EventDef = {
 export const OVER_SHOWN_MS = 10_000;
 
 /** WHO A CHOICE TAKES OFF WORK, as a share of the kind: every event's prices in one place. @see Crew */
-export const CREW_SHARE = { sandbags: 0.5, hands: 0.25, tidy: 1, mop: 0.5, hackathon: 1, sprint: 1 } as const;
+export const CREW_SHARE = { sandbags: 0.5, hands: 0.75, tidy: 1, mop: 0.5, hackathon: 1, sprint: 1 } as const;
 
 export const money = (n: number) => formatCurrency(Math.round(n));
+/** A line's first letter in capitals. */
+export const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+/** "a minute", "4 minutes", "2½ minutes": how long, for a card. */
+export function minutes(ms: number): string {
+  const m = ms / 60_000;
+  if (m === 1) return "a minute";
+  if (Number.isInteger(m)) return `${m} minutes`;
+  if (Number.isInteger(m * 2)) return `${Math.floor(m) || ""}½ minutes`;
+  return `${Math.round(m)} minutes`;
+}
 const NAMES: Partial<Record<GeneratorId, string>> = { intern: "intern", vibe_coder: "vibe coder", "10x_dev": "10x dev" };
 /** "12 interns", "1 intern". */
 export const people = (n: number, who: GeneratorId) => `${n} ${NAMES[who] ?? who}${n === 1 ? "" : "s"}`;

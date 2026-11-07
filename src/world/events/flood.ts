@@ -31,7 +31,7 @@ const MIN_RISE = 2, MAX_RISE = 12;
 const BANK_REACH = 8;
 /** Seconds the water takes to rise, stays up, and takes to fall, at the head. */
 export const FLOOD_UP = 15;
-export const FLOOD_HOLD = 30;
+export const FLOOD_HOLD = 90;
 export const FLOOD_DOWN = 15;
 export const FLOOD_SECONDS = FLOOD_UP + FLOOD_HOLD + FLOOD_DOWN;
 /** Half steps above its usual level the water against a building must stand to flood it. */

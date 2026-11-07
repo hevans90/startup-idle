@@ -1,40 +1,36 @@
 /**
- * DOMINANT CHOICES: for each map event, across many companies, which choice
- * leaves the most income over the next ten minutes — and whether one choice
- * is simply always right, which would make the card a formality.
+ * WHAT EACH EVENT'S CHOICES COST, as a model: each choice's cost over the
+ * window in seconds of the company's income, from the game's own constants,
+ * over companies drawn at random (who earns what, how big the flood, how many
+ * agents, how much money in hand). Morale moves the way the game moves it: a
+ * bump decays toward the target at the game's own rate; an event's lean holds
+ * for a day. What is left out says so beside it.
  *
- * A MODEL, not the game: each choice's cost and gain written out in seconds of
- * the company's income from the game's own constants, over companies drawn at
- * random (who earns what, how big the flood, how many agents, how much money
- * in hand). Morale moves the way the game moves it: a bump decays toward the
- * target at the game's own rate; an event's lean holds for a day. What is left out says so beside it.
- *
- * The plan's bar: no choice best more than 70% of the time. `BALANCE=1`
- * prints every event's split. @see plans/gameplay-fun.md "Measuring fun"
+ * The stakes test holds the choices apart by it, and the map run charges
+ * each event it draws by its default. @see event-stakes.test, simulateMapRun
  */
-import { describe, expect, test } from "bun:test";
-
 import { MORALE_SECONDS } from "../game/morale";
 import { SATISFACTION_MAX, SATISFACTION_MIN } from "../game/satisfaction";
 import { CREW_SHARE } from "../world/events/events";
 import { EVACUEE_MORALE } from "../world/events/defs/flood";
 import { HACKATHON_MORALE, HACKATHON_MS, HACKATHON_SNUB } from "../world/events/defs/hackathon";
-import { ROUTE_BONUS } from "../world/events/defs/convoy";
+import { CONVOY_MS, ROUTE_BONUS } from "../world/events/defs/convoy";
+import { ROUTE_LOADS } from "../world/events/convoy";
 import { DILIGENCE_MOOD, DILIGENCE_MULT, DILIGENCE_WATERED, TIDY_MOOD } from "../world/events/defs/diligence";
 import { FLOOD_SECONDS } from "../world/events/flood";
 import { HEAT_MS, HEAT_THIRST, OVERHEAT_SHARE, PUMP_SECONDS } from "../world/events/defs/heatwave";
 import { DIG_SECONDS, DROUGHT_MS, RATION_MORALE, TRUCK_SECONDS } from "../world/events/defs/drought";
-import { CLEAN_MOOD, CLOSED_SECONDS, FINE_SECONDS } from "../world/events/defs/inspector";
+import { CLEAN_MOOD, CLOSED_SECONDS, FINE_SECONDS, INSPECT_WARN_MS } from "../world/events/defs/inspector";
 import { OVERTIME_MS, OVERTIME_SECONDS, WORKS_MS } from "../world/events/defs/road-works";
-import { COUNTER_VALUE, MATCH_SHARE } from "../world/events/defs/poaching";
+import { COUNTER_VALUE, MATCH_SHARE, POACH_SHARE } from "../world/events/defs/poaching";
 import { VIRAL_MORALE, VIRAL_MS } from "../world/events/defs/viral";
-import { FREEZE_MORALE, FREEZE_WORK, IGNORE_MORALE, IGNORE_WORK } from "../world/events/defs/tenants";
+import { FREEZE_MORALE, FREEZE_WORK, IGNORE_MORALE, IGNORE_WORK, TENANTS_SECONDS } from "../world/events/defs/tenants";
 import { INCIDENT_METER, ROLLBACK_SECONDS, RUN_SECONDS } from "../world/events/defs/agents";
 import { EDGE_LOADS, STRIKE_MS, STRIKE_PAY } from "../world/events/defs/strike";
 import { REPAIR_SECONDS } from "../world/events/damage";
 
 /** The window a choice is judged over, seconds. */
-const WINDOW = 600;
+export const WINDOW = 1200;
 /** What a point of satisfaction is worth, as a share of that kind's output: below zero, and above. @see satisfactionRevenueMultiplier */
 const PER_POINT_BELOW = 0.75 / -SATISFACTION_MIN;
 const PER_POINT_ABOVE = 9 / SATISFACTION_MAX;
@@ -43,15 +39,18 @@ const perPoint = (score: number) => (score < 0 ? PER_POINT_BELOW : PER_POINT_ABO
 const leanSeconds = (points: number, score: number) => points * perPoint(score) * MORALE_SECONDS;
 
 /** A company drawn at random. */
-function company(rand: () => number) {
+export function company(rand: () => number) {
   const raw = { intern: 0.1 + rand(), vibe: 0.1 + rand(), tenx: rand() * 0.5, port: rand() < 0.4 ? 0 : rand() * 0.4 };
   const sum = raw.intern + raw.vibe + raw.tenx + raw.port;
   return {
     intern: raw.intern / sum, vibe: raw.vibe / sum, port: raw.port / sum,
     /** Share of all income a flooded house's people make. */
     house: 0.005 + rand() * 0.045,
-    flooded: 1 + Math.floor(rand() * 12),
+    flooded: 1 + Math.floor(rand() * 20),
     portsFlooded: rand(),
+    /** A levee's walls, in seconds of income; and the floods still to come that it would meet. */
+    leveePrice: 30 + rand() * 600,
+    floodsAhead: rand() * 2,
     routes: Math.floor(rand() * 6),
     mood: -20 + rand() * 40,
     /** What due diligence finds: spills on the streets, and the share of what drinks that is watered. */
@@ -61,6 +60,8 @@ function company(rand: () => number) {
     saleWorth: 100 + rand() * 1500,
     /** Share of income the agents' boost makes, and how much of what drinks the river waters. */
     agentShare: rand() * 0.5,
+    /** The same, of a company with something drinking: the only ones a heatwave or a drought comes to. */
+    drinkingShare: 0.2 + rand() * 0.6,
     onRiver: rand(),
     /** Vibe workplaces: the closed one's share of them. */
     offices: 1 + Math.floor(rand() * 6),
@@ -74,12 +75,12 @@ function company(rand: () => number) {
     /** How long a clean record lasts before the next spill, in days. */
     cleanFor: rand() * 0.6,
     /** The share of income whose commutes cross the busiest junction, and how much going round costs them. */
-    across: rand() * 0.3,
+    across: rand() * 0.5,
     detour: rand(),
     /** The 10x devs' share of income, and what one costs to hire, in seconds of income. */
     tenx: rand() * 0.3,
     tenxHire: 5 + rand() * 60,
-    tenxN: 1 + Math.floor(rand() * 5),
+    tenxN: Math.max(1, Math.round((10 + rand() * 70) * POACH_SHARE)),
     /** What leaning into a card's rule is worth, a second, as a share of income. */
     rule: rand() * 0.6,
     /** A culture point, in seconds of income. */
@@ -89,6 +90,10 @@ function company(rand: () => number) {
     cafePrice: 5 + rand() * 120,
     /** How much of losing a 10x dev is the price of hiring another: beds, and a hire price that has since risen. */
     rehire: 0.2 + rand(),
+    /** A culture card offer, in seconds of income: none with the deck not open. */
+    card: rand() < 0.3 ? 0 : 40 + rand() * 260,
+    /** The share of the time a site is building, taking loads. */
+    building: rand(),
     /** The striking homes' share of income. */
     street: 0.02 + rand() * 0.15,
     /** What a free café is worth to them, against being ignored: a share of their work back. */
@@ -105,7 +110,7 @@ function company(rand: () => number) {
     internScore: -60 + rand() * 60,
   };
 }
-type Company = ReturnType<typeof company>;
+export type Company = ReturnType<typeof company>;
 
 /** What due diligence's multiplier is worth, in seconds of income, as the town would be judged. @see inspect */
 const judged = (c: Company, tidied: number, spills: number) => {
@@ -114,7 +119,7 @@ const judged = (c: Company, tidied: number, spills: number) => {
 };
 
 /** Each choice's COST over the window, in seconds of total income (less is better). */
-const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
+export const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
   "river-flood": {
     // Half the interns off from the warning to the end. @see CREW_SHARE
     sandbags: (c) => c.intern * CREW_SHARE.sandbags * (60 + FLOOD_SECONDS),
@@ -123,11 +128,15 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
     // The flooded ports shut for it, then each home idle till the crew reaches it.
     brace: (c) => c.port * c.portsFlooded * FLOOD_SECONDS
       + Math.min(0.6, c.flooded * c.house) * REPAIR_SECONDS * (c.flooded + 1) / 2,
+    // The walls paid for; past them, a little still damaged; and the floods to come, met by them.
+    levee: (c) => c.leveePrice + 0.2 * Math.min(0.6, c.flooded * c.house) * REPAIR_SECONDS * (c.flooded + 1) / 2
+      - c.floodsAhead * Math.min(0.6, c.flooded * c.house) * REPAIR_SECONDS * (c.flooded + 1) / 2,
   },
   convoy: {
     // A quarter of the interns off for the minute; calls twice as quick at double pay, then a route for good.
-    hands: (c) => c.intern * CREW_SHARE.hands * 60
-      - c.port * 2 * 60 - (c.routes < 5 ? ROUTE_BONUS * c.port * (WINDOW - 90) : 0),
+    // A route also takes a tenth off every load for good. @see ROUTE_LOADS
+    hands: (c) => c.intern * CREW_SHARE.hands * CONVOY_MS / 1000
+      - c.port * 2 * CONVOY_MS / 1000 - (c.routes < 5 ? (ROUTE_BONUS * c.port + ROUTE_LOADS * c.loadsRate * c.building) * (WINDOW - CONVOY_MS / 1000) : 0),
     usual: () => 0,
   },
   diligence: {
@@ -139,21 +148,21 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
   heatwave: {
     // Pumps paid; the agents' boost off for it; or what the doubled thirst leaves short runs hot, and below half overheats.
     pumps: () => PUMP_SECONDS,
-    throttle: (c) => c.agentShare * HEAT_MS / 1000,
+    throttle: (c) => c.drinkingShare * HEAT_MS / 1000,
     ride: (c) => {
       const met = Math.min(1, c.headroom / HEAT_THIRST);
-      return c.agentShare * ((1 - met) * 0.5 * HEAT_MS / 1000 + (met < OVERHEAT_SHARE ? 0.5 * (HEAT_MS / 1000 + REPAIR_SECONDS * 2) : 0));
+      return c.drinkingShare * ((1 - met) * 0.5 * HEAT_MS / 1000 + (met < OVERHEAT_SHARE ? 0.5 * (HEAT_MS / 1000 + REPAIR_SECONDS * 2) : 0));
     },
   },
   drought: {
     // What the river waters runs hot for it — a reservoir, piped, covers a little of it; or the homes put out; or trucks.
-    dig: (c) => DIG_SECONDS + c.agentShare * c.onRiver * 0.5 * 0.8 * DROUGHT_MS / 1000,
+    dig: (c) => DIG_SECONDS + c.drinkingShare * c.onRiver * 0.5 * 0.8 * DROUGHT_MS / 1000,
     ration: (c) => c.intern * leanSeconds(RATION_MORALE, c.internScore) + c.vibe * leanSeconds(RATION_MORALE, c.vibeScore),
     truck: () => TRUCK_SECONDS * DROUGHT_MS / 60_000,
   },
   inspector: {
     // The vibe coders off for the warning, then a clean record till the next spill; a fine; or an office shut.
-    sprint: (c) => c.vibe * CREW_SHARE.sprint * 45 - c.cleanFor * c.vibe * leanSeconds(CLEAN_MOOD, c.vibeScore),
+    sprint: (c) => c.vibe * CREW_SHARE.sprint * INSPECT_WARN_MS / 1000 - c.cleanFor * c.vibe * leanSeconds(CLEAN_MOOD, c.vibeScore),
     fine: () => FINE_SECONDS,
     close: (c) => (c.vibe / c.offices) * CLOSED_SECONDS,
   },
@@ -182,9 +191,9 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
   },
   tenants: {
     // A café: their work back, but for what it does not fix; a rent freeze: half their work for a day, but glad of it; ignored: a quarter, and put out.
-    cafe: (c) => c.cafePrice + c.street * (1 - c.cafe) * (1 - IGNORE_WORK) * MORALE_SECONDS,
-    freeze: (c) => c.street * (1 - FREEZE_WORK) * MORALE_SECONDS - c.intern * leanSeconds(FREEZE_MORALE, c.internScore),
-    ignore: (c) => c.street * (1 - IGNORE_WORK) * MORALE_SECONDS + c.intern * leanSeconds(IGNORE_MORALE, c.internScore),
+    cafe: (c) => c.cafePrice + c.street * (1 - c.cafe) * (1 - IGNORE_WORK) * TENANTS_SECONDS,
+    freeze: (c) => c.street * (1 - FREEZE_WORK) * TENANTS_SECONDS - c.intern * leanSeconds(FREEZE_MORALE, c.internScore),
+    ignore: (c) => c.street * (1 - IGNORE_WORK) * TENANTS_SECONDS + c.intern * leanSeconds(IGNORE_MORALE, c.internScore),
   },
   agents: {
     // The meter is a clock to the Ascension: each point of it costs; money for the clean-up, or made by it; or an AI card.
@@ -193,9 +202,9 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
     policy: (c) => -c.aiCard,
   },
   hackathon: {
-    // Every vibe coder off for it, the studio's tank half filled — a spill risked, taken as 20 s of income
-    // (the pizza it replaced) — then a card offer, valued till phase 5 measures it as the day's morale it replaced.
-    host: (c) => 20 + c.vibe * (HACKATHON_MS / 1000) - c.vibe * leanSeconds(HACKATHON_MORALE, c.vibeScore),
+    // Every vibe coder off for it, the studio's tank half filled — a spill risked, taken as 20 s of income —
+    // then a card offer; with the deck not open, the day's morale.
+    host: (c) => 20 + c.vibe * (HACKATHON_MS / 1000) - (c.card || c.vibe * leanSeconds(HACKATHON_MORALE, c.vibeScore)),
     decline: (c) => c.vibe * leanSeconds(HACKATHON_SNUB, c.vibeScore),
   },
   // TRAINING RUNS are not here: every dataset costs the same — the agents'
@@ -203,37 +212,3 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
   // not income to weigh in seconds. @see game/training
 };
 
-/** Each event's choices, and the share of companies each is best for. */
-export function dominance(draws = 4000, seed = 7): Record<string, Record<string, number>> {
-  let s = seed;
-  const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
-  const out: Record<string, Record<string, number>> = {};
-  for (const [event, choices] of Object.entries(EVENTS)) {
-    const wins: Record<string, number> = Object.fromEntries(Object.keys(choices).map((k) => [k, 0]));
-    for (let k = 0; k < draws; k++) {
-      const c = company(rand);
-      let best = "", least = Infinity;
-      for (const [name, cost] of Object.entries(choices)) {
-        const v = cost(c);
-        if (v < least) { least = v; best = name; }
-      }
-      wins[best]++;
-    }
-    out[event] = Object.fromEntries(Object.entries(wins).map(([k, n]) => [k, n / draws]));
-  }
-  return out;
-}
-
-describe("dominant choices", () => {
-  test("no event has a choice that is best for nearly every company", () => {
-    const d = dominance();
-    if (process.env.BALANCE) {
-      for (const [event, split] of Object.entries(d)) {
-        console.log(`${event.padEnd(14)} ${Object.entries(split).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" · ")}`);
-      }
-    }
-    for (const [event, split] of Object.entries(d)) {
-      expect(Math.max(...Object.values(split))).toBeLessThanOrEqual(0.7);
-    }
-  });
-});

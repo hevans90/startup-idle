@@ -142,4 +142,4 @@ src/
 
 ## Testing
 
-`bun test` runs `*.test.ts` and the `src/simulation` sims: `simulate-map-run.ts` plays a gated run and `map-balance.test.ts` holds its pacing (`BALANCE=1` prints milestones); `placement-gap`, `dominant-choices`, `run-spread`, `takeover` and `singularity-cadence` hold the rest. Type-check with `bun run typecheck` (`tsc -b`).
+`bun test` runs `*.test.ts` and the `src/simulation` sims: `simulate-map-run.ts` plays a gated run (map events drawn on the director's clock, each charged its default's cost from `event-model.ts`) and `map-balance.test.ts` holds its pacing (`BALANCE=1` prints milestones); `placement-gap`, `event-stakes` (each event's best–worst gap, dominance and default), `run-spread`, `takeover` and `singularity-cadence` hold the rest. Type-check with `bun run typecheck` (`tsc -b`).

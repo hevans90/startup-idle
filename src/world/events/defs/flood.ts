@@ -8,14 +8,14 @@
  */
 import { addMorale } from "../../../game/morale";
 import { questFloodMult } from "../../../game/quests/effects";
-import { CREW_SHARE, type EventDef } from "../events";
+import { CREW_SHARE, minutes, type EventDef } from "../events";
 import { FLOOD_SECONDS } from "../flood";
 
 /** Warning before a flood, and how long it runs once it strikes, ms. */
 export const FLOOD_WARN_MS = 60_000;
 export const FLOOD_MS = FLOOD_SECONDS * 1000;
 /** What being evacuated puts a flooded home's people out, in morale for a day. */
-export const EVACUEE_MORALE = 2;
+export const EVACUEE_MORALE = 3;
 
 export const FLOOD: EventDef = {
   kind: "river-flood",
@@ -26,7 +26,7 @@ export const FLOOD: EventDef = {
   activeMs: FLOOD_MS,
   warning: {
     title: "The river is going to flood",
-    text: () => "Heavy rain upstream. The river will rise over its banks for a minute; anything low beside it will be under water.",
+    text: () => `Heavy rain upstream. The river will rise over its banks for ${minutes(FLOOD_MS)}; anything low beside it will be under water.`,
   },
   active: { title: "The river is in flood", text: "The water is over the banks. It goes down on its own." },
   choices: [

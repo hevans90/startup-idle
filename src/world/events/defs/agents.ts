@@ -12,7 +12,7 @@ import type { EventDef } from "../events";
 export const INCIDENT_METER = 5;
 /** Seconds of income rolling back costs, and letting it run makes. */
 export const ROLLBACK_SECONDS = 30;
-export const RUN_SECONDS = 60;
+export const RUN_SECONDS = 90;
 
 export const AGENT_INCIDENT: EventDef = {
   kind: "agents",
