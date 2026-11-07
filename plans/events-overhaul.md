@@ -1,6 +1,6 @@
 # Map events: overhauled
 
-Status: **phase 1 done** (2026-11-04): engine, director (100 hired, then 15–25 min), defaults, conditions, general damage. Economy multipliers on conditions wait for an event that needs them. Replaces the director in `world/events/events.ts` and the events block in `world-scene.tsx`. Floods, sludge and clean-up stay as map systems; this plan is about what starts them and what they leave behind.
+Status: **phase 2 under way** (2026-11-07): the flood's levee done. **Phase 1 done** (2026-11-04): engine, director (100 hired, then 15–25 min), defaults, conditions, general damage. Economy multipliers on conditions wait for an event that needs them. Replaces the director in `world/events/events.ts` and the events block in `world-scene.tsx`. Floods, sludge and clean-up stay as map systems; this plan is about what starts them and what they leave behind.
 
 ## Why: what is there now
 

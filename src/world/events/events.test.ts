@@ -8,7 +8,7 @@ import { tourFailed, tourReward } from "./defs/investor-tour";
 import { OVER_SHOWN_MS, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
 
 const town = (now: number, over: Partial<TownView> = {}): TownView => ({
-  now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, evacuated: [], port: null,
+  now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, levee: null, evacuated: [], port: null,
   convoy: { calls: 0, earned: 0 }, routes: 0, door: null, mood: 0, studio: null, pizza: 2000, sale: null, ...over,
 });
 let n = 1;
@@ -21,7 +21,7 @@ describe("a river flood", () => {
   test("is warned of, strikes a minute later, and is over a minute after that", () => {
     let evs = start("river-flood", at(0));
     expect(evs[0]).toMatchObject({ kind: "river-flood", phase: "warning", strikesAt: FLOOD_WARN_MS });
-    expect(evs[0].choices.map((c) => c.id)).toEqual(["sandbags", "evacuate", "brace"]);
+    expect(evs[0].choices.map((c) => c.id)).toEqual(["sandbags", "levee", "evacuate", "brace"]);
     evs = step(evs, at(FLOOD_WARN_MS)).events;
     expect(evs[0]).toMatchObject({ phase: "active", endsAt: FLOOD_WARN_MS + FLOOD_MS });
     evs = step(evs, at(FLOOD_WARN_MS + 1000, 3)).events;
@@ -48,6 +48,21 @@ describe("a river flood", () => {
     expect(eventCrew(evs, { intern: 12 })).toEqual({ intern: 6 });
     evs = step(evs, at(FLOOD_WARN_MS)).events;
     expect(eventCrew(evs, { intern: 12 })).toEqual({ intern: 6 });
+  });
+
+  test("a levee is priced from its walls, raised once when chosen, and not offered with the bank walled", () => {
+    let raised = 0;
+    const levee = (walls: number) => ({ walls, price: walls * 40, build: () => { raised++; } });
+    const v = (now: number) => town(now, { river: { x: 0, y: 9 }, levee: levee(12) });
+    let evs = start("river-flood", v(0));
+    expect(evs[0].choices.find((c) => c.id === "levee")).toMatchObject({ price: 480 });
+    evs = evs.map((e) => ({ ...e, chosen: "levee" }));
+    const once = step(evs, v(1000));
+    once.acts.forEach((a) => a());
+    step(once.events, v(2000)).acts.forEach((a) => a());
+    expect(raised).toBe(1);
+    const walled = start("river-flood", town(0, { river: { x: 0, y: 9 }, levee: levee(0) }));
+    expect(walled[0].choices.find((c) => c.id === "levee")?.unavailable).toBe("The bank is walled already");
   });
 
   test("is called off once the river is gone, and put away a while after it ended", () => {

@@ -40,7 +40,7 @@ import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
 import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
-import { structureDef } from "../world/structures/def";
+import { LEVEE, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
 import { findMains, hasMain, mainsToPorts, pipesToMains, planMain, previewMain, previewSewer, routeMain } from "../world/water/mains";
@@ -514,6 +514,8 @@ type WorldState = {
   setEvents: (events: GameEvent[]) => void;
   /** Answer an event with one of its choices. @see slopChoices */
   respondToEvent: (id: number, choice: string) => void;
+  /** Flood walls on these tiles, all at once and already paid for: a flood's levee. @see world/events/levee */
+  raiseLevee: (cells: readonly Cell[]) => void;
   /** Whether houses are tinted by how happy they are. @see moodTint */
   moodOverlay: boolean;
   setMoodOverlay: (on: boolean) => void;
@@ -831,6 +833,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (!ev || ev.phase === "over") return;
     // A CHOICE PAID FOR IS KEPT: nobody gets their money back by changing their mind.
     if (ev.choices.find((c) => c.id === ev.chosen)?.price) return;
+    if (ev.choices.find((c) => c.id === choice)?.unavailable) return;
     const price = ev.choices.find((c) => c.id === choice)?.price;
     if (price) {
       if (useMoneyStore.getState().money.lt(price)) {
@@ -840,6 +843,22 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       useMoneyStore.getState().spendMoney(price);
     }
     set({ events: get().events.map((e) => (e.id === id ? { ...e, chosen: choice } : e)) });
+  },
+  raiseLevee: (cells) => {
+    const st = get();
+    let touched: number[] = [];
+    let surface = false, net = false;
+    for (const c of cells) {
+      const cmd = placeCommand(st.grid, LEVEE, c.x, c.y, {});
+      if (!cmd) continue;
+      touched = touched.concat(commit(st.grid, history, cmd));
+      surface ||= touchesSurface(cmd);
+      net ||= touchesNetwork(cmd);
+    }
+    if (!touched.length) return;
+    if (water && surface) syncGround(water, st.grid);
+    if (network && net) rebuildNet(network, st.grid);
+    set({ revision: st.revision + 1, lastTouched: markDirty(st.grid, touched, true), ...historyMeta(), ...netMeta() });
   },
   moodOverlay: false,
   setMoodOverlay: (moodOverlay) => set({ moodOverlay }),

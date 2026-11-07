@@ -135,8 +135,9 @@ import {
 } from "./events/flood";
 import { damage, isDamaged, stepRepairs } from "./events/damage";
 import { startEvent, stepEvents, type TownView } from "./events/events";
+import { LEVEE_RUSH, leveeCells } from "./events/levee";
 import { perMinute, recordCall } from "./boats/exports";
-import { portCallFee } from "../game/build-cost";
+import { buildCost, portCallFee } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { ROUTE_BONUS } from "./events/defs/convoy";
@@ -2992,12 +2993,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const convoy = st.events.find((e) => e.kind === "convoy" && e.phase !== "over");
             const tally = convoyTally(convoy?.id ?? -1);
             const equity = canAcquire() ? Math.floor(pendingEquity().toNumber()) : 0;
+            const river = riverHead(st.grid);
+            // THE LEVEE a flood could be met with: walls on the low bank near the head. @see leveeCells
+            const bank = river && field ? leveeCells(st.grid, field) : [];
             const view: TownView = {
               now: Date.now(),
               income: useGeneratorStore.getState().getMoneyPerSecond(),
               owned,
-              river: riverHead(st.grid),
+              river,
               flooded: floodedCount.current,
+              levee: river ? {
+                walls: bank.length,
+                price: bank.length * (buildCost("levee")?.toNumber() ?? 0) * LEVEE_RUSH,
+                build: () => useWorldStore.getState().raiseLevee(bank),
+              } : null,
               evacuated: [...evacuees.current],
               port: port ? { x: port.x, y: port.y } : null,
               convoy: { calls: tally.calls, earned: tally.earned },
@@ -3013,7 +3022,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               } : null,
             };
             const on = !useSessionStore.getState().mapEventsOff;
-            const stepped = on ? stepEvents(st.events, view, EVENT_DEFS) : { events: [], ended: [] };
+            const stepped = on ? stepEvents(st.events, view, EVENT_DEFS) : { events: [], ended: [], acts: [] };
             let next = stepped.events;
             // THE DIRECTOR: one drawn, if one is due. (`__eventNow`, in development: that one, now.) @see pickEvent
             const live = next.some((e) => e.phase !== "over");
@@ -3025,6 +3034,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               next = [...next, fresh];
               eventStarted(director.current, fresh.kind, Math.random());
             }
+            // WHAT A CHOICE DOES the moment it is taken. @see ChoiceDef.act
+            for (const act of stepped.acts) act();
             // WHAT AN EVENT LEAVES BEHIND, once over. @see Outcome
             for (const { event, outcome } of stepped.ended) {
               if (outcome.money) useMoneyStore.getState().increaseMoney(outcome.money);

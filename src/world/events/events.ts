@@ -61,6 +61,8 @@ export type GameEvent = {
   endsAt?: number;
   /** The most buildings it has reached at once, so far. */
   hit?: number;
+  /** The choice whose act has been done, so it is done once. @see ChoiceDef.act */
+  acted?: string;
 };
 
 /**
@@ -77,6 +79,8 @@ export type TownView = {
   river: Spot | null;
   /** Buildings under a flood's water now. */
   flooded: number;
+  /** The levee a flood could be met with: the walls it would be, their price, and raising it. @see leveeCells */
+  levee: { walls: number; price: number; build: () => void } | null;
   /** The kinds a flood's evacuation has put out of their homes. */
   evacuated: readonly GeneratorId[];
   /** A port, on a map with any. */
@@ -106,6 +110,10 @@ export type ChoiceDef = {
   crew?: Crew;
   /** What else it costs or does, said plainly. */
   note?: (v: TownView) => string;
+  /** Why it cannot be chosen just now, if it cannot. */
+  unavailable?: (v: TownView) => string | undefined;
+  /** What it does on the map the moment it is taken, once. @see stepEvents */
+  act?: (v: TownView) => void;
 };
 
 /** What an event came to: a line for the card, money, and anything else it leaves. */
@@ -159,7 +167,11 @@ export function choiceOf(c: ChoiceDef, v: TownView): EventChoice {
     c.crew ? `${people(crewOf(c.crew, v.owned), c.crew.who)} off work ${DURING[c.crew.during]}` : null,
     c.note?.(v) || null,
   ].filter(Boolean);
-  return { id: c.id, label: c.label, cost: parts.length ? parts.join(" · ") : "free", ...(price ? { price } : {}), ...(c.crew ? { crew: c.crew } : {}) };
+  const unavailable = c.unavailable?.(v);
+  return {
+    id: c.id, label: c.label, cost: parts.length ? parts.join(" · ") : "free",
+    ...(price ? { price } : {}), ...(c.crew ? { crew: c.crew } : {}), ...(unavailable ? { unavailable } : {}),
+  };
 }
 
 /** Who every event under way has taken off work, by kind: its chosen choice's crew, in its phase. */
@@ -186,13 +198,15 @@ export function startEvent(d: EventDef, v: TownView, id: number): GameEvent | nu
 
 /**
  * One look at the town: every event moved on, and those long over put away.
- * Returns the list as it should now be, and what each that ended came to —
- * for the scene to pay out. @see Outcome
+ * Returns the list as it should now be, what each that ended came to — for
+ * the scene to pay out — and the acts of choices just taken, for it to do.
+ * @see Outcome, ChoiceDef.act
  */
 export function stepEvents(
   events: readonly GameEvent[], v: TownView, defs: Readonly<Partial<Record<EventKind, EventDef>>>,
-): { events: GameEvent[]; ended: { event: GameEvent; outcome: Outcome }[] } {
+): { events: GameEvent[]; ended: { event: GameEvent; outcome: Outcome }[]; acts: (() => void)[] } {
   const ended: { event: GameEvent; outcome: Outcome }[] = [];
+  const acts: (() => void)[] = [];
   const out: GameEvent[] = [];
   for (const ev of events) {
     const d = defs[ev.kind];
@@ -203,7 +217,11 @@ export function stepEvents(
       continue;
     }
     const at = d.where(v);
-    const e: GameEvent = { ...ev, choices: at ? d.choices.map((c) => choiceOf(c, v)) : ev.choices };
+    // Each choice priced as the town is now — but the one taken kept as it was taken.
+    const e: GameEvent = {
+      ...ev,
+      choices: at ? d.choices.map((c) => (c.id === ev.chosen ? ev.choices.find((x) => x.id === c.id) ?? choiceOf(c, v) : choiceOf(c, v))) : ev.choices,
+    };
     const end = () => {
       const o = d.outcome(e, v);
       Object.assign(e, { phase: "over", overAt: v.now, outcome: o.text });
@@ -219,7 +237,10 @@ export function stepEvents(
       Object.assign(e, d.during?.(e, v));
       if (e.endsAt !== undefined && v.now >= e.endsAt) end();
     }
+    // A CHOICE TAKEN does what it does on the map, once — answered or taken by default.
+    const act = e.chosen !== undefined && e.acted !== e.chosen && e.phase !== "over" ? d.choices.find((c) => c.id === e.chosen)?.act : undefined;
+    if (act) { e.acted = e.chosen; acts.push(() => act(v)); }
     out.push(e);
   }
-  return { events: out, ended };
+  return { events: out, ended, acts };
 }
