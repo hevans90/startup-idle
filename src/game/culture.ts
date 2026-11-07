@@ -560,6 +560,26 @@ export function deal(d: Deck, tiers: Record<Track, number>, employs: ReadonlySet
   return next;
 }
 
+/** The track a hackathon deals from: hustle and chaos, what a weekend of building makes of a company. */
+export const HACKATHON_TRACK: Track = "agile";
+/** What a hackathon came back with: an offer on the deck, a rank on a card in force, or nothing to give. */
+export type HackathonGain = { kind: "offer" } | { kind: "rank"; card: CardId } | null;
+
+/**
+ * A HACKATHON'S IDEAS: an offer of its track's cards, one of three, outside
+ * the track's own pace — or, with none left to deal, a rank on a slotted card
+ * of its tags, free. @see world/events/defs/hackathon
+ */
+export function hackathonDeal(d: Deck, employs: ReadonlySet<GeneratorId>, rng: () => number = Math.random): { deck: Deck; gain: HackathonGain } {
+  const cards = draw(poolFor(d, HACKATHON_TRACK, employs), OFFER_SIZE, rng);
+  if (cards.length) return { deck: { ...d, offers: [...d.offers, { track: HACKATHON_TRACK, cards, rerolls: 0 }] }, gain: { kind: "offer" } };
+  const tags = TRACK_TAGS[HACKATHON_TRACK];
+  const up = d.slotted.filter((id) => tags.includes(card(id).tag) && (d.ranks[id] ?? 1) < MAX_RANK);
+  if (!up.length) return { deck: d, gain: null };
+  const id = up[Math.floor(rng() * up.length)];
+  return { deck: { ...d, ranks: { ...d.ranks, [id]: (d.ranks[id] ?? 1) + 1 } }, gain: { kind: "rank", card: id } };
+}
+
 /** TAKE a card from an offer: owned at rank 1, in a slot if one is free; the offer gone. */
 export function take(d: Deck, offer: number, id: CardId): Deck {
   const o = d.offers[offer];

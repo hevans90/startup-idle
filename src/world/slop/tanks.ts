@@ -32,6 +32,12 @@ export function tanksOf(g: Grid): Map<number, Tank> {
   return t;
 }
 
+/** A tank filled by a share of what it holds, to the brim and no further: a hackathon's mess. @see HACKATHON_SLOP */
+export function slopSpike(g: Grid, id: number, share: number): void {
+  const t = tanksOf(g).get(id);
+  if (t) t.level = Math.min(t.capacity, t.level + t.capacity * share);
+}
+
 /** Water deep enough on a tile to take what is poured into it as pollution, not sludge. */
 const WET = 0.5;
 /** The water beside or on a tile, deepest first, or null: where an outfall or a spill goes in. Water, not sludge already spilt. */

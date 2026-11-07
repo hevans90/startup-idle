@@ -5,6 +5,7 @@ import { useInnovationStore } from "../state/innovation.store";
 import {
   CARDS, buySlot, cardLines, pivot, place, cardAt, cultureEffects, deal, emptyDeck, pointsLeft, rankPrice, rankUp, readDeck, reroll, take, toggleSlot,
   TRACK_PACE, hallucination, inForce, isAiTag, poolFor, rankNow, setSteps, tagCounts, workMorale, type CardId, type Deck,
+  HACKATHON_TRACK, MAX_RANK, TRACK_TAGS, card, hackathonDeal,
 } from "./culture";
 
 const all = new Set<GeneratorId>(["intern", "vibe_coder", "10x_dev"]);
@@ -263,3 +264,27 @@ describe("the AI families", () => {
   });
 });
 
+
+describe("a hackathon's ideas", () => {
+  const employs = new Set<GeneratorId>(["intern", "vibe_coder", "10x_dev"]);
+  test("are an offer of hustle and chaos cards, outside the track's pace", () => {
+    const { deck, gain } = hackathonDeal(emptyDeck(), employs, () => 0.3);
+    expect(gain).toEqual({ kind: "offer" });
+    expect(deck.offers).toHaveLength(1);
+    expect(deck.offers[0].track).toBe(HACKATHON_TRACK);
+    expect(deck.offers[0].cards.every((id) => TRACK_TAGS[HACKATHON_TRACK].includes(card(id).tag))).toBe(true);
+    expect(deck.dealt).toEqual(emptyDeck().dealt);
+  });
+
+  test("with none left to deal, are a free rank on a slotted card of those tags, and nothing past the top", () => {
+    const tags = TRACK_TAGS[HACKATHON_TRACK];
+    const all = CARDS.filter((c) => tags.includes(c.tag) && !isAiTag(c.tag)).map((c) => c.id);
+    const owned = { ...emptyDeck(), ranks: Object.fromEntries(all.map((id) => [id, 1])), slotted: [all[0]] };
+    const { deck, gain } = hackathonDeal(owned, employs);
+    expect(gain).toEqual({ kind: "rank", card: all[0] });
+    expect(deck.ranks[all[0]]).toBe(2);
+    expect(deck.spent).toBe(0);
+    const top = { ...owned, ranks: { ...owned.ranks, [all[0]]: MAX_RANK } };
+    expect(hackathonDeal(top, employs).gain).toBeNull();
+  });
+});

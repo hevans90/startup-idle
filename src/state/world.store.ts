@@ -25,7 +25,6 @@ import { createEvolution, serviceOf, type Evolution } from "../world/agents/serv
 import { createTownServices, type TownServices } from "../world/agents/town-services";
 import { ladderOf, startLadder } from "../world/agents/unlocks";
 import type { GameEvent } from "../world/events/events";
-import { HACKATHON_PIZZA } from "../world/events/defs/hackathon";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
 import { useMoneyStore } from "./money.store";
@@ -281,8 +280,6 @@ function recordBuild(cmd: Command, refund: number) {
 
 /** What clearing a derelict building costs: fifteen seconds of income. @see DERELICT */
 export const clearingPrice = () => Math.max(200, Math.round(incomeNow() * 15));
-/** What a hackathon's pizza costs: seconds of income, never under a floor. @see HACKATHON_PIZZA */
-export const pizzaPrice = () => Math.max(50, Math.round(incomeNow() * HACKATHON_PIZZA));
 
 /** How the town's houses are growing and declining. @see world/agents/services */
 let evolution: Evolution = createEvolution();

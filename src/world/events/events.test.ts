@@ -3,13 +3,14 @@ import { describe, expect, test } from "bun:test";
 import { EVENT_DEFS } from "./defs";
 import { MAX_ROUTES, ROUTE_BONUS, routeWon } from "./defs/convoy";
 import { FLOOD_MS, FLOOD_WARN_MS } from "./defs/flood";
-import { HACKATHON_SNUB } from "./defs/hackathon";
+import { HACKATHON_MS, HACKATHON_SLOP, HACKATHON_SNUB } from "./defs/hackathon";
 import { tourFailed, tourReward } from "./defs/investor-tour";
+import type { HackathonGain } from "../../game/culture";
 import { OVER_SHOWN_MS, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
 
 const town = (now: number, over: Partial<TownView> = {}): TownView => ({
   now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, levee: null, evacuated: [], port: null,
-  convoy: { calls: 0, earned: 0 }, routes: 0, door: null, mood: 0, studio: null, pizza: 2000, sale: null, ...over,
+  convoy: { calls: 0, earned: 0 }, routes: 0, door: null, mood: 0, studio: null, sale: null, ...over,
 });
 let n = 1;
 const start = (kind: EventKind, v: TownView) => [startEvent(EVENT_DEFS[kind], v, n++)!];
@@ -119,16 +120,34 @@ describe("investors", () => {
 });
 
 describe("a hackathon", () => {
-  const at = (now: number) => town(now, { studio: { x: 1, y: 1 } });
+  let spiked = 0, dealt: HackathonGain = { kind: "offer" };
+  const at = (now: number) => town(now, { studio: { x: 1, y: 1, spike: (k) => { spiked += k; }, ideas: () => dealt } });
 
-  test("costs its pizza, and takes every vibe coder while it is on", () => {
+  test("costs no money, and takes every vibe coder while it is on", () => {
     let evs = start("hackathon", at(0));
-    expect(evs[0].choices[0]).toMatchObject({ id: "host", price: 2000 });
-    expect(evs[0].choices[0].cost).toContain("$2");
+    expect(evs[0].choices[0].price).toBeUndefined();
     evs = evs.map((e) => ({ ...e, chosen: "host" }));
     expect(eventCrew(evs, { vibe_coder: 20 })).toEqual({});
     evs = step(evs, at(45_000)).events;
+    expect(evs[0].endsAt).toBe(45_000 + HACKATHON_MS);
     expect(eventCrew(evs, { vibe_coder: 20 })).toEqual({ vibe_coder: 20 });
+  });
+
+  test("hosted, it fills the studio's tank and comes back with a card offer, or a rank once the cards are dealt", () => {
+    spiked = 0;
+    const run = () => {
+      const evs = step(start("hackathon", at(0)).map((e) => ({ ...e, chosen: "host" })), at(45_000)).events;
+      return step(evs, at(45_000 + HACKATHON_MS)).ended[0];
+    };
+    dealt = { kind: "offer" };
+    expect(run().outcome.text).toMatch(/culture card offer/);
+    expect(spiked).toBe(HACKATHON_SLOP);
+    dealt = { kind: "rank", card: "crunch" };
+    expect(run().outcome.text).toMatch(/Crunch.* is a rank up/);
+    dealt = null;
+    const locked = run();
+    expect(locked.outcome.text).toMatch(/happier/);
+    expect(locked.outcome.then).toBeDefined();
   });
 
   test("nobody hosted never starts", () => {

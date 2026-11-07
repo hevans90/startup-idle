@@ -18,7 +18,7 @@ import { MORALE_SECONDS } from "../game/morale";
 import { SATISFACTION_MAX, SATISFACTION_MIN } from "../game/satisfaction";
 import { CREW_SHARE } from "../world/events/events";
 import { EVACUEE_MORALE } from "../world/events/defs/flood";
-import { HACKATHON_MORALE, HACKATHON_PIZZA, HACKATHON_SNUB } from "../world/events/defs/hackathon";
+import { HACKATHON_MORALE, HACKATHON_MS, HACKATHON_SNUB } from "../world/events/defs/hackathon";
 import { ROUTE_BONUS } from "../world/events/defs/convoy";
 import { TIDY_MOOD } from "../world/events/defs/investor-tour";
 import { FLOOD_SECONDS } from "../world/events/flood";
@@ -79,8 +79,9 @@ const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
     "as-is": () => 0,
   },
   hackathon: {
-    // The pizza, every vibe coder off a minute, then the morale.
-    host: (c) => HACKATHON_PIZZA + c.vibe * 60 - c.vibe * leanSeconds(HACKATHON_MORALE, c.vibeScore),
+    // Every vibe coder off for it, the studio's tank half filled — a spill risked, taken as 20 s of income
+    // (the pizza it replaced) — then a card offer, valued till phase 5 measures it as the day's morale it replaced.
+    host: (c) => 20 + c.vibe * (HACKATHON_MS / 1000) - c.vibe * leanSeconds(HACKATHON_MORALE, c.vibeScore),
     decline: (c) => c.vibe * leanSeconds(HACKATHON_SNUB, c.vibeScore),
   },
   // TRAINING RUNS are not here: every dataset costs the same — the agents'

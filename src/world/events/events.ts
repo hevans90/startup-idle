@@ -12,6 +12,7 @@
  * which moves every event along. Which event comes, and when, is the
  * director's. @see director
  */
+import type { HackathonGain } from "../../game/culture";
 import type { GeneratorId } from "../../state/generators.store";
 import { formatCurrency } from "../../utils/money-utils";
 
@@ -93,10 +94,12 @@ export type TownView = {
   door: Spot | null;
   /** The town's mood, every house's weighted by who lives there. @see townMood */
   mood: number;
-  /** The vibe coders' studio, with enough of them for a hackathon. @see HACKATHON_CODERS */
-  studio: Spot | null;
-  /** What a hackathon's pizza costs. @see pizzaPrice */
-  pizza: number;
+  /**
+   * The vibe coders' studio, with enough of them for a hackathon: where it
+   * is, filling its slop tank by a share, and dealing their ideas onto the
+   * culture deck. @see HACKATHON_CODERS, hackathonDeal
+   */
+  studio: (Spot & { spike: (share: number) => void; ideas: () => HackathonGain }) | null;
   /** A sale, once the company can be sold: its Equity, with an acquirer's premium, and the street that would catch their eye. */
   sale: { equity: number; withPremium: number; street: () => string | undefined } | null;
 };

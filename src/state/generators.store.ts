@@ -171,6 +171,8 @@ type GeneratorState = {
   getDeckPoints: () => number;
   /** Take a card from an offer. */
   takeCard: (offer: number, id: CardId) => void;
+  /** A hackathon's ideas dealt onto the deck: null with the deck not open, or nothing to give. @see hackathonDeal */
+  dealHackathon: () => culture.HackathonGain;
   /** Deal an offer again, for innovation. @see rerollSeconds */
   rerollOffer: (offer: number) => void;
   /** Self-Improving's rule: every card a rank up, from now for `SURGE_SECONDS`. */
@@ -493,6 +495,12 @@ export const useGeneratorStore = create<GeneratorState>()(
         getDeckPoints: () => culture.pointsLeft(get().employeeManagement.deck, deckTiers()),
 
         takeCard: (offer, id) => setDeck(culture.take(get().employeeManagement.deck, offer, id)),
+        dealHackathon: () => {
+          if (!useInnovationStore.getState().unlocks.employeeManagement?.unlocked) return null;
+          const { deck, gain } = culture.hackathonDeal(get().employeeManagement.deck, employs());
+          setDeck(deck);
+          return gain;
+        },
 
         rerollOffer: (offer) => {
           const d = get().employeeManagement.deck, o = d.offers[offer];

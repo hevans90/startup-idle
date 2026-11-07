@@ -43,7 +43,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { demolishLifts, getTownServices, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, pizzaPrice, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { demolishLifts, getTownServices, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import {
@@ -123,7 +123,7 @@ import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, sludgedHouses } from "./events/sludge";
-import { stepSlop, tanksOf } from "./slop/tanks";
+import { slopSpike, stepSlop, tanksOf } from "./slop/tanks";
 import { slopRate } from "../game/slop";
 import { convoyTally, tallyCall, townMood } from "./events/town-events";
 import { createDirector, eventStarted, pickEvent, tickDirector } from "./events/director";
@@ -3013,8 +3013,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               routes: useSessionStore.getState().routes ?? 0,
               door: door ? { x: door.x, y: door.y } : null,
               mood: townMood(st.grid, liveMoods(st.grid, net)),
-              studio: studio && (owned.vibe_coder ?? 0) >= HACKATHON_CODERS ? { x: studio.x, y: studio.y } : null,
-              pizza: pizzaPrice(),
+              studio: studio && (owned.vibe_coder ?? 0) >= HACKATHON_CODERS ? {
+                x: studio.x, y: studio.y,
+                spike: (share: number) => slopSpike(st.grid, studio.id, share),
+                ideas: () => useGeneratorStore.getState().dealHackathon(),
+              } : null,
               // AN ACQUIRER, once the company can be sold; the best street is what caught their eye.
               sale: canAcquire() ? {
                 equity, withPremium: Math.floor(equity * offerPremium()),
