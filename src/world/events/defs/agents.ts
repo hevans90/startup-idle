@@ -6,7 +6,7 @@
  */
 import { useAiSingularityStore } from "../../../state/ai-singularity.store";
 import { useGeneratorStore } from "../../../state/generators.store";
-import type { EventDef } from "../events";
+import { money, type EventDef } from "../events";
 
 /** Points the meter moves either way. */
 export const INCIDENT_METER = 5;
@@ -24,7 +24,7 @@ export const AGENT_INCIDENT: EventDef = {
   calledOff: "Nobody noticed.",
   choices: [
     { id: "rollback", label: "Roll it back", price: (v) => v.income * ROLLBACK_SECONDS, note: () => `the meter −${INCIDENT_METER}` },
-    { id: "run", label: "Let it run", note: (v) => `the meter +${INCIDENT_METER} · +${Math.round(v.income * RUN_SECONDS)}` },
+    { id: "run", label: "Let it run", note: (v) => `the meter +${INCIDENT_METER} · +${money(v.income * RUN_SECONDS)}` },
     {
       id: "policy", label: "Make it policy", note: () => "a culture card offer: 1 of 3 of the AI's own",
       unavailable: (v) => (v.datacentre?.policy ? undefined : "No AI cards to deal"),

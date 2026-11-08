@@ -23,7 +23,7 @@ export const HEATWAVE: EventDef = {
   warnMs: HEAT_WARN_MS,
   activeMs: HEAT_MS,
   warning: { title: "A heatwave is coming", text: () => `For ${minutes(HEAT_MS)}, what cools the agents will drink ${HEAT_THIRST} times as much.` },
-  active: { title: "Heatwave", text: "Everything that cools the agents is drinking twice as much." },
+  active: { title: "Heatwave", text: `Everything that cools the agents is drinking ${HEAT_THIRST} times as much.` },
   choices: [
     { id: "pumps", label: "Emergency pumps", price: (v) => v.income * PUMP_SECONDS, note: () => "every tank kept full while it lasts" },
     { id: "throttle", label: "Throttle the agents", note: () => "no agents running while it lasts: their boost and the meter stop" },

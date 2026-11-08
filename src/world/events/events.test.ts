@@ -135,6 +135,9 @@ describe("due diligence", () => {
     expect(run({ mood: 6 - TIDY_MOOD }).outcome.text).toMatch(/^Homes fail/);
     expect(run({ mood: 6 - TIDY_MOOD }, "tidy").outcome.text).toMatch(/^Homes pass/);
     expect(start("diligence", at(0))[0].choices.find((c) => c.id === "mop")?.unavailable).toBe("Nothing has spilled");
+    // With nobody to send, tidying is no free lift.
+    const nobody = start("diligence", { ...at(0), owned: { intern: 12 } })[0].choices.find((c) => c.id === "tidy");
+    expect(nobody?.unavailable).toBe("Nobody to send");
     let mopped = 0;
     const evs = start("diligence", at(0, { spills: 2 })).map((e) => ({ ...e, chosen: "mop" }));
     step(evs, at(1000, { spills: 2, mop: () => { mopped++; } })).acts.forEach((a) => a());

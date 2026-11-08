@@ -229,7 +229,8 @@ export function choiceOf(c: ChoiceDef, v: TownView): EventChoice {
     c.crew ? `${people(crewOf(c.crew, v.owned), c.crew.who)} off work ${DURING[c.crew.during]}` : null,
     c.note?.(v) || null,
   ].filter(Boolean);
-  const unavailable = c.unavailable?.(v);
+  // A CREW OF NOBODY is no choice: off work with nobody to send, it would cost nothing. @see crewOf
+  const unavailable = c.unavailable?.(v) || (c.crew && crewOf(c.crew, v.owned) === 0 ? "Nobody to send" : undefined);
   return {
     id: c.id, label: c.label, cost: parts.length ? parts.join(" · ") : "free",
     ...(price ? { price } : {}), ...(c.crew ? { crew: c.crew } : {}), ...(unavailable ? { unavailable } : {}),
