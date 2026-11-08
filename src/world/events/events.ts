@@ -18,7 +18,7 @@ import { formatCurrency } from "../../utils/money-utils";
 
 export type EventKind =
   | "river-flood" | "convoy" | "diligence" | "hackathon" | "offer" | "heatwave" | "drought" | "inspector" | "strike"
-  | "road-works" | "poaching" | "viral" | "tenants" | "agents";
+  | "road-works" | "poaching" | "viral" | "tenants" | "agents" | "fire";
 
 type Spot = { x: number; y: number };
 
@@ -86,6 +86,13 @@ export type TownView = {
   flooded: number;
   /** What a heatwave has overheated so far. @see HEATWAVE */
   overheated: number;
+  /**
+   * A BUILDING SMOKING: the one a heatwave left overheated, where a fire
+   * starts — or, while a fire is on, the one burning. Whether the mains reach
+   * it (hydrants), how many next to it it has spread to, turning the mains
+   * onto it, and burning it out. Null with nothing overheated. @see FIRE
+   */
+  smoking: (Spot & { id: number; hydrant: boolean; spread: number; hose: () => void; burnOut: () => void }) | null;
   /** The levee a flood could be met with: the walls it would be, their price, and raising it. @see leveeCells */
   levee: { walls: number; price: number; build: () => void } | null;
   /** The kinds a flood's evacuation has put out of their homes. */

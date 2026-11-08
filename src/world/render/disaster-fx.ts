@@ -5,6 +5,9 @@
  *  - A HEATWAVE: a faint haze rising off everything that drinks; off each
  *    building it overheated, steam, and a red-orange glow (the lights'
  *    conditions) until the crew has been;
+ *  - A FIRE: smoke off the building while it smoulders; once it has caught,
+ *    flames on its roof, a column of smoke above, embers, and a flickering
+ *    orange glow; burnt out, a charred tint until rebuilt (the scene's);
  *  - CLOSED BY THE INSPECTOR: a cold grey over the building;
  *  - ROAD WORKS: a striped barrier and two cones on the closed junction, an
  *    amber lamp blinking on it.
@@ -32,7 +35,23 @@ export const HAZE: Recipe = {
   texture: "dab", rate: 2.5, life: 2300, rise: 16, drift: 4, wobble: 6, spread: 16,
   from: 0xffc070, to: 0xff7a30, alpha: 0.16, size: [0.9, 1.7], blend: "add",
 };
-const RECIPES = { steam: STEAM, haze: HAZE } as const;
+/** A fire's flames: bright tongues, yellow going red, licking up off the roof. */
+export const FLAMES: Recipe = {
+  texture: "flame", rate: 22, life: 700, rise: 46, drift: 8, wobble: 3, spread: 18,
+  from: 0xfff0a0, to: 0xe0401a, alpha: 0.95, size: [0.9, 0.35], blend: "add",
+};
+/** Its smoke: dark, rising high, spreading as it goes. Thinner while it only smoulders. */
+export const SMOKE: Recipe = {
+  texture: "smoke", rate: 7, life: 3600, rise: 40, drift: 10, wobble: 8, spread: 14,
+  from: 0x5a5450, to: 0x9a9690, alpha: 0.8, size: [0.6, 2.4], blend: "normal",
+};
+export const SMOULDER: Recipe = { ...SMOKE, rate: 3, alpha: 0.5, size: [0.4, 1.6], from: 0x8a8682, to: 0xb0aca8 };
+/** Embers: sparks thrown up and off. */
+export const EMBERS: Recipe = {
+  texture: "dab", rate: 9, life: 1500, rise: 70, drift: 30, wobble: 10, spread: 14,
+  from: 0xffd060, to: 0xff4010, alpha: 1, size: [0.22, 0.08], blend: "add",
+};
+const RECIPES = { steam: STEAM, haze: HAZE, flames: FLAMES, smoke: SMOKE, smoulder: SMOULDER, embers: EMBERS } as const;
 
 /**
  * How high a building's roof is over its ground, screen px at scale 1: as
@@ -50,11 +69,28 @@ export type Wanted = Map<string, { at: EmitAt; recipe: keyof typeof RECIPES }>;
  * THE EMITTERS WANTED NOW: steam off what overheated, and haze off what
  * drinks while a heatwave is on. Pure. @see sync
  */
-export function emittersWanted(g: Grid, damaged: Iterable<readonly [number, DamageCause]>, heatwave: boolean, drinkers: Iterable<number>, drawn?: RoofOf): Wanted {
+export function emittersWanted(g: Grid, damaged: Iterable<readonly [number, DamageCause]>, heatwave: boolean, drinkers: Iterable<number>, drawn?: RoofOf, fire: { burning: readonly number[]; smouldering: readonly number[] } = { burning: [], smouldering: [] }): Wanted {
   const out: Wanted = new Map();
+  // A FIRE: flames, smoke and embers off what burns; smoke off what smoulders.
+  const roofAt = (id: number) => {
+    const s = g.structures.get(id);
+    return s && { x: s.x, y: s.y, w: s.w, h: s.h, rise: Math.round(roofOf(id, s.def, s.w, s.h, drawn)) };
+  };
+  for (const id of fire.burning) {
+    const at = roofAt(id);
+    if (!at) continue;
+    out.set(`flames:${id}`, { at, recipe: "flames" });
+    out.set(`smoke:${id}`, { at: { ...at, rise: at.rise + 24 }, recipe: "smoke" });
+    out.set(`embers:${id}`, { at, recipe: "embers" });
+  }
+  for (const id of fire.smouldering) {
+    const at = roofAt(id);
+    if (at && !fire.burning.includes(id)) out.set(`smoulder:${id}`, { at, recipe: "smoulder" });
+  }
   for (const [id, cause] of damaged) {
     const s = g.structures.get(id);
-    if (cause !== "heat" || !s) continue;
+    // Steam off what overheated — but not off what is on fire.
+    if (cause !== "heat" || !s || fire.burning.includes(id) || fire.smouldering.includes(id)) continue;
     out.set(`steam:${id}`, { at: { x: s.x, y: s.y, w: s.w, h: s.h, rise: Math.round(roofOf(id, s.def, s.w, s.h, drawn)) }, recipe: "steam" });
   }
   if (heatwave) {
@@ -94,6 +130,8 @@ export type DisasterFx = {
     closed: readonly { x: number; y: number }[];
     /** A building's roof as drawn. @see RoofOf */
     roof?: RoofOf;
+    /** What is on fire now, and what is only smoking yet. @see FIRE */
+    fire?: { burning: readonly number[]; smouldering: readonly number[] };
   }) => void;
   clear: () => void;
 };
@@ -105,10 +143,10 @@ export function createDisasterFx(): DisasterFx {
   let glowKey = "";
 
   return {
-    sync({ ctx, juice, lights, damaged, heatwave, drinkers, closed, roof }) {
+    sync({ ctx, juice, lights, damaged, heatwave, drinkers, closed, roof, fire }) {
       const g = ctx.grid;
       // THE EMITTERS: started, moved or stopped to match what is wanted.
-      const want = emittersWanted(g, damaged, heatwave, drinkers, roof);
+      const want = emittersWanted(g, damaged, heatwave, drinkers, roof, fire);
       for (const [key, r] of running) {
         const w = want.get(key);
         if (w && JSON.stringify(w.at) === r.at) continue;
@@ -142,11 +180,11 @@ export function createDisasterFx(): DisasterFx {
       }
       // THE GLOWS, by cause, and the works' lamps.
       if (lights) {
-        const key = JSON.stringify([damaged, closed, g.structures.size]);
+        const key = JSON.stringify([damaged, closed, fire?.burning, g.structures.size]);
         if (key !== glowKey) {
           glowKey = key;
           // A building's glow halfway up it, as drawn.
-          lights.conditions(g, ctx.scale, conditionsOf(g, damaged, closed, roof && ((id) => { const r = roof(id); return r === null ? null : r * 0.5; })));
+          lights.conditions(g, ctx.scale, conditionsOf(g, damaged, closed, roof && ((id) => { const r = roof(id); return r === null ? null : r * 0.5; }), fire?.burning));
         }
       }
     },

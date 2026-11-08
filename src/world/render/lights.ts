@@ -36,12 +36,13 @@ const LAMP_EVERY = 4;
 
 /**
  * A CONDITION'S GLOW, day and night: what is wrong with a building or a tile,
- * in light. Heat pulses red-orange; closed is a steady cold grey; road works
- * an amber lamp, blinking. @see conditionsOf
+ * in light. Heat pulses red-orange; a fire flickers bright orange; closed is a
+ * steady cold grey; road works an amber lamp, blinking. @see conditionsOf
  */
-export type Condition = { kind: "heat" | "closed" | "works"; x: number; y: number; w: number; h: number; rise: number };
+export type Condition = { kind: "heat" | "closed" | "works" | "fire"; x: number; y: number; w: number; h: number; rise: number };
 
 const HEAT_GLOW = 0xff5a1f;
+const FIRE_GLOW = 0xff8a1c;
 const CLOSED_GLOW = 0x9aa6b4;
 const WORKS_LAMP = 0xffa526;
 /** The road-works lamp's height over its tile, screen px at scale 1: on top of the barrier. */
@@ -54,11 +55,16 @@ export const riseOf = (def: string) => RISE[tierOf(def) ?? ""] ?? 34;
  * Where the conditions glow: each damaged building by its cause — none for a
  * flood, whose water shows it — and a lamp on each closed road tile. Pure.
  */
-export function conditionsOf(g: Grid, damaged: Iterable<readonly [number, string]>, closedTiles: Iterable<{ x: number; y: number }>, riseFor?: (id: number) => number | null): Condition[] {
+export function conditionsOf(g: Grid, damaged: Iterable<readonly [number, string]>, closedTiles: Iterable<{ x: number; y: number }>, riseFor?: (id: number) => number | null, burning: readonly number[] = []): Condition[] {
   const out: Condition[] = [];
+  // ON FIRE: its flicker, in place of whatever else is wrong with it.
+  for (const id of burning) {
+    const s = g.structures.get(id);
+    if (s) out.push({ kind: "fire", x: s.x, y: s.y, w: s.w, h: s.h, rise: Math.round(riseFor?.(id) ?? riseOf(s.def)) });
+  }
   for (const [id, cause] of damaged) {
     const s = g.structures.get(id);
-    if (!s || (cause !== "heat" && cause !== "closed")) continue;
+    if (!s || (cause !== "heat" && cause !== "closed") || burning.includes(id)) continue;
     out.push({ kind: cause, x: s.x, y: s.y, w: s.w, h: s.h, rise: Math.round(riseFor?.(id) ?? riseOf(s.def)) });
   }
   for (const t of closedTiles) out.push({ kind: "works", x: t.x, y: t.y, w: 1, h: 1, rise: WORKS_RISE });
@@ -69,6 +75,8 @@ export function conditionsOf(g: Grid, damaged: Iterable<readonly [number, string
 export function conditionAlpha(kind: Condition["kind"], t: number, phase = 0): number {
   if (kind === "heat") return 0.45 + 0.25 * Math.sin((t * 1.6 + phase) * Math.PI);
   if (kind === "works") return (t + phase) % 1 < 0.55 ? 0.95 : 0.12;
+  // Two waves out of step, so it never settles into a beat.
+  if (kind === "fire") return 0.7 + 0.18 * Math.sin((t * 7.3 + phase) * Math.PI) + 0.12 * Math.sin((t * 11.9 + phase * 3) * Math.PI);
   return 0.42;
 }
 
@@ -172,9 +180,9 @@ export function createLights(stage: Container, zIndex: number): Lights {
           s.scale.set(0.55 * scale);
         } else {
           // Heat added on, as light; closed laid over, a cold grey wash.
-          s.tint = c.kind === "heat" ? HEAT_GLOW : CLOSED_GLOW;
-          s.blendMode = c.kind === "heat" ? "add" : "normal";
-          s.scale.set((1.1 + 0.5 * Math.max(c.w, c.h)) * scale);
+          s.tint = c.kind === "heat" ? HEAT_GLOW : c.kind === "fire" ? FIRE_GLOW : CLOSED_GLOW;
+          s.blendMode = c.kind === "closed" ? "normal" : "add";
+          s.scale.set((c.kind === "fire" ? 1.5 : 1) * (1.1 + 0.5 * Math.max(c.w, c.h)) * scale);
         }
       });
       cond.visible = glows.length > 0;

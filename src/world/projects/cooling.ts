@@ -29,6 +29,8 @@ export const setHeat = (thirst: number, topUp: boolean) => { heat = { thirst, to
 export type Tank = { level: number; share: number; capacity: number; demand: number; agents: number; def: Drinker };
 
 const tanks = new Map<number, Tank>();
+/** When a pipe last offered each tank water, ms: the mains reach it. @see onMains */
+const fedAt = new Map<number, number>();
 let hot = 0, spireShare = 0;
 
 /** Agents a building holds: a rack and an AI node a rack's worth, a GPU farm two. */
@@ -101,6 +103,10 @@ export function stepCooling(g: Grid, running: number, river: boolean, dt: number
  * room for. What it took. @see runPipes
  */
 export function fillTank(id: number, amount: number): number {
+  const now = Date.now();
+  if (amount > 0) fedAt.set(id, now);
+  // THE MAINS ON A FIRE: nothing for the tanks while the hoses run. @see hoseFor
+  if (now < hosingUntil) return 0;
   const t = tanks.get(id);
   if (!t || amount <= 0) return 0;
   const take = Math.min(amount, t.capacity - t.level);
@@ -121,6 +127,20 @@ export function wateredShare(): number | null {
   return n ? sum / n : null;
 }
 
+/** Whether the mains reach a building: a pipe has offered its tank water in the last few seconds. Hydrants for a fire. @see FIRE */
+export const onMains = (id: number, now = Date.now()) => now - (fedAt.get(id) ?? -Infinity) < 10_000;
+
+/** Until when the mains' water is on a fire, ms since the epoch. */
+let hosingUntil = 0;
+/**
+ * THE MAINS TURNED ONTO A FIRE for `ms`: every tank emptied into the hoses,
+ * and none filled again until they are off. @see FIRE
+ */
+export function hoseFor(ms: number, now = Date.now()): void {
+  for (const t of tanks.values()) t.level = 0;
+  hosingUntil = now + ms;
+}
+
 /** Agents at work who are not cooled: they run at half. */
 export const hotAgents = () => hot;
 /** The compute spires standing, each counted by how well it is cooled. */
@@ -132,6 +152,8 @@ export const allTanks = (): ReadonlyMap<number, Tank> => tanks;
 /** A new company, or a map loaded: every tank forgotten, to start full. */
 export function resetCooling(): void {
   tanks.clear();
+  fedAt.clear();
+  hosingUntil = 0;
   heat = { thirst: 1, topUp: false };
   hot = 0; spireShare = 0;
 }

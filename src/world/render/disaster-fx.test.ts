@@ -41,6 +41,21 @@ describe("disasters you can see", () => {
     expect([...hot.keys()].sort()).toEqual(["haze:1", "haze:3", "steam:1"]);
   });
 
+  test("a fire: smoke while it smoulders; flames, smoke and embers once caught, and no steam off it", () => {
+    const g = town();
+    const smoulder = emittersWanted(g, [[1, "heat"]], false, [], undefined, { burning: [], smouldering: [1] });
+    expect([...smoulder.keys()]).toEqual(["smoulder:1"]);
+    const burning = emittersWanted(g, [[1, "heat"]], false, [], undefined, { burning: [1, 2], smouldering: [] });
+    expect([...burning.keys()].sort()).toEqual(["embers:1", "embers:2", "flames:1", "flames:2", "smoke:1", "smoke:2"]);
+  });
+
+  test("a building on fire flickers instead of whatever else glows on it", () => {
+    const list = conditionsOf(town(), [[1, "heat"], [2, "closed"]], [], undefined, [1]);
+    expect(list.map((c) => [c.kind, c.x])).toEqual([["fire", 2], ["closed", 6]]);
+    const at = Array.from({ length: 30 }, (_, k) => conditionAlpha("fire", k / 30));
+    expect(Math.max(...at) - Math.min(...at)).toBeGreaterThan(0.3);
+  });
+
   test("a building being built gives off no haze, and a gone one no steam", () => {
     const g = town();
     g.structures.set(4, { id: 4, def: "datacentre", x: 9, y: 2, w: 2, h: 2, build: { left: 10 } as never });

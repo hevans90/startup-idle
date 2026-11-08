@@ -2,10 +2,12 @@
  * A HEATWAVE: for three minutes what cools the agents drinks twice as much.
  * Pay for emergency pumps (every tank kept full), throttle the agents (none
  * running for it: their boost and the meter stop), or ride it out — and
- * whatever runs short of water overheats, idle until the repair crew has been.
+ * whatever runs short of water overheats, idle until the repair crew has been —
+ * and one still overheated when the smoke starts catches fire. @see FIRE
  * The weather is the scene's. @see setHeat, setThrottled
  */
 import { minutes, type EventDef } from "../events";
+import { FIRE_AFTER_MS } from "./fire";
 
 /** How long it lasts, and the warning, ms. */
 export const HEAT_MS = 900_000;
@@ -36,6 +38,9 @@ export const HEATWAVE: EventDef = {
     if (e.chosen === "pumps") return { text: "The pumps kept every tank full. It is over." };
     if (e.chosen === "throttle") return { text: "The agents are back on. It is over." };
     const n = e.hit ?? 0;
-    return { text: n ? `${n} overheated. They are idle until the repair crew has been round each.` : "Nothing ran short. It is over." };
+    // AND A FIRE, maybe, where one is still overheated when the smoke starts. @see FIRE
+    return n
+      ? { text: `${n} overheated. They are idle until the repair crew has been round each.`, next: { kind: "fire", inMs: FIRE_AFTER_MS } }
+      : { text: "Nothing ran short. It is over." };
   },
 };

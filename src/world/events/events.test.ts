@@ -19,7 +19,7 @@ import type { HackathonGain } from "../../game/culture";
 import { CREW_SHARE, OVER_SHOWN_MS, answerFor, eventCrew, startEvent, stepEvents, type EventKind, type GameEvent, type TownView } from "./events";
 
 const town = (now: number, over: Partial<TownView> = {}): TownView => ({
-  now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, overheated: 0, levee: null, evacuated: [], port: null,
+  now, income: 100, owned: { intern: 12, vibe_coder: 20 }, river: null, flooded: 0, overheated: 0, smoking: null, levee: null, evacuated: [], port: null,
   drinkers: null, offices: null, site: null, junction: null, poach: null, viral: null, unhappy: null, datacentre: null,
   convoy: { calls: 0, earned: 0 }, routes: 0, door: null, studio: null, sale: null,
   diligence: { mood: 0, spills: 0, watered: null, mop: () => {} }, ...over,

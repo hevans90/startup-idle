@@ -1,6 +1,6 @@
 # Disasters you can see: fire, heat and the rest
 
-Status: **phase 1 done** (2026-11-08). Follows the events overhaul (`events-overhaul.md`, phases 1–5 done).
+Status: **phases 1 and 2 done** (2026-11-08). Follows the events overhaul (`events-overhaul.md`, phases 1–5 done).
 
 ## Why
 
@@ -72,7 +72,11 @@ Correction: the building's sprites were already tinted while damaged — `DAMAGE
 
 1. **Done.** `render/juice.ts` (emitters, `Recipe`), `render/lights.ts` (`conditionsOf`, its own root shown day and night), `render/disaster-fx.ts` (what each disaster shows, synced once a second), `DAMAGED_TINT` by cause. Steam and the glow sit at the building's roof as drawn (`RoofOf`). The flame texture waits for phase 2. Not yet measured as in phase 4.
    **The two pieces, shown on what exists.** Emitters, and the condition glow on any damaged building, keyed by cause. Then use them on the heatwave (haze, steam and glow on overheated buildings) and on road works (barrier, cones, lamp). This closes the playtest's three gaps.
-2. **Fire.** Design the event first (see Questions). Then flames, smoke, embers, the charred tint, and scorch decals. "Damaged" gets a `fire` cause.
+2. **Done: fire.** `events/defs/fire.ts`, `events/fire-spread.ts`, `damage.ts` (`fire` cause, `burn`, `FIRE_REPAIR_SECONDS`), `cooling.ts` (`onMains`, `hoseFor`). Questions 1 and 2 answered with the lean:
+   - **It starts** as a heatwave's follow-up: ridden out with anything overheated, 20 s later the first building still overheated smokes, and 30 s after that it catches. The director never draws it otherwise (weight 0). The crew getting there first calls it off.
+   - **Hose it from the hydrants**, only where the mains reach it: every tank emptied and none filled for the 2 minutes it takes. **The fire brigade**: 120 s of income, out in a minute. **Let it burn** (the default): 3 minutes, burnt out (a 480 s rebuild, not a 180 s repair), and halfway through it catches up to two buildings next to it left without water. No repairs while it burns.
+   - Stakes: hydrants best for 63%, brigade 11%, burning 26%; median gap 5.9%; the default worst 37%. The model works out a fire's company from the company's own draws, so no other event's numbers moved.
+   - Drawn: smoke while it smoulders; flames (a new procedural tongue), a dark smoke column, embers and a flickering glow once caught; the charred tint after. **Not done:** the scorch decal — under a standing building it would barely show; the charred tint carries the afterwards.
 3. **The planned disasters**, cheapest first: burst main, sewer backup, blackout, earthquake. Each one is an event in the events plan's form: a def, choices and a built answer.
 4. **Measured.** On `?fixture=bigtown`, with a fire, a heatwave and road works all running at once:
    - `__waterBench` with `sync=true` stays within 5% of a quiet town;

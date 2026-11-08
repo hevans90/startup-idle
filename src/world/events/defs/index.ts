@@ -4,6 +4,7 @@ import { AGENT_INCIDENT } from "./agents";
 import { CONVOY } from "./convoy";
 import { DILIGENCE } from "./diligence";
 import { DROUGHT } from "./drought";
+import { FIRE } from "./fire";
 import { FLOOD } from "./flood";
 import { HACKATHON } from "./hackathon";
 import { HEATWAVE } from "./heatwave";
@@ -30,4 +31,5 @@ export const EVENT_DEFS: Readonly<Record<EventKind, EventDef>> = {
   viral: VIRAL,
   tenants: TENANTS,
   agents: AGENT_INCIDENT,
+  fire: FIRE,
 };

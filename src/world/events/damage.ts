@@ -11,13 +11,15 @@ import type { GeneratorId } from "../../state/generators.store";
 import type { Grid } from "../grid";
 
 /** What damaged a building — or, "closed", shut by the health inspector for a set time. @see closeFor */
-export type DamageCause = "flood" | "heat" | "closed";
+export type DamageCause = "flood" | "heat" | "closed" | "fire";
 
 /** What a building damaged by each cause is called, on its badge and its line. */
-export const DAMAGE_NAME: Record<DamageCause, string> = { flood: "Flood damaged", heat: "Overheated", closed: "Closed by the inspector" };
+export const DAMAGE_NAME: Record<DamageCause, string> = { flood: "Flood damaged", heat: "Overheated", closed: "Closed by the inspector", fire: "Burnt out" };
 
 /** Seconds the repair crew takes over each damaged building, one at a time. */
 export const REPAIR_SECONDS = 180;
+/** And over a burnt-out one: rebuilt, not mended. @see FIRE */
+export const FIRE_REPAIR_SECONDS = 480;
 
 /** `timed`: shut for its time, the crew not needed — and not in its queue. */
 const damaged = new Map<number, { left: number; cause: DamageCause; timed?: boolean }>();
@@ -28,6 +30,23 @@ let damagedOn: Grid | null = null;
 export function damage(g: Grid, ids: Iterable<number>, cause: DamageCause = "flood") {
   if (damagedOn !== g) { damaged.clear(); damagedOn = g; }
   for (const id of ids) if (!damaged.has(id)) damaged.set(id, { left: REPAIR_SECONDS, cause });
+}
+
+/**
+ * BURNT OUT: buildings a fire has had, each now the crew's longest job — one
+ * already damaged keeps its place in the queue, but takes the rebuild's time.
+ * @see FIRE
+ */
+export function burn(g: Grid, ids: Iterable<number>) {
+  if (damagedOn !== g) { damaged.clear(); damagedOn = g; }
+  for (const id of ids) if (g.structures.has(id)) damaged.set(id, { left: FIRE_REPAIR_SECONDS, cause: "fire" });
+}
+
+/** The first building in the crew's queue that a heatwave overheated, or null: where a fire would start. @see FIRE */
+export function firstOverheated(g: Grid): number | null {
+  if (damagedOn !== g) return null;
+  for (const [id, d] of damaged) if (d.cause === "heat" && g.structures.has(id)) return id;
+  return null;
 }
 
 /** A building shut for `seconds`, whatever else is going on: no crew needed. */

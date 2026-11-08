@@ -115,7 +115,7 @@ const CPU_SOLVE_MS = 8;
  * by heat, greyed out by the inspector — so the causes look apart even
  * without their glows. @see damage, conditionsOf
  */
-const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a080, closed: 0xa4a8ae };
+const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a080, closed: 0xa4a8ae, fire: 0x6a5c55 };
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
@@ -143,7 +143,9 @@ import { FLOOD_MS } from "./events/defs/flood";
 import {
   droughtDrop, evacuatedAway, floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
-import { closeFor, damage, damageCause, damagedNow, isDamaged, stepRepairs, type DamageCause } from "./events/damage";
+import { burn, closeFor, damage, damageCause, damagedNow, firstOverheated, isDamaged, stepRepairs, type DamageCause } from "./events/damage";
+import { FIRE_MS, FIRE_SPREAD, HOSE_OUT_MS } from "./events/defs/fire";
+import { spreadTargets } from "./events/fire-spread";
 import { answerFor, startEvent, stepEvents, type TownView } from "./events/events";
 import { busiestJunction, setClosed, tileOf } from "./events/closures";
 import { POACH_LEAST, POACH_SHARE, MATCH_SHARE } from "./events/defs/poaching";
@@ -173,7 +175,7 @@ import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
 import { runPipes } from "./water/pipes";
-import { allTanks, setHeat, stepCooling, tankFor, wateredShare } from "./projects/cooling";
+import { allTanks, hoseFor, onMains, setHeat, stepCooling, tankFor, wateredShare } from "./projects/cooling";
 import { HEAT_THIRST, OVERHEAT_SHARE } from "./events/defs/heatwave";
 import { CLEAN_RECORD } from "./events/defs/inspector";
 import { removeConditions } from "../game/conditions";
@@ -462,6 +464,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const junctionAt = useRef<{ key: string; at: { x: number; y: number } | null }>({ key: "", at: null });
   /** What a heatwave ridden out has overheated. @see HEATWAVE */
   const overheated = useRef(new Set<number>());
+  /** The building a fire is at while one is under way, and what it has spread to (null: not yet). @see FIRE */
+  const fireAt = useRef<{ id: number; spread: number[] | null } | null>(null);
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -2246,7 +2250,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       for (const [id, m] of sl.mounted) {
         if (!isDamaged(id)) continue;
-        const sprites = (m.handle as { sprites?: { tint: number; destroyed?: boolean }[] }).sprites ?? [];
+        // Columns or sprites, as the building is drawn: an AI building is columns. @see deskTint
+        const h = m.handle as { columns?: { tint: number; destroyed?: boolean }[]; sprites?: { tint: number; destroyed?: boolean }[] };
+        const sprites = h.columns ?? h.sprites ?? [];
         const tint = DAMAGED_TINT[damageCause(id) ?? "flood"];
         for (const sp of sprites) sp.tint = tint;
         muddied.set(id, sprites);
@@ -3083,6 +3089,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const aiCardsLeft = CARDS.some((c) => AI_TAGS.includes(c.tag) && !deck.ranks[c.id] && !deck.offers.some((o) => o.cards.includes(c.id)));
             // A SITE STILL WAITING ON LOADS, for a strike. @see STRIKE
             const waiting = sitesOf(st.grid).find((s) => s.build && s.build.delivered < s.build.deliveries);
+            // A BUILDING SMOKING: while a fire is under way, the one it is at,
+            // for as long as it is still damaged (the crew there first calls it
+            // off); else the first a heatwave left overheated. @see FIRE
+            const fireEv = st.events.find((e) => e.kind === "fire" && e.phase !== "over");
+            if (!fireEv) fireAt.current = null;
+            const smokeId = fireEv && fireAt.current
+              ? (isDamaged(fireAt.current.id) && st.grid.structures.has(fireAt.current.id) ? fireAt.current.id : null)
+              : firstOverheated(st.grid);
+            if (fireEv && !fireAt.current && smokeId !== null) fireAt.current = { id: smokeId, spread: null };
+            const smokeS = smokeId !== null ? st.grid.structures.get(smokeId) : undefined;
             const view: TownView = {
               now: Date.now(),
               income: useGeneratorStore.getState().getMoneyPerSecond(),
@@ -3090,6 +3106,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               river,
               flooded: floodedCount.current,
               overheated: overheated.current.size,
+              smoking: smokeS ? {
+                x: smokeS.x, y: smokeS.y, id: smokeS.id, hydrant: onMains(smokeS.id),
+                spread: fireAt.current?.spread?.length ?? 0,
+                hose: () => hoseFor(HOSE_OUT_MS),
+                burnOut: () => { const f = fireAt.current; if (f) burn(st.grid, [f.id, ...(f.spread ?? [])]); },
+              } : null,
               drinkers: drinker && thirsty ? {
                 x: drinker.x, y: drinker.y,
                 dig: (() => { const at = siteFor(st.grid, drinker, null); return at ? () => { digReservoir(at); } : null; })(),
@@ -3242,6 +3264,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             for (const [id, t] of allTanks()) if (t.demand > 0 && t.share < OVERHEAT_SHARE && !overheated.current.has(id)) hot.push(id);
             if (hot.length) { damage(st.grid, hot, "heat"); for (const id of hot) overheated.current.add(id); }
           }
+          // A FIRE LET BURN, halfway through: caught by what is next to it
+          // without water, once. @see FIRE_SPREAD, spreadTargets
+          const fire = st.events.find((e) => e.kind === "fire" && e.phase === "active");
+          if (fire?.chosen === "burn" && fire.endsAt !== undefined && fireAt.current && !fireAt.current.spread && Date.now() >= fire.endsAt - FIRE_MS / 2) {
+            const watered = (id: number) => { const t = tankFor(id); return !!t && t.share >= OVERHEAT_SHARE; };
+            fireAt.current.spread = spreadTargets(st.grid, fireAt.current.id, watered, FIRE_SPREAD);
+          }
           // ROAD WORKS: the junction closed while they are on, and road free for a bypass. @see ROAD_WORKS
           const works = st.events.find((e) => e.kind === "road-works" && e.phase === "active");
           setClosed(works ? [tileOf(st.grid, works.where)] : []);
@@ -3282,7 +3311,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         sEvents();
         const sRest = section("tick: repairs, training, cooling");
         // THE REPAIR CREW, round the damaged buildings once the water is down.
-        if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult, !!floodBase.current);
+        // None while a fire burns either: the crew does not go in. @see FIRE
+        const burning = st.events.some((e) => e.kind === "fire" && e.phase === "active");
+        if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult, !!floodBase.current || burning);
         // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
         if (st.playing) useTrainingStore.getState().tick();
         // THE DRINKERS DRINK: the Data Centre and the AI's own buildings, from their tanks. @see stepCooling
@@ -3450,6 +3481,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         ctx: { bands: bl, textures: tex, grid: st.grid, scale }, juice: juiceRef.current, lights: lightsRef.current,
         damaged: st.playing ? damagedNow() : [], heatwave: !!active("heatwave"), drinkers,
         closed: works?.where ? [works.where] : [],
+        // A FIRE: smoking while it is coming, burning once caught — and what it spread to, once it has. @see FIRE
+        fire: (() => {
+          const f = st.playing ? st.events.find((e) => e.kind === "fire" && e.phase !== "over") : undefined, at = fireAt.current;
+          if (!f || !at) return { burning: [], smouldering: [] };
+          return f.phase === "active" ? { burning: [at.id, ...(at.spread ?? [])], smouldering: [] } : { burning: [], smouldering: [at.id] };
+        })(),
         // ITS ROOF AS DRAWN: the top of its sprites over the middle of its
         // footprint's ground, in the scene's space — less half the roof's own
         // diamond, whose top is its back corner and not its middle. @see RoofOf

@@ -27,7 +27,8 @@ import { VIRAL_MORALE, VIRAL_MS } from "../world/events/defs/viral";
 import { FREEZE_MORALE, FREEZE_WORK, IGNORE_MORALE, IGNORE_WORK, TENANTS_SECONDS } from "../world/events/defs/tenants";
 import { INCIDENT_METER, ROLLBACK_SECONDS, RUN_SECONDS } from "../world/events/defs/agents";
 import { EDGE_LOADS, STRIKE_MS, STRIKE_PAY } from "../world/events/defs/strike";
-import { REPAIR_SECONDS } from "../world/events/damage";
+import { FIRE_REPAIR_SECONDS, REPAIR_SECONDS } from "../world/events/damage";
+import { BRIGADE_SECONDS, FIRE_MS, FIRE_SPREAD, HOSE_OUT_MS } from "../world/events/defs/fire";
 
 /** The window a choice is judged over, seconds. */
 export const WINDOW = 1200;
@@ -118,6 +119,22 @@ const judged = (c: Company, tidied: number, spills: number) => {
   return DILIGENCE_MULT[passed] * c.saleWorth;
 };
 
+/**
+ * A number in [0, 1) from a company's own draws: what a fire needs to know of
+ * it is worked out, not drawn, so the companies every other event is judged
+ * on stay exactly as they were.
+ */
+const hashed = (c: Company, salt: number) => {
+  const x = Math.sin(c.money * 12.9898 + c.house * 7833.3 + salt * 37.719) * 43758.5453;
+  return x - Math.floor(x);
+};
+/** A FIRE's company: the burning building's share of income, whether the mains reach it, and how many next to it are dry. */
+const fireOf = (c: Company) => ({
+  rack: c.drinkingShare / (1 + Math.floor(hashed(c, 1) * 5)),
+  mains: hashed(c, 2) < 0.7,
+  dry: Math.floor(hashed(c, 3) * (FIRE_SPREAD + 1)),
+});
+
 /** Each choice's COST over the window, in seconds of total income (less is better). */
 export const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
   "river-flood": {
@@ -200,6 +217,17 @@ export const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
     rollback: (c) => ROLLBACK_SECONDS - INCIDENT_METER * c.meter,
     run: (c) => INCIDENT_METER * c.meter - RUN_SECONDS,
     policy: (c) => -c.aiCard,
+  },
+  fire: {
+    // Counted past the overheating it was anyway (idle till the crew's been).
+    // The mains on it: every tank empty and nothing drinking till it is out.
+    hose: (c) => (fireOf(c).mains ? c.drinkingShare * HOSE_OUT_MS / 1000 : Infinity),
+    brigade: () => BRIGADE_SECONDS,
+    // Burnt for the whole of it and rebuilt, not mended; and the dry ones next to it caught halfway through. (Taken to be homes.)
+    burn: (c) => {
+      const f = fireOf(c);
+      return f.rack * (FIRE_MS / 1000 + FIRE_REPAIR_SECONDS - REPAIR_SECONDS) + f.dry * c.house * (FIRE_MS / 2000 + FIRE_REPAIR_SECONDS);
+    },
   },
   hackathon: {
     // Every vibe coder off for it, the studio's tank half filled — a spill risked, taken as 20 s of income —

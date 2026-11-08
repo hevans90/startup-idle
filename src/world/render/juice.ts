@@ -11,7 +11,7 @@
  *    name floats up off it and fades. @see stepTown
  *  - EMITTERS: the same motes given off continuously at a spot until
  *    stopped — steam off an overheated rack, haze over what drinks in a
- *    heatwave. @see Recipe, disaster-fx
+ *    heatwave, a fire's flames, smoke and embers. @see Recipe, disaster-fx
  *
  * Only for what changes while the map is up — not for what is there when it
  * loads, which arrives all at once and would be a storm. @see syncStructures
@@ -59,7 +59,7 @@ type Emitted = { from: number; to: number; size: [number, number]; wobble: numbe
  * and fades. Lengths and speeds are screen px at scale 1. @see Juice.emit
  */
 export type Recipe = {
-  texture: "dab" | "smoke";
+  texture: "dab" | "smoke" | "flame";
   /** Motes a second, close up; fewer zoomed out. @see zoomRate */
   rate: number;
   /** How long a mote lives, ms. */
@@ -190,11 +190,33 @@ function smokeTexture(): Texture {
   return smoke;
 }
 
+/** A tongue of flame: a teardrop, white, brightest at its foot, for tinting. Made once. */
+let flame: Texture | null = null;
+function flameTexture(): Texture {
+  if (flame) return flame;
+  const c = document.createElement("canvas");
+  c.width = 24; c.height = 40;
+  const g = c.getContext("2d")!;
+  const grad = g.createRadialGradient(12, 30, 0, 12, 26, 18);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.5, "rgba(255,255,255,0.6)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.beginPath();
+  g.moveTo(12, 1);
+  g.bezierCurveTo(19, 14, 23, 24, 21, 31);
+  g.bezierCurveTo(19, 38, 5, 38, 3, 31);
+  g.bezierCurveTo(1, 24, 5, 14, 12, 1);
+  g.fill();
+  flame = Texture.from(c);
+  return flame;
+}
+
 type Emitter = { wx: number; wy: number; band: number; recipe: Recipe; ctx: RenderCtx; carry: number; spread: number };
 
 /** `texture`: what an emitter's motes are drawn with, for a test with no canvas to draw one. */
 export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Texture } = {}): Juice {
-  const textureOf = opts.texture ?? ((kind: Recipe["texture"]) => (kind === "smoke" ? smokeTexture() : dabTexture()));
+  const textureOf = opts.texture ?? ((kind: Recipe["texture"]) => (kind === "smoke" ? smokeTexture() : kind === "flame" ? flameTexture() : dabTexture()));
   const tweens = createTweens();
   const motes: Mote[] = [];
   const pool: Sprite[] = [];
@@ -220,7 +242,8 @@ export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Textu
     const m = pool.pop() ?? new Sprite(textureOf(r.texture));
     m.texture = textureOf(r.texture);
     m.blendMode = r.blend;
-    m.anchor.set(0.5);
+    // A flame stands on its foot; the rest on their middles.
+    m.anchor.set(0.5, r.texture === "flame" ? 0.85 : 0.5);
     m.tint = r.from;
     m.alpha = 0;
     const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * e.spread;
