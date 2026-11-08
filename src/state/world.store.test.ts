@@ -18,6 +18,10 @@ import {
 import { loadSaved, setSaveSlot } from "../world/io/world-save";
 import { MAIN_AI, MAIN_BORE, MAIN_SEWER, SEWER_FIT, createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
 import { hasSewer } from "../world/sewers/solve";
+import { commit, createHistory } from "../world/edit/commands";
+import { structureDef } from "../world/structures/def";
+import { placeCommand } from "../world/structures/place";
+import { laySewerPath } from "../world/play/build-actions";
 import { findMains, layMain, planMain } from "../world/water/mains";
 import { asAi } from "../world/ai/district";
 import { boreCost } from "../game/build-cost";
@@ -927,5 +931,24 @@ describe("sewers under play rules", () => {
     drag({ x: 3, y: 4 }, { x: 3, y: 4 });
     expect(s().grid.sewerFit[idx(s().grid, 3, 4)]).toBe(SEWER_FIT.node);
     expect(useMoneyStore.getState().money.eq(had)).toBe(true);
+  });
+
+  test("the AI lays a trunk along its own route, then a lateral down into it", () => {
+    const g = createGrid(20, 12);
+    fillTerrain(g, 1);
+    for (let i = 0; i < g.w * g.h; i++) g.height[i] = 4;
+    for (let y = 0; y < g.h; y++) g.pool[idx(g, 0, y)] = 1;
+    commit(g, createHistory(), placeCommand(g, { ...structureDef("office-vibe")!, placement: undefined }, 10, 3)!);
+    s().loadGrid(g);
+    s().setPlaying(true);
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    // Beside its slop port (12, 4), round the south of it, to the pond.
+    const trunk = [{ x: 13, y: 4 }, { x: 13, y: 5 }, { x: 13, y: 6 }, ...Array.from({ length: 12 }, (_, k) => ({ x: 12 - k, y: 6 }))];
+    expect(laySewerPath(trunk)).toBe(true);
+    const h = s().grid;
+    expect(h.sewerFit[idx(h, 13, 4)]).toBe(SEWER_FIT.node);
+    expect(h.sewerFit[idx(h, 1, 6)]).toBe(SEWER_FIT.outfall);
+    expect(laySewerPath([{ x: 12, y: 4 }, { x: 13, y: 4 }], true)).toBe(true);
+    expect(s().grid.main[idx(s().grid, 12, 4)] & MAIN_SEWER).toBeTruthy();
   });
 });

@@ -54,6 +54,13 @@ export const layPipePath = (cells: readonly Cell[], pump = false, sewer = false)
     () => useWorldStore.getState().endStroke(),
   );
 
+/** Lay a sewer along a route, in order — a trunk underground, or a lateral from a slop port to a manhole — as the Sewer tool lays it and paid for alike. @see planSewer, planLateral */
+export const laySewerPath = (cells: readonly Cell[], lateral = false): boolean =>
+  cells.length > 1 && withTool(
+    { tool: "sewer", brush: "line", brushRadius: 0, placingProject: null, stroke: { tool: "sewer", brush: "line", anchor: cells[0], head: cells[cells.length - 1], path: cells, ...(lateral ? { lateral: true } : {}) } },
+    () => useWorldStore.getState().endStroke(),
+  );
+
 /** Widen the main at a tile, as the main's card widens it, paid for alike. @see widenMainAt */
 export const widenMain = (at: Cell): boolean => withTool({}, () => useWorldStore.getState().widenMainAt(at));
 

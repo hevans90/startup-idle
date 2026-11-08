@@ -52,8 +52,11 @@ import { EVENT_DEFS } from "../world/events/defs";
 import type { EventKind } from "../world/events/events";
 import { EVENTS, company } from "./event-model";
 
-/** Tiles of sewer the run lays from its studio to the water, once there is slop, and again for each sewer's worth more. */
+/** Tiles of sewer the run lays from its studio to the water, once there is slop, and again for each sewer's worth more: a trunk underground, and a lateral down into it. */
 const SIM_SEWER_TILES = 20;
+/** What a trunk tile costs, in pipe tiles: dug a cover deep on flat ground, about twice. @see planSewer */
+const SIM_SEWER_DIG = 2;
+const SIM_LATERAL_TILES = 4;
 
 export type MapRunOptions = {
   maxSimulatedSeconds?: number;
@@ -355,7 +358,7 @@ export function simulateMapRun(
     }
     if (slop > 0 && slopMode !== "spill") {
       // A SEWER for each sewer's worth of slop. @see sewerFlow
-      const sewer = pipeCost(SIM_SEWER_TILES).toNumber();
+      const sewer = pipeCost(SIM_SEWER_TILES * SIM_SEWER_DIG + SIM_LATERAL_TILES).toNumber();
       if (report.sewers * sewerFlow() < slop && money() >= sewer) {
         spend(sewer);
         report.spentOnSlop += sewer;

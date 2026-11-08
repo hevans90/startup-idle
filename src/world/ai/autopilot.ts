@@ -22,7 +22,7 @@ import { builtProjects, nearestSpot, projectUnderWay, upgradeFrom } from "../pro
 import { structureDef } from "../structures/def";
 import { saleName } from "../play/building-info";
 import type { Grid } from "../grid";
-import { demolishAt, layPipePath, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
+import { demolishAt, laySewerPath, liftRoad, paveRoad, placeStructure, reshape, startProject } from "../play/build-actions";
 import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "./ai-runner";
 import type { Masterplan, PlanStep } from "./masterplan/plan";
 import { inBox, townCentre, type Box } from "./masterplan/plan";
@@ -37,7 +37,7 @@ import { MAX_FARMS } from "../../game/training";
 import { useAgentsStore } from "../../state/agents.store";
 import { rackReading } from "../projects/racks";
 import { layRoute, neededPipe } from "./cooling-ai";
-import { neededSewer, wantsRefinery } from "./sewer-ai";
+import { neededSewer, trunkInto, wantsRefinery } from "./sewer-ai";
 import type { PipeRoute } from "./pipe-route";
 import { styleOf } from "./masterplan/style";
 import { fusedInto } from "../../game/fusion";
@@ -296,16 +296,17 @@ function act(g: Grid, budget: number): boolean {
     }
     state.failed.add(`pipe:${pipe.s.id}`);
   }
-  // SLOP: a sewer for a workplace that has none — to a processor, a sewer or
-  // the water — and another refinery while there is more slop than they take. @see neededSewer
-  const sewer = neededSewer(g);
-  if (sewer && !state.failed.has(`sewer:${sewer.s.id}`) && sewer.price <= spend) {
-    if (layPipePath(sewer.cells, false, true)) {
+  // SLOP: a lateral for a workplace with a manhole in reach, else a trunk to
+  // the network; and a trunk into the block before its vibe offices, which
+  // need a manhole by them. @see neededSewer, trunkInto, needsSewer
+  const sewer = neededSewer(g) ?? (state.box && playRules(g).needsSewer ? trunkInto(g, state.box) : null);
+  if (sewer && !state.failed.has(sewer.key) && sewer.price <= spend) {
+    if (laySewerPath(sewer.cells, sewer.kind === "lateral")) {
       fly(sewer.cells[sewer.cells.length - 1], g);
-      state.last = "a sewer, for the slop";
+      state.last = sewer.kind === "lateral" ? "a lateral, for the slop" : "a sewer, for the slop";
       return true;
     }
-    state.failed.add(`sewer:${sewer.s.id}`);
+    state.failed.add(sewer.key);
   }
   const refinery = wantsRefinery(g);
   if (refinery && !state.failed.has("refinery") && refinery.price <= spend) {
