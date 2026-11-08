@@ -89,6 +89,12 @@ const SEWER_SAYS: Partial<Record<MainState, { text: string; tone: "good" | "warn
   "no-source": { text: "Drains nothing: one end must be at a workplace's slop port, or pass in front of one", tone: "bad" },
   "no-outlet": { text: "Goes nowhere: one end must pour into water, or feed a processor", tone: "bad" },
 };
+/** And a lateral's: from a workplace into a manhole. @see solveSewer */
+const LATERAL_SAYS: Partial<Record<MainState, { text: string; tone: "good" | "warn" | "bad" }>> = {
+  flowing: { text: "Draining into the sewer", tone: "good" },
+  "no-source": { text: "Drains nothing: start it at a workplace's slop port", tone: "bad" },
+  "no-outlet": { text: "Its sewer has no exit yet", tone: "warn" },
+};
 const TONE = { good: "text-good", warn: "text-warn", bad: "text-bad" };
 
 /**
@@ -146,14 +152,15 @@ export function MainInfo() {
 /** A SEWER, LOOKED AT: whether it is joined up, the workplaces it drains and where to, and a way to widen or lift it. */
 function SewerInfo({ r, at, onClose }: { r: MainReport; at: { x: number; y: number }; onClose: () => void }) {
   const st = useWorldStore.getState(), g = st.grid;
-  const say = SEWER_SAYS[r.state] ?? SEWER_SAYS.flowing!;
+  const lateral = r.sewer!.node !== undefined;
+  const say = (lateral ? LATERAL_SAYS[r.state] : SEWER_SAYS[r.state]) ?? SEWER_SAYS.flowing!;
   const net = findMains(g).list[findMains(g).of[idx(g, at.x, at.y)]];
   const narrow = net ? net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length : 0;
   const nameOf = (id: number) => structureDef(g.structures.get(id)?.def ?? "")?.name ?? "a building";
   const from = r.sewer!.sources.map(nameOf);
-  const to = [...r.outlets.map((o) => nameOf(o.building)), ...r.sewer!.outfalls.map(() => "the water")];
+  const to = lateral ? ["a manhole"] : [...r.outlets.map((o) => nameOf(o.building)), ...r.sewer!.outfalls.map(() => "the water")];
   return (
-    <Card tone={say.tone} onClose={onClose} className="w-80" title={<>{r.bore > 1 ? "Wide sewer" : "Sewer"} · {r.length} tiles</>}>
+    <Card tone={say.tone} onClose={onClose} className="w-80" title={<>{r.bore > 1 ? "Wide " : ""}{lateral ? (r.bore > 1 ? "lateral" : "Lateral") : r.bore > 1 ? "sewer" : "Sewer"} · {r.length} tiles</>}>
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums">Carries up to {r.capacity.toFixed(2)} slop a second</p>
       <p className="text-fg-muted">{from.length ? from.join(", ") : "No workplace"}{" → "}{to.length ? to.join(", ") : "nothing"}</p>

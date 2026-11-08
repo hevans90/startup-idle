@@ -71,7 +71,7 @@ export function detailFor(tilePx: number, was: Detail | null = null): Detail {
 /** Each `MAIN_END` as the fitting the solid tubes draw. */
 const FITTINGS: Record<number, Fitting> = {
   [MAIN_END.cap]: "cap", [MAIN_END.intake]: "intake", [MAIN_END.pump]: "pump",
-  [MAIN_END.outlet]: "outlet", [MAIN_END.drain]: "drain", [MAIN_END.outfall]: "outfall",
+  [MAIN_END.outlet]: "outlet", [MAIN_END.drain]: "drain", [MAIN_END.outfall]: "outfall", [MAIN_END.drop]: "drop",
 };
 /** How high a main rides over a road, half steps; how much fatter a widened bore is. */
 const ROAD_LIFT = 2.4;

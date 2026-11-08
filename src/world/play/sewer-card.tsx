@@ -11,7 +11,10 @@ import { pumpUpkeep } from "../../game/cooling";
 import { useGeneratorStore } from "../../state/generators.store";
 import { mainWet, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
-import { sewerStrokePlan } from "../sewers/tool";
+import { pipeCost } from "../../game/build-cost";
+import { sewerFlow } from "../../game/mains";
+import { structureDef } from "../structures/def";
+import { lateralStrokePlan, sewerStrokePlan } from "../sewers/tool";
 
 const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
 
@@ -20,6 +23,23 @@ export function SewerCard() {
   const playing = useWorldStore((s) => s.playing);
   if (!playing || !stroke || stroke.tool !== "sewer") return null;
   const g = useWorldStore.getState().grid;
+  if (stroke.lateral) {
+    // A LATERAL: what it drains, into what, for how much.
+    const l = lateralStrokePlan(g, stroke, mainWet(g));
+    if (!l) return null;
+    if ("refused" in l.plan) return <p className={twMerge(CARD, "text-bad")}>{l.plan.refused}</p>;
+    const names = l.plan.sources.map((id) => structureDef(g.structures.get(id)?.def ?? "")?.name).filter(Boolean);
+    return (
+      <div className={CARD}>
+        <p className="flex justify-between gap-4 tabular-nums">
+          <b>Lateral · {l.plan.fresh} tiles</b><span>{formatCurrency(pipeCost(l.plan.fresh).toNumber())}</span>
+        </p>
+        {names.length > 0 && <p className="text-fg-muted">Drains the {names.join(", the ")}</p>}
+        {l.plan.exit ? <p className="text-good">{sewerFlow().toFixed(2)} slop/s into the sewer</p>
+          : <p className="text-warn" title="Its slop goes nowhere till that sewer pours into water or feeds a processor">That sewer has no exit yet</p>}
+      </div>
+    );
+  }
   const plan = sewerStrokePlan(g, stroke, mainWet(g));
   if (!plan) return null;
   if ("refused" in plan) return <p className={twMerge(CARD, "text-bad")}>{plan.refused}</p>;

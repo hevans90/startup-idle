@@ -20,6 +20,7 @@ import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { SEWER_BORE, SEWER_FIT, idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import type { SewerPlan } from "../sewers/lay";
+import { sewerReportsFor } from "../sewers/flow";
 import { SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
 import type { BandLayer } from "./bands";
 
@@ -27,7 +28,7 @@ const SIDES = ["N", "E", "S", "W"] as const;
 /** A trunk's radius, tile units; how much fatter a widened bore is. */
 const TUBE_R = 0.07, BORE_WIDE = 1.35;
 /** Its colours: draining, going nowhere; the dark under it and the light along it. */
-const UMBER = 0x7a5230, NOWHERE = 0x8b8f96, SHADE = 0x2a1c10, SHINE = 0xc79a66;
+const UMBER = 0x7a5230, NOWHERE = 0x8b8f96, BACKED = 0x9c3b1e, SHADE = 0x2a1c10, SHINE = 0xc79a66;
 /** A sewer being dragged: how see-through, and a tile it can't be laid on. */
 const GHOST_ALPHA = 0.6, BAD = 0xd8463a;
 /** The flow's chevrons. */
@@ -107,6 +108,11 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
    * Draw a map's sewers: all of them, or — for a ghost — only `only`, see-
    * through, a tile in `bad` red.
    */
+  /** Networks backed up, surcharging or stopped, by id, and when last seen so: held a while, so a flicker redraws nothing. */
+  const trouble = new Map<number, number>();
+  let troubled = "";
+  const TROUBLE_HOLD_MS = 2000;
+
   function draw(g: Grid, s: SewerSolve, scale: number, o: { into?: Graphics[]; only?: Set<number>; alpha?: number; bad?: number } = {}) {
     const into = o.into ?? drawn;
     clear(into);
@@ -124,7 +130,7 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
         const x = i % g.w, y = (i / g.w) | 0, b = bandOf(x, y), ground = g.height[i];
         const r = TUBE_R * HW * scale * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1);
         const lvl = s.level[i], kind = s.kind[i];
-        const colour = i === o.bad ? BAD : s.drains[i] ? UMBER : NOWHERE;
+        const colour = i === o.bad ? BAD : !o.only && trouble.has(net.id) ? BACKED : s.drains[i] ? UMBER : NOWHERE;
         // The tube's middle: its floor plus its radius, in height units.
         const mid = (l: number) => l + (TUBE_R * HW) / HEIGHT_UNIT;
         // OUT TO EACH FACE IT JOINS, level with the neighbour's halfway.
@@ -203,6 +209,12 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
 
   return {
     sync(g, scale, underground, ghost = null) {
+      // WHAT EACH NETWORK IS DOING: red-brown while backed up, surcharging or stopped.
+      const now = performance.now();
+      for (const [id, r] of sewerReportsFor(g)) if (r.state === "backed-up" || r.state === "surcharged" || r.state === "unpaid") trouble.set(id, now);
+      for (const [id, t] of trouble) if (now - t > TROUBLE_HOLD_MS) trouble.delete(id);
+      const key = [...trouble.keys()].sort((a, b) => a - b).join();
+      if (key !== troubled) { troubled = key; was = { ...was, rev: -1 }; last = null; }
       // What it draws from: the sewers and the ground under them. A building
       // put up moves the map's revision on, and changes neither.
       if (was.grid !== g || was.rev !== g.rev || was.scale !== scale) {

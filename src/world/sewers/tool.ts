@@ -6,7 +6,10 @@
 import { buildCost, pipeCost } from "../../game/build-cost";
 import type { Stroke } from "../edit/tools";
 import type { Grid } from "../grid";
-import { planSewer, routeSewer, type SewerPlan } from "./lay";
+import { routeMain } from "../water/mains";
+import { planLateral, planSewer, routeSewer, type LateralPlan, type SewerPlan } from "./lay";
+
+type Cell = { x: number; y: number };
 
 export type SewerStrokePlan = SewerPlan | { refused: string };
 
@@ -24,4 +27,17 @@ export function sewerStrokePlan(g: Grid, s: Stroke, wet: (x: number, y: number) 
     : { refused: "No way through for a sewer: round buildings" };
   last = { g, rev: g.rev, key, plan };
   return plan;
+}
+
+let lastLateral: { g: Grid; rev: number; key: string; route: Cell[] | null; plan: LateralPlan | { refused: string } } | null = null;
+
+/** What a Lateral stroke would lay — its route, and the plan or why not; null for a click. */
+export function lateralStrokePlan(g: Grid, s: Stroke, wet: (x: number, y: number) => boolean): { route: Cell[] | null; plan: LateralPlan | { refused: string } } | null {
+  if (s.anchor.x === s.head.x && s.anchor.y === s.head.y && !s.path) return null;
+  const key = `${s.anchor.x},${s.anchor.y},${s.head.x},${s.head.y}`;
+  if (lastLateral && lastLateral.g === g && lastLateral.rev === g.rev && lastLateral.key === key && !s.path) return lastLateral;
+  const route = s.path ? [...s.path] : routeMain(g, s.anchor, s.head, wet, true);
+  const plan = route ? planLateral(g, route, wet) : { refused: "No way through for a lateral: round buildings, off the water" };
+  lastLateral = { g, rev: g.rev, key, route, plan };
+  return lastLateral;
 }

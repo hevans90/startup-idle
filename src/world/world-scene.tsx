@@ -256,6 +256,11 @@ import { createSewerLayer, type SewerLayer } from "./render/sewer-layer";
 /** The main being dragged with the Pipe tool, in the game: its route, and whether it will carry water. @see MainCard */
 function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
   const st = useWorldStore.getState(), s0 = st.stroke;
+  // A LATERAL with the Sewer tool is drawn as a main is. @see planLateral
+  if (s0?.tool === "sewer" && s0.lateral) {
+    const l = lateralStrokePlan(st.grid, s0, mainWet(st.grid));
+    return l?.route ? [l.route, !("refused" in l.plan)] : [null, true];
+  }
   if (!st.playing || !s0 || s0.tool !== "pipe") return [null, true];
   const wet = mainWet(st.grid), sewer = !!s0.sewer;
   const route = routeMain(st.grid, s0.anchor, s0.head, wet, sewer);
@@ -267,11 +272,12 @@ function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
 /** The sewer being dragged with the Sewer tool, as it would be laid; null if it can't be. @see sewerStrokePlan */
 function sewerGhost(): SewerPlan | null {
   const st = useWorldStore.getState(), s0 = st.stroke;
-  if (!s0 || s0.tool !== "sewer") return null;
+  if (!s0 || s0.tool !== "sewer" || s0.lateral) return null;
   const p = sewerStrokePlan(st.grid, s0, mainWet(st.grid));
   return p && !("refused" in p) ? p : null;
 }
-import { sewerStrokePlan } from "./sewers/tool";
+import { lateralStrokePlan, sewerStrokePlan } from "./sewers/tool";
+import { busiestNode } from "./sewers/flow";
 import type { SewerPlan } from "./sewers/lay";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 
@@ -2498,7 +2504,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // A MAIN, in the game, shows its route — drawn by the mains layer — not the straight line it is dragged along. @see mainPreview
       if (s0.tool === "pipe" && useWorldStore.getState().playing) cells = [...(mainPreview()[0] ?? [])];
       // A SEWER, its route.
-      if (s0.tool === "sewer") { const p = sewerGhost(); if (p) cells = p.cells.map((c) => ({ x: c.x, y: c.y })); }
+      if (s0.tool === "sewer" && s0.lateral) cells = [...(mainPreview()[0] ?? [])];
+      else if (s0.tool === "sewer") { const p = sewerGhost(); if (p) cells = p.cells.map((c) => ({ x: c.x, y: c.y })); }
 
       // A STRUCTURE'S FOOTPRINT is judged whole — on a bank, on level enough
       // ground — and the verdict handed to each of its cells. Against the
@@ -3046,7 +3053,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
         // THE SLOP TANKS at the vibe workplaces, filled by what the vibe coders
         // at their desks make, drained by the sewers, spilling when full. @see stepSlop
-        if (st.playing) stepSlop(st.grid, st.getWaterField(), liveSeating(st.grid, net).desks, slopRate(), dt);
+        if (st.playing) stepSlop(st.grid, st.getWaterField(), liveSeating(st.grid, net).desks, slopRate(), dt, PAID_PUMPS.pay);
         // EVENTS, in the game: the director's look twice a second, and what
         // an event under way does to the map. @see world/events
         const sEvents = section("tick: leaders, events, flood");
@@ -3153,7 +3160,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               junction: junctionAt.current.at,
               // A JOINT AND A MANHOLE to break. @see BURST_MAIN, SEWER_BACKUP
               joint: (() => { const c = breakableCell(st.grid, false); return c === null ? null : { x: c % st.grid.w, y: (c / st.grid.w) | 0, cell: c }; })(),
-              manhole: (() => { const c = breakableCell(st.grid, true); return c === null ? null : { x: c % st.grid.w, y: (c / st.grid.w) | 0, cell: c }; })(),
+              manhole: (() => { const c = busiestNode(st.grid) ?? breakableCell(st.grid, true); return c === null ? null : { x: c % st.grid.w, y: (c / st.grid.w) | 0, cell: c }; })(),
               // THE DISTRICT round the busiest junction, for a blackout. @see BLACKOUT
               district: (() => {
                 const j = junctionAt.current.at;

@@ -15,6 +15,9 @@ import {
   AI_BUILDINGS, DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, PUMP, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
 } from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
+import { planLateral } from "../sewers/lay";
+import { layMain, routeMain } from "../water/mains";
+import { portsOf } from "../water/ports";
 import { derivedRamp } from "../roads/ramp-derive";
 import { gamePipeRun, layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
@@ -663,6 +666,17 @@ export function buildSewers(g: Grid, material: number) {
   for (const x of [12, 22, 31, far]) g.sewerFit[idx(g, x, row)] = 1;
   g.sewerFit[idx(g, 34, row)] = 1;
   g.sewerFit[idx(g, 34, row + 6)] = 1;
+  // A vibe office below the trunk, its slop port piped to the manhole at x 22 by a lateral.
+  const office = structureDef("office-vibe");
+  if (office) {
+    const cmd = placeCommand(g, { ...office, placement: undefined }, 19, row + 2);
+    if (cmd) commit(g, createHistory(), cmd);
+    const s = [...g.structures.values()].find((b) => b.def === "office-vibe");
+    const port = s && portsOf(g, s).find((p) => p.port.fluid === "slop");
+    const route = port && routeMain(g, port, { x: 22, y: row }, () => false, true);
+    const lat = route && planLateral(g, route, () => false);
+    if (lat && !("refused" in lat)) layMain(g, lat.cells, true);
+  }
   edited(g);
 }
 

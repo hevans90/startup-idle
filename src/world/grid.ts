@@ -367,7 +367,8 @@ export const pipeAt = (g: Grid, x: number, y: number) =>
  * capped; and a sewer's — pouring into water (an OUTFALL), or taking a
  * workplace's slop at its port (a DRAIN).
  */
-export const MAIN_END = { intake: 1, pump: 2, outlet: 3, cap: 4, outfall: 5, drain: 6 } as const;
+/** A main's end fittings; `drop`, a lateral turning down into a sewer manhole. */
+export const MAIN_END = { intake: 1, pump: 2, outlet: 3, cap: 4, outfall: 5, drain: 6, drop: 7 } as const;
 /**
  * Flags on a main's cell, above its `DIR` joins: its bore widened; laid by
  * the AI; a SEWER, not a water main — the two never join; a sewer's STUB,

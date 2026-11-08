@@ -108,6 +108,8 @@ export type Stroke = {
   pump?: boolean;
   /** A sewer, not a water main. @see planMain */
   sewer?: boolean;
+  /** With the Sewer tool, a lateral from a slop port to a manhole, not a trunk. @see planLateral */
+  lateral?: boolean;
 };
 
 const clampCell = (g: Grid, c: Cell): Cell => ({

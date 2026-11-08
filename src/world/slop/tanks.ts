@@ -16,6 +16,7 @@ import { pollute } from "../water/pollution";
 import { portsOf } from "../water/ports";
 import { pourAt, type WaterField } from "../water/field";
 import { fluidAt, ring } from "../events/sludge";
+import { stepSewers } from "../sewers/flow";
 
 /** A workplace's tank: what it holds and can, what it fills by a second, and whether it is spilling. */
 export type Tank = { level: number; capacity: number; rate: number; spilling: boolean };
@@ -76,6 +77,7 @@ export function release(g: Grid, field: WaterField, x: number, y: number, amount
  */
 export function stepSlop(
   g: Grid, field: WaterField | null, desks: ReadonlyMap<number, { used: number }> | null, perCoder: number, dt: number,
+  pay: (seconds: number) => boolean = () => true,
 ): void {
   const tanks = tanksOf(g);
   latest = tanks;
@@ -95,9 +97,11 @@ export function stepSlop(
   setSlopMaking(making);
   // What each processor has taken this frame. @see PROCESS_RATE
   const taken = new Map<number, number>();
+  const roomLeft = (id: number) => Math.max(0, PROCESS_RATE * dt - (taken.get(id) ?? 0));
   // DRAINED by the sewers: each its share of what it carries from every tank it serves.
   for (const r of mainReportsFor(g).values()) {
-    if (!r.sewer || (r.state !== "flowing" && r.state !== "backed-up") || dt <= 0) continue;
+    // A LATERAL into a manhole drains under the ground, below. @see stepSewers
+    if (!r.sewer || r.sewer.node !== undefined || (r.state !== "flowing" && r.state !== "backed-up") || dt <= 0) continue;
     const from = r.sewer.sources.map((id) => tanks.get(id)).filter((t): t is Tank => !!t);
     const there = from.reduce((n, t) => n + t.level, 0);
     // AS MUCH AS IT CAN PUT SOMEWHERE: what its processors have room for, and
@@ -128,6 +132,13 @@ export function stepSlop(
       for (const cell of r.sewer.outfalls) release(g, field, cell % g.w, (cell / g.w) | 0, left / r.sewer.outfalls.length);
     }
   }
+  // DOWN THE LATERALS AND UNDER THE GROUND: to the processors, the outfalls, or up at a manhole.
+  stepSewers(g, tanks, dt, {
+    pay, backedUp: backedUpCell(),
+    room: roomLeft,
+    take: (id, amount) => taken.set(id, (taken.get(id) ?? 0) + amount),
+    release: (x, y, amount) => { if (field) release(g, field, x, y, amount); },
+  });
   // SPILLED, a full tank, at its port — or, built over, out of the nearest
   // gap round the building: it goes somewhere.
   for (const s of places) {

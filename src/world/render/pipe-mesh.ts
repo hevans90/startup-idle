@@ -213,7 +213,7 @@ export type PipeLook = {
 export const NEAR_SPLIT = 0.22;
 
 /** What can stand at a main's loose end. @see MAIN_END */
-export type Fitting = "cap" | "intake" | "pump" | "outlet" | "drain" | "outfall";
+export type Fitting = "cap" | "intake" | "pump" | "outlet" | "drain" | "outfall" | "drop";
 
 /** The fittings' paint. */
 export const FITTING = {
@@ -794,7 +794,8 @@ export function valve(m: PipeMesh, s: number, x: number, y: number, h: number, r
  *   building's nozzle reaches out to meet the main, its lip the joint, so
  *   here only the knuckle where they turn into each other — and an outlet's
  *   valve, which goes on after the tube;
- * - an outfall over the bank: a flared mouth, dark inside, on a post down to the water.
+ * - an outfall over the bank: a flared mouth, dark inside, on a post down to the water;
+ * - a drop, a lateral over a sewer manhole: the knuckle, and the tube turned down into the cover.
  */
 function fitting(m: PipeMesh, s: number, kind: Fitting, x: number, y: number, h: number, g: number, ou: number, ov: number, look: PipeLook) {
   const { r, sides } = look, bolts = look.bolts !== false, concrete = solid(CONCRETE);
@@ -802,6 +803,12 @@ function fitting(m: PipeMesh, s: number, kind: Fitting, x: number, y: number, h:
     case "cap":
       flange(m, s, x, y, h, ou, ov, r, FITTING.cap, sides, bolts, true);
       return;
+    case "drop": {
+      ball(m, s, x, y, h, r, solid(look.colour), sides);
+      const a = r * 0.72;
+      box(m, s, x - a, y - a, g, x + a, y + a, h, solid(look.colour));
+      return;
+    }
     case "outlet":
     case "drain":
       ball(m, s, x, y, h, r, solid(look.colour), sides);

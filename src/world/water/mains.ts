@@ -15,7 +15,8 @@ import { isDrinker } from "../../game/cooling";
 import { PUMP_MOST, mainFlow, pumpLift, sewerFlow } from "../../game/mains";
 import { coolingKept } from "../../game/pollution";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, SEWER_FIT, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
+import { solveSewers } from "../sewers/solve";
 import { fillTank, tankRoom } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { COLUMNS_PER_TILE, columnOf, tileOf, type WaterField } from "./field";
@@ -176,7 +177,8 @@ export type MainReport = {
   /** Each intake's water surface, or null if dry, how deep it stands there, and how fouled (nought to one); whether it is a pump. */
   intakes: { cell: number; surface: number | null; depth: number; pump: boolean; fouled: number }[];
   /** A SEWER's: the workplaces it takes slop from, by id, and its outfalls by cell. Empty for a water main. */
-  sewer?: { sources: number[]; outfalls: number[] };
+  /** A lateral's manhole, if it reaches one. @see stepSewers */
+  sewer?: { sources: number[]; outfalls: number[]; node?: number };
 };
 
 /**
@@ -238,6 +240,12 @@ export function sewerSources(g: Grid, net: MainNet): number[] {
  */
 export function solveSewer(g: Grid, net: MainNet): MainReport {
   const sources = sewerSources(g, net);
+  // A LATERAL: into a manhole, flowing if its network has an exit. @see stepSewers
+  const node = net.cells.find((i) => g.sewerFit[i] === SEWER_FIT.node);
+  if (node !== undefined) {
+    const state: MainState = !sources.length ? "no-source" : !solveSewers(g).drains[node] ? "no-outlet" : "flowing";
+    return { state, head: 0, capacity: sewerFlow(net.bore), flow: 0, length: net.cells.length, bore: net.bore, outlets: [], intakes: [], sewer: { sources, outfalls: [], node } };
+  }
   const processors = net.outlets.filter((i) => portsAt(g, i, "slop", "in").length > 0);
   const state: MainState = !sources.length ? "no-source" : !processors.length && !net.outfalls.length ? "no-outlet" : "flowing";
   return {
@@ -252,7 +260,6 @@ export type MainPumps = { pay: (seconds: number) => boolean };
 const FREE: MainPumps = { pay: () => true };
 
 /** The map's revision its stubs were last laid for. */
-const stubbed = new WeakMap<Grid, number>();
 
 /** Each network's report from the last frame, by the cell it starts at. @see mainReportAt */
 let reports = new Map<number, MainReport>();
@@ -265,8 +272,6 @@ let reportOf: Int32Array | null = null, reportGrid: Grid | null = null;
  * it feeds has room; unpaid, the network falls back on gravity.
  */
 export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPumps = FREE): void {
-  // STUBS from workplaces to the sewers beside them, as the map now stands. @see sewerStubs
-  if (stubbed.get(g) !== g.rev) { sewerStubs(g); stubbed.set(g, g.rev); }
   const { list, of } = findMains(g);
   const out = new Map<number, MainReport>();
   for (const net of list) {

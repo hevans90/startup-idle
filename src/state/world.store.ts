@@ -77,7 +77,7 @@ import {
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { boreCost, buildCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { planNode } from "../world/sewers/lay";
-import { sewerStrokePlan } from "../world/sewers/tool";
+import { lateralStrokePlan, sewerStrokePlan } from "../world/sewers/tool";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
@@ -430,6 +430,9 @@ type WorldState = {
   setLiftPipe: (on: boolean) => void;
   /** Whether the Pipe tool lays a sewer rather than a water main: set by the build bar when only one is open. */
   pipeSewer: boolean;
+  /** The Sewer tool lays laterals, from slop ports to manholes, not trunks. @see planLateral */
+  sewerLateral: boolean;
+  setSewerLateral: (v: boolean) => void;
   setPipeSewer: (on: boolean) => void;
   /**
    * A MAIN JUST LAID that cannot lift its water to the building: where its
@@ -1077,6 +1080,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setLiftPipe: (liftPipe) => set({ liftPipe }),
   pipeSewer: false,
   setPipeSewer: (pipeSewer) => set({ pipeSewer }),
+  sewerLateral: false,
+  setSewerLateral: (sewerLateral) => set({ sewerLateral }),
   dismissPumpOffer: () => set({ pumpOffer: null }),
   offerPump: (pumpOffer) => set({ pumpOffer }),
   liftMainAt: (c) => {
@@ -1140,7 +1145,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   beginStroke: (c) =>
-    set((st) => ({ stroke: { tool: st.tool, brush: st.brush, anchor: c, head: c } })),
+    set((st) => ({ stroke: { tool: st.tool, brush: st.brush, anchor: c, head: c, ...(st.tool === "sewer" && st.sewerLateral ? { lateral: true } : {}) } })),
 
   updateStroke: (c) =>
     set((st) => (st.stroke ? { stroke: { ...st.stroke, head: c } } : {})),
@@ -1223,17 +1228,36 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       // and manholes put by the plan, paid for by its depth, spans and lift
       // stations — all or none; or, a click on one laid already, a manhole
       // there, free. In the editor, free. @see planSewer, planNode
+      // A LATERAL: an above-ground sewer from a slop port into a manhole, priced as pipe. @see planLateral
       const g = st.grid;
-      const plan = sewerStrokePlan(g, s0, mainWet(g), aiActing());
-      if (!plan) {
+      const refuse = (text: string) => set({ stroke: null, notice: { text, at: Date.now() } });
+      if (s0.lateral) {
+        const lat = lateralStrokePlan(g, s0, mainWet(g))?.plan ?? { refused: "Drag from a workplace's slop port to a sewer node" };
+        if ("refused" in lat) { refuse(lat.refused); return; }
+        const price = pipeCost(lat.fresh);
+        if (st.playing && price.gt(0) && !spendForBuild(price)) {
+          refuse(`Not enough money for ${lat.fresh} tiles of lateral: ${formatCurrency(price.toNumber())}`);
+          return;
+        }
+        const mark = (aiActing() ? MAIN_AI : 0) | MAIN_SEWER;
+        for (const c of lat.cells) {
+          const i = idx(g, c.x, c.y);
+          b.set("main", c.x, c.y, g.main[i] | c.join | (hasMain(g, i) ? 0 : mark));
+          if (c.end) b.set("mainEnd", c.x, c.y, c.end);
+        }
+      }
+      const plan = s0.lateral ? undefined : sewerStrokePlan(g, s0, mainWet(g), aiActing());
+      if (s0.lateral) {
+        // Laid above.
+      } else if (!plan) {
         const n = planNode(g, s0.head);
-        if ("refused" in n) { set({ stroke: null, notice: { text: n.refused, at: Date.now() } }); return; }
+        if ("refused" in n) { refuse(n.refused); return; }
         b.set("sewerFit", s0.head.x, s0.head.y, SEWER_FIT.node);
       } else {
         const refused = "refused" in plan ? plan.refused : plan.problem?.reason;
-        if (refused || "refused" in plan) { set({ stroke: null, notice: { text: refused ?? "", at: Date.now() } }); return; }
+        if (refused || "refused" in plan) { refuse(refused ?? ""); return; }
         if (st.playing && plan.price > 0 && !spendForBuild(new Decimal(plan.price))) {
-          set({ stroke: null, notice: { text: `Not enough money for ${plan.fresh} tiles of sewer: ${formatCurrency(plan.price)}`, at: Date.now() } });
+          refuse(`Not enough money for ${plan.fresh} tiles of sewer: ${formatCurrency(plan.price)}`);
           return;
         }
         // What the plan staged, on its tiles: their joins, fittings and manholes.

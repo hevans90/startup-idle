@@ -1,8 +1,8 @@
 /**
- * A SEWER BACKUP: the longest sewer that drains anything chokes, and what it
- * carries comes up at a manhole — slop in the street, by whatever homes are
+ * A SEWER BACKUP: the busiest manhole chokes, and what comes down to it
+ * comes up there — slop in the street, by whatever homes are
  * near. Rod it out (half the vibe coders off work till it is clear), pay to
- * have it pumped (clear sooner), or leave it to clear itself. A second sewer
+ * have it pumped (clear sooner), or leave it to clear itself. A second trunk
  * is the built answer: only this one chokes. @see setBackedUp
  */
 import { CREW_SHARE, minutes, type EventDef } from "../events";
@@ -21,7 +21,7 @@ export const SEWER_BACKUP: EventDef = {
   warnMs: BACKUP_WARN_MS,
   activeMs: BACKUP_MS,
   activeFor: (e) => (e.chosen === "rod" ? ROD_MS : e.chosen === "pump" ? PUMP_OUT_MS : BACKUP_MS),
-  warning: { title: "A sewer is gurgling", text: () => "Your longest sewer is choking. It will come up at a manhole." },
+  warning: { title: "A sewer is gurgling", text: () => "Your busiest manhole is choking. It will come up in the street." },
   active: { title: "Sewer backup", text: "A sewer has backed up. Its slop is coming up in the street." },
   calledOff: "The sewer is gone.",
   choices: [

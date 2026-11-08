@@ -5,9 +5,10 @@
  * it while you drag, and the stroke lays what it says. @see solve, plans/underground-sewers.md §3–4
  */
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { SEWER_AI, SEWER_FIT, idx, inBounds, structureAt, type Grid } from "../grid";
+import { MAIN_END, SEWER_AI, SEWER_FIT, idx, inBounds, structureAt, type Grid } from "../grid";
+import { hasMain, planMain, type MainCell } from "../water/mains";
 import { portsAt } from "../water/ports";
-import { NODE_EVERY, SEWER_KIND, hasSewer, solveSewers, type SewerSolve } from "./solve";
+import { LATERAL_REACH, NODE_EVERY, SEWER_KIND, hasSewer, solveSewers, type SewerSolve } from "./solve";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /** A span costs this many buried tiles. */
@@ -244,4 +245,31 @@ export function planNode(g: Grid, c: Cell): { refused: string } | { cell: number
   if (g.sewerFit[i]) return { refused: "It has one already" };
   if (solveSewers(g).kind[i] !== SEWER_KIND.buried) return { refused: "A node needs ground under it" };
   return { cell: i };
+}
+
+/** A lateral to lay: its tiles as a main's, the manhole it reaches, the workplaces it drains, and whether that manhole's network has an exit. */
+export type LateralPlan = { cells: MainCell[]; fresh: number; node: number; sources: number[]; exit: boolean };
+
+/**
+ * A LATERAL along a route: the short brown tube above ground from a
+ * workplace's slop port to a sewer manhole, no longer than `LATERAL_REACH`.
+ * Either way round; refused, with why, as a string. @see planMain
+ */
+export function planLateral(g: Grid, route: readonly Cell[], wet: (x: number, y: number) => boolean): LateralPlan | { refused: string } {
+  if (route.length < 2) return { refused: "Drag from a workplace's slop port to a sewer node" };
+  const at = (c: Cell) => idx(g, c.x, c.y);
+  const isNode = (c: Cell) => g.sewerFit[at(c)] === SEWER_FIT.node;
+  const cells = isNode(route[0]) && !isNode(route[route.length - 1]) ? [...route].reverse() : [...route];
+  const node = cells[cells.length - 1];
+  if (!isNode(node)) return { refused: "End it at a sewer node" };
+  const port = portsAt(g, at(cells[0]), "slop", "out");
+  if (!port.length && !hasMain(g, at(cells[0]))) return { refused: "Start it at a workplace's slop port" };
+  if (cells.length - 1 > LATERAL_REACH) return { refused: `Longer than ${LATERAL_REACH} tiles: lay the sewer nearer` };
+  const plan = planMain(g, cells, wet, false, true);
+  if ("refused" in plan) return plan;
+  // INTO THE MANHOLE: no fitting of its own there, but where it ends.
+  const last = plan.cells[plan.cells.length - 1];
+  last.end = hasMain(g, at(node)) ? 0 : MAIN_END.drop;
+  const fresh = plan.cells.filter((c) => !hasMain(g, idx(g, c.x, c.y))).length;
+  return { cells: plan.cells, fresh, node: at(node), sources: [...new Set(port.map((p) => p.building))], exit: solveSewers(g).drains[at(node)] === 1 };
 }
