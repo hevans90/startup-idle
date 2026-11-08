@@ -27,7 +27,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -632,6 +632,40 @@ export function buildCascade(g: Grid, material: number) {
  * from a pour: the level finds itself and then stays, and the fall coming into
  * it never stops.
  */
+/**
+ * AN UNDERGROUND SEWER over ground that makes it work: from the far end,
+ * across flat ground, under a hill too high to dig through (so a lift
+ * station), across a valley (so a span), to an outfall into a pond — with a
+ * node every so often and a branch off to one side. For the sewer layer's
+ * looks and everything after. @see world/sewers/solve
+ */
+export function buildSewers(g: Grid, material: number) {
+  clear(g, material);
+  const row = Math.round(g.h / 2);
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      let h = 4;
+      if (x >= 2 && x <= 8 && Math.abs(y - row) <= 4) h = -2;          // the pond
+      else if (x >= 15 && x <= 18) h = 0;                                // the valley
+      else if (x >= 25 && x <= 27) h = 11;                               // the hill
+      set(g, x, y, h);
+    }
+  }
+  pond(g, 1, 1, 0, 0, 10, g.h - 1);
+  // The trunk, along the row from the outfall beside the pond to the far end.
+  const lay = (x: number, y: number, bits: number) => { g.sewer[idx(g, x, y)] |= bits; };
+  const far = g.w - 6;
+  for (let x = 9; x <= far; x++) lay(x, row, (x > 9 ? 1 : 0) | (x < far ? 4 : 0));
+  // A branch off it, toward the near side of the map.
+  for (let y = row + 1; y <= row + 6; y++) lay(34, y, 2 | (y < row + 6 ? 8 : 0));
+  lay(34, row, 8);
+  g.sewerFit[idx(g, 9, row)] = 2;
+  for (const x of [12, 22, 31, far]) g.sewerFit[idx(g, x, row)] = 1;
+  g.sewerFit[idx(g, 34, row)] = 1;
+  g.sewerFit[idx(g, 34, row + 6)] = 1;
+  edited(g);
+}
+
 export function buildLake(g: Grid, material: number) {
   clear(g, material);
   const cx = g.w / 2, cy = g.h / 2, r = Math.min(g.w, g.h) * 0.3;
@@ -944,7 +978,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -956,7 +990,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -990,6 +1024,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     // The same town, its company at the end of book 1. @see seedAscension
     case "ascension": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
     case "bigtown": buildBigTown(g, material); recomputeHeightRange(g); return;
+    case "sewers": buildSewers(g, material); recomputeHeightRange(g); return;
   }
 }
 

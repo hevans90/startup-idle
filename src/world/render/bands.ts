@@ -97,6 +97,13 @@ export type BandLayer = {
   structureOf: Container[];
   /** Sorted per-band sublist for movers; draws above the static content. */
   dynamicOf: Container[];
+  /**
+   * THE SEWERS UNDER THE GROUND, per band: first in it, so the band's own
+   * ground draws over them and hides them — until the ground is made
+   * see-through for the underground view, when they show at their depth.
+   * Hidden outside that view. @see sewer-layer
+   */
+  sewerOf: Container[];
   /** How solid the ground is drawn, so {@link setGroundAlpha} can skip a no-op. */
   groundAlpha: number;
   readonly w: number;
@@ -135,11 +142,14 @@ export function createBandLayer(w: number, h: number): BandLayer {
   const pavedOf: Container[] = [];
   const structureOf: Container[] = [];
   const dynamicOf: Container[] = [];
+  const sewerOf: Container[] = [];
 
   for (let b = 0; b < n; b++) {
     const band = new Container();
     band.zIndex = b;
 
+    const sewer = new Container();       // underground, under even the columns
+    sewer.visible = false;
     const cliff = new Container();       // columns, under everything in the band
     // The ONE sorted static tier. A cell's stacked slabs must draw shallowest
     // LAST so each hides the next one's diamond; see render/cliffs.
@@ -156,7 +166,8 @@ export function createBandLayer(w: number, h: number): BandLayer {
     const dyn = new Container({ isRenderGroup: true });
     dyn.sortableChildren = true;         // movers sort by frac(x + y)
 
-    band.addChild(cliff);                // columns, terrain, roads, builds, movers
+    band.addChild(sewer);                // sewers, columns, terrain, roads, builds, movers
+    band.addChild(cliff);
     band.addChild(st);
     band.addChild(under);
     band.addChild(paved);
@@ -170,6 +181,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
     pavedOf.push(paved);
     structureOf.push(structures);
     dynamicOf.push(dyn);
+    sewerOf.push(sewer);
     chunks[Math.floor(b / BAND_CHUNK)].addChild(band);
   }
   // Sorted exactly once, at build. Nothing after this re-sorts the world.
@@ -177,7 +189,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
   for (const c of chunks) c.sortChildren();
 
   return {
-    root, bands, chunks, cliffOf, staticOf, underOf, pavedOf, structureOf, dynamicOf,
+    root, bands, chunks, cliffOf, staticOf, underOf, pavedOf, structureOf, dynamicOf, sewerOf,
     w, h, visibleLo: 0, visibleHi: n - 1, groundAlpha: 1,
   };
 }
@@ -245,4 +257,5 @@ export function destroyBandLayer(layer: BandLayer) {
   layer.underOf.length = 0;
   layer.pavedOf.length = 0;
   layer.dynamicOf.length = 0;
+  layer.sewerOf.length = 0;
 }

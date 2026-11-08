@@ -251,6 +251,7 @@ import { breakableCell, planMain, previewMain, previewSewer, routeMain, runMains
 import { BLACKOUT_RADIUS } from "./events/defs/blackout";
 import { QUAKE_DAMAGED, QUAKE_MS } from "./events/defs/earthquake";
 import { createMainsLayer, type MainsLayer } from "./render/mains-layer";
+import { createSewerLayer, type SewerLayer } from "./render/sewer-layer";
 
 /** The main being dragged with the Pipe tool, in the game: its route, and whether it will carry water. @see MainCard */
 function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
@@ -425,6 +426,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const boatRef = useRef<BoatLayer | null>(null);
   /** The water mains, drawn. @see createMainsLayer */
   const mainsRef = useRef<MainsLayer | null>(null);
+  /** The sewers under the ground, and what of them shows at the surface. @see createSewerLayer */
+  const sewersRef = useRef<SewerLayer | null>(null);
   /** The cars and people, drawn among the movers too. @see world/agents */
   const townRef = useRef<TownLayer | null>(null);
   /** The works' revision last told to the store, so autosave hears of progress. */
@@ -1624,6 +1627,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       boatRef.current = createBoatLayer(bl);
       if (overlayRoot.current) mainsRef.current = createMainsLayer(bl, overlayRoot.current);
+      sewersRef.current = createSewerLayer(bl);
       townRef.current = createTownLayer(bl, app.renderer as unknown as Renderer);
       setSceneEpoch((n) => n + 1);
 
@@ -1679,6 +1683,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       boatRef.current = null;
       mainsRef.current?.destroy();
       mainsRef.current = null;
+      sewersRef.current?.destroy();
+      sewersRef.current = null;
       townRef.current?.destroy();
       townRef.current = null;
       if (flRef.current) destroyWaterLayer(flRef.current);
@@ -2999,7 +3005,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // THE WATER MAINS: their tubes where they changed — or the zoom asks for more or less detail — and the water in them. @see createMainsLayer
       mainsRef.current?.sync(grid, scale, useWorldStore.getState().viewport?.scale.x ?? 1);
       { const st = useWorldStore.getState();
-        mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe"), st.hover); }
+        mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe"), st.hover);
+        // THE SEWERS: drawn again where they changed; the underground shown, and the ground see-through over it, in its view. @see createSewerLayer
+        const underground = st.sewerView;
+        sewersRef.current?.sync(grid, scale, underground);
+        setGroundAlpha(bl, st.overlays.xray || underground ? XRAY_GROUND : 1); }
       // THE TOWN: cars and people on their trips round the roads. @see world/agents
       const net = getNetwork();
       if (net) {

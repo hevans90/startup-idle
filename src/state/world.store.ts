@@ -521,6 +521,9 @@ type WorldState = {
   setEarningsOverlay: (on: boolean) => void;
   /** Whether the Water overlay is on — it is, too, while the Pipe tool is in hand. @see createMainsLayer */
   waterOverlay: boolean;
+  /** THE UNDERGROUND VIEW: the ground see-through and the sewers under it shown. @see createSewerLayer */
+  sewerView: boolean;
+  setSewerView: (on: boolean) => void;
   setWaterOverlay: (on: boolean) => void;
   /** What the AI did while nobody was watching, to say once; null when said. @see catchUpAi */
   aiReport: string[] | null;
@@ -864,6 +867,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   earningsOverlay: false,
   setEarningsOverlay: (earningsOverlay) => set({ earningsOverlay }),
   waterOverlay: false,
+  sewerView: false,
+  setSewerView: (sewerView) => set({ sewerView }),
   setWaterOverlay: (waterOverlay) => set({ waterOverlay }),
   aiReport: null,
   // INTO COMMS: what it did while you were out, up till dismissed; each memo, a report from the AI. @see comms.store

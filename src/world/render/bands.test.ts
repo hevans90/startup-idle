@@ -16,13 +16,14 @@ describe("createBandLayer", () => {
     expect(L.bands.length).toBe(bandCount(8, 5)); // 12
     for (let b = 0; b < L.bands.length; b++) {
       expect(L.bands[b].zIndex).toBe(b);
-      expect(L.bands[b].children.length).toBe(6);
-      expect(L.bands[b].children[0]).toBe(L.cliffOf[b]);
-      expect(L.bands[b].children[1]).toBe(L.staticOf[b]);
-      expect(L.bands[b].children[2]).toBe(L.underOf[b]);
-      expect(L.bands[b].children[3]).toBe(L.pavedOf[b]);
-      expect(L.bands[b].children[4]).toBe(L.structureOf[b]);
-      expect(L.bands[b].children[5]).toBe(L.dynamicOf[b]);
+      expect(L.bands[b].children.length).toBe(7);
+      expect(L.bands[b].children[0]).toBe(L.sewerOf[b]);
+      expect(L.bands[b].children[1]).toBe(L.cliffOf[b]);
+      expect(L.bands[b].children[2]).toBe(L.staticOf[b]);
+      expect(L.bands[b].children[3]).toBe(L.underOf[b]);
+      expect(L.bands[b].children[4]).toBe(L.pavedOf[b]);
+      expect(L.bands[b].children[5]).toBe(L.structureOf[b]);
+      expect(L.bands[b].children[6]).toBe(L.dynamicOf[b]);
     }
   });
 

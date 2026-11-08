@@ -68,6 +68,7 @@ const ICONS: Record<string, ReactNode> = {
   water: <Icon><path d="M8 2.5c2.5 3 4 5.2 4 7a4 4 0 0 1-8 0c0-1.8 1.5-4 4-7z" /></Icon>,
   mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
   earnings: <Icon><path d="M8 1.5v13M11 4.5H6.5a2 2 0 000 4h3a2 2 0 010 4H5" /></Icon>,
+  sewer: <Icon><path d="M1.5 6h13" strokeDasharray="2 1.5" /><path d="M3 10.5h10M3 13.5h10" /><ellipse cx="8" cy="3.5" rx="2.5" ry="1" /></Icon>,
   undo: <Icon><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" /></Icon>,
   // The people row. @see Stat
   people: <Icon><circle cx="6" cy="5" r="2" /><path d="M2.5 13c0-2.2 1.6-3.5 3.5-3.5S9.5 10.8 9.5 13M10.5 3.5a2 2 0 010 3.5M12 9.8c1 .5 1.5 1.6 1.5 3.2" /></Icon>,
@@ -223,6 +224,8 @@ export function BuildBar({ className }: { className?: string }) {
   const setEarningsOverlay = useWorldStore((s) => s.setEarningsOverlay);
   const waterOverlay = useWorldStore((s) => s.waterOverlay);
   const setWaterOverlay = useWorldStore((s) => s.setWaterOverlay);
+  const sewerView = useWorldStore((s) => s.sewerView);
+  const setSewerView = useWorldStore((s) => s.setSewerView);
 
   // Who the company can hire: the generators it has unlocked. @see getUnlockedGeneratorIds
   const hireable = new Set(generators.map((g) => g.id));
@@ -315,6 +318,13 @@ export function BuildBar({ className }: { className?: string }) {
           onClick={() => setWaterOverlay(!waterOverlay)} className={twMerge(TOOL, (waterOverlay || tool === "pipe") && TOOL_ON)}>
           {ICONS.water}
           <span className="@max-6xl:hidden">Water</span>
+        </button>
+      )}
+      {sewersOpen && (
+        <button type="button" title="See under the ground: the sewers at their depth, which way they fall"
+          onClick={() => setSewerView(!sewerView)} className={twMerge(TOOL, sewerView && TOOL_ON)}>
+          {ICONS.sewer}
+          <span className="@max-6xl:hidden">Sewers</span>
         </button>
       )}
       {model && (

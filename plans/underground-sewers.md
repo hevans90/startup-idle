@@ -1,6 +1,6 @@
 # Underground sewers
 
-Status: **phase 1 done**, agreed in conversation on 2026-11-08. Replaces the sewer half of `plans/pipes-and-slop.md` (above-ground sewers, auto stubs). Water mains are unchanged.
+Status: **phases 1–2 done**, agreed in conversation on 2026-11-08. Replaces the sewer half of `plans/pipes-and-slop.md` (above-ground sewers, auto stubs). Water mains are unchanged.
 
 ## Why
 
@@ -116,7 +116,7 @@ A network is solved **from its exit upstream**, once per edit, and kept until th
 ## Phases
 
 1. **Done: the layer and the solve.** `grid.sewer` and `grid.sewerFit`, undoable and saved; `world/sewers/solve.ts`. Was: `solveSewerNet` with inverts, spans, lifts, outfalls and capacity; pure, tested on fixtures for a hill, valley, river, cliff and flat run. Nothing drawn or used yet.
-2. **Seeing it.** The `sewerOf` tier; the underground view (ground see-through, trunks at depth, state colours, chevrons); surface fittings (covers, spans, lift houses, headwalls). Laid from the console on a fixture for before-and-after screenshots; `__waterBench` with the view on and off.
+2. **Done: seeing it.** `render/sewer-layer.ts`, the `sewers` fixture, `sewerView` and a Sewers toggle in Views. The view costs nothing measurable (`__waterBench` on the fixture: GPU render 0.17 ms off, 0.20 on). Was: the `sewerOf` tier; the underground view (ground see-through, trunks at depth, state colours, chevrons); surface fittings (covers, spans, lift houses, headwalls). Laid from the console on a fixture for before-and-after screenshots; `__waterBench` with the view on and off.
 3. **The Sewer tool: trunks.** Drag, route, live preview of pop-ups and their costs, refusals with reasons, auto nodes and nodes added by hand. The Pipe tool's toggle goes.
 4. **Laterals and flow.** Lateral mode; slop through laterals into nodes; capacity by grade and bore; lift stations paid; surcharging nodes spill; the auto stubs removed. The sewer-backup event moved onto nodes.
 5. **Placement.** `needsSewer` for slop makers; the ghost's reach rings and refusal; a placed building waits unconnected until laterated.
