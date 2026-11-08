@@ -117,7 +117,7 @@ export function emittersWanted(g: Grid, damaged: Iterable<readonly [number, Dama
 
 /** A barrier across a road tile and two cones before it, drawn about its centre, at scale 1. */
 function barrier(): Graphics {
-  const g = new Graphics();
+  const g = new Graphics({ label: "barrier" });
   // Two posts, a striped bar between.
   g.rect(-24, -16, 3, 16).fill({ color: 0x3a3a3a });
   g.rect(21, -16, 3, 16).fill({ color: 0x3a3a3a });

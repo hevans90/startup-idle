@@ -92,7 +92,25 @@ describe("emitters", () => {
     const layer = new Container(), j = juice();
     for (let k = 0; k < 40; k++) j.emit({ x: k % 8, y: Math.floor(k / 8), w: 1, h: 1, rise: 0 }, { ...recipe, rate: 50, life: 5000 }, ctxWith(layer));
     for (let k = 0; k < 120; k++) j.tick(1000 / 30);
-    expect(layer.children.length).toBe(EMIT_MOTES);
+    // Seen: the spent ones wait unseen. @see parkOf
+    expect(layer.children.filter((c) => c.alpha > 0).length).toBe(EMIT_MOTES);
+  });
+
+  test("once going, an emitter adds and removes no child: the spent are given off again", () => {
+    const layer = new Container(), j = juice();
+    let changes = 0;
+    layer.on("childAdded", () => changes++);
+    layer.on("childRemoved", () => changes++);
+    const stop = j.emit({ x: 2, y: 2, w: 1, h: 1, rise: 0 }, recipe, ctxWith(layer));
+    for (let k = 0; k < 60; k++) j.tick(1000 / 30);
+    const settled = changes;
+    // 4 s: 40 given off and 40 spent, where each was a child added and removed.
+    // Lives vary, so a new most alive at once may add one.
+    for (let k = 0; k < 120; k++) j.tick(1000 / 30);
+    expect(changes - settled).toBeLessThanOrEqual(2);
+    stop();
+    for (let k = 0; k < 60; k++) j.tick(1000 / 30);
+    expect(layer.children.length).toBe(0);
   });
 
   test("nothing is given off where the band is out of sight", () => {

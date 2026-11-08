@@ -37,7 +37,7 @@ Everything below is built from **two new shared pieces** plus what already draws
   - texture: the existing dab or flake, plus two new procedural canvases, a flame tongue and a smoke puff;
   - spawn rate, life, rise, drift, spread;
   - a colour ramp over life, and an additive or normal blend.
-- Motes live in `bands.dynamicOf[band]`, as juice's do, so a building in front still hides them. They never go in a static chunk. Showing, hiding or reparenting a sprite in one rebuilds its whole draw list (see *render group rebuilds*).
+- Motes live in `bands.dynamicOf[band]`, as juice's do, so a building in front still hides them. They never go in a static chunk. Showing, hiding or reparenting a sprite in one rebuilds its whole draw list (see *render group rebuilds*), so a spent emitter mote stays parked in its band at no alpha for the next (`parkOf`).
 - **One shared budget** with juice. As built, emitters may hold at most `EMIT_MOTES` (160) of the 240, so the bursts always have the rest. Emitters slow their spawn rate when zoomed out (`zoomRate`, never under a quarter), and stop entirely when their band is off screen.
 - The pure parts get unit tests, as `juice.test.ts` does: spawn counts per second, the colour ramp, and the budget.
 
@@ -70,7 +70,7 @@ Correction: the building's sprites were already tinted while damaged — `DAMAGE
 
 ## Phases
 
-1. **Done.** `render/juice.ts` (emitters, `Recipe`), `render/lights.ts` (`conditionsOf`, its own root shown day and night), `render/disaster-fx.ts` (what each disaster shows, synced once a second), `DAMAGED_TINT` by cause. Steam and the glow sit at the building's roof as drawn (`RoofOf`). The flame texture waits for phase 2. Not yet measured as in phase 4.
+1. **Done.** `render/juice.ts` (emitters, `Recipe`), `render/lights.ts` (`conditionsOf`, its own root shown day and night), `render/disaster-fx.ts` (what each disaster shows, synced once a second), `DAMAGED_TINT` by cause. Steam and the glow sit at the building's roof as drawn (`RoofOf`). The flame texture waits for phase 2. Measured in phase 4.
    **The two pieces, shown on what exists.** Emitters, and the condition glow on any damaged building, keyed by cause. Then use them on the heatwave (haze, steam and glow on overheated buildings) and on road works (barrier, cones, lamp). This closes the playtest's three gaps.
 2. **Done: fire.** `events/defs/fire.ts`, `events/fire-spread.ts`, `damage.ts` (`fire` cause, `burn`, `FIRE_REPAIR_SECONDS`), `cooling.ts` (`onMains`, `hoseFor`). Questions 1 and 2 answered with the lean:
    - **It starts** as a heatwave's follow-up: ridden out with anything overheated, 20 s later the first building still overheated smokes, and 30 s after that it catches. The director never draws it otherwise (weight 0). The crew getting there first calls it off.
@@ -83,10 +83,10 @@ Correction: the building's sprites were already tinted while damaged — `DAMAGE
    - **Blackout** (`blackout.ts`): buildings within 7 tiles of the busiest junction. Generators (100 s of income), shed the agents' load (the heatwave's throttle, only with a datacentre) or sit it out (default: each shut for 5 min, "No power"). Drawn: their lights flicker during the warning and go out when it strikes. 24/30/46 · 7.2% · 43%.
    - **Earthquake** (`earthquake.ts`): rare (weight 0.35, judged by the RARE bar), only with the HQ built. Tremors for 45 s, then 8 s of shaking; the 4 buildings nearest the HQ are damaged ("Quake damaged"; never the HQ itself). Brace (260 s of income: none), strap down the racks (every vibe coder, the AI's buildings spared) or carry on (default). Drawn: the camera shakes, unless motion is calm, and dust comes off what it damaged. 35/48/17 · 17.7% · 38%.
    - **Not done:** the crack decal, for the same reason as the scorch.
-4. **Measured.** On `?fixture=bigtown`, with a fire, a heatwave and road works all running at once:
-   - `__waterBench` with `sync=true` stays within 5% of a quiet town;
-   - `_buildInstructions` doesn't rise per frame;
-   - the mote budget is never exceeded.
+4. **Done: measured.** On `?fixture=bigtown` at zoom 0.6 over the town centre, with a fire burning (and smouldering beside it), road works, and 12 buildings overheated (steam and the heat glow). The heatwave's own haze and warm grade could not run: nothing in bigtown drinks, so the event calls itself off. Each bar:
+   - **`__waterBench(120, true)` within 5%.** Five interleaved pairs, the disasters' drawings shown and hidden: GPU wait 1.68 vs 1.64 ms (+2%), submit 0.80 vs 0.83 ms, wall 6.87 vs 7.08 ms; at most one more draw call.
+   - **`_buildInstructions` doesn't rise per frame.** It did, at first. Each mote born or spent added or removed a child of its band, rebuilding that band's group: 7.8–8.9 rebuilds a frame against 7.3 quiet, the six bands holding motes 2–4× as often. Now an emitter's spent mote is **parked** in its band at no alpha and given off again by the next of its band, texture and blend (`parkOf`), and taken out once no emitter there wants it. After, at the same moment: 6.28 a frame busy vs 6.93 quiet; the six bands 0.51 vs 0.58, what their movers rebuild anyway.
+   - **The mote budget.** 104–112 seen at once (about 20 more parked, unseen), under `EMIT_MOTES` (160) of 240; both caps hold in `giveOff`'s loop.
 
 ## Questions
 

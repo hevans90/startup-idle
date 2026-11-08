@@ -52,7 +52,15 @@ const DRONE = 0xb44aff;
 type Mote = { s: Sprite; vx: number; vy: number; at: number; life: number; grow: number; alpha: number; fall?: number; emitted?: Emitted };
 
 /** What an emitter's mote carries besides a burst's: its ramp, its sway and its size over its life. */
-type Emitted = { from: number; to: number; size: [number, number]; wobble: number; x0: number; seed: number };
+type Emitted = { from: number; to: number; size: [number, number]; wobble: number; x0: number; seed: number; park: string };
+
+/**
+ * Where an emitter's dead motes wait: its band, texture and blend. Spent, one
+ * stays in its band at no alpha for the next of the same, so an emitter never
+ * adds or removes a child while it runs — each would rebuild the band's
+ * render group (shared with the movers) that frame. @see giveOff
+ */
+const parkOf = (band: number, r: Recipe) => `${band}|${r.texture}|${r.blend}`;
 
 /**
  * AN EMITTER'S RECIPE: what it gives off, how often, and how each mote moves
@@ -226,6 +234,8 @@ export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Textu
   const emitters = new Set<Emitter>();
   /** Motes alive that an emitter gave off. */
   let emitted = 0;
+  /** An emitter's spent motes, still in their band, unseen. @see parkOf */
+  const parked = new Map<string, Sprite[]>();
   /** A sprite from the pool, as a plain dab again: an emitter's may have been smoke, or added. */
   const fromPool = () => {
     const m = pool.pop();
@@ -241,9 +251,17 @@ export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Textu
     const layer = e.ctx.bands.dynamicOf[e.band];
     if (!layer || layer.destroyed) return;
     const r = e.recipe, sc = e.ctx.scale;
-    const m = pool.pop() ?? new Sprite(textureOf(r.texture));
-    m.texture = textureOf(r.texture);
-    m.blendMode = r.blend;
+    const park = parkOf(e.band, r);
+    // One parked in this band, as it is: no child added.
+    let m = parked.get(park)?.pop();
+    if (m && (m.destroyed || m.parent !== layer)) m = undefined;
+    const fresh = !m;
+    m ??= pool.pop() ?? new Sprite(textureOf(r.texture));
+    if (fresh) {
+      m.texture = textureOf(r.texture);
+      m.blendMode = r.blend;
+    }
+    m.label = "mote";
     // A flame stands on its foot; the rest on their middles.
     m.anchor.set(0.5, r.texture === "flame" ? 0.85 : 0.5);
     m.tint = r.from;
@@ -252,14 +270,16 @@ export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Textu
     m.x = e.wx + Math.cos(a) * d;
     m.y = e.wy + Math.sin(a) * d * 0.5;
     m.scale.set(r.size[0] * sc);
-    m.zIndex = 1e6;
-    m.eventMode = "none";
-    layer.addChild(m);
+    if (fresh) {
+      m.zIndex = 1e6;
+      m.eventMode = "none";
+      layer.addChild(m);
+    }
     emitted++;
     motes.push({
       s: m, vx: (Math.random() * 2 - 1) * r.drift * sc, vy: -r.rise * sc * (0.8 + Math.random() * 0.4),
       at: 0, life: r.life * (0.8 + Math.random() * 0.4), grow: sc, alpha: r.alpha,
-      emitted: { from: r.from, to: r.to, size: r.size, wobble: r.wobble * sc, x0: m.x, seed: Math.random() * 6.28 },
+      emitted: { from: r.from, to: r.to, size: r.size, wobble: r.wobble * sc, x0: m.x, seed: Math.random() * 6.28, park },
     });
   }
 
@@ -397,6 +417,15 @@ export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Textu
       tweens.step(dtMs);
       // THE EMITTERS' MOTES: none for one out of sight, fewer zoomed out.
       const rate = view ? zoomRate(view.zoom) : 1;
+      // Parked where no emitter gives off like it any more: taken out, to the pool.
+      if (parked.size) {
+        const wanted = new Set([...emitters].map((e) => parkOf(e.band, e.recipe)));
+        for (const [key, list] of parked) {
+          if (wanted.has(key)) continue;
+          for (const s of list) if (!s.destroyed) { s.parent?.removeChild(s); pool.push(s); }
+          parked.delete(key);
+        }
+      }
       for (const e of emitters) {
         if (view && !view.shown(e.band)) { e.carry = 0; continue; }
         const due = spawnDue(e.recipe.rate * rate, dtMs, e.carry);
@@ -410,6 +439,13 @@ export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Textu
         if (t >= 1 || m.s.destroyed) {
           motes.splice(k, 1);
           if (m.emitted) emitted--;
+          // An emitter's: parked where it is, unseen, for the next.
+          if (m.emitted && !m.s.destroyed && m.s.parent) {
+            m.s.alpha = 0;
+            const list = parked.get(m.emitted.park);
+            if (list) list.push(m.s); else parked.set(m.emitted.park, [m.s]);
+            continue;
+          }
           // A flake is no dab: not for the pool.
           if (!m.s.destroyed) { m.s.parent?.removeChild(m.s); if (m.fall) m.s.destroy(); else pool.push(m.s); }
           continue;
@@ -447,6 +483,8 @@ export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Textu
       motes.length = 0;
       emitted = 0;
       emitters.clear();
+      for (const list of parked.values()) for (const s of list) if (!s.destroyed) s.destroy();
+      parked.clear();
       for (const s of pool) s.destroy();
       pool.length = 0;
     },

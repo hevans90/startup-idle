@@ -160,7 +160,7 @@ export function createLights(stage: Container, zIndex: number): Lights {
   let darkIds: ReadonlySet<number> = new Set(), flickering = false, wasDark = false;
   // THE CONDITIONS, their own root: the lights' is hidden by day. Over the
   // night sheet as the lights are, so a glow at night is not darkened.
-  const cond = new Container();
+  const cond = new Container({ label: "conditions" });
   cond.eventMode = "none";
   cond.zIndex = zIndex;
   cond.visible = false;

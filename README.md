@@ -129,7 +129,7 @@ src/
 - **Bands:** a container per diagonal `x+y`; cached render groups, so **Pixi's GC is off** (`stopGarbageCollection`).
 - **Heights:** half steps (16.5 px); roads autotile from 8-neighbour masks.
 - **Water:** a storeyed shallow-water column solver, WebGPU by default, CPU the reference (`?gpucheck`, `__waterCompare`).
-- **Rendering:** padded, mipmapped atlases (`bun run bake:padded`); cutaways for what stands in front (`render/cutaway.ts`); night lights (`render/lights.ts`); juice tweens and emitters (`render/juice.ts`); disasters on the map — steam, haze, fire, condition glows, road-works barriers (`render/disaster-fx.ts`); fire is a ridden-out heatwave's follow-up (`events/defs/fire.ts`); burst main, sewer backup, blackout and earthquake (`events/defs/`) break the longest main or sewer (`breakableCell`), the busiest junction's district, and what is nearest the HQ. Plans: `plans/engine-polish.md`, `plans/disaster-rendering.md`.
+- **Rendering:** padded, mipmapped atlases (`bun run bake:padded`); cutaways for what stands in front (`render/cutaway.ts`); night lights (`render/lights.ts`); juice tweens and emitters, spent motes parked in their band (`render/juice.ts`); disasters on the map — steam, haze, fire, condition glows, road-works barriers (`render/disaster-fx.ts`); fire is a ridden-out heatwave's follow-up (`events/defs/fire.ts`); burst main, sewer backup, blackout and earthquake (`events/defs/`) break the longest main or sewer (`breakableCell`), the busiest junction's district, and what is nearest the HQ. Plans: `plans/engine-polish.md`, `plans/disaster-rendering.md`.
 - **Sound:** `src/audio/sound.ts`, synthesised in Web Audio.
 
 ## Dev tools
