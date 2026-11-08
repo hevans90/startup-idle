@@ -78,6 +78,7 @@ import {
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { boreCost, buildCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { planNode } from "../world/sewers/lay";
+import { sewersUnderground } from "../world/sewers/convert";
 import { lateralStrokePlan, sewerStrokePlan } from "../world/sewers/tool";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
@@ -777,7 +778,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // INTO PLAY, the old pipes become mains: the game's pipes are mains now,
     // and the old ones are only the editor's spouts. @see pipesToMains
     // And mains laid before buildings had inlets are run on to them. @see mainsToPorts
-    if (playing && (+pipesToMains(get().grid, mainWet(get().grid)) | +mainsToPorts(get().grid, mainWet(get().grid)))) {
+    // And sewers laid above ground go under it. @see sewersUnderground
+    if (playing && (+pipesToMains(get().grid, mainWet(get().grid)) | +mainsToPorts(get().grid, mainWet(get().grid)) | +sewersUnderground(get().grid))) {
       set({ playing, revision: get().revision + 1 });
       return;
     }

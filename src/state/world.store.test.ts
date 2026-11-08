@@ -16,9 +16,9 @@ import {
   useWorldStore,
 } from "./world.store";
 import { loadSaved, setSaveSlot } from "../world/io/world-save";
-import { MAIN_AI, MAIN_BORE, SEWER_FIT, createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
+import { MAIN_AI, MAIN_BORE, MAIN_SEWER, SEWER_FIT, createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
 import { hasSewer } from "../world/sewers/solve";
-import { findMains } from "../world/water/mains";
+import { findMains, layMain, planMain } from "../world/water/mains";
 import { asAi } from "../world/ai/district";
 import { boreCost } from "../game/build-cost";
 import { componentCount } from "../world/roads/network";
@@ -900,6 +900,23 @@ describe("sewers under play rules", () => {
     drag({ x: 0, y: 4 }, { x: 12, y: 4 });
     expect(hasSewer(s().grid, idx(s().grid, 6, 4))).toBe(false);
     expect(s().notice?.text).toMatch(/Not enough money/);
+  });
+
+  test("a save with the old above-ground sewers has them underground once play starts", () => {
+    const g = createGrid(20, 12);
+    fillTerrain(g, 1);
+    for (let i = 0; i < g.w * g.h; i++) g.height[i] = 4;
+    for (let y = 0; y < g.h; y++) g.pool[idx(g, 0, y)] = 1;
+    const p = planMain(g, Array.from({ length: 8 }, (_, k) => ({ x: 1 + k, y: 5 })), (x) => x === 0, false, true);
+    if ("refused" in p) throw new Error(p.refused);
+    layMain(g, p.cells, true);
+    s().loadGrid(g);
+    roundTrip();
+    expect(s().grid.main[idx(s().grid, 4, 5)] & MAIN_SEWER).toBeTruthy();
+    s().setPlaying(true);
+    expect(s().grid.main[idx(s().grid, 4, 5)]).toBe(0);
+    expect(hasSewer(s().grid, idx(s().grid, 4, 5))).toBe(true);
+    expect(s().grid.sewerFit[idx(s().grid, 1, 5)]).toBe(SEWER_FIT.outfall);
   });
 
   test("a click on a trunk adds a manhole there, free", () => {

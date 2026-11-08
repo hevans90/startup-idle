@@ -1,6 +1,6 @@
 # Underground sewers
 
-Status: **phases 1–5 done**, agreed in conversation on 2026-11-08. Replaces the sewer half of `plans/pipes-and-slop.md` (above-ground sewers, auto stubs). Water mains are unchanged.
+Status: **phases 1–6 done**, agreed in conversation on 2026-11-08. Replaces the sewer half of `plans/pipes-and-slop.md` (above-ground sewers, auto stubs). Water mains are unchanged.
 
 ## Why
 
@@ -120,7 +120,7 @@ A network is solved **from its exit upstream**, once per edit, and kept until th
 3. **Done: the Sewer tool, trunks.** `sewers/lay.ts` (route, fittings, manholes, price), `sewers/tool.ts` (the stroke's plan, shared by ghost, card and stroke), `play/sewer-card.tsx`. The Pipe tool lays water only; old sewers still flow till phase 4. A lift is priced as a pump (25,000 floor), far above its tiles: tune in phase 7. Was: Drag, route, live preview of pop-ups and their costs, refusals with reasons, auto nodes and nodes added by hand. The Pipe tool's toggle goes.
 4. **Done: laterals and flow.** `sewers/flow.ts` (`stepSewers`, called from `stepSlop`), `planLateral` in `sewers/lay.ts`, the Sewer tool's Trunk | Lateral switch, a `drop` end fitting into the manhole, red-brown trunks while troubled. Old above-ground sewers without a manhole still flow the old way till phase 6 converts them. Was: Lateral mode; slop through laterals into nodes; capacity by grade and bore; lift stations paid; surcharging nodes spill; the auto stubs removed. The sewer-backup event moved onto nodes.
 5. **Done: placement.** `PlaceRules.needsSewer` and `sewerInReach` (Manhattan reach from the port, on a network with an exit); `playRules` sets it once slop is made (`sewersOpen`); upgrades keep their place; nothing is built over a trunk ("over a sewer"); reach tinted while a slop maker is in hand. The AI is held to it too: phase 7 lays its sewers first. Was: `needsSewer` for slop makers; the ghost's reach rings and refusal; a placed building waits unconnected until laterated.
-6. **Old saves.** Conversion on load, with free lifts where needed; grandfathering; a round-trip test on a save with the old sewers.
+6. **Done: old saves.** `sewers/convert.ts` (`sewersUnderground`), run when play starts with the other old-main conversions. Lifts come from the solve, free; they aren't labelled as such (no lift card yet). Was: Conversion on load, with free lifts where needed; grandfathering; a round-trip test on a save with the old sewers.
 7. **The AI, the sims and balance.** AI mode lays trunks first and sites offices by node reach; the sim's price; `map-balance` re-measured; README.
 
 ## Questions
