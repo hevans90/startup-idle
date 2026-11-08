@@ -11,7 +11,7 @@ import { PROCESS_RATE, processorKind, setProcessorUse, type ProcessorKind } from
 import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { fluidIndexOf } from "../water/materials";
-import { mainReportsFor } from "../water/mains";
+import { backedUpCell, mainReportsFor } from "../water/mains";
 import { pollute } from "../water/pollution";
 import { portsOf } from "../water/ports";
 import { pourAt, type WaterField } from "../water/field";
@@ -97,7 +97,7 @@ export function stepSlop(
   const taken = new Map<number, number>();
   // DRAINED by the sewers: each its share of what it carries from every tank it serves.
   for (const r of mainReportsFor(g).values()) {
-    if (!r.sewer || r.state !== "flowing" || dt <= 0) continue;
+    if (!r.sewer || (r.state !== "flowing" && r.state !== "backed-up") || dt <= 0) continue;
     const from = r.sewer.sources.map((id) => tanks.get(id)).filter((t): t is Tank => !!t);
     const there = from.reduce((n, t) => n + t.level, 0);
     // AS MUCH AS IT CAN PUT SOMEWHERE: what its processors have room for, and
@@ -105,11 +105,17 @@ export function stepSlop(
     // Each processor once, though a sewer meet both its inlets.
     const sinks = [...new Map(r.outlets.filter((o) => processorKind(g.structures.get(o.building)?.def ?? "")).map((o) => [o.building, o])).values()];
     const roomOf = (id: number) => Math.max(0, PROCESS_RATE * dt - (taken.get(id) ?? 0));
-    const room = r.sewer.outfalls.length ? Infinity : sinks.reduce((n, o) => n + roomOf(o.building), 0);
+    // BACKED UP, it puts it all in the street: as much as it carries. @see setBackedUp
+    const manhole = r.state === "backed-up" ? backedUpCell() : null;
+    const room = r.sewer.outfalls.length || manhole !== null ? Infinity : sinks.reduce((n, o) => n + roomOf(o.building), 0);
     const take = Math.min(there, r.capacity * dt, room);
     if (take <= 0) { r.flow = 0; continue; }
     for (const t of from) t.level -= take * (t.level / there);
     r.flow = take / dt;
+    if (manhole !== null) {
+      if (field) release(g, field, manhole % g.w, (manhole / g.w) | 0, take);
+      continue;
+    }
     // INTO THE PROCESSORS FIRST, as much as each takes; the rest out of the outfalls.
     let left = take;
     for (const o of sinks) {

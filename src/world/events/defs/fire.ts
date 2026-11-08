@@ -26,7 +26,7 @@ export const FIRE: EventDef = {
   kind: "fire",
   where: (v) => v.smoking && { x: v.smoking.x, y: v.smoking.y },
   // NEVER DRAWN by the director: only a heatwave's follow-up. @see HEATWAVE
-  weight: () => 0,
+  followUp: true,
   warnMs: FIRE_WARN_MS,
   activeMs: FIRE_MS,
   activeFor: (e) => (e.chosen === "hose" ? HOSE_OUT_MS : e.chosen === "brigade" ? BRIGADE_OUT_MS : FIRE_MS),

@@ -1,6 +1,10 @@
 /** EVERY EVENT there is, by kind. @see EventDef */
 import type { EventDef, EventKind } from "../events";
 import { AGENT_INCIDENT } from "./agents";
+import { BLACKOUT } from "./blackout";
+import { BURST_MAIN } from "./burst-main";
+import { EARTHQUAKE } from "./earthquake";
+import { SEWER_BACKUP } from "./sewer-backup";
 import { CONVOY } from "./convoy";
 import { DILIGENCE } from "./diligence";
 import { DROUGHT } from "./drought";
@@ -32,4 +36,8 @@ export const EVENT_DEFS: Readonly<Record<EventKind, EventDef>> = {
   tenants: TENANTS,
   agents: AGENT_INCIDENT,
   fire: FIRE,
+  "burst-main": BURST_MAIN,
+  "sewer-backup": SEWER_BACKUP,
+  blackout: BLACKOUT,
+  earthquake: EARTHQUAKE,
 };

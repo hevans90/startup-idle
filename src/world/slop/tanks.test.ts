@@ -11,7 +11,7 @@ import { sludgeAt } from "../events/sludge";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField } from "../water/field";
-import { layMain, planMain, runMains } from "../water/mains";
+import { breakableCell, layMain, mainReportAt, planMain, runMains, setBackedUp } from "../water/mains";
 import { pollute, pollutionOf, restorePollution } from "../water/pollution";
 import { fromJSON, serializeWorld, toJSON } from "../io/serialize";
 import { getWater, useWorldStore } from "../../state/world.store";
@@ -81,6 +81,27 @@ describe("slop", () => {
     expect(t.level).toBeLessThan(1);
     expect(pollution(field)).toBeGreaterThan(50);
     expect(sludgeAt(field, 12, 4)).toBe(0);
+  });
+
+  test("backed up, it still drains the tank, but up at the manhole into the street, and none reaches the lake", () => {
+    resetCooling();
+    const { g, a, field } = street();
+    const cells = [...Array.from({ length: 9 }, (_, k) => ({ x: 4 + k, y: 6 })), { x: 12, y: 5 }, { x: 12, y: 4 }];
+    const p = planMain(g, cells, wetOf(g), false, true);
+    if ("refused" in p) throw new Error(p.refused);
+    layMain(g, p.cells, true);
+    const at = breakableCell(g, true)!;
+    expect(at).not.toBeNull();
+    setBackedUp(at);
+    try {
+      const desks = new Map([[a.id, { used: 1 }]]);
+      for (let k = 0; k < 2 * TANK_SECONDS + 20; k++) { runMains(field, g, 1); stepSlop(g, field, desks, 0.5, 1); }
+      expect(mainReportAt(g, 8, 6)!.state).toBe("backed-up");
+      expect(tanksOf(g).get(a.id)!.spilling).toBe(false);
+      expect(sludgeAt(field, at % g.w, (at / g.w) | 0)).toBeGreaterThan(0);
+    } finally {
+      setBackedUp(null);
+    }
   });
 });
 

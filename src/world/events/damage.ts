@@ -11,10 +11,12 @@ import type { GeneratorId } from "../../state/generators.store";
 import type { Grid } from "../grid";
 
 /** What damaged a building — or, "closed", shut by the health inspector for a set time. @see closeFor */
-export type DamageCause = "flood" | "heat" | "closed" | "fire";
+export type DamageCause = "flood" | "heat" | "closed" | "fire" | "power" | "quake";
 
 /** What a building damaged by each cause is called, on its badge and its line. */
-export const DAMAGE_NAME: Record<DamageCause, string> = { flood: "Flood damaged", heat: "Overheated", closed: "Closed by the inspector", fire: "Burnt out" };
+export const DAMAGE_NAME: Record<DamageCause, string> = {
+  flood: "Flood damaged", heat: "Overheated", closed: "Closed by the inspector", fire: "Burnt out", power: "No power", quake: "Quake damaged",
+};
 
 /** Seconds the repair crew takes over each damaged building, one at a time. */
 export const REPAIR_SECONDS = 180;

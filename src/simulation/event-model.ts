@@ -29,6 +29,10 @@ import { INCIDENT_METER, ROLLBACK_SECONDS, RUN_SECONDS } from "../world/events/d
 import { EDGE_LOADS, STRIKE_MS, STRIKE_PAY } from "../world/events/defs/strike";
 import { FIRE_REPAIR_SECONDS, REPAIR_SECONDS } from "../world/events/damage";
 import { BRIGADE_SECONDS, FIRE_MS, FIRE_SPREAD, HOSE_OUT_MS } from "../world/events/defs/fire";
+import { BURST_MS, CONTRACT_MS, CONTRACT_SECONDS, MEND_MS } from "../world/events/defs/burst-main";
+import { BACKUP_MS, PUMP_OUT_MS, PUMP_OUT_SECONDS, ROD_MS } from "../world/events/defs/sewer-backup";
+import { BLACKOUT_MS, GENERATOR_SECONDS } from "../world/events/defs/blackout";
+import { BRACE_SECONDS, QUAKE_DAMAGED, QUAKE_MS, QUAKE_WARN_MS } from "../world/events/defs/earthquake";
 
 /** The window a choice is judged over, seconds. */
 export const WINDOW = 1200;
@@ -135,6 +139,17 @@ const fireOf = (c: Company) => ({
   dry: Math.floor(hashed(c, 3) * (FIRE_SPREAD + 1)),
 });
 
+/** A BURST MAIN's company: the share of income its buildings make, and whether a second main feeds them anyway. */
+const burstOf = (c: Company) => ({ fed: Math.min(1, c.drinkingShare * (0.15 + 1.6 * hashed(c, 4) ** 1.5)), looped: hashed(c, 5) < 0.2 });
+/** A SEWER BACKUP's: what a second of slop in the street costs the homes near it, as a share of income. */
+const backupOf = (c: Company) => ({ slop: 0.03 + 1.4 * hashed(c, 6) ** 2.6 });
+/** A BLACKOUT's: the district's share of income, and whether there are agents to shed. */
+const blackoutOf = (c: Company) => ({ district: 0.03 + 1.1 * hashed(c, 7) ** 2.2, agents: hashed(c, 8) < 0.7 });
+/** An EARTHQUAKE's: the share of income each building nearest the HQ makes, and how many of them are the AI's. */
+const quakeOf = (c: Company) => ({ each: 0.02 + 0.45 * hashed(c, 9) ** 1.5, ai: Math.floor(hashed(c, 10) * 3) });
+/** Seconds of income `n` buildings each making `each` lose, mended one at a time. */
+const mendedInTurn = (n: number, each: number) => each * REPAIR_SECONDS * n * (n + 1) / 2;
+
 /** Each choice's COST over the window, in seconds of total income (less is better). */
 export const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
   "river-flood": {
@@ -228,6 +243,32 @@ export const EVENTS: Record<string, Record<string, (c: Company) => number>> = {
       const f = fireOf(c);
       return f.rack * (FIRE_MS / 1000 + FIRE_REPAIR_SECONDS - REPAIR_SECONDS) + f.dry * c.house * (FIRE_MS / 2000 + FIRE_REPAIR_SECONDS);
     },
+  },
+  "burst-main": {
+    // What drinks off it stops while it is dry, unless a second main feeds it.
+    // The interns off while they dig; a contractor paid; or dry till the water company comes.
+    mend: (c) => c.intern * CREW_SHARE.mend * MEND_MS / 1000 + (burstOf(c).looped ? 0 : burstOf(c).fed * MEND_MS / 1000),
+    contractor: (c) => CONTRACT_SECONDS + (burstOf(c).looped ? 0 : burstOf(c).fed * CONTRACT_MS / 1000),
+    pour: (c) => (burstOf(c).looped ? 0 : burstOf(c).fed * BURST_MS / 1000),
+  },
+  "sewer-backup": {
+    // The slop in the street while it backs up, the homes near it put off; half the vibe coders off to rod it; or paid.
+    // (Left out: mopping what came up, the same whichever.)
+    rod: (c) => c.vibe * CREW_SHARE.rod * ROD_MS / 1000 + backupOf(c).slop * ROD_MS / 1000,
+    pump: (c) => PUMP_OUT_SECONDS + backupOf(c).slop * PUMP_OUT_MS / 1000,
+    leave: (c) => backupOf(c).slop * BACKUP_MS / 1000,
+  },
+  blackout: {
+    // Generators paid; the agents' boost off for it; or the district shut for it.
+    generators: () => GENERATOR_SECONDS,
+    shed: (c) => (blackoutOf(c).agents ? c.agentShare * BLACKOUT_MS / 1000 : Infinity),
+    wait: (c) => blackoutOf(c).district * BLACKOUT_MS / 1000,
+  },
+  earthquake: {
+    // Bracing paid; every vibe coder off from the tremors till it stops, the AI's spared; or all of them, mended in turn.
+    brace: () => BRACE_SECONDS,
+    strap: (c) => c.vibe * CREW_SHARE.strap * (QUAKE_WARN_MS + QUAKE_MS) / 1000 + mendedInTurn(QUAKE_DAMAGED - quakeOf(c).ai, quakeOf(c).each),
+    "carry-on": (c) => mendedInTurn(QUAKE_DAMAGED, quakeOf(c).each),
   },
   hackathon: {
     // Every vibe coder off for it, the studio's tank half filled — a spill risked, taken as 20 s of income —

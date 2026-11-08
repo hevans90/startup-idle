@@ -10,7 +10,7 @@ import { spreadTargets } from "./fire-spread";
 
 const town = (now: number, over: Partial<TownView> = {}): TownView => ({
   now, income: 100, owned: {}, river: null, flooded: 0, overheated: 0, smoking: null, levee: null, evacuated: [], port: null,
-  drinkers: null, offices: null, site: null, junction: null, poach: null, viral: null, unhappy: null, datacentre: null,
+  drinkers: null, offices: null, site: null, junction: null, joint: null, manhole: null, district: null, hq: null, poach: null, viral: null, unhappy: null, datacentre: null,
   convoy: { calls: 0, earned: 0 }, routes: 0, door: null, studio: null, sale: null,
   diligence: { mood: 0, spills: 0, watered: null, mop: () => {} }, ...over,
 });
@@ -28,7 +28,7 @@ describe("a fire", () => {
   });
 
   test("is never drawn by the director, and cannot come with nothing smoking", () => {
-    expect(EVENT_DEFS.fire.weight?.(town(0, { smoking: smoking(true) }))).toBe(0);
+    expect(EVENT_DEFS.fire.followUp).toBe(true);
     expect(startEvent(EVENT_DEFS.fire, town(0), 1)).toBeNull();
   });
 

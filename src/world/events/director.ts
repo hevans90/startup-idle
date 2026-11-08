@@ -63,7 +63,7 @@ export function queueFollowUp(d: Director, kind: EventKind, now: number, inMs: n
 export function pickEvent(d: Director, v: TownView, defs: readonly EventDef[], live: boolean, roll: number, luck = 1): EventDef | null {
   if (d.gap === null || d.gap > 0 || live) return null;
   const pool = defs.flatMap((def) => {
-    const w = def.where(v) ? (def.weight?.(v) ?? 1) * (def.kind === d.last ? AGAIN : 1) * (OPPORTUNITIES.includes(def.kind) ? luck : 1) : 0;
+    const w = !def.followUp && def.where(v) ? (def.weight?.(v) ?? 1) * (def.kind === d.last ? AGAIN : 1) * (OPPORTUNITIES.includes(def.kind) ? luck : 1) : 0;
     return w > 0 ? [{ def, w }] : [];
   });
   const total = pool.reduce((s, p) => s + p.w, 0);

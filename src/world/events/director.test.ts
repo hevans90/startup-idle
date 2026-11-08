@@ -8,7 +8,7 @@ const town = (over: Partial<TownView> = {}): TownView => ({
   now: 0, income: 100, owned: {}, river: null, flooded: 0, overheated: 0, smoking: null, levee: null, evacuated: [], port: null,
   convoy: { calls: 0, earned: 0 }, routes: 0, door: null, studio: null, sale: null,
   diligence: { mood: 0, spills: 0, watered: null, mop: () => {} },
-  drinkers: null, offices: null, site: null, junction: null, poach: null, viral: null, unhappy: null, datacentre: null, ...over,
+  drinkers: null, offices: null, site: null, junction: null, joint: null, manhole: null, district: null, hq: null, poach: null, viral: null, unhappy: null, datacentre: null, ...over,
 });
 const defs = Object.values(EVENT_DEFS);
 

@@ -470,7 +470,8 @@ export function simulateMapRun(
    */
   let seed = 11;
   const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
-  const kinds = Object.keys(EVENTS);
+  // Not a follow-up: those come only after another. @see EventDef.followUp
+  const kinds = Object.keys(EVENTS).filter((k) => !EVENT_DEFS[k as EventKind].followUp);
   let nextEvent: number | null = null;
   const eventDraw = () => {
     if (options.events === false) return;

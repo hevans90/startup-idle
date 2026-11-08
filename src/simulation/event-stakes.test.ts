@@ -71,7 +71,7 @@ describe("dominant choices", () => {
 });
 
 /** The rare, big ones, whose stakes are higher. @see plans/events-overhaul.md "Stakes you feel" */
-const RARE = new Set(["river-flood", "heatwave"]);
+const RARE = new Set(["river-flood", "heatwave", "earthquake"]);
 /** Each event's stakes, as a share of the income till the next: ordinary, and rare. */
 const ORDINARY_BAR: readonly [number, number] = [0.05, 0.15];
 const RARE_BAR: readonly [number, number] = [0.15, 0.4];

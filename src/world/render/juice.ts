@@ -114,6 +114,8 @@ export type Juice = {
   gone: (s: Structure, ctx: RenderCtx) => void;
   /** A burst of confetti off a building's roof. */
   confetti: (s: Structure, ctx: RenderCtx) => void;
+  /** Dust shaken off a building: an earthquake's. */
+  dust: (s: Structure, ctx: RenderCtx) => void;
   /**
    * The town has opened a shop here: the building pops — if it is drawn yet,
    * a house with a shop new in it — sparkles in `colour`, and `name` floats
@@ -344,6 +346,10 @@ export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Textu
     },
     confetti(s, ctx) {
       confetti(ctx, s, 30 + 12 * Math.max(s.w, s.h));
+    },
+    dust(s, ctx) {
+      puff(ctx, s, 12 + 3 * s.w * s.h, DUST, 20);
+      sfx("crumble");
     },
     opened(s, handle, ctx, name, colour) {
       const { wx, wy, band } = footOf(ctx.grid, s, ctx.scale);

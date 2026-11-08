@@ -7,9 +7,9 @@ import { resetCooling, stepCooling, tankFor } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField } from "./field";
-import { findMains, layMain, mainReportAt, pipesToMains, planMain, previewMain, runMains, solveMain } from "./mains";
+import { breakableCell, findMains, layMain, mainReportAt, pipesToMains, planMain, previewMain, runMains, setBurst, solveMain } from "./mains";
 
-afterEach(resetCooling);
+afterEach(() => { resetCooling(); setBurst(null); });
 
 /** A lake down the west edge, its surface `rise` half steps over the ground; a Data Centre at x 18–20, y 2–4, its inlet at (19, 5). */
 function lakeside(rise: number) {
@@ -130,6 +130,37 @@ describe("a water main", () => {
     expect(mainReportAt(g, 10, 5)!.state).toBe("dry");
     expect([...field.columns.depth].reduce((a, b) => a + b, 0)).toBe(0);
     expect(solveMain(g, field, findMains(g).list[0]).capacity).toBe(0);
+  });
+});
+
+describe("a burst main", () => {
+  test("breaks at a joint in the middle of the longest main that feeds anything", () => {
+    const { g } = lakeside(5);
+    expect(breakableCell(g, false)).toBeNull();
+    lay(g, row(9, 8, 12));
+    expect(breakableCell(g, false)).toBeNull();
+    lay(g, row(5, 4, 19));
+    const at = breakableCell(g, false)!;
+    expect(findMains(g).of[at]).toBe(findMains(g).of[idx(g, 10, 5)]);
+    expect(g.mainEnd[at]).toBe(0);
+  });
+
+  test("still draws what it would carry, but pours it at the joint and nothing into the tank", () => {
+    const { g, dc } = lakeside(5);
+    lay(g, row(5, 4, 19));
+    const field = createWaterField(g);
+    stepCooling(g, 10, false, 0.01);
+    Object.assign(tankFor(dc.id)!, { level: 0 });
+    const total = () => [...field.columns.depth].reduce((a, b) => a + b, 0);
+    const before = total();
+    setBurst(breakableCell(g, false));
+    runMains(field, g, 1);
+    expect(mainReportAt(g, 10, 5)!.state).toBe("burst");
+    expect(tankFor(dc.id)!.level).toBe(0);
+    expect(total()).toBeCloseTo(before, 3);
+    setBurst(null);
+    runMains(field, g, 1);
+    expect(mainReportAt(g, 10, 5)!.state).toBe("flowing");
   });
 });
 

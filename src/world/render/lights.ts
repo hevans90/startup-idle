@@ -83,6 +83,11 @@ export function conditionAlpha(kind: Condition["kind"], t: number, phase = 0): n
 export type Lights = {
   /** Put the lights where the map's buildings and streets are now. */
   sync: (g: Grid, scale: number, crunch?: boolean) => void;
+  /**
+   * A BLACKOUT: these buildings' lights out — or, with `flicker`, flickering
+   * as the grid fails. None to put them all back. @see BLACKOUT
+   */
+  dark: (ids: ReadonlySet<number>, flicker: boolean) => void;
   /** Put the conditions' glows where they are now; shown day and night. @see conditionsOf */
   conditions: (g: Grid, scale: number, list: readonly Condition[]) => void;
   /** This frame: how dark it is (0–1) and the map's transform to the screen. */
@@ -108,7 +113,7 @@ function glowTexture(): Texture {
 }
 
 /** Where the lights go: a glow per lit building, a pool per lamp. Pure, for tests. */
-export function lightsOf(g: Grid, crunch = false): { kind: "window" | "lamp" | "sign"; x: number; y: number; w: number; h: number; rise: number; violet?: boolean; crunch?: boolean; tint?: number; neon?: boolean }[] {
+export function lightsOf(g: Grid, crunch = false): { kind: "window" | "lamp" | "sign"; x: number; y: number; w: number; h: number; rise: number; violet?: boolean; crunch?: boolean; tint?: number; neon?: boolean; id?: number }[] {
   // THE NIGHT SHIFT: workplaces lit violet, the AI at the empty desks. @see game/machine "nightshift"
   const night = notable("nightshift");
   const out: ReturnType<typeof lightsOf> = [];
@@ -118,7 +123,7 @@ export function lightsOf(g: Grid, crunch = false): { kind: "window" | "lamp" | "
     // A house with nobody in it is dark.
     if (housed && !residentsIn(s)) continue;
     if (s.def === "derelict") continue;
-    out.push({ kind: "window", x: s.x, y: s.y, w: s.w, h: s.h, rise: riseOf(s.def), ...(night && s.def in DESKS ? { violet: true } : crunch && s.def in DESKS ? { crunch: true } : {}) });
+    out.push({ kind: "window", id: s.id, x: s.x, y: s.y, w: s.w, h: s.h, rise: riseOf(s.def), ...(night && s.def in DESKS ? { violet: true } : crunch && s.def in DESKS ? { crunch: true } : {}) });
   }
   // THE SHOPS' SIGNS, each in its own colour — a neon one brighter — at its front.
   for (const f of shopfrontsOf(g)) {
@@ -129,7 +134,7 @@ export function lightsOf(g: Grid, crunch = false): { kind: "window" | "lamp" | "
     const sv = !s.build && serviceOf(s.def);
     if (!sv) continue;
     const L = SHOP_LOOK[sv];
-    out.push({ kind: "sign", x: s.x, y: s.y, w: s.w, h: s.h, rise: SIGN_RISE, tint: L.glow, ...(L.neon ? { neon: true } : {}) });
+    out.push({ kind: "sign", id: s.id, x: s.x, y: s.y, w: s.w, h: s.h, rise: SIGN_RISE, tint: L.glow, ...(L.neon ? { neon: true } : {}) });
   }
   const paved = (x: number, y: number) => inBounds(g, x, y) && isPaved(g, x, y);
   for (let y = 0; y < g.h; y++) {
@@ -149,6 +154,10 @@ export function createLights(stage: Container, zIndex: number): Lights {
   root.visible = false;
   stage.addChild(root);
   const sprites: Sprite[] = [];
+  /** Each light's building, if it is one's, and its own alpha, for a blackout to take and give back. */
+  const owner: (number | undefined)[] = [];
+  const base: number[] = [];
+  let darkIds: ReadonlySet<number> = new Set(), flickering = false, wasDark = false;
   // THE CONDITIONS, their own root: the lights' is hidden by day. Over the
   // night sheet as the lights are, so a glow at night is not darkened.
   const cond = new Container();
@@ -197,8 +206,10 @@ export function createLights(stage: Container, zIndex: number): Lights {
         root.addChild(s);
         sprites.push(s);
       }
+      owner.length = base.length = 0;
       want.forEach((l, k) => {
         const s = sprites[k];
+        owner[k] = l.id;
         const z = inBounds(g, l.x, l.y) ? g.height[idx(g, l.x, l.y)] : 0;
         const { wx, wy } = cellToWorld(l.x + (l.w - 1) / 2, l.y + (l.h - 1) / 2, z, scale);
         s.x = wx;
@@ -219,7 +230,13 @@ export function createLights(stage: Container, zIndex: number): Lights {
           s.scale.set(1.3 * scale, 0.65 * scale);
           s.alpha = 0.4;
         }
+        base[k] = s.alpha;
       });
+      wasDark = true;
+    },
+    dark(ids, flicker) {
+      darkIds = ids;
+      flickering = flicker;
     },
     tick(night, map, t) {
       if (cond.visible) {
@@ -230,6 +247,15 @@ export function createLights(stage: Container, zIndex: number): Lights {
       if (!root.visible) return;
       root.alpha = Math.min(1, night * 1.2);
       root.setFromMatrix(map);
+      // THE DISTRICT DARK, or failing: its lights out, or stuttering.
+      if (darkIds.size || wasDark) {
+        sprites.forEach((s, k) => {
+          const id = owner[k];
+          const out = id !== undefined && darkIds.has(id);
+          s.alpha = !out ? base[k] : flickering ? (Math.sin(t * 23 + k) > 0.3 && Math.random() > 0.4 ? base[k] : 0.05) : 0;
+        });
+        wasDark = darkIds.size > 0;
+      }
     },
     destroy() {
       root.parent?.removeChild(root);

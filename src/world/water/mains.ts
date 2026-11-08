@@ -132,7 +132,36 @@ const drinker = (s: { def: string; build?: unknown }) => !s.build && isDrinker(s
  *  - `unpaid`: its pump wants paying and the company cannot;
  *  - `no-source` / `no-outlet`: it has no intake, or feeds nothing.
  */
-export type MainState = "flowing" | "full" | "dry" | "no-head" | "unpaid" | "no-source" | "no-outlet";
+export type MainState = "flowing" | "full" | "dry" | "no-head" | "unpaid" | "no-source" | "no-outlet" | "burst" | "backed-up";
+
+/**
+ * A MAIN BURST AT A JOINT, and a SEWER BACKED UP AT A MANHOLE: by cell, the
+ * events' to set. The burst network still draws what it would carry, but
+ * pours it out at the joint instead of into its buildings; the backed-up
+ * sewer still takes from its tanks, but brings it up at the manhole. Live
+ * state; not saved. @see BURST_MAIN, SEWER_BACKUP
+ */
+let burstAt: number | null = null, backedUpAt: number | null = null;
+export const setBurst = (cell: number | null) => { burstAt = cell; };
+export const setBackedUp = (cell: number | null) => { backedUpAt = cell; };
+export const backedUpCell = () => backedUpAt;
+
+/**
+ * A JOINT OR A MANHOLE to break: the middle cell of the longest water main
+ * that feeds anything (`sewer` false), or of the longest sewer that takes
+ * from anything — a cell joined on two sides, not an end. Null with none.
+ */
+export function breakableCell(g: Grid, sewer: boolean): number | null {
+  let best: MainNet | null = null;
+  for (const net of findMains(g).list) {
+    if (net.sewer !== sewer || net.cells.length < 3) continue;
+    if (sewer ? !sewerSources(g, net).length : !net.outlets.length) continue;
+    if (!best || net.cells.length > best.cells.length) best = net;
+  }
+  if (!best) return null;
+  const mid = best.cells.filter((i) => !g.mainEnd[i]);
+  return mid.length ? mid[Math.floor(mid.length / 2)] : null;
+}
 export type MainReport = {
   state: MainState;
   /** Half steps of head to its best-placed outlet; units a second it could carry, and carried this frame. */
@@ -244,11 +273,29 @@ export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPump
     // A SEWER carries what the tanks last gave it, until they say again this frame. @see stepSlop
     if (net.sewer) {
       const r = solveSewer(g, net), was = reportGrid === g ? reports.get(net.cells[0]) : undefined;
-      if (was?.sewer && r.state === "flowing") r.flow = was.flow;
+      // BACKED UP: still taking from its tanks, but up at the manhole. @see setBackedUp, stepSlop
+      if (backedUpAt !== null && of[backedUpAt] === net.id && r.state === "flowing") r.state = "backed-up";
+      if (was?.sewer && (r.state === "flowing" || r.state === "backed-up")) r.flow = was.flow;
       out.set(net.cells[0], r);
       continue;
     }
     let r = solveMain(g, field, net);
+    // BURST: what it would carry drawn as ever, and poured out at the joint. @see setBurst
+    if (burstAt !== null && of[burstAt] === net.id) {
+      const pour = r.capacity * dt;
+      let left = pour;
+      const from = r.intakes.filter((k) => k.surface !== null).map((k) => intakeWater(g, field, k.cell)!).sort((a, b) => b.surface - a.surface);
+      for (const s of from) {
+        if (left <= 0) break;
+        const take = Math.min(left, field.columns.depth[s.column]);
+        if (take > 0) addWater(field.columns, s.column % field.columns.nx, (s.column / field.columns.nx) | 0, -take);
+        left -= take;
+      }
+      const mid = Math.floor(COLUMNS_PER_TILE / 2), bx = burstAt % g.w, by = (burstAt / g.w) | 0;
+      if (pour - left > 0) addWater(field.columns, columnOf(bx) + mid, columnOf(by) + mid, pour - left);
+      out.set(net.cells[0], { ...r, state: "burst", flow: 0, outlets: r.outlets.map((o) => ({ ...o, capacity: 0 })) });
+      continue;
+    }
     const wants = r.outlets.some((o) => o.building >= 0 && tankRoom(o.building) > 0);
     if (r.outlets.some((o) => o.pumped) && wants && !pumps.pay(dt)) {
       r = { ...solveMain(g, field, net, false), state: "unpaid" };

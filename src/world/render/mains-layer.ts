@@ -110,7 +110,7 @@ const PIPE_Z = 0.75;
 /** The Water overlay: the dimming, and each state's colour. */
 const DIM = 0x05080d;
 const STATE_COLOUR: Record<MainState, number> = {
-  flowing: 0x3fe08a, full: 0x5fb7ff, "no-head": WARN, unpaid: WARN, dry: 0xe5484d, "no-source": 0xe5484d, "no-outlet": 0xe5484d,
+  flowing: 0x3fe08a, full: 0x5fb7ff, "no-head": WARN, unpaid: WARN, dry: 0xe5484d, "no-source": 0xe5484d, "no-outlet": 0xe5484d, burst: 0xe5484d, "backed-up": 0xe5484d,
 };
 
 export type MainsLayer = {

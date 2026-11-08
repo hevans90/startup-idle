@@ -77,6 +77,8 @@ const SAYS: Record<MainState, { text: string; tone: "good" | "warn" | "bad" }> =
   full: { text: "Every tank it feeds is full: it carries more as they drink", tone: "good" },
   dry: { text: "Dry: the water at its intake has gone", tone: "bad" },
   "no-head": { text: "The water is too low to reach the building: it needs a pump", tone: "warn" },
+  burst: { text: "Burst at a joint: pouring into the street, nothing reaching its buildings", tone: "bad" },
+  "backed-up": { text: "Backed up: its slop is coming up at a manhole", tone: "bad" },
   unpaid: { text: "Its pump has stopped: not enough money to run it", tone: "bad" },
   "no-source": { text: "Draws from nothing: one end must be at water", tone: "bad" },
   "no-outlet": { text: "Feeds nothing: one end must be at an inlet of a building that drinks", tone: "bad" },

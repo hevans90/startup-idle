@@ -77,7 +77,7 @@ import {
   syncStructures, tickStructures, type StructureLayer,
 } from "./structures/layer";
 import type { RenderCtx } from "./structures/render";
-import { structureDef } from "./structures/def";
+import { AI_BUILDINGS, structureDef } from "./structures/def";
 import { planUpgrade, strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
@@ -115,7 +115,7 @@ const CPU_SOLVE_MS = 8;
  * by heat, greyed out by the inspector — so the causes look apart even
  * without their glows. @see damage, conditionsOf
  */
-const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a080, closed: 0xa4a8ae, fire: 0x6a5c55 };
+const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a080, closed: 0xa4a8ae, fire: 0x6a5c55, power: 0x707888, quake: 0xb8a690 };
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
@@ -247,7 +247,9 @@ import { serviceOf } from "./agents/services";
 /** The services a Holo-Concierge stands at: those in the AI's district. @see game/machine "concierge" */
 const conciergesOf = (g: import("./grid").Grid) =>
   [...g.structures.values()].filter((s) => !s.build && serviceOf(s.def) && inAiDistrictNow(g, s.x, s.y)).map((s) => ({ x: s.x, y: s.y + s.h }));
-import { planMain, previewMain, previewSewer, routeMain, runMains } from "./water/mains";
+import { breakableCell, planMain, previewMain, previewSewer, routeMain, runMains, setBackedUp, setBurst } from "./water/mains";
+import { BLACKOUT_RADIUS } from "./events/defs/blackout";
+import { QUAKE_DAMAGED, QUAKE_MS } from "./events/defs/earthquake";
 import { createMainsLayer, type MainsLayer } from "./render/mains-layer";
 
 /** The main being dragged with the Pipe tool, in the game: its route, and whether it will carry water. @see MainCard */
@@ -466,6 +468,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const overheated = useRef(new Set<number>());
   /** The building a fire is at while one is under way, and what it has spread to (null: not yet). @see FIRE */
   const fireAt = useRef<{ id: number; spread: number[] | null } | null>(null);
+  /** A blackout's district, as it was when it struck; and the earthquake already felt, by event id. @see BLACKOUT, EARTHQUAKE */
+  const blackoutIds = useRef<{ event: number; ids: number[] } | null>(null);
+  const quakeFelt = useRef<number | null>(null);
+  /** The buildings an earthquake damaged, for their dust; and the shake's offset on the camera. */
+  const quakeDust = useRef<number[]>([]);
+  const shake = useRef({ x: 0, y: 0 });
   /**
    * Bumped when the async scene build finishes. The cursor cannot exist before
    * the band layer does, so the effects that drive it need a reason to re-run
@@ -3121,6 +3129,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 close: (id: number, seconds: number) => closeFor(st.grid, id, seconds),
               } : null,
               junction: junctionAt.current.at,
+              // A JOINT AND A MANHOLE to break. @see BURST_MAIN, SEWER_BACKUP
+              joint: (() => { const c = breakableCell(st.grid, false); return c === null ? null : { x: c % st.grid.w, y: (c / st.grid.w) | 0, cell: c }; })(),
+              manhole: (() => { const c = breakableCell(st.grid, true); return c === null ? null : { x: c % st.grid.w, y: (c / st.grid.w) | 0, cell: c }; })(),
+              // THE DISTRICT round the busiest junction, for a blackout. @see BLACKOUT
+              district: (() => {
+                const j = junctionAt.current.at;
+                if (!j) return null;
+                const ids = [...st.grid.structures.values()].filter((s) => !s.build && Math.abs(s.x - j.x) + Math.abs(s.y - j.y) <= BLACKOUT_RADIUS).map((s) => s.id);
+                return ids.length ? { x: j.x, y: j.y, ids } : null;
+              })(),
+              hq: (() => { const h = built(["hq", "boardroom", "ipo"]); return h ? { x: h.x, y: h.y } : null; })(),
               poach: tenx >= POACH_LEAST && tenxWork ? {
                 x: tenxWork.x, y: tenxWork.y, n: poachN,
                 score: useGeneratorStore.getState().satisfactionScores["10x_dev"] ?? 0,
@@ -3257,7 +3276,36 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const heatwave = st.events.find((e) => e.kind === "heatwave" && e.phase === "active");
           const drought = st.events.find((e) => e.kind === "drought" && e.phase === "active");
           setHeat(heatwave ? HEAT_THIRST : 1, heatwave?.chosen === "pumps" || (!!drought && drought.chosen !== "dig"));
-          setThrottled(heatwave?.chosen === "throttle");
+          // A BLACKOUT whose load is shed throttles the agents just the same. @see BLACKOUT
+          const blackout = st.events.find((e) => e.kind === "blackout" && e.phase === "active");
+          setThrottled(heatwave?.chosen === "throttle" || blackout?.chosen === "shed");
+          // SAT OUT: its district shut, as it was when it struck, till the power is back. @see closeFor
+          if (blackout?.chosen === "wait" && blackout.endsAt !== undefined) {
+            if (blackoutIds.current?.event !== blackout.id) {
+              const j = blackout.where;
+              blackoutIds.current = { event: blackout.id, ids: [...st.grid.structures.values()].filter((s) => !s.build && Math.abs(s.x - j.x) + Math.abs(s.y - j.y) <= BLACKOUT_RADIUS).map((s) => s.id) };
+            }
+            const left = Math.max(0, (blackout.endsAt - Date.now()) / 1000);
+            for (const id of blackoutIds.current.ids) if (st.grid.structures.has(id)) closeFor(st.grid, id, left, "power");
+          } else if (!blackout) blackoutIds.current = null;
+          // A BURST MAIN, A SEWER BACKED UP: the joint and the manhole broken while it is on. @see setBurst
+          const burstEv = st.events.find((e) => e.kind === "burst-main" && e.phase === "active");
+          setBurst(burstEv && inBounds(st.grid, burstEv.where.x, burstEv.where.y) ? idx(st.grid, burstEv.where.x, burstEv.where.y) : null);
+          const backup = st.events.find((e) => e.kind === "sewer-backup" && e.phase === "active");
+          setBackedUp(backup && inBounds(st.grid, backup.where.x, backup.where.y) ? idx(st.grid, backup.where.x, backup.where.y) : null);
+          // AN EARTHQUAKE, felt once as it strikes: the nearest the HQ damaged — braced, none; the racks
+          // strapped down, none of the AI's. @see QUAKE_DAMAGED
+          const quake = st.events.find((e) => e.kind === "earthquake" && e.phase === "active");
+          if (quake && quakeFelt.current !== quake.id) {
+            quakeFelt.current = quake.id;
+            const at = quake.where;
+            const near = [...st.grid.structures.values()]
+              .filter((s) => !s.build && !["hq", "boardroom", "ipo"].includes(s.def) && (quake.chosen !== "strap" || !AI_BUILDINGS.some((d) => d.id === s.def)))
+              .sort((a, b) => Math.abs(a.x - at.x) + Math.abs(a.y - at.y) - (Math.abs(b.x - at.x) + Math.abs(b.y - at.y)) || a.id - b.id)
+              .slice(0, quake.chosen === "brace" ? 0 : QUAKE_DAMAGED).map((s) => s.id);
+            if (near.length) damage(st.grid, near, "quake");
+            quakeDust.current = near;
+          }
           // RIDDEN OUT: whatever runs short overheats. @see OVERHEAT_SHARE
           if (heatwave?.chosen === "ride") {
             const hot: number[] = [];
@@ -3487,6 +3535,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (!f || !at) return { burning: [], smouldering: [] };
           return f.phase === "active" ? { burning: [at.id, ...(at.spread ?? [])], smouldering: [] } : { burning: [], smouldering: [at.id] };
         })(),
+        spray: (() => { const e = active("burst-main"); return e ? [e.where] : []; })(),
+        bubble: (() => { const e = active("sewer-backup"); return e ? [e.where] : []; })(),
         // ITS ROOF AS DRAWN: the top of its sprites over the middle of its
         // footprint's ground, in the scene's space — less half the roof's own
         // diamond, whose top is its back corner and not its middle. @see RoofOf
@@ -3504,7 +3554,31 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       });
     }
     {
-      const vpNow = useWorldStore.getState().viewport;
+      const st = useWorldStore.getState(), vpNow = st.viewport;
+      // AN EARTHQUAKE: dust off what it damaged, once; and the camera shaken
+      // while it lasts, the offset taken off again every frame. @see EARTHQUAKE
+      if (quakeDust.current.length && juiceRef.current && bl && tex) {
+        for (const id of quakeDust.current) { const s = st.grid.structures.get(id); if (s) juiceRef.current.dust(s, { bands: bl, textures: tex, grid: st.grid, scale }); }
+        quakeDust.current = [];
+      }
+      if (vpNow) {
+        vpNow.x -= shake.current.x; vpNow.y -= shake.current.y;
+        const q = st.playing ? st.events.find((e) => e.kind === "earthquake" && e.phase === "active") : undefined;
+        const left = q?.endsAt !== undefined ? Math.max(0, (q.endsAt - Date.now()) / QUAKE_MS) : 0;
+        const amp = useGlobalSettingsStore.getState().motion === "calm" ? 0 : 9 * left;
+        shake.current = { x: (Math.random() * 2 - 1) * amp, y: (Math.random() * 2 - 1) * amp * 0.6 };
+        vpNow.x += shake.current.x; vpNow.y += shake.current.y;
+      }
+      // A BLACKOUT: the district's lights stutter as it comes, and go out when it strikes — unless it is held.
+      if (lightsRef.current) {
+        const b = st.playing ? st.events.find((e) => e.kind === "blackout" && e.phase !== "over") : undefined;
+        const held = b?.chosen === "generators" || b?.chosen === "shed";
+        const ids = b && !held ? (blackoutIds.current?.ids ?? (() => {
+          const j = b.where;
+          return [...st.grid.structures.values()].filter((s) => Math.abs(s.x - j.x) + Math.abs(s.y - j.y) <= BLACKOUT_RADIUS).map((s) => s.id);
+        })()) : [];
+        lightsRef.current.dark(new Set(ids), b?.phase === "warning");
+      }
       juiceRef.current?.tick(raw * 1000, bl && vpNow ? { zoom: vpNow.scale.x, shown: (b) => bandShown(bl, b) } : undefined);
     }
     // THE TOWN'S AMBIENCE, a few times a second: its hum by its size, birds by day, crickets by night. @see ambience

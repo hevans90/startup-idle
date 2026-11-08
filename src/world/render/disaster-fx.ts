@@ -8,6 +8,8 @@
  *  - A FIRE: smoke off the building while it smoulders; once it has caught,
  *    flames on its roof, a column of smoke above, embers, and a flickering
  *    orange glow; burnt out, a charred tint until rebuilt (the scene's);
+ *  - A BURST MAIN: spray off the joint (the solver pours the water); A SEWER
+ *    BACKED UP: brown bubbling off the manhole (the slop is the slop's);
  *  - CLOSED BY THE INSPECTOR: a cold grey over the building;
  *  - ROAD WORKS: a striped barrier and two cones on the closed junction, an
  *    amber lamp blinking on it.
@@ -51,7 +53,17 @@ export const EMBERS: Recipe = {
   texture: "dab", rate: 9, life: 1500, rise: 70, drift: 30, wobble: 10, spread: 14,
   from: 0xffd060, to: 0xff4010, alpha: 1, size: [0.22, 0.08], blend: "add",
 };
-const RECIPES = { steam: STEAM, haze: HAZE, flames: FLAMES, smoke: SMOKE, smoulder: SMOULDER, embers: EMBERS } as const;
+/** A burst main's spray: white water thrown up off the joint. */
+export const SPRAY: Recipe = {
+  texture: "dab", rate: 26, life: 650, rise: 90, drift: 26, wobble: 2, spread: 6,
+  from: 0xf2fbff, to: 0x7fc4ec, alpha: 0.85, size: [0.3, 0.7], blend: "normal",
+};
+/** A backed-up sewer's bubbling: brown gouts off the manhole. */
+export const BUBBLE: Recipe = {
+  texture: "dab", rate: 7, life: 900, rise: 14, drift: 6, wobble: 3, spread: 8,
+  from: 0x7a5a32, to: 0x4a3820, alpha: 0.9, size: [0.25, 0.6], blend: "normal",
+};
+const RECIPES = { steam: STEAM, haze: HAZE, flames: FLAMES, smoke: SMOKE, smoulder: SMOULDER, embers: EMBERS, spray: SPRAY, bubble: BUBBLE } as const;
 
 /**
  * How high a building's roof is over its ground, screen px at scale 1: as
@@ -132,6 +144,9 @@ export type DisasterFx = {
     roof?: RoofOf;
     /** What is on fire now, and what is only smoking yet. @see FIRE */
     fire?: { burning: readonly number[]; smouldering: readonly number[] };
+    /** A burst main's joint, spraying; a backed-up sewer's manhole, bubbling. @see BURST_MAIN, SEWER_BACKUP */
+    spray?: readonly { x: number; y: number }[];
+    bubble?: readonly { x: number; y: number }[];
   }) => void;
   clear: () => void;
 };
@@ -143,10 +158,12 @@ export function createDisasterFx(): DisasterFx {
   let glowKey = "";
 
   return {
-    sync({ ctx, juice, lights, damaged, heatwave, drinkers, closed, roof, fire }) {
+    sync({ ctx, juice, lights, damaged, heatwave, drinkers, closed, roof, fire, spray = [], bubble = [] }) {
       const g = ctx.grid;
       // THE EMITTERS: started, moved or stopped to match what is wanted.
       const want = emittersWanted(g, damaged, heatwave, drinkers, roof, fire);
+      for (const t of spray) want.set(`spray:${t.x},${t.y}`, { at: { x: t.x, y: t.y, w: 1, h: 1, rise: 0 }, recipe: "spray" });
+      for (const t of bubble) want.set(`bubble:${t.x},${t.y}`, { at: { x: t.x, y: t.y, w: 1, h: 1, rise: 0 }, recipe: "bubble" });
       for (const [key, r] of running) {
         const w = want.get(key);
         if (w && JSON.stringify(w.at) === r.at) continue;
