@@ -36,7 +36,7 @@ import { create } from "zustand";
 
 import { waterMetaSaw } from "../world/debug/water-meta";
 import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
-import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_FIT, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { LEVEE, structureDef } from "../world/structures/def";
@@ -76,6 +76,8 @@ import {
 } from "../world/debug/fixtures";
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { boreCost, buildCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { planNode } from "../world/sewers/lay";
+import { sewerStrokePlan } from "../world/sewers/tool";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
@@ -1138,7 +1140,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   beginStroke: (c) =>
-    set((st) => ({ stroke: { tool: st.tool, brush: st.brush, anchor: c, head: c, ...(st.tool === "pipe" && st.pipeSewer ? { sewer: true } : {}) } })),
+    set((st) => ({ stroke: { tool: st.tool, brush: st.brush, anchor: c, head: c } })),
 
   updateStroke: (c) =>
     set((st) => (st.stroke ? { stroke: { ...st.stroke, head: c } } : {})),
@@ -1215,6 +1217,31 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       for (const c of cells) {
         b.set("source", c.x, c.y, s0.tool === "spring" ? SOURCE_RATE : -SOURCE_RATE);
         if (s0.tool === "spring") b.set("fluid", c.x, c.y, st.fluidMaterial);
+      }
+    } else if (s0.tool === "sewer") {
+      // THE SEWER TOOL: a trunk laid underground along the drag, its fittings
+      // and manholes put by the plan, paid for by its depth, spans and lift
+      // stations — all or none; or, a click on one laid already, a manhole
+      // there, free. In the editor, free. @see planSewer, planNode
+      const g = st.grid;
+      const plan = sewerStrokePlan(g, s0, mainWet(g), aiActing());
+      if (!plan) {
+        const n = planNode(g, s0.head);
+        if ("refused" in n) { set({ stroke: null, notice: { text: n.refused, at: Date.now() } }); return; }
+        b.set("sewerFit", s0.head.x, s0.head.y, SEWER_FIT.node);
+      } else {
+        const refused = "refused" in plan ? plan.refused : plan.problem?.reason;
+        if (refused || "refused" in plan) { set({ stroke: null, notice: { text: refused ?? "", at: Date.now() } }); return; }
+        if (st.playing && plan.price > 0 && !spendForBuild(new Decimal(plan.price))) {
+          set({ stroke: null, notice: { text: `Not enough money for ${plan.fresh} tiles of sewer: ${formatCurrency(plan.price)}`, at: Date.now() } });
+          return;
+        }
+        // What the plan staged, on its tiles: their joins, fittings and manholes.
+        for (const c of plan.cells) {
+          const i = idx(g, c.x, c.y);
+          if (plan.staged.sewer[i] !== g.sewer[i]) b.set("sewer", c.x, c.y, plan.staged.sewer[i]);
+          if (plan.staged.sewerFit[i] !== g.sewerFit[i]) b.set("sewerFit", c.x, c.y, plan.staged.sewerFit[i]);
+        }
       }
     } else if (isPipeTool(s0.tool) && st.playing) {
       // THE PIPE TOOL, in the game: a WATER MAIN, routed from where the drag

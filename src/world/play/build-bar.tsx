@@ -48,9 +48,10 @@ import { LAB_SHARE } from "../projects/labs";
 import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
 import { PUMP_HEAD } from "../../game/cooling";
 import { MainCard } from "./main-card";
+import { SewerCard } from "./sewer-card";
 import { InfoPop } from "../../ui/InfoPop";
 import { INFINITY } from "../../utils/time-utils";
-import { FOCUS, Kbd, Segmented, Tile } from "../../ui/console";
+import { FOCUS, Kbd, Tile } from "../../ui/console";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -112,6 +113,7 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
   { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main: it finds its own way" },
+  { id: "sewer", label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground; click one to add a manhole" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to lift it" },
 ];
@@ -261,7 +263,7 @@ export function BuildBar({ className }: { className?: string }) {
   const choose = (id: ToolId) => {
     setTool(id);
     // Road goes down in a line, as a road does; everything else is a click.
-    setBrush(id === "paintRoad" || id === "pipe" || id === "demolish" ? "line" : "point");
+    setBrush(id === "paintRoad" || id === "pipe" || id === "sewer" || id === "demolish" ? "line" : "point");
     setBrushRadius(0);
     setPicking(id === "placeStructure" ? !(tool === id && picking) : false);
     // Something on offer in hand, not whatever was last: a lot for people the
@@ -272,19 +274,12 @@ export function BuildBar({ className }: { className?: string }) {
     }
   };
   const chosen = sale.flatMap((s) => s.items).find((d) => d.def.id === structureDefId);
-  // PIPE: water mains once there is a Data Centre to cool, sewers once the
-  // vibe coders make slop — the tool with either. @see game/cooling, game/slop
+  // PIPE once there is a Data Centre to cool; SEWER once the vibe coders
+  // make slop. @see game/cooling, game/slop
   const mainsOpen = agentsOpen();
   const sewersOpen = (generators.find((g) => g.id === "vibe_coder")?.amount ?? 0) >= SLOP_FROM;
-  const pipesOpen = mainsOpen || sewersOpen;
-  const pipeSewer = useWorldStore((s) => s.pipeSewer);
-  const setPipeSewer = useWorldStore((s) => s.setPipeSewer);
-  // ONE KIND OPEN, the tool lays that kind. @see pipeSewer
-  useEffect(() => {
-    if (mainsOpen !== sewersOpen && pipeSewer !== sewersOpen) setPipeSewer(sewersOpen);
-  }, [mainsOpen, sewersOpen, pipeSewer, setPipeSewer]);
   // THE TOOLS ON OFFER, and their keys: 1 to 5, as shown on each. Not while typing in a field, nor with a modifier.
-  const shown = useMemo(() => TOOLS.filter((t) => t.id !== "pipe" || pipesOpen), [pipesOpen]);
+  const shown = useMemo(() => TOOLS.filter((t) => (t.id !== "pipe" || mainsOpen) && (t.id !== "sewer" || sewersOpen)), [mainsOpen, sewersOpen]);
   const keyed = useRef(choose);
   keyed.current = choose;
   useEffect(() => {
@@ -313,7 +308,7 @@ export function BuildBar({ className }: { className?: string }) {
         {ICONS.earnings}
         <span className="@max-6xl:hidden">Earnings</span>
       </button>
-      {pipesOpen && (
+      {mainsOpen && (
         <button type="button" title="Show every water main by what it is doing, each tank, and the water: on too while the Pipe tool is in hand"
           onClick={() => setWaterOverlay(!waterOverlay)} className={twMerge(TOOL, (waterOverlay || tool === "pipe") && TOOL_ON)}>
           {ICONS.water}
@@ -346,14 +341,7 @@ export function BuildBar({ className }: { className?: string }) {
     <div className={twMerge("flex flex-col items-center gap-1.5 text-fg", className)}>
       <AiModePanel />
       <MainCard />
-      {/* PIPE: a water main, or a sewer, when both are open. @see pipeSewer */}
-      {tool === "pipe" && mainsOpen && sewersOpen && (
-        <div className={twMerge(PANEL, "flex items-center gap-2 px-2 py-1 text-xs")}>
-          <span className="text-fg-muted">Pipe</span>
-          <Segmented label="What the Pipe tool lays" value={pipeSewer ? "sewer" : "water"} onChange={(v) => setPipeSewer(v === "sewer")}
-            options={[{ value: "water", label: "Water" }, { value: "sewer", label: "Sewer" }]} />
-        </div>
-      )}
+      <SewerCard />
       {picking && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>

@@ -28,6 +28,7 @@ export type ToolId =
   | "spring"
   | "sink"
   | "pipe"
+  | "sewer"
   | "boat"
   | "placeStructure"
   | "demolish"
@@ -242,6 +243,7 @@ export function strokeLabel(s: Stroke, n: number): string {
     s.tool === "spring" ? "spring" :
     s.tool === "sink" ? "sink" :
     s.tool === "pipe" ? "pipe" :
+    s.tool === "sewer" ? "sewer" :
     isHeightTool(s.tool) ? s.tool :
     "paint";
   const shape = s.brush === "point" ? "" : ` ${s.brush}`;

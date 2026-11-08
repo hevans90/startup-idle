@@ -19,6 +19,7 @@ import { Graphics, type Container } from "pixi.js";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { SEWER_BORE, SEWER_FIT, idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
+import type { SewerPlan } from "../sewers/lay";
 import { SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
 import type { BandLayer } from "./bands";
 
@@ -27,6 +28,8 @@ const SIDES = ["N", "E", "S", "W"] as const;
 const TUBE_R = 0.07, BORE_WIDE = 1.35;
 /** Its colours: draining, going nowhere; the dark under it and the light along it. */
 const UMBER = 0x7a5230, NOWHERE = 0x8b8f96, SHADE = 0x2a1c10, SHINE = 0xc79a66;
+/** A sewer being dragged: how see-through, and a tile it can't be laid on. */
+const GHOST_ALPHA = 0.6, BAD = 0xd8463a;
 /** The flow's chevrons. */
 const CHEVRON = 0xf0d2a8;
 /** Cast iron, its rim and its pattern; brick, concrete, a pier. */
@@ -36,7 +39,7 @@ const CONCRETE = 0xb8b4aa, CONCRETE_DARK = 0x8a867c, PIER = 0x6f6a62;
 
 export type SewerLayer = {
   /** Draw again if the sewers, the ground or the scale changed; show the underground or not. */
-  sync: (g: Grid, scale: number, underground: boolean) => void;
+  sync: (g: Grid, scale: number, underground: boolean, ghost?: SewerPlan | null) => void;
   destroy: () => void;
 };
 
@@ -77,7 +80,8 @@ function cover(gfx: Graphics, x: number, y: number, z: number, scale: number) {
 
 export function createSewerLayer(bands: BandLayer): SewerLayer {
   /** What each band has drawn in it, by tier, so it can be cleared. */
-  const drawn: Graphics[] = [];
+  const drawn: Graphics[] = [], ghosts: Graphics[] = [];
+  let ghosted: SewerPlan | null = null;
   let was = { rev: -1, scale: 0, grid: null as Grid | null };
   let shown = false;
   let last: { sewer: Uint8Array; fit: Uint8Array; height: Int8Array } | null = null;
@@ -86,33 +90,41 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
     for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return false;
     return true;
   };
-  const gfxIn = (tier: Container[], b: number) => {
+  const gfxIn = (into: Graphics[], alpha: number) => (tier: Container[], b: number) => {
     const g = new Graphics();
     g.eventMode = "none";
+    g.alpha = alpha;
     tier[b]?.addChild(g);
-    drawn.push(g);
+    into.push(g);
     return g;
   };
-  const clear = () => {
-    for (const g of drawn) if (!g.destroyed) { g.parent?.removeChild(g); g.destroy(); }
-    drawn.length = 0;
+  const clear = (list: Graphics[] = drawn) => {
+    for (const g of list) if (!g.destroyed) { g.parent?.removeChild(g); g.destroy(); }
+    list.length = 0;
   };
 
-  function draw(g: Grid, s: SewerSolve, scale: number) {
-    clear();
+  /**
+   * Draw a map's sewers: all of them, or — for a ghost — only `only`, see-
+   * through, a tile in `bad` red.
+   */
+  function draw(g: Grid, s: SewerSolve, scale: number, o: { into?: Graphics[]; only?: Set<number>; alpha?: number; bad?: number } = {}) {
+    const into = o.into ?? drawn;
+    clear(into);
+    const make = gfxIn(into, o.alpha ?? 1);
     // A band's Graphics, made when it first has something.
     const under = new Map<number, Graphics>(), flush = new Map<number, Graphics>(), up = new Map<number, Graphics>();
     const take = (m: Map<number, Graphics>, tier: Container[], b: number) => {
       let gfx = m.get(b);
-      if (!gfx) { gfx = gfxIn(tier, b); m.set(b, gfx); }
+      if (!gfx) { gfx = make(tier, b); m.set(b, gfx); }
       return gfx;
     };
     for (const net of s.nets) {
       for (const i of net.cells) {
+        if (o.only && !o.only.has(i)) continue;
         const x = i % g.w, y = (i / g.w) | 0, b = bandOf(x, y), ground = g.height[i];
         const r = TUBE_R * HW * scale * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1);
         const lvl = s.level[i], kind = s.kind[i];
-        const colour = s.drains[i] ? UMBER : NOWHERE;
+        const colour = i === o.bad ? BAD : s.drains[i] ? UMBER : NOWHERE;
         // The tube's middle: its floor plus its radius, in height units.
         const mid = (l: number) => l + (TUBE_R * HW) / HEIGHT_UNIT;
         // OUT TO EACH FACE IT JOINS, level with the neighbour's halfway.
@@ -161,7 +173,7 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           const open = (s: (typeof SIDES)[number]) => {
             const [dx, dy] = NEIGHBOUR[s];
             const j = x + dx >= 0 && y + dy >= 0 && x + dx < g.w && y + dy < g.h ? idx(g, x + dx, y + dy) : -1;
-            return { s, wet: j >= 0 && g.fluid[j] > 0, joined: (g.sewer[i] & DIR[s]) !== 0 };
+            return { s, wet: j >= 0 && (g.pool[j] > 0 || g.fluid[j] > 0), joined: (g.sewer[i] & DIR[s]) !== 0 };
           };
           const sides = SIDES.map(open);
           const side = (sides.find((o) => o.wet && !o.joined) ?? sides.find((o) => !o.joined) ?? sides[0]).s;
@@ -190,7 +202,7 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
   }
 
   return {
-    sync(g, scale, underground) {
+    sync(g, scale, underground, ghost = null) {
       // What it draws from: the sewers and the ground under them. A building
       // put up moves the map's revision on, and changes neither.
       if (was.grid !== g || was.rev !== g.rev || was.scale !== scale) {
@@ -201,11 +213,20 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           draw(g, solveSewers(g), scale);
         }
       }
+      // THE SEWER IN HAND: its tiles as they would be, see-through, drawn again as the drag moves.
+      if (ghost !== ghosted || (ghost && was.scale !== scale)) {
+        ghosted = ghost;
+        if (!ghost) clear(ghosts);
+        else {
+          const only = new Set(ghost.cells.map((c) => idx(g, c.x, c.y)));
+          draw(ghost.staged, ghost.solve, scale, { into: ghosts, only, alpha: GHOST_ALPHA, bad: ghost.problem?.cell });
+        }
+      }
       if (underground !== shown) {
         shown = underground;
         for (const t of bands.sewerOf) t.visible = underground;
       }
     },
-    destroy: clear,
+    destroy: () => { clear(drawn); clear(ghosts); },
   };
 }

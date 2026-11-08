@@ -16,7 +16,8 @@ import {
   useWorldStore,
 } from "./world.store";
 import { loadSaved, setSaveSlot } from "../world/io/world-save";
-import { MAIN_AI, MAIN_BORE, createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
+import { MAIN_AI, MAIN_BORE, SEWER_FIT, createGrid, fillTerrain, idx, setHeight, setInflow } from "../world/grid";
+import { hasSewer } from "../world/sewers/solve";
 import { findMains } from "../world/water/mains";
 import { asAi } from "../world/ai/district";
 import { boreCost } from "../game/build-cost";
@@ -861,3 +862,53 @@ describe("derelict buildings", () => {
   });
 });
 
+
+describe("sewers under play rules", () => {
+  afterEach(() => { s().setPlaying(false); useMoneyStore.setState({ money: new Decimal(0) }); });
+  /** Ground at 4, a pond along x = 0. */
+  const field = () => {
+    const g = createGrid(20, 12);
+    fillTerrain(g, 1);
+    for (let i = 0; i < g.w * g.h; i++) g.height[i] = 4;
+    for (let y = 0; y < g.h; y++) g.pool[idx(g, 0, y)] = 1;
+    s().loadGrid(g);
+    s().setPlaying(true);
+    s().setTool("sewer");
+  };
+  const drag = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+    useWorldStore.setState({ stroke: { tool: "sewer", brush: "line", anchor: a, head: b } });
+    s().endStroke();
+  };
+
+  test("a drag lays a trunk underground, paid for, with its outfall and manholes; undo takes it up", () => {
+    field();
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    drag({ x: 0, y: 4 }, { x: 12, y: 4 });
+    const g = s().grid;
+    expect(g.sewerFit[idx(g, 1, 4)]).toBe(SEWER_FIT.outfall);
+    expect(g.sewerFit[idx(g, 12, 4)]).toBe(SEWER_FIT.node);
+    expect(hasSewer(g, idx(g, 6, 4))).toBe(true);
+    // Not the old above-ground kind.
+    expect(g.main[idx(g, 6, 4)]).toBe(0);
+    expect(useMoneyStore.getState().money.lt(1e9)).toBe(true);
+    s().doUndo();
+    expect(hasSewer(s().grid, idx(s().grid, 6, 4))).toBe(false);
+  });
+
+  test("without the money, nothing is laid", () => {
+    field();
+    drag({ x: 0, y: 4 }, { x: 12, y: 4 });
+    expect(hasSewer(s().grid, idx(s().grid, 6, 4))).toBe(false);
+    expect(s().notice?.text).toMatch(/Not enough money/);
+  });
+
+  test("a click on a trunk adds a manhole there, free", () => {
+    field();
+    useMoneyStore.setState({ money: new Decimal(1e9) });
+    drag({ x: 0, y: 4 }, { x: 6, y: 4 });
+    const had = useMoneyStore.getState().money;
+    drag({ x: 3, y: 4 }, { x: 3, y: 4 });
+    expect(s().grid.sewerFit[idx(s().grid, 3, 4)]).toBe(SEWER_FIT.node);
+    expect(useMoneyStore.getState().money.eq(had)).toBe(true);
+  });
+});

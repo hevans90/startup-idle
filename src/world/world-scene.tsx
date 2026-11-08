@@ -264,6 +264,15 @@ function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
   if ("refused" in plan) return [route, false];
   return [route, !(sewer ? previewSewer(st.grid, plan.cells) : previewMain(st.grid, st.getWaterField(), plan.cells)).problem];
 }
+/** The sewer being dragged with the Sewer tool, as it would be laid; null if it can't be. @see sewerStrokePlan */
+function sewerGhost(): SewerPlan | null {
+  const st = useWorldStore.getState(), s0 = st.stroke;
+  if (!s0 || s0.tool !== "sewer") return null;
+  const p = sewerStrokePlan(st.grid, s0, mainWet(st.grid));
+  return p && !("refused" in p) ? p : null;
+}
+import { sewerStrokePlan } from "./sewers/tool";
+import type { SewerPlan } from "./sewers/lay";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 
 // Required: <pixiContainer> is only a known element once Container is
@@ -2488,6 +2497,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         : strokeFootprint(grid, lifting ? { ...s0, brush: "line" } : s0, brushRadius);
       // A MAIN, in the game, shows its route — drawn by the mains layer — not the straight line it is dragged along. @see mainPreview
       if (s0.tool === "pipe" && useWorldStore.getState().playing) cells = [...(mainPreview()[0] ?? [])];
+      // A SEWER, its route.
+      if (s0.tool === "sewer") { const p = sewerGhost(); if (p) cells = p.cells.map((c) => ({ x: c.x, y: c.y })); }
 
       // A STRUCTURE'S FOOTPRINT is judged whole — on a bank, on level enough
       // ground — and the verdict handed to each of its cells. Against the
@@ -3007,8 +3018,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       { const st = useWorldStore.getState();
         mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe"), st.hover);
         // THE SEWERS: drawn again where they changed; the underground shown, and the ground see-through over it, in its view. @see createSewerLayer
-        const underground = st.sewerView;
-        sewersRef.current?.sync(grid, scale, underground);
+        // On by itself with the Sewer tool in hand, and what it would lay ghosted.
+        const underground = st.sewerView || st.tool === "sewer";
+        sewersRef.current?.sync(grid, scale, underground, sewerGhost());
         setGroundAlpha(bl, st.overlays.xray || underground ? XRAY_GROUND : 1); }
       // THE TOWN: cars and people on their trips round the roads. @see world/agents
       const net = getNetwork();
