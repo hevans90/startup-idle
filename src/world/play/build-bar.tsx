@@ -49,6 +49,7 @@ import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
 import { PUMP_HEAD } from "../../game/cooling";
 import { MainCard } from "./main-card";
 import { InfoPop } from "../../ui/InfoPop";
+import { INFINITY } from "../../utils/time-utils";
 import { FOCUS, Kbd, Segmented, Tile } from "../../ui/console";
 
 /** A small line icon, in the current colour. */
@@ -388,8 +389,8 @@ export function BuildBar({ className }: { className?: string }) {
             return (
               <span key={id} className="flex items-center gap-1.5">
                 <span className="h-2 w-2" style={{ background: hex(KIND_COLOUR[id]) }} />
-                <Stat icon={ICONS.people} value={`${g.amount}/${have}`} tone={full ? "text-bad" : undefined}
-                  title={`${name}: ${g.amount} employed, ${have} beds`}>
+                <Stat icon={ICONS.people} value={`${g.amount}/${have === Infinity ? INFINITY : have}`} tone={full ? "text-bad" : undefined}
+                  title={`${name}: ${g.amount} employed, ${have === Infinity ? INFINITY : have} beds`}>
                   {full
                     ? "Every bed is taken, so you can't hire more until you build housing for them."
                     : "People employed against beds, on lots on the map and off it. A new hire works once they've moved in."}

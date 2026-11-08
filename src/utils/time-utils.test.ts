@@ -18,4 +18,8 @@ describe("formatDuration", () => {
     expect(formatDuration(-100)).toBe("0s");
     expect(formatDuration(NaN)).toBe("0s");
   });
+
+  test("forever is ∞, never the word", () => {
+    expect(formatDuration(Infinity)).toBe("∞");
+  });
 });

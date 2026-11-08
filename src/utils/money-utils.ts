@@ -1,5 +1,7 @@
 import Decimal from "break_infinity.js";
 
+import { INFINITY } from "./time-utils";
+
 type FormatCurrencyOptions = {
   exponentBreakpoint?: number;
   decimals?: number;
@@ -21,6 +23,9 @@ export const formatCurrency = (
     steady = false,
   }: FormatCurrencyOptions = {}
 ): string => {
+  // Without limit: "∞", "$∞", "−$∞" — never the word. @see INFINITY
+  const n = typeof amount === "number" ? amount : null;
+  if (n === Infinity || n === -Infinity) return (n < 0 ? "−" : "") + (showDollarSign ? "$" : "") + INFINITY;
   const dec = typeof amount === "number" ? new Decimal(amount) : amount;
   // The true minus, before the dollar: "−$5", "−$1.20e+9". @see game/wording
   const sign = dec.lt(0) ? "−" : "";

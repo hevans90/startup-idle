@@ -13,3 +13,9 @@ test("a debt takes the true minus, before the dollar", () => {
   expect(formatCurrency(-5)).toBe("−$5");
   expect(formatCurrency(-1.2e9)).toBe("−$1.20e+9");
 });
+
+test("without limit is ∞, never the word", () => {
+  expect(formatCurrency(Infinity)).toBe("$∞");
+  expect(formatCurrency(-Infinity)).toBe("−$∞");
+  expect(formatCurrency(Infinity, { showDollarSign: false })).toBe("∞");
+});
