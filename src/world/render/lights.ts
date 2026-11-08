@@ -34,9 +34,49 @@ const SIGN_RISE = 26;
 /** A lamp every this many tiles along a straight street. */
 const LAMP_EVERY = 4;
 
+/**
+ * A CONDITION'S GLOW, day and night: what is wrong with a building or a tile,
+ * in light. Heat pulses red-orange; closed is a steady cold grey; road works
+ * an amber lamp, blinking. @see conditionsOf
+ */
+export type Condition = { kind: "heat" | "closed" | "works"; x: number; y: number; w: number; h: number; rise: number };
+
+const HEAT_GLOW = 0xff5a1f;
+const CLOSED_GLOW = 0x9aa6b4;
+const WORKS_LAMP = 0xffa526;
+/** The road-works lamp's height over its tile, screen px at scale 1: on top of the barrier. */
+const WORKS_RISE = 15;
+
+/** How high a building's glow sits, by its def. */
+export const riseOf = (def: string) => RISE[tierOf(def) ?? ""] ?? 34;
+
+/**
+ * Where the conditions glow: each damaged building by its cause — none for a
+ * flood, whose water shows it — and a lamp on each closed road tile. Pure.
+ */
+export function conditionsOf(g: Grid, damaged: Iterable<readonly [number, string]>, closedTiles: Iterable<{ x: number; y: number }>, riseFor?: (id: number) => number | null): Condition[] {
+  const out: Condition[] = [];
+  for (const [id, cause] of damaged) {
+    const s = g.structures.get(id);
+    if (!s || (cause !== "heat" && cause !== "closed")) continue;
+    out.push({ kind: cause, x: s.x, y: s.y, w: s.w, h: s.h, rise: Math.round(riseFor?.(id) ?? riseOf(s.def)) });
+  }
+  for (const t of closedTiles) out.push({ kind: "works", x: t.x, y: t.y, w: 1, h: 1, rise: WORKS_RISE });
+  return out;
+}
+
+/** A condition's glow at `t` seconds: heat pulsing, a lamp blinking, closed steady. `phase` keeps two from pulsing together. Pure. */
+export function conditionAlpha(kind: Condition["kind"], t: number, phase = 0): number {
+  if (kind === "heat") return 0.45 + 0.25 * Math.sin((t * 1.6 + phase) * Math.PI);
+  if (kind === "works") return (t + phase) % 1 < 0.55 ? 0.95 : 0.12;
+  return 0.42;
+}
+
 export type Lights = {
   /** Put the lights where the map's buildings and streets are now. */
   sync: (g: Grid, scale: number, crunch?: boolean) => void;
+  /** Put the conditions' glows where they are now; shown day and night. @see conditionsOf */
+  conditions: (g: Grid, scale: number, list: readonly Condition[]) => void;
   /** This frame: how dark it is (0–1) and the map's transform to the screen. */
   tick: (night: number, map: Matrix, t: number) => void;
   destroy: () => void;
@@ -70,7 +110,7 @@ export function lightsOf(g: Grid, crunch = false): { kind: "window" | "lamp" | "
     // A house with nobody in it is dark.
     if (housed && !residentsIn(s)) continue;
     if (s.def === "derelict") continue;
-    out.push({ kind: "window", x: s.x, y: s.y, w: s.w, h: s.h, rise: RISE[tierOf(s.def) ?? ""] ?? 34, ...(night && s.def in DESKS ? { violet: true } : crunch && s.def in DESKS ? { crunch: true } : {}) });
+    out.push({ kind: "window", x: s.x, y: s.y, w: s.w, h: s.h, rise: riseOf(s.def), ...(night && s.def in DESKS ? { violet: true } : crunch && s.def in DESKS ? { crunch: true } : {}) });
   }
   // THE SHOPS' SIGNS, each in its own colour — a neon one brighter — at its front.
   for (const f of shopfrontsOf(g)) {
@@ -101,7 +141,44 @@ export function createLights(stage: Container, zIndex: number): Lights {
   root.visible = false;
   stage.addChild(root);
   const sprites: Sprite[] = [];
+  // THE CONDITIONS, their own root: the lights' is hidden by day. Over the
+  // night sheet as the lights are, so a glow at night is not darkened.
+  const cond = new Container();
+  cond.eventMode = "none";
+  cond.zIndex = zIndex;
+  cond.visible = false;
+  stage.addChild(cond);
+  const glows: { s: Sprite; kind: Condition["kind"]; phase: number }[] = [];
   return {
+    conditions(g, scale, list) {
+      while (glows.length > list.length) glows.pop()!.s.destroy();
+      while (glows.length < list.length) {
+        const s = new Sprite(glowTexture());
+        s.anchor.set(0.5);
+        cond.addChild(s);
+        glows.push({ s, kind: "heat", phase: 0 });
+      }
+      list.forEach((c, k) => {
+        const gl = glows[k], s = gl.s;
+        gl.kind = c.kind;
+        gl.phase = ((c.x * 7 + c.y * 13) % 10) / 10;
+        const z = inBounds(g, c.x, c.y) ? g.height[idx(g, c.x, c.y)] : 0;
+        const { wx, wy } = cellToWorld(c.x + (c.w - 1) / 2, c.y + (c.h - 1) / 2, z, scale);
+        s.x = wx;
+        s.y = wy - c.rise * scale;
+        if (c.kind === "works") {
+          s.tint = WORKS_LAMP;
+          s.blendMode = "add";
+          s.scale.set(0.55 * scale);
+        } else {
+          // Heat added on, as light; closed laid over, a cold grey wash.
+          s.tint = c.kind === "heat" ? HEAT_GLOW : CLOSED_GLOW;
+          s.blendMode = c.kind === "heat" ? "add" : "normal";
+          s.scale.set((1.1 + 0.5 * Math.max(c.w, c.h)) * scale);
+        }
+      });
+      cond.visible = glows.length > 0;
+    },
     sync(g, scale, crunch = false) {
       const want = lightsOf(g, crunch);
       while (sprites.length > want.length) sprites.pop()!.destroy();
@@ -136,7 +213,11 @@ export function createLights(stage: Container, zIndex: number): Lights {
         }
       });
     },
-    tick(night, map) {
+    tick(night, map, t) {
+      if (cond.visible) {
+        cond.setFromMatrix(map);
+        for (const gl of glows) gl.s.alpha = conditionAlpha(gl.kind, t, gl.phase);
+      }
       root.visible = night > 0.02 && sprites.length > 0;
       if (!root.visible) return;
       root.alpha = Math.min(1, night * 1.2);
@@ -146,6 +227,9 @@ export function createLights(stage: Container, zIndex: number): Lights {
       root.parent?.removeChild(root);
       root.destroy({ children: true });
       sprites.length = 0;
+      cond.parent?.removeChild(cond);
+      cond.destroy({ children: true });
+      glows.length = 0;
     },
   };
 }

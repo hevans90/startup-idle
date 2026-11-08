@@ -77,6 +77,12 @@ export function repairedIn(id: number): number | null {
 
 export const isDamaged = (id: number) => damaged.has(id);
 
+/** What damaged a building, or null: for how it is drawn. @see disaster-fx */
+export const damageCause = (id: number): DamageCause | null => damaged.get(id)?.cause ?? null;
+
+/** Every damaged building now, with its cause. */
+export const damagedNow = (): [number, DamageCause][] => [...damaged].map(([id, d]) => [id, d.cause]);
+
 /** What a damaged building is called, by what damaged it; null when it is not damaged. */
 export const damagedAs = (id: number): string | null => {
   const d = damaged.get(id);

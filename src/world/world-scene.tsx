@@ -110,8 +110,12 @@ const deskTint = (share: number) => {
  * device: half a 60 Hz frame, the rest for drawing it. @see maxStep
  */
 const CPU_SOLVE_MS = 8;
-/** A flood-damaged building's tint: mud. @see damage */
-const DAMAGED_TINT = 0x9a8466;
+/**
+ * A damaged building's tint, by what did it: mud from a flood, scorched warm
+ * by heat, greyed out by the inspector — so the causes look apart even
+ * without their glows. @see damage, conditionsOf
+ */
+const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a080, closed: 0xa4a8ae };
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
@@ -139,7 +143,7 @@ import { FLOOD_MS } from "./events/defs/flood";
 import {
   droughtDrop, evacuatedAway, floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
-import { closeFor, damage, isDamaged, stepRepairs } from "./events/damage";
+import { closeFor, damage, damageCause, damagedNow, isDamaged, stepRepairs, type DamageCause } from "./events/damage";
 import { answerFor, startEvent, stepEvents, type TownView } from "./events/events";
 import { busiestJunction, setClosed, tileOf } from "./events/closures";
 import { POACH_LEAST, POACH_SHARE, MATCH_SHARE } from "./events/defs/poaching";
@@ -198,6 +202,7 @@ import { pointerRead, type PointerAt } from "./debug/pointer-at";
 import { clickTakesOver, takesClick } from "./play/opens";
 import { drawOpenHighlight } from "./render/open-highlight";
 import { createJuice, type Juice } from "./render/juice";
+import { createDisasterFx, type DisasterFx } from "./render/disaster-fx";
 import { aiDistrict } from "./ai/district";
 import { PLACE_UP, POINT_INSET, createCutaway, occludersOf, type Rect } from "./render/cutaway";
 
@@ -380,6 +385,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const holoRef = useRef<Holograms | null>(null);
   /** A building dropping into place, a house hopping as it grows, dust where one came down. @see createJuice */
   const juiceRef = useRef<Juice | null>(null);
+  /** Disasters on the map: steam, haze, glows, the road works' barrier. @see createDisasterFx */
+  const disasterFxRef = useRef<DisasterFx | null>(null);
+  const disasterClock = useRef(0);
   /** The culture deck's cards, seen by the buildings. @see createCultureProps */
   const propsRef = useRef<CultureProps | null>(null);
   /** The town's shops' fronts, and what of them moves. @see createShopfronts */
@@ -1592,6 +1600,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         holoRef.current = createHolograms();
         tileHoloRef.current = createTileHolograms();
         juiceRef.current = createJuice();
+        disasterFxRef.current = createDisasterFx();
         propsRef.current = createCultureProps(bl);
         shopsRef.current = createShopfronts(bl);
         streetPropsRef.current = createStreetProps(bl);
@@ -1633,6 +1642,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cursorRef.current = null;
       holoRef.current?.clear();
       holoRef.current = null;
+      disasterFxRef.current?.clear();
+      disasterFxRef.current = null;
       juiceRef.current?.clear();
       juiceRef.current = null;
       propsRef.current?.destroy();
@@ -2221,8 +2232,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     };
   }, [moodOverlay]);
 
-  // FLOOD DAMAGE SHOWN: a damaged building's sprites muddied until the repair
-  // crew has been, looked at every second. @see damage
+  // DAMAGE SHOWN: a damaged building's sprites tinted by its cause until the
+  // repair crew has been, looked at every second. @see damage, DAMAGED_TINT
   useEffect(() => {
     const muddied = new Map<number, { tint: number; destroyed?: boolean }[]>();
     const paint = () => {
@@ -2236,7 +2247,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       for (const [id, m] of sl.mounted) {
         if (!isDamaged(id)) continue;
         const sprites = (m.handle as { sprites?: { tint: number; destroyed?: boolean }[] }).sprites ?? [];
-        for (const sp of sprites) sp.tint = DAMAGED_TINT;
+        const tint = DAMAGED_TINT[damageCause(id) ?? "flood"];
+        for (const sp of sprites) sp.tint = tint;
         muddied.set(id, sprites);
       }
     };
@@ -3425,7 +3437,39 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (seen.length) juiceRef.current.confetti(seen[Math.floor(Math.random() * seen.length)], { bands: bl, textures: tex, grid, scale });
       }
     }
-    juiceRef.current?.tick(raw * 1000);
+    // DISASTERS ON THE MAP, looked at once a second. @see createDisasterFx
+    disasterClock.current += raw;
+    if (disasterClock.current >= 1 && disasterFxRef.current && juiceRef.current && bl && tex) {
+      disasterClock.current = 0;
+      const st = useWorldStore.getState();
+      const active = (kind: string) => st.playing ? st.events.find((e) => e.kind === kind && e.phase === "active") : undefined;
+      const works = active("road-works");
+      const drinkers: number[] = [];
+      for (const [id, t] of allTanks()) if (t.demand > 0) drinkers.push(id);
+      disasterFxRef.current.sync({
+        ctx: { bands: bl, textures: tex, grid: st.grid, scale }, juice: juiceRef.current, lights: lightsRef.current,
+        damaged: st.playing ? damagedNow() : [], heatwave: !!active("heatwave"), drinkers,
+        closed: works?.where ? [works.where] : [],
+        // ITS ROOF AS DRAWN: the top of its sprites over the middle of its
+        // footprint's ground, in the scene's space — less half the roof's own
+        // diamond, whose top is its back corner and not its middle. @see RoofOf
+        roof: (id) => {
+          const s = st.grid.structures.get(id), h = slRef.current?.mounted.get(id)?.handle as { sprites?: Container[]; columns?: Container[] } | undefined;
+          const parts = h?.sprites ?? h?.columns;
+          if (!s || !parts?.length) return null;
+          let top = Infinity;
+          for (const p of parts) if (!p.destroyed) top = Math.min(top, bl.root.toLocal(p.getBounds()).y);
+          const fx = s.x + s.w - 1, fy = s.y + s.h - 1;
+          const z = inBounds(st.grid, fx, fy) ? st.grid.height[idx(st.grid, fx, fy)] : 0;
+          const foot = cellToWorld(s.x + (s.w - 1) / 2, s.y + (s.h - 1) / 2, z, scale).wy;
+          return Number.isFinite(top) ? Math.max(0, (foot - top) / scale - ((s.w + s.h) / 2) * HH) : null;
+        },
+      });
+    }
+    {
+      const vpNow = useWorldStore.getState().viewport;
+      juiceRef.current?.tick(raw * 1000, bl && vpNow ? { zoom: vpNow.scale.x, shown: (b) => bandShown(bl, b) } : undefined);
+    }
     // THE TOWN'S AMBIENCE, a few times a second: its hum by its size, birds by day, crickets by night. @see ambience
     soundClock.current += raw;
     if (soundClock.current > 0.25) {

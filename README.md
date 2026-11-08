@@ -129,7 +129,7 @@ src/
 - **Bands:** a container per diagonal `x+y`; cached render groups, so **Pixi's GC is off** (`stopGarbageCollection`).
 - **Heights:** half steps (16.5 px); roads autotile from 8-neighbour masks.
 - **Water:** a storeyed shallow-water column solver, WebGPU by default, CPU the reference (`?gpucheck`, `__waterCompare`).
-- **Rendering:** padded, mipmapped atlases (`bun run bake:padded`); cutaways for what stands in front (`render/cutaway.ts`); night lights (`render/lights.ts`); juice tweens (`render/juice.ts`). Plan: `plans/engine-polish.md`.
+- **Rendering:** padded, mipmapped atlases (`bun run bake:padded`); cutaways for what stands in front (`render/cutaway.ts`); night lights (`render/lights.ts`); juice tweens and emitters (`render/juice.ts`); disasters on the map — steam, haze, condition glows, road-works barriers (`render/disaster-fx.ts`). Plans: `plans/engine-polish.md`, `plans/disaster-rendering.md`.
 - **Sound:** `src/audio/sound.ts`, synthesised in Web Audio.
 
 ## Dev tools

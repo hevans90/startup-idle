@@ -1,6 +1,6 @@
 # Disasters you can see: fire, heat and the rest
 
-Status: **proposed** (2026-11-08). Follows the events overhaul (`events-overhaul.md`, phases 1–5 done).
+Status: **phase 1 done** (2026-11-08). Follows the events overhaul (`events-overhaul.md`, phases 1–5 done).
 
 ## Why
 
@@ -24,6 +24,7 @@ Everything below is built from **two new shared pieces** plus what already draws
 | Ground spills | `events/sludge.ts` | slop |
 | Real water | the solver, `events/flood.ts` | flood, drought |
 | Damaged badge and line | `play/badges.ts`, `building-info.ts`, `damagedAs` | every cause |
+| Damaged tint on the building's sprites | `DAMAGED_TINT` (`world-scene`), set once a second | was mud for every cause; now by cause (phase 1) |
 | Moving the camera | `vp.animate` | following |
 
 ## The two new pieces
@@ -37,7 +38,7 @@ Everything below is built from **two new shared pieces** plus what already draws
   - spawn rate, life, rise, drift, spread;
   - a colour ramp over life, and an additive or normal blend.
 - Motes live in `bands.dynamicOf[band]`, as juice's do, so a building in front still hides them. They never go in a static chunk. Showing, hiding or reparenting a sprite in one rebuilds its whole draw list (see *render group rebuilds*).
-- **One shared budget** with juice. When it's full, the oldest burst gives way before any emitter does. Emitters slow their spawn rate when zoomed out, and stop entirely when off screen.
+- **One shared budget** with juice. As built, emitters may hold at most `EMIT_MOTES` (160) of the 240, so the bursts always have the rest. Emitters slow their spawn rate when zoomed out (`zoomRate`, never under a quarter), and stop entirely when their band is off screen.
 - The pure parts get unit tests, as `juice.test.ts` does: spawn counts per second, the colour ramp, and the budget.
 
 ### 2. A condition glow on the building
@@ -49,7 +50,9 @@ An **unlit glow sprite** in the lights layer, drawn day and night, pulsing, with
 - closed: a cold grey, no pulse;
 - flood: none, because the water already shows it.
 
-It is **set when damage starts and cleared when it's repaired**, never per frame on the building's own sprites. Tinting the building's sprite stack (charred, greyed) is the option to try second. It's a tint change, not a structural one, but it still has to be checked against `_buildInstructions` counts before it ships.
+It is **set when damage starts and cleared when it's repaired**, never per frame on the building's own sprites.
+
+Correction: the building's sprites were already tinted while damaged — `DAMAGED_TINT`, mud, for every cause. Phase 1 keys it by cause instead: mud for a flood, scorched warm for heat, grey for closed. It's the same once-a-second tint as before, so it adds no structural change.
 
 ## Each disaster, from the pieces
 
@@ -67,7 +70,8 @@ It is **set when damage starts and cleared when it's repaired**, never per frame
 
 ## Phases
 
-1. **The two pieces, shown on what exists.** Emitters, and the condition glow on any damaged building, keyed by cause. Then use them on the heatwave (haze, steam and glow on overheated buildings) and on road works (barrier, cones, lamp). This closes the playtest's three gaps.
+1. **Done.** `render/juice.ts` (emitters, `Recipe`), `render/lights.ts` (`conditionsOf`, its own root shown day and night), `render/disaster-fx.ts` (what each disaster shows, synced once a second), `DAMAGED_TINT` by cause. Steam and the glow sit at the building's roof as drawn (`RoofOf`). The flame texture waits for phase 2. Not yet measured as in phase 4.
+   **The two pieces, shown on what exists.** Emitters, and the condition glow on any damaged building, keyed by cause. Then use them on the heatwave (haze, steam and glow on overheated buildings) and on road works (barrier, cones, lamp). This closes the playtest's three gaps.
 2. **Fire.** Design the event first (see Questions). Then flames, smoke, embers, the charred tint, and scorch decals. "Damaged" gets a `fire` cause.
 3. **The planned disasters**, cheapest first: burst main, sewer backup, blackout, earthquake. Each one is an event in the events plan's form: a def, choices and a built answer.
 4. **Measured.** On `?fixture=bigtown`, with a fire, a heatwave and road works all running at once:
