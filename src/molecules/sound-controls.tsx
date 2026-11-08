@@ -27,7 +27,8 @@ export const SoundControls = () => {
       {bus("effects", "Effects", () => sfx("build"))}
       {bus("interface", "Interface", () => sfx("confirm"))}
       {bus("ambience", "Ambience")}
-      <Field label="Tick on hover">
+      {/* A part of the sound, indented and dimmed with the parts above. */}
+      <Field label="Tick on hover" className={twMerge("pl-3", g.muted && "opacity-50")}>
         <Toggle label="Tick when the pointer reaches something clickable" on={g.ticks} onChange={(on) => set({ ticks: on })} />
       </Field>
     </>
