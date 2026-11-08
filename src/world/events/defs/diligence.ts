@@ -40,6 +40,8 @@ export function inspect(v: TownView, chosen?: string): Record<Check, boolean> {
 const said = (r: Record<Check, boolean>) => CHECKS.map((c) => `${c} ${r[c] ? "pass" : "fail"}`).join(", ");
 const Said = (r: Record<Check, boolean>) => { const t = said(r); return t[0].toUpperCase() + t.slice(1); };
 const mult = (k: number) => `×${k.toFixed(2)}`;
+/** A mood as a whole number, its sign shown: "+3", "−2", "0". */
+const signed = (m: number) => { const r = Math.round(m); return r > 0 ? `+${r}` : r < 0 ? `−${-r}` : "0"; };
 
 export const DILIGENCE: EventDef = {
   kind: "diligence",
@@ -52,7 +54,7 @@ export const DILIGENCE: EventDef = {
   },
   active: { title: "Due diligence", text: "The investors are going over the town." },
   choices: [
-    { id: "tidy", label: "Tidy the town", crew: { who: "vibe_coder", share: CREW_SHARE.tidy, during: "warning" }, note: () => `homes look ${TIDY_MOOD} happier to them` },
+    { id: "tidy", label: "Tidy the town", crew: { who: "vibe_coder", share: CREW_SHARE.tidy, during: "warning" }, note: (v) => `homes' mood ${signed(v.diligence.mood)}, ${signed(v.diligence.mood + TIDY_MOOD)} to them (${DILIGENCE_MOOD} passes)` },
     {
       id: "mop", label: "Mop up every spill", crew: { who: "intern", share: CREW_SHARE.mop, during: "warning" },
       unavailable: (v) => (v.diligence.spills ? undefined : "Nothing has spilled"),
