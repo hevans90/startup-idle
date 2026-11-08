@@ -19,7 +19,10 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { waterShaderSource } from "./water-gpu";
+import { fillBrinkOnHost, waterShaderSource } from "./water-gpu";
+import { atBrink } from "./corner-rule";
+import { createColumnField } from "../../fluid/columns";
+import { FALL_MIN } from "../../fluid/falls";
 
 /**
  * The shader with its comments taken out.
@@ -90,5 +93,28 @@ describe("the two halves of the water shader", () => {
     expect(wgsl).not.toContain("texelFetch");
     expect(glsl).toContain("#version 300 es");
     expect(glsl).not.toContain("textureLoad");
+  });
+});
+
+/**
+ * THE BRINK ON THE HOST, for WebGL, which has no pass to work it out in: every
+ * wet slot's, by the same rule as the device's, and nothing written for a dry
+ * one, which no shader asks about. @see fillBrinkOnHost
+ */
+describe("the brink, filled on the host", () => {
+  test("is the shared rule's answer at every wet slot, and leaves the dry ones alone", () => {
+    const f = createColumnField(6, 1);
+    // A shelf of water, and a drop off its east end.
+    f.ground.set([0, 0, 0, 0, -10, -10]);
+    f.depth.set([1, 1, 1, 1, 0, 0]);
+    const out = new Float32Array(6).fill(-1);
+    fillBrinkOnHost(out, f);
+    for (let i = 0; i < 4; i++) {
+      expect(out[i]).toBe(Math.fround(atBrink(6, 1, i, f.ground, f.depth, f.params.dryDepth, FALL_MIN, 0, f.roof)));
+    }
+    // At the lip, all of it; two back, a third of it.
+    expect(out[3]).toBe(1);
+    expect(out[1]).toBeCloseTo(1 / 3, 5);
+    expect([out[4], out[5]]).toEqual([-1, -1]);
   });
 });

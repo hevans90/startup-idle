@@ -61,7 +61,7 @@ import {
 import {
   activeBox, MATERIAL_SLOTS, MAX_FLOW_SPEED, type ColumnField,
 } from "../../fluid/columns";
-import { RIM, brinkRuleSource, cornerRuleSource } from "./corner-rule";
+import { RIM, atBrink as brinkOnHost, brinkRuleSource, cornerRuleSource } from "./corner-rule";
 import { OPEN_SKY } from "../../fluid/slots";
 import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
@@ -1509,6 +1509,12 @@ export type GpuWaterLayer = {
   groundSent: number;
   groundOf: ColumnField | null;
   /**
+   * THE BRINK'S ARRAY, and who fills it. The device's brink pass when there
+   * is one; otherwise the host, once a frame, so the vertex shader reads it
+   * rather than scanning for it per vertex. @see fillBrinkOnHost
+   */
+  brink: { data: Float32Array; byDevice: boolean; hostOn: boolean };
+  /**
    * Whether the fall latch the shaders read is the solver's own this frame,
    * as last written into their uniforms; -1 before the first frame. @see
    * latchAt, FALLING_AT
@@ -1696,9 +1702,9 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     resource: columns.material, width: nx, height: ny * layers, format: "r8unorm",
     scaleMode: "nearest",
   });
-  // HOW HARD EACH SLOT IS LEAVING. Filled by the device once a frame and by
-  // nothing else — the host has no use for it and never uploads it, so the
-  // array behind it stays the zeros it was made with. @see brink-gpu
+  // HOW HARD EACH SLOT IS LEAVING. Filled by the device's brink pass once a
+  // frame where there is a device, and by the host where there is not.
+  // @see brink-gpu, fillBrinkOnHost
   const brinkF32 = new Float32Array(nx * ny * layers);
   const brinkTex = viewOf(brinkF32, nx, ny * layers);
   // WHICH EDGES ARE FALLING, a byte per edge of a slot pair, the solver's own
@@ -1823,6 +1829,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     wash, foam, layers, gather: null, fed: new Set(),
     groundSent: -1,
     groundOf: null,
+    brink: { data: brinkF32, byDevice: false, hostOn: false },
     latchOn: -1,
     most: meshes.map((m) => m.geometry.instanceCount),
     drawing: true, cpuMs: 0, advectMs: 0, uploadMs: 0,
@@ -1857,13 +1864,14 @@ const GROUND_AT = 1;
 /** And the roofs, which are geometry and move only when the map does. */
 const ROOF_AT = 7;
 /**
- * And the brink, which the DEVICE fills and the host never does.
+ * And the brink, which the DEVICE fills where there is one, and the host
+ * where there is not.
  *
  * Not in {@link FED} because that table is about what `copyOut` moves off the
- * solver's own field buffer, and this comes out of a pass of its own. It is
- * skipped by the upload loop unconditionally: the array behind it is zeros,
- * and sending those up would overwrite the only copy that means anything.
- * @see createBrinkPass
+ * solver's own field buffer, and this comes out of a pass of its own. The
+ * upload loop sends it only when the host filled it: with a device pass, the
+ * array behind it is zeros, and sending those up would overwrite the only
+ * copy that means anything. @see createBrinkPass, fillBrinkOnHost
  */
 const BRINK_AT = 8;
 /**
@@ -2121,6 +2129,7 @@ export function attachQuadGather(
     const bp = createBrinkPass(device, brinkRow(bnx) * bny * wl.layers);
     bp.bind(depthView, groundView, roofView);
     brink = { pass: bp, into: get(wl.sources[BRINK_AT]), slots: bnx * bny * wl.layers };
+    wl.brink.byDevice = true;
     // The shaders only read it once there is something in it to read.
     for (const m of [...wl.meshes, ...wl.under]) {
       const u = m.shader?.resources.water as UniformGroup | undefined;
@@ -2331,6 +2340,30 @@ export function destroyGpuWaterLayer(wl: GpuWaterLayer) {
 }
 
 /**
+ * THE BRINK SCAN, ON THE HOST, into the array the brink texture reads: every
+ * wet slot's, once a frame, by the same rule the device's brink pass runs.
+ *
+ * WebGL has no pass to run it in, so its vertex shader scanned for the brink
+ * itself — four ways, three columns out, through every slot over there — and
+ * asked it once per contributor of every corner of every vertex. That was the
+ * GPU's whole frame on the WebGL path: a Large map stood at 13 fps in Firefox
+ * without WebGPU and 32 with the brink read as nought (2026-11-08). Only wet
+ * slots are ever asked for theirs, so only those are worked out; a dry slot's
+ * stale value is never read. @see brinkRuleSource, BRINK_AT
+ */
+export function fillBrinkOnHost(out: Float32Array, columns: ColumnField) {
+  const { nx, ny, layers, ground, depth, roof } = columns;
+  const cells = nx * ny, dry = columns.params.dryDepth;
+  for (let a = 0; a < layers; a++) {
+    const base = a * cells;
+    for (let i = 0; i < cells; i++) {
+      if (depth[base + i] <= dry) continue;
+      out[base + i] = brinkOnHost(nx, ny, i, ground, depth, dry, FALL_MIN, base, roof);
+    }
+  }
+}
+
+/**
  * A frame: step the two carried fields, then say the textures have changed.
  *
  * That is the whole of it. There are no corners to average and no vertices to
@@ -2370,6 +2403,19 @@ export function drawGpuWater(
       grp.update();
     }
   }
+  // THE BRINK, ON THE HOST, where no device pass fills it. @see fillBrinkOnHost
+  if (!wl.brink.byDevice) {
+    fillBrinkOnHost(wl.brink.data, columns);
+    if (!wl.brink.hostOn) {
+      wl.brink.hostOn = true;
+      for (const m of [...wl.meshes, ...wl.under]) {
+        const grp = m.shader?.resources.water as UniformGroup | undefined;
+        if (!grp) continue;
+        (grp.uniforms.uSlots as Float32Array)[2] = 1;
+        grp.update();
+      }
+    }
+  }
   const region = activeBox(columns);
   const tA = performance.now();
   if (region && dt > 0) {
@@ -2388,8 +2434,8 @@ export function drawGpuWater(
   // the same numbers straight back up — a megabyte and a quarter a frame to
   // overwrite the answer with itself. @see deviceSinks
   for (let k = 0; k < wl.sources.length; k++) {
-    // NEVER THE BRINK. @see BRINK_AT
-    if (k === BRINK_AT) continue;
+    // THE BRINK ONLY WHERE THE HOST FILLED IT. @see BRINK_AT
+    if (k === BRINK_AT && wl.brink.byDevice) continue;
     if (carried && wl.fed.has(k)) continue;
     // NOR A LATCH THE DEVICE IS NOT COPYING OUT: the host's copy is not the
     // solver's then, and the shaders have been told not to read it.
