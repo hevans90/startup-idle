@@ -137,6 +137,15 @@ export function sayWaterSolver(solver: "gpu" | "cpu", why: string | null): void 
   else console.warn("WATER:", line);
 }
 export const waterSolverNow = () => current;
+
+/**
+ * THE CPU SOLVER'S BUDGET, as the tick last sized it: what a substep costs on
+ * this machine, and how many a frame it is given. Zero cost until the CPU has
+ * stepped. For the settings' water readout. @see CPU_SOLVE_MS
+ */
+const cpuBudget = { perSub: 0, cap: 0 };
+export const cpuWaterSaw = (perSub: number, cap: number) => { cpuBudget.perSub = perSub; cpuBudget.cap = cap; };
+export const cpuWaterRead = () => ({ ...cpuBudget });
 if (typeof window !== "undefined") {
   (window as unknown as { __waterSolver?: () => unknown }).__waterSolver = () => ({ ...current, history: [...history] });
 }

@@ -188,7 +188,7 @@ import {
 import {
   SPRAY_BOUNDS, WIND_BOUNDS, checkPour, checkPourLive, compareFrames, flat,
 } from "../fluid/gpu/compare-frames";
-import { gpuWaterHeldBack, gpuWaterSaw, sayWaterSolver } from "./debug/gpu-water-stat";
+import { cpuWaterSaw, gpuWaterHeldBack, gpuWaterSaw, sayWaterSolver } from "./debug/gpu-water-stat";
 import { flushStamps, holdStamps, stampsNow } from "./debug/gpu-stamps";
 import {
   createGpuFallLayer, destroyGpuFallLayer, drawGpuFalls, type GpuFallLayer,
@@ -217,6 +217,7 @@ import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, partsOf, create
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
+import { rendererAsked } from "./render/use-gpu";
 import {
   compareAccelerate, compareCliffs, pour as pourScene,
   scene as accelScene, spanned, spannedDry, spannedFull, spray,
@@ -2605,10 +2606,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     );
     // SAID IN THE CONSOLE, with the reason, every time it changes. @see sayWaterSolver
     // Not while the device is still being asked for: that is a moment, not a fall-back.
-    if (field && (device || deviceWhy() !== null || deviceLost() !== null || !gpuWater)) {
+    // `?webgl=1` never asks, so it is said at once rather than never.
+    const webglAsked = rendererAsked() === "webgl";
+    if (field && (device || webglAsked || deviceWhy() !== null || deviceLost() !== null || !gpuWater)) {
       const lost = deviceLost();
       sayWaterSolver(gpuWater && device && lost === null ? "gpu" : "cpu",
         lost !== null ? `the GPU device was lost (${lost}); the CPU solver took over`
+          : !device && webglAsked ? "WebGL asked for in the address"
           : !device ? `no WebGPU device: ${deviceWhy()}`
             : !gpuWater ? "the GPU water toggle is off"
               : null);
@@ -3584,6 +3588,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const c = cpuWater.current, per = spent.solve / subs;
       c.perSub = c.perSub > 0 ? c.perSub * 0.9 + per * 0.1 : per;
       c.cap = Math.max(1, Math.min(MAX_SUBSTEPS, Math.floor(CPU_SOLVE_MS / c.perSub)));
+      cpuWaterSaw(c.perSub, c.cap);
     }
     if (spent) {
       perfAdd("solve", spent.solve);

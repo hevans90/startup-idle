@@ -9,6 +9,7 @@ import { useSessionStore } from "../state/session.store";
 import { useThemeStore } from "../state/theme.store";
 import { Button, FOCUS, Field, Label, POPOVER_BARE, Segmented, Toggle } from "../ui/console";
 import { SoundControls } from "./sound-controls";
+import { WaterDiagnostic } from "./water-diagnostic";
 
 /** A group of settings: its name, then a row a setting. */
 function Group({ title, children }: { title: string; children: ReactNode }) {
@@ -74,6 +75,8 @@ export const SettingsPopover = ({
           <Field label="Map events" hint="Floods, overflows and the like">
             <Toggle label="Map events" on={!eventsOff} onChange={(on) => setEventsOff(!on)} />
           </Field>
+          {/* How the water is solved and drawn, for a lag report. @see WaterDiagnostic */}
+          <WaterDiagnostic />
         </Group>
         <Group title="Sound">
           <SoundControls />

@@ -54,6 +54,10 @@ export const heldGpu = (): HeldGpu | null => held;
 let noDevice: string | null = null;
 export const deviceWhy = (): string | null => noDevice;
 
+/** What the adapter says it is, once a device is held; null if it says nothing (Firefox keeps it to itself). */
+let adapterName: string | null = null;
+export const adapterNameNow = (): string | null => adapterName;
+
 /**
  * Why the device went, or null while it is still there.
  *
@@ -294,7 +298,8 @@ export function openDevice(): Promise<HeldGpu | null> {
       if (whyWanted()) watchCreation(device);
       held = { adapter, device };
       const info = (adapter as unknown as { info?: { vendor?: string; architecture?: string; description?: string } }).info;
-      console.info("GPU: WebGPU device opened —", [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(" ") || "adapter details hidden");
+      adapterName = [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(" ") || null;
+      console.info("GPU: WebGPU device opened —", adapterName ?? "adapter details hidden");
       return held;
     } catch (e) {
       // No WebGPU, or an adapter that will not give a device. Pixi makes its
