@@ -30,6 +30,9 @@ type GlobalSettingsStore = {
   /** How much the console moves: in full, or calm — frames simply there, text whole, nothing behind. @see ui/motion */
   motion: "full" | "calm";
   setMotion: (motion: "full" | "calm") => void;
+  /** Whether the frame rate shows in the bottom right; `?fps` shows it too. @see FpsCounter */
+  showFps: boolean;
+  setShowFps: (on: boolean) => void;
 };
 
 export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
@@ -52,6 +55,8 @@ export const useGlobalSettingsStore = create<GlobalSettingsStore>()(
       setSound: (s) => set(s),
       motion: "full",
       setMotion: (motion) => set({ motion }),
+      showFps: false,
+      setShowFps: (showFps) => set({ showFps }),
     }),
     {
       name: "global-settings", // name of item in localStorage

@@ -14,6 +14,7 @@ import { AscensionCard } from "./molecules/ascension-card";
 import { NegotiationScreen } from "./molecules/negotiation-screen";
 import { DevDrawer } from "./molecules/dev-panel";
 import { FounderSelect } from "./molecules/founder-select";
+import { FpsCounter } from "./molecules/fps-counter";
 import { GameStageTicker } from "./molecules/game-stage-ticker";
 import { OfflineSummaryModal } from "./molecules/offline-summary";
 import { whenWorldReady } from "./game/world-ready";
@@ -176,6 +177,8 @@ function App() {
     <FloatingTree>
       {/* COMMS' NOTICES: a refusal, by the pointer. @see NoticeToast */}
       <NoticeToast />
+      {/* THE FRAME RATE, bottom right, by the setting or ?fps. @see FpsCounter */}
+      <FpsCounter />
 
       {offlineSummary && (
         <OfflineSummaryModal

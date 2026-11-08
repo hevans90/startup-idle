@@ -73,7 +73,7 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**; no la
 
 ## Tech stack
 
-React 19 + TypeScript (Vite, SWC); Tailwind CSS v4 with the console's tokens (`src/ui/theme/`, `--ui-*` roles for both themes; raw palette classes are a lint error); Zustand persisted to `localStorage`; PixiJS v8, @pixi/react, pixi-viewport, every canvas on one WebGPU device (`world/render/use-gpu.ts`; `?webgl` for the other); WebGPU compute water with a CPU reference (the fallback without WebGPU, held to 8 ms of substeps a frame: `CPU_SOLVE_MS`; which one runs, and why, under Settings → Water: `molecules/water-diagnostic.tsx`); break_infinity.js (`Decimal`); Arwes only through the console kit (`src/ui/console/`, gallery `?uikit`); Bun (runtime, tests); Tauri (desktop). Plan: `plans/ui-overhaul.md`.
+React 19 + TypeScript (Vite, SWC); Tailwind CSS v4 with the console's tokens (`src/ui/theme/`, `--ui-*` roles for both themes; raw palette classes are a lint error); Zustand persisted to `localStorage`; PixiJS v8, @pixi/react, pixi-viewport, every canvas on one WebGPU device (`world/render/use-gpu.ts`; `?webgl` for the other); WebGPU compute water with a CPU reference (the fallback without WebGPU, held to 8 ms of substeps a frame: `CPU_SOLVE_MS`; which one runs, and why, under Settings → Water: `molecules/water-diagnostic.tsx`; the frame rate bottom right by Settings → Show FPS or `?fps`); break_infinity.js (`Decimal`); Arwes only through the console kit (`src/ui/console/`, gallery `?uikit`); Bun (runtime, tests); Tauri (desktop). Plan: `plans/ui-overhaul.md`.
 
 ## Getting started
 

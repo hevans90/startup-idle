@@ -38,6 +38,8 @@ export const SettingsPopover = ({
   const setDayNight = useGlobalSettingsStore((s) => s.setDayNight);
   const eventsOff = useSessionStore((s) => s.mapEventsOff);
   const setEventsOff = useSessionStore((s) => s.setMapEventsOff);
+  const showFps = useGlobalSettingsStore((s) => s.showFps);
+  const setShowFps = useGlobalSettingsStore((s) => s.setShowFps);
   return (
     <Popover
       openOnHover={true}
@@ -74,6 +76,10 @@ export const SettingsPopover = ({
           {/* Floods, overflows and the like on the company map. @see stepEvents */}
           <Field label="Map events" hint="Floods, overflows and the like">
             <Toggle label="Map events" on={!eventsOff} onChange={(on) => setEventsOff(!on)} />
+          </Field>
+          {/* The frame rate in the bottom right; ?fps shows it too. @see FpsCounter */}
+          <Field label="Show FPS">
+            <Toggle label="Show the frame rate" on={showFps} onChange={setShowFps} />
           </Field>
           {/* How the water is solved and drawn, for a lag report. @see WaterDiagnostic */}
           <WaterDiagnostic />
