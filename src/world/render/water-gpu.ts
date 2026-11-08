@@ -1109,13 +1109,14 @@ float groundAt(int x, int y, int a) { return texelFetch(uGround, ivec2(x, slotRo
 float roofAt(int x, int y, int a) { return texelFetch(uRoof, ivec2(x, slotRow(y, a)), 0).r; }
 // A corner's contributors as a bitmask — see the WGSL twin, where the two
 // spellings are argued. @see render/sheet-group
-// Is there water here — see the WGSL twin.
+float dryDepth() { return uBand.z; }
+// Is there water here — see the WGSL twin. After dryDepth: GLSL, unlike
+// WGSL, wants a function defined before anything calls it.
 bool wet(float d) { return d > dryDepth(); }
 int bitOf(int k) { return 1 << k; }
 int bitAt(int m, int k) { return (m >> k) & 1; }
 // Whether the brink texture was filled this frame. See brink-gpu.
 bool brinkOn() { return uSlots.z > 0.5; }
-float dryDepth() { return uBand.z; }
 float fallMin() { return ${FALL_MIN}.0; }
 float fallStop() { return ${FALL_STOP}.0; }
 // Whether the solver's latch says this edge is already falling — see the WGSL
@@ -1379,7 +1380,7 @@ void main() {
   int ocx = cx - (back ? (part == 0 ? 1 : 0) : 0);
   int ocy = cy - (back ? (part == 0 ? 0 : 1) : 0);
   if (!inside(ocx, ocy)) { return; }
-  if ((roofAt(ocx, ocy, a) < ${OPEN_SKY}) != roofedTier()) { return; }
+  if ((roofAt(ocx, ocy, a) < ${OPEN_SKY}.0) != roofedTier()) { return; }
   float step = uGrid.w;
   float fx0 = float(tx) - 0.5 + float(sx) * step;
   float fy0 = float(ty) - 0.5 + float(sy) * step;

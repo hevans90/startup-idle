@@ -468,6 +468,7 @@ export function cornerRuleSource(dialect: Dialect, drawdown = 0, rim = RIM): str
   const MUT = wgsl ? "var" : "float";          // a float that is written again
   const NUM = wgsl ? "let" : "float";          // a float that is not
   const INT = wgsl ? "let" : "int";            // an int that is not
+  const IMUT = wgsl ? "var" : "int";           // an int that is written again
   const LOOP = wgsl ? "var" : "int";
   return `
 ${head}
@@ -480,7 +481,7 @@ ${head}
   ${MUT} lowest = 1000.0;
   ${MUT} highest = -1000.0;
   ${MUT} edge = 0.0;
-  ${MUT} bedSlot = 0;
+  ${IMUT} bedSlot = 0;
   // MINE IS THE COMPONENT, worked out from depth, ground and roof — nothing
   // solid between them and no fall between them — and PASSED IN rather than
   // worked out here. A pure function of the corner, so every column asking

@@ -247,6 +247,47 @@ describe("the GLSL twin speaks GLSL", () => {
    * qualifier, and a local named for it is a syntax error rather than a
    * shadowing warning — the shader simply does not build.
    */
+  /**
+   * GLSL WANTS A FUNCTION DEFINED BEFORE ANYTHING CALLS IT; WGSL does not
+   * care. `wet` called `dryDepth` five lines before it was defined, and a
+   * storey index typed as a float found no `groundAt` that took one: two of
+   * the faults that kept the WebGL water from drawing at all (2026-11-08).
+   * Each call to a function the source defines must come after a definition
+   * with that many arguments.
+   */
+  test("defines every function before it is called, with that many arguments", () => {
+    const TYPES = "void|bool|int|uint|float|[iu]?vec[234]|mat[234]";
+    for (const program of glsl().split(/(?=#version 300 es)/).filter(Boolean)) {
+      const src = program.replace(/\/\/[^\n]*/g, "");
+      const defs = [...src.matchAll(new RegExp(`\\b(?:${TYPES})\\s+(\\w+)\\s*\\(([^)]*)\\)\\s*\\{`, "g"))]
+        .map((m) => ({ name: m[1], at: m.index!, args: m[2].trim() === "" || m[2].trim() === "void" ? 0 : m[2].split(",").length }));
+      const known = new Set(defs.map((d) => d.name));
+      const wrong: string[] = [];
+      for (const m of src.matchAll(/\b(\w+)\s*\(/g)) {
+        if (!known.has(m[1])) continue;
+        // The argument list, to its closing parenthesis: top-level commas counted.
+        let depth = 0, args = 0, any = false, k = m.index! + m[0].length;
+        for (; k < src.length; k++) {
+          const c = src[k];
+          if (c === "(") depth++;
+          else if (c === ")") { if (depth === 0) break; depth--; }
+          else if (c === "," && depth === 0) args++;
+          else if (!/\s/.test(c)) any = true;
+        }
+        const n = any ? args + 1 : 0;
+        // Its own definition's head is not a call.
+        if (defs.some((d) => d.at <= m.index! && src.slice(d.at, m.index!).match(new RegExp(`^(?:${TYPES})\\s+$`)))) continue;
+        if (!defs.some((d) => d.name === m[1] && d.at < m.index! && d.args === n)) wrong.push(`${m[1]}/${n}`);
+      }
+      expect(wrong).toEqual([]);
+    }
+  });
+
+  /** GLSL has no implicit int to float: `float x = 0;` does not build. */
+  test("starts no float from a whole number", () => {
+    expect(glsl().replace(/\/\/[^\n]*/g, "")).not.toMatch(/\bfloat\s+\w+\s*=\s*-?\d+\s*;/);
+  });
+
   test("nothing is named for a GLSL keyword", () => {
     const reserved = ["flat", "smooth", "sample", "buffer", "filter", "input", "output", "active"];
     for (const word of reserved) {
