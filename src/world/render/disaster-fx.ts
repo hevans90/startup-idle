@@ -14,6 +14,9 @@
  *  - ROAD WORKS: a striped barrier and two cones on the closed junction, an
  *    amber lamp blinking on it.
  *
+ *  - AFTERWARDS: a scorch on the ground under and round what burnt out, and
+ *    cracks round what a quake damaged, fading once it is rebuilt (decals).
+ *
  * Steam and haze are the juice's emitters; the barrier is Graphics in the
  * junction's band, put up when the works start and taken down when they end
  * — never touched in between. @see plans/disaster-rendering.md
@@ -24,6 +27,7 @@ import { idx, inBounds, type Grid } from "../grid";
 import { bandOf, cellToWorld } from "../iso";
 import type { RenderCtx } from "../structures/render";
 import type { DamageCause } from "../events/damage";
+import { createDecals } from "./decals";
 import type { EmitAt, Juice, Recipe } from "./juice";
 import { conditionsOf, riseOf, type Lights } from "./lights";
 
@@ -147,6 +151,8 @@ export type DisasterFx = {
     /** A burst main's joint, spraying; a backed-up sewer's manhole, bubbling. @see BURST_MAIN, SEWER_BACKUP */
     spray?: readonly { x: number; y: number }[];
     bubble?: readonly { x: number; y: number }[];
+    /** The clock the marks on the ground fade by, ms. @see createDecals */
+    now?: number;
   }) => void;
   clear: () => void;
 };
@@ -156,10 +162,13 @@ export function createDisasterFx(): DisasterFx {
   const barriers = new Map<number, Graphics>();
   /** What the glows were last put for: retouched only when it changes. */
   let glowKey = "";
+  const decals = createDecals();
 
   return {
-    sync({ ctx, juice, lights, damaged, heatwave, drinkers, closed, roof, fire, spray = [], bubble = [] }) {
+    sync({ ctx, juice, lights, damaged, heatwave, drinkers, closed, roof, fire, spray = [], bubble = [], now = Date.now() }) {
       const g = ctx.grid;
+      // THE MARKS ON THE GROUND: scorch and cracks. @see createDecals
+      decals.sync(ctx, damaged, now);
       // THE EMITTERS: started, moved or stopped to match what is wanted.
       const want = emittersWanted(g, damaged, heatwave, drinkers, roof, fire);
       for (const t of spray) want.set(`spray:${t.x},${t.y}`, { at: { x: t.x, y: t.y, w: 1, h: 1, rise: 0 }, recipe: "spray" });
@@ -210,6 +219,7 @@ export function createDisasterFx(): DisasterFx {
       running.clear();
       for (const b of barriers.values()) if (!b.destroyed) { b.parent?.removeChild(b); b.destroy(); }
       barriers.clear();
+      decals.clear();
       glowKey = "";
     },
   };
