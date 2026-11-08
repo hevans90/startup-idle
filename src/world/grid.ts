@@ -249,6 +249,15 @@ export type Grid = {
   main: Uint8Array;
   /** The fitting at a main's end: {@link MAIN_END}, or 0 along a run. */
   mainEnd: Uint8Array;
+  /**
+   * A SEWER under a cell: the sides it joins its neighbours on, `DIR` bits,
+   * and its flags ({@link SEWER_BORE}, {@link SEWER_AI}). A layer of its own
+   * beneath the ground, so it runs under a road or a water main; how deep it
+   * lies, and where it has to come up, the ground decides. @see world/sewers
+   */
+  sewer: Uint8Array;
+  /** What a sewer has on a cell at the surface: {@link SEWER_FIT}, or 0. */
+  sewerFit: Uint8Array;
   /** Structure ID per cell, −1 = empty. An ID, not a list index — see {@link Structure}. */
   structureAt: Int32Array;
   /** Placed structures, by id. */
@@ -310,6 +319,8 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     pipeZ: new Int8Array(n),
     main: new Uint8Array(n),
     mainEnd: new Uint8Array(n),
+    sewer: new Uint8Array(n),
+    sewerFit: new Uint8Array(n),
     structureAt: new Int32Array(n),
     structures: new Map(),
     nextStructureId: 1,
@@ -363,6 +374,16 @@ export const MAIN_END = { intake: 1, pump: 2, outlet: 3, cap: 4, outfall: 5, dra
  * laid by itself from a workplace's port to a sewer beside it. @see sewerStubs
  */
 export const MAIN_BORE = 16, MAIN_AI = 32, MAIN_SEWER = 64, MAIN_STUB = 128;
+
+/**
+ * What an underground sewer has at the surface on a cell: a NODE (a manhole a
+ * building's lateral can be piped to), an OUTFALL into water, an INLET to a
+ * processor's slop port. Where it spans or lifts is the ground's, worked out.
+ * @see world/sewers/solve
+ */
+export const SEWER_FIT = { node: 1, outfall: 2, inlet: 3 } as const;
+/** Flags on a sewer's cell, above its `DIR` joins: its bore widened; laid by the AI. */
+export const SEWER_BORE = 16, SEWER_AI = 32;
 
 /** The invert of the pipe on a cell — where its floor is. See {@link Grid.pipeZ}. */
 export const pipeInvertAt = (g: Grid, x: number, y: number) =>

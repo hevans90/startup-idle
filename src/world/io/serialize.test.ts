@@ -32,6 +32,17 @@ function sample(w = 12, h = 9) {
 }
 
 describe("round trip", () => {
+  test("the sewers under the ground survive, and a map without any saves none", () => {
+    const g = sample();
+    expect(serializeWorld(g, PAL)).not.toHaveProperty("sewer");
+    g.sewer[idx(g, 3, 3)] = DIR.S | 16;
+    g.sewer[idx(g, 4, 3)] = DIR.N;
+    g.sewerFit[idx(g, 4, 3)] = 2;
+    const { grid } = deserializeWorld(serializeWorld(g, PAL));
+    expect([...grid.sewer]).toEqual([...g.sewer]);
+    expect([...grid.sewerFit]).toEqual([...g.sewerFit]);
+  });
+
   test("every layer survives exactly", () => {
     const g = sample();
     const { grid } = deserializeWorld(serializeWorld(g, PAL));

@@ -114,6 +114,9 @@ export type WorldFile = {
   /** base64 Uint8Arrays of the WATER MAINS: the sides each joins, and its end fittings. Optional: older maps have none. */
   main?: string;
   mainEnd?: string;
+  /** base64 Uint8Arrays of the SEWERS underground: the sides each joins, and what it has at the surface. Optional: older maps have none. */
+  sewer?: string;
+  sewerFit?: string;
   /**
    * Placed structures, as readable JSON — they are few, and worth eyeballing
    * in a diff.
@@ -246,6 +249,8 @@ export function serializeWorld(
     pipeZ: encodeI8(grid.pipeZ),
     // Only where there is a main: most maps have none, and two empty layers are 11KB of nothing.
     ...(grid.main.some(Boolean) || grid.mainEnd.some(Boolean) ? { main: encodeU8(grid.main), mainEnd: encodeU8(grid.mainEnd) } : {}),
+    // Likewise the sewers under the ground.
+    ...(grid.sewer.some(Boolean) || grid.sewerFit.some(Boolean) ? { sewer: encodeU8(grid.sewer), sewerFit: encodeU8(grid.sewerFit) } : {}),
     ramp: encodeU8(grid.ramp),
     structures: [...grid.structures.values()],
     // The boats as they stand, when there is a running world to ask.
@@ -351,6 +356,8 @@ export function deserializeWorld(
   if (typeof f.pipeZ === "string") grid.pipeZ.set(decodeI8(f.pipeZ, n));
   if (typeof f.main === "string") grid.main.set(decodeU8(f.main, n));
   if (typeof f.mainEnd === "string") grid.mainEnd.set(decodeU8(f.mainEnd, n));
+  if (typeof f.sewer === "string") grid.sewer.set(decodeU8(f.sewer, n));
+  if (typeof f.sewerFit === "string") grid.sewerFit.set(decodeU8(f.sewerFit, n));
   grid.structureAt.fill(-1);
   for (const raw of Array.isArray(f.structures) ? f.structures : []) {
     const s = readStructure(raw);

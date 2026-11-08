@@ -122,6 +122,8 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   g.pipeZ.fill(0);
   g.main.fill(0);
   g.mainEnd.fill(0);
+  g.sewer.fill(0);
+  g.sewerFit.fill(0);
 
   // 1. THE STREET, first, because everything else is measured from it.
   const road: Road = layRoad(g, p, rng, paved);
