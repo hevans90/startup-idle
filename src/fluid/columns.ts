@@ -1628,7 +1628,7 @@ function stableStep(f: ColumnField): number {
  * simply dropped — and the difference matters to everything else that is
  * given the frame's dt. @see maxStep
  */
-const MAX_SUBSTEPS = 12;
+export const MAX_SUBSTEPS = 12;
 
 export function stepFlow(f: ColumnField, dt: number) {
   // WHERE THE GROUND MAKES A CLIFF, once a frame — see `FallState.cliff`.
@@ -1689,8 +1689,13 @@ export function stepFlow(f: ColumnField, dt: number) {
  * flow advances one second either way. Unclamped the map held 80 of water;
  * clamped it holds 16, which is what five seconds of one-sixtieth frames hold
  * after the same one second of flow.
+ *
+ * `substeps`, fewer than MAX_SUBSTEPS, is a frame's BUDGET: the CPU solver on
+ * a machine that cannot keep up is given fewer, and the water runs slower
+ * than real time rather than the frame rate falling with it. @see CPU_SOLVE_MS
  */
-export const maxStep = (f: ColumnField) => MAX_SUBSTEPS * stableStep(f);
+export const maxStep = (f: ColumnField, substeps = MAX_SUBSTEPS) =>
+  Math.max(1, Math.min(substeps, MAX_SUBSTEPS)) * stableStep(f);
 
 export function substepsFor(f: ColumnField, dt: number): number[] {
   const out: number[] = [];

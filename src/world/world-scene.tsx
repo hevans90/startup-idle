@@ -105,6 +105,11 @@ const deskTint = (share: number) => {
   const k = Math.round(255 * (0.55 + 0.45 * Math.max(0, Math.min(1, share))));
   return (k << 16) | (k << 8) | Math.min(255, k + 12);
 };
+/**
+ * Milliseconds a frame the CPU water solver is given, when there is no WebGPU
+ * device: half a 60 Hz frame, the rest for drawing it. @see maxStep
+ */
+const CPU_SOLVE_MS = 8;
 /** A flood-damaged building's tint: mud. @see damage */
 const DAMAGED_TINT = 0x9a8466;
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
@@ -218,7 +223,7 @@ import {
 } from "../fluid/gpu/compare-pass";
 import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
-import { activeBox, maxStep } from "../fluid/columns";
+import { activeBox, MAX_SUBSTEPS, maxStep, substepsFor } from "../fluid/columns";
 import { busyness, darkness, dayPhase, drawRain, HEAT_GRADE, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
 import { inForce } from "../game/culture";
 import { cultureNow } from "../game/culture-now";
@@ -2747,6 +2752,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const noSolver = useRef<string | null>("not built yet");
   const cpuFrames = useRef(0);
   const cpuSaid = useRef(0);
+  /** The CPU solver's measured cost a substep, and the substeps a frame it is given. @see CPU_SOLVE_MS */
+  const cpuWater = useRef({ perSub: 0, cap: MAX_SUBSTEPS });
+  if (import.meta.env.DEV) (window as unknown as { __cpuWater?: { perSub: number; cap: number } }).__cpuWater = cpuWater.current;
   const waterFrameRef = useRef<((dt: number) => { solve: number; build: number; town?: number } | null) | null>(null);
   waterFrameRef.current = (dt: number) => {
     // THE BANDS ON SCREEN FIRST, so the water draws for this frame's view and
@@ -3557,10 +3565,26 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
      * `dt` means one thing to the springs, the pipes, the solver and the two
      * renderers, and nothing downstream has to know this happened. @see maxStep
      */
-    const dt = field ? Math.min(raw, maxStep(field.columns)) : raw;
+    //
+    // AND ON THE CPU, TO WHAT THIS MACHINE CAN SOLVE IN A FRAME. Without a
+    // WebGPU device the solver is JavaScript, and its cost is per substep: a
+    // long frame asked for more substeps, which made the next frame longer,
+    // until every frame took the twelve — Firefox without WebGPU sat at 12 fps
+    // on a Large map, 54 ms of every 83 the solver's (2026-11-08). So the
+    // budget is what a substep costs here, measured, into CPU_SOLVE_MS; past
+    // it the water runs slower than real time, as it already does past
+    // MAX_SUBSTEPS, and the frame rate holds. @see maxStep
+    const onCpu = !!field && !solverRef.current;
+    const dt = field ? Math.min(raw, maxStep(field.columns, onCpu ? cpuWater.current.cap : MAX_SUBSTEPS)) : raw;
+    const subs = field && onCpu ? substepsFor(field.columns, dt).length : 0;
     const sWater = section("tick: water frame (all of it)");
     const spent = waterFrameRef.current?.(dt);
     sWater();
+    if (spent && subs > 0) {
+      const c = cpuWater.current, per = spent.solve / subs;
+      c.perSub = c.perSub > 0 ? c.perSub * 0.9 + per * 0.1 : per;
+      c.cap = Math.max(1, Math.min(MAX_SUBSTEPS, Math.floor(CPU_SOLVE_MS / c.perSub)));
+    }
     if (spent) {
       perfAdd("solve", spent.solve);
       perfAdd("build", spent.build);

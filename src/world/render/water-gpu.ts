@@ -1505,8 +1505,9 @@ export type GpuWaterLayer = {
   most: number[];
   /** The shade ramp, shared with whatever else paints this water. */
   tint: TextureSource;
-  /** The ground revision the texture holds. @see ColumnField.groundRev */
+  /** The ground revision the texture holds, and of which field. @see ColumnField.groundRev */
   groundSent: number;
+  groundOf: ColumnField | null;
   /**
    * Whether the fall latch the shaders read is the solver's own this frame,
    * as last written into their uniforms; -1 before the first frame. @see
@@ -1821,6 +1822,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     quads,
     wash, foam, layers, gather: null, fed: new Set(),
     groundSent: -1,
+    groundOf: null,
     latchOn: -1,
     most: meshes.map((m) => m.geometry.instanceCount),
     drawing: true, cpuMs: 0, advectMs: 0, uploadMs: 0,
@@ -2392,16 +2394,21 @@ export function drawGpuWater(
     // NOR A LATCH THE DEVICE IS NOT COPYING OUT: the host's copy is not the
     // solver's then, and the shaders have been told not to read it.
     if (carried && k === FALLING_AT) continue;
-    // THE GROUND ONLY WHEN IT MOVES. With the device filling the rest, this
-    // loop was uploading the terrain and nothing else — a quarter of a
-    // megabyte a frame to say what it said last frame. The CPU path still
-    // marks everything, because on that path nothing else is filling them.
-    if (carried && k === GROUND_AT && columns.groundRev === wl.groundSent) {
+    // THE GROUND AND THE ROOFS ONLY WHEN THEY MOVE, on either path: both are
+    // written by `syncGround`, which bumps the revision, and never by the
+    // solver. With the device filling the rest, this loop was uploading the
+    // terrain and nothing else — a quarter of a megabyte a frame to say what
+    // it said last frame; on the CPU path, where everything else does change,
+    // it was two of the uploads that made WebGL's `texSubImage2D` a third of
+    // the frame (2026-11-08). A field REPLACED starts its revision again, so
+    // the field is asked after too. @see syncGround
+    if ((k === GROUND_AT || k === ROOF_AT) && columns === wl.groundOf && columns.groundRev === wl.groundSent) {
       continue;
     }
     wl.sources[k].update();
   }
   wl.groundSent = columns.groundRev;
+  wl.groundOf = columns;
   // THE FOULING, when it has changed: a byte a tile, a few times a second at most.
   if (wl.fouled.of.rev !== wl.fouled.sent) { wl.fouled.src.update(); wl.fouled.sent = wl.fouled.of.rev; }
   const tC = performance.now();
