@@ -19,6 +19,8 @@ import {
 import { RAMP } from "../iso";
 import { riverAt, riversBeside, riverWithin, type RiverMap } from "../boats/river";
 import { placementOf, structureDef, type StructureDef } from "./def";
+import { LATERAL_REACH, hasSewer, solveSewers } from "../sewers/solve";
+import { portTiles } from "../water/ports";
 
 /** Where a structure stroke places: the head cell, with the definition's footprint. */
 export function strokeFootprint(
@@ -71,7 +73,28 @@ export type PlaceRules = {
   rivers?: RiverMap;
   /** Whether a cell may be built on: the AI keeps its plans to a block, and off the water's edge. @see planTown */
   owned?: (x: number, y: number) => boolean;
+  /**
+   * A building that makes slop needs a live sewer manhole — on a network
+   * with an exit — within a lateral's reach of its slop port. A rule of play,
+   * once slop is made; an upgrade keeps its place. @see plans/underground-sewers.md §5
+   */
+  needsSewer?: boolean;
 };
+
+/** Whether a building of `def` set down at (x, y) would have a live sewer manhole within reach of its slop port. True for one that makes no slop. */
+export function sewerInReach(grid: Grid, def: StructureDef, x: number, y: number): boolean {
+  const ports = portTiles(grid, def.id, x, y, def.footprint.w, def.footprint.h).filter((p) => p.port.fluid === "slop" && p.port.dir === "out");
+  if (!ports.length) return true;
+  const s = solveSewers(grid);
+  for (const net of s.nets) {
+    if (!net.exits.length) continue;
+    for (const n of net.nodes) {
+      const nx = n % grid.w, ny = (n / grid.w) | 0;
+      if (ports.some((p) => Math.abs(p.x - nx) + Math.abs(p.y - ny) <= LATERAL_REACH)) return true;
+    }
+  }
+  return false;
+}
 
 const NO_RULES: PlaceRules = {};
 
@@ -84,6 +107,8 @@ function cellVerdict(
   if (grid.terrain[i] === VOID) return { ok: false, reason: "no ground" };
   if (rules.owned && !rules.owned(x, y)) return { ok: false, reason: "out of bounds" };
   if (structureAt(grid, x, y) >= 0) return { ok: false, reason: "occupied" };
+  // A sewer's land is kept: nothing is built over a trunk. @see plans/underground-sewers.md §1
+  if (hasSewer(grid, i)) return { ok: false, reason: "over a sewer" };
   if (!placementOf(def).allowOnPaved && grid.paved[i] !== VOID) {
     return { ok: false, reason: "on a road" };
   }
@@ -161,6 +186,16 @@ export function validatePlacement(
       ok: false,
       cells: verdicts.map(() => ({ ok: false, reason: "no road access" })),
       reason: "no road access",
+      groundHeight,
+    };
+  }
+
+  // A SEWER IN REACH, for what makes slop. @see sewerInReach
+  if (rules.needsSewer && !sewerInReach(grid, def, ox, oy)) {
+    return {
+      ok: false,
+      cells: verdicts.map(() => ({ ok: false, reason: "No sewer node in reach" })),
+      reason: "No sewer node in reach",
       groundHeight,
     };
   }
@@ -290,6 +325,8 @@ export function planUpgrade(
 ): UpgradePlan | null {
   const from = grid.structures.get(id);
   const to = from && (into ?? structureDef(structureDef(from.def)?.upgradesTo ?? ""));
+  // GROWN, a building keeps its place: it needs no sewer it didn't. @see needsSewer
+  rules = { ...rules, needsSewer: false };
   if (!from || !to) return null;
   const grow = Math.max(0, to.footprint.w - from.w), growV = Math.max(0, to.footprint.h - from.h);
   const old = footprintCells(from.x, from.y, from.w, from.h).filter((c) => inBounds(grid, c.x, c.y));

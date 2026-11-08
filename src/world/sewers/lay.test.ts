@@ -1,15 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
 import { DIR } from "../../iso/dir";
-import { SEWER_FIT, createGrid, idx, type Grid } from "../grid";
+import { SEWER_FIT, createGrid, fillTerrain, idx, type Grid } from "../grid";
 import { planNode, planSewer, routeSewer, SPAN_PRICE, type SewerPlan } from "./lay";
 import { NODE_EVERY, SEWER_KIND } from "./solve";
+import { structureDef } from "../structures/def";
+import { validatePlacement } from "../structures/place";
 
 const PRICES = { unit: 10, liftPrice: 1000 };
 
 /** A map `w` by 9 at height 4, a pond along x = 0. */
 function field(w = 30, heights?: (x: number) => number): { g: Grid; wet: (x: number, y: number) => boolean } {
   const g = createGrid(w, 9);
+  fillTerrain(g, 1);
   for (let y = 0; y < 9; y++) for (let x = 0; x < w; x++) g.height[idx(g, x, y)] = heights?.(x) ?? 4;
   return { g, wet: (x) => x === 0 };
 }
@@ -104,5 +107,31 @@ describe("laying a sewer", () => {
     expect(planNode(g, { x: 3, y: 4 })).toEqual({ cell: idx(g, 3, 4) });
     expect(planNode(g, { x: 3, y: 5 })).toHaveProperty("refused");
     expect(planNode(g, { x: 1, y: 4 })).toEqual({ refused: "It has one already" });
+  });
+});
+
+describe("placing what makes slop", () => {
+  const office = () => structureDef("office-vibe")!;
+  test("needs a live manhole within a lateral's reach of its slop port", () => {
+    const { g, wet } = field(30);
+    // Nowhere near a sewer: refused.
+    expect(validatePlacement(g, office(), 10, 2, { needsSewer: true })).toMatchObject({ ok: false, reason: "No sewer node in reach" });
+    // A trunk from the pond to (12, 4), its end a manhole.
+    lay(g, plan(g, wet, { x: 0, y: 4 }, { x: 12, y: 4 }));
+    expect(validatePlacement(g, office(), 10, 1, { needsSewer: true }).ok).toBe(true);
+    // Without the rule (the editor, or before slop is made), anywhere.
+    expect(validatePlacement(g, office(), 24, 1).ok).toBe(true);
+  });
+
+  test("a manhole on a sewer with no exit serves nothing", () => {
+    const { g, wet } = field(30);
+    lay(g, plan(g, wet, { x: 6, y: 4 }, { x: 12, y: 4 }));
+    expect(validatePlacement(g, office(), 10, 1, { needsSewer: true }).ok).toBe(false);
+  });
+
+  test("nothing is built over a trunk", () => {
+    const { g, wet } = field(30);
+    lay(g, plan(g, wet, { x: 0, y: 4 }, { x: 12, y: 4 }));
+    expect(validatePlacement(g, office(), 6, 3)).toMatchObject({ ok: false, reason: "over a sewer" });
   });
 });

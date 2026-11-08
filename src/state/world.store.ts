@@ -27,6 +27,7 @@ import { ladderOf, startLadder } from "../world/agents/unlocks";
 import type { GameEvent } from "../world/events/events";
 import { housedBy } from "../game/housing";
 import { useGeneratorStore } from "./generators.store";
+import { SLOP_FROM } from "../game/slop";
 import { useMoneyStore } from "./money.store";
 import { incomeNow } from "../world/projects/economy";
 import { builtProjects, createWorks, nearestSpot, projectUnderWay, ruledOut, siteOf, startSiteCommand, startUpgradeCommand, upgradeFrom, type Works } from "../world/projects/works";
@@ -249,8 +250,11 @@ export const getWorks = () => works;
  * @see PlaceRules
  */
 export function playRules(_g: Grid): PlaceRules {
-  return { needsRoad: true };
+  return { needsRoad: true, needsSewer: sewersOpen() };
 }
+
+/** Whether slop is made yet: the Sewer tool is offered, and what makes slop needs a sewer. @see SLOP_FROM */
+export const sewersOpen = () => (useGeneratorStore.getState().generators.find((g) => g.id === "vibe_coder")?.amount ?? 0) >= SLOP_FROM;
 
 export function lotLine(st: { tool: string; structureDefId: string; placingProject: unknown; grid: Grid }, s0: Stroke): Cell[] | null {
   if (st.tool !== "placeStructure" || st.placingProject) return null;

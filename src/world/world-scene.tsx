@@ -3027,7 +3027,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // THE SEWERS: drawn again where they changed; the underground shown, and the ground see-through over it, in its view. @see createSewerLayer
         // On by itself with the Sewer tool in hand, and what it would lay ghosted.
         const underground = st.sewerView || st.tool === "sewer";
-        sewersRef.current?.sync(grid, scale, underground, sewerGhost());
+        // Placing what makes slop, once a sewer is needed: where a manhole reaches. @see sewerInReach
+        const reach = st.playing && st.tool === "placeStructure" && !!playRules(grid).needsSewer
+          && !!structureDef(st.structureDefId)?.ports?.some((p) => p.fluid === "slop" && p.dir === "out");
+        sewersRef.current?.sync(grid, scale, underground, sewerGhost(), reach);
         setGroundAlpha(bl, st.overlays.xray || underground ? XRAY_GROUND : 1); }
       // THE TOWN: cars and people on their trips round the roads. @see world/agents
       const net = getNetwork();

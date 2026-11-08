@@ -21,7 +21,7 @@ import { SEWER_BORE, SEWER_FIT, idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import type { SewerPlan } from "../sewers/lay";
 import { sewerReportsFor } from "../sewers/flow";
-import { SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
+import { LATERAL_REACH, SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
 import type { BandLayer } from "./bands";
 
 const SIDES = ["N", "E", "S", "W"] as const;
@@ -31,6 +31,8 @@ const TUBE_R = 0.07, BORE_WIDE = 1.35;
 const UMBER = 0x7a5230, NOWHERE = 0x8b8f96, BACKED = 0x9c3b1e, SHADE = 0x2a1c10, SHINE = 0xc79a66;
 /** A sewer being dragged: how see-through, and a tile it can't be laid on. */
 const GHOST_ALPHA = 0.6, BAD = 0xd8463a;
+/** Where a slop maker in hand could go: the tiles a live manhole reaches, tinted. */
+const REACH = 0x3fe0a8, REACH_ALPHA = 0.16;
 /** The flow's chevrons. */
 const CHEVRON = 0xf0d2a8;
 /** Cast iron, its rim and its pattern; brick, concrete, a pier. */
@@ -40,7 +42,7 @@ const CONCRETE = 0xb8b4aa, CONCRETE_DARK = 0x8a867c, PIER = 0x6f6a62;
 
 export type SewerLayer = {
   /** Draw again if the sewers, the ground or the scale changed; show the underground or not. */
-  sync: (g: Grid, scale: number, underground: boolean, ghost?: SewerPlan | null) => void;
+  sync: (g: Grid, scale: number, underground: boolean, ghost?: SewerPlan | null, reach?: boolean) => void;
   destroy: () => void;
 };
 
@@ -81,7 +83,35 @@ function cover(gfx: Graphics, x: number, y: number, z: number, scale: number) {
 
 export function createSewerLayer(bands: BandLayer): SewerLayer {
   /** What each band has drawn in it, by tier, so it can be cleared. */
-  const drawn: Graphics[] = [], ghosts: Graphics[] = [];
+  const drawn: Graphics[] = [], ghosts: Graphics[] = [], rings: Graphics[] = [];
+  let ringed: { rev: number; scale: number } | null = null;
+
+  /** The tiles within a lateral's reach of a live manhole, tinted, each in its band's paved tier. */
+  function drawReach(g: Grid, scale: number) {
+    clear(rings);
+    const s = solveSewers(g), seen = new Set<number>(), make = gfxIn(rings, 1), by = new Map<number, Graphics>();
+    for (const net of s.nets) {
+      if (!net.exits.length) continue;
+      for (const n of net.nodes) {
+        const nx = n % g.w, ny = (n / g.w) | 0;
+        for (let dy = -LATERAL_REACH; dy <= LATERAL_REACH; dy++) {
+          for (let dx = -(LATERAL_REACH - Math.abs(dy)); dx <= LATERAL_REACH - Math.abs(dy); dx++) {
+            const x = nx + dx, y = ny + dy;
+            if (x < 0 || y < 0 || x >= g.w || y >= g.h) continue;
+            const i = idx(g, x, y);
+            if (seen.has(i)) continue;
+            seen.add(i);
+            const b = bandOf(x, y);
+            let gfx = by.get(b);
+            if (!gfx) { gfx = make(bands.pavedOf, b); by.set(b, gfx); }
+            const z = g.height[i];
+            gfx.poly([...at(x, y, z, scale, -0.5, -0.5), ...at(x, y, z, scale, 0.5, -0.5), ...at(x, y, z, scale, 0.5, 0.5), ...at(x, y, z, scale, -0.5, 0.5)])
+              .fill({ color: REACH, alpha: REACH_ALPHA });
+          }
+        }
+      }
+    }
+  }
   let ghosted: SewerPlan | null = null;
   let was = { rev: -1, scale: 0, grid: null as Grid | null };
   let shown = false;
@@ -208,7 +238,10 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
   }
 
   return {
-    sync(g, scale, underground, ghost = null) {
+    sync(g, scale, underground, ghost = null, reach = false) {
+      // A SLOP MAKER IN HAND: where its port could be piped from.
+      if (!reach) { if (ringed) { clear(rings); ringed = null; } }
+      else if (!ringed || ringed.rev !== g.rev || ringed.scale !== scale) { drawReach(g, scale); ringed = { rev: g.rev, scale }; }
       // WHAT EACH NETWORK IS DOING: red-brown while backed up, surcharging or stopped.
       const now = performance.now();
       for (const [id, r] of sewerReportsFor(g)) if (r.state === "backed-up" || r.state === "surcharged" || r.state === "unpaid") trouble.set(id, now);
@@ -239,6 +272,6 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
         for (const t of bands.sewerOf) t.visible = underground;
       }
     },
-    destroy: () => { clear(drawn); clear(ghosts); },
+    destroy: () => { clear(drawn); clear(ghosts); clear(rings); },
   };
 }
