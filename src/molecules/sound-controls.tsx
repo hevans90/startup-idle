@@ -27,8 +27,8 @@ export const SoundControls = () => {
       {bus("effects", "Effects", () => sfx("build"))}
       {bus("interface", "Interface", () => sfx("confirm"))}
       {bus("ambience", "Ambience")}
-      <Field label="Ticks under the pointer">
-        <Toggle label="Interface ticks under the pointer" on={g.ticks} onChange={(on) => set({ ticks: on })} />
+      <Field label="Tick on hover">
+        <Toggle label="Tick when the pointer reaches something clickable" on={g.ticks} onChange={(on) => set({ ticks: on })} />
       </Field>
     </>
   );
