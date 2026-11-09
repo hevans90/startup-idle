@@ -21,6 +21,11 @@
  * lines, and the kerb's face. Then raised, a kerb's height up: the pavement
  * and its kerb. Where the raised layer has moved off the ground one, on a
  * kerb facing the eye, the face shows.
+ *
+ * DETAIL BY ZOOM. A look is painted at one of {@link LOD_RES}'s resolutions,
+ * each on pages of its own. The finer ones, for cells seen close up, add what
+ * only shows there: the stone in the asphalt, tyre-polished lanes, the bevel
+ * of each flag, brick and kerb. @see lodFor
  */
 import { CanvasSource, Rectangle, Texture } from "pixi.js";
 
@@ -33,10 +38,23 @@ import { opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
 export const PAVE = 0.22, KERB = 0.04, WALK = PAVE + KERB;
 /** How high a kerb stands, in frame pixels. */
 const KERB_PX = 1.6;
-/** Texels a frame pixel: crisp zoomed in. */
-const RES = 2;
-/** An atlas page, texels square. */
-const PAGE = 2048;
+/**
+ * Texels a frame pixel, by level of detail: the map's own, then two closer.
+ * A level is used once the screen shows a frame pixel bigger than its
+ * resolution, so a texture is never magnified past about 1.2×.
+ */
+export const LOD_RES = [2, 4, 7] as const;
+/** An atlas page, texels square, by level of detail. */
+const PAGE_OF = [2048, 4096, 4096] as const;
+
+/** The level of detail for a screen showing `pxPerFrame` screen pixels to a frame pixel. */
+export function lodFor(pxPerFrame: number): number {
+  for (let l = 0; l < LOD_RES.length; l++) if (pxPerFrame <= LOD_RES[l] * 1.2) return l;
+  return LOD_RES.length - 1;
+}
+
+/** The level of detail being painted: set for the length of one texture's paint. */
+let DETAIL = 0;
 /** How far past its own edges a texture paints its neighbours, tiles: more than the AA of an edge. */
 const MARGIN = 0.03;
 /** Frame pixels of room round the diamond, and over it for a ramp rising up-screen. */
@@ -162,7 +180,7 @@ function bandRect(ctx: Ctx, s: Side, a0: number, a1: number, d0: number, d1: num
  * WALK, the road begins at WALK. Bands at that depth, rounds and nubs at the
  * radius that is.
  */
-function alongKerb(ctx: Ctx, S: Shape, o0: number, o1: number, colour: string) {
+function alongKerb(ctx: Ctx, S: Shape, o0: number, o1: number, colour: string | CanvasPattern) {
   ctx.fillStyle = colour;
   for (const B of S.bands) { bandRect(ctx, B.s, B.a0, B.a1, o0, o1); ctx.fill(); }
   for (const R of S.rounds) {
@@ -270,20 +288,40 @@ function piecesOf(level: number, vr: number, seed: number, from: number, to: num
 
 // ─── ON THE GROUND ───────────────────────────────────────────────────────────
 
-let grain: HTMLCanvasElement | null = null;
-/** Asphalt's grain: speckle, light and dark, a quarter tile square and repeating. */
+const grains: HTMLCanvasElement[] = [];
+/**
+ * Asphalt's grain: speckle, light and dark, a quarter tile square and
+ * repeating — the same speckle at every level, drawn at its resolution. Closer
+ * up, the stone of the aggregate too: chips of grey, buff and near-black.
+ */
 function grainCanvas(): HTMLCanvasElement {
-  if (grain) return grain;
-  const N = 96;
-  grain = document.createElement("canvas");
-  grain.width = grain.height = N;
-  const g = grain.getContext("2d")!;
+  const lod = DETAIL;
+  if (grains[lod]) return grains[lod];
+  const k0 = LOD_RES[lod] / 2, N = Math.round(96 * k0);
+  const c = document.createElement("canvas");
+  c.width = c.height = N;
+  const g = c.getContext("2d")!;
   for (let k = 0; k < 900; k++) {
-    const x = hash(k * 1.3) * N, y = hash(k * 2.7 + 9) * N, s = 0.6 + hash(k * 3.1) * 1.2;
+    const x = hash(k * 1.3) * N, y = hash(k * 2.7 + 9) * N, s = (0.6 + hash(k * 3.1) * 1.2) * k0;
     g.fillStyle = hash(k * 5.9) < 0.5 ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.09)";
     g.fillRect(x, y, s, s);
   }
-  return grain;
+  if (lod > 0) {
+    const STONE = [0x8d8b86, 0x9f9788, 0x6f6e6b, 0x2c2c2e, 0xb3ada0];
+    for (let k = 0; k < 2600 * lod; k++) {
+      const x = hash(k * 4.1 + 3) * N, y = hash(k * 6.3 + 1) * N, r = (0.35 + hash(k * 2.2 + 7) * 0.55) * k0 * 0.7;
+      g.fillStyle = css(STONE[Math.floor(hash(k * 8.7) * STONE.length)], 0.16 + hash(k * 9.1) * 0.18);
+      g.beginPath(); g.ellipse(x, y, r, r * (0.6 + hash(k * 1.9) * 0.4), hash(k * 3.3) * Math.PI, 0, Math.PI * 2); g.fill();
+    }
+  }
+  grains[lod] = c;
+  return c;
+}
+/** The grain as a fill, in tile units. */
+function grainFill(ctx: Ctx): CanvasPattern | null {
+  const c = grainCanvas(), pat = ctx.createPattern(c, "repeat");
+  pat?.setTransform(new DOMMatrix().scale(0.25 / c.width));
+  return pat;
 }
 
 /** A marking's frame: at the edge toward side `s`, `e` back from it and `c` right of the middle. */
@@ -486,17 +524,42 @@ function fittings(ctx: Ctx, L: Look, S: Shape) {
   }
 }
 
+/**
+ * Close up, where the tyres run: two darker, polished tracks in each lane of a
+ * straight road, the length of the tile so they run on into the next.
+ */
+function wheelTracks(ctx: Ctx, L: Look) {
+  if (L.box || L.zeb) return;
+  const c = L.ctr;
+  // Lane middles, across the road, from the low edge of the across axis.
+  let across: "u" | "v", mids: number[];
+  if (c === "u" || c === "U" || c === "v" || c === "V") {
+    across = c.toLowerCase() === "u" ? "v" : "u";
+    const half = (0.5 - WALK) / 2;
+    mids = [0.5 - half, 0.5 + half];
+  } else if (c[0] === "h" || c[0] === "H") {
+    const s = Number(c[1]) as Side, lane = (1 - WALK) / 2;
+    across = s < 2 ? "u" : "v";
+    mids = [s & 1 ? 1 - lane : lane];
+  } else return;
+  ctx.fillStyle = css(0x1f2023, 0.09);
+  for (const m of mids) for (const o of [-0.055, 0.055]) {
+    const c0 = m + o - 0.018, c1 = m + o + 0.018;
+    if (across === "u") ctx.fillRect(c0, -0.1, c1 - c0, 1.2); else ctx.fillRect(-0.1, c0, 1.2, c1 - c0);
+  }
+}
+
 /** Everything on the ground of one cell, in its own (u, v). */
 function paintGround(ctx: Ctx, L: Look) {
   const S = shapeOf(L);
   ctx.fillStyle = css(ASPHALT);
   ctx.fillRect(-0.1, -0.1, 1.2, 1.2);
-  const pat = ctx.createPattern(grainCanvas(), "repeat");
+  const pat = grainFill(ctx);
   if (pat) {
-    pat.setTransform(new DOMMatrix().scale(0.25 / 96));
     ctx.fillStyle = pat;
     ctx.fillRect(-0.1, -0.1, 1.2, 1.2);
   }
+  if (DETAIL > 0) wheelTracks(ctx, L);
   // The gutter: darker where the kerb meets the road.
   alongKerb(ctx, S, WALK, WALK + 0.03, css(0x000000, 0.12));
   fittings(ctx, L, S);
@@ -526,13 +589,21 @@ function paintRaised(ctx: Ctx, L: Look) {
   footprint(ctx, S);
   ctx.fill();
   if (lvl === 0) {
-    const pat = ctx.createPattern(grainCanvas(), "repeat");
-    if (pat) { pat.setTransform(new DOMMatrix().scale(0.25 / 96)); ctx.fillStyle = pat; footprint(ctx, S); ctx.fill(); }
+    const pat = grainFill(ctx);
+    if (pat) { ctx.fillStyle = pat; footprint(ctx, S); ctx.fill(); }
   }
   const piece = (q: Piece, shape: (a0: number, a1: number, d0: number, d1: number) => void) => {
     ctx.fillStyle = css(q.c);
     shape(q.a0, q.a1, q.d0, q.d1);
     ctx.fill();
+    if (DETAIL === 0) return;
+    // Close up, each piece's bevel: lit along its back edge, shaded along the
+    // kerb side, and the grit of its surface.
+    const b = Math.min(0.006, (q.d1 - q.d0) / 4);
+    ctx.fillStyle = css(mix(q.c, 0xffffff, 0.22)); shape(q.a0, q.a1, q.d0, q.d0 + b); ctx.fill();
+    ctx.fillStyle = css(tone(q.c, 0.8)); shape(q.a0, q.a1, q.d1 - b, q.d1); ctx.fill();
+    const pat = grainFill(ctx);
+    if (pat) { ctx.fillStyle = pat; ctx.globalAlpha = 0.6; shape(q.a0, q.a1, q.d0, q.d1); ctx.fill(); ctx.globalAlpha = 1; }
   };
   if (S.full) {
     // A cell of road on its own: paved all over.
@@ -568,6 +639,18 @@ function paintRaised(ctx: Ctx, L: Look) {
   alongKerb(ctx, S, PAVE, WALK, css(kc));
   alongKerb(ctx, S, PAVE, PAVE + 0.007, css(mix(kc, 0xffffff, 0.35)));
   alongKerb(ctx, S, WALK - 0.006, WALK, css(tone(kc, 0.85)));
+  if (DETAIL > 0) {
+    // Close up, each kerbstone a shade of its own, and their worn arrises.
+    for (const B of S.bands) for (let k = 0; k < 6; k++) {
+      const a0 = Math.max(B.a0, k / 6), a1 = Math.min(B.a1, (k + 1) / 6);
+      if (a1 <= a0) continue;
+      ctx.fillStyle = css(tone(kc, 0.94 + hash(B.s * 7.3 + k * 1.7 + L.vr) * 0.1));
+      bandRect(ctx, B.s, a0, a1, PAVE + 0.007, WALK - 0.006); ctx.fill();
+    }
+    const pat = grainFill(ctx);
+    if (pat) { ctx.globalAlpha = 0.5; alongKerb(ctx, S, PAVE, WALK, pat); ctx.globalAlpha = 1; }
+    alongKerb(ctx, S, WALK - 0.012, WALK - 0.006, css(tone(kc, 0.92)));
+  }
   ctx.fillStyle = css(tone(kc, 0.78));
   for (const B of S.bands) for (let k = 1; k < 6; k++) {
     const a = k / 6;
@@ -581,34 +664,41 @@ function paintRaised(ctx: Ctx, L: Look) {
 type Page = { canvas: HTMLCanvasElement; ctx: Ctx; source: CanvasSource; x: number; y: number; row: number; dirty: boolean };
 
 export type RoadPainter = {
-  /** The texture for a key, painted from its cells the first time it is asked for. */
-  textureFor(key: string, cells: CellPaint[], ramp: boolean): Texture;
+  /**
+   * The texture for a key at a level of detail, painted from its cells the
+   * first time it is asked for. Every level's texture is the same size in
+   * frame pixels, so a sprite can swap between them and not move.
+   */
+  textureFor(key: string, cells: CellPaint[], ramp: boolean, lod?: number): Texture;
+  /** Whether a key is painted at a level yet. */
+  has(key: string, lod: number): boolean;
+  /** Drop a closer level's pages and textures. Nothing may still draw them. */
+  evict(lod: number): void;
   /** Upload what was painted since the last flush. */
   flush(): void;
-  stats(): { keys: number; pages: number };
+  stats(): { keys: number; pages: number; tiers: { keys: number; pages: number }[] };
   destroy(): void;
 };
 
 export function createRoadPainter(): RoadPainter {
-  const pages: Page[] = [];
-  const cache = new Map<string, Texture>();
+  const tiers = LOD_RES.map(() => ({ pages: [] as Page[], cache: new Map<string, Texture>() }));
   let flushing = false;
 
-  const newPage = (): Page => {
+  const newPage = (lod: number): Page => {
     const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = PAGE;
+    canvas.width = canvas.height = PAGE_OF[lod];
     const ctx = canvas.getContext("2d", { willReadFrequently: false })!;
-    const source = new CanvasSource({ resource: canvas, resolution: RES, autoGenerateMipmaps: true, scaleMode: "linear" });
+    const source = new CanvasSource({ resource: canvas, resolution: LOD_RES[lod], autoGenerateMipmaps: true, scaleMode: "linear" });
     const p = { canvas, ctx, source, x: 0, y: 0, row: 0, dirty: false };
-    pages.push(p);
+    tiers[lod].pages.push(p);
     return p;
   };
-  /** A slot of `w × h` frame pixels. */
-  const slot = (w: number, h: number) => {
-    const size = PAGE / RES;
-    let p = pages[pages.length - 1] ?? newPage();
+  /** A slot of `w × h` frame pixels on a level's pages. */
+  const slot = (lod: number, w: number, h: number) => {
+    const size = PAGE_OF[lod] / LOD_RES[lod], pages = tiers[lod].pages;
+    let p = pages[pages.length - 1] ?? newPage(lod);
     if (p.x + w > size) { p.x = 0; p.y += p.row; p.row = 0; }
-    if (p.y + h > size) { p = newPage(); }
+    if (p.y + h > size) { p = newPage(lod); }
     const at = { p, x: p.x, y: p.y };
     p.x += w;
     p.row = Math.max(p.row, h);
@@ -617,17 +707,27 @@ export function createRoadPainter(): RoadPainter {
 
   const flush = () => {
     flushing = false;
-    for (const p of pages) if (p.dirty) { p.dirty = false; p.source.update(); }
+    for (const t of tiers) for (const p of t.pages) if (p.dirty) { p.dirty = false; p.source.update(); }
+  };
+  const drop = (lod: number) => {
+    const t = tiers[lod];
+    for (const tex of t.cache.values()) tex.destroy(false);
+    t.cache.clear();
+    for (const p of t.pages) p.source.destroy();
+    t.pages.length = 0;
   };
 
   const painter: RoadPainter = {
-    textureFor(key, cells, ramp) {
-      const hit = cache.get(key);
+    textureFor(key, cells, ramp, lod = 0) {
+      const tier = tiers[lod];
+      const hit = tier.cache.get(key);
       if (hit) return hit;
+      const RES = LOD_RES[lod];
       const top = ramp ? RAMP_PAD : PAD;
       const w = 132 + 2 * PAD, h = top + 99 + PAD;
-      const { p, x, y } = slot(w, h);
+      const { p, x, y } = slot(lod, w, h);
       const ctx = p.ctx;
+      DETAIL = lod;
       ctx.save();
       ctx.setTransform(RES, 0, 0, RES, 0, 0);
       ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
@@ -657,20 +757,22 @@ export function createRoadPainter(): RoadPainter {
         ctx.restore();
       }
       ctx.restore();
+      DETAIL = 0;
       p.dirty = true;
       if (!flushing) { flushing = true; queueMicrotask(flush); }
       const tex = new Texture({ source: p.source, frame: new Rectangle(x, y, w, h), defaultAnchor: { x: 0.5, y: (top + 99) / h } });
-      cache.set(key, tex);
+      tier.cache.set(key, tex);
       return tex;
     },
+    has: (key, lod) => tiers[lod].cache.has(key),
+    evict(lod) { if (lod > 0) drop(lod); },
     flush,
-    stats: () => ({ keys: cache.size, pages: pages.length }),
-    destroy() {
-      for (const t of cache.values()) t.destroy(false);
-      cache.clear();
-      for (const p of pages) p.source.destroy();
-      pages.length = 0;
-    },
+    stats: () => ({
+      keys: tiers.reduce((n, t) => n + t.cache.size, 0),
+      pages: tiers.reduce((n, t) => n + t.pages.length, 0),
+      tiers: tiers.map((t) => ({ keys: t.cache.size, pages: t.pages.length })),
+    }),
+    destroy() { for (let l = 0; l < tiers.length; l++) drop(l); },
   };
   // How many looks, how many pages: for the console. @see stats
   if (import.meta.env?.DEV) (globalThis as { __roadPainter?: RoadPainter }).__roadPainter = painter;

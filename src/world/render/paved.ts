@@ -42,6 +42,10 @@ export type PavedLayer = {
   looks: (Look | null)[];
   /** The street's level and its zebras, per cell. @see dressPaved */
   dress: Uint8Array | undefined;
+  /** Each cell's level of detail, as its sprite draws it now. @see lodPaved */
+  lod: Uint8Array;
+  /** The level wanted on screen, as last asked for. */
+  lodWant: number;
 };
 
 /** Whether roads are painted in code here: in a browser, unless the URL asks for the sheet's. */
@@ -60,6 +64,8 @@ export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1, painte
     painter,
     looks: [],
     dress: undefined,
+    lod: new Uint8Array(n),
+    lodWant: 0,
   };
 }
 
@@ -127,6 +133,7 @@ export function syncPaved(
       pl.sprites[i] = null;
       if (pl.frames[i] !== null) pl.frames[i] = null;
     }
+    pl.lod[i] = 0;
     return;
   }
 
@@ -134,7 +141,7 @@ export function syncPaved(
     if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
     const paint = paintOf(pl, grid, x, y);
     if (!paint) return;
-    const tex = pl.painter.textureFor(paint.key, paint.cells, paint.ramp);
+    const tex = pl.painter.textureFor(paint.key, paint.cells, paint.ramp, pl.lod[i]);
     let s = existing;
     if (!s) {
       s = new Sprite(tex);
@@ -193,6 +200,63 @@ export function syncPaved(
   // GROUND_FRAME_H.
   s.y = spriteY(wy, ramp !== RAMP.NONE ? GROUND_FRAME_H : tex.height, pl.scale);
   s.scale.set(pl.scale * TILE_BLEED);
+}
+
+/** How many closer pages a level may fill before it is dropped and painted again for what is on screen. */
+const LOD_PAGES = 2;
+
+/**
+ * DETAIL BY ZOOM: the cells on screen drawn at level `want`, the rest at the
+ * map's own. `view` is the visible part of the world, in the sprites' space.
+ * New textures are painted until `budgetMs` is spent; returns false if any
+ * cell is still waiting, so the caller asks again next frame.
+ */
+export function lodPaved(
+  pl: PavedLayer,
+  grid: Grid,
+  want: number,
+  view: { left: number; top: number; right: number; bottom: number },
+  budgetMs: number,
+): boolean {
+  const P = pl.painter;
+  if (!P) return true;
+  if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
+  const back = (lod: number) => {
+    for (let i = 0; i < pl.lod.length; i++) if (pl.lod[i] === lod) retexture(pl, grid, i, 0);
+  };
+  // A level no longer wanted, or one that has filled its pages: back to the
+  // map's own, and its pages let go.
+  const tiers = P.stats().tiers;
+  for (let l = 1; l < tiers.length; l++) {
+    if ((l !== want && tiers[l].pages > 0) || tiers[l].pages > LOD_PAGES) { back(l); P.evict(l); }
+  }
+  pl.lodWant = want;
+  const t0 = performance.now();
+  // A sprite's frame reaches a tile and a bit either side of its anchor, and up a ramp's pad.
+  const mx = 80 * pl.scale, up = 150 * pl.scale, down = 20 * pl.scale;
+  let done = true;
+  for (let i = 0; i < pl.sprites.length; i++) {
+    const s = pl.sprites[i];
+    if (!s) continue;
+    const seen = s.x + mx > view.left && s.x - mx < view.right && s.y + down > view.top && s.y - up < view.bottom;
+    const lod = seen ? want : 0;
+    if (pl.lod[i] === lod) continue;
+    if (lod > 0 && performance.now() - t0 > budgetMs) {
+      const paint = paintOf(pl, grid, i % grid.w, (i / grid.w) | 0);
+      if (paint && !P.has(paint.key, lod)) { done = false; continue; }
+    }
+    retexture(pl, grid, i, lod);
+  }
+  return done;
+}
+
+/** Draw cell `i` at level `lod`. */
+function retexture(pl: PavedLayer, grid: Grid, i: number, lod: number) {
+  const s = pl.sprites[i], paint = paintOf(pl, grid, i % grid.w, (i / grid.w) | 0);
+  pl.lod[i] = lod;
+  if (!s || !paint || !pl.painter) return;
+  const tex = pl.painter.textureFor(paint.key, paint.cells, paint.ramp, lod);
+  if (s.texture !== tex) s.texture = tex;
 }
 
 /** Build every paved cell. Only for first paint or a full reload. */

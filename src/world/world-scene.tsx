@@ -54,7 +54,8 @@ import {
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, type TerrainLayer } from "./render/terrain";
 import { buildCliffs, createCliffLayer, syncCliff, type CliffLayer } from "./render/cliffs";
-import { buildPaved, createPavedLayer, dressPaved, recountInexact, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
+import { buildPaved, createPavedLayer, dressPaved, lodPaved, recountInexact, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
+import { lodFor } from "./render/road-paint";
 import { lookDirtyCells } from "./roads/looks";
 import {
   createWaterLayer, destroyWaterLayer, drawWater, type WaterLayer,
@@ -3936,6 +3937,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     }
   };
   useTick(() => cullBandsRef.current?.());
+
+  // ROADS IN DETAIL CLOSE UP: the cells on screen painted at the resolution the
+  // zoom shows them at, a few new ones a frame. Asked again only when the zoom
+  // crosses a level, the view moves a tile, or cells are still waiting.
+  const lodView = useRef({ pl: null as PavedLayer | null, want: -1, x: NaN, y: NaN, w: NaN, waiting: false });
+  useTick(() => {
+    const pl = plRef.current, vp = useWorldStore.getState().viewport;
+    if (!pl?.painter || !vp) return;
+    const want = lodFor(scale * vp.scale.x * app.renderer.resolution);
+    const L = lodView.current, step = 66 * scale;
+    const x = Math.round(vp.left / step), y = Math.round(vp.top / step), w = Math.round(vp.worldScreenWidth / step);
+    if (pl === L.pl && want === L.want && x === L.x && y === L.y && w === L.w && !L.waiting) return;
+    const e = section("tick: road detail");
+    L.waiting = !lodPaved(pl, useWorldStore.getState().grid, want, { left: vp.left, top: vp.top, right: vp.right, bottom: vp.bottom }, 4);
+    e();
+    Object.assign(L, { pl, want, x, y, w });
+  });
 
   void app;
   return (
