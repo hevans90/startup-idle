@@ -26,10 +26,17 @@ import { faceOf } from "./shopfronts";
 
 /** A prop on a road tile: which, its tile, and the kerb it stands by. */
 export type StreetProp = {
-  kind: "tree" | "planter" | "bin" | "lamp" | "bench" | "brick" | "crossing" | "beacon" | "table" | "bunting";
+  kind: "tree" | "planter" | "bin" | "lamp" | "bench" | "brick" | "bend" | "nub" | "crossing" | "beacon" | "table" | "bunting";
   x: number; y: number;
   /** The street's level, 1–3: what it has grown into. */
   level?: number;
+  /**
+   * A bend's or a nub's corner of the tile: 0 at (0, 0), 1 at (1, 0), 2 at
+   * (1, 1), 3 at (0, 1) — where a bend's ring is centred, where a nub is.
+   */
+  corner?: number;
+  /** A nub on a bend, round, as the road's art draws it there; at a junction it is squarer. */
+  round?: boolean;
   /** Bunting's piece of its span: how many tiles along from the lamp it is tied to. @see SPAN */
   span?: number;
   /** The kerb: the side of the tile with no road beyond it. */
@@ -37,6 +44,11 @@ export type StreetProp = {
 };
 /** A house's mural: on the face away from its street. */
 export type Mural = { id: number; x: number; y: number; face: "u" | "v" };
+
+/** A tile's corners, 0 to 3: (0, 0), (1, 0), (1, 1), (0, 1). */
+const CORNERS = [[0, 0], [1, 0], [1, 1], [0, 1]] as const;
+/** Two kerbs turning a corner, as the sides are listed N, E, S, W: the corner the bend's ring is centred on, across from them. */
+const BEND: Record<string, number> = { NE: 3, ES: 0, SW: 1, NW: 2 };
 
 /** Tiles from one lamp to the next along a kerb: the length of a run of bunting. */
 const SPAN = 4;
@@ -50,10 +62,31 @@ const SIDES = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] } as const;
  */
 export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: StreetProp[]; murals: Mural[] } {
   const props: StreetProp[] = [];
+  const paved = (x: number, y: number) => inBounds(g, x, y) && isPaved(g, x, y);
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
-      const i = idx(g, x, y), level = b.tile[i];
+      if (!paved(x, y)) continue;
+      const i = idx(g, x, y);
+      // A junction is as fine as the finest street meeting at it.
+      const junction = streets.of[i] < 0;
+      let level = b.tile[i];
+      if (junction) for (const [dx, dy] of Object.values(SIDES)) if (inBounds(g, x + dx, y + dy)) level = Math.max(level, b.tile[idx(g, x + dx, y + dy)]);
       if (level < 1) continue;
+      // THE PAVEMENT ROUND ITS CURVES, as the road's own art draws them: a
+      // quarter ring where its kerbs turn a corner, and a nub of kerb at a
+      // corner where two roads meet with no road between them.
+      const kerbs = (Object.keys(SIDES) as StreetProp["side"][]).filter((sd) => !paved(x + SIDES[sd][0], y + SIDES[sd][1]));
+      const turn = kerbs.length === 2 && BEND[kerbs.join("")];
+      if (turn !== undefined && turn !== false) props.push({ kind: "bend", x, y, side: "N", level, corner: turn });
+      CORNERS.forEach(([cx, cy], c) => {
+        const sx = cx ? 1 : -1, sy = cy ? 1 : -1;
+        if (paved(x + sx, y) && paved(x, y + sy) && !paved(x + sx, y + sy)) props.push({ kind: "nub", x, y, side: "N", level, corner: c, round: turn !== undefined && turn !== false });
+      });
+      if (turn !== undefined && turn !== false) continue;
+      if (junction) {
+        for (const side of kerbs) props.push({ kind: "brick", x, y, side, level });
+        continue;
+      }
       const k = x + y;
       // AT A STREET'S END, where it meets a junction: its crossing.
       const end = (Object.values(SIDES) as readonly (readonly [number, number])[]).some(([dx, dy]) => inBounds(g, x + dx, y + dy) && isPaved(g, x + dx, y + dy) && streets.of[idx(g, x + dx, y + dy)] < 0);
@@ -200,8 +233,12 @@ function beacon(p: Pen, u: number, v: number) {
 
 // ─── THE PAVEMENT, RELAID ───────────────────────────────────────────────────
 
-/** How deep the pavement is from the tile's edge, and its kerb beyond. */
-const PAVE = 0.165, KERB = 0.03;
+/**
+ * Where the road's own art has its pavement, measured off its sprites: from
+ * the tile's edge in to its kerb at PAVE + KERB, where the road begins,
+ * raised Z0 off it. Relaid over exactly that, its edges are the art's.
+ */
+const PAVE = 0.25, KERB = 0.04, Z0 = 0.04;
 
 /** A piece of paving in a kerb's own terms: `a` along it, `d` in from the tile's edge. */
 type Piece = { a0: number; a1: number; d0: number; d1: number; c: number };
@@ -216,7 +253,7 @@ function piecesOf(level: number, at: number, row: number): Piece[] {
   const h = (k: number) => hash(at * 131.7 + row * 17.3 + k * 7.31);
   if (level <= 1) {
     // CONCRETE FLAGS, square, two across, each a shade of its own.
-    const n = 11, J = 0.006;
+    const n = 8, J = 0.006;
     for (let i = 0; i < n; i++) for (let r = 0; r < 2; r++) {
       const k = h(i * 2 + r);
       out.push({ a0: i / n + J / 2, a1: (i + 1) / n - J / 2, d0: (r * PAVE) / 2 + J / 2, d1: ((r + 1) * PAVE) / 2 - J / 2, c: tone(0xd2cfc6, 0.95 + k * 0.08) });
@@ -226,7 +263,7 @@ function piecesOf(level: number, at: number, row: number): Piece[] {
   if (level === 2) {
     // CLAY BRICK in courses along the kerb, each course half a brick on from
     // the last; a soldier course of them on end along the kerb.
-    const n = 14, J = 0.005, course = 0.033, courses = 4;
+    const n = 14, J = 0.005, course = 0.035, courses = 6;
     const REDS = [0xa85a42, 0xb4634a, 0x9a5038, 0xbd7055];
     for (let c = 0; c < courses; c++) {
       const off = c % 2 ? 0.5 / n : 0;
@@ -247,7 +284,7 @@ function piecesOf(level: number, at: number, row: number): Piece[] {
   // YORK STONE: big flags in two rows, of lengths of their own, in the buffs
   // and greys of the stone; a band of granite setts along the kerb.
   const STONES = [0xd6bf92, 0xc7ad84, 0xdfcca2, 0xbca98e, 0xcdb48a, 0xb9ab95];
-  const J = 0.007, d0 = 0.024, d1 = 0.078, d2 = 0.13;
+  const J = 0.007, d0 = 0.024, d1 = 0.1, d2 = 0.19;
   // Along the house side, a band of brick headers.
   for (let i = 0; i < 28; i++) out.push({ a0: i / 28 + 0.003, a1: (i + 1) / 28 - 0.003, d0: 0.003, d1: d0 - 0.003, c: tone(0xa85a42, 0.9 + h(300 + i) * 0.2) });
   for (const [r, n, z0, z1] of [[0, 3, d0, d1], [1, 4, d1, d2]] as const) {
@@ -274,35 +311,128 @@ const JOINT = [0, 0xb3b0a7, 0x8a7c6c, 0x857a68];
 /** The kerb, by level: granite, lighter and wider at the finest. */
 const KERB_OF = [0, 0xb9b8b0, 0xb5b4ac, 0xc9c8c0];
 
+/** The kerb's width, by level. */
+const kerbOf = (level: number) => (level === 3 ? KERB * 1.15 : KERB);
+
+/**
+ * A straight run of pavement along `side` of a tile, laid between `from` and
+ * `to` along it, with the pieces of the tile `at` along the kerb, moved
+ * `shift` tiles along: joints, pieces, the kerb's top, its face down to the
+ * road where it can be seen, its shadow.
+ */
+function run(p: Pen, level: number, side: StreetProp["side"], at: number, row: number, from: number, to: number, shift: number) {
+  const rect = (a0: number, a1: number, d0: number, d1: number, z: number, c: number, al?: number) => {
+    const [u0, v0] = onKerb(side, a0, d0), [u1, v1] = onKerb(side, a1, d1);
+    p.flat(Math.min(u0, u1), Math.min(v0, v1), Math.max(u0, u1), Math.max(v0, v1), z, c, al);
+  };
+  rect(from, to, 0, PAVE, Z0 + 0.001, JOINT[level]);
+  for (const q of piecesOf(level, at, row)) {
+    const a0 = Math.max(from, q.a0 + shift), a1 = Math.min(to, q.a1 + shift);
+    if (a1 > a0) rect(a0, a1, q.d0, q.d1, Z0 + 0.002, q.c);
+  }
+  const kc = KERB_OF[level], kw = kerbOf(level), K = PAVE + kw;
+  // Its face, on a kerb facing the eye (the north and west ones): first, under its top's edge.
+  if (side === "N" || side === "W") {
+    const [u0, v0] = onKerb(side, from, K), [u1, v1] = onKerb(side, to, K);
+    p.poly([p.P(u0, v0, 0), p.P(u1, v1, 0), p.P(u1, v1, Z0 + 0.003), p.P(u0, v0, Z0 + 0.003)], tone(kc, 0.72));
+  }
+  rect(from, to, PAVE, K, Z0 + 0.003, kc);
+  rect(from, to, PAVE, PAVE + 0.006, Z0 + 0.004, mix(kc, 0xffffff, 0.35));
+  for (let i = Math.ceil(from * 6); i <= Math.floor(to * 6); i++) rect(Math.max(from, i / 6 - 0.002), Math.min(to, i / 6 + 0.002), PAVE, K, Z0 + 0.004, tone(kc, 0.8));
+  rect(from, to, K, K + 0.014, 0.001, 0x000000, 0.22);
+}
+
 /**
  * A PAVEMENT RELAID, by the street's level: under the props, over the road's
  * own pavement, a granite kerb along its road edge and its shadow on the road.
- * It laps back over the tile behind along the kerb: that one is a band
- * earlier, and this tile's road sprite, a hair wider than its diamond, paints
- * over the end of its paving — so this one's covers it again, with the tile
- * behind's own last pieces.
+ * `lap`, drawn as the tile in front's lap over it: only its last LAP along
+ * the edge it shares with that tile. @see lapsOf
  */
-function paving(p: Pen, pr: StreetProp) {
+function paving(p: Pen, pr: StreetProp, lap?: "u" | "v") {
   const level = Math.max(1, Math.min(3, pr.level ?? 1));
   const along = alongU(pr.side);
   const at = along ? pr.x : pr.y, row = (along ? pr.y : pr.x) * 4 + "NESW".indexOf(pr.side);
-  const rect = (a0: number, a1: number, d0: number, d1: number, z: number, c: number, al?: number) => {
-    const [u0, v0] = onKerb(pr.side, a0, d0), [u1, v1] = onKerb(pr.side, a1, d1);
-    p.flat(Math.min(u0, u1), Math.min(v0, v1), Math.max(u0, u1), Math.max(v0, v1), z, c, al);
+  run(p, level, pr.side, at, row, lap ? 1 - LAP : 0, 1, 0);
+}
+
+/**
+ * THE PAVEMENT ROUND A CURVE, laid as its straight runs are, bent round a
+ * corner of the tile: a BEND's quarter ring, the houses' side at the tile's
+ * edge and its kerb inside, where the road turns; a NUB's quarter disc, at a
+ * corner where two roads meet, its kerb round the outside. Its pieces are a
+ * straight run's, `a` round the quarter, `d` in from the houses' side.
+ */
+function curved(p: Pen, pr: StreetProp, kind: "bend" | "nub", lap?: "u" | "v") {
+  const level = Math.max(1, Math.min(3, pr.level ?? 1));
+  const [cx, cy] = CORNERS[pr.corner ?? 0];
+  const du = cx ? -1 : 1, dv = cy ? -1 : 1;
+  const bend = kind === "bend";
+  // Radius of a point `d` in from the houses' side.
+  const R = (d: number) => (bend ? 1 - d : d);
+  // A junction's nub is a rounded square, a bend's round: its radius stretched toward the diagonal.
+  const N = 7, f = (t: number) => (bend || pr.round ? 1 : (Math.abs(Math.cos(t)) ** N + Math.abs(Math.sin(t)) ** N) ** (-1 / N));
+  const at = (t: number, r: number, z: number) => { const k = r * f(t); return p.P(cx + du * k * Math.cos(t), cy + dv * k * Math.sin(t), z); };
+  const steps = (t0: number, t1: number, r: number) => Math.max(1, Math.ceil(((t1 - t0) * r) / 0.035));
+  // As a lap, only what lies within LAP of its edge u = 1 (its end at a = 1)
+  // or v = 1 (at a = 0): by the outer radius, the farthest in.
+  const clip = (a0: number, a1: number, r: number): [number, number] => {
+    if (!lap) return [a0, a1];
+    const q = Math.min(1, LAP / Math.max(r, 1e-6));
+    return lap === "u" ? [Math.max(a0, Math.acos(q) / (Math.PI / 2)), a1] : [a0, Math.min(a1, Math.asin(q) / (Math.PI / 2))];
   };
-  rect(-LAP, 1, 0, PAVE, 0.011, JOINT[level]);
-  for (const [k, shift] of [[at - 1, -1], [at, 0]] as const) {
-    for (const q of piecesOf(level, k, row)) {
-      const a0 = Math.max(shift ? -LAP : 0, q.a0 + shift), a1 = Math.min(shift ? 0 : 1, q.a1 + shift);
-      if (a1 > a0) rect(a0, a1, q.d0, q.d1, 0.012, q.c);
-    }
+  const ring = (a0: number, a1: number, r0: number, r1: number, z: number, c: number, al?: number) => {
+    [a0, a1] = clip(a0, a1, Math.max(r0, r1));
+    if (a1 <= a0) return;
+    const t0 = (a0 * Math.PI) / 2, t1 = (a1 * Math.PI) / 2;
+    const n = steps(t0, t1, Math.max(r0, r1));
+    const pts: [number, number][] = [];
+    for (let k = 0; k <= n; k++) pts.push(at(t0 + ((t1 - t0) * k) / n, r0, z));
+    for (let k = n; k >= 0; k--) pts.push(at(t0 + ((t1 - t0) * k) / n, r1, z));
+    p.poly(pts, c, al);
+  };
+  ring(0, 1, R(0), R(PAVE), Z0 + 0.001, JOINT[level]);
+  for (const q of piecesOf(level, pr.x * 7 + pr.y, (pr.corner ?? 0) + 40)) {
+    const a0 = Math.max(0, q.a0), a1 = Math.min(1, q.a1);
+    if (a1 > a0) ring(a0, a1, R(q.d0), R(q.d1), Z0 + 0.002, q.c);
   }
-  // THE KERB: its top, a lit edge along it, and its shadow on the road.
-  const kc = KERB_OF[level], kw = level === 3 ? KERB * 1.3 : KERB;
-  rect(-LAP, 1, PAVE, PAVE + kw, 0.013, kc);
-  rect(-LAP, 1, PAVE, PAVE + 0.006, 0.014, mix(kc, 0xffffff, 0.35));
-  for (let i = 0; i < 6; i++) rect(i / 6 - 0.002, i / 6 + 0.002, PAVE, PAVE + kw, 0.014, tone(kc, 0.8));
-  rect(-LAP, 1, PAVE + kw, PAVE + kw + 0.012, 0.013, 0x000000, 0.22);
+  const kc = KERB_OF[level], kw = kerbOf(level), K = R(PAVE + kw);
+  // Its face, round the curve, where it faces the eye: toward +u +v.
+  const [f0, f1] = clip(0, 1, K), T0 = (f0 * Math.PI) / 2, T1 = (f1 * Math.PI) / 2;
+  const n = f1 > f0 ? steps(T0, T1, K) : 0;
+  for (let k = 0; k < n; k++) {
+    const t0 = T0 + ((T1 - T0) * k) / n, t1 = T0 + ((T1 - T0) * (k + 1)) / n, tm = (t0 + t1) / 2;
+    // The face's outward normal: away from the centre for a nub, toward it for a bend.
+    const s = bend ? -1 : 1;
+    if (s * (du * Math.cos(tm) + dv * Math.sin(tm)) <= 0) continue;
+    p.poly([at(t0, K, 0), at(t1, K, 0), at(t1, K, Z0 + 0.003), at(t0, K, Z0 + 0.003)], tone(kc, 0.72));
+  }
+  ring(0, 1, R(PAVE), K, Z0 + 0.003, kc);
+  ring(0, 1, R(PAVE), R(PAVE + 0.006), Z0 + 0.004, mix(kc, 0xffffff, 0.35));
+  ring(0, 1, K, R(PAVE + kw + 0.014), 0.001, 0x000000, 0.22);
+}
+
+/** Whether a pavement is a curve's, or a straight run's. */
+const isPaving = (pr: StreetProp) => pr.kind === "brick" || pr.kind === "bend" || pr.kind === "nub";
+
+/**
+ * THE LAPS. A tile's road sprite is a hair wider than its diamond: it paints
+ * over the edges of the tiles behind it, a band earlier, their paving with
+ * them. So every road tile lays again, after its sprite, what paving lies
+ * within LAP of its back edges: each tile behind's that reaches the edge they
+ * share — a straight run along it, a curve ending on it. Pure, for tests.
+ */
+export function lapsOf(props: StreetProp[], paved: (x: number, y: number) => boolean): { pr: StreetProp; edge: "u" | "v"; x: number; y: number }[] {
+  const out: { pr: StreetProp; edge: "u" | "v"; x: number; y: number }[] = [];
+  for (const pr of props) {
+    if (!isPaving(pr)) continue;
+    // Its far edge u = 1, shared with the tile at x + 1; v = 1, with y + 1.
+    const [cx, cy] = CORNERS[pr.corner ?? 0];
+    const reachesU = pr.kind === "brick" ? alongU(pr.side) : cx === 1;
+    const reachesV = pr.kind === "brick" ? !alongU(pr.side) : cy === 1;
+    if (reachesU && paved(pr.x + 1, pr.y)) out.push({ pr, edge: "u", x: pr.x + 1, y: pr.y });
+    if (reachesV && paved(pr.x, pr.y + 1)) out.push({ pr, edge: "v", x: pr.x, y: pr.y + 1 });
+  }
+  return out;
 }
 
 const DRAW: Record<StreetProp["kind"], (p: Pen, pr: StreetProp) => void> = {
@@ -357,6 +487,8 @@ const DRAW: Record<StreetProp["kind"], (p: Pen, pr: StreetProp) => void> = {
     }
   },
   brick: (p, pr) => paving(p, pr),
+  bend: (p, pr) => curved(p, pr, "bend"),
+  nub: (p, pr) => curved(p, pr, "nub"),
   crossing: (p, pr) => {
     // Zebra bars across the road, a broken give-way line before them each way,
     // and buff studded paving at the kerbs for the blind.
@@ -501,8 +633,16 @@ export function createStreetProps(bands: BandLayer): StreetProps {
         return gr;
       };
       const { props, murals } = streetPropsOf(g, streetsOf(g), b);
+      // The laps first, under the tile in front's own paving: in its band, at the tile behind.
+      for (const { pr, edge, x, y } of lapsOf(props, (x, y) => inBounds(g, x, y) && isPaved(g, x, y))) {
+        const gr = graphicsAt(x, y, "flat");
+        if (!gr) continue;
+        const p = makePen(gr, pr.x - 0.5, pr.y - 0.5, g.height[idx(g, pr.x, pr.y)], scale, null);
+        if (pr.kind === "brick") paving(p, pr, edge);
+        else curved(p, pr, pr.kind as "bend" | "nub", edge);
+      }
       for (const pr of props) {
-        const tier = pr.kind === "brick" || pr.kind === "crossing" ? "flat" : pr.side === "N" || pr.side === "W" ? "back" : "front";
+        const tier = pr.kind === "brick" || pr.kind === "crossing" || pr.kind === "bend" || pr.kind === "nub" ? "flat" : pr.side === "N" || pr.side === "W" ? "back" : "front";
         const gr = graphicsAt(pr.x, pr.y, tier);
         if (gr) DRAW[pr.kind](makePen(gr, pr.x - 0.5, pr.y - 0.5, g.height[idx(g, pr.x, pr.y)], scale, null), pr);
       }
