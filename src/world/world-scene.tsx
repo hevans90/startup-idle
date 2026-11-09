@@ -52,7 +52,8 @@ import {
   type BandLayer,
 } from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
-import { buildTerrain, createTerrainLayer, type TerrainLayer } from "./render/terrain";
+import { buildTerrain, createTerrainLayer, flushTerrain, meshDraws, type TerrainLayer } from "./render/terrain";
+import { destroyGroundMesh } from "./render/ground-mesh";
 import { buildCliffs, createCliffLayer, syncCliff, type CliffLayer } from "./render/cliffs";
 import { buildPaved, createPavedLayer, dressPaved, lodPaved, recountInexact, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
 import { lodFor } from "./render/road-paint";
@@ -574,6 +575,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const bl = createBandLayer(grid.w, grid.h);
       const tl = createTerrainLayer(grid, useWorldStore.getState().palette, scale);
       const cl = createCliffLayer(grid, useWorldStore.getState().palette, scale);
+      // The shaded ground draws its own walls.
+      cl.skip = (g, x, y) => meshDraws(tl, g, x, y);
       const pl = createPavedLayer(grid, ROAD_TABLE, scale);
       const sl = createStructureLayer();
       const water = useWorldStore.getState().getWaterField();
@@ -1713,6 +1716,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (drRef.current) destroyGpuDripLayer(drRef.current);
       if (slRef.current) clearStructureLayer(slRef.current);
       setShownStructures(null);
+      if (tlRef.current?.ground) destroyGroundMesh(tlRef.current.ground);
       if (blRef.current) destroyBandLayer(blRef.current);
       slRef.current = null;
       flRef.current = null;
@@ -2221,6 +2225,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // the store already widened `lastTouched` to include them.
       syncCliff(cl, bl, grid, tex, c.x, c.y);
     }
+    flushTerrain(tl, grid);
     // A road's tile depends on its EIGHT neighbours, so the paved dirty set is
     // wider than the edited set — and it is wider for a height edit too, since
     // height decides whether two paved cells are joined at all.

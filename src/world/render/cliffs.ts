@@ -58,6 +58,8 @@ export type CliffLayer = {
   palette: Palette;
   scale: number;
   wallFrame: string;
+  /** Cells whose walls something else draws — the shaded ground. @see meshDraws */
+  skip: ((grid: Grid, x: number, y: number) => boolean) | null;
 };
 
 export function createCliffLayer(
@@ -66,7 +68,7 @@ export function createCliffLayer(
   scale = 1,
   wallFrame = WALL_FRAME,
 ): CliffLayer {
-  return { slabs: new Array(grid.w * grid.h).fill(null), palette, scale, wallFrame };
+  return { slabs: new Array(grid.w * grid.h).fill(null), palette, scale, wallFrame, skip: null };
 }
 
 const heightOr = (grid: Grid, x: number, y: number) =>
@@ -118,7 +120,7 @@ export function syncCliff(
   if (!inBounds(grid, x, y)) return;
   const i = idx(grid, x, y);
   // A void cell has no surface, so nothing to hold a wall up.
-  const tex = grid.terrain[i] === VOID ? undefined : textures[cl.wallFrame];
+  const tex = grid.terrain[i] === VOID || cl.skip?.(grid, x, y) ? undefined : textures[cl.wallFrame];
   const want = tex ? slabsFor(exposedDrop(grid, x, y)) : 0;
 
   let list = cl.slabs[i];

@@ -18,6 +18,7 @@ import { terrainRampFrame } from "../ramp-art";
 import { VOID, idx, inBounds, structureOf, type Grid } from "../grid";
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
+import { createGroundMesh, flushGround, groundDraws, markGround, type GroundMesh } from "./ground-mesh";
 
 /** ~1px overdraw so neighbours hide sub-pixel diamond seams at fractional zoom. */
 export const TILE_BLEED = 1.02;
@@ -26,15 +27,32 @@ export const TILE_BLEED = 1.02;
 export type Palette = readonly (string | null)[];
 
 export type TerrainLayer = {
-  /** Sprite per cell, parallel to the grid; null where the cell is void. */
+  /** Sprite per cell, parallel to the grid; null where the cell is void, or the mesh draws it. */
   sprites: (Sprite | null)[];
   palette: Palette;
   scale: number;
+  /**
+   * THE GROUND, SHADED: grass, dirt and sand drawn by a shader, made at the
+   * first build. Null for the sheet's tiles everywhere (`?ground=sprite`, and
+   * where there is no canvas). @see createGroundMesh
+   */
+  ground: GroundMesh | null;
+  /** Whether to shade the ground at the first build. */
+  shades: boolean;
 };
 
-export function createTerrainLayer(grid: Grid, palette: Palette, scale = 1): TerrainLayer {
-  return { sprites: new Array(grid.w * grid.h).fill(null), palette, scale };
+/** Whether the ground is shaded here: in a browser, unless the URL asks for the sheet's. */
+export const shadesGround = () =>
+  typeof document !== "undefined" && !!document.createElement("canvas").getContext?.("2d")
+  && !(typeof location !== "undefined" && /[?&]ground=sprite\b/.test(location.search));
+
+export function createTerrainLayer(grid: Grid, palette: Palette, scale = 1, shades = shadesGround()): TerrainLayer {
+  return { sprites: new Array(grid.w * grid.h).fill(null), palette, scale, ground: null, shades };
 }
+
+/** Whether the shaded ground draws this cell, so its sprite and its cliff slabs stand down. */
+export const meshDraws = (tl: TerrainLayer, grid: Grid, x: number, y: number) =>
+  !!tl.ground && groundDraws(grid, tl.palette, x, y);
 
 /**
  * A ground tile's INNER twin: the same tile with its lip and sides painted
@@ -79,6 +97,13 @@ export function syncCell(
 ): void {
   if (!inBounds(grid, x, y)) return;
   const i = idx(grid, x, y);
+  // The shaded ground hears of every cell, drawn by it or not: its neighbours blend toward it.
+  if (tl.ground) markGround(tl.ground, grid, tl.palette, x, y);
+  if (meshDraws(tl, grid, x, y)) {
+    const old = tl.sprites[i];
+    if (old) { old.parent?.removeChild(old); old.destroy(); tl.sprites[i] = null; }
+    return;
+  }
   const mat = grid.terrain[i];
   // A structure with `clearsTerrain` draws no ground under itself — the pit is
   // a bare void. Suppressed at RENDER time and not in the layer: the material
@@ -133,9 +158,16 @@ export function buildTerrain(
   grid: Grid,
   textures: Record<string, Texture>,
 ): void {
+  if (tl.shades && !tl.ground) tl.ground = createGroundMesh(grid, bl, tl.palette, tl.scale);
   for (let y = 0; y < grid.h; y++) {
     for (let x = 0; x < grid.w; x++) syncCell(tl, bl, grid, textures, x, y);
   }
+  flushTerrain(tl, grid);
+}
+
+/** Send the shaded ground what the syncs since the last flush changed. Once after a batch of {@link syncCell}s. */
+export function flushTerrain(tl: TerrainLayer, grid: Grid): void {
+  if (tl.ground) flushGround(tl.ground, grid, tl.palette);
 }
 
 /** Reconcile a cell and its four neighbours — the fallout of one edit. */
