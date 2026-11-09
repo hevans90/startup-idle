@@ -311,7 +311,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
  * siblings: only then is its band's order — and so its draw list — changed.
  * Set every frame, every mover's band was sorted and rebuilt every frame.
  */
-function crosses(c: Container, z: number): boolean {
+export function crosses(c: Container, z: number): boolean {
   const from = c.zIndex, lo = Math.min(from, z), hi = Math.max(from, z);
   if (lo === hi) return false;
   for (const o of c.parent?.children ?? []) {

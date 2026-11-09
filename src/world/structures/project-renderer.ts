@@ -14,11 +14,11 @@
  */
 import { Graphics } from "pixi.js";
 
-import { getWorks, startedOnFixture } from "../../state/world.store";
-import { drawMover } from "../agents/town-render";
+import { getWorks, startedOnFixture, useWorldStore } from "../../state/world.store";
+import { crosses, drawMover } from "../agents/town-render";
 import type { Mover } from "../agents/town";
 import { idx, inBounds, type Structure } from "../grid";
-import { HEIGHT_UNIT, HH, HW } from "../iso";
+import { HEIGHT_UNIT, HH, HW, cellToWorld } from "../iso";
 import { drawLive, liveState } from "./projects/ai-live";
 import { crewAt } from "./projects/crew";
 import { lookOf } from "./projects/looks";
@@ -57,7 +57,30 @@ type ProjectHandle = StructureHandle & {
   /** Seconds since the live layer was last drawn, and its own clock. */
   liveDue: number;
   liveT: number;
+  /** Seconds since the crew was last drawn. @see CREW_EVERY */
+  crewDue: number;
 };
+
+/**
+ * How often a crew is drawn: a worker is a few pixels high and a pose at
+ * twenty a second reads as walking. Every frame, a gallery's nine hundred
+ * workers were re-tessellated sixty times a second — most of a frame.
+ */
+const CREW_EVERY = 1 / 20;
+
+/**
+ * Whether any of a project — its crane included — could be on screen.
+ * Off it, its crew are left where they were last drawn: no pose to
+ * tessellate, and no band rebuilt to hide them.
+ */
+function onScreen(s: Structure, ctx: RenderCtx): boolean {
+  const vp = useWorldStore.getState().viewport as { getVisibleBounds?: () => { x: number; y: number; width: number; height: number } } | null;
+  const b = vp?.getVisibleBounds?.();
+  if (!b) return true;
+  const { wx, wy } = cellToWorld(s.x + s.w / 2 - 0.5, s.y + s.h / 2 - 0.5, groundOf(s, ctx), ctx.scale);
+  const rx = (s.w + s.h) * HW * ctx.scale, up = 40 * HEIGHT_UNIT * ctx.scale, down = (s.w + s.h) * HH * ctx.scale;
+  return wx + rx > b.x && wx - rx < b.x + b.width && wy + down > b.y && wy - up < b.y + b.height;
+}
 
 /** How often the live layer is redrawn: smooth enough, at a fraction of the frames. */
 const LIVE_EVERY = 1 / 24;
@@ -161,6 +184,9 @@ function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number
   while (h.crew.length < crew.length) {
     const g = new Graphics();
     g.eventMode = "none";
+    // Batched: redrawn every frame, a worker alone was a draw call and an
+    // upload of its own — a gallery's crews were nine hundred of each.
+    g.context.batchMode = "batch";
     h.crew.push(g);
   }
   while (h.crew.length > crew.length) {
@@ -187,8 +213,10 @@ function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number
     // front of it. Nearer the camera drawn later within it.
     const c = Math.max(0, Math.min(s.w - 1, Math.floor(w.u))), r = Math.max(0, Math.min(s.h - 1, Math.floor(w.v)));
     const band = ctx.bands.dynamicOf[bandOfTile(s, ctx, c, r)];
-    if (g.parent !== band) { g.parent?.removeChild(g); band.addChild(g); }
-    g.zIndex = 1 + (w.u + w.v) / 100 + w.z / 10000;
+    const z = 1 + (w.u + w.v) / 100 + w.z / 10000;
+    if (g.parent !== band) { g.parent?.removeChild(g); g.zIndex = z; band.addChild(g); }
+    // Only when it carries them past someone: else the band is sorted and rebuilt every frame. @see crosses
+    else if (crosses(g, z)) g.zIndex = z;
   });
 }
 
@@ -220,9 +248,14 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
     // A SITE IS NEVER BATCHED: redrawn every quarter percent, a small tile's
     // piece crossed Pixi's batching limit back and forth as the work grew, and
     // each crossing re-packed its chunk — the 3×3 garage's pieces flickered,
-    // smeared toward its back tile and lagged the rest. A finished building
-    // is drawn once, and batches as it likes.
-    g.context.batchMode = site ? "no-batch" : "auto";
+    // smeared toward its back tile and lagged the rest.
+    //
+    // A FINISHED BUILDING ALWAYS BATCHES. It is drawn once, so batching costs
+    // nothing after; left to Pixi's own rule, any tile over 400 vertices — most
+    // of a detailed building — was drawn alone, a draw call and a uniform group
+    // of its own every frame: a gallery of them was a thousand draws, and
+    // overflowed WebGPU's per-frame uniform buffer outright.
+    g.context.batchMode = site ? "no-batch" : "batch";
     g.clear();
     const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k]);
     if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
@@ -247,18 +280,20 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   }
   const sky = new Graphics();
   sky.eventMode = "none";
+  sky.context.batchMode = "batch";
   // Above whoever is walking past in the same band: it is in the sky.
   sky.zIndex = 2;
   ctx.bands.dynamicOf[frontBand(s, ctx)].addChild(sky);
   // On its faces, in front of the building and under the crane and confetti.
   const live = new Graphics();
   live.eventMode = "none";
+  live.context.batchMode = "batch";
   live.zIndex = 1.5;
   ctx.bands.dynamicOf[frontBand(s, ctx)].addChild(live);
   const handle: ProjectHandle = {
     columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null, crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9,
+    t: s.id * 3.7, site: null, crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0,
     destroy: () => { for (const g of [...columns, sky, live, ...handle.crew]) { g.parent?.removeChild(g); g.destroy(); } },
   };
   draw(handle, s, ctx);
@@ -285,16 +320,21 @@ registerCustomRenderer("project", {
       handle.drawn = now;
     }
     const ground = groundOf(s, ctx);
+    handle.crewDue += dt;
     if (handle.site && working(s)) {
       // The crane's clock stops while the site waits for a load.
       if (!stalled(s)) handle.t += dt;
-      if (handle.model.crane === "tower") drawCrane(handle, s, ctx, ground);
-      drawCrew(handle, s, ctx, ground);
+      if (handle.crewDue >= CREW_EVERY && onScreen(s, ctx)) {
+        handle.crewDue = 0;
+        if (handle.model.crane === "tower") drawCrane(handle, s, ctx, ground);
+        drawCrew(handle, s, ctx, ground);
+      }
     } else if (handle.crew.length) drawCrew(handle, s, ctx, ground);
     if (handle.model.live && !s.build) {
       handle.liveT += dt;
       handle.liveDue += dt;
-      if (handle.liveDue >= LIVE_EVERY) { handle.liveDue = 0; drawLiveLayer(handle, s, ctx); }
+      // Off screen it is left as it was. @see onScreen
+      if (handle.liveDue >= LIVE_EVERY && onScreen(s, ctx)) { handle.liveDue = 0; drawLiveLayer(handle, s, ctx); }
     }
     if (handle.opened >= 0) {
       handle.opened += dt;

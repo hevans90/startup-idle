@@ -225,6 +225,7 @@ import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
 import { rendererAsked } from "./render/use-gpu";
+import { roomForUniforms } from "./render/uniform-room";
 import {
   compareAccelerate, compareCliffs, pour as pourScene,
   scene as accelScene, spanned, spannedDry, spannedFull, spray,
@@ -596,6 +597,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // `renderer.gc.run()`. Everything here is destroyed explicitly when it
       // goes, so there is nothing for a collector to do. @see stopGarbageCollection
       if (app?.renderer) stopGarbageCollection(app.renderer);
+      // And room for a big map's uniforms on WebGPU. @see roomForUniforms
+      if (app?.renderer) roomForUniforms(app.renderer);
       const fl = water && !onGpu ? createWaterLayer(water.columns, bl, scale) : null;
       gpuRef.current = water && onGpu ? createGpuWaterLayer(water.columns, bl, scale) : null;
       // Between the surface and the drips: a fall is drawn over the water
