@@ -18,6 +18,8 @@ import { getWorks, startedOnFixture, useWorldStore } from "../../state/world.sto
 import { crosses, drawMover, outfitOf } from "../agents/town-render";
 import { heightOf } from "../agents/people/cast";
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
+import { propSprite, propSprites, propsLoaded } from "../props/props-sheet";
+import { GROUND, groundClassOf, groundDraws } from "../render/ground-mesh";
 import type { Mover } from "../agents/town";
 import { idx, inBounds, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW, cellToWorld } from "../iso";
@@ -63,6 +65,9 @@ type ProjectHandle = StructureHandle & {
   crewDue: number;
   /** Whether the site has moved on since it was mounted: its tiles are then not batched. */
   growing: boolean;
+  /** Its props from the sheet, once open, and what they were stood up for. @see Building.props */
+  props: Container[];
+  propsKey: string;
 };
 
 /**
@@ -281,6 +286,40 @@ function drawCrane(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numbe
 const groundOf = (s: Structure, ctx: RenderCtx) =>
   inBounds(ctx.grid, s.x, s.y) ? ctx.grid.height[idx(ctx.grid, s.x, s.y)] : 0;
 
+/** Whether every cell of the plot is shaded grass: then a lawn would only hide it. @see Building.lawn */
+function onGrass(s: Structure, ctx: RenderCtx): boolean {
+  const palette = useWorldStore.getState().palette;
+  for (let r = 0; r < s.h; r++) for (let c = 0; c < s.w; c++) {
+    const x = s.x + c, y = s.y + r;
+    if (!inBounds(ctx.grid, x, y) || !groundDraws(ctx.grid, palette, x, y)) return false;
+    if (groundClassOf(palette, ctx.grid.terrain[idx(ctx.grid, x, y)]) !== GROUND.grass) return false;
+  }
+  return true;
+}
+
+/**
+ * STAND UP ITS PROPS, once it is open: each in the band of the tile it stands
+ * on, over that tile's share of the building. Taken down while it is a site.
+ */
+function placeProps(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number): void {
+  const want = !h.site && h.model.props?.length ? h.model.props : null;
+  const P = want ? propsLoaded() : null;
+  if (want && !P) void propSprites();
+  const key = want && P ? `${ctx.scale}|${ground}|${JSON.stringify(want)}` : "";
+  if (key === h.propsKey) return;
+  for (const c of h.props) { c.parent?.removeChild(c); c.destroy({ children: true }); }
+  h.props = [];
+  h.propsKey = key;
+  if (!want || !P) return;
+  for (const pr of [...want].sort((a, b) => a.u + a.v - (b.u + b.v))) {
+    const c = Math.max(0, Math.min(s.w - 1, Math.floor(pr.u))), r = Math.max(0, Math.min(s.h - 1, Math.floor(pr.v)));
+    const sp = propSprite(P, pr.id, pr.turn, s.x - 0.5 + pr.u, s.y - 0.5 + pr.v, ground + (pr.z ?? 0.03), ctx.scale, pr.tint, pr.size);
+    if (!sp) continue;
+    ctx.bands.structureOf[bandOfTile(s, ctx, c, r)].addChild(sp);
+    h.props.push(sp);
+  }
+}
+
 /** Draw every column of a project, and the crane over it. */
 function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): void {
   const ground = groundOf(s, ctx);
@@ -289,6 +328,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): 
   const site = b ? siteAt(h.model, Math.min(1, b.done / b.need)) : null;
   h.site = site;
   h.growing = !!site && (growing || h.growing);
+  const lawnless = !site && !!h.model.lawn && onGrass(s, ctx);
   h.columns.forEach((g, k) => {
     // A SITE GOING UP IS NEVER BATCHED: redrawn every quarter percent, a small
     // tile's piece crossed Pixi's batching limit back and forth as the work
@@ -306,8 +346,12 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): 
     g.clear();
     const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k]);
     if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
-    else drawFinished(p, h.model, f, structureDef(s.def)?.ports);
+    else {
+      if (h.model.lawn && !lawnless) h.model.lawn(p, f);
+      drawFinished(p, h.model, f, structureDef(s.def)?.ports);
+    }
   });
+  placeProps(h, s, ctx, ground);
   drawCrane(h, s, ctx, ground);
   drawCrew(h, s, ctx, ground);
   drawLiveLayer(h, s, ctx);
@@ -340,8 +384,8 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const handle: ProjectHandle = {
     columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null, crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false,
-    destroy: () => { for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); },
+    t: s.id * 3.7, site: null, crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false, props: [], propsKey: "",
+    destroy: () => { for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
   };
   draw(handle, s, ctx);
   return handle;
@@ -367,6 +411,8 @@ registerCustomRenderer("project", {
       handle.drawn = now;
     }
     const ground = groundOf(s, ctx);
+    // ITS PROPS, when their sheet comes in after it was drawn.
+    if (!handle.site && handle.model.props && !handle.propsKey && propsLoaded()) placeProps(handle, s, ctx, ground);
     handle.crewDue += dt;
     if (handle.site && working(s)) {
       // The crane's clock stops while the site waits for a load.

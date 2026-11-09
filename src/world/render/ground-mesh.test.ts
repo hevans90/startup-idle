@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { RAMP, VOID, createGrid, fillTerrain, packRamp, setHeight, setRamp, setTerrain, type RampDir } from "../grid";
+import { bakedProps } from "../props/props-sheet";
 import { GROUND, bandQuads, cornerZ, groundClassOf, groundDraws, slopeLight, wallFoot } from "./ground-mesh";
 
 const GRASS = 1, DIRT = 2, SAND = 3, WOODS = 4, OTHER = 5;
@@ -31,12 +32,12 @@ describe("groundClassOf", () => {
 });
 
 describe("groundDraws", () => {
-  test("the shaded materials only: woods and other frames keep their sprites", () => {
+  test("the shaded materials only: woods are grass under their baked trees, other frames keep their sprites", () => {
     const grid = flat(3, 1);
     setTerrain(grid, 1, 0, WOODS);
     setTerrain(grid, 2, 0, OTHER);
     expect(groundDraws(grid, PALETTE, 0, 0)).toBe(true);
-    expect(groundDraws(grid, PALETTE, 1, 0)).toBe(false);
+    expect(groundDraws(grid, PALETTE, 1, 0)).toBe(bakedProps());
     expect(groundDraws(grid, PALETTE, 2, 0)).toBe(false);
     expect(groundDraws(grid, PALETTE, 5, 0)).toBe(false);
   });

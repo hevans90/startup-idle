@@ -242,6 +242,7 @@ import { cultureNow } from "../game/culture-now";
 import { createCultureProps, type CultureProps } from "./render/culture-props";
 import { SHOP_LOOK, createShopfronts, type Shopfronts } from "./render/shopfronts";
 import { createStreetProps, type StreetProps } from "./render/street-props";
+import { createWoods, type Woods } from "./render/woods";
 import { shopName } from "./agents/shop-names";
 import { createLights, type Lights } from "./render/lights";
 import { keystone, notable } from "../game/machine";
@@ -418,6 +419,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const shopsRef = useRef<Shopfronts | null>(null);
   /** What a fine street puts on its pavements. @see createStreetProps */
   const streetPropsRef = useRef<StreetProps | null>(null);
+  /** The woods' trees, stood on shaded grass. @see createWoods */
+  const woodsRef = useRef<Woods | null>(null);
   /** The seats last given the town. */
   const seatsRef = useRef<Seat[] | null>(null);
   /** Seconds to Ship It Fridays' next release party. @see SHIP_EVERY */
@@ -1644,6 +1647,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         propsRef.current = createCultureProps(bl);
         shopsRef.current = createShopfronts(bl);
         streetPropsRef.current = createStreetProps(bl);
+        woodsRef.current = createWoods(bl);
         const scan = new Graphics();
         scan.eventMode = "none";
         scan.zIndex = 1001;
@@ -1693,6 +1697,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       shopsRef.current = null;
       streetPropsRef.current?.destroy();
       streetPropsRef.current = null;
+      woodsRef.current?.destroy();
+      woodsRef.current = null;
       tileHoloRef.current?.clear();
       tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
@@ -3688,6 +3694,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         shopsRef.current.sync(useWorldStore.getState().grid, useWorldStore.getState().revision, scale);
         shopsRef.current.tick(now / 1000);
       }
+      if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale); }
       const streetNet = getNetwork();
       if (streetPropsRef.current && streetNet) {
         const st = useWorldStore.getState();

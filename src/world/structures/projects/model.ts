@@ -74,7 +74,21 @@ export type Building = {
   crane: "tower" | "none";
   /** What runs on it while it is open: an AI building's coolant, circuits and fans. @see ai-live */
   live?: Live;
+  /**
+   * What stands on it once open, from the baked props sheet: trees, benches,
+   * a fountain — each where on the plot, at which of four turns, its leaves
+   * or cloth tinted. Stood up by the renderer, not drawn. @see props-sheet
+   */
+  props?: PropPlace[];
+  /**
+   * A lawn, drawn under its grounds only where the ground under the plot
+   * isn't shaded grass already: a park on grass shows the real grass.
+   */
+  lawn?: (p: Pen, f: Footprint) => void;
 };
+
+/** A baked prop on a plot: which, where (plot tiles), how high, which way round, and its tint and size. */
+export type PropPlace = { id: string; u: number; v: number; z?: number; turn: number; tint?: number; size?: number };
 
 /** A face of a mass the camera sees: the +u face at `u = at`, or the +v face at `v = at`. */
 export type FaceAt = { face: "u" | "v"; at: number };

@@ -9,7 +9,8 @@
  * map. Colours are the face lit from the left; the pen shades the rest.
  */
 import { RIGHT, TOP, mix, tone, type Pen, type Pt } from "./pen";
-import { hash, type Beacon, type Building, type Fan, type FaceAt, type Footprint, type Live, type Mass, type Trace } from "./model";
+import { hash, type Beacon, type Building, type Fan, type FaceAt, type Footprint, type Live, type Mass, type PropPlace, type Trace } from "./model";
+import { bakedProps } from "../../props/props-sheet";
 import { drawLiveBase, traceOf } from "./ai-live";
 import { latticeForm } from "../../../game/quests/finale";
 
@@ -244,6 +245,31 @@ function paved(p: Pen, f: Footprint) {
   p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, PAVING);
   for (let u = 0.5; u < f.w - 0.1; u += 0.5) p.flat(u - 0.006, 0.02, u + 0.006, f.h - 0.02, 0.005, tone(PAVING, 0.93));
   for (let v = 0.5; v < f.h - 0.1; v += 0.5) p.flat(0.02, v - 0.006, f.w - 0.02, v + 0.006, 0.005, tone(PAVING, 0.93));
+}
+
+/** A level disc on the ground, cut to the tile being drawn like a `flat`. */
+function disc(p: Pen, u: number, v: number, r: number, z: number, colour: number) {
+  let pts: [number, number][] = Array.from({ length: 24 }, (_, k) => {
+    const a = (k / 24) * Math.PI * 2;
+    return [u + Math.cos(a) * r, v + Math.sin(a) * r];
+  });
+  // Cut to each side of the tile in turn.
+  const sides: [0 | 1, number, 1 | -1][] = [[0, p.cu0, 1], [0, p.cu1, -1], [1, p.cv0, 1], [1, p.cv1, -1]];
+  for (const [ax, at, dir] of sides) {
+    const out: [number, number][] = [];
+    const inside = (q: [number, number]) => (q[ax] - at) * dir >= 0;
+    pts.forEach((a, k) => {
+      const b = pts[(k + 1) % pts.length];
+      if (inside(a)) out.push(a);
+      if (inside(a) !== inside(b)) {
+        const t = (at - a[ax]) / (b[ax] - a[ax]);
+        out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      }
+    });
+    pts = out;
+    if (pts.length < 3) return;
+  }
+  p.poly(pts.map(([a, b]) => p.P(a, b, z)), colour);
 }
 
 /** A low hedge, clipped square, `u0..u1` by `v0..v1`. */
@@ -1025,50 +1051,67 @@ export function cafe(f: Footprint): Building {
   };
 }
 
-/** THE PARK: lawn, gravel paths crossing it, a fountain where they cross, trees and flower beds, lamps and a bench. */
+/**
+ * THE PARK: grass, gravel paths crossing it to a round plaza, a fountain in
+ * the middle, trees, benches facing across the paths, a flower bed, a lamp
+ * and a bin. The fountain, trees and benches come from the props sheet, the
+ * grass from the ground's own shader; drawn as before without them.
+ */
 export function park(f: Footprint): Building {
   const mu = f.w / 2, mv = f.h / 2;
   const FLOWERS = [0xd8432f, 0xf2c230, 0xf27aa8, 0xa65ad6];
+  const baked = bakedProps();
+  const props: PropPlace[] = [
+    { id: "oak", u: mu * 0.45, v: mv * 0.5, turn: 1, tint: 0x5f8f3e, size: 0.9 },
+    { id: "lime", u: mu * 1.55, v: mv * 0.42, turn: 2, tint: 0x6f9d45, size: 0.8 },
+    { id: "cherry", u: mu * 0.45, v: mv * 1.5, turn: 0, tint: 0xf2b3cb, size: 0.9 },
+    { id: "birch", u: f.w - 0.22, v: mv * 1.25, turn: 3, tint: 0x8fb552, size: 0.85 },
+    // Benches beside the paths, facing across them.
+    { id: "bench", u: mu + 0.55, v: mv - 0.2, turn: 1 },
+    { id: "bench", u: mu - 0.2, v: mv + 0.55, turn: 0 },
+    { id: "fountain", u: mu, v: mv, turn: 0 },
+  ];
   return {
     plinth: { inset: 0, h: 0, colour: LAWN }, masses: [], crane: "none",
-    grounds: (p) => {
+    props: baked ? props : undefined,
+    lawn: (p) => {
       p.flat(0.04, 0.04, f.w - 0.04, f.h - 0.04, 0.03, LAWN);
       // Mown stripes.
       for (let u = 0.04; u < f.w - 0.1; u += 0.3) p.flat(u, 0.04, u + 0.15, f.h - 0.04, 0.031, tone(LAWN, 1.05));
-      p.flat(0.04, mv - 0.1, f.w - 0.04, mv + 0.1, 0.034, GRAVEL);
-      p.flat(mu - 0.1, 0.04, mu + 0.1, f.h - 0.04, 0.034, GRAVEL);
-      p.flat(mu - 0.38, mv - 0.38, mu + 0.38, mv + 0.38, 0.035, GRAVEL);
-      // Edging along the paths.
+    },
+    grounds: (p) => {
+      // The paths, a plaza where they cross, stone edging along them.
+      p.flat(0.04, mv - 0.09, f.w - 0.04, mv + 0.09, 0.034, GRAVEL);
+      p.flat(mu - 0.09, 0.04, mu + 0.09, f.h - 0.04, 0.034, GRAVEL);
+      disc(p, mu, mv, 0.3, 0.035, GRAVEL);
       for (const s of [-1, 1]) {
-        p.flat(0.04, mv + s * 0.1 - 0.008, f.w - 0.04, mv + s * 0.1 + 0.008, 0.036, STONE);
-        p.flat(mu + s * 0.1 - 0.008, 0.04, mu + s * 0.1 + 0.008, f.h - 0.04, 0.036, STONE);
+        p.flat(0.04, mv + s * 0.09 - 0.006, f.w - 0.04, mv + s * 0.09 + 0.006, 0.036, STONE);
+        p.flat(mu + s * 0.09 - 0.006, 0.04, mu + s * 0.09 + 0.006, f.h - 0.04, 0.036, STONE);
       }
       // A hedge along the back, and a flower bed in the front corner.
-      hedge(p, 0.06, 0.06, f.w - 0.06, 0.18, 0.03, 0.4);
-      hedge(p, 0.06, 0.18, 0.18, f.h - 0.06, 0.03, 0.4);
+      hedge(p, 0.06, 0.06, f.w - 0.06, 0.16, 0.03, 0.4);
+      hedge(p, 0.06, 0.16, 0.16, f.h - 0.06, 0.03, 0.4);
       p.flat(mu + 0.25, mv + 0.25, f.w - 0.15, f.h - 0.15, 0.036, 0x6b4a32);
     },
     details: (p) => {
-      // The fountain where the paths cross: a stone basin, water in it, a jet.
+      // Flowers in the bed.
+      for (let k = 0; k < 18; k++) {
+        const u = mu + 0.3 + hash(k * 3.1) * (f.w - mu - 0.5), v = mv + 0.3 + hash(k * 5.7) * (f.h - mv - 0.5);
+        p.dot(u, v, 0.06, 0.022, FLOWERS[k % FLOWERS.length]);
+      }
+      lamp(p, mu + 0.18, mv + 0.18, 0.03);
+      p.box(mu + 0.15, mv - 0.25, mu + 0.2, mv - 0.2, 0.03, 0.22, 0x2f5a3a, { top: 0x1c1f23 });
+      if (baked) return;
+      // Without the sheet: the fountain, trees and benches drawn as before.
       p.box(mu - 0.3, mv - 0.3, mu + 0.3, mv + 0.3, 0.03, 0.2, STONE, { top: STONE_TOP });
       p.flat(mu - 0.25, mv - 0.25, mu + 0.25, mv + 0.25, 0.201, 0x5fa9c4);
-      p.flat(mu - 0.2, mv - 0.2, mu + 0.2, mv + 0.2, 0.202, 0x7fc4d9);
       p.box(mu - 0.05, mv - 0.05, mu + 0.05, mv + 0.05, 0.2, 0.55, STONE);
-      p.box(mu - 0.12, mv - 0.12, mu + 0.12, mv + 0.12, 0.55, 0.6, STONE, { top: 0x7fc4d9 });
       p.dot(mu, mv, 0.72, 0.05, 0xcfe8f0, 0.9);
-      p.dot(mu, mv, 0.85, 0.03, 0xe8f6fa, 0.8);
-      // Flowers in the bed.
-      for (let k = 0; k < 14; k++) {
-        const u = mu + 0.3 + hash(k * 3.1) * (f.w - mu - 0.5), v = mv + 0.3 + hash(k * 5.7) * (f.h - mv - 0.5);
-        p.dot(u, v, 0.08, 0.03, FLOWERS[k % FLOWERS.length]);
-      }
       tree(p, mu * 0.5, mv * 0.5, 0.03);
       tree(p, mu * 1.5, mv * 0.5, 0.03, 0.9);
       tree(p, mu * 0.5, mv * 1.5, 0.03, 1.05);
       bench(p, mu * 1.5, mv - 0.25, 0.03);
       bench(p, mu - 0.25, mv * 1.5, 0.03, "v");
-      lamp(p, mu + 0.18, mv + 0.18, 0.03);
-      p.box(mu + 0.15, mv - 0.25, mu + 0.23, mv - 0.17, 0.03, 0.3, 0x2f5a3a, { top: 0x1c1f23 });
     },
   };
 }

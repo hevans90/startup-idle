@@ -27,6 +27,7 @@ import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureOf, type Grid } from "../grid";
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
+import { bakedProps } from "../props/props-sheet";
 
 /** What the shader draws a material as. 0 is nothing it knows. */
 export const GROUND = { none: 0, grass: 1, dirt: 2, sand: 3 } as const;
@@ -40,8 +41,13 @@ const CLASS_OF: Record<string, number> = {
   "landscapeTiles_067_trees2.png": GROUND.grass,
   "landscapeTiles_067_trees3.png": GROUND.grass,
 };
-/** Of those, the ones still drawn by their sprite: the trees are in the art. */
+/**
+ * Of those, the ones drawn by their sprite, the trees in the art: the woods,
+ * where the props aren't baked (`?props=drawn`, or out of a browser). Where
+ * they are, a wood is shaded grass and its trees stand on it. @see woods.ts
+ */
 const SPRITE_STILL = new Set(["landscapeTiles_067_trees1.png", "landscapeTiles_067_trees2.png", "landscapeTiles_067_trees3.png"]);
+const spriteStill = (frame: string) => SPRITE_STILL.has(frame) && !bakedProps();
 
 export type Palette = readonly (string | null)[];
 
@@ -59,7 +65,7 @@ const hidden = (grid: Grid, x: number, y: number) => {
 export function groundDraws(grid: Grid, palette: Palette, x: number, y: number): boolean {
   if (!inBounds(grid, x, y)) return false;
   const i = idx(grid, x, y), frame = palette[grid.terrain[i]] ?? "";
-  return grid.terrain[i] !== VOID && !!CLASS_OF[frame] && !SPRITE_STILL.has(frame) && !hidden(grid, x, y);
+  return grid.terrain[i] !== VOID && !!CLASS_OF[frame] && !spriteStill(frame) && !hidden(grid, x, y);
 }
 
 /**
