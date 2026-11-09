@@ -1,7 +1,7 @@
 /**
  * World v2 — A STREET MADE FINE, SEEN: what each level of a street puts on
  * its pavements (@see liveBeauty):
- *  1. trees, planters and bins;
+ *  1. trees and bins;
  *  2. lamp posts, benches, and a zebra at its ends with a beacon either side;
  *  3. café tables, bunting between some of its lamps, and murals on its houses.
  *
@@ -28,7 +28,7 @@ import { faceOf } from "./shopfronts";
 
 /** A prop on a road tile: which, its tile, and the kerb it stands by. */
 export type StreetProp = {
-  kind: "tree" | "planter" | "bin" | "lamp" | "bench" | "beacon" | "table" | "bunting";
+  kind: "tree" | "bin" | "lamp" | "bench" | "beacon" | "table" | "bunting";
   x: number; y: number;
   /** The street's level, 1–3: what it has grown into. */
   level?: number;
@@ -110,7 +110,6 @@ export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: St
         else if (n % 4 === 2) at("tree");
         else if (level >= 3 && n % 8 === 1) at("table");
         else if (level >= 2 && n % 8 === 3) at("bench");
-        else if (n % 8 === 5) at("planter");
         else if (n % 8 === 7) at("bin");
       }
     }
@@ -231,19 +230,6 @@ const DRAW: Record<StreetProp["kind"], (p: Pen, pr: StreetProp) => void> = {
     const [u, v] = onKerb(pr.side, 0.5, IN + 0.02);
     const kind = (pr.level ?? 1) >= 3 && (pr.x + pr.y) % 3 === 0 ? 2 : (pr.x * 7 + pr.y * 3) % 2;
     streetTree(p, u, v, kind);
-  },
-  planter: (p, pr) => {
-    // A long corten trough along the kerb, grasses and flowers in it.
-    const [u, v] = onKerb(pr.side, 0.5, IN);
-    const [hu, hv] = alongU(pr.side) ? [0.18, 0.055] : [0.055, 0.18];
-    p.box(u - hu, v - hv, u + hu, v + hv, 0, 0.24, 0x9a5634, { top: 0x5a3a26 });
-    for (let k = 0; k < 7; k++) {
-      const t = (k + 0.5) / 7 - 0.5;
-      const pu = u + (alongU(pr.side) ? t * hu * 1.8 : 0), pv = v + (alongU(pr.side) ? 0 : t * hv * 1.8);
-      p.dot(pu, pv, 0.31, 0.045, tone(0x5c9a46, 0.85 + (k % 3) * 0.12));
-      p.strut([pu, pv, 0.24], [pu + 0.02, pv - 0.01, 0.45 + (k % 2) * 0.06], 0.006, 0x9ab85a);
-      p.dot(pu, pv, 0.38 + (k % 2) * 0.03, 0.02, [0xf27aa8, 0xf2c230, 0x9b6bd6, 0xf2efe6][k % 4]);
-    }
   },
   bin: (p, pr) => {
     // A litter bin in black, banded gold, and a recycling bin by it.
