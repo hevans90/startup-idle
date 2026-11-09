@@ -3,7 +3,7 @@
  * its pavements (@see liveBeauty):
  *  1. trees, planters and bins;
  *  2. lamp posts, benches, brick along the kerb and crossings at its ends;
- *  3. café tables, bunting between the lamps, and murals on its houses.
+ *  3. café tables, bunting outside its shops, and murals on its houses.
  *
  * DRAWN AS THE CULTURE PROPS ARE: a Graphics a band among the movers of the
  * band, built only when the streets' levels or the map change — never a
@@ -43,6 +43,12 @@ const SIDES = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] } as const;
  */
 export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: StreetProp[]; murals: Mural[] } {
   const props: StreetProp[] = [];
+  // The tiles a shop is in: on the finest streets, it strings bunting along the kerb outside.
+  const shopAt = new Set<number>();
+  for (const s of g.structures.values()) {
+    if (!s.shop || s.build) continue;
+    for (let dy = 0; dy < s.h; dy++) for (let dx = 0; dx < s.w; dx++) shopAt.add(idx(g, s.x + dx, s.y + dy));
+  }
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
       const i = idx(g, x, y), level = b.tile[i];
@@ -74,7 +80,7 @@ export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: St
         else if (level >= 2 && n % 8 === 3) at("bench");
         else if (n % 8 === 5) at("planter");
         else if (n % 8 === 7) at("bin");
-        if (level >= 3) at("bunting");
+        if (level >= 3 && inBounds(g, x + dx, y + dy) && shopAt.has(idx(g, x + dx, y + dy))) at("bunting");
       }
     }
   }
@@ -137,25 +143,32 @@ function streetTree(p: Pen, u: number, v: number, kind: number) {
 function lampPost(p: Pen, u: number, v: number, side: StreetProp["side"], basket: boolean) {
   // The arm reaches toward the road: away from the kerb.
   const [du, dv] = side === "N" ? [0, 1] : side === "S" ? [0, -1] : side === "W" ? [1, 0] : [-1, 0];
-  p.box(u - 0.04, v - 0.04, u + 0.04, v + 0.04, 0, 0.18, IRON, { top: tone(IRON, 1.3) });
-  p.box(u - 0.022, v - 0.022, u + 0.022, v + 0.022, 0.18, 1.1, IRON);
-  p.box(u - 0.014, v - 0.014, u + 0.014, v + 0.014, 1.1, 2.25, IRON);
-  p.box(u - 0.03, v - 0.03, u + 0.03, v + 0.03, 1.08, 1.14, tone(IRON, 1.4));
   const lu = u + du * 0.16, lv = v + dv * 0.16;
-  p.strut([u, v, 2.2], [lu, lv, 2.3], 0.012, IRON);
-  p.strut([u, v, 2.05], [u + du * 0.1, v + dv * 0.1, 2.24], 0.008, IRON);
-  // The lantern: glass lit warm, a cap and a finial.
-  p.box(lu - 0.035, lv - 0.035, lu + 0.035, lv + 0.035, 2.06, 2.24, LAMP_ON, { top: LAMP_ON });
-  p.box(lu - 0.045, lv - 0.045, lu + 0.045, lv + 0.045, 2.24, 2.29, IRON);
-  p.dot(lu, lv, 2.33, 0.012, IRON);
-  p.dot(lu, lv, 2.15, 0.05, LAMP_ON, 0.35);
-  if (basket) {
-    // A basket hung off the column, flowers spilling.
+  const column = () => {
+    p.box(u - 0.04, v - 0.04, u + 0.04, v + 0.04, 0, 0.18, IRON, { top: tone(IRON, 1.3) });
+    p.box(u - 0.022, v - 0.022, u + 0.022, v + 0.022, 0.18, 1.1, IRON);
+    p.box(u - 0.014, v - 0.014, u + 0.014, v + 0.014, 1.1, 2.25, IRON);
+    p.box(u - 0.03, v - 0.03, u + 0.03, v + 0.03, 1.08, 1.14, tone(IRON, 1.4));
+  };
+  const lantern = () => {
+    p.strut([u, v, 2.2], [lu, lv, 2.3], 0.012, IRON);
+    p.strut([u, v, 2.05], [u + du * 0.1, v + dv * 0.1, 2.24], 0.008, IRON);
+    // Glass lit warm, a cap and a finial.
+    p.box(lu - 0.035, lv - 0.035, lu + 0.035, lv + 0.035, 2.06, 2.24, LAMP_ON, { top: LAMP_ON });
+    p.box(lu - 0.045, lv - 0.045, lu + 0.045, lv + 0.045, 2.24, 2.29, IRON);
+    p.dot(lu, lv, 2.33, 0.012, IRON);
+  };
+  // A basket hung off the column on its kerb side, flowers spilling: behind it where the arm is in front.
+  const hang = () => {
+    if (!basket) return;
     p.dot(u - du * 0.06, v - dv * 0.06, 1.55, 0.06, 0x4f7a34);
     for (const [k, c] of [[0, 0xf27aa8], [1, 0xf2c230], [2, 0x9b6bd6], [3, 0xf2efe6]] as const) {
       p.dot(u - du * 0.06 + (k - 1.5) * 0.025, v - dv * 0.06, 1.5 + (k % 2) * 0.05, 0.02, c);
     }
-  }
+  };
+  // FARTHER FIRST: an arm reaching back over the road (from a front kerb) is
+  // behind the column and its basket in front; from a back kerb the other way.
+  if (du + dv < 0) { lantern(); column(); hang(); } else { hang(); column(); lantern(); }
 }
 
 /** A painted pole in black and white bands, an amber globe on top: where to cross. */
