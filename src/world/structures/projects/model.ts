@@ -45,6 +45,12 @@ export type Mass = {
   roof: Roof;
   /** A band round the top, standing `out` proud of the walls. */
   cornice?: { colour: number; h: number; out: number };
+  /** A course of something heavier along the foot: stone under brick, granite under glass. */
+  base?: { colour: number; h: number };
+  /** PIERS: uprights `w` across standing proud of the faces, at each visible corner and about every `every` tiles between. */
+  piers?: { colour: number; every: number; w?: number };
+  /** A band at every floor line, `h` half steps deep, standing proud: the slabs read on the outside. */
+  bands?: { colour: number; h: number };
 };
 
 export type Footprint = { w: number; h: number };
@@ -79,9 +85,11 @@ export type FaceAt = { face: "u" | "v"; at: number };
 export type Panel = FaceAt & { a0: number; a1: number; z0: number; z1: number; runs: number; dir: "h" | "v" };
 /** CIRCUIT TRACES on a face: lines along it or up it, each `[a0, z0, a1, z1]`, square to the face's axes. */
 export type Trace = FaceAt & { segs: readonly (readonly [number, number, number, number])[]; phase: number };
-/** A FAN on a roof, at its middle, `r` tiles across. */
-export type Fan = { u: number; v: number; z: number; r: number };
-export type Live = { panels: Panel[]; traces: Trace[]; fans: Fan[] };
+/** A FAN on a roof, at its middle, `r` tiles across; in an AI's dark housing unless given another. */
+export type Fan = { u: number; v: number; z: number; r: number; housing?: number };
+/** A LIGHT that blinks: a mast's warning light, a sign's bulb. Once every `period` seconds. */
+export type Beacon = { u: number; v: number; z: number; colour: number; period?: number; phase?: number };
+export type Live = { panels: Panel[]; traces: Trace[]; fans: Fan[]; beacons?: Beacon[] };
 
 /**
  * A safe order to paint masses in: lower first, then back to front. A tower
@@ -106,6 +114,16 @@ export function wholeFloors(m: Mass, z: number): number {
 }
 
 const WHITE = 0xffffff;
+/** What a reveal or an unlit room darkens glass with. */
+const SHADE = 0x0d1218;
+
+/** A number in [0, 1) from another, the same every time. */
+export const hash = (x: number) => { const y = Math.sin(x * 12.9898 + 78.233) * 43758.5453; return y - Math.floor(y); };
+/** Glass a touch lighter or darker window to window, as rooms are lit or not. */
+const tint = (glass: number, a: number, z: number, face: string) => {
+  const k = hash(a * 5.3 + z * 2.7 + (face === "u" ? 3 : 0));
+  return k < 0.25 ? tone(glass, 0.86) : k > 0.85 ? mix(glass, WHITE, 0.14) : glass;
+};
 
 /**
  * Rectangles on a mass's two visible faces: `along` from 0 to the face's
@@ -154,7 +172,15 @@ function drawFloor(p: Pen, m: Mass, f: Facade, z0: number, z1: number) {
           const s0 = z0 + f.sill, s1 = z1 - f.head;
           if (s1 <= s0) continue;
           onFaces(p, m, a - 0.025, b + 0.025, s0 - 0.05, s1 + 0.04, f.frame, 1, face);
-          glassy(f.glass, a, b, s0, s1, face);
+          glassy(tint(f.glass, a, z0, face), a, b, s0, s1, face);
+          // THE REVEAL: the window set into the wall, its head and lit jamb throwing shade on the glass.
+          onFaces(p, m, a, b, s1 - Math.min(0.09, (s1 - s0) * 0.18), s1, SHADE, 0.32, face);
+          onFaces(p, m, a, a + Math.min(0.03, (b - a) * 0.16), s0, s1, SHADE, 0.24, face);
+          // A wide one is two lights and a transom.
+          if (b - a > 0.27) {
+            onFaces(p, m, (a + b) / 2 - 0.012, (a + b) / 2 + 0.012, s0, s1, f.frame, 1, face);
+            if (s1 - s0 > 0.9) onFaces(p, m, a, b, s1 - (s1 - s0) * 0.28 - 0.012, s1 - (s1 - s0) * 0.28 + 0.012, f.frame, 1, face);
+          }
           // A sill, catching the light.
           onFaces(p, m, a - 0.04, b + 0.04, s0 - 0.07, s0 - 0.03, mix(f.frame, WHITE, 0.3), 1, face);
         }
@@ -167,6 +193,7 @@ function drawFloor(p: Pen, m: Mass, f: Facade, z0: number, z1: number) {
         const s0 = z0 + f.sill, s1 = z1 - f.head;
         if (f.frame !== undefined) onFaces(p, m, e - 0.02, len - e + 0.02, s0 - 0.04, s1 + 0.04, f.frame, 1, face);
         glassy(f.glass, e, len - e, s0, s1, face);
+        onFaces(p, m, e, len - e, s1 - Math.min(0.08, (s1 - s0) * 0.2), s1, SHADE, 0.3, face);
         // Mullions down the band.
         if (f.frame !== undefined) {
           for (let a = e + 0.33; a < len - e - 0.1; a += 0.33) onFaces(p, m, a - 0.012, a + 0.012, s0, s1, f.frame, 1, face);
@@ -177,6 +204,13 @@ function drawFloor(p: Pen, m: Mass, f: Facade, z0: number, z1: number) {
     case "curtain": {
       for (const [face, len] of faces) {
         glassy(f.glass, 0, len, z0, z1, face);
+        // THE ROOMS BEHIND: a pane here and there darker, or a blind half down.
+        for (let a = 0; a < len - 0.02; a += f.every) {
+          const k = hash(a * 7.1 + z0 * 3.3 + (face === "u" ? 11 : 0));
+          const a1 = Math.min(len, a + f.every);
+          if (k < 0.22) onFaces(p, m, a, a1, z0, z1, SHADE, 0.16, face);
+          else if (k > 0.86) onFaces(p, m, a, a1, z1 - (z1 - z0) * (0.25 + 0.3 * hash(k * 9)), z1, mix(f.glass, WHITE, 0.55), 0.55, face);
+        }
         if (f.spandrel !== undefined) onFaces(p, m, 0, len, z0, z0 + 0.22, f.spandrel, 1, face);
         for (let a = f.every; a < len - 0.02; a += f.every) onFaces(p, m, a - 0.014, a + 0.014, z0, z1, f.mullion, 1, face);
         onFaces(p, m, 0, len, z1 - 0.03, z1, f.mullion, 1, face);
@@ -208,6 +242,28 @@ export function drawClad(p: Pen, m: Mass, top: number, cap: number) {
   p.box(m.u0, m.v0, m.u1, m.v1, m.z0, top, m.wall, { top: cap });
   for (let k = 0, z = m.z0; z < top - 1e-6; k++, z += h) {
     drawFloor(p, m, k === 0 && m.ground ? m.ground : m.facade, z, Math.min(top, z + h));
+  }
+  const O = 0.006;
+  if (m.bands) {
+    for (let z = m.z0 + h; z < Math.min(top, m.z1) - 0.05; z += h) {
+      onFaces(p, m, 0, m.u1 - m.u0, z - m.bands.h / 2, Math.min(top, z + m.bands.h / 2), m.bands.colour, 1, "v");
+      onFaces(p, m, 0, m.v1 - m.v0, z - m.bands.h / 2, Math.min(top, z + m.bands.h / 2), m.bands.colour, 1, "u");
+    }
+  }
+  if (m.piers) {
+    const w = m.piers.w ?? 0.07, c = m.piers.colour;
+    for (const [face, len] of [["v", m.u1 - m.u0], ["u", m.v1 - m.v0]] as const) {
+      const n = Math.max(1, Math.round(len / m.piers.every));
+      for (let k = 0; k <= n; k++) {
+        const a = Math.min(len - w, Math.max(0, (len * k) / n - w / 2));
+        if (face === "v") p.box(m.u0 + a, m.v1 - O, m.u0 + a + w, m.v1 + O, m.z0, top, c, { noTop: k < n });
+        else p.box(m.u1 - O, m.v0 + a, m.u1 + O, m.v0 + a + w, m.z0, top, c, { noTop: true });
+      }
+    }
+  }
+  if (m.base) {
+    const z1 = Math.min(top, m.z0 + m.base.h);
+    p.box(m.u0 - O, m.v0 - O, m.u1 + O, m.v1 + O, m.z0, z1, m.base.colour, { noTop: true });
   }
 }
 

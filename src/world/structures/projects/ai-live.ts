@@ -120,7 +120,7 @@ export function drawLiveBase(p: Pen, live: Live) {
   }
   for (const f of live.fans) {
     // Its well is drawn with the blades: a disc is not cut to a tile. @see drawLive
-    p.box(f.u - f.r - 0.04, f.v - f.r - 0.04, f.u + f.r + 0.04, f.v + f.r + 0.04, f.z - 0.22, f.z, HOUSING);
+    p.box(f.u - f.r - 0.04, f.v - f.r - 0.04, f.u + f.r + 0.04, f.v + f.r + 0.04, f.z - 0.22, f.z, f.housing ?? HOUSING);
   }
 }
 
@@ -193,7 +193,13 @@ export function drawLive(p: Pen, live: Live, t: number, { flow, heat }: LiveStat
       const at = (r: number, d: number): Pt => p.P(f.u + Math.cos(a + d) * r, f.v + Math.sin(a + d) * r, f.z + 0.01);
       p.poly([at(f.r * 0.18, -w), at(f.r * 0.92, -w * 0.45), at(f.r * 0.92, w * 0.35), at(f.r * 0.18, w)], BLADE, 0.9);
     }
-    p.poly(ring(p, { ...f, z: f.z + 0.02 }, f.r * 0.2, 10), HOUSING);
+    p.poly(ring(p, { ...f, z: f.z + 0.02 }, f.r * 0.2, 10), f.housing ?? HOUSING);
+  }
+  // THE BEACONS: a short flash and a slow fade, out of step with each other.
+  for (const b of live.beacons ?? []) {
+    const k = (((t + (b.phase ?? 0)) / (b.period ?? 1.6)) % 1 + 1) % 1, on = k < 0.12 ? 1 : Math.max(0, 1 - (k - 0.12) * 3);
+    p.dot(b.u, b.v, b.z, 0.09, b.colour, 0.25 * on);
+    p.dot(b.u, b.v, b.z, 0.035, mix(b.colour, 0xffffff, 0.5 * on), 0.35 + 0.65 * on);
   }
 }
 
