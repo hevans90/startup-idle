@@ -66,7 +66,22 @@ export type Building = {
   details?: (p: Pen, f: Footprint) => void;
   /** What lifts the materials: a tower crane, or nothing for a little building. */
   crane: "tower" | "none";
+  /** What runs on it while it is open: an AI building's coolant, circuits and fans. @see ai-live */
+  live?: Live;
 };
+
+/** A face of a mass the camera sees: the +u face at `u = at`, or the +v face at `v = at`. */
+export type FaceAt = { face: "u" | "v"; at: number };
+/**
+ * A COOLANT PANEL: glass on a face, `a0..a1` along it and `z0..z1` up, a
+ * channel snaking through it in `runs` lengths — across (h) or up (v).
+ */
+export type Panel = FaceAt & { a0: number; a1: number; z0: number; z1: number; runs: number; dir: "h" | "v" };
+/** CIRCUIT TRACES on a face: lines along it or up it, each `[a0, z0, a1, z1]`, square to the face's axes. */
+export type Trace = FaceAt & { segs: readonly (readonly [number, number, number, number])[]; phase: number };
+/** A FAN on a roof, at its middle, `r` tiles across. */
+export type Fan = { u: number; v: number; z: number; r: number };
+export type Live = { panels: Panel[]; traces: Trace[]; fans: Fan[] };
 
 /**
  * A safe order to paint masses in: lower first, then back to front. A tower

@@ -19,6 +19,7 @@ import { drawMover } from "../agents/town-render";
 import type { Mover } from "../agents/town";
 import { idx, inBounds, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
+import { drawLive, liveState } from "./projects/ai-live";
 import { crewAt } from "./projects/crew";
 import { lookOf } from "./projects/looks";
 import type { Building } from "./projects/model";
@@ -51,7 +52,22 @@ type ProjectHandle = StructureHandle & {
   opened: number;
   /** The site as last drawn, for the crane to work over. */
   site: Site | null;
+  /** An AI building's coolant, circuits and fans, open: redrawn a few times a second. @see ai-live */
+  live: Graphics;
+  /** Seconds since the live layer was last drawn, and its own clock. */
+  liveDue: number;
+  liveT: number;
 };
+
+/** How often the live layer is redrawn: smooth enough, at a fraction of the frames. */
+const LIVE_EVERY = 1 / 24;
+
+function drawLiveLayer(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
+  h.live.clear();
+  if (s.build || !h.model.live) return;
+  const p = makePen(h.live, s.x - 0.5, s.y - 0.5, groundOf(s, ctx), ctx.scale, null);
+  drawLive(p, h.model.live, h.liveT, liveState(s.id));
+}
 
 /** What a column of a building draws with: projection, and boxes clipped to the column. */
 export function pen(g: Graphics, s: Structure, ctx: RenderCtx, c: number) {
@@ -214,6 +230,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
   });
   drawCrane(h, s, ctx, ground);
   drawCrew(h, s, ctx, ground);
+  drawLiveLayer(h, s, ctx);
 }
 
 function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
@@ -233,11 +250,16 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   // Above whoever is walking past in the same band: it is in the sky.
   sky.zIndex = 2;
   ctx.bands.dynamicOf[frontBand(s, ctx)].addChild(sky);
+  // On its faces, in front of the building and under the crane and confetti.
+  const live = new Graphics();
+  live.eventMode = "none";
+  live.zIndex = 1.5;
+  ctx.bands.dynamicOf[frontBand(s, ctx)].addChild(live);
   const handle: ProjectHandle = {
-    columns, cells, sky, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
+    columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null, crew: [], opened: -1,
-    destroy: () => { for (const g of [...columns, sky, ...handle.crew]) { g.parent?.removeChild(g); g.destroy(); } },
+    t: s.id * 3.7, site: null, crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9,
+    destroy: () => { for (const g of [...columns, sky, live, ...handle.crew]) { g.parent?.removeChild(g); g.destroy(); } },
   };
   draw(handle, s, ctx);
   return handle;
@@ -269,6 +291,11 @@ registerCustomRenderer("project", {
       if (handle.model.crane === "tower") drawCrane(handle, s, ctx, ground);
       drawCrew(handle, s, ctx, ground);
     } else if (handle.crew.length) drawCrew(handle, s, ctx, ground);
+    if (handle.model.live && !s.build) {
+      handle.liveT += dt;
+      handle.liveDue += dt;
+      if (handle.liveDue >= LIVE_EVERY) { handle.liveDue = 0; drawLiveLayer(handle, s, ctx); }
+    }
     if (handle.opened >= 0) {
       handle.opened += dt;
       handle.sky.clear();

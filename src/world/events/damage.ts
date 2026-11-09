@@ -97,6 +97,8 @@ export function repairedIn(id: number): number | null {
 }
 
 export const isDamaged = (id: number) => damaged.has(id);
+/** What damaged a building, or null when it is not. */
+export const damageOf = (id: number): DamageCause | null => damaged.get(id)?.cause ?? null;
 
 /** What damaged a building, or null: for how it is drawn. @see disaster-fx */
 export const damageCause = (id: number): DamageCause | null => damaged.get(id)?.cause ?? null;

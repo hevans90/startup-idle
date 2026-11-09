@@ -9,7 +9,8 @@
  * map. Colours are the face lit from the left; the pen shades the rest.
  */
 import { mix, tone, type Pen } from "./pen";
-import type { Building, Footprint, Mass } from "./model";
+import type { Building, FaceAt, Footprint, Live, Mass, Trace } from "./model";
+import { drawLiveBase, traceOf } from "./ai-live";
 import { latticeForm } from "../../../game/quests/finale";
 
 // The town's: measured off the house sprites.
@@ -345,29 +346,44 @@ export function harbour(f: Footprint): Building {
   };
 }
 
-/** DATA CENTRE: long, low and windowless, louvred, cooling on the roof and status lights down its face. */
+/**
+ * DATA CENTRE: a long graphite hall in three bays a face, pilasters between
+ * them — coolant panels in the outer bays, its circuits over the inlet in the
+ * middle — status lights along its foot and chillers on the roof.
+ */
 export function datacentre(f: Footprint): Building {
   const m: Mass = {
-    ...inside(f, 0.2, PLINTH.h, PLINTH.h + 3), wall: 0x50565d, storey: 3,
-    facade: { kind: "louvres", slat: 0x7b838b, every: 0.18 },
-    roof: { kind: "parapet", deck: 0x2e3236, rim: 0x50565d, h: 0.18 },
+    ...inside(f, 0.2, PLINTH.h, PLINTH.h + 3.1), wall: 0x2a2e36, storey: 3.1,
+    facade: { kind: "plain" },
+    roof: { kind: "parapet", deck: 0x1d2026, rim: 0x3a3f48, h: 0.18 },
+  };
+  const top = m.z1 - 0.25, mid = f.w / 2, midv = f.h / 2;
+  const v: FaceAt = { face: "v", at: m.v1 }, u: FaceAt = { face: "u", at: m.u1 };
+  const live: Live = {
+    panels: [
+      { ...v, a0: m.u0 + 0.1, a1: mid - 0.38, z0: m.z0 + 1.3, z1: top, runs: 7, dir: "v" },
+      { ...v, a0: mid + 0.38, a1: m.u1 - 0.1, z0: m.z0 + 0.35, z1: top, runs: 7, dir: "v" },
+      { ...u, a0: m.v0 + 0.1, a1: midv - 0.38, z0: m.z0 + 0.35, z1: top, runs: 7, dir: "v" },
+      { ...u, a0: midv + 0.38, a1: m.v1 - 0.1, z0: m.z0 + 0.35, z1: top, runs: 7, dir: "v" },
+    ],
+    traces: [
+      ...circuits(v, mid - 0.24, mid + 0.24, m.z0 + 1.55, top, 3, 1),
+      ...circuits(u, midv - 0.24, midv + 0.24, m.z0 + 1.55, top, 3, 2),
+    ],
+    fans: [0.85, f.w - 0.85].flatMap((fu) => [0.85, f.h - 0.85].map((fv) => ({ u: fu, v: fv, z: m.z1 + 0.32, r: 0.23 }))),
   };
   return {
-    plinth: { ...PLINTH, colour: 0x8f949a, top: 0xa9aeb4 }, masses: [m], crane: "tower",
-    grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0xa9aeb4),
+    plinth: { ...PLINTH, colour: 0x5d626a, top: 0x737880 }, masses: [m], crane: "tower", live,
+    grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0x6b7078),
     details: (p) => {
-      // Status lights in a strip along both faces, under the louvres.
-      for (let a = m.u0 + 0.2; a < m.u1 - 0.1; a += 0.14) p.onV(m.v1, a, a + 0.05, m.z0 + 0.12, m.z0 + 0.19, 0x3fe0a8);
-      for (let b = m.v0 + 0.2; b < m.v1 - 0.1; b += 0.14) p.onU(m.u1, b, b + 0.05, m.z0 + 0.12, m.z0 + 0.19, 0x3fe0a8);
-      door(p, m, m.u0 + 0.45, 0.32, 1.1, 0x2e3236, 0x7b838b);
-      // Cooling units in rows across the roof, a fan in each.
-      for (let u = m.u0 + 0.35; u < m.u1 - 0.25; u += 0.55) {
-        for (let v = m.v0 + 0.35; v < m.v1 - 0.25; v += 0.55) {
-          p.box(u - 0.2, v - 0.2, u + 0.2, v + 0.2, m.z1, m.z1 + 0.42, 0x9aa3ad);
-          p.dot(u, v, m.z1 + 0.42, 0.13, 0x5b636c);
-          p.dot(u, v, m.z1 + 0.42, 0.04, 0x9aa3ad);
-        }
-      }
+      // Pilasters between the bays, standing proud of both faces.
+      for (const a of [mid - 0.31, mid + 0.31]) p.box(a - 0.035, m.v1 - 0.02, a + 0.035, m.v1 + 0.035, m.z0, m.z1 + 0.06, 0x3a3f48);
+      for (const b of [midv - 0.31, midv + 0.31]) p.box(m.u1 - 0.02, b - 0.035, m.u1 + 0.035, b + 0.035, m.z0, m.z1 + 0.06, 0x3a3f48);
+      // Status lights along the foot of both faces, clear of the inlets.
+      for (let a = m.u0 + 0.12; a < m.u1 - 0.1; a += 0.12) if (Math.abs(a + 0.025 - mid) > 0.3) p.onV(m.v1 + 0.003, a, a + 0.05, m.z0 + 0.1, m.z0 + 0.17, 0x3fe0a8);
+      for (let b = m.v0 + 0.12; b < m.v1 - 0.1; b += 0.12) if (Math.abs(b + 0.025 - midv) > 0.3) p.onU(m.u1 + 0.003, b, b + 0.05, m.z0 + 0.1, m.z0 + 0.17, 0x2fb886);
+      door(p, m, m.u0 + 0.5, 0.3, 1.0, 0x16181c, 0x4a4f58);
+      drawLiveBase(p, live);
     },
   };
 }
@@ -908,10 +924,14 @@ export function pump(f: Footprint): Building {
 
 // ─── THE AI'S OWN ───────────────────────────────────────────────────────────
 // What the company's AI puts up for itself: black glass, violet light, and no
-// door anyone would use. @see AI_BUILDINGS, world/ai/planner
+// door anyone would use — and, on each that drinks, coolant panels on its
+// walls, circuits traced across them and fans on its roof, running as its
+// tank lets it. @see AI_BUILDINGS, world/ai/planner, ai-live
 
 const AI_GLASS = 0x1b1530;
 const AI_LIGHT = 0xb44aff;
+const AI_WALL = 0x221d36;
+const AI_METAL = 0x4a4560;
 
 /** A row of violet light along both lit faces of a mass, at a height. */
 function aiBand(p: Pen, m: Mass, z: number) {
@@ -919,51 +939,110 @@ function aiBand(p: Pen, m: Mass, z: number) {
   p.onU(m.u1 + 0.005, m.v0 + 0.04, m.v1 - 0.04, z, z + 0.06, tone(AI_LIGHT, 0.8));
 }
 
-/** AN AI NODE: a house it took, its windows panelled over, humming. */
+/** The two faces of a mass the camera sees. */
+const facesOf = (m: Mass): [FaceAt, FaceAt] => [{ face: "v", at: m.v1 }, { face: "u", at: m.u1 }];
+
+/**
+ * A board of `n` circuits across a face, `a0..a1` along it and `z0..z1` up:
+ * each rising from the foot, jogging aside, and rising on to the head.
+ */
+function circuits(at: FaceAt, a0: number, a1: number, z0: number, z1: number, n: number, seed: number): Trace[] {
+  const out: Trace[] = [];
+  const r = (k: number, i: number) => { const x = Math.sin(seed * 12.9898 + k * 78.233 + i * 37.719) * 43758.5453; return x - Math.floor(x); };
+  const w = (a1 - a0) / n;
+  for (let k = 0; k < n; k++) {
+    const a = a0 + w * (k + 0.5), zA = z0 + (z1 - z0) * (0.2 + 0.25 * r(k, 1)), zB = z0 + (z1 - z0) * (0.55 + 0.25 * r(k, 2));
+    const b = Math.max(a0 + w * 0.2, Math.min(a1 - w * 0.2, a + (r(k, 3) - 0.5) * w * 1.1));
+    out.push(traceOf(at, seed * 1.3 + k * 2.1, [a, z0, a, zA, b, zA, b, zB, a, zB, a, z1]));
+  }
+  return out;
+}
+
+/** AN AI NODE: a pod of black panels, coolant behind glass over its circuits, a fan on its cap. */
 export function aiNode(f: Footprint): Building {
   const m: Mass = {
-    ...inside(f, 0.18, 0.15, 2.0), wall: 0x2a2440, storey: 1.85,
-    facade: { kind: "louvres", slat: 0x3b3358, every: 0.12, edge: 0.1 },
-    roof: { kind: "flat", deck: 0x17131f },
+    ...inside(f, 0.17, 0.15, 2.5), wall: AI_WALL, storey: 2.35,
+    facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x17131f },
+  };
+  const cap: Mass = { ...inside(f, 0.2, m.z1, m.z1 + 0.18), wall: AI_METAL, storey: 1, facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x2a2440 } };
+  const [v, u] = facesOf(m);
+  const live: Live = {
+    panels: [v, u].map((at) => ({ ...at, a0: m.u0 + 0.05, a1: m.u1 - 0.05, z0: 1.7, z1: m.z1 - 0.05, runs: 5, dir: "v" as const })),
+    traces: [v, u].flatMap((at, k) => [
+      ...circuits(at, m.u0 + 0.05, f.w / 2 - 0.17, 0.35, 1.55, 1, 3 + k),
+      ...circuits(at, f.w / 2 + 0.17, m.u1 - 0.05, 0.35, 1.55, 1, 5 + k),
+    ]),
+    fans: [{ u: f.w / 2, v: f.h / 2, z: cap.z1 + 0.22, r: 0.16 }],
   };
   return {
-    plinth: { inset: 0.05, h: 0.15, colour: 0x5d5770, top: 0x6f6984 }, masses: [m], crane: "none",
+    plinth: { inset: 0.05, h: 0.15, colour: 0x5d5770, top: 0x6f6984 }, masses: [m, cap], crane: "none", live,
     grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0x3b3651),
-    details: (p) => { aiBand(p, m, 0.9); aiBand(p, m, 1.6); },
+    details: (p) => { aiBand(p, m, 1.6); drawLiveBase(p, live); },
   };
 }
 
-/** A GPU FARM: a long black shed, fans along its roof. */
+/** A GPU FARM: a long black shed of rack bays behind coolant glass, fans in a row along its roof. */
 export function gpuFarm(f: Footprint): Building {
   const m: Mass = {
-    ...inside(f, 0.12, 0.15, 1.6), wall: AI_GLASS, storey: 1.45,
-    facade: { kind: "fins", glass: 0x251d3d, fin: 0x3b3358, every: 0.14 },
-    roof: { kind: "flat", deck: 0x110d19 },
+    ...inside(f, [0.1, 0.12, 0.1, 0.12], 0.15, 2.2), wall: AI_GLASS, storey: 2.05,
+    facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x110d19 },
+  };
+  const [v, u] = facesOf(m);
+  const port = 0.5, half = (m.u1 - 0.75) / 2;
+  const live: Live = {
+    panels: [
+      // The rack bays, down the long face clear of its inlet.
+      { ...v, a0: 0.78, a1: 0.78 + half, z0: 0.35, z1: m.z1 - 0.1, runs: 6, dir: "v" },
+      { ...v, a0: 0.82 + half, a1: m.u1 - 0.05, z0: 0.35, z1: m.z1 - 0.1, runs: 6, dir: "v" },
+      // Over the inlet on the short face.
+      { ...u, a0: m.v0 + 0.05, a1: m.v1 - 0.05, z0: 1.6, z1: m.z1 - 0.1, runs: 2, dir: "h" },
+    ],
+    traces: [
+      ...circuits(v, m.u0 + 0.05, port - 0.17, 0.35, m.z1 - 0.15, 1, 7),
+      ...circuits(v, port + 0.17, 0.72, 0.35, m.z1 - 0.15, 1, 8),
+      ...circuits(u, m.v0 + 0.05, f.h / 2 - 0.17, 0.35, 1.45, 1, 9),
+      ...circuits(u, f.h / 2 + 0.17, m.v1 - 0.05, 0.35, 1.45, 1, 10),
+    ],
+    fans: [0.5, 1.0, 1.5].map((fu) => ({ u: fu * (f.w / 2), v: f.h / 2, z: m.z1 + 0.22, r: 0.16 })),
   };
   return {
-    plinth: { inset: 0.04, h: 0.15, colour: 0x5d5770, top: 0x6f6984 }, masses: [m], crane: "none",
+    plinth: { inset: 0.04, h: 0.15, colour: 0x5d5770, top: 0x6f6984 }, masses: [m], crane: "none", live,
     grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0x3b3651),
-    details: (p) => {
-      aiBand(p, m, 1.0);
-      for (let u = m.u0 + 0.25; u < m.u1 - 0.15; u += 0.4) p.dot(u, (m.v0 + m.v1) / 2, m.z1 + 0.02, 0.1, 0x3b3358);
-    },
+    details: (p) => { aiBand(p, m, m.z1 - 0.1); drawLiveBase(p, live); },
   };
 }
 
-/** A COMPUTE SPIRE: a black obelisk, a violet seam up it. */
+/**
+ * A COMPUTE SPIRE: a black obelisk on a podium its inlets are flanged to,
+ * coolant snaking up its lower shaft, its circuits above, a fan in its crown.
+ */
 export function computeSpire(f: Footprint): Building {
+  const podium: Mass = {
+    ...inside(f, 0.18, 0.15, 1.8), wall: 0x161021, storey: 1.65,
+    facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x3b3358 },
+  };
   const m: Mass = {
-    ...inside(f, 0.3, 0.15, 6.5), wall: AI_GLASS, storey: 6.35,
-    facade: { kind: "plain" }, roof: { kind: "flat", deck: AI_LIGHT },
+    ...inside(f, 0.28, podium.z1, 6.2), wall: AI_GLASS, storey: 4.4,
+    facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x17131f },
+  };
+  const crown: Mass = { ...inside(f, 0.25, m.z1, m.z1 + 0.25), wall: AI_METAL, storey: 1, facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x2a2440 } };
+  const [pv, pu] = facesOf(podium), [v, u] = facesOf(m);
+  const a0 = m.u0 + 0.03, a1 = m.u1 - 0.03;
+  const live: Live = {
+    panels: [v, u].map((at) => ({ ...at, a0, a1, z0: m.z0 + 0.2, z1: m.z0 + 2.2, runs: 5, dir: "h" as const })),
+    traces: [
+      ...[v, u].flatMap((at, k) => circuits(at, a0, a1, m.z0 + 2.4, m.z1 - 0.2, 3, 11 + k)),
+      ...[pv, pu].flatMap((at, k) => [
+        ...circuits(at, podium.u0 + 0.04, f.w / 2 - 0.17, 0.3, podium.z1 - 0.15, 1, 13 + k),
+        ...circuits(at, f.w / 2 + 0.17, podium.u1 - 0.04, 0.3, podium.z1 - 0.15, 1, 15 + k),
+      ]),
+    ],
+    fans: [{ u: f.w / 2, v: f.h / 2, z: crown.z1 + 0.22, r: 0.15 }],
   };
   return {
-    plinth: { inset: 0.12, h: 0.15, colour: 0x2a2440, top: 0x3b3358 }, masses: [m], crane: "none",
+    plinth: { inset: 0.12, h: 0.15, colour: 0x2a2440, top: 0x3b3358 }, masses: [podium, m, crown], crane: "none", live,
     grounds: (p) => p.flat(0.06, 0.06, f.w - 0.06, f.h - 0.06, 0.004, 0x2a2440),
-    details: (p) => {
-      const mid = (m.u0 + m.u1) / 2, midv = (m.v0 + m.v1) / 2;
-      p.onV(m.v1 + 0.005, mid - 0.02, mid + 0.02, m.z0 + 0.3, m.z1 - 0.1, AI_LIGHT);
-      p.onU(m.u1 + 0.005, midv - 0.02, midv + 0.02, m.z0 + 0.3, m.z1 - 0.1, tone(AI_LIGHT, 0.8));
-    },
+    details: (p) => { aiBand(p, podium, podium.z1 - 0.12); aiBand(p, m, m.z1 - 0.12); drawLiveBase(p, live); },
   };
 }
 
@@ -1012,18 +1091,37 @@ export function lattice(f: Footprint): Building {
     wall, storey: H, facade: { kind: "plain" }, roof: { kind: "flat", deck },
   });
   const cols = (wall: number, deck: number) => [col(0.35, 0.35, wall, deck), col(f.w - 0.63, 0.35, wall, deck), col(0.35, f.h - 0.63, wall, deck), col(f.w - 0.63, f.h - 0.63, wall, deck)];
+  /**
+   * A core's coolant and circuits, stacked up both its faces: `bands` of
+   * `[z0, z1, "panel" | "board"]`, kept back from the front column's corner.
+   */
+  const coreLive = (core: Mass, bands: [number, number, "panel" | "board"][], fan: boolean): Live => {
+    const faces = facesOf(core), a0 = core.u0 + 0.05, a1 = Math.min(core.u1 - 0.05, f.w - 0.63 - 0.65);
+    return {
+      panels: faces.flatMap((at) => bands.filter((b) => b[2] === "panel").map(([z0, z1]) => ({ ...at, a0, a1, z0, z1, runs: 4, dir: "h" as const }))),
+      traces: faces.flatMap((at, k) => bands.filter((b) => b[2] === "board").flatMap(([z0, z1], j) => circuits(at, a0, a1, z0, z1, 3, 21 + k * 5 + j))),
+      fans: fan ? [{ u: (core.u0 + core.u1) / 2, v: (core.v0 + core.v1) / 2, z: core.z1 + 0.22, r: 0.26 }] : [],
+    };
+  };
   switch (form) {
-    // A GLASS SPIRE: three stacked, narrowing towers of glass, lit at every floor.
+    // A GLASS SPIRE: three stacked, narrowing towers of glass, coolant in the
+    // lowest, circuits up the next, a fan in the top.
     case "spire": {
       const tiers: Mass[] = [[0.55, 0, 4], [0.85, 4, 7.5], [1.15, 7.5, 9.5]].map(([inset, z0, z1]) => ({
         ...inside(f, inset, z0, z1), wall: 0x3d4f7a, storey: 0.7,
         facade: { kind: "curtain", glass: 0x6d8fc4, mullion: 0xd6e4f5, every: 0.25, spandrel: 0x2a3556 },
         roof: { kind: "flat", deck: 0x2a3556 },
       }));
+      const [t0, t1, t2] = tiers, mid = f.w / 2;
+      const live: Live = {
+        panels: facesOf(t0).flatMap((at) => [[t0.u0 + 0.1, mid - 0.2], [mid + 0.2, t0.u1 - 0.1]].map(([a0, a1]) => ({ ...at, a0, a1, z0: 1.9, z1: 3.7, runs: 6, dir: "v" as const }))),
+        traces: facesOf(t1).flatMap((at, k) => circuits(at, t1.u0 + 0.1, t1.u1 - 0.1, 4.4, 7.2, 5, 31 + k)),
+        fans: [{ u: mid, v: f.h / 2, z: t2.z1 + 0.22, r: 0.2 }],
+      };
       return {
-        plinth: { inset: 0.1, h: 0.2, colour: 0x2a3556, top: 0x3d4f7a }, masses: tiers, crane: "none",
+        plinth: { inset: 0.1, h: 0.2, colour: 0x2a3556, top: 0x3d4f7a }, masses: tiers, crane: "none", live,
         grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0x2a2440),
-        details: (p) => { for (const t of tiers) aiBand(p, t, t.z1 - 0.3); },
+        details: (p) => { for (const t of tiers) aiBand(p, t, t.z1 - 0.3); drawLiveBase(p, live); },
       };
     }
     // A GARDEN LATTICE: pale stone columns, a core of green louvres, planted on top, a lawn round it.
@@ -1032,10 +1130,11 @@ export function lattice(f: Footprint): Building {
         ...inside(f, 0.95, 0, H - 0.4), wall: 0x3f5f34, storey: 0.6,
         facade: { kind: "louvres", slat: 0x6f9a52, every: 0.2, edge: 0.08 }, roof: { kind: "garden", deck: 0x4f7a3a, rim: 0xd8d2c0 },
       };
+      const live = coreLive(core, [[1.9, 3.3, "panel"], [3.6, 5.0, "panel"]], false);
       return {
-        plinth: { inset: 0.1, h: 0.15, colour: 0xc9c2ae, top: 0xd8d2c0 }, masses: [core, ...cols(0xd8d2c0, 0xe6e1d2)], crane: "none",
+        plinth: { inset: 0.1, h: 0.15, colour: 0xc9c2ae, top: 0xd8d2c0 }, masses: [core, ...cols(0xd8d2c0, 0xe6e1d2)], crane: "none", live,
         grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0x5f8a3e),
-        details: () => {},
+        details: (p) => drawLiveBase(p, live),
       };
     }
     // AN OPEN FRAME: white columns round a core of clear glass behind white fins, warm inside.
@@ -1044,38 +1143,50 @@ export function lattice(f: Footprint): Building {
         ...inside(f, 0.95, 0, H + 0.4), wall: 0xf2efe6, storey: 0.6,
         facade: { kind: "fins", glass: 0xf6e7b8, fin: 0xffffff, every: 0.18 }, roof: { kind: "flat", deck: 0xe6e1d2 },
       };
+      const live = coreLive(core, [[1.9, 3.3, "panel"], [3.6, 5.2, "board"]], true);
       return {
-        plinth: { inset: 0.1, h: 0.15, colour: 0xd9d5ca, top: 0xeeeae0 }, masses: [core, ...cols(0xf4f3ee, 0xffffff)], crane: "none",
+        plinth: { inset: 0.1, h: 0.15, colour: 0xd9d5ca, top: 0xeeeae0 }, masses: [core, ...cols(0xf4f3ee, 0xffffff)], crane: "none", live,
         grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0xb9b4a6),
-        details: () => {},
+        details: (p) => drawLiveBase(p, live),
       };
     }
-    // A RIVER-COOLED MONOLITH: a dark slab standing in a pool, banded in water-blue.
+    // A RIVER-COOLED MONOLITH: a dark slab standing in a pool, banded in water-blue, coolant between the bands.
     case "river": {
       const slab: Mass = {
         u0: f.w / 2 - 0.45, v0: 0.6, u1: f.w / 2 + 0.45, v1: f.h - 0.6, z0: 0, z1: H + 1,
         wall: 0x0d1a22, storey: H + 1, facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x14262f },
       };
+      const [v, u] = facesOf(slab);
+      const live: Live = {
+        panels: [2.0, 4.2].flatMap((z0) => [
+          { ...v, a0: slab.u0 + 0.06, a1: slab.u1 - 0.06, z0, z1: z0 + 0.9, runs: 3, dir: "h" as const },
+          { ...u, a0: slab.v0 + 0.08, a1: slab.v1 - 0.08, z0, z1: z0 + 0.9, runs: 3, dir: "h" as const },
+        ]),
+        traces: [], fans: [],
+      };
       return {
-        plinth: { inset: 0.1, h: 0.08, colour: 0x1c3a48, top: 0x2f6f8f }, masses: [slab], crane: "none",
+        plinth: { inset: 0.1, h: 0.08, colour: 0x1c3a48, top: 0x2f6f8f }, masses: [slab], crane: "none", live,
         grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.006, 0x2f6f8f),
         details: (p) => {
           for (let z = 0.8; z < slab.z1; z += 1.1) {
             p.onV(slab.v1 + 0.005, slab.u0 + 0.04, slab.u1 - 0.04, z, z + 0.08, 0x7fd3f0);
             p.onU(slab.u1 + 0.005, slab.v0 + 0.04, slab.v1 - 0.04, z, z + 0.08, 0x5fb6d6);
           }
+          drawLiveBase(p, live);
         },
       };
     }
+    // THE BLACK VAULT: four columns round a core of coolant and circuits, stacked to the top, a fan on it.
     default: {
       const core: Mass = {
         ...inside(f, 0.95, 0, H + 0.8), wall: AI_GLASS, storey: 0.6,
-        facade: { kind: "louvres", slat: 0x3b3358, every: 0.2, edge: 0.08 }, roof: { kind: "flat", deck: 0x17131f },
+        facade: { kind: "plain" }, roof: { kind: "flat", deck: 0x17131f },
       };
+      const live = coreLive(core, [[1.9, 3.1, "panel"], [3.3, 4.5, "board"], [4.7, 5.9, "panel"], [6.05, 6.65, "board"]], true);
       return {
-        plinth: { inset: 0.1, h: 0.2, colour: 0x050407, top: 0x0b0910 }, masses: [core, ...cols(0x050407, 0x0b0910)], crane: "none",
+        plinth: { inset: 0.1, h: 0.2, colour: 0x050407, top: 0x0b0910 }, masses: [core, ...cols(0x050407, 0x0b0910)], crane: "none", live,
         grounds: (p) => p.flat(0.05, 0.05, f.w - 0.05, f.h - 0.05, 0.004, 0x2a2440),
-        details: (p) => { for (let z = 1; z < H; z += 1.2) aiBand(p, core, z); },
+        details: (p) => { aiBand(p, core, 1.65); drawLiveBase(p, live); },
       };
     }
   }
