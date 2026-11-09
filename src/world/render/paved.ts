@@ -46,7 +46,11 @@ export type PavedLayer = {
   lod: Uint8Array;
   /** The level wanted on screen, as last asked for. */
   lodWant: number;
+  /** The view it was wanted for, so a cell laid in it is painted at that level straight away. */
+  lodView: View | null;
 };
+
+type View = { left: number; top: number; right: number; bottom: number };
 
 /** Whether roads are painted in code here: in a browser, unless the URL asks for the sheet's. */
 export const paintsRoads = () =>
@@ -66,6 +70,7 @@ export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1, painte
     dress: undefined,
     lod: new Uint8Array(n),
     lodWant: 0,
+    lodView: null,
   };
 }
 
@@ -141,6 +146,11 @@ export function syncPaved(
     if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
     const paint = paintOf(pl, grid, x, y);
     if (!paint) return;
+    const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(grid, x, y), pl.scale);
+    const sy = spriteY(wy, GROUND_FRAME_H, pl.scale);
+    // At the level the screen shows it at, from its first frame: a road laid
+    // close up is never drawn blurred and then sharpened.
+    pl.lod[i] = pl.lodView && inView(pl, wx, sy, pl.lodView) ? pl.lodWant : 0;
     const tex = pl.painter.textureFor(paint.key, paint.cells, paint.ramp, pl.lod[i]);
     let s = existing;
     if (!s) {
@@ -151,10 +161,9 @@ export function syncPaved(
     } else if (s.texture !== tex) s.texture = tex;
     s.anchor.set(tex.defaultAnchor?.x ?? 0.5, tex.defaultAnchor?.y ?? 1);
     pl.frames[i] = paint.key;
-    const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(grid, x, y), pl.scale);
     s.x = wx;
     // Its frame's bottom where a ground frame's is; no bleed, its margins meet its neighbours'.
-    s.y = spriteY(wy, GROUND_FRAME_H, pl.scale);
+    s.y = sy;
     s.scale.set(pl.scale);
     return;
   }
@@ -205,58 +214,51 @@ export function syncPaved(
 /** How many closer pages a level may fill before it is dropped and painted again for what is on screen. */
 const LOD_PAGES = 2;
 
+/** Whether a sprite at `(x, y)` shows in `view`: its frame reaches a tile and a bit either side of its anchor, and up a ramp's pad. */
+function inView(pl: PavedLayer, x: number, y: number, view: View) {
+  const mx = 80 * pl.scale, up = 150 * pl.scale, down = 20 * pl.scale;
+  return x + mx > view.left && x - mx < view.right && y + down > view.top && y - up < view.bottom;
+}
+
 /**
  * DETAIL BY ZOOM: the cells on screen drawn at level `want`, the rest at the
  * map's own. `view` is the visible part of the world, in the sprites' space.
  * New textures are painted until `budgetMs` is spent; returns false if any
  * cell is still waiting, so the caller asks again next frame.
+ *
+ * NOTHING ON SCREEN FLICKERS. A cell waiting for its texture keeps the one it
+ * has, whatever level that is. A level is let go only once nothing draws it,
+ * and one that fills its pages starts new ones beside them, the old ones kept
+ * until every cell on screen has moved over. @see RoadPainter.rotate
  */
-export function lodPaved(
-  pl: PavedLayer,
-  grid: Grid,
-  want: number,
-  view: { left: number; top: number; right: number; bottom: number },
-  budgetMs: number,
-): boolean {
+export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, budgetMs: number): boolean {
   const P = pl.painter;
   if (!P) return true;
   if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
-  const back = (lod: number) => {
-    for (let i = 0; i < pl.lod.length; i++) if (pl.lod[i] === lod) retexture(pl, grid, i, 0);
-  };
-  // A level no longer wanted, or one that has filled its pages: back to the
-  // map's own, and its pages let go.
   const tiers = P.stats().tiers;
-  for (let l = 1; l < tiers.length; l++) {
-    if ((l !== want && tiers[l].pages > 0) || tiers[l].pages > LOD_PAGES) { back(l); P.evict(l); }
-  }
+  if (want > 0 && tiers[want].pages > LOD_PAGES && tiers[want].old === 0) P.rotate(want);
   pl.lodWant = want;
+  pl.lodView = view;
   const t0 = performance.now();
-  // A sprite's frame reaches a tile and a bit either side of its anchor, and up a ramp's pad.
-  const mx = 80 * pl.scale, up = 150 * pl.scale, down = 20 * pl.scale;
   let done = true;
   for (let i = 0; i < pl.sprites.length; i++) {
-    const s = pl.sprites[i];
-    if (!s) continue;
-    const seen = s.x + mx > view.left && s.x - mx < view.right && s.y + down > view.top && s.y - up < view.bottom;
-    const lod = seen ? want : 0;
-    if (pl.lod[i] === lod) continue;
-    if (lod > 0 && performance.now() - t0 > budgetMs) {
+    const s = pl.sprites[i], key = pl.frames[i];
+    if (!s || !key) continue;
+    const lod = inView(pl, s.x, s.y, view) ? want : 0;
+    let tex = P.peek(key, lod);
+    if (!tex) {
+      // The map's own level is cheap and always wanted; a closer one waits its turn.
+      if (lod > 0 && performance.now() - t0 > budgetMs) { done = false; continue; }
       const paint = paintOf(pl, grid, i % grid.w, (i / grid.w) | 0);
-      if (paint && !P.has(paint.key, lod)) { done = false; continue; }
+      if (!paint) continue;
+      tex = P.textureFor(paint.key, paint.cells, paint.ramp, lod);
     }
-    retexture(pl, grid, i, lod);
+    if (s.texture !== tex) s.texture = tex;
+    pl.lod[i] = lod;
   }
+  // Every cell has what it should: the levels and pages nothing draws now can go.
+  if (done) for (let l = 1; l < tiers.length; l++) { P.dropOld(l); if (l !== want) P.evict(l); }
   return done;
-}
-
-/** Draw cell `i` at level `lod`. */
-function retexture(pl: PavedLayer, grid: Grid, i: number, lod: number) {
-  const s = pl.sprites[i], paint = paintOf(pl, grid, i % grid.w, (i / grid.w) | 0);
-  pl.lod[i] = lod;
-  if (!s || !paint || !pl.painter) return;
-  const tex = pl.painter.textureFor(paint.key, paint.cells, paint.ramp, lod);
-  if (s.texture !== tex) s.texture = tex;
 }
 
 /** Build every paved cell. Only for first paint or a full reload. */

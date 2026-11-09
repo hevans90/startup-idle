@@ -17,6 +17,14 @@ describe("lodFor", () => {
     }
   });
 
+  test("down a level only well past the line, so a zoom resting on it does not flicker", () => {
+    const line = LOD_RES[0] * 1.2;
+    expect(lodFor(line * 1.01)).toBe(1);
+    expect(lodFor(line * 0.95, 1)).toBe(1);
+    expect(lodFor(line * 0.75, 1)).toBe(0);
+    expect(lodFor(line * 1.01, 0)).toBe(1);
+  });
+
   test("the closest level, however close", () => {
     expect(lodFor(100)).toBe(LOD_RES.length - 1);
   });

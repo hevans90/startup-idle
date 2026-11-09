@@ -3940,19 +3940,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
 
   // ROADS IN DETAIL CLOSE UP: the cells on screen painted at the resolution the
   // zoom shows them at, a few new ones a frame. Asked again only when the zoom
-  // crosses a level, the view moves a tile, or cells are still waiting.
-  const lodView = useRef({ pl: null as PavedLayer | null, want: -1, x: NaN, y: NaN, w: NaN, waiting: false });
+  // crosses a level, the view moves a tile, roads are laid (new textures), or
+  // cells are still waiting.
+  const lodView = useRef({ pl: null as PavedLayer | null, want: -1, x: NaN, y: NaN, w: NaN, keys: -1, waiting: false });
   useTick(() => {
     const pl = plRef.current, vp = useWorldStore.getState().viewport;
     if (!pl?.painter || !vp) return;
-    const want = lodFor(scale * vp.scale.x * app.renderer.resolution);
+    const want = lodFor(scale * vp.scale.x * app.renderer.resolution, pl.lodWant);
+    const keys = pl.painter.stats().keys;
     const L = lodView.current, step = 66 * scale;
     const x = Math.round(vp.left / step), y = Math.round(vp.top / step), w = Math.round(vp.worldScreenWidth / step);
-    if (pl === L.pl && want === L.want && x === L.x && y === L.y && w === L.w && !L.waiting) return;
+    if (pl === L.pl && want === L.want && x === L.x && y === L.y && w === L.w && keys === L.keys && !L.waiting) return;
     const e = section("tick: road detail");
     L.waiting = !lodPaved(pl, useWorldStore.getState().grid, want, { left: vp.left, top: vp.top, right: vp.right, bottom: vp.bottom }, 4);
     e();
-    Object.assign(L, { pl, want, x, y, w });
+    Object.assign(L, { pl, want, x, y, w, keys: pl.painter.stats().keys });
   });
 
   void app;

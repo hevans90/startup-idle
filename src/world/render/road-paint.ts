@@ -47,10 +47,17 @@ export const LOD_RES = [2, 4, 7] as const;
 /** An atlas page, texels square, by level of detail. */
 const PAGE_OF = [2048, 4096, 4096] as const;
 
-/** The level of detail for a screen showing `pxPerFrame` screen pixels to a frame pixel. */
-export function lodFor(pxPerFrame: number): number {
-  for (let l = 0; l < LOD_RES.length; l++) if (pxPerFrame <= LOD_RES[l] * 1.2) return l;
-  return LOD_RES.length - 1;
+/**
+ * The level of detail for a screen showing `pxPerFrame` screen pixels to a
+ * frame pixel. Up a level as soon as it is needed; down only well past the
+ * line (`current`, the level now), so a zoom resting on it does not swap
+ * textures back and forth.
+ */
+export function lodFor(pxPerFrame: number, current = -1): number {
+  let l = 0;
+  while (l < LOD_RES.length - 1 && pxPerFrame > LOD_RES[l] * 1.2) l++;
+  if (current > l && pxPerFrame > LOD_RES[current - 1] * 1.2 * 0.8) return current;
+  return l;
 }
 
 /** The level of detail being painted: set for the length of one texture's paint. */
@@ -670,18 +677,27 @@ export type RoadPainter = {
    * frame pixels, so a sprite can swap between them and not move.
    */
   textureFor(key: string, cells: CellPaint[], ramp: boolean, lod?: number): Texture;
-  /** Whether a key is painted at a level yet. */
-  has(key: string, lod: number): boolean;
-  /** Drop a closer level's pages and textures. Nothing may still draw them. */
+  /** A key's texture at a level, if painted yet. */
+  peek(key: string, lod: number): Texture | undefined;
+  /**
+   * Start a level afresh: new pages for what is painted from now on, the old
+   * ones kept, still drawn, until {@link dropOld}. So a level that has filled
+   * its pages is replaced without anything on screen losing its texture.
+   */
+  rotate(lod: number): void;
+  /** Let go of a level's old pages. Nothing may still draw them. */
+  dropOld(lod: number): void;
+  /** Drop a closer level's pages and textures, old and new. Nothing may still draw them. */
   evict(lod: number): void;
   /** Upload what was painted since the last flush. */
   flush(): void;
-  stats(): { keys: number; pages: number; tiers: { keys: number; pages: number }[] };
+  stats(): { keys: number; pages: number; tiers: { keys: number; pages: number; old: number }[] };
   destroy(): void;
 };
 
 export function createRoadPainter(): RoadPainter {
-  const tiers = LOD_RES.map(() => ({ pages: [] as Page[], cache: new Map<string, Texture>() }));
+  type Set_ = { pages: Page[]; cache: Map<string, Texture> };
+  const tiers = LOD_RES.map(() => ({ pages: [] as Page[], cache: new Map<string, Texture>(), old: null as Set_ | null }));
   let flushing = false;
 
   const newPage = (lod: number): Page => {
@@ -709,13 +725,14 @@ export function createRoadPainter(): RoadPainter {
     flushing = false;
     for (const t of tiers) for (const p of t.pages) if (p.dirty) { p.dirty = false; p.source.update(); }
   };
-  const drop = (lod: number) => {
-    const t = tiers[lod];
+  const free = (t: Set_) => {
     for (const tex of t.cache.values()) tex.destroy(false);
     t.cache.clear();
     for (const p of t.pages) p.source.destroy();
     t.pages.length = 0;
   };
+  const dropOld = (lod: number) => { const t = tiers[lod]; if (t.old) { free(t.old); t.old = null; } };
+  const drop = (lod: number) => { dropOld(lod); free(tiers[lod]); };
 
   const painter: RoadPainter = {
     textureFor(key, cells, ramp, lod = 0) {
@@ -764,13 +781,21 @@ export function createRoadPainter(): RoadPainter {
       tier.cache.set(key, tex);
       return tex;
     },
-    has: (key, lod) => tiers[lod].cache.has(key),
+    peek: (key, lod) => tiers[lod].cache.get(key),
+    rotate(lod) {
+      const t = tiers[lod];
+      dropOld(lod);
+      t.old = { pages: t.pages, cache: t.cache };
+      t.pages = [];
+      t.cache = new Map();
+    },
+    dropOld,
     evict(lod) { if (lod > 0) drop(lod); },
     flush,
     stats: () => ({
       keys: tiers.reduce((n, t) => n + t.cache.size, 0),
       pages: tiers.reduce((n, t) => n + t.pages.length, 0),
-      tiers: tiers.map((t) => ({ keys: t.cache.size, pages: t.pages.length })),
+      tiers: tiers.map((t) => ({ keys: t.cache.size, pages: t.pages.length, old: t.old?.pages.length ?? 0 })),
     }),
     destroy() { for (let l = 0; l < tiers.length; l++) drop(l); },
   };
