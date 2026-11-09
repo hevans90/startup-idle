@@ -52,6 +52,8 @@ const LIFT = 1.1;
  */
 const TUBE_R = 0.09 / Math.SQRT2;
 const STEEL = 0xb9b7b1, IRON = 0x7d5c40;
+/** A lateral's tube, its radius and its cast iron: what a manhole's shaft carries on down underground. @see sewer-layer */
+export const LATERAL_IRON = IRON;
 /**
  * HOW MUCH DETAIL, by how wide a tile is on the screen, px: far off, a
  * six-sided tube with no flanges and a saddle every other tile; nearer, ten
@@ -78,6 +80,7 @@ const ROAD_LIFT = 2.4;
 const BORE_WIDE = 1.4;
 /** A SEWER: a little wider, banded brown. The AI's mains: banded violet. */
 const SEWER_BAND = 0x9a6a3a, SEWER_WIDE = 1.18;
+export const LATERAL_R = TUBE_R * SEWER_WIDE;
 const AI_BAND = 0xb44aff;
 /** A port's nozzle: blue for water, brown for slop. */
 const PORT_COLOUR = { water: 0x3f86c6, slop: 0x7a5230 } as const;

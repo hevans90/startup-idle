@@ -24,7 +24,8 @@ import { sewerReportsFor } from "../sewers/flow";
 import { LATERAL_REACH, SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
 import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { ZT, pipeCell, pipeMesh, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
+import { LATERAL_IRON, LATERAL_R } from "./mains-layer";
+import { ZT, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /** The fittings' scale, from a slim tube's radius, tile units; how much fatter a widened bore is. */
@@ -37,8 +38,8 @@ const TRUNK_R = (0.18 / Math.SQRT2) * 1.18, TRUNK_SIDES = 10;
  * would graze the surface, with no room for a manhole's shaft to show.
  */
 const SINK = 2.5;
-/** A manhole's shaft, from its cover down into the trunk: its radius, tiles; cast iron. */
-const SHAFT_R = TRUNK_R * 0.62, SHAFT = 0x5d6066;
+/** A manhole's shaft, from its cover down onto the trunk: the lateral's own pipe carried on, collared where it meets the trunk. */
+const SHAFT_R = LATERAL_R, SHAFT = LATERAL_IRON, SHAFT_COLLAR = 1.6, SHAFT_DARK = 0x56402c;
 /** Its colours: draining, going nowhere; the dark under it and the light along it. */
 const UMBER = 0x7a5230, NOWHERE = 0x8b8f96, BACKED = 0x9c3b1e, SHADE = 0x2a1c10, SHINE = 0xc79a66;
 /** A sewer being dragged: how see-through, and a tile it can't be laid on. */
@@ -197,14 +198,19 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           if (!(g.sewer[j] & DIR[({ N: "S", S: "N", E: "W", W: "E" } as const)[side]])) continue;
           limbs.push({ dx, dy, zf: (lvl + drawnAt(g, s, j)) / 2 });
         }
-        // A MANHOLE'S SHAFT down from its cover, before the trunk, which hides where it goes in.
-        if (g.sewerFit[i] === SEWER_FIT.node && s.kind[i] !== SEWER_KIND.span) {
-          solidTube(meshOf(tubes, b), scale, x, y, g.height[i] * ZT, x, y, lvl * ZT, SHAFT_R, solid(SHAFT), TRUNK_SIDES);
-        }
+        const r = TRUNK_R * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1);
         pipeCell(meshOf(s.kind[i] === SEWER_KIND.span ? spans : tubes, b), scale, x, y, lvl, limbs, {
-          r: TRUNK_R * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1), colour, sides: TRUNK_SIDES,
-          flanges: (x + y) % 2 === 0, bolts: false, end: null,
+          r, colour, sides: TRUNK_SIDES, flanges: (x + y) % 2 === 0, bolts: false, end: null,
         });
+        // A MANHOLE'S SHAFT, after the trunk: down from its cover onto the trunk's
+        // top, a collar where it meets it — its far half first, behind the shaft.
+        if (g.sewerFit[i] === SEWER_FIT.node && s.kind[i] !== SEWER_KIND.span) {
+          const m = meshOf(tubes, b), iron = solid(SHAFT), dark = solid(SHAFT_DARK);
+          const foot = lvl * ZT + r * 0.8, R = SHAFT_R * SHAFT_COLLAR, band = SHAFT_R * 0.9;
+          hring(m, scale, x, y, foot + band, SHAFT_R, R, dark, TRUNK_SIDES);
+          solidTube(m, scale, x, y, g.height[i] * ZT, x, y, foot + band, SHAFT_R, iron, TRUNK_SIDES);
+          solidTube(m, scale, x, y, foot + band, x, y, foot, R, dark, TRUNK_SIDES);
+        }
       }
     }
     const place = (m: PipeMesh, tier: Container | undefined) => {

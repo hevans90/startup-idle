@@ -693,7 +693,7 @@ function hoop(m: PipeMesh, s: number, p: readonly number[], du0: number, dv0: nu
 }
 
 /** A FLAT RING lying level, (cu, cv, ch), from `rIn` to `rOut` — a handwheel, seen from above. */
-function hring(m: PipeMesh, s: number, cu: number, cv: number, ch: number, rIn: number, rOut: number, colour: number, sides: number) {
+export function hring(m: PipeMesh, s: number, cu: number, cv: number, ch: number, rIn: number, rOut: number, colour: number, sides: number) {
   room(m, sides * 2, sides * 6);
   const first = m.nv;
   for (let k = 0; k < sides; k++) {
@@ -804,12 +804,13 @@ function fitting(m: PipeMesh, s: number, kind: Fitting, x: number, y: number, h:
       flange(m, s, x, y, h, ou, ov, r, FITTING.cap, sides, bolts, true);
       return;
     case "drop": {
-      // The knuckle, a round downpipe from it into the ground, and an iron collar where it goes in.
+      // The knuckle, a round downpipe from it into the ground, and an iron collar where it goes in:
+      // the collar's top first, so the pipe stands in front of its far half; its band after, in front of all.
       const c = solid(look.colour), collar = solid(darker(look.colour, 0.7)), R = r * COLLAR_R * 1.15, lip = r * 0.6;
-      tube(m, s, x, y, h, x, y, g, r, c, sides);
+      hring(m, s, x, y, g + lip, r, R, collar, sides);
+      tube(m, s, x, y, h, x, y, g + lip, r, c, sides);
       ball(m, s, x, y, h, r, c, sides);
       tube(m, s, x, y, g + lip, x, y, g, R, collar, sides);
-      hring(m, s, x, y, g + lip, r, R, collar, sides);
       return;
     }
     case "outlet":
